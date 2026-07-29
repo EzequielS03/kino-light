@@ -19,8 +19,12 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024 * 1024) {
     private val cache = DiskLruCache(cacheDir, maxBytes)
-    private val server = ServerSocket(0)
-    val port: Int get() = server.localPort
+    // El socket se crea en start(), NO en el constructor: este proxy es singleton y vive todo el
+    // proceso, así que un socket de construcción se cerraba en el primer stop() y ya no había forma
+    // de reabrirlo (un ServerSocket cerrado no se reabre). Como el botón de parar de la barra llama
+    // a stop(), eso dejaba archive cargando para siempre hasta matar la app.
+    @Volatile private var server: ServerSocket? = null
+    val port: Int get() = server?.localPort ?: -1
     @Volatile private var running = false
 
     // Una descarga en curso por origen (clave de caché). La comparten todas las conexiones de VLC de
@@ -39,21 +43,30 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
         @Volatile var failed = false
     }
 
+    /** Idempotente: si ya hay un socket vivo devuelve su puerto; si no, abre uno nuevo. */
+    @Synchronized
     fun start(): Int {
-        if (running) return port
+        server?.let { if (running && !it.isClosed) return it.localPort }
+        val sock = ServerSocket(0)
+        server = sock
         running = true
-        // Loop de accept en su propio thread daemon; cada conexión se atiende en un thread aparte
-        // para no bloquear la aceptación de nuevas conexiones (VLC puede abrir varios sockets).
+        // El loop captura ESTE socket en vez de leer el campo: si mientras tanto hubo un stop()+start(),
+        // el thread viejo muere con el suyo y no se queda aceptando sobre el del proxy nuevo.
         Thread {
-            while (running && !server.isClosed) {
-                val s = try { server.accept() } catch (_: Exception) { break }
+            while (running && !sock.isClosed) {
+                val s = try { sock.accept() } catch (_: Exception) { break }
                 Thread { serve(s) }.apply { isDaemon = true }.start()
             }
         }.apply { isDaemon = true }.start()
-        return port
+        return sock.localPort
     }
 
-    fun stop() { running = false; runCatching { server.close() } }
+    @Synchronized
+    fun stop() {
+        running = false
+        runCatching { server?.close() }
+        server = null
+    }
 
     fun proxyUrl(originUrl: String): String =
         "http://127.0.0.1:$port/s?u=${URLEncoder.encode(originUrl, "UTF-8")}"
