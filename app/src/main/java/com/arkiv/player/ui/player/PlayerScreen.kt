@@ -128,6 +128,8 @@ import com.arkiv.player.cast.CastProgress
 import com.arkiv.player.data.model.Episode
 import com.arkiv.player.dlna.DlnaDevice
 import com.arkiv.player.ui.tv.TvEpisodeChip
+import com.arkiv.player.playback.LoadedMedia
+import com.arkiv.player.playback.MediaReusePolicy
 import com.arkiv.player.playback.NowPlaying
 import com.arkiv.player.playback.PlaybackEngine
 import com.arkiv.player.playback.PlaybackService
@@ -693,10 +695,22 @@ private fun PlayerContent(
         }
         loaded = true
         positionMs = pl.startPositionMs
-        val loadedIds = (0 until controller.mediaItemCount).mapNotNull { controller.getMediaItemAt(it).mediaId }
-        val sameEpisodePlaying = !isWeb && controller.currentMediaItem?.mediaId == episodeId
-        val samePlaylist = !isWeb && loadedIds.isNotEmpty() && loadedIds == pl.items.map { it.episodeId }
-        android.util.Log.w("ArkivPlay", "playlist lista → cargar. isWeb=$isWeb sameEpisodePlaying=$sameEpisodePlaying samePlaylist=$samePlaylist startPos=${pl.startPositionMs}")
+        // Qué hay cargado, con su URI. La URI se lee de requestMetadata y NO de localConfiguration:
+        // este lado es el controller, y localConfiguration se pierde al cruzar el IPC (ver
+        // PlaybackService.MediaItemResolverCallback). Sin la URI, "es el mismo episodio" era la única
+        // señal para reusar — y para torrent eso es falso: el puerto del servidor local cambia.
+        val cargado = (0 until controller.mediaItemCount).map { i ->
+            val mi = controller.getMediaItemAt(i)
+            LoadedMedia(mi.mediaId, mi.requestMetadata.mediaUri?.toString().orEmpty())
+        }
+        val decision = MediaReusePolicy.decide(
+            episodeId = episodeId,
+            cargado = cargado,
+            actualMediaId = controller.currentMediaItem?.mediaId,
+            fresco = pl.items.map { LoadedMedia(it.episodeId, it.mediaUrl) },
+            isWeb = isWeb,
+        )
+        android.util.Log.w("ArkivPlay", "playlist lista → cargar. isWeb=$isWeb decision=$decision startPos=${pl.startPositionMs}")
         if (casting && castSession != null) {
             val idx = pl.items.indexOfFirst { it.episodeId == episodeId }.coerceAtLeast(0)
             val req = castRequestFor(pl, idx, pl.startPositionMs)
@@ -732,10 +746,10 @@ private fun PlayerContent(
                 android.widget.Toast.LENGTH_SHORT,
             ).show()
         }
-        when {
-            // Mismo episodio ya en curso: re-enganchar (aprovecha el buffer, no recarga). Solo no-WEB.
-            sameEpisodePlaying -> {
-                android.util.Log.w("ArkivPlay", "rama=sameEpisodePlaying → controller.play() (NO recarga media)")
+        when (decision) {
+            // Mismo episodio ya en curso Y con la misma URL: re-enganchar (aprovecha el buffer). Solo no-WEB.
+            MediaReusePolicy.Decision.REUSAR_ACTUAL -> {
+                android.util.Log.w("ArkivPlay", "rama=REUSAR_ACTUAL → controller.play() (NO recarga media)")
                 currentIndex = controller.currentMediaItemIndex
                 // El controller puede llegar acá cebado-pero-no-preparado: la rama CAST de arriba lo
                 // carga con setMediaItems() sin prepare(), y si el cast se desconectó ESTANDO AFUERA del
@@ -746,18 +760,19 @@ private fun PlayerContent(
                 if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
                 controller.play()
             }
-            // Misma sección ya cargada, otro episodio: saltar dentro de la playlist. Solo no-WEB.
-            samePlaylist -> {
-                android.util.Log.w("ArkivPlay", "rama=samePlaylist → seekTo dentro de la playlist (NO recarga media)")
+            // Misma sección ya cargada (mismas URLs), otro episodio: saltar dentro de la playlist. Solo no-WEB.
+            MediaReusePolicy.Decision.SALTAR_EN_PLAYLIST -> {
+                android.util.Log.w("ArkivPlay", "rama=SALTAR_EN_PLAYLIST → seekTo dentro de la playlist (NO recarga media)")
                 val idx = pl.items.indexOfFirst { it.episodeId == episodeId }.coerceAtLeast(0)
                 currentIndex = idx
                 controller.seekTo(idx, pl.startPositionMs)
-                // Mismo caso que sameEpisodePlaying de arriba: puede llegar cebado-pero-no-preparado.
+                // Mismo caso que REUSAR_ACTUAL de arriba: puede llegar cebado-pero-no-preparado.
                 if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
                 controller.playWhenReady = true
             }
-            // Contenido nuevo (o WEB re-entrante): cargar la playlist con la URL fresca.
-            else -> {
+            // Contenido nuevo, WEB re-entrante, o la URL cambió bajo el mismo episodeId (torrent
+            // re-servido en otro puerto): cargar la playlist con la URL fresca.
+            MediaReusePolicy.Decision.RECARGAR -> {
                 // WEB re-entrante: el item viejo (token muerto) puede seguir en el controller con el mismo
                 // mediaId → cortarlo antes de setMediaItems para que VlcPlayer cargue la URL nueva.
                 if (isWeb && controller.mediaItemCount > 0) {
