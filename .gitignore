@@ -1,0 +1,26 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Salidas de build. Estaban trackeadas por error: metieron un APK de debug de 143 MB en 19 commits
+# y dejaron el .git en 739 MB. GitHub rechaza cualquier archivo de más de 100 MB, así que el repo
+# no se podía ni empujar — por eso este repo arranca con historia nueva.
+build/
+app/build/
+.gradle/
+local.properties
+
+# Junk
+.DS_Store
+.kotlin/
+*.iml
+.idea/
+
+# Referencia: addon Kodi Alfa clonado (solo consulta, no se versiona aquí)
+/alfa-addon/
+
+# Referencia: motores de torrent open source (solo consulta, no se versiona)
+/elementum/
+/torrest/
+/quasar/

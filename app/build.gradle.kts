@@ -1,0 +1,148 @@
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
+    id("com.google.devtools.ksp")
+}
+
+/** Lee una clave del archivo .env de la raíz del repo (para no hardcodear credenciales). */
+fun readEnv(key: String, default: String = ""): String {
+    val f = rootProject.file(".env")
+    if (!f.exists()) return default
+    return f.readLines()
+        .firstOrNull { it.trim().startsWith("$key=") }
+        ?.substringAfter("=")?.trim()?.trim('"')?.trim('\'') ?: default
+}
+
+android {
+    namespace = "com.arkiv.player"
+    compileSdk = 35
+
+    defaultConfig {
+        applicationId = "com.arkiv.player"
+        minSdk = 26
+        targetSdk = 35
+        versionCode = 1
+        versionName = "0.1.0"
+        // Credenciales desde .env (no hardcodeadas en el código).
+        buildConfigField("String", "TMDB_API_KEY", "\"${readEnv("API_KEY")}\"")
+        buildConfigField("String", "OPENSUBTITLES_API_KEY", "\"${readEnv("SUBITLE_API")}\"")
+        buildConfigField("String", "SIMKL_CLIENT_ID", "\"${readEnv("SIMKL_CLIENT_ID")}\"")
+        ndk {
+            // Solo ABIs de dispositivos reales (celular arm64, Fire Stick armeabi-v7a).
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+        }
+        debug {
+            isMinifyEnabled = false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+}
+
+ksp {
+    // Room genera Kotlin en vez de Java: esquiva el bug de javac en JDK 17.0.13+/21.0.5+
+    // ("insert(Iterable) and insert(T) inherited with the same signature") que rompe la
+    // compilación del código generado en el variant de unit test.
+    arg("room.generateKotlin", "true")
+}
+
+dependencies {
+    val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
+    implementation(composeBom)
+
+    implementation("androidx.core:core-ktx:1.15.0")
+    // Splash del sistema: evita el frame negro entre el lanzamiento y el primer frame de Compose.
+    implementation("androidx.core:core-splashscreen:1.0.1")
+    implementation("androidx.activity:activity-compose:1.9.3")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
+
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-graphics")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.navigation:navigation-compose:2.8.4")
+
+    // Compose for TV (Android TV / Fire TV)
+    implementation("androidx.tv:tv-material:1.0.0")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+
+    // Media3 / ExoPlayer
+    implementation("androidx.media3:media3-exoplayer:1.5.1")
+    implementation("androidx.media3:media3-ui:1.5.1")
+    implementation("androidx.media3:media3-datasource:1.5.1")
+    implementation("androidx.media3:media3-database:1.5.1")
+    implementation("androidx.media3:media3-session:1.5.1")
+
+    // Chromecast
+    implementation("androidx.media3:media3-cast:1.5.1")
+    implementation("com.google.android.gms:play-services-cast-framework:21.5.0")
+    implementation("androidx.appcompat:appcompat:1.7.0")
+
+    // Room
+    implementation("androidx.room:room-runtime:2.6.1")
+    implementation("androidx.room:room-ktx:2.6.1")
+    ksp("androidx.room:room-compiler:2.6.1")
+
+    // Networking (JSON parsed with bundled org.json)
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:okhttp-sse:4.12.0")
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
+    // QR: generar (TV) y escanear (celu)
+    implementation("com.google.zxing:core:3.5.3")
+    implementation("androidx.camera:camera-core:1.4.1")
+    implementation("androidx.camera:camera-camera2:1.4.1")
+    implementation("androidx.camera:camera-lifecycle:1.4.1")
+    implementation("androidx.camera:camera-view:1.4.1")
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+
+    // Reproductor VLC (libVLC): decodifica por software lo que ExoPlayer no maneja
+    // (.avi/XviD, Dolby Vision P7, TrueHD/DTS-HD). Trae libs nativas arm64 + armeabi-v7a.
+    implementation("org.videolan.android:libvlc-all:3.6.0")
+
+    // Torrents (libtorrent nativo) — arm64 (celular) + arm (Fire Stick)
+    implementation("org.libtorrent4j:libtorrent4j:2.1.0-31")
+    implementation("org.libtorrent4j:libtorrent4j-android-arm64:2.1.0-31")
+    implementation("org.libtorrent4j:libtorrent4j-android-arm:2.1.0-31")
+
+    // Image loading
+    implementation("io.coil-kt:coil-compose:2.7.0")
+
+    // Parsing HTML declarativo para proveedores de torrents on-device (capa estilo Burst).
+    implementation("org.jsoup:jsoup:1.17.2")
+
+    testImplementation("junit:junit:4.13.2")
+    // org.json real para unit tests JVM: el de Android (android.jar) es un stub que lanza en runtime,
+    // así que cualquier test que parsee JSON fallaría sin esto.
+    testImplementation("org.json:json:20240303")
+    // Servidor HTTP falso para tests de HttpFetcher (cookie cacheada, challenge/reintento) sin red real.
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+}

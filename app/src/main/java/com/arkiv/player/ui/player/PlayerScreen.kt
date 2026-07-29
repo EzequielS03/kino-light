@@ -1,0 +1,2225 @@
+package com.arkiv.player.ui.player
+
+import android.app.Activity
+import android.content.ComponentName
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
+import android.net.Uri
+import android.view.ContextThemeWrapper
+import android.view.KeyEvent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ClosedCaption
+import androidx.compose.material.icons.filled.ClosedCaptionOff
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Replay10
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
+import androidx.mediarouter.app.MediaRouteButton
+import com.arkiv.player.cast.CastProgress
+import com.arkiv.player.data.model.Episode
+import com.arkiv.player.dlna.DlnaDevice
+import com.arkiv.player.ui.tv.TvEpisodeChip
+import com.arkiv.player.playback.NowPlaying
+import com.arkiv.player.playback.PlaybackEngine
+import com.arkiv.player.playback.PlaybackService
+import com.arkiv.player.playback.PlayerSource
+import com.arkiv.player.playback.PlayerSourceTag
+import com.arkiv.player.playback.SourceKind
+import com.arkiv.player.playback.VideoAttachPolicy
+import com.arkiv.player.playback.VlcPlayer
+import com.arkiv.player.playback.setPlayerSourceTag
+import com.arkiv.player.torrent.TorrentProgress
+import com.arkiv.player.torrent.TorrentServingService
+import com.arkiv.player.ui.formatDuration
+import com.arkiv.player.ui.rememberGraph
+import com.arkiv.player.ui.theme.ArkivRed
+import com.arkiv.player.ui.theme.ArkivSurface
+import com.arkiv.player.ui.theme.ArkivTextSecondary
+import com.google.android.gms.cast.framework.CastButtonFactory
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import org.videolan.libvlc.util.VLCVideoLayout
+
+private fun Context.findActivity(): Activity? {
+    var ctx: Context? = this
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
+}
+
+/** Pasos de velocidad de reproducción (portado de TorrentPlayerScreen). */
+private val SPEED_STEPS = listOf(0.75f, 1f, 1.25f, 1.5f, 2f)
+private val SPEED_LABELS = listOf("0.75×", "1×", "1.25×", "1.5×", "2×")
+
+/** Pasos de zoom nativo de VLC: 0 = ajustar a pantalla; >0 = crop que recorta las barras negras. */
+private val ZOOM_STEPS = listOf(0f, 1.15f, 1.35f)
+private val ZOOM_LABELS = listOf("Ajustar", "Zoom", "Zoom+")
+
+// Controles ocultos en la barra superior del TELÉFONO: llegó a tener 8 elementos y se veían
+// amontonados. El código se conserva —no se borra— para poder reactivarlos con un solo cambio acá.
+// En TV ninguno de los tres existía. Los subtítulos no se ocultan: se movieron abajo a la derecha.
+private const val MOSTRAR_MARCADORES_EN_TELEFONO = false
+private const val MOSTRAR_VELOCIDAD_Y_ZOOM_EN_TELEFONO = false
+
+/** Cada cuánto y cuántas veces reintentar leer las pistas si al conectar el cast no había ninguna. */
+private const val RECHEQUEO_MS = 500L
+private const val RECHEQUEO_INTENTOS = 40
+
+private enum class MarkingMode { INTRO, OUTRO }
+
+/** Construye los MediaItem locales para el controller, propagando el tag de fuente/marcadores. */
+private fun localMediaItems(items: List<PlayerData>): List<MediaItem> = items.map { d ->
+    MediaItem.Builder()
+        .setUri(d.mediaUrl)
+        .setMediaId(d.episodeId)
+        // La URI en localConfiguration se PIERDE al cruzar MediaController→MediaSession; la
+        // guardamos también en requestMetadata (que sí sobrevive el IPC) para que
+        // PlaybackService.MediaItemResolverCallback.onAddMediaItems la reconstruya en la sesión.
+        // El TAG (kind/referer/etc.) se PIERDE al cruzar controller→session igual que la URI; lo
+        // guardamos en extras (que SÍ sobreviven el IPC) para reconstruirlo en PlaybackService.
+        .setRequestMetadata(
+            MediaItem.RequestMetadata.Builder().setMediaUri(Uri.parse(d.mediaUrl))
+                .setExtras(android.os.Bundle().apply {
+                    putString("kind", d.kind.name)
+                    d.referer?.let { putString("referer", it) }
+                    d.userAgent?.let { putString("userAgent", it) }
+                    d.castUrl?.let { putString("castUrl", it) }
+                    d.proxyUrl?.let { putString("proxyUrl", it) }
+                    d.openingStartMs?.let { putLong("openingStartMs", it) }
+                    d.openingEndMs?.let { putLong("openingEndMs", it) }
+                    d.endingStartMs?.let { putLong("endingStartMs", it) }
+                })
+                .build(),
+        )
+        .setPlayerSourceTag(
+            PlayerSourceTag(
+                kind = d.kind,
+                openingStartMs = d.openingStartMs,
+                openingEndMs = d.openingEndMs,
+                endingStartMs = d.endingStartMs,
+                castUrl = d.castUrl,
+                referer = d.referer,
+                userAgent = d.userAgent,
+                proxyUrl = d.proxyUrl,
+            ),
+        )
+        .setMediaMetadata(
+            MediaMetadata.Builder()
+                .setTitle(d.title).setArtist(d.subtitle)
+                .apply { if (d.artworkUrl.isNotEmpty()) setArtworkUri(Uri.parse(d.artworkUrl)) }
+                .build(),
+        )
+        .build()
+}
+
+@Composable
+private fun rememberMediaController(): MediaController? {
+    val context = LocalContext.current
+    var controller by remember { mutableStateOf<MediaController?>(null) }
+    DisposableEffect(Unit) {
+        val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
+        val future = MediaController.Builder(context, token).buildAsync()
+        future.addListener(
+            { runCatching { controller = future.get() } },
+            ContextCompat.getMainExecutor(context),
+        )
+        onDispose {
+            controller = null
+            MediaController.releaseFuture(future)
+        }
+    }
+    return controller
+}
+
+@OptIn(UnstableApi::class)
+@Composable
+fun PlayerScreen(
+    episodeId: String,
+    onBack: () -> Unit,
+    onOpenEpisodes: () -> Unit,
+    onNextEpisode: (String) -> Unit = {},
+    isTv: Boolean = false,
+) {
+    val controller = rememberMediaController()
+    // El VlcPlayer vivo lo expone el service; se necesita para el render (VLCVideoLayout) y las
+    // pistas (audio/subtítulos VLC). Al conectar el controller el service ya está creado.
+    val vlc = PlaybackEngine.vlc
+    if (controller == null || vlc == null) {
+        Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(color = Color.White)
+        }
+        return
+    }
+    PlayerContent(episodeId, onBack, onOpenEpisodes, onNextEpisode, controller, vlc, isTv)
+}
+
+@OptIn(UnstableApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun PlayerContent(
+    episodeId: String,
+    onBack: () -> Unit,
+    onOpenEpisodes: () -> Unit,
+    onNextEpisode: (String) -> Unit,
+    controller: MediaController,
+    vlc: VlcPlayer,
+    isTv: Boolean,
+) {
+    val graph = rememberGraph()
+    val context = LocalContext.current
+    val activity = context.findActivity()
+    val scope = rememberCoroutineScope()
+    val castContext = remember { graph.castContext }
+    val dlna = remember { graph.dlna }
+
+    // Mantener la pantalla encendida al reproducir (en TV lo maneja el root de la app).
+    val view = LocalView.current
+    if (!isTv) {
+        DisposableEffect(Unit) {
+            view.keepScreenOn = true
+            onDispose { view.keepScreenOn = false }
+        }
+    }
+
+    val vm: PlayerViewModel = viewModel(
+        factory = viewModelFactory {
+            initializer {
+                PlayerViewModel(graph.repository, graph.settings, graph.torrentEngine, graph.archiveCacheProxy, graph.webResolverApi)
+            }
+        },
+    )
+    val playlist by vm.playlist.collectAsStateWithLifecycle()
+    val loadError by vm.error.collectAsStateWithLifecycle()
+    // Progreso de la fase de pre-buffer (antes de tener playlist; solo torrent). null al terminar.
+    val prepProgress by vm.prepProgress.collectAsStateWithLifecycle()
+    // Fuente web: mientras el resolver de blog snifea el stream, y los subtítulos sniffeados a adjuntar.
+    val resolving by vm.resolving.collectAsStateWithLifecycle()
+    val webExtras by vm.webExtras.collectAsStateWithLifecycle()
+    // Adjunta como pistas externas los subtítulos que sniffeó el resolver (cuando ya hay media).
+    LaunchedEffect(playlist, webExtras) {
+        val extras = webExtras ?: return@LaunchedEffect
+        if (playlist == null) return@LaunchedEffect
+        kotlinx.coroutines.delay(800) // dar tiempo a que VLC cargue el media antes del slave
+        extras.subtitles.forEach { s -> runCatching { vlc.addSubtitleSlave(Uri.parse(s.url)) } }
+    }
+
+    // La fuente se conoce por el episodeId aunque todavía no haya playlist (para el overlay/servicio).
+    val sourceIsTorrent = remember(episodeId) { PlayerSource.kindFor(episodeId) == SourceKind.TORRENT }
+
+    // Próximo episodio (si lo hay) para el botón "Siguiente episodio" del overlay de pausa.
+    // null en películas (una sola sección) o si este es el último episodio de la serie.
+    var nextEpisodeId by remember { mutableStateOf<String?>(null) }
+    // Título del ítem + nombre del episodio (solo series) para el encabezado del overlay de pausa.
+    var headerInfo by remember { mutableStateOf<com.arkiv.player.data.ArkivRepository.PlayerHeaderInfo?>(null) }
+    LaunchedEffect(episodeId) {
+        nextEpisodeId = graph.repository.nextEpisode(episodeId)?.id
+        headerInfo = graph.repository.headerInfo(episodeId)
+    }
+
+    // Foco D-pad (TV) de los controles del overlay de pausa: navegación real entre botones y la
+    // barra, en vez de acciones fijas por tecla. Ver LaunchedEffect(controlsVisible) más abajo:
+    // al mostrarse el overlay el foco de Android pasa del video (que atajaba TODAS las teclas) a
+    // estos FocusRequesters; al ocultarse vuelve al video para el "cualquier tecla = mostrar".
+    val subtitleFR = remember { FocusRequester() }
+    val rewindFR = remember { FocusRequester() }
+    val playPauseFR = remember { FocusRequester() }
+    val forwardFR = remember { FocusRequester() }
+    val nextEpisodeFR = remember { FocusRequester() }
+    val sliderFR = remember { FocusRequester() }
+    // Carrusel de capítulos (TV): un paso más abajo desde la fila de íconos. Aparece con todos
+    // los episodios de la serie en scroll horizontal, con el actual centrado y enfocado.
+    val chaptersFR = remember { FocusRequester() }
+    var chaptersRevealed by remember { mutableStateOf(false) }
+    var allEpisodes by remember { mutableStateOf<List<Episode>>(emptyList()) }
+    // Progreso (posición/duración/visto) de cada episodio, para mostrar "10 de 25 min" en las
+    // tarjetas del carrusel — la barra sola no alcanza para saber cuánto falta en minutos.
+    var chaptersProgress by remember { mutableStateOf<Map<String, com.arkiv.player.data.db.PlaybackEntity>>(emptyMap()) }
+    // Stills de TMDB por capítulo (ya cacheados por la pantalla de detalle; acá solo se leen).
+    var chaptersStills by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    val chaptersListState = rememberLazyListState()
+    // Índice del capítulo actual (o 0 si no se encuentra, p. ej. packs de torrent con id distinto):
+    // se usa tanto para centrar el scroll como para colgar el focusRequester en ESE chip. Antes el
+    // requester solo colgaba del chip isCurrent, así que si el actual no estaba en la lista el foco
+    // nunca podía entrar al carrusel.
+    val currentChapterIdx = remember(allEpisodes, episodeId) {
+        allEpisodes.indexOfFirst { it.id == episodeId }.coerceAtLeast(0)
+    }
+    LaunchedEffect(episodeId, isTv) {
+        if (!isTv) return@LaunchedEffect
+        val itemId = episodeId.substringBefore("::")
+        allEpisodes = graph.repository.episodesOf(itemId)
+        chaptersProgress = graph.repository.playbackForItem(itemId)
+        runCatching { graph.repository.ensureEpisodeStills(itemId) }
+        graph.repository.observeEpisodeStills(itemId).collect { chaptersStills = it }
+    }
+    LaunchedEffect(chaptersRevealed) {
+        if (!chaptersRevealed) return@LaunchedEffect
+        // Refrescar el progreso al abrir el carrusel: la posición del episodio actual recién
+        // pausado puede no estar reflejada todavía en la carga inicial de arriba.
+        chaptersProgress = graph.repository.playbackForItem(episodeId.substringBefore("::"))
+        chaptersListState.scrollToItem(currentChapterIdx)
+        // Mover el foco al chip actual. En TV de gama baja (Fire Stick) el LazyRow recién revelado
+        // no está compuesto/medido en el primer frame, así que un requestFocus() único fallaría
+        // (FocusRequester not initialized) y el runCatching lo tragaba en silencio: el foco se
+        // quedaba en la fila de botones -> izquierda/derecha hacían seek en vez de navegar. Se
+        // reintenta hasta que el requester está enganchado (esperar por condición, no por un delay
+        // fijo que no alcanza en hardware lento).
+        var landed = false
+        repeat(12) {
+            if (landed || !chaptersRevealed) return@repeat
+            landed = runCatching { chaptersFR.requestFocus() }.isSuccess
+            if (!landed) delay(32)
+        }
+    }
+
+    // El CastPlayer vive en el AppGraph, no acá: liberarlo termina la sesión de Chromecast, así que
+    // mientras fue de la pantalla, salir del reproductor mataba el casteo.
+    val castSession = remember { graph.castSession }
+    val castPlayer = castSession?.player
+    // El `remember` del flujo de respaldo es necesario: sin él se crearía un MutableStateFlow nuevo
+    // en cada recomposición y el colector se reiniciaría una y otra vez.
+    val castingFlow = remember(castSession) {
+        castSession?.casting ?: kotlinx.coroutines.flow.MutableStateFlow(false)
+    }
+    val casting by castingFlow.collectAsStateWithLifecycle()
+
+    var currentIndex by remember { mutableIntStateOf(0) }
+    var isBuffering by remember { mutableStateOf(true) }
+    var positionMs by remember { mutableLongStateOf(0L) }
+    var durationMs by remember { mutableLongStateOf(0L) }
+    var isPlaying by remember { mutableStateOf(false) }
+    var loaded by remember { mutableStateOf(false) }
+    // Episodio que esta pantalla ya mandó al receptor. Coordina los dos caminos que castean (la
+    // carga de playlist y el salto local→cast de LaunchedEffect(casting)): si el usuario conecta
+    // justo en el frame en que llega la playlist, ambos efectos corren y sin esto el receptor
+    // recargaría dos veces lo mismo. Se limpia al desconectar.
+    var casteadoAlReceptor by remember { mutableStateOf<String?>(null) }
+
+    // El player que estamos manejando ahora mismo: el del Chromecast mientras haya sesión, el
+    // local si no. Ambos implementan Player, así que los controles no necesitan saber cuál es.
+    // El `?: controller` cubre el caso sin Google Play Services (castContext y castPlayer nulos).
+    val activePlayer: Player = if (casting) castPlayer ?: controller else controller
+
+    /**
+     * Posición y duración DEL CONTENIDO, que casteando no son las que reporta el receptor.
+     *
+     * Con el audio transcodificado el stream ya arranca en el punto pedido, así que el receptor
+     * cuenta desde cero, y al salir en vivo manda `TIME_UNSET` como duración. Leerlo crudo deja la
+     * barra vacía y hace que el local reanude en el lugar equivocado al desconectar. La traducción
+     * vive en CastProgress (con tests) para que no haya dos copias divergiendo.
+     */
+    fun contentPositionMs(): Long = CastProgress.contentPosition(
+        receiverPosMs = activePlayer.currentPosition,
+        baseOffsetMs = if (casting) graph.castSession?.baseOffsetMs ?: 0L else 0L,
+    )
+
+    fun contentDurationMs(): Long = CastProgress.contentDuration(
+        receiverDurMs = activePlayer.duration,
+        knownDurationMs = if (casting) graph.castSession?.knownDurationMs ?: 0L else 0L,
+    )
+
+    // Controles custom (estilo torrent): visibles al tocar, se auto-ocultan mientras reproduce.
+    // Arranca OCULTO: al abrir se ve el spinner de carga y luego el video limpio, sin el overlay de
+    // pausa/barra encima. El usuario toca la pantalla para mostrar los controles.
+    var controlsVisible by remember { mutableStateOf(false) }
+    var interactionTick by remember { mutableIntStateOf(0) }
+
+    // Marcadores intro/outro (solo archive).
+    var markingMode by remember { mutableStateOf<MarkingMode?>(null) }
+    var markersMenu by remember { mutableStateOf(false) }
+
+    // Selector de audio/subtítulos (ambas fuentes, vía la API VLC del player vivo).
+    var subPickerOpen by remember { mutableStateOf(false) }
+    var spuTracks by remember { mutableStateOf<List<Pair<Int, String>>>(emptyList()) }
+    var audioTracks by remember { mutableStateOf<List<Pair<Int, String>>>(emptyList()) }
+    var curSpu by remember { mutableIntStateOf(-1) }
+    var curAudio by remember { mutableIntStateOf(-1) }
+    var subsOn by remember { mutableStateOf(false) }
+    var subtitles by remember { mutableStateOf<List<com.arkiv.player.data.subtitles.SubtitleTrack>>(emptyList()) }
+    var selectedSub by remember { mutableStateOf<com.arkiv.player.data.subtitles.SubtitleTrack?>(null) }
+    var loadingSubs by remember { mutableStateOf(false) }
+
+    // Estado de descarga (overlay solo para torrent).
+    var progress by remember { mutableStateOf<TorrentProgress?>(null) }
+    // Fracción [0..1] ya descargada/buffereada por delante (para el tramo gris claro de la barra).
+    // Torrent: % de descarga del engine; archive: % del archivo cacheado por el proxy.
+    var bufferedFraction by remember { mutableFloatStateOf(0f) }
+
+    // Velocidad + zoom nativo de VLC (cíclicos; solo teléfono). Portado de TorrentPlayerScreen.
+    var speedIdx by remember { mutableIntStateOf(1) } // arranca en 1×
+    var zoomIdx by remember { mutableIntStateOf(0) }   // arranca en "Ajustar"
+    // Gestos: long-press = 2× temporal; HUD central del gesto en curso.
+    var fastForwarding by remember { mutableStateOf(false) }
+    var rateBeforeFF by remember { mutableFloatStateOf(1f) }
+    var gestureHud by remember { mutableStateOf<String?>(null) }
+    // Scrubbing diferido del slider (ambas fuentes): un solo seek al soltar.
+    var scrubbing by remember { mutableStateOf(false) }
+    // Foco en la barra de progreso (TV): engrosa el track para que se note que está seleccionada.
+    // Sin señal visual no se distinguía de estar en los botones, y como acá izq/der hacen seek en
+    // vez de cambiar de botón, la navegación parecía errática.
+    var sliderFocused by remember { mutableStateOf(false) }
+    var scrubPosition by remember { mutableFloatStateOf(0f) }
+
+    // Ref al layout de video (para devolverle el foco en TV al cerrar un diálogo).
+    var videoView by remember { mutableStateOf<VLCVideoLayout?>(null) }
+
+    // Re-enganchar el video al volver de otra app: al irse al fondo Android destruye la Surface y
+    // libVLC tumba su salida de video (evento `Vout 0`); sin un attachViews nuevo la salida no se
+    // reconstruye y queda la pantalla NEGRA con el audio sonando. Ver VideoAttachPolicy.
+    // VLC reconstruye el vout recién en el siguiente keyframe (segundos en HLS): sin avisar, ese rato
+    // se ve un negro que parece un cuelgue. Solo aplica si ANTES había video, para no dejar el spinner
+    // colgado en contenido de solo audio (que nunca tiene vout).
+    var esperandoVideo by remember { mutableStateOf(false) }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, vlc) {
+        var habiaVideo = false
+        val policy = VideoAttachPolicy(
+            attach = {
+                videoView?.let { vlc.attachVideo(it) }
+                esperandoVideo = habiaVideo
+            },
+            detach = {
+                habiaVideo = vlc.hasVideoOutput()
+                vlc.detachVideo()
+            },
+        )
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> policy.onStart()
+                Lifecycle.Event.ON_STOP -> policy.onStop()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // Sondea hasta que VLC vuelva a pintar. El timeout es un seguro: si el vout no vuelve (fuente sin
+    // video, error), el spinner se quita igual en vez de quedarse colgado para siempre.
+    LaunchedEffect(esperandoVideo) {
+        if (!esperandoVideo) return@LaunchedEffect
+        withTimeoutOrNull(15_000) {
+            while (!vlc.hasVideoOutput()) delay(150)
+        }
+        esperandoVideo = false
+    }
+
+    // Estado DLNA.
+    var dlnaPickerOpen by remember { mutableStateOf(false) }
+    var dlnaDiscovering by remember { mutableStateOf(false) }
+    var dlnaDevices by remember { mutableStateOf<List<DlnaDevice>>(emptyList()) }
+    var dlnaActive by remember { mutableStateOf<DlnaDevice?>(null) }
+    var dlnaPaused by remember { mutableStateOf(false) }
+
+    val d = playlist?.items?.getOrNull(currentIndex)
+    val isTorrent = d?.kind == SourceKind.TORRENT
+    val playlistRef = rememberUpdatedState(playlist)
+
+    /**
+     * Arma lo que hay que mandarle al receptor para el ítem [idx] de [pl], arrancando en
+     * [startPositionMs]. Un solo lugar a propósito: lo usan los DOS caminos que castean —abrir un
+     * capítulo estando ya casteando, y conectar el Chromecast con el capítulo ya sonando en el
+     * celu—. Si divergieran, lo que llega a la TV dependería de por dónde entraste.
+     */
+    fun castRequestFor(pl: PlaylistData, idx: Int, startPositionMs: Long): com.arkiv.player.cast.CastRequest? {
+        val item = pl.items.getOrNull(idx) ?: return null
+        // Qué audio lleva esto y si el receptor puede con él. Se lee del player LOCAL, que es el que
+        // ya parseó el archivo. Un "no lo decodifica" acá explica el video mudo que antes no dejaba
+        // ni un rastro: AC-3 (Avatar) y DTS (Naruto), los dos con H.264, por eso se veía la imagen.
+        val audio = vlc.currentAudioFormat()
+        val decodable = com.arkiv.player.cast.CastAudioSupport.receiverDecodes(
+            fourcc = audio?.fourcc ?: 0,
+            channels = audio?.channels ?: 0,
+        )
+        android.util.Log.i(
+            "ArkivCast",
+            "audio del origen · codec=${com.arkiv.player.cast.CastAudioSupport.fourccToString(audio?.fourcc ?: 0)} " +
+                "canales=${audio?.channels ?: 0} → ${if (decodable) "va directo" else "hay que transcodificar"}",
+        )
+
+        val directo = com.arkiv.player.cast.CastRequestBuilder.build(
+            episodeId = item.episodeId,
+            title = item.title,
+            subtitle = item.subtitle,
+            artworkUrl = item.artworkUrl,
+            mediaUrl = item.mediaUrl,
+            castUrl = item.castUrl,
+            isTorrent = item.kind == SourceKind.TORRENT,
+            lanUrl = graph.torrentEngine.lanStreamUrl(),
+            lanMime = graph.torrentEngine.streamMime(),
+            startPositionMs = startPositionMs,
+        )
+        if (decodable || directo == null) {
+            // Puede venir de un capítulo que sí lo necesitaba: soltar el puerto y la CPU.
+            graph.castTranscoder.stop()
+            return directo
+        }
+
+        // Hay que convertirle el audio. El origen es el loopback cuando es torrent (no sale a la
+        // red) y la misma URL que se hubiera casteado en el resto de los casos.
+        val origen = if (item.kind == SourceKind.TORRENT) {
+            graph.torrentEngine.localStreamUrl() ?: directo.uri
+        } else {
+            directo.uri
+        }
+        val lanIp = graph.torrentEngine.lanIp()
+        val transcodificada = lanIp?.let {
+            graph.castTranscoder.start(
+                sourceUrl = origen,
+                lanIp = it,
+                startAtMs = startPositionMs,
+                audioTrackIndex = audio?.index,
+            )
+        }
+        if (transcodificada == null) {
+            // Sin IP en la LAN o sin poder arrancar: mejor mandar el original (se verá mudo, como
+            // antes) que no mandar nada, pero que quede dicho por qué.
+            android.util.Log.w("ArkivCast", "no se pudo transcodificar (lanIp=$lanIp): va el original y probablemente no suene")
+            return directo
+        }
+        // El stream ya arranca en el punto pedido, así que para el receptor empieza en cero; el
+        // desfase real lo guarda el transcodificador en baseOffsetMs.
+        return directo.copy(
+            uri = transcodificada,
+            mimeType = com.arkiv.player.cast.CastSoutChain.MIME,
+            startPositionMs = 0,
+            baseOffsetMs = startPositionMs,
+            // El receptor no puede saber la duración de un stream en vivo, pero el celu sí: sin
+            // esto, castear transcodificado no guardaría progreso nunca.
+            // `coerceAtLeast(0)` no es cosmético: media3 devuelve C.TIME_UNSET (muy negativo) cuando
+            // no la sabe, y eso hay que traducirlo a "no sé" (0), no dejarlo pasar como duración.
+            knownDurationMs = runCatching { controller.duration }.getOrDefault(0L).coerceAtLeast(0L)
+                .also { android.util.Log.i("ArkivCast", "duración local para el cast: ${it}ms (cruda=${runCatching { controller.duration }.getOrDefault(0L)})") },
+        )
+    }
+
+    /**
+     * Reevaluar el códec si al conectar todavía no se conocía.
+     *
+     * El portero decide con las pistas que el player local ya parseó; si conectás apenas se abre el
+     * video, no hay ninguna, y la decisión conservadora ("no sé → mandalo directo", que es lo que
+     * protege a archive.org) manda el original sin transcodificar. En AC-3 eso es justo el fallo que
+     * vinimos a eliminar: se ve y no suena. Medido en device: `codec=desconocido → va directo`, y
+     * recién 29 s más tarde se corrigió de pura casualidad.
+     */
+    LaunchedEffect(casting, currentIndex) {
+        if (!casting) return@LaunchedEffect
+        repeat(RECHEQUEO_INTENTOS) {
+            delay(RECHEQUEO_MS)
+            // El chequeo va ACÁ DENTRO, no solo al entrar: cuando el efecto arranca (al volverse
+            // true `casting`) el transcodificador todavía no se levantó, así que mirarlo una sola vez
+            // daba siempre null. Medido en device: recasteaba aunque la primera decisión ya hubiera
+            // sido la correcta, o sea DOS transcodes por casteo, y el segundo obligaba al receptor a
+            // buffear de nuevo.
+            if (graph.castTranscoder.activeUrl != null) return@LaunchedEffect
+            val audio = vlc.currentAudioFormat() ?: return@repeat
+            if (com.arkiv.player.cast.CastAudioSupport.receiverDecodes(audio.fourcc, audio.channels)) {
+                return@LaunchedEffect // el camino directo era el correcto
+            }
+            val pl = playlistRef.value ?: return@LaunchedEffect
+            android.util.Log.w(
+                "ArkivCast",
+                "las pistas aparecieron tarde (codec=${com.arkiv.player.cast.CastAudioSupport.fourccToString(audio.fourcc)}): " +
+                    "recasteo transcodificando",
+            )
+            castRequestFor(pl, currentIndex, contentPositionMs())?.let { graph.castSession?.setMedia(it) }
+            return@LaunchedEffect
+        }
+    }
+
+    fun bump() { controlsVisible = true; interactionTick++ }
+
+    // Por qué la barra de transporte se dibuja o no. Son cuatro condiciones en dos niveles y desde
+    // fuera se ven iguales: el overlay entero depende de `controlsVisible`, y DENTRO la fila de
+    // transporte va en un `if (!isBuffering)` — así que con el receptor buffereando el overlay está
+    // pero la barra no. Sin este log, "no apareció la barra" no distingue esos dos casos.
+    LaunchedEffect(controlsVisible, isBuffering, casting, dlnaActive, markingMode, loadError) {
+        android.util.Log.i(
+            "ArkivCast",
+            "UI barra · controlsVisible=$controlsVisible isBuffering=$isBuffering casting=$casting " +
+                "dlna=${dlnaActive != null} marcando=${markingMode != null} error=${loadError != null} " +
+                "→ overlay=${controlsVisible && loadError == null && dlnaActive == null && markingMode == null} " +
+                "fila=${!isBuffering}",
+        )
+    }
+
+    // Al abrir contenido distinto al que está cargado, cortar la reproducción anterior ANTES de
+    // resolver la fuente nueva. Sin esto, el resolver web (lento, ~10s) dejaba el video previo
+    // sonando detrás del overlay "Resolviendo…", y al volver atrás el player retomaba el video viejo.
+    // Si el episodio YA es parte de la playlist cargada (navegación dentro de una serie de archive),
+    // no se corta: el efecto de abajo reusa el buffer y salta dentro de la playlist.
+    LaunchedEffect(episodeId) {
+        val kind = PlayerSource.kindFor(episodeId)
+        val loadedIds = (0 until controller.mediaItemCount).mapNotNull { controller.getMediaItemAt(it).mediaId }
+        val yaCargado = episodeId in loadedIds
+        android.util.Log.w("ArkivPlay", "PlayerScreen enter episodeId=$episodeId kind=$kind yaEnController=$yaCargado loaded=$loaded loadedIds=$loadedIds")
+        // WEB: el stream resuelto es EFÍMERO (el token del proxy/host expira y cambia en cada resolve),
+        // así que reproducir el mismo episodio web = re-resolver + recargar SIEMPRE, aunque el item viejo
+        // siga en el controller. Para torrent/archive la URL es estable → conservar el reuso de buffer.
+        if (!yaCargado || kind == SourceKind.WEB) {
+            // stop() corta el video viejo; el setMediaItems de abajo reemplaza la playlist cuando la
+            // fuente nueva termina de resolver.
+            android.util.Log.w("ArkivPlay", "stop() + loaded=false (${if (kind == SourceKind.WEB) "WEB efímero" else "episodeId nuevo"})")
+            controller.stop()
+            loaded = false
+        }
+        vm.load(episodeId)
+    }
+
+    // Carga inicial de la playlist en el controller (una sola vez; editar marcadores no recarga).
+    LaunchedEffect(playlist) {
+        val pl = playlist ?: run { android.util.Log.w("ArkivPlay", "playlist=null (aún resolviendo o descartada)"); return@LaunchedEffect }
+        // WEB: URL efímera (token que expira en cada resolve) → NUNCA reusar el media viejo; siempre
+        // recargar con la URL fresca. El guard "una sola vez" y el reuso de buffer (play()/seekTo) solo
+        // valen para fuentes de URL estable (archive/torrent).
+        val isWeb = pl.items.getOrNull(pl.startIndex)?.kind == SourceKind.WEB
+        if (loaded && !isWeb) {
+            android.util.Log.w("ArkivPlay", "playlist lista pero loaded=true (no-WEB) → NO recarga (guard). items=${pl.items.map { it.episodeId }}")
+            return@LaunchedEffect
+        }
+        loaded = true
+        positionMs = pl.startPositionMs
+        val loadedIds = (0 until controller.mediaItemCount).mapNotNull { controller.getMediaItemAt(it).mediaId }
+        val sameEpisodePlaying = !isWeb && controller.currentMediaItem?.mediaId == episodeId
+        val samePlaylist = !isWeb && loadedIds.isNotEmpty() && loadedIds == pl.items.map { it.episodeId }
+        android.util.Log.w("ArkivPlay", "playlist lista → cargar. isWeb=$isWeb sameEpisodePlaying=$sameEpisodePlaying samePlaylist=$samePlaylist startPos=${pl.startPositionMs}")
+        if (casting && castSession != null) {
+            val idx = pl.items.indexOfFirst { it.episodeId == episodeId }.coerceAtLeast(0)
+            val req = castRequestFor(pl, idx, pl.startPositionMs)
+            if (req != null) {
+                // La pantalla avanzó a este episodio: NowPlaying es lo que lee la notificación y el
+                // remoto entre dispositivos, no bookkeeping local — no puede quedar apuntando al
+                // capítulo anterior.
+                NowPlaying.episodeId = episodeId
+                android.util.Log.w("ArkivPlay", "rama=CAST → el capítulo va al Chromecast, el local queda cebado en pausa")
+                // El local se carga IGUAL —setMediaItems() ya dispara loadMedia() y abre el archivo/URL,
+                // eso no lo evita el prepare()— pero NO arranca: playWhenReady=false es lo que hace que
+                // no compita con el receptor por el stream. Se deja sin preparar a propósito: el
+                // prepare() real ocurre al reanudar (LaunchedEffect(casting)) o, si la pantalla se
+                // destruyó antes de reanudar, en el guard STATE_IDLE de sameEpisodePlaying/samePlaylist
+                // de más abajo. Cargarlo es necesario igual: si no, seguiría conteniendo el capítulo
+                // anterior y al desconectar reanudaría ése en vez del que se estaba viendo.
+                currentIndex = idx
+                controller.setMediaItems(localMediaItems(pl.items), idx, pl.startPositionMs)
+                controller.playWhenReady = false
+                castSession.setMedia(req)
+                casteadoAlReceptor = episodeId
+                return@LaunchedEffect
+            }
+            // Sin URL que el receptor pueda alcanzar. NO se corta acá: si se cortara, la app quedaría
+            // mintiendo para siempre —`loaded` ya está en true así que nadie reintenta, y el local
+            // seguiría con el capítulo ANTERIOR mientras la pantalla dice que este está sonando—.
+            // Se cae a la reproducción local normal: el usuario pidió un capítulo, se lo damos en el
+            // celu, y el Toast ya explica que a la TV no se pudo mandar.
+            android.util.Log.w("ArkivCast", "casteando pero no hay URL que mandarle al receptor → se reproduce en el celu")
+            android.widget.Toast.makeText(
+                context,
+                "No se pudo castear: la TV no puede alcanzar este stream (revisá el WiFi)",
+                android.widget.Toast.LENGTH_SHORT,
+            ).show()
+        }
+        when {
+            // Mismo episodio ya en curso: re-enganchar (aprovecha el buffer, no recarga). Solo no-WEB.
+            sameEpisodePlaying -> {
+                android.util.Log.w("ArkivPlay", "rama=sameEpisodePlaying → controller.play() (NO recarga media)")
+                currentIndex = controller.currentMediaItemIndex
+                // El controller puede llegar acá cebado-pero-no-preparado: la rama CAST de arriba lo
+                // carga con setMediaItems() sin prepare(), y si el cast se desconectó ESTANDO AFUERA del
+                // reproductor (botón de cast / notificación) la pantalla se destruyó de por medio — el
+                // prepare() de LaunchedEffect(casting) nunca llegó a correr porque casteabaAntes es un
+                // `remember` de esa composición, no del player. play() sobre un player IDLE no arranca
+                // nada; prepararlo primero es inofensivo si ya estaba preparado.
+                if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
+                controller.play()
+            }
+            // Misma sección ya cargada, otro episodio: saltar dentro de la playlist. Solo no-WEB.
+            samePlaylist -> {
+                android.util.Log.w("ArkivPlay", "rama=samePlaylist → seekTo dentro de la playlist (NO recarga media)")
+                val idx = pl.items.indexOfFirst { it.episodeId == episodeId }.coerceAtLeast(0)
+                currentIndex = idx
+                controller.seekTo(idx, pl.startPositionMs)
+                // Mismo caso que sameEpisodePlaying de arriba: puede llegar cebado-pero-no-preparado.
+                if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
+                controller.playWhenReady = true
+            }
+            // Contenido nuevo (o WEB re-entrante): cargar la playlist con la URL fresca.
+            else -> {
+                // WEB re-entrante: el item viejo (token muerto) puede seguir en el controller con el mismo
+                // mediaId → cortarlo antes de setMediaItems para que VlcPlayer cargue la URL nueva.
+                if (isWeb && controller.mediaItemCount > 0) {
+                    android.util.Log.w("ArkivPlay", "WEB re-entrante → stop() del item viejo antes de recargar")
+                    controller.stop()
+                }
+                android.util.Log.w("ArkivPlay", "rama=nuevo → setMediaItems + prepare (abre VLC con la URL fresca)")
+                currentIndex = pl.startIndex
+                controller.setMediaItems(localMediaItems(pl.items), pl.startIndex, pl.startPositionMs)
+                controller.playWhenReady = true
+                controller.prepare()
+            }
+        }
+        NowPlaying.episodeId =
+            controller.currentMediaItem?.mediaId ?: pl.items.getOrNull(currentIndex)?.episodeId
+    }
+
+    // Índice/buffering/estado del transporte. Sigue al player activo: al conectar o desconectar
+    // el cast, el efecto se relanza solo y el listener se re-engancha al que corresponda.
+    DisposableEffect(activePlayer) {
+        isBuffering = activePlayer.playbackState == Player.STATE_BUFFERING
+        isPlaying = activePlayer.isPlaying
+        if (activePlayer.playbackState == Player.STATE_READY) {
+            positionMs = contentPositionMs()
+            contentDurationMs().let { if (it > 0) durationMs = it }
+        }
+        currentIndex = controller.currentMediaItemIndex.coerceAtLeast(0)
+        val listener = object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                // La IDENTIDAD de lo que suena la manda siempre la playlist local: el CastPlayer
+                // tiene un solo ítem cargado y su índice sería siempre 0.
+                currentIndex = controller.currentMediaItemIndex
+                NowPlaying.episodeId =
+                    playlistRef.value?.items?.getOrNull(controller.currentMediaItemIndex)?.episodeId
+            }
+
+            override fun onPlaybackStateChanged(state: Int) {
+                isBuffering = state == Player.STATE_BUFFERING
+            }
+
+            override fun onIsPlayingChanged(playing: Boolean) {
+                isPlaying = playing
+            }
+        }
+        activePlayer.addListener(listener)
+        onDispose { activePlayer.removeListener(listener) }
+    }
+
+    // Sondeo: posición/duración (0,5 s), estado de descarga (torrent) y progreso persistido (5 s).
+    // Clave = activePlayer: al conectar/desconectar el cast hay que volver a sondear al que suena.
+    LaunchedEffect(activePlayer) {
+        var tick = 0
+        while (true) {
+            delay(500)
+            if (isTorrent) progress = graph.torrentEngine.streamStatus()
+            // Fracción buffereada por delante para la barra: torrent = % de descarga; archive = % cacheado.
+            // Casteando no aplica: lo que bufferea es el receptor, no nosotros — mostrar el buffer
+            // local sería una barra que miente.
+            bufferedFraction = when {
+                casting -> 0f
+                isTorrent -> progress?.progress ?: 0f
+                else -> {
+                    val url = playlistRef.value?.items?.getOrNull(controller.currentMediaItemIndex)?.mediaUrl
+                    if (url != null) graph.archiveCacheProxy.bufferedFraction(url) else 0f
+                }
+            }
+            val ready = activePlayer.playbackState == Player.STATE_READY
+            if (ready) {
+                positionMs = contentPositionMs()
+                contentDurationMs().let { if (it > 0) durationMs = it }
+            }
+            subsOn = vlc.currentSpuTrack() >= 0
+            tick++
+            val pos = activePlayer.currentPosition
+            val dur = activePlayer.duration
+            // mediaId se lee JUNTO a posición y duración: es de quién son esos números. Casteando,
+            // el índice local ya apunta al capítulo nuevo apenas se llama a setMediaItems() mientras
+            // el receptor sigue con el anterior (CastPlayer.setMediaItemsInternal solo hace
+            // queueLoad, no deja seek pendiente: sigue reportando el ítem viejo, listo y
+            // reproduciendo). Sin esta comprobación, tocar "siguiente episodio" cerca del final del
+            // capítulo N marcaba como VISTO el N+1 antes de que arrancara.
+            val mediaId = activePlayer.currentMediaItem?.mediaId
+            // El episodio lo identifica la playlist LOCAL, no el player activo.
+            val epId = playlistRef.value?.items?.getOrNull(controller.currentMediaItemIndex)?.episodeId
+            if (tick % 10 == 0 && epId != null && mediaId == epId && ready && activePlayer.isPlaying &&
+                dur > 0 && pos in 0 until dur
+            ) {
+                vm.saveProgress(epId, pos, dur)
+            }
+            // Latido mientras se castea: dice si el receptor AVANZA de verdad. Una posición
+            // clavada con estado=listo significa que aceptó el medio pero no lo está decodificando.
+            if (casting && tick % 6 == 0) {
+                android.util.Log.i(
+                    "ArkivCast",
+                    "latido · pos=${pos}ms dur=${dur}ms estado=${activePlayer.playbackState} reproduciendo=${activePlayer.isPlaying}",
+                )
+            }
+        }
+    }
+
+    // Auto-ocultar los controles mientras reproduce. El timer se reinicia con CUALQUIER tecla
+    // mientras el overlay está abierto (ver el onPreviewKeyEvent del contenedor), así que no se
+    // desvanece en plena navegación de botones o miniaturas — solo tras ~4.5s de inactividad real.
+    // No se bloquea del todo a propósito: en TV no hay forma manual de cerrarlo (BACK sale del
+    // reproductor), así que un bloqueo dejaría el overlay pegado encima del video para siempre.
+    // chaptersRevealed va como key para que abrir/cerrar el carrusel arranque un timer fresco.
+    LaunchedEffect(interactionTick, isPlaying, controlsVisible, chaptersRevealed) {
+        if (controlsVisible && isPlaying && markingMode == null) {
+            delay(4500)
+            controlsVisible = false
+        }
+    }
+
+    // TV: al mostrarse el overlay, mover el foco de Android desde el video (que hasta ahora
+    // atajaba TODAS las teclas con acciones fijas) hacia los controles de Compose, para que el
+    // D-pad navegue los botones/la barra como un player real (Netflix/Prime) en vez de mapeos
+    // fijos por tecla. Al ocultarse, el foco vuelve al video para el "cualquier tecla = mostrar".
+    LaunchedEffect(controlsVisible, isTv) {
+        if (!isTv) return@LaunchedEffect
+        if (controlsVisible) {
+            // Entra por la BARRA DE PROGRESO, no por los botones: al abrir el overlay lo primero
+            // que se quiere casi siempre es moverse por el video, y bajar un paso deja el foco en
+            // los íconos. Fallback al play porque el bloque barra+botones vive dentro de
+            // `if (!isBuffering)`: mientras bufferea el slider no existe y su requester no engancha.
+            runCatching { sliderFR.requestFocus() }
+                .onFailure { runCatching { playPauseFR.requestFocus() } }
+        } else {
+            // Al ocultarse el overlay el carrusel deja de existir: si chaptersRevealed quedara en
+            // true, al reaparecer se mostraría ya abierto pero con el foco en el botón de play.
+            chaptersRevealed = false
+            runCatching { videoView?.requestFocus() }
+        }
+    }
+
+    // TV: al cerrarse el diálogo de audio/subtítulos hay que reubicar el foco a mano. Antes iba al
+    // videoView, pero con el overlay todavía visible ese es un punto muerto —su listener descarta
+    // las teclas mientras controlsVisible es true— y el D-pad dejaba de responder. Vuelve al botón
+    // que abrió el diálogo; el video solo tiene sentido si el overlay ya se ocultó.
+    // Va en un efecto y no en el onDismiss para cubrir las DOS salidas: descartar el diálogo y
+    // elegir una pista (applySubtitle también apaga subPickerOpen, y ahí no se tocaba el foco).
+    var subPickerWasOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(subPickerOpen, isTv) {
+        if (!isTv) return@LaunchedEffect
+        if (subPickerOpen) {
+            subPickerWasOpen = true
+            return@LaunchedEffect
+        }
+        // Solo en la transición abierto→cerrado: sin esta guarda el efecto correría al entrar al
+        // player y le robaría el foco inicial a la barra de progreso.
+        if (!subPickerWasOpen) return@LaunchedEffect
+        subPickerWasOpen = false
+        var landed = false
+        if (controlsVisible) {
+            repeat(12) {
+                if (landed) return@repeat
+                landed = runCatching { subtitleFR.requestFocus() }.isSuccess
+                if (!landed) delay(32)
+            }
+        }
+        if (!landed) runCatching { videoView?.requestFocus() }
+    }
+
+    // Lo que antes hacía el listener con el reproductor LOCAL. Al empezar a castear se pausa; al
+    // terminar se adelanta hasta donde llegó el receptor antes de reanudar — si no, el sondeo
+    // persiste la posición vieja encima de la buena en ≤5s.
+    var casteabaAntes by remember { mutableStateOf(false) }
+    LaunchedEffect(casting) {
+        if (casting) {
+            // Conectar el Chromecast con el capítulo YA sonando en el celu es la acción con la que
+            // arranca todo el feature, y es este efecto el único que la ve: LaunchedEffect(playlist)
+            // no está clavado a `casting` y encima corta con el guard de `loaded`. Sin esto, tocar
+            // el botón de cast pausaba el celu, mostraba el cartel… y dejaba la TV en su pantalla de
+            // reposo para siempre.
+            // La posición sale del reproductor LOCAL, que es donde está parado el usuario — no de
+            // pl.startPositionMs, que es donde arrancó el capítulo hace media hora.
+            val pl = playlistRef.value
+            val idx = pl?.items?.indexOfFirst { it.episodeId == episodeId }?.coerceAtLeast(0)
+            val epId = idx?.let { pl.items.getOrNull(it)?.episodeId }
+            if (pl != null && idx != null && epId != null && loaded && casteadoAlReceptor != epId && castSession != null) {
+                val desde = runCatching { controller.currentPosition }.getOrDefault(0L).coerceAtLeast(0L)
+                val req = castRequestFor(pl, idx, desde)
+                if (req == null) {
+                    android.util.Log.w("ArkivCast", "sesión abierta pero no hay URL que mandarle al receptor")
+                    android.widget.Toast.makeText(
+                        context,
+                        "No se pudo castear: la TV no puede alcanzar este stream (revisá el WiFi)",
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
+                } else {
+                    android.util.Log.w("ArkivCast", "sesión abierta → mando el capítulo en curso al receptor desde ${desde}ms")
+                    castSession.setMedia(req)
+                    casteadoAlReceptor = epId
+                }
+            }
+            runCatching { controller.pause() }
+        } else if (casteabaAntes) {
+            casteadoAlReceptor = null
+            // Si la sesión terminó porque el usuario pulsó "parar" (botón de la barra), NO hay que
+            // reanudar acá: pidió silencio, y el local ya quedó pausado desde que empezó el casteo
+            // (rama de arriba) — reanudarlo sería justo lo contrario de lo que pidió ese botón. Se
+            // consume una sola vez: la próxima desconexión (la del botón de cast, no la de parar)
+            // vuelve a reanudar normal.
+            if (graph.castSession?.consumirParadaIntencional() != true) {
+                val pl = playlistRef.value
+                val epId = pl?.items?.getOrNull(currentIndex)?.episodeId
+                // La posición del receptor solo vale si es de ESTE episodio. El CastPlayer nunca se
+                // para (`stop()` no se llama nunca y `setRemoteMediaClient(null)` no resetea nada en
+                // media3), así que `currentPosition` sigue devolviendo para siempre la última posición
+                // reportada: castear A hasta 45:00, desconectar fuera del reproductor, abrir B y
+                // conectar/desconectar dejaría a B saltando a 45:00 — y el sondeo lo persistiría.
+                val castMediaId = runCatching { castPlayer?.currentMediaItem?.mediaId }.getOrNull()
+                val castPos = if (epId != null && castMediaId == epId) {
+                    // Con el audio transcodificado el receptor cuenta desde cero: hay que sumarle el
+                    // punto donde arrancó el stream, o desconectar tira la reproducción hacia atrás
+                    // hasta donde empezó el casteo.
+                    runCatching {
+                        CastProgress.contentPosition(
+                            receiverPosMs = castPlayer?.currentPosition ?: 0L,
+                            baseOffsetMs = graph.castSession?.baseOffsetMs ?: 0L,
+                        )
+                    }.getOrDefault(0L)
+                } else {
+                    android.util.Log.w("ArkivCast", "posición del receptor descartada: es de '$castMediaId', reanudamos '$epId'")
+                    0L
+                }
+                // RECARGAR, no hacer seek. El local quedó cebado con `setMediaItems(…, startPositionMs)`
+                // y sin input abierto (playWhenReady=false), y eso ya horneó `:start-time=<esa posición>`
+                // en el Media de libVLC: el seekTo() es un no-op sin input, prepare() tampoco recarga
+                // (VlcPlayer.handlePrepare() solo actúa si mediaPlayer.media es null) y el play() abría
+                // el input respetando el start-time VIEJO. Resultado: el local reanudaba donde EMPEZÓ el
+                // casteo y el sondeo pisaba la posición buena a los segundos. Volver a llamar a
+                // setMediaItems() re-hornea el start-time en la posición del receptor.
+                if (castPos > 0L && pl != null) {
+                    runCatching { controller.setMediaItems(localMediaItems(pl.items), currentIndex, castPos) }
+                }
+                // El local pudo quedar cebado SIN preparar (rama CAST de arriba): recién acá, al reanudar
+                // de verdad, se prepara. Si ya estaba preparado (se venía reproduciendo en local antes de
+                // castear) esto es un no-op: VlcPlayer.handlePrepare() solo recarga si mediaPlayer.media
+                // sigue nulo.
+                runCatching { controller.prepare() }
+                runCatching { controller.play() }
+            }
+        }
+        casteabaAntes = casting
+    }
+
+    // Al marcar (archive): pausar y ubicar el slider en el valor ya guardado (si existe).
+    // El reanudar (play) SOLO aplica al SALIR del modo marcado — no en la composición inicial:
+    // si no, al abrir una fuente web nueva este play() reviviría el video anterior (que sigue
+    // cargado en el service) por detrás del overlay "Resolviendo…" mientras se resuelve la nueva.
+    var wasMarking by remember { mutableStateOf(false) }
+    LaunchedEffect(markingMode) {
+        if (markingMode != null) {
+            wasMarking = true
+            controller.pause()
+            val existing = when (markingMode) {
+                MarkingMode.INTRO -> d?.openingEndMs
+                MarkingMode.OUTRO -> d?.endingStartMs
+                else -> null
+            }
+            if (existing != null) {
+                controller.seekTo(existing)
+                positionMs = existing
+            }
+        } else if (wasMarking) {
+            wasMarking = false
+            controller.play()
+        }
+    }
+
+    // Orientación / barras del sistema en teléfono.
+    val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    LaunchedEffect(isLandscape) {
+        val window = activity?.window ?: return@LaunchedEffect
+        val wic = WindowInsetsControllerCompat(window, window.decorView)
+        wic.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        if (isLandscape) wic.hide(WindowInsetsCompat.Type.systemBars())
+        else wic.show(WindowInsetsCompat.Type.systemBars())
+    }
+
+    // El player vigente, leído desde efectos de vida larga. NO alcanza con escribir `activePlayer`
+    // dentro del onDispose de abajo: con clave `Unit` el remember no se rehace nunca, así que el
+    // onDispose que corre es el que se construyó en la PRIMERA composición — cuando todavía no se
+    // casteaba y `activePlayer` era, por valor, el controller local. (`casting` sí se ve vivo desde
+    // los closures porque es un delegado de MutableState; `activePlayer` es un val capturado.)
+    // Tampoco sirve poner `activePlayer` como clave del efecto: eso lo destruiría y recrearía en
+    // cada conexión/desconexión de cast, ejecutando su onDispose —y su controller.pause()— a mitad
+    // de la sesión. rememberUpdatedState da el valor fresco sin tocar el ciclo de vida del efecto.
+    val currentPlayer by rememberUpdatedState(activePlayer)
+
+    DisposableEffect(Unit) {
+        onDispose {
+            // Cortar la reproducción local ANTES de guardar la posición: así el audio se calla al
+            // instante al salir (evita ~1s de cola). Con Home el composable NO se destruye, así que
+            // esto no corre y el audio sigue de fondo; back/swipe sí destruye y pausa (como hoy).
+            // La posición sale del player ACTIVO (Chromecast si hay sesión); el pause() en cambio va
+            // siempre al local: pausar el Chromecast al salir de la pantalla anularía el casteo.
+            val pos = currentPlayer.currentPosition
+            val dur = currentPlayer.duration
+            // De quién son esos números: mismo problema que el sondeo. Salir de la pantalla justo
+            // después de saltar de capítulo escribía la posición del capítulo VIEJO (el receptor
+            // todavía no había cambiado de ítem) bajo el id del NUEVO, y savePlayback recalcula
+            // "visto" con eso. `pos in 0 until dur` también faltaba acá.
+            val mediaId = currentPlayer.currentMediaItem?.mediaId
+            controller.pause()
+            val epId = playlistRef.value?.items?.getOrNull(currentIndex)?.episodeId
+            if (epId != null && mediaId == epId && dur > 0 && pos in 0 until dur) {
+                vm.saveProgress(epId, pos, dur)
+            }
+            activity?.let {
+                it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                WindowCompat.getInsetsController(it.window, it.window.decorView)
+                    .show(WindowInsetsCompat.Type.systemBars())
+                // Devolver el brillo al control del sistema (el gesto de brillo lo había fijado).
+                it.window.let { w ->
+                    val lp = w.attributes
+                    lp.screenBrightness = android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                    w.attributes = lp
+                }
+            }
+            dlnaActive?.let { dev -> scope.launch { withContext(Dispatchers.IO) { runCatching { dlna.stop(dev) } } } }
+        }
+    }
+
+    // Servicio en primer plano (solo torrent): mantiene vivo el proceso (sesión + server local)
+    // mientras el reproductor está abierto, para que backgroundear/castear no lo mate.
+    DisposableEffect(sourceIsTorrent) {
+        if (sourceIsTorrent) TorrentServingService.start(context)
+        onDispose {
+            // Casteando NO se para: es el único servicio en primer plano de la app y el receptor
+            // está jalando bytes justamente del server LAN de este proceso. Pararlo al salir de la
+            // pantalla congelaba la TV, que es lo contrario de lo que este servicio existe para
+            // evitar. Se lee el flujo directo (no el `casting` de Compose): el colector del estado
+            // ya se soltó cuando corre este onDispose.
+            val casteando = castSession?.casting?.value == true
+            if (sourceIsTorrent && !casteando) TorrentServingService.stop(context)
+        }
+    }
+
+    // Transporte por el player activo (Chromecast si hay sesión, si no el local).
+    val seekStepMs = 10_000L
+
+    /**
+     * Mueve la reproducción a [targetMs] DEL CONTENIDO.
+     *
+     * Casteando transcodificado no se puede "buscar": lo que sale es un stream en vivo, sin duración
+     * ni Range. Moverse significa rearrancar el transcode en el punto nuevo y recargar el receptor
+     * —lo mismo que hace Jellyfin cuando no usa HLS—, y eso ya lo sabe hacer `castRequestFor`.
+     */
+    fun seekTo(targetMs: Long) {
+        val dur = contentDurationMs()
+        val target = targetMs.coerceIn(0L, if (dur > 0) dur else Long.MAX_VALUE)
+        val transcodificando = casting && graph.castTranscoder.activeUrl != null
+        if (transcodificando) {
+            val pl = playlistRef.value
+            val req = pl?.let { castRequestFor(it, currentIndex, target) }
+            if (req != null) {
+                android.util.Log.i("ArkivCast", "seek casteando: rearranco el transcode en ${target}ms")
+                graph.castSession?.setMedia(req)
+            }
+        } else {
+            activePlayer.seekTo(target)
+        }
+        positionMs = target
+        bump()
+    }
+
+    fun seekBy(deltaMs: Long) = seekTo(contentPositionMs() + deltaMs)
+
+    fun togglePlayPause() {
+        if (activePlayer.isPlaying) activePlayer.pause() else activePlayer.play()
+        bump()
+    }
+    // Velocidad y zoom nativo de VLC (cíclicos), aplicados al player vivo. Ambas fuentes.
+    fun cycleSpeed() {
+        speedIdx = (speedIdx + 1) % SPEED_STEPS.size
+        vlc.setRate(SPEED_STEPS[speedIdx])
+        bump()
+    }
+    fun cycleZoom() {
+        zoomIdx = (zoomIdx + 1) % ZOOM_STEPS.size
+        vlc.setScale(ZOOM_STEPS[zoomIdx])
+        bump()
+    }
+
+    // Lee las pistas embebidas (audio + subtítulos) del archivo, vía el player vivo.
+    fun refreshTracks() {
+        spuTracks = vlc.vlcSpuTracks()
+        audioTracks = vlc.vlcAudioTracks()
+        curSpu = vlc.currentSpuTrack()
+        curAudio = vlc.currentAudioTrack()
+    }
+
+    // Aplica (o quita) un subtítulo de OpenSubtitles: baja el .srt y lo carga como pista externa.
+    fun applySubtitle(sub: com.arkiv.player.data.subtitles.SubtitleTrack?) {
+        subPickerOpen = false
+        scope.launch {
+            val file = if (sub != null) {
+                withContext(Dispatchers.IO) {
+                    graph.subtitleApi.download(sub.fileId, java.io.File(context.cacheDir, "subs"))
+                }
+            } else null
+            if (file != null) {
+                vlc.addSubtitleSlave(Uri.fromFile(file))
+                selectedSub = sub
+            } else {
+                vlc.setVlcSpuTrack(-1)
+                selectedSub = null
+            }
+        }
+    }
+
+    // Búsqueda automática de subtítulos online para el idioma preferido.
+    LaunchedEffect(episodeId) {
+        if (!graph.subtitleApi.configured) return@LaunchedEffect
+        val prefLang = graph.subtitlePrefs.style.value.language
+        val subCtx = graph.repository.subtitleContextForEpisode(episodeId)
+        val langs = if (prefLang.isBlank() || prefLang == "off") "es" else prefLang
+        suspend fun runSearch(hash: String?) {
+            subtitles = if (subCtx == null && hash == null) emptyList() else runCatching {
+                graph.subtitleApi.search(
+                    imdbId = subCtx?.imdbId, query = subCtx?.title,
+                    season = subCtx?.season, episode = subCtx?.episode, languages = langs,
+                    moviehash = hash,
+                )
+            }.getOrDefault(emptyList()).sortedByDescending { it.hashMatch } // release exacto primero
+        }
+        loadingSubs = true
+        runSearch(null) // 1) por título/imdb, rápido (no espera la descarga)
+        loadingSubs = false
+        // 2) TORRENT: el moviehash necesita la cola descargada (puede tardar tras un gate por timeout).
+        // Espero a que esté disponible y RE-busco con el hash → sube los subs del release EXACTO al tope.
+        if (sourceIsTorrent) {
+            repeat(20) {
+                val hash = withContext(Dispatchers.IO) {
+                    runCatching { graph.torrentEngine.servedMovieHash() }.getOrNull()
+                }
+                if (hash != null) { runSearch(hash); return@LaunchedEffect }
+                delay(1500)
+            }
+        }
+        // NO auto-seleccionamos subtítulo: arrancan apagados y el usuario los activa desde el menú CC.
+    }
+
+    // Subtítulos EMBEBIDOS en el torrent (.srt/.ass junto al video): el engine los prioriza (son KB, bajan
+    // al instante); acá los cargamos como pista externa apenas existan en disco. Aparecen en el menú CC
+    // junto a los del contenedor. Sondeo unos segundos porque bajan en paralelo con el arranque.
+    LaunchedEffect(episodeId) {
+        if (!sourceIsTorrent) return@LaunchedEffect
+        val loaded = mutableSetOf<String>()
+        repeat(20) {
+            withContext(Dispatchers.IO) { graph.torrentEngine.embeddedSubtitleFiles() }.forEach { f ->
+                if (loaded.add(f.absolutePath)) runCatching { vlc.addSubtitleSlave(Uri.fromFile(f)) }
+            }
+            delay(1000)
+        }
+    }
+
+    val onOpenEpisodesState = rememberUpdatedState(onOpenEpisodes)
+
+    val outerModifier = if (isLandscape) Modifier.fillMaxSize()
+    else Modifier.fillMaxSize().systemBarsPadding()
+
+    Box(Modifier.fillMaxSize().background(Color.Black).clipToBounds(), contentAlignment = Alignment.Center) {
+        AndroidView(
+            modifier = outerModifier,
+            factory = { ctx ->
+                VLCVideoLayout(ctx).also { layout ->
+                    videoView = layout
+                    vlc.attachVideo(layout)
+                    if (isTv) {
+                        layout.isFocusable = true
+                        layout.isFocusableInTouchMode = true
+                        layout.setOnKeyListener { _, keyCode, event ->
+                            if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
+                            if (markingMode != null) return@setOnKeyListener false
+                            // Con el overlay de controles visible, el foco de Android ya está en
+                            // los botones de Compose (ver LaunchedEffect(controlsVisible)) y este
+                            // listener ni siquiera debería recibir el evento; el fallback existe
+                            // solo por si el foco no llegó a moverse a tiempo.
+                            if (controlsVisible) return@setOnKeyListener false
+                            when (keyCode) {
+                                KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD ->
+                                    { seekBy(seekStepMs); true }
+                                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_MEDIA_REWIND ->
+                                    { seekBy(-seekStepMs); true }
+                                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER,
+                                KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+                                KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE ->
+                                    { togglePlayPause(); true }
+                                // Cualquier otra flecha o MENÚ, con el overlay oculto: solo mostrarlo
+                                // (igual que Netflix/Prime) — la navegación real entre botones pasa
+                                // a manejarla el foco de Compose una vez visible.
+                                KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_MENU ->
+                                    { bump(); true }
+                                else -> false
+                            }
+                        }
+                        layout.post { layout.requestFocus() }
+                    }
+                }
+            },
+            onRelease = { vlc.detachVideo() },
+        )
+
+        // Capa de GESTOS (solo teléfono, ambas fuentes; portada de TorrentPlayerScreen): tap = controles;
+        // doble-tap izq/der = ∓10s; mantener presionado = 2× temporal; swipe horizontal = seek;
+        // swipe vertical der = volumen / izq = brillo. Para archive, un swipe grande hacia abajo abre
+        // la lista de episodios (se mantiene "como hoy").
+        if (!isTv) {
+            Box(
+                Modifier.fillMaxSize()
+                    // `casting` va como CLAVE, no solo como condición adentro: pointerInput lanza su
+                    // corrutina una vez y se queda con las lambdas de esa composición hasta que
+                    // cambia una clave. Sin esto, el doble-tap seguiría llamando al seekBy de la
+                    // composición previa al cast, que capturó `activePlayer` (un val) apuntando al
+                    // player local — y en teléfono hay que tocar la pantalla para que aparezca el
+                    // botón de cast, así que esa lambda es SIEMPRE anterior a la sesión.
+                    .pointerInput(casting) {
+                        detectTapGestures(
+                            onTap = { if (controlsVisible) controlsVisible = false else bump() },
+                            onDoubleTap = { o -> if (o.x < size.width / 2) seekBy(-seekStepMs) else seekBy(seekStepMs) },
+                            onLongPress = {
+                                // Casteando no: el 2× temporal actúa sobre el VlcPlayer local, que no
+                                // es lo que reproduce el Chromecast — el gesto queda inerte.
+                                if (!casting) {
+                                    rateBeforeFF = vlc.currentRate()
+                                    vlc.setRate(2f); fastForwarding = true; gestureHud = "⏩ 2×"
+                                }
+                            },
+                            onPress = {
+                                tryAwaitRelease()
+                                if (fastForwarding) {
+                                    fastForwarding = false
+                                    // Restaurar SIEMPRE, aunque el cast haya arrancado a mitad del
+                                    // gesto: si no, la velocidad local queda pegada en 2× y al
+                                    // terminar la sesión de cast la reproducción local resume rápida.
+                                    // Restaurarla no hace daño mientras castea (el motor local está
+                                    // pausado igual).
+                                    vlc.setRate(rateBeforeFF)
+                                    gestureHud = null
+                                }
+                            },
+                        )
+                    }
+                    // `casting` también va como clave acá: el swipe de seek lee `activePlayer` en
+                    // onDragStart/onDrag/onDragEnd, y sin reiniciar el detector esas lambdas se
+                    // quedan con el player local aunque la sesión de cast ya esté viva.
+                    .pointerInput(isTorrent, casting) {
+                        var horizontal = false
+                        var decided = false
+                        var startX = 0f
+                        var seekTarget = 0L
+                        var totalDx = 0f
+                        var totalDy = 0f
+                        detectDragGestures(
+                            onDragStart = { o ->
+                                decided = false; horizontal = false; startX = o.x
+                                totalDx = 0f; totalDy = 0f
+                                // Casteando, el seek horizontal debe partir/aplicarse sobre el
+                                // player activo (Chromecast), no siempre el local.
+                                seekTarget = activePlayer.currentPosition.coerceAtLeast(0)
+                            },
+                            onDragEnd = {
+                                if (horizontal) {
+                                    activePlayer.seekTo(seekTarget); positionMs = seekTarget; bump()
+                                } else if (!isTorrent && totalDy > 240f && totalDy > kotlin.math.abs(totalDx) * 1.5f) {
+                                    onOpenEpisodesState.value()
+                                }
+                                gestureHud = null
+                            },
+                            onDrag = { change, drag ->
+                                change.consume()
+                                totalDx += drag.x; totalDy += drag.y
+                                if (!decided) { decided = true; horizontal = kotlin.math.abs(drag.x) >= kotlin.math.abs(drag.y) }
+                                if (horizontal) {
+                                    val dur = activePlayer.duration.coerceAtLeast(1)
+                                    seekTarget = (seekTarget + (drag.x / size.width * 90_000f).toLong()).coerceIn(0L, dur)
+                                    gestureHud = "⏱ ${formatDuration(seekTarget)}"
+                                } else if (startX > size.width / 2) {
+                                    // Casteando no: el volumen se lee/ajusta sobre el VlcPlayer local,
+                                    // que no es lo que suena en el receptor Chromecast — gesto inerte.
+                                    if (!casting) {
+                                        val v = (vlc.vlcVolume() - (drag.y / size.height * 150f).toInt()).coerceIn(0, 100)
+                                        vlc.setVlcVolume(v); gestureHud = "🔊 $v%"
+                                    }
+                                } else {
+                                    activity?.window?.let { w ->
+                                        val cur = w.attributes.screenBrightness.let { if (it < 0f) 0.5f else it }
+                                        val nb = (cur - drag.y / size.height).coerceIn(0.02f, 1f)
+                                        w.attributes = w.attributes.apply { screenBrightness = nb }
+                                        gestureHud = "☀ ${(nb * 100).toInt()}%"
+                                    }
+                                }
+                            },
+                        )
+                    },
+            )
+        }
+
+        // HUD central del gesto en curso (velocidad/seek/volumen/brillo).
+        gestureHud?.let { hud ->
+            Surface(
+                modifier = Modifier.align(Alignment.Center),
+                color = Color.Black.copy(alpha = 0.6f),
+                shape = RoundedCornerShape(12.dp),
+            ) {
+                Text(
+                    hud,
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                )
+            }
+        }
+
+        // Spinner / overlay de descarga: para torrent muestra %, velocidad y peers. En la fase de
+        // pre-buffer (aún sin playlist) usa prepProgress del VM ("Buscando peers…/Cargando inicio…");
+        // ya reproduciendo pero buffereando usa el streamStatus polled.
+        // Casteando TAMBIÉN se muestra: `isBuffering` sigue al player activo, así que mientras el
+        // receptor carga apaga la fila de transporte, y sin spinner la pantalla quedaba con el
+        // degradado, la barra superior y el cartel de Chromecast — nada más, ni controles ni una
+        // explicación. Lo que sí se sigue ocultando al castear es el detalle de descarga del
+        // torrent (abajo): es del motor local, que está pausado, y no describe lo que carga la TV.
+        // `esperandoVideo` también se anula casteando: espera a que VLC recupere su salida de video
+        // local (hasta 15s tras volver del fondo), que casteando no importa ni va a llegar.
+        if (loadError == null && dlnaActive == null &&
+            (playlist == null || isBuffering || (esperandoVideo && !casting))
+        ) {
+            val preBuffer = playlist == null && sourceIsTorrent
+            val p = if (preBuffer) prepProgress else progress
+            Column(
+                modifier = Modifier.align(Alignment.Center),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                CircularProgressIndicator(color = if (sourceIsTorrent) ArkivRed else Color.White, strokeWidth = 3.dp)
+                if (resolving) {
+                    Text("Resolviendo fuente web…", color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.labelMedium)
+                }
+                if (esperandoVideo && !casting) {
+                    Text("Reanudando video…", color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.labelMedium)
+                }
+                if (sourceIsTorrent && !casting) {
+                    Text(
+                        when {
+                            p == null -> if (preBuffer) "Preparando el torrent…" else "Preparando…"
+                            p.peers == 0 -> "Buscando peers…"
+                            preBuffer -> "Cargando inicio · ${(p.progress * 100).toInt()}% · ${p.peers} peers · ${fmtRate(p.downloadKbps)}"
+                            else -> "Descargando · ${(p.progress * 100).toInt()}% · ${fmtRate(p.downloadKbps)} · ${p.peers} peers"
+                        },
+                        color = Color.White.copy(alpha = 0.9f),
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                    if (p != null && p.peers > 0) {
+                        LinearProgressIndicator(
+                            progress = { p.progress },
+                            color = ArkivRed,
+                            trackColor = Color.White.copy(alpha = 0.25f),
+                            modifier = Modifier.width(220.dp),
+                        )
+                    }
+                    // Sin peers: reanunciar YA (además del reannounce automático del engine).
+                    if (p != null && p.peers == 0) {
+                        TextButton(onClick = { graph.torrentEngine.retryPeers() }) {
+                            Text("Reintentar", color = ArkivRed)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Error de resolución (torrent sin peers, .torrent ilegible, etc.).
+        loadError?.let { err ->
+            Text(
+                err,
+                color = Color.White,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color(0xCCB00020))
+                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                textAlign = TextAlign.Center,
+            )
+        }
+
+        // Indicador persistente de descarga (torrent; aunque reproduzca y con controles ocultos).
+        run {
+            val p = progress
+            if (isTorrent && !isTv && loadError == null && !casting && dlnaActive == null && !isBuffering &&
+                !controlsVisible && p != null && p.progress in 0f..0.999f
+            ) {
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .systemBarsPadding()
+                        .padding(12.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0x99000000))
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(Icons.Default.Download, contentDescription = null, tint = ArkivRed, modifier = Modifier.size(16.dp))
+                    Text(
+                        "${(p.progress * 100).toInt()}% · ${fmtRate(p.downloadKbps)}",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+            }
+        }
+
+        // Casteando a Chromecast.
+        if (casting) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    // Tiene que despejar la barra superior, así que comparte su mismo marco de
+                    // insets (systemBarsPadding) en vez de un padding fijo medido desde el borde
+                    // de pantalla — si no, en equipos con status bar alto se solapan.
+                    .systemBarsPadding()
+                    .padding(top = 64.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color(0xCC000000))
+                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Icon(Icons.Default.Tv, contentDescription = null, tint = ArkivRed)
+                Text("Reproduciendo en Chromecast", color = Color.White)
+            }
+        }
+
+        // ---- Controles custom (fade in/out) ----
+        AnimatedVisibility(
+            // Casteando SÍ se muestran: el transporte maneja el Chromecast (ver activePlayer).
+            // Los elementos de adentro que solo aplican al reproductor local llevan su propia
+            // guarda `!casting`.
+            visible = controlsVisible && loadError == null && dlnaActive == null && markingMode == null,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            0.0f to Color(0xB3000000),
+                            0.30f to Color(0x14000000),
+                            0.70f to Color(0x14000000),
+                            1.0f to Color(0xD9000000),
+                        ),
+                    )
+                    // Cualquier tecla con el overlay abierto reinicia el timer de auto-ocultado, así
+                    // no se desvanece encima mientras navegás botones o miniaturas. Antes solo lo
+                    // reiniciaba bump(), que dispara el listener de VLC — y ese únicamente actúa con
+                    // los controles OCULTOS, así que moverse con el D-pad no lo reiniciaba nunca.
+                    // Va en el contenedor y como PREVIEW (no onKeyEvent): el preview baja desde la
+                    // raíz antes de llegar al control enfocado, así que ve todas las teclas aunque
+                    // alguien las consuma — el slider consume izq/der para el seek y la fila consume
+                    // ABAJO, que con el burbujeo normal nunca habrían llegado hasta acá.
+                    // Devuelve false: solo observa, no altera el despacho.
+                    .onPreviewKeyEvent { e ->
+                        if (e.type == KeyEventType.KeyDown) interactionTick++
+                        false
+                    },
+            ) {
+                // Barra superior: atrás (teléfono) + título + marcadores/CC/cast.
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .fillMaxWidth()
+                        .systemBarsPadding()
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (!isTv) {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Atrás", tint = Color.White)
+                        }
+                    }
+                    // Editor de marcadores (solo archive, teléfono). Oculto: es el único acceso a
+                    // setear intro/outro, así que se conserva detrás de la bandera.
+                    if (MOSTRAR_MARCADORES_EN_TELEFONO && !isTv && !isTorrent && d != null) {
+                        Box {
+                            IconButton(onClick = { markersMenu = true }) {
+                                Icon(Icons.Default.Tune, contentDescription = "Marcadores", tint = Color.White)
+                            }
+                            DropdownMenu(expanded = markersMenu, onDismissRequest = { markersMenu = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Setear intro (fin del opening)") },
+                                    onClick = { markersMenu = false; markingMode = MarkingMode.INTRO },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Setear outro (inicio del ending)") },
+                                    onClick = { markersMenu = false; markingMode = MarkingMode.OUTRO },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Borrar marcadores") },
+                                    onClick = { markersMenu = false; vm.clearMarkers() },
+                                )
+                            }
+                        }
+                    }
+                    if (!isTv && d != null) {
+                        Text(
+                            d.title,
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                        )
+                    } else {
+                        Spacer(Modifier.weight(1f))
+                    }
+                    // Velocidad + zoom nativo de VLC (solo teléfono): cíclicos al tocar. Ambas fuentes.
+                    // Ocultos: el gesto de mantener presionado sigue dando 2× temporal, así que no se
+                    // pierde el control de velocidad del todo.
+                    // Casteando no: cycleSpeed()/cycleZoom() actúan sobre el VlcPlayer local, que
+                    // no es lo que reproduce el Chromecast.
+                    if (MOSTRAR_VELOCIDAD_Y_ZOOM_EN_TELEFONO && !isTv && !casting) {
+                        TextButton(onClick = { cycleSpeed() }) {
+                            Text(
+                                SPEED_LABELS[speedIdx],
+                                color = if (speedIdx == 1) Color.White else ArkivRed,
+                                style = MaterialTheme.typography.labelLarge,
+                            )
+                        }
+                        TextButton(onClick = { cycleZoom() }) {
+                            Text(
+                                ZOOM_LABELS[zoomIdx],
+                                color = if (zoomIdx == 0) Color.White else ArkivRed,
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                        }
+                    }
+                    // (El botón CC/audio del teléfono se movió abajo a la derecha, junto a la fila
+                    // de transporte; en TV siempre estuvo en la fila de íconos inferior.)
+                    // DLNA + Chromecast (solo teléfono).
+                    if (!isTv) {
+                        // Casteando no: DLNA es OTRO renderer. Elegir uno con la sesión de
+                        // Chromecast viva deja dos TVs reproduciendo a la vez, y como
+                        // `dlnaActive != null` esconde el overlay entero de controles, el cast se
+                        // queda sin forma de manejarse desde la app. (El botón de Chromecast de
+                        // abajo sí queda visible: es el único camino para cortar la sesión.)
+                        if (!casting) IconButton(onClick = {
+                            dlnaPickerOpen = true
+                            dlnaDiscovering = true
+                            dlnaDevices = emptyList()
+                            scope.launch {
+                                val found = withContext(Dispatchers.IO) { dlna.discover() }
+                                dlnaDevices = found
+                                dlnaDiscovering = false
+                            }
+                        }) {
+                            Icon(Icons.Default.Tv, contentDescription = "Reproducir en TV (DLNA)", tint = Color.White)
+                        }
+                        if (castContext != null) {
+                            AndroidView(
+                                modifier = Modifier.padding(horizontal = 8.dp),
+                                factory = { ctx ->
+                                    val themed = ContextThemeWrapper(ctx, androidx.appcompat.R.style.Theme_AppCompat_DayNight)
+                                    MediaRouteButton(themed).also {
+                                        CastButtonFactory.setUpMediaRouteButton(ctx.applicationContext, it)
+                                    }
+                                },
+                            )
+                        }
+                    }
+                }
+
+                // TV, overlay de pausa: título del ítem (serie o película) y, si es serie, el
+                // nombre del episodio actual. Solo en pausa (no compite con el video en play).
+                if (isTv && !isPlaying) {
+                    headerInfo?.let { info ->
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .systemBarsPadding()
+                                .padding(top = 56.dp, start = 16.dp, end = 16.dp),
+                        ) {
+                            Text(
+                                info.itemTitle,
+                                color = Color.White,
+                                style = MaterialTheme.typography.titleLarge,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            info.episodeLabel?.let { ep ->
+                                Text(
+                                    ep,
+                                    color = Color.White.copy(alpha = 0.75f),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Barra inferior única (estilo Netflix/Prime): tiempo + slider arriba, fila de
+                // íconos de transporte abajo. Reemplaza el viejo círculo central flotante por un
+                // layout compacto, navegable con D-pad real en TV (ver FocusRequesters arriba).
+                if (!isBuffering) {
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .systemBarsPadding()
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                    ) {
+                        // Tiempo + slider + duración.
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                formatDuration(if (scrubbing) scrubPosition.toLong() else positionMs),
+                                color = Color.White, style = MaterialTheme.typography.labelMedium,
+                            )
+                            Slider(
+                                value = if (scrubbing) scrubPosition else positionMs.toFloat(),
+                                onValueChange = { v -> scrubbing = true; scrubPosition = v; bump() },
+                                onValueChangeFinished = {
+                                    seekTo(scrubPosition.toLong())
+                                    scrubbing = false
+                                },
+                                valueRange = 0f..(if (durationMs > 0) durationMs.toFloat() else 1f),
+                                colors = SliderDefaults.colors(
+                                    thumbColor = ArkivRed,
+                                    activeTrackColor = ArkivRed,
+                                    inactiveTrackColor = Color.White.copy(alpha = 0.3f),
+                                ),
+                                // Track custom con 3 capas: fondo (tenue) + buffer descargado (gris
+                                // claro) + reproducido (rojo). Así se ve el buffer por delante del playhead.
+                                track = { _ ->
+                                    val dur = if (durationMs > 0) durationMs.toFloat() else 1f
+                                    val posFrac = ((if (scrubbing) scrubPosition else positionMs.toFloat()) / dur)
+                                        .coerceIn(0f, 1f)
+                                    val bufFrac = bufferedFraction.coerceIn(0f, 1f)
+                                    // El grosor del track ES el indicador de foco (el stroke se deriva
+                                    // de la altura del Canvas, así que engrosar la altura engrosa las
+                                    // tres capas de una). Animado para que el salto no se sienta brusco.
+                                    val trackHeight by animateDpAsState(
+                                        targetValue = if (sliderFocused) 8.dp else 4.dp,
+                                        label = "grosorBarraProgreso",
+                                    )
+                                    Canvas(Modifier.fillMaxWidth().height(trackHeight)) {
+                                        val y = size.height / 2f
+                                        val sw = size.height
+                                        drawLine(Color.White.copy(alpha = 0.25f), Offset(0f, y), Offset(size.width, y), sw, StrokeCap.Round)
+                                        if (bufFrac > 0f) drawLine(Color.White.copy(alpha = 0.5f), Offset(0f, y), Offset(size.width * bufFrac, y), sw, StrokeCap.Round)
+                                        if (posFrac > 0f) drawLine(ArkivRed, Offset(0f, y), Offset(size.width * posFrac, y), sw, StrokeCap.Round)
+                                    }
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(horizontal = 10.dp)
+                                    .then(
+                                        if (!isTv) Modifier else Modifier
+                                            .focusRequester(sliderFR)
+                                            .onFocusChanged { sliderFocused = it.isFocused }
+                                            // ARRIBA se queda en la barra: es el tope del overlay y
+                                            // los botones están DEBAJO, así que mandar `up` ahí era
+                                            // un salto al revés (poco visible antes, porque el foco
+                                            // no entraba acá; ahora es el primer control enfocado).
+                                            .focusProperties { down = playPauseFR; up = sliderFR; left = sliderFR; right = sliderFR }
+                                            .onKeyEvent { e ->
+                                                if (e.type != KeyEventType.KeyDown) return@onKeyEvent false
+                                                when (e.key) {
+                                                    Key.DirectionRight -> { seekBy(seekStepMs); true }
+                                                    Key.DirectionLeft -> { seekBy(-seekStepMs); true }
+                                                    else -> false
+                                                }
+                                            },
+                                    ),
+                            )
+                            Text(formatDuration(durationMs), color = Color.White, style = MaterialTheme.typography.labelMedium)
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        // Retroceder / play-pausa / adelantar / siguiente episodio (solo en pausa) /
+                        // subtítulos (TV) — todo en una sola fila, izq/der navegable con D-pad.
+                        Row(
+                            modifier = Modifier
+                                // En teléfono la fila ocupa todo el ancho para poder empujar el
+                                // botón de subtítulos contra el borde derecho (ver el final del Row).
+                                .then(if (isTv) Modifier else Modifier.fillMaxWidth())
+                                .then(
+                                // Un paso más de ABAJO desde esta fila revela el carrusel de
+                                // capítulos (aún no existe en el árbol hasta que chaptersRevealed
+                                // es true, así que no se puede resolver con un focusProperties.down
+                                // normal — se intercepta la tecla acá y se dispara la revelación).
+                                if (!isTv || allEpisodes.size <= 1) Modifier else Modifier.onKeyEvent { e ->
+                                    if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown) {
+                                        // Cerrado: revelarlo (el LaunchedEffect mueve el foco al chip).
+                                        // Ya abierto: bajar el foco al carrusel — antes caía en el
+                                        // `down` del botón y no había forma de volver a entrar.
+                                        if (!chaptersRevealed) chaptersRevealed = true
+                                        else runCatching { chaptersFR.requestFocus() }
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                },
+                            ),
+                            horizontalArrangement = Arrangement.spacedBy(20.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            // `down` apunta al propio botón (se queda) y NO al slider: bajar desde acá
+                            // llevaba el foco a la barra de progreso, donde izq/der hacen seek — de ahí
+                            // el "a veces cambia de botón, a veces adelanta/retrocede". Cuando hay
+                            // capítulos, ABAJO lo intercepta el onKeyEvent de la fila (arriba).
+                            TvTransportButton(
+                                icon = Icons.Default.Replay10,
+                                contentDescription = "Atrasar 10s",
+                                onClick = { seekBy(-seekStepMs) },
+                                modifier = if (!isTv) Modifier else Modifier
+                                    .focusRequester(rewindFR)
+                                    .focusProperties { left = rewindFR; right = playPauseFR; up = sliderFR; down = rewindFR },
+                            )
+                            // Solo en el overlay de pausa (no mientras reproduce) y solo si hay un
+                            // próximo episodio (null en películas o si este ya es el último de la serie).
+                            // Se calcula ANTES de los botones para poder armar el grafo de foco
+                            // completo (cada dirección explícita; dejar alguna sin definir hace que
+                            // la búsqueda espacial por defecto de Compose falle y el foco "se pierda").
+                            val next = nextEpisodeId
+                            val showNext = !isPlaying && next != null
+                            val forwardRight = if (showNext) nextEpisodeFR else if (isTv) subtitleFR else forwardFR
+                            val nextRight = if (isTv) subtitleFR else nextEpisodeFR
+                            TvTransportButton(
+                                icon = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = if (isPlaying) "Pausar" else "Reproducir",
+                                onClick = { togglePlayPause() },
+                                iconSize = 34.dp,
+                                modifier = if (!isTv) Modifier else Modifier
+                                    .focusRequester(playPauseFR)
+                                    .focusProperties { left = rewindFR; right = forwardFR; up = sliderFR; down = playPauseFR },
+                            )
+                            TvTransportButton(
+                                icon = Icons.Default.Forward10,
+                                contentDescription = "Adelantar 10s",
+                                onClick = { seekBy(seekStepMs) },
+                                modifier = if (!isTv) Modifier else Modifier
+                                    .focusRequester(forwardFR)
+                                    .focusProperties { left = playPauseFR; right = forwardRight; up = sliderFR; down = forwardFR },
+                            )
+                            // Casteando TAMBIÉN se muestra: el capítulo nuevo ahora SIGUE al cast
+                            // (la carga se bifurca por `casting` y lo manda al receptor), que es de
+                            // lo que se trata este feature. El carrusel de capítulos de la TV nunca
+                            // tuvo esta guarda, así que además dejan de contradecirse.
+                            if (showNext) {
+                                TvTransportButton(
+                                    icon = Icons.Default.SkipNext,
+                                    contentDescription = "Siguiente episodio",
+                                    onClick = { onNextEpisode(next) },
+                                    modifier = if (!isTv) Modifier else Modifier
+                                        .focusRequester(nextEpisodeFR)
+                                        .focusProperties { left = forwardFR; right = nextRight; up = sliderFR; down = nextEpisodeFR },
+                                )
+                            }
+                            if (isTv) {
+                                Box(
+                                    Modifier
+                                        .padding(horizontal = 4.dp)
+                                        .width(1.dp)
+                                        .height(24.dp)
+                                        .background(Color.White.copy(alpha = 0.3f)),
+                                )
+                                // Enfocado se invierte como los demás (ícono negro sobre blanco); que
+                                // los subtítulos estén activos se sigue distinguiendo por el ícono
+                                // (ClosedCaption vs ClosedCaptionOff), no solo por el tinte rojo.
+                                TvTransportButton(
+                                    icon = if (subsOn || selectedSub != null) Icons.Default.ClosedCaption else Icons.Default.ClosedCaptionOff,
+                                    contentDescription = "Subtítulos y audio",
+                                    onClick = { refreshTracks(); subPickerOpen = true },
+                                    iconSize = 24.dp,
+                                    tint = if (subsOn || selectedSub != null) ArkivRed else Color.White,
+                                    modifier = Modifier
+                                        .focusRequester(subtitleFR)
+                                        .focusProperties {
+                                            left = if (showNext) nextEpisodeFR else forwardFR
+                                            right = subtitleFR
+                                            up = sliderFR
+                                            down = subtitleFR
+                                        },
+                                )
+                            }
+                            // TELÉFONO: subtítulos contra el borde derecho. El Spacer se come el
+                            // ancho sobrante, así que los controles de transporte quedan a la
+                            // izquierda y este solo en la esquina — antes competía por espacio
+                            // arriba con otros siete elementos.
+                            // Casteando no: las pistas se eligen sobre PlaybackEngine.vlc, el
+                            // reproductor local. El receptor de Chromecast maneja las suyas.
+                            if (!isTv && !casting) {
+                                Spacer(Modifier.weight(1f))
+                                IconButton(onClick = { refreshTracks(); subPickerOpen = true }) {
+                                    Icon(
+                                        if (subsOn || selectedSub != null) Icons.Default.ClosedCaption else Icons.Default.ClosedCaptionOff,
+                                        contentDescription = "Subtítulos y audio",
+                                        tint = if (subsOn || selectedSub != null) ArkivRed else Color.White,
+                                    )
+                                }
+                            }
+                        }
+                        // Carrusel de capítulos (TV, series con más de 1 episodio): un paso más
+                        // abajo desde la fila de íconos. Todos los episodios en scroll horizontal,
+                        // con el actual resaltado y centrado al aparecer.
+                        if (isTv && allEpisodes.size > 1) {
+                            AnimatedVisibility(visible = chaptersRevealed, enter = fadeIn(), exit = fadeOut()) {
+                                LazyRow(
+                                    state = chaptersListState,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 14.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 4.dp),
+                                ) {
+                                    itemsIndexed(allEpisodes, key = { _, it -> it.id }) { index, ep ->
+                                        val isCurrent = ep.id == episodeId
+                                        TvEpisodeChip(
+                                            episode = ep,
+                                            isCurrent = isCurrent,
+                                            progress = chaptersProgress[ep.id],
+                                            stillUrl = chaptersStills[ep.id],
+                                            onClick = { onNextEpisode(ep.id) },
+                                            modifier = Modifier
+                                                // El requester va en el chip del índice actual (no en isCurrent):
+                                                // así el foco siempre tiene dónde aterrizar aunque el id actual
+                                                // no esté en la lista (idx cae en 0).
+                                                .then(if (index == currentChapterIdx) Modifier.focusRequester(chaptersFR) else Modifier)
+                                                .focusProperties { up = playPauseFR }
+                                                .onKeyEvent { e ->
+                                                    if (e.type != KeyEventType.KeyDown) return@onKeyEvent false
+                                                    if (e.key == Key.DirectionUp) {
+                                                        chaptersRevealed = false
+                                                        runCatching { playPauseFR.requestFocus() }
+                                                        return@onKeyEvent true
+                                                    }
+                                                    // Tragarse las teclas que se saldrían de la fila: abajo
+                                                    // del carrusel no hay nada, así que la búsqueda espacial
+                                                    // de Compose enganchaba el VLCVideoLayout (focusable en
+                                                    // TV) — el foco se iba al video y, como controlsVisible
+                                                    // seguía en true, su listener ignoraba todo y ninguna
+                                                    // tecla respondía. Igual en los extremos con izq/der.
+                                                    // Se consume acá (return true) en vez de usar
+                                                    // FocusRequester.Cancel porque esa API es experimental.
+                                                    // (El timer de auto-ocultado lo reinicia el
+                                                    // onPreviewKeyEvent del contenedor, que ve estas
+                                                    // teclas antes que este handler.)
+                                                    e.key == Key.DirectionDown ||
+                                                        (e.key == Key.DirectionLeft && index == 0) ||
+                                                        (e.key == Key.DirectionRight && index == allEpisodes.lastIndex)
+                                                },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Botones flotantes de saltar intro/outro (solo archive, teléfono). Casteando SÍ se
+        // muestran: "Saltar intro" es un seekTo simple que el CastPlayer soporta igual; la guarda
+        // real está en el botón "Saltar outro" de abajo (ese sí depende del ítem siguiente LOCAL).
+        if (d != null && !isTorrent && markingMode == null && !isTv && dlnaActive == null) {
+            val inOpening = d.openingEndMs != null &&
+                positionMs in (d.openingStartMs ?: 0L)..d.openingEndMs
+            val inEnding = d.endingStartMs != null && positionMs >= d.endingStartMs
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .systemBarsPadding()
+                    .padding(end = 20.dp, bottom = 88.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (inOpening) SkipButton("Saltar intro") { activePlayer.seekTo(d.openingEndMs!!) }
+                // "Saltar intro" hace seekTo y funciona casteando; "saltar outro" salta al ítem
+                // siguiente, y el cast tiene uno solo cargado — se oculta.
+                if (inEnding && !casting) SkipButton("Saltar outro", icon = true) { controller.seekToNextMediaItem() }
+            }
+        }
+
+        // Panel-editor de marcado con slider (solo archive).
+        if (d != null && markingMode != null) {
+            MarkerEditor(
+                mode = markingMode!!,
+                positionMs = positionMs,
+                durationMs = durationMs,
+                onSeek = { p -> seekTo(p) },
+                onCancel = { markingMode = null },
+                onSave = {
+                    val label = if (markingMode == MarkingMode.INTRO) {
+                        vm.setOpeningEnd(positionMs); "Intro"
+                    } else {
+                        vm.setEndingStart(positionMs); "Outro"
+                    }
+                    android.widget.Toast.makeText(
+                        context,
+                        "$label guardado en ${formatDuration(positionMs)}",
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
+                    markingMode = null
+                },
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
+
+        // Barra "Reproduciendo en <TV>" (DLNA activo).
+        val active = dlnaActive
+        if (active != null) {
+            Surface(
+                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().systemBarsPadding().padding(16.dp),
+                color = ArkivSurface.copy(alpha = 0.96f),
+                shape = RoundedCornerShape(16.dp),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Default.Tv, contentDescription = null, tint = ArkivRed)
+                    Text(
+                        "Reproduciendo en ${active.friendlyName}",
+                        modifier = Modifier.weight(1f).padding(start = 12.dp),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    TextButton(onClick = {
+                        scope.launch {
+                            withContext(Dispatchers.IO) { if (dlnaPaused) dlna.play(active) else dlna.pause(active) }
+                            dlnaPaused = !dlnaPaused
+                        }
+                    }) { Text(if (dlnaPaused) "Reanudar" else "Pausar") }
+                    TextButton(onClick = {
+                        scope.launch {
+                            withContext(Dispatchers.IO) { dlna.stop(active) }
+                            dlnaActive = null
+                        }
+                    }) { Text("Detener") }
+                }
+            }
+        }
+    }
+
+    // Diálogo de dispositivos DLNA.
+    if (dlnaPickerOpen) {
+        AlertDialog(
+            onDismissRequest = { dlnaPickerOpen = false },
+            title = { Text("Reproducir en TV (DLNA)") },
+            text = {
+                Column {
+                    when {
+                        dlnaDiscovering -> Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.padding(end = 12.dp).size(20.dp))
+                            Text("Buscando dispositivos…")
+                        }
+                        dlnaDevices.isEmpty() -> Text(
+                            "No se encontraron dispositivos DLNA. Asegurate de que la TV esté encendida, " +
+                                "en la misma red WiFi y con DLNA habilitado.",
+                            color = ArkivTextSecondary,
+                        )
+                        else -> dlnaDevices.forEach { device ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        dlnaPickerOpen = false
+                                        val ep = playlistRef.value?.items?.getOrNull(currentIndex)
+                                        controller.pause()
+                                        scope.launch {
+                                            val ok = if (ep?.kind == SourceKind.TORRENT) {
+                                                val lan = graph.torrentEngine.lanStreamUrl()
+                                                val mime = graph.torrentEngine.streamMime() ?: "video/mp4"
+                                                if (lan != null) {
+                                                    withContext(Dispatchers.IO) { dlna.playRawUrl(device, lan, ep.title, mime) }
+                                                } else false
+                                            } else if (ep != null) {
+                                                withContext(Dispatchers.IO) {
+                                                    dlna.setUrlAndPlay(device, ep.castUrl ?: ep.mediaUrl, ep.title)
+                                                }
+                                            } else false
+                                            if (ok) {
+                                                dlnaActive = device
+                                                dlnaPaused = false
+                                            } else {
+                                                android.widget.Toast.makeText(
+                                                    context,
+                                                    "No se pudo castear (revisá el WiFi)",
+                                                    android.widget.Toast.LENGTH_SHORT,
+                                                ).show()
+                                            }
+                                        }
+                                    }
+                                    .padding(vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(Icons.Default.Tv, contentDescription = null, tint = ArkivRed)
+                                Text(device.friendlyName, modifier = Modifier.padding(start = 12.dp))
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { dlnaPickerOpen = false }) { Text("Cerrar") } },
+        )
+    }
+
+    // Diálogo de audio y subtítulos (embebidos vía VLC + OpenSubtitles).
+    if (subPickerOpen) {
+        // Solo apaga la bandera: del foco se encarga el LaunchedEffect(subPickerOpen) de arriba,
+        // que es el mismo camino que sigue elegir una pista.
+        val closeSubs = { subPickerOpen = false }
+        AlertDialog(
+            onDismissRequest = { closeSubs() },
+            title = { Text("Audio y subtítulos") },
+            text = {
+                Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
+                    // AUDIO (releases dual: latino / inglés).
+                    if (audioTracks.count { it.first >= 0 } > 1) {
+                        Text("Audio", style = MaterialTheme.typography.titleSmall, color = ArkivRed, modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
+                        audioTracks.filter { it.first >= 0 }.forEach { (id, name) ->
+                            TextButton(onClick = { vlc.setVlcAudioTrack(id); curAudio = id }) {
+                                Text((if (id == curAudio) "✓ " else "") + name, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+
+                    // SUBTÍTULOS DEL ARCHIVO (embebidos).
+                    Text("Subtítulos del archivo", style = MaterialTheme.typography.titleSmall, color = ArkivRed, modifier = Modifier.padding(top = 12.dp, bottom = 2.dp))
+                    if (spuTracks.none { it.first >= 0 }) {
+                        Text("Este archivo no trae subtítulos embebidos.", color = ArkivTextSecondary, modifier = Modifier.padding(8.dp))
+                        TextButton(onClick = { vlc.setVlcSpuTrack(-1); curSpu = -1; selectedSub = null }) {
+                            Text((if (curSpu < 0) "✓ " else "") + "Desactivar", color = Color.White)
+                        }
+                    } else {
+                        (listOf(-1 to "Desactivar") + spuTracks.filter { it.first >= 0 }).forEach { (id, name) ->
+                            TextButton(onClick = { vlc.setVlcSpuTrack(id); curSpu = id; if (id < 0) selectedSub = null }) {
+                                Text((if (id == curSpu && selectedSub == null) "✓ " else "") + name, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+
+                    // ONLINE (OpenSubtitles).
+                    Text("Buscar online (OpenSubtitles)", style = MaterialTheme.typography.titleSmall, color = ArkivRed, modifier = Modifier.padding(top = 12.dp, bottom = 2.dp))
+                    if (!graph.subtitleApi.configured) {
+                        Text("Agregá una API key de OpenSubtitles para descargar subtítulos online.", color = ArkivTextSecondary, modifier = Modifier.padding(8.dp))
+                    } else when {
+                        loadingSubs -> Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.padding(end = 12.dp).size(20.dp))
+                            Text("Buscando subtítulos…", color = ArkivTextSecondary)
+                        }
+                        subtitles.isEmpty() -> Text("No se encontraron subtítulos en español.", color = ArkivTextSecondary, modifier = Modifier.padding(8.dp))
+                        else -> subtitles.forEach { s ->
+                            TextButton(onClick = { applySubtitle(s) }) {
+                                Text(
+                                    (if (selectedSub?.fileId == s.fileId) "✓ " else "↓ ") + s.label,
+                                    color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { closeSubs() }) { Text("Cerrar") } },
+        )
+    }
+}
+
+@Composable
+private fun MarkerEditor(
+    mode: MarkingMode,
+    positionMs: Long,
+    durationMs: Long,
+    onSeek: (Long) -> Unit,
+    onCancel: () -> Unit,
+    onSave: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth().systemBarsPadding().padding(16.dp),
+        color = ArkivSurface.copy(alpha = 0.96f),
+        shape = MaterialTheme.shapes.large,
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                if (mode == MarkingMode.INTRO) "Marcá el FIN del intro" else "Marcá el INICIO del outro",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                "Movete con el slider hasta la posición exacta y guardá.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = ArkivTextSecondary,
+                modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
+            )
+            Text(
+                "${formatDuration(positionMs)} / ${formatDuration(durationMs)}",
+                style = MaterialTheme.typography.titleLarge,
+                color = ArkivRed,
+            )
+            Slider(
+                value = if (durationMs > 0) positionMs.toFloat() / durationMs else 0f,
+                onValueChange = { v -> onSeek((v * durationMs).toLong()) },
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                TextButton(onClick = onCancel) { Text("Cancelar") }
+                Button(onClick = onSave, modifier = Modifier.padding(start = 8.dp)) { Text("Guardar") }
+            }
+        }
+    }
+}
+
+/**
+ * Botón de la fila de transporte del overlay. Al recibir el foco se invierte (círculo blanco +
+ * ícono negro, igual que [SkipButton]) para que desde el sillón se vea de un golpe cuál está
+ * seleccionado: el único indicador que había era el ripple de Material, invisible a 3 metros — sin
+ * saber dónde estaba el foco, la navegación con D-pad parecía errática.
+ * En teléfono nada toma foco en modo táctil, así que se ve igual que antes.
+ */
+@Composable
+private fun TvTransportButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    iconSize: Dp = 32.dp,
+    tint: Color = Color.White,
+) {
+    var focused by remember { mutableStateOf(false) }
+    IconButton(
+        onClick = onClick,
+        modifier = modifier
+            .size(48.dp)
+            .onFocusChanged { focused = it.isFocused }
+            .background(if (focused) Color.White else Color.Transparent, CircleShape),
+    ) {
+        Icon(
+            icon,
+            contentDescription = contentDescription,
+            tint = if (focused) Color.Black else tint,
+            modifier = Modifier.size(iconSize),
+        )
+    }
+}
+
+@Composable
+private fun SkipButton(text: String, icon: Boolean = false, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Color.White.copy(alpha = 0.92f),
+            contentColor = Color.Black,
+        ),
+    ) {
+        Text(text)
+        if (icon) Icon(Icons.Default.SkipNext, contentDescription = null)
+    }
+}
+
+private fun fmtRate(kbps: Int): String =
+    if (kbps >= 1024) "%.1f MB/s".format(kbps / 1024.0) else "$kbps KB/s"
