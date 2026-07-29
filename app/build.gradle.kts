@@ -34,9 +34,28 @@ android {
         }
     }
 
+    // Firma de release desde .env (mismo mecanismo que las credenciales: el archivo está gitignoreado,
+    // así que la llave y su clave nunca entran al repo). Si no está configurada, el bloque no se crea
+    // y `assembleRelease` sale sin firmar — es a propósito: mejor que fallar en silencio firmando con debug.
+    val keystorePath = readEnv("RELEASE_KEYSTORE_PATH")
+    val hayFirma = keystorePath.isNotBlank() && file(keystorePath).exists()
+    if (hayFirma) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = readEnv("RELEASE_KEYSTORE_PASSWORD")
+                keyAlias = readEnv("RELEASE_KEY_ALIAS")
+                keyPassword = readEnv("RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            // R8 apagado a propósito: libtorrent4j y libVLC llaman por JNI a clases/campos que el
+            // shrinker no ve referenciados y borraría. El APK pesa más, pero funciona.
             isMinifyEnabled = false
+            if (hayFirma) signingConfig = signingConfigs.getByName("release")
         }
         debug {
             isMinifyEnabled = false
