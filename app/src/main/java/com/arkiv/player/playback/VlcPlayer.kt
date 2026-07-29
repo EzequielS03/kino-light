@@ -71,9 +71,9 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
     private var playWhenReady = false
     private var event: VlcEvent = VlcEvent.Stopped
     private var buffering = 0f
-    // Cantidad de salidas de video vivas (evento Vout). Lo escribe el thread de eventos de VLC y lo
-    // lee la UI, de ahí el @Volatile.
-    @Volatile private var voutCount = 0
+    // Si hay imagen. Lo escribe el thread de eventos de VLC y lo lee la UI; el @Volatile vive
+    // adentro del tracker. No alcanza con contar eventos: ver VoutTracker.
+    private val voutTracker = VoutTracker()
     // Auto-retry con decodificación por SOFTWARE ante un EncounteredError: rescata formatos que abren
     // en HW pero fallan al decodificar (.avi/XviD, Dolby Vision, TrueHD/DTS). Una sola vez por ítem;
     // si vuelve a fallar en software, se emite el error. Se resetea al cargar otro ítem.
@@ -154,11 +154,20 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
                 MediaPlayer.Event.TimeChanged ->
                     if (event == VlcEvent.Buffering) event = VlcEvent.Playing else return@setEventListener
                 MediaPlayer.Event.Paused -> { event = VlcEvent.Paused }
-                MediaPlayer.Event.Stopped -> { event = VlcEvent.Stopped; voutCount = 0 }
+                MediaPlayer.Event.Stopped -> { event = VlcEvent.Stopped; voutTracker.onVout(0) }
                 // Salida de video viva o no. Al volver de segundo plano VLC la reconstruye recién en
                 // el siguiente keyframe (unos segundos), y la UI necesita saberlo para no mostrar un
                 // negro sin explicación mientras tanto.
-                MediaPlayer.Event.Vout -> { voutCount = e.voutCount }
+                MediaPlayer.Event.Vout -> {
+                    // El momento exacto en que la imagen aparece o se muere. Va con el layout
+                    // enganchado al lado: un `-> 0` con un layout que ya no está en la ventana es
+                    // la firma de que VLC quedó pintando sobre una Surface destruida.
+                    android.util.Log.w(
+                        "ArkivVout",
+                        "VOUT ${if (voutTracker.hayVideo()) 1 else 0} -> ${e.voutCount} (layout=#${layoutEnganchado ?: "-"})",
+                    )
+                    voutTracker.onVout(e.voutCount)
+                }
                 MediaPlayer.Event.EncounteredError -> {
                     // El reload NO se hace aquí (corremos en el thread de eventos de VLC: tocar el media
                     // player ahí crashea), sino en el looper.
@@ -440,15 +449,71 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
     fun setVlcVolume(v: Int) { runCatching { mediaPlayer.setVolume(v.coerceIn(0, 200)) } }
 
     /** ¿VLC está pintando video ahora? Falso mientras reconstruye el vout al volver de segundo plano. */
-    fun hasVideoOutput(): Boolean = voutCount > 0
+    fun hasVideoOutput(): Boolean = voutTracker.hayVideo()
 
-    fun attachVideo(layout: VLCVideoLayout) {
+    /** Identidad del layout enganchado ahora mismo, para el diagnóstico de la pantalla negra. */
+    @Volatile private var layoutEnganchado: String? = null
+
+    private fun idDe(layout: VLCVideoLayout) = Integer.toHexString(System.identityHashCode(layout))
+
+    /**
+     * @param motivo quién pide el enganche (factory de la pantalla, ON_START del ciclo de vida…).
+     *
+     * El `motivo` y la identidad del layout no son adorno: el síntoma de la pantalla negra es VLC
+     * pintando sobre una Surface ya destruida (`BufferQueue has been abandoned` + `EGL_BAD_ALLOC`),
+     * y para saber por qué hay dos explicaciones que en el log se ven idénticas sin esto —que se
+     * reenganche un layout viejo, o que el onRelease de la pantalla saliente desarme el attach de
+     * la entrante—. Con quién llama, qué layout entra y si ese layout sigue en la ventana, se
+     * distinguen de una sola lectura.
+     */
+    fun attachVideo(layout: VLCVideoLayout, motivo: String) {
+        android.util.Log.w(
+            "ArkivVout",
+            "ATTACH motivo=$motivo layout=#${idDe(layout)} enVentana=${layout.isAttachedToWindow} " +
+                "previo=#${layoutEnganchado ?: "-"} hayVideo=${voutTracker.hayVideo()}",
+        )
         // attachViews() PISA el VideoHelper anterior sin liberarlo (fuga + callbacks viejos sobre el
         // holder), así que soltamos primero. detachViews() es no-op si no había nada enganchado.
         runCatching { mediaPlayer.detachViews() }
         runCatching { mediaPlayer.attachViews(layout, null, true, false) }
+        layoutEnganchado = idDe(layout)
+        // La superficie no está lista en el mismo instante del attach (el callback del holder llega
+        // después), así que se le da un respiro a VLC para que rehaga el vout por su cuenta y recién
+        // ahí se lo empuja. Se vuelve a preguntar al disparar: si en el intervalo apareció la imagen,
+        // no se toca nada — el empujón apaga y prende la pista de video y se vería como un parpadeo.
+        handler.postDelayed({
+            if (voutTracker.necesitaEmpujon()) forzarReconstruccionDelVout()
+        }, REBUILD_VOUT_DELAY_MS)
     }
-    fun detachVideo() { runCatching { mediaPlayer.detachViews() } }
+
+    fun detachVideo(motivo: String) {
+        android.util.Log.w(
+            "ArkivVout",
+            "DETACH motivo=$motivo soltando=#${layoutEnganchado ?: "-"} hayVideo=${voutTracker.hayVideo()}",
+        )
+        runCatching { mediaPlayer.detachViews() }
+        voutTracker.onDetach()
+        layoutEnganchado = null
+    }
+
+    /**
+     * Obliga a libVLC a reconstruir la salida de video apagando y prendiendo la pista.
+     *
+     * `attachViews()` sobre un media que ya viene reproduciendo NO recrea el display: VLC sigue
+     * convencido de que su vout está vivo (nunca emite el `Vout 0` al perderse la superficie) y la
+     * superficie nueva se queda sin nada — imagen negra con el audio andando. Cambiar la pista de
+     * video es lo que fuerza el ciclo de destrucción y creación del vout.
+     */
+    private fun forzarReconstruccionDelVout() {
+        val pista = runCatching { mediaPlayer.videoTrack }.getOrDefault(-1)
+        if (pista < 0) {
+            android.util.Log.w("ArkivVout", "EMPUJON omitido: no hay pista de video (pista=$pista)")
+            return
+        }
+        android.util.Log.w("ArkivVout", "EMPUJON reconstruyendo vout (pista=$pista)")
+        runCatching { mediaPlayer.setVideoTrack(-1) }
+        runCatching { mediaPlayer.setVideoTrack(pista) }
+    }
 
     /**
      * Formato crudo de la pista de audio en uso. `audioTracks` NO sirve para esto: da id y nombre
@@ -494,6 +559,9 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
     }
 
     private companion object {
+        // Respiro tras enganchar una superficie antes de forzar la reconstrucción del vout: le da
+        // margen a VLC para rehacerlo solo (y así no parpadear de gusto) sin que la espera se note.
+        const val REBUILD_VOUT_DELAY_MS = 400L
         const val STALL_POLL_MS = 500L  // cada cuánto sondea el watcher de estancamiento
         const val STALL_MS = 900L       // tiempo sin avanzar (queriendo reproducir) para marcar buffering
 

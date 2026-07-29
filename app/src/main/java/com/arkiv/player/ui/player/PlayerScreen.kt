@@ -247,6 +247,9 @@ private fun rememberMediaController(): MediaController? {
     return controller
 }
 
+/** Numera las composiciones del reproductor. Ver el DisposableEffect de `pantallaId`. */
+private val PANTALLA_SEQ = java.util.concurrent.atomic.AtomicInteger(0)
+
 @OptIn(UnstableApi::class)
 @Composable
 fun PlayerScreen(
@@ -486,28 +489,55 @@ private fun PlayerContent(
     // colgado en contenido de solo audio (que nunca tiene vout).
     var esperandoVideo by remember { mutableStateOf(false) }
 
+    // Identidad de ESTA composición del reproductor. Al recrearse la pantalla (volver del segundo
+    // plano, navegación) llegan a convivir dos, cada una con su layout y su observador de ciclo de
+    // vida; sin poder nombrarlas, en el log se ven como la misma y no hay manera de saber cuál
+    // engancha el video y cuál lo suelta.
+    val pantallaId = remember { PANTALLA_SEQ.incrementAndGet() }
+    DisposableEffect(Unit) {
+        android.util.Log.w("ArkivVout", "PANTALLA #$pantallaId entra")
+        onDispose { android.util.Log.w("ArkivVout", "PANTALLA #$pantallaId sale (dispose)") }
+    }
+
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, vlc) {
         var habiaVideo = false
         val policy = VideoAttachPolicy(
             attach = {
-                videoView?.let { vlc.attachVideo(it) }
+                val v = videoView
+                if (v == null) {
+                    android.util.Log.w("ArkivVout", "ON_START #$pantallaId PERO videoView=null → no engancha nada")
+                } else {
+                    vlc.attachVideo(v, "ON_START#$pantallaId")
+                }
                 esperandoVideo = habiaVideo
             },
             detach = {
                 habiaVideo = vlc.hasVideoOutput()
-                vlc.detachVideo()
+                vlc.detachVideo("ON_STOP#$pantallaId")
             },
         )
+        // Los eventos crudos se loguean aparte de lo que decide la política: la política ignora a
+        // propósito el primer ON_START (ver VideoAttachPolicy), así que "llegó el evento" y "hubo
+        // reenganche" son dos hechos distintos y hay que poder verlos por separado.
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> policy.onStart()
-                Lifecycle.Event.ON_STOP -> policy.onStop()
+                Lifecycle.Event.ON_START -> {
+                    android.util.Log.w("ArkivVout", "CICLO #$pantallaId ON_START (dueño=${lifecycleOwner.hashCode()})")
+                    policy.onStart()
+                }
+                Lifecycle.Event.ON_STOP -> {
+                    android.util.Log.w("ArkivVout", "CICLO #$pantallaId ON_STOP (dueño=${lifecycleOwner.hashCode()})")
+                    policy.onStop()
+                }
                 else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        onDispose {
+            android.util.Log.w("ArkivVout", "CICLO #$pantallaId observador removido")
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     // Sondea hasta que VLC vuelva a pintar. El timeout es un seguro: si el vout no vuelve (fuente sin
@@ -1241,8 +1271,17 @@ private fun PlayerContent(
             modifier = outerModifier,
             factory = { ctx ->
                 VLCVideoLayout(ctx).also { layout ->
+                    val previo = videoView
                     videoView = layout
-                    vlc.attachVideo(layout)
+                    if (previo != null) {
+                        android.util.Log.w(
+                            "ArkivVout",
+                            "FACTORY #$pantallaId pisa videoView " +
+                                "#${Integer.toHexString(System.identityHashCode(previo))} → " +
+                                "#${Integer.toHexString(System.identityHashCode(layout))}",
+                        )
+                    }
+                    vlc.attachVideo(layout, "factory#$pantallaId")
                     if (isTv) {
                         layout.isFocusable = true
                         layout.isFocusableInTouchMode = true
@@ -1275,7 +1314,10 @@ private fun PlayerContent(
                     }
                 }
             },
-            onRelease = { vlc.detachVideo() },
+            // El orden entre este onRelease y el factory de la pantalla entrante es justo lo que
+            // hay que ver: si suelta DESPUÉS del attach nuevo, le desarma el video a la que acaba
+            // de engancharlo y quedás en Vout 0 con el audio sonando.
+            onRelease = { vlc.detachVideo("onRelease#$pantallaId") },
         )
 
         // Capa de GESTOS (solo teléfono, ambas fuentes; portada de TorrentPlayerScreen): tap = controles;
