@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 
+# superpowers subagent-driven-development scratch (ledgers, briefs, review packages)
+.superpowers/sdd/
+
 # Salidas de build. Estaban trackeadas por error: metieron un APK de debug de 143 MB en 19 commits
 # y dejaron el .git en 739 MB. GitHub rechaza cualquier archivo de más de 100 MB, así que el repo
 # no se podía ni empujar — por eso este repo arranca con historia nueva.
