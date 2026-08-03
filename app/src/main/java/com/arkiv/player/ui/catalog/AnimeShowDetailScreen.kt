@@ -513,8 +513,11 @@ fun AnimeShowDetailScreen(
                                     style = MaterialTheme.typography.titleSmall,
                                     modifier = Modifier.weight(1f),
                                 )
-                                // Contador total = las 3 fuentes (torrent + web + archive) del episodio.
-                                val count = (sourcesByEp[ep]?.size ?: 0) + (webByEp[ep]?.size ?: 0) + (archiveByEp[ep]?.size ?: 0)
+                                // Contador total = las 3 fuentes (torrent + web + archive) del episodio, más
+                                // los packs web que lo cubren (mismo criterio que la sub-sección WEB de abajo,
+                                // así el número de la fila colapsada coincide con el de adentro).
+                                val count = (sourcesByEp[ep]?.size ?: 0) + (webByEp[ep]?.size ?: 0) + (archiveByEp[ep]?.size ?: 0) +
+                                    webPacks.count { it.coversEpisode(season = 0, episode = ep, seasonStrict = false) }
                                 if (count > 0) Text(
                                     "$count",
                                     color = ArkivTextSecondary,

@@ -167,13 +167,6 @@ fun CineDetailScreen(
                 append(a); if (sheetEpisode == ep) loadingArchive = false
             }
             launch {
-                // Packs web cacheados que cubren este episodio (temporada exacta, mismo criterio que
-                // MirrorFilter usa para torrent en TV): se suman aparte de mirrorWeb/scraping en
-                // vivo, nunca los reemplazan.
-                if (ep != null) {
-                    val epPacks = webPacks.filter { it.coversEpisode(ep.season, ep.episode, seasonStrict = true) }
-                    if (epPacks.isNotEmpty()) append(epPacks.map { PlaySource.WebPack(it) })
-                }
                 // Mirror primero (rapido, sin Cloudflare on-device): si el backend ya tiene fuentes
                 // web para este episodio, las usamos. Si no (o es pelicula, fuera de alcance del
                 // mirror web), caemos al scraping en vivo de siempre.
@@ -429,7 +422,12 @@ fun CineDetailScreen(
                     }
                 }
                 val torrents = sources.filterIsInstance<PlaySource.Torrent>()
-                val webs = sources.filter { it is PlaySource.Web || it is PlaySource.WebPack }
+                // Packs derivados de `webPacks` (estado leído en composición) en vez de inyectados una
+                // sola vez en runSearch: así se recomponen solos si el fetch de packs (LaunchedEffect
+                // aparte, hasta ~6s) llega DESPUÉS de que el sheet ya abrió (p.ej. deep-link), sin
+                // perder la fila del pack ni necesitar cerrar/reabrir el sheet.
+                val epPacks = ep?.let { e -> webPacks.filter { it.coversEpisode(e.season, e.episode, seasonStrict = true) } } ?: emptyList()
+                val webs = sources.filterIsInstance<PlaySource.Web>() + epPacks.map { PlaySource.WebPack(it) }
                 val archives = sources.filterIsInstance<PlaySource.Archive>()
                 val anyLoading = loadingTorrent || loadingWeb || loadingArchive
                 fun toggle(k: String) { expandedSections = if (k in expandedSections) expandedSections - k else expandedSections + k }
