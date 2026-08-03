@@ -29,6 +29,12 @@ data class MirrorWebPack(
     val bySeason: List<Pair<Int, List<MirrorWebSource>>>
         get() = episodes.groupBy { it.season }.toSortedMap().map { (s, eps) -> s to eps }
 
+    /** ¿Este pack tiene un episodio que matchea (season, episode)? Mismo criterio que
+     *  [MirrorWebFilter]: TV exige temporada exacta (seasonStrict=true); anime solo exige que el
+     *  episodio esté en el set, sin importar season (seasonStrict=false). */
+    fun coversEpisode(season: Int, episode: Int, seasonStrict: Boolean): Boolean =
+        episodes.any { (!seasonStrict || season <= 0 || it.season == season) && it.episode == episode }
+
     companion object {
         /** Un pack por sitio, con sus episodios ordenados y el sitio mas completo primero. */
         fun groupBySite(showTitle: String, sources: List<MirrorWebSource>): List<MirrorWebPack> =

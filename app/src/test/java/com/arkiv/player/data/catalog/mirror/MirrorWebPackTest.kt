@@ -49,4 +49,21 @@ class MirrorWebPackTest {
     @Test fun `bySeason de un pack vacio es vacio`() {
         assertEquals(emptyList<Pair<Int, List<MirrorWebSource>>>(), MirrorWebPack("s", "X", emptyList()).bySeason)
     }
+
+    @Test fun `coversEpisode con seasonStrict exige temporada exacta`() {
+        val pack = MirrorWebPack.groupBySite("X", listOf(w("s", 1, 5), w("s", 2, 5)))[0]
+        assertEquals(true, pack.coversEpisode(season = 1, episode = 5, seasonStrict = true))
+        assertEquals(false, pack.coversEpisode(season = 3, episode = 5, seasonStrict = true))
+    }
+
+    @Test fun `coversEpisode sin seasonStrict matchea el episodio en cualquier temporada`() {
+        val pack = MirrorWebPack.groupBySite("X", listOf(w("s", 2, 5)))[0]
+        assertEquals(true, pack.coversEpisode(season = 0, episode = 5, seasonStrict = false))
+        assertEquals(false, pack.coversEpisode(season = 0, episode = 9, seasonStrict = false))
+    }
+
+    @Test fun `coversEpisode devuelve false para episodio ausente`() {
+        val pack = MirrorWebPack.groupBySite("X", listOf(w("s", 1, 1), w("s", 1, 2)))[0]
+        assertEquals(false, pack.coversEpisode(season = 1, episode = 3, seasonStrict = true))
+    }
 }
