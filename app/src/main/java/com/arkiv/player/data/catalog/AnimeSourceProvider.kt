@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
+import com.arkiv.player.data.catalog.providers.ContentType
 
 /** Un release de anime resuelto, con el episodio de la entrada AniList al que pertenece. */
 data class AnimeSourceResult(val result: TorrentResult, val episode: Int?)
@@ -109,6 +110,13 @@ class AnimeSourceProvider(
 
     /** Conjunto de títulos para buscar: AniList (display + romaji) + español (TMDB) + alt (Simkl). */
     suspend fun browseTitles(show: AnimeShow): List<String> = showMeta(show).titles
+
+    /** Packs web (serie completa por sitio) del mirror para este show — reusa los mismos títulos y
+     *  tmdbId que [episodeSourcesWeb], sin filtrar por episodio. */
+    suspend fun seriesWebPacks(show: AnimeShow): List<com.arkiv.player.data.catalog.mirror.MirrorWebPack> {
+        val meta = showMeta(show)
+        return torrentSearchApi.seriesWebPacks(meta.titles, ContentType.ANIME, tmdbId = meta.tmdbId, showTitle = show.title)
+    }
 
     private suspend fun buildTitles(
         show: AnimeShow,
