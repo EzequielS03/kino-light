@@ -51,6 +51,9 @@ import com.arkiv.player.data.catalog.TmdbEpisode
 import com.arkiv.player.data.catalog.TorrentLang
 import com.arkiv.player.data.catalog.TorrentResult
 import com.arkiv.player.data.catalog.TorrentSource
+import com.arkiv.player.data.catalog.mirror.MirrorWebPack
+import com.arkiv.player.data.catalog.mirror.MirrorWebSource
+import com.arkiv.player.data.catalog.providers.ContentType
 import com.arkiv.player.torrent.EpisodeFilePicker
 import kotlinx.coroutines.async
 import kotlinx.coroutines.Job
@@ -89,6 +92,8 @@ fun CineDetailScreen(
     var sheetEpisode by remember { mutableStateOf<TmdbEpisode?>(null) }
     var sheetOpen by remember { mutableStateOf(false) }
     var sources by remember { mutableStateOf<List<PlaySource>>(emptyList()) }
+    var webPacks by remember { mutableStateOf<List<MirrorWebPack>>(emptyList()) }
+    var webPackFor by remember { mutableStateOf<MirrorWebPack?>(null) }
     // Estado de carga por tipo (para el spinner de cada sección colapsable).
     var loadingTorrent by remember { mutableStateOf(false) }
     var loadingArchive by remember { mutableStateOf(false) }
@@ -115,6 +120,17 @@ fun CineDetailScreen(
             ?: d?.seasons?.firstOrNull { it.seasonNumber > 0 }?.seasonNumber
             ?: d?.seasons?.firstOrNull()?.seasonNumber
         loading = false
+    }
+
+    // Packs web (serie completa por sitio): un solo fetch por título, cacheado y reusado por todos
+    // los episodios del sheet. Películas no tienen concepto de pack (queda vacío).
+    LaunchedEffect(detail) {
+        val d = detail
+        webPacks = if (d != null && d.isSeries) {
+            runCatching {
+                graph.torrentSearchApi.seriesWebPacks(d.searchTitles, ContentType.TV, tmdbId = d.id, showTitle = d.title)
+            }.getOrDefault(emptyList())
+        } else emptyList()
     }
 
     // Cargar los capítulos de la temporada elegida (bajo demanda).
@@ -151,6 +167,13 @@ fun CineDetailScreen(
                 append(a); if (sheetEpisode == ep) loadingArchive = false
             }
             launch {
+                // Packs web cacheados que cubren este episodio (temporada exacta, mismo criterio que
+                // MirrorFilter usa para torrent en TV): se suman aparte de mirrorWeb/scraping en
+                // vivo, nunca los reemplazan.
+                if (ep != null) {
+                    val epPacks = webPacks.filter { it.coversEpisode(ep.season, ep.episode, seasonStrict = true) }
+                    if (epPacks.isNotEmpty()) append(epPacks.map { PlaySource.WebPack(it) })
+                }
                 // Mirror primero (rapido, sin Cloudflare on-device): si el backend ya tiene fuentes
                 // web para este episodio, las usamos. Si no (o es pelicula, fuera de alcance del
                 // mirror web), caemos al scraping en vivo de siempre.
@@ -262,14 +285,37 @@ fun CineDetailScreen(
         }
     }
 
+    // Agrega los capítulos elegidos de un pack web (serie completa de un sitio) a la biblioteca, uno
+    // por episodio real (season/episode tal cual los trae el sitio) — mismo molde que playWeb pero
+    // en loop. Devuelve al reproducir el episodio pedido si se tocó uno puntual, si no el primero.
+    fun addWebPack(pack: MirrorWebPack, title: String, episodes: List<MirrorWebSource>, playEpisode: MirrorWebSource? = null) {
+        val d = detail ?: return
+        val seriesId = d.imdbId.ifBlank { "tmdb${d.id}" }
+        preparing = true; error = null; sheetOpen = false
+        scope.launch {
+            var first: String? = null
+            var wanted: String? = null
+            for (ep in episodes) {
+                val id = graph.repository.addWebSeriesEpisode(
+                    seriesId, title, d.posterUrl, ep.season, ep.episode,
+                    ep.name.ifBlank { "Ep ${ep.episode}" }, ep.pageUrl,
+                )
+                if (first == null) first = id
+                if (playEpisode != null && ep.pageUrl == playEpisode.pageUrl) wanted = id
+            }
+            preparing = false
+            val target = wanted ?: first
+            if (target != null) onPlay(target) else error = "No se pudo agregar la serie"
+        }
+    }
+
     fun playSource(s: PlaySource) = when (s) {
         is PlaySource.Torrent ->
             if (com.arkiv.player.data.catalog.PackDetector.isPack(s.result.name)) packFor = s.result
             else play(s.result)
         is PlaySource.Archive -> playArchive(s.item)
         is PlaySource.Web -> playWeb(s.result)
-        // Esta pantalla nunca produce WebPack (solo la búsqueda lo hará, en una tarea posterior); no-op.
-        is PlaySource.WebPack -> Unit
+        is PlaySource.WebPack -> webPackFor = s.pack
     }
 
     Box(Modifier.fillMaxSize().background(ArkivBlack)) {
@@ -383,7 +429,7 @@ fun CineDetailScreen(
                     }
                 }
                 val torrents = sources.filterIsInstance<PlaySource.Torrent>()
-                val webs = sources.filterIsInstance<PlaySource.Web>()
+                val webs = sources.filter { it is PlaySource.Web || it is PlaySource.WebPack }
                 val archives = sources.filterIsInstance<PlaySource.Archive>()
                 val anyLoading = loadingTorrent || loadingWeb || loadingArchive
                 fun toggle(k: String) { expandedSections = if (k in expandedSections) expandedSections - k else expandedSections + k }
@@ -433,6 +479,24 @@ fun CineDetailScreen(
                     packFor = null
                     onPlay("$id::${row.index}")
                 }
+            },
+        )
+    }
+
+    webPackFor?.let { p ->
+        val d = detail
+        if (d != null) WebPackDialog(
+            pack = p,
+            defaultTitle = d.title,
+            posterUrl = d.posterUrl,
+            onDismiss = { webPackFor = null },
+            onSave = { title, episodes ->
+                webPackFor = null
+                addWebPack(p, title, episodes)
+            },
+            onPlayOne = { title, ep ->
+                webPackFor = null
+                addWebPack(p, title, p.episodes, ep)
             },
         )
     }
