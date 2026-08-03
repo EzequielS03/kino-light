@@ -61,6 +61,8 @@ import com.arkiv.player.data.catalog.TorrentSource
 import com.arkiv.player.data.catalog.providers.ContentType
 import com.arkiv.player.data.catalog.providers.SearchContext
 import com.arkiv.player.data.catalog.web.WebResult
+import com.arkiv.player.data.catalog.mirror.MirrorWebPack
+import com.arkiv.player.data.catalog.mirror.MirrorWebSource
 import com.arkiv.player.torrent.EpisodeFilePicker
 import kotlinx.coroutines.async
 import com.arkiv.player.ui.rememberGraph
@@ -116,6 +118,8 @@ fun AnimeShowDetailScreen(
     // Episodios pedidos a mano (fuera del rango 1..total), p.ej. numeración absoluta de long-runners.
     val manualEpisodes = remember { mutableStateListOf<Int>() }
     var manualEpText by remember { mutableStateOf("") }
+    var webPacks by remember { mutableStateOf<List<MirrorWebPack>>(emptyList()) }
+    var webPackFor by remember { mutableStateOf<MirrorWebPack?>(null) }
 
     // Calienta la sesión + DHT del torrent mientras el usuario ve los capítulos (arranque más rápido).
     LaunchedEffect(Unit) { graph.torrentEngine.warmUp() }
@@ -124,6 +128,13 @@ fun AnimeShowDetailScreen(
         loading = true
         show = runCatching { graph.aniListApi.details(anilistId) }.getOrNull()
         loading = false
+    }
+
+    // Packs web (serie completa por sitio): un solo fetch por show, cacheado y reusado por los 2
+    // modos — "Por episodio" inyecta los que cubren el episodio abierto, "Todos" los lista enteros.
+    LaunchedEffect(show) {
+        val s = show ?: return@LaunchedEffect
+        webPacks = runCatching { graph.animeSourceProvider.seriesWebPacks(s) }.getOrDefault(emptyList())
     }
 
     fun loadEpisode(ep: Int) {
@@ -282,6 +293,29 @@ fun AnimeShowDetailScreen(
             )
             preparing = false
             if (epId != null) onPlay(epId) else error = "No se pudo abrir la fuente web"
+        }
+    }
+
+    // Agrega los capítulos elegidos de un pack web (serie completa de un sitio) a la biblioteca, uno
+    // por episodio — mismo molde que playWebEp pero en loop. Devuelve al reproducir el episodio
+    // pedido si se tocó uno puntual (onPlayOne del diálogo), si no el primero agregado (onSave).
+    fun addWebPack(pack: MirrorWebPack, title: String, episodes: List<MirrorWebSource>, playEpisode: MirrorWebSource? = null) {
+        val s = show ?: return
+        preparing = true; error = null
+        scope.launch {
+            var first: String? = null
+            var wanted: String? = null
+            for (ep in episodes) {
+                val id = graph.repository.addWebSeriesEpisode(
+                    "anilist$anilistId", title, s.posterUrl, 1, ep.episode,
+                    ep.name.ifBlank { "Ep ${ep.episode}" }, ep.pageUrl,
+                )
+                if (first == null) first = id
+                if (playEpisode != null && ep.pageUrl == playEpisode.pageUrl) wanted = id
+            }
+            preparing = false
+            val target = wanted ?: first
+            if (target != null) onPlay(target) else error = "No se pudo agregar la serie"
         }
     }
 
@@ -501,11 +535,13 @@ fun AnimeShowDetailScreen(
                                         ReleaseRow(result = src.result, enabled = !preparing) { playOrPack(src.result, src.episode ?: ep) }
                                     }
                                 }
+                                val epPacks = webPacks.filter { it.coversEpisode(season = 0, episode = ep, seasonStrict = false) }
                                 AnimeSourceSection(
-                                    "WEB", Color(0xFFB39DDB), webs.size, loadingWebEp[ep] == true,
+                                    "WEB", Color(0xFFB39DDB), webs.size + epPacks.size, loadingWebEp[ep] == true,
                                     expandedSub["$ep-w"] ?: false, { expandedSub["$ep-w"] = !(expandedSub["$ep-w"] ?: false) },
                                 ) {
                                     webs.forEach { r -> WebEpRow(r, enabled = !preparing) { playWebEp(r, ep) } }
+                                    epPacks.forEach { p -> WebPackRow(p, enabled = !preparing) { webPackFor = p } }
                                 }
                                 AnimeSourceSection(
                                     "ARCHIVE", Color(0xFF80CBC4), archives.size, loadingArchiveEp[ep] == true,
@@ -518,6 +554,14 @@ fun AnimeShowDetailScreen(
                     }
 
                     if (mode == "all") {
+                        if (webPacks.isNotEmpty()) {
+                            AnimeSourceSection(
+                                "WEB", Color(0xFFB39DDB), webPacks.size, false,
+                                expandedSub["all-w"] ?: true, { expandedSub["all-w"] = !(expandedSub["all-w"] ?: true) },
+                            ) {
+                                webPacks.forEach { p -> WebPackRow(p, enabled = !preparing) { webPackFor = p } }
+                            }
+                        }
                         when {
                             // PROGRESIVO: spinner grande solo mientras no haya NADA aún.
                             loadingBrowse && browse.isNullOrEmpty() -> Row(
@@ -629,6 +673,24 @@ fun AnimeShowDetailScreen(
             },
         )
     }
+
+    webPackFor?.let { p ->
+        val s = show
+        if (s != null) WebPackDialog(
+            pack = p,
+            defaultTitle = s.title,
+            posterUrl = s.posterUrl,
+            onDismiss = { webPackFor = null },
+            onSave = { title, episodes ->
+                webPackFor = null
+                addWebPack(p, title, episodes)
+            },
+            onPlayOne = { title, ep ->
+                webPackFor = null
+                addWebPack(p, title, p.episodes, ep)
+            },
+        )
+    }
 }
 
 @Composable
@@ -719,6 +781,26 @@ private fun WebEpRow(r: WebResult, enabled: Boolean, onClick: () -> Unit) {
             Text(
                 r.siteName + listOfNotNull(r.language.ifBlank { null }, r.quality.ifBlank { null }).joinToString("") { "  ·  $it" },
                 color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall,
+            )
+        }
+    }
+}
+
+@Composable
+private fun WebPackRow(pack: MirrorWebPack, enabled: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick)
+            .padding(start = 8.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFFFFB74D))
+        Column(Modifier.weight(1f)) {
+            Text(pack.showTitle, color = Color.White, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(
+                "PACK · ${pack.episodeCount} capítulos" +
+                    (if (pack.seasons.size > 1) "  ·  ${pack.seasons.size} temporadas" else "") +
+                    "  ·  ${pack.siteId}",
+                color = Color(0xFFFFB74D), style = MaterialTheme.typography.labelSmall,
             )
         }
     }
