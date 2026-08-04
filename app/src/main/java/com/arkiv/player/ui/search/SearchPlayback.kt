@@ -165,6 +165,11 @@ class SearchPlayback(private val graph: AppGraph) {
      * (`WebSourceSeason.forPageUrl`) para no revertirle la temporada a esa fila y romper la
      * búsqueda de `PlaybackPreferenceStore.decide()`; queda en 1 (convención histórica) solo cuando
      * ningún pack conoce esa URL, o sea cuando tampoco hay nadie que la contradiga.
+     *
+     * [animeEpisode]: mismo problema pero de `episode` -- el mirror puede numerar absoluto y
+     * distinto al episodio de AniList que el usuario tocó. El llamador la resuelve por `pageUrl`
+     * (`WebSourceEpisode.forPageUrl`), con el episodio de AniList como fallback cuando ningún pack
+     * la conoce.
      */
     suspend fun playWeb(
         result: WebResult,
@@ -176,10 +181,11 @@ class SearchPlayback(private val graph: AppGraph) {
         season: Int?,
         episode: Int?,
         animeSeason: Int = 1,
+        animeEpisode: Int = 1,
     ): PlaybackResult {
         val epId = if (card.kind == "anime" && episode != null) {
             val anilistId = card.anilistId ?: animeShow?.id
-            graph.repository.addWebSeriesEpisode("anilist$anilistId", resultTitle, resultPoster, animeSeason, episode, "$resultTitle - Ep $episode", result.pageUrl)
+            graph.repository.addWebSeriesEpisode("anilist$anilistId", resultTitle, resultPoster, animeSeason, animeEpisode, "$resultTitle - Ep $animeEpisode", result.pageUrl)
         } else if (season != null && episode != null) {
             val epName = episodeNameFor(detail, season, episode)
             graph.repository.addWebSeriesEpisode(seriesIdFor(card, detail), resultTitle, resultPoster, season, episode, epName, result.pageUrl)
