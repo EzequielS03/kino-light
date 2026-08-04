@@ -1539,6 +1539,32 @@ private fun PlayerContent(
             }
         }
 
+        // Indicador "reproduciendo desde la NUC" (Task 11, sub-tarea de seguimiento). Antes la
+        // única señal de que el capítulo venía de la NUC en vez de la fuente en vivo era la mera
+        // PRESENCIA del botón "Reproducir en vivo" (más abajo, dentro del overlay de controles) —
+        // había que darse cuenta de qué significaba que estuviera ahí. Este chip lo dice directo.
+        // Vive AFUERA del AnimatedVisibility de los controles (como el cartel de Chromecast y el
+        // indicador de descarga de torrent de arriba) a propósito: es informativo, no un control,
+        // así que se mantiene visible aunque los controles se hayan desvanecido por inactividad.
+        // TopEnd + top=64dp para no pisar el back/título de la barra superior (que ocupa la franja
+        // 0–56dp) ni, en TV en pausa, el título/nombre de episodio de headerInfo (TopStart).
+        if (showLiveOverride) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .systemBarsPadding()
+                    .padding(top = 64.dp, end = 12.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0x99000000))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Icon(Icons.Default.LiveTv, contentDescription = null, tint = ArkivRed, modifier = Modifier.size(16.dp))
+                Text("Desde tu NUC", color = Color.White, style = MaterialTheme.typography.labelMedium)
+            }
+        }
+
         // Casteando a Chromecast.
         if (casting) {
             Row(
