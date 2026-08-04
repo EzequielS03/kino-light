@@ -15,7 +15,25 @@ data class NucDownloadItem(val season: Int, val episode: Int, val pageUrl: Strin
 
 data class NucJobItem(val itemId: Long, val season: Int, val episode: Int, val status: String, val error: String?)
 data class NucJob(val jobId: Long, val status: String, val progress: Float?, val items: List<NucJobItem>)
-data class NucLibraryEntry(val itemId: Long, val season: Int, val episode: Int, val sizeBytes: Long)
+/**
+ * Un episodio ya descargado, tal como lo devuelve `GET /library`.
+ *
+ * [sourceRef] es la pageUrl EXACTA desde la que se bajó (lo que este mismo cliente mandó como
+ * `source_ref` al crear el job, ver [ArkivOfflineApi.createJob] — se guarda tal cual, sin
+ * normalizar ni re-encodear, así que comparar por igualdad de string es válido). Sirve para
+ * distinguir de qué sitio vino la copia: la NUC guarda un solo archivo por (temporada, capítulo),
+ * y sin este dato el mismo capítulo se veía como "ya descargado" en los packs de los tres sitios
+ * (serieskao/pelisplus/sololatino) aunque solo se hubiera bajado de uno.
+ *
+ * Nullable porque filas históricas (anteriores a que se guardara) pueden no traerlo.
+ */
+data class NucLibraryEntry(
+    val itemId: Long,
+    val season: Int,
+    val episode: Int,
+    val sizeBytes: Long,
+    val sourceRef: String? = null,
+)
 
 /**
  * Cliente REST de arkiv-offline (Flask en el NUC de casa): crea/consulta/borra jobs de descarga y
@@ -118,7 +136,12 @@ class ArkivOfflineApi(
                 val arr = JSONArray(resp.body?.string() ?: return@withContext null)
                 (0 until arr.length()).map { i ->
                     val o = arr.getJSONObject(i)
-                    NucLibraryEntry(o.getLong("id"), o.getInt("season"), o.getInt("episode"), o.optLong("size_bytes"))
+                    NucLibraryEntry(
+                        o.getLong("id"), o.getInt("season"), o.getInt("episode"), o.optLong("size_bytes"),
+                        // optString devuelve "" tanto si falta la clave como si vino null: en ambos
+                        // casos no hay fuente conocida, así que se normaliza a null.
+                        o.optString("source_ref").ifBlank { null },
+                    )
                 }
             }
         }.getOrNull()

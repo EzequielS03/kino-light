@@ -131,6 +131,9 @@ data class NucLibraryItemEntity(
     val status: String,                 // "done" (unico status que GET /library devuelve)
     val sizeBytes: Long,
     val syncedAt: Long,
+    // pageUrl exacta desde la que se bajó este capítulo (job_items.source_ref en arkiv-offline).
+    // Nullable: filas viejas de la caché (y de la NUC) pueden no tenerla. Ver [NucLibraryEntry].
+    val sourceRef: String? = null,
 )
 
 /**

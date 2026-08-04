@@ -69,7 +69,7 @@ object NucDownloads {
     ): Boolean {
         val entries = api.library(seriesId) ?: return false
         val items = entries.map {
-            NucLibraryItemEntity(it.itemId, seriesId, it.season, it.episode, "done", it.sizeBytes, nowMs)
+            NucLibraryItemEntity(it.itemId, seriesId, it.season, it.episode, "done", it.sizeBytes, nowMs, it.sourceRef)
         }
         if (replace) libraryDao.clearForSeries(seriesId)
         libraryDao.upsertAll(items)

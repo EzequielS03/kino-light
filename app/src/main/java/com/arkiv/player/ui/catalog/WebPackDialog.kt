@@ -45,17 +45,31 @@ fun WebPackDialog(
     val selected = remember(pack) { mutableStateListOf<String>().apply { addAll(pack.episodes.map { it.pageUrl }) } }
     fun finalTitle() = title.trim().ifBlank { defaultTitle }
 
-    // Qué (season, episode) ya está en la NUC, para no hacerle re-adivinar al usuario si un
-    // capítulo del pack ya se descargó antes. Se refresca contra el backend cada vez que se abre
-    // el diálogo (replace = true) en vez de confiar ciegamente en lo que ya haya en caché local --
-    // mismo patrón que AnimeShowDetailScreen/CineDetailScreen/DetailScreen al abrir un detalle.
+    // Qué capítulos ya están en la NUC, para no hacerle re-adivinar al usuario si un capítulo del
+    // pack ya se descargó antes. Se refresca contra el backend cada vez que se abre el diálogo
+    // (replace = true) en vez de confiar ciegamente en lo que ya haya en caché local -- mismo patrón
+    // que AnimeShowDetailScreen/CineDetailScreen/DetailScreen al abrir un detalle.
     // refreshLibraryCache no toca la caché si falla la consulta (ver NucDownloads), así que leerla
     // después siempre es seguro, haya o no habido red.
+    //
+    // La clave incluye la pageUrl de origen, no solo (temporada, capítulo): la NUC guarda UN archivo
+    // por episodio, así que matchear solo por número marcaba el mismo capítulo como "ya descargado"
+    // en los packs de los tres sitios (serieskao/pelisplus/sololatino) aunque la copia viniera de uno
+    // solo -- y eso desalienta justo el caso legítimo de rebajarlo de otro sitio buscando mejor
+    // calidad. La comparación es por igualdad exacta de string y eso es válido porque el
+    // `source_ref` que guarda arkiv-offline es literalmente la pageUrl que este cliente le mandó al
+    // crear el job (ArkivOfflineApi.createJob), sin normalizar ni re-encodear.
+    //
+    // Las filas sin sourceRef (bajadas antes de que se guardara) quedan afuera a propósito: no se
+    // sabe de qué sitio salieron, y adivinar mal es peor que no mostrar el tilde -- de todos modos
+    // el primer refresh contra la NUC las rellena con el source_ref real.
     val graph = rememberGraph()
-    var downloaded by remember(seriesId) { mutableStateOf<Set<Pair<Int, Int>>>(emptySet()) }
+    var downloaded by remember(seriesId) { mutableStateOf<Set<Triple<Int, Int, String>>>(emptySet()) }
     LaunchedEffect(seriesId) {
         NucDownloads.refreshLibraryCache(graph.arkivOfflineApi, graph.database.nucLibraryItemDao(), seriesId, replace = true)
-        downloaded = graph.database.nucLibraryItemDao().forSeries(seriesId).map { it.season to it.episode }.toSet()
+        downloaded = graph.database.nucLibraryItemDao().forSeries(seriesId)
+            .mapNotNull { item -> item.sourceRef?.let { Triple(item.season, item.episode, it) } }
+            .toSet()
     }
 
     AlertDialog(
@@ -179,8 +193,9 @@ fun WebPackDialog(
                                 }
                                 // Informativo, no una acción -- por eso no es un IconButton ni comparte
                                 // el rojo de marca del Checkbox de selección: solo avisa que ESTE
-                                // capítulo puntual ya está en la NUC, para no re-disparar su descarga.
-                                if ((ep.season to ep.episode) in downloaded) {
+                                // capítulo puntual, bajado de ESTE sitio, ya está en la NUC, para no
+                                // re-disparar su descarga.
+                                if (Triple(ep.season, ep.episode, ep.pageUrl) in downloaded) {
                                     Icon(
                                         Icons.Default.CheckCircle,
                                         contentDescription = "Ya descargado en la NUC",

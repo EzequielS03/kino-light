@@ -21,7 +21,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SeriesPlaybackPrefEntity::class,
         LocalActiveJobEntity::class,
     ],
-    version = 14,
+    version = 15,
     exportSchema = false,
 )
 abstract class ArkivDatabase : RoomDatabase() {
@@ -222,13 +222,30 @@ abstract class ArkivDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v14 -> v15: `sourceRef` (la pageUrl de origen) en la caché de biblioteca de la NUC. Sin
+         * esta columna el "ya descargado" solo se podía comparar por (temporada, capítulo), y como
+         * la NUC guarda un único archivo por episodio, el tilde verde aparecía en los packs de los
+         * tres sitios a la vez aunque la copia viniera de uno solo.
+         *
+         * NULL (sin DEFAULT) a propósito: las filas que ya estaban en caché no saben de dónde
+         * salieron, y marcarlas con un valor inventado haría que matchearan un sitio equivocado.
+         * Con NULL simplemente no matchean, y el próximo refresh de biblioteca las rellena con el
+         * `source_ref` real que devuelve `GET /library`.
+         */
+        private val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE nuc_library_items ADD COLUMN sourceRef TEXT")
+            }
+        }
+
         fun get(context: Context): ArkivDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     ArkivDatabase::class.java,
                     "arkiv.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
                     .fallbackToDestructiveMigration()
                     .build().also { instance = it }
             }
