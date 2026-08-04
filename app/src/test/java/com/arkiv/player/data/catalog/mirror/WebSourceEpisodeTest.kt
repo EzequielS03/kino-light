@@ -13,14 +13,14 @@ class WebSourceEpisodeTest {
             "sitioA", "Shingeki no Kyojin",
             listOf(
                 src("sitioA", 1, 5, "http://a/s1e5"),
-                src("sitioA", 2, 5, "http://a/s2e5"),
+                src("sitioA", 2, 105, "http://a/s2e5"),
             ),
         ),
         MirrorWebPack("sitioB", "Shingeki no Kyojin", listOf(src("sitioB", 3, 12, "http://b/s3e12"))),
     )
 
     @Test fun `usa el episodio real del mirror para esa pageUrl`() {
-        assertEquals(5, WebSourceEpisode.forPageUrl(packs, "http://a/s2e5", fallback = 99))
+        assertEquals(105, WebSourceEpisode.forPageUrl(packs, "http://a/s2e5", fallback = 99))
     }
 
     @Test fun `busca en todos los packs, no solo en el primero`() {

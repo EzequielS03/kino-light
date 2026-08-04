@@ -181,7 +181,7 @@ class SearchPlayback(private val graph: AppGraph) {
         season: Int?,
         episode: Int?,
         animeSeason: Int = 1,
-        animeEpisode: Int = 1,
+        animeEpisode: Int,
     ): PlaybackResult {
         val epId = if (card.kind == "anime" && episode != null) {
             val anilistId = card.anilistId ?: animeShow?.id
