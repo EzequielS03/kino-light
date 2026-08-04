@@ -116,6 +116,37 @@ data class DownloadEntity(
 )
 
 /**
+ * Caché local de qué episodios ya están descargados en la NUC (arkiv-offline). Se alimenta de
+ * GET /library -- ver ArkivOfflineApi -- tanto al abrir el detalle de una serie como por el canal
+ * SSE+poll de la pantalla de Descargas. NO confundir con [DownloadEntity]: esa tabla es para
+ * descargas al almacenamiento del propio dispositivo (archive.org vía DownloadManager); esta es
+ * para contenido que vive en la NUC y se reproduce por streaming remoto.
+ */
+@Entity(tableName = "nuc_library_items")
+data class NucLibraryItemEntity(
+    @PrimaryKey val itemId: Long,       // id del item en arkiv-offline (job_items.id)
+    val seriesId: String,
+    val season: Int,
+    val episode: Int,
+    val status: String,                 // "done" (unico status que GET /library devuelve)
+    val sizeBytes: Long,
+    val syncedAt: Long,
+)
+
+/**
+ * Preferencia de reproducción por serie: NUC (streamear desde arkiv-offline cuando el episodio
+ * puntual esté descargado) o LIVE (siempre en vivo). [asked] distingue "todavia no se preguntó"
+ * de "el usuario eligió LIVE explícitamente" -- ambos casos empiezan sin fila, así que sin este
+ * flag no se podría diferenciar "preguntar" de "ya preguntado y dijo que no".
+ */
+@Entity(tableName = "series_playback_prefs")
+data class SeriesPlaybackPrefEntity(
+    @PrimaryKey val seriesId: String,
+    val preference: String,             // "NUC" | "LIVE"
+    val asked: Boolean,
+)
+
+/**
  * Still (fotograma oficial) de un capítulo, resuelto desde TMDB. Local y NO sincronizado, igual
  * que [ArtworkEntity]: es caché derivable, no datos del usuario. Va en su propia tabla y no como
  * columna de `episodes` a propósito — esa tabla tiene triggers de sync, y tocar 49 filas por serie

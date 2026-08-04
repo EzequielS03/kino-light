@@ -17,8 +17,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ArtworkEntity::class,
         SearchHistoryEntity::class,
         EpisodeStillEntity::class,
+        NucLibraryItemEntity::class,
+        SeriesPlaybackPrefEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = false,
 )
 abstract class ArkivDatabase : RoomDatabase() {
@@ -29,6 +31,8 @@ abstract class ArkivDatabase : RoomDatabase() {
     abstract fun artworkDao(): ArtworkDao
     abstract fun searchHistoryDao(): SearchHistoryDao
     abstract fun episodeStillDao(): EpisodeStillDao
+    abstract fun nucLibraryItemDao(): NucLibraryItemDao
+    abstract fun seriesPlaybackPrefDao(): SeriesPlaybackPrefDao
 
     companion object {
         @Volatile
@@ -172,13 +176,33 @@ abstract class ArkivDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v11 -> v12: caché local de la biblioteca de arkiv-offline (qué episodios ya están
+         * descargados en la NUC) + preferencia de reproducción por serie (NUC vs LIVE).
+         */
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS nuc_library_items (" +
+                        "itemId INTEGER NOT NULL PRIMARY KEY, seriesId TEXT NOT NULL, " +
+                        "season INTEGER NOT NULL, episode INTEGER NOT NULL, status TEXT NOT NULL, " +
+                        "sizeBytes INTEGER NOT NULL, syncedAt INTEGER NOT NULL)",
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS series_playback_prefs (" +
+                        "seriesId TEXT NOT NULL PRIMARY KEY, preference TEXT NOT NULL, " +
+                        "asked INTEGER NOT NULL)",
+                )
+            }
+        }
+
         fun get(context: Context): ArkivDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     ArkivDatabase::class.java,
                     "arkiv.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
                     .fallbackToDestructiveMigration()
                     .build().also { instance = it }
             }
