@@ -14,11 +14,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -71,7 +73,11 @@ fun MetaChip(text: String, color: Color = ArkivTextSecondary, strong: Boolean = 
     }
 }
 
-/** Sección colapsable por tipo de fuente (TORRENT/WEB/ARCHIVE) con contador y spinner propio. */
+/**
+ * Sección colapsable por tipo de fuente (TORRENT/WEB/ARCHIVE) con contador y spinner propio.
+ * [onDownload], si no es null, agrega un botón de "Descargar offline" (arkiv-offline/NUC) a cada
+ * fila de la sección — usado solo por la sección WEB, ver CineDetailScreen.
+ */
 @Composable
 fun SourceSection(
     tag: String,
@@ -81,12 +87,15 @@ fun SourceSection(
     expanded: Boolean,
     onToggle: () -> Unit,
     enabled: Boolean,
+    onDownload: ((PlaySource) -> Unit)? = null,
     onPlay: (PlaySource) -> Unit,
 ) {
     Column(Modifier.padding(top = 4.dp)) {
         SourceSectionHeader(tag, tagColor, items.size, loading, expanded, onToggle)
         if (expanded) {
-            items.forEach { s -> SourceRow(s, enabled = enabled) { onPlay(s) } }
+            items.forEach { s ->
+                SourceRow(s, enabled = enabled, onDownload = onDownload?.let { cb -> { cb(s) } }) { onPlay(s) }
+            }
             if (items.isEmpty() && !loading) {
                 Text(
                     "Sin resultados", color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall,
@@ -132,7 +141,7 @@ fun SourceSectionHeader(
  * el origen sin gastar una etiqueta de texto en cada fila.
  */
 @Composable
-fun SourceRow(source: PlaySource, enabled: Boolean, onClick: () -> Unit) {
+fun SourceRow(source: PlaySource, enabled: Boolean, onDownload: (() -> Unit)? = null, onClick: () -> Unit) {
     val accent = accentOf(source)
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
@@ -210,6 +219,11 @@ fun SourceRow(source: PlaySource, enabled: Boolean, onClick: () -> Unit) {
                         MetaChip(p.siteId, ArkivWebViolet)
                     }
                 }
+            }
+        }
+        if (onDownload != null) {
+            IconButton(onClick = onDownload, enabled = enabled) {
+                Icon(Icons.Default.Download, contentDescription = "Descargar offline", tint = accent)
             }
         }
         Spacer(Modifier.width(8.dp))

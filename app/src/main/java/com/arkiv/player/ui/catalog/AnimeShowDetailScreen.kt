@@ -19,6 +19,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
@@ -128,6 +129,23 @@ fun AnimeShowDetailScreen(
         loading = true
         show = runCatching { graph.aniListApi.details(anilistId) }.getOrNull()
         loading = false
+    }
+
+    // Refresca la caché local de "qué episodios ya están en la NUC" al abrir el detalle: así
+    // PlaybackPreferenceStore (Task 10) tiene datos frescos aunque la descarga se haya disparado
+    // desde otro dispositivo o el usuario nunca haya visitado la pantalla de Descargas.
+    LaunchedEffect(anilistId) {
+        scope.launch {
+            val entries = graph.arkivOfflineApi.library("anilist$anilistId")
+            val items = entries.map {
+                com.arkiv.player.data.db.NucLibraryItemEntity(
+                    it.itemId, "anilist$anilistId", it.season, it.episode, "done", it.sizeBytes,
+                    System.currentTimeMillis(),
+                )
+            }
+            graph.database.nucLibraryItemDao().clearForSeries("anilist$anilistId")
+            graph.database.nucLibraryItemDao().upsertAll(items)
+        }
     }
 
     // Packs web (serie completa por sitio): un solo fetch por show, cacheado y reusado por los 2
@@ -316,6 +334,48 @@ fun AnimeShowDetailScreen(
             preparing = false
             val target = wanted ?: first
             if (target != null) onPlay(target) else error = "No se pudo agregar la serie"
+        }
+    }
+
+    // Dispara una descarga a la NUC (arkiv-offline) del pack completo. MirrorWebSource ya trae la
+    // temporada real por episodio (ver WebMirrorModels.kt), así que se usa tal cual en vez de
+    // asumir season=1 (esa normalización es solo para la reproducción/guardado local del anime).
+    fun downloadPack(pack: MirrorWebPack) {
+        val s = show ?: return
+        scope.launch {
+            val items = pack.episodes.map {
+                com.arkiv.player.data.offline.NucDownloadItem(it.season, it.episode, it.pageUrl)
+            }
+            val jobId = graph.arkivOfflineApi.createJob(
+                seriesId = "anilist$anilistId", showTitle = s.title, posterUrl = s.posterUrl, items = items,
+            )
+            if (jobId == null) {
+                error = "No se pudo iniciar la descarga (revisá la conexión con la NUC)"
+            }
+            // El aviso de "descarga terminada" (WorkManager + notificacion local) se conecta
+            // aca mismo en el Task 12, Step 2 -- ese task agrega la llamada
+            // NucDownloadCheckWorker.schedule(context, jobId) en esta rama del if, una vez que
+            // esa clase existe. No adelantarla en este task: todavia no hay nada que llamar.
+        }
+    }
+
+    // Descarga un único episodio web suelto (fuera de un pack). WebResult no trae season/episode
+    // (viene a nivel de episodio ya resuelto por episodeSourcesWeb), así que se usa el mismo
+    // convenio que playWebEp: season=1 fijo, episodio = el de la fila que se está viendo.
+    fun downloadEpisode(r: WebResult, ep: Int) {
+        val s = show ?: return
+        scope.launch {
+            val jobId = graph.arkivOfflineApi.createJob(
+                seriesId = "anilist$anilistId", showTitle = s.title, posterUrl = s.posterUrl,
+                items = listOf(com.arkiv.player.data.offline.NucDownloadItem(1, ep, r.pageUrl)),
+            )
+            if (jobId == null) {
+                error = "No se pudo iniciar la descarga (revisá la conexión con la NUC)"
+            }
+            // El aviso de "descarga terminada" (WorkManager + notificacion local) se conecta
+            // aca mismo en el Task 12, Step 2 -- ese task agrega la llamada
+            // NucDownloadCheckWorker.schedule(context, jobId) en esta rama del if, una vez que
+            // esa clase existe. No adelantarla en este task: todavia no hay nada que llamar.
         }
     }
 
@@ -543,8 +603,12 @@ fun AnimeShowDetailScreen(
                                     "WEB", Color(0xFFB39DDB), webs.size + epPacks.size, loadingWebEp[ep] == true,
                                     expandedSub["$ep-w"] ?: false, { expandedSub["$ep-w"] = !(expandedSub["$ep-w"] ?: false) },
                                 ) {
-                                    webs.forEach { r -> WebEpRow(r, enabled = !preparing) { playWebEp(r, ep) } }
-                                    epPacks.forEach { p -> WebPackRow(p, enabled = !preparing) { webPackFor = p } }
+                                    webs.forEach { r ->
+                                        WebEpRow(r, enabled = !preparing, onClick = { playWebEp(r, ep) }, onDownload = { downloadEpisode(r, ep) })
+                                    }
+                                    epPacks.forEach { p ->
+                                        WebPackRow(p, enabled = !preparing, onClick = { webPackFor = p }, onDownload = { downloadPack(p) })
+                                    }
                                 }
                                 AnimeSourceSection(
                                     "ARCHIVE", Color(0xFF80CBC4), archives.size, loadingArchiveEp[ep] == true,
@@ -562,7 +626,9 @@ fun AnimeShowDetailScreen(
                                 "WEB", Color(0xFFB39DDB), webPacks.size, false,
                                 expandedSub["all-w"] ?: true, { expandedSub["all-w"] = !(expandedSub["all-w"] ?: true) },
                             ) {
-                                webPacks.forEach { p -> WebPackRow(p, enabled = !preparing) { webPackFor = p } }
+                                webPacks.forEach { p ->
+                                    WebPackRow(p, enabled = !preparing, onClick = { webPackFor = p }, onDownload = { downloadPack(p) })
+                                }
                             }
                         }
                         when {
@@ -772,7 +838,7 @@ private fun AnimeSourceSection(
 }
 
 @Composable
-private fun WebEpRow(r: WebResult, enabled: Boolean, onClick: () -> Unit) {
+private fun WebEpRow(r: WebResult, enabled: Boolean, onClick: () -> Unit, onDownload: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick)
             .padding(start = 8.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
@@ -786,11 +852,14 @@ private fun WebEpRow(r: WebResult, enabled: Boolean, onClick: () -> Unit) {
                 color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall,
             )
         }
+        IconButton(onClick = onDownload, enabled = enabled) {
+            Icon(Icons.Default.Download, contentDescription = "Descargar offline", tint = Color(0xFFB39DDB))
+        }
     }
 }
 
 @Composable
-private fun WebPackRow(pack: MirrorWebPack, enabled: Boolean, onClick: () -> Unit) {
+private fun WebPackRow(pack: MirrorWebPack, enabled: Boolean, onClick: () -> Unit, onDownload: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick)
             .padding(start = 8.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
@@ -805,6 +874,9 @@ private fun WebPackRow(pack: MirrorWebPack, enabled: Boolean, onClick: () -> Uni
                     "  ·  ${pack.siteId}",
                 color = Color(0xFFFFB74D), style = MaterialTheme.typography.labelSmall,
             )
+        }
+        IconButton(onClick = onDownload, enabled = enabled) {
+            Icon(Icons.Default.Download, contentDescription = "Descargar offline", tint = Color(0xFFFFB74D))
         }
     }
 }

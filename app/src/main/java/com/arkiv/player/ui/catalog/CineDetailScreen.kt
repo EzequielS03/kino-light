@@ -122,6 +122,27 @@ fun CineDetailScreen(
         loading = false
     }
 
+    // Refresca la caché local de "qué episodios ya están en la NUC" al abrir el detalle (solo
+    // series: las películas no tienen season/episode ni se descargan vía este flujo web). Así
+    // PlaybackPreferenceStore (Task 10) tiene datos frescos aunque la descarga se haya disparado
+    // desde otro dispositivo o el usuario nunca haya visitado la pantalla de Descargas.
+    LaunchedEffect(detail) {
+        val d = detail
+        if (d == null || !d.isSeries) return@LaunchedEffect
+        val seriesId = d.imdbId.ifBlank { "tmdb${d.id}" }
+        scope.launch {
+            val entries = graph.arkivOfflineApi.library(seriesId)
+            val items = entries.map {
+                com.arkiv.player.data.db.NucLibraryItemEntity(
+                    it.itemId, seriesId, it.season, it.episode, "done", it.sizeBytes,
+                    System.currentTimeMillis(),
+                )
+            }
+            graph.database.nucLibraryItemDao().clearForSeries(seriesId)
+            graph.database.nucLibraryItemDao().upsertAll(items)
+        }
+    }
+
     // Packs web (serie completa por sitio): un solo fetch por título, cacheado y reusado por todos
     // los episodios del sheet. Películas no tienen concepto de pack (queda vacío).
     LaunchedEffect(detail) {
@@ -302,6 +323,56 @@ fun CineDetailScreen(
         }
     }
 
+    // Dispara una descarga a la NUC (arkiv-offline) del pack completo. MirrorWebSource ya trae la
+    // temporada real por episodio (ver WebMirrorModels.kt), así que se usa tal cual.
+    fun downloadPack(pack: MirrorWebPack) {
+        val d = detail ?: return
+        val seriesId = d.imdbId.ifBlank { "tmdb${d.id}" }
+        scope.launch {
+            val items = pack.episodes.map {
+                com.arkiv.player.data.offline.NucDownloadItem(it.season, it.episode, it.pageUrl)
+            }
+            val jobId = graph.arkivOfflineApi.createJob(
+                seriesId = seriesId, showTitle = d.title, posterUrl = d.posterUrl, items = items,
+            )
+            if (jobId == null) {
+                error = "No se pudo iniciar la descarga (revisá la conexión con la NUC)"
+            }
+            // El aviso de "descarga terminada" (WorkManager + notificacion local) se conecta
+            // aca mismo en el Task 12, Step 2 -- ese task agrega la llamada
+            // NucDownloadCheckWorker.schedule(context, jobId) en esta rama del if, una vez que
+            // esa clase existe. No adelantarla en este task: todavia no hay nada que llamar.
+        }
+    }
+
+    // Descarga un único episodio web suelto (fuera de un pack) del episodio actualmente abierto en
+    // el sheet -- WebResult no trae season/episode propios, así que se usan los del TmdbEpisode
+    // que abrió el sheet (mismo molde que playWeb).
+    fun downloadEpisode(r: com.arkiv.player.data.catalog.web.WebResult, ep: TmdbEpisode) {
+        val d = detail ?: return
+        val seriesId = d.imdbId.ifBlank { "tmdb${d.id}" }
+        scope.launch {
+            val jobId = graph.arkivOfflineApi.createJob(
+                seriesId = seriesId, showTitle = d.title, posterUrl = d.posterUrl,
+                items = listOf(com.arkiv.player.data.offline.NucDownloadItem(ep.season, ep.episode, r.pageUrl)),
+            )
+            if (jobId == null) {
+                error = "No se pudo iniciar la descarga (revisá la conexión con la NUC)"
+            }
+            // El aviso de "descarga terminada" (WorkManager + notificacion local) se conecta
+            // aca mismo en el Task 12, Step 2 -- ese task agrega la llamada
+            // NucDownloadCheckWorker.schedule(context, jobId) en esta rama del if, una vez que
+            // esa clase existe. No adelantarla en este task: todavia no hay nada que llamar.
+        }
+    }
+
+    // Solo tiene sentido para episodios de serie (movies no tienen season/episode ni packs web).
+    fun downloadSource(s: PlaySource, ep: TmdbEpisode) = when (s) {
+        is PlaySource.WebPack -> downloadPack(s.pack)
+        is PlaySource.Web -> downloadEpisode(s.result, ep)
+        else -> Unit
+    }
+
     fun playSource(s: PlaySource) = when (s) {
         is PlaySource.Torrent ->
             if (com.arkiv.player.data.catalog.PackDetector.isPack(s.result.name)) packFor = s.result
@@ -447,7 +518,9 @@ fun CineDetailScreen(
                         SourceSection("TORRENT", ArkivRed, torrents, loadingTorrent,
                             "TORRENT" in expandedSections, { toggle("TORRENT") }, !preparing) { playSource(it) }
                         SourceSection("WEB", Color(0xFFB39DDB), webs, loadingWeb,
-                            "WEB" in expandedSections, { toggle("WEB") }, !preparing) { playSource(it) }
+                            "WEB" in expandedSections, { toggle("WEB") }, !preparing,
+                            onDownload = ep?.let { e -> { s: PlaySource -> downloadSource(s, e) } },
+                        ) { playSource(it) }
                         SourceSection("ARCHIVE", Color(0xFF80CBC4), archives, loadingArchive,
                             "ARCHIVE" in expandedSections, { toggle("ARCHIVE") }, !preparing) { playSource(it) }
                     }
