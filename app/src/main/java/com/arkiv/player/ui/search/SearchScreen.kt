@@ -197,13 +197,15 @@ fun SearchScreen(
         val card = selected ?: return
         val season = refineSeason
         val episode = refineEpisode
-        val animeSeason = com.arkiv.player.data.catalog.mirror.WebSourceSeason.forPageUrl(
-            sources.filterIsInstance<PlaySource.WebPack>().map { it.pack }, r.pageUrl,
+        val packs = sources.filterIsInstance<PlaySource.WebPack>().map { it.pack }
+        val animeSeason = com.arkiv.player.data.catalog.mirror.WebSourceSeason.forPageUrl(packs, r.pageUrl)
+        val animeEpisode = com.arkiv.player.data.catalog.mirror.WebSourceEpisode.forPageUrl(
+            packs, r.pageUrl, fallback = episode ?: 1,
         )
         preparing = true; playError = null
         scope.launch {
             applyResult(
-                playback.playWeb(r, card, detail, animeShow, resultTitle, resultPoster, season, episode, animeSeason),
+                playback.playWeb(r, card, detail, animeShow, resultTitle, resultPoster, season, episode, animeSeason, animeEpisode),
             )
         }
     }

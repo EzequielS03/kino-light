@@ -173,16 +173,19 @@ fun TvSearchScreen(
         val card = selected ?: return
         val season = refineSeason
         val episode = refineEpisode
-        // Misma resolución de temporada por pageUrl que SearchScreen.playWebResult: sin esto, tocar
-        // play sobre un capítulo ya guardado desde un pack le revierte la temporada a 1 en la fila
-        // local y PlaybackPreferenceStore.decide() deja de encontrar el capítulo bajado a la NUC.
-        val animeSeason = com.arkiv.player.data.catalog.mirror.WebSourceSeason.forPageUrl(
-            sources.filterIsInstance<PlaySource.WebPack>().map { it.pack }, r.pageUrl,
+        // Misma resolución de temporada/episodio por pageUrl que SearchScreen.playWebResult: sin
+        // esto, tocar play sobre un capítulo ya guardado desde un pack le revierte la temporada o
+        // el episodio a los de AniList en la fila local y PlaybackPreferenceStore.decide() deja de
+        // encontrar el capítulo bajado a la NUC.
+        val packs = sources.filterIsInstance<PlaySource.WebPack>().map { it.pack }
+        val animeSeason = com.arkiv.player.data.catalog.mirror.WebSourceSeason.forPageUrl(packs, r.pageUrl)
+        val animeEpisode = com.arkiv.player.data.catalog.mirror.WebSourceEpisode.forPageUrl(
+            packs, r.pageUrl, fallback = episode ?: 1,
         )
         preparing = true; playError = null
         scope.launch {
             applyResult(
-                playback.playWeb(r, card, vmDetail, vmAnimeShow, resultTitle, resultPoster, season, episode, animeSeason),
+                playback.playWeb(r, card, vmDetail, vmAnimeShow, resultTitle, resultPoster, season, episode, animeSeason, animeEpisode),
             )
         }
     }
