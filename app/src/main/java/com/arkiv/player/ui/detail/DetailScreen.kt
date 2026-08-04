@@ -88,6 +88,24 @@ fun DetailScreen(
     val onDownloadEpisode: (Episode) -> Unit = { ep ->
         scope.launch { graph.downloader.enqueue(ep) }
     }
+
+    // Refresca la caché local de "qué episodios ya están en la NUC" al abrir el detalle: así
+    // PlaybackPreferenceStore (Task 10) tiene datos frescos aunque la descarga se haya disparado
+    // desde otro dispositivo, o el usuario haya llegado por "Mi biblioteca" en vez de por la
+    // búsqueda/catálogo (AnimeShowDetailScreen/CineDetailScreen), que son las otras 2 puertas de
+    // entrada que ya hacían este refresh. `identifier` acá es el mismo seriesId que esas 2 pantallas
+    // (anilist$id / imdbId / tmdb$id), así que se usa tal cual.
+    // `replace = true`: la respuesta es la verdad completa de la serie (refleja también borrados).
+    // Si la consulta falla, NucDownloads.refreshLibraryCache no toca nada (ver ahí el porqué).
+    LaunchedEffect(identifier) {
+        scope.launch {
+            com.arkiv.player.data.offline.NucDownloads.refreshLibraryCache(
+                graph.arkivOfflineApi, graph.database.nucLibraryItemDao(),
+                seriesId = identifier, replace = true,
+            )
+        }
+    }
+
     var menuExpanded by remember { mutableStateOf(false) }
     var showMarkersDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }

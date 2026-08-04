@@ -305,14 +305,19 @@ fun AnimeShowDetailScreen(
     // Reproduce una fuente web de un episodio de anime: crea el episodio web (guarda la pageUrl) y
     // usa el player unificado, que resuelve pageUrl → stream al cargar. Molde: CineDetailScreen.playWeb.
     //
-    // Season: WebResult no la trae, pero la fila local se guarda por hash de pageUrl -- la misma que
-    // escriben addWebPack/downloadPack con la temporada REAL del mirror. Inventar 1 acá le revertía
-    // la temporada a esa fila y rompía la búsqueda en nuc_library_items (ver WebSourceSeason).
+    // Season: la fila local se guarda por hash de pageUrl -- la misma que escriben
+    // addWebPack/downloadPack con la temporada REAL del mirror. Inventar 1 acá le revertía la
+    // temporada a esa fila y rompía la búsqueda en nuc_library_items (ver WebSourceSeason). El
+    // WebResult del mirror ya la trae; `webPacks` queda como respaldo por si la fuente es en vivo.
+    //
+    // Episode: mismo problema pero de número de episodio -- el mirror puede numerar absoluto y
+    // distinto al episodio de AniList que el usuario tocó (`ep`). Igual que la temporada, el propio
+    // WebResult ya lo trae cuando vino del mirror; `webPacks` es el respaldo (ver WebSourceEpisode).
     fun playWebEp(r: WebResult, ep: Int) {
         val s = show ?: return
         preparing = true; error = null
-        val season = com.arkiv.player.data.catalog.mirror.WebSourceSeason.forPageUrl(webPacks, r.pageUrl)
-        val episode = com.arkiv.player.data.catalog.mirror.WebSourceEpisode.forPageUrl(webPacks, r.pageUrl, fallback = ep)
+        val season = com.arkiv.player.data.catalog.mirror.WebSourceSeason.forResult(r, webPacks)
+        val episode = com.arkiv.player.data.catalog.mirror.WebSourceEpisode.forResult(r, webPacks, fallback = ep)
         scope.launch {
             val epId = graph.repository.addWebSeriesEpisode(
                 "anilist$anilistId", s.title, s.posterUrl, season, episode, "${s.title} - Ep $episode", r.pageUrl,
@@ -333,8 +338,9 @@ fun AnimeShowDetailScreen(
     // temporada. Se usa ep.season, igual que ya hace CineDetailScreen.addWebPack.
     //
     // Los caminos de "un episodio suelto" (playWebEp/downloadEpisode) escriben ESTA MISMA fila
-    // (clave = hash de pageUrl) y ya no inventan 1: resuelven la temporada por pageUrl contra
-    // `webPacks` (WebSourceSeason), así que las dos rutas coinciden escriba la que escriba último.
+    // (clave = hash de pageUrl) y ya no inventan 1 ni el número de AniList: resuelven season/episode
+    // del propio WebResult del mirror, con `webPacks` como respaldo (WebSourceSeason/WebSourceEpisode),
+    // así que las dos rutas coinciden escriba la que escriba último.
     fun addWebPack(pack: MirrorWebPack, title: String, episodes: List<MirrorWebSource>, playEpisode: MirrorWebSource? = null) {
         val s = show ?: return
         preparing = true; error = null
@@ -378,16 +384,15 @@ fun AnimeShowDetailScreen(
         }
     }
 
-    // Descarga un único episodio web suelto (fuera de un pack). WebResult no trae season/episode
-    // (viene a nivel de episodio ya resuelto por episodeSourcesWeb): el episodio es el de la fila
-    // que se está viendo y la temporada se resuelve por pageUrl contra los packs del mirror, igual
-    // que playWebEp -- así el season que se guarda en la NUC calza con el de la fila local, que es
-    // con el que después PlaybackPreferenceStore.decide() busca el capítulo bajado.
+    // Descarga un único episodio web suelto (fuera de un pack). Season y episode salen del propio
+    // WebResult del mirror (o de los packs, si la fuente fuera en vivo), igual que playWebEp -- así
+    // lo que se guarda en la NUC calza con la fila local, que es con la que después
+    // PlaybackPreferenceStore.decide() busca el capítulo.
     fun downloadEpisode(r: WebResult, ep: Int) {
         val s = show ?: return
         askNotifications()
-        val season = com.arkiv.player.data.catalog.mirror.WebSourceSeason.forPageUrl(webPacks, r.pageUrl)
-        val episode = com.arkiv.player.data.catalog.mirror.WebSourceEpisode.forPageUrl(webPacks, r.pageUrl, fallback = ep)
+        val season = com.arkiv.player.data.catalog.mirror.WebSourceSeason.forResult(r, webPacks)
+        val episode = com.arkiv.player.data.catalog.mirror.WebSourceEpisode.forResult(r, webPacks, fallback = ep)
         scope.launch {
             error = com.arkiv.player.data.offline.NucDownloads.start(
                 context, graph.arkivOfflineApi, graph.database.localActiveJobDao(),

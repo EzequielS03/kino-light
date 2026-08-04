@@ -27,6 +27,41 @@ class MirrorWebMapperTest {
     }
 
     @Test
+    fun `toWebResult conserva la temporada real del mirror`() {
+        val mirror = MirrorWebSource(
+            siteId = "serieskao",
+            pageUrl = "https://serieskao.top/anime/shingeki/temporada/2/capitulo/5",
+            season = 2,
+            episode = 5,
+            name = "Bestia",
+            quality = "",
+            langNorm = "latino",
+        )
+
+        // Descartarla obligaba a los caminos de "episodio suelto" a inventar season=1 y a pisar la
+        // fila que el pack guarda con la temporada real (misma clave: hash de pageUrl).
+        assertEquals(2, MirrorWebMapper.toWebResult(mirror).season)
+    }
+
+    @Test
+    fun `toWebResult conserva el episodio real del mirror`() {
+        val mirror = MirrorWebSource(
+            siteId = "serieskao",
+            pageUrl = "https://serieskao.top/anime/onepiece/temporada/1/capitulo/1071",
+            season = 1,
+            episode = 1071,
+            name = "Ep 1071",
+            quality = "",
+            langNorm = "latino",
+        )
+
+        // Igual que con season: descartarlo obligaba a los caminos de "episodio suelto" a guardar
+        // el número de AniList en vez del real del mirror (que para anime de larga duración puede
+        // ser absoluto), pisando la fila que el pack guarda con el episodio real.
+        assertEquals(1071, MirrorWebMapper.toWebResult(mirror).episode)
+    }
+
+    @Test
     fun `toWebResult con name en blanco cae a TxEy`() {
         val mirror = MirrorWebSource(
             siteId = "serieskao",

@@ -189,23 +189,23 @@ fun SearchScreen(
     // absoluta), igual que AnimeShowDetailScreen.playWebEp; para series TMDB usa el id imdb/tmdb con
     // la season real. Molde: CineDetailScreen.playWeb.
     //
-    // animeSeason: WebResult no trae temporada, pero la fila local se guarda por hash de pageUrl --
-    // la misma que escribe addWholeWebSeries con la temporada REAL del mirror. Se resuelve por
-    // pageUrl contra los packs ya listados en `sources` para no revertirle la temporada a esa fila
-    // (ver WebSourceSeason); 1 solo cuando ningún pack conoce esa URL (scraping en vivo).
+    // mirrorSeason/animeEpisode: la fila local se guarda por hash de pageUrl -- la misma que escribe
+    // addWholeWebSeries con la temporada/episodio REAL del mirror. Un WebResult del mirror YA los
+    // trae (WebResult.season/episode), así que se usan esos; 1 o el episodio de AniList solo cuando
+    // no los trae (scraping en vivo), o sea cuando tampoco hay pack que los contradiga. Ojo: acá NO
+    // sirve buscarlos en los packs de `sources` -- runSourceSearch emite WebPack solo sin capítulo
+    // elegido y Web solo con capítulo, nunca ambos, así que esa lista siempre está vacía en este
+    // camino (ver WebSourceSeason/WebSourceEpisode).
     fun playWebResult(r: WebResult) {
         val card = selected ?: return
         val season = refineSeason
         val episode = refineEpisode
-        val packs = sources.filterIsInstance<PlaySource.WebPack>().map { it.pack }
-        val animeSeason = com.arkiv.player.data.catalog.mirror.WebSourceSeason.forPageUrl(packs, r.pageUrl)
-        val animeEpisode = com.arkiv.player.data.catalog.mirror.WebSourceEpisode.forPageUrl(
-            packs, r.pageUrl, fallback = episode ?: 1,
-        )
+        val mirrorSeason = com.arkiv.player.data.catalog.mirror.WebSourceSeason.forResult(r)
+        val animeEpisode = com.arkiv.player.data.catalog.mirror.WebSourceEpisode.forResult(r, fallback = episode ?: 1)
         preparing = true; playError = null
         scope.launch {
             applyResult(
-                playback.playWeb(r, card, detail, animeShow, resultTitle, resultPoster, season, episode, animeSeason, animeEpisode),
+                playback.playWeb(r, card, detail, animeShow, resultTitle, resultPoster, season, episode, mirrorSeason, animeEpisode),
             )
         }
     }

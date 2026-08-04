@@ -44,4 +44,29 @@ class WebSourceEpisodeTest {
         )
         assertEquals(1071, WebSourceEpisode.forPageUrl(onePiece, "http://c/abs1071", fallback = 5))
     }
+
+    // --- forResult: el episodio viaja con el resultado (mirror) ---
+
+    private fun webResult(url: String, episode: Int?) = com.arkiv.player.data.catalog.web.WebResult(
+        siteId = "sitioA", siteName = "sitioA", title = "Ep 5", year = "", pageUrl = url,
+        posterUrl = "", language = "lat", kind = "tv", episode = episode,
+    )
+
+    @Test fun `forResult usa el episodio del propio resultado SIN packs cargados`() {
+        // El caso del buscador: SearchViewModel.runSourceSearch nunca emite WebPack junto a Web, así
+        // que la lista de packs siempre llega vacía por ese camino.
+        assertEquals(1071, WebSourceEpisode.forResult(webResult("http://c/abs1071", 1071), fallback = 5))
+    }
+
+    @Test fun `forResult prefiere el del resultado sobre el de los packs`() {
+        assertEquals(105, WebSourceEpisode.forResult(webResult("http://a/s2e5", 105), packs, fallback = 99))
+    }
+
+    @Test fun `forResult cae a los packs cuando el resultado no trae episodio`() {
+        assertEquals(12, WebSourceEpisode.forResult(webResult("http://b/s3e12", null), packs, fallback = 99))
+    }
+
+    @Test fun `forResult cae al fallback dado con scraping en vivo y sin packs`() {
+        assertEquals(7, WebSourceEpisode.forResult(webResult("http://otro/sitio/ep7", null), fallback = 7))
+    }
 }

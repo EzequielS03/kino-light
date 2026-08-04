@@ -1480,3 +1480,218 @@ real, no solo tests unitarios).
 - [ ] **Step 7:** Confirmar que un usuario sin la API key correcta NO puede acceder a
   `https://arkiv-offline.comparadorinternet.co/library` ni `/stream/<id>` (probar con `curl` sin
   header ni query param, esperar 401).
+
+---
+
+### Task 14: App — "Descargar offline" en `WebPackDialog` (el único camino real hasta hoy)
+
+**Contexto (hallazgo de la verificación en vivo del Task 13):** los botones de descarga del Task 8
+viven en `AnimeShowDetailScreen.kt`/`CineDetailScreen.kt`, pero esas pantallas solo son alcanzables
+por la pestaña "Catálogo" — oculta por defecto desde antes de este sub-proyecto (`ArkivRoot.kt`,
+comentario "el home de descubrimiento lo reemplaza"). El flujo que el usuario usa de verdad
+(`Buscar` → elegir serie/anime → "Continuar" sin filtrar temporada/capítulo → tocar un resultado
+`PACK`) abre `WebPackDialog` (`ui/catalog/WebPackDialog.kt`), que hoy SOLO ofrece "Guardar
+seleccionados" (guardado local, `addWebSeriesEpisode`) — nunca la descarga a la NUC. Este task
+agrega la acción de descarga ahí, para que sea alcanzable desde el flujo real sin depender de la
+pestaña oculta.
+
+**Files:**
+- Modify: `app/src/main/java/com/arkiv/player/ui/catalog/WebPackDialog.kt`
+- Modify: `app/src/main/java/com/arkiv/player/ui/search/SearchScreen.kt`
+- Modify: `app/src/main/java/com/arkiv/player/ui/catalog/AnimeShowDetailScreen.kt`
+- Modify: `app/src/main/java/com/arkiv/player/ui/catalog/CineDetailScreen.kt`
+
+**Interfaces:**
+- Consumes: `ArkivOfflineApi.createJob(...)` (Task 6), `NucDownloadCheckWorker.schedule(...)` (Task
+  12), `LocalActiveJobEntity`/su DAO (Task 9) — los mismos tres pasos que ya hace `downloadPack` en
+  `AnimeShowDetailScreen.kt`/`CineDetailScreen.kt` (Task 8), reusados acá, no reinventados.
+- Produces: `WebPackDialog` gana un parámetro nuevo
+  `onDownload: (title: String, episodes: List<MirrorWebSource>) -> Unit`.
+
+- [ ] **Step 1: Agregar el botón y el callback a `WebPackDialog`**
+
+En `WebPackDialog.kt`, agregar el parámetro `onDownload` a la firma del composable, y un botón
+nuevo junto a "Guardar seleccionados" (mismo `confirmButton`/fila de acciones — revisar el layout
+real del `AlertDialog` antes de decidir si entra como tercer botón o como fila aparte arriba de
+`dismissButton`/`confirmButton`, dado que `AlertDialog` de Material3 solo expone dos slots
+nombrados; puede hacer falta un `Row` custom con los 3 botones dentro de `confirmButton` o mover
+"Cancelar" a un ícono):
+
+```kotlin
+onDownload: (title: String, episodes: List<MirrorWebSource>) -> Unit,
+```
+
+Botón: `"Descargar offline (${selected.size})"`, `enabled = selected.isNotEmpty()` (mismo criterio
+que "Guardar seleccionados"), invoca
+`onDownload(finalTitle(), pack.episodes.filter { it.pageUrl in selected })` — MISMA lista de
+episodios seleccionados que ya usa `onSave`, no todo el pack a ciegas.
+
+- [ ] **Step 2: Confirmar que compila con el nuevo parámetro obligatorio**
+
+Run: `./gradlew :app:compileDebugKotlin`
+Expected: FAILA en los 3 call sites de `WebPackDialog(...)` que todavía no pasan `onDownload` — es
+la señal de que hay que tocarlos los tres, no una casualidad a ignorar.
+
+- [ ] **Step 3: Wiring en `SearchScreen.kt` (el camino que de verdad se usa)**
+
+Leer `SearchPlayback.kt:202-224` (`addWholeWebSeries`) ANTES de escribir código — ahí está la
+lógica exacta de `isAnime`/`seriesId` que hay que replicar para que el `seriesId` de la descarga
+NUC calce con el que ya usa el guardado local (evita el mismo bug de season/seriesId divergente que
+se encontró y arregló en el Task 11):
+
+```kotlin
+val isAnime = card.kind == "anime"
+val seriesId = if (isAnime) "anilist${card.anilistId ?: animeShow?.id}" else seriesIdFor(card, detail)
+```
+
+(`card`, `detail`, `animeShow` ya están en scope en `SearchScreen.kt` alrededor de la función
+`addWholeSeries` existente, línea ~198 — `seriesIdFor` es una función privada de
+`SearchPlayback.kt`; si no es accesible desde `SearchScreen.kt`, exponerla o replicar su lógica de
+3 líneas ahí mismo, lo que sea menos invasivo dado el resto del archivo.)
+
+Agregar una función nueva `downloadWholeSeries(pack: MirrorWebPack, title: String, episodes: List<MirrorWebSource>)`
+en `SearchScreen.kt`, hermana de `addWholeSeries` (línea ~198), que:
+1. Calcula `isAnime`/`seriesId` como arriba.
+2. Construye `items = episodes.map { NucDownloadItem(it.season, it.episode, it.pageUrl) }`.
+3. Llama `graph.arkivOfflineApi.createJob(seriesId, title, resultPoster, items)`.
+4. Si `jobId != null`: inserta `LocalActiveJobEntity(jobId, ...)` (mismo patrón que Task 9/12 en
+   `AnimeShowDetailScreen.kt`) y llama `NucDownloadCheckWorker.schedule(context, jobId)`. Necesita
+   un `Context` — confirmar si `SearchScreen.kt` ya tiene uno en scope (`LocalContext.current`) o
+   hay que agregarlo, mismo patrón que el Task 12 tuvo que agregar en las otras dos pantallas.
+5. Si `jobId == null`: mostrar error visible reusando el estado `playError` que la función
+   `addWholeSeries`/`playWeb` ya usa en este archivo (línea ~190) — no crear un canal de error
+   nuevo.
+
+Conectar `onDownload = { title, episodes -> downloadWholeSeries(p, title, episodes) }` en la
+llamada a `WebPackDialog` (línea ~300).
+
+- [ ] **Step 4: Wiring en `AnimeShowDetailScreen.kt` y `CineDetailScreen.kt`**
+
+Ambas pantallas ya tienen `downloadPack(pack: MirrorWebPack)` (Task 8, línea ~352/~330
+respectivamente) que hoy siempre descarga `pack.episodes` completo. Adaptar (o agregar un overload)
+para que acepte una lista explícita de episodios, y conectar el `onDownload` de su propio
+`WebPackDialog(...)` a esa función con la selección real del diálogo — mismo principio que el Step
+1: no ignorar la selección del usuario y descargar el pack entero a ciegas.
+
+- [ ] **Step 5: Verificar que compila**
+
+Run: `./gradlew :app:compileDebugKotlin`
+Expected: BUILD SUCCESSFUL
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add app/src/main/java/com/arkiv/player/ui/catalog/WebPackDialog.kt app/src/main/java/com/arkiv/player/ui/search/SearchScreen.kt app/src/main/java/com/arkiv/player/ui/catalog/AnimeShowDetailScreen.kt app/src/main/java/com/arkiv/player/ui/catalog/CineDetailScreen.kt
+git commit -m "feat(ui): Descargar offline tambien en WebPackDialog, alcanzable desde el flujo real de busqueda"
+```
+
+---
+
+### Task 15: App — `NucDownloadsScreen` también muestra los trabajos terminados
+
+**Contexto (hallazgo de la verificación en vivo del Task 13):** el spec original pedía
+"activos primero (progreso en vivo)... terminados debajo (de `GET /library` agrupado por serie)",
+pero el brief del Task 9 sólo capturó la mitad activa. Verificado en vivo con una descarga real
+completa (Ranma1/2, job #5, 2 episodios, `status: done` confirmado en `arkiv-offline`): apenas el
+job termina, `NucDownloadsViewModel` lo borra de `local_active_jobs` (a propósito, ver
+`NucDownloadsViewModel.kt:44-46`) y la pantalla vuelve a mostrar "Sin descargas activas" — la
+descarga sigue perfecta en el servidor, pero desaparece de la UI sin dejar rastro.
+
+`arkiv-offline` no tiene un endpoint "listame todo lo terminado de todas las series" — `GET
+/library` exige `series_id` exacto (`db.py:list_library`, `WHERE j.series_id = ?`, un `series_id`
+vacío no matchea nada). Por eso este task usa la **caché local** `nuc_library_items` (Task 4/8) en
+vez de pedirle al backend una vista cross-series que no existe — mismo principio que ya usa
+`PlaybackPreferenceStore` para "¿está esto descargado?".
+
+**Files:**
+- Modify: `app/src/main/java/com/arkiv/player/data/db/Daos.kt`
+- Modify: `app/src/main/java/com/arkiv/player/ui/offline/NucDownloadsViewModel.kt`
+- Modify: `app/src/main/java/com/arkiv/player/ui/offline/NucDownloadsScreen.kt`
+
+**Interfaces:**
+- Consumes: `NucLibraryItemDao` (Task 4, ya existe).
+- Produces: `NucDownloadsViewModel.finished: StateFlow<List<NucLibraryItemEntity>>` — la lista de
+  items ya descargados, agrupados por serie en la UI.
+
+- [ ] **Step 1: Agregar la query "todo lo descargado" al DAO**
+
+En `Daos.kt`, dentro de `NucLibraryItemDao` (línea ~263), agregar:
+
+```kotlin
+@Query("SELECT * FROM nuc_library_items ORDER BY seriesId, season, episode")
+suspend fun getAll(): List<NucLibraryItemEntity>
+```
+
+- [ ] **Step 2: Cargar la lista en el ViewModel**
+
+En `NucDownloadsViewModel.kt`, agregar junto a `_activeJobs`:
+
+```kotlin
+private val _finished = MutableStateFlow<List<com.arkiv.player.data.db.NucLibraryItemEntity>>(emptyList())
+val finished: StateFlow<List<com.arkiv.player.data.db.NucLibraryItemEntity>> = _finished
+```
+
+Cargarla en el mismo bloque `init { viewModelScope.launch { ... } }` que ya lee
+`jobDao.getAll()` (línea ~33-35), con `_finished.value = libraryDao.getAll()` — el constructor de
+`NucDownloadsViewModel` necesita el nuevo parámetro `libraryDao: NucLibraryItemDao`.
+
+Refrescar también cuando un job activo pasa a `done` (el bloque `observe()`, línea ~44): agregar
+`_finished.value = libraryDao.getAll()` justo después del `jobDao.delete(job.jobId)` existente —
+así un item recién terminado aparece en "terminados" sin tener que salir y reabrir la pantalla.
+
+- [ ] **Step 3: Registrar el nuevo parámetro donde se construye el ViewModel**
+
+En `NucDownloadsScreen.kt` (línea ~53), el `viewModelFactory` que construye
+`NucDownloadsViewModel` necesita pasar `graph.database.nucLibraryItemDao()` como el nuevo
+parámetro `libraryDao`.
+
+- [ ] **Step 4: Mostrar la sección "Terminados" en la UI**
+
+En `NucDownloadsScreen.kt`, después de la `LazyColumn` de activos (o del `EmptyState` si no hay
+ninguno activo), agregar una segunda sección agrupada por `seriesId`:
+
+```kotlin
+val finished by vm.finished.collectAsStateWithLifecycle()
+// ... dentro del Column, después de la sección de activos:
+if (finished.isNotEmpty()) {
+    Text(
+        "Terminados",
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
+    )
+    LazyColumn(Modifier.fillMaxSize()) {
+        finished.groupBy { it.seriesId }.forEach { (seriesId, items) ->
+            item(key = "header-$seriesId") {
+                Text(seriesId, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(16.dp, 8.dp))
+            }
+            items(items, key = { it.itemId }) { item ->
+                ListItem(
+                    headlineContent = { Text("T${item.season} · E${item.episode}") },
+                    supportingContent = { Text("${item.sizeBytes / 1_000_000} MB", style = MaterialTheme.typography.bodySmall) },
+                    colors = ListItemDefaults.colors(containerColor = ArkivSurface),
+                )
+            }
+        }
+    }
+}
+```
+
+(Si ya hay una `LazyColumn` para "activos" arriba en el mismo `Column`, dos `LazyColumn` anidadas
+dentro de un `Column` sin peso/altura fija puede dar problemas de medida en Compose — si eso pasa
+al compilar/renderizar, envolver todo en una única `LazyColumn` con secciones via `item{}`/`items{}`
+en vez de dos `LazyColumn` separadas.)
+
+Esta es una primera versión funcional — no tiene botón de borrar por ahora (`DELETE
+/library/<item_id>` ya existe en `ArkivOfflineApi`, ver Task 6, para un follow-up).
+
+- [ ] **Step 5: Verificar que compila**
+
+Run: `./gradlew :app:compileDebugKotlin`
+Expected: BUILD SUCCESSFUL
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add app/src/main/java/com/arkiv/player/data/db/Daos.kt app/src/main/java/com/arkiv/player/ui/offline/NucDownloadsViewModel.kt app/src/main/java/com/arkiv/player/ui/offline/NucDownloadsScreen.kt
+git commit -m "feat(ui): NucDownloadsScreen tambien muestra los trabajos ya terminados"
+```
