@@ -111,8 +111,11 @@ Todos exigen `X-Api-Key` salvo donde se aclara.
 
 ## Límite de espacio en disco
 
-`MAX_OFFLINE_STORAGE_GB` (env var, default **100GB** — deja ~226GB de margen para Postgres/Coolify/
-el resto de lo que ya corre en `blog`). Antes de aceptar un `POST /jobs`, el servicio suma el tamaño
+`MAX_OFFLINE_STORAGE_GB` (env var, default **10GB** — límite bajo a propósito, pedido por el usuario
+para no arriesgar llenar el disco de `blog`; deja ~316GB de margen para Postgres/Coolify/el resto de
+lo que ya corre ahí). La misma cuota debe respetarse del lado de la app (sub-proyecto #3): mostrar el
+límite y el uso actual antes de dejar encolar una descarga, no solo confiar en el 409 del backend.
+Antes de aceptar un `POST /jobs`, el servicio suma el tamaño
 ya ocupado en su carpeta de descargas; si el job nuevo excede el límite (estimado por tamaño reportado
 del torrent/archive item), responde `409` con el detalle — la app se lo muestra al usuario ("no hay
 espacio, borrá algo primero"). **Sin eviction automática (LRU) en v1** — YAGNI: el usuario borra a
