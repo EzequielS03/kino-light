@@ -4,15 +4,25 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.arkiv.player.data.catalog.mirror.MirrorWebPack
 import com.arkiv.player.data.catalog.mirror.MirrorWebSource
+import com.arkiv.player.data.offline.NucDownloads
+import com.arkiv.player.ui.rememberGraph
+
+/** Verde ya usado en el resto de la app para "estado bueno" (idioma LATINO en [PlaySources],
+ *  categoría "series" en [com.arkiv.player.ui.search.SearchScreen]) -- se reusa acá para no
+ *  inventar un color nuevo y para no pisar el rojo de marca (reservado a CTAs). */
+private val NucDownloadedGreen = Color(0xFF4CAF50)
 
 /**
  * Diálogo de un pack WEB: gemelo de [PackDialog] (torrent) para la serie completa que nuestro
@@ -22,6 +32,7 @@ import com.arkiv.player.data.catalog.mirror.MirrorWebSource
 @Composable
 fun WebPackDialog(
     pack: MirrorWebPack,
+    seriesId: String,
     defaultTitle: String,
     posterUrl: String,
     onDismiss: () -> Unit,
@@ -33,6 +44,19 @@ fun WebPackDialog(
     // pageUrl como clave: es único por capítulo dentro de un sitio y no depende del orden.
     val selected = remember(pack) { mutableStateListOf<String>().apply { addAll(pack.episodes.map { it.pageUrl }) } }
     fun finalTitle() = title.trim().ifBlank { defaultTitle }
+
+    // Qué (season, episode) ya está en la NUC, para no hacerle re-adivinar al usuario si un
+    // capítulo del pack ya se descargó antes. Se refresca contra el backend cada vez que se abre
+    // el diálogo (replace = true) en vez de confiar ciegamente en lo que ya haya en caché local --
+    // mismo patrón que AnimeShowDetailScreen/CineDetailScreen/DetailScreen al abrir un detalle.
+    // refreshLibraryCache no toca la caché si falla la consulta (ver NucDownloads), así que leerla
+    // después siempre es seguro, haya o no habido red.
+    val graph = rememberGraph()
+    var downloaded by remember(seriesId) { mutableStateOf<Set<Pair<Int, Int>>>(emptySet()) }
+    LaunchedEffect(seriesId) {
+        NucDownloads.refreshLibraryCache(graph.arkivOfflineApi, graph.database.nucLibraryItemDao(), seriesId, replace = true)
+        downloaded = graph.database.nucLibraryItemDao().forSeries(seriesId).map { it.season to it.episode }.toSet()
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -152,6 +176,17 @@ fun WebPackDialog(
                                         ep.langNorm.ifBlank { null },
                                     ).joinToString("  ·  ")
                                     if (meta.isNotBlank()) Text(meta, style = MaterialTheme.typography.labelSmall)
+                                }
+                                // Informativo, no una acción -- por eso no es un IconButton ni comparte
+                                // el rojo de marca del Checkbox de selección: solo avisa que ESTE
+                                // capítulo puntual ya está en la NUC, para no re-disparar su descarga.
+                                if ((ep.season to ep.episode) in downloaded) {
+                                    Icon(
+                                        Icons.Default.CheckCircle,
+                                        contentDescription = "Ya descargado en la NUC",
+                                        tint = NucDownloadedGreen,
+                                        modifier = Modifier.size(18.dp),
+                                    )
                                 }
                             }
                         }

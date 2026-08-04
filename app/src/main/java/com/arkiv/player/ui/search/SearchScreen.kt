@@ -335,6 +335,13 @@ fun SearchScreen(
     webPackFor?.let { p ->
         WebPackDialog(
             pack = p,
+            // Mismo cálculo que downloadWholeSeries (más abajo): anime agrupa bajo "anilist<id>",
+            // series TMDB bajo seriesIdFor(card, detail). Si `selected` fuera null (no debería
+            // pasar -- webPackFor solo se llena a partir de un resultado de una card elegida) cae a
+            // "" y el badge simplemente no encuentra nada descargado, sin romper el diálogo.
+            seriesId = selected?.let { card ->
+                if (card.kind == "anime") "anilist${card.anilistId ?: animeShow?.id}" else seriesIdFor(card, detail)
+            } ?: "",
             // El nombre del show manda sobre el del pack: el título scrapeado del sitio suele traer
             // ruido (sinopsis concatenada en sololatino), el de TMDB/AniList está limpio.
             defaultTitle = resultTitle.ifBlank { p.showTitle },
