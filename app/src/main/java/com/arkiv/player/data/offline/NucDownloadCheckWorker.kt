@@ -56,14 +56,26 @@ class NucDownloadCheckWorker(context: Context, params: WorkerParameters) : Corou
         private const val KEY_JOB_ID = "job_id"
         private const val CHANNEL_ID = "arkiv_nuc_downloads"
 
+        /** Nombre del trabajo único por job: [schedule] lo encola y [cancel] lo mata con este mismo id. */
+        fun workName(jobId: Long): String = "nuc_download_check_$jobId"
+
         fun schedule(context: Context, jobId: Long, delaySeconds: Long = 0) {
             val work = OneTimeWorkRequestBuilder<NucDownloadCheckWorker>()
                 .setInputData(workDataOf(KEY_JOB_ID to jobId))
                 .setInitialDelay(delaySeconds, TimeUnit.SECONDS)
                 .build()
             WorkManager.getInstance(context).enqueueUniqueWork(
-                "nuc_download_check_$jobId", ExistingWorkPolicy.REPLACE, work,
+                workName(jobId), ExistingWorkPolicy.REPLACE, work,
             )
+        }
+
+        /**
+         * Cancela el poll de un job. Sin esto, cancelar la descarga borraba el job en la NUC pero
+         * dejaba vivo el worker: `getJob()` devolvía 404 -> `Result.retry()` -> WorkManager lo
+         * reintentaba con backoff PARA SIEMPRE (nunca llega a un estado terminal que lo detenga).
+         */
+        fun cancel(context: Context, jobId: Long) {
+            WorkManager.getInstance(context).cancelUniqueWork(workName(jobId))
         }
     }
 }

@@ -21,7 +21,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SeriesPlaybackPrefEntity::class,
         LocalActiveJobEntity::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = false,
 )
 abstract class ArkivDatabase : RoomDatabase() {
@@ -211,13 +211,24 @@ abstract class ArkivDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v13 -> v14: `seriesId` en los jobs locales. Sin esta columna, cuando un job termina no
+         * hay forma de saber de qué serie era (arkiv-offline no lo devuelve en `GET /jobs/<id>`) y
+         * la sección "Terminados" solo se podía llenar visitando el detalle de la serie.
+         */
+        private val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE local_active_jobs ADD COLUMN seriesId TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         fun get(context: Context): ArkivDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     ArkivDatabase::class.java,
                     "arkiv.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
                     .fallbackToDestructiveMigration()
                     .build().also { instance = it }
             }

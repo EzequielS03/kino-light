@@ -157,6 +157,13 @@ data class SeriesPlaybackPrefEntity(
 data class LocalActiveJobEntity(
     @PrimaryKey val jobId: Long,
     val createdAt: Long,
+    /**
+     * Serie del job (mismo id que en `nuc_library_items`). Se guarda acá porque `GET /jobs/<id>` no
+     * lo devuelve: cuando un job llega a "done", la pantalla de Descargas lo necesita para pedirle a
+     * la NUC la biblioteca de ESA serie y mostrar el capítulo recién terminado. Vacío en filas
+     * creadas antes de la v14 (esos jobs no refrescan la biblioteca al terminar).
+     */
+    val seriesId: String = "",
 )
 
 /**

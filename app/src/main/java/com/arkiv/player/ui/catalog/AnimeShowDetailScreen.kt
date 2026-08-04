@@ -91,6 +91,9 @@ fun AnimeShowDetailScreen(
     val graph = rememberGraph()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    // Permiso de notificaciones (API 33+): se pide recién al disparar una descarga a la NUC, que es
+    // lo único que notifica desde esta pantalla. Ver rememberPostNotificationsRequest.
+    val askNotifications = com.arkiv.player.ui.offline.rememberPostNotificationsRequest()
     var show by remember { mutableStateOf<AnimeShow?>(null) }
     var loading by remember { mutableStateOf(true) }
     var preparing by remember { mutableStateOf(false) }
@@ -136,17 +139,14 @@ fun AnimeShowDetailScreen(
     // Refresca la caché local de "qué episodios ya están en la NUC" al abrir el detalle: así
     // PlaybackPreferenceStore (Task 10) tiene datos frescos aunque la descarga se haya disparado
     // desde otro dispositivo o el usuario nunca haya visitado la pantalla de Descargas.
+    // `replace = true`: la respuesta es la verdad completa de la serie (refleja también borrados).
+    // Si la consulta falla, NucDownloads.refreshLibraryCache no toca nada (ver ahí el porqué).
     LaunchedEffect(anilistId) {
         scope.launch {
-            val entries = graph.arkivOfflineApi.library("anilist$anilistId")
-            val items = entries.map {
-                com.arkiv.player.data.db.NucLibraryItemEntity(
-                    it.itemId, "anilist$anilistId", it.season, it.episode, "done", it.sizeBytes,
-                    System.currentTimeMillis(),
-                )
-            }
-            graph.database.nucLibraryItemDao().clearForSeries("anilist$anilistId")
-            graph.database.nucLibraryItemDao().upsertAll(items)
+            com.arkiv.player.data.offline.NucDownloads.refreshLibraryCache(
+                graph.arkivOfflineApi, graph.database.nucLibraryItemDao(),
+                seriesId = "anilist$anilistId", replace = true,
+            )
         }
     }
 
@@ -304,12 +304,17 @@ fun AnimeShowDetailScreen(
 
     // Reproduce una fuente web de un episodio de anime: crea el episodio web (guarda la pageUrl) y
     // usa el player unificado, que resuelve pageUrl → stream al cargar. Molde: CineDetailScreen.playWeb.
+    //
+    // Season: WebResult no la trae, pero la fila local se guarda por hash de pageUrl -- la misma que
+    // escriben addWebPack/downloadPack con la temporada REAL del mirror. Inventar 1 acá le revertía
+    // la temporada a esa fila y rompía la búsqueda en nuc_library_items (ver WebSourceSeason).
     fun playWebEp(r: WebResult, ep: Int) {
         val s = show ?: return
         preparing = true; error = null
+        val season = com.arkiv.player.data.catalog.mirror.WebSourceSeason.forPageUrl(webPacks, r.pageUrl)
         scope.launch {
             val epId = graph.repository.addWebSeriesEpisode(
-                "anilist$anilistId", s.title, s.posterUrl, 1, ep, "${s.title} - Ep $ep", r.pageUrl,
+                "anilist$anilistId", s.title, s.posterUrl, season, ep, "${s.title} - Ep $ep", r.pageUrl,
             )
             preparing = false
             if (epId != null) onPlay(epId) else error = "No se pudo abrir la fuente web"
@@ -320,12 +325,15 @@ fun AnimeShowDetailScreen(
     // por episodio — mismo molde que playWebEp pero en loop. Devuelve al reproducir el episodio
     // pedido si se tocó uno puntual (onPlayOne del diálogo), si no el primero agregado (onSave).
     //
-    // Task 11: antes guardaba season=1 fijo (igual que playWebEp/downloadEpisode, que SÍ no tienen
-    // season real disponible). Acá SÍ la hay -- MirrorWebSource.episode.season es la temporada real
-    // por episodio, la misma que downloadPack ya usa para el job de la NUC (ver el comentario ahí
-    // mismo) -- así que guardar 1 fijo desalineaba el season local del guardado en nuc_library_items
-    // y PlaybackPreferenceStore.decide() nunca encontraba el capítulo bajado en series con más de
-    // una temporada. Se usa ep.season, igual que ya hace CineDetailScreen.addWebPack.
+    // Task 11: antes guardaba season=1 fijo. Acá SÍ hay temporada real -- MirrorWebSource.season es
+    // la del episodio en el mirror, la misma que downloadPack manda en el job de la NUC -- así que
+    // guardar 1 fijo desalineaba el season local del guardado en nuc_library_items y
+    // PlaybackPreferenceStore.decide() nunca encontraba el capítulo bajado en series con más de una
+    // temporada. Se usa ep.season, igual que ya hace CineDetailScreen.addWebPack.
+    //
+    // Los caminos de "un episodio suelto" (playWebEp/downloadEpisode) escriben ESTA MISMA fila
+    // (clave = hash de pageUrl) y ya no inventan 1: resuelven la temporada por pageUrl contra
+    // `webPacks` (WebSourceSeason), así que las dos rutas coinciden escriba la que escriba último.
     fun addWebPack(pack: MirrorWebPack, title: String, episodes: List<MirrorWebSource>, playEpisode: MirrorWebSource? = null) {
         val s = show ?: return
         preparing = true; error = null
@@ -356,44 +364,34 @@ fun AnimeShowDetailScreen(
     // nombres distintos para el mismo pack).
     fun downloadPack(pack: MirrorWebPack, episodes: List<MirrorWebSource> = pack.episodes, title: String = show?.title.orEmpty()) {
         val s = show ?: return
+        askNotifications()
         scope.launch {
             val items = episodes.map {
                 com.arkiv.player.data.offline.NucDownloadItem(it.season, it.episode, it.pageUrl)
             }
-            val jobId = graph.arkivOfflineApi.createJob(
-                seriesId = "anilist$anilistId", showTitle = title.ifBlank { s.title }, posterUrl = s.posterUrl, items = items,
+            error = com.arkiv.player.data.offline.NucDownloads.start(
+                context, graph.arkivOfflineApi, graph.database.localActiveJobDao(),
+                seriesId = "anilist$anilistId", showTitle = title.ifBlank { s.title },
+                posterUrl = s.posterUrl, items = items,
             )
-            if (jobId == null) {
-                error = "No se pudo iniciar la descarga (revisá la conexión con la NUC)"
-            } else {
-                // Registro local (Task 9): sin esto la pantalla de Descargas de la NUC no sabe qué
-                // job observar -- arkiv-offline no tiene un "listame todos los jobs".
-                graph.database.localActiveJobDao().insert(
-                    com.arkiv.player.data.db.LocalActiveJobEntity(jobId, System.currentTimeMillis()),
-                )
-                com.arkiv.player.data.offline.NucDownloadCheckWorker.schedule(context, jobId)
-            }
         }
     }
 
     // Descarga un único episodio web suelto (fuera de un pack). WebResult no trae season/episode
-    // (viene a nivel de episodio ya resuelto por episodeSourcesWeb), así que se usa el mismo
-    // convenio que playWebEp: season=1 fijo, episodio = el de la fila que se está viendo.
+    // (viene a nivel de episodio ya resuelto por episodeSourcesWeb): el episodio es el de la fila
+    // que se está viendo y la temporada se resuelve por pageUrl contra los packs del mirror, igual
+    // que playWebEp -- así el season que se guarda en la NUC calza con el de la fila local, que es
+    // con el que después PlaybackPreferenceStore.decide() busca el capítulo bajado.
     fun downloadEpisode(r: WebResult, ep: Int) {
         val s = show ?: return
+        askNotifications()
+        val season = com.arkiv.player.data.catalog.mirror.WebSourceSeason.forPageUrl(webPacks, r.pageUrl)
         scope.launch {
-            val jobId = graph.arkivOfflineApi.createJob(
+            error = com.arkiv.player.data.offline.NucDownloads.start(
+                context, graph.arkivOfflineApi, graph.database.localActiveJobDao(),
                 seriesId = "anilist$anilistId", showTitle = s.title, posterUrl = s.posterUrl,
-                items = listOf(com.arkiv.player.data.offline.NucDownloadItem(1, ep, r.pageUrl)),
+                items = listOf(com.arkiv.player.data.offline.NucDownloadItem(season, ep, r.pageUrl)),
             )
-            if (jobId == null) {
-                error = "No se pudo iniciar la descarga (revisá la conexión con la NUC)"
-            } else {
-                graph.database.localActiveJobDao().insert(
-                    com.arkiv.player.data.db.LocalActiveJobEntity(jobId, System.currentTimeMillis()),
-                )
-                com.arkiv.player.data.offline.NucDownloadCheckWorker.schedule(context, jobId)
-            }
         }
     }
 

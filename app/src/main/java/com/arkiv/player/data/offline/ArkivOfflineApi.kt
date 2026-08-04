@@ -101,20 +101,27 @@ class ArkivOfflineApi(
         runCatching { client.newCall(req).execute().use { it.isSuccessful } }.getOrDefault(false)
     }
 
-    suspend fun library(seriesId: String): List<NucLibraryEntry> = withContext(Dispatchers.IO) {
+    /**
+     * Biblioteca ya descargada de una serie. **null = la consulta FALLÓ** (sin red, NUC dormida,
+     * túnel caído, api key mala, respuesta ilegible); lista vacía = la NUC respondió y no hay nada
+     * bajado de esa serie. La distinción importa: quien cachea esto localmente
+     * (`nuc_library_items`) borra-y-reescribe, y devolver `emptyList()` ante un error hacía que un
+     * simple corte de red vaciara la caché de "qué está descargado" en vez de dejarla como estaba.
+     */
+    suspend fun library(seriesId: String): List<NucLibraryEntry>? = withContext(Dispatchers.IO) {
         val base = baseUrlResolved()
         val req = Request.Builder().url("$base/library?series_id=$seriesId")
             .header("X-Api-Key", apiKey()).build()
         runCatching {
             client.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) return@withContext emptyList()
-                val arr = JSONArray(resp.body?.string() ?: return@withContext emptyList())
+                if (!resp.isSuccessful) return@withContext null
+                val arr = JSONArray(resp.body?.string() ?: return@withContext null)
                 (0 until arr.length()).map { i ->
                     val o = arr.getJSONObject(i)
                     NucLibraryEntry(o.getLong("id"), o.getInt("season"), o.getInt("episode"), o.optLong("size_bytes"))
                 }
             }
-        }.getOrDefault(emptyList())
+        }.getOrNull()
     }
 
     suspend fun deleteLibraryItem(itemId: Long): Boolean = withContext(Dispatchers.IO) {

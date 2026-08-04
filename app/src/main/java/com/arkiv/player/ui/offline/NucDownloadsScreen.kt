@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -47,10 +48,13 @@ import com.arkiv.player.ui.theme.ArkivTextSecondary
 @Composable
 fun NucDownloadsScreen(onBack: () -> Unit) {
     val graph = rememberGraph()
+    // applicationContext (no el de la Activity): el ViewModel sobrevive a la rotación.
+    val appContext = LocalContext.current.applicationContext
     val vm: NucDownloadsViewModel = viewModel(
         factory = viewModelFactory {
             initializer {
                 NucDownloadsViewModel(
+                    appContext,
                     graph.arkivOfflineApi,
                     graph.nucJobEvents,
                     graph.database.localActiveJobDao(),

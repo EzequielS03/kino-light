@@ -81,6 +81,9 @@ fun CineDetailScreen(
     val graph = rememberGraph()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    // Permiso de notificaciones (API 33+): se pide recién al disparar una descarga a la NUC, que es
+    // lo único que notifica desde esta pantalla. Ver rememberPostNotificationsRequest.
+    val askNotifications = com.arkiv.player.ui.offline.rememberPostNotificationsRequest()
     var detail by remember { mutableStateOf<TmdbDetail?>(null) }
     var packFor by remember { mutableStateOf<TorrentResult?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -128,20 +131,17 @@ fun CineDetailScreen(
     // series: las películas no tienen season/episode ni se descargan vía este flujo web). Así
     // PlaybackPreferenceStore (Task 10) tiene datos frescos aunque la descarga se haya disparado
     // desde otro dispositivo o el usuario nunca haya visitado la pantalla de Descargas.
+    // `replace = true`: la respuesta es la verdad completa de la serie (refleja también borrados).
+    // Si la consulta falla, NucDownloads.refreshLibraryCache no toca nada (ver ahí el porqué).
     LaunchedEffect(detail) {
         val d = detail
         if (d == null || !d.isSeries) return@LaunchedEffect
         val seriesId = d.imdbId.ifBlank { "tmdb${d.id}" }
         scope.launch {
-            val entries = graph.arkivOfflineApi.library(seriesId)
-            val items = entries.map {
-                com.arkiv.player.data.db.NucLibraryItemEntity(
-                    it.itemId, seriesId, it.season, it.episode, "done", it.sizeBytes,
-                    System.currentTimeMillis(),
-                )
-            }
-            graph.database.nucLibraryItemDao().clearForSeries(seriesId)
-            graph.database.nucLibraryItemDao().upsertAll(items)
+            com.arkiv.player.data.offline.NucDownloads.refreshLibraryCache(
+                graph.arkivOfflineApi, graph.database.nucLibraryItemDao(),
+                seriesId = seriesId, replace = true,
+            )
         }
     }
 
@@ -334,23 +334,16 @@ fun CineDetailScreen(
     fun downloadPack(pack: MirrorWebPack, episodes: List<MirrorWebSource> = pack.episodes, title: String = detail?.title.orEmpty()) {
         val d = detail ?: return
         val seriesId = d.imdbId.ifBlank { "tmdb${d.id}" }
+        askNotifications()
         scope.launch {
             val items = episodes.map {
                 com.arkiv.player.data.offline.NucDownloadItem(it.season, it.episode, it.pageUrl)
             }
-            val jobId = graph.arkivOfflineApi.createJob(
-                seriesId = seriesId, showTitle = title.ifBlank { d.title }, posterUrl = d.posterUrl, items = items,
+            error = com.arkiv.player.data.offline.NucDownloads.start(
+                context, graph.arkivOfflineApi, graph.database.localActiveJobDao(),
+                seriesId = seriesId, showTitle = title.ifBlank { d.title },
+                posterUrl = d.posterUrl, items = items,
             )
-            if (jobId == null) {
-                error = "No se pudo iniciar la descarga (revisá la conexión con la NUC)"
-            } else {
-                // Registro local (Task 9): sin esto la pantalla de Descargas de la NUC no sabe qué
-                // job observar -- arkiv-offline no tiene un "listame todos los jobs".
-                graph.database.localActiveJobDao().insert(
-                    com.arkiv.player.data.db.LocalActiveJobEntity(jobId, System.currentTimeMillis()),
-                )
-                com.arkiv.player.data.offline.NucDownloadCheckWorker.schedule(context, jobId)
-            }
         }
     }
 
@@ -360,19 +353,13 @@ fun CineDetailScreen(
     fun downloadEpisode(r: com.arkiv.player.data.catalog.web.WebResult, ep: TmdbEpisode) {
         val d = detail ?: return
         val seriesId = d.imdbId.ifBlank { "tmdb${d.id}" }
+        askNotifications()
         scope.launch {
-            val jobId = graph.arkivOfflineApi.createJob(
+            error = com.arkiv.player.data.offline.NucDownloads.start(
+                context, graph.arkivOfflineApi, graph.database.localActiveJobDao(),
                 seriesId = seriesId, showTitle = d.title, posterUrl = d.posterUrl,
                 items = listOf(com.arkiv.player.data.offline.NucDownloadItem(ep.season, ep.episode, r.pageUrl)),
             )
-            if (jobId == null) {
-                error = "No se pudo iniciar la descarga (revisá la conexión con la NUC)"
-            } else {
-                graph.database.localActiveJobDao().insert(
-                    com.arkiv.player.data.db.LocalActiveJobEntity(jobId, System.currentTimeMillis()),
-                )
-                com.arkiv.player.data.offline.NucDownloadCheckWorker.schedule(context, jobId)
-            }
         }
     }
 

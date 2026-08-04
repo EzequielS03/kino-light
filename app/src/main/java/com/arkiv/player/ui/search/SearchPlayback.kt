@@ -155,9 +155,16 @@ class SearchPlayback(private val graph: AppGraph) {
     }
 
     /**
-     * Reproduce una fuente web: para anime agrupa bajo el mismo id "anilist<id>" con season fijo en
-     * 1 (numeración absoluta de anime), igual que AnimeShowDetailScreen.playWebEp; para series TMDB
-     * usa el id imdb/tmdb con la season real. Molde: CineDetailScreen.playWeb / `playWebResult`.
+     * Reproduce una fuente web: para anime agrupa bajo el mismo id "anilist<id>" (numeración
+     * absoluta de anime), igual que AnimeShowDetailScreen.playWebEp; para series TMDB usa el id
+     * imdb/tmdb con la season real. Molde: CineDetailScreen.playWeb / `playWebResult`.
+     *
+     * [animeSeason]: un [WebResult] suelto no trae temporada, pero la fila local se guarda por hash
+     * de `pageUrl` -- la misma fila que escribe [addWholeWebSeries] con la temporada real del
+     * mirror. El llamador la resuelve por `pageUrl` contra los packs ya listados
+     * (`WebSourceSeason.forPageUrl`) para no revertirle la temporada a esa fila y romper la
+     * búsqueda de `PlaybackPreferenceStore.decide()`; queda en 1 (convención histórica) solo cuando
+     * ningún pack conoce esa URL, o sea cuando tampoco hay nadie que la contradiga.
      */
     suspend fun playWeb(
         result: WebResult,
@@ -168,10 +175,11 @@ class SearchPlayback(private val graph: AppGraph) {
         resultPoster: String,
         season: Int?,
         episode: Int?,
+        animeSeason: Int = 1,
     ): PlaybackResult {
         val epId = if (card.kind == "anime" && episode != null) {
             val anilistId = card.anilistId ?: animeShow?.id
-            graph.repository.addWebSeriesEpisode("anilist$anilistId", resultTitle, resultPoster, 1, episode, "$resultTitle - Ep $episode", result.pageUrl)
+            graph.repository.addWebSeriesEpisode("anilist$anilistId", resultTitle, resultPoster, animeSeason, episode, "$resultTitle - Ep $episode", result.pageUrl)
         } else if (season != null && episode != null) {
             val epName = episodeNameFor(detail, season, episode)
             graph.repository.addWebSeriesEpisode(seriesIdFor(card, detail), resultTitle, resultPoster, season, episode, epName, result.pageUrl)

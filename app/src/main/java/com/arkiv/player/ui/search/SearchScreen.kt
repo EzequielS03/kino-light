@@ -126,6 +126,9 @@ fun SearchScreen(
     val animeShow by vm.animeShow.collectAsStateWithLifecycle()
 
     val scope = rememberCoroutineScope()
+    // Permiso de notificaciones (API 33+): se pide recién al disparar una descarga a la NUC, que es
+    // lo único que notifica desde esta pantalla. Ver rememberPostNotificationsRequest.
+    val askNotifications = com.arkiv.player.ui.offline.rememberPostNotificationsRequest()
     val playback = remember { SearchPlayback(graph) }
     var preparing by remember { mutableStateOf(false) }
     var playError by remember { mutableStateOf<String?>(null) }
@@ -182,16 +185,26 @@ fun SearchScreen(
         scope.launch { applyResult(playback.playArchive(item)) }
     }
 
-    // Reproduce una fuente web: para anime agrupa bajo el mismo id "anilist<id>" con season fijo en
-    // 1 (numeración absoluta de anime), igual que AnimeShowDetailScreen.playWebEp; para series TMDB
-    // usa el id imdb/tmdb con la season real. Molde: CineDetailScreen.playWeb.
+    // Reproduce una fuente web: para anime agrupa bajo el mismo id "anilist<id>" (numeración
+    // absoluta), igual que AnimeShowDetailScreen.playWebEp; para series TMDB usa el id imdb/tmdb con
+    // la season real. Molde: CineDetailScreen.playWeb.
+    //
+    // animeSeason: WebResult no trae temporada, pero la fila local se guarda por hash de pageUrl --
+    // la misma que escribe addWholeWebSeries con la temporada REAL del mirror. Se resuelve por
+    // pageUrl contra los packs ya listados en `sources` para no revertirle la temporada a esa fila
+    // (ver WebSourceSeason); 1 solo cuando ningún pack conoce esa URL (scraping en vivo).
     fun playWebResult(r: WebResult) {
         val card = selected ?: return
         val season = refineSeason
         val episode = refineEpisode
+        val animeSeason = com.arkiv.player.data.catalog.mirror.WebSourceSeason.forPageUrl(
+            sources.filterIsInstance<PlaySource.WebPack>().map { it.pack }, r.pageUrl,
+        )
         preparing = true; playError = null
         scope.launch {
-            applyResult(playback.playWeb(r, card, detail, animeShow, resultTitle, resultPoster, season, episode))
+            applyResult(
+                playback.playWeb(r, card, detail, animeShow, resultTitle, resultPoster, season, episode, animeSeason),
+            )
         }
     }
 
@@ -223,19 +236,13 @@ fun SearchScreen(
         val isAnime = card.kind == "anime"
         val seriesId = if (isAnime) "anilist${card.anilistId ?: animeShow?.id}" else seriesIdFor(card, detail)
         playError = null
+        askNotifications()
         scope.launch {
             val items = episodes.map { com.arkiv.player.data.offline.NucDownloadItem(it.season, it.episode, it.pageUrl) }
-            val jobId = graph.arkivOfflineApi.createJob(seriesId, title, resultPoster, items)
-            if (jobId == null) {
-                playError = "No se pudo iniciar la descarga (revisá la conexión con la NUC)"
-            } else {
-                // Registro local (Task 9): sin esto la pantalla de Descargas de la NUC no sabe qué
-                // job observar -- arkiv-offline no tiene un "listame todos los jobs".
-                graph.database.localActiveJobDao().insert(
-                    com.arkiv.player.data.db.LocalActiveJobEntity(jobId, System.currentTimeMillis()),
-                )
-                com.arkiv.player.data.offline.NucDownloadCheckWorker.schedule(context, jobId)
-            }
+            playError = com.arkiv.player.data.offline.NucDownloads.start(
+                context, graph.arkivOfflineApi, graph.database.localActiveJobDao(),
+                seriesId = seriesId, showTitle = title, posterUrl = resultPoster, items = items,
+            )
         }
     }
 
