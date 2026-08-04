@@ -49,6 +49,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -88,6 +89,7 @@ fun AnimeShowDetailScreen(
     deepLinkEpisode: Int? = null,
 ) {
     val graph = rememberGraph()
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var show by remember { mutableStateOf<AnimeShow?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -364,11 +366,8 @@ fun AnimeShowDetailScreen(
                 graph.database.localActiveJobDao().insert(
                     com.arkiv.player.data.db.LocalActiveJobEntity(jobId, System.currentTimeMillis()),
                 )
+                com.arkiv.player.data.offline.NucDownloadCheckWorker.schedule(context, jobId)
             }
-            // El aviso de "descarga terminada" (WorkManager + notificacion local) se conecta
-            // aca mismo en el Task 12, Step 2 -- ese task agrega la llamada
-            // NucDownloadCheckWorker.schedule(context, jobId) en esta rama del if, una vez que
-            // esa clase existe. No adelantarla en este task: todavia no hay nada que llamar.
         }
     }
 
@@ -388,11 +387,8 @@ fun AnimeShowDetailScreen(
                 graph.database.localActiveJobDao().insert(
                     com.arkiv.player.data.db.LocalActiveJobEntity(jobId, System.currentTimeMillis()),
                 )
+                com.arkiv.player.data.offline.NucDownloadCheckWorker.schedule(context, jobId)
             }
-            // El aviso de "descarga terminada" (WorkManager + notificacion local) se conecta
-            // aca mismo en el Task 12, Step 2 -- ese task agrega la llamada
-            // NucDownloadCheckWorker.schedule(context, jobId) en esta rama del if, una vez que
-            // esa clase existe. No adelantarla en este task: todavia no hay nada que llamar.
         }
     }
 
