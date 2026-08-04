@@ -346,13 +346,16 @@ fun AnimeShowDetailScreen(
         }
     }
 
-    // Dispara una descarga a la NUC (arkiv-offline) del pack completo. MirrorWebSource ya trae la
-    // temporada real por episodio (ver WebMirrorModels.kt), así que se usa tal cual en vez de
-    // asumir season=1 (esa normalización es solo para la reproducción/guardado local del anime).
-    fun downloadPack(pack: MirrorWebPack) {
+    // Dispara una descarga a la NUC (arkiv-offline) de los episodios elegidos del pack. MirrorWebSource
+    // ya trae la temporada real por episodio (ver WebMirrorModels.kt), así que se usa tal cual en vez
+    // de asumir season=1 (esa normalización es solo para la reproducción/guardado local del anime).
+    // `episodes` default = pack.episodes completo: mantiene el llamado directo desde WebPackRow (Task
+    // 8, botón de descarga rápida sin abrir el diálogo); WebPackDialog pasa la selección real del
+    // usuario en vez de bajar el pack entero a ciegas.
+    fun downloadPack(pack: MirrorWebPack, episodes: List<MirrorWebSource> = pack.episodes) {
         val s = show ?: return
         scope.launch {
-            val items = pack.episodes.map {
+            val items = episodes.map {
                 com.arkiv.player.data.offline.NucDownloadItem(it.season, it.episode, it.pageUrl)
             }
             val jobId = graph.arkivOfflineApi.createJob(
@@ -770,6 +773,10 @@ fun AnimeShowDetailScreen(
             onPlayOne = { title, ep ->
                 webPackFor = null
                 addWebPack(p, title, p.episodes, ep)
+            },
+            onDownload = { _, episodes ->
+                webPackFor = null
+                downloadPack(p, episodes)
             },
         )
     }

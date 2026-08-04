@@ -251,8 +251,11 @@ class SearchPlayback(private val graph: AppGraph) {
 }
 
 /** id estable de "serie" TMDB para agrupar episodios (imdb si hay, si no tmdb id). Anime NO pasa por
- *  acá: usa sus propios agrupadores ("torrent:anime:<id>" / "anilist<id>"), ver playTorrent/playWeb. */
-private fun seriesIdFor(card: TitleCard, detail: TmdbDetail?): String = when {
+ *  acá: usa sus propios agrupadores ("torrent:anime:<id>" / "anilist<id>"), ver playTorrent/playWeb.
+ *  internal (no private): SearchScreen.kt (mismo paquete) necesita la MISMA lógica para el seriesId
+ *  de la descarga NUC (downloadWholeSeries) que ya usa addWholeWebSeries -- divergir acá reintroduce
+ *  el bug de season/seriesId arreglado en el Task 11. */
+internal fun seriesIdFor(card: TitleCard, detail: TmdbDetail?): String = when {
     detail != null -> detail.imdbId.ifBlank { "tmdb${detail.id}" }
     else -> "tmdb${card.tmdbId}"
 }

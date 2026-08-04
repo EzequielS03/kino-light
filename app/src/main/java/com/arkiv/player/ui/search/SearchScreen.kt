@@ -50,6 +50,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -98,6 +99,7 @@ fun SearchScreen(
     shortcutAnilistId: Long? = null,
 ) {
     val graph = rememberGraph()
+    val context = LocalContext.current
     val vm: SearchViewModel = viewModel(
         factory = viewModelFactory {
             initializer {
@@ -210,6 +212,32 @@ fun SearchScreen(
         }
     }
 
+    // Dispara una descarga a la NUC (arkiv-offline) de los capítulos elegidos del pack web. Mismo
+    // seriesId/isAnime que playback.addWholeWebSeries (Task 11: usar seriesIdFor(card, detail) para
+    // series TMDB y "anilist<id>" para anime, NUNCA season=1 fijo) — si el seriesId de acá divergiera
+    // del que ya usa el guardado local (onSave/onPlayOne, arriba), la descarga NUC quedaría bajo un
+    // id distinto y PlaybackPreferenceStore.decide() nunca encontraría el capítulo bajado. Molde:
+    // downloadPack en AnimeShowDetailScreen/CineDetailScreen (Task 8/9/12).
+    fun downloadWholeSeries(pack: MirrorWebPack, title: String, episodes: List<MirrorWebSource>) {
+        val card = selected ?: return
+        val isAnime = card.kind == "anime"
+        val seriesId = if (isAnime) "anilist${card.anilistId ?: animeShow?.id}" else seriesIdFor(card, detail)
+        scope.launch {
+            val items = episodes.map { com.arkiv.player.data.offline.NucDownloadItem(it.season, it.episode, it.pageUrl) }
+            val jobId = graph.arkivOfflineApi.createJob(seriesId, title, resultPoster, items)
+            if (jobId == null) {
+                playError = "No se pudo iniciar la descarga (revisá la conexión con la NUC)"
+            } else {
+                // Registro local (Task 9): sin esto la pantalla de Descargas de la NUC no sabe qué
+                // job observar -- arkiv-offline no tiene un "listame todos los jobs".
+                graph.database.localActiveJobDao().insert(
+                    com.arkiv.player.data.db.LocalActiveJobEntity(jobId, System.currentTimeMillis()),
+                )
+                com.arkiv.player.data.offline.NucDownloadCheckWorker.schedule(context, jobId)
+            }
+        }
+    }
+
     // Los packs (torrent y web) NO reproducen directo: abren su diálogo para elegir nombre y
     // capítulos. Sin esto un pack agregaba cientos de episodios en silencio.
     fun playResult(source: PlaySource) = when (source) {
@@ -311,6 +339,10 @@ fun SearchScreen(
             onPlayOne = { title, ep ->
                 webPackFor = null
                 addWholeSeries(p, title, p.episodes, ep)
+            },
+            onDownload = { title, episodes ->
+                webPackFor = null
+                downloadWholeSeries(p, title, episodes)
             },
         )
     }

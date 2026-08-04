@@ -27,6 +27,7 @@ fun WebPackDialog(
     onDismiss: () -> Unit,
     onSave: (title: String, episodes: List<MirrorWebSource>) -> Unit,
     onPlayOne: (title: String, episode: MirrorWebSource) -> Unit,
+    onDownload: (title: String, episodes: List<MirrorWebSource>) -> Unit,
 ) {
     var title by remember { mutableStateOf(defaultTitle) }
     // pageUrl como clave: es único por capítulo dentro de un sitio y no depende del orden.
@@ -35,15 +36,27 @@ fun WebPackDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        // AlertDialog de Material3 solo expone confirmButton/dismissButton (2 slots nombrados), pero
+        // acá hacen falta 3 acciones (guardar local, descargar a la NUC, cancelar). En vez de mover
+        // "Cancelar" a un ícono (peor descubribilidad) se mete un Row con las 2 acciones positivas
+        // dentro del slot confirmButton — dismissButton sigue siendo "Cancelar" solo.
         confirmButton = {
-            TextButton(
-                enabled = selected.isNotEmpty(),
-                onClick = { onSave(finalTitle(), pack.episodes.filter { it.pageUrl in selected }) },
-            ) {
-                Text(
-                    if (selected.size == pack.episodeCount) "Guardar todo como serie"
-                    else "Guardar seleccionados (${selected.size})",
-                )
+            Row {
+                TextButton(
+                    enabled = selected.isNotEmpty(),
+                    onClick = { onDownload(finalTitle(), pack.episodes.filter { it.pageUrl in selected }) },
+                ) {
+                    Text("Descargar offline (${selected.size})")
+                }
+                TextButton(
+                    enabled = selected.isNotEmpty(),
+                    onClick = { onSave(finalTitle(), pack.episodes.filter { it.pageUrl in selected }) },
+                ) {
+                    Text(
+                        if (selected.size == pack.episodeCount) "Guardar todo como serie"
+                        else "Guardar seleccionados (${selected.size})",
+                    )
+                }
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
