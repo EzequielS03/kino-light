@@ -53,11 +53,17 @@ timeout corto y cae al hostname público si no responde.
 - Test: `/Users/cristian/arkiv-offline/tests/test_api.py`
 
 **Interfaces:**
-- Produces: `GET /jobs/<int:job_id>/events` — sin auth (mismo criterio que `GET /jobs/<id>`, que
-  tampoco pide key hoy: es progreso de lectura, no una acción mutante). Devuelve
-  `Content-Type: text/event-stream`. Cada evento es una línea `data: <json>\n\n` donde el JSON es
-  el mismo shape que ya devuelve `GET /jobs/<id>` (incluye `status`, `progress`, `items`). El
-  stream termina (cierra la conexión) en cuanto el job llega a `status` `done` o `failed`.
+- Produces: `GET /jobs/<int:job_id>/events` — **requiere `X-Api-Key`, igual que `GET /jobs/<id>`**
+  (corrección post-revisión: la primera versión de este plan afirmaba incorrectamente que
+  `GET /jobs/<id>` no pide key hoy — sí la pide, desde su commit de introducción; el endpoint SSE
+  debe requerirla también, mismo chequeo `require_api_key()` ya usado por `get_job`, ANTES de
+  empezar a streamear. El consumidor real es el cliente SSE de OkHttp de la app Android —Task 7—
+  que sí puede mandar headers custom, a diferencia de un `EventSource` nativo de navegador, así
+  que no hace falta el camino dual header-o-query-param que sí necesitan `/library`/`/stream` por
+  la limitación de libVLC). Devuelve `Content-Type: text/event-stream`. Cada evento es una línea
+  `data: <json>\n\n` donde el JSON es el mismo shape que ya devuelve `GET /jobs/<id>` (incluye
+  `status`, `progress`, `items`). El stream termina (cierra la conexión) en cuanto el job llega a
+  `status` `done` o `failed`.
 
 - [ ] **Step 1: Escribir el test que falla**
 
@@ -841,7 +847,11 @@ class NucJobEvents(
 
     private fun sseSource(jobId: Long): Flow<NucJob> = callbackFlow {
         val base = api.baseUrlResolved()
-        val req = Request.Builder().url("$base/jobs/$jobId/events").build()
+        // El endpoint SSE requiere X-Api-Key igual que GET /jobs/<id> (ver Task 1) -- a
+        // diferencia de un EventSource nativo de navegador, OkHttp SI puede mandar headers
+        // custom en una conexion SSE, asi que no hace falta ningun camino alternativo.
+        val req = Request.Builder().url("$base/jobs/$jobId/events")
+            .header("X-Api-Key", apiKey()).build()
         val listener = object : EventSourceListener() {
             override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
                 runCatching { parseJobEvent(JSONObject(data)) }.getOrNull()?.let { trySend(it) }
