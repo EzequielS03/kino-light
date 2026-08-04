@@ -948,19 +948,17 @@ misma pantalla (reusar esa vía, no crear un canal de error nuevo):
             )
             if (jobId == null) {
                 error = "No se pudo iniciar la descarga (revisá la conexión con la NUC)"
-            } else {
-                com.arkiv.player.data.offline.NucDownloadCheckWorker.schedule(context, jobId)
             }
+            // El aviso de "descarga terminada" (WorkManager + notificacion local) se conecta
+            // aca mismo en el Task 12, Step 2 -- ese task agrega la llamada
+            // NucDownloadCheckWorker.schedule(context, jobId) en esta rama del if, una vez que
+            // esa clase existe. No adelantarla en este task: todavia no hay nada que llamar.
         }
     }
 ```
 
 (`seasonFor(it)` es el helper que resuelve del Step 2 — su firma exacta depende de lo que se haya
-encontrado ahí. `graph.arkivOfflineApi` se registra en el Task 6, Step 5 de este plan —
-`NucDownloadCheckWorker.schedule` se implementa recién en el Task 12; si este task se ejecuta
-antes que el Task 12, dejar esa línea comentada con una nota y agregarla al ejecutar el Task 12,
-o reordenar la ejecución de los tasks de este plan para que el Task 12 vaya antes de este Step —
-cualquiera de los dos caminos es válido, documentar cuál se usó.)
+encontrado ahí. `graph.arkivOfflineApi` se registra en el Task 6, Step 5 de este plan.)
 
 `createJob` devolviendo `null` cubre tanto errores de red genéricos como el caso `409` (sin
 espacio en la NUC) — `arkiv-offline` no distingue el motivo en el código de respuesta que el
@@ -1421,8 +1419,17 @@ genérico de Android).
 
 - [ ] **Step 2: Disparar el schedule al crear un job**
 
-En `downloadPack`/el download de episodio individual (Task 8), después de que `createJob` devuelva
-un `job_id` no nulo, llamar `NucDownloadCheckWorker.schedule(context, jobId)`.
+En `downloadPack` (`AnimeShowDetailScreen.kt`) y su equivalente en `CineDetailScreen.kt` (ambos
+del Task 8), y en la función del download de episodio individual (también Task 8) — buscar el
+comentario `// El aviso de "descarga terminada"...` que el Task 8 dejó como marcador exacto de
+dónde va esta línea — reemplazar ese comentario por:
+
+```kotlin
+NucDownloadCheckWorker.schedule(context, jobId)
+```
+
+dentro del bloque `if (jobId == null) { ... } else { ... }` ya existente (rama `else`, jobId no
+nulo).
 
 - [ ] **Step 3: Verificar que compila**
 
