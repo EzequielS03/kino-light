@@ -337,6 +337,12 @@ fun CineDetailScreen(
             )
             if (jobId == null) {
                 error = "No se pudo iniciar la descarga (revisá la conexión con la NUC)"
+            } else {
+                // Registro local (Task 9): sin esto la pantalla de Descargas de la NUC no sabe qué
+                // job observar -- arkiv-offline no tiene un "listame todos los jobs".
+                graph.database.localActiveJobDao().insert(
+                    com.arkiv.player.data.db.LocalActiveJobEntity(jobId, System.currentTimeMillis()),
+                )
             }
             // El aviso de "descarga terminada" (WorkManager + notificacion local) se conecta
             // aca mismo en el Task 12, Step 2 -- ese task agrega la llamada
@@ -358,6 +364,10 @@ fun CineDetailScreen(
             )
             if (jobId == null) {
                 error = "No se pudo iniciar la descarga (revisá la conexión con la NUC)"
+            } else {
+                graph.database.localActiveJobDao().insert(
+                    com.arkiv.player.data.db.LocalActiveJobEntity(jobId, System.currentTimeMillis()),
+                )
             }
             // El aviso de "descarga terminada" (WorkManager + notificacion local) se conecta
             // aca mismo en el Task 12, Step 2 -- ese task agrega la llamada

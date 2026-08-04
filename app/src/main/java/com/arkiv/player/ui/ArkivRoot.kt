@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Downloading
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SettingsRemote
@@ -70,6 +71,7 @@ import com.arkiv.player.ui.catalog.CatalogScreen
 import com.arkiv.player.ui.catalog.ShowDetailScreen
 import com.arkiv.player.ui.detail.DetailScreen
 import com.arkiv.player.ui.downloads.DownloadsScreen
+import com.arkiv.player.ui.offline.NucDownloadsScreen
 import com.arkiv.player.ui.home.HomeScreen
 import com.arkiv.player.ui.library.LibraryScreen
 import com.arkiv.player.ui.pairing.QrScannerScreen
@@ -192,6 +194,11 @@ fun ArkivRoot(
                     actions = {
                         IconButton(onClick = { navController.navigate("torrent") }) {
                             Icon(Icons.Default.Downloading, contentDescription = "Reproducir torrent", tint = Color.White)
+                        }
+                        // Progreso de los jobs de descarga a la NUC (arkiv-offline) -- no confundir con
+                        // la pestaña "Descargas" (esa es de episodios ya bajados AL TELÉFONO).
+                        IconButton(onClick = { navController.navigate("nuc_downloads") }) {
+                            Icon(Icons.Default.CloudDownload, contentDescription = "Descargas en la NUC", tint = Color.White)
                         }
                         // El control remoto solo tiene sentido si hay una TV Arkiv en la red.
                         if (tvAvailable) {
@@ -411,6 +418,11 @@ fun ArkivRoot(
             composable("remote") {
                 Box(Modifier.fillMaxSize().padding(padding)) {
                     RemoteScreen(onBack = { navController.popBackStack() })
+                }
+            }
+            composable("nuc_downloads") {
+                Box(Modifier.fillMaxSize().padding(padding)) {
+                    NucDownloadsScreen(onBack = { navController.popBackStack() })
                 }
             }
             composable("nowplaying") {

@@ -19,8 +19,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         EpisodeStillEntity::class,
         NucLibraryItemEntity::class,
         SeriesPlaybackPrefEntity::class,
+        LocalActiveJobEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = false,
 )
 abstract class ArkivDatabase : RoomDatabase() {
@@ -33,6 +34,7 @@ abstract class ArkivDatabase : RoomDatabase() {
     abstract fun episodeStillDao(): EpisodeStillDao
     abstract fun nucLibraryItemDao(): NucLibraryItemDao
     abstract fun seriesPlaybackPrefDao(): SeriesPlaybackPrefDao
+    abstract fun localActiveJobDao(): LocalActiveJobDao
 
     companion object {
         @Volatile
@@ -196,13 +198,26 @@ abstract class ArkivDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v12 -> v13: registro local de qué `job_id` de arkiv-offline disparó este dispositivo
+         * (Task 9, pantalla de Descargas) -- ver [LocalActiveJobEntity].
+         */
+        private val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS local_active_jobs (" +
+                        "jobId INTEGER NOT NULL PRIMARY KEY, createdAt INTEGER NOT NULL)",
+                )
+            }
+        }
+
         fun get(context: Context): ArkivDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     ArkivDatabase::class.java,
                     "arkiv.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
                     .fallbackToDestructiveMigration()
                     .build().also { instance = it }
             }

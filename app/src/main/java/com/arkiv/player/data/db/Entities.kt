@@ -147,6 +147,19 @@ data class SeriesPlaybackPrefEntity(
 )
 
 /**
+ * Registro local de qué `job_id` de arkiv-offline disparó ESTE dispositivo (Task 9). arkiv-offline
+ * no tiene un endpoint "listame todos los jobs" -- solo `GET /jobs/<id>` por id puntual -- así que
+ * la app necesita su propio índice de qué ids consultar/observar en la pantalla de Descargas. Se
+ * llena cuando `downloadPack`/`downloadEpisode` (Task 8, en AnimeShowDetailScreen/CineDetailScreen)
+ * crean un job con éxito, y se limpia cuando ese job llega a un estado terminal (done/failed).
+ */
+@Entity(tableName = "local_active_jobs")
+data class LocalActiveJobEntity(
+    @PrimaryKey val jobId: Long,
+    val createdAt: Long,
+)
+
+/**
  * Still (fotograma oficial) de un capítulo, resuelto desde TMDB. Local y NO sincronizado, igual
  * que [ArtworkEntity]: es caché derivable, no datos del usuario. Va en su propia tabla y no como
  * columna de `episodes` a propósito — esa tabla tiene triggers de sync, y tocar 49 filas por serie

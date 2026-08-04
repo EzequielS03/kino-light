@@ -284,6 +284,18 @@ interface SeriesPlaybackPrefDao {
 }
 
 @Dao
+interface LocalActiveJobDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(job: LocalActiveJobEntity)
+
+    @Query("DELETE FROM local_active_jobs WHERE jobId = :jobId")
+    suspend fun delete(jobId: Long)
+
+    @Query("SELECT * FROM local_active_jobs")
+    suspend fun getAll(): List<LocalActiveJobEntity>
+}
+
+@Dao
 interface SearchHistoryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entry: SearchHistoryEntity)

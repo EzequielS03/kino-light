@@ -121,6 +121,12 @@ class AppGraph(context: Context) {
         )
     }
 
+    /** Progreso casi en tiempo real (SSE+poll) de un job de arkiv-offline. Usado por la pantalla
+     * de Descargas del NUC (Task 9). */
+    val nucJobEvents: com.arkiv.player.data.offline.NucJobEvents by lazy {
+        com.arkiv.player.data.offline.NucJobEvents(arkivOfflineApi, apiKey = { settings.nucApiKey.value })
+    }
+
     val webTmdbMatcher: WebTmdbMatcher by lazy {
         WebTmdbMatcher(lookup = { type, query ->
             runCatching {
