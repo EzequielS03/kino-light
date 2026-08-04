@@ -112,6 +112,15 @@ class AppGraph(context: Context) {
         com.arkiv.player.data.catalog.web.WebResolverApi(baseUrl = { settings.webResolverUrl.value })
     }
 
+    /** Cliente de arkiv-offline (NUC de casa): jobs de descarga + biblioteca ya bajada. */
+    val arkivOfflineApi: com.arkiv.player.data.offline.ArkivOfflineApi by lazy {
+        com.arkiv.player.data.offline.ArkivOfflineApi(
+            lanBaseUrl = { settings.nucLanBaseUrl.value },
+            tunnelBaseUrl = { settings.nucTunnelBaseUrl.value },
+            apiKey = { settings.nucApiKey.value },
+        )
+    }
+
     val webTmdbMatcher: WebTmdbMatcher by lazy {
         WebTmdbMatcher(lookup = { type, query ->
             runCatching {
