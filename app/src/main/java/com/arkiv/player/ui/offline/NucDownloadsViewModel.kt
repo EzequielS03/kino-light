@@ -3,6 +3,8 @@ package com.arkiv.player.ui.offline
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.arkiv.player.data.db.LocalActiveJobDao
+import com.arkiv.player.data.db.NucLibraryItemDao
+import com.arkiv.player.data.db.NucLibraryItemEntity
 import com.arkiv.player.data.offline.ArkivOfflineApi
 import com.arkiv.player.data.offline.NucJob
 import com.arkiv.player.data.offline.NucJobEvents
@@ -25,13 +27,18 @@ class NucDownloadsViewModel(
     private val api: ArkivOfflineApi,
     private val events: NucJobEvents,
     private val jobDao: LocalActiveJobDao,
+    private val libraryDao: NucLibraryItemDao,
 ) : ViewModel() {
     private val _activeJobs = MutableStateFlow<List<NucJob>>(emptyList())
     val activeJobs: StateFlow<List<NucJob>> = _activeJobs
 
+    private val _finished = MutableStateFlow<List<NucLibraryItemEntity>>(emptyList())
+    val finished: StateFlow<List<NucLibraryItemEntity>> = _finished
+
     init {
         viewModelScope.launch {
             jobDao.getAll().forEach { local -> observe(local.jobId) }
+            _finished.value = libraryDao.getAll()
         }
     }
 
@@ -43,6 +50,7 @@ class NucDownloadsViewModel(
                 // pantalla -- se limpia el registro local (el job en sí sigue vivo en la NUC).
                 if (job.status == "done" || job.status == "failed") {
                     jobDao.delete(job.jobId)
+                    _finished.value = libraryDao.getAll()
                 }
             }
         }

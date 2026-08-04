@@ -272,6 +272,9 @@ interface NucLibraryItemDao {
 
     @Query("DELETE FROM nuc_library_items WHERE seriesId = :seriesId")
     suspend fun clearForSeries(seriesId: String)
+
+    @Query("SELECT * FROM nuc_library_items ORDER BY seriesId, season, episode")
+    suspend fun getAll(): List<NucLibraryItemEntity>
 }
 
 @Dao

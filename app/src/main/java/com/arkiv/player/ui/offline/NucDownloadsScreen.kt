@@ -50,11 +50,17 @@ fun NucDownloadsScreen(onBack: () -> Unit) {
     val vm: NucDownloadsViewModel = viewModel(
         factory = viewModelFactory {
             initializer {
-                NucDownloadsViewModel(graph.arkivOfflineApi, graph.nucJobEvents, graph.database.localActiveJobDao())
+                NucDownloadsViewModel(
+                    graph.arkivOfflineApi,
+                    graph.nucJobEvents,
+                    graph.database.localActiveJobDao(),
+                    graph.database.nucLibraryItemDao(),
+                )
             }
         },
     )
     val active by vm.activeJobs.collectAsStateWithLifecycle()
+    val finished by vm.finished.collectAsStateWithLifecycle()
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -71,7 +77,7 @@ fun NucDownloadsScreen(onBack: () -> Unit) {
             )
         }
 
-        if (active.isEmpty()) {
+        if (active.isEmpty() && finished.isEmpty()) {
             EmptyState(
                 title = "Sin descargas activas",
                 subtitle = "Los trabajos que dispares desde una serie o película van a aparecer acá con su progreso.",
@@ -79,9 +85,46 @@ fun NucDownloadsScreen(onBack: () -> Unit) {
             return@Column
         }
 
+        // Una sola LazyColumn para toda la pantalla: dos LazyColumn anidadas dentro de este
+        // Column (sin peso/altura fija) hacen que Compose mida la segunda con altura infinita
+        // y tire IllegalStateException en tiempo de ejecución. Activos y terminados van acá
+        // como secciones (item/items) en vez de listas scrolleables separadas.
         LazyColumn(Modifier.fillMaxSize()) {
-            items(active, key = { it.jobId }) { job ->
-                NucJobRow(job = job, onCancel = { vm.cancel(job.jobId) })
+            if (active.isNotEmpty()) {
+                items(active, key = { "active-${it.jobId}" }) { job ->
+                    NucJobRow(job = job, onCancel = { vm.cancel(job.jobId) })
+                }
+            }
+
+            if (finished.isNotEmpty()) {
+                item(key = "finished-header") {
+                    Text(
+                        "Terminados",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
+                    )
+                }
+                finished.groupBy { it.seriesId }.forEach { (seriesId, items) ->
+                    item(key = "series-header-$seriesId") {
+                        Text(
+                            seriesId,
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.padding(16.dp, 8.dp),
+                        )
+                    }
+                    items(items, key = { "finished-${it.itemId}" }) { item ->
+                        ListItem(
+                            headlineContent = { Text("T${item.season} · E${item.episode}") },
+                            supportingContent = {
+                                Text(
+                                    "${item.sizeBytes / 1_000_000} MB",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            },
+                            colors = ListItemDefaults.colors(containerColor = ArkivSurface),
+                        )
+                    }
+                }
             }
         }
     }
