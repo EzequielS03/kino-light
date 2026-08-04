@@ -317,6 +317,13 @@ fun AnimeShowDetailScreen(
     // Agrega los capítulos elegidos de un pack web (serie completa de un sitio) a la biblioteca, uno
     // por episodio — mismo molde que playWebEp pero en loop. Devuelve al reproducir el episodio
     // pedido si se tocó uno puntual (onPlayOne del diálogo), si no el primero agregado (onSave).
+    //
+    // Task 11: antes guardaba season=1 fijo (igual que playWebEp/downloadEpisode, que SÍ no tienen
+    // season real disponible). Acá SÍ la hay -- MirrorWebSource.episode.season es la temporada real
+    // por episodio, la misma que downloadPack ya usa para el job de la NUC (ver el comentario ahí
+    // mismo) -- así que guardar 1 fijo desalineaba el season local del guardado en nuc_library_items
+    // y PlaybackPreferenceStore.decide() nunca encontraba el capítulo bajado en series con más de
+    // una temporada. Se usa ep.season, igual que ya hace CineDetailScreen.addWebPack.
     fun addWebPack(pack: MirrorWebPack, title: String, episodes: List<MirrorWebSource>, playEpisode: MirrorWebSource? = null) {
         val s = show ?: return
         preparing = true; error = null
@@ -325,7 +332,7 @@ fun AnimeShowDetailScreen(
             var wanted: String? = null
             for (ep in episodes) {
                 val id = graph.repository.addWebSeriesEpisode(
-                    "anilist$anilistId", title, s.posterUrl, 1, ep.episode,
+                    "anilist$anilistId", title, s.posterUrl, ep.season, ep.episode,
                     ep.name.ifBlank { "Ep ${ep.episode}" }, ep.pageUrl,
                 )
                 if (first == null) first = id

@@ -2,7 +2,7 @@ package com.arkiv.player.playback
 
 import androidx.media3.common.MediaItem
 
-enum class SourceKind { ARCHIVE, TORRENT, WEB }
+enum class SourceKind { ARCHIVE, TORRENT, WEB, NUC }
 
 data class PlayerSourceTag(
     val kind: SourceKind,
