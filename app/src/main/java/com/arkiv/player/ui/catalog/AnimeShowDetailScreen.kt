@@ -312,9 +312,10 @@ fun AnimeShowDetailScreen(
         val s = show ?: return
         preparing = true; error = null
         val season = com.arkiv.player.data.catalog.mirror.WebSourceSeason.forPageUrl(webPacks, r.pageUrl)
+        val episode = com.arkiv.player.data.catalog.mirror.WebSourceEpisode.forPageUrl(webPacks, r.pageUrl, fallback = ep)
         scope.launch {
             val epId = graph.repository.addWebSeriesEpisode(
-                "anilist$anilistId", s.title, s.posterUrl, season, ep, "${s.title} - Ep $ep", r.pageUrl,
+                "anilist$anilistId", s.title, s.posterUrl, season, episode, "${s.title} - Ep $episode", r.pageUrl,
             )
             preparing = false
             if (epId != null) onPlay(epId) else error = "No se pudo abrir la fuente web"
@@ -386,11 +387,12 @@ fun AnimeShowDetailScreen(
         val s = show ?: return
         askNotifications()
         val season = com.arkiv.player.data.catalog.mirror.WebSourceSeason.forPageUrl(webPacks, r.pageUrl)
+        val episode = com.arkiv.player.data.catalog.mirror.WebSourceEpisode.forPageUrl(webPacks, r.pageUrl, fallback = ep)
         scope.launch {
             error = com.arkiv.player.data.offline.NucDownloads.start(
                 context, graph.arkivOfflineApi, graph.database.localActiveJobDao(),
                 seriesId = "anilist$anilistId", showTitle = s.title, posterUrl = s.posterUrl,
-                items = listOf(com.arkiv.player.data.offline.NucDownloadItem(season, ep, r.pageUrl)),
+                items = listOf(com.arkiv.player.data.offline.NucDownloadItem(season, episode, r.pageUrl)),
             )
         }
     }
