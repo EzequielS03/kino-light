@@ -327,10 +327,11 @@ fun CineDetailScreen(
 
     // Dispara una descarga a la NUC (arkiv-offline) de los episodios elegidos del pack. MirrorWebSource
     // ya trae la temporada real por episodio (ver WebMirrorModels.kt), así que se usa tal cual.
-    // `episodes` default = pack.episodes completo: mantiene el llamado directo desde WebPackRow del
-    // sheet (Task 8); WebPackDialog pasa la selección real del usuario en vez de bajar el pack entero
-    // a ciegas.
-    fun downloadPack(pack: MirrorWebPack, episodes: List<MirrorWebSource> = pack.episodes) {
+    // `episodes` default = pack.episodes completo y `title` default = el título TMDB: mantiene el
+    // llamado directo desde WebPackRow del sheet (Task 8) igual que antes; WebPackDialog pasa la
+    // selección real del usuario y el título editado en el diálogo (mismo que ya usa onSave/addWebPack
+    // -- si no, "Guardar" y "Descargar offline" quedan mostrando nombres distintos para el mismo pack).
+    fun downloadPack(pack: MirrorWebPack, episodes: List<MirrorWebSource> = pack.episodes, title: String = detail?.title.orEmpty()) {
         val d = detail ?: return
         val seriesId = d.imdbId.ifBlank { "tmdb${d.id}" }
         scope.launch {
@@ -338,7 +339,7 @@ fun CineDetailScreen(
                 com.arkiv.player.data.offline.NucDownloadItem(it.season, it.episode, it.pageUrl)
             }
             val jobId = graph.arkivOfflineApi.createJob(
-                seriesId = seriesId, showTitle = d.title, posterUrl = d.posterUrl, items = items,
+                seriesId = seriesId, showTitle = title.ifBlank { d.title }, posterUrl = d.posterUrl, items = items,
             )
             if (jobId == null) {
                 error = "No se pudo iniciar la descarga (revisá la conexión con la NUC)"
@@ -578,9 +579,9 @@ fun CineDetailScreen(
                 webPackFor = null
                 addWebPack(p, title, p.episodes, ep)
             },
-            onDownload = { _, episodes ->
+            onDownload = { title, episodes ->
                 webPackFor = null
-                downloadPack(p, episodes)
+                downloadPack(p, episodes, title)
             },
         )
     }

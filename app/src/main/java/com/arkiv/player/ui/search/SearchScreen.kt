@@ -222,6 +222,7 @@ fun SearchScreen(
         val card = selected ?: return
         val isAnime = card.kind == "anime"
         val seriesId = if (isAnime) "anilist${card.anilistId ?: animeShow?.id}" else seriesIdFor(card, detail)
+        playError = null
         scope.launch {
             val items = episodes.map { com.arkiv.player.data.offline.NucDownloadItem(it.season, it.episode, it.pageUrl) }
             val jobId = graph.arkivOfflineApi.createJob(seriesId, title, resultPoster, items)

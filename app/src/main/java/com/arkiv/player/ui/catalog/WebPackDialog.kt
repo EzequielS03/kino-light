@@ -38,10 +38,12 @@ fun WebPackDialog(
         onDismissRequest = onDismiss,
         // AlertDialog de Material3 solo expone confirmButton/dismissButton (2 slots nombrados), pero
         // acá hacen falta 3 acciones (guardar local, descargar a la NUC, cancelar). En vez de mover
-        // "Cancelar" a un ícono (peor descubribilidad) se mete un Row con las 2 acciones positivas
-        // dentro del slot confirmButton — dismissButton sigue siendo "Cancelar" solo.
+        // "Cancelar" a un ícono (peor descubribilidad) se mete una Column con las 2 acciones positivas
+        // dentro del slot confirmButton — apiladas, no en fila, porque un Row con 3 botones de texto
+        // (2 acá + "Cancelar" en dismissButton) se pisa/recorta en un diálogo angosto (~360dp). Alineadas
+        // a la derecha (Alignment.End) para que calcen con dónde AlertDialog ya pone confirmButton.
         confirmButton = {
-            Row {
+            Column(horizontalAlignment = Alignment.End) {
                 TextButton(
                     enabled = selected.isNotEmpty(),
                     onClick = { onDownload(finalTitle(), pack.episodes.filter { it.pageUrl in selected }) },
