@@ -3,6 +3,7 @@ package com.arkiv.player.ui.detail
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -29,6 +31,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -233,17 +237,38 @@ private fun DetailContent(
     onToggleWatched: (String, Boolean) -> Unit,
     bottomInset: androidx.compose.ui.unit.Dp,
 ) {
-    val bySection = data.episodes.groupBy { it.section }
+    // Sitios detectados entre TODOS los episodios de la serie (no de la lista ya filtrada): el
+    // set de chips no puede encogerse cuando el usuario elige un filtro, o desaparecería la forma
+    // de volver a "Todos". Ver [siteLabelOf].
+    val siteLabels = remember(data.episodes) {
+        data.episodes.mapNotNull { siteLabelOf(it.sourceRef) }.toCollection(sortedSetOf())
+    }
+    // null = "Todos" (sin filtro), el default — no tocar el comportamiento existente hasta que el
+    // usuario elija un chip a propósito.
+    var selectedSite by remember(data.identifier) { mutableStateOf<String?>(null) }
+    // Los episodios sin sourceRef reconocible (archive.org, magnets de torrent, o guardados antes
+    // de que se persistiera sourceRef) no pertenecen a NINGÚN sitio del filtro, así que se quedan
+    // siempre visibles en vez de desaparecer cuando el usuario filtra por un sitio puntual.
+    val filteredEpisodes = remember(data.episodes, selectedSite) {
+        val site = selectedSite
+        if (site == null) {
+            data.episodes
+        } else {
+            data.episodes.filter { ep -> val label = siteLabelOf(ep.sourceRef); label == null || label == site }
+        }
+    }
+    val bySection = filteredEpisodes.groupBy { it.section }
     val resume = data.resumeEpisode
 
     // Índice (aplanado) del episodio en el que voy, para hacer scroll automático al abrir.
-    // Los 2 primeros items del LazyColumn son la imagen y el bloque de título; después cada
+    // Los 2 primeros items del LazyColumn son la imagen y el bloque de título; después, SI hay
+    // 2+ sitios, viene 1 item más con la fila de chips de filtro (ver más abajo); y después cada
     // sección con nombre añade 1 item de cabecera antes de sus episodios.
     val listState = rememberLazyListState()
     val currentEpisodeId = data.inProgressEpisode?.id
-    val resumeIndex = remember(data.episodes, data.progress) {
+    val resumeIndex = remember(filteredEpisodes, data.progress, siteLabels) {
         val target = data.inProgressEpisode ?: return@remember null
-        var idx = 2
+        var idx = if (siteLabels.size >= 2) 3 else 2
         bySection.forEach { (section, episodes) ->
             if (section.isNotBlank()) idx += 1
             val pos = episodes.indexOfFirst { it.id == target.id }
@@ -325,6 +350,34 @@ private fun DetailContent(
             }
         }
 
+        // Solo tiene sentido filtrar si hay 2+ sitios distintos guardados para esta serie — con 0
+        // o 1 sitio, la fila de chips no filtraría nada y sería puro ruido visual.
+        if (siteLabels.size >= 2) {
+            item {
+                Row(
+                    modifier = Modifier
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    FilterChip(
+                        selected = selectedSite == null,
+                        onClick = { selectedSite = null },
+                        label = { Text("Todos") },
+                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = ArkivRed, selectedLabelColor = Color.White),
+                    )
+                    siteLabels.forEach { site ->
+                        FilterChip(
+                            selected = selectedSite == site,
+                            onClick = { selectedSite = site },
+                            label = { Text(site) },
+                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = ArkivRed, selectedLabelColor = Color.White),
+                        )
+                    }
+                }
+            }
+        }
+
         bySection.forEach { (section, episodes) ->
             if (section.isNotBlank()) {
                 item {
@@ -364,6 +417,21 @@ private fun DetailContent(
  * cuando no) es peor que uno de menos. Los que no tienen fuente los rellena el primer refresh
  * contra la NUC, que trae el `source_ref` real.
  */
+/**
+ * Host corto ("serieskao.top") a partir del `sourceRef` (pageUrl) de un episodio web, para
+ * agrupar el filtro de la lista por sitio de origen. Null para archive.org, magnets de torrent
+ * (no son una URL http válida), o episodios guardados antes de que se persistiera `sourceRef` —
+ * ninguno de esos tiene un "sitio" que mostrar como chip. Mismo patrón que
+ * `CfClearanceStore.hostOf` / `CloudflareSolver` (`java.net.URL(...).host`), para no inventar una
+ * segunda forma de sacarle el host a una URL en el código.
+ */
+private fun siteLabelOf(sourceRef: String?): String? {
+    if (sourceRef.isNullOrBlank()) return null
+    val host = runCatching { java.net.URL(sourceRef).host }.getOrNull()?.lowercase()?.ifBlank { null }
+        ?: return null
+    return host.removePrefix("www.")
+}
+
 private fun Set<Triple<Int, Int, String>>.hasCopyOf(episode: Episode): Boolean {
     val season = EpisodeNumbering.seasonOf(episode.section) ?: return false
     val number = EpisodeNumbering.episodeOf(episode.displayName) ?: return false
