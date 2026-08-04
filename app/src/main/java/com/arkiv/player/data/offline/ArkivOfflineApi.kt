@@ -124,7 +124,7 @@ class ArkivOfflineApi(
         runCatching { client.newCall(req).execute().use { it.isSuccessful } }.getOrDefault(false)
     }
 
-    private fun parseJob(o: JSONObject): NucJob {
+    internal fun parseJob(o: JSONObject): NucJob {
         val itemsArr = o.getJSONArray("items")
         val items = (0 until itemsArr.length()).map { i ->
             val it = itemsArr.getJSONObject(i)
