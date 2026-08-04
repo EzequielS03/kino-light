@@ -182,10 +182,18 @@ class SearchPlayback(private val graph: AppGraph) {
     }
 
     /**
-     * Agrega la serie de un pack web: un episodio de biblioteca por cada capitulo del mirror. Reusa
-     * las MISMAS convenciones de id que [playWeb] (anime -> "anilist<id>" con season fijo en 1 por
-     * la numeracion absoluta; series TMDB -> imdb/tmdb con la season real) para no crear un item
-     * duplicado del mismo show.
+     * Agrega la serie de un pack web: un episodio de biblioteca por cada capitulo del mirror. Usa el
+     * MISMO seriesId que [playWeb] (anime -> "anilist<id>"; series TMDB -> imdb/tmdb) para no crear
+     * un item duplicado del mismo show.
+     *
+     * Season: a diferencia de [playWeb] (episodio suelto, sin season real disponible -> fijo en 1),
+     * acá SÍ hay season real por episodio (`MirrorWebSource.season`), así que se usa tal cual --
+     * igual que `AnimeShowDetailScreen.addWebPack`/`downloadPack` y `CineDetailScreen.addWebPack`.
+     * Necesario para que el season guardado localmente calce con el que guarda la descarga a la NUC
+     * (`nuc_library_items`, ver Task 8/11): con season=1 fijo acá, un pack de anime con más de una
+     * temporada guardado desde Search pisaba (`upsertEpisodes` es last-write-wins) el season real que
+     * hubiera guardado la pantalla de detalle, y `PlaybackPreferenceStore.decide()` dejaba de
+     * encontrar el capítulo bajado para siempre.
      *
      * [title] y [episodes] vienen del dialogo (nombre editable y seleccion), igual que `onSave` de
      * [PackDialog] para packs de torrent. Devuelve el id de [playEpisode] si se pidio uno puntual
@@ -206,7 +214,7 @@ class SearchPlayback(private val graph: AppGraph) {
         var first: String? = null
         var wanted: String? = null
         for (ep in episodes) {
-            val season = if (isAnime) 1 else ep.season
+            val season = ep.season
             val name = ep.name.ifBlank { "Ep ${ep.episode}" }
             val id = graph.repository.addWebSeriesEpisode(
                 seriesId, title, resultPoster, season, ep.episode, name, ep.pageUrl,
