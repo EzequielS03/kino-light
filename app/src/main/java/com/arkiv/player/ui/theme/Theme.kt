@@ -17,6 +17,16 @@ val ArkivSurfaceHigh = Color(0xFF242424)
 val ArkivTextPrimary = Color(0xFFF5F5F5)
 val ArkivTextSecondary = Color(0xFFB3B3B3)
 
+/**
+ * Verde ya usado en el resto de la app para "estado bueno" (idioma LATINO en [com.arkiv.player.ui.catalog.PlaySources],
+ * categoría "series" en [com.arkiv.player.ui.search.SearchScreen]) -- se reusa para marcar
+ * "ya descargado en la NUC" y así no inventar un color nuevo ni pisar el rojo de marca
+ * (reservado a CTAs). Vive acá, y no en una pantalla, porque lo comparten el diálogo de packs
+ * ([com.arkiv.player.ui.catalog.WebPackDialog]) y el detalle de "Mi biblioteca"
+ * ([com.arkiv.player.ui.detail.DetailScreen]): son el MISMO indicador y tienen que verse igual.
+ */
+val NucDownloadedGreen = Color(0xFF4CAF50)
+
 private val ArkivColorScheme = darkColorScheme(
     primary = ArkivRed,
     onPrimary = Color.White,

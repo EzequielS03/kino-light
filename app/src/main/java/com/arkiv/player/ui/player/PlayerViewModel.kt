@@ -514,8 +514,9 @@ class PlayerViewModel(
     private companion object {
         /** Identifier del ítem local para un capítulo de serie web (ver `addWebSeriesEpisode`). El
          * `seriesId` real (el que guarda Task 8 en `nuc_library_items`) es lo que queda DESPUÉS de
-         * este prefijo. */
-        const val SERIES_ITEM_PREFIX = "web:series:"
+         * este prefijo. Se toma de [com.arkiv.player.data.SeriesItemIds] para no tener el literal
+         * repetido en dos lugares que TIENEN que coincidir. */
+        const val SERIES_ITEM_PREFIX = com.arkiv.player.data.SeriesItemIds.WEB_SERIES_PREFIX
 
         /** Tope de la espera de pre-buffer (ms): si el torrent es muy lento, se abre igual a los 30s. */
         const val PREBUFFER_CAP_MS = 30_000

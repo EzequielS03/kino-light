@@ -62,6 +62,7 @@ import coil.compose.AsyncImage
 import com.arkiv.player.data.ArchiveUrls
 import com.arkiv.player.data.ItemDetail
 import com.arkiv.player.data.model.Episode
+import com.arkiv.player.data.model.EpisodeNumbering
 import com.arkiv.player.ui.formatDuration
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivBlack
@@ -69,6 +70,7 @@ import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurface
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
+import com.arkiv.player.ui.theme.NucDownloadedGreen
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -93,17 +95,34 @@ fun DetailScreen(
     // PlaybackPreferenceStore (Task 10) tiene datos frescos aunque la descarga se haya disparado
     // desde otro dispositivo, o el usuario haya llegado por "Mi biblioteca" en vez de por la
     // búsqueda/catálogo (AnimeShowDetailScreen/CineDetailScreen), que son las otras 2 puertas de
-    // entrada que ya hacían este refresh. `identifier` acá es el mismo seriesId que esas 2 pantallas
-    // (anilist$id / imdbId / tmdb$id), así que se usa tal cual.
+    // entrada que ya hacían este refresh.
+    //
+    // OJO: el `identifier` de esta pantalla NO es el seriesId — es el identifier del ítem LOCAL,
+    // que para una serie viene prefijado ("web:series:anilist$123"), mientras que la NUC la conoce
+    // por el seriesId desnudo ("anilist$123"). Pasarlo crudo no fallaba con ruido: simplemente
+    // preguntaba por una serie inexistente y nunca traía nada. Ver [SeriesItemIds] y el mismo
+    // pelado de prefijo en PlayerViewModel.loadWebRespectingPreference.
+    // Si no es una serie guardada (un ítem de archive.org suelto) no hay nada que preguntar.
+    //
     // `replace = true`: la respuesta es la verdad completa de la serie (refleja también borrados).
-    // Si la consulta falla, NucDownloads.refreshLibraryCache no toca nada (ver ahí el porqué).
+    // Si la consulta falla, NucDownloads.refreshLibraryCache no toca nada (ver ahí el porqué), así
+    // que leer la caché después siempre es seguro, haya habido red o no.
+    //
+    // La clave del set incluye la fuente (sourceRef), no solo (temporada, capítulo): esta lista
+    // puede tener VARIAS filas del mismo capítulo guardadas desde sitios distintos, y matchear solo
+    // por número las marcaría todas como descargadas aunque la copia en la NUC venga de una sola.
+    // Mismo criterio (y mismo porqué en detalle) que WebPackDialog.
+    val nucSeriesId = com.arkiv.player.data.SeriesItemIds.seriesIdOrNull(identifier)
+    var nucDownloaded by remember(identifier) { mutableStateOf<Set<Triple<Int, Int, String>>>(emptySet()) }
     LaunchedEffect(identifier) {
-        scope.launch {
-            com.arkiv.player.data.offline.NucDownloads.refreshLibraryCache(
-                graph.arkivOfflineApi, graph.database.nucLibraryItemDao(),
-                seriesId = identifier, replace = true,
-            )
-        }
+        if (nucSeriesId == null) return@LaunchedEffect
+        val dao = graph.database.nucLibraryItemDao()
+        com.arkiv.player.data.offline.NucDownloads.refreshLibraryCache(
+            graph.arkivOfflineApi, dao, seriesId = nucSeriesId, replace = true,
+        )
+        nucDownloaded = dao.forSeries(nucSeriesId)
+            .mapNotNull { item -> item.sourceRef?.let { Triple(item.season, item.episode, it) } }
+            .toSet()
     }
 
     var menuExpanded by remember { mutableStateOf(false) }
@@ -194,6 +213,7 @@ fun DetailScreen(
         }
         DetailContent(
             data = data,
+            nucDownloaded = nucDownloaded,
             onPlayEpisode = onPlayEpisode,
             onDownloadEpisode = onDownloadEpisode,
             onToggleWatched = vm::toggleWatched,
@@ -206,6 +226,8 @@ fun DetailScreen(
 @Composable
 private fun DetailContent(
     data: ItemDetail,
+    /** (temporada, capítulo, fuente) de lo que ya está bajado en la NUC. Ver [DetailScreen]. */
+    nucDownloaded: Set<Triple<Int, Int, String>>,
     onPlayEpisode: (String) -> Unit,
     onDownloadEpisode: (Episode) -> Unit,
     onToggleWatched: (String, Boolean) -> Unit,
@@ -319,6 +341,11 @@ private fun DetailContent(
                     progress = data.progress[ep.id],
                     isCurrent = ep.id == currentEpisodeId,
                     showDownload = !data.isTorrent,
+                    // Fallback de miniatura: los capítulos web nunca traen un still propio
+                    // (addWebSeriesEpisode guarda thumbPath = null a propósito, el pack solo da un
+                    // póster de la serie), y sin esto la fila quedaba con un recuadro vacío.
+                    fallbackThumb = data.thumbnailUrl,
+                    isInNuc = remember(ep.id, nucDownloaded) { nucDownloaded.hasCopyOf(ep) },
                     onPlay = { onPlayEpisode(ep.id) },
                     onDownload = { onDownloadEpisode(ep) },
                     onToggleWatched = onToggleWatched,
@@ -328,12 +355,32 @@ private fun DetailContent(
     }
 }
 
+/**
+ * ¿Este episodio puntual, con la fuente de la que se guardó, ya está bajado en la NUC?
+ *
+ * Exige las 3 partes (temporada, capítulo y fuente): si falta cualquiera devuelve false. Es a
+ * propósito — un episodio sin numeración parseable, o guardado antes de que se persistiera la
+ * fuente, no se puede cruzar con la NUC sin adivinar, y un tilde de más (decir "ya lo tenés"
+ * cuando no) es peor que uno de menos. Los que no tienen fuente los rellena el primer refresh
+ * contra la NUC, que trae el `source_ref` real.
+ */
+private fun Set<Triple<Int, Int, String>>.hasCopyOf(episode: Episode): Boolean {
+    val season = EpisodeNumbering.seasonOf(episode.section) ?: return false
+    val number = EpisodeNumbering.episodeOf(episode.displayName) ?: return false
+    val source = episode.sourceRef ?: return false
+    return Triple(season, number, source) in this
+}
+
 @Composable
 private fun EpisodeRow(
     episode: Episode,
     progress: com.arkiv.player.data.db.PlaybackEntity?,
     isCurrent: Boolean,
     showDownload: Boolean,
+    /** Miniatura de la serie, para las filas cuyo episodio no trae una propia. */
+    fallbackThumb: String?,
+    /** Ya descargado en la NUC (esta fila puntual, con su fuente). */
+    isInNuc: Boolean,
     onPlay: () -> Unit,
     onDownload: () -> Unit,
     onToggleWatched: (String, Boolean) -> Unit,
@@ -362,7 +409,7 @@ private fun EpisodeRow(
         ) {
             val thumb = episode.thumbPath?.let { ArchiveUrls.download(episode.itemId, it) }
             AsyncImage(
-                model = thumb,
+                model = thumb ?: fallbackThumb,
                 contentDescription = episode.displayName,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
@@ -401,6 +448,18 @@ private fun EpisodeRow(
                 formatDuration((episode.durationSeconds * 1000).toLong()),
                 style = MaterialTheme.typography.bodyMedium,
                 color = ArkivTextSecondary,
+            )
+        }
+        // Informativo, no una acción -- por eso no es un IconButton (no se toca, no ocupa un slot
+        // de 48dp) y no comparte el rojo de "visto" que tiene al lado: solo avisa que ESTA fila,
+        // bajada de ESTE sitio, ya está en la NUC. Mismo ícono, color y tamaño que en WebPackDialog:
+        // es el mismo indicador y tiene que reconocerse igual en las dos pantallas.
+        if (isInNuc) {
+            Icon(
+                Icons.Default.CheckCircle,
+                contentDescription = "Ya descargado en la NUC",
+                tint = NucDownloadedGreen,
+                modifier = Modifier.size(18.dp),
             )
         }
         IconButton(onClick = { onToggleWatched(episode.id, !watched) }) {

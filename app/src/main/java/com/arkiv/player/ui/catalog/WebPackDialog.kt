@@ -10,7 +10,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -18,11 +17,7 @@ import com.arkiv.player.data.catalog.mirror.MirrorWebPack
 import com.arkiv.player.data.catalog.mirror.MirrorWebSource
 import com.arkiv.player.data.offline.NucDownloads
 import com.arkiv.player.ui.rememberGraph
-
-/** Verde ya usado en el resto de la app para "estado bueno" (idioma LATINO en [PlaySources],
- *  categoría "series" en [com.arkiv.player.ui.search.SearchScreen]) -- se reusa acá para no
- *  inventar un color nuevo y para no pisar el rojo de marca (reservado a CTAs). */
-private val NucDownloadedGreen = Color(0xFF4CAF50)
+import com.arkiv.player.ui.theme.NucDownloadedGreen
 
 /**
  * Diálogo de un pack WEB: gemelo de [PackDialog] (torrent) para la serie completa que nuestro

@@ -382,7 +382,7 @@ class ArkivRepository(
         fileSizeBytes: Long,
         description: String? = null,
     ): String {
-        val itemId = "torrent:series:$seriesId"
+        val itemId = SeriesItemIds.TORRENT_SERIES_PREFIX + seriesId
         val episodeId = "$itemId::$infoHashHex"
         val existing = itemDao.getItem(itemId)
         val item = com.arkiv.player.data.db.ItemEntity(
@@ -473,7 +473,7 @@ class ArkivRepository(
     ): String? {
         val hash = Regex("xt=urn:btih:([a-zA-Z0-9]{32,40})").find(magnet)?.groupValues?.get(1)?.lowercase()
             ?: return null
-        val itemId = "torrent:series:$seriesId"
+        val itemId = SeriesItemIds.TORRENT_SERIES_PREFIX + seriesId
         val episodeId = "$itemId::$hash"
         val existing = itemDao.getItem(itemId)
         val item = com.arkiv.player.data.db.ItemEntity(
@@ -523,7 +523,7 @@ class ArkivRepository(
         seriesId: String, showTitle: String, posterUrl: String,
         season: Int, episode: Int, episodeName: String, pageUrl: String,
     ): String? {
-        val itemId = "web:series:$seriesId"
+        val itemId = SeriesItemIds.WEB_SERIES_PREFIX + seriesId
         val episodeId = "$itemId::${pageUrl.hashCode().toUInt().toString(16)}"
         val existing = itemDao.getItem(itemId)
         val item = com.arkiv.player.data.db.ItemEntity(
@@ -571,8 +571,8 @@ class ArkivRepository(
         val ep = itemDao.getEpisode(episodeId) ?: return null
         val item = itemDao.getItem(ep.itemId) ?: return null
         val imdb = Regex("tt\\d+").find(item.identifier)?.value
-        val season = Regex("\\d+").find(ep.section)?.value?.toIntOrNull()
-        val episode = Regex("(?i)E(\\d+)").find(ep.displayName)?.groupValues?.get(1)?.toIntOrNull()
+        val season = com.arkiv.player.data.model.EpisodeNumbering.seasonOf(ep.section)
+        val episode = com.arkiv.player.data.model.EpisodeNumbering.episodeOf(ep.displayName)
         return SubtitleContext(imdbId = imdb, title = item.title, season = season, episode = episode)
     }
 
