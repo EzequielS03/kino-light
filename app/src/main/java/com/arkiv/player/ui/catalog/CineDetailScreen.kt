@@ -555,6 +555,7 @@ fun CineDetailScreen(
         val d = detail
         if (d != null) WebPackDialog(
             pack = p,
+            seriesId = d.imdbId.ifBlank { "tmdb${d.id}" },
             defaultTitle = d.title,
             posterUrl = d.posterUrl,
             onDismiss = { webPackFor = null },

@@ -770,6 +770,7 @@ fun AnimeShowDetailScreen(
         val s = show
         if (s != null) WebPackDialog(
             pack = p,
+            seriesId = "anilist$anilistId",
             defaultTitle = s.title,
             posterUrl = s.posterUrl,
             onDismiss = { webPackFor = null },
