@@ -29,6 +29,11 @@ class PlaybackPreferenceStoreTest {
         override suspend fun clearForSeries(seriesId: String) {
             items.entries.removeAll { it.value.seriesId == seriesId }
         }
+
+        // Mismo orden que la @Query real (seriesId, season, episode) para que el fake no dependa
+        // del orden de inserción del mapa.
+        override suspend fun getAll(): List<NucLibraryItemEntity> =
+            items.values.sortedWith(compareBy({ it.seriesId }, { it.season }, { it.episode }))
     }
 
     private fun mockSeriesPlaybackPrefDao(): SeriesPlaybackPrefDao = object : SeriesPlaybackPrefDao {

@@ -14,6 +14,10 @@ object MirrorWebMapper {
         language = w.langNorm,
         quality = w.quality,
         kind = "tv",
+        // La temporada real del mirror viaja con el resultado: es la MISMA fila local (clave = hash de
+        // pageUrl) que escribe el camino de packs con `MirrorWebSource.season`, así que descartarla acá
+        // obligaba a los caminos de "un episodio suelto" a inventar 1 (ver WebSourceSeason/WebResult).
+        season = w.season,
     )
 
     /** Prefiere las fuentes del mirror; si están vacías, cae a las fuentes en vivo. */

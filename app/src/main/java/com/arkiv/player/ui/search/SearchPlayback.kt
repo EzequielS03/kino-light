@@ -159,12 +159,15 @@ class SearchPlayback(private val graph: AppGraph) {
      * absoluta de anime), igual que AnimeShowDetailScreen.playWebEp; para series TMDB usa el id
      * imdb/tmdb con la season real. Molde: CineDetailScreen.playWeb / `playWebResult`.
      *
-     * [animeSeason]: un [WebResult] suelto no trae temporada, pero la fila local se guarda por hash
-     * de `pageUrl` -- la misma fila que escribe [addWholeWebSeries] con la temporada real del
-     * mirror. El llamador la resuelve por `pageUrl` contra los packs ya listados
-     * (`WebSourceSeason.forPageUrl`) para no revertirle la temporada a esa fila y romper la
-     * búsqueda de `PlaybackPreferenceStore.decide()`; queda en 1 (convención histórica) solo cuando
-     * ningún pack conoce esa URL, o sea cuando tampoco hay nadie que la contradiga.
+     * [mirrorSeason]: la fila local se guarda por hash de `pageUrl` -- la MISMA fila que escribe
+     * [addWholeWebSeries] con la temporada real del mirror. El llamador la resuelve con
+     * `WebSourceSeason.forResult`, que la toma del propio [WebResult] cuando vino del mirror
+     * (`WebResult.season`), para no revertirle la temporada a esa fila y romper la búsqueda de
+     * `PlaybackPreferenceStore.decide()`; queda en 1 (convención histórica) solo cuando el resultado
+     * no la trae (scraping en vivo), o sea cuando tampoco hay nadie que la contradiga.
+     *
+     * Para series TMDB la temporada elegida en el REFINE ([season]) manda; si el usuario no eligió
+     * ninguna (buscar "capítulo 5" a secas), se usa la del mirror por el mismo motivo.
      */
     suspend fun playWeb(
         result: WebResult,
@@ -175,14 +178,15 @@ class SearchPlayback(private val graph: AppGraph) {
         resultPoster: String,
         season: Int?,
         episode: Int?,
-        animeSeason: Int = 1,
+        mirrorSeason: Int = 1,
     ): PlaybackResult {
+        val tvSeason = season ?: result.season
         val epId = if (card.kind == "anime" && episode != null) {
             val anilistId = card.anilistId ?: animeShow?.id
-            graph.repository.addWebSeriesEpisode("anilist$anilistId", resultTitle, resultPoster, animeSeason, episode, "$resultTitle - Ep $episode", result.pageUrl)
-        } else if (season != null && episode != null) {
-            val epName = episodeNameFor(detail, season, episode)
-            graph.repository.addWebSeriesEpisode(seriesIdFor(card, detail), resultTitle, resultPoster, season, episode, epName, result.pageUrl)
+            graph.repository.addWebSeriesEpisode("anilist$anilistId", resultTitle, resultPoster, mirrorSeason, episode, "$resultTitle - Ep $episode", result.pageUrl)
+        } else if (tvSeason != null && episode != null) {
+            val epName = episodeNameFor(detail, tvSeason, episode)
+            graph.repository.addWebSeriesEpisode(seriesIdFor(card, detail), resultTitle, resultPoster, tvSeason, episode, epName, result.pageUrl)
         } else {
             graph.repository.addWebSource(result.pageUrl, result.title.ifBlank { resultTitle }, resultPoster)
         }

@@ -189,21 +189,21 @@ fun SearchScreen(
     // absoluta), igual que AnimeShowDetailScreen.playWebEp; para series TMDB usa el id imdb/tmdb con
     // la season real. Molde: CineDetailScreen.playWeb.
     //
-    // animeSeason: WebResult no trae temporada, pero la fila local se guarda por hash de pageUrl --
-    // la misma que escribe addWholeWebSeries con la temporada REAL del mirror. Se resuelve por
-    // pageUrl contra los packs ya listados en `sources` para no revertirle la temporada a esa fila
-    // (ver WebSourceSeason); 1 solo cuando ningún pack conoce esa URL (scraping en vivo).
+    // mirrorSeason: la fila local se guarda por hash de pageUrl -- la misma que escribe
+    // addWholeWebSeries con la temporada REAL del mirror. Un WebResult del mirror YA la trae
+    // (WebResult.season), así que se usa esa; 1 solo cuando no la trae (scraping en vivo), o sea
+    // cuando tampoco hay pack que la contradiga. Ojo: acá NO sirve buscarla en los packs de
+    // `sources` -- runSourceSearch emite WebPack solo sin capítulo elegido y Web solo con capítulo,
+    // nunca ambos, así que esa lista siempre está vacía en este camino (ver WebSourceSeason).
     fun playWebResult(r: WebResult) {
         val card = selected ?: return
         val season = refineSeason
         val episode = refineEpisode
-        val animeSeason = com.arkiv.player.data.catalog.mirror.WebSourceSeason.forPageUrl(
-            sources.filterIsInstance<PlaySource.WebPack>().map { it.pack }, r.pageUrl,
-        )
+        val mirrorSeason = com.arkiv.player.data.catalog.mirror.WebSourceSeason.forResult(r)
         preparing = true; playError = null
         scope.launch {
             applyResult(
-                playback.playWeb(r, card, detail, animeShow, resultTitle, resultPoster, season, episode, animeSeason),
+                playback.playWeb(r, card, detail, animeShow, resultTitle, resultPoster, season, episode, mirrorSeason),
             )
         }
     }
