@@ -127,6 +127,10 @@ class AppGraph(context: Context) {
         com.arkiv.player.data.offline.NucJobEvents(arkivOfflineApi, apiKey = { settings.nucApiKey.value })
     }
 
+    val playbackPreferenceStore: com.arkiv.player.data.offline.PlaybackPreferenceStore by lazy {
+        com.arkiv.player.data.offline.PlaybackPreferenceStore(database.seriesPlaybackPrefDao(), database.nucLibraryItemDao())
+    }
+
     val webTmdbMatcher: WebTmdbMatcher by lazy {
         WebTmdbMatcher(lookup = { type, query ->
             runCatching {
