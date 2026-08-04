@@ -29,6 +29,10 @@ class PlaybackPreferenceStoreTest {
         override suspend fun clearForSeries(seriesId: String) {
             items.entries.removeAll { it.value.seriesId == seriesId }
         }
+
+        override suspend fun getAll(): List<NucLibraryItemEntity> {
+            return items.values.toList()
+        }
     }
 
     private fun mockSeriesPlaybackPrefDao(): SeriesPlaybackPrefDao = object : SeriesPlaybackPrefDao {
