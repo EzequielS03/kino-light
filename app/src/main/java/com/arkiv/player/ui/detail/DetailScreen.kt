@@ -48,6 +48,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -244,8 +245,10 @@ private fun DetailContent(
         data.episodes.mapNotNull { siteLabelOf(it.sourceRef) }.toCollection(sortedSetOf())
     }
     // null = "Todos" (sin filtro), el default — no tocar el comportamiento existente hasta que el
-    // usuario elija un chip a propósito.
-    var selectedSite by remember(data.identifier) { mutableStateOf<String?>(null) }
+    // usuario elija un chip a propósito. rememberSaveable (no remember): Navigation Compose saca
+    // esta pantalla de composición al abrir el reproductor, y un remember plano se resetea al
+    // volver — el filtro elegido se perdía en cada "atrás" desde el player.
+    var selectedSite by rememberSaveable(data.identifier) { mutableStateOf<String?>(null) }
     // Los episodios sin sourceRef reconocible (archive.org, magnets de torrent, o guardados antes
     // de que se persistiera sourceRef) no pertenecen a NINGÚN sitio del filtro, así que se quedan
     // siempre visibles en vez de desaparecer cuando el usuario filtra por un sitio puntual.
