@@ -515,11 +515,16 @@ private fun EpisodeRow(
                 overflow = TextOverflow.Ellipsis,
                 color = if (watched) ArkivTextSecondary else MaterialTheme.colorScheme.onBackground,
             )
-            Text(
-                formatDuration((episode.durationSeconds * 1000).toLong()),
-                style = MaterialTheme.typography.bodyMedium,
-                color = ArkivTextSecondary,
-            )
+            // Los capítulos guardados desde web/torrent nunca traen duración real (queda en 0.0 a
+            // propósito al guardar, ver ArkivRepository.kt) -- mostrar "0:00" ahí parecía un error
+            // en vez de un dato que simplemente no se conoce, así que la fila la omite.
+            if (episode.durationSeconds > 0) {
+                Text(
+                    formatDuration((episode.durationSeconds * 1000).toLong()),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = ArkivTextSecondary,
+                )
+            }
         }
         // Informativo, no una acción -- por eso no es un IconButton (no se toca, no ocupa un slot
         // de 48dp) y no comparte el rojo de "visto" que tiene al lado: solo avisa que ESTA fila,
