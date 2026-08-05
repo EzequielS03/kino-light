@@ -28,6 +28,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -124,6 +125,8 @@ fun SearchScreen(
     val refineEpisode by vm.refineEpisode.collectAsStateWithLifecycle()
     val detail by vm.detail.collectAsStateWithLifecycle()
     val animeShow by vm.animeShow.collectAsStateWithLifecycle()
+    val processingNow by vm.processingNow.collectAsStateWithLifecycle()
+    val processNowMessage by vm.processNowMessage.collectAsStateWithLifecycle()
 
     val scope = rememberCoroutineScope()
     // Permiso de notificaciones (API 33+): se pide recién al disparar una descarga a la NUC, que es
@@ -273,6 +276,25 @@ fun SearchScreen(
                     style = MaterialTheme.typography.titleLarge,
                     color = Color.White,
                     modifier = Modifier.padding(start = 4.dp),
+                )
+                Spacer(Modifier.weight(1f))
+                if (phase == SearchPhase.RESULTS && selected?.tmdbId != null) {
+                    IconButton(onClick = { vm.processNow() }, enabled = !processingNow) {
+                        if (processingNow) {
+                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
+                        } else {
+                            Icon(Icons.Filled.Refresh, contentDescription = "Procesar ahora", tint = Color.White)
+                        }
+                    }
+                }
+            }
+            processNowMessage?.let { msg ->
+                Text(
+                    msg,
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                        .clickable { vm.dismissProcessNowMessage() },
                 )
             }
 
