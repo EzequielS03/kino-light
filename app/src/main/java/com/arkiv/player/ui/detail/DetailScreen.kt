@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.DropdownMenu
@@ -148,6 +149,11 @@ fun DetailScreen(
             .mapNotNull { item -> item.sourceRef?.let { Triple(item.season, item.episode, it) } }
             .toSet()
     }
+    // IDs con un pedido de descarga a la NUC en curso: sin esto el botón por fila no daba ningún
+    // feedback entre el toque y la Snackbar final, así que un toque doble (o varios de impaciencia)
+    // mandaba el mismo capítulo dos o tres veces. Mientras un id está acá, la fila muestra un
+    // spinner en vez del ícono y no vuelve a aceptar el toque.
+    var pendingNucIds by remember(identifier) { mutableStateOf<Set<String>>(emptySet()) }
 
     var menuExpanded by remember { mutableStateOf(false) }
     var showMarkersDialog by remember { mutableStateOf(false) }
@@ -182,19 +188,31 @@ fun DetailScreen(
     fun downloadToNuc(episodes: List<Episode>) {
         val d = detail ?: return
         val seriesId = nucSeriesId ?: return
-        val items = episodes.mapNotNull { it.nucDownloadItemOrNull() }
+        // Filtra también los que ya tienen un pedido en curso -- guarda extra contra el doble toque
+        // más allá de que el ícono ya esté deshabilitado (la recomposición no es instantánea).
+        val pending = episodes.filterNot { it.id in pendingNucIds }
+        val items = pending.mapNotNull { it.nucDownloadItemOrNull() }
         if (items.isEmpty()) return
+        val ids = pending.map { it.id }.toSet()
+        pendingNucIds = pendingNucIds + ids
         askNotifications()
         scope.launch {
-            val err = NucDownloads.start(
-                context, graph.arkivOfflineApi, graph.database.localActiveJobDao(),
-                seriesId = seriesId, showTitle = d.title, posterUrl = d.thumbnailUrl, items = items,
-            )
-            // La descarga ocurre en la NUC, no acá: sin confirmación explícita el toque del botón no
-            // deja ninguna huella visible y parece que no hizo nada. Snackbar (no un Text rojo fijo
-            // como en AnimeShowDetailScreen) porque el contenido de esta pantalla es un LazyColumn
-            // que además auto-scrollea: un cartel dentro de la lista podría quedar fuera de vista.
-            snackbarHost.showSnackbar(err ?: "Descarga enviada a la NUC (${items.size})")
+            try {
+                val err = NucDownloads.start(
+                    context, graph.arkivOfflineApi, graph.database.localActiveJobDao(),
+                    seriesId = seriesId, showTitle = d.title, posterUrl = d.thumbnailUrl, items = items,
+                )
+                // La descarga ocurre en la NUC, no acá: sin confirmación explícita el toque del botón no
+                // deja ninguna huella visible y parece que no hizo nada. Snackbar (no un Text rojo fijo
+                // como en AnimeShowDetailScreen) porque el contenido de esta pantalla es un LazyColumn
+                // que además auto-scrollea: un cartel dentro de la lista podría quedar fuera de vista.
+                snackbarHost.showSnackbar(err ?: "Descarga enviada a la NUC (${items.size})")
+            } finally {
+                // finally, no solo en el camino feliz: si NucDownloads.start lanzara (no debería,
+                // pero es una llamada de red) la fila tiene que volver a ofrecer el botón en vez de
+                // quedarse con el spinner puesto para siempre.
+                pendingNucIds = pendingNucIds - ids
+            }
         }
     }
 
@@ -308,6 +326,7 @@ fun DetailScreen(
         DetailContent(
             data = data,
             nucDownloaded = nucDownloaded,
+            pendingNucIds = pendingNucIds,
             // null = este ítem no admite descargas a la NUC (torrent/archive.org): la fila no dibuja
             // el botón. Con lambda, cada fila decide igual si ella misma es elegible.
             onDownloadToNuc = if (nucEpisodes.isNotEmpty()) ({ ep -> downloadToNuc(listOf(ep)) }) else null,
@@ -325,6 +344,8 @@ private fun DetailContent(
     data: ItemDetail,
     /** (temporada, capítulo, fuente) de lo que ya está bajado en la NUC. Ver [DetailScreen]. */
     nucDownloaded: Set<Triple<Int, Int, String>>,
+    /** IDs con un pedido de descarga a la NUC en curso -- la fila muestra spinner. Ver [DetailScreen]. */
+    pendingNucIds: Set<String>,
     /** Manda UN episodio a bajar a la NUC, o null si este ítem no lo admite. Ver [DetailScreen]. */
     onDownloadToNuc: ((Episode) -> Unit)?,
     onPlayEpisode: (String) -> Unit,
@@ -496,6 +517,7 @@ private fun DetailContent(
                     // póster de la serie), y sin esto la fila quedaba con un recuadro vacío.
                     fallbackThumb = data.thumbnailUrl,
                     isInNuc = remember(ep.id, nucDownloaded) { nucDownloaded.hasCopyOf(ep) },
+                    isPendingNuc = ep.id in pendingNucIds,
                     // Doble filtro a propósito: el ítem tiene que admitir NUC (lambda != null) Y
                     // esta fila puntual tiene que ser mandable (fuente + numeración parseables).
                     // Una serie web puede tener capítulos sueltos sin sourceRef guardados de antes.
@@ -705,6 +727,8 @@ private fun EpisodeRow(
     fallbackThumb: String?,
     /** Ya descargado en la NUC (esta fila puntual, con su fuente). */
     isInNuc: Boolean,
+    /** Pedido de descarga a la NUC en curso para esta fila: muestra spinner, no reacciona al toque. */
+    isPendingNuc: Boolean,
     /** Manda ESTE episodio a bajar a la NUC, o null si no es elegible. Ver [DetailContent]. */
     onDownloadToNuc: (() -> Unit)?,
     onPlay: () -> Unit,
@@ -801,6 +825,12 @@ private fun EpisodeRow(
                 tint = NucDownloadedGreen,
                 modifier = Modifier.size(18.dp),
             )
+        } else if (isPendingNuc) {
+            // Mismo slot de 48dp que el IconButton de abajo, para que la fila no salte de tamaño
+            // al pasar de ícono a spinner y viceversa.
+            Box(modifier = Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = ArkivTextSecondary)
+            }
         } else if (onDownloadToNuc != null) {
             IconButton(onClick = onDownloadToNuc) {
                 Icon(
