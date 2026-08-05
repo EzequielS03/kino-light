@@ -139,6 +139,12 @@ class SearchViewModel(
     private val _loadingArchive = MutableStateFlow(false)
     val loadingArchive: StateFlow<Boolean> = _loadingArchive.asStateFlow()
 
+    private val _processingNow = MutableStateFlow(false)
+    val processingNow: StateFlow<Boolean> = _processingNow.asStateFlow()
+
+    private val _processNowMessage = MutableStateFlow<String?>(null)
+    val processNowMessage: StateFlow<String?> = _processNowMessage.asStateFlow()
+
     private val _refineSeason = MutableStateFlow<Int?>(null)
     val refineSeason: StateFlow<Int?> = _refineSeason.asStateFlow()
 
@@ -360,6 +366,35 @@ class SearchViewModel(
             }
         }
     }
+
+    /** Dispara el procesamiento manual (botón "Procesar ahora") del título de la fase RESULTS.
+     * No-op si ya hay una corrida en curso o si la card no tiene tmdbId (anime puro de AniList
+     * sin match en TMDB -- el mirror necesita tmdb_id, ver mirror/refresh.py). Al terminar
+     * (éxito o error) siempre refresca la búsqueda de fuentes para que se vea lo que haya nuevo. */
+    fun processNow() {
+        val card = _selected.value ?: return
+        val tmdbId = card.tmdbId ?: return
+        if (_processingNow.value) return
+        _processingNow.value = true
+        viewModelScope.launch {
+            val kind = when (card.kind) {
+                "movie" -> ContentType.MOVIE
+                "anime" -> ContentType.ANIME
+                else -> ContentType.TV
+            }
+            val apiKey = settings.refreshApiKey.value
+            val result = torrentSearchApi.refreshTitle(tmdbId, kind, card.title, card.year, apiKey)
+            _processingNow.value = false
+            _processNowMessage.value = if (result.ok) {
+                "Listo: +${result.webSourcesAdded} web, +${result.torrentsAdded} torrents"
+            } else {
+                result.error ?: "No se pudo procesar"
+            }
+            runSourceSearch(refineSeason.value, refineEpisode.value)
+        }
+    }
+
+    fun dismissProcessNowMessage() { _processNowMessage.value = null }
 
     /** Vuelve un paso: de RESULTS a REFINE (o QUERY si la card era película), de REFINE a QUERY. */
     fun back() {
