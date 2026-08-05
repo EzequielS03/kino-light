@@ -8,10 +8,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -22,30 +24,37 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TriStateCheckbox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -56,6 +65,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -68,7 +79,10 @@ import com.arkiv.player.data.ArchiveUrls
 import com.arkiv.player.data.ItemDetail
 import com.arkiv.player.data.model.Episode
 import com.arkiv.player.data.model.EpisodeNumbering
+import com.arkiv.player.data.offline.NucDownloadItem
+import com.arkiv.player.data.offline.NucDownloads
 import com.arkiv.player.ui.formatDuration
+import com.arkiv.player.ui.offline.rememberPostNotificationsRequest
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivBlack
 import com.arkiv.player.ui.theme.ArkivRed
@@ -87,6 +101,11 @@ fun DetailScreen(
 ) {
     val graph = rememberGraph()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    // Permiso de notificaciones (API 33+): se pide recién al disparar una descarga a la NUC, que es
+    // lo único que notifica desde esta pantalla. Mismo momento y mismo helper que
+    // AnimeShowDetailScreen/CineDetailScreen.
+    val askNotifications = rememberPostNotificationsRequest()
     val vm: DetailViewModel = viewModel(
         factory = viewModelFactory { initializer { DetailViewModel(graph.repository, identifier) } },
     )
@@ -133,6 +152,51 @@ fun DetailScreen(
     var menuExpanded by remember { mutableStateOf(false) }
     var showMarkersDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
+    var showNucDialog by remember { mutableStateOf(false) }
+    val snackbarHost = remember { SnackbarHostState() }
+
+    // Episodios de ESTA pantalla que se pueden mandar a bajar a la NUC. Tres condiciones, y las
+    // tres son necesarias:
+    //
+    //  1. `!isTorrent`: pedido explícito -- los ítems de torrent no llevan este botón. arkiv-offline
+    //     no baja torrents desde la app y ofrecerlo sería mentir.
+    //  2. `seriesIdOrNull(identifier) != null`: la NUC indexa por seriesId desnudo, y si el ítem no
+    //     es una serie guardada no hay a qué asociar el job. OJO que este helper también devuelve
+    //     algo para las series de torrent (`torrent:series:`), así que NO reemplaza a (1).
+    //  3. `nucDownloadItemOrNull() != null`: exige sourceRef (la pageUrl, que es lo que la NUC baja)
+    //     + temporada y capítulo parseables. Deja afuera archive.org (siempre sourceRef == null) y
+    //     cualquier fila vieja guardada sin fuente. Ver el porqué de "el ítem completo o nada" ahí.
+    //
+    // Si queda vacío no se agrega NADA a la pantalla (ni botón por fila ni entrada de menú): un
+    // ítem de archive.org o de torrent se ve exactamente igual que antes.
+    val nucEpisodes = remember(detail, nucSeriesId) {
+        val d = detail
+        if (d == null || d.isTorrent || nucSeriesId == null) emptyList()
+        else d.episodes.filter { it.nucDownloadItemOrNull() != null }
+    }
+
+    // Único punto de disparo (fila suelta y selección del diálogo pasan por acá): arma los items y
+    // delega en NucDownloads.start, que es el que sabe crear el job + registrarlo en
+    // local_active_jobs + programar el worker que avisa al terminar. Ver NucDownloads: esta
+    // secuencia estaba copiada 5 veces y por eso vive en un solo lugar.
+    fun downloadToNuc(episodes: List<Episode>) {
+        val d = detail ?: return
+        val seriesId = nucSeriesId ?: return
+        val items = episodes.mapNotNull { it.nucDownloadItemOrNull() }
+        if (items.isEmpty()) return
+        askNotifications()
+        scope.launch {
+            val err = NucDownloads.start(
+                context, graph.arkivOfflineApi, graph.database.localActiveJobDao(),
+                seriesId = seriesId, showTitle = d.title, posterUrl = d.thumbnailUrl, items = items,
+            )
+            // La descarga ocurre en la NUC, no acá: sin confirmación explícita el toque del botón no
+            // deja ninguna huella visible y parece que no hizo nada. Snackbar (no un Text rojo fijo
+            // como en AnimeShowDetailScreen) porque el contenido de esta pantalla es un LazyColumn
+            // que además auto-scrollea: un cartel dentro de la lista podría quedar fuera de vista.
+            snackbarHost.showSnackbar(err ?: "Descarga enviada a la NUC (${items.size})")
+        }
+    }
 
     if (showMarkersDialog) {
         MarkersDialog(
@@ -167,8 +231,21 @@ fun DetailScreen(
         )
     }
 
+    if (showNucDialog && nucEpisodes.isNotEmpty()) {
+        NucDownloadDialog(
+            episodes = nucEpisodes,
+            alreadyInNuc = nucDownloaded,
+            onDismiss = { showNucDialog = false },
+            onConfirm = { chosen ->
+                showNucDialog = false
+                downloadToNuc(chosen)
+            },
+        )
+    }
+
     Scaffold(
         containerColor = ArkivBlack,
+        snackbarHost = { SnackbarHost(snackbarHost) },
         topBar = {
             TopAppBar(
                 title = { Text(detail?.title ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -182,6 +259,18 @@ fun DetailScreen(
                         Icon(Icons.Default.MoreVert, contentDescription = "Más opciones")
                     }
                     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        // Va en el "⋮" y no al lado de "Reproducir": bajar a la NUC es una acción de
+                        // toda la serie que se usa una vez, no algo que compita visualmente con el
+                        // botón principal. Solo aparece si hay episodios elegibles (ver nucEpisodes).
+                        if (nucEpisodes.isNotEmpty()) {
+                            DropdownMenuItem(
+                                text = { Text("Descargar a la NUC") },
+                                onClick = {
+                                    menuExpanded = false
+                                    showNucDialog = true
+                                },
+                            )
+                        }
                         DropdownMenuItem(
                             text = { Text("Marcadores de intro/outro") },
                             onClick = {
@@ -219,6 +308,9 @@ fun DetailScreen(
         DetailContent(
             data = data,
             nucDownloaded = nucDownloaded,
+            // null = este ítem no admite descargas a la NUC (torrent/archive.org): la fila no dibuja
+            // el botón. Con lambda, cada fila decide igual si ella misma es elegible.
+            onDownloadToNuc = if (nucEpisodes.isNotEmpty()) ({ ep -> downloadToNuc(listOf(ep)) }) else null,
             onPlayEpisode = onPlayEpisode,
             onDownloadEpisode = onDownloadEpisode,
             onToggleWatched = vm::toggleWatched,
@@ -233,6 +325,8 @@ private fun DetailContent(
     data: ItemDetail,
     /** (temporada, capítulo, fuente) de lo que ya está bajado en la NUC. Ver [DetailScreen]. */
     nucDownloaded: Set<Triple<Int, Int, String>>,
+    /** Manda UN episodio a bajar a la NUC, o null si este ítem no lo admite. Ver [DetailScreen]. */
+    onDownloadToNuc: ((Episode) -> Unit)?,
     onPlayEpisode: (String) -> Unit,
     onDownloadEpisode: (Episode) -> Unit,
     onToggleWatched: (String, Boolean) -> Unit,
@@ -402,6 +496,12 @@ private fun DetailContent(
                     // póster de la serie), y sin esto la fila quedaba con un recuadro vacío.
                     fallbackThumb = data.thumbnailUrl,
                     isInNuc = remember(ep.id, nucDownloaded) { nucDownloaded.hasCopyOf(ep) },
+                    // Doble filtro a propósito: el ítem tiene que admitir NUC (lambda != null) Y
+                    // esta fila puntual tiene que ser mandable (fuente + numeración parseables).
+                    // Una serie web puede tener capítulos sueltos sin sourceRef guardados de antes.
+                    onDownloadToNuc = onDownloadToNuc
+                        ?.takeIf { ep.nucDownloadItemOrNull() != null }
+                        ?.let { send -> { send(ep) } },
                     onPlay = { onPlayEpisode(ep.id) },
                     onDownload = { onDownloadEpisode(ep) },
                     onToggleWatched = onToggleWatched,
@@ -435,6 +535,159 @@ private fun siteLabelOf(sourceRef: String?): String? {
     return host.removePrefix("www.")
 }
 
+/**
+ * Elegir qué capítulos de la serie mandar a bajar a la NUC (todos, algunos, o uno).
+ *
+ * Gemelo del selector de [com.arkiv.player.ui.catalog.WebPackDialog] pero sobre los [Episode] ya
+ * guardados de esta pantalla en vez de un `MirrorWebPack` (otra forma de datos, misma interacción):
+ * cabecera de "seleccionar todo" tri-estado, cabecera por temporada con su propio marcar/desmarcar
+ * (una serie larga tiene cientos de filas y marcarlas de a una es inviable) y el mismo tilde verde
+ * informativo para lo que ya está bajado.
+ *
+ * [episodes] llega ya filtrado a lo elegible, así que acá no se vuelve a decidir quién puede o no.
+ */
+@Composable
+private fun NucDownloadDialog(
+    episodes: List<Episode>,
+    alreadyInNuc: Set<Triple<Int, Int, String>>,
+    onDismiss: () -> Unit,
+    onConfirm: (List<Episode>) -> Unit,
+) {
+    // La selección por defecto es TODO lo que falta, no todo a secas: el caso normal de abrir esto
+    // en una serie que ya se bajó a medias es "traeme el resto", y volver a mandar lo que ya está
+    // sería trabajo al pedo para la NUC. Si no falta nada se preseleccionan todos igual, para que
+    // el diálogo no abra vacío y sin nada que confirmar (re-bajar es un caso válido, p.ej. si la
+    // copia salió mal).
+    val selected = remember(episodes, alreadyInNuc) {
+        val pending = episodes.filterNot { alreadyInNuc.hasCopyOf(it) }
+        mutableStateListOf<String>().apply { addAll((pending.ifEmpty { episodes }).map { it.id }) }
+    }
+    val total = episodes.size
+    val allSelected = selected.size == total && episodes.isNotEmpty()
+    fun toggleAll(on: Boolean) {
+        selected.clear()
+        if (on) selected.addAll(episodes.map { it.id })
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Descargar a la NUC") },
+        confirmButton = {
+            TextButton(
+                enabled = selected.isNotEmpty(),
+                onClick = { onConfirm(episodes.filter { it.id in selected }) },
+            ) {
+                Text("Descargar (${selected.size})")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
+        text = {
+            Column(Modifier.fillMaxWidth()) {
+                Row(
+                    Modifier.fillMaxWidth().clickable { toggleAll(!allSelected) },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TriStateCheckbox(
+                        state = when {
+                            allSelected -> ToggleableState.On
+                            selected.isEmpty() -> ToggleableState.Off
+                            else -> ToggleableState.Indeterminate
+                        },
+                        onClick = { toggleAll(!allSelected) },
+                    )
+                    Text(
+                        if (allSelected) "Deseleccionar todo" else "Seleccionar todo",
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Text("${selected.size}/$total", style = MaterialTheme.typography.labelSmall)
+                }
+                HorizontalDivider()
+
+                LazyColumn(Modifier.heightIn(max = 320.dp)) {
+                    episodes.groupBy { it.section }.forEach { (section, eps) ->
+                        val ids = eps.map { it.id }
+                        if (section.isNotBlank()) {
+                            item(key = "sec-$section") {
+                                val allOfSection = ids.all { it in selected }
+                                Row(
+                                    Modifier.fillMaxWidth()
+                                        .clickable {
+                                            if (allOfSection) selected.removeAll(ids)
+                                            else selected.addAll(ids.filterNot { it in selected })
+                                        }
+                                        .padding(top = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Checkbox(
+                                        checked = allOfSection,
+                                        onCheckedChange = { on ->
+                                            if (on) selected.addAll(ids.filterNot { it in selected })
+                                            else selected.removeAll(ids)
+                                        },
+                                    )
+                                    Text(section, style = MaterialTheme.typography.titleSmall)
+                                    Spacer(Modifier.weight(1f))
+                                    Text("${eps.size}", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
+                        items(eps, key = { it.id }) { ep ->
+                            Row(
+                                Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Checkbox(
+                                    checked = ep.id in selected,
+                                    onCheckedChange = { on ->
+                                        if (on) selected.add(ep.id) else selected.remove(ep.id)
+                                    },
+                                )
+                                Text(
+                                    ep.displayName,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                if (alreadyInNuc.hasCopyOf(ep)) {
+                                    Icon(
+                                        Icons.Default.CheckCircle,
+                                        contentDescription = "Ya descargado en la NUC",
+                                        tint = NucDownloadedGreen,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+    )
+}
+
+/**
+ * El episodio traducido a lo que arkiv-offline entiende, o `null` si no se puede mandar a bajar.
+ *
+ * Devuelve null (y por eso la fila no ofrece el botón) en tres casos, todos legítimos:
+ *  - `sourceRef == null`: archive.org nunca lo guarda, y la NUC baja la pageUrl -- sin ella no hay
+ *    nada que pedirle. También cubre las filas viejas guardadas antes de que se persistiera.
+ *  - temporada o capítulo no parseables: `NucDownloadItem` los exige y adivinar un número
+ *    equivocado hace que la NUC baje otro capítulo. No debería pasar en un capítulo web real (se
+ *    guardan como "Temporada N" / "T1 · E7"), pero un ítem raro no puede romper el flujo.
+ *
+ * NO filtra torrent: un magnet tampoco es una pageUrl válida, pero eso se decide arriba con
+ * `ItemDetail.isTorrent`, que es explícito y no depende de cómo se vea el string. Usa los mismos
+ * [EpisodeNumbering] que el resto de la pantalla, para no tener una tercera forma de sacar el
+ * número de temporada/capítulo.
+ */
+private fun Episode.nucDownloadItemOrNull(): NucDownloadItem? {
+    val season = EpisodeNumbering.seasonOf(section) ?: return null
+    val number = EpisodeNumbering.episodeOf(displayName) ?: return null
+    val pageUrl = sourceRef ?: return null
+    return NucDownloadItem(season, number, pageUrl)
+}
+
 private fun Set<Triple<Int, Int, String>>.hasCopyOf(episode: Episode): Boolean {
     val season = EpisodeNumbering.seasonOf(episode.section) ?: return false
     val number = EpisodeNumbering.episodeOf(episode.displayName) ?: return false
@@ -452,6 +705,8 @@ private fun EpisodeRow(
     fallbackThumb: String?,
     /** Ya descargado en la NUC (esta fila puntual, con su fuente). */
     isInNuc: Boolean,
+    /** Manda ESTE episodio a bajar a la NUC, o null si no es elegible. Ver [DetailContent]. */
+    onDownloadToNuc: (() -> Unit)?,
     onPlay: () -> Unit,
     onDownload: () -> Unit,
     onToggleWatched: (String, Boolean) -> Unit,
@@ -526,10 +781,19 @@ private fun EpisodeRow(
                 )
             }
         }
-        // Informativo, no una acción -- por eso no es un IconButton (no se toca, no ocupa un slot
-        // de 48dp) y no comparte el rojo de "visto" que tiene al lado: solo avisa que ESTA fila,
-        // bajada de ESTE sitio, ya está en la NUC. Mismo ícono, color y tamaño que en WebPackDialog:
-        // es el mismo indicador y tiene que reconocerse igual en las dos pantallas.
+        // Un solo slot para "la NUC", nunca los dos a la vez: o el tilde de que ya está bajado, o el
+        // botón para mandarlo a bajar. Ofrecer descargar lo que ya está no aporta nada, y la fila
+        // tampoco tiene ancho para un ícono más (miniatura de 112dp + 2 IconButton ya la dejan justa
+        // en un teléfono angosto).
+        //
+        // El tilde es informativo, no una acción -- por eso no es un IconButton (no se toca, no ocupa
+        // un slot de 48dp) y no comparte el rojo de "visto" que tiene al lado: solo avisa que ESTA
+        // fila, bajada de ESTE sitio, ya está en la NUC. Mismo ícono, color y tamaño que en
+        // WebPackDialog: es el mismo indicador y tiene que reconocerse igual en las dos pantallas.
+        //
+        // El botón usa CloudDownload y NO el Download de al lado a propósito: ese otro baja al
+        // teléfono (DownloadManager) y este manda a bajar a la NUC. Son destinos distintos y con el
+        // mismo ícono serían indistinguibles.
         if (isInNuc) {
             Icon(
                 Icons.Default.CheckCircle,
@@ -537,6 +801,14 @@ private fun EpisodeRow(
                 tint = NucDownloadedGreen,
                 modifier = Modifier.size(18.dp),
             )
+        } else if (onDownloadToNuc != null) {
+            IconButton(onClick = onDownloadToNuc) {
+                Icon(
+                    Icons.Default.CloudDownload,
+                    contentDescription = "Descargar a la NUC",
+                    tint = ArkivTextSecondary,
+                )
+            }
         }
         IconButton(onClick = { onToggleWatched(episode.id, !watched) }) {
             Icon(
