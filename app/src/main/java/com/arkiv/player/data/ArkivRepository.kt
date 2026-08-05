@@ -734,9 +734,9 @@ class ArkivRepository(
         return changes
     }
 
-    /** Persiste posición de reproducción. Marca visto al superar el 90%. */
+    /** Persiste posición de reproducción. Marca visto al superar el 60%. */
     suspend fun savePlayback(episodeId: String, positionMs: Long, durationMs: Long) {
-        val watched = durationMs > 0 && positionMs >= durationMs * 0.9
+        val watched = durationMs > 0 && positionMs >= durationMs * 0.6
         playbackDao.upsert(
             PlaybackEntity(
                 episodeId = episodeId,
