@@ -257,6 +257,12 @@ class TorrentSearchApi(
         sel.map { com.arkiv.player.data.catalog.mirror.MirrorWebMapper.toWebResult(it) }
     } ?: emptyList()
 
+    /** Dispara el procesamiento manual de un titulo puntual en el mirror (botón "Procesar ahora"
+     * de la UI). Passthrough directo a MirrorApiClient -- MirrorApiClient queda como detalle de
+     * implementación detrás de esta clase, mismo criterio que el resto de los métodos acá. */
+    suspend fun refreshTitle(tmdbId: Int, kind: ContentType, title: String, year: String, apiKey: String) =
+        mirror.refresh(tmdbId, kind, title, year, apiKey)
+
     /**
      * Browse: TODAS las fuentes de un show (sin filtrar por episodio), para navegar shows en emisión
      * donde no se conoce el nº de episodios. Ranking de idioma anime.

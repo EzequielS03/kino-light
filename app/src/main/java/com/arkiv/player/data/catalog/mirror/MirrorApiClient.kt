@@ -4,8 +4,10 @@ import android.util.Log
 import com.arkiv.player.data.catalog.providers.ContentType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
@@ -28,6 +30,15 @@ data class MirrorTorrent(
     val sizeLabel: String?,
     val source: String?,
     val name: String?,
+)
+
+/** Resultado de POST /api/refresh (botón "Procesar ahora"). */
+data class RefreshResult(
+    val ok: Boolean,
+    val created: Boolean,
+    val webSourcesAdded: Int,
+    val torrentsAdded: Int,
+    val error: String?,
 )
 
 /**
@@ -181,6 +192,43 @@ class MirrorApiClient(
         Log.i(TAG, "titleWebSources slug='$slug' → ${out.size} web_sources")
         out
     }
+
+    /** Cliente de larga duración SOLO para /api/refresh: el servidor tarda ~60-90s (web+torrents
+     * en paralelo), muy por encima del readTimeout de 15s que usa el resto de esta clase para
+     * lecturas rápidas -- no se toca el timeout compartido para no enmascarar fallas reales ahí. */
+    private val refreshClient by lazy { client.newBuilder().readTimeout(100, TimeUnit.SECONDS).build() }
+
+    suspend fun refresh(tmdbId: Int, kind: ContentType, title: String, year: String, apiKey: String): RefreshResult =
+        withContext(Dispatchers.IO) {
+            val base = baseUrl().trimEnd('/')
+            val body = JSONObject().apply {
+                put("tmdb_id", tmdbId)
+                put("kind", kindParam(kind))
+                put("title", title)
+                put("year", year.take(4).toIntOrNull())
+            }.toString()
+            val req = Request.Builder()
+                .url("$base/api/refresh")
+                .addHeader("X-Api-Key", apiKey)
+                .post(body.toRequestBody("application/json".toMediaType()))
+                .build()
+            runCatching {
+                refreshClient.newCall(req).execute().use { resp ->
+                    val json = resp.body?.string()?.let { runCatching { JSONObject(it) }.getOrNull() }
+                    if (json == null) {
+                        RefreshResult(false, false, 0, 0, "HTTP ${resp.code}")
+                    } else {
+                        RefreshResult(
+                            ok = json.optBoolean("ok", false),
+                            created = json.optBoolean("created", false),
+                            webSourcesAdded = json.optInt("web_sources_added", 0),
+                            torrentsAdded = json.optInt("torrents_added", 0),
+                            error = json.optString("error").takeIf { it.isNotBlank() },
+                        )
+                    }
+                }
+            }.getOrElse { RefreshResult(false, false, 0, 0, it.message ?: "error de red") }
+        }
 
     companion object {
         private const val TAG = "ArkivMirror"
