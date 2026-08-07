@@ -25,6 +25,7 @@ para las tres fuentes, y que al dar play se reproduzca el archivo local en vez d
 | Botón "Descargar offline" actual | el archivo final queda **en el dispositivo**; deja de ser un destino en la NUC |
 | Camino web | pasa por la NUC como **estación de paso**, nunca como destino |
 | Play con archivo local | automático, sin preguntar |
+| Torrent grande | avisa y pide confirmación si el archivo a bajar supera **5 GB** |
 | Cast de lo guardado | se sirve por HTTP local para no perder Chromecast/DLNA |
 | Orden de construcción | cola + torrent + archive primero; web/NUC después |
 
@@ -87,7 +88,8 @@ Columnas nuevas:
 | `createdAt` | Long | orden de la cola |
 
 Estados de `state`: `queued` → `staging` (solo web) → `downloading` → `completed`, con `failed` como
-estado terminal reintentable.
+estado terminal reintentable y `needs_confirmation` como pausa a la espera del usuario (ver "Aviso de
+tamaño en torrent").
 
 ### Componentes
 
@@ -163,6 +165,37 @@ Al completar: mover el archivo a su nombre final y `session.remove(handle)` **si
 `TorrentEngine` está documentado como "descarga al cacheDir y borra al parar", y esta estrategia es
 la excepción a esa regla.
 
+### Aviso de tamaño en torrent
+
+Un torrent de más de **5 GB** no se baja sin confirmación explícita.
+
+La comparación es contra el tamaño del **archivo que se va a bajar**, no el del torrent completo.
+`TorrentResult.sizeBytes` es el peso del pack entero: usarlo directo haría que un pack de temporada
+de 30 GB con capítulos de 1,2 GB avise en falso en cada capítulo.
+
+Compuerta única, en el worker, después de resolver la metadata del torrent — que es el primer momento
+en que se conoce el tamaño real del archivo elegido:
+
+1. Metadata resuelta → tamaño del archivo en `fileIndex`.
+2. Si supera el umbral: la fila pasa a `needs_confirmation`, **no se descarga un solo byte**, y se
+   emite una notificación.
+3. `DownloadsScreen` muestra la fila como "Necesita confirmación · 8,4 GB" con dos acciones:
+   **Descargar igual** y **Descartar**.
+4. Confirmada, la fila vuelve a `queued` con una marca que salta la compuerta en el siguiente intento.
+
+Como atajo de UX, cuando el tamaño ya se conoce al tocar el botón (resultado de búsqueda de un
+torrent de un solo archivo, con `TorrentResult.sizeBytes` fiable) se muestra además el diálogo inline,
+para no encolar algo que se va a descartar igual. Es solo un atajo: la compuerta del worker es la que
+garantiza el comportamiento, y es la única que ve el tamaño correcto en packs.
+
+Umbral: constante `WARN_TORRENT_SIZE_BYTES = 5 GB`, junto a la configuración, promovible a ajuste si
+hace falta. **No confundir con `settings.maxTorrentSizeGb`** (21 GB por defecto): ese es un filtro que
+se aplica a los resultados de búsqueda vía `MirrorFilter`, no tiene nada que ver con avisar antes de
+descargar, y los dos valores conviven sin pisarse.
+
+El aviso es solo para torrent. En web el tamaño no se conoce hasta que la NUC termina el staging, y en
+archive.org la variante ya la elige `settings.downloadQuality`.
+
 ### Archive
 
 `Range` sobre `ArchiveUrls.download(itemId, variant.path)`. La variante se elige con el mismo
@@ -222,7 +255,9 @@ Unitarios sin device, con fakes de `ArkivOfflineApi` y del engine de torrent:
 - armado de nombre y extensión del archivo destino,
 - chequeo de espacio antes de encolar,
 - `fileFor()` devolviendo null cuando la fila dice `completed` pero el archivo no existe,
-- reanudación: `Range` calculado a partir de `bytesDone`.
+- reanudación: `Range` calculado a partir de `bytesDone`,
+- compuerta de 5 GB: dispara con un archivo de 6 GB, **no** dispara con un pack de 30 GB cuyo archivo
+  elegido pesa 1,2 GB, y no vuelve a disparar una vez confirmada.
 
 Verificación en dispositivo real sobre el Samsung S24+ (ADB WiFi) y el Fire TV Stick (ADB de red).
 
