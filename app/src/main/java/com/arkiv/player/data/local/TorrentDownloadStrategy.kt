@@ -55,32 +55,50 @@ class TorrentDownloadStrategy(
         // honesta de saber cuál de las tres pasó, el mensaje cubre la causa más probable y da una
         // salida accionable en vez de sonar a fallo definitivo.
         val download = engine.startPersistentDownload(meta, fileIndex, workDir)
-            ?: return DownloadOutcome.Failed(
+        if (download == null) {
+            // `startPersistentDownload` puede haber llegado a crear `workDir` (mkdirs) antes de
+            // fallar por timeout esperando el handle, sin dejar ningún handle vivo que lo limpie: se
+            // limpia acá para no dejar un directorio vacío/huérfano colgado (no-op si nunca se creó).
+            runCatching { workDir.deleteRecursively() }
+            return DownloadOutcome.Failed(
                 "No se pudo iniciar la descarga: el torrent podría estar en uso ahora mismo " +
                     "(reproduciéndose u otra descarga en curso). Cerrá el reproductor y probá de nuevo " +
                     "en unos minutos.",
             )
+        }
 
-        var waited = 0L
         var lastBytes = 0L
         var stalledMs = 0L
         while (!download.isComplete()) {
             delay(POLL_MS)
-            waited += POLL_MS
             val done = download.bytesDone()
             onProgress(done, download.totalBytes())
-            // Sin peers no avanza nunca: mismo tope que ya usa resolveTorrentUrl en PlayerViewModel.
+            // Corte por ESTANCAMIENTO, no por tiempo total: `bytesDone()` es monótono no decreciente,
+            // así que basarse en "done == 0" deja el corte muerto para siempre apenas se baja el primer
+            // byte. Nada de tope de tiempo total tampoco — un torrent legítimo con pocos seeds puede
+            // tardar horas y matarlo por reloj sería peor que el bug (a diferencia de
+            // `PREBUFFER_CAP_MS` en PlayerViewModel, que SÍ es un tope de 30s de tiempo total, pero para
+            // esperar el buffer de cabeza+cola del streaming, no para bajar el archivo completo).
             stalledMs = if (done > lastBytes) 0 else stalledMs + POLL_MS
             lastBytes = done
-            if (done == 0L && stalledMs >= NO_PEERS_TIMEOUT_MS) {
+            if (stalledMs >= STALL_TIMEOUT_MS) {
                 download.discard()
-                return DownloadOutcome.Failed("No se encontró ningún peer para este torrent")
+                return if (done == 0L) {
+                    DownloadOutcome.Failed("No se encontró ningún peer para este torrent")
+                } else {
+                    DownloadOutcome.Failed("La descarga se estancó sin peers y no pudo continuar")
+                }
             }
         }
 
         download.detach()
         val downloaded = download.file()
-        if (!downloaded.exists()) return DownloadOutcome.Failed("El torrent terminó pero no dejó archivo")
+        if (!downloaded.exists()) {
+            // El torrent se reporta completo pero el archivo esperado no está: no queda nada que
+            // conservar, así que se limpia el directorio de trabajo igual que en el resto de las salidas.
+            runCatching { workDir.deleteRecursively() }
+            return DownloadOutcome.Failed("El torrent terminó pero no dejó archivo")
+        }
 
         // Mover a <targetDir>/<episodeId>.<ext> para que todas las fuentes dejen el archivo con el
         // mismo esquema de nombre y LocalLibrary no tenga que saber de dónde vino.
@@ -88,8 +106,19 @@ class TorrentDownloadStrategy(
         if (target.exists()) target.delete()
         val moved = downloaded.renameTo(target)
         if (!moved) {
-            downloaded.copyTo(target, overwrite = true)
-            downloaded.delete()
+            // `renameTo` suele fallar por cruce de filesystem; el `copyTo` de respaldo puede a su vez
+            // fallar por disco lleno o permisos. Si eso pasa, el archivo original queda intacto (el
+            // `delete()` no llega a correr) pero hay que devolver `Failed` en vez de dejar propagar la
+            // excepción, que rompería el contrato del resto de esta función.
+            val copyResult = runCatching {
+                downloaded.copyTo(target, overwrite = true)
+                downloaded.delete()
+            }
+            if (copyResult.isFailure) {
+                runCatching { workDir.deleteRecursively() }
+                val reason = copyResult.exceptionOrNull()?.message ?: "motivo desconocido"
+                return DownloadOutcome.Failed("No se pudo mover el archivo descargado: $reason")
+            }
         }
         runCatching { workDir.deleteRecursively() }
         return DownloadOutcome.Done(target)
@@ -107,6 +136,6 @@ class TorrentDownloadStrategy(
     private companion object {
         const val TAG = "ArkivTorrentDl"
         const val POLL_MS = 1_000L
-        const val NO_PEERS_TIMEOUT_MS = 180_000L
+        const val STALL_TIMEOUT_MS = 180_000L
     }
 }
