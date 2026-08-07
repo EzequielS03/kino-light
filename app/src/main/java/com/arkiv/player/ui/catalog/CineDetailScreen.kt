@@ -342,11 +342,15 @@ fun CineDetailScreen(
     // un solo archivo) y supera el umbral, pide confirmación antes de encolar; la compuerta real que
     // garantiza el comportamiento sigue viviendo en el worker (TorrentSizeGate tras resolver la
     // metadata), que es la única instancia que ve el tamaño del ARCHIVO y no el del pack/torrent.
+    // NO pide el permiso de notificaciones acá adentro: los llamadores que pueden invocar esto varias
+    // veces seguidas (saveWebPackLocally, un loop por capítulo) piden el permiso UNA vez antes del
+    // loop, no una vez por episodio -- si no, un pack de N capítulos dispara N veces seguidas
+    // `launcher.launch(...)` sobre el mismo ActivityResultLauncher antes de que el usuario responda
+    // al primer diálogo del sistema.
     fun saveLocally(episodeId: String, source: String, knownSizeBytes: Long) {
         if (TorrentSizeGate.needsConfirmation(knownSizeBytes, alreadyConfirmed = false)) {
             pendingBig = episodeId to knownSizeBytes
         } else {
-            askNotifications()
             scope.launch { graph.localDownloads.enqueue(episodeId, source) }
         }
     }
@@ -357,6 +361,7 @@ fun CineDetailScreen(
     // la compuerta de verdad (por archivo) es la del worker.
     fun saveTorrentLocally(result: TorrentResult, ep: TmdbEpisode?) {
         error = null
+        askNotifications()
         scope.launch {
             val epId = resolveTorrentEpisodeId(result, ep) ?: return@launch
             saveLocally(epId, "torrent", result.sizeBytes)
@@ -367,6 +372,7 @@ fun CineDetailScreen(
     // firstEpisodeId), sin reproducir. Tamaño desconocido -> no dispara el aviso inline.
     fun saveArchiveLocally(item: ArchiveSearchResult) {
         error = null
+        askNotifications()
         scope.launch {
             val added = graph.repository.addItem(item.identifier).getOrNull()
             if (added == null) { error = "No se pudo abrir el ítem de archive.org"; return@launch }
@@ -381,6 +387,7 @@ fun CineDetailScreen(
     fun saveWebLocally(r: com.arkiv.player.data.catalog.web.WebResult, ep: TmdbEpisode?) {
         val d = detail ?: return
         error = null
+        askNotifications()
         scope.launch {
             val epId = if (ep != null) {
                 val seriesId = d.imdbId.ifBlank { "tmdb${d.id}" }
@@ -398,11 +405,15 @@ fun CineDetailScreen(
     // llamado directo desde la fila del sheet (sin abrir el diálogo) igual que antes; WebPackDialog
     // pasa la selección real del usuario y el título editado (mismo que ya usa onSave/addWebPack --
     // si no, "Guardar" y "Guardar en el dispositivo" quedan mostrando nombres distintos para el
-    // mismo pack). Tamaño desconocido (WEB) -> ninguno dispara el aviso inline.
+    // mismo pack). Tamaño desconocido (WEB) -> ninguno dispara el aviso inline. askNotifications()
+    // va UNA sola vez acá, antes del loop -- no dentro de saveLocally, que se invoca una vez por
+    // episodio del pack (mismo patrón que AnimeShowDetailScreen.saveWebPackLocally y
+    // SearchScreen.downloadWholeSeries).
     fun saveWebPackLocally(pack: MirrorWebPack, episodes: List<MirrorWebSource> = pack.episodes, title: String = detail?.title.orEmpty()) {
         val d = detail ?: return
         val seriesId = d.imdbId.ifBlank { "tmdb${d.id}" }
         error = null
+        askNotifications()
         scope.launch {
             for (ep in episodes) {
                 val id = graph.repository.addWebSeriesEpisode(
