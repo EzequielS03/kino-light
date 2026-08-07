@@ -519,17 +519,30 @@ class TorrentEngine(context: Context, private val extraTrackers: () -> List<Stri
      * Todo el camino — buscar handle existente y, si no hay, registrar uno nuevo + esperarlo +
      * priorizarlo — corre bajo el MISMO lock de instancia (`@Synchronized`) que [startStream], para
      * cerrar la ventana de carrera de arranque en frío contra
-     * `startStream`/`startMagnetStream`/`stopStream`/`onMetadataReady`. El presupuesto de espera del
-     * handle se acorta a ~2s (`POLL_ATTEMPTS_PERSISTENT` × 100ms, contra los ~6s por defecto de
-     * [pollHandle]): acá no hay fetch de magnet por delante — [meta] ya trae la metadata resuelta —
-     * así que el handle aparece casi al instante; 2s cubre ese caso sin retener el lock de más.
+     * `startStream`/`startMagnetStream`/`stopStream`/`onMetadataReady`. La espera del handle usa el
+     * mismo presupuesto por defecto de [pollHandle] (~6s) que ya usan `startStream` y
+     * `onMetadataReady` para la MISMA operación exacta (`session.download` sobre un `TorrentInfo` ya
+     * resuelto, sin fetch de magnet de por medio en ninguno de los tres casos) — divergir a un
+     * presupuesto más corto acá no tenía justificación (Round 3 de revisión: probamos ~2s y
+     * empíricamente no alcanza siempre).
+     *
+     * SIN HUÉRFANOS si `pollHandle` agota el presupuesto sin ver el handle (Round 3): `session.download`
+     * ya registró el torrent de forma asíncrona (`async_add_torrent`) aunque `pollHandle` no llegó a
+     * verlo. Sin este chequeo, ese torrent quedaría en la sesión SIN que nadie tenga el `TorrentHandle`
+     * para llamar `detach()` — y como el paso de arriba devuelve `null` apenas `session.find(infohash)`
+     * encuentra CUALQUIER handle, ese huérfano bloquearía todo reintento futuro para ese infohash hasta
+     * reiniciar el proceso. Por eso, si `pollHandle` falla, se hace UN último `session.find()` antes de
+     * devolver `null` y, si aparece, se lo saca de la sesión (`session.remove`, sin borrar archivos:
+     * recién se creó, no hay nada que conservar). Es seguro asumir que ese handle es el NUESTRO y no el
+     * de otro camino: seguimos dentro del mismo `@Synchronized` que evitó cualquier interleaving desde
+     * que entramos al método, así que nadie más pudo haberlo tomado en el medio.
      *
      * Como el handle es siempre nuevo y exclusivamente nuestro: el `saveDir` devuelto es siempre el
      * pedido (nunca se hereda el `cacheDir` efímero de un stream), y `detach()`/`discard()` son
      * seguros (nunca tocan el handle de otro).
      *
      * Devuelve null si el archivo pedido es inválido, si ya hay un handle activo para este infohash,
-     * o si el torrent nuevo no arrancó a tiempo.
+     * o si el torrent nuevo no arrancó a tiempo (limpiando el registro huérfano si llegó a crearse).
      */
     @Synchronized
     fun startPersistentDownload(meta: TorrentMeta, fileIndex: Int, saveDir: File): PersistentTorrentDownload? {
@@ -551,8 +564,18 @@ class TorrentEngine(context: Context, private val extraTrackers: () -> List<Stri
         saveDir.mkdirs()
         runCatching { session.download(info, saveDir) }
             .onFailure { Log.w("ArkivTorrent", "startPersistentDownload: download() falló: $it") }
-        val handle = pollHandle(info, POLL_ATTEMPTS_PERSISTENT) ?: run {
-            Log.w("ArkivTorrent", "startPersistentDownload: no se pudo obtener el handle")
+        val handle = pollHandle(info) ?: run {
+            // pollHandle ya agotó su presupuesto (~6s) sin ver el handle. Un último intento antes de
+            // rendirnos: si el add_torrent asíncrono recién ahora terminó, lo sacamos de la sesión para
+            // no dejar un huérfano que bloquee reintentos futuros de este mismo infohash (ver KDoc).
+            val orphan = runCatching { session.find(info.infoHash()) }.getOrNull()?.takeIf { it.isValid }
+            if (orphan != null) {
+                Log.w("ArkivTorrent", "startPersistentDownload: handle huérfano detectado, limpiando infohash=${meta.infoHashHex}")
+                runCatching { session.remove(orphan) }
+                    .onFailure { Log.w("ArkivTorrent", "startPersistentDownload: no se pudo limpiar el huérfano: $it") }
+            } else {
+                Log.w("ArkivTorrent", "startPersistentDownload: no se pudo obtener el handle")
+            }
             return null
         }
         runCatching {
@@ -728,9 +751,8 @@ class TorrentEngine(context: Context, private val extraTrackers: () -> List<Stri
         }
     }
 
-    /** [attempts]×100ms de espera. Default 60 (~6s, el peor caso: metadata recién llegada por magnet). */
-    private fun pollHandle(info: TorrentInfo, attempts: Int = 60): TorrentHandle? {
-        repeat(attempts) {
+    private fun pollHandle(info: TorrentInfo): TorrentHandle? {
+        repeat(60) {
             val h = runCatching { session.find(info.infoHash()) }.getOrNull()
             if (h != null && h.isValid) return h
             Thread.sleep(100)
@@ -875,10 +897,5 @@ class TorrentEngine(context: Context, private val extraTrackers: () -> List<Stri
         /** Reannounce agresivo cada este intervalo mientras los peers estén por debajo del umbral. */
         private const val REANNOUNCE_INTERVAL_MS = 30_000L
         private const val REANNOUNCE_PEER_THRESHOLD = 4
-
-        /** ~2s: presupuesto de espera del handle en [startPersistentDownload], que corre bajo el lock
-         *  de instancia. `meta` ya trae la metadata resuelta (no hay fetch de magnet por delante), así
-         *  que el handle aparece casi al instante; no hace falta el default de ~6s de [pollHandle]. */
-        private const val POLL_ATTEMPTS_PERSISTENT = 20
     }
 }
