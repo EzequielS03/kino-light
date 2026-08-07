@@ -39,6 +39,18 @@ class ArkivApp : Application(), ImageLoaderFactory {
         graph.applicationScope.launch { graph.downloader.refreshProgress() }
         // Servidor de sincronización LAN (expone/recibe la DB entre dispositivos).
         runCatching { graph.syncManager.start() }
+
+        // OTA: chequeo periódico cada 6 horas + chequeo inmediato al arrancar.
+        androidx.work.WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "update_check",
+            androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+            androidx.work.PeriodicWorkRequestBuilder<com.arkiv.player.data.update.UpdateWorker>(
+                6, java.util.concurrent.TimeUnit.HOURS,
+            ).setConstraints(
+                androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build()
+            ).build(),
+        )
+        graph.applicationScope.launch { graph.checkForUpdate() }
     }
 
     /**

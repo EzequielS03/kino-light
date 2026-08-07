@@ -1,5 +1,6 @@
 package com.arkiv.player.ui.tv
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -7,8 +8,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.ClickableSurfaceDefaults
@@ -21,9 +27,11 @@ import androidx.tv.material3.Text
 import kotlinx.coroutines.launch
 import com.arkiv.player.data.Quality
 import com.arkiv.player.data.WebQuality
+import com.arkiv.player.data.update.UpdateInfo
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
+import com.arkiv.player.ui.update.UpdateDialog
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -32,6 +40,31 @@ fun TvSettingsScreen(onConnectPhone: () -> Unit = {}) {
     val settings = graph.settings
     val streamQuality by settings.streamQuality.collectAsStateWithLifecycle()
     val webQuality by settings.webQuality.collectAsStateWithLifecycle()
+
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var checkingUpdate by remember { mutableStateOf(false) }
+    var manualUpdate by remember { mutableStateOf<UpdateInfo?>(null) }
+
+    // Chequeo manual: independiente del diálogo global de MainActivity, así funciona aunque
+    // este último ya haya sido descartado por el usuario en esta sesión.
+    fun checkForUpdatesNow() {
+        checkingUpdate = true
+        scope.launch {
+            graph.checkForUpdate()
+            checkingUpdate = false
+            val info = graph.updateInfo.value
+            if (info != null) {
+                manualUpdate = info
+            } else {
+                Toast.makeText(context, "Ya tienes la última versión", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    manualUpdate?.let { info ->
+        UpdateDialog(info = info, graph = graph, onDismiss = { manualUpdate = null })
+    }
 
     // Calidad web: persiste local + sincroniza al otro dispositivo (celular/TV).
     fun setWebQuality(q: WebQuality) {
@@ -66,6 +99,11 @@ fun TvSettingsScreen(onConnectPhone: () -> Unit = {}) {
         }
         Text("Teléfono", style = MaterialTheme.typography.titleMedium, color = Color.White)
         TvActionOption("Conectar teléfono", onConnectPhone)
+        Text("Actualizaciones", style = MaterialTheme.typography.titleMedium, color = Color.White)
+        TvActionOption(
+            if (checkingUpdate) "Buscando…" else "Buscar actualizaciones",
+            onClick = { if (!checkingUpdate) checkForUpdatesNow() },
+        )
     }
 }
 
