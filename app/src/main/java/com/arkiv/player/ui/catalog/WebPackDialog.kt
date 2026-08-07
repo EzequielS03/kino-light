@@ -81,7 +81,7 @@ fun WebPackDialog(
                     enabled = selected.isNotEmpty(),
                     onClick = { onDownload(finalTitle(), pack.episodes.filter { it.pageUrl in selected }) },
                 ) {
-                    Text("Descargar offline (${selected.size})")
+                    Text("Guardar en el dispositivo (${selected.size})")
                 }
                 TextButton(
                     enabled = selected.isNotEmpty(),
