@@ -23,6 +23,7 @@ import com.arkiv.player.data.catalog.web.WebViewCloudflareSolver
 import com.arkiv.player.data.SettingsStore
 import com.arkiv.player.data.db.ArkivDatabase
 import com.arkiv.player.data.download.Downloader
+import com.arkiv.player.data.update.ApkDownloader
 import com.arkiv.player.data.update.UpdateChecker
 import com.arkiv.player.data.update.UpdateInfo
 import com.arkiv.player.dlna.DlnaController
@@ -54,6 +55,8 @@ class AppGraph(context: Context) {
 
     private val _updateInfo = kotlinx.coroutines.flow.MutableStateFlow<UpdateInfo?>(null)
     val updateInfo: kotlinx.coroutines.flow.StateFlow<UpdateInfo?> = _updateInfo
+
+    val apkDownloader: ApkDownloader by lazy { ApkDownloader(appContext) }
 
     /** Chequeo inmediato de OTA: llamado por [com.arkiv.player.data.update.UpdateWorker] y al arrancar la app. */
     suspend fun checkForUpdate() {
