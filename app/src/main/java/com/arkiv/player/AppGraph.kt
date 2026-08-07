@@ -99,7 +99,7 @@ class AppGraph(context: Context) {
         com.arkiv.player.playback.LocalFileServer(lanIp = { torrentEngine.lanIp() })
     }
 
-    /** Una estrategia por `source` de la tabla `downloads`. La entrada "web" llega en la fase 2. */
+    /** Una estrategia por `source` de la tabla `downloads`. */
     val downloadStrategies: Map<String, com.arkiv.player.data.local.DownloadStrategy> by lazy {
         mapOf(
             "archive" to com.arkiv.player.data.local.ArchiveDownloadStrategy(
@@ -107,6 +107,9 @@ class AppGraph(context: Context) {
             ),
             "torrent" to com.arkiv.player.data.local.TorrentDownloadStrategy(
                 repository, torrentEngine, localDownloads::hasFreeSpaceFor,
+            ),
+            "web" to com.arkiv.player.data.local.NucStagedStrategy(
+                repository, arkivOfflineApi, httpRangeDownloader, database.downloadDao(),
             ),
         )
     }
