@@ -65,6 +65,42 @@ class AppGraph(context: Context) {
     }
 
     val downloader: Downloader by lazy { Downloader(appContext, database, settings) }
+
+    // --- Descargas al propio dispositivo (ver docs/superpowers/specs/2026-08-07-...) ---
+    val httpRangeDownloader: com.arkiv.player.data.local.HttpRangeDownloader by lazy {
+        com.arkiv.player.data.local.HttpRangeDownloader(
+            okhttp3.OkHttpClient.Builder()
+                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                // Sin timeout de lectura: una descarga de varios GB no es una petición lenta, es
+                // una petición larga. Con el default de 10s cualquier bache la mataría.
+                .readTimeout(0, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+        )
+    }
+
+    val localDownloads: com.arkiv.player.data.local.LocalDownloadManager by lazy {
+        com.arkiv.player.data.local.LocalDownloadManager(
+            appContext, database,
+            wakeWorker = { com.arkiv.player.data.local.LocalDownloadWorker.schedule(it) },
+        )
+    }
+
+    val localLibrary: com.arkiv.player.data.local.LocalLibrary by lazy {
+        com.arkiv.player.data.local.LocalLibrary(database)
+    }
+
+    /** Una estrategia por `source` de la tabla `downloads`. La entrada "web" llega en la fase 2. */
+    val downloadStrategies: Map<String, com.arkiv.player.data.local.DownloadStrategy> by lazy {
+        mapOf(
+            "archive" to com.arkiv.player.data.local.ArchiveDownloadStrategy(
+                repository, settings, httpRangeDownloader, localDownloads::hasFreeSpaceFor,
+            ),
+            "torrent" to com.arkiv.player.data.local.TorrentDownloadStrategy(
+                repository, torrentEngine, localDownloads::hasFreeSpaceFor,
+            ),
+        )
+    }
+
     val dlna: DlnaController by lazy { DlnaController(appContext) }
     val repository: ArkivRepository by lazy { ArkivRepository(database, api, tmdbApi) }
     val syncManager: SyncManager by lazy { SyncManager(appContext, repository) }
