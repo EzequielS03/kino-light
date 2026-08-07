@@ -71,9 +71,17 @@ class AppGraph(context: Context) {
         com.arkiv.player.data.local.HttpRangeDownloader(
             okhttp3.OkHttpClient.Builder()
                 .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-                // Sin timeout de lectura: una descarga de varios GB no es una petición lenta, es
-                // una petición larga. Con el default de 10s cualquier bache la mataría.
-                .readTimeout(0, java.util.concurrent.TimeUnit.SECONDS)
+                // OJO: `readTimeout` en OkHttp es por CADA lectura del socket, no por el request
+                // completo — dispara solo si pasa este lapso sin que llegue NI UN byte. Por eso una
+                // descarga de varios GB que avanza lento nunca se corta: cada chunk que llega
+                // resetea el reloj. Iba en 0 (desactivado) pensando que protegía descargas largas,
+                // pero eso también desactiva la protección contra un servidor que deja de mandar
+                // datos sin cerrar el socket — la lectura queda colgada para siempre. Como la cola
+                // procesa de a una, ESE cuelgue no traba una sola descarga: traba TODAS (el worker
+                // nunca retorna, nunca se re-encola). 60s funciona como watchdog de estancamiento,
+                // igual que el corte por estancamiento de TorrentDownloadStrategy (POLL_MS/
+                // STALL_TIMEOUT_MS), sin arriesgar una descarga legítima que sí sigue llegando.
+                .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
                 .build()
         )
     }
