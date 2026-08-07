@@ -74,7 +74,9 @@ sabe que existe una cola.
 ### Tabla
 
 Se **extiende** la tabla `downloads` existente con una migración Room, en vez de crear una nueva, para
-no perder lo ya descargado de archive.org. `variant` pasa a nullable (solo archive lo usa).
+no perder lo ya descargado de archive.org. `variant` sigue siendo NOT NULL y vale `""` para torrent y
+web: SQLite no puede cambiar la nulabilidad de una columna con `ALTER TABLE`, y reconstruir la tabla
+entera no se justifica por un campo que solo usa archive.
 
 Columnas nuevas:
 
@@ -86,6 +88,7 @@ Columnas nuevas:
 | `stagingItemId` | Long? | ítem de la NUC mientras es paso intermedio (web) |
 | `error` | String? | motivo del fallo, mostrado en la UI |
 | `createdAt` | Long | orden de la cola |
+| `sizeConfirmed` | Boolean | el usuario ya aceptó la compuerta de 5 GB para esta fila |
 
 Estados de `state`: `queued` → `staging` (solo web) → `downloading` → `completed`, con `failed` como
 estado terminal reintentable y `needs_confirmation` como pausa a la espera del usuario (ver "Aviso de
