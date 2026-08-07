@@ -130,8 +130,13 @@ class PlayerViewModel(
             when (kind) {
                 SourceKind.TORRENT -> loadTorrent(episodeId)
                 SourceKind.ARCHIVE -> loadArchive(episodeId)
-                SourceKind.WEB -> loadWebRespectingPreference(episodeId)
-                SourceKind.NUC, SourceKind.LOCAL -> loadWebRespectingPreference(episodeId)
+                SourceKind.WEB -> loadWeb(episodeId)
+                // PlayerSource.kindFor() nunca devuelve NUC ni LOCAL (ver su propio KDoc): esta rama
+                // es inalcanzable por diseño, pero el `when` exhaustivo la exige. Apunta a loadWeb()
+                // -no a la loadWebRespectingPreference() desconectada- para que la afirmación del
+                // KDoc de esa función ("load() llama a loadWeb directo") sea cierta para TODAS las
+                // ramas, no solo la de WEB.
+                SourceKind.NUC, SourceKind.LOCAL -> loadWeb(episodeId)
             }
         }
         prefetchJob?.cancel()
@@ -203,6 +208,10 @@ class PlayerViewModel(
     }
 
     /**
+     * DESCONECTADA desde que las descargas van al dispositivo: `load()` llama a [loadWeb] directo.
+     * Se conserva porque la maquinaria de reproducción remota desde la NUC sigue completa y
+     * volver a cablearla es cambiar esta única línea.
+     *
      * Fuente web: consulta primero [PlaybackPreferenceStore] para saber si esta serie tiene un
      * capítulo ya bajado a la NUC y, de ser así, si hay que reproducirlo de ahí, en vivo, o
      * preguntarle al usuario (una sola vez por serie). Solo aplica a episodios de series web
@@ -217,6 +226,7 @@ class PlayerViewModel(
      * `d.imdbId.ifBlank{"tmdb${d.id}"}`). Confirmado leyendo `addWebSeriesEpisode` en
      * `ArkivRepository.kt` y `downloadPack`/`createJob` en `AnimeShowDetailScreen`/`CineDetailScreen`.
      */
+    @Suppress("unused")
     private suspend fun loadWebRespectingPreference(episodeId: String) {
         val itemIdentifier = episodeId.substringBefore("::")
         val seriesId = itemIdentifier.takeIf { it.startsWith(SERIES_ITEM_PREFIX) }
