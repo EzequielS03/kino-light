@@ -108,7 +108,8 @@ fun TvSearchScreen(
             initializer {
                 SearchViewModel(
                     graph.tmdbApi, graph.aniListApi, graph.torrentSearchApi, graph.api,
-                    graph.animeSourceProvider, graph.webSourceEngine, graph.settings, graph.torrentEngine,
+                    graph.mirrorApiClient, graph.animeSourceProvider, graph.webSourceEngine,
+                    graph.settings, graph.torrentEngine,
                 )
             }
         },

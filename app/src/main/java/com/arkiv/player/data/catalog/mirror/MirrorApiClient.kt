@@ -1,6 +1,7 @@
 package com.arkiv.player.data.catalog.mirror
 
 import android.util.Log
+import com.arkiv.player.data.ArchiveSearchResult
 import com.arkiv.player.data.catalog.providers.ContentType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -191,6 +192,37 @@ class MirrorApiClient(
         collectWebSources(root.optJSONArray("web_sources"), out)
         Log.i(TAG, "titleWebSources slug='$slug' → ${out.size} web_sources")
         out
+    }
+
+    /**
+     * Nuestra biblioteca para un `tmdb_id`: los capítulos que subimos nosotros a archive.org.
+     *
+     * Hace falta un endpoint aparte porque esos ítems se suben con identificador y título
+     * hasheados: `title:(<serie>)` en el buscador de archive.org no los encuentra JAMÁS, por más
+     * que estén públicos. El mirror los indexa por tmdb_id y devuelve el identificador y los
+     * nombres REALES de archive.org — o sea que a partir de acá se reproducen y descargan por el
+     * mismo camino que cualquier ítem público, sin que el mirror sirva un solo byte.
+     *
+     * Devuelve null si no hay nada subido (404) o si falla la red: es una fuente más y no debe
+     * tumbar el resto de la búsqueda.
+     */
+    suspend fun libraryItem(tmdbId: Int): ArchiveSearchResult? = withContext(Dispatchers.IO) {
+        val base = baseUrl().trimEnd('/')
+        val root = getJson("$base/library/metadata/tmdb-$tmdbId") ?: return@withContext null
+        val meta = root.optJSONObject("metadata") ?: return@withContext null
+        val identifier = meta.optString("identifier").takeIf { it.isNotBlank() }
+            ?: return@withContext null
+        val files = root.optJSONArray("files")?.length() ?: 0
+        if (files == 0) return@withContext null
+        Log.i(TAG, "libraryItem tmdbId=$tmdbId → '$identifier' (${files} archivos)")
+        ArchiveSearchResult(
+            identifier = identifier,
+            // El título viene del mirror: el del ítem en archive.org es el hash.
+            title = meta.optString("title").takeIf { it.isNotBlank() } ?: identifier,
+            year = "",
+            episodeCount = files,
+            fromLibrary = true,
+        )
     }
 
     /** Cliente de larga duración SOLO para /api/refresh: el servidor tarda ~60-90s (web+torrents

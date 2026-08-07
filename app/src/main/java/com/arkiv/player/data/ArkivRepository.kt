@@ -201,12 +201,21 @@ class ArkivRepository(
     suspend fun completedDownloadUri(episodeId: String): String? =
         downloadDao.get(episodeId)?.takeIf { it.state == "completed" }?.localUri
 
-    /** Descarga metadata, arma los episodios y guarda el ítem en la biblioteca. */
-    suspend fun addItem(input: String): Result<ArchiveItem> {
+    /**
+     * Descarga metadata, arma los episodios y guarda el ítem en la biblioteca.
+     *
+     * [titleOverride] pisa el título que trae archive.org. Lo necesitan nuestras propias subidas:
+     * ahí el ítem se llama como el hash con el que se subió (`f75163…_s01e01`), así que sin esto
+     * la biblioteca mostraría ese hash en vez del nombre de la serie. El nombre bueno lo tiene el
+     * mirror (ver `MirrorApiClient.libraryItem`).
+     */
+    suspend fun addItem(input: String, titleOverride: String? = null): Result<ArchiveItem> {
         val identifier = IdentifierParser.extract(input)
             ?: return Result.failure(IllegalArgumentException("Pegá una URL o identificador de archive.org"))
         return try {
-            val item = api.fetchItem(identifier)
+            val item = api.fetchItem(identifier).let { fetched ->
+                titleOverride?.takeIf { it.isNotBlank() }?.let { fetched.copy(title = it) } ?: fetched
+            }
             // Al re-agregar/refrescar, preservar el override manual y la fecha original.
             val existing = itemDao.getItem(identifier)
             itemDao.replaceItem(

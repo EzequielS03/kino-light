@@ -25,6 +25,13 @@ data class ArchiveSearchResult(
     val title: String,
     val year: String,
     val episodeCount: Int = 0,
+    /**
+     * true si salió de NUESTRA biblioteca (los capítulos que subimos), no del buscador público.
+     * No se puede deducir del [identifier]: el ítem se sube a archive.org con un identificador
+     * hasheado, indistinguible de cualquier otro. Solo sirve para marcarlo en la UI — a partir
+     * de acá se reproduce y se descarga igual que cualquier ítem público.
+     */
+    val fromLibrary: Boolean = false,
 )
 
 /** Acceso de red a la API pública de metadata de archive.org. */
@@ -80,6 +87,7 @@ class ArchiveApi(private val client: OkHttpClient = defaultClient()) {
     /** Cuenta episodios de un ítem (best-effort). 0 si falla la red o no tiene videos. */
     private suspend fun episodeCountOf(identifier: String): Int =
         runCatching { fetchItem(identifier).episodes.size }.getOrDefault(0)
+
 
     /**
      * Descarga y parsea el metadata de un ítem. Lanza [IOException] si la red

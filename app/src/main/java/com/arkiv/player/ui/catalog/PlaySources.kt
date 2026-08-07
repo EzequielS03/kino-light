@@ -49,6 +49,8 @@ sealed interface PlaySource {
 /** Color de acento por origen — el mismo en la fila, la sección y los chips de filtro. */
 val ArkivWebViolet = Color(0xFFB39DDB)
 val ArkivArchiveTeal = Color(0xFF80CBC4)
+/** Verde de "mi biblioteca": los capítulos que subimos nosotros, servidos por el mirror. */
+val ArkivLibraryGreen = Color(0xFF81C784)
 val ArkivPackAmber = Color(0xFFFFB74D)
 
 fun accentOf(source: PlaySource): Color = when (source) {
@@ -185,7 +187,15 @@ fun SourceRow(source: PlaySource, enabled: Boolean, onDownload: (() -> Unit)? = 
                     )
                     Spacer(Modifier.height(6.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        MetaChip("Archive.org", ArkivArchiveTeal)
+                        // Nuestras propias subidas no salen del buscador de archive.org (van con
+                        // identificador/título hasheados y no matchean por título): las trae el
+                        // mirror por tmdb_id. Se marcan distinto porque son las nuestras — de acá
+                        // en adelante se reproducen igual que cualquier ítem público.
+                        if (item.fromLibrary) {
+                            MetaChip("Mi biblioteca", ArkivLibraryGreen, strong = true)
+                        } else {
+                            MetaChip("Archive.org", ArkivArchiveTeal)
+                        }
                         // El # de episodios distingue una serie completa de un fragmento de 1 capítulo
                         // que se llama igual (p. ej. "Get Backers": completa = 49 eps vs "Capítulo # 01" = 1).
                         if (item.episodeCount > 1) MetaChip("${item.episodeCount} episodios")

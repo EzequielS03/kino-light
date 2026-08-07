@@ -55,6 +55,7 @@ class SearchViewModel(
     private val aniListApi: AniListApi,
     private val torrentSearchApi: TorrentSearchApi,
     private val archiveApi: ArchiveApi,
+    private val mirrorApiClient: com.arkiv.player.data.catalog.mirror.MirrorApiClient,
     private val animeSourceProvider: AnimeSourceProvider,
     private val webSourceEngine: WebSourceEngine,
     private val settings: SettingsStore,
@@ -359,8 +360,25 @@ class SearchViewModel(
                 }
             }
             launch {
-                val q = if (season != null && episode != null) "${titles.first()} ${season}x${"%02d".format(episode)}" else titles.first()
-                val a = runCatching { archiveApi.search(q) }.getOrDefault(emptyList()).map { PlaySource.Archive(it) }
+                // 1) BIBLIOTECA PROPIA primero: los capítulos que subimos nosotros quedan en
+                //    archive.org con identificador y título hasheados, así que la búsqueda por
+                //    título de abajo no los encuentra JAMÁS. El mirror los indexa por tmdb_id.
+                //    Para anime el tmdb_id no viene en la card (AniList): lo resuelve el provider.
+                val libTmdbId = if (card.kind == "anime") {
+                    show?.let { s -> runCatching { animeSourceProvider.browseTmdbId(s) }.getOrNull() }
+                } else {
+                    d?.id ?: card.tmdbId
+                }
+                libTmdbId?.let { id ->
+                    runCatching { mirrorApiClient.libraryItem(id) }.getOrNull()
+                        ?.let { append(listOf(PlaySource.Archive(it))) }
+                }
+                // 2) archive.org público. El S/E NO se pega al texto: el Solr de archive.org exige
+                //    TODOS los tokens de `title:(...)` y ningún ítem se titula "... 1x27", así que
+                //    con capítulo elegido esto devolvía 0 resultados para CUALQUIER serie. Buscar
+                //    solo por nombre además hace salir los packs, que traen el capítulo adentro.
+                val a = runCatching { archiveApi.search(titles.first()) }.getOrDefault(emptyList())
+                    .map { PlaySource.Archive(it) }
                 append(a)
                 _loadingArchive.value = false
             }

@@ -111,6 +111,10 @@ class AnimeSourceProvider(
     /** Conjunto de títulos para buscar: AniList (display + romaji) + español (TMDB) + alt (Simkl). */
     suspend fun browseTitles(show: AnimeShow): List<String> = showMeta(show).titles
 
+    /** El `tmdb_id` del show (vía Fribb/Simkl), o null si no tiene match en TMDB. Lo necesita la
+     *  biblioteca propia, que indexa por tmdb_id (ver [ArchiveApi.libraryItem]). */
+    suspend fun browseTmdbId(show: AnimeShow): Int? = showMeta(show).tmdbId
+
     /** Packs web (serie completa por sitio) del mirror para este show — reusa los mismos títulos y
      *  tmdbId que [episodeSourcesWeb], sin filtrar por episodio. */
     suspend fun seriesWebPacks(show: AnimeShow): List<com.arkiv.player.data.catalog.mirror.MirrorWebPack> {

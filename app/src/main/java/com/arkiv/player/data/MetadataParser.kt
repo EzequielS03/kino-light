@@ -39,7 +39,7 @@ object MetadataParser {
                 id = "$identifier::$key",
                 itemId = identifier,
                 section = directoryOf(reference.name),
-                displayName = cleanName(reference.name),
+                displayName = cleanName(reference.name, identifier),
                 orderIndex = 0, // se completa tras ordenar
                 durationSeconds = duration,
                 thumbPath = thumb,
@@ -91,10 +91,22 @@ object MetadataParser {
         return if (slash >= 0) path.substring(0, slash) else ""
     }
 
-    /** Nombre para mostrar: sin carpeta ni extensión, con separadores legibles. */
-    fun cleanName(path: String): String {
-        val base = stripExtension(path.substringAfterLast('/'))
-        return base.replace('_', ' ').replace("@", " · ").trim()
+    /**
+     * Nombre para mostrar: sin carpeta ni extensión, con separadores legibles.
+     *
+     * Si el archivo empieza con el [identifier] del ítem, ese prefijo se saca: archive.org
+     * nombra así los archivos de muchas subidas (incluidas las nuestras, donde el identificador
+     * es un hash), y sin pelarlo cada capítulo se vería como
+     * "f75163f026d99259e37c 12697 s01e01" en vez de "s01e01".
+     */
+    fun cleanName(path: String, identifier: String? = null): String {
+        val file = path.substringAfterLast('/')
+        val base = stripExtension(file)
+        val stripped = identifier
+            ?.takeIf { it.isNotBlank() && base.length > it.length + 1 }
+            ?.let { id -> base.removePrefix("${id}_").takeIf { it != base } }
+            ?: base
+        return stripped.replace('_', ' ').replace("@", " · ").trim()
     }
 
     /** Orden natural: compara tramos de dígitos numéricamente (E2 < E10). */

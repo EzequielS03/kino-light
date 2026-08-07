@@ -27,6 +27,26 @@ class MetadataParserTest {
     }
 
     @Test
+    fun `saca el identificador del nombre visible del episodio`() {
+        // Nuestras subidas nombran cada archivo con el identificador adelante, que es un hash.
+        // Sin pelarlo, la lista de capítulos muestra "f75163f026d99259e37c 12697 s01e01".
+        val id = "f75163f026d99259e37c_12697"
+        val files = listOf(
+            video("${id}_s01e01.mp4", "original", "MPEG4", null, 350_000_000, 1420.5),
+            video("${id}_s01e02.mp4", "original", "MPEG4", null, 351_000_000, 1418.0),
+        )
+        val eps = MetadataParser.parse(id, "Dragon Ball GT", null, "thumb", files).episodes
+        assertEquals(listOf("s01e01", "s01e02"), eps.map { it.displayName })
+    }
+
+    @Test
+    fun `un item publico normal conserva su nombre tal cual`() {
+        val files = listOf(video("Evangelion_01.mkv", "original", "Matroska", null, 600, 10.0))
+        val ep = MetadataParser.parse("otro-item", "T", null, "thumb", files).episodes.first()
+        assertEquals("Evangelion 01", ep.displayName)
+    }
+
+    @Test
     fun `castVariant prefiere el mp4 y playbackVariant prefiere el mkv`() {
         val files = listOf(
             video("v.mkv", "original", "Matroska", null, 600, 10.0),
