@@ -47,6 +47,9 @@ fun TvEpisodeChip(
     modifier: Modifier = Modifier,
     /** Still del capítulo (TMDB). Si es null se cae al thumb de archive.org. */
     stillUrl: String? = null,
+    /** Se llama cuando este chip TOMA el foco, para que la pantalla de arriba siga al capítulo
+     *  enfocado (fondo + textos), igual que el hero del Home sigue a la card enfocada. */
+    onFocus: (() -> Unit)? = null,
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val totalMin = (episode.durationSeconds / 60).toInt().coerceAtLeast(0)
@@ -74,7 +77,13 @@ fun TvEpisodeChip(
     Column(
         modifier = modifier
             .width(120.dp)
-            .onFocusChanged { isFocused = it.isFocused }
+            .onFocusChanged {
+                // Solo al GANAR el foco: si se avisara también al perderlo, al pasar de un chip al
+                // siguiente llegaría el "perdí" del viejo después del "gané" del nuevo y el hero
+                // quedaría mostrando el capítulo equivocado.
+                if (it.isFocused && !isFocused) onFocus?.invoke()
+                isFocused = it.isFocused
+            }
             .clip(RoundedCornerShape(8.dp))
             .background(if (isCurrent) ArkivRed.copy(alpha = 0.25f) else ArkivSurfaceHigh)
             .border(

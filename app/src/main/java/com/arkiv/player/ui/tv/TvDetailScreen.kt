@@ -1,5 +1,6 @@
 package com.arkiv.player.ui.tv
 
+import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,11 +16,14 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -34,6 +38,8 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
+import com.arkiv.player.data.ArchiveUrls
+import com.arkiv.player.data.model.Episode
 import com.arkiv.player.ui.detail.DetailViewModel
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivBlack
@@ -68,9 +74,18 @@ fun TvDetailScreen(
     // se encarga del caché de las imágenes en disco.
     val stills by graph.repository.observeEpisodeStills(identifier)
         .collectAsStateWithLifecycle(initialValue = emptyMap())
+    // Títulos reales del capítulo (TMDB). El nombre del archivo suele ser inútil ("s01e03"), y en
+    // el hero —que es texto grande— se nota mucho más que en la lista.
+    val episodeTitles by graph.repository.observeEpisodeTitles(identifier)
+        .collectAsStateWithLifecycle(initialValue = emptyMap())
     LaunchedEffect(identifier) {
         runCatching { graph.repository.ensureEpisodeStills(identifier) }
     }
+
+    // Capítulo enfocado en el carrusel: el fondo y los textos de arriba lo siguen, igual que el
+    // hero del Home sigue a la card enfocada. Null = foco fuera del carrusel (p. ej. en
+    // "Reproducir"), y entonces se muestra la info de la serie.
+    var focusedEpisode by remember(identifier) { mutableStateOf<Episode?>(null) }
 
     val resumeId = data.resumeEpisode?.id
     LaunchedEffect(resumeId) {
@@ -79,12 +94,22 @@ fun TvDetailScreen(
     }
 
     Box(Modifier.fillMaxSize().background(ArkivBlack)) {
-        AsyncImage(
-            model = data.thumbnailUrl,
-            contentDescription = data.title,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-        )
+        // El fondo sigue al capítulo enfocado. Cae al backdrop de la serie cuando ese capítulo no
+        // tiene still (TMDB no siempre los trae) o cuando el foco no está en el carrusel.
+        val focused = focusedEpisode
+        val heroImage = focused?.let { ep ->
+            stills[ep.id] ?: ep.thumbPath?.let { ArchiveUrls.download(ep.itemId, it) }
+        } ?: data.thumbnailUrl
+        // Crossfade: sin esto, recorrer el carrusel con el D-pad hace parpadear el fondo entero en
+        // cada chip. Con el fundido el cambio se lee como continuo.
+        Crossfade(targetState = heroImage, label = "hero") { img ->
+            AsyncImage(
+                model = img,
+                contentDescription = data.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
         // Degradado horizontal: negro a la izquierda para leer el texto (igual que el hero del Home).
         Box(
             Modifier.fillMaxSize().background(
@@ -104,20 +129,38 @@ fun TvDetailScreen(
                 modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 48.dp, vertical = 28.dp),
                 verticalArrangement = Arrangement.Bottom,
             ) {
+                // Con un capítulo enfocado el hero pasa a describir ESE capítulo; el nombre de la
+                // serie baja a la línea de arriba para no perder el contexto de dónde estás.
+                if (focused != null) {
+                    Text(
+                        data.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = ArkivTextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 Text(
-                    data.title,
+                    focused?.let { episodeTitles[it.id] ?: it.displayName } ?: data.title,
                     style = MaterialTheme.typography.headlineLarge,
                     color = Color.White,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = if (focused != null) Modifier.padding(top = 2.dp) else Modifier,
                 )
                 Text(
-                    if (data.episodes.size > 1) "${data.episodes.size} episodios" else "Película",
+                    when {
+                        focused != null -> episodeMeta(focused)
+                        data.episodes.size > 1 -> "${data.episodes.size} episodios"
+                        else -> "Película"
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = ArkivTextSecondary,
                     modifier = Modifier.padding(top = 6.dp),
                 )
-                data.description?.takeIf { it.isNotBlank() }?.let { desc ->
+                // Sin capítulo enfocado, la sinopsis de la serie. Con uno enfocado no se muestra:
+                // la de la serie no describe ESE capítulo, y TMDB no nos da la del episodio acá.
+                data.description?.takeIf { it.isNotBlank() && focused == null }?.let { desc ->
                     Text(
                         desc,
                         style = MaterialTheme.typography.bodyMedium,
@@ -133,6 +176,10 @@ fun TvDetailScreen(
                         modifier = Modifier
                             .padding(top = 16.dp)
                             .focusRequester(playFR)
+                            // Al volver arriba desde el carrusel, el hero vuelve a la serie: si
+                            // quedara el último capítulo enfocado, el botón "Reproducir" (que
+                            // reanuda otro) estaría describiendo algo que no va a reproducir.
+                            .onFocusChanged { if (it.isFocused) focusedEpisode = null }
                             .focusProperties { down = resumeEpisodeFR },
                     ) {
                         Text("▶  Reproducir")
@@ -161,6 +208,7 @@ fun TvDetailScreen(
                             progress = data.progress[ep.id],
                             stillUrl = stills[ep.id],
                             onClick = { onPlayEpisode(ep.id) },
+                            onFocus = { focusedEpisode = ep },
                             modifier = Modifier.then(
                                 if (isResume) {
                                     Modifier.focusRequester(resumeEpisodeFR).focusProperties { up = playFR }
@@ -174,4 +222,22 @@ fun TvDetailScreen(
             }
         }
     }
+}
+
+/**
+ * Línea de datos del capítulo enfocado: "T1 · E3 · 24 min".
+ *
+ * La numeración sale de `season`/`episode` cuando el nombre del archivo la declaraba; si no, del
+ * `orderIndex`, que en packs de torrent codifica temporada*1000 + episodio y en archive.org es
+ * un correlativo 1..N. Se omite cada tramo que no se sepa en vez de inventarlo: es preferible
+ * "24 min" solo antes que un "T1 · E5" que apunte al capítulo equivocado.
+ */
+private fun episodeMeta(ep: Episode): String {
+    val numero = when {
+        ep.season != null && ep.episode != null -> "T${ep.season} · E${ep.episode}"
+        ep.orderIndex >= 1000 -> "T${ep.orderIndex / 1000} · E${ep.orderIndex % 1000}"
+        else -> "E${ep.orderIndex + 1}"
+    }
+    val minutos = (ep.durationSeconds / 60).toInt()
+    return if (minutos > 0) "$numero · $minutos min" else numero
 }
