@@ -1,5 +1,6 @@
 package com.arkiv.player.ui.settings
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,6 +18,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
@@ -25,10 +28,15 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -37,9 +45,11 @@ import kotlinx.coroutines.launch
 import com.arkiv.player.data.Quality
 import com.arkiv.player.data.WebQuality
 import com.arkiv.player.data.subtitles.SubtitleStyle
+import com.arkiv.player.data.update.UpdateInfo
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivTextSecondary
+import com.arkiv.player.ui.update.UpdateDialog
 
 @Composable
 fun SettingsScreen(contentPadding: PaddingValues) {
@@ -50,6 +60,31 @@ fun SettingsScreen(contentPadding: PaddingValues) {
     val maxSizeGb by settings.maxTorrentSizeGb.collectAsStateWithLifecycle()
     val webQuality by settings.webQuality.collectAsStateWithLifecycle()
     val subStyle by graph.subtitlePrefs.style.collectAsStateWithLifecycle()
+
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var checkingUpdate by remember { mutableStateOf(false) }
+    var manualUpdate by remember { mutableStateOf<UpdateInfo?>(null) }
+
+    // Chequeo manual: independiente del diálogo global de MainActivity, así funciona aunque
+    // este último ya haya sido descartado por el usuario en esta sesión.
+    fun checkForUpdatesNow() {
+        checkingUpdate = true
+        scope.launch {
+            graph.checkForUpdate()
+            checkingUpdate = false
+            val info = graph.updateInfo.value
+            if (info != null) {
+                manualUpdate = info
+            } else {
+                Toast.makeText(context, "Ya tienes la última versión", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    manualUpdate?.let { info ->
+        UpdateDialog(info = info, graph = graph, onDismiss = { manualUpdate = null })
+    }
 
     // Cambiar estilo: persiste local + sincroniza a los otros dispositivos (TV).
     fun setStyle(s: SubtitleStyle) {
@@ -92,7 +127,27 @@ fun SettingsScreen(contentPadding: PaddingValues) {
         MaxSizeSection(maxSizeGb, settings::setMaxTorrentSizeGb)
 
         SubtitleSection(subStyle, ::setStyle)
+
+        UpdateSection(checking = checkingUpdate, onCheck = ::checkForUpdatesNow)
     }
+}
+
+@Composable
+private fun UpdateSection(checking: Boolean, onCheck: () -> Unit) {
+    Text(
+        "Actualizaciones",
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.padding(top = 24.dp, bottom = 8.dp),
+    )
+    Button(onClick = onCheck, enabled = !checking) {
+        if (checking) {
+            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White)
+            Text("Buscando…", modifier = Modifier.padding(start = 8.dp))
+        } else {
+            Text("Buscar actualizaciones")
+        }
+    }
+    Box(Modifier.padding(bottom = 32.dp))
 }
 
 @Composable

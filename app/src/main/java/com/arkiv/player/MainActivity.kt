@@ -9,6 +9,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -83,6 +84,22 @@ class MainActivity : AppCompatActivity() {
                             canExit = contentSettled,
                             onFinished = { splashDone = true },
                         )
+                    }
+
+                    // OTA: se muestra sola cuando AppGraph detecta una versión nueva (chequeo al
+                    // arrancar o el UpdateWorker periódico). "dismissed" solo tapa esta instancia
+                    // del diálogo global; el chequeo manual desde Ajustes usa su propia instancia.
+                    val graph = (application as ArkivApp).graph
+                    val updateAvailable by graph.updateInfo.collectAsState()
+                    var dismissed by remember { mutableStateOf(false) }
+                    updateAvailable?.let { info ->
+                        if (!dismissed) {
+                            com.arkiv.player.ui.update.UpdateDialog(
+                                info = info,
+                                graph = graph,
+                                onDismiss = { dismissed = true },
+                            )
+                        }
                     }
                 }
             }
