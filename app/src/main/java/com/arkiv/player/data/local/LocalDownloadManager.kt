@@ -63,6 +63,17 @@ class LocalDownloadManager(
         wakeWorker(appContext)
     }
 
+    /**
+     * Vuelve a encolar una fila fallida. El `.part` que haya quedado se conserva a propósito: el
+     * descargador reanuda desde ahí con `Range` en vez de empezar de cero.
+     */
+    suspend fun retry(episodeId: String) = withContext(Dispatchers.IO) {
+        val row = downloadDao.get(episodeId) ?: return@withContext
+        if (!DownloadQueuePolicy.isRetryable(row.state)) return@withContext
+        downloadDao.updateState(episodeId, LocalDownloadState.QUEUED, null)
+        wakeWorker(appContext)
+    }
+
     /** Borra la fila y el archivo (y el parcial, si quedó a medias). */
     suspend fun remove(episodeId: String) = withContext(Dispatchers.IO) {
         val row = downloadDao.get(episodeId)
