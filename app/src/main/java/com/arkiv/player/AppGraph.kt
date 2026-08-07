@@ -22,7 +22,6 @@ import com.arkiv.player.data.catalog.web.WebTmdbMatcher
 import com.arkiv.player.data.catalog.web.WebViewCloudflareSolver
 import com.arkiv.player.data.SettingsStore
 import com.arkiv.player.data.db.ArkivDatabase
-import com.arkiv.player.data.download.Downloader
 import com.arkiv.player.data.update.ApkDownloader
 import com.arkiv.player.data.update.UpdateChecker
 import com.arkiv.player.data.update.UpdateInfo
@@ -63,8 +62,6 @@ class AppGraph(context: Context) {
         val info = updateChecker.check(BuildConfig.VERSION_CODE)
         if (info != null) _updateInfo.value = info
     }
-
-    val downloader: Downloader by lazy { Downloader(appContext, database, settings) }
 
     // --- Descargas al propio dispositivo (ver docs/superpowers/specs/2026-08-07-...) ---
     val httpRangeDownloader: com.arkiv.player.data.local.HttpRangeDownloader by lazy {

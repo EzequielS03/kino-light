@@ -221,12 +221,6 @@ interface DownloadDao {
     @Query("SELECT * FROM downloads")
     fun observeAll(): Flow<List<DownloadEntity>>
 
-    // Motor viejo (data/download/Downloader.kt, basado en el DownloadManager del sistema): sigue
-    // en uso hasta que una tarea posterior lo borre. No lo lista el brief de esta tarea, pero
-    // romperlo rompería la compilación, así que se conserva tal cual.
-    @Query("UPDATE downloads SET state = :state, progress = :progress, localUri = :localUri WHERE episodeId = :episodeId")
-    suspend fun updateProgress(episodeId: String, state: String, progress: Float, localUri: String?)
-
     @Query("UPDATE downloads SET state = :state, error = :error WHERE episodeId = :episodeId")
     suspend fun updateState(episodeId: String, state: String, error: String?)
 

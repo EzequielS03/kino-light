@@ -1,6 +1,5 @@
 package com.arkiv.player.ui.detail
 
-import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -124,14 +123,8 @@ fun DetailScreen(
         runCatching { graph.repository.ensureEpisodeStills(identifier) }
     }
     val onDownloadEpisode: (Episode) -> Unit = { ep ->
-        Log.d("ArkivDownload", "onDownloadEpisode click: id=${ep.id} original=${ep.original != null} derivative=${ep.derivative != null}")
         scope.launch {
-            try {
-                graph.downloader.enqueue(ep)
-                Log.d("ArkivDownload", "enqueue() volvió sin excepción para id=${ep.id}")
-            } catch (e: Exception) {
-                Log.e("ArkivDownload", "enqueue() lanzó excepción para id=${ep.id}", e)
-            }
+            graph.localDownloads.enqueue(ep.id, "archive")
         }
     }
 
