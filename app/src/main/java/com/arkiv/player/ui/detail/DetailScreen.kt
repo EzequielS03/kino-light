@@ -1,5 +1,6 @@
 package com.arkiv.player.ui.detail
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -113,7 +114,15 @@ fun DetailScreen(
     val detail by vm.detail.collectAsStateWithLifecycle()
     val skipMarker by vm.skipMarker.collectAsStateWithLifecycle()
     val onDownloadEpisode: (Episode) -> Unit = { ep ->
-        scope.launch { graph.downloader.enqueue(ep) }
+        Log.d("ArkivDownload", "onDownloadEpisode click: id=${ep.id} original=${ep.original != null} derivative=${ep.derivative != null}")
+        scope.launch {
+            try {
+                graph.downloader.enqueue(ep)
+                Log.d("ArkivDownload", "enqueue() volvió sin excepción para id=${ep.id}")
+            } catch (e: Exception) {
+                Log.e("ArkivDownload", "enqueue() lanzó excepción para id=${ep.id}", e)
+            }
+        }
     }
 
     // Refresca la caché local de "qué episodios ya están en la NUC" al abrir el detalle: así

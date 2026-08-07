@@ -4,6 +4,7 @@ import android.app.DownloadManager
 import android.content.Context
 import android.net.Uri
 import android.os.Environment
+import android.util.Log
 import com.arkiv.player.data.ArchiveUrls
 import com.arkiv.player.data.MetadataParser
 import com.arkiv.player.data.Quality
@@ -41,39 +42,61 @@ class Downloader(
     }
 
     suspend fun enqueue(episode: Episode) = withContext(Dispatchers.IO) {
+        Log.d(TAG, "enqueue() start id=${episode.id}")
         val existing = downloadDao.get(episode.id)
-        if (existing != null && existing.state != "failed") return@withContext
+        Log.d(TAG, "enqueue() existing=$existing (state=${existing?.state})")
+        if (existing != null && existing.state != "failed") {
+            Log.w(TAG, "enqueue() SALIDA TEMPRANA: ya hay un registro con state=${existing.state} para id=${episode.id}")
+            return@withContext
+        }
 
-        val (variant, kind) = variantFor(episode) ?: return@withContext
+        val variantResult = variantFor(episode)
+        Log.d(
+            TAG,
+            "enqueue() quality=${settings.downloadQuality.value} original=${episode.original != null} " +
+                "derivative=${episode.derivative != null} -> variantFor=$variantResult",
+        )
+        val (variant, kind) = variantResult ?: run {
+            Log.w(TAG, "enqueue() SALIDA TEMPRANA: variantFor()==null (sin original ni derivative) para id=${episode.id}")
+            return@withContext
+        }
         val url = ArchiveUrls.download(episode.itemId, variant.path)
         val ext = MetadataParser.extensionOf(variant.path).ifEmpty { "mp4" }
         val fileName = "${sanitize(episode.id)}.$ext"
+        Log.d(TAG, "enqueue() url=$url fileName=$fileName kind=$kind")
 
-        val request = DownloadManager.Request(Uri.parse(url))
-            .setTitle(episode.displayName)
-            .setDescription("Arkiv")
-            .addRequestHeader("User-Agent", "Arkiv/0.1 (personal)")
-            .setDestinationInExternalFilesDir(appContext, Environment.DIRECTORY_MOVIES, fileName)
-            .setAllowedOverMetered(true)
-            .setAllowedOverRoaming(true)
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
+        try {
+            val request = DownloadManager.Request(Uri.parse(url))
+                .setTitle(episode.displayName)
+                .setDescription("Arkiv")
+                .addRequestHeader("User-Agent", "Arkiv/0.1 (personal)")
+                .setDestinationInExternalFilesDir(appContext, Environment.DIRECTORY_MOVIES, fileName)
+                .setAllowedOverMetered(true)
+                .setAllowedOverRoaming(true)
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
 
-        val dmId = dm.enqueue(request)
-        prefs.edit()
-            .putLong("ep_${episode.id}", dmId)
-            .putString("dm_$dmId", episode.id)
-            .apply()
+            val dmId = dm.enqueue(request)
+            Log.d(TAG, "enqueue() dm.enqueue() OK dmId=$dmId para id=${episode.id}")
+            prefs.edit()
+                .putLong("ep_${episode.id}", dmId)
+                .putString("dm_$dmId", episode.id)
+                .apply()
 
-        downloadDao.upsert(
-            DownloadEntity(
-                episodeId = episode.id,
-                variant = kind,
-                state = "downloading",
-                progress = 0f,
-                localUri = null,
-                bytes = variant.sizeBytes,
+            downloadDao.upsert(
+                DownloadEntity(
+                    episodeId = episode.id,
+                    variant = kind,
+                    state = "downloading",
+                    progress = 0f,
+                    localUri = null,
+                    bytes = variant.sizeBytes,
+                )
             )
-        )
+            Log.d(TAG, "enqueue() upsert en Room OK para id=${episode.id}")
+        } catch (e: Exception) {
+            Log.e(TAG, "enqueue() EXCEPCIÓN llamando a DownloadManager para id=${episode.id} url=$url", e)
+            throw e
+        }
     }
 
     /** Consulta el DownloadManager y actualiza el estado/progreso en Room. */
@@ -124,4 +147,8 @@ class Downloader(
     }
 
     private fun sanitize(id: String): String = id.replace(Regex("[^A-Za-z0-9._-]"), "_")
+
+    private companion object {
+        const val TAG = "ArkivDownload"
+    }
 }
