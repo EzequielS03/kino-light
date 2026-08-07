@@ -306,6 +306,7 @@ private fun PlayerContent(
                 PlayerViewModel(
                     graph.repository, graph.settings, graph.torrentEngine, graph.archiveCacheProxy,
                     graph.webResolverApi, graph.arkivOfflineApi, graph.playbackPreferenceStore,
+                    graph.localLibrary, graph.localFileServer,
                 )
             }
         },

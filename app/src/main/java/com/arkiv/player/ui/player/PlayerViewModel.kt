@@ -76,6 +76,8 @@ class PlayerViewModel(
     private val webResolverApi: com.arkiv.player.data.catalog.web.WebResolverApi,
     private val arkivOfflineApi: ArkivOfflineApi,
     private val playbackPreferenceStore: PlaybackPreferenceStore,
+    private val localLibrary: com.arkiv.player.data.local.LocalLibrary,
+    private val localFileServer: com.arkiv.player.playback.LocalFileServer,
 ) : ViewModel() {
 
     private val _playlist = MutableStateFlow<PlaylistData?>(null)
@@ -109,25 +111,56 @@ class PlayerViewModel(
     /** Job cancelable de la precarga del siguiente capítulo (torrent pack / web / archive). */
     private var prefetchJob: kotlinx.coroutines.Job? = null
 
-    /** Carga el episodio como playlist, ramificando por fuente (archive vs torrent). */
+    /** Carga el episodio como playlist, ramificando por fuente (archive vs torrent vs web). */
     fun load(episodeId: String) {
         viewModelScope.launch {
             _error.value = null
+            // Si está guardado en el dispositivo, gana sobre cualquier streaming. Va ANTES de
+            // ramificar por fuente: da igual de dónde vino el archivo, ya está acá.
+            //
+            // ARCHIVE queda fuera a propósito: loadArchive() ya arma la playlist de la sección
+            // pasando el archivo local por episodio, así que ya mezcla local y remoto bien. Meterlo
+            // acá lo degradaría a un solo ítem y rompería el autoplay del siguiente capítulo.
             val kind = PlayerSource.kindFor(episodeId)
+            if (kind != SourceKind.ARCHIVE) {
+                val local = localLibrary.fileFor(episodeId)
+                if (local != null) { loadLocal(episodeId, local); return@launch }
+            }
             Log.w(PLAY, "load() episodeId=$episodeId kind=$kind")
             when (kind) {
                 SourceKind.TORRENT -> loadTorrent(episodeId)
                 SourceKind.ARCHIVE -> loadArchive(episodeId)
                 SourceKind.WEB -> loadWebRespectingPreference(episodeId)
-                // PlayerSource.kindFor() nunca devuelve NUC: solo lo toma PlayerData.kind cuando
-                // loadFromNuc() arma el ítem. Si algún día llega acá (episodeId con otro formato),
-                // hay que tratarlo como una fuente web más.
-                SourceKind.NUC -> loadWebRespectingPreference(episodeId)
+                SourceKind.NUC, SourceKind.LOCAL -> loadWebRespectingPreference(episodeId)
             }
         }
-        // Precarga del siguiente capítulo (best-effort, cancelable, baja prioridad).
         prefetchJob?.cancel()
         prefetchJob = viewModelScope.launch(Dispatchers.IO) { prefetchNext(episodeId) }
+    }
+
+    /**
+     * Archivo guardado en el dispositivo. `castUrl` apunta al servidor HTTP local y NO al `file://`:
+     * el Chromecast hace su propio GET desde otro dispositivo y no puede abrir una ruta del sistema
+     * de archivos del celular.
+     */
+    private suspend fun loadLocal(episodeId: String, path: String) {
+        val ep = repo.getEpisode(episodeId)
+        val file = java.io.File(path)
+        val castUrl = withContext(Dispatchers.IO) { runCatching { localFileServer.serve(file) }.getOrNull() }
+        val item = PlayerData(
+            episodeId = episodeId,
+            itemId = episodeId.substringBefore("::"),
+            title = ep?.displayName ?: file.name,
+            subtitle = ep?.section ?: "",
+            mediaUrl = "file://$path",
+            castUrl = castUrl,
+            artworkUrl = "",
+            openingStartMs = null, openingEndMs = null, endingStartMs = null,
+            kind = SourceKind.LOCAL,
+        )
+        val startPos = safeStartPosition(episodeId, SourceKind.LOCAL)
+        _playlist.value = PlaylistData(listOf(item), 0, startPos)
+        Log.w(PLAY, "loadLocal() $episodeId -> $path (cast=$castUrl)")
     }
 
     /** archive.org: sección completa como playlist (next/prev y autoplay nativos). */
@@ -455,6 +488,9 @@ class PlayerViewModel(
             // PlayerSource.kindFor() nunca devuelve NUC (no depende del episodeId, sino de la
             // preferencia guardada) -- nada que precargar por esta rama.
             SourceKind.NUC -> Unit
+            // Idem LOCAL: no es un kind que devuelva kindFor(), lo decide el atajo de load() en
+            // tiempo de reproducción (LocalLibrary.fileFor) -- nada que precargar por acá.
+            SourceKind.LOCAL -> Unit
         }
     }.onFailure { Log.w(PLAY, "prefetchNext falló: $it") }
 
