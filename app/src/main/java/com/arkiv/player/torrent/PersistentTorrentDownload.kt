@@ -9,16 +9,21 @@ import java.io.File
  * Descarga de torrent PERSISTENTE: baja el archivo completo y NO lo borra al terminar.
  *
  * Es la excepción explícita a la regla del motor, documentada en `TorrentEngine`: "descarga al
- * cacheDir y borra al parar". Acá el `savePath` está en `filesDir` (o el que ya tenga el handle si
- * `TorrentEngine.startPersistentDownload` lo compartió con un stream activo u otra descarga del
- * mismo pack — ver `attachToExistingHandle`), fuera del `workDir` que barre `sweepOrphans()`, y
- * [detach] quita el torrent de la sesión SIN el flag de borrado de archivos.
+ * cacheDir y borra al parar". Acá el `savePath` es siempre el `saveDir` pedido por el llamador, fuera
+ * del `workDir` que barre `sweepOrphans()`, y [detach] quita el torrent de la sesión SIN el flag de
+ * borrado de archivos.
+ *
+ * El [handle] es SIEMPRE exclusivamente nuestro: `TorrentEngine.startPersistentDownload` nunca lo
+ * comparte con un stream activo ni con otra descarga (si el infohash ya tiene un handle en la
+ * sesión, devuelve `null` en vez de adjuntarse — ver el KDoc de ese método para el porqué). Por eso
+ * [detach] con `session.remove(handle)` incondicional es seguro: nunca puede sacar de la sesión el
+ * torrent de otra pantalla.
  *
  * El progreso se mide POR ARCHIVO (`handle.fileProgress()[fileIndex]` contra el tamaño real del
- * archivo), no con `status().totalWantedDone()/totalWanted()` (agregado de TODO lo "wanted" en el
- * handle): el handle puede estar COMPARTIDO con un stream activo o con otra descarga persistente del
- * mismo pack, y en ese caso el agregado del torrent entero incluiría piezas de otros archivos —
- * `fileProgress()` da el byte count exacto de este archivo sin importar qué más esté priorizado.
+ * archivo, no con `status().totalWantedDone()/totalWanted()`): aunque el handle no se comparte, ese
+ * agregado redondea a granularidad de PIEZA, así que en los bordes del archivo (pieza compartida con
+ * el archivo IGNORE vecino en el pack) podía sobrestimar bytes; `fileProgress()` da el byte count
+ * exacto de este archivo sin ese error de redondeo.
  */
 class PersistentTorrentDownload internal constructor(
     private val session: SessionManager,

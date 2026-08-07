@@ -493,57 +493,65 @@ class TorrentEngine(context: Context, private val extraTrackers: () -> List<Stri
      * - prioriza el archivo en DEFAULT (descarga completa) en vez del gate cabeza+cola del streaming;
      * - `saveDir` está fuera de `workDir`, así que `sweepOrphans()` no lo borra.
      *
-     * CASO DELICADO (encontrado en revisión, confirmado decompilando el jar de libtorrent4j):
-     * `session.download(info, saveDir)` (igual que `download(magnet, ...)`, que ya hacía esto para
-     * el camino de streaming) primero busca un handle existente por infohash. Si YA hay uno válido
-     * — stream activo del mismo torrent, u otra descarga persistente del mismo pack — NO agrega un
-     * torrent nuevo: reutiliza el handle existente e IGNORA el `saveDir` pedido, y con
-     * `priorities=null` pone TODOS los archivos del handle reutilizado en `Priority.DEFAULT`.
-     * Cualquier API de prioridad de ARCHIVO (`prioritizeFiles`/`filePriority`) recalcula TODAS las
-     * prioridades de PIEZA a partir de las de archivo — pisando el gate cabeza+cola en
-     * `TOP_PRIORITY` que [beginServing] dejó armado para el stream activo (la razón por la que
-     * `beginServing` usa `prioritizePieces()` atómico y no `prioritizeFiles`, documentada ahí mismo).
+     * NUNCA COMPARTE HANDLE con otro torrent activo (Round 2 de revisión). La primera versión de
+     * este método intentaba "adjuntarse" a un handle ya existente para el mismo infohash (stream
+     * activo, u otra descarga persistente del mismo pack) subiendo prioridades de PIEZA de forma
+     * aditiva, para soportar "bajar el episodio 5 mientras se ve el 3". Se descartó por dos problemas
+     * reales, no de borde:
+     *  1. El `saveDir` de un handle compartido con el stream activo es el `currentDir` EFÍMERO bajo
+     *     `cacheDir/torrents`, y `stopStreamInternal()` lo borra (`currentDir.deleteRecursively()` +
+     *     `sweepOrphans()`) apenas el usuario sale del reproductor — el flujo normal de la app.
+     *     "Adjuntarse" mataba justo la descarga que se suponía debía sobrevivir.
+     *  2. `PersistentTorrentDownload.detach()` hace `session.remove(handle)` incondicional; sobre un
+     *     handle compartido eso saca de la sesión el torrent que el usuario está reproduciendo.
+     *  (Y de yapa: sacar la espera del handle del lock de instancia abría una ventana de carrera con
+     *  `startStream`/`startMagnetStream` del mismo infohash — quien corriera último pisaba las
+     *  prioridades del otro, con `prioritizeFiles` recalculando piezas por encima de
+     *  `prioritizePieces`, o viceversa.)
      *
-     * Por eso, ANTES de tocar prioridades, se consulta la sesión por el infohash:
-     * - Si NO hay handle existente: camino normal — `session.download` + `pollHandle` +
-     *   `prioritizeFiles` sobre un handle nuevo que nadie más usa (seguro, nada que pisar).
-     * - Si YA hay un handle: [attachToExistingHandle] jamás llama a `session.download()` ni a
-     *   ninguna API de prioridad de ARCHIVO. Solo sube, PIEZA por pieza (mismo patrón aditivo que
-     *   [preBufferNextFile]: `IGNORE` → `DEFAULT`), las piezas del archivo pedido, sin bajar ninguna
-     *   que ya esté en prioridad mayor — el gate del stream, si lo hay, queda intacto. El `saveDir`
-     *   real pasa a ser `handle.savePath()` (el que ya tiene el handle: libtorrent no permite
-     *   reubicarlo sin reiniciar la descarga).
+     * Por eso ahora: si YA hay un handle válido para este infohash (stream activo u otra descarga
+     * persistente en curso), NO SE TOCA EN ABSOLUTO — ni prioridades, ni trackers, nada — y el
+     * método devuelve `null` de inmediato. Soportar "bajar el episodio 5 mientras se ve el 3" queda
+     * deliberadamente FUERA de esta tarea: la capa de arriba puede reintentar la descarga más tarde
+     * (cuando el stream se libere). Preferible eso a arriesgar la reproducción activa o perder una
+     * descarga de varios GB.
      *
-     * Devuelve null si el archivo pedido es inválido, si no se pudo sumar sus piezas de forma segura,
-     * o si el torrent nuevo no arrancó.
+     * Todo el camino — buscar handle existente y, si no hay, registrar uno nuevo + esperarlo +
+     * priorizarlo — corre bajo el MISMO lock de instancia (`@Synchronized`) que [startStream], para
+     * cerrar la ventana de carrera de arranque en frío contra
+     * `startStream`/`startMagnetStream`/`stopStream`/`onMetadataReady`. El presupuesto de espera del
+     * handle se acorta a ~2s (`POLL_ATTEMPTS_PERSISTENT` × 100ms, contra los ~6s por defecto de
+     * [pollHandle]): acá no hay fetch de magnet por delante — [meta] ya trae la metadata resuelta —
+     * así que el handle aparece casi al instante; 2s cubre ese caso sin retener el lock de más.
+     *
+     * Como el handle es siempre nuevo y exclusivamente nuestro: el `saveDir` devuelto es siempre el
+     * pedido (nunca se hereda el `cacheDir` efímero de un stream), y `detach()`/`discard()` son
+     * seguros (nunca tocan el handle de otro).
+     *
+     * Devuelve null si el archivo pedido es inválido, si ya hay un handle activo para este infohash,
+     * o si el torrent nuevo no arrancó a tiempo.
      */
+    @Synchronized
     fun startPersistentDownload(meta: TorrentMeta, fileIndex: Int, saveDir: File): PersistentTorrentDownload? {
         ensureStarted()
         val info = TorrentInfo(meta.infoBytes)
         if (fileIndex < 0 || fileIndex >= info.numFiles()) return null
 
-        // Sección crítica CORTA a propósito: decide solo entre reusar un handle existente o
-        // registrar uno nuevo (session.download es fire-and-forget / async_add_torrent, no espera
-        // red). Deliberadamente NO incluye la espera de pollHandle (hasta 6s) bajo el lock de
-        // instancia: ese lock lo comparten startStream/stopStream/startMagnetStream/onMetadataReady,
-        // y tenerlos bloqueados 6s congelaría al usuario si para el stream o cambia de episodio
-        // justo mientras arranca una descarga persistente.
-        val existing = synchronized(this) {
-            val found = runCatching { session.find(info.infoHash()) }.getOrNull()?.takeIf { it.isValid }
-            if (found == null) {
-                acquireLocks()
-                saveDir.mkdirs()
-                runCatching { session.download(info, saveDir) }
-                    .onFailure { Log.w("ArkivTorrent", "startPersistentDownload: download() falló: $it") }
-            }
-            found
+        val alreadyActive = runCatching { session.find(info.infoHash()) }.getOrNull()?.takeIf { it.isValid }
+        if (alreadyActive != null) {
+            Log.w(
+                "ArkivTorrent",
+                "startPersistentDownload: infohash=${meta.infoHashHex} ya tiene un handle activo " +
+                    "(stream u otra descarga) -> null, no se toca",
+            )
+            return null
         }
 
-        if (existing != null) {
-            return attachToExistingHandle(existing, info, fileIndex, saveDir)
-        }
-
-        val handle = pollHandle(info) ?: run {
+        acquireLocks()
+        saveDir.mkdirs()
+        runCatching { session.download(info, saveDir) }
+            .onFailure { Log.w("ArkivTorrent", "startPersistentDownload: download() falló: $it") }
+        val handle = pollHandle(info, POLL_ATTEMPTS_PERSISTENT) ?: run {
             Log.w("ArkivTorrent", "startPersistentDownload: no se pudo obtener el handle")
             return null
         }
@@ -552,7 +560,7 @@ class TorrentEngine(context: Context, private val extraTrackers: () -> List<Stri
             handle.forceReannounce()
         }
         // Solo el archivo pedido: bajar el pack entero llenaría el disco del celular. Handle NUEVO,
-        // sin compartir con nadie: prioritizeFiles() acá es seguro (no hay gate de stream que pisar).
+        // exclusivamente nuestro: prioritizeFiles() acá es seguro (nada que pisar, nadie más lo mira).
         val priorities = Array(info.numFiles()) { if (it == fileIndex) Priority.DEFAULT else Priority.IGNORE }
         runCatching { handle.prioritizeFiles(priorities) }
             .onFailure { Log.w("ArkivTorrent", "prioritizeFiles: $it") }
@@ -563,57 +571,12 @@ class TorrentEngine(context: Context, private val extraTrackers: () -> List<Stri
     }
 
     /**
-     * Camino cuando YA existe un handle válido para este infohash (ver el doc de
-     * [startPersistentDownload] para el porqué). Aditivo y a nivel de PIEZA, nunca de archivo: solo
-     * sube `IGNORE` → `DEFAULT` en las piezas del archivo pedido, sin tocar ninguna pieza que ya esté
-     * en prioridad mayor — así el gate cabeza+cola `TOP_PRIORITY` de un stream activo sobre este
-     * mismo torrent queda intacto. Devuelve null si no se pudo aplicar la prioridad con seguridad.
-     */
-    private fun attachToExistingHandle(handle: TorrentHandle, info: TorrentInfo, fileIndex: Int, requestedSaveDir: File): PersistentTorrentDownload? {
-        val fs = info.files()
-        val pieceLen = info.pieceLength().toLong()
-        if (pieceLen <= 0) return null
-        val fileOffset = fs.fileOffset(fileIndex)
-        val fileSize = fs.fileSize(fileIndex)
-        val firstPiece = (fileOffset / pieceLen).toInt()
-        val lastPiece = ((fileOffset + fileSize - 1) / pieceLen).toInt().coerceAtMost(info.numPieces() - 1)
-        val bumped = runCatching {
-            for (p in firstPiece..lastPiece) {
-                if (handle.piecePriority(p) == Priority.IGNORE) handle.piecePriority(p, Priority.DEFAULT)
-            }
-        }.onFailure { Log.w("ArkivTorrent", "attachToExistingHandle: piecePriority falló: $it") }.isSuccess
-        if (!bumped) return null
-        acquireLocks()
-        // El save_path real es el que YA tiene el handle (lo fijó quien lo creó primero); el
-        // saveDir pedido por este llamador se ignora si difiere, porque libtorrent no lo permite
-        // reubicar sin reiniciar la descarga desde cero.
-        val realSaveDir = runCatching { File(handle.savePath()) }.getOrNull() ?: requestedSaveDir
-        val relativePath = fs.filePath(fileIndex)
-        Log.i(
-            "ArkivTorrent",
-            "DESCARGA (handle compartido) infohash=${info.infoHash().toHex()} file=$fileIndex " +
-                "'$relativePath' -> $realSaveDir piezas=$firstPiece..$lastPiece",
-        )
-        // Si el handle compartido es el del stream activo, su propio startReannounceLoop ya cubre
-        // el reannounce; evitamos un loop duplicado. Si es el de otra descarga persistente (sin
-        // stream), arrancamos uno — puede haber más de uno reanunciando el mismo handle si se
-        // adjuntan varias descargas al mismo pack sin stream de por medio; redundante pero inofensivo
-        // (ver nota en [startDownloadReannounceLoop]).
-        if (handle !== currentHandle) startDownloadReannounceLoop(handle)
-        return PersistentTorrentDownload(session, handle, realSaveDir, relativePath, fileIndex, fileSize)
-    }
-
-    /**
      * Reannounce agresivo acotado a ESTE handle: variante aislada de [startReannounceLoop] (que está
      * atada a `currentHandle`/al stream activo y no se toca acá). Se apaga solo cuando el handle deja
-     * de ser válido (tras `detach()`/`discard()`, tarde o temprano `handle.isValid` cae) — no
-     * depende de estado del singleton ni interfiere con el reannounce del stream.
-     *
-     * Alcance deliberadamente acotado (queda pendiente, no bloqueante): no hay un registro de "este
-     * handle ya tiene un loop corriendo", así que adjuntar varias descargas persistentes al MISMO
-     * pack sin stream de por medio puede levantar más de un loop para el mismo handle. Es redundante
-     * (mismos umbrales/intervalo que el reannounce del streaming) pero no incorrecto. Generalizar
-     * esto a un registro por-handle es una mejora futura.
+     * de ser válido (tras `detach()`/`discard()`, `handle.isValid` cae) — no depende de estado del
+     * singleton ni interfiere con el reannounce del stream. El handle es siempre exclusivamente
+     * nuestro (nunca compartido, ver [startPersistentDownload]), así que no hay riesgo de arrancar
+     * más de un loop para el mismo handle.
      */
     private fun startDownloadReannounceLoop(handle: TorrentHandle) {
         Thread {
@@ -765,8 +728,9 @@ class TorrentEngine(context: Context, private val extraTrackers: () -> List<Stri
         }
     }
 
-    private fun pollHandle(info: TorrentInfo): TorrentHandle? {
-        repeat(60) {
+    /** [attempts]×100ms de espera. Default 60 (~6s, el peor caso: metadata recién llegada por magnet). */
+    private fun pollHandle(info: TorrentInfo, attempts: Int = 60): TorrentHandle? {
+        repeat(attempts) {
             val h = runCatching { session.find(info.infoHash()) }.getOrNull()
             if (h != null && h.isValid) return h
             Thread.sleep(100)
@@ -911,5 +875,10 @@ class TorrentEngine(context: Context, private val extraTrackers: () -> List<Stri
         /** Reannounce agresivo cada este intervalo mientras los peers estén por debajo del umbral. */
         private const val REANNOUNCE_INTERVAL_MS = 30_000L
         private const val REANNOUNCE_PEER_THRESHOLD = 4
+
+        /** ~2s: presupuesto de espera del handle en [startPersistentDownload], que corre bajo el lock
+         *  de instancia. `meta` ya trae la metadata resuelta (no hay fetch de magnet por delante), así
+         *  que el handle aparece casi al instante; no hace falta el default de ~6s de [pollHandle]. */
+        private const val POLL_ATTEMPTS_PERSISTENT = 20
     }
 }
