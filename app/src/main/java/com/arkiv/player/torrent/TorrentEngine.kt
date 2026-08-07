@@ -484,6 +484,14 @@ class TorrentEngine(context: Context, private val extraTrackers: () -> List<Stri
      * uno previo para este infohash, `pollHandle` lo habría devuelto en su primer `session.find()` en
      * vez de expirar; y el `@Synchronized` de todo el método evita cualquier interleaving desde que
      * entramos.
+     *
+     * Ese mismo camino suelta TAMBIÉN el `workDir` y los locks. Es el único que sale sin dejar puestos
+     * `currentHandle`/`currentDir`, y ese par es de lo ÚNICO que se agarra `stopStreamInternal()` para
+     * limpiar: al tirar la excepción con los dos en null, el WifiLock + el PARTIAL_WAKE_LOCK tomados
+     * por `acquireLocks()` quedaban retenidos (no son referenceCounted: siguen tomados hasta que
+     * alguien llame `releaseLocks()`) y el dir de trabajo quedaba en `cacheDir`. Nadie lo compensaba
+     * desde arriba: el único llamador hace `runCatching { startStream(...) }.getOrNull()` y muestra un
+     * error, sin llamar a [stopStream].
      */
     @Synchronized
     fun startStream(meta: TorrentMeta, fileIndex: Int): String {
@@ -500,6 +508,12 @@ class TorrentEngine(context: Context, private val extraTrackers: () -> List<Stri
                 runCatching { session.remove(orphan) }
                     .onFailure { Log.w("ArkivTorrent", "startStream: no se pudo limpiar el huérfano: $it") }
             }
+            // Este es el ÚNICO camino de salida que no deja ni `currentHandle` ni `currentDir` puestos,
+            // así que el `stopStreamInternal()` del próximo arranque no tiene de dónde agarrarse: hay que
+            // soltar acá lo que se tomó arriba. Mismo orden que `stopStreamInternal` (sacar el torrent de
+            // la sesión ANTES de borrar, para que libtorrent no siga escribiendo en el dir).
+            runCatching { dir.deleteRecursively() }
+            releaseLocks()
             error("No se pudo iniciar el torrent")
         }
         currentHandle = handle
