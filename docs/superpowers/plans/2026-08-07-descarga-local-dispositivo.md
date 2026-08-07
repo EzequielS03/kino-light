@@ -942,7 +942,7 @@ git commit -m "feat(descargas): descargador HTTP reanudable con Range"
   `ArchiveUrls.download`, `SettingsStore.downloadQuality`.
 - Produces: `DownloadOutcome` (`Done(file: File)`, `NeedsConfirmation(fileSizeBytes: Long)`,
   `Failed(reason: String)`); `DownloadStrategy.download(episodeId: String, alreadyConfirmed: Boolean, targetDir: File, onProgress: (Long, Long) -> Unit): DownloadOutcome`;
-  `ArchiveDownloadStrategy(repo, settings, http)`.
+  `ArchiveDownloadStrategy(repo, settings, http, hasSpace)`.
 
 - [ ] **Step 1: Escribir la interfaz**
 
@@ -1196,7 +1196,7 @@ git commit -m "feat(torrent): descarga persistente que no borra al terminar"
   `TorrentEngine.startPersistentDownload`, `TorrentEngine.resolveTorrent`,
   `TorrentEngine.resolveMagnet`, `ArkivRepository.torrentSourceForEpisode`,
   `EpisodeTorrent.Bytes/Magnet`.
-- Produces: `TorrentDownloadStrategy(repo, engine)`.
+- Produces: `TorrentDownloadStrategy(repo, engine, hasSpace)`.
 
 - [ ] **Step 1: Escribir la estrategia**
 
