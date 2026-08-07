@@ -467,7 +467,24 @@ class TorrentEngine(context: Context, private val extraTrackers: () -> List<Stri
     private fun naturalKey(s: String): String =
         Regex("\\d+").replace(s.lowercase()) { it.value.padStart(6, '0') }
 
-    /** Inicia el stream desde un .torrent ya resuelto (bytes) y devuelve la URL HTTP local. */
+    /**
+     * Inicia el stream desde un .torrent ya resuelto (bytes) y devuelve la URL HTTP local.
+     *
+     * SIN HUÉRFANOS si [pollHandle] agota el presupuesto (~6s) sin ver el handle — mismo endurecimiento
+     * que [startPersistentDownload], por el mismo motivo: `session.download` registra el torrent de
+     * forma asíncrona (`async_add_torrent`), así que puede terminar de agregarse DESPUÉS de que
+     * `pollHandle` se rindió. Ese torrent quedaría en la sesión sin que nadie tenga el `TorrentHandle`
+     * para sacarlo, y como [startPersistentDownload] devuelve `null` apenas `session.find(infohash)`
+     * encuentra CUALQUIER handle, el huérfano bloquearía toda descarga persistente de ese mismo
+     * infohash hasta reiniciar el proceso. Por eso, antes de tirar la excepción, se hace UN último
+     * `session.find()` y, si aparece, se lo saca con `session.remove` (sin borrar archivos: recién se
+     * creó, no hay nada que conservar).
+     *
+     * Ese handle es SIEMPRE el que registró ESTA llamada, nunca el de otro camino: si hubiera existido
+     * uno previo para este infohash, `pollHandle` lo habría devuelto en su primer `session.find()` en
+     * vez de expirar; y el `@Synchronized` de todo el método evita cualquier interleaving desde que
+     * entramos.
+     */
     @Synchronized
     fun startStream(meta: TorrentMeta, fileIndex: Int): String {
         ensureStarted()
@@ -476,7 +493,15 @@ class TorrentEngine(context: Context, private val extraTrackers: () -> List<Stri
         val info = TorrentInfo(meta.infoBytes)
         val dir = File(workDir, meta.infoHashHex).apply { mkdirs() }
         session.download(info, dir)
-        val handle = pollHandle(info) ?: error("No se pudo iniciar el torrent")
+        val handle = pollHandle(info) ?: run {
+            val orphan = runCatching { session.find(info.infoHash()) }.getOrNull()?.takeIf { it.isValid }
+            if (orphan != null) {
+                Log.w("ArkivTorrent", "startStream: handle huérfano detectado, limpiando infohash=${meta.infoHashHex}")
+                runCatching { session.remove(orphan) }
+                    .onFailure { Log.w("ArkivTorrent", "startStream: no se pudo limpiar el huérfano: $it") }
+            }
+            error("No se pudo iniciar el torrent")
+        }
         currentHandle = handle
         currentDir = dir
         return beginServing(handle, info, dir, fileIndex).also {
