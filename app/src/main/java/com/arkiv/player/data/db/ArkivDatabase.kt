@@ -21,7 +21,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SeriesPlaybackPrefEntity::class,
         LocalActiveJobEntity::class,
     ],
-    version = 16,
+    version = 17,
     exportSchema = false,
 )
 abstract class ArkivDatabase : RoomDatabase() {
@@ -266,13 +266,36 @@ abstract class ArkivDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v16 -> v17: la tabla `downloads` deja de ser exclusiva de archive.org y pasa a servir a las
+         * tres fuentes (archive, torrent, web).
+         *
+         * `source` va con DEFAULT 'archive' a propósito: todas las filas que ya existen vienen del
+         * único camino que había, así que ese default las clasifica bien sin tocar datos.
+         *
+         * `filePath` va NULL sin DEFAULT: las filas viejas guardaron la ruta como un `file://` en
+         * `localUri` (lo que devolvía el DownloadManager del sistema). Inventarles un filePath las
+         * rompería; con NULL, `LocalLibrary` cae a `localUri` y lo ya descargado sigue reproduciéndose.
+         */
+        private val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE downloads ADD COLUMN source TEXT NOT NULL DEFAULT 'archive'")
+                db.execSQL("ALTER TABLE downloads ADD COLUMN filePath TEXT")
+                db.execSQL("ALTER TABLE downloads ADD COLUMN bytesDone INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE downloads ADD COLUMN stagingItemId INTEGER")
+                db.execSQL("ALTER TABLE downloads ADD COLUMN error TEXT")
+                db.execSQL("ALTER TABLE downloads ADD COLUMN createdAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE downloads ADD COLUMN sizeConfirmed INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun get(context: Context): ArkivDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     ArkivDatabase::class.java,
                     "arkiv.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17)
                     .fallbackToDestructiveMigration()
                     .build().also { instance = it }
             }

@@ -119,14 +119,30 @@ data class SearchHistoryEntity(
     val atMs: Long,
 )
 
+/**
+ * Una descarga al almacenamiento del PROPIO dispositivo. Sirve a las tres fuentes: `source`
+ * distingue archive.org, torrent y web. NO confundir con [NucLibraryItemEntity], que es la caché de
+ * lo que vive en la NUC.
+ *
+ * `variant` sigue siendo NOT NULL (y vale `""` para torrent y web) porque SQLite no puede cambiar la
+ * nulabilidad de una columna con ALTER TABLE y reconstruir la tabla no se justifica por un campo que
+ * solo usa archive.
+ */
 @Entity(tableName = "downloads")
 data class DownloadEntity(
     @PrimaryKey val episodeId: String,
-    val variant: String,      // "original" | "derivative"
-    val state: String,        // "queued" | "downloading" | "completed" | "failed"
-    val progress: Float,      // 0..1
-    val localUri: String?,
-    val bytes: Long,
+    val variant: String,              // archive: "original" | "derivative"; torrent/web: ""
+    val state: String,                // ver LocalDownloadState
+    val progress: Float,              // 0..1
+    val localUri: String?,            // histórico: file:// que dejó el DownloadManager del sistema
+    val bytes: Long,                  // tamaño total conocido (0 si aún no se sabe)
+    val source: String = "archive",   // "archive" | "torrent" | "web"
+    val filePath: String? = null,     // ruta absoluta del archivo final
+    val bytesDone: Long = 0,
+    val stagingItemId: Long? = null,  // web: item de la NUC mientras es paso intermedio
+    val error: String? = null,
+    val createdAt: Long = 0,
+    val sizeConfirmed: Boolean = false, // el usuario ya aceptó la compuerta de tamaño
 )
 
 /**

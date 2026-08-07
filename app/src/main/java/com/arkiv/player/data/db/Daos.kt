@@ -177,6 +177,9 @@ data class DownloadRow(
     val progress: Float,
     val localUri: String?,
     val bytes: Long,
+    val source: String,
+    val error: String?,
+    val bytesDone: Long,
 )
 
 @Dao
@@ -212,24 +215,59 @@ interface DownloadDao {
     @Query("SELECT * FROM downloads WHERE episodeId = :episodeId")
     suspend fun get(episodeId: String): DownloadEntity?
 
+    @Query("SELECT * FROM downloads")
+    suspend fun getAll(): List<DownloadEntity>
+
+    @Query("SELECT * FROM downloads")
+    fun observeAll(): Flow<List<DownloadEntity>>
+
+    // Motor viejo (data/download/Downloader.kt, basado en el DownloadManager del sistema): sigue
+    // en uso hasta que una tarea posterior lo borre. No lo lista el brief de esta tarea, pero
+    // romperlo rompería la compilación, así que se conserva tal cual.
     @Query("UPDATE downloads SET state = :state, progress = :progress, localUri = :localUri WHERE episodeId = :episodeId")
     suspend fun updateProgress(episodeId: String, state: String, progress: Float, localUri: String?)
 
+    @Query("UPDATE downloads SET state = :state, error = :error WHERE episodeId = :episodeId")
+    suspend fun updateState(episodeId: String, state: String, error: String?)
+
+    @Query(
+        "UPDATE downloads SET state = :state, progress = :progress, bytesDone = :bytesDone, bytes = :bytes " +
+            "WHERE episodeId = :episodeId"
+    )
+    suspend fun updateBytes(episodeId: String, state: String, progress: Float, bytesDone: Long, bytes: Long)
+
+    @Query(
+        "UPDATE downloads SET state = 'completed', progress = 1.0, filePath = :filePath, error = NULL " +
+            "WHERE episodeId = :episodeId"
+    )
+    suspend fun markCompleted(episodeId: String, filePath: String)
+
+    @Query("UPDATE downloads SET sizeConfirmed = 1, state = 'queued', error = NULL WHERE episodeId = :episodeId")
+    suspend fun markConfirmed(episodeId: String)
+
+    @Query("UPDATE downloads SET stagingItemId = :stagingItemId WHERE episodeId = :episodeId")
+    suspend fun setStagingItem(episodeId: String, stagingItemId: Long?)
+
+    /**
+     * Items de la NUC que quedaron colgados: la fila ya terminó de bajar al dispositivo pero el
+     * DELETE /library falló. El barrido de arranque los reintenta.
+     */
+    @Query("SELECT stagingItemId FROM downloads WHERE stagingItemId IS NOT NULL AND state = 'completed'")
+    suspend fun orphanStagingItems(): List<Long>
+
     @Query("DELETE FROM downloads WHERE episodeId = :episodeId")
     suspend fun delete(episodeId: String)
-
-    @Query("SELECT * FROM downloads")
-    suspend fun getAll(): List<DownloadEntity>
 
     @Query(
         """
         SELECT d.episodeId AS episodeId, e.itemId AS itemId, i.title AS itemTitle,
                e.displayName AS displayName, e.thumbPath AS thumbPath,
-               d.state AS state, d.progress AS progress, d.localUri AS localUri, d.bytes AS bytes
+               d.state AS state, d.progress AS progress, d.localUri AS localUri, d.bytes AS bytes,
+               d.source AS source, d.error AS error, d.bytesDone AS bytesDone
         FROM downloads d
         JOIN episodes e ON e.id = d.episodeId
         JOIN items i ON i.identifier = e.itemId
-        ORDER BY e.itemId, e.orderIndex
+        ORDER BY d.createdAt DESC
         """
     )
     fun observeDownloadRows(): Flow<List<DownloadRow>>
