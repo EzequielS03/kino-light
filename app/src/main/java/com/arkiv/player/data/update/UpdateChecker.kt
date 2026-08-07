@@ -12,8 +12,10 @@ class UpdateChecker(
 ) {
     suspend fun check(currentVersionCode: Int): UpdateInfo? = withContext(Dispatchers.IO) {
         runCatching {
-            val body = client.newCall(Request.Builder().url(url).build()).execute()
+            val raw = client.newCall(Request.Builder().url(url).build()).execute()
                 .use { if (it.isSuccessful) it.body?.string() else null } ?: return@withContext null
+            // Cloudflare transforms JSON bodies; the server prepends )]}'\n to bypass it.
+            val body = raw.substringAfter("{", "").let { "{$it" }
             val json = JSONObject(body)
             val remote = UpdateInfo(
                 versionCode = json.getInt("versionCode"),
