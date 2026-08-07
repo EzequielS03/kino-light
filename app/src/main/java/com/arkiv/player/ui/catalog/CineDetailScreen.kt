@@ -361,9 +361,13 @@ fun CineDetailScreen(
     // la compuerta de verdad (por archivo) es la del worker.
     fun saveTorrentLocally(result: TorrentResult, ep: TmdbEpisode?) {
         error = null
-        askNotifications()
         scope.launch {
             val epId = resolveTorrentEpisodeId(result, ep) ?: return@launch
+            // El permiso se pide solo si esto encola de una: si el tamaño dispara el diálogo de
+            // "Descarga pesada", quien lo pide es el botón "Descargar" de ESE diálogo (más abajo,
+            // pendingBig) -- pedirlo acá también sería una segunda invocación, y encima antes de que
+            // el usuario haya visto el aviso de tamaño o decidido si quiere bajarlo.
+            if (!TorrentSizeGate.needsConfirmation(result.sizeBytes, alreadyConfirmed = false)) askNotifications()
             saveLocally(epId, "torrent", result.sizeBytes)
         }
     }
