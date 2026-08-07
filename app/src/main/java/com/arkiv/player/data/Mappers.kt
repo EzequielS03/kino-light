@@ -20,6 +20,8 @@ fun EpisodeEntity.toEpisode(): Episode = Episode(
     // torrent, null si es archive) — ver EpisodeEntity. Se expone como sourceRef para que la UI
     // pueda saber de qué sitio salió cada fila sin volver a la base.
     sourceRef = torrentData,
+    season = season,
+    episode = episode,
 )
 
 fun Episode.toEntity(): EpisodeEntity = EpisodeEntity(
@@ -40,13 +42,20 @@ fun Episode.toEntity(): EpisodeEntity = EpisodeEntity(
     // fuente del episodio. Hoy el único llamador guarda ítems de archive.org (sourceRef siempre
     // null), así que no cambia nada en la práctica; está para que no sea una trampa mañana.
     torrentData = sourceRef,
+    season = season,
+    episode = episode,
 )
 
-fun ArchiveItem.toItemEntity(addedAt: Long, categoryOverride: String? = null): ItemEntity = ItemEntity(
+fun ArchiveItem.toItemEntity(
+    addedAt: Long,
+    categoryOverride: String? = null,
+    tmdbId: Int? = null,
+): ItemEntity = ItemEntity(
     identifier = identifier,
     title = title,
     description = description,
     thumbnailUrl = thumbnailUrl,
     addedAt = addedAt,
     categoryOverride = categoryOverride,
+    tmdbId = tmdbId,
 )

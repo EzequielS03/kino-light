@@ -20,6 +20,12 @@ data class ItemEntity(
     /** Sync: reloj de última modificación (LWW) y tombstone de borrado. */
     val updatedAt: Long = 0,
     val deleted: Boolean = false,
+    /**
+     * Serie de TMDB a la que corresponde este ítem, cuando se sabe. Se guarda al agregarlo desde
+     * la búsqueda; sin esto el vínculo se pierde y la pantalla de detalle no tiene a quién pedirle
+     * los títulos de los capítulos. Null para ítems agregados a mano por identificador/URL.
+     */
+    val tmdbId: Int? = null,
 )
 
 @Entity(
@@ -40,6 +46,14 @@ data class EpisodeEntity(
     val derivativePath: String?,
     val derivativeFormat: String?,
     val derivativeSize: Long,
+    /**
+     * Temporada y capítulo deducidos del nombre del archivo (ver `MetadataParser.episodeNumberOf`).
+     * Con esto y el `tmdbId` del ítem se le puede pedir a TMDB el título real del capítulo: el
+     * nombre del episodio no está ni en archive.org ni en el mirror, solo su número.
+     * Null cuando el nombre no declara numeración, y en las filas guardadas antes de la v16.
+     */
+    val season: Int? = null,
+    val episode: Int? = null,
     /** Para torrents: índice del archivo dentro del torrent. Null si es archive. */
     val torrentFileIndex: Int? = null,
     /**
@@ -182,4 +196,10 @@ data class EpisodeStillEntity(
     @PrimaryKey val episodeId: String,
     val stillUrl: String? = null,
     val fetchedAt: Long = 0,
+    /**
+     * Título del capítulo según TMDB. Se cachea acá y no en `episodes` por lo mismo que
+     * [stillUrl]: es dato derivable, y esa tabla tiene triggers de sync.
+     * Null = ya se consultó y no había título (o la fila es anterior a la v16).
+     */
+    val title: String? = null,
 )

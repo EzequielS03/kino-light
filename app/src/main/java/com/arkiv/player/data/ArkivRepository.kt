@@ -132,16 +132,25 @@ class ArkivRepository(
      */
     suspend fun ensureEpisodeStills(itemId: String) {
         val tmdb = tmdbApi?.takeIf { it.configured } ?: return
-        val art = artworkDao.get(itemId) ?: return
-        val tvId = art.tmdbId?.takeIf { art.tmdbType == "tv" } ?: return
+        // El tmdbId del propio ítem manda sobre el de `artwork`: ese se resuelve buscando por
+        // título en TMDB (una adivinanza que puede caer en otra serie), mientras que el del ítem
+        // lo puso quien lo agregó desde la búsqueda, que sabía exactamente cuál era.
+        val ownTmdbId = itemDao.getItem(itemId)?.tmdbId
+        val tvId = ownTmdbId ?: artworkDao.get(itemId)
+            ?.let { art -> art.tmdbId?.takeIf { art.tmdbType == "tv" } }
+            ?: return
 
         val episodes = itemDao.getEpisodesOf(itemId)
         if (episodes.isEmpty()) return
         val already = episodeStillDao.forItem(itemId).map { it.episodeId }.toSet()
         if (already.containsAll(episodes.map { it.id })) return
 
-        // Capítulo -> (temporada, episodio). Dos formas según de dónde salga el ítem.
-        val coords: Map<String, Pair<Int, Int>> = if (episodes.any { it.orderIndex >= 1000 }) {
+        // Capítulo -> (temporada, episodio). Tres formas, de la más confiable a la menos.
+        val coords: Map<String, Pair<Int, Int>> = if (episodes.all { it.season != null && it.episode != null }) {
+            // El nombre del archivo declaraba la numeración (sNNeNN / NxNN): es exacta, y no se
+            // desalinea aunque la copia local traiga OVAs, recaps o le falten capítulos.
+            episodes.associate { it.id to (it.season!! to it.episode!!) }
+        } else if (episodes.any { it.orderIndex >= 1000 }) {
             // Packs de torrent: orderIndex ya viene codificado como temporada*1000 + episodio.
             episodes.associate { it.id to (it.orderIndex / 1000 to it.orderIndex % 1000) }
         } else {
@@ -162,10 +171,12 @@ class ArkivRepository(
 
         // Una llamada por temporada, no por capítulo.
         val stillBySeasonEp = mutableMapOf<Pair<Int, Int>, String>()
+        val titleBySeasonEp = mutableMapOf<Pair<Int, Int>, String>()
         for (season in coords.values.map { it.first }.distinct().sorted()) {
             val eps = runCatching { tmdb.seasonEpisodes(tvId, season) }.getOrNull().orEmpty()
             eps.forEach { e ->
                 if (e.stillUrl.isNotBlank()) stillBySeasonEp[e.season to e.episode] = e.stillUrl
+                if (e.name.isNotBlank()) titleBySeasonEp[e.season to e.episode] = e.name
             }
         }
 
@@ -178,10 +189,21 @@ class ArkivRepository(
                     episodeId = ep.id,
                     stillUrl = coords[ep.id]?.let { stillBySeasonEp[it] },
                     fetchedAt = now,
+                    title = coords[ep.id]?.let { titleBySeasonEp[it] },
                 )
             },
         )
     }
+
+    /**
+     * Mapa episodeId -> título del capítulo según TMDB, para mostrarlo en vez del nombre del
+     * archivo ("s01e03"). Solo trae los que TMDB conocía; el resto no aparece y la UI cae al
+     * nombre del archivo.
+     */
+    fun observeEpisodeTitles(itemId: String): Flow<Map<String, String>> =
+        episodeStillDao.observeForItem(itemId).map { rows ->
+            rows.mapNotNull { r -> r.title?.let { r.episodeId to it } }.toMap()
+        }
 
     /** Limpia un título de ítem (a veces nombre de archivo torrent) para buscar mejor en TMDB. */
     private fun cleanTitleForSearch(raw: String): String {
@@ -209,12 +231,20 @@ class ArkivRepository(
      * la biblioteca mostraría ese hash en vez del nombre de la serie. El nombre bueno lo tiene el
      * mirror (ver `MirrorApiClient.libraryItem`).
      */
-    suspend fun addItem(input: String, titleOverride: String? = null): Result<ArchiveItem> {
+    suspend fun addItem(
+        input: String,
+        titleOverride: String? = null,
+        tmdbId: Int? = null,
+        descriptionOverride: String? = null,
+    ): Result<ArchiveItem> {
         val identifier = IdentifierParser.extract(input)
             ?: return Result.failure(IllegalArgumentException("Pegá una URL o identificador de archive.org"))
         return try {
             val item = api.fetchItem(identifier).let { fetched ->
-                titleOverride?.takeIf { it.isNotBlank() }?.let { fetched.copy(title = it) } ?: fetched
+                fetched.copy(
+                    title = titleOverride?.takeIf { it.isNotBlank() } ?: fetched.title,
+                    description = descriptionOverride?.takeIf { it.isNotBlank() } ?: fetched.description,
+                )
             }
             // Al re-agregar/refrescar, preservar el override manual y la fecha original.
             val existing = itemDao.getItem(identifier)
@@ -222,6 +252,9 @@ class ArkivRepository(
                 item = item.toItemEntity(
                     addedAt = existing?.addedAt ?: clock(),
                     categoryOverride = existing?.categoryOverride,
+                    // Un refresh sin tmdbId no debe borrar el que ya estaba: se agregó desde la
+                    // búsqueda una vez y ese vínculo es lo que permite titular los capítulos.
+                    tmdbId = tmdbId ?: existing?.tmdbId,
                 ),
                 episodes = item.episodes.map { it.toEntity() },
             )

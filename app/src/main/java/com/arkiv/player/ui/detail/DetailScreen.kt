@@ -113,6 +113,16 @@ fun DetailScreen(
     )
     val detail by vm.detail.collectAsStateWithLifecycle()
     val skipMarker by vm.skipMarker.collectAsStateWithLifecycle()
+    // Título e imagen de cada capítulo según TMDB. Es caché local: la primera apertura de la serie
+    // la puebla y a partir de ahí sale de la base. Si no se sabe a qué serie pertenece el ítem,
+    // los mapas quedan vacíos y cada fila cae a su nombre de archivo.
+    val tmdbTitles by graph.repository.observeEpisodeTitles(identifier)
+        .collectAsStateWithLifecycle(emptyMap())
+    val tmdbStills by graph.repository.observeEpisodeStills(identifier)
+        .collectAsStateWithLifecycle(emptyMap())
+    LaunchedEffect(identifier) {
+        runCatching { graph.repository.ensureEpisodeStills(identifier) }
+    }
     val onDownloadEpisode: (Episode) -> Unit = { ep ->
         Log.d("ArkivDownload", "onDownloadEpisode click: id=${ep.id} original=${ep.original != null} derivative=${ep.derivative != null}")
         scope.launch {
@@ -342,6 +352,8 @@ fun DetailScreen(
             onPlayEpisode = onPlayEpisode,
             onDownloadEpisode = onDownloadEpisode,
             onToggleWatched = vm::toggleWatched,
+            tmdbTitles = tmdbTitles,
+            tmdbStills = tmdbStills,
             // Solo el inferior: el superior ya lo cubre el TopAppBar (agregarlo acá lo duplicaría).
             bottomInset = padding.calculateBottomPadding(),
         )
@@ -360,6 +372,9 @@ private fun DetailContent(
     onPlayEpisode: (String) -> Unit,
     onDownloadEpisode: (Episode) -> Unit,
     onToggleWatched: (String, Boolean) -> Unit,
+    /** episodeId -> título / imagen del capítulo según TMDB. Vacíos si no se sabe la serie. Ver [DetailScreen]. */
+    tmdbTitles: Map<String, String>,
+    tmdbStills: Map<String, String>,
     bottomInset: androidx.compose.ui.unit.Dp,
 ) {
     // Sitios detectados entre TODOS los episodios de la serie (no de la lista ya filtrada): el
@@ -521,6 +536,11 @@ private fun DetailContent(
                     progress = data.progress[ep.id],
                     isCurrent = ep.id == currentEpisodeId,
                     showDownload = !data.isTorrent,
+                    // Título e imagen reales del capítulo (TMDB). Solo aparecen si se pudo saber a
+                    // qué serie y a qué número corresponde la fila; si no, la fila cae al nombre
+                    // del archivo y al fotograma que genera archive.org, como antes.
+                    tmdbTitle = tmdbTitles[ep.id],
+                    tmdbStill = tmdbStills[ep.id],
                     // Fallback de miniatura: los capítulos web nunca traen un still propio
                     // (addWebSeriesEpisode guarda thumbPath = null a propósito, el pack solo da un
                     // póster de la serie), y sin esto la fila quedaba con un recuadro vacío.
@@ -734,6 +754,8 @@ private fun EpisodeRow(
     showDownload: Boolean,
     /** Miniatura de la serie, para las filas cuyo episodio no trae una propia. */
     fallbackThumb: String?,
+    tmdbTitle: String?,
+    tmdbStill: String?,
     /** Ya descargado en la NUC (esta fila puntual, con su fuente). */
     isInNuc: Boolean,
     /** Pedido de descarga a la NUC en curso para esta fila: muestra spinner, no reacciona al toque. */
@@ -766,10 +788,13 @@ private fun EpisodeRow(
                 .clip(RoundedCornerShape(6.dp))
                 .background(ArkivSurfaceHigh),
         ) {
-            val thumb = episode.thumbPath?.let { ArchiveUrls.download(episode.itemId, it) }
+            // El still de TMDB primero: es la foto del capítulo, mientras que el de archive.org es
+            // un fotograma cualquiera del video (suele salir negro o a mitad de una transición).
+            val thumb = tmdbStill
+                ?: episode.thumbPath?.let { ArchiveUrls.download(episode.itemId, it) }
             AsyncImage(
                 model = thumb ?: fallbackThumb,
-                contentDescription = episode.displayName,
+                contentDescription = tmdbTitle ?: episode.displayName,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
@@ -797,7 +822,9 @@ private fun EpisodeRow(
                 .padding(horizontal = 12.dp),
         ) {
             Text(
-                episode.displayName,
+                // El nombre del archivo es el respaldo, no la primera opción: para nuestras
+                // subidas es "s01e03", que no dice nada de qué capítulo es.
+                tmdbTitle ?: episode.displayName,
                 style = MaterialTheme.typography.bodyLarge,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,

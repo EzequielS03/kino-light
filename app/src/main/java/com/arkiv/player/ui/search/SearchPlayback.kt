@@ -151,7 +151,9 @@ class SearchPlayback(private val graph: AppGraph) {
         // Para nuestras subidas el título del ítem en archive.org es el hash: le pasamos el que
         // trae el mirror para que la biblioteca no muestre "f75163…_s01e01".
         val titleOverride = item.title.takeIf { item.fromLibrary }
-        val added = graph.repository.addItem(item.identifier, titleOverride).getOrNull()
+        val added = graph.repository
+            .addItem(item.identifier, titleOverride, item.tmdbId, item.overview)
+            .getOrNull()
             ?: return PlaybackResult.Failed("No se pudo abrir el ítem de archive.org")
         val epId = graph.repository.firstEpisodeId(added.identifier)
         return if (epId != null) PlaybackResult.Ready(epId) else PlaybackResult.Failed("No se pudo preparar la reproducción.")

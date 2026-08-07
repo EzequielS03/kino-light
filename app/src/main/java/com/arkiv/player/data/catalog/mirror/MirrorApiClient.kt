@@ -222,6 +222,8 @@ class MirrorApiClient(
             year = "",
             episodeCount = files,
             fromLibrary = true,
+            tmdbId = tmdbId,
+            overview = meta.optString("description").takeIf { it.isNotBlank() },
         )
     }
 

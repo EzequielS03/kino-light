@@ -27,6 +27,14 @@ data class Episode(
      * Null para archive.org y para episodios viejos guardados sin este dato.
      */
     val sourceRef: String? = null,
+    /**
+     * Temporada y capítulo, cuando el nombre del archivo los declara (ver
+     * [com.arkiv.player.data.MetadataParser.episodeNumberOf]). Null cuando no se pueden deducir.
+     * Sirven para pedirle a TMDB el título real del capítulo: el nombre del episodio no está ni
+     * en archive.org ni en el mirror, solo su número.
+     */
+    val season: Int? = null,
+    val episode: Int? = null,
 ) {
     /** Variante preferida para reproducir localmente: original si existe. */
     val playbackVariant: VideoVariant?

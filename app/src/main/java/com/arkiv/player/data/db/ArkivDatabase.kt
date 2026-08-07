@@ -21,7 +21,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SeriesPlaybackPrefEntity::class,
         LocalActiveJobEntity::class,
     ],
-    version = 15,
+    version = 16,
     exportSchema = false,
 )
 abstract class ArkivDatabase : RoomDatabase() {
@@ -239,13 +239,40 @@ abstract class ArkivDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v15 -> v16: `tmdbId` del ítem y (`season`, `episode`) de cada capítulo, para poder
+         * mostrar el título real del episodio en vez del nombre del archivo ("s01e03").
+         *
+         * Ni archive.org ni el mirror guardan el nombre del episodio, solo su número: el nombre
+         * hay que pedírselo a TMDB, y para eso hacen falta las dos cosas — a qué serie pertenece
+         * el ítem y qué número es cada archivo.
+         *
+         * Las tres van NULL sin DEFAULT a propósito: las filas que ya estaban no saben su número
+         * ni su serie, y rellenarlas con un valor inventado haría que la UI muestre el título de
+         * OTRO capítulo. Con NULL simplemente caen al nombre del archivo, como hasta ahora, y se
+         * completan solas la próxima vez que se refresque el ítem.
+         */
+        private val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE items ADD COLUMN tmdbId INTEGER")
+                db.execSQL("ALTER TABLE episodes ADD COLUMN season INTEGER")
+                db.execSQL("ALTER TABLE episodes ADD COLUMN episode INTEGER")
+                db.execSQL("ALTER TABLE episode_still ADD COLUMN title TEXT")
+                // La caché de stills se llenó repartiendo capítulos por conteo (ver
+                // ensureEpisodeStills), un reparto que se desalinea si hay OVAs o recaps. Ahora que
+                // hay temporada/capítulo exactos conviene rehacerla: se borra en vez de arrastrar
+                // asignaciones posiblemente equivocadas -- es caché derivable, se repuebla sola.
+                db.execSQL("DELETE FROM episode_still")
+            }
+        }
+
         fun get(context: Context): ArkivDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     ArkivDatabase::class.java,
                     "arkiv.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16)
                     .fallbackToDestructiveMigration()
                     .build().also { instance = it }
             }

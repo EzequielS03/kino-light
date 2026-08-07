@@ -34,6 +34,7 @@ object MetadataParser {
 
             val duration = groupFiles.map { it.lengthSeconds }.maxOrNull() ?: 0.0
             val thumb = thumbs.firstOrNull { it.original == reference.name }?.name
+            val number = episodeNumberOf(reference.name)
 
             Episode(
                 id = "$identifier::$key",
@@ -45,6 +46,8 @@ object MetadataParser {
                 thumbPath = thumb,
                 original = originalFile?.toVariant(),
                 derivative = derivativeFile?.toVariant(),
+                season = number?.first,
+                episode = number?.second,
             )
         }.sortedWith(episodeOrder).mapIndexed { index, ep -> ep.copy(orderIndex = index) }
 
@@ -108,6 +111,37 @@ object MetadataParser {
             ?: base
         return stripped.replace('_', ' ').replace("@", " · ").trim()
     }
+
+    /**
+     * (temporada, capítulo) sacados del nombre del archivo, o null si no hay patrón claro.
+     *
+     * Hace falta para poder pedirle a TMDB el título real del capítulo: ni archive.org ni el
+     * mirror guardan el nombre del episodio, solo su número. Se parsea del nombre —en vez de
+     * pedírselo al mirror— para que funcione igual con ítems públicos que nunca pasaron por
+     * nosotros.
+     *
+     * Ante la duda devuelve null: inventar un número haría que la UI muestre el título de OTRO
+     * capítulo, que es peor que mostrar el nombre del archivo.
+     */
+    fun episodeNumberOf(name: String): Pair<Int, Int>? {
+        val base = stripExtension(name.substringAfterLast('/'))
+        SXEX.find(base)?.let { m ->
+            return m.groupValues[1].toInt() to m.groupValues[2].toInt()
+        }
+        // "1920x1080" también matchea NxNN: si el número de capítulo tiene pinta de alto de
+        // video, es una resolución, no un episodio.
+        NXNN.find(base)?.let { m ->
+            val season = m.groupValues[1].toInt()
+            val episode = m.groupValues[2].toInt()
+            if (season <= MAX_SEASON) return season to episode
+        }
+        return null
+    }
+
+    /** Más allá de esto no es una temporada: es el ancho de una resolución (1920x1080). */
+    private const val MAX_SEASON = 100
+    private val SXEX = Regex("""(?<![a-z0-9])s(\d{1,3})e(\d{1,4})(?![0-9])""", RegexOption.IGNORE_CASE)
+    private val NXNN = Regex("""(?<![a-z0-9.])(\d{1,3})x(\d{1,4})(?![0-9])""", RegexOption.IGNORE_CASE)
 
     /** Orden natural: compara tramos de dígitos numéricamente (E2 < E10). */
     fun naturalCompare(a: String, b: String): Int {

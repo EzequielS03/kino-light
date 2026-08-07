@@ -32,6 +32,17 @@ data class ArchiveSearchResult(
      * de acá se reproduce y se descarga igual que cualquier ítem público.
      */
     val fromLibrary: Boolean = false,
+    /**
+     * Serie de TMDB de la que salió este resultado, cuando se sabe. Se guarda junto al ítem para
+     * poder pedirle a TMDB los títulos de los capítulos: ni archive.org ni el mirror guardan el
+     * nombre del episodio, solo su número.
+     */
+    val tmdbId: Int? = null,
+    /**
+     * Sinopsis de la serie. Solo la traen nuestras subidas (la pone el mirror desde TMDB): en
+     * archive.org la descripción de esos ítems es el hash con el que se subieron.
+     */
+    val overview: String? = null,
 )
 
 /** Acceso de red a la API pública de metadata de archive.org. */
