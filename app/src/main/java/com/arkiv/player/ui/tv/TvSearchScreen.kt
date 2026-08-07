@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -68,6 +69,8 @@ import com.arkiv.player.data.catalog.TmdbSeason
 import com.arkiv.player.data.catalog.TorrentResult
 import com.arkiv.player.data.catalog.web.WebResult
 import com.arkiv.player.data.db.SearchHistoryEntity
+import com.arkiv.player.ui.catalog.ArkivArchiveTeal
+import com.arkiv.player.ui.catalog.ArkivWebViolet
 import com.arkiv.player.ui.catalog.PlaySource
 import com.arkiv.player.ui.catalog.langColor
 import com.arkiv.player.ui.rememberGraph
@@ -75,7 +78,10 @@ import com.arkiv.player.ui.search.PlaybackResult
 import com.arkiv.player.ui.search.SearchPhase
 import com.arkiv.player.ui.search.SearchPlayback
 import com.arkiv.player.ui.search.SearchViewModel
+import com.arkiv.player.ui.search.SourceTab
 import com.arkiv.player.ui.search.TitleCard
+import com.arkiv.player.ui.search.countsByTab
+import com.arkiv.player.ui.search.filterByTab
 import com.arkiv.player.ui.theme.ArkivBlack
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
@@ -684,6 +690,81 @@ private fun TvRefineContent(
     }
 }
 
+/**
+ * Fila de chips por origen ("Todo 12 · Torrent 8 · Web 3 · Archive 1"), equivalente a la de la app
+ * de móvil ([com.arkiv.player.ui.search.SourceTabRow]).
+ *
+ * En la TV es más necesaria que en el teléfono: la lista arranca con los torrents arriba (van
+ * primero por el orden de `ordered`) y con el D-pad hay que bajar a ciegas por decenas de filas
+ * para descubrir si además hay web o archive. El contador lo dice de entrada.
+ *
+ * Siempre se pintan los cuatro chips, incluso en 0: si aparecieran y desaparecieran según van
+ * llegando los resultados, el foco saltaría de chip mientras el usuario navega. Por lo mismo, un
+ * origen que todavía está buscando muestra un spinner en vez de "0" — un cero prematuro se lee
+ * como "no hay nada acá" cuando en realidad todavía no terminó.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvSourceTabRow(
+    selected: SourceTab,
+    counts: Map<SourceTab, Int>,
+    loading: Map<SourceTab, Boolean>,
+    modifier: Modifier = Modifier,
+    onSelect: (SourceTab) -> Unit,
+) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        SourceTab.entries.forEach { t ->
+            val accent = when (t) {
+                SourceTab.TODO -> androidx.compose.ui.graphics.Color.White
+                SourceTab.TORRENT -> ArkivRed
+                SourceTab.WEB -> ArkivWebViolet
+                SourceTab.ARCHIVE -> ArkivArchiveTeal
+            }
+            val on = t == selected
+            Surface(
+                onClick = { onSelect(t) },
+                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(20.dp)),
+                colors = ClickableSurfaceDefaults.colors(
+                    // El seleccionado se tiñe con el color del origen; el foco siempre gana en
+                    // contraste, que es lo que el usuario necesita ver desde el sofá.
+                    containerColor = if (on) accent.copy(alpha = 0.28f) else ArkivSurfaceHigh,
+                    focusedContainerColor = accent.copy(alpha = 0.55f),
+                ),
+                border = ClickableSurfaceDefaults.border(
+                    focusedBorder = Border(
+                        androidx.compose.foundation.BorderStroke(2.dp, androidx.compose.ui.graphics.Color.White),
+                    ),
+                ),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        t.label,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = androidx.compose.ui.graphics.Color.White,
+                    )
+                    if (loading[t] == true) {
+                        androidx.compose.material3.CircularProgressIndicator(
+                            color = androidx.compose.ui.graphics.Color.White,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(14.dp),
+                        )
+                    } else {
+                        Text(
+                            "${counts[t] ?: 0}",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = if (on) androidx.compose.ui.graphics.Color.White else ArkivTextSecondary,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 /** Chip de temporada de la fila horizontal ("T1", "T2"… o "Especiales" para la temporada 0). */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -775,6 +856,18 @@ private fun TvResultsContent(
     }
     val anyLoading = loadingTorrent || loadingWeb || loadingArchive
 
+    // Filtro por origen. Los contadores salen de `ordered` (ya deduplicado), no de `sources`, para
+    // que el número del chip sea exactamente el de filas que se van a ver al elegirlo.
+    var tab by remember { mutableStateOf(SourceTab.TODO) }
+    val counts = countsByTab(ordered)
+    val loadingOf = mapOf(
+        SourceTab.TODO to anyLoading,
+        SourceTab.TORRENT to loadingTorrent,
+        SourceTab.WEB to loadingWeb,
+        SourceTab.ARCHIVE to loadingArchive,
+    )
+    val shown = filterByTab(ordered, tab)
+
     // Foco inicial en la primera fuente apenas aparece la primera tanda (progresiva: no le vuelve
     // a robar el foco al usuario cuando llegan más resultados después).
     val firstFocus = remember { FocusRequester() }
@@ -862,6 +955,16 @@ private fun TvResultsContent(
                 }
             }
 
+            item {
+                TvSourceTabRow(
+                    selected = tab,
+                    counts = counts,
+                    loading = loadingOf,
+                    modifier = Modifier.padding(bottom = 12.dp),
+                    onSelect = { tab = it },
+                )
+            }
+
             if (ordered.isEmpty() && !anyLoading) {
                 item {
                     Text(
@@ -871,9 +974,20 @@ private fun TvResultsContent(
                         modifier = Modifier.padding(top = 8.dp),
                     )
                 }
+            } else if (shown.isEmpty()) {
+                // Hay resultados, pero no de este origen. Sin este aviso la lista queda en blanco y
+                // parece que la app se colgó, cuando en realidad basta con volver a "Todo".
+                item {
+                    Text(
+                        if (loadingOf[tab] == true) "Buscando en ${tab.label}…" else "Sin resultados en ${tab.label}.",
+                        color = ArkivTextSecondary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
             }
 
-            itemsIndexed(ordered, key = { _, s -> sourceKey(s) }) { index, source ->
+            itemsIndexed(shown, key = { _, s -> sourceKey(s) }) { index, source ->
                 TvSourceRow(
                     source = source,
                     enabled = !preparing,
