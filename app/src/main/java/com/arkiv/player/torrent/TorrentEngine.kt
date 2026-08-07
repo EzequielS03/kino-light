@@ -484,6 +484,43 @@ class TorrentEngine(context: Context, private val extraTrackers: () -> List<Stri
         }
     }
 
+    /**
+     * Arranca una descarga PERSISTENTE del archivo [fileIndex] en [saveDir]. A diferencia de
+     * [startStream]:
+     *
+     * - NO llama a `stopStreamInternal()`, así que no mata el stream que se esté reproduciendo;
+     * - NO toca `currentHandle` ni levanta el server local: el handle se lo queda quien llama;
+     * - prioriza el archivo en NORMAL (descarga completa) en vez del gate cabeza+cola del streaming;
+     * - `saveDir` está fuera de `workDir`, así que `sweepOrphans()` no lo borra.
+     *
+     * Devuelve null si el torrent no arrancó.
+     */
+    @Synchronized
+    fun startPersistentDownload(meta: TorrentMeta, fileIndex: Int, saveDir: File): PersistentTorrentDownload? {
+        ensureStarted()
+        acquireLocks()
+        saveDir.mkdirs()
+        val info = TorrentInfo(meta.infoBytes)
+        session.download(info, saveDir)
+        val handle = pollHandle(info) ?: run {
+            Log.w("ArkivTorrent", "startPersistentDownload: no se pudo obtener el handle")
+            return null
+        }
+        runCatching {
+            extraTrackers().forEach { handle.addTracker(AnnounceEntry(it)) }
+            handle.forceReannounce()
+        }
+        // Solo el archivo pedido: bajar el pack entero llenaría el disco del celular.
+        // NOTA: la API real no tiene Priority.NORMAL (el brief lo daba por sentado); el nivel
+        // "normal" en esta versión de libtorrent4j es Priority.DEFAULT.
+        val priorities = Array(info.numFiles()) { if (it == fileIndex) Priority.DEFAULT else Priority.IGNORE }
+        runCatching { handle.prioritizeFiles(priorities) }
+            .onFailure { Log.w("ArkivTorrent", "prioritizeFiles: $it") }
+        val relativePath = info.files().filePath(fileIndex)
+        Log.i("ArkivTorrent", "DESCARGA infohash=${meta.infoHashHex} file=$fileIndex '$relativePath' -> $saveDir")
+        return PersistentTorrentDownload(session, handle, saveDir, relativePath)
+    }
+
     /** Prioriza el archivo elegido, inyecta trackers, arranca el server local y devuelve la URL. */
     private fun beginServing(handle: TorrentHandle, info: TorrentInfo, dir: File, fileIndex: Int): String {
         // Inyectar trackers públicos + reanunciar para encontrar más peers (muchos .torrent,
