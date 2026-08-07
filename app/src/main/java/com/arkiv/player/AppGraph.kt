@@ -23,6 +23,8 @@ import com.arkiv.player.data.catalog.web.WebViewCloudflareSolver
 import com.arkiv.player.data.SettingsStore
 import com.arkiv.player.data.db.ArkivDatabase
 import com.arkiv.player.data.download.Downloader
+import com.arkiv.player.data.update.UpdateChecker
+import com.arkiv.player.data.update.UpdateInfo
 import com.arkiv.player.dlna.DlnaController
 import com.arkiv.player.pocketbase.DeviceAuthManager
 import com.arkiv.player.pocketbase.PocketBaseClient
@@ -43,6 +45,21 @@ class AppGraph(context: Context) {
     val database: ArkivDatabase by lazy { ArkivDatabase.get(appContext) }
     val api: ArchiveApi by lazy { ArchiveApi() }
     val settings: SettingsStore by lazy { SettingsStore(appContext) }
+
+    val updateChecker: UpdateChecker by lazy {
+        UpdateChecker(okhttp3.OkHttpClient.Builder()
+            .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS).build())
+    }
+
+    private val _updateInfo = kotlinx.coroutines.flow.MutableStateFlow<UpdateInfo?>(null)
+    val updateInfo: kotlinx.coroutines.flow.StateFlow<UpdateInfo?> = _updateInfo
+
+    /** Chequeo inmediato de OTA: llamado por [com.arkiv.player.data.update.UpdateWorker] y al arrancar la app. */
+    suspend fun checkForUpdate() {
+        _updateInfo.value = updateChecker.check(BuildConfig.VERSION_CODE)
+    }
+
     val downloader: Downloader by lazy { Downloader(appContext, database, settings) }
     val dlna: DlnaController by lazy { DlnaController(appContext) }
     val repository: ArkivRepository by lazy { ArkivRepository(database, api, tmdbApi) }
