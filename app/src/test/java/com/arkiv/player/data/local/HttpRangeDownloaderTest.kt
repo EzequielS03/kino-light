@@ -74,6 +74,19 @@ class HttpRangeDownloaderTest {
     }
 
     @Test
+    fun `si el server no soporta Range y responde 200 descarta el parcial y no duplica`() = runBlocking {
+        val target = File(tmp.root, "peli.mp4")
+        LocalFilePaths.partOf(target).writeText("AAAA")            // 4 bytes ya bajados
+        server.enqueue(MockResponse().setResponseCode(200).setBody("XXXXYYYY"))   // archivo completo, ignora el Range
+
+        val result = downloader.download(server.url("/f").toString(), target, emptyMap()) { _, _ -> }
+
+        assertTrue(result.isSuccess)
+        assertEquals("XXXXYYYY", target.readText())
+        assertFalse(LocalFilePaths.partOf(target).exists())
+    }
+
+    @Test
     fun `manda los headers que le pasan`() = runBlocking {
         server.enqueue(MockResponse().setBody("x"))
         val target = File(tmp.root, "peli.mp4")
