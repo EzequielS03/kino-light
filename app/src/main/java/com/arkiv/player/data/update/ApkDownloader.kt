@@ -23,31 +23,35 @@ class ApkDownloader(private val context: Context) {
         .build()
 
     fun download(url: String): Flow<DownloadState> = flow {
-        val dest = File(context.cacheDir, "update.apk")
-        if (dest.exists()) dest.delete()
-        val response = client.newCall(Request.Builder().url(url).build()).execute()
-        if (!response.isSuccessful) {
-            emit(DownloadState.Failed("HTTP ${response.code}"))
-            return@flow
-        }
-        val body = response.body ?: run {
-            emit(DownloadState.Failed("Empty response"))
-            return@flow
-        }
-        val total = body.contentLength()
-        var downloaded = 0L
-        dest.outputStream().use { out ->
-            body.byteStream().use { input ->
-                val buffer = ByteArray(8192)
-                var read: Int
-                while (input.read(buffer).also { read = it } != -1) {
-                    out.write(buffer, 0, read)
-                    downloaded += read
-                    val progress = if (total > 0) downloaded.toFloat() / total else -1f
-                    emit(DownloadState.Downloading(progress))
+        try {
+            val dest = File(context.cacheDir, "update.apk")
+            if (dest.exists()) dest.delete()
+            val response = client.newCall(Request.Builder().url(url).build()).execute()
+            if (!response.isSuccessful) {
+                emit(DownloadState.Failed("HTTP ${response.code}"))
+                return@flow
+            }
+            val body = response.body ?: run {
+                emit(DownloadState.Failed("Empty response"))
+                return@flow
+            }
+            val total = body.contentLength()
+            var downloaded = 0L
+            dest.outputStream().use { out ->
+                body.byteStream().use { input ->
+                    val buffer = ByteArray(8192)
+                    var read: Int
+                    while (input.read(buffer).also { read = it } != -1) {
+                        out.write(buffer, 0, read)
+                        downloaded += read
+                        val progress = if (total > 0) downloaded.toFloat() / total else -1f
+                        emit(DownloadState.Downloading(progress))
+                    }
                 }
             }
+            emit(DownloadState.Ready(dest))
+        } catch (e: Exception) {
+            emit(DownloadState.Failed(e.message ?: "Error de descarga"))
         }
-        emit(DownloadState.Ready(dest))
     }.flowOn(Dispatchers.IO)
 }

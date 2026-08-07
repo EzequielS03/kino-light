@@ -19,6 +19,7 @@ import androidx.core.content.FileProvider
 import com.arkiv.player.AppGraph
 import com.arkiv.player.data.update.DownloadState
 import com.arkiv.player.data.update.UpdateInfo
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -36,7 +37,14 @@ fun UpdateDialog(info: UpdateInfo, graph: AppGraph, onDismiss: () -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     val buttonFocus = remember { FocusRequester() }
 
-    LaunchedEffect(Unit) { runCatching { buttonFocus.requestFocus() } }
+    LaunchedEffect(downloading) {
+        if (downloading) return@LaunchedEffect
+        delay(200)
+        repeat(20) {
+            if (runCatching { buttonFocus.requestFocus() }.isSuccess) return@LaunchedEffect
+            delay(50)
+        }
+    }
 
     fun installApk(file: File) {
         val uri = FileProvider.getUriForFile(context, "com.arkiv.player.fileprovider", file)
