@@ -1,0 +1,78 @@
+package com.arkiv.player.data.local
+
+import android.content.Context
+import android.os.Environment
+import android.os.StatFs
+import com.arkiv.player.data.db.ArkivDatabase
+import com.arkiv.player.data.db.DownloadEntity
+import com.arkiv.player.data.db.DownloadRow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
+import java.io.File
+
+/**
+ * Fachada de las descargas al dispositivo: lo único que toca la UI. Encola en Room y despierta al
+ * worker; no baja nada por su cuenta.
+ */
+class LocalDownloadManager(
+    context: Context,
+    db: ArkivDatabase,
+    /** Inyectado para poder testear sin WorkManager; en producción es `LocalDownloadWorker::schedule`. */
+    private val wakeWorker: (Context) -> Unit,
+) {
+    private val appContext = context.applicationContext
+    private val downloadDao = db.downloadDao()
+
+    /** `Android/data/<pkg>/files/Movies`. Cae a filesDir si no hay almacenamiento externo montado. */
+    fun targetDir(): File =
+        (appContext.getExternalFilesDir(Environment.DIRECTORY_MOVIES) ?: File(appContext.filesDir, "Movies"))
+            .apply { mkdirs() }
+
+    fun observeRows(): Flow<List<DownloadRow>> = downloadDao.observeDownloadRows()
+
+    /** Mide el disco real y delega la decisión en [FreeSpacePolicy], que es lo testeable. */
+    fun hasFreeSpaceFor(bytes: Long): Boolean =
+        FreeSpacePolicy.fits(StatFs(targetDir().absolutePath).availableBytes, bytes)
+
+    /**
+     * Encola un episodio. Idempotente: si ya hay una fila que no falló, no hace nada — así tocar dos
+     * veces el botón no duplica la descarga.
+     */
+    suspend fun enqueue(episodeId: String, source: String) = withContext(Dispatchers.IO) {
+        val existing = downloadDao.get(episodeId)
+        if (existing != null && existing.state != LocalDownloadState.FAILED) return@withContext
+        downloadDao.upsert(
+            DownloadEntity(
+                episodeId = episodeId,
+                variant = "",
+                state = LocalDownloadState.QUEUED,
+                progress = 0f,
+                localUri = null,
+                bytes = 0,
+                source = source,
+                createdAt = System.currentTimeMillis(),
+            )
+        )
+        wakeWorker(appContext)
+    }
+
+    /** El usuario aceptó bajar un torrent que superaba el umbral de tamaño. */
+    suspend fun confirmSize(episodeId: String) = withContext(Dispatchers.IO) {
+        downloadDao.markConfirmed(episodeId)
+        wakeWorker(appContext)
+    }
+
+    /** Borra la fila y el archivo (y el parcial, si quedó a medias). */
+    suspend fun remove(episodeId: String) = withContext(Dispatchers.IO) {
+        val row = downloadDao.get(episodeId)
+        val path = row?.filePath ?: row?.localUri?.removePrefix("file://")
+        if (path != null) {
+            val file = File(path)
+            runCatching { file.delete() }
+            runCatching { LocalFilePaths.partOf(file).delete() }
+        }
+        runCatching { File(targetDir(), "torrents/${LocalFilePaths.torrentDirName(episodeId)}").deleteRecursively() }
+        downloadDao.delete(episodeId)
+    }
+}
