@@ -51,7 +51,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -100,7 +99,6 @@ fun SearchScreen(
     shortcutAnilistId: Long? = null,
 ) {
     val graph = rememberGraph()
-    val context = LocalContext.current
     val vm: SearchViewModel = viewModel(
         factory = viewModelFactory {
             initializer {
@@ -130,8 +128,8 @@ fun SearchScreen(
     val processNowMessage by vm.processNowMessage.collectAsStateWithLifecycle()
 
     val scope = rememberCoroutineScope()
-    // Permiso de notificaciones (API 33+): se pide recién al disparar una descarga a la NUC, que es
-    // lo único que notifica desde esta pantalla. Ver rememberPostNotificationsRequest.
+    // Permiso de notificaciones (API 33+): se pide al disparar una descarga (el worker de descargas
+    // locales también notifica). Ver rememberPostNotificationsRequest.
     val askNotifications = com.arkiv.player.ui.offline.rememberPostNotificationsRequest()
     val playback = remember { SearchPlayback(graph) }
     var preparing by remember { mutableStateOf(false) }
@@ -231,12 +229,15 @@ fun SearchScreen(
         }
     }
 
-    // Dispara una descarga a la NUC (arkiv-offline) de los capítulos elegidos del pack web. Mismo
-    // seriesId/isAnime que playback.addWholeWebSeries (Task 11: usar seriesIdFor(card, detail) para
-    // series TMDB y "anilist<id>" para anime, NUNCA season=1 fijo) — si el seriesId de acá divergiera
-    // del que ya usa el guardado local (onSave/onPlayOne, arriba), la descarga NUC quedaría bajo un
-    // id distinto y PlaybackPreferenceStore.decide() nunca encontraría el capítulo bajado. Molde:
-    // downloadPack en AnimeShowDetailScreen/CineDetailScreen (Task 8/9/12).
+    // Guarda en el dispositivo los capítulos elegidos del pack web: mismo camino que addWholeSeries
+    // (playback.addWholeWebSeries, el "Guardar" del diálogo) -- addWebSeriesEpisode por capítulo, sin
+    // reproducir. Mismo seriesId/isAnime que ese camino (Task 11: usar seriesIdFor(card, detail) para
+    // series TMDB y "anilist<id>" para anime, NUNCA season=1 fijo) -- si el seriesId de acá divergiera
+    // del que ya usa el guardado local (onSave/onPlayOne, arriba), la descarga quedaría bajo un id
+    // distinto y PlaybackPreferenceStore.decide() nunca encontraría el capítulo bajado. Antes esto
+    // mandaba un job a la NUC (arkiv-offline); ahora encola la descarga al propio dispositivo (tamaño
+    // WEB siempre desconocido, no hay aviso de torrent pesado que mostrar acá -- ver TorrentSizeGate
+    // en CineDetailScreen). Molde: saveWebPackLocally en AnimeShowDetailScreen/CineDetailScreen.
     fun downloadWholeSeries(pack: MirrorWebPack, title: String, episodes: List<MirrorWebSource>) {
         val card = selected ?: return
         val isAnime = card.kind == "anime"
@@ -244,11 +245,13 @@ fun SearchScreen(
         playError = null
         askNotifications()
         scope.launch {
-            val items = episodes.map { com.arkiv.player.data.offline.NucDownloadItem(it.season, it.episode, it.pageUrl) }
-            playError = com.arkiv.player.data.offline.NucDownloads.start(
-                context, graph.arkivOfflineApi, graph.database.localActiveJobDao(),
-                seriesId = seriesId, showTitle = title, posterUrl = resultPoster, items = items,
-            )
+            for (ep in episodes) {
+                val id = graph.repository.addWebSeriesEpisode(
+                    seriesId, title, resultPoster, ep.season, ep.episode,
+                    ep.name.ifBlank { "Ep ${ep.episode}" }, ep.pageUrl,
+                )
+                if (id != null) graph.localDownloads.enqueue(id, "web")
+            }
         }
     }
 

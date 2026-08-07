@@ -49,7 +49,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -89,10 +88,9 @@ fun AnimeShowDetailScreen(
     deepLinkEpisode: Int? = null,
 ) {
     val graph = rememberGraph()
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // Permiso de notificaciones (API 33+): se pide recién al disparar una descarga a la NUC, que es
-    // lo único que notifica desde esta pantalla. Ver rememberPostNotificationsRequest.
+    // Permiso de notificaciones (API 33+): se pide al disparar una descarga (el worker de descargas
+    // locales también notifica). Ver rememberPostNotificationsRequest.
     val askNotifications = com.arkiv.player.ui.offline.rememberPostNotificationsRequest()
     var show by remember { mutableStateOf<AnimeShow?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -361,44 +359,45 @@ fun AnimeShowDetailScreen(
         }
     }
 
-    // Dispara una descarga a la NUC (arkiv-offline) de los episodios elegidos del pack. MirrorWebSource
-    // ya trae la temporada real por episodio (ver WebMirrorModels.kt), así que se usa tal cual en vez
-    // de asumir season=1 (esa normalización es solo para la reproducción/guardado local del anime).
+    // Guarda en el dispositivo los episodios elegidos de un pack web: mismo camino que addWebPack (el
+    // "Guardar" del diálogo) -- addWebSeriesEpisode por capítulo, sin reproducir. MirrorWebSource ya
+    // trae la temporada real por episodio (ver WebMirrorModels.kt), así que se usa tal cual en vez de
+    // asumir season=1 (esa normalización es solo para la reproducción/guardado local del anime).
     // `episodes` default = pack.episodes completo y `title` default = el título del show: mantiene el
-    // llamado directo desde WebPackRow (Task 8, botón de descarga rápida sin abrir el diálogo) igual
-    // que antes; WebPackDialog pasa la selección real del usuario y el título editado en el diálogo
-    // (mismo que ya usa onSave/addWebPack -- si no, "Guardar" y "Descargar offline" quedan mostrando
-    // nombres distintos para el mismo pack).
-    fun downloadPack(pack: MirrorWebPack, episodes: List<MirrorWebSource> = pack.episodes, title: String = show?.title.orEmpty()) {
+    // llamado directo desde WebPackRow (botón de descarga rápida sin abrir el diálogo) igual que
+    // antes; WebPackDialog pasa la selección real del usuario y el título editado en el diálogo
+    // (mismo que ya usa onSave/addWebPack -- si no, "Guardar" y "Guardar en el dispositivo" quedan
+    // mostrando nombres distintos para el mismo pack). Antes esto mandaba un job a la NUC; ahora
+    // encola la descarga al propio dispositivo (tamaño WEB siempre desconocido, no hay aviso de
+    // torrent pesado que mostrar acá -- ver TorrentSizeGate en CineDetailScreen).
+    fun saveWebPackLocally(pack: MirrorWebPack, episodes: List<MirrorWebSource> = pack.episodes, title: String = show?.title.orEmpty()) {
         val s = show ?: return
         askNotifications()
         scope.launch {
-            val items = episodes.map {
-                com.arkiv.player.data.offline.NucDownloadItem(it.season, it.episode, it.pageUrl)
+            for (ep in episodes) {
+                val id = graph.repository.addWebSeriesEpisode(
+                    "anilist$anilistId", title.ifBlank { s.title }, s.posterUrl, ep.season, ep.episode,
+                    ep.name.ifBlank { "Ep ${ep.episode}" }, ep.pageUrl,
+                )
+                if (id != null) graph.localDownloads.enqueue(id, "web")
             }
-            error = com.arkiv.player.data.offline.NucDownloads.start(
-                context, graph.arkivOfflineApi, graph.database.localActiveJobDao(),
-                seriesId = "anilist$anilistId", showTitle = title.ifBlank { s.title },
-                posterUrl = s.posterUrl, items = items,
-            )
         }
     }
 
-    // Descarga un único episodio web suelto (fuera de un pack). Season y episode salen del propio
-    // WebResult del mirror (o de los packs, si la fuente fuera en vivo), igual que playWebEp -- así
-    // lo que se guarda en la NUC calza con la fila local, que es con la que después
-    // PlaybackPreferenceStore.decide() busca el capítulo.
-    fun downloadEpisode(r: WebResult, ep: Int) {
+    // Guarda localmente un único episodio web suelto (fuera de un pack): mismo camino que playWebEp
+    // (addWebSeriesEpisode con season/episode resueltos del propio WebResult del mirror, o de los
+    // packs si la fuente fuera en vivo), sin reproducir. Antes esto mandaba un job a la NUC; ahora
+    // encola la descarga al propio dispositivo.
+    fun saveWebEpisodeLocally(r: WebResult, ep: Int) {
         val s = show ?: return
         askNotifications()
         val season = com.arkiv.player.data.catalog.mirror.WebSourceSeason.forResult(r, webPacks)
         val episode = com.arkiv.player.data.catalog.mirror.WebSourceEpisode.forResult(r, webPacks, fallback = ep)
         scope.launch {
-            error = com.arkiv.player.data.offline.NucDownloads.start(
-                context, graph.arkivOfflineApi, graph.database.localActiveJobDao(),
-                seriesId = "anilist$anilistId", showTitle = s.title, posterUrl = s.posterUrl,
-                items = listOf(com.arkiv.player.data.offline.NucDownloadItem(season, episode, r.pageUrl)),
+            val epId = graph.repository.addWebSeriesEpisode(
+                "anilist$anilistId", s.title, s.posterUrl, season, episode, "${s.title} - Ep $episode", r.pageUrl,
             )
+            if (epId != null) graph.localDownloads.enqueue(epId, "web")
         }
     }
 
@@ -627,10 +626,10 @@ fun AnimeShowDetailScreen(
                                     expandedSub["$ep-w"] ?: false, { expandedSub["$ep-w"] = !(expandedSub["$ep-w"] ?: false) },
                                 ) {
                                     webs.forEach { r ->
-                                        WebEpRow(r, enabled = !preparing, onClick = { playWebEp(r, ep) }, onDownload = { downloadEpisode(r, ep) })
+                                        WebEpRow(r, enabled = !preparing, onClick = { playWebEp(r, ep) }, onDownload = { saveWebEpisodeLocally(r, ep) })
                                     }
                                     epPacks.forEach { p ->
-                                        WebPackRow(p, enabled = !preparing, onClick = { webPackFor = p }, onDownload = { downloadPack(p) })
+                                        WebPackRow(p, enabled = !preparing, onClick = { webPackFor = p }, onDownload = { saveWebPackLocally(p) })
                                     }
                                 }
                                 AnimeSourceSection(
@@ -650,7 +649,7 @@ fun AnimeShowDetailScreen(
                                 expandedSub["all-w"] ?: true, { expandedSub["all-w"] = !(expandedSub["all-w"] ?: true) },
                             ) {
                                 webPacks.forEach { p ->
-                                    WebPackRow(p, enabled = !preparing, onClick = { webPackFor = p }, onDownload = { downloadPack(p) })
+                                    WebPackRow(p, enabled = !preparing, onClick = { webPackFor = p }, onDownload = { saveWebPackLocally(p) })
                                 }
                             }
                         }
@@ -784,7 +783,7 @@ fun AnimeShowDetailScreen(
             },
             onDownload = { title, episodes ->
                 webPackFor = null
-                downloadPack(p, episodes, title)
+                saveWebPackLocally(p, episodes, title)
             },
         )
     }

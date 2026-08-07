@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -28,6 +29,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -42,7 +44,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -55,6 +56,7 @@ import com.arkiv.player.data.catalog.TorrentSource
 import com.arkiv.player.data.catalog.mirror.MirrorWebPack
 import com.arkiv.player.data.catalog.mirror.MirrorWebSource
 import com.arkiv.player.data.catalog.providers.ContentType
+import com.arkiv.player.data.local.TorrentSizeGate
 import com.arkiv.player.torrent.EpisodeFilePicker
 import kotlinx.coroutines.async
 import kotlinx.coroutines.Job
@@ -79,11 +81,14 @@ fun CineDetailScreen(
     deepLinkEpisode: Int? = null,
 ) {
     val graph = rememberGraph()
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // Permiso de notificaciones (API 33+): se pide recién al disparar una descarga a la NUC, que es
-    // lo único que notifica desde esta pantalla. Ver rememberPostNotificationsRequest.
+    // Permiso de notificaciones (API 33+): se pide al disparar una descarga (a la NUC o al propio
+    // dispositivo, el worker de descargas locales también notifica). Ver rememberPostNotificationsRequest.
     val askNotifications = com.arkiv.player.ui.offline.rememberPostNotificationsRequest()
+    // El aviso inline es un ATAJO de UX: evita encolar algo que vas a descartar cuando el tamaño ya
+    // se conoce. La compuerta que garantiza el comportamiento es la del worker, que es la única que
+    // ve el tamaño del ARCHIVO (TorrentResult.sizeBytes es el del pack entero cuando la fila es un pack).
+    var pendingBig by remember { mutableStateOf<Pair<String, Long>?>(null) }
     var detail by remember { mutableStateOf<TmdbDetail?>(null) }
     var packFor by remember { mutableStateOf<TorrentResult?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -234,38 +239,46 @@ fun CineDetailScreen(
         openSources(ep)
     }
 
-    fun play(result: TorrentResult) {
-        val d = detail ?: return
+    // Resuelve un TorrentResult a un episodeId local (magnet o .torrent ya resuelto), sin reproducir
+    // ni tocar `preparing`/`error`/`sheetOpen`. Extraído de play() para que también lo use
+    // saveTorrentLocally() -- guardar para descarga local necesita el mismo episodio que reproducir,
+    // solo que sin navegar al player.
+    suspend fun resolveTorrentEpisodeId(result: TorrentResult, ep: TmdbEpisode?): String? {
+        val d = detail ?: return null
         val seriesId = d.imdbId.ifBlank { "tmdb${d.id}" }
+        return when (val src = graph.torrentSearchApi.resolveSource(result)) {
+            // Magnet → guardamos el magnet (streaming NO bloqueante en el player, sin fetchMagnet).
+            is TorrentSource.Magnet ->
+                if (ep != null) graph.repository.addSeriesEpisodeMagnet(seriesId, d.title, d.posterUrl, ep.season, ep.episode, ep.name, src.uri, description = d.overview)
+                else graph.repository.addTorrentMagnet(d.title, src.uri, d.posterUrl, description = d.overview)
+            // .torrent (bytes) → ya tenemos la metadata, elegimos el archivo e indexamos.
+            is TorrentSource.TorrentFile -> {
+                val meta = graph.torrentEngine.resolveTorrent(src.bytes)
+                if (meta == null) { error = "No se pudo leer el .torrent"; return null }
+                val videos = graph.torrentEngine.videoFiles(meta)
+                    .ifEmpty { graph.torrentEngine.pickVideo(meta)?.let { listOf(it) } ?: emptyList() }
+                val video = ep?.let { e ->
+                    EpisodeFilePicker.pick(videos.map { it.name }, e.season, e.episode)?.let { videos[it] }
+                } ?: videos.maxByOrNull { it.sizeBytes } ?: videos.firstOrNull()
+                if (video == null) { error = "El torrent no tiene video reproducible"; return null }
+                if (ep != null) graph.repository.addSeriesEpisode(
+                    seriesId = seriesId, showTitle = d.title, posterUrl = d.posterUrl,
+                    season = ep.season, episode = ep.episode, episodeName = ep.name,
+                    infoHashHex = meta.infoHashHex, infoBytes = meta.infoBytes,
+                    fileIndex = video.index, fileSizeBytes = video.sizeBytes,
+                    description = d.overview,
+                ) else graph.repository.addTorrent(d.title, meta.infoHashHex, meta.infoBytes, videos, d.posterUrl, description = d.overview)
+                    .let { graph.repository.firstEpisodeId(it) }
+            }
+            null -> null
+        }
+    }
+
+    fun play(result: TorrentResult) {
+        val ep = sheetEpisode
         preparing = true; error = null; sheetOpen = false
         scope.launch {
-            val ep = sheetEpisode
-            val epId = when (val src = graph.torrentSearchApi.resolveSource(result)) {
-                // Magnet → guardamos el magnet (streaming NO bloqueante en el player, sin fetchMagnet).
-                is TorrentSource.Magnet ->
-                    if (ep != null) graph.repository.addSeriesEpisodeMagnet(seriesId, d.title, d.posterUrl, ep.season, ep.episode, ep.name, src.uri, description = d.overview)
-                    else graph.repository.addTorrentMagnet(d.title, src.uri, d.posterUrl, description = d.overview)
-                // .torrent (bytes) → ya tenemos la metadata, elegimos el archivo e indexamos.
-                is TorrentSource.TorrentFile -> {
-                    val meta = graph.torrentEngine.resolveTorrent(src.bytes)
-                    if (meta == null) { preparing = false; error = "No se pudo leer el .torrent"; return@launch }
-                    val videos = graph.torrentEngine.videoFiles(meta)
-                        .ifEmpty { graph.torrentEngine.pickVideo(meta)?.let { listOf(it) } ?: emptyList() }
-                    val video = ep?.let { e ->
-                        EpisodeFilePicker.pick(videos.map { it.name }, e.season, e.episode)?.let { videos[it] }
-                    } ?: videos.maxByOrNull { it.sizeBytes } ?: videos.firstOrNull()
-                    if (video == null) { preparing = false; error = "El torrent no tiene video reproducible"; return@launch }
-                    if (ep != null) graph.repository.addSeriesEpisode(
-                        seriesId = seriesId, showTitle = d.title, posterUrl = d.posterUrl,
-                        season = ep.season, episode = ep.episode, episodeName = ep.name,
-                        infoHashHex = meta.infoHashHex, infoBytes = meta.infoBytes,
-                        fileIndex = video.index, fileSizeBytes = video.sizeBytes,
-                        description = d.overview,
-                    ) else graph.repository.addTorrent(d.title, meta.infoHashHex, meta.infoBytes, videos, d.posterUrl, description = d.overview)
-                        .let { graph.repository.firstEpisodeId(it) }
-                }
-                null -> null
-            }
+            val epId = resolveTorrentEpisodeId(result, ep)
             preparing = false
             if (epId != null) onPlay(epId) else if (error == null) error = "No se pudo obtener el torrent"
         }
@@ -325,49 +338,89 @@ fun CineDetailScreen(
         }
     }
 
-    // Dispara una descarga a la NUC (arkiv-offline) de los episodios elegidos del pack. MirrorWebSource
-    // ya trae la temporada real por episodio (ver WebMirrorModels.kt), así que se usa tal cual.
-    // `episodes` default = pack.episodes completo y `title` default = el título TMDB: mantiene el
-    // llamado directo desde WebPackRow del sheet (Task 8) igual que antes; WebPackDialog pasa la
-    // selección real del usuario y el título editado en el diálogo (mismo que ya usa onSave/addWebPack
-    // -- si no, "Guardar" y "Descargar offline" quedan mostrando nombres distintos para el mismo pack).
-    fun downloadPack(pack: MirrorWebPack, episodes: List<MirrorWebSource> = pack.episodes, title: String = detail?.title.orEmpty()) {
-        val d = detail ?: return
-        val seriesId = d.imdbId.ifBlank { "tmdb${d.id}" }
-        askNotifications()
+    // Encola una descarga al dispositivo. Atajo de UX: si ya se conoce un tamaño fiable (torrent de
+    // un solo archivo) y supera el umbral, pide confirmación antes de encolar; la compuerta real que
+    // garantiza el comportamiento sigue viviendo en el worker (TorrentSizeGate tras resolver la
+    // metadata), que es la única instancia que ve el tamaño del ARCHIVO y no el del pack/torrent.
+    fun saveLocally(episodeId: String, source: String, knownSizeBytes: Long) {
+        if (TorrentSizeGate.needsConfirmation(knownSizeBytes, alreadyConfirmed = false)) {
+            pendingBig = episodeId to knownSizeBytes
+        } else {
+            askNotifications()
+            scope.launch { graph.localDownloads.enqueue(episodeId, source) }
+        }
+    }
+
+    // Guarda un torrent en el dispositivo: mismo resolve que play() (resolveTorrentEpisodeId), pero
+    // sin reproducir. El tamaño conocido es el del propio TorrentResult -- para un pack es el del
+    // pack entero, no el del archivo elegido, así que el aviso inline puede no disparar en ese caso;
+    // la compuerta de verdad (por archivo) es la del worker.
+    fun saveTorrentLocally(result: TorrentResult, ep: TmdbEpisode?) {
+        error = null
         scope.launch {
-            val items = episodes.map {
-                com.arkiv.player.data.offline.NucDownloadItem(it.season, it.episode, it.pageUrl)
+            val epId = resolveTorrentEpisodeId(result, ep) ?: return@launch
+            saveLocally(epId, "torrent", result.sizeBytes)
+        }
+    }
+
+    // Guarda un ítem de archive.org en el dispositivo: mismo camino que playArchive (addItem +
+    // firstEpisodeId), sin reproducir. Tamaño desconocido -> no dispara el aviso inline.
+    fun saveArchiveLocally(item: ArchiveSearchResult) {
+        error = null
+        scope.launch {
+            val added = graph.repository.addItem(item.identifier).getOrNull()
+            if (added == null) { error = "No se pudo abrir el ítem de archive.org"; return@launch }
+            val epId = graph.repository.firstEpisodeId(added.identifier) ?: return@launch
+            saveLocally(epId, "archive", 0)
+        }
+    }
+
+    // Guarda una fuente web suelta (fuera de un pack) en el dispositivo: mismo camino que playWeb
+    // (addWebSeriesEpisode si hay episodio del sheet, si no addWebSource para películas), sin
+    // reproducir. Tamaño desconocido -> no dispara el aviso inline.
+    fun saveWebLocally(r: com.arkiv.player.data.catalog.web.WebResult, ep: TmdbEpisode?) {
+        val d = detail ?: return
+        error = null
+        scope.launch {
+            val epId = if (ep != null) {
+                val seriesId = d.imdbId.ifBlank { "tmdb${d.id}" }
+                graph.repository.addWebSeriesEpisode(seriesId, d.title, d.posterUrl, ep.season, ep.episode, ep.name, r.pageUrl)
+            } else {
+                graph.repository.addWebSource(r.pageUrl, r.title.ifBlank { d.title }, d.posterUrl)
             }
-            error = com.arkiv.player.data.offline.NucDownloads.start(
-                context, graph.arkivOfflineApi, graph.database.localActiveJobDao(),
-                seriesId = seriesId, showTitle = title.ifBlank { d.title },
-                posterUrl = d.posterUrl, items = items,
-            )
+            if (epId != null) saveLocally(epId, "web", 0) else error = "No se pudo guardar la fuente web"
         }
     }
 
-    // Descarga un único episodio web suelto (fuera de un pack) del episodio actualmente abierto en
-    // el sheet -- WebResult no trae season/episode propios, así que se usan los del TmdbEpisode
-    // que abrió el sheet (mismo molde que playWeb).
-    fun downloadEpisode(r: com.arkiv.player.data.catalog.web.WebResult, ep: TmdbEpisode) {
+    // Guarda en el dispositivo los episodios elegidos de un pack web (serie completa de un sitio),
+    // uno por episodio -- mismo camino que addWebPack (el "Guardar" del diálogo), sin reproducir.
+    // `episodes` default = pack.episodes completo y `title` default = el título TMDB: mantiene el
+    // llamado directo desde la fila del sheet (sin abrir el diálogo) igual que antes; WebPackDialog
+    // pasa la selección real del usuario y el título editado (mismo que ya usa onSave/addWebPack --
+    // si no, "Guardar" y "Guardar en el dispositivo" quedan mostrando nombres distintos para el
+    // mismo pack). Tamaño desconocido (WEB) -> ninguno dispara el aviso inline.
+    fun saveWebPackLocally(pack: MirrorWebPack, episodes: List<MirrorWebSource> = pack.episodes, title: String = detail?.title.orEmpty()) {
         val d = detail ?: return
         val seriesId = d.imdbId.ifBlank { "tmdb${d.id}" }
-        askNotifications()
+        error = null
         scope.launch {
-            error = com.arkiv.player.data.offline.NucDownloads.start(
-                context, graph.arkivOfflineApi, graph.database.localActiveJobDao(),
-                seriesId = seriesId, showTitle = d.title, posterUrl = d.posterUrl,
-                items = listOf(com.arkiv.player.data.offline.NucDownloadItem(ep.season, ep.episode, r.pageUrl)),
-            )
+            for (ep in episodes) {
+                val id = graph.repository.addWebSeriesEpisode(
+                    seriesId, title.ifBlank { d.title }, d.posterUrl, ep.season, ep.episode,
+                    ep.name.ifBlank { "Ep ${ep.episode}" }, ep.pageUrl,
+                )
+                if (id != null) saveLocally(id, "web", 0)
+            }
         }
     }
 
-    // Solo tiene sentido para episodios de serie (movies no tienen season/episode ni packs web).
-    fun downloadSource(s: PlaySource, ep: TmdbEpisode) = when (s) {
-        is PlaySource.WebPack -> downloadPack(s.pack)
-        is PlaySource.Web -> downloadEpisode(s.result, ep)
-        else -> Unit
+    // Despacha el botón de "Guardar en el dispositivo" de una fila según el tipo de fuente. `ep` es
+    // null para películas (torrent/archive no lo necesitan; WEB de película cae a addWebSource).
+    fun downloadSource(s: PlaySource, ep: TmdbEpisode?) = when (s) {
+        is PlaySource.Torrent -> saveTorrentLocally(s.result, ep)
+        is PlaySource.Archive -> saveArchiveLocally(s.item)
+        is PlaySource.Web -> saveWebLocally(s.result, ep)
+        is PlaySource.WebPack -> saveWebPackLocally(s.pack)
     }
 
     fun playSource(s: PlaySource) = when (s) {
@@ -513,13 +566,17 @@ fun CineDetailScreen(
                     // en vez de pasárselo al ModalBottomSheet (que se arrastraba/"intentaba cerrar").
                     Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
                         SourceSection("TORRENT", ArkivRed, torrents, loadingTorrent,
-                            "TORRENT" in expandedSections, { toggle("TORRENT") }, !preparing) { playSource(it) }
+                            "TORRENT" in expandedSections, { toggle("TORRENT") }, !preparing,
+                            onDownload = { s -> downloadSource(s, ep) },
+                        ) { playSource(it) }
                         SourceSection("WEB", Color(0xFFB39DDB), webs, loadingWeb,
                             "WEB" in expandedSections, { toggle("WEB") }, !preparing,
-                            onDownload = ep?.let { e -> { s: PlaySource -> downloadSource(s, e) } },
+                            onDownload = { s -> downloadSource(s, ep) },
                         ) { playSource(it) }
                         SourceSection("ARCHIVE", Color(0xFF80CBC4), archives, loadingArchive,
-                            "ARCHIVE" in expandedSections, { toggle("ARCHIVE") }, !preparing) { playSource(it) }
+                            "ARCHIVE" in expandedSections, { toggle("ARCHIVE") }, !preparing,
+                            onDownload = { s -> downloadSource(s, ep) },
+                        ) { playSource(it) }
                     }
                 }
             }
@@ -569,8 +626,27 @@ fun CineDetailScreen(
             },
             onDownload = { title, episodes ->
                 webPackFor = null
-                downloadPack(p, episodes, title)
+                saveWebPackLocally(p, episodes, title)
             },
+        )
+    }
+
+    pendingBig?.let { (episodeId, bytes) ->
+        AlertDialog(
+            onDismissRequest = { pendingBig = null },
+            title = { Text("Descarga pesada") },
+            text = { Text("Este torrent pesa ${TorrentSizeGate.formatSize(bytes)}. ¿Lo bajás igual?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    askNotifications()
+                    scope.launch {
+                        graph.localDownloads.enqueue(episodeId, "torrent")
+                        graph.localDownloads.confirmSize(episodeId)
+                    }
+                    pendingBig = null
+                }) { Text("Descargar") }
+            },
+            dismissButton = { TextButton(onClick = { pendingBig = null }) { Text("Cancelar") } },
         )
     }
 }

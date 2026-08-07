@@ -77,8 +77,8 @@ fun MetaChip(text: String, color: Color = ArkivTextSecondary, strong: Boolean = 
 
 /**
  * Sección colapsable por tipo de fuente (TORRENT/WEB/ARCHIVE) con contador y spinner propio.
- * [onDownload], si no es null, agrega un botón de "Descargar offline" (arkiv-offline/NUC) a cada
- * fila de la sección — usado solo por la sección WEB, ver CineDetailScreen.
+ * [onDownload], si no es null, agrega un botón de "Guardar en el dispositivo" a cada fila. Lo reciben
+ * las tres secciones: el archivo final queda en el celular, no en la NUC.
  */
 @Composable
 fun SourceSection(
