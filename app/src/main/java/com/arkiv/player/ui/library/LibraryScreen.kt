@@ -44,6 +44,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.arkiv.player.data.ArchiveUrls
 import com.arkiv.player.data.db.LibraryRow
+import com.arkiv.player.data.local.LocalDownloadState
 import com.arkiv.player.ui.components.ContinueCard
 import com.arkiv.player.ui.components.EmptyState
 import com.arkiv.player.ui.components.PosterCard
@@ -52,6 +53,7 @@ import com.arkiv.player.ui.home.HomeViewModel
 import com.arkiv.player.ui.libraryMeta
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivRed
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 private enum class LibFilter(val label: String) { ALL("Todas"), MOVIES("Películas"), SERIES("Series") }
@@ -74,6 +76,11 @@ fun LibraryScreen(
     val library by vm.library.collectAsStateWithLifecycle()
     val continueWatching by vm.continueWatching.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+
+    // Ítems con (al menos) un episodio ya guardado en el dispositivo, para el tilde en la tarjeta.
+    val savedIds by graph.localDownloads.observeRows()
+        .map { rows -> rows.filter { it.state == LocalDownloadState.COMPLETED }.map { it.itemId }.toSet() }
+        .collectAsStateWithLifecycle(initialValue = emptySet())
 
     // Ítem con el menú contextual (long-press) abierto.
     var menuRow by remember { mutableStateOf<LibraryRow?>(null) }
@@ -182,6 +189,7 @@ fun LibraryScreen(
                 badge = if (row.isTorrent) "TORRENT" else if (row.isMovie) "PELÍCULA" else "SERIE",
                 badgeColor = if (row.isTorrent) TorrentBadgeColor else if (row.isMovie) ArkivRed else SeriesBadgeColor,
                 meta = libraryMeta(row.isMovie, row.durationSeconds, row.episodeCount, row.isTorrent),
+                saved = row.identifier in savedIds,
                 // Mantener pulsado abre el menú (detalle/descargar + cambiar categoría).
                 onLongClick = { menuRow = row },
                 onClick = { open(row) },
@@ -205,6 +213,23 @@ fun LibraryScreen(
                 )
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 SheetAction("Ver detalle / descargar") { onOpenItem(row.identifier); menuRow = null }
+                SheetAction("Guardar en el dispositivo") {
+                    scope.launch {
+                        // Una película es un ítem de un solo episodio; una serie se guarda desde su
+                        // detalle, capítulo por capítulo (no tiene sentido encolar 200 capítulos
+                        // desde un menú contextual sin decir cuáles).
+                        val episodes = graph.repository.episodesOf(row.identifier)
+                        val single = episodes.singleOrNull()
+                        if (single != null) {
+                            // `row.source` viene directo de `items.source` ("archive" | "torrent" |
+                            // "web"): es el dato real, no una heurística a partir de `isTorrent`.
+                            graph.localDownloads.enqueue(single.id, row.source)
+                        } else {
+                            onOpenItem(row.identifier)
+                        }
+                    }
+                    menuRow = null
+                }
                 if (row.isMovie) {
                     SheetAction("Marcar como serie") {
                         scope.launch { graph.repository.setCategory(row.identifier, false) }

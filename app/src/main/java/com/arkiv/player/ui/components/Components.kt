@@ -12,8 +12,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DownloadDone
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,6 +44,8 @@ fun PosterCard(
     badge: String? = null,
     badgeColor: Color = ArkivRed,
     meta: String? = null,
+    /** Ya tiene (al menos) un episodio guardado en el dispositivo; dibuja el tilde de "guardado". */
+    saved: Boolean = false,
     onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
@@ -61,6 +68,22 @@ fun PosterCard(
                     text = badge,
                     color = badgeColor,
                     modifier = Modifier.align(Alignment.TopStart).padding(6.dp),
+                )
+            }
+            // Informativo, no una acción: solo avisa que el ítem ya tiene algo guardado en el
+            // dispositivo. Esquina opuesta al badge de tipo para no pisarlo.
+            if (saved) {
+                Icon(
+                    Icons.Default.DownloadDone,
+                    contentDescription = "Guardado en el dispositivo",
+                    tint = Color.White,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(6.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xB3000000))
+                        .padding(3.dp)
+                        .size(14.dp),
                 )
             }
         }
