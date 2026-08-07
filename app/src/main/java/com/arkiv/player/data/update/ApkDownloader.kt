@@ -28,10 +28,12 @@ class ApkDownloader(private val context: Context) {
             if (dest.exists()) dest.delete()
             val response = client.newCall(Request.Builder().url(url).build()).execute()
             if (!response.isSuccessful) {
+                response.close()
                 emit(DownloadState.Failed("HTTP ${response.code}"))
                 return@flow
             }
             val body = response.body ?: run {
+                response.close()
                 emit(DownloadState.Failed("Empty response"))
                 return@flow
             }

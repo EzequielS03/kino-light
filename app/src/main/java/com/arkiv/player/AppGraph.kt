@@ -60,7 +60,8 @@ class AppGraph(context: Context) {
 
     /** Chequeo inmediato de OTA: llamado por [com.arkiv.player.data.update.UpdateWorker] y al arrancar la app. */
     suspend fun checkForUpdate() {
-        _updateInfo.value = runCatching { updateChecker.check(BuildConfig.VERSION_CODE) }.getOrNull()
+        val info = updateChecker.check(BuildConfig.VERSION_CODE)
+        if (info != null) _updateInfo.value = info
     }
 
     val downloader: Downloader by lazy { Downloader(appContext, database, settings) }

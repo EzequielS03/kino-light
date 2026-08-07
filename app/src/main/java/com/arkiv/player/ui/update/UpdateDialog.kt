@@ -19,6 +19,7 @@ import androidx.core.content.FileProvider
 import com.arkiv.player.AppGraph
 import com.arkiv.player.data.update.DownloadState
 import com.arkiv.player.data.update.UpdateInfo
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
@@ -35,6 +36,7 @@ fun UpdateDialog(info: UpdateInfo, graph: AppGraph, onDismiss: () -> Unit) {
     var progress by remember { mutableFloatStateOf(-1f) }
     var downloading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var downloadJob by remember { mutableStateOf<Job?>(null) }
     val buttonFocus = remember { FocusRequester() }
 
     LaunchedEffect(downloading) {
@@ -66,11 +68,11 @@ fun UpdateDialog(info: UpdateInfo, graph: AppGraph, onDismiss: () -> Unit) {
         }
         downloading = true
         error = null
-        scope.launch {
+        downloadJob = scope.launch {
             graph.apkDownloader.download(info.url).collect { state ->
                 when (state) {
                     is DownloadState.Downloading -> progress = state.progress
-                    is DownloadState.Ready -> installApk(state.file)
+                    is DownloadState.Ready -> { downloading = false; installApk(state.file) }
                     is DownloadState.Failed -> { downloading = false; error = state.error }
                 }
             }
@@ -109,7 +111,12 @@ fun UpdateDialog(info: UpdateInfo, graph: AppGraph, onDismiss: () -> Unit) {
                 }
 
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                    if (!downloading) {
+                    if (downloading) {
+                        TextButton(onClick = {
+                            downloadJob?.cancel()
+                            downloading = false
+                        }) { Text("Cancelar") }
+                    } else {
                         TextButton(onClick = onDismiss) { Text("Cerrar") }
                         Spacer(Modifier.width(8.dp))
                         Button(
