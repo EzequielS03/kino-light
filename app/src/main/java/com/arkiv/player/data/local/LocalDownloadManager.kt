@@ -68,9 +68,21 @@ class LocalDownloadManager(
         val row = downloadDao.get(episodeId)
         val path = row?.filePath ?: row?.localUri?.removePrefix("file://")
         if (path != null) {
+            // Cubre el nombre exacto que dejaron descargas viejas (pre-migración), que puede no
+            // seguir el patrón sanitize(episodeId) + extensión que arma LocalFilePaths.fileNameFor.
             val file = File(path)
             runCatching { file.delete() }
             runCatching { LocalFilePaths.partOf(file).delete() }
+        }
+        // Barrido por prefijo: para archive/web el nombre destino es determinista
+        // (LocalFilePaths.fileNameFor = sanitize(episodeId) + extensión), así que esto cubre el
+        // archivo final Y el ".part" aunque la fila todavía no tenga filePath (QUEUED/DOWNLOADING,
+        // que es cuando el usuario más suele tocar "Quitar"). Sin esto el .part queda huérfano: nadie
+        // más lo referencia ni lo limpia, y se come el disco justo lo que FreeSpacePolicy protege.
+        val prefix = "${LocalFilePaths.sanitize(episodeId)}."
+        runCatching {
+            targetDir().listFiles { f -> f.name.startsWith(prefix) }
+                ?.forEach { f -> runCatching { f.delete() } }
         }
         runCatching { File(targetDir(), "torrents/${LocalFilePaths.torrentDirName(episodeId)}").deleteRecursively() }
         downloadDao.delete(episodeId)
