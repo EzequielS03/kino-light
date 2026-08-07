@@ -97,6 +97,11 @@ class AppGraph(context: Context) {
         com.arkiv.player.data.local.LocalLibrary(database)
     }
 
+    /** Sirve el archivo local por HTTP para poder castearlo (un file:// no le llega al Chromecast). */
+    val localFileServer: com.arkiv.player.playback.LocalFileServer by lazy {
+        com.arkiv.player.playback.LocalFileServer(lanIp = { torrentEngine.lanIp() })
+    }
+
     /** Una estrategia por `source` de la tabla `downloads`. La entrada "web" llega en la fase 2. */
     val downloadStrategies: Map<String, com.arkiv.player.data.local.DownloadStrategy> by lazy {
         mapOf(
