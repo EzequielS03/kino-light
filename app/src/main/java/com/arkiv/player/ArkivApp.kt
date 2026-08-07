@@ -28,6 +28,11 @@ class ArkivApp : Application(), ImageLoaderFactory {
             ).build(),
         )
         graph.applicationScope.launch { graph.checkForUpdate() }
+
+        // Reintenta borrar de la NUC los items que ya se transfirieron al dispositivo pero cuyo
+        // DELETE falló en su momento (blog caído, red cortada) — si no, el disco de la NUC se llena
+        // de archivos que ya nadie va a reproducir. Best-effort: un fallo acá no debe tumbar el arranque.
+        graph.applicationScope.launch { runCatching { graph.localDownloads.sweepNucOrphans() } }
     }
 
     /**

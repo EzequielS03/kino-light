@@ -249,6 +249,10 @@ interface DownloadDao {
     @Query("SELECT stagingItemId FROM downloads WHERE stagingItemId IS NOT NULL AND state = 'completed'")
     suspend fun orphanStagingItems(): List<Long>
 
+    /** El barrido de arranque limpia la marca tras borrar el item de la NUC con éxito. */
+    @Query("UPDATE downloads SET stagingItemId = NULL WHERE stagingItemId = :stagingItemId")
+    suspend fun clearStagingItem(stagingItemId: Long)
+
     @Query("DELETE FROM downloads WHERE episodeId = :episodeId")
     suspend fun delete(episodeId: String)
 

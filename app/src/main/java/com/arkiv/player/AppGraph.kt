@@ -87,6 +87,7 @@ class AppGraph(context: Context) {
         com.arkiv.player.data.local.LocalDownloadManager(
             appContext, database,
             wakeWorker = { com.arkiv.player.data.local.LocalDownloadWorker.schedule(it) },
+            deleteNucItem = { itemId -> arkivOfflineApi.deleteLibraryItem(itemId) },
         )
     }
 

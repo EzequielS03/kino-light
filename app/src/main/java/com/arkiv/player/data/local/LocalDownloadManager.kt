@@ -20,6 +20,14 @@ class LocalDownloadManager(
     db: ArkivDatabase,
     /** Inyectado para poder testear sin WorkManager; en producción es `LocalDownloadWorker::schedule`. */
     private val wakeWorker: (Context) -> Unit,
+    /**
+     * Borra un item de la NUC. Inyectado para no acoplar la fachada al cliente REST. Sin default a
+     * propósito: `wakeWorker` tampoco lo tiene, y un default que no borra nada (`{ false }`)
+     * convertiría un olvido de cableado en `AppGraph` en un barrido que corre sin error y sin
+     * lograr nada — el disco de la NUC se seguiría llenando y nadie se enteraría hasta que
+     * `fits` empezara a rechazar trabajos. Mejor que sea un error de compilación.
+     */
+    private val deleteNucItem: suspend (Long) -> Boolean,
 ) {
     private val appContext = context.applicationContext
     private val downloadDao = db.downloadDao()
@@ -97,5 +105,18 @@ class LocalDownloadManager(
         }
         runCatching { File(targetDir(), "torrents/${LocalFilePaths.torrentDirName(episodeId)}").deleteRecursively() }
         downloadDao.delete(episodeId)
+    }
+
+    /**
+     * Borra de la NUC los items que ya se transfirieron al dispositivo pero cuyo DELETE falló en su
+     * momento (blog caído, red cortada). Sin esto el disco de la NUC se llena de archivos que ya
+     * nadie va a reproducir, y `fits` empieza a rechazar trabajos nuevos.
+     */
+    suspend fun sweepNucOrphans() = withContext(Dispatchers.IO) {
+        for (itemId in downloadDao.orphanStagingItems()) {
+            if (runCatching { deleteNucItem(itemId) }.getOrDefault(false)) {
+                downloadDao.clearStagingItem(itemId)
+            }
+        }
     }
 }
