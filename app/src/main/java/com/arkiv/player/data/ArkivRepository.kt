@@ -220,8 +220,12 @@ class ArkivRepository(
 
     fun observeDownloadRows() = downloadDao.observeDownloadRows()
 
-    suspend fun completedDownloadUri(episodeId: String): String? =
-        downloadDao.get(episodeId)?.takeIf { it.state == "completed" }?.localUri
+    // `completedDownloadUri` se eliminó: miraba SOLO la columna `localUri` (la que llenaba el
+    // DownloadManager del sistema) e ignoraba `filePath`, que es donde escriben las descargas
+    // nuevas, así que devolvía null para todo lo bajado con el worker. Tampoco verificaba que el
+    // archivo siguiera existiendo. Ahora hay UN solo resolvedor de "¿dónde está el archivo local?"
+    // para las tres fuentes: `LocalLibrary.fileFor`, que cubre las dos columnas, chequea exists() y
+    // limpia la fila si el archivo se fue.
 
     /**
      * Descarga metadata, arma los episodios y guarda el ítem en la biblioteca.
