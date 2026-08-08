@@ -234,7 +234,7 @@ class TorrentEngine(context: Context, private val extraTrackers: () -> List<Stri
     fun startMagnetStream(magnet: String, hint: EpisodeHint? = null) {
         ensureStarted()
         stopStreamInternal()
-        acquireLocks()
+        acquireStreamLocks()
         val clean = cleanMagnet(magnet) ?: run { Log.w("ArkivTorrent", "magnet inválido"); return }
         val dir = File(workDir, "m${System.nanoTime()}").apply { mkdirs() }
         currentDir = dir
@@ -497,7 +497,7 @@ class TorrentEngine(context: Context, private val extraTrackers: () -> List<Stri
     fun startStream(meta: TorrentMeta, fileIndex: Int): String {
         ensureStarted()
         stopStreamInternal()
-        acquireLocks()
+        acquireStreamLocks()
         val info = TorrentInfo(meta.infoBytes)
         val dir = File(workDir, meta.infoHashHex).apply { mkdirs() }
         session.download(info, dir)
@@ -513,7 +513,7 @@ class TorrentEngine(context: Context, private val extraTrackers: () -> List<Stri
             // soltar acá lo que se tomó arriba. Mismo orden que `stopStreamInternal` (sacar el torrent de
             // la sesión ANTES de borrar, para que libtorrent no siga escribiendo en el dir).
             runCatching { dir.deleteRecursively() }
-            releaseLocks()
+            releaseStreamLocks()
             error("No se pudo iniciar el torrent")
         }
         currentHandle = handle
@@ -615,6 +615,11 @@ class TorrentEngine(context: Context, private val extraTrackers: () -> List<Stri
             } else {
                 Log.w("ArkivTorrent", "startPersistentDownload: no se pudo obtener el handle")
             }
+            // Este camino sale SIN devolver un PersistentTorrentDownload, así que nadie más va a
+            // soltar la unidad de lock que se tomó arriba. Sin esto, un torrent que no arranca
+            // dejaba el WifiLock + el PARTIAL_WAKE_LOCK tomados sin bajar un solo byte hasta que
+            // muriera el proceso: nada de deep sleep y la batería drenándose toda la noche.
+            releaseLocks()
             return null
         }
         runCatching {
@@ -629,7 +634,13 @@ class TorrentEngine(context: Context, private val extraTrackers: () -> List<Stri
         val relativePath = info.files().filePath(fileIndex)
         Log.i("ArkivTorrent", "DESCARGA infohash=${meta.infoHashHex} file=$fileIndex '$relativePath' -> $saveDir")
         startDownloadReannounceLoop(handle)
-        return PersistentTorrentDownload(session, handle, saveDir, relativePath, fileIndex, info.files().fileSize(fileIndex))
+        return PersistentTorrentDownload(
+            session, handle, saveDir, relativePath, fileIndex, info.files().fileSize(fileIndex),
+            // La descarga suelta SU unidad de lock al terminar (detach/discard), no antes. Mientras
+            // viva, salir del reproductor no se los puede quitar: `stopStreamInternal` ahora libera
+            // solo la unidad del stream.
+            onRelease = { releaseLocks() },
+        )
     }
 
     /**
@@ -819,7 +830,7 @@ class TorrentEngine(context: Context, private val extraTrackers: () -> List<Stri
         currentDir?.let { d -> runCatching { d.deleteRecursively() } }
         currentDir = null
         sweepOrphans()
-        releaseLocks()
+        releaseStreamLocks()
     }
 
     /**
@@ -834,15 +845,56 @@ class TorrentEngine(context: Context, private val extraTrackers: () -> List<Stri
         }
     }
 
+    /**
+     * Consumidores vivos de los locks: el stream (0 o 1) más una unidad por cada descarga
+     * persistente en curso. Los locks del sistema NO son reference-counted
+     * (`setReferenceCounted(false)`), así que el conteo lo llevamos nosotros.
+     *
+     * Sin esto había dos fugas simétricas: `startPersistentDownload` tomaba los locks y ningún
+     * camino de esa descarga los soltaba (un torrent que no arranca dejaba el PARTIAL_WAKE_LOCK
+     * tomado hasta que muriera el proceso, impidiendo el deep sleep toda la noche); y al revés,
+     * salir del reproductor llamaba `releaseLocks()` incondicional y le robaba el WifiLock a una
+     * descarga persistente que seguía viva.
+     *
+     * Monitor propio y no el `@Synchronized` de la clase: soltar un lock desde el hilo de una
+     * descarga no tiene por qué esperar a que termine un `startStream` (que puede pasarse ~6 s
+     * esperando el handle).
+     */
+    private val locksMonitor = Any()
+    private var lockHolders = 0
+    /** El stream toma como mucho UNA unidad, aunque `stopStreamInternal` se llame de más. */
+    private var streamHoldsLocks = false
+
     /** Adquiere WifiLock + WakeLock para que el SO no throttlee la descarga (pantalla apagada / cast). */
-    private fun acquireLocks() {
-        runCatching { if (!wifiLock.isHeld) wifiLock.acquire() }
-        runCatching { if (!wakeLock.isHeld) wakeLock.acquire() }
+    private fun acquireLocks() = synchronized(locksMonitor) {
+        lockHolders++
+        if (lockHolders == 1) {
+            runCatching { if (!wifiLock.isHeld) wifiLock.acquire() }
+            runCatching { if (!wakeLock.isHeld) wakeLock.acquire() }
+        }
     }
 
-    private fun releaseLocks() {
-        runCatching { if (wifiLock.isHeld) wifiLock.release() }
-        runCatching { if (wakeLock.isHeld) wakeLock.release() }
+    /** Suelta UNA unidad; los locks reales se liberan recién cuando no queda ningún consumidor. */
+    private fun releaseLocks() = synchronized(locksMonitor) {
+        if (lockHolders <= 0) return@synchronized
+        lockHolders--
+        if (lockHolders == 0) {
+            runCatching { if (wifiLock.isHeld) wifiLock.release() }
+            runCatching { if (wakeLock.isHeld) wakeLock.release() }
+        }
+    }
+
+    /** Los locks del STREAM. Idempotentes: `stopStreamInternal` corre también sin stream activo. */
+    private fun acquireStreamLocks() = synchronized(locksMonitor) {
+        if (streamHoldsLocks) return@synchronized
+        streamHoldsLocks = true
+        acquireLocks()
+    }
+
+    private fun releaseStreamLocks() = synchronized(locksMonitor) {
+        if (!streamHoldsLocks) return@synchronized
+        streamHoldsLocks = false
+        releaseLocks()
     }
 
     /**

@@ -32,7 +32,17 @@ class PersistentTorrentDownload internal constructor(
     private val relativePath: String,
     private val fileIndex: Int,
     private val fileSizeBytes: Long,
+    /**
+     * Suelta la unidad de WifiLock/WakeLock que `startPersistentDownload` tomó por ESTA descarga.
+     * Se invoca UNA sola vez, en el primer [detach]/[discard]: los locks del sistema no son
+     * reference-counted, así que el conteo lo lleva `TorrentEngine` y soltar de más le robaría el
+     * lock a otro consumidor (el stream, u otra descarga).
+     */
+    private val onRelease: () -> Unit = {},
 ) {
+
+    private var removed = false
+    private var released = false
 
     fun bytesDone(): Long =
         runCatching { handle.fileProgress()[fileIndex] }.getOrDefault(0L)
@@ -48,17 +58,36 @@ class PersistentTorrentDownload internal constructor(
     /** Ruta real del archivo en disco: para un torrent multi-archivo incluye la carpeta del pack. */
     fun file(): File = File(saveDir, relativePath)
 
-    /** Quita el torrent de la sesión conservando lo descargado. */
+    /**
+     * Quita el torrent de la sesión conservando lo descargado. Idempotente: la estrategia lo llama
+     * en el camino feliz y otra vez desde su `finally` de garantía.
+     */
+    @Synchronized
     fun detach() {
+        removeFromSession()
+        releaseLocksOnce()
+    }
+
+    /** Quita el torrent y borra lo descargado (cancelar). Idempotente, igual que [detach]. */
+    @Synchronized
+    fun discard() {
+        removeFromSession()
+        runCatching { saveDir.deleteRecursively() }
+            .onFailure { Log.w(TAG, "discard: $it") }
+        releaseLocksOnce()
+    }
+
+    private fun removeFromSession() {
+        if (removed) return
+        removed = true
         runCatching { session.remove(handle) }
             .onFailure { Log.w(TAG, "detach: $it") }
     }
 
-    /** Quita el torrent y borra lo descargado (cancelar). */
-    fun discard() {
-        detach()
-        runCatching { saveDir.deleteRecursively() }
-            .onFailure { Log.w(TAG, "discard: $it") }
+    private fun releaseLocksOnce() {
+        if (released) return
+        released = true
+        runCatching { onRelease() }.onFailure { Log.w(TAG, "release locks: $it") }
     }
 
     private companion object { const val TAG = "ArkivTorrentDl" }
