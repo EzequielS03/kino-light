@@ -30,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -38,6 +39,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -67,6 +69,7 @@ import com.arkiv.player.data.catalog.TorrentResult
 import com.arkiv.player.data.catalog.mirror.MirrorWebPack
 import com.arkiv.player.data.catalog.mirror.MirrorWebSource
 import com.arkiv.player.data.catalog.web.WebResult
+import com.arkiv.player.data.local.TorrentSizeGate
 import com.arkiv.player.ui.catalog.PackDialog
 import com.arkiv.player.ui.catalog.PlaySource
 import com.arkiv.player.ui.catalog.SourceRow
@@ -136,6 +139,8 @@ fun SearchScreen(
     var playError by remember { mutableStateOf<String?>(null) }
     var packFor by remember { mutableStateOf<TorrentResult?>(null) }
     var webPackFor by remember { mutableStateOf<MirrorWebPack?>(null) }
+    // Aviso inline de torrent pesado (ATAJO de UX, ver saveLocally): episodeId ya guardado + tamaño.
+    var pendingBig by remember { mutableStateOf<Pair<String, Long>?>(null) }
 
     LaunchedEffect(Unit) { graph.torrentEngine.warmUp() }
 
@@ -255,6 +260,87 @@ fun SearchScreen(
         }
     }
 
+    // --- Guardar en el dispositivo desde la búsqueda -------------------------------------------
+    //
+    // Todo esto reusa `playback.*`, que es el MISMO camino de guardado local que usa reproducir
+    // (resuelve la fuente y la agrega a la biblioteca devolviendo el episodeId): guardar la descarga
+    // bajo un episodeId sacado de un camino paralelo la dejaría apuntando a un episodio que el
+    // player nunca pide. La única diferencia con reproducir es que acá no se llama a `onPlay`.
+
+    // Encola una descarga al dispositivo. Atajo de UX igual que en CineDetailScreen: si el tamaño ya
+    // se conoce (torrent) y supera el umbral, pide confirmación antes de encolar; la compuerta que
+    // garantiza el comportamiento sigue viviendo en el worker, que es la única que ve el tamaño del
+    // ARCHIVO elegido y no el del pack. NO pide el permiso de notificaciones acá adentro: el
+    // llamador que encola en loop (downloadWholeSeries) lo pide UNA vez antes del loop.
+    fun saveLocally(episodeId: String, source: String, knownSizeBytes: Long) {
+        if (TorrentSizeGate.needsConfirmation(knownSizeBytes, alreadyConfirmed = false)) {
+            pendingBig = episodeId to knownSizeBytes
+        } else {
+            scope.launch { graph.localDownloads.enqueue(episodeId, source) }
+        }
+    }
+
+    /** Encola el resultado de un `playback.*` (o muestra su error), sin navegar al reproductor. */
+    fun enqueueResolved(result: PlaybackResult, source: String, knownSizeBytes: Long) {
+        when (result) {
+            is PlaybackResult.Ready -> saveLocally(result.episodeId, source, knownSizeBytes)
+            is PlaybackResult.Failed -> playError = result.message
+        }
+    }
+
+    // Fase QUERY ("resultados directos": torrent/archive sin card elegida todavía).
+    fun saveDirect(source: PlaySource) {
+        playError = null
+        val size = (source as? PlaySource.Torrent)?.result?.sizeBytes ?: 0L
+        val tag = if (source is PlaySource.Torrent) "torrent" else "archive"
+        // El permiso se pide UNA vez por acción del usuario y solo si esto encola de una: si el
+        // tamaño va a disparar el diálogo de "Descarga pesada", lo pide el botón de ESE diálogo.
+        if (!TorrentSizeGate.needsConfirmation(size, alreadyConfirmed = false)) askNotifications()
+        scope.launch { enqueueResolved(playback.playDirect(source), tag, size) }
+    }
+
+    // Fase RESULTS. Cada rama usa el mismo helper de `playback` que su equivalente de reproducir.
+    fun saveResult(source: PlaySource) {
+        val card = selected ?: return
+        val season = refineSeason
+        val episode = refineEpisode
+        playError = null
+        when (source) {
+            is PlaySource.Torrent -> {
+                val size = source.result.sizeBytes
+                if (!TorrentSizeGate.needsConfirmation(size, alreadyConfirmed = false)) askNotifications()
+                scope.launch {
+                    enqueueResolved(
+                        playback.playTorrent(source.result, card, detail, resultTitle, resultPoster, resultDescription, season, episode),
+                        "torrent", size,
+                    )
+                }
+            }
+            is PlaySource.Archive -> {
+                askNotifications()
+                scope.launch { enqueueResolved(playback.playArchive(source.item), "archive", 0) }
+            }
+            is PlaySource.Web -> {
+                askNotifications()
+                // Mismos mirrorSeason/animeEpisode que playWebResult: la fila local se guarda por
+                // hash de pageUrl y las dos rutas tienen que escribir la MISMA fila.
+                val r = source.result
+                val mirrorSeason = com.arkiv.player.data.catalog.mirror.WebSourceSeason.forResult(r)
+                val animeEpisode = com.arkiv.player.data.catalog.mirror.WebSourceEpisode.forResult(r, fallback = episode ?: 1)
+                scope.launch {
+                    enqueueResolved(
+                        playback.playWeb(r, card, detail, animeShow, resultTitle, resultPoster, season, episode, mirrorSeason, animeEpisode),
+                        "web", 0,
+                    )
+                }
+            }
+            // El pack completo: mismo camino (y mismo permiso pedido una sola vez) que el botón
+            // "Guardar en el dispositivo" del diálogo del pack.
+            is PlaySource.WebPack ->
+                downloadWholeSeries(source.pack, resultTitle.ifBlank { source.pack.showTitle }, source.pack.episodes)
+        }
+    }
+
     // Los packs (torrent y web) NO reproducen directo: abren su diálogo para elegir nombre y
     // capítulos. Sin esto un pack agregaba cientos de episodios en silencio.
     fun playResult(source: PlaySource) = when (source) {
@@ -337,6 +423,7 @@ fun SearchScreen(
                     loadingArchive = loadingArchive,
                     enabled = !preparing,
                     onPlay = { playResult(it) },
+                    onDownload = { saveResult(it) },
                 )
                 else -> QueryContent(
                     titleResults = titleResults,
@@ -346,6 +433,7 @@ fun SearchScreen(
                     onSearch = { vm.search(it) },
                     onPickTitle = { card -> vm.pickTitle(card) },
                     onPlayDirect = { playDirect(it) },
+                    onDownloadDirect = { saveDirect(it) },
                 )
             }
         }
@@ -413,6 +501,27 @@ fun SearchScreen(
             },
         )
     }
+
+    // Aviso inline de torrent pesado. Igual que en CineDetailScreen: es un ATAJO para no encolar
+    // algo que vas a descartar; la compuerta real (por archivo, no por pack) vive en el worker.
+    pendingBig?.let { (episodeId, bytes) ->
+        AlertDialog(
+            onDismissRequest = { pendingBig = null },
+            title = { Text("Descarga pesada") },
+            text = { Text("Este torrent pesa ${TorrentSizeGate.formatSize(bytes)}. ¿Lo bajás igual?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    askNotifications()
+                    scope.launch {
+                        graph.localDownloads.enqueue(episodeId, "torrent")
+                        graph.localDownloads.confirmSize(episodeId)
+                    }
+                    pendingBig = null
+                }) { Text("Descargar") }
+            },
+            dismissButton = { TextButton(onClick = { pendingBig = null }) { Text("Cancelar") } },
+        )
+    }
 }
 
 /** Fase QUERY: buscador + grilla de títulos (TMDB/anime) + resultados directos (torrent/archive). */
@@ -425,6 +534,8 @@ private fun QueryContent(
     onSearch: (String) -> Unit,
     onPickTitle: (TitleCard) -> Unit,
     onPlayDirect: (PlaySource) -> Unit,
+    /** Guarda el resultado directo en el dispositivo (botón de descarga de cada fila). */
+    onDownloadDirect: (PlaySource) -> Unit,
 ) {
     var text by remember { mutableStateOf("") }
 
@@ -484,7 +595,10 @@ private fun QueryContent(
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column {
                     directResults.forEach { source ->
-                        SourceRow(source, enabled = true) { onPlayDirect(source) }
+                        SourceRow(
+                            source, enabled = true,
+                            onDownload = { onDownloadDirect(source) },
+                        ) { onPlayDirect(source) }
                     }
                 }
             }
@@ -632,6 +746,8 @@ private fun ResultsContent(
     loadingArchive: Boolean,
     enabled: Boolean,
     onPlay: (PlaySource) -> Unit,
+    /** Guarda la fuente en el dispositivo (botón de descarga de cada fila). */
+    onDownload: (PlaySource) -> Unit,
 ) {
     var expandedSections by remember { mutableStateOf(setOf("TORRENT", "WEB", "ARCHIVE")) }
     fun toggle(k: String) { expandedSections = if (k in expandedSections) expandedSections - k else expandedSections + k }
@@ -674,9 +790,9 @@ private fun ResultsContent(
         } else if (tab == SourceTab.TODO) {
             // "Todo" mantiene las secciones colapsables: son la única forma de ver los tres orígenes
             // a la vez sin que uno con 60 resultados entierre a los otros.
-            sourceSection(this, "TORRENT", ArkivRed, torrents, loadingTorrent, "TORRENT" in expandedSections, { toggle("TORRENT") }, enabled, onPlay)
-            sourceSection(this, "WEB", ArkivWebViolet, webs, loadingWeb, "WEB" in expandedSections, { toggle("WEB") }, enabled, onPlay)
-            sourceSection(this, "ARCHIVE", ArkivArchiveTeal, archives, loadingArchive, "ARCHIVE" in expandedSections, { toggle("ARCHIVE") }, enabled, onPlay)
+            sourceSection(this, "TORRENT", ArkivRed, torrents, loadingTorrent, "TORRENT" in expandedSections, { toggle("TORRENT") }, enabled, onPlay, onDownload)
+            sourceSection(this, "WEB", ArkivWebViolet, webs, loadingWeb, "WEB" in expandedSections, { toggle("WEB") }, enabled, onPlay, onDownload)
+            sourceSection(this, "ARCHIVE", ArkivArchiveTeal, archives, loadingArchive, "ARCHIVE" in expandedSections, { toggle("ARCHIVE") }, enabled, onPlay, onDownload)
         } else {
             // Con un origen elegido la cabecera de sección sobra: la lista va plana.
             val shown = when (tab) {
@@ -694,7 +810,9 @@ private fun ResultsContent(
                 }
             }
             items(shown, key = { sourceKey(it) }) { s ->
-                Box(Modifier.padding(horizontal = HPAD)) { SourceRow(s, enabled = enabled) { onPlay(s) } }
+                Box(Modifier.padding(horizontal = HPAD)) {
+                    SourceRow(s, enabled = enabled, onDownload = { onDownload(s) }) { onPlay(s) }
+                }
             }
         }
     }
@@ -814,6 +932,7 @@ private fun sourceSection(
     onToggle: () -> Unit,
     enabled: Boolean,
     onPlay: (PlaySource) -> Unit,
+    onDownload: (PlaySource) -> Unit,
 ) {
     scope.item(key = "sec-$tag") {
         Box(Modifier.padding(horizontal = HPAD)) {
@@ -822,7 +941,9 @@ private fun sourceSection(
     }
     if (expanded) {
         scope.items(items, key = { "$tag-${sourceKey(it)}" }) { s ->
-            Box(Modifier.padding(horizontal = HPAD)) { SourceRow(s, enabled = enabled) { onPlay(s) } }
+            Box(Modifier.padding(horizontal = HPAD)) {
+                SourceRow(s, enabled = enabled, onDownload = { onDownload(s) }) { onPlay(s) }
+            }
         }
         if (items.isEmpty() && !loading) {
             scope.item(key = "sec-$tag-empty") {

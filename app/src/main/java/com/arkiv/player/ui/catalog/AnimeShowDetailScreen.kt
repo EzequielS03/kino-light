@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -34,6 +35,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
@@ -62,6 +64,7 @@ import com.arkiv.player.data.catalog.TorrentSource
 import com.arkiv.player.data.catalog.providers.ContentType
 import com.arkiv.player.data.catalog.providers.SearchContext
 import com.arkiv.player.data.catalog.web.WebResult
+import com.arkiv.player.data.local.TorrentSizeGate
 import com.arkiv.player.data.catalog.mirror.MirrorWebPack
 import com.arkiv.player.data.catalog.mirror.MirrorWebSource
 import com.arkiv.player.torrent.EpisodeFilePicker
@@ -97,6 +100,8 @@ fun AnimeShowDetailScreen(
     var preparing by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var packFor by remember { mutableStateOf<TorrentResult?>(null) }
+    // Aviso inline de torrent pesado (ATAJO de UX, ver saveLocally): episodeId ya guardado + tamaño.
+    var pendingBig by remember { mutableStateOf<Pair<String, Long>?>(null) }
     // Idiomas a priorizar en la búsqueda (no excluye: TorrentSearchApi solo reordena/prioriza).
     var langs by remember { mutableStateOf<Set<TorrentLang>>(emptySet()) }
     // Episodios expandidos por modo (clave = nº de episodio; -1 = packs/otros). Mapas separados
@@ -239,45 +244,90 @@ fun AnimeShowDetailScreen(
         }
     }
 
+    // Resuelve un TorrentResult al episodeId local (misma numeración absoluta de anime que usa el
+    // resto de la pantalla), sin reproducir ni tocar `preparing`. Extraído de play() para que
+    // saveTorrentLocally() use EXACTAMENTE el mismo camino de guardado (addAnimeEpisode) y no uno
+    // paralelo: si divergieran, la descarga quedaría bajo un episodeId que el player nunca pide.
+    suspend fun resolveTorrentEpisodeId(r: TorrentResult, epNumber: Int?): String? {
+        val s = show ?: return null
+        val source = graph.torrentSearchApi.resolveSource(r)
+        val meta = when (source) {
+            is TorrentSource.Magnet -> graph.torrentEngine.resolveMagnet(source.uri)
+            is TorrentSource.TorrentFile -> graph.torrentEngine.resolveTorrent(source.bytes)
+            null -> null
+        }
+        if (meta == null) {
+            error = "No se pudo abrir el torrent (puede no tener seeds ahora)"
+            return null
+        }
+        val videos = graph.torrentEngine.videoFiles(meta)
+            .ifEmpty { graph.torrentEngine.pickVideo(meta)?.let { listOf(it) } ?: emptyList() }
+        val video = epNumber?.let { epNo ->
+            EpisodeFilePicker.pick(videos.map { it.name }, season = 1, episode = epNo, absoluteEpisode = epNo)
+                ?.let { videos[it] }
+        } ?: videos.maxByOrNull { it.sizeBytes } ?: videos.firstOrNull()
+        if (video == null) {
+            error = "El torrent no tiene video reproducible"
+            return null
+        }
+        return graph.repository.addAnimeEpisode(
+            anilistId = anilistId,
+            showTitle = s.title,
+            posterUrl = s.posterUrl,
+            episodeName = r.name,
+            infoHashHex = meta.infoHashHex,
+            infoBytes = meta.infoBytes,
+            fileIndex = video.index,
+            fileSizeBytes = video.sizeBytes,
+        )
+    }
+
     fun play(r: TorrentResult, epNumber: Int? = null) {
-        val s = show ?: return
         preparing = true
         error = null
         scope.launch {
-            val source = graph.torrentSearchApi.resolveSource(r)
-            val meta = when (source) {
-                is TorrentSource.Magnet -> graph.torrentEngine.resolveMagnet(source.uri)
-                is TorrentSource.TorrentFile -> graph.torrentEngine.resolveTorrent(source.bytes)
-                null -> null
-            }
-            if (meta == null) {
-                preparing = false
-                error = "No se pudo abrir el torrent (puede no tener seeds ahora)"
-                return@launch
-            }
-            val videos = graph.torrentEngine.videoFiles(meta)
-                .ifEmpty { graph.torrentEngine.pickVideo(meta)?.let { listOf(it) } ?: emptyList() }
-            val video = epNumber?.let { epNo ->
-                EpisodeFilePicker.pick(videos.map { it.name }, season = 1, episode = epNo, absoluteEpisode = epNo)
-                    ?.let { videos[it] }
-            } ?: videos.maxByOrNull { it.sizeBytes } ?: videos.firstOrNull()
-            if (video == null) {
-                preparing = false
-                error = "El torrent no tiene video reproducible"
-                return@launch
-            }
-            val epId = graph.repository.addAnimeEpisode(
-                anilistId = anilistId,
-                showTitle = s.title,
-                posterUrl = s.posterUrl,
-                episodeName = r.name,
-                infoHashHex = meta.infoHashHex,
-                infoBytes = meta.infoBytes,
-                fileIndex = video.index,
-                fileSizeBytes = video.sizeBytes,
-            )
+            val epId = resolveTorrentEpisodeId(r, epNumber)
             preparing = false
-            onPlay(epId)
+            if (epId != null) onPlay(epId)
+        }
+    }
+
+    // Encola una descarga al dispositivo. Atajo de UX igual que en CineDetailScreen: si el tamaño ya
+    // se conoce y supera el umbral, pide confirmación antes de encolar. La compuerta que garantiza
+    // el comportamiento sigue siendo la del worker, la única que ve el tamaño del ARCHIVO elegido y
+    // no el del pack. NO pide el permiso de notificaciones acá adentro: los llamadores que invocan
+    // esto en loop lo piden UNA vez antes del loop.
+    fun saveLocally(episodeId: String, source: String, knownSizeBytes: Long) {
+        if (TorrentSizeGate.needsConfirmation(knownSizeBytes, alreadyConfirmed = false)) {
+            pendingBig = episodeId to knownSizeBytes
+        } else {
+            scope.launch { graph.localDownloads.enqueue(episodeId, source) }
+        }
+    }
+
+    // Guarda un torrent en el dispositivo: mismo resolve que play(), sin reproducir. El anime se
+    // consume mayoritariamente por torrent y hasta ahora esta pantalla solo dejaba guardar WEB.
+    fun saveTorrentLocally(r: TorrentResult, epNumber: Int?) {
+        error = null
+        scope.launch {
+            val epId = resolveTorrentEpisodeId(r, epNumber) ?: return@launch
+            // El permiso se pide solo si esto encola de una: si el tamaño dispara el diálogo de
+            // "Descarga pesada", lo pide el botón "Descargar" de ESE diálogo.
+            if (!TorrentSizeGate.needsConfirmation(r.sizeBytes, alreadyConfirmed = false)) askNotifications()
+            saveLocally(epId, "torrent", r.sizeBytes)
+        }
+    }
+
+    // Guarda un ítem de archive.org en el dispositivo: mismo camino que playArchive (addItem +
+    // firstEpisodeId), sin reproducir. Tamaño desconocido -> no dispara el aviso inline.
+    fun saveArchiveLocally(item: ArchiveSearchResult) {
+        error = null
+        askNotifications()
+        scope.launch {
+            val added = graph.repository.addItem(item.identifier).getOrNull()
+            if (added == null) { error = "No se pudo abrir el ítem de archive.org"; return@launch }
+            val epId = graph.repository.firstEpisodeId(added.identifier) ?: return@launch
+            saveLocally(epId, "archive", 0)
         }
     }
 
@@ -517,7 +567,10 @@ fun AnimeShowDetailScreen(
                                 modifier = Modifier.padding(vertical = 8.dp),
                             )
                             else -> browse!!.forEach { src ->
-                                ReleaseRow(result = src.result, enabled = !preparing) { playOrPack(src.result, null) }
+                                ReleaseRow(
+                                    result = src.result, enabled = !preparing,
+                                    onDownload = { saveTorrentLocally(src.result, null) },
+                                ) { playOrPack(src.result, null) }
                             }
                         }
                     } else {
@@ -617,7 +670,10 @@ fun AnimeShowDetailScreen(
                                     expandedSub["$ep-t"] ?: true, { expandedSub["$ep-t"] = !(expandedSub["$ep-t"] ?: true) },
                                 ) {
                                     torrents.forEach { src ->
-                                        ReleaseRow(result = src.result, enabled = !preparing) { playOrPack(src.result, src.episode ?: ep) }
+                                        ReleaseRow(
+                                            result = src.result, enabled = !preparing,
+                                            onDownload = { saveTorrentLocally(src.result, src.episode ?: ep) },
+                                        ) { playOrPack(src.result, src.episode ?: ep) }
                                     }
                                 }
                                 val epPacks = webPacks.filter { it.coversEpisode(season = 0, episode = ep, seasonStrict = false) }
@@ -636,7 +692,12 @@ fun AnimeShowDetailScreen(
                                     "ARCHIVE", Color(0xFF80CBC4), archives.size, loadingArchiveEp[ep] == true,
                                     expandedSub["$ep-a"] ?: false, { expandedSub["$ep-a"] = !(expandedSub["$ep-a"] ?: false) },
                                 ) {
-                                    archives.forEach { item -> ArchiveEpRow(item, enabled = !preparing) { playArchive(item) } }
+                                    archives.forEach { item ->
+                                        ArchiveEpRow(
+                                            item, enabled = !preparing,
+                                            onDownload = { saveArchiveLocally(item) },
+                                        ) { playArchive(item) }
+                                    }
                                 }
                             }
                         }
@@ -700,7 +761,10 @@ fun AnimeShowDetailScreen(
                                         )
                                     }
                                     if (open) items.forEach { src ->
-                                        ReleaseRow(result = src.result, enabled = !preparing) { playOrPack(src.result, src.episode ?: ep) }
+                                        ReleaseRow(
+                                            result = src.result, enabled = !preparing,
+                                            onDownload = { saveTorrentLocally(src.result, src.episode ?: ep) },
+                                        ) { playOrPack(src.result, src.episode ?: ep) }
                                     }
                                 }
                                 if (loadingBrowse) Row(
@@ -787,10 +851,37 @@ fun AnimeShowDetailScreen(
             },
         )
     }
+
+    // Aviso inline de torrent pesado. Igual que en CineDetailScreen: es un ATAJO para no encolar
+    // algo que vas a descartar; la compuerta real (por archivo, no por pack) vive en el worker.
+    pendingBig?.let { (episodeId, bytes) ->
+        AlertDialog(
+            onDismissRequest = { pendingBig = null },
+            title = { Text("Descarga pesada") },
+            text = { Text("Este torrent pesa ${TorrentSizeGate.formatSize(bytes)}. ¿Lo bajás igual?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    askNotifications()
+                    scope.launch {
+                        graph.localDownloads.enqueue(episodeId, "torrent")
+                        graph.localDownloads.confirmSize(episodeId)
+                    }
+                    pendingBig = null
+                }) { Text("Descargar") }
+            },
+            dismissButton = { TextButton(onClick = { pendingBig = null }) { Text("Cancelar") } },
+        )
+    }
 }
 
 @Composable
-private fun ReleaseRow(result: TorrentResult, enabled: Boolean, onClick: () -> Unit) {
+private fun ReleaseRow(
+    result: TorrentResult,
+    enabled: Boolean,
+    /** Guarda ESTE release en el dispositivo. Mismo patrón que [WebEpRow]. */
+    onDownload: () -> Unit,
+    onClick: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -823,6 +914,9 @@ private fun ReleaseRow(result: TorrentResult, enabled: Boolean, onClick: () -> U
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
+        }
+        IconButton(onClick = onDownload, enabled = enabled) {
+            Icon(Icons.Default.Download, contentDescription = "Guardar en el dispositivo", tint = ArkivTextSecondary)
         }
     }
 }
@@ -909,7 +1003,13 @@ private fun WebPackRow(pack: MirrorWebPack, enabled: Boolean, onClick: () -> Uni
 }
 
 @Composable
-private fun ArchiveEpRow(item: ArchiveSearchResult, enabled: Boolean, onClick: () -> Unit) {
+private fun ArchiveEpRow(
+    item: ArchiveSearchResult,
+    enabled: Boolean,
+    /** Guarda ESTE ítem en el dispositivo. Mismo patrón que [WebEpRow]. */
+    onDownload: () -> Unit,
+    onClick: () -> Unit,
+) {
     Row(
         modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick)
             .padding(start = 8.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
@@ -919,6 +1019,9 @@ private fun ArchiveEpRow(item: ArchiveSearchResult, enabled: Boolean, onClick: (
         Column(Modifier.weight(1f)) {
             Text(item.title, color = Color.White, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
             if (item.year.isNotBlank()) Text(item.year, color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall)
+        }
+        IconButton(onClick = onDownload, enabled = enabled) {
+            Icon(Icons.Default.Download, contentDescription = "Guardar en el dispositivo", tint = ArkivTextSecondary)
         }
     }
 }
