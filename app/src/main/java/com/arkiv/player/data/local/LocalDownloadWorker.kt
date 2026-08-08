@@ -75,19 +75,50 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
 
         when (outcome) {
             is DownloadOutcome.Done -> {
-                dao.markCompleted(entity.episodeId, outcome.file.absolutePath)
-                notifyDone(entity.episodeId)
+                // Chequeo LO MÁS TARDE POSIBLE, justo antes de escribir el estado: la cancelación de
+                // WorkManager (disparada por "Quitar") llega de forma ASÍNCRONA, y ni el `while` de
+                // `TorrentDownloadStrategy` ni el `renameTo` final de `HttpRangeDownloader` tienen un
+                // punto de suspensión después del último chequeo cancelable — así que la estrategia
+                // puede terminar de escribir el archivo destino milisegundos después de que
+                // `LocalDownloadManager.remove` ya borró la fila y barrió el directorio. Si la fila ya
+                // no está, este archivo es justo lo que ese barrido no llegó a agarrar: no hay ninguna
+                // otra limpieza que lo vaya a recoger después, así que se borra acá y NO se notifica
+                // "Descarga completa" de algo que el usuario ya eliminó.
+                if (dao.get(entity.episodeId) == null) {
+                    Log.i(
+                        TAG,
+                        "la fila de ${entity.episodeId} se quitó mientras terminaba de bajar; se descarta el archivo",
+                    )
+                    runCatching { outcome.file.delete() }
+                    runCatching { LocalFilePaths.partOf(outcome.file).delete() }
+                    runCatching { LocalFilePaths.originOf(outcome.file).delete() }
+                } else {
+                    dao.markCompleted(entity.episodeId, outcome.file.absolutePath)
+                    notifyDone(entity.episodeId)
+                }
             }
             is DownloadOutcome.NeedsConfirmation -> {
-                dao.updateProgress(entity.episodeId, 0f, 0, outcome.fileSizeBytes)
-                dao.updateState(
-                    entity.episodeId, LocalDownloadState.NEEDS_CONFIRMATION,
-                    "Pesa ${TorrentSizeGate.formatSize(outcome.fileSizeBytes)}",
-                )
-                notifyNeedsConfirmation(entity.episodeId, outcome.fileSizeBytes)
+                // Mismo cuidado que en `Done`, pero acá lo único engañoso es la notificación: no hay
+                // archivo bajado que limpiar (el torrent recién resolvió metadata, no bajó bytes), y
+                // los `UPDATE` de Room sobre una fila ya borrada no fallan ni tienen efecto (el WHERE
+                // no matchea nada). Lo que sí sería un engaño es "Confirmá en Descargas para bajarla"
+                // sobre una fila que el usuario ya quitó — no hay nada que confirmar.
+                if (dao.get(entity.episodeId) != null) {
+                    dao.updateProgress(entity.episodeId, 0f, 0, outcome.fileSizeBytes)
+                    dao.updateState(
+                        entity.episodeId, LocalDownloadState.NEEDS_CONFIRMATION,
+                        "Pesa ${TorrentSizeGate.formatSize(outcome.fileSizeBytes)}",
+                    )
+                    notifyNeedsConfirmation(entity.episodeId, outcome.fileSizeBytes)
+                }
             }
             is DownloadOutcome.Failed -> {
                 Log.w(TAG, "falló ${entity.episodeId}: ${outcome.reason} (transitorio=${outcome.transient})")
+                // Acá NO hace falta el mismo chequeo: esta rama no notifica nada visible (solo loguea
+                // y escribe estado), y un `UPDATE`/`Result.retry()` sobre una fila ya borrada no
+                // reintroduce la fila ni engaña a nadie — en el peor caso, si el usuario la volvió a
+                // encolar mientras tanto, es la MISMA fila (incluso mismo episodeId) y el motivo del
+                // error es información legítima para ella.
                 // Corte de red a mitad de 4 GB: el `.part` está intacto y `Range` reanuda, pero
                 // nadie disparaba esa reanudación porque todo fallo terminaba en `failed`. Ahora los
                 // fallos transitorios devuelven `Result.retry()`: WorkManager reintenta ESTE mismo
