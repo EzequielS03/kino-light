@@ -28,6 +28,7 @@ android {
         buildConfigField("String", "TMDB_API_KEY", "\"${readEnv("API_KEY")}\"")
         buildConfigField("String", "OPENSUBTITLES_API_KEY", "\"${readEnv("SUBITLE_API")}\"")
         buildConfigField("String", "SIMKL_CLIENT_ID", "\"${readEnv("SIMKL_CLIENT_ID")}\"")
+        buildConfigField("String", "REFRESH_API_KEY", "\"${readEnv("REFRESH_API_KEY")}\"")
         ndk {
             // Solo ABIs de dispositivos reales (celular arm64, Fire Stick armeabi-v7a).
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")

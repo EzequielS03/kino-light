@@ -1,6 +1,7 @@
 package com.arkiv.player.data
 
 import android.content.Context
+import com.arkiv.player.BuildConfig
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -126,6 +127,15 @@ class SettingsStore(context: Context) {
         const val DEFAULT_TORRENT_API_URL = "https://torrents.comparadorinternet.co"
         const val DEFAULT_NUC_LAN_URL = "http://192.168.1.100:8099"
         const val DEFAULT_NUC_TUNNEL_URL = "https://arkiv-offline.comparadorinternet.co"
-        const val DEFAULT_REFRESH_API_KEY = "24bc5f7d300b6a14178dfc9550e90078c5cd1f6d3fe19a82"
+        /**
+         * Key del `POST /api/refresh` del mirror. Sale de `.env` vía BuildConfig, como las de TMDB,
+         * OpenSubtitles y SIMKL — antes estaba hardcodeada acá y GitGuardian la detectó en el repo.
+         *
+         * OJO, que es fácil malentenderlo: esto la saca de git, **no del APK**. Sigue siendo una
+         * cadena en el binario, y el APK se distribuye por una URL pública, así que cualquiera con
+         * el archivo la puede extraer. Un secreto embebido en un cliente distribuido no es un
+         * secreto: lo que de verdad protege ese endpoint tiene que estar del lado del servidor.
+         */
+        val DEFAULT_REFRESH_API_KEY: String get() = BuildConfig.REFRESH_API_KEY
     }
 }
