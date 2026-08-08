@@ -24,6 +24,23 @@ Plan: [2026-08-07-descarga-local-dispositivo.md](plans/2026-08-07-descarga-local
   tenía 0 filas antes de migrar, así que ese escenario no existía en este dispositivo. El
   `downloadfile.mp4` de 139 MB que hay en `files/Movies/` es basura sin fila asociada.
 
+## Agregado después de la verificación en device
+
+- **Agrupación por serie** en la pantalla de Descargas: cabecera con resumen, plegable, y al abrir
+  **todos** los capítulos de la serie (no solo los encolados) con su estado, más acciones de serie
+  (quitar todos, cancelar todos, reintentar fallidos).
+- **Un solo `seriesId` por serie.** Antes el camino de anime usaba `anilist$id` y el de catálogo
+  `imdbId`/`tmdb$id`, así que la misma serie se guardaba dos veces y el mismo capítulo se bajaba dos
+  veces (verificado con DAN DA DAN: 461 MB duplicados). Ahora `SeriesItemIds` resuelve el id canónico
+  vía `AnimeMappingRepository`. **No se migraron los ítems ya guardados** — los duplicados que ya
+  existen siguen ahí; fusionarlos es un paso aparte y riesgoso.
+- **Compuerta de duplicados** en `enqueue` **y en el worker**: si ese contenido ya está en disco bajo
+  otro ítem, la fila **adopta** el archivo del gemelo en vez de volver a bajarlo. Eso implica que dos
+  filas pueden compartir `filePath`; el borrado lo respeta por los dos caminos (explícito y barrido
+  por prefijo). Ver `DuplicateDownloadPolicy.deletablePaths`.
+- **Barra indeterminada durante el staging**: el backend solo puede reportar 0% o 100% para esa fase
+  (un job web tiene un solo item), así que una barra determinada mentía.
+
 ## Verificación en device pendiente, por orden de riesgo
 
 1. **Torrent de punta a punta con interrupciones:** encolar, matar la app a mitad, reabrir. Ver si
