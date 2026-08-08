@@ -7,7 +7,13 @@ sealed interface DownloadOutcome {
     data class Done(val file: File) : DownloadOutcome
     /** Torrent que supera el umbral: no se bajó nada, espera confirmación del usuario. */
     data class NeedsConfirmation(val fileSizeBytes: Long) : DownloadOutcome
-    data class Failed(val reason: String) : DownloadOutcome
+    /**
+     * [transient] = "esto puede andar en un rato" (corte de red, 5xx, torrent en uso). El worker lo
+     * usa para decidir si devuelve `Result.retry()` (backoff de WorkManager) o marca la fila
+     * `failed`. Por defecto false: un motivo nuevo que nadie clasificó no debe reintentarse solo.
+     * Ver [DownloadRetryPolicy].
+     */
+    data class Failed(val reason: String, val transient: Boolean = false) : DownloadOutcome
 }
 
 /**

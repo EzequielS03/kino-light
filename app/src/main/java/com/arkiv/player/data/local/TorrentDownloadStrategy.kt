@@ -64,64 +64,88 @@ class TorrentDownloadStrategy(
                 "No se pudo iniciar la descarga: el torrent podría estar en uso ahora mismo " +
                     "(reproduciéndose u otra descarga en curso). Cerrá el reproductor y probá de nuevo " +
                     "en unos minutos.",
+                // Reintentable: la causa más probable es un stream activo del mismo pack, y eso se
+                // libera solo cuando el usuario sale del reproductor.
+                transient = true,
             )
         }
 
-        var lastBytes = 0L
-        var stalledMs = 0L
-        while (!download.isComplete()) {
-            delay(POLL_MS)
-            val done = download.bytesDone()
-            onProgress(done, download.totalBytes())
-            // Corte por ESTANCAMIENTO, no por tiempo total: `bytesDone()` es monótono no decreciente,
-            // así que basarse en "done == 0" deja el corte muerto para siempre apenas se baja el primer
-            // byte. Nada de tope de tiempo total tampoco — un torrent legítimo con pocos seeds puede
-            // tardar horas y matarlo por reloj sería peor que el bug (a diferencia de
-            // `PREBUFFER_CAP_MS` en PlayerViewModel, que SÍ es un tope de 30s de tiempo total, pero para
-            // esperar el buffer de cabeza+cola del streaming, no para bajar el archivo completo).
-            stalledMs = if (done > lastBytes) 0 else stalledMs + POLL_MS
-            lastBytes = done
-            if (stalledMs >= STALL_TIMEOUT_MS) {
-                download.discard()
-                return if (done == 0L) {
-                    DownloadOutcome.Failed("No se encontró ningún peer para este torrent")
-                } else {
-                    DownloadOutcome.Failed("La descarga se estancó sin peers y no pudo continuar")
+        // De acá para abajo TODO va en try/finally. El handle es exclusivamente nuestro y, si queda
+        // vivo en la sesión, `startPersistentDownload` devuelve null para ese infohash PARA SIEMPRE
+        // (su primera guarda es "si ya hay handle, no toco nada"): cada reintento diría "el torrent
+        // podría estar en uso" sin que haya ningún reproductor abierto, y solo se sana matando el
+        // proceso. La cancelación del worker (WorkManager para la corrutina) es justamente el camino
+        // que antes se saltaba los `detach()`/`discard()` de más abajo.
+        var released = false
+        try {
+            var lastBytes = 0L
+            var stalledMs = 0L
+            while (!download.isComplete()) {
+                delay(POLL_MS)
+                val done = download.bytesDone()
+                onProgress(done, download.totalBytes())
+                // Corte por ESTANCAMIENTO, no por tiempo total: `bytesDone()` es monótono no decreciente,
+                // así que basarse en "done == 0" deja el corte muerto para siempre apenas se baja el primer
+                // byte. Nada de tope de tiempo total tampoco — un torrent legítimo con pocos seeds puede
+                // tardar horas y matarlo por reloj sería peor que el bug (a diferencia de
+                // `PREBUFFER_CAP_MS` en PlayerViewModel, que SÍ es un tope de 30s de tiempo total, pero para
+                // esperar el buffer de cabeza+cola del streaming, no para bajar el archivo completo).
+                stalledMs = if (done > lastBytes) 0 else stalledMs + POLL_MS
+                lastBytes = done
+                if (stalledMs >= STALL_TIMEOUT_MS) {
+                    download.discard()
+                    released = true
+                    // Definitivo, no reintentable solo: ya se esperó el timeout completo de 180 s sin
+                    // que apareciera un peer; volver en 30 s vuelve a esperar 180 s para nada.
+                    return if (done == 0L) {
+                        DownloadOutcome.Failed("No se encontró ningún peer para este torrent")
+                    } else {
+                        DownloadOutcome.Failed("La descarga se estancó sin peers y no pudo continuar")
+                    }
                 }
             }
-        }
 
-        download.detach()
-        val downloaded = download.file()
-        if (!downloaded.exists()) {
-            // El torrent se reporta completo pero el archivo esperado no está: no queda nada que
-            // conservar, así que se limpia el directorio de trabajo igual que en el resto de las salidas.
-            runCatching { workDir.deleteRecursively() }
-            return DownloadOutcome.Failed("El torrent terminó pero no dejó archivo")
-        }
-
-        // Mover a <targetDir>/<episodeId>.<ext> para que todas las fuentes dejen el archivo con el
-        // mismo esquema de nombre y LocalLibrary no tenga que saber de dónde vino.
-        val target = File(targetDir, LocalFilePaths.fileNameFor(episodeId, downloaded.name))
-        if (target.exists()) target.delete()
-        val moved = downloaded.renameTo(target)
-        if (!moved) {
-            // `renameTo` suele fallar por cruce de filesystem; el `copyTo` de respaldo puede a su vez
-            // fallar por disco lleno o permisos. Si eso pasa, el archivo original queda intacto (el
-            // `delete()` no llega a correr) pero hay que devolver `Failed` en vez de dejar propagar la
-            // excepción, que rompería el contrato del resto de esta función.
-            val copyResult = runCatching {
-                downloaded.copyTo(target, overwrite = true)
-                downloaded.delete()
-            }
-            if (copyResult.isFailure) {
+            // Sacar el torrent de la sesión ANTES de mover el archivo: si libtorrent sigue con el
+            // handle vivo puede estar escribiendo en él.
+            download.detach()
+            released = true
+            val downloaded = download.file()
+            if (!downloaded.exists()) {
+                // El torrent se reporta completo pero el archivo esperado no está: no queda nada que
+                // conservar, así que se limpia el directorio de trabajo igual que en el resto de las salidas.
                 runCatching { workDir.deleteRecursively() }
-                val reason = copyResult.exceptionOrNull()?.message ?: "motivo desconocido"
-                return DownloadOutcome.Failed("No se pudo mover el archivo descargado: $reason")
+                return DownloadOutcome.Failed("El torrent terminó pero no dejó archivo")
             }
+
+            // Mover a <targetDir>/<episodeId>.<ext> para que todas las fuentes dejen el archivo con el
+            // mismo esquema de nombre y LocalLibrary no tenga que saber de dónde vino.
+            val target = File(targetDir, LocalFilePaths.fileNameFor(episodeId, downloaded.name))
+            if (target.exists()) target.delete()
+            val moved = downloaded.renameTo(target)
+            if (!moved) {
+                // `renameTo` suele fallar por cruce de filesystem; el `copyTo` de respaldo puede a su vez
+                // fallar por disco lleno o permisos. Si eso pasa, el archivo original queda intacto (el
+                // `delete()` no llega a correr) pero hay que devolver `Failed` en vez de dejar propagar la
+                // excepción, que rompería el contrato del resto de esta función.
+                val copyResult = runCatching {
+                    downloaded.copyTo(target, overwrite = true)
+                    downloaded.delete()
+                }
+                if (copyResult.isFailure) {
+                    runCatching { workDir.deleteRecursively() }
+                    val reason = copyResult.exceptionOrNull()?.message ?: "motivo desconocido"
+                    return DownloadOutcome.Failed("No se pudo mover el archivo descargado: $reason")
+                }
+            }
+            runCatching { workDir.deleteRecursively() }
+            return DownloadOutcome.Done(target)
+        } finally {
+            // `detach` y no `discard`: soltar el handle es obligatorio, borrar lo bajado NO. Si nos
+            // pararon a mitad de 4 GB, el `workDir` queda y el próximo intento reanuda desde ahí
+            // (libtorrent recontrasta las piezas que ya están en disco). El borrado de verdad, cuando
+            // el usuario quita la descarga, lo hace `LocalDownloadManager.remove`.
+            if (!released) download.detach()
         }
-        runCatching { workDir.deleteRecursively() }
-        return DownloadOutcome.Done(target)
     }
 
     /** Devuelve (metadata, índice del archivo a bajar) resolviendo bytes o magnet. */

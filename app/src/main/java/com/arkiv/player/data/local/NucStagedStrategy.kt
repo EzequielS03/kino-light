@@ -51,6 +51,12 @@ class NucStagedStrategy(
             ?.firstOrNull { it.season == season && it.episode == episode && it.sourceRef == pageUrl }
 
         val itemIdOnNuc = existing?.itemId ?: run {
+            // Fase de STAGING: la NUC baja del origen y el dispositivo todavía no escribió un byte.
+            // Sin esto la fila decía "Bajando 12%" mientras la NUC trabajaba durante minutos u
+            // horas, y el estado `staging` (con su texto "Preparando en el servidor" y su prioridad
+            // en la cola) no lo escribía nadie. El progreso de esta fase ya NO pisa el estado: el
+            // DAO tiene un `updateProgress` que no toca `state`.
+            dao.updateState(episodeId, LocalDownloadState.STAGING, null)
             val jobId = api.createJob(
                 seriesId = seriesId,
                 showTitle = repo.getEpisode(episodeId)?.displayName ?: seriesId,
@@ -75,6 +81,10 @@ class NucStagedStrategy(
         // nada y es estrictamente más seguro que escribirlo recién al final.
         dao.setStagingItem(episodeId, itemIdOnNuc)
 
+        // Termina el staging y arranca la transferencia real al dispositivo: de acá en más el
+        // progreso sí son bytes que llegan al disco del celular.
+        dao.updateState(episodeId, LocalDownloadState.DOWNLOADING, null)
+
         // 3) Transferir de la NUC al dispositivo (Range → reanudable).
         val base = api.baseUrlResolved()
         val url = api.streamUrl(itemIdOnNuc, base)
@@ -86,7 +96,12 @@ class NucStagedStrategy(
         // la barra saltaría hacia atrás al terminar el staging: fromStaging(1f) deja la barra en 0.5,
         // pero un (done=0, total=archivo) crudo la mostraría en 0. fromTransfer(0, total) da 0.5
         // también, así que con el mapeo la transición es continua.
-        val result = http.download(url, target, emptyMap()) { done, total ->
+        //
+        // `resumeKey` es el ítem de la NUC y NO la URL: `baseUrlResolved()` prueba LAN antes que
+        // túnel, así que la MISMA copia se sirve desde dos URLs distintas según dónde esté el
+        // celular. Con la URL como clave, volver a casa (o salir) después de un corte descartaría un
+        // parcial de varios GB perfectamente válido.
+        val result = http.download(url, target, emptyMap(), resumeKey = "nuc:item:$itemIdOnNuc") { done, total ->
             onProgress((StagingProgress.fromTransfer(done, total) * PROGRESS_SCALE).toLong(), PROGRESS_SCALE)
         }
 
@@ -99,7 +114,16 @@ class NucStagedStrategy(
                 else Log.w(TAG, "no se pudo borrar el item $itemIdOnNuc de la NUC; queda para el barrido")
                 DownloadOutcome.Done(file)
             },
-            onFailure = { DownloadOutcome.Failed(it.message ?: "Falló la transferencia desde la NUC") },
+            // Solo la TRANSFERENCIA es reintentable sola (corte de red con el `.part` intacto). Los
+            // fallos del lado de la NUC (job rechazado, staging fallido o eterno) quedan definitivos
+            // y reintentables a mano desde la pantalla, tal como los describe el spec: si blog está
+            // caído o sin cuota, martillarlo con backoff no lo va a arreglar.
+            onFailure = {
+                DownloadOutcome.Failed(
+                    it.message ?: "Falló la transferencia desde la NUC",
+                    transient = DownloadRetryPolicy.isTransient(it),
+                )
+            },
         )
     }
 

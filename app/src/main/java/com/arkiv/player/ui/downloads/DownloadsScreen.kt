@@ -87,6 +87,7 @@ fun DownloadsScreen(
                 onPlay = { if (row.state == LocalDownloadState.COMPLETED) onPlayEpisode(row.episodeId) },
                 onConfirm = { vm.confirm(row.episodeId) },
                 onRetry = { vm.retry(row.episodeId) },
+                onCancel = { vm.cancel(row.episodeId) },
                 onRemove = { vm.remove(row.episodeId) },
             )
         }
@@ -99,6 +100,7 @@ private fun DownloadItem(
     onPlay: () -> Unit,
     onConfirm: () -> Unit,
     onRetry: () -> Unit,
+    onCancel: () -> Unit,
     onRemove: () -> Unit,
 ) {
     Column(
@@ -152,7 +154,10 @@ private fun DownloadItem(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (row.state == LocalDownloadState.DOWNLOADING) {
+                // También en STAGING: esa fase (la NUC bajando del origen) ocupa la primera mitad de
+                // la barra, y sin esto una espera de minutos u horas se veía sin ninguna señal de
+                // avance. Ver StagingProgress.
+                if (row.state == LocalDownloadState.DOWNLOADING || row.state == LocalDownloadState.STAGING) {
                     LinearProgressIndicator(
                         progress = { row.progress },
                         color = ArkivRed,
@@ -180,6 +185,12 @@ private fun DownloadItem(
                     TextButton(onClick = onRetry) { Text("Reintentar") }
                     TextButton(onClick = onRemove) { Text("Quitar") }
                 }
+                // Lo que está en vuelo o en cola se puede CANCELAR (para la descarga y conserva el
+                // parcial, así "Reintentar" reanuda) o QUITAR (para y borra todo).
+                LocalDownloadState.QUEUED, LocalDownloadState.STAGING, LocalDownloadState.DOWNLOADING -> {
+                    TextButton(onClick = onCancel) { Text("Cancelar") }
+                    TextButton(onClick = onRemove) { Text("Quitar") }
+                }
                 else -> TextButton(onClick = onRemove) { Text("Quitar") }
             }
         }
@@ -189,8 +200,11 @@ private fun DownloadItem(
 /** Texto que se le muestra al usuario para cada estado de la cola. */
 private fun stateLabel(row: DownloadRow): String = when (row.state) {
     LocalDownloadState.QUEUED -> "En cola"
-    LocalDownloadState.STAGING -> "Preparando en el servidor"
-    LocalDownloadState.DOWNLOADING -> "Bajando ${(row.progress * 100).toInt()}%"
+    LocalDownloadState.STAGING -> "Preparando en el servidor ${(row.progress * 100).toInt()}%"
+    // El error con la fila todavía en `downloading` es un fallo transitorio que WorkManager va a
+    // reintentar solo (ver DownloadRetryPolicy): decirlo evita que parezca colgada.
+    LocalDownloadState.DOWNLOADING ->
+        row.error?.let { "Reintentando · $it" } ?: "Bajando ${(row.progress * 100).toInt()}%"
     LocalDownloadState.NEEDS_CONFIRMATION -> "Necesita confirmación · ${TorrentSizeGate.formatSize(row.bytes)}"
     LocalDownloadState.COMPLETED -> "Listo"
     LocalDownloadState.FAILED -> row.error ?: "Falló"

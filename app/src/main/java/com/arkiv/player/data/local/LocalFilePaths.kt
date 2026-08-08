@@ -30,6 +30,21 @@ object LocalFilePaths {
     /** Archivo parcial: se escribe acá y se renombra al final, para que nunca exista un destino a medias. */
     fun partOf(file: File): File = File(file.parentFile, file.name + ".part")
 
+    /**
+     * Marca de ORIGEN del parcial: guarda de qué URL (o de qué ítem) salieron los bytes que ya están
+     * en el `.part`, para no reanudar contra otra fuente.
+     *
+     * Sin esto, cambiar `settings.downloadQuality` a mitad de una descarga de archive.org hacía que
+     * el reintento pidiera `Range: bytes=<40% del derivative>-` sobre el `original`: el server
+     * responde 206, se appendea la cola de un archivo al prefijo de otro, y la verificación de
+     * tamaño no lo detecta porque las cuentas cierran. El resultado se marcaba "Listo" y era basura.
+     *
+     * Va como archivo hermano y no como columna de la tabla a propósito: el descargador es puro
+     * HTTP + disco (no conoce Room), y así el par `.part`/marca viaja junto y lo barre la misma
+     * limpieza por prefijo de `LocalDownloadManager.remove`.
+     */
+    fun originOf(file: File): File = File(file.parentFile, partOf(file).name + ".src")
+
     /** Directorio propio de cada descarga de torrent (libtorrent necesita un savePath por torrent). */
     fun torrentDirName(episodeId: String): String = sanitize(episodeId)
 }

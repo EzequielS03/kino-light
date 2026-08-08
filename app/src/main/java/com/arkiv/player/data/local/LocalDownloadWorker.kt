@@ -54,14 +54,24 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
 
         dao.updateState(entity.episodeId, LocalDownloadState.DOWNLOADING, null)
 
-        val outcome = runCatching {
+        val outcome = try {
             strategy.download(
                 episodeId = entity.episodeId,
                 alreadyConfirmed = entity.sizeConfirmed,
                 targetDir = graph.localDownloads.targetDir(),
                 onProgress = { done, total -> persistProgress(dao, entity, done, total) },
             )
-        }.getOrElse { DownloadOutcome.Failed(it.message ?: "Error inesperado") }
+        } catch (ce: kotlinx.coroutines.CancellationException) {
+            // NO se traga la cancelación (antes iba dentro de un runCatching, que la atrapaba igual
+            // que cualquier otra excepción). Tragársela tenía dos consecuencias feas: la fila
+            // quedaba en `failed` con un motivo inventado aunque el usuario solo hubiera cancelado,
+            // y —peor— el `finally` de la estrategia de torrent nunca corría dentro de esta
+            // corrutina, dejando el TorrentHandle vivo en la sesión para siempre. Relanzarla deja
+            // que la estrategia limpie y que WorkManager marque el trabajo como CANCELLED.
+            throw ce
+        } catch (t: Throwable) {
+            DownloadOutcome.Failed(t.message ?: "Error inesperado", transient = DownloadRetryPolicy.isTransient(t))
+        }
 
         when (outcome) {
             is DownloadOutcome.Done -> {
@@ -69,9 +79,7 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
                 notifyDone(entity.episodeId)
             }
             is DownloadOutcome.NeedsConfirmation -> {
-                dao.updateBytes(
-                    entity.episodeId, LocalDownloadState.NEEDS_CONFIRMATION, 0f, 0, outcome.fileSizeBytes,
-                )
+                dao.updateProgress(entity.episodeId, 0f, 0, outcome.fileSizeBytes)
                 dao.updateState(
                     entity.episodeId, LocalDownloadState.NEEDS_CONFIRMATION,
                     "Pesa ${TorrentSizeGate.formatSize(outcome.fileSizeBytes)}",
@@ -79,7 +87,17 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
                 notifyNeedsConfirmation(entity.episodeId, outcome.fileSizeBytes)
             }
             is DownloadOutcome.Failed -> {
-                Log.w(TAG, "falló ${entity.episodeId}: ${outcome.reason}")
+                Log.w(TAG, "falló ${entity.episodeId}: ${outcome.reason} (transitorio=${outcome.transient})")
+                // Corte de red a mitad de 4 GB: el `.part` está intacto y `Range` reanuda, pero
+                // nadie disparaba esa reanudación porque todo fallo terminaba en `failed`. Ahora los
+                // fallos transitorios devuelven `Result.retry()`: WorkManager reintenta ESTE mismo
+                // request con backoff exponencial y la fila sigue en `downloading`, así que
+                // `nextToProcess` la vuelve a elegir a ella (lo empezado gana sobre lo encolado).
+                // NO se re-encola la cola acá: hacerlo con REPLACE mataría el retry programado.
+                if (DownloadRetryPolicy.shouldRetry(outcome.transient, runAttemptCount)) {
+                    dao.setError(entity.episodeId, outcome.reason)
+                    return Result.retry()
+                }
                 dao.updateState(entity.episodeId, LocalDownloadState.FAILED, outcome.reason)
             }
         }
@@ -116,7 +134,10 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
         if (now - lastPersistMs < PROGRESS_THROTTLE_MS) return
         lastPersistMs = now
         val progress = if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else 0f
-        runBlocking { dao.updateBytes(entity.episodeId, LocalDownloadState.DOWNLOADING, progress, done, total) }
+        // `updateProgress` y no `updateBytes`: escribir el estado junto con el progreso hacía que la
+        // fase de staging (web) fuera inalcanzable — el primer tick de progreso devolvía la fila de
+        // `staging` a `downloading`. El estado lo escribe quien conoce la fase.
+        runBlocking { dao.updateProgress(entity.episodeId, progress, done, total) }
     }
 
     /**
@@ -134,7 +155,7 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
         WorkManager.getInstance(applicationContext).enqueueUniqueWork(
             WORK_NAME,
             ExistingWorkPolicy.REPLACE,
-            OneTimeWorkRequestBuilder<LocalDownloadWorker>().build(),
+            request(),
         )
     }
 
@@ -188,6 +209,20 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
         private const val NOTIF_ID = 4711
         private const val PROGRESS_THROTTLE_MS = 1_000L
         private const val WORK_NAME = "arkiv_local_downloads"
+        private const val RETRY_BACKOFF_SECONDS = 30L
+
+        /**
+         * Backoff explícito para los `Result.retry()` de los fallos transitorios. Arranca en 30 s y
+         * duplica: 30 s, 1 min, 2 min… Suficiente para que un WiFi que parpadea vuelva, y corto
+         * comparado con lo que tarda una descarga de varios GB.
+         */
+        private fun request() = OneTimeWorkRequestBuilder<LocalDownloadWorker>()
+            .setBackoffCriteria(
+                androidx.work.BackoffPolicy.EXPONENTIAL,
+                RETRY_BACKOFF_SECONDS,
+                java.util.concurrent.TimeUnit.SECONDS,
+            )
+            .build()
 
         /**
          * KEEP y no REPLACE: si ya hay una pasada corriendo, encolar otra descarga no debe matarla a
@@ -199,7 +234,28 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
             WorkManager.getInstance(context).enqueueUniqueWork(
                 WORK_NAME,
                 ExistingWorkPolicy.KEEP,
-                OneTimeWorkRequestBuilder<LocalDownloadWorker>().build(),
+                request(),
+            )
+        }
+
+        /**
+         * CORTA lo que se esté bajando ahora mismo y relanza la cola desde cero.
+         *
+         * Es el mecanismo con el que `LocalDownloadManager.cancel/remove` detienen de verdad una
+         * descarga en curso: `REPLACE` cancela el trabajo único —incluido el que está RUNNING, cuya
+         * corrutina recibe la cancelación— y encola una pasada nueva en el mismo acto. Hacerlo en
+         * dos pasos (`cancelUniqueWork` + `schedule` con KEEP) tenía una carrera: mientras el
+         * trabajo cancelado sigue figurando como RUNNING, el KEEP es un no-op y la cola quedaba
+         * dormida hasta el próximo `enqueue`.
+         *
+         * La fila cancelada tiene que estar YA borrada (o fuera de la cola) cuando esto se llama, o
+         * la pasada nueva la vuelve a tomar.
+         */
+        fun restart(context: Context) {
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                WORK_NAME,
+                ExistingWorkPolicy.REPLACE,
+                request(),
             )
         }
     }

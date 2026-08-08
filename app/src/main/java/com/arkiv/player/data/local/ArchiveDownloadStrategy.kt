@@ -39,10 +39,18 @@ class ArchiveDownloadStrategy(
         val url = ArchiveUrls.download(episode.itemId, variant.path)
         val target = File(targetDir, LocalFilePaths.fileNameFor(episodeId, variant.path))
 
-        return http.download(url, target, mapOf("User-Agent" to USER_AGENT), onProgress)
+        // resumeKey por defecto = la URL: es justo lo que hace falta acá. Si el usuario cambia
+        // `downloadQuality` entre dos intentos, `variantFor` elige otra variante, la URL cambia y el
+        // `.part` de la variante anterior se descarta en vez de mezclarse con el archivo nuevo.
+        return http.download(url, target, mapOf("User-Agent" to USER_AGENT), onProgress = onProgress)
             .fold(
                 onSuccess = { DownloadOutcome.Done(it) },
-                onFailure = { DownloadOutcome.Failed(it.message ?: "Falló la descarga") },
+                onFailure = {
+                    DownloadOutcome.Failed(
+                        it.message ?: "Falló la descarga",
+                        transient = DownloadRetryPolicy.isTransient(it),
+                    )
+                },
             )
     }
 

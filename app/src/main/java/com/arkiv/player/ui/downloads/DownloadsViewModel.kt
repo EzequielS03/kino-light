@@ -30,6 +30,11 @@ class DownloadsViewModel(
         viewModelScope.launch { manager.retry(episodeId) }
     }
 
+    /** Detiene la descarga conservando el parcial (se puede reintentar y reanuda desde donde iba). */
+    fun cancel(episodeId: String) {
+        viewModelScope.launch { manager.cancel(episodeId) }
+    }
+
     fun remove(episodeId: String) {
         viewModelScope.launch { manager.remove(episodeId) }
     }

@@ -224,12 +224,28 @@ interface DownloadDao {
     @Query("UPDATE downloads SET state = :state, error = :error WHERE episodeId = :episodeId")
     suspend fun updateState(episodeId: String, state: String, error: String?)
 
+    /**
+     * Progreso SIN tocar `state`. Antes esta consulta también escribía el estado, y como el callback
+     * de progreso llega varias veces por segundo, la fase de staging (web) nunca podía quedarse en
+     * `staging`: el primer tick la devolvía a `downloading`. El estado lo maneja quien conoce la fase
+     * (el worker y la estrategia), no el contador de bytes.
+     */
     @Query(
-        "UPDATE downloads SET state = :state, progress = :progress, bytesDone = :bytesDone, bytes = :bytes " +
+        "UPDATE downloads SET progress = :progress, bytesDone = :bytesDone, bytes = :bytes " +
             "WHERE episodeId = :episodeId"
     )
-    suspend fun updateBytes(episodeId: String, state: String, progress: Float, bytesDone: Long, bytes: Long)
+    suspend fun updateProgress(episodeId: String, progress: Float, bytesDone: Long, bytes: Long)
 
+    /** Motivo del último tropiezo sin cambiar el estado (fila que va a reintentarse sola). */
+    @Query("UPDATE downloads SET error = :error WHERE episodeId = :episodeId")
+    suspend fun setError(episodeId: String, error: String?)
+
+    /**
+     * Escribe la ruta DESNUDA en `filePath` (no un `file://` en `localUri`): `localUri` es el formato
+     * histórico que dejaba el `DownloadManager` del sistema y queda solo para las filas viejas. Quien
+     * resuelve "¿dónde está el archivo?" para las dos columnas —y verifica que exista— es
+     * `LocalLibrary.fileFor`, que es el ÚNICO lector de esto.
+     */
     @Query(
         "UPDATE downloads SET state = 'completed', progress = 1.0, filePath = :filePath, error = NULL " +
             "WHERE episodeId = :episodeId"

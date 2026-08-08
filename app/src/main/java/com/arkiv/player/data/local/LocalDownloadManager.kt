@@ -21,6 +21,12 @@ class LocalDownloadManager(
     /** Inyectado para poder testear sin WorkManager; en producción es `LocalDownloadWorker::schedule`. */
     private val wakeWorker: (Context) -> Unit,
     /**
+     * Corta la pasada que está corriendo y relanza la cola. En producción es
+     * `LocalDownloadWorker::restart`. Es lo único que puede detener de verdad una descarga en curso:
+     * la fachada no tiene forma de hablarle a la estrategia que está adentro del worker.
+     */
+    private val restartWorker: (Context) -> Unit,
+    /**
      * Borra un item de la NUC. Inyectado para no acoplar la fachada al cliente REST. Sin default a
      * propósito: `wakeWorker` tampoco lo tiene, y un default que no borra nada (`{ false }`)
      * convertiría un olvido de cableado en `AppGraph` en un barrido que corre sin error y sin
@@ -82,9 +88,49 @@ class LocalDownloadManager(
         wakeWorker(appContext)
     }
 
-    /** Borra la fila y el archivo (y el parcial, si quedó a medias). */
+    /**
+     * DETIENE una descarga en curso sin borrar nada: la fila queda `failed` con motivo "Cancelada"
+     * y el `.part` (o el directorio del torrent) intacto, así que "Reintentar" reanuda desde donde
+     * iba en vez de empezar de cero.
+     *
+     * Cómo llega la señal hasta la estrategia: no hay canal directo con el worker, así que se corta
+     * el worker entero ([restartWorker], que es un `enqueueUniqueWork` con REPLACE). La corrutina
+     * recibe la cancelación, la estrategia de torrent suelta el handle en su `finally` y el
+     * descargador HTTP corta el bucle de escritura en su `ensureActive()`. La pasada nueva que
+     * REPLACE deja encolada toma la siguiente fila de la cola.
+     *
+     * Solo corta si esta fila es la que está en vuelo: la cola es de UNA a la vez, así que una fila
+     * en `downloading`/`staging` ES la que está corriendo, y una en `queued` no está corriendo nada
+     * (cortar por ella mataría la descarga ajena que sí está en curso).
+     */
+    suspend fun cancel(episodeId: String) = withContext(Dispatchers.IO) {
+        val row = downloadDao.get(episodeId) ?: return@withContext
+        if (DownloadQueuePolicy.isTerminal(row.state)) return@withContext
+        val inFlight = row.state == LocalDownloadState.DOWNLOADING || row.state == LocalDownloadState.STAGING
+        // El estado se escribe ANTES de cortar: si no, la pasada nueva encuentra la fila todavía en
+        // `downloading` y la vuelve a tomar de inmediato (nextToProcess prefiere lo ya empezado).
+        downloadDao.updateState(episodeId, LocalDownloadState.FAILED, "Cancelada")
+        if (inFlight) restartWorker(appContext)
+    }
+
+    /**
+     * Borra la fila y el archivo (y el parcial, si quedó a medias). Si la descarga está corriendo,
+     * primero la DETIENE: sin eso la estrategia seguía trabajando sobre una fila que ya no existe —
+     * el torrent seguía escribiendo en el `workDir` recién borrado y, al terminar, movía varios GB a
+     * un archivo que ninguna fila referenciaba (disco muerto permanente), y la descarga HTTP seguía
+     * gastando datos móviles escribiendo a un inode ya desenlazado.
+     */
     suspend fun remove(episodeId: String) = withContext(Dispatchers.IO) {
         val row = downloadDao.get(episodeId)
+        val inFlight = row != null &&
+            (row.state == LocalDownloadState.DOWNLOADING || row.state == LocalDownloadState.STAGING)
+        // Orden deliberado: 1) sacar la fila de la cola, 2) cortar el worker, 3) recién ahí borrar
+        // los archivos. Si se borrara primero, la pasada nueva podría volver a tomar la fila; si se
+        // cortara sin borrar la fila, ídem. Queda una ventana mínima en la que la estrategia todavía
+        // no se enteró de la cancelación y puede recrear su directorio de trabajo: es benigna,
+        // porque la propia estrategia limpia lo suyo al salir y el archivo final ya no se produce.
+        downloadDao.delete(episodeId)
+        if (inFlight) restartWorker(appContext)
         val path = row?.filePath ?: row?.localUri?.removePrefix("file://")
         if (path != null) {
             // Cubre el nombre exacto que dejaron descargas viejas (pre-migración), que puede no
@@ -92,19 +138,20 @@ class LocalDownloadManager(
             val file = File(path)
             runCatching { file.delete() }
             runCatching { LocalFilePaths.partOf(file).delete() }
+            runCatching { LocalFilePaths.originOf(file).delete() }
         }
         // Barrido por prefijo: para archive/web el nombre destino es determinista
         // (LocalFilePaths.fileNameFor = sanitize(episodeId) + extensión), así que esto cubre el
-        // archivo final Y el ".part" aunque la fila todavía no tenga filePath (QUEUED/DOWNLOADING,
-        // que es cuando el usuario más suele tocar "Quitar"). Sin esto el .part queda huérfano: nadie
-        // más lo referencia ni lo limpia, y se come el disco justo lo que FreeSpacePolicy protege.
+        // archivo final Y el ".part" (y su marca de origen ".part.src") aunque la fila todavía no
+        // tenga filePath (QUEUED/DOWNLOADING, que es cuando el usuario más suele tocar "Quitar").
+        // Sin esto el .part queda huérfano: nadie más lo referencia ni lo limpia, y se come el disco
+        // justo lo que FreeSpacePolicy protege.
         val prefix = "${LocalFilePaths.sanitize(episodeId)}."
         runCatching {
             targetDir().listFiles { f -> f.name.startsWith(prefix) }
                 ?.forEach { f -> runCatching { f.delete() } }
         }
         runCatching { File(targetDir(), "torrents/${LocalFilePaths.torrentDirName(episodeId)}").deleteRecursively() }
-        downloadDao.delete(episodeId)
     }
 
     /**
