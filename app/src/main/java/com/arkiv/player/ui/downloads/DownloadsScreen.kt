@@ -18,14 +18,21 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,8 +46,12 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import coil.compose.AsyncImage
 import com.arkiv.player.data.ArchiveUrls
 import com.arkiv.player.data.db.DownloadRow
+import com.arkiv.player.data.local.DownloadGroup
+import com.arkiv.player.data.local.DownloadGroupPolicy
+import com.arkiv.player.data.local.EpisodeDownloadStatus
 import com.arkiv.player.data.local.LocalDownloadState
 import com.arkiv.player.data.local.TorrentSizeGate
+import com.arkiv.player.data.model.Episode
 import com.arkiv.player.ui.components.EmptyState
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivRed
@@ -54,11 +65,11 @@ fun DownloadsScreen(
 ) {
     val graph = rememberGraph()
     val vm: DownloadsViewModel = viewModel(
-        factory = viewModelFactory { initializer { DownloadsViewModel(graph.localDownloads) } },
+        factory = viewModelFactory { initializer { DownloadsViewModel(graph.localDownloads, graph.repository) } },
     )
-    val downloads by vm.downloads.collectAsStateWithLifecycle()
+    val groups by vm.groups.collectAsStateWithLifecycle()
 
-    if (downloads.isEmpty()) {
+    if (groups.isEmpty()) {
         EmptyState(
             title = "Descargas",
             subtitle = "Todavía no descargaste ningún episodio. Usá el ícono de descarga en un episodio.",
@@ -81,15 +92,211 @@ fun DownloadsScreen(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
             )
         }
-        items(downloads, key = { it.episodeId }) { row ->
-            DownloadItem(
-                row = row,
-                onPlay = { if (row.state == LocalDownloadState.COMPLETED) onPlayEpisode(row.episodeId) },
-                onConfirm = { vm.confirm(row.episodeId) },
-                onRetry = { vm.retry(row.episodeId) },
-                onCancel = { vm.cancel(row.episodeId) },
-                onRemove = { vm.remove(row.episodeId) },
+        items(groups, key = { it.itemId }) { group ->
+            DownloadGroupSection(
+                group = group,
+                onPlay = onPlayEpisode,
+                onConfirm = vm::confirm,
+                onRetry = vm::retry,
+                onCancel = vm::cancel,
+                onRemove = vm::remove,
+                onDownload = { episodeId -> vm.download(episodeId, group.source) },
+                onCancelAll = { vm.cancelGroup(group) },
+                onRemoveAll = { vm.removeGroup(group) },
+                onRetryFailed = { vm.retryFailedGroup(group) },
             )
+        }
+    }
+}
+
+/**
+ * Una fila del listado de Descargas. Un ítem de un solo episodio (película) no tiene nada que
+ * plegar y se muestra plana, como antes. Uno con varios muestra la cabecera con carátula + resumen
+ * y, al desplegar, TODOS los capítulos del ítem -- no solo los que pasaron por la cola: los que
+ * todavía no se descargaron llevan su propio botón de bajar.
+ */
+@Composable
+private fun DownloadGroupSection(
+    group: DownloadGroup,
+    onPlay: (String) -> Unit,
+    onConfirm: (String) -> Unit,
+    onRetry: (String) -> Unit,
+    onCancel: (String) -> Unit,
+    onRemove: (String) -> Unit,
+    onDownload: (String) -> Unit,
+    onCancelAll: () -> Unit,
+    onRemoveAll: () -> Unit,
+    onRetryFailed: () -> Unit,
+) {
+    if (group.isSingleEpisode) {
+        // Ver DownloadGroupPolicy.buildGroups: un itemId solo entra a `groups` si tiene al menos una
+        // fila en `downloads`, así que el único episodio de una película siempre está trackeado.
+        val row = (group.episodes.firstOrNull()?.status as? EpisodeDownloadStatus.Tracked)?.row ?: return
+        DownloadItem(
+            row = row,
+            onPlay = { if (row.state == LocalDownloadState.COMPLETED) onPlay(row.episodeId) },
+            onConfirm = { onConfirm(row.episodeId) },
+            onRetry = { onRetry(row.episodeId) },
+            onCancel = { onCancel(row.episodeId) },
+            onRemove = { onRemove(row.episodeId) },
+        )
+        return
+    }
+
+    // `rememberSaveable` (no `remember`): el `LazyColumn` con `key = { it.itemId }` desarma la
+    // composición de los grupos que salen de la ventana visible, y sin esto un grupo perdía su
+    // "desplegado" cada vez que se scrolleaba fuera de vista y volvía.
+    var expanded by rememberSaveable { mutableStateOf(false) }
+
+    Column(Modifier.fillMaxWidth()) {
+        DownloadGroupHeader(
+            group = group,
+            expanded = expanded,
+            onToggleExpanded = { expanded = !expanded },
+            onCancelAll = onCancelAll,
+            onRemoveAll = onRemoveAll,
+            onRetryFailed = onRetryFailed,
+        )
+        if (expanded) {
+            group.episodes.forEach { grouped ->
+                Box(Modifier.padding(start = 20.dp)) {
+                    when (val status = grouped.status) {
+                        is EpisodeDownloadStatus.Tracked -> DownloadItem(
+                            row = status.row,
+                            onPlay = { if (status.row.state == LocalDownloadState.COMPLETED) onPlay(status.row.episodeId) },
+                            onConfirm = { onConfirm(status.row.episodeId) },
+                            onRetry = { onRetry(status.row.episodeId) },
+                            onCancel = { onCancel(status.row.episodeId) },
+                            onRemove = { onRemove(status.row.episodeId) },
+                        )
+                        EpisodeDownloadStatus.NotDownloaded -> NotDownloadedRow(
+                            episode = grouped.episode,
+                            itemId = group.itemId,
+                            onDownload = { onDownload(grouped.episode.id) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Cabecera plegable de un grupo: carátula del ítem, título, resumen y acciones a nivel de serie. */
+@Composable
+private fun DownloadGroupHeader(
+    group: DownloadGroup,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
+    onCancelAll: () -> Unit,
+    onRemoveAll: () -> Unit,
+    onRetryFailed: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggleExpanded)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(width = 96.dp, height = 54.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(ArkivSurfaceHigh),
+            ) {
+                AsyncImage(
+                    model = group.itemThumbnailUrl,
+                    contentDescription = group.itemTitle,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        group.itemTitle,
+                        style = MaterialTheme.typography.bodyLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    SourceBadge(group.source)
+                }
+                Text(
+                    DownloadGroupPolicy.summarize(group.episodes),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = ArkivTextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Icon(
+                if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                contentDescription = if (expanded) "Contraer" else "Expandir",
+                tint = ArkivTextSecondary,
+            )
+        }
+        val activeIds = DownloadGroupPolicy.activeEpisodeIds(group)
+        val failedIds = DownloadGroupPolicy.failedEpisodeIds(group)
+        val trackedIds = DownloadGroupPolicy.trackedEpisodeIds(group)
+        if (activeIds.isNotEmpty() || failedIds.isNotEmpty() || trackedIds.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                if (failedIds.isNotEmpty()) TextButton(onClick = onRetryFailed) { Text("Reintentar fallidos") }
+                if (activeIds.isNotEmpty()) TextButton(onClick = onCancelAll) { Text("Cancelar todos") }
+                if (trackedIds.isNotEmpty()) TextButton(onClick = onRemoveAll) { Text("Quitar todos") }
+            }
+        }
+    }
+}
+
+/** Fila de un capítulo que todavía no se bajó: sale del catálogo completo del ítem, no de `downloads`. */
+@Composable
+private fun NotDownloadedRow(
+    episode: Episode,
+    itemId: String,
+    onDownload: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(width = 96.dp, height = 54.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(ArkivSurfaceHigh),
+        ) {
+            val thumb = episode.thumbPath?.let { ArchiveUrls.download(itemId, it) }
+            AsyncImage(
+                model = thumb,
+                contentDescription = episode.displayName,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+            Text(
+                episode.displayName,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                "No descargado",
+                style = MaterialTheme.typography.bodyMedium,
+                color = ArkivTextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        IconButton(onClick = onDownload) {
+            Icon(Icons.Default.Download, contentDescription = "Descargar", tint = ArkivTextSecondary)
         }
     }
 }
