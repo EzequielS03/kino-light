@@ -95,6 +95,9 @@ fun AnimeShowDetailScreen(
     // Permiso de notificaciones (API 33+): se pide al disparar una descarga (el worker de descargas
     // locales también notifica). Ver rememberPostNotificationsRequest.
     val askNotifications = com.arkiv.player.ui.offline.rememberPostNotificationsRequest()
+    // Avisa "eso ya lo tenés bajado" cuando la cola saltea una descarga duplicada (ver
+    // DuplicateDownloadPolicy): si no, el botón parecería no hacer nada.
+    val notifyDuplicates = com.arkiv.player.ui.offline.rememberDuplicateDownloadNotice()
     var show by remember { mutableStateOf<AnimeShow?>(null) }
     var loading by remember { mutableStateOf(true) }
     var preparing by remember { mutableStateOf(false) }
@@ -130,6 +133,23 @@ fun AnimeShowDetailScreen(
     var webPacks by remember { mutableStateOf<List<MirrorWebPack>>(emptyList()) }
     var webPackFor by remember { mutableStateOf<MirrorWebPack?>(null) }
 
+    // seriesId canónico del show: el del MAPEO cruzado (imdb, si no tmdb) y "anilist<id>" solo si no
+    // hay mapeo. Sin esto la misma serie entraba a la biblioteca bajo "anilist171018" acá y bajo
+    // "tt30217403" desde la pantalla de series, o sea dos ítems y los mismos GB bajados dos veces.
+    // Ver SeriesItemIds.animeSeriesId, que es el único lugar donde vive el criterio.
+    //
+    // Resolverlo es `suspend` (el mapeo puede tocar disco o red), así que cada camino que GUARDA lo
+    // pide dentro de su propia corrutina; este estado existe solo para lo que necesita el id en
+    // COMPOSICIÓN (el badge de "ya descargado" del diálogo de packs) y arranca en el fallback de
+    // anilist hasta que el mapeo resuelve.
+    suspend fun resolveSeriesId(): String =
+        com.arkiv.player.data.SeriesItemIds.animeSeriesId(graph.animeMappingRepository, anilistId)
+
+    var canonicalSeriesId by remember(anilistId) {
+        mutableStateOf(com.arkiv.player.data.SeriesItemIds.anilistSeriesId(anilistId))
+    }
+    LaunchedEffect(anilistId) { canonicalSeriesId = resolveSeriesId() }
+
     // Calienta la sesión + DHT del torrent mientras el usuario ve los capítulos (arranque más rápido).
     LaunchedEffect(Unit) { graph.torrentEngine.warmUp() }
 
@@ -148,7 +168,7 @@ fun AnimeShowDetailScreen(
         scope.launch {
             com.arkiv.player.data.offline.NucDownloads.refreshLibraryCache(
                 graph.arkivOfflineApi, graph.database.nucLibraryItemDao(),
-                seriesId = "anilist$anilistId", replace = true,
+                seriesId = resolveSeriesId(), replace = true,
             )
         }
     }
@@ -301,7 +321,7 @@ fun AnimeShowDetailScreen(
         if (TorrentSizeGate.needsConfirmation(knownSizeBytes, alreadyConfirmed = false)) {
             pendingBig = episodeId to knownSizeBytes
         } else {
-            scope.launch { graph.localDownloads.enqueue(episodeId, source) }
+            scope.launch { notifyDuplicates(listOf(graph.localDownloads.enqueue(episodeId, source))) }
         }
     }
 
@@ -368,7 +388,7 @@ fun AnimeShowDetailScreen(
         val episode = com.arkiv.player.data.catalog.mirror.WebSourceEpisode.forResult(r, webPacks, fallback = ep)
         scope.launch {
             val epId = graph.repository.addWebSeriesEpisode(
-                "anilist$anilistId", s.title, s.posterUrl, season, episode, "${s.title} - Ep $episode", r.pageUrl,
+                resolveSeriesId(), s.title, s.posterUrl, season, episode, "${s.title} - Ep $episode", r.pageUrl,
             )
             preparing = false
             if (epId != null) onPlay(epId) else error = "No se pudo abrir la fuente web"
@@ -395,9 +415,10 @@ fun AnimeShowDetailScreen(
         scope.launch {
             var first: String? = null
             var wanted: String? = null
+            val seriesId = resolveSeriesId()
             for (ep in episodes) {
                 val id = graph.repository.addWebSeriesEpisode(
-                    "anilist$anilistId", title, s.posterUrl, ep.season, ep.episode,
+                    seriesId, title, s.posterUrl, ep.season, ep.episode,
                     ep.name.ifBlank { "Ep ${ep.episode}" }, ep.pageUrl,
                 )
                 if (first == null) first = id
@@ -424,13 +445,17 @@ fun AnimeShowDetailScreen(
         val s = show ?: return
         askNotifications()
         scope.launch {
+            val seriesId = resolveSeriesId()
+            val outcomes = mutableListOf<com.arkiv.player.data.local.EnqueueOutcome>()
             for (ep in episodes) {
                 val id = graph.repository.addWebSeriesEpisode(
-                    "anilist$anilistId", title.ifBlank { s.title }, s.posterUrl, ep.season, ep.episode,
+                    seriesId, title.ifBlank { s.title }, s.posterUrl, ep.season, ep.episode,
                     ep.name.ifBlank { "Ep ${ep.episode}" }, ep.pageUrl,
                 )
-                if (id != null) graph.localDownloads.enqueue(id, "web")
+                if (id != null) outcomes += graph.localDownloads.enqueue(id, "web")
             }
+            // Un solo aviso para todo el pack, no uno por capítulo.
+            notifyDuplicates(outcomes)
         }
     }
 
@@ -445,9 +470,9 @@ fun AnimeShowDetailScreen(
         val episode = com.arkiv.player.data.catalog.mirror.WebSourceEpisode.forResult(r, webPacks, fallback = ep)
         scope.launch {
             val epId = graph.repository.addWebSeriesEpisode(
-                "anilist$anilistId", s.title, s.posterUrl, season, episode, "${s.title} - Ep $episode", r.pageUrl,
+                resolveSeriesId(), s.title, s.posterUrl, season, episode, "${s.title} - Ep $episode", r.pageUrl,
             )
-            if (epId != null) graph.localDownloads.enqueue(epId, "web")
+            if (epId != null) notifyDuplicates(listOf(graph.localDownloads.enqueue(epId, "web")))
         }
     }
 
@@ -833,7 +858,7 @@ fun AnimeShowDetailScreen(
         val s = show
         if (s != null) WebPackDialog(
             pack = p,
-            seriesId = "anilist$anilistId",
+            seriesId = canonicalSeriesId,
             defaultTitle = s.title,
             posterUrl = s.posterUrl,
             onDismiss = { webPackFor = null },
@@ -863,8 +888,13 @@ fun AnimeShowDetailScreen(
                 TextButton(onClick = {
                     askNotifications()
                     scope.launch {
-                        graph.localDownloads.enqueue(episodeId, "torrent")
-                        graph.localDownloads.confirmSize(episodeId)
+                        val outcome = graph.localDownloads.enqueue(episodeId, "torrent")
+                        // Si la cola lo salteó por duplicado NO se confirma: markConfirmed devuelve
+                        // la fila a `queued` y volvería a bajar lo que ya está en disco.
+                        if (outcome != com.arkiv.player.data.local.EnqueueOutcome.ALREADY_DOWNLOADED) {
+                            graph.localDownloads.confirmSize(episodeId)
+                        }
+                        notifyDuplicates(listOf(outcome))
                     }
                     pendingBig = null
                 }) { Text("Descargar") }

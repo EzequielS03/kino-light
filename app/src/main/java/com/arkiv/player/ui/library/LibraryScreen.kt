@@ -76,6 +76,9 @@ fun LibraryScreen(
     val library by vm.library.collectAsStateWithLifecycle()
     val continueWatching by vm.continueWatching.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    // Avisa "eso ya lo tenés bajado" cuando la cola saltea una descarga duplicada (ver
+    // DuplicateDownloadPolicy): si no, el menú parecería no hacer nada.
+    val notifyDuplicates = com.arkiv.player.ui.offline.rememberDuplicateDownloadNotice()
 
     // Ítems con (al menos) un episodio ya guardado en el dispositivo, para el tilde en la tarjeta.
     val savedIds by graph.localDownloads.observeRows()
@@ -223,7 +226,7 @@ fun LibraryScreen(
                         if (single != null) {
                             // `row.source` viene directo de `items.source` ("archive" | "torrent" |
                             // "web"): es el dato real, no una heurística a partir de `isTorrent`.
-                            graph.localDownloads.enqueue(single.id, row.source)
+                            notifyDuplicates(listOf(graph.localDownloads.enqueue(single.id, row.source)))
                         } else {
                             onOpenItem(row.identifier)
                         }

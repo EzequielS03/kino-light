@@ -272,6 +272,23 @@ interface DownloadDao {
     @Query("DELETE FROM downloads WHERE episodeId = :episodeId")
     suspend fun delete(episodeId: String)
 
+    /**
+     * Origen de todo lo que YA está descargado en el dispositivo, para no bajar dos veces el mismo
+     * capítulo cuando la serie quedó guardada bajo dos ítems distintos (ver
+     * [com.arkiv.player.data.local.DuplicateDownloadPolicy], que es quien decide). El
+     * `torrentFileIndex` sale de `episodes` porque el episodeId solo lleva el infohash, no el
+     * archivo elegido dentro del torrent.
+     */
+    @Query(
+        """
+        SELECT d.episodeId AS episodeId, e.torrentFileIndex AS torrentFileIndex
+        FROM downloads d
+        JOIN episodes e ON e.id = d.episodeId
+        WHERE d.state = 'completed'
+        """
+    )
+    suspend fun completedOrigins(): List<com.arkiv.player.data.local.EpisodeOrigin>
+
     @Query(
         """
         SELECT d.episodeId AS episodeId, e.itemId AS itemId, i.title AS itemTitle,

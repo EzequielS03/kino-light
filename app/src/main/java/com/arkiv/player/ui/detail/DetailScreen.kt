@@ -82,6 +82,7 @@ import com.arkiv.player.data.local.LocalDownloadState
 import com.arkiv.player.playback.PlayerSource
 import com.arkiv.player.playback.SourceKind
 import com.arkiv.player.ui.formatDuration
+import com.arkiv.player.ui.offline.rememberDuplicateDownloadNotice
 import com.arkiv.player.ui.offline.rememberPostNotificationsRequest
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivBlack
@@ -105,6 +106,9 @@ fun DetailScreen(
     // que notifica desde esta pantalla. Mismo momento y mismo helper que
     // AnimeShowDetailScreen/CineDetailScreen.
     val askNotifications = rememberPostNotificationsRequest()
+    // Avisa "eso ya lo tenés bajado" cuando la cola saltea una descarga duplicada (ver
+    // DuplicateDownloadPolicy): si no, el botón parecería no hacer nada.
+    val notifyDuplicates = rememberDuplicateDownloadNotice()
     val vm: DetailViewModel = viewModel(
         factory = viewModelFactory { initializer { DetailViewModel(graph.repository, identifier) } },
     )
@@ -139,7 +143,8 @@ fun DetailScreen(
         if (episodes.isEmpty()) return
         askNotifications()
         scope.launch {
-            for (ep in episodes) graph.localDownloads.enqueue(ep.id, localSourceFor(ep.id))
+            // Un solo aviso para todo el lote, no uno por capítulo.
+            notifyDuplicates(episodes.map { graph.localDownloads.enqueue(it.id, localSourceFor(it.id)) })
         }
     }
 

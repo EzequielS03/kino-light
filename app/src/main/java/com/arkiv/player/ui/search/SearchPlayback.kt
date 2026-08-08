@@ -2,6 +2,7 @@ package com.arkiv.player.ui.search
 
 import com.arkiv.player.AppGraph
 import com.arkiv.player.data.ArchiveSearchResult
+import com.arkiv.player.data.SeriesItemIds
 import com.arkiv.player.data.catalog.AnimeShow
 import com.arkiv.player.data.catalog.PackFileRow
 import com.arkiv.player.data.catalog.PackResolver
@@ -160,9 +161,9 @@ class SearchPlayback(private val graph: AppGraph) {
     }
 
     /**
-     * Reproduce una fuente web: para anime agrupa bajo el mismo id "anilist<id>" (numeración
-     * absoluta de anime), igual que AnimeShowDetailScreen.playWebEp; para series TMDB usa el id
-     * imdb/tmdb con la season real. Molde: CineDetailScreen.playWeb / `playWebResult`.
+     * Reproduce una fuente web: el anime usa la numeración absoluta (igual que
+     * AnimeShowDetailScreen.playWebEp) y las series TMDB la season real, pero el seriesId sale del
+     * MISMO lugar para los dos ([seriesIdOf]). Molde: CineDetailScreen.playWeb / `playWebResult`.
      *
      * [mirrorSeason]: la fila local se guarda por hash de `pageUrl` -- la MISMA fila que escribe
      * [addWholeWebSeries] con la temporada real del mirror. El llamador la resuelve con
@@ -194,11 +195,10 @@ class SearchPlayback(private val graph: AppGraph) {
     ): PlaybackResult {
         val tvSeason = season ?: result.season
         val epId = if (card.kind == "anime" && episode != null) {
-            val anilistId = card.anilistId ?: animeShow?.id
-            graph.repository.addWebSeriesEpisode("anilist$anilistId", resultTitle, resultPoster, mirrorSeason, animeEpisode, "$resultTitle - Ep $animeEpisode", result.pageUrl)
+            graph.repository.addWebSeriesEpisode(seriesIdOf(graph, card, detail, animeShow), resultTitle, resultPoster, mirrorSeason, animeEpisode, "$resultTitle - Ep $animeEpisode", result.pageUrl)
         } else if (tvSeason != null && episode != null) {
             val epName = episodeNameFor(detail, tvSeason, episode)
-            graph.repository.addWebSeriesEpisode(seriesIdFor(card, detail), resultTitle, resultPoster, tvSeason, episode, epName, result.pageUrl)
+            graph.repository.addWebSeriesEpisode(seriesIdOf(graph, card, detail, animeShow), resultTitle, resultPoster, tvSeason, episode, epName, result.pageUrl)
         } else {
             graph.repository.addWebSource(result.pageUrl, result.title.ifBlank { resultTitle }, resultPoster)
         }
@@ -207,8 +207,8 @@ class SearchPlayback(private val graph: AppGraph) {
 
     /**
      * Agrega la serie de un pack web: un episodio de biblioteca por cada capitulo del mirror. Usa el
-     * MISMO seriesId que [playWeb] (anime -> "anilist<id>"; series TMDB -> imdb/tmdb) para no crear
-     * un item duplicado del mismo show.
+     * MISMO seriesId que [playWeb] (los dos por [seriesIdOf]) para no crear un item duplicado del
+     * mismo show.
      *
      * Season: a diferencia de [playWeb] (episodio suelto, sin season real disponible -> fijo en 1),
      * acá SÍ hay season real por episodio (`MirrorWebSource.season`), así que se usa tal cual --
@@ -233,8 +233,7 @@ class SearchPlayback(private val graph: AppGraph) {
         episodes: List<MirrorWebSource> = pack.episodes,
         playEpisode: MirrorWebSource? = null,
     ): PlaybackResult {
-        val isAnime = card.kind == "anime"
-        val seriesId = if (isAnime) "anilist${card.anilistId ?: animeShow?.id}" else seriesIdFor(card, detail)
+        val seriesId = seriesIdOf(graph, card, detail, animeShow)
         var first: String? = null
         var wanted: String? = null
         for (ep in episodes) {
@@ -274,12 +273,34 @@ class SearchPlayback(private val graph: AppGraph) {
     }
 }
 
-/** id estable de "serie" TMDB para agrupar episodios (imdb si hay, si no tmdb id). Anime NO pasa por
- *  acá: usa sus propios agrupadores ("torrent:anime:<id>" / "anilist<id>"), ver playTorrent/playWeb.
+/** id estable de "serie" TMDB para agrupar episodios (imdb si hay, si no tmdb id), delegando el
+ *  criterio en [SeriesItemIds.canonicalSeriesId], que es donde vive para toda la app.
  *  internal (no private): SearchScreen.kt (mismo paquete) necesita la MISMA lógica para el seriesId
  *  de la descarga NUC (downloadWholeSeries) que ya usa addWholeWebSeries -- divergir acá reintroduce
  *  el bug de season/seriesId arreglado en el Task 11. */
 internal fun seriesIdFor(card: TitleCard, detail: TmdbDetail?): String = when {
-    detail != null -> detail.imdbId.ifBlank { "tmdb${detail.id}" }
+    detail != null -> SeriesItemIds.canonicalSeriesId(detail.imdbId, detail.id)
     else -> "tmdb${card.tmdbId}"
+}
+
+/**
+ * seriesId canónico de una card del buscador, para anime y para el resto: **el mismo id para el
+ * mismo show entre por donde entre el usuario**.
+ *
+ * El anime también resuelve imdb/tmdb (por el mapeo cruzado de [SeriesItemIds.animeSeriesId]) y solo
+ * cae a "anilist<id>" si no hay mapeo. Antes armaba "anilist<id>" siempre, así que la misma serie
+ * quedaba en la biblioteca como DOS ítems según hubiera entrado por "Anime" o por "Películas y
+ * series" -- y con descargas locales eso son los mismos GB bajados dos veces.
+ *
+ * `suspend` porque el mapeo puede tocar disco o red; todos los llamadores ya están en corrutina.
+ */
+internal suspend fun seriesIdOf(
+    graph: AppGraph,
+    card: TitleCard,
+    detail: TmdbDetail?,
+    animeShow: AnimeShow?,
+): String = if (card.kind == "anime") {
+    SeriesItemIds.animeSeriesId(graph.animeMappingRepository, card.anilistId ?: animeShow?.id)
+} else {
+    seriesIdFor(card, detail)
 }

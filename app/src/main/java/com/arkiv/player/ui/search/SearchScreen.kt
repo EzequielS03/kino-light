@@ -134,7 +134,19 @@ fun SearchScreen(
     // Permiso de notificaciones (API 33+): se pide al disparar una descarga (el worker de descargas
     // locales también notifica). Ver rememberPostNotificationsRequest.
     val askNotifications = com.arkiv.player.ui.offline.rememberPostNotificationsRequest()
+    // Avisa "eso ya lo tenés bajado" cuando la cola saltea una descarga duplicada (ver
+    // DuplicateDownloadPolicy): si no, el botón parecería no hacer nada.
+    val notifyDuplicates = com.arkiv.player.ui.offline.rememberDuplicateDownloadNotice()
     val playback = remember { SearchPlayback(graph) }
+    // seriesId canónico de la card elegida, para lo que lo necesita en COMPOSICIÓN (el badge de "ya
+    // descargado" del diálogo de packs). Resolverlo es suspend cuando es anime (mapeo cruzado), así
+    // que los caminos que GUARDAN lo piden ellos mismos dentro de su corrutina; acá se muestra "" —
+    // el badge no encuentra nada, sin romper el diálogo — hasta que resuelve.
+    var canonicalSeriesId by remember { mutableStateOf("") }
+    LaunchedEffect(selected, detail, animeShow) {
+        val card = selected
+        canonicalSeriesId = if (card == null) "" else seriesIdOf(graph, card, detail, animeShow)
+    }
     var preparing by remember { mutableStateOf(false) }
     var playError by remember { mutableStateOf<String?>(null) }
     var packFor by remember { mutableStateOf<TorrentResult?>(null) }
@@ -192,9 +204,9 @@ fun SearchScreen(
         scope.launch { applyResult(playback.playArchive(item)) }
     }
 
-    // Reproduce una fuente web: para anime agrupa bajo el mismo id "anilist<id>" (numeración
-    // absoluta), igual que AnimeShowDetailScreen.playWebEp; para series TMDB usa el id imdb/tmdb con
-    // la season real. Molde: CineDetailScreen.playWeb.
+    // Reproduce una fuente web: el anime usa la numeración absoluta (igual que
+    // AnimeShowDetailScreen.playWebEp) y las series TMDB la season real, pero el seriesId sale del
+    // mismo lugar para los dos (seriesIdOf). Molde: CineDetailScreen.playWeb.
     //
     // mirrorSeason/animeEpisode: la fila local se guarda por hash de pageUrl -- la misma que escribe
     // addWholeWebSeries con la temporada/episodio REAL del mirror. Un WebResult del mirror YA los
@@ -236,27 +248,31 @@ fun SearchScreen(
 
     // Guarda en el dispositivo los capítulos elegidos del pack web: mismo camino que addWholeSeries
     // (playback.addWholeWebSeries, el "Guardar" del diálogo) -- addWebSeriesEpisode por capítulo, sin
-    // reproducir. Mismo seriesId/isAnime que ese camino (Task 11: usar seriesIdFor(card, detail) para
-    // series TMDB y "anilist<id>" para anime, NUNCA season=1 fijo) -- si el seriesId de acá divergiera
-    // del que ya usa el guardado local (onSave/onPlayOne, arriba), la descarga quedaría bajo un id
-    // distinto y PlaybackPreferenceStore.decide() nunca encontraría el capítulo bajado. Antes esto
+    // reproducir. Mismo seriesId que ese camino -- los dos lo piden a `seriesIdOf` (Task 11: NUNCA
+    // season=1 fijo) -- si el seriesId de acá divergiera del que ya usa el guardado local
+    // (onSave/onPlayOne, arriba), la descarga quedaría bajo un id distinto y
+    // PlaybackPreferenceStore.decide() nunca encontraría el capítulo bajado. Antes esto
     // mandaba un job a la NUC (arkiv-offline); ahora encola la descarga al propio dispositivo (tamaño
     // WEB siempre desconocido, no hay aviso de torrent pesado que mostrar acá -- ver TorrentSizeGate
     // en CineDetailScreen). Molde: saveWebPackLocally en AnimeShowDetailScreen/CineDetailScreen.
     fun downloadWholeSeries(pack: MirrorWebPack, title: String, episodes: List<MirrorWebSource>) {
         val card = selected ?: return
-        val isAnime = card.kind == "anime"
-        val seriesId = if (isAnime) "anilist${card.anilistId ?: animeShow?.id}" else seriesIdFor(card, detail)
         playError = null
         askNotifications()
         scope.launch {
+            // Adentro de la corrutina: resolver el seriesId de un anime es suspend (consulta el
+            // mapeo cruzado, que puede tocar disco o red). Ver SeriesItemIds.animeSeriesId.
+            val seriesId = seriesIdOf(graph, card, detail, animeShow)
+            val outcomes = mutableListOf<com.arkiv.player.data.local.EnqueueOutcome>()
             for (ep in episodes) {
                 val id = graph.repository.addWebSeriesEpisode(
                     seriesId, title, resultPoster, ep.season, ep.episode,
                     ep.name.ifBlank { "Ep ${ep.episode}" }, ep.pageUrl,
                 )
-                if (id != null) graph.localDownloads.enqueue(id, "web")
+                if (id != null) outcomes += graph.localDownloads.enqueue(id, "web")
             }
+            // Un solo aviso para todo el pack, no uno por capítulo.
+            notifyDuplicates(outcomes)
         }
     }
 
@@ -276,7 +292,7 @@ fun SearchScreen(
         if (TorrentSizeGate.needsConfirmation(knownSizeBytes, alreadyConfirmed = false)) {
             pendingBig = episodeId to knownSizeBytes
         } else {
-            scope.launch { graph.localDownloads.enqueue(episodeId, source) }
+            scope.launch { notifyDuplicates(listOf(graph.localDownloads.enqueue(episodeId, source))) }
         }
     }
 
@@ -451,13 +467,11 @@ fun SearchScreen(
     webPackFor?.let { p ->
         WebPackDialog(
             pack = p,
-            // Mismo cálculo que downloadWholeSeries (más abajo): anime agrupa bajo "anilist<id>",
-            // series TMDB bajo seriesIdFor(card, detail). Si `selected` fuera null (no debería
-            // pasar -- webPackFor solo se llena a partir de un resultado de una card elegida) cae a
-            // "" y el badge simplemente no encuentra nada descargado, sin romper el diálogo.
-            seriesId = selected?.let { card ->
-                if (card.kind == "anime") "anilist${card.anilistId ?: animeShow?.id}" else seriesIdFor(card, detail)
-            } ?: "",
+            // Mismo cálculo que downloadWholeSeries (más abajo): los dos salen de `seriesIdOf`. Si
+            // `selected` fuera null (no debería pasar -- webPackFor solo se llena a partir de un
+            // resultado de una card elegida), o si el mapeo del anime todavía no resolvió, queda ""
+            // y el badge simplemente no encuentra nada descargado, sin romper el diálogo.
+            seriesId = canonicalSeriesId,
             // El nombre del show manda sobre el del pack: el título scrapeado del sitio suele traer
             // ruido (sinopsis concatenada en sololatino), el de TMDB/AniList está limpio.
             defaultTitle = resultTitle.ifBlank { p.showTitle },
@@ -513,8 +527,13 @@ fun SearchScreen(
                 TextButton(onClick = {
                     askNotifications()
                     scope.launch {
-                        graph.localDownloads.enqueue(episodeId, "torrent")
-                        graph.localDownloads.confirmSize(episodeId)
+                        val outcome = graph.localDownloads.enqueue(episodeId, "torrent")
+                        // Si la cola lo salteó por duplicado NO se confirma: markConfirmed devuelve
+                        // la fila a `queued` y volvería a bajar lo que ya está en disco.
+                        if (outcome != com.arkiv.player.data.local.EnqueueOutcome.ALREADY_DOWNLOADED) {
+                            graph.localDownloads.confirmSize(episodeId)
+                        }
+                        notifyDuplicates(listOf(outcome))
                     }
                     pendingBig = null
                 }) { Text("Descargar") }

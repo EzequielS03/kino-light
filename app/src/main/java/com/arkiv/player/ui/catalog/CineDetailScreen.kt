@@ -85,6 +85,9 @@ fun CineDetailScreen(
     // Permiso de notificaciones (API 33+): se pide al disparar una descarga (a la NUC o al propio
     // dispositivo, el worker de descargas locales también notifica). Ver rememberPostNotificationsRequest.
     val askNotifications = com.arkiv.player.ui.offline.rememberPostNotificationsRequest()
+    // Avisa "eso ya lo tenés bajado" cuando la cola saltea una descarga duplicada (ver
+    // DuplicateDownloadPolicy): si no, el botón parecería no hacer nada.
+    val notifyDuplicates = com.arkiv.player.ui.offline.rememberDuplicateDownloadNotice()
     // El aviso inline es un ATAJO de UX: evita encolar algo que vas a descartar cuando el tamaño ya
     // se conoce. La compuerta que garantiza el comportamiento es la del worker, que es la única que
     // ve el tamaño del ARCHIVO (TorrentResult.sizeBytes es el del pack entero cuando la fila es un pack).
@@ -141,7 +144,7 @@ fun CineDetailScreen(
     LaunchedEffect(detail) {
         val d = detail
         if (d == null || !d.isSeries) return@LaunchedEffect
-        val seriesId = d.imdbId.ifBlank { "tmdb${d.id}" }
+        val seriesId = com.arkiv.player.data.SeriesItemIds.canonicalSeriesId(d.imdbId, d.id)
         scope.launch {
             com.arkiv.player.data.offline.NucDownloads.refreshLibraryCache(
                 graph.arkivOfflineApi, graph.database.nucLibraryItemDao(),
@@ -245,7 +248,7 @@ fun CineDetailScreen(
     // solo que sin navegar al player.
     suspend fun resolveTorrentEpisodeId(result: TorrentResult, ep: TmdbEpisode?): String? {
         val d = detail ?: return null
-        val seriesId = d.imdbId.ifBlank { "tmdb${d.id}" }
+        val seriesId = com.arkiv.player.data.SeriesItemIds.canonicalSeriesId(d.imdbId, d.id)
         return when (val src = graph.torrentSearchApi.resolveSource(result)) {
             // Magnet → guardamos el magnet (streaming NO bloqueante en el player, sin fetchMagnet).
             is TorrentSource.Magnet ->
@@ -304,7 +307,7 @@ fun CineDetailScreen(
         scope.launch {
             val ep = sheetEpisode
             val epId = if (ep != null) {
-                val seriesId = d.imdbId.ifBlank { "tmdb${d.id}" }
+                val seriesId = com.arkiv.player.data.SeriesItemIds.canonicalSeriesId(d.imdbId, d.id)
                 graph.repository.addWebSeriesEpisode(seriesId, d.title, d.posterUrl, ep.season, ep.episode, ep.name, r.pageUrl)
             } else {
                 graph.repository.addWebSource(r.pageUrl, r.title.ifBlank { d.title }, d.posterUrl)
@@ -319,7 +322,7 @@ fun CineDetailScreen(
     // en loop. Devuelve al reproducir el episodio pedido si se tocó uno puntual, si no el primero.
     fun addWebPack(pack: MirrorWebPack, title: String, episodes: List<MirrorWebSource>, playEpisode: MirrorWebSource? = null) {
         val d = detail ?: return
-        val seriesId = d.imdbId.ifBlank { "tmdb${d.id}" }
+        val seriesId = com.arkiv.player.data.SeriesItemIds.canonicalSeriesId(d.imdbId, d.id)
         preparing = true; error = null; sheetOpen = false
         scope.launch {
             var first: String? = null
@@ -351,7 +354,7 @@ fun CineDetailScreen(
         if (TorrentSizeGate.needsConfirmation(knownSizeBytes, alreadyConfirmed = false)) {
             pendingBig = episodeId to knownSizeBytes
         } else {
-            scope.launch { graph.localDownloads.enqueue(episodeId, source) }
+            scope.launch { notifyDuplicates(listOf(graph.localDownloads.enqueue(episodeId, source))) }
         }
     }
 
@@ -394,7 +397,7 @@ fun CineDetailScreen(
         askNotifications()
         scope.launch {
             val epId = if (ep != null) {
-                val seriesId = d.imdbId.ifBlank { "tmdb${d.id}" }
+                val seriesId = com.arkiv.player.data.SeriesItemIds.canonicalSeriesId(d.imdbId, d.id)
                 graph.repository.addWebSeriesEpisode(seriesId, d.title, d.posterUrl, ep.season, ep.episode, ep.name, r.pageUrl)
             } else {
                 graph.repository.addWebSource(r.pageUrl, r.title.ifBlank { d.title }, d.posterUrl)
@@ -415,17 +418,22 @@ fun CineDetailScreen(
     // SearchScreen.downloadWholeSeries).
     fun saveWebPackLocally(pack: MirrorWebPack, episodes: List<MirrorWebSource> = pack.episodes, title: String = detail?.title.orEmpty()) {
         val d = detail ?: return
-        val seriesId = d.imdbId.ifBlank { "tmdb${d.id}" }
+        val seriesId = com.arkiv.player.data.SeriesItemIds.canonicalSeriesId(d.imdbId, d.id)
         error = null
         askNotifications()
         scope.launch {
+            val outcomes = mutableListOf<com.arkiv.player.data.local.EnqueueOutcome>()
             for (ep in episodes) {
                 val id = graph.repository.addWebSeriesEpisode(
                     seriesId, title.ifBlank { d.title }, d.posterUrl, ep.season, ep.episode,
                     ep.name.ifBlank { "Ep ${ep.episode}" }, ep.pageUrl,
                 )
-                if (id != null) saveLocally(id, "web", 0)
+                // WEB nunca tiene tamaño conocido, así que jamás pasa por el aviso de torrent pesado
+                // de saveLocally: se encola derecho para poder juntar los resultados y avisar UNA vez
+                // por pack en vez de una por capítulo.
+                if (id != null) outcomes += graph.localDownloads.enqueue(id, "web")
             }
+            notifyDuplicates(outcomes)
         }
     }
 
@@ -627,7 +635,7 @@ fun CineDetailScreen(
         val d = detail
         if (d != null) WebPackDialog(
             pack = p,
-            seriesId = d.imdbId.ifBlank { "tmdb${d.id}" },
+            seriesId = com.arkiv.player.data.SeriesItemIds.canonicalSeriesId(d.imdbId, d.id),
             defaultTitle = d.title,
             posterUrl = d.posterUrl,
             onDismiss = { webPackFor = null },
@@ -655,8 +663,13 @@ fun CineDetailScreen(
                 TextButton(onClick = {
                     askNotifications()
                     scope.launch {
-                        graph.localDownloads.enqueue(episodeId, "torrent")
-                        graph.localDownloads.confirmSize(episodeId)
+                        val outcome = graph.localDownloads.enqueue(episodeId, "torrent")
+                        // Si la cola lo salteó por duplicado NO se confirma: markConfirmed devuelve
+                        // la fila a `queued` y volvería a bajar lo que ya está en disco.
+                        if (outcome != com.arkiv.player.data.local.EnqueueOutcome.ALREADY_DOWNLOADED) {
+                            graph.localDownloads.confirmSize(episodeId)
+                        }
+                        notifyDuplicates(listOf(outcome))
                     }
                     pendingBig = null
                 }) { Text("Descargar") }

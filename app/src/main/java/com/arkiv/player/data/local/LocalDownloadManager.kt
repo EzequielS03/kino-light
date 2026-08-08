@@ -11,6 +11,17 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import java.io.File
 
+/** Qué pasó al encolar. La UI solo necesita distinguir "se encoló" de "ya lo tenías". */
+enum class EnqueueOutcome {
+    QUEUED,
+
+    /** Ya había una fila en curso (encolada, bajando, …) para ESTE episodio. */
+    ALREADY_QUEUED,
+
+    /** Ese contenido ya está en el dispositivo: este episodio, o su gemelo bajo otro ítem. */
+    ALREADY_DOWNLOADED,
+}
+
 /**
  * Fachada de las descargas al dispositivo: lo único que toca la UI. Encola en Room y despierta al
  * worker; no baja nada por su cuenta.
@@ -37,6 +48,7 @@ class LocalDownloadManager(
 ) {
     private val appContext = context.applicationContext
     private val downloadDao = db.downloadDao()
+    private val itemDao = db.itemDao()
 
     /** `Android/data/<pkg>/files/Movies`. Cae a filesDir si no hay almacenamiento externo montado. */
     fun targetDir(): File =
@@ -52,10 +64,25 @@ class LocalDownloadManager(
     /**
      * Encola un episodio. Idempotente: si ya hay una fila que no falló, no hace nada — así tocar dos
      * veces el botón no duplica la descarga.
+     *
+     * Y un paso más: tampoco encola si ESE MISMO CONTENIDO ya está descargado bajo otro ítem de la
+     * biblioteca (la misma serie guardada dos veces, ver [DuplicateDownloadPolicy]). Eso evita bajar
+     * los mismos gigabytes dos veces incluso con los ítems duplicados que ya existen, que no se
+     * migran. El resultado le dice al llamador qué pasó para que la UI pueda avisarle al usuario que
+     * ya lo tiene (ver `DuplicateDownloadPolicy.skippedNotice`).
      */
-    suspend fun enqueue(episodeId: String, source: String) = withContext(Dispatchers.IO) {
+    suspend fun enqueue(episodeId: String, source: String): EnqueueOutcome = withContext(Dispatchers.IO) {
         val existing = downloadDao.get(episodeId)
-        if (existing != null && existing.state != LocalDownloadState.FAILED) return@withContext
+        if (existing != null && existing.state != LocalDownloadState.FAILED) {
+            return@withContext if (existing.state == LocalDownloadState.COMPLETED) {
+                EnqueueOutcome.ALREADY_DOWNLOADED
+            } else {
+                EnqueueOutcome.ALREADY_QUEUED
+            }
+        }
+        val target = EpisodeOrigin(episodeId, itemDao.getEpisode(episodeId)?.torrentFileIndex)
+        val twin = DuplicateDownloadPolicy.completedDuplicateOf(target, downloadDao.completedOrigins())
+        if (twin != null) return@withContext EnqueueOutcome.ALREADY_DOWNLOADED
         downloadDao.upsert(
             DownloadEntity(
                 episodeId = episodeId,
@@ -69,6 +96,7 @@ class LocalDownloadManager(
             )
         )
         wakeWorker(appContext)
+        EnqueueOutcome.QUEUED
     }
 
     /** El usuario aceptó bajar un torrent que superaba el umbral de tamaño. */
