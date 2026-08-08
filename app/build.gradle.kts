@@ -22,8 +22,8 @@ android {
         applicationId = "com.arkiv.player"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
         // Credenciales desde .env (no hardcodeadas en el código).
         buildConfigField("String", "TMDB_API_KEY", "\"${readEnv("API_KEY")}\"")
         buildConfigField("String", "OPENSUBTITLES_API_KEY", "\"${readEnv("SUBITLE_API")}\"")
