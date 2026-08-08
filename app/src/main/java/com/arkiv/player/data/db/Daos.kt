@@ -290,12 +290,17 @@ interface DownloadDao {
     suspend fun completedOrigins(): List<com.arkiv.player.data.local.EpisodeOrigin>
 
     /**
-     * Otras filas que apuntan al MISMO archivo. Pasa cuando el worker adopta el archivo de un gemelo
-     * en vez de re-descargarlo: borrar el archivo desde una de las filas dejaría a la otra diciendo
-     * "listo" sobre algo que ya no está (ver `DuplicateDownloadPolicy.canDeleteFile`).
+     * Archivos que siguen referenciados por OTRAS filas. Pasa cuando el worker adopta el archivo de
+     * un gemelo en vez de re-descargarlo: borrar ese archivo al quitar cualquiera de las dos filas
+     * dejaría a la otra diciendo "Listo" sobre algo que ya no está (ver
+     * `DuplicateDownloadPolicy.deletablePaths`).
+     *
+     * Mira solo `filePath` y no el `localUri` histórico: quien adopta un archivo siempre pasa por
+     * `markCompleted`, que escribe `filePath`. Un `localUri` solo puede ser el lado ADOPTADO, y ese
+     * lado ya queda protegido porque el adoptante copió esa misma ruta a su `filePath`.
      */
-    @Query("SELECT episodeId FROM downloads WHERE filePath = :filePath AND episodeId != :exceptEpisodeId")
-    suspend fun othersWithFilePath(filePath: String, exceptEpisodeId: String): List<String>
+    @Query("SELECT filePath FROM downloads WHERE filePath IS NOT NULL AND episodeId != :exceptEpisodeId")
+    suspend fun filePathsReferencedByOthers(exceptEpisodeId: String): List<String>
 
     @Query(
         """

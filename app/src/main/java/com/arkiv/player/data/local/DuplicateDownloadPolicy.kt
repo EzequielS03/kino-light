@@ -83,14 +83,30 @@ object DuplicateDownloadPolicy {
     }
 
     /**
-     * ¿Se puede borrar el archivo de [filePath] al quitar [episodeId] de la cola?
+     * De [candidates] (rutas absolutas que un `remove` está por borrar), las que **sí** se pueden
+     * borrar: las que ninguna OTRA fila de `downloads` sigue declarando como su archivo.
      *
-     * No, si hay OTRA fila apuntando al mismo archivo. Eso pasa cuando el worker adopta el archivo
-     * de un gemelo en vez de re-descargarlo (ver `LocalDownloadWorker`): las dos filas comparten
-     * `filePath`, y borrarlo desde una dejaría a la otra diciendo "listo" sobre un archivo que ya no
-     * está. [others] son los episodeId de las demás filas que declaran ese mismo `filePath`.
+     * Existe porque dos filas pueden compartir archivo: cuando el worker encuentra que ese contenido
+     * ya estaba en disco bajo otro ítem, adopta el archivo del gemelo en vez de re-descargarlo (ver
+     * `LocalDownloadWorker.adoptTwinIfAlreadyDownloaded`). Borrarlo desde cualquiera de las dos
+     * dejaría a la otra diciendo "Listo" sobre un archivo que ya no está.
+     *
+     * Filtra por RUTA y no por episodeId a propósito: `LocalDownloadManager.remove` borra por dos
+     * caminos —la ruta explícita de la fila y un barrido por nombre (`sanitize(episodeId) + "."`)—
+     * y el segundo también alcanza el archivo compartido. Ojo con la asimetría, que fue justo el
+     * agujero: el archivo se llama con el episodeId del gemelo ORIGINAL, así que quitar al adoptante
+     * no lo toca, pero quitar al original sí lo barría aunque el borrado explícito lo hubiera
+     * salteado. Con el filtro por ruta los dos caminos quedan cubiertos con la misma regla.
+     *
+     * Los `.part` / `.part.src` que arrastra el barrido nunca son el `filePath` de otra fila, así
+     * que se siguen borrando igual que antes.
      */
-    fun canDeleteFile(others: List<String>): Boolean = others.isEmpty()
+    fun deletablePaths(candidates: List<String>, referencedByOthers: Set<String>): List<String> =
+        candidates.filter { it !in referencedByOthers }
+
+    /** Atajo de [deletablePaths] para una sola ruta. */
+    fun canDeleteFile(path: String, referencedByOthers: Set<String>): Boolean =
+        deletablePaths(listOf(path), referencedByOthers).isNotEmpty()
 
     /** Rótulo de la fila que se saltó porque el archivo ya estaba en disco bajo otro ítem. */
     const val ADOPTED_REASON = "Ya estaba descargado"

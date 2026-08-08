@@ -115,16 +115,54 @@ class DuplicateDownloadPolicyTest {
     }
 
     // --- Borrado del archivo compartido ---------------------------------------------------------
+    //
+    // Al adoptar el archivo del gemelo, dos filas apuntan al MISMO `filePath`. `remove()` borra por
+    // dos caminos (la ruta explícita de la fila y un barrido por nombre) y los DOS tienen que
+    // respetar eso, o la fila que sobrevive queda diciendo "Listo" sobre algo que ya no está.
 
-    /**
-     * Al adoptar el archivo del gemelo, dos filas apuntan al MISMO `filePath`. Quitar una no puede
-     * borrar el archivo mientras la otra lo siga referenciando: la dejaría diciendo "Listo" sobre
-     * algo que ya no está.
-     */
+    /** El archivo real, nombrado con el episodeId del gemelo ORIGINAL (el que sí lo descargó). */
+    private val archivoCompartido = "/data/Movies/web_series_tt30217403__31fe74c5.mkv"
+
     @Test
     fun `no se borra el archivo si otra fila lo referencia`() {
-        assertEquals(true, DuplicateDownloadPolicy.canDeleteFile(emptyList()))
-        assertEquals(false, DuplicateDownloadPolicy.canDeleteFile(listOf("web:series:tt30217403::31fe74c5")))
+        assertEquals(true, DuplicateDownloadPolicy.canDeleteFile(archivoCompartido, emptySet()))
+        assertEquals(false, DuplicateDownloadPolicy.canDeleteFile(archivoCompartido, setOf(archivoCompartido)))
+    }
+
+    /**
+     * El agujero que hubo que tapar: quitar al gemelo ORIGINAL (A) salteaba bien el borrado
+     * explícito, pero el barrido por prefijo borra por NOMBRE y el archivo se llama justamente con
+     * el episodeId de A — así que se lo llevaba igual y el adoptante (B) quedaba mintiendo. El
+     * filtro por ruta cubre los dos caminos con la misma regla.
+     */
+    @Test
+    fun `el barrido por prefijo tampoco borra el archivo que adopto otra fila`() {
+        val candidatos = listOf(archivoCompartido)
+        assertEquals(
+            emptyList<String>(),
+            DuplicateDownloadPolicy.deletablePaths(candidatos, referencedByOthers = setOf(archivoCompartido)),
+        )
+    }
+
+    /** Los parciales del barrido nunca son el filePath de otra fila: se siguen borrando. */
+    @Test
+    fun `el barrido sigue limpiando los parciales`() {
+        val part = "/data/Movies/web_series_tt30217403__31fe74c5.mkv.part"
+        val src = "$part.src"
+        assertEquals(
+            listOf(part, src),
+            DuplicateDownloadPolicy.deletablePaths(
+                listOf(archivoCompartido, part, src),
+                referencedByOthers = setOf(archivoCompartido),
+            ),
+        )
+    }
+
+    /** Sin nadie más referenciando, `remove` borra todo lo que barrió, como siempre. */
+    @Test
+    fun `sin filas que lo compartan se borra todo`() {
+        val candidatos = listOf(archivoCompartido, "$archivoCompartido.part")
+        assertEquals(candidatos, DuplicateDownloadPolicy.deletablePaths(candidatos, emptySet()))
     }
 
     // --- Aviso al usuario -----------------------------------------------------------------------

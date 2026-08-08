@@ -162,13 +162,16 @@ class LocalDownloadManager(
         val path = row?.filePath ?: row?.localUri?.removePrefix("file://")
         // Dos filas pueden compartir el MISMO archivo: cuando el worker encuentra que ese contenido
         // ya estaba en disco bajo otro ítem, adopta el archivo del gemelo en vez de re-descargarlo
-        // (ver LocalDownloadWorker.adoptTwinIfAlreadyDownloaded). Borrarlo desde una de las filas
-        // dejaría a la otra diciendo "Listo" sobre un archivo que ya no está. El barrido por prefijo
-        // de más abajo NO necesita este cuidado: usa sanitize(episodeId), así que solo toca archivos
-        // nombrados con ESTE episodio, nunca el del gemelo.
-        val fileIsShared = path != null &&
-            !DuplicateDownloadPolicy.canDeleteFile(downloadDao.othersWithFilePath(path, episodeId))
-        if (path != null && !fileIsShared) {
+        // (ver LocalDownloadWorker.adoptTwinIfAlreadyDownloaded). Borrarlo desde CUALQUIERA de las
+        // dos dejaría a la otra diciendo "Listo" sobre un archivo que ya no está.
+        //
+        // El filtro se aplica a los DOS caminos de borrado de acá abajo, no solo al explícito: el
+        // barrido por prefijo borra por NOMBRE, y el archivo compartido se llama con el episodeId
+        // del gemelo ORIGINAL. O sea que quitar al adoptante efectivamente no lo toca, pero quitar
+        // al original sí lo barría aunque el borrado explícito lo hubiera salteado — el archivo
+        // desaparecía y el adoptante quedaba mintiendo. Ver DuplicateDownloadPolicy.deletablePaths.
+        val referenced = downloadDao.filePathsReferencedByOthers(episodeId).toSet()
+        if (path != null && DuplicateDownloadPolicy.canDeleteFile(path, referenced)) {
             // Cubre el nombre exacto que dejaron descargas viejas (pre-migración), que puede no
             // seguir el patrón sanitize(episodeId) + extensión que arma LocalFilePaths.fileNameFor.
             val file = File(path)
@@ -181,11 +184,14 @@ class LocalDownloadManager(
         // archivo final Y el ".part" (y su marca de origen ".part.src") aunque la fila todavía no
         // tenga filePath (QUEUED/DOWNLOADING, que es cuando el usuario más suele tocar "Quitar").
         // Sin esto el .part queda huérfano: nadie más lo referencia ni lo limpia, y se come el disco
-        // justo lo que FreeSpacePolicy protege.
+        // justo lo que FreeSpacePolicy protege. Los .part nunca son el filePath de otra fila, así
+        // que el filtro de compartidos no cambia nada para ellos.
         val prefix = "${LocalFilePaths.sanitize(episodeId)}."
         runCatching {
-            targetDir().listFiles { f -> f.name.startsWith(prefix) }
-                ?.forEach { f -> runCatching { f.delete() } }
+            val candidates = targetDir().listFiles { f -> f.name.startsWith(prefix) }.orEmpty()
+                .map { it.absolutePath }
+            DuplicateDownloadPolicy.deletablePaths(candidates, referenced)
+                .forEach { p -> runCatching { File(p).delete() } }
         }
         runCatching { File(targetDir(), "torrents/${LocalFilePaths.torrentDirName(episodeId)}").deleteRecursively() }
     }
