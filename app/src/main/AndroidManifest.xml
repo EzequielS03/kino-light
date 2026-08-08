@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -54,6 +55,23 @@
             android:name=".torrent.TorrentServingService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!--
+            El servicio de foreground de WorkManager viene de la librería SIN
+            `foregroundServiceType`, y desde API 34 Android exige que el tipo que pide
+            `setForeground()` esté declarado en el elemento <service>. Sin esto, la cola de
+            descargas (LocalDownloadWorker, que pide DATA_SYNC) tira
+            "foregroundServiceType 0x1 is not a subset of 0x0" y **mata la app**.
+
+            OJO: no alcanza con el permiso FOREGROUND_SERVICE_DATA_SYNC, que ya estaba. Y
+            tampoco alcanza con envolver `setForeground()` en un runCatching: la excepción no
+            se lanza en la corrutina del worker sino después, en el hilo principal, dentro del
+            propio SystemForegroundService. Verificado crasheando en un S24+ con Android 16.
+        -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
 
         <activity
             android:name=".MainActivity"

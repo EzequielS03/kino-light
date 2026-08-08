@@ -1,19 +1,32 @@
 # Descarga local al dispositivo — pendientes y huecos conocidos
 
-Estado al 2026-08-07. La funcionalidad está implementada y en `main` (commits `e520d10d..05a11ff9`),
-con 597 tests verdes. **Nada se verificó en un dispositivo físico.**
+Estado al 2026-08-07. La funcionalidad está implementada y en `main`, con 597 tests verdes.
 
 Spec: [2026-08-07-descarga-local-dispositivo-design.md](specs/2026-08-07-descarga-local-dispositivo-design.md)
 Plan: [2026-08-07-descarga-local-dispositivo.md](plans/2026-08-07-descarga-local-dispositivo.md)
 
-## Verificación en device, por orden de riesgo
+## Ya verificado en device (S24+ SM-S926B, Android 16, por USB)
 
-1. **Instalar encima de un APK viejo con descargas de archive.org completas.** Es el único punto
-   donde el usuario puede perder algo que ya tenía. Confirmar que la migración Room 16→17 corre
-   limpia sobre una base real con filas viejas y que esas descargas siguen reproduciéndose del disco.
-   Después, con el WiFi apagado, confirmar que una descarga **nueva** de archive también reproduce
-   local — es la prueba honesta del arreglo que cerró el review final.
-2. **Torrent de punta a punta con interrupciones:** encolar, matar la app a mitad, reabrir. Ver si
+- ✅ **Migración Room 16→17 sobre una base real.** Se instaló encima de la 0.1.0 sin desinstalar:
+  esquema quedó en `user_version = 17`, las 7 columnas nuevas presentes con sus tipos, y los datos
+  intactos (94 ítems, 1761 episodios, 101 posiciones). Sin crash ni error de Room.
+- ✅ **Descarga de archive.org de punta a punta.** Un capítulo de Get Backers (51 MB) desde el
+  detalle: encoló, bajó, quedó en "Listo" con badge ARCHIVE, y el archivo apareció en `files/Movies/`
+  con el nombre derivado del `episodeId`.
+- ✅ **Reproducción desde el disco en modo avión.** El log confirma
+  `ArkivVlc: loadMedia kind=ARCHIVE uri=file:///storage/.../get-backers-...mp4` — lee del archivo, no
+  del proxy HTTP. Es la verificación del bug crítico que encontró el review final.
+- ⚠️ **Bug encontrado y arreglado durante esta verificación:** el `SystemForegroundService` de
+  WorkManager venía sin `foregroundServiceType`, y desde API 34 eso **mata la app** al encolar la
+  primera descarga. No lo cubría el permiso ni el `runCatching` alrededor de `setForeground()`.
+  Arreglado en el manifest.
+- ❌ **"Una descarga vieja sigue reproduciéndose" quedó sin poder probarse**: la tabla `downloads`
+  tenía 0 filas antes de migrar, así que ese escenario no existía en este dispositivo. El
+  `downloadfile.mp4` de 139 MB que hay en `files/Movies/` es basura sin fila asociada.
+
+## Verificación en device pendiente, por orden de riesgo
+
+1. **Torrent de punta a punta con interrupciones:** encolar, matar la app a mitad, reabrir. Ver si
    retoma o si cae en "el torrent podría estar en uso ahora mismo" de forma permanente. Chequear
    `adb shell dumpsys power | grep -i wake` antes y después, por el conteo de wake locks.
 3. **Web (serie) con blog vivo:** staging → transferencia → `DELETE /library`. Mirar que la barra
