@@ -69,6 +69,18 @@ fun DownloadsScreen(
     )
     val groups by vm.groups.collectAsStateWithLifecycle()
 
+    // Aviso de una sola vez del ViewModel. Es la ÚNICA salida que tiene esta pantalla cuando la cola
+    // saltea una descarga por duplicado: en ese caso no se crea ninguna fila, así que el capítulo
+    // sigue apareciendo como "no descargado" y el tap no dejaría ningún rastro visible.
+    // Va antes del `return` de la lista vacía para que valga en los dos caminos.
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val message by vm.message.collectAsStateWithLifecycle()
+    androidx.compose.runtime.LaunchedEffect(message) {
+        val text = message ?: return@LaunchedEffect
+        android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_LONG).show()
+        vm.messageShown()
+    }
+
     if (groups.isEmpty()) {
         EmptyState(
             title = "Descargas",
@@ -427,7 +439,10 @@ private fun stateLabel(row: DownloadRow): String = when (row.state) {
     LocalDownloadState.DOWNLOADING ->
         row.error?.let { "Reintentando · $it" } ?: "Bajando ${(row.progress * 100).toInt()}%"
     LocalDownloadState.NEEDS_CONFIRMATION -> "Necesita confirmación · ${TorrentSizeGate.formatSize(row.bytes)}"
-    LocalDownloadState.COMPLETED -> "Listo"
+    // El "error" de una fila completada no es un fallo: es el motivo por el que no hubo que bajar
+    // nada (ver DuplicateDownloadPolicy.ADOPTED_REASON, "Ya estaba descargado"). Decirlo evita que
+    // parezca que se bajaron 461 MB que en realidad ya estaban en disco bajo otro ítem.
+    LocalDownloadState.COMPLETED -> row.error?.let { "Listo · $it" } ?: "Listo"
     LocalDownloadState.FAILED -> row.error ?: "Falló"
     else -> row.state
 }

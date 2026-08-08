@@ -6,6 +6,8 @@ import com.arkiv.player.data.ArkivRepository
 import com.arkiv.player.data.local.DownloadGroup
 import com.arkiv.player.data.local.DownloadGroupPolicy
 import com.arkiv.player.data.local.DownloadItemMeta
+import com.arkiv.player.data.local.DuplicateDownloadPolicy
+import com.arkiv.player.data.local.EnqueueOutcome
 import com.arkiv.player.data.local.LocalDownloadManager
 import com.arkiv.player.data.model.Episode
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -75,9 +77,27 @@ class DownloadsViewModel(
         viewModelScope.launch { manager.remove(episodeId) }
     }
 
+    /**
+     * Aviso de una sola vez para el usuario ("ya lo tenés bajado"). Vive acá y no en la pantalla
+     * porque el caso que lo necesita es justo el que NO deja rastro: si la cola saltea la descarga
+     * por duplicado, no se crea ninguna fila, así que el capítulo sigue mostrándose como "no
+     * descargado" y el tap parece no hacer nada. La pantalla lo muestra y llama a [messageShown].
+     */
+    private val _message = MutableStateFlow<String?>(null)
+    val message: StateFlow<String?> = _message
+
+    fun messageShown() {
+        _message.value = null
+    }
+
     /** Encola un capítulo que todavía no se había descargado, desde la fila expandida del grupo. */
     fun download(episodeId: String, source: String) {
-        viewModelScope.launch { manager.enqueue(episodeId, source) }
+        viewModelScope.launch {
+            val outcome = manager.enqueue(episodeId, source)
+            if (outcome == EnqueueOutcome.ALREADY_DOWNLOADED) {
+                _message.value = DuplicateDownloadPolicy.skippedNotice(1)
+            }
+        }
     }
 
     /**

@@ -50,9 +50,24 @@ class CanonicalSeriesIdTest {
     }
 
     /**
+     * NO se valida la forma del imdb que llega de TMDB: el `org.json` de Android devuelve el string
+     * `"null"` (no `""`) cuando `optString` cae sobre un JSON `null`, y TMDB manda `"imdb_id": null`
+     * en las series sin IMDb — o sea que hoy hay ítems guardados como `web:series:null`. Rechazarlo
+     * los movería a `web:series:tmdb<id>`: un cambio de identidad sin mapeo de por medio, el mismo
+     * bug que esto viene a cerrar pero al revés. (Este test pasa igual con el org.json de la JVM,
+     * que sí filtra el null; el string se pasa a mano justamente por eso.)
+     */
+    @Test
+    fun `un imdb con forma rara del camino de TMDB se respeta tal cual`() {
+        assertEquals("null", SeriesItemIds.canonicalSeriesId(imdbId = "null", tmdbId = 240411))
+        assertEquals("unknown", SeriesItemIds.canonicalSeriesId(imdbId = "unknown", tmdbId = 240411))
+    }
+
+    /**
      * El dataset de anime (Fribb) trae `imdb_id` a veces como lista y a veces con varios ids pegados
-     * con coma. Un id mal formado no es "un id peor": es OTRO ítem de biblioteca, o sea el mismo bug
-     * de duplicación. Se acepta solo la forma `tt<números>`.
+     * con coma. Ahí sí se valida: ese id es NUEVO para la app (antes el anime ni miraba el mapeo),
+     * así que descartarlo no mueve nada ya guardado, y uno mal formado sería un ítem distinto del
+     * que arma el camino de TMDB — el mismo bug de duplicación.
      */
     @Test
     fun `normaliza el imdb del dataset de anime`() {
@@ -62,14 +77,20 @@ class CanonicalSeriesIdTest {
         assertNull(SeriesItemIds.normalizeImdbId(""))
         assertNull(SeriesItemIds.normalizeImdbId(null))
         assertNull(SeriesItemIds.normalizeImdbId("unknown"))
+        assertNull(SeriesItemIds.normalizeImdbId("null"))
         assertNull(SeriesItemIds.normalizeImdbId("30217403"))
     }
 
+    /** Un imdb basura del DATASET se descarta y el anime cae a tmdb, que es lo que da TMDB. */
     @Test
-    fun `un imdb basura no se usa y se cae a tmdb`() {
+    fun `un imdb basura del dataset no se usa y se cae a tmdb`() {
         assertEquals(
             "tmdb240411",
-            SeriesItemIds.canonicalSeriesId(imdbId = "unknown", tmdbId = 240411, anilistId = 171018),
+            SeriesItemIds.canonicalSeriesId(
+                imdbId = SeriesItemIds.normalizeImdbId("unknown"),
+                tmdbId = 240411,
+                anilistId = 171018,
+            ),
         )
     }
 

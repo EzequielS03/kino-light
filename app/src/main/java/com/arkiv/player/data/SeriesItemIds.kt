@@ -53,30 +53,39 @@ object SeriesItemIds {
     /**
      * seriesId canónico de una serie: **IMDb si hay, si no `"tmdb$id"`, si no `"anilist$id"`**.
      *
-     * Es exactamente la preferencia que ya usaba el camino no-anime (`d.imdbId.ifBlank {
-     * "tmdb${d.id}" }`); anilist queda solo como último recurso, para el anime cuyo mapeo cruzado
-     * todavía no se conoce. Puro a propósito (misma convención que `TorrentSizeGate` y compañía):
-     * quien tenga que ir a buscar el mapeo lo hace afuera y le pasa los ids ya resueltos.
+     * Es LITERALMENTE la preferencia que ya usaba el camino no-anime (`d.imdbId.ifBlank {
+     * "tmdb${d.id}" }`), con el mismo criterio laxo de "no vacío": anilist queda solo como último
+     * recurso, para el anime cuyo mapeo cruzado todavía no se conoce. Puro a propósito (misma
+     * convención que `TorrentSizeGate` y compañía): quien tenga que ir a buscar el mapeo lo hace
+     * afuera y le pasa los ids ya resueltos.
      *
-     * [imdbId] se valida con forma `tt<números>` en vez de solo "no vacío": el dataset de anime
-     * (Fribb) trae el campo a veces como lista y a veces con varios ids separados por coma, y un
-     * id mal formado acá no es un id peor — es un ítem de biblioteca distinto, o sea el mismo bug
-     * de duplicación que esto viene a cerrar. TMDB siempre manda `tt…` o vacío, así que para el
-     * camino no-anime la validación no cambia nada.
+     * **Ojo con endurecer esto.** El `org.json` de ANDROID devuelve el string `"null"` (no `""`)
+     * cuando `optString` cae sobre un JSON `null`, y TMDB manda `"imdb_id": null` en las series sin
+     * IMDb: hoy esas series están guardadas como `web:series:null`. Rechazar acá los ids mal
+     * formados las movería a `web:series:tmdb<id>` — un cambio de identidad SIN mapeo de por medio,
+     * o sea exactamente el bug que este archivo viene a cerrar, pero al revés. (El `org.json` de
+     * los tests JVM sí filtra el null, así que ningún test lo vería.) Quien necesite validar la
+     * forma del id lo hace ANTES de llamar acá: ver [normalizeImdbId], que usa [animeSeriesId] para
+     * el dataset de Fribb.
      */
-    fun canonicalSeriesId(imdbId: String?, tmdbId: Int?, anilistId: Long? = null): String {
-        val imdb = normalizeImdbId(imdbId)
-        return when {
-            imdb != null -> imdb
-            tmdbId != null -> "tmdb$tmdbId"
-            else -> anilistSeriesId(anilistId)
-        }
+    fun canonicalSeriesId(imdbId: String?, tmdbId: Int?, anilistId: Long? = null): String = when {
+        !imdbId.isNullOrBlank() -> imdbId
+        tmdbId != null -> "tmdb$tmdbId"
+        else -> anilistSeriesId(anilistId)
     }
 
     /** `"anilist$id"`: el fallback histórico del anime, el único id que siempre se puede armar. */
     fun anilistSeriesId(anilistId: Long?): String = "anilist$anilistId"
 
-    /** `"tt123"` / `["tt123"]` ya desarmado / `"tt123,tt456"` → `"tt123"`; cualquier otra cosa → null. */
+    /**
+     * `"tt123"` / `["tt123"]` ya desarmado / `"tt123,tt456"` → `"tt123"`; cualquier otra cosa → null.
+     *
+     * Es solo para el `imdb_id` del dataset de anime (Fribb), que trae el campo a veces como lista y
+     * a veces con varios ids pegados con coma. Ahí sí conviene ser estricto: ese id es NUEVO para la
+     * app (antes el anime ni miraba el mapeo), así que descartarlo no mueve nada ya guardado, y un
+     * id mal formado sería un ítem de biblioteca distinto del que arma el camino de TMDB. NO se
+     * aplica al imdb que viene de TMDB — ver [canonicalSeriesId].
+     */
     fun normalizeImdbId(raw: String?): String? =
         raw?.substringBefore(',')?.trim()?.takeIf { IMDB_SHAPE.matches(it) }
 
@@ -102,6 +111,7 @@ object SeriesItemIds {
         } catch (e: Exception) {
             null
         }
-        return canonicalSeriesId(mapping?.imdbId, mapping?.tmdbId, anilistId)
+        // normalizeImdbId solo acá: el imdb de Fribb es el que puede venir con varios ids pegados.
+        return canonicalSeriesId(normalizeImdbId(mapping?.imdbId), mapping?.tmdbId, anilistId)
     }
 }

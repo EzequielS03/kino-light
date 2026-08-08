@@ -160,7 +160,15 @@ class LocalDownloadManager(
         downloadDao.delete(episodeId)
         if (inFlight) restartWorker(appContext)
         val path = row?.filePath ?: row?.localUri?.removePrefix("file://")
-        if (path != null) {
+        // Dos filas pueden compartir el MISMO archivo: cuando el worker encuentra que ese contenido
+        // ya estaba en disco bajo otro ítem, adopta el archivo del gemelo en vez de re-descargarlo
+        // (ver LocalDownloadWorker.adoptTwinIfAlreadyDownloaded). Borrarlo desde una de las filas
+        // dejaría a la otra diciendo "Listo" sobre un archivo que ya no está. El barrido por prefijo
+        // de más abajo NO necesita este cuidado: usa sanitize(episodeId), así que solo toca archivos
+        // nombrados con ESTE episodio, nunca el del gemelo.
+        val fileIsShared = path != null &&
+            !DuplicateDownloadPolicy.canDeleteFile(downloadDao.othersWithFilePath(path, episodeId))
+        if (path != null && !fileIsShared) {
             // Cubre el nombre exacto que dejaron descargas viejas (pre-migración), que puede no
             // seguir el patrón sanitize(episodeId) + extensión que arma LocalFilePaths.fileNameFor.
             val file = File(path)

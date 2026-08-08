@@ -81,4 +81,17 @@ object DuplicateDownloadPolicy {
         skipped == 1 -> "Ya lo tenés descargado en el dispositivo"
         else -> "$skipped capítulos ya estaban descargados en el dispositivo"
     }
+
+    /**
+     * ¿Se puede borrar el archivo de [filePath] al quitar [episodeId] de la cola?
+     *
+     * No, si hay OTRA fila apuntando al mismo archivo. Eso pasa cuando el worker adopta el archivo
+     * de un gemelo en vez de re-descargarlo (ver `LocalDownloadWorker`): las dos filas comparten
+     * `filePath`, y borrarlo desde una dejaría a la otra diciendo "listo" sobre un archivo que ya no
+     * está. [others] son los episodeId de las demás filas que declaran ese mismo `filePath`.
+     */
+    fun canDeleteFile(others: List<String>): Boolean = others.isEmpty()
+
+    /** Rótulo de la fila que se saltó porque el archivo ya estaba en disco bajo otro ítem. */
+    const val ADOPTED_REASON = "Ya estaba descargado"
 }

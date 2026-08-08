@@ -100,6 +100,33 @@ class DuplicateDownloadPolicyTest {
         assert(web != torrent)
     }
 
+    /**
+     * El caso EXACTO del dispositivo: la fila duplicada ya estaba `queued` desde antes del fix, así
+     * que ningún `enqueue` la va a volver a evaluar. La compuerta del worker la agarra justo antes
+     * de marcarla `downloading`, que es la última oportunidad de no bajar 461 MB de nuevo.
+     */
+    @Test
+    fun `la fila que ya estaba encolada tambien se detecta`() {
+        val yaEnCola = EpisodeOrigin("web:series:anilist171018::31fe74c5", torrentFileIndex = null)
+        assertEquals(
+            "web:series:tt30217403::31fe74c5",
+            DuplicateDownloadPolicy.completedDuplicateOf(yaEnCola, listOf(yaBajado)),
+        )
+    }
+
+    // --- Borrado del archivo compartido ---------------------------------------------------------
+
+    /**
+     * Al adoptar el archivo del gemelo, dos filas apuntan al MISMO `filePath`. Quitar una no puede
+     * borrar el archivo mientras la otra lo siga referenciando: la dejaría diciendo "Listo" sobre
+     * algo que ya no está.
+     */
+    @Test
+    fun `no se borra el archivo si otra fila lo referencia`() {
+        assertEquals(true, DuplicateDownloadPolicy.canDeleteFile(emptyList()))
+        assertEquals(false, DuplicateDownloadPolicy.canDeleteFile(listOf("web:series:tt30217403::31fe74c5")))
+    }
+
     // --- Aviso al usuario -----------------------------------------------------------------------
 
     @Test

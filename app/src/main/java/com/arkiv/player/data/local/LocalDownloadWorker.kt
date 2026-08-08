@@ -37,6 +37,20 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
         val next = DownloadQueuePolicy.nextToProcess(rows) ?: return Result.success()
         val entity = dao.get(next.episodeId) ?: return Result.success()
 
+        // La compuerta de duplicados corre TAMBIÉN acá, no solo en `LocalDownloadManager.enqueue`.
+        // Dos motivos, los dos reales:
+        //  1. Las filas que YA estaban en la cola nunca vuelven a pasar por `enqueue`. En el
+        //     dispositivo del usuario había justo eso: `web:series:tt30217403::31fe74c5` completed
+        //     (461 MB en disco) y `web:series:anilist171018::31fe74c5` queued, esperando turno para
+        //     bajar el mismo archivo otra vez.
+        //  2. Dos gemelos encolados en el mismo lote pasan los dos por `enqueue` sin que ninguno
+        //     esté completed todavía. Como la cola es de UNA a la vez, cuando el segundo llega acá
+        //     el primero ya terminó y esta compuerta lo agarra.
+        if (adoptTwinIfAlreadyDownloaded(graph, dao, entity)) {
+            reschedule()
+            return Result.success()
+        }
+
         // `setForeground` puede lanzar: si la app está en background sin Activity visible reciente,
         // o si el sistema restringe el arranque de foreground services (ForegroundServiceStartNotAllowedException
         // en API 31+, o cualquier otra excepción de notificación/binder). Si eso pasa NO puede tumbar la
@@ -138,6 +152,61 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
     }
 
     /**
+     * Si el contenido de [entity] ya está en disco bajo OTRO ítem, no lo baja: **adopta el archivo
+     * del gemelo** (marca esta fila `completed` con el mismo `filePath`) y devuelve `true`.
+     *
+     * Por qué adoptar y no borrar la fila ni marcarla `failed`:
+     *  - Borrarla en silencio deja el capítulo como "no descargado" para siempre y el botón de la UI
+     *    no hace nada visible: el usuario vuelve a tocarlo y vuelve a no pasar nada.
+     *  - `failed` refleja algo que no pasó (no falló nada) y encima invita a "Reintentar", que
+     *    volvería a caer acá.
+     *  - `completed` apuntando al archivo del gemelo dice la verdad ("ya lo tenés"), deja la fila
+     *    visible y quitable en Descargas, y además hace que ESE capítulo se pueda ver sin conexión
+     *    desde su propio ítem: `LocalLibrary.fileFor` resuelve el mismo archivo y la biblioteca le
+     *    pinta el tilde. Sin esto quedaba sin tilde y reproduciéndose por red teniendo el archivo
+     *    ahí al lado.
+     *
+     * Que dos filas compartan `filePath` es deliberado y está contemplado en
+     * `LocalDownloadManager.remove`, que no borra el archivo si otra fila lo referencia.
+     *
+     * Si el archivo del gemelo ya no existe (el usuario lo borró por fuera), NO se adopta nada y la
+     * descarga sigue su curso normal: la compuerta es "ya está en disco", no "alguna vez estuvo".
+     */
+    private suspend fun adoptTwinIfAlreadyDownloaded(
+        graph: AppGraph,
+        dao: com.arkiv.player.data.db.DownloadDao,
+        entity: DownloadEntity,
+    ): Boolean {
+        val target = EpisodeOrigin(
+            entity.episodeId,
+            graph.database.itemDao().getEpisode(entity.episodeId)?.torrentFileIndex,
+        )
+        val twinId = DuplicateDownloadPolicy.completedDuplicateOf(target, dao.completedOrigins())
+            ?: return false
+        val twin = dao.get(twinId) ?: return false
+        val path = twin.filePath ?: twin.localUri?.removePrefix("file://") ?: return false
+        if (!java.io.File(path).let { it.exists() && it.length() > 0L }) return false
+
+        Log.i(TAG, "${entity.episodeId} ya está en disco como $twinId; se adopta el archivo en vez de bajarlo")
+        // El tamaño se copia del gemelo: es el del archivo que esta fila va a servir, y sin esto la
+        // pantalla de Descargas mostraría 0 B para algo que sí ocupa disco.
+        dao.updateProgress(entity.episodeId, 1f, twin.bytesDone, twin.bytes)
+        dao.markCompleted(entity.episodeId, path)
+        dao.setError(entity.episodeId, DuplicateDownloadPolicy.ADOPTED_REASON)
+        // Si esta fila venía a medias (se reanudó una descarga que ya no hace falta), su `.part`
+        // queda huérfano: nadie más lo referencia ni lo limpia. Mismo barrido por prefijo que
+        // `LocalDownloadManager.remove`, que por usar sanitize(episodeId) solo toca archivos de ESTE
+        // episodio — nunca el del gemelo, que se llama con el episodeId del gemelo.
+        runCatching {
+            val prefix = "${LocalFilePaths.sanitize(entity.episodeId)}."
+            graph.localDownloads.targetDir().listFiles { f -> f.name.startsWith(prefix) }
+                ?.forEach { f -> runCatching { f.delete() } }
+        }
+        notifyAlreadyDownloaded(entity.episodeId)
+        return true
+    }
+
+    /**
      * Escribe el progreso a Room, no más de una vez por segundo. Sin esta cadencia una descarga de
      * 4 GB haría decenas de miles de UPDATE (el callback llega cada 64 KB) y la UI, que observa la
      * tabla, se recompondría sin parar.
@@ -206,6 +275,12 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
 
     private fun notifyDone(episodeId: String) =
         notify(episodeId.hashCode(), "Descarga completa", "Ya podés verlo sin conexión")
+
+    private fun notifyAlreadyDownloaded(episodeId: String) = notify(
+        episodeId.hashCode(),
+        "Ya lo tenías descargado",
+        "Ese capítulo ya estaba en el dispositivo; no se bajó de nuevo",
+    )
 
     private fun notifyNeedsConfirmation(episodeId: String, bytes: Long) = notify(
         episodeId.hashCode(),
