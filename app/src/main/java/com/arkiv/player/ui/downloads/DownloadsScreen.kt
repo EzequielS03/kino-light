@@ -154,11 +154,22 @@ private fun DownloadItem(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                // También en STAGING: esa fase (la NUC bajando del origen) ocupa la primera mitad de
-                // la barra, y sin esto una espera de minutos u horas se veía sin ninguna señal de
-                // avance. Ver StagingProgress.
-                if (row.state == LocalDownloadState.DOWNLOADING || row.state == LocalDownloadState.STAGING) {
-                    LinearProgressIndicator(
+                // STAGING va con barra INDETERMINADA, no con `row.progress`. El backend de la NUC
+                // calcula el progreso de un job web como `items terminados / items totales`
+                // (ver `_compute_progress` en arkiv-offline), y la app crea un job por capítulo con
+                // UN solo item: la cuenta solo puede dar 0/1 o 1/1. O sea que durante toda la fase
+                // —varios minutos bajando un capítulo por HLS— la barra se quedaba clavada en 0% y
+                // parecía trabada. Un indicador indeterminado es lo honesto: está trabajando y de
+                // verdad no sabemos cuánto le falta.
+                when (row.state) {
+                    LocalDownloadState.STAGING -> LinearProgressIndicator(
+                        color = ArkivRed,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .padding(top = 6.dp),
+                    )
+                    LocalDownloadState.DOWNLOADING -> LinearProgressIndicator(
                         progress = { row.progress },
                         color = ArkivRed,
                         modifier = Modifier
@@ -166,6 +177,7 @@ private fun DownloadItem(
                             .height(4.dp)
                             .padding(top = 6.dp),
                     )
+                    else -> Unit
                 }
             }
             if (row.state == LocalDownloadState.COMPLETED) {
@@ -200,7 +212,9 @@ private fun DownloadItem(
 /** Texto que se le muestra al usuario para cada estado de la cola. */
 private fun stateLabel(row: DownloadRow): String = when (row.state) {
     LocalDownloadState.QUEUED -> "En cola"
-    LocalDownloadState.STAGING -> "Preparando en el servidor ${(row.progress * 100).toInt()}%"
+    // Sin porcentaje: el backend solo puede reportar 0% o 100% para esta fase (ver el comentario
+    // de la barra indeterminada más arriba), así que un número acá mentiría.
+    LocalDownloadState.STAGING -> "Preparando en el servidor…"
     // El error con la fila todavía en `downloading` es un fallo transitorio que WorkManager va a
     // reintentar solo (ver DownloadRetryPolicy): decirlo evita que parezca colgada.
     LocalDownloadState.DOWNLOADING ->
