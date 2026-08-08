@@ -168,13 +168,34 @@ class PlayerViewModel(
         Log.w(PLAY, "loadLocal() $episodeId -> $path (cast=$castUrl)")
     }
 
+    /**
+     * Archivo guardado de un episodio de archive, listo para meterle a VLC, o null si no está.
+     *
+     * Sale de [LocalLibrary] y NO de la tabla `downloads` directo, que es lo que hacía antes vía
+     * `repo.completedDownloadUri`. Aquella consulta miraba SOLO la columna `localUri`, que es la que
+     * llenaba el `DownloadManager` del sistema; las descargas nuevas escriben la ruta en `filePath`,
+     * así que `completedDownloadUri` devolvía null para todo lo bajado con el worker: se bajaban los
+     * GB, la UI decía "Listo" y al dar play se streameaba igual (sin red, pantalla negra). Tampoco
+     * verificaba que el archivo existiera, así que borrarlo desde los Ajustes de Android dejaba un
+     * `file://` fantasma.
+     *
+     * `LocalLibrary.fileFor` cubre las DOS columnas (lo viejo sigue reproduciéndose), chequea
+     * `exists()` y limpia la fila si el archivo se fue — con lo cual el play cae a streaming en vez
+     * de a pantalla negra. Es el mismo y único resolvedor que ya usan torrent y web.
+     *
+     * El prefijo `file://` se agrega ACÁ: `fileFor` devuelve una ruta desnuda y `buildData` usa el
+     * valor tal cual como `mediaUrl`.
+     */
+    private suspend fun localArchiveUri(episodeId: String): String? =
+        localLibrary.fileFor(episodeId)?.let { "file://$it" }
+
     /** archive.org: sección completa como playlist (next/prev y autoplay nativos). */
     private suspend fun loadArchive(episodeId: String) {
         val start = repo.getEpisode(episodeId) ?: return
         val marker = repo.getSkipMarker(start.itemId)
         val episodes = repo.episodesOf(start.itemId).filter { it.section == start.section }
         val items = episodes.mapNotNull { ep ->
-            buildData(ep, repo.completedDownloadUri(ep.id), marker)
+            buildData(ep, localArchiveUri(ep.id), marker)
         }
         if (items.isEmpty()) return
         val startIndex = items.indexOfFirst { it.episodeId == episodeId }.coerceAtLeast(0)
@@ -487,8 +508,8 @@ class PlayerViewModel(
             SourceKind.ARCHIVE -> {
                 val ep = repo.getEpisode(next.id) ?: return@runCatching
                 val marker = repo.getSkipMarker(ep.itemId)
-                val url = buildData(ep, repo.completedDownloadUri(ep.id), marker)?.mediaUrl ?: return@runCatching
-                // Descarga completada → url es file://content:// local (OkHttp la rechaza, trabajo inútil).
+                val url = buildData(ep, localArchiveUri(ep.id), marker)?.mediaUrl ?: return@runCatching
+                // Descarga completada → url es file:// local (OkHttp la rechaza, trabajo inútil).
                 // Streaming → url es http://127.0.0.1… (proxy): ahí sí vale la pena calentar la cabeza.
                 if (url.startsWith("http", ignoreCase = true)) {
                     Log.w(PLAY, "prefetch archive: calentando cabeza")
