@@ -178,6 +178,65 @@ Petición: `{"ref": "<opaco>"}`. Respuesta:
 - Secretos (`IPTV_3DES_KEY`, `IPTV_HOSTS`, `IPTV_APP_ID`, `IPTV_DEVICE_SN`, …) como **secretos de
   Coolify**, copiados desde el `.env` local. Nunca al repo.
 
+## Credenciales — consolidación
+
+Objetivo: **la app lleva una sola credencial**; todo lo demás vive en el gateway.
+
+### Hoy (5 credenciales en el dispositivo)
+
+| Nombre | Dónde | Para qué |
+|--------|-------|----------|
+| `API_KEY` | `.env` → `BuildConfig.TMDB_API_KEY` | TMDB |
+| `SUBITLE_API` | `.env` → `BuildConfig.OPENSUBTITLES_API_KEY` | OpenSubtitles |
+| `SIMKL_CLIENT_ID` | `.env` → `BuildConfig.SIMKL_CLIENT_ID` | mapping de anime |
+| `REFRESH_API_KEY` | `.env` → `BuildConfig` → `SettingsStore.refreshApiKey` | header `X-Api-Key` al mirror |
+| `nucApiKey` | solo `SettingsStore` | arkiv-offline |
+
+### Después (1 credencial en el dispositivo)
+
+| Nombre | Dónde | Para qué |
+|--------|-------|----------|
+| `ARKIV_API_KEY` | `.env` → `BuildConfig` → `SettingsStore.arkivApiKey` | header `X-Arkiv-Key` contra **todo** el gateway |
+
+`ARKIV_API_KEY` toma su valor por defecto de `BuildConfig` pero es **editable en Ajustes** — mismo
+mecanismo que ya tiene `refreshApiKey` hoy. Así se rota sin publicar APK.
+
+`REFRESH_API_KEY` y `nucApiKey` se eliminan: sus destinos (`/api/refresh` del mirror, jobs de
+arkiv-offline) pasan a estar detrás del gateway, que autentica con la llave única y usa las
+credenciales upstream por su cuenta.
+
+### Credenciales que se mueven al gateway
+
+Un solo lugar: **secretos de Coolify del servicio `arkiv-api`**, agrupados por namespace.
+
+| Namespace | Variables |
+|-----------|-----------|
+| `TMDB_*` | `TMDB_API_KEY`, `TMDB_READ_ACCESS_TOKEN` |
+| `OPENSUBTITLES_*` | `OPENSUBTITLES_API_KEY` |
+| `SIMKL_*` | `SIMKL_CLIENT_ID`, `SIMKL_CLIENT_SECRET` |
+| `IPTV_*` (magis) | `IPTV_3DES_KEY`, `IPTV_HOSTS`, `IPTV_APP_ID`, `IPTV_DEVICE_SN`, `IPTV_APK_VERSION`, `IPTV_DEVICE_DRM_ID`, `IPTV_DEVICE_TOKEN`, `IPTV_DEVICE_RESERVE1`, `IPTV_USERNAME`, `IPTV_PASSWORD` |
+| `MIRROR_*` | llave del mirror (`X-Api-Key` hacia `:8097`) |
+| `JACKETT_*` | API key de Jackett |
+| `NUC_*` | llave de arkiv-offline |
+| `ARKIV_API_KEYS` | lista de llaves de cliente válidas (permite rotar sin downtime: se aceptan dos a la vez) |
+
+### Credenciales que **no** se mueven
+
+- `RELEASE_KEYSTORE_PATH`, `RELEASE_KEYSTORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD`
+  — firma del APK, son de build y se quedan en el Mac. Nunca salen de ahí.
+- `S3_ACESS_KEY_ARCHIVE`, `S3_SECRET_KEY_ARCHIVE` — subidas a archive.org; pertenecen al flujo de
+  `arkiv-offline`, no al gateway.
+- `TELEGRAM_*`, `IPTV_DOWNLOAD_DIR`, `MAGIA_LANG` — solo del CLI de magia, no aplican.
+- Admin de PocketBase — sigue fuera del gateway, igual que el resto de PocketBase.
+
+### Reglas
+
+1. Ningún secreto entra al repo. `arkiv-api` trae `.env.example` con los **nombres** y nada más.
+2. El gateway **falla al arrancar** si falta un secreto requerido, y dice cuál. Nada de degradar
+   en silencio.
+3. `/v1/health` reporta qué namespaces están configurados (booleano), **nunca** valores.
+4. `ARKIV_API_KEYS` acepta varias llaves para poder rotar sin cortar a los dispositivos viejos.
+
 ## Robustez
 
 - **Aislamiento**: una fuente que falla o expira emite `source_error`; las demás siguen. Nunca
@@ -198,6 +257,10 @@ Petición: `{"ref": "<opaco>"}`. Respuesta:
   manteniendo los campos actuales como derivados para no romper el player ni el cast.
 - **Feature flag** `useGateway` en `SettingsStore` (default ON), con caída al camino actual si el
   gateway no responde.
+- **Credenciales**: se borran `BuildConfig.TMDB_API_KEY`, `OPENSUBTITLES_API_KEY`,
+  `SIMKL_CLIENT_ID` y `REFRESH_API_KEY`, más `SettingsStore.nucApiKey`. Queda solo
+  `arkivApiKey`. `TmdbApi`, `SubtitleApi` y `SimklApi` pasan a pegarle a `/v1/catalog/*` en vez
+  de a los servicios externos.
 - **Se queda en el dispositivo**: el scrape UDP de seeders y el conteo DHT
   (`SearchViewModel.refreshSeeders`) — eso necesita la red del celular, no la del NUC.
 
