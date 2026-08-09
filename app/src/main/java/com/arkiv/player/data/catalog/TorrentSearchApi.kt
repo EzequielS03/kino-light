@@ -64,6 +64,9 @@ data class TorrentResult(
     val magnetUri: String? = null,
     // Link de descarga del proveedor cuando no hay magnet directo; se resuelve al reproducir.
     val downloadUrl: String? = null,
+    /** Ref opaco del gateway, cuando el resultado vino de ahi. Se manda tal cual a `/v1/resolve`
+     *  y la app nunca lo interpreta: asi una fuente puede cambiar por dentro sin obligar a un APK. */
+    val gatewayRef: String? = null,
 ) {
     val sizeLabel: String get() = when {
         sizeBytes <= 0 -> ""

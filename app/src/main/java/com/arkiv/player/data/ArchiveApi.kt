@@ -32,6 +32,9 @@ data class ArchiveSearchResult(
      * de acá se reproduce y se descarga igual que cualquier ítem público.
      */
     val fromLibrary: Boolean = false,
+    /** Ref opaco del gateway, cuando el resultado vino de ahi. Se manda tal cual a `/v1/resolve`
+     *  y la app nunca lo interpreta: asi una fuente puede cambiar por dentro sin obligar a un APK. */
+    val gatewayRef: String? = null,
     /**
      * Serie de TMDB de la que salió este resultado, cuando se sabe. Se guarda junto al ítem para
      * poder pedirle a TMDB los títulos de los capítulos: ni archive.org ni el mirror guardan el

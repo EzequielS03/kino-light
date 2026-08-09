@@ -32,4 +32,7 @@ data class WebResult(
     val audioLanguages: List<String> = emptyList(),
     val season: Int? = null,
     val episode: Int? = null,
+    /** Ref opaco del gateway, cuando el resultado vino de ahi. Se manda tal cual a `/v1/resolve`
+     *  y la app nunca lo interpreta: asi una fuente puede cambiar por dentro sin obligar a un APK. */
+    val gatewayRef: String? = null,
 )
