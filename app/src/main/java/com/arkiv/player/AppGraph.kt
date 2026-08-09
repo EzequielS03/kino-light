@@ -57,6 +57,18 @@ class AppGraph(context: Context) {
 
     val apkDownloader: ApkDownloader by lazy { ApkDownloader(appContext) }
 
+    /**
+     * Cliente del gateway unificado. La URL y la llave se leen del [settings] en CADA llamada (no
+     * se capturan): así cambiarlas en Ajustes tiene efecto sin reiniciar la app.
+     */
+    val arkivApiClient: com.arkiv.player.data.gateway.ArkivApiClient by lazy {
+        com.arkiv.player.data.gateway.ArkivApiClient(
+            baseUrl = { settings.gatewayUrl.value },
+            apiKey = { settings.arkivApiKey.value },
+            http = okhttp3.OkHttpClient(),
+        )
+    }
+
     /** Chequeo inmediato de OTA: llamado por [com.arkiv.player.data.update.UpdateWorker] y al arrancar la app. */
     suspend fun checkForUpdate() {
         val info = updateChecker.check(BuildConfig.VERSION_CODE)

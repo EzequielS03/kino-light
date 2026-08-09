@@ -57,6 +57,20 @@ class SettingsStore(context: Context) {
     private val _cloudflareSolverEnabled = MutableStateFlow(prefs.getBoolean(KEY_CF_ENABLED, true))
     val cloudflareSolverEnabled: StateFlow<Boolean> = _cloudflareSolverEnabled
 
+    // --- gateway unificado -------------------------------------------------
+    // Una sola credencial para TODO el gateway: reemplaza a refreshApiKey y nucApiKey, y saca del
+    // APK las de TMDB, OpenSubtitles y Simkl. Editable acá para poder rotarla sin publicar APK.
+    private val _arkivApiKey = MutableStateFlow(prefs.getString(KEY_ARKIV_API_KEY, DEFAULT_ARKIV_API_KEY)!!)
+    val arkivApiKey: StateFlow<String> = _arkivApiKey
+
+    private val _gatewayUrl = MutableStateFlow(prefs.getString(KEY_GATEWAY_URL, DEFAULT_GATEWAY_URL)!!)
+    val gatewayUrl: StateFlow<String> = _gatewayUrl
+
+    // Arranca encendido, con caída al camino viejo si el gateway no responde: si el NUC se cae,
+    // la búsqueda tiene que seguir funcionando igual.
+    private val _useGateway = MutableStateFlow(prefs.getBoolean(KEY_USE_GATEWAY, true))
+    val useGateway: StateFlow<Boolean> = _useGateway
+
     private val _webQuality = MutableStateFlow(readWebQuality())
     val webQuality: StateFlow<WebQuality> = _webQuality
 
@@ -80,6 +94,10 @@ class SettingsStore(context: Context) {
         prefs.edit().putInt(KEY_MAX_SIZE, gb).apply()
         _maxTorrentSizeGb.value = gb
     }
+
+    fun setArkivApiKey(v: String) { prefs.edit().putString(KEY_ARKIV_API_KEY, v).apply(); _arkivApiKey.value = v }
+    fun setGatewayUrl(v: String) { prefs.edit().putString(KEY_GATEWAY_URL, v).apply(); _gatewayUrl.value = v }
+    fun setUseGateway(v: Boolean) { prefs.edit().putBoolean(KEY_USE_GATEWAY, v).apply(); _useGateway.value = v }
 
     fun setProvidersUrl(v: String) { prefs.edit().putString(KEY_PROVIDERS_URL, v).apply(); _providersUrl.value = v }
     fun setWebSourcesUrl(v: String) { prefs.edit().putString(KEY_WEB_SOURCES_URL, v).apply(); _webSourcesUrl.value = v }
@@ -115,6 +133,9 @@ class SettingsStore(context: Context) {
         private const val KEY_WEB_SOURCES_URL = "web_sources_url"
         private const val KEY_WEB_RESOLVER_URL = "web_resolver_url"
         private const val KEY_CF_ENABLED = "cloudflare_solver_enabled"
+        private const val KEY_ARKIV_API_KEY = "arkiv_api_key"
+        private const val KEY_GATEWAY_URL = "gateway_url"
+        private const val KEY_USE_GATEWAY = "use_gateway"
         private const val KEY_TORRENT_API_URL = "torrent_api_url"
         private const val KEY_TV_LINKED = "tv_linked"
         private const val KEY_NUC_LAN_URL = "nuc_lan_base_url"
@@ -125,6 +146,8 @@ class SettingsStore(context: Context) {
         const val DEFAULT_WEB_SOURCES_URL = "https://jackett.comparadorinternet.co/web_sources.json"
         const val DEFAULT_WEB_RESOLVER_URL = "https://jackett.comparadorinternet.co/resolve"
         const val DEFAULT_TORRENT_API_URL = "https://torrents.comparadorinternet.co"
+        const val DEFAULT_GATEWAY_URL = "https://api.comparadorinternet.co"
+        val DEFAULT_ARKIV_API_KEY: String get() = BuildConfig.ARKIV_API_KEY
         const val DEFAULT_NUC_LAN_URL = "http://192.168.1.100:8099"
         const val DEFAULT_NUC_TUNNEL_URL = "https://arkiv-offline.comparadorinternet.co"
         /**
