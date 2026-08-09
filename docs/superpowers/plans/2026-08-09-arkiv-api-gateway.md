@@ -12,6 +12,30 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-09-api-unificada-design.md`
 
+## Correcciones tras medir los backends reales (2026-08-09)
+
+Las Tasks 9 y 11 se escribieron sobre supuestos que no resistieron el contacto con `blog`.
+Lo implementado difiere del texto original de esas tareas, y esto es lo que manda:
+
+1. **El `/api/search` del mirror devuelve títulos, no torrents.** Los magnets viven en
+   `/api/title/<slug>` → `torrents[]`. Es un recorrido de dos pasos, con tope de 3 títulos
+   (o uno solo si viene `tmdb_id`) para no caer en N+1. Extraído a `adapters/mirror_titles.py`,
+   que comparten `torrent` y `web`.
+2. **Jackett tarda ~27 s en frío** (0.9 s tibio, cachea). Un `asyncio.gather` de mirror+Jackett
+   con presupuesto de 4 s devolvería **cero** resultados. El adaptador arranca Jackett primero
+   para solapar latencia, pero emite el mirror apenas responde. Dedup determinista: gana el
+   mirror, que es la fuente curada en español.
+3. **212 de 366 resultados reales de Jackett no traen magnet** — solo un `Link` al `.torrent`,
+   y son justo los trackers en español (Wolfmax 4k, DonTorrent, DivxTotal). Descartarlos
+   destruiría la cobertura latino/castellano. El ref guarda el link y **solo al resolver** se
+   baja el `.torrent` para sacarle el infohash (`adapters/bencode.py`, contrastado contra
+   `bencodepy` sobre un archivo real de DonTorrent).
+4. **El resolver Node no tiene `/search`.** Solo `GET /resolve?url=`, `/proxy` y `/health`, y
+   devuelve `{ok, streamUrl, proxyUrl, headers, subtitles}`. El catálogo web sale del mirror:
+   `web_sources[]` con `page_url`, `lang_norm`, `season`, `episode`, `site_id`
+   (172k fuentes activas sobre 2.4k títulos).
+5. **Python local es 3.14**, no 3.12. `fakeredis` necesita el extra `[lua]` para `EVAL`.
+
 ## Global Constraints
 
 - Repositorio nuevo e independiente: **`~/arkiv-api`**. No se mezcla con el código Android de `~/archive`.
