@@ -28,9 +28,22 @@ Tres cosas que este plan asumía mal:
    secundarios. `TorrentResult.downloadUrl` ya existe para "cuando no hay magnet directo" — calza
    exacto con los resultados solo-`Link` de Jackett.
 
-**Ya hecho:** Task 1 (modelos + parser, 9 tests) y Task 2 (cliente NDJSON, 11 tests).
-MockWebServer y `org.json` ya estaban entre las dependencias de test — el Step 1 de la Task 2 no
-hizo falta.
+4. **Magis NO puede entrar antes que su reproducción.** La Task 3 original agregaba
+   `PlaySource.Magis` y `SourceKind.MAGIS` sueltos, y el compilador lo frenó: hay **8 `when`
+   exhaustivos** (`CineDetailScreen` ×2, `PlayerViewModel` ×2, `SearchPlayback`, `SearchScreen` ×3)
+   que quedarían sin rama útil. Rellenarlos con un no-op dejaría una fuente que aparece en la
+   búsqueda y no hace nada al tocarla. **Task 3 y Task 7 se fusionan**: Magis entra como caso del
+   sealed y del enum en el mismo commit que su `loadMagis`.
+
+**Ya hecho:** Task 1 (modelos + parser, 9 tests), Task 2 (cliente NDJSON, 11 tests) y la parte
+aditiva de la Task 3 (`PlayerSourceTag.extraHeaders` + `allHeaders`, 3 tests). MockWebServer y
+`org.json` ya estaban entre las dependencias de test — el Step 1 de la Task 2 no hizo falta.
+Suite completa de la app: **655 tests verdes**.
+
+**Orden que queda:** (a) proxy local con headers arbitrarios [Task 4b], (b) mapper
+`GatewayResult → PlaySource` [Task 4], (c) credencial única y flag [Task 5], (d) Magis como fuente
+**junto con** su reproducción [Tasks 3+7 fusionadas], (e) búsqueda por el gateway con fallback
+[Task 6], (f) verificación en device [Task 8].
 
 ## Global Constraints
 
