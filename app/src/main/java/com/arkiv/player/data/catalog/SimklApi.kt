@@ -48,27 +48,29 @@ object SimklParser {
  * `search/id?anilist=` da el id de Simkl; `anime/{id}?extended=full` da episodios + cross-ids.
  */
 class SimklApi(
-    private val clientId: String,
+    /** Base del gateway y credencial unica. El client_id de Simkl vive en el servidor. */
+    private val gatewayUrl: () -> String,
+    private val arkivKey: () -> String,
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build(),
 ) {
-    val configured: Boolean get() = clientId.isNotBlank()
+    val configured: Boolean get() = arkivKey().isNotBlank()
 
     suspend fun infoByAniList(anilistId: Long): SimklAnimeInfo? = withContext(Dispatchers.IO) {
         if (!configured) return@withContext null
         val sid = SimklParser.parseSearch(
-            get("https://api.simkl.com/search/id?anilist=$anilistId") ?: return@withContext null,
+            get("${gatewayUrl()}/v1/catalog/simkl/search/id?anilist=$anilistId") ?: return@withContext null,
         ) ?: return@withContext null
         SimklParser.parseDetail(
-            get("https://api.simkl.com/anime/$sid?extended=full") ?: return@withContext null,
+            get("${gatewayUrl()}/v1/catalog/simkl/anime/$sid?extended=full") ?: return@withContext null,
         )
     }
 
     private fun get(url: String): String? = runCatching {
         client.newCall(
-            Request.Builder().url(url).header("simkl-api-key", clientId).build(),
+            Request.Builder().url(url).header("X-Arkiv-Key", arkivKey()).build(),
         ).execute().use { if (it.isSuccessful) it.body?.string() else null }
     }.getOrNull()
 }

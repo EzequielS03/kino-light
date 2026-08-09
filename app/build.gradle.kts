@@ -25,9 +25,8 @@ android {
         versionCode = 4
         versionName = "0.3.1"
         // Credenciales desde .env (no hardcodeadas en el código).
-        buildConfigField("String", "TMDB_API_KEY", "\"${readEnv("API_KEY")}\"")
-        buildConfigField("String", "OPENSUBTITLES_API_KEY", "\"${readEnv("SUBITLE_API")}\"")
-        buildConfigField("String", "SIMKL_CLIENT_ID", "\"${readEnv("SIMKL_CLIENT_ID")}\"")
+        // TMDB, OpenSubtitles y Simkl YA NO viajan en el APK: viven en el gateway y se
+        // alcanzan por `/v1/catalog/*` con la credencial única de abajo.
         buildConfigField("String", "REFRESH_API_KEY", "\"${readEnv("REFRESH_API_KEY")}\"")
         // Credencial ÚNICA del gateway unificado. A futuro reemplaza a REFRESH_API_KEY y a las de
         // TMDB/OpenSubtitles/Simkl, que pasan a vivir en el servidor.

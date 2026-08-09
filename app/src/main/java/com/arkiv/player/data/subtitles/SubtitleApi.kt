@@ -23,20 +23,24 @@ data class SubtitleTrack(
 /**
  * Subtítulos vía OpenSubtitles.com (API v1). Busca por imdb id (o título) + idioma y baja el .srt,
  * para verlo con ExoPlayer. Así una fuente en inglés se ve con subtítulos en español. Requiere una
- * API key gratis (BuildConfig.OPENSUBTITLES_API_KEY, del .env). OpenSubtitles EXIGE User-Agent.
+ * La llave de OpenSubtitles vive en el gateway; acá solo viaja la credencial de Arkiv.
+ * OpenSubtitles EXIGE User-Agent, así que se manda igual.
  */
 class SubtitleApi(
-    private val apiKey: String,
+    /** Base del gateway y credencial unica. La llave de OpenSubtitles vive en el servidor. */
+    private val gatewayUrl: () -> String,
+    private val arkivKey: () -> String,
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build(),
 ) {
-    private val base = "https://api.opensubtitles.com/api/v1"
+    // Passthrough del gateway: la llave de OpenSubtitles vive en el servidor.
+    private val base: String get() = "${gatewayUrl()}/v1/catalog/opensubtitles"
     private val ua = "Arkiv v0.1"
     private val jsonType = "application/json".toMediaType()
 
-    val configured: Boolean get() = apiKey.isNotBlank()
+    val configured: Boolean get() = arkivKey().isNotBlank()
 
     /**
      * Busca subtítulos. Pasá imdbId (ej "tt0816692") o query (título). Para series, season/episode.
@@ -93,7 +97,7 @@ class SubtitleApi(
         val dlResp = runCatching {
             client.newCall(
                 Request.Builder().url("$base/download")
-                    .header("Api-Key", apiKey).header("User-Agent", ua)
+                    .header("X-Arkiv-Key", arkivKey()).header("User-Agent", ua)
                     .header("Accept", "application/json")
                     .post(reqBody.toRequestBody(jsonType))
                     .build(),
@@ -115,7 +119,7 @@ class SubtitleApi(
     private fun get(url: String): String? = runCatching {
         client.newCall(
             Request.Builder().url(url)
-                .header("Api-Key", apiKey).header("User-Agent", ua)
+                .header("X-Arkiv-Key", arkivKey()).header("User-Agent", ua)
                 .header("Accept", "application/json").build(),
         ).execute().use { if (it.isSuccessful) it.body?.string() else null }
     }.getOrNull()

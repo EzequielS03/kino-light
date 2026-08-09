@@ -73,17 +73,20 @@ data class TmdbDetail(
  * torrents (los releases latino a veces conservan el nombre en inglés).
  */
 class TmdbApi(
-    private val apiKey: String,
+    /** Base del gateway y credencial única. La llave de TMDB vive en el servidor. */
+    private val gatewayUrl: () -> String,
+    private val arkivKey: () -> String,
     private val language: String = "es-MX",
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build(),
 ) {
-    private val base = "https://api.themoviedb.org/3"
+    // Passthrough del gateway: la ruta y los parámetros de TMDB no cambian, solo el host.
+    private val base: String get() = "${gatewayUrl()}/v1/catalog/tmdb"
     private val img = "https://image.tmdb.org/t/p"
 
-    val configured: Boolean get() = apiKey.isNotBlank()
+    val configured: Boolean get() = arkivKey().isNotBlank()
 
     /** Busca títulos. type: "movie" | "tv". */
     suspend fun search(type: String, query: String, page: Int = 1): List<TmdbItem> {
@@ -248,7 +251,7 @@ class TmdbApi(
      * type: "movie" | "tv".
      */
     suspend fun images(type: String, id: Int, limit: Int = 8): List<String> = withContext(Dispatchers.IO) {
-        val json = get("$base/$type/$id/images?api_key=$apiKey&include_image_language=es,en,null")
+        val json = get("$base/$type/$id/images?include_image_language=es,en,null")
             ?: return@withContext emptyList()
         runCatching {
             val arr = JSONObject(json).optJSONArray("backdrops") ?: JSONArray()
@@ -277,12 +280,15 @@ class TmdbApi(
         )
     }
 
-    private val auth get() = "api_key=$apiKey&language=$language"
+    // Solo el idioma: la `api_key` la pone el gateway, que es donde vive.
+    private val auth get() = "language=$language"
     private fun imgUrl(path: String?, size: String): String =
         if (path.isNullOrBlank()) "" else "$img/$size$path"
     private fun enc(s: String) = java.net.URLEncoder.encode(s, "UTF-8").replace("+", "%20")
     private fun get(url: String): String? = runCatching {
-        client.newCall(Request.Builder().url(url).build()).execute().use {
+        client.newCall(
+            Request.Builder().url(url).header("X-Arkiv-Key", arkivKey()).build(),
+        ).execute().use {
             if (it.isSuccessful) it.body?.string() else null
         }
     }.getOrNull()

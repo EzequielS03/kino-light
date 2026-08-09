@@ -140,7 +140,9 @@ class AppGraph(context: Context) {
     }
     val catalogApi: CatalogApi by lazy { CatalogApi() }
     val aniListApi: AniListApi by lazy { AniListApi() }
-    val simklApi: SimklApi by lazy { SimklApi(clientId = BuildConfig.SIMKL_CLIENT_ID) }
+    val simklApi: SimklApi by lazy {
+        SimklApi(gatewayUrl = { settings.gatewayUrl.value }, arkivKey = { settings.arkivApiKey.value })
+    }
     val animeMappingRepository: AnimeMappingRepository by lazy {
         AnimeMappingRepository(cacheDir = appContext.filesDir)
     }
@@ -148,9 +150,18 @@ class AppGraph(context: Context) {
         AnimeSourceProvider(aniListApi, simklApi, animeMappingRepository, tmdbApi, torrentSearchApi)
     }
     val cinemetaApi: CinemetaApi by lazy { CinemetaApi() }
-    val tmdbApi: TmdbApi by lazy { TmdbApi(apiKey = BuildConfig.TMDB_API_KEY, language = "es-MX") }
+    val tmdbApi: TmdbApi by lazy {
+        TmdbApi(
+            gatewayUrl = { settings.gatewayUrl.value },
+            arkivKey = { settings.arkivApiKey.value },
+            language = "es-MX",
+        )
+    }
     val subtitleApi: com.arkiv.player.data.subtitles.SubtitleApi by lazy {
-        com.arkiv.player.data.subtitles.SubtitleApi(apiKey = BuildConfig.OPENSUBTITLES_API_KEY)
+        com.arkiv.player.data.subtitles.SubtitleApi(
+            gatewayUrl = { settings.gatewayUrl.value },
+            arkivKey = { settings.arkivApiKey.value },
+        )
     }
     val subtitlePrefs: com.arkiv.player.data.subtitles.SubtitlePrefs by lazy {
         com.arkiv.player.data.subtitles.SubtitlePrefs(appContext)
