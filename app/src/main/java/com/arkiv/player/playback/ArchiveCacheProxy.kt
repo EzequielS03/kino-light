@@ -37,7 +37,13 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
     // directo del origen en vez de esperar a la descarga secuencial.
     private val AHEAD_THRESHOLD = 8L * 1024 * 1024
 
-    private class Download(val origin: String, val file: File, val doneMarker: File, val total: Long) {
+    private class Download(
+        val origin: String,
+        val file: File,
+        val doneMarker: File,
+        val total: Long,
+        val headers: Map<String, String> = emptyMap(),
+    ) {
         @Volatile var downloaded: Long = 0
         @Volatile var done = false
         @Volatile var failed = false
@@ -68,8 +74,20 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
         server = null
     }
 
-    fun proxyUrl(originUrl: String): String =
-        "http://127.0.0.1:$port/s?u=${URLEncoder.encode(originUrl, "UTF-8")}"
+    /**
+     * URL local que VLC puede reproducir. [headers] viaja codificado en la propia URL porque es lo
+     * unico que VLC nos deja pasar: solo entiende `:http-referrer` y `:http-user-agent`, y magis
+     * sirve el VOD detras de `Content-Auth` y `Content-License`. El proxy los pone en la peticion
+     * al origen.
+     *
+     * `h` va ANTES de `u` a proposito: hay codigo que saca el origen con `substringAfter("u=")`.
+     */
+    fun proxyUrl(originUrl: String, headers: Map<String, String> = emptyMap()): String {
+        val u = URLEncoder.encode(originUrl, "UTF-8")
+        if (headers.isEmpty()) return "http://127.0.0.1:$port/s?u=$u"
+        val h = URLEncoder.encode(HeaderCodec.encode(headers), "UTF-8")
+        return "http://127.0.0.1:$port/s?h=$h&u=$u"
+    }
 
     /**
      * Fracción [0..1] del archivo ya descargada a la caché para la URL de proxy dada (para pintar el
@@ -77,7 +95,7 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
      */
     fun bufferedFraction(proxyUrl: String): Float {
         val origin = runCatching {
-            URLDecoder.decode(proxyUrl.substringAfter("u=", ""), "UTF-8")
+            URLDecoder.decode(proxyUrl.substringAfter("u=", "").substringBefore('&'), "UTF-8")
         }.getOrNull()?.takeIf { it.isNotEmpty() } ?: return 0f
         val key = cache.keyFor(origin)
         if (File(cacheDir, "$key.done").exists() && cache.file(key).length() > 0) return 1f
@@ -100,9 +118,12 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                 val lines = header.toString().split("\r\n")
                 val reqLine = lines.firstOrNull().orEmpty()
                 val path = reqLine.split(' ').getOrNull(1).orEmpty()
-                val origin = path.substringAfter("u=", "").let {
+                val origin = path.substringAfter("u=", "").substringBefore('&').let {
                     runCatching { URLDecoder.decode(it, "UTF-8") }.getOrNull()
                 } ?: return@runCatching
+                val extraHeaders = HeaderCodec.decode(
+                    path.substringAfter("h=", "").substringBefore('&'),
+                )
                 val rangeHeader = lines.firstOrNull { it.startsWith("Range:", true) }
                     ?.substringAfter(':')?.trim()
                 val range = RangeHeader.parse(rangeHeader)
@@ -120,11 +141,11 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                 }
 
                 // 2) Asegurar/arrancar la descarga única y servir del archivo que crece.
-                val dl = ensureDownload(key, origin, file, doneMarker)
+                val dl = ensureDownload(key, origin, file, doneMarker, extraHeaders)
                 if (dl == null) {
                     // Sin red / 404 / 5xx / sin Content-Length: error real (no un 200 vacío que VLC
                     // tomaría como éxito → pantalla negra). Passthrough simple como último recurso.
-                    if (!passthrough(origin, rangeHeader, out)) {
+                    if (!passthrough(origin, rangeHeader, out, extraHeaders)) {
                         out.write("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n".toByteArray())
                         out.flush()
                     }
@@ -142,7 +163,13 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
      * devuelve la que ya está en curso. Abre la conexión para conocer el tamaño total; si no se puede
      * (sin red, error HTTP, sin Content-Length) devuelve null y el llamador cae a passthrough/502.
      */
-    private fun ensureDownload(key: String, origin: String, file: File, doneMarker: File): Download? {
+    private fun ensureDownload(
+        key: String,
+        origin: String,
+        file: File,
+        doneMarker: File,
+        extraHeaders: Map<String, String> = emptyMap(),
+    ): Download? {
         downloads[key]?.let { if (!it.failed) return it }
         return synchronized(initLock(key)) {
             downloads[key]?.let { if (!it.failed) return it }
@@ -150,6 +177,7 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                 (URL(origin).openConnection() as HttpURLConnection).apply {
                     instanceFollowRedirects = true // archive.org 302 → nodo de datos
                     setRequestProperty("User-Agent", "Arkiv/0.1 (personal)")
+                    extraHeaders.forEach { (k, v) -> setRequestProperty(k, v) }
                     connectTimeout = 15000; readTimeout = 20000
                 }
             }.getOrNull() ?: return null
@@ -159,7 +187,7 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                 runCatching { conn.disconnect() }
                 return null
             }
-            val dl = Download(origin, file, doneMarker, total)
+            val dl = Download(origin, file, doneMarker, total, extraHeaders)
             downloads[key] = dl
             Thread { runDownload(conn, dl, key) }.apply { isDaemon = true }.start()
             dl
@@ -230,7 +258,7 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
             // Tramo MUY por delante de la descarga (seek lejano o el `moov` del final) → directo del
             // origen para no esperar a que la descarga secuencial llegue hasta ahí.
             start > dl.downloaded + AHEAD_THRESHOLD ->
-                fetchOriginRangeBody(dl.origin, start, end, out)
+                fetchOriginRangeBody(dl.origin, start, end, out, dl.headers)
             // Reproducción secuencial (el playhead): se lee de disco a medida que la descarga —a
             // velocidad plena, que va por delante— lo va llenando; solo espera lo mínimo.
             else ->
@@ -272,11 +300,18 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
     }
 
     /** Baja el tramo [start,end] directo de archive.org (Range) y lo escribe crudo a [out] (sin headers). */
-    private fun fetchOriginRangeBody(origin: String, start: Long, end: Long, out: java.io.OutputStream) {
+    private fun fetchOriginRangeBody(
+        origin: String,
+        start: Long,
+        end: Long,
+        out: java.io.OutputStream,
+        extraHeaders: Map<String, String> = emptyMap(),
+    ) {
         val conn = runCatching {
             (URL(origin).openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = true
                 setRequestProperty("User-Agent", "Arkiv/0.1 (personal)")
+                extraHeaders.forEach { (k, v) -> setRequestProperty(k, v) }
                 setRequestProperty("Range", "bytes=$start-$end")
                 connectTimeout = 15000; readTimeout = 20000
             }
@@ -325,11 +360,17 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
     }
 
     /** Passthrough directo origen→VLC (sin cachear), último recurso si no se pudo iniciar la descarga. */
-    private fun passthrough(origin: String, rangeHeader: String?, out: java.io.OutputStream): Boolean {
+    private fun passthrough(
+        origin: String,
+        rangeHeader: String?,
+        out: java.io.OutputStream,
+        extraHeaders: Map<String, String> = emptyMap(),
+    ): Boolean {
         val conn = runCatching {
             (URL(origin).openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = true
                 setRequestProperty("User-Agent", "Arkiv/0.1 (personal)")
+                extraHeaders.forEach { (k, v) -> setRequestProperty(k, v) }
                 if (rangeHeader != null) setRequestProperty("Range", rangeHeader)
                 connectTimeout = 15000; readTimeout = 20000
             }
