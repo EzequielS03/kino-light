@@ -109,7 +109,7 @@ fun SearchScreen(
                 SearchViewModel(
                     graph.tmdbApi, graph.aniListApi, graph.torrentSearchApi, graph.api,
                     graph.mirrorApiClient, graph.animeSourceProvider, graph.webSourceEngine,
-                    graph.settings, graph.torrentEngine,
+                    graph.settings, graph.torrentEngine, graph.arkivApiClient,
                 )
             }
         },
@@ -123,6 +123,7 @@ fun SearchScreen(
     val sources by vm.sources.collectAsStateWithLifecycle()
     val loadingTorrent by vm.loadingTorrent.collectAsStateWithLifecycle()
     val loadingWeb by vm.loadingWeb.collectAsStateWithLifecycle()
+    val loadingMagis by vm.loadingMagis.collectAsStateWithLifecycle()
     val loadingArchive by vm.loadingArchive.collectAsStateWithLifecycle()
     val refineSeason by vm.refineSeason.collectAsStateWithLifecycle()
     val refineEpisode by vm.refineEpisode.collectAsStateWithLifecycle()
@@ -446,6 +447,7 @@ fun SearchScreen(
                     sources = sources,
                     loadingTorrent = loadingTorrent,
                     loadingWeb = loadingWeb,
+                loadingMagis = loadingMagis,
                     loadingArchive = loadingArchive,
                     enabled = !preparing,
                     onPlay = { playResult(it) },
@@ -772,6 +774,7 @@ private fun ResultsContent(
     sources: List<PlaySource>,
     loadingTorrent: Boolean,
     loadingWeb: Boolean,
+    loadingMagis: Boolean,
     loadingArchive: Boolean,
     enabled: Boolean,
     onPlay: (PlaySource) -> Unit,
@@ -790,11 +793,13 @@ private fun ResultsContent(
     // ambos se listan en la misma sección — sin esto un WebPack nunca aparece en pantalla.
     val webs = sources.filter { it is PlaySource.Web || it is PlaySource.WebPack }
     val archives = sources.filterIsInstance<PlaySource.Archive>()
-    val anyLoading = loadingTorrent || loadingWeb || loadingArchive
+    val magis = sources.filterIsInstance<PlaySource.Magis>()
+    val anyLoading = loadingTorrent || loadingWeb || loadingArchive || loadingMagis
     val counts = countsByTab(sources)
     val loadingOf = mapOf(
         SourceTab.TODO to anyLoading, SourceTab.TORRENT to loadingTorrent,
-        SourceTab.WEB to loadingWeb, SourceTab.ARCHIVE to loadingArchive,
+        SourceTab.WEB to loadingWeb, SourceTab.MAGIS to loadingMagis,
+        SourceTab.ARCHIVE to loadingArchive,
     )
 
     // El hero va a sangre (sin margen lateral) para que el backdrop llegue a los bordes; por eso el
@@ -821,12 +826,14 @@ private fun ResultsContent(
             // a la vez sin que uno con 60 resultados entierre a los otros.
             sourceSection(this, "TORRENT", ArkivRed, torrents, loadingTorrent, "TORRENT" in expandedSections, { toggle("TORRENT") }, enabled, onPlay, onDownload)
             sourceSection(this, "WEB", ArkivWebViolet, webs, loadingWeb, "WEB" in expandedSections, { toggle("WEB") }, enabled, onPlay, onDownload)
+            sourceSection(this, "MAGIS", ArkivMagisBlue, magis, loadingMagis, "MAGIS" in expandedSections, { toggle("MAGIS") }, enabled, onPlay, onDownload)
             sourceSection(this, "ARCHIVE", ArkivArchiveTeal, archives, loadingArchive, "ARCHIVE" in expandedSections, { toggle("ARCHIVE") }, enabled, onPlay, onDownload)
         } else {
             // Con un origen elegido la cabecera de sección sobra: la lista va plana.
             val shown = when (tab) {
                 SourceTab.TORRENT -> torrents
                 SourceTab.WEB -> webs
+                SourceTab.MAGIS -> magis
                 else -> archives
             }
             if (shown.isEmpty()) {

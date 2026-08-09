@@ -15,6 +15,7 @@ import com.arkiv.player.data.catalog.TorrentSearchApi
 import com.arkiv.player.data.catalog.providers.ContentType
 import com.arkiv.player.data.catalog.providers.SearchContext
 import com.arkiv.player.data.catalog.web.WebSourceEngine
+import com.arkiv.player.data.gateway.toPlaySource
 import com.arkiv.player.ui.catalog.PlaySource
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
@@ -41,6 +42,10 @@ fun handoffRouteFor(card: TitleCard, season: Int?, episode: Int?): String = when
     }
 }
 
+/** Presupuesto del fan-out del gateway. Generoso: la primera consulta de un título nuevo
+ *  encuentra a Jackett en frío (~27 s) y no queremos cortar a magis por eso. */
+private const val GATEWAY_BUDGET_MS = 15000
+
 private val ALL_LANGS = setOf(
     TorrentLang.LATINO, TorrentLang.DUAL, TorrentLang.CASTELLANO, TorrentLang.ENGLISH, TorrentLang.JAP_SUB,
 )
@@ -60,6 +65,7 @@ class SearchViewModel(
     private val webSourceEngine: WebSourceEngine,
     private val settings: SettingsStore,
     private val torrentEngine: com.arkiv.player.torrent.TorrentEngine,
+    private val arkivApiClient: com.arkiv.player.data.gateway.ArkivApiClient,
 ) : ViewModel() {
 
     private val trackerScraper = com.arkiv.player.torrent.TrackerScraper()
@@ -136,6 +142,9 @@ class SearchViewModel(
 
     private val _loadingWeb = MutableStateFlow(false)
     val loadingWeb: StateFlow<Boolean> = _loadingWeb.asStateFlow()
+
+    private val _loadingMagis = MutableStateFlow(false)
+    val loadingMagis: StateFlow<Boolean> = _loadingMagis.asStateFlow()
 
     private val _loadingArchive = MutableStateFlow(false)
     val loadingArchive: StateFlow<Boolean> = _loadingArchive.asStateFlow()
@@ -270,6 +279,7 @@ class SearchViewModel(
         _loadingTorrent.value = true
         _loadingWeb.value = true
         _loadingArchive.value = true
+        _loadingMagis.value = settings.useGateway.value
         _refineSeason.value = season
         _refineEpisode.value = episode
 
@@ -293,6 +303,32 @@ class SearchViewModel(
             }
 
             fun append(new: List<PlaySource>) { _sources.value = _sources.value + new }
+
+            // Magis, por el gateway. Va como una rama más del fan-out: si falla, las otras tres
+            // fuentes siguen igual. Detrás del flag para poder apagarlo sin publicar APK.
+            if (settings.useGateway.value) {
+                launch {
+                    runCatching {
+                        val ctx = com.arkiv.player.data.gateway.GatewaySearchQuery(
+                            q = card.title,
+                            type = if (card.kind == "movie") "movie" else "tv",
+                            season = season ?: 0,
+                            episode = episode ?: 0,
+                            tmdbId = card.tmdbId ?: 0,
+                            budgetMs = GATEWAY_BUDGET_MS,
+                            sources = "magis",
+                        )
+                        arkivApiClient.search(ctx).collect { ev ->
+                            if (ev is com.arkiv.player.data.gateway.SearchEvent.ResultEvent) {
+                                ev.item.toPlaySource()?.let { append(listOf(it)) }
+                            }
+                        }
+                    }.onFailure {
+                        android.util.Log.w("ArkivGateway", "magis por el gateway falló: ${it.message}")
+                    }
+                    _loadingMagis.value = false
+                }
+            }
 
             launch {
                 val flow: Flow<List<TorrentResult>> = when {
