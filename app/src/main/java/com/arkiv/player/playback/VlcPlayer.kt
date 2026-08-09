@@ -307,6 +307,25 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
             if (bufferingSinceWallMs == 0L) {
                 bufferingSinceWallMs = now
                 runCatching { android.util.Log.w("ArkivVlc", "PAUSA (buffering) en pos=${t}ms buf=${buffering}%") }
+            } else if (
+                !triedSoftware && t == 0L && now - bufferingSinceWallMs > STALL_SOFTWARE_MS
+            ) {
+                // El decodificador por hardware acepta el formato y despues se cuelga SIN dar error:
+                // libVLC informa "Playing" y el tiempo nunca arranca, asi que el reintento por
+                // software —que solo escucha EncounteredError— jamas se dispara y el reproductor se
+                // queda en negro para siempre. Visto con HEVC en el emulador; le puede pasar a
+                // cualquier equipo cuyo decodificador acepte un perfil que no puede con el.
+                //
+                // Solo cuando NUNCA arranco (t == 0): un estancamiento a mitad es falta de datos, no
+                // un problema de codec, y reiniciar en software ahi seria peor.
+                triedSoftware = true
+                runCatching {
+                    android.util.Log.w(
+                        "ArkivVlc",
+                        "estancado en 0 con hardware tras ${now - bufferingSinceWallMs}ms → reintento por software",
+                    )
+                }
+                handler.post { retryInSoftware() }
             }
         } else if (bufferingSinceWallMs > 0L) {
             runCatching { android.util.Log.w("ArkivVlc", "REANUDO tras ${now - bufferingSinceWallMs}ms de pausa (pos=${t}ms)") }
@@ -564,6 +583,7 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         const val REBUILD_VOUT_DELAY_MS = 400L
         const val STALL_POLL_MS = 500L  // cada cuánto sondea el watcher de estancamiento
         const val STALL_MS = 900L       // tiempo sin avanzar (queriendo reproducir) para marcar buffering
+        const val STALL_SOFTWARE_MS = 12_000L   // margen amplio: una conexión lenta puede tardar en arrancar
 
         val AVAILABLE_COMMANDS = Player.Commands.Builder()
             .addAll(
