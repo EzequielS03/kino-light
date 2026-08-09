@@ -131,6 +131,39 @@ class ArkivApiClientTest {
     }
 
     @Test
+    fun `resolve trae los subtitulos de la fuente`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"kind":"magis","url":"http://cdn/v.ts","headers":{},"mime":"","expires_at":"",""" +
+                    """"fallback":null,"subtitles":[{"lang":"es","url":"http://s/es.srt","format":"srt"},""" +
+                    """{"lang":"en","url":"http://s/en.srt","format":"srt"}]}""",
+            ),
+        )
+        val subs = client.resolve("r").subtitles
+        assertEquals(2, subs.size)
+        assertEquals("es", subs[0].lang)
+        assertEquals("http://s/es.srt", subs[0].url)
+        assertEquals("srt", subs[0].format)
+    }
+
+    @Test
+    fun `un subtitulo sin url se descarta`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"kind":"web","url":"http://cdn/v.m3u8","headers":{},""" +
+                    """"subtitles":[{"lang":"es","url":"http://s/1.vtt"},{"lang":"en"}]}""",
+            ),
+        )
+        assertEquals(1, client.resolve("r").subtitles.size)
+    }
+
+    @Test
+    fun `sin subtitulos la lista va vacia`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"kind":"magis","url":"http://cdn/v.ts"}"""))
+        assertEquals(emptyList<GatewaySubtitle>(), client.resolve("r").subtitles)
+    }
+
+    @Test
     fun `sources lista las fuentes activas`() = runBlocking {
         server.enqueue(
             MockResponse().setBody(

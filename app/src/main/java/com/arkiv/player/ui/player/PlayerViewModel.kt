@@ -365,6 +365,15 @@ class PlayerViewModel(
             openingStartMs = null, openingEndMs = null, endingStartMs = null,
             kind = SourceKind.MAGIS,
         )
+        // Los subtítulos viajan por el MISMO canal que los de web: PlayerScreen ya los adjunta
+        // desde acá. El portal los entrega junto al stream, así que no hay que ir a OpenSubtitles.
+        _webExtras.value = WebExtras(
+            episodeId,
+            play.headers,
+            play.subtitles.map {
+                com.arkiv.player.data.catalog.web.ResolvedSub(lang = it.lang, url = it.url)
+            },
+        )
         val startPos = safeStartPosition(episodeId, SourceKind.MAGIS)
         _playlist.value = PlaylistData(listOf(item), 0, startPos)
         Log.w(PLAY, "loadMagis() playlist publicada (startPos=$startPos)")

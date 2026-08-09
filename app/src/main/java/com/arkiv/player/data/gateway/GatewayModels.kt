@@ -31,7 +31,12 @@ data class GatewayPlayable(
     val mime: String = "",
     val expiresAt: String = "",
     val fallbackUrl: String? = null,
+    /** Pistas que la fuente entrega junto al stream. Magis las trae del portal y el resolver web
+     *  las sniffea de la página: descartarlas obligaría a buscarlas de nuevo en OpenSubtitles. */
+    val subtitles: List<GatewaySubtitle> = emptyList(),
 )
+
+data class GatewaySubtitle(val lang: String, val url: String, val format: String = "")
 
 sealed interface SearchEvent {
     data class SourceStart(val source: String) : SearchEvent

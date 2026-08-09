@@ -97,6 +97,15 @@ class ArkivApiClient(
             mime = o.optString("mime"),
             expiresAt = o.optString("expires_at"),
             fallbackUrl = o.optJSONObject("fallback")?.optString("url"),
+            subtitles = o.optJSONArray("subtitles")?.let { arr ->
+                (0 until arr.length()).mapNotNull { i ->
+                    arr.optJSONObject(i)?.let { sub ->
+                        val u = sub.optString("url")
+                        if (u.isBlank()) null
+                        else GatewaySubtitle(sub.optString("lang"), u, sub.optString("format"))
+                    }
+                }
+            } ?: emptyList(),
         )
     }
 
