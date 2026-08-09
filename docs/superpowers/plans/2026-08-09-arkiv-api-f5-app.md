@@ -10,6 +10,28 @@
 
 **Estado del gateway (verificado en producción el 2026-08-09):** vivo en `https://api.comparadorinternet.co`, 132 tests verdes, las cuatro fuentes respondiendo. `/v1/health` es público; el resto exige `X-Arkiv-Key`.
 
+## Corrección tras leer el código real (2026-08-09)
+
+Tres cosas que este plan asumía mal:
+
+1. **libVLC no acepta headers arbitrarios.** El player solo expone `:http-referrer` y
+   `:http-user-agent` (`VlcPlayer.kt:372`). Magis necesita `Content-Auth` y `Content-License`, así
+   que **no alcanza con pasar un mapa al `PlayerSourceTag`**: hay que hacer pasar el stream por el
+   proxy local (`ArchiveCacheProxy`), que abre el origen con `HttpURLConnection` y ya usa
+   `setRequestProperty` — ahí sí se pueden inyectar. **Es una tarea nueva (Task 4b).**
+2. **`PlayerSourceTag` no se reemplaza, se extiende.** Cambiar `referer`/`userAgent` por un mapa
+   rompería `PlayerScreen.kt`, `PlaybackService.kt` y `VlcPlayer.kt`, y `PlayerScreen.kt` lo está
+   tocando otra sesión. Se agrega `extraHeaders: Map<String, String> = emptyMap()` y los campos
+   actuales quedan como están.
+3. **`PlaySource` usa un tipo concreto por fuente** (`TorrentResult`, `ArchiveSearchResult`,
+   `WebResult`), no un genérico. El mapper construye esos tipos; no hacen falta constructores
+   secundarios. `TorrentResult.downloadUrl` ya existe para "cuando no hay magnet directo" — calza
+   exacto con los resultados solo-`Link` de Jackett.
+
+**Ya hecho:** Task 1 (modelos + parser, 9 tests) y Task 2 (cliente NDJSON, 11 tests).
+MockWebServer y `org.json` ya estaban entre las dependencias de test — el Step 1 de la Task 2 no
+hizo falta.
+
 ## Global Constraints
 
 - Repo: `/Users/cristian/archive` (la app Android). **Nunca `git add -A`** — hay varias sesiones compartiendo el working tree.
