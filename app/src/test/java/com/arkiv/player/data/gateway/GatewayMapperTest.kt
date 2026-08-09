@@ -118,4 +118,30 @@ class GatewayMapperTest {
                 as PlaySource.Web).result.gatewayRef,
         )
     }
+
+    // ─── Identidad de los resultados web ────────────────────────────────────
+    // La lista de fuentes deduplica por la identidad del resultado. Los web del gateway no traen
+    // `pageUrl` (la página se resuelve al reproducir), así que si la identidad dependiera solo de
+    // esa URL los 36 resultados de un título colapsarían en UNO y la pestaña Web mostraría 1.
+
+    private fun web(ref: String) = GatewayResult(
+        source = "web", title = "Loki 1x1", ref = ref, extra = mapOf("site_id" to "cuevana"),
+    )
+
+    @Test
+    fun `dos web del gateway no comparten identidad`() {
+        val a = (web("ref-a").toPlaySource() as PlaySource.Web).result
+        val b = (web("ref-b").toPlaySource() as PlaySource.Web).result
+        assertTrue(a.identity != b.identity)
+    }
+
+    @Test
+    fun `un web del scraping local sigue identificandose por su pagina`() {
+        val local = com.arkiv.player.data.catalog.web.WebResult(
+            siteId = "cuevana", siteName = "Cuevana", title = "Loki 1x1",
+            year = "2021", pageUrl = "https://cuevana/loki-1x1", posterUrl = "",
+            language = "", quality = "", kind = "tv",
+        )
+        assertEquals("https://cuevana/loki-1x1", local.identity)
+    }
 }

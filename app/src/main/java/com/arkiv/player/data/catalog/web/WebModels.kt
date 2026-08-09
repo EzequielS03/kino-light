@@ -35,4 +35,13 @@ data class WebResult(
     /** Ref opaco del gateway, cuando el resultado vino de ahi. Se manda tal cual a `/v1/resolve`
      *  y la app nunca lo interpreta: asi una fuente puede cambiar por dentro sin obligar a un APK. */
     val gatewayRef: String? = null,
-)
+) {
+    /**
+     * Identidad del resultado para deduplicar y para las keys de las listas.
+     *
+     * El `ref` manda cuando existe: los resultados del gateway llegan SIN `pageUrl` (la pagina se
+     * resuelve recien al reproducir), asi que identificarlos por esa URL vacia hacia que todos los
+     * de un titulo se vieran como el mismo y la lista mostrara uno solo.
+     */
+    val identity: String get() = gatewayRef ?: pageUrl
+}

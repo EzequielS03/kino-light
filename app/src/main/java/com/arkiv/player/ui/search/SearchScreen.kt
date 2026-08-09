@@ -1035,7 +1035,7 @@ private fun sourceSection(
 private fun sourceKey(s: PlaySource): String = when (s) {
     is PlaySource.Torrent -> "t-${s.result.dedupKey}"
     is PlaySource.Archive -> "a-${s.item.identifier}"
-    is PlaySource.Web -> "w-${s.result.pageUrl}"
+    is PlaySource.Web -> "w-${s.result.identity}"
     is PlaySource.WebPack -> "wp-${s.pack.siteId}-${s.pack.showTitle}"
     is PlaySource.Magis -> "m-${s.result.extra["content_id"] ?: s.result.ref}"
 }

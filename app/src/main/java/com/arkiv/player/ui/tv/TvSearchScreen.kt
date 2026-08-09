@@ -144,6 +144,9 @@ fun TvSearchScreen(
     var playError by remember { mutableStateOf<String?>(null) }
     var packFor by remember { mutableStateOf<TorrentResult?>(null) }
     var webPackFor by remember { mutableStateOf<MirrorWebPack?>(null) }
+    // Temporada de Magis elegida. Mismo sub-estado que los packs: un resultado de serie del portal
+    // ES una temporada entera, así que abre la lista de capítulos en vez de reproducir el primero.
+    var magisSeasonFor by remember { mutableStateOf<com.arkiv.player.data.gateway.GatewayResult?>(null) }
 
     // Metadata "enriquecida" de la card elegida, para guardar título/póster/descripción reales
     // (no el nombre crudo del torrent) — mismo criterio que SearchScreen (teléfono).
@@ -181,6 +184,31 @@ fun TvSearchScreen(
         scope.launch { applyResult(playback.playMagis(r)) }
     }
 
+    // Guarda una temporada entera de Magis. Capítulo por capítulo, igual que el celu: cada uno es
+    // un archivo aparte en el CDN y la cola ya los agrupa por serie en Descargas.
+    fun saveMagisSeason(
+        temporada: com.arkiv.player.data.gateway.GatewayResult,
+        capitulos: List<com.arkiv.player.data.gateway.GatewayEpisode>,
+    ) {
+        preparing = true; playError = null
+        scope.launch {
+            var encolados = 0
+            for (capitulo in capitulos) {
+                val epId = playback.magisEpisodeIdDe(temporada, capitulo) ?: continue
+                if (graph.localDownloads.enqueue(epId, "magis") ==
+                    com.arkiv.player.data.local.EnqueueOutcome.QUEUED
+                ) encolados++
+            }
+            preparing = false
+            magisSeasonFor = null
+            playError = when {
+                encolados == 0 -> "Esos capítulos ya estaban guardados."
+                encolados == capitulos.size -> null
+                else -> "Se encolaron $encolados de ${capitulos.size} (el resto ya estaba)."
+            }
+        }
+    }
+
     fun playWebResult(r: WebResult) {
         val card = selected ?: return
         val season = refineSeason
@@ -207,7 +235,12 @@ fun TvSearchScreen(
         is PlaySource.Archive -> playArchiveResult(source.item)
         is PlaySource.Web -> playWebResult(source.result)
         is PlaySource.WebPack -> webPackFor = source.pack
-        is PlaySource.Magis -> playMagisResult(source.result)
+        is PlaySource.Magis ->
+            if (source.result.extra["program_type"] in com.arkiv.player.data.gateway.MAGIS_SERIES) {
+                magisSeasonFor = source.result
+            } else {
+                playMagisResult(source.result)
+            }
     }
 
     // Guarda los capítulos del pack web y reproduce uno: [playEpisode] si el usuario eligió uno
@@ -307,6 +340,7 @@ fun TvSearchScreen(
     // atrás vuelve primero a la lista de fuentes (no sale de la fase).
     BackHandler {
         when {
+            phase == SearchPhase.RESULTS && magisSeasonFor != null -> magisSeasonFor = null
             phase == SearchPhase.RESULTS && webPackFor != null -> webPackFor = null
             phase == SearchPhase.RESULTS && packFor != null -> packFor = null
             phase != SearchPhase.QUERY -> vm.back()
@@ -437,7 +471,21 @@ fun TvSearchScreen(
             SearchPhase.RESULTS -> {
                 val currentPack = packFor
                 val currentWebPack = webPackFor
-                if (currentWebPack != null) {
+                val currentMagis = magisSeasonFor
+                if (currentMagis != null) {
+                    TvMagisSeasonContent(
+                        season = currentMagis,
+                        client = graph.arkivApiClient,
+                        posterUrl = resultPoster,
+                        preparing = preparing,
+                        onPlayOne = { capitulo ->
+                            magisSeasonFor = null
+                            preparing = true; playError = null
+                            scope.launch { applyResult(playback.playMagisEpisode(currentMagis, capitulo)) }
+                        },
+                        onSaveAll = { capitulos -> saveMagisSeason(currentMagis, capitulos) },
+                    )
+                } else if (currentWebPack != null) {
                     TvWebPackContent(
                         pack = currentWebPack,
                         title = resultTitle.ifBlank { currentWebPack.showTitle },
@@ -1019,12 +1067,12 @@ private fun TvResultsContent(
  *    en TorrentSearchApi), así que dos torrents con el mismo release name pero infoHash distinto
  *    siguen teniendo keys distintas.
  *  - Archive: `identifier` — id único de archive.org por definición.
- *  - Web: `pageUrl` — URL de la página de origen, única por resultado (es lo que WebSourceEngine
- *    usa como identidad del resultado); los resultados web no pasan por ningún de-dup upstream. */
+ *  - Web: `identity` — el ref del gateway si vino de ahí, si no la URL de la página. Los del
+ *    gateway llegan sin `pageUrl`, así que usar la URL a secas los colapsaba en un solo item. */
 private fun sourceKey(s: PlaySource): String = when (s) {
     is PlaySource.Torrent -> "torrent-${s.result.dedupKey}"
     is PlaySource.Archive -> "archive-${s.item.identifier}"
-    is PlaySource.Web -> "web-${s.result.pageUrl}"
+    is PlaySource.Web -> "web-${s.result.identity}"
     is PlaySource.WebPack -> "webpack-${s.pack.siteId}-${s.pack.showTitle}"
     is PlaySource.Magis -> "magis-${s.result.extra["content_id"] ?: s.result.ref}"
 }
@@ -1412,5 +1460,152 @@ private fun TvPackRow(row: PackFileRow, enabled: Boolean, onClick: () -> Unit) {
                 Text(meta, color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
             }
         }
+    }
+}
+
+/**
+ * Fase RESULTS · temporada de Magis elegida: gemelo de [TvWebPackContent] para el portal.
+ *
+ * Los capítulos NO vienen en el resultado de búsqueda —el portal los entrega en otra llamada—, así
+ * que se piden al abrir. Mientras cargan se muestra el conteo que sí trae el resultado, para dar
+ * idea del tamaño de la temporada.
+ *
+ * Sin checkboxes, a diferencia del celu: en el control remoto marcar 16 casillas es un suplicio.
+ * "Guardar toda la temporada" baja todo y elegir un capítulo lo reproduce.
+ */
+@Composable
+private fun TvMagisSeasonContent(
+    season: com.arkiv.player.data.gateway.GatewayResult,
+    client: com.arkiv.player.data.gateway.ArkivApiClient,
+    posterUrl: String,
+    preparing: Boolean,
+    onPlayOne: (com.arkiv.player.data.gateway.GatewayEpisode) -> Unit,
+    onSaveAll: (List<com.arkiv.player.data.gateway.GatewayEpisode>) -> Unit,
+) {
+    var capitulos by remember(season.ref) { mutableStateOf<List<com.arkiv.player.data.gateway.GatewayEpisode>?>(null) }
+    var error by remember(season.ref) { mutableStateOf<String?>(null) }
+    val saveAllFocus = remember { FocusRequester() }
+
+    LaunchedEffect(season.ref) {
+        runCatching { client.episodes(season.ref) }
+            .onSuccess { capitulos = it }
+            .onFailure { error = "No se pudieron cargar los capítulos." }
+    }
+    LaunchedEffect(capitulos) {
+        if (!capitulos.isNullOrEmpty()) {
+            delay(150)
+            runCatching { saveAllFocus.requestFocus() }
+        }
+    }
+
+    val esperados = season.extra["episode_count"]?.toIntOrNull() ?: 0
+
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 48.dp, vertical = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            item {
+                Row {
+                    Box(
+                        modifier = Modifier.height(140.dp).width(140.dp * 2f / 3f)
+                            .clip(RoundedCornerShape(8.dp)).background(ArkivSurfaceHigh),
+                    ) {
+                        if (posterUrl.isNotBlank()) {
+                            AsyncImage(
+                                model = posterUrl,
+                                contentDescription = season.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                    }
+                    Column(modifier = Modifier.padding(start = 20.dp).align(Alignment.CenterVertically)) {
+                        Text(
+                            season.title,
+                            style = MaterialTheme.typography.headlineMedium,
+                            color = ArkivTextPrimary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            listOfNotNull(
+                                "Magis",
+                                season.year.ifBlank { null },
+                                (capitulos?.size ?: esperados).takeIf { it > 0 }?.let { "$it capítulos" },
+                            ).joinToString("  ·  "),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = ArkivTextSecondary,
+                        )
+                    }
+                }
+            }
+
+            val caps = capitulos
+            when {
+                error != null -> item {
+                    Text(error!!, color = ArkivTextSecondary, modifier = Modifier.padding(top = 24.dp))
+                }
+                caps == null -> item {
+                    Text("Cargando capítulos…", color = ArkivTextSecondary, modifier = Modifier.padding(top = 24.dp))
+                }
+                caps.isEmpty() -> item {
+                    Text("Esta temporada no trae capítulos.", color = ArkivTextSecondary, modifier = Modifier.padding(top = 24.dp))
+                }
+                else -> {
+                    item {
+                        Button(
+                            onClick = { onSaveAll(caps) },
+                            enabled = !preparing,
+                            modifier = Modifier.padding(top = 24.dp, bottom = 8.dp).focusRequester(saveAllFocus),
+                        ) { Text("Guardar toda la temporada") }
+                    }
+                    items(caps, key = { it.ref }) { cap ->
+                        TvMagisEpisodeRow(cap = cap, enabled = !preparing, onClick = { onPlayOne(cap) })
+                    }
+                }
+            }
+        }
+
+        if (preparing) {
+            Box(Modifier.fillMaxSize().background(Color(0xAA000000)), contentAlignment = Alignment.Center) {
+                Text("Preparando…", color = Color.White, style = MaterialTheme.typography.titleMedium)
+            }
+        }
+    }
+}
+
+/** Fila navegable de un capítulo de Magis ("E3 · Título"). */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvMagisEpisodeRow(
+    cap: com.arkiv.player.data.gateway.GatewayEpisode,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = ArkivSurfaceHigh,
+            focusedContainerColor = ArkivRed,
+        ),
+        border = ClickableSurfaceDefaults.border(
+            focusedBorder = Border(BorderStroke(2.dp, Color.White)),
+        ),
+    ) {
+        Text(
+            // El portal repite el nombre de la temporada en el capítulo ("Breaking Bad T5_8"):
+            // cuando el título no aporta, se muestra solo el número.
+            "E${cap.number}  " + (cap.title.takeIf { it.isNotBlank() && it != cap.number.toString() } ?: "Capítulo ${cap.number}"),
+            color = Color.White,
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+        )
     }
 }
