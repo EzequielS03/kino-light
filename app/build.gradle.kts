@@ -29,6 +29,9 @@ android {
         buildConfigField("String", "OPENSUBTITLES_API_KEY", "\"${readEnv("SUBITLE_API")}\"")
         buildConfigField("String", "SIMKL_CLIENT_ID", "\"${readEnv("SIMKL_CLIENT_ID")}\"")
         buildConfigField("String", "REFRESH_API_KEY", "\"${readEnv("REFRESH_API_KEY")}\"")
+        // Credencial ÚNICA del gateway unificado. A futuro reemplaza a REFRESH_API_KEY y a las de
+        // TMDB/OpenSubtitles/Simkl, que pasan a vivir en el servidor.
+        buildConfigField("String", "ARKIV_API_KEY", "\"${readEnv("ARKIV_API_KEY")}\"")
         ndk {
             // Solo ABIs de dispositivos reales (celular arm64, Fire Stick armeabi-v7a).
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
