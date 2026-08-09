@@ -492,6 +492,25 @@ fun SearchScreen(
                 preparing = true; playError = null
                 scope.launch { applyResult(playback.playMagisEpisode(temporada, capitulo)) }
             },
+            onSave = { elegidos ->
+                askNotifications()
+                scope.launch {
+                    // Se guarda capítulo por capítulo: cada uno es un archivo aparte en el CDN y
+                    // la cola ya sabe agrupar por serie para mostrarlos juntos en Descargas.
+                    var encolados = 0
+                    for (capitulo in elegidos) {
+                        val epId = playback.magisEpisodeIdDe(temporada, capitulo) ?: continue
+                        if (graph.localDownloads.enqueue(epId, "magis") ==
+                            com.arkiv.player.data.local.EnqueueOutcome.QUEUED
+                        ) encolados++
+                    }
+                    playError = when {
+                        encolados == 0 -> "Esos capítulos ya estaban guardados."
+                        encolados == elegidos.size -> null
+                        else -> "Se encolaron $encolados de ${elegidos.size} (el resto ya estaba)."
+                    }
+                }
+            },
         )
     }
 

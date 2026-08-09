@@ -14,6 +14,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.filled.CheckBox
+import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
@@ -28,6 +31,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,9 +63,13 @@ fun MagisSeasonDialog(
     client: ArkivApiClient,
     onDismiss: () -> Unit,
     onPlay: (GatewayEpisode) -> Unit,
+    onSave: (List<GatewayEpisode>) -> Unit,
 ) {
     var capitulos by remember(season.ref) { mutableStateOf<List<GatewayEpisode>?>(null) }
     var error by remember(season.ref) { mutableStateOf<String?>(null) }
+    // Selección para guardar. Arranca vacía: el gesto principal de esta ventana es reproducir, y
+    // marcar los 16 capítulos por defecto invitaría a bajar una temporada entera sin querer.
+    val marcados = remember(season.ref) { mutableStateListOf<Int>() }
 
     LaunchedEffect(season.ref) {
         runCatching { client.episodes(season.ref) }
@@ -73,7 +81,35 @@ fun MagisSeasonDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Cerrar") } },
+        confirmButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (marcados.isNotEmpty()) {
+                    val elegidos = capitulos.orEmpty().filter { it.number in marcados }
+                    TextButton(onClick = { onSave(elegidos); onDismiss() }) {
+                        Icon(Icons.Default.Download, contentDescription = null, tint = ArkivMagisBlue)
+                        Spacer(Modifier.size(6.dp))
+                        Text("Guardar ${elegidos.size}", color = ArkivMagisBlue)
+                    }
+                }
+                TextButton(onClick = onDismiss) { Text("Cerrar") }
+            }
+        },
+        dismissButton = {
+            val caps = capitulos.orEmpty()
+            if (caps.isNotEmpty()) {
+                TextButton(onClick = {
+                    // Alterna entre "toda la temporada" y "ninguno": el caso frecuente es querer
+                    // la temporada completa, y marcar 16 casillas a mano sería absurdo.
+                    if (marcados.size == caps.size) marcados.clear()
+                    else { marcados.clear(); marcados.addAll(caps.map { it.number }) }
+                }) {
+                    Text(
+                        if (marcados.size == caps.size) "Ninguno" else "Toda la temporada",
+                        color = ArkivTextSecondary,
+                    )
+                }
+            }
+        },
         title = {
             Column {
                 Text(season.title, color = Color.White, fontWeight = FontWeight.SemiBold)
@@ -110,7 +146,15 @@ fun MagisSeasonDialog(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     items(capitulos!!, key = { it.ref }) { cap ->
-                        EpisodeRow(cap) { onPlay(cap) }
+                        EpisodeRow(
+                            cap = cap,
+                            marcado = cap.number in marcados,
+                            onMarcar = {
+                                if (cap.number in marcados) marcados.remove(cap.number)
+                                else marcados.add(cap.number)
+                            },
+                            onPlay = { onPlay(cap) },
+                        )
                     }
                 }
             }
@@ -118,18 +162,35 @@ fun MagisSeasonDialog(
     )
 }
 
-/** Una fila de capítulo: número, nombre y play. */
+/** Una fila de capítulo: casilla para guardar, número, nombre y play. */
 @Composable
-private fun EpisodeRow(cap: GatewayEpisode, onClick: () -> Unit) {
+private fun EpisodeRow(
+    cap: GatewayEpisode,
+    marcado: Boolean,
+    onMarcar: () -> Unit,
+    onPlay: () -> Unit,
+) {
     Row(
         Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(6.dp))
             .background(ArkivSurfaceHigh)
-            .clickable(onClick = onClick)
+            // Tocar la fila REPRODUCE; la casilla es un objetivo aparte. Al revés, marcar para
+            // guardar se llevaría por delante el gesto más común.
+            .clickable(onClick = onPlay)
             .padding(horizontal = 10.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        Box(
+            Modifier.size(28.dp).clickable(onClick = onMarcar),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                if (marcado) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                contentDescription = if (marcado) "Quitar de la descarga" else "Guardar este capítulo",
+                tint = if (marcado) ArkivMagisBlue else ArkivTextSecondary,
+            )
+        }
         Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
             Text(
                 cap.number.toString(),

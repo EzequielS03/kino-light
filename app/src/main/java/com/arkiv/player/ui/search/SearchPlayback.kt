@@ -89,16 +89,22 @@ class SearchPlayback(private val graph: AppGraph) {
      * El id se arma con el contentId de la TEMPORADA más el número de capítulo, para que cada uno
      * tenga su propia marca de "voy por aquí" dentro de la temporada.
      */
+    /** Guarda el capítulo y devuelve su episodeId, sin navegar. Lo usa el guardado en lote. */
+    suspend fun magisEpisodeIdDe(
+        temporada: com.arkiv.player.data.gateway.GatewayResult,
+        capitulo: com.arkiv.player.data.gateway.GatewayEpisode,
+    ): String? = graph.repository.addMagisSource(
+        ref = capitulo.ref,
+        contentId = temporada.extra["content_id"].orEmpty(),
+        title = "${temporada.title} · ${capitulo.title}",
+        episode = capitulo.number,
+    )
+
     suspend fun playMagisEpisode(
         temporada: com.arkiv.player.data.gateway.GatewayResult,
         capitulo: com.arkiv.player.data.gateway.GatewayEpisode,
     ): PlaybackResult {
-        val epId = graph.repository.addMagisSource(
-            ref = capitulo.ref,
-            contentId = temporada.extra["content_id"].orEmpty(),
-            title = "${temporada.title} · ${capitulo.title}",
-            episode = capitulo.number,
-        )
+        val epId = magisEpisodeIdDe(temporada, capitulo)
         return if (epId != null) PlaybackResult.Ready(epId)
         else PlaybackResult.Failed("No se pudo preparar el capítulo.")
     }

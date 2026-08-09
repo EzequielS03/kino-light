@@ -122,6 +122,9 @@ class AppGraph(context: Context) {
             "torrent" to com.arkiv.player.data.local.TorrentDownloadStrategy(
                 repository, torrentEngine, localDownloads::hasFreeSpaceFor,
             ),
+            "magis" to com.arkiv.player.data.local.MagisDownloadStrategy(
+                repository, arkivApiClient, httpRangeDownloader,
+            ),
             "web" to com.arkiv.player.data.local.NucStagedStrategy(
                 repository, arkivOfflineApi, httpRangeDownloader, database.downloadDao(),
             ),
