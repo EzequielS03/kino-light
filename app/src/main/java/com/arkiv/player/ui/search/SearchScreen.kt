@@ -75,6 +75,7 @@ import com.arkiv.player.ui.catalog.PlaySource
 import com.arkiv.player.ui.catalog.SourceRow
 import com.arkiv.player.ui.catalog.SourceSection
 import com.arkiv.player.ui.catalog.SourceSectionHeader
+import com.arkiv.player.data.gateway.MAGIS_SERIES
 import com.arkiv.player.ui.catalog.ArkivMagisBlue
 import com.arkiv.player.ui.catalog.ArkivWebViolet
 import com.arkiv.player.ui.catalog.ArkivArchiveTeal
@@ -153,6 +154,9 @@ fun SearchScreen(
     var playError by remember { mutableStateOf<String?>(null) }
     var packFor by remember { mutableStateOf<TorrentResult?>(null) }
     var webPackFor by remember { mutableStateOf<MirrorWebPack?>(null) }
+    // Temporada de Magis abierta: un resultado de serie del portal ES una temporada entera,
+    // así que en vez de reproducir se abre su lista de capítulos.
+    var magisSeason by remember { mutableStateOf<com.arkiv.player.data.gateway.GatewayResult?>(null) }
     // Aviso inline de torrent pesado (ATAJO de UX, ver saveLocally): episodeId ya guardado + tamaño.
     var pendingBig by remember { mutableStateOf<Pair<String, Long>?>(null) }
 
@@ -218,6 +222,8 @@ fun SearchScreen(
     // elegido y Web solo con capítulo, nunca ambos, así que esa lista siempre está vacía en este
     // camino (ver WebSourceSeason/WebSourceEpisode).
     fun playMagisResult(r: com.arkiv.player.data.gateway.GatewayResult) {
+        // Serie → abrir la temporada para elegir capítulo. Película → reproducir directo.
+        if (r.extra["program_type"] in MAGIS_SERIES) { magisSeason = r; return }
         preparing = true; playError = null
         scope.launch { applyResult(playback.playMagis(r)) }
     }
@@ -474,6 +480,19 @@ fun SearchScreen(
                 }
             }
         }
+    }
+
+    magisSeason?.let { temporada ->
+        com.arkiv.player.ui.catalog.MagisSeasonDialog(
+            season = temporada,
+            client = graph.arkivApiClient,
+            onDismiss = { magisSeason = null },
+            onPlay = { capitulo ->
+                magisSeason = null
+                preparing = true; playError = null
+                scope.launch { applyResult(playback.playMagisEpisode(temporada, capitulo)) }
+            },
+        )
     }
 
     webPackFor?.let { p ->

@@ -109,6 +109,21 @@ class ArkivApiClient(
         )
     }
 
+    /** Capítulos de una temporada. Solo Magis los expone; el resto responde 422. */
+    suspend fun episodes(ref: String): List<GatewayEpisode> = withContext(Dispatchers.IO) {
+        val cuerpo = JSONObject().put("ref", ref).toString()
+            .toRequestBody("application/json".toMediaType())
+        val arr = JSONObject(ejecutar(pedido("${baseUrl()}/v1/episodes").post(cuerpo).build()))
+            .optJSONArray("episodes") ?: return@withContext emptyList()
+        (0 until arr.length()).mapNotNull { i ->
+            arr.optJSONObject(i)?.let { e ->
+                val r = e.optString("ref")
+                if (r.isBlank()) null
+                else GatewayEpisode(e.optInt("number"), e.optString("title"), r)
+            }
+        }
+    }
+
     suspend fun sources(): List<GatewaySource> = withContext(Dispatchers.IO) {
         val arr = JSONObject(ejecutar(pedido("${baseUrl()}/v1/sources").get().build()))
             .optJSONArray("sources") ?: return@withContext emptyList()

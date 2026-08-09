@@ -164,6 +164,36 @@ class ArkivApiClientTest {
     }
 
     @Test
+    fun `episodes lista los capitulos con su ref`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"episodes":[{"number":1,"title":"01","ref":"r1"},""" +
+                    """{"number":2,"title":"02","ref":"r2"}]}""",
+            ),
+        )
+        val caps = client.episodes("refSerie")
+        assertEquals(2, caps.size)
+        assertEquals(1, caps[0].number)
+        assertEquals("01", caps[0].title)
+        assertEquals("r1", caps[0].ref)
+    }
+
+    @Test
+    fun `un capitulo sin ref se descarta`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody("""{"episodes":[{"number":1,"title":"01"},{"number":2,"title":"02","ref":"r"}]}"""),
+        )
+        assertEquals(1, client.episodes("r").size)
+    }
+
+    @Test(expected = GatewayException::class)
+    fun `episodes de una fuente que no los soporta lanza`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(422))
+        client.episodes("r")
+        Unit
+    }
+
+    @Test
     fun `sources lista las fuentes activas`() = runBlocking {
         server.enqueue(
             MockResponse().setBody(

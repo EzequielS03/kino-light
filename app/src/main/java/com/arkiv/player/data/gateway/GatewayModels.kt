@@ -38,6 +38,15 @@ data class GatewayPlayable(
 
 data class GatewaySubtitle(val lang: String, val url: String, val format: String = "")
 
+/**
+ * Un capítulo de una temporada de Magis.
+ *
+ * Un resultado de serie del portal es una TEMPORADA entera ("Breaking Bad T5" = 16 capítulos), así
+ * que hay que pedir la lista aparte. Cada capítulo trae su propio [ref], resoluble sin volver a
+ * buscar.
+ */
+data class GatewayEpisode(val number: Int, val title: String, val ref: String)
+
 sealed interface SearchEvent {
     data class SourceStart(val source: String) : SearchEvent
     data class ResultEvent(val source: String, val item: GatewayResult) : SearchEvent
@@ -88,3 +97,6 @@ fun parseSearchEvent(linea: String): SearchEvent = runCatching {
         else -> SearchEvent.Unknown(linea)
     }
 }.getOrElse { SearchEvent.Unknown(linea) }
+
+/** Tipos de `program_type` cuyo resultado es una temporada entera, no algo reproducible. */
+val MAGIS_SERIES = setOf("teleplay", "series", "variety")
