@@ -35,6 +35,27 @@ Lo implementado difiere del texto original de esas tareas, y esto es lo que mand
    `web_sources[]` con `page_url`, `lang_norm`, `season`, `episode`, `site_id`
    (172k fuentes activas sobre 2.4k títulos).
 5. **Python local es 3.14**, no 3.12. `fakeredis` necesita el extra `[lua]` para `EVAL`.
+6. **Redis, Postgres, Jackett y el resolver están atados solo a `127.0.0.1`.** Un contenedor
+   en bridge no los alcanza → `network_mode: host` y uvicorn atado a loopback.
+7. **El portal de magis es de sesión única.** Si otro dispositivo entra, mata la nuestra y
+   avisa con un mensaje **en chino** (`您的账号已经在其他设备登录`). Discriminar por texto es
+   frágil; se descarta la sesión ante cualquier `PortalError` y se reintenta una vez.
+8. **El item de magis usa `name` y `releaseTime`**, no `title`/`year`. Con `title` el
+   resultado salía con el `contentId` (un hash de 32 chars) como nombre.
+9. **El mirror deja `name` en null en casi todas sus filas de torrent.** El título se compone
+   desde el catálogo (`title` + año + calidad), si no se ven entradas como "WEB-DL 4k HDR".
+
+## Estado final (2026-08-09)
+
+**Desplegado y verificado en producción**: `https://api.comparadorinternet.co`
+(repo `lordmacu/arkiv-api`, 132 tests verdes, ruff limpio).
+
+Verificado contra backends reales: las cuatro fuentes responden (`archive` 40, `torrent` 376,
+`magis` 7, `web` 3 para una serie con capítulos), `/v1/resolve` devuelve el stream de magis con
+`Content-Auth`/`Content-License` y convierte los links de Jackett a magnet bajando el `.torrent`.
+Métricas persistiendo en Postgres. El túnel se reinició una vez y db/alfa/torrents volvieron.
+
+Siguiente: `2026-08-09-arkiv-api-f5-app.md` (integración Kotlin).
 
 ## Global Constraints
 
