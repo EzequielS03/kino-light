@@ -25,6 +25,8 @@ data class GatewaySearchQuery(
     val anilistId: Int = 0,
     val lang: String = "",
     val sources: String = "",
+    /** Tope de tamaño por torrent en bytes (0 = sin tope). */
+    val maxBytes: Long = 0,
     val budgetMs: Int = 0,
 )
 
@@ -66,6 +68,7 @@ class ArkivApiClient(
             if (ctx.anilistId > 0) addQueryParameter("anilist_id", ctx.anilistId.toString())
             if (ctx.lang.isNotBlank()) addQueryParameter("lang", ctx.lang)
             if (ctx.sources.isNotBlank()) addQueryParameter("sources", ctx.sources)
+            if (ctx.maxBytes > 0) addQueryParameter("max_bytes", ctx.maxBytes.toString())
             if (ctx.budgetMs > 0) addQueryParameter("budget_ms", ctx.budgetMs.toString())
         }.build().toString()
 

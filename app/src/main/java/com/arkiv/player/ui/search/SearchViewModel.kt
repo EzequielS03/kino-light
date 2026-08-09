@@ -311,6 +311,29 @@ class SearchViewModel(
 
             fun append(new: List<PlaySource>) { _sources.value = _sources.value + new }
 
+            // Cada fuente apaga su propio spinner cuando el gateway avisa que terminó, en vez de
+            // apagarlos todos al final: así el usuario ve "torrent listo" a los 400 ms sin esperar
+            // los 36 s que puede tardar Jackett.
+            fun apagarSpinner(fuente: String) {
+                when (fuente) {
+                    "torrent" -> _loadingTorrent.value = false
+                    "web" -> _loadingWeb.value = false
+                    "archive" -> _loadingArchive.value = false
+                    "magis" -> _loadingMagis.value = false
+                }
+            }
+
+            // Cuántos resultados web trajo el gateway. El scraping en vivo solo entra si fueron 0:
+            // el mirror cubre 2.4k títulos, y para uno que aún no crawleó seguimos teniendo la
+            // fuente de siempre en vez de mostrar la sección vacía.
+            var webDelGateway = -1
+            val gatewayTermino = kotlinx.coroutines.CompletableDeferred<Unit>()
+
+            // El gateway atiende las cuatro fuentes salvo en anime: ahí el camino local expande los
+            // títulos con AniList y renumera los capítulos, algo que el gateway todavía no hace, y
+            // migrarlo sin eso devolvería el capítulo equivocado.
+            val gatewayCubreTodo = settings.useGateway.value && card.kind != "anime"
+
             // Magis, por el gateway. Va como una rama más del fan-out: si falla, las otras tres
             // fuentes siguen igual. Detrás del flag para poder apagarlo sin publicar APK.
             if (settings.useGateway.value) {
@@ -322,8 +345,9 @@ class SearchViewModel(
                             season = season ?: 0,
                             episode = episode ?: 0,
                             tmdbId = card.tmdbId ?: 0,
+                            maxBytes = maxBytes,
                             budgetMs = GATEWAY_BUDGET_MS,
-                            sources = "magis",
+                            sources = if (gatewayCubreTodo) "torrent,web,archive,magis" else "magis",
                         )
                         // Los resultados se acumulan y se publican EN LOTE. Publicar de a uno
                         // dispara una recomposición por resultado: con 20 de magis sobre 50+
@@ -340,22 +364,42 @@ class SearchViewModel(
                                     ev.item.toPlaySource()?.let { lote += it }
                                     if (lote.size >= GATEWAY_LOTE) vaciarLote()
                                 }
-                                is com.arkiv.player.data.gateway.SearchEvent.SourceError ->
+                                is com.arkiv.player.data.gateway.SearchEvent.SourceError -> {
                                     Log.w(GW, "fuente ${ev.source} fallo: ${ev.error} (entrego ${ev.count})")
-                                is com.arkiv.player.data.gateway.SearchEvent.SourceDone ->
+                                    // Se vacía el lote antes de apagar el spinner: si no, la fuente
+                                    // se marca lista mientras sus resultados siguen en el lote.
+                                    vaciarLote(); apagarSpinner(ev.source)
+                                }
+                                is com.arkiv.player.data.gateway.SearchEvent.SourceDone -> {
                                     Log.w(GW, "fuente ${ev.source}: ${ev.count} en ${ev.ms}ms")
+                                    if (ev.source == "web") webDelGateway = ev.count
+                                    vaciarLote(); apagarSpinner(ev.source)
+                                }
                                 else -> Unit
                             }
                         }
                         vaciarLote()
                     }.onFailure {
-                        android.util.Log.w("ArkivGateway", "magis por el gateway falló: ${it.message}")
+                        android.util.Log.w("ArkivGateway", "el gateway falló: ${it.message}")
+                        // Si el gateway se cae entero, ninguna fuente va a mandar su `source_done`:
+                        // sin esto los spinners de las cuatro se quedarían girando para siempre.
+                        listOf("torrent", "web", "archive", "magis").forEach { apagarSpinner(it) }
                     }
                     _loadingMagis.value = false
+                    gatewayTermino.complete(Unit)
                 }
+            } else {
+                gatewayTermino.complete(Unit)
             }
 
             launch {
+                if (gatewayCubreTodo) {
+                    // El gateway ya trae mirror + Jackett con el mismo tope de tamaño. Correr
+                    // también el camino local duplicaría cada torrent en la lista.
+                    gatewayTermino.await()
+                    refreshSeeders()   // los seeders sí siguen saliendo del swarm real
+                    return@launch
+                }
                 val flow: Flow<List<TorrentResult>> = when {
                     card.kind == "anime" && episode != null && show != null ->
                         animeSourceProvider.episodeSourcesFlow(show, episode, ALL_LANGS, maxBytes)
@@ -375,6 +419,26 @@ class SearchViewModel(
                 refreshSeeders()   // seeders REALES del swarm (las fuentes latino/cast reportan 1)
             }
             launch {
+                if (gatewayCubreTodo) {
+                    // El mirror web lo sirve el gateway. Acá solo queda el scraping en vivo, y
+                    // únicamente si el mirror no tenía nada de este título.
+                    gatewayTermino.await()
+                    if (webDelGateway == 0) {
+                        val ctx = SearchContext(
+                            titles = titles,
+                            type = if (card.kind == "movie") ContentType.MOVIE else ContentType.TV,
+                            season = season ?: 0,
+                            episode = episode ?: 0,
+                            year = d?.year ?: "",
+                        )
+                        Log.w(GW, "el mirror no tenia web de '${card.title}': scraping en vivo")
+                        runCatching {
+                            webSourceEngine.searchFlow(ctx).collect { chunk -> append(chunk.map { PlaySource.Web(it) }) }
+                        }
+                        _loadingWeb.value = false
+                    }
+                    return@launch
+                }
                 // MIRROR primero (nuestro backend, ya crawleado): sin capitulo elegido ofrecemos la
                 // serie completa como PACK; con capitulo, ese capitulo puntual. Si el titulo aun no
                 // esta crawleado, caemos al scraping en vivo de siempre.
@@ -434,10 +498,10 @@ class SearchViewModel(
                     runCatching { mirrorApiClient.libraryItem(id) }.getOrNull()
                         ?.let { append(listOf(PlaySource.Archive(it))) }
                 }
-                // 2) archive.org público. El S/E NO se pega al texto: el Solr de archive.org exige
-                //    TODOS los tokens de `title:(...)` y ningún ítem se titula "... 1x27", así que
-                //    con capítulo elegido esto devolvía 0 resultados para CUALQUIER serie. Buscar
-                //    solo por nombre además hace salir los packs, que traen el capítulo adentro.
+                // 2) archive.org público. El S/E NO se pega al texto (ver arriba). Cuando el
+                //    gateway cubre todo, esta búsqueda ya la hizo él con la misma consulta Lucene;
+                //    la biblioteca propia de (1) sigue siendo local porque el gateway no la indexa.
+                if (gatewayCubreTodo) return@launch
                 val a = runCatching { archiveApi.search(titles.first()) }.getOrDefault(emptyList())
                     .map { PlaySource.Archive(it) }
                 append(a)
