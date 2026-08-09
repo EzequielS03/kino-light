@@ -1,5 +1,6 @@
 package com.arkiv.player.ui.search
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.arkiv.player.data.ArchiveApi
@@ -45,6 +46,12 @@ fun handoffRouteFor(card: TitleCard, season: Int?, episode: Int?): String = when
 /** Presupuesto del fan-out del gateway. Generoso: la primera consulta de un título nuevo
  *  encuentra a Jackett en frío (~27 s) y no queremos cortar a magis por eso. */
 private const val GATEWAY_BUDGET_MS = 15000
+
+/** Cuántos resultados del gateway se publican de una. Uno por uno hace que Compose recomponga
+ *  la lista entera por cada resultado, y con varias decenas la app llega a ANR. */
+private const val GATEWAY_LOTE = 25
+
+private const val GW = "ArkivGateway"
 
 private val ALL_LANGS = setOf(
     TorrentLang.LATINO, TorrentLang.DUAL, TorrentLang.CASTELLANO, TorrentLang.ENGLISH, TorrentLang.JAP_SUB,
@@ -318,11 +325,29 @@ class SearchViewModel(
                             budgetMs = GATEWAY_BUDGET_MS,
                             sources = "magis",
                         )
+                        // Los resultados se acumulan y se publican EN LOTE. Publicar de a uno
+                        // dispara una recomposición por resultado: con 20 de magis sobre 50+
+                        // fuentes ya visibles, la UI se ahoga midiendo texto y la app da ANR.
+                        val lote = mutableListOf<PlaySource>()
+                        fun vaciarLote() {
+                            if (lote.isEmpty()) return
+                            append(lote.toList())
+                            lote.clear()
+                        }
                         arkivApiClient.search(ctx).collect { ev ->
-                            if (ev is com.arkiv.player.data.gateway.SearchEvent.ResultEvent) {
-                                ev.item.toPlaySource()?.let { append(listOf(it)) }
+                            when (ev) {
+                                is com.arkiv.player.data.gateway.SearchEvent.ResultEvent -> {
+                                    ev.item.toPlaySource()?.let { lote += it }
+                                    if (lote.size >= GATEWAY_LOTE) vaciarLote()
+                                }
+                                is com.arkiv.player.data.gateway.SearchEvent.SourceError ->
+                                    Log.w(GW, "fuente ${ev.source} fallo: ${ev.error} (entrego ${ev.count})")
+                                is com.arkiv.player.data.gateway.SearchEvent.SourceDone ->
+                                    Log.w(GW, "fuente ${ev.source}: ${ev.count} en ${ev.ms}ms")
+                                else -> Unit
                             }
                         }
+                        vaciarLote()
                     }.onFailure {
                         android.util.Log.w("ArkivGateway", "magis por el gateway falló: ${it.message}")
                     }

@@ -287,6 +287,8 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
 
     /** Lee [start,end] del archivo que crece, esperando a que la descarga secuencial pase de cada byte. */
     private fun streamGrowingFromDisk(dl: Download, start: Long, end: Long, out: java.io.OutputStream) {
+        var escritos = 0L
+        val t0 = System.currentTimeMillis()
         RandomAccessFile(dl.file, "r").use { raf ->
             val buf = ByteArray(64 * 1024)
             var pos = start
@@ -299,8 +301,15 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                 if (n <= 0) { if (dl.done || dl.failed) break else { Thread.sleep(20); continue } }
                 out.write(buf, 0, n)
                 pos += n
+                escritos += n
             }
         }
+        // Resumen de lo entregado al reproductor: distingue "el proxy no manda datos" de
+        // "el reproductor no puede con el contenido", que se ven igual desde afuera.
+        android.util.Log.w(
+            "ArchiveCacheProxy",
+            "→reproductor ${escritos / 1024 / 1024}MB en ${System.currentTimeMillis() - t0}ms",
+        )
     }
 
     /** Baja el tramo [start,end] directo de archive.org (Range) y lo escribe crudo a [out] (sin headers). */
