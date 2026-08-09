@@ -131,6 +131,7 @@ class PlayerViewModel(
                 SourceKind.TORRENT -> loadTorrent(episodeId)
                 SourceKind.ARCHIVE -> loadArchive(episodeId)
                 SourceKind.WEB -> loadWeb(episodeId)
+                SourceKind.MAGIS -> loadMagis(episodeId)
                 // PlayerSource.kindFor() nunca devuelve NUC ni LOCAL (ver su propio KDoc): esta rama
                 // es inalcanzable por diseño, pero el `when` exhaustivo la exige. Apunta a loadWeb()
                 // -no a la loadWebRespectingPreference() desconectada- para que la afirmación del
@@ -323,6 +324,52 @@ class PlayerViewModel(
      * PlayerData con esa URL. El player unificado hereda controles/seek/cast/dlna/subs/audio. Los
      * subtítulos+headers sniffeados viajan por [webExtras] para que PlayerScreen los adjunte.
      */
+    /**
+     * Reproduce un ítem de Magis.
+     *
+     * El CDN exige `Content-Auth` y `Content-License`, y libVLC solo sabe mandar Referer y
+     * User-Agent: por eso el stream va por el proxy local, que sí puede ponerlos en la petición al
+     * origen. El [ref] guardado se manda tal cual a `/v1/resolve`; la app nunca lo interpreta.
+     */
+    private suspend fun loadMagis(episodeId: String) {
+        val ref = repo.magisRefForEpisode(episodeId)
+        Log.w(PLAY, "loadMagis() episodeId=$episodeId ref=${ref?.take(12)}…")
+        if (ref.isNullOrBlank()) { _error.value = "No se encontró la fuente de Magis"; return }
+
+        _playlist.value = null
+        _webExtras.value = null
+        _resolving.value = true
+        val resuelto = withContext(Dispatchers.IO) { runCatching { gatewayClient.resolve(ref) } }
+        _resolving.value = false
+
+        val play = resuelto.getOrNull()
+        if (play == null) {
+            Log.w(PLAY, "loadMagis() falló: ${resuelto.exceptionOrNull()?.message}")
+            _error.value = "No se pudo resolver esta fuente de Magis"
+            return
+        }
+
+        withContext(Dispatchers.IO) { archiveCacheProxy.start() }
+        val cabecera = repo.headerInfo(episodeId)
+        val urlLocal = archiveCacheProxy.proxyUrl(play.url, play.headers)
+        val item = PlayerData(
+            episodeId = episodeId,
+            itemId = episodeId.substringBefore("::"),
+            title = cabecera?.itemTitle ?: "Magis",
+            subtitle = cabecera?.episodeLabel.orEmpty(),
+            mediaUrl = urlLocal,
+            // Castear NO va a funcionar: el proxy escucha en 127.0.0.1 y la TV no llega ahí. Se deja
+            // la URL directa para no romper el flujo; sin los headers el CDN devolverá 401.
+            castUrl = play.url,
+            artworkUrl = "",
+            openingStartMs = null, openingEndMs = null, endingStartMs = null,
+            kind = SourceKind.MAGIS,
+        )
+        val startPos = safeStartPosition(episodeId, SourceKind.MAGIS)
+        _playlist.value = PlaylistData(listOf(item), 0, startPos)
+        Log.w(PLAY, "loadMagis() playlist publicada (startPos=$startPos)")
+    }
+
     private suspend fun loadWeb(episodeId: String) {
         val pageUrl = repo.webSourceForEpisode(episodeId)
         Log.w(PLAY, "loadWeb() episodeId=$episodeId pageUrl=$pageUrl")
@@ -495,6 +542,9 @@ class PlayerViewModel(
                     torrentEngine.preBufferNextFile(src.fileIndex)
                 }
             }
+            // Magis NO se precarga: cada resolución es una llamada al portal, que corta a 1 cada
+            // 1.5 s. Gastarla en un capítulo que quizá no se vea retrasaría el que sí se está viendo.
+            SourceKind.MAGIS -> Unit
             // Web: pre-resolver (calienta la caché del resolver). No si el actual sigue resolviendo.
             SourceKind.WEB -> {
                 if (_resolving.value) return@runCatching
@@ -526,6 +576,18 @@ class PlayerViewModel(
     }.onFailure { Log.w(PLAY, "prefetchNext falló: $it") }
 
     /** Cliente HTTP compartido para [warmHead]: evita crear un OkHttpClient (pool de hilos+conexiones) por episodio. */
+    /**
+     * Cliente del gateway. Se arma acá y no por constructor para no tocar PlayerScreen.kt (donde se
+     * construye el VM). La URL y la llave se leen de [settings] en cada llamada.
+     */
+    private val gatewayClient by lazy {
+        com.arkiv.player.data.gateway.ArkivApiClient(
+            baseUrl = { settings.gatewayUrl.value },
+            apiKey = { settings.arkivApiKey.value },
+            http = okhttp3.OkHttpClient(),
+        )
+    }
+
     private val prefetchHttp by lazy {
         okhttp3.OkHttpClient.Builder()
             .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)

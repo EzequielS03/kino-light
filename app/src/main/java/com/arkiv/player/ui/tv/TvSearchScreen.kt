@@ -176,6 +176,11 @@ fun TvSearchScreen(
         scope.launch { applyResult(playback.playArchive(item)) }
     }
 
+    fun playMagisResult(r: com.arkiv.player.data.gateway.GatewayResult) {
+        preparing = true; playError = null
+        scope.launch { applyResult(playback.playMagis(r)) }
+    }
+
     fun playWebResult(r: WebResult) {
         val card = selected ?: return
         val season = refineSeason
@@ -202,6 +207,7 @@ fun TvSearchScreen(
         is PlaySource.Archive -> playArchiveResult(source.item)
         is PlaySource.Web -> playWebResult(source.result)
         is PlaySource.WebPack -> webPackFor = source.pack
+        is PlaySource.Magis -> playMagisResult(source.result)
     }
 
     // Guarda los capítulos del pack web y reproduce uno: [playEpisode] si el usuario eligió uno
@@ -718,6 +724,7 @@ private fun TvSourceTabRow(
                 SourceTab.TODO -> androidx.compose.ui.graphics.Color.White
                 SourceTab.TORRENT -> ArkivRed
                 SourceTab.WEB -> ArkivWebViolet
+                SourceTab.MAGIS -> com.arkiv.player.ui.catalog.ArkivMagisBlue
                 SourceTab.ARCHIVE -> ArkivArchiveTeal
             }
             val on = t == selected
@@ -1019,6 +1026,7 @@ private fun sourceKey(s: PlaySource): String = when (s) {
     is PlaySource.Archive -> "archive-${s.item.identifier}"
     is PlaySource.Web -> "web-${s.result.pageUrl}"
     is PlaySource.WebPack -> "webpack-${s.pack.siteId}-${s.pack.showTitle}"
+    is PlaySource.Magis -> "magis-${s.result.extra["content_id"] ?: s.result.ref}"
 }
 
 /** Fila de una fuente: etiqueta de origen (TORRENT/WEB/ARCHIVE), nombre, idioma/calidad/seeds/tamaño
@@ -1036,6 +1044,7 @@ private fun TvSourceRow(
         is PlaySource.Archive -> "ARCHIVE" to Color(0xFF80CBC4)
         is PlaySource.Web -> "WEB" to Color(0xFFB39DDB)
         is PlaySource.WebPack -> "WEB" to Color(0xFFB39DDB)
+        is PlaySource.Magis -> "MAGIS" to Color(0xFF64B5F6)
     }
     val isPack = source is PlaySource.WebPack ||
         (source is PlaySource.Torrent && PackDetector.isPack(source.result.name))
@@ -1072,6 +1081,15 @@ private fun TvSourceRow(
                         Text(
                             "${r.lang.label}${if (q.isNotBlank()) "  ·  $q" else ""}  ·  ${r.seeders} seeds${if (r.sizeLabel.isNotBlank()) "  ·  ${r.sizeLabel}" else ""}",
                             color = langColor(r.lang), style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                    is PlaySource.Magis -> {
+                        val r = source.result
+                        Text(r.title, color = Color.White, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        val serie = if (r.extra["program_type"] == "teleplay") "Serie" else "Película"
+                        Text(
+                            "$serie${if (r.year.isNotBlank()) "  ·  ${r.year}" else ""}",
+                            color = Color(0xFF64B5F6), style = MaterialTheme.typography.labelSmall,
                         )
                     }
                     is PlaySource.Archive -> {

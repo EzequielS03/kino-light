@@ -2,7 +2,7 @@ package com.arkiv.player.playback
 
 import androidx.media3.common.MediaItem
 
-enum class SourceKind { ARCHIVE, TORRENT, WEB, NUC, LOCAL }
+enum class SourceKind { ARCHIVE, TORRENT, WEB, MAGIS, NUC, LOCAL }
 
 data class PlayerSourceTag(
     val kind: SourceKind,
@@ -35,6 +35,7 @@ object PlayerSource {
     fun kindFor(episodeId: String): SourceKind = when {
         episodeId.startsWith("torrent:") -> SourceKind.TORRENT
         episodeId.startsWith("web:") -> SourceKind.WEB
+        episodeId.startsWith("magis:") -> SourceKind.MAGIS
         else -> SourceKind.ARCHIVE
     }
 }

@@ -75,6 +75,7 @@ import com.arkiv.player.ui.catalog.PlaySource
 import com.arkiv.player.ui.catalog.SourceRow
 import com.arkiv.player.ui.catalog.SourceSection
 import com.arkiv.player.ui.catalog.SourceSectionHeader
+import com.arkiv.player.ui.catalog.ArkivMagisBlue
 import com.arkiv.player.ui.catalog.ArkivWebViolet
 import com.arkiv.player.ui.catalog.ArkivArchiveTeal
 import com.arkiv.player.ui.catalog.MetaChip
@@ -215,6 +216,11 @@ fun SearchScreen(
     // sirve buscarlos en los packs de `sources` -- runSourceSearch emite WebPack solo sin capítulo
     // elegido y Web solo con capítulo, nunca ambos, así que esa lista siempre está vacía en este
     // camino (ver WebSourceSeason/WebSourceEpisode).
+    fun playMagisResult(r: com.arkiv.player.data.gateway.GatewayResult) {
+        preparing = true; playError = null
+        scope.launch { applyResult(playback.playMagis(r)) }
+    }
+
     fun playWebResult(r: WebResult) {
         val card = selected ?: return
         val season = refineSeason
@@ -354,6 +360,9 @@ fun SearchScreen(
             // "Guardar en el dispositivo" del diálogo del pack.
             is PlaySource.WebPack ->
                 downloadWholeSeries(source.pack, resultTitle.ifBlank { source.pack.showTitle }, source.pack.episodes)
+            // Magis no se guarda en el dispositivo: el CDN sirve con un token que vence a las ~48 h,
+            // así que el archivo bajado dejaría de reproducirse.
+            is PlaySource.Magis -> playError = "Magis no se puede guardar: el enlace vence."
         }
     }
 
@@ -364,6 +373,7 @@ fun SearchScreen(
         is PlaySource.Archive -> playArchiveResult(source.item)
         is PlaySource.Web -> playWebResult(source.result)
         is PlaySource.WebPack -> webPackFor = source.pack
+        is PlaySource.Magis -> playMagisResult(source.result)
     }
 
     Box(Modifier.fillMaxSize().background(ArkivBlack)) {
@@ -982,6 +992,7 @@ private fun sourceKey(s: PlaySource): String = when (s) {
     is PlaySource.Archive -> "a-${s.item.identifier}"
     is PlaySource.Web -> "w-${s.result.pageUrl}"
     is PlaySource.WebPack -> "wp-${s.pack.siteId}-${s.pack.showTitle}"
+    is PlaySource.Magis -> "m-${s.result.extra["content_id"] ?: s.result.ref}"
 }
 
 /** Chips de filtro por origen: Todo / Torrent / Web / Archive, con su contador. */
@@ -999,6 +1010,7 @@ private fun SourceTabRow(
                 SourceTab.TODO -> Color.White
                 SourceTab.TORRENT -> ArkivRed
                 SourceTab.WEB -> ArkivWebViolet
+                SourceTab.MAGIS -> ArkivMagisBlue
                 SourceTab.ARCHIVE -> ArkivArchiveTeal
             }
             val on = t == selected

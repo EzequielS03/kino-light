@@ -44,6 +44,10 @@ sealed interface PlaySource {
     data class Archive(val item: ArchiveSearchResult) : PlaySource
     data class Web(val result: com.arkiv.player.data.catalog.web.WebResult) : PlaySource
     data class WebPack(val pack: com.arkiv.player.data.catalog.mirror.MirrorWebPack) : PlaySource
+
+    /** Resultado del portal Magis (solo VOD). El `ref` es opaco: se manda tal cual a
+     *  `/v1/resolve` y la app nunca lo interpreta. */
+    data class Magis(val result: com.arkiv.player.data.gateway.GatewayResult) : PlaySource
 }
 
 /** Color de acento por origen — el mismo en la fila, la sección y los chips de filtro. */
@@ -52,11 +56,14 @@ val ArkivArchiveTeal = Color(0xFF80CBC4)
 /** Verde de "mi biblioteca": los capítulos que subimos nosotros, servidos por el mirror. */
 val ArkivLibraryGreen = Color(0xFF81C784)
 val ArkivPackAmber = Color(0xFFFFB74D)
+/** Azul de Magis: el portal IPTV, distinto de web (violeta) y archive (turquesa). */
+val ArkivMagisBlue = Color(0xFF64B5F6)
 
 fun accentOf(source: PlaySource): Color = when (source) {
     is PlaySource.Torrent -> ArkivRed
     is PlaySource.Archive -> ArkivArchiveTeal
     is PlaySource.Web, is PlaySource.WebPack -> ArkivWebViolet
+    is PlaySource.Magis -> ArkivMagisBlue
 }
 
 /** Dato suelto de una fuente (calidad, idioma, seeds, tamaño) como pastilla. Leer una línea corrida
@@ -227,6 +234,20 @@ fun SourceRow(source: PlaySource, enabled: Boolean, onDownload: (() -> Unit)? = 
                         MetaChip("${p.episodeCount} capítulos")
                         if (p.seasons.size > 1) MetaChip("${p.seasons.size} temporadas")
                         MetaChip(p.siteId, ArkivWebViolet)
+                    }
+                }
+                is PlaySource.Magis -> {
+                    val r = source.result
+                    Text(
+                        r.title, color = Color.White, style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        MetaChip("Magis", ArkivMagisBlue)
+                        if (r.extra["program_type"] == "teleplay") MetaChip("Serie")
+                        if (r.year.isNotBlank()) MetaChip(r.year)
+                        if (r.lang.isNotBlank()) MetaChip(r.lang)
                     }
                 }
             }

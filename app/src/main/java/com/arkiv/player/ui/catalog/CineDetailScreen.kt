@@ -299,8 +299,22 @@ fun CineDetailScreen(
         }
     }
 
-    // Reproduce una fuente web: crea el episodio web (guarda la pageUrl) y usa el player unificado,
-    // que resuelve la pageUrl → stream al cargar (loadWeb). Molde: playArchive.
+    // Reproduce una fuente de Magis: guarda el ítem (id estable por contentId, ref al lado) y usa
+    // el player unificado, que resuelve el ref → stream al cargar (loadMagis). Molde: playArchive.
+    fun playMagis(r: com.arkiv.player.data.gateway.GatewayResult) {
+        preparing = true; error = null; sheetOpen = false
+        scope.launch {
+            val epId = graph.repository.addMagisSource(
+                ref = r.ref,
+                contentId = r.extra["content_id"].orEmpty(),
+                title = r.title,
+                episode = r.episode,
+            )
+            preparing = false
+            if (epId != null) onPlay(epId) else error = "No se pudo preparar Magis."
+        }
+    }
+
     fun playWeb(r: com.arkiv.player.data.catalog.web.WebResult) {
         val d = detail ?: return
         preparing = true; error = null; sheetOpen = false
@@ -444,6 +458,9 @@ fun CineDetailScreen(
         is PlaySource.Archive -> saveArchiveLocally(s.item)
         is PlaySource.Web -> saveWebLocally(s.result, ep)
         is PlaySource.WebPack -> saveWebPackLocally(s.pack)
+        // Magis no se descarga: el CDN sirve con un token que vence a las ~48 h, así que el
+        // archivo bajado dejaría de reproducirse. Es fuente de streaming, no de biblioteca.
+        is PlaySource.Magis -> Unit
     }
 
     fun playSource(s: PlaySource) = when (s) {
@@ -453,6 +470,7 @@ fun CineDetailScreen(
         is PlaySource.Archive -> playArchive(s.item)
         is PlaySource.Web -> playWeb(s.result)
         is PlaySource.WebPack -> webPackFor = s.pack
+        is PlaySource.Magis -> playMagis(s.result)
     }
 
     Box(Modifier.fillMaxSize().background(ArkivBlack)) {

@@ -11,6 +11,7 @@ enum class SourceTab(val label: String) {
     TODO("Todo"),
     TORRENT("Torrent"),
     WEB("Web"),
+    MAGIS("Magis"),
     ARCHIVE("Archive"),
 }
 
@@ -19,6 +20,7 @@ enum class SourceTab(val label: String) {
 fun tabOf(source: PlaySource): SourceTab = when (source) {
     is PlaySource.Torrent -> SourceTab.TORRENT
     is PlaySource.Web, is PlaySource.WebPack -> SourceTab.WEB
+    is PlaySource.Magis -> SourceTab.MAGIS
     is PlaySource.Archive -> SourceTab.ARCHIVE
 }
 

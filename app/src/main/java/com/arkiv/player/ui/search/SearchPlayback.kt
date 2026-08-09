@@ -65,8 +65,29 @@ class SearchPlayback(private val graph: AppGraph) {
                 ?.let { graph.repository.firstEpisodeId(it.identifier) }
             is PlaySource.Web -> null // no aplica en directos de Fase 1
             is PlaySource.WebPack -> null // no aplica en directos de Fase 1 (igual que Web)
+            is PlaySource.Magis -> magisEpisodeId(source.result)
         }
         return if (epId != null) PlaybackResult.Ready(epId) else PlaybackResult.Failed("No se pudo preparar la reproducción.")
+    }
+
+    /**
+     * Guarda un resultado de Magis y devuelve su episodeId.
+     *
+     * El id sale del `contentId` del portal, no del ref: el ref se re-emite en cada búsqueda y un id
+     * derivado de él perdería la posición de reproducción. El ref se guarda al lado y se refresca.
+     */
+    suspend fun magisEpisodeId(r: com.arkiv.player.data.gateway.GatewayResult): String? {
+        val contentId = r.extra["content_id"].orEmpty()
+        return graph.repository.addMagisSource(
+            ref = r.ref, contentId = contentId, title = r.title, episode = r.episode,
+        )
+    }
+
+    /** Reproduce un resultado de Magis: lo guarda y devuelve a dónde navegar. */
+    suspend fun playMagis(r: com.arkiv.player.data.gateway.GatewayResult): PlaybackResult {
+        val epId = magisEpisodeId(r)
+        return if (epId != null) PlaybackResult.Ready(epId)
+        else PlaybackResult.Failed("No se pudo preparar la reproducción de Magis.")
     }
 
     /**

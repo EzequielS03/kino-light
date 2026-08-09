@@ -591,6 +591,44 @@ class ArkivRepository(
         return episodeId
     }
 
+    /**
+     * Guarda un resultado de Magis para poder reproducirlo y reanudarlo.
+     *
+     * El id se deriva del `contentId` del portal, NO del ref: el ref se re-emite en cada búsqueda y
+     * un id derivado de él perdería la marca de "voy por aquí" cada vez. El ref se guarda aparte
+     * (mismo campo donde web guarda su `pageUrl`) y se refresca al volver a encontrarlo.
+     */
+    suspend fun addMagisSource(
+        ref: String,
+        contentId: String,
+        title: String,
+        episode: Int = 0,
+        posterUrl: String = "",
+    ): String? {
+        if (ref.isBlank() || contentId.isBlank()) return null
+        val id = "magis:$contentId" + if (episode > 0) ":e$episode" else ""
+        val existing = itemDao.getItem(id)
+        val item = com.arkiv.player.data.db.ItemEntity(
+            identifier = id, title = title.ifBlank { "Magis" }, description = null,
+            thumbnailUrl = posterUrl, addedAt = existing?.addedAt ?: clock(),
+            source = "magis", torrentData = ref,
+        )
+        val ep = com.arkiv.player.data.db.EpisodeEntity(
+            id = "$id::0", itemId = id, section = "", displayName = MetadataParser.cleanName(title),
+            orderIndex = 0, durationSeconds = 0.0, thumbPath = null, originalPath = null,
+            originalFormat = null, originalSize = 0, derivativePath = null, derivativeFormat = null,
+            derivativeSize = 0, torrentFileIndex = null, torrentData = ref,
+        )
+        itemDao.replaceItem(item, listOf(ep))
+        return ep.id
+    }
+
+    /** Ref opaco guardado de un episodio de Magis (para que loadMagis lo resuelva). */
+    suspend fun magisRefForEpisode(episodeId: String): String? {
+        val ep = itemDao.getEpisode(episodeId) ?: return null
+        return ep.torrentData ?: itemDao.getItem(ep.itemId)?.torrentData
+    }
+
     /** pageUrl guardada de un episodio web (para que loadWeb la resuelva). */
     suspend fun webSourceForEpisode(episodeId: String): String? {
         val ep = itemDao.getEpisode(episodeId) ?: return null
