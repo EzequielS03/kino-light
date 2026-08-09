@@ -57,5 +57,9 @@ fun GatewayResult.toPlaySource(): PlaySource? = when (source) {
         ),
     )
 
+    // Magis se lleva el resultado entero: su `ref` es todo lo que hace falta para resolver, y no
+    // hay un tipo previo de la app al que mapearlo.
+    "magis" -> PlaySource.Magis(this)
+
     else -> null
 }

@@ -188,6 +188,10 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                 return null
             }
             val dl = Download(origin, file, doneMarker, total, extraHeaders)
+            // El archivo se crea ACÁ, antes de lanzar el hilo: el que sirve lo abre para leer
+            // apenas vuelve esta función, y si el escritor todavía no lo creó la lectura muere con
+            // ENOENT y el reproductor se queda en "buffering 0%" para siempre.
+            runCatching { file.parentFile?.mkdirs(); if (!file.exists()) file.createNewFile() }
             downloads[key] = dl
             Thread { runDownload(conn, dl, key) }.apply { isDaemon = true }.start()
             dl

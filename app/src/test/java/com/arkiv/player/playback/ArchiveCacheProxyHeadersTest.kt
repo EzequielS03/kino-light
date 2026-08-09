@@ -114,6 +114,22 @@ class ArchiveCacheProxyHeadersTest {
     }
 
     @Test
+    fun `sirve el cuerpo sin morir por la carrera de creacion del archivo`() {
+        // El que sirve abre el archivo de caché para leer apenas arranca la descarga. Si el
+        // escritor no lo creó todavía, la lectura moría con ENOENT y el player se quedaba en
+        // "buffering 0%" para siempre.
+        repeat(5) {
+            val datos = cuerpo(64 * 1024)
+            origen.enqueue(
+                MockResponse().setBody(okio.Buffer().write(datos))
+                    .setHeader("Content-Length", datos.size.toString()),
+            )
+            val (code, _) = pedir(proxy.proxyUrl(origen.url("/v$it.ts").toString(), mapOf("A" to "b")))
+            assertEquals(200, code)
+        }
+    }
+
+    @Test
     fun `sin headers no se manda ninguno extra`() {
         val datos = cuerpo(512)
         origen.enqueue(

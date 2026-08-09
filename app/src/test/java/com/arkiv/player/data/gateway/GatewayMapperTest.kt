@@ -75,6 +75,29 @@ class GatewayMapperTest {
     }
 
     @Test
+    fun `magis se mapea a su propio tipo`() {
+        // Sin esta rama el mapper devolvia null y los resultados de Magis nunca llegaban a la
+        // pantalla, aunque el gateway los estuviera entregando.
+        val ps = GatewayResult(
+            source = "magis", title = "Duna", ref = "r", year = "2021",
+            extra = mapOf("content_id" to "abc", "program_type" to "movie"),
+        ).toPlaySource()
+        assertTrue(ps is PlaySource.Magis)
+        assertEquals("Duna", (ps as PlaySource.Magis).result.title)
+        assertEquals("abc", ps.result.extra["content_id"])
+        assertEquals("r", ps.result.ref)
+    }
+
+    @Test
+    fun `las cuatro fuentes del gateway se mapean- ninguna cae en null`() {
+        // Guarda contra el bug real: el gateway sirve cuatro fuentes y el mapper conocia tres.
+        for (fuente in listOf("torrent", "archive", "web", "magis")) {
+            val r = GatewayResult(source = fuente, title = "x", ref = "r")
+            assertTrue("la fuente '$fuente' no se mapea", r.toPlaySource() != null)
+        }
+    }
+
+    @Test
     fun `una fuente desconocida se descarta sin romper`() {
         // Si el servidor agrega una fuente que este APK no conoce, se ignora en vez de fallar.
         assertNull(GatewayResult(source = "fuente_nueva", title = "x", ref = "r").toPlaySource())
