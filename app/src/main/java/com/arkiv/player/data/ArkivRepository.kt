@@ -41,17 +41,33 @@ data class ItemDetail(
     val progress: Map<String, PlaybackEntity>,
     val isTorrent: Boolean = false,
 ) {
-    /** Último episodio empezado y sin terminar (el "capítulo en el que voy"), o null si no hay. */
+    /**
+     * Último episodio **tocado** y sin terminar (el "capítulo en el que voy"), o null si no hay.
+     *
+     * Alcanza con que exista la fila de `playback`: NO se exige `positionMs > 0` porque
+     * `PlayerViewModel.saveProgress` no escribe nada hasta conocer la duración, y en Magis la sonda
+     * de duración puede tardar (stream TS). Sin esto, darle play al E5 y salir a los tres segundos
+     * dejaba el detalle diciendo "vas en el E1". La fila "Continuar viendo" del home sí filtra por
+     * posición (`observeContinueWatching`), que es lo que evita que se llene de ruido.
+     */
     val inProgressEpisode: Episode?
         get() = episodes
             .mapNotNull { ep -> progress[ep.id]?.let { ep to it } }
-            .filter { !it.second.watched && it.second.positionMs > 0 }
+            .filter { !it.second.watched }
             .maxByOrNull { it.second.lastPlayedAt }
             ?.first
 
-    /** Episodio para el botón "Reproducir": el último visto sin terminar, o el primero. */
+    /**
+     * Episodio para el botón "Reproducir": el que estás viendo, o el primero que te falta.
+     *
+     * El fallback es el primero **sin ver** y no el primero a secas: con la serie entera en la
+     * biblioteca, terminar el E5 tiene que dejarte en el E6, no devolverte al E1. Si están todos
+     * vistos, el primero (volver a empezar).
+     */
     val resumeEpisode: Episode?
-        get() = inProgressEpisode ?: episodes.firstOrNull()
+        get() = inProgressEpisode
+            ?: episodes.firstOrNull { progress[it.id]?.watched != true }
+            ?: episodes.firstOrNull()
 }
 
 /** Punto único de acceso a los datos: red (archive.org) + persistencia (Room). */
