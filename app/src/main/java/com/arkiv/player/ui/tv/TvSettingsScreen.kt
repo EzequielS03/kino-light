@@ -23,7 +23,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.BorderStroke
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
@@ -41,7 +43,6 @@ import com.arkiv.player.pocketbase.AccountState
 import com.arkiv.player.pocketbase.RegistroPaso
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivRed
-import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 import com.arkiv.player.ui.update.UpdateDialog
 
@@ -122,6 +123,27 @@ fun TvSettingsScreen(onConnectPhone: () -> Unit = {}) {
     }
 }
 
+// Estilo único de los botones de Ajustes (TvWebQualityOption/TvActionOption/TvQualityOption):
+// inactivo = negro + borde blanco 1dp; enfocado/presionado = fondo rojo Arkiv, sin borde blanco.
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun tvBotonColors() = ClickableSurfaceDefaults.colors(
+    containerColor = Color.Black,
+    focusedContainerColor = ArkivRed,
+    pressedContainerColor = ArkivRed,
+    contentColor = Color.White,
+    focusedContentColor = Color.White,
+    pressedContentColor = Color.White,
+)
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun tvBotonBorder() = ClickableSurfaceDefaults.border(
+    border = Border(BorderStroke(1.dp, Color.White)),
+    focusedBorder = Border(BorderStroke(1.dp, ArkivRed)),
+    pressedBorder = Border(BorderStroke(1.dp, ArkivRed)),
+)
+
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TvWebQualityOption(label: String, value: WebQuality, selected: WebQuality, onSelect: () -> Unit) {
@@ -132,14 +154,8 @@ private fun TvWebQualityOption(label: String, value: WebQuality, selected: WebQu
         shape = ClickableSurfaceDefaults.shape(
             androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
         ),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = ArkivSurfaceHigh,
-            contentColor = Color.White,
-            focusedContainerColor = ArkivRed,
-            focusedContentColor = Color.White,
-            pressedContainerColor = ArkivRed,
-            pressedContentColor = Color.White,
-        ),
+        colors = tvBotonColors(),
+        border = tvBotonBorder(),
     ) {
         androidx.compose.foundation.layout.Row(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -165,16 +181,10 @@ private fun TvActionOption(label: String, onClick: () -> Unit) {
             androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
         ),
         // Sin colores explícitos el Surface de tv.material3 usa el color por defecto (claro):
-        // el botón se veía BLANCO. Superficie oscura + rojo Arkiv al enfocar (para que el D-pad
-        // muestre dónde está el foco), texto blanco siempre.
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = ArkivSurfaceHigh,
-            focusedContainerColor = ArkivRed,
-            pressedContainerColor = ArkivRed,
-            contentColor = Color.White,
-            focusedContentColor = Color.White,
-            pressedContentColor = Color.White,
-        ),
+        // el botón se veía BLANCO. Superficie negra + borde blanco inactivo, rojo Arkiv al
+        // enfocar/presionar (para que el D-pad muestre dónde está el foco), texto blanco siempre.
+        colors = tvBotonColors(),
+        border = tvBotonBorder(),
     ) {
         Text(label, color = Color.White, modifier = Modifier.padding(16.dp))
     }
@@ -190,14 +200,8 @@ private fun TvQualityOption(label: String, value: Quality, selected: Quality, on
         shape = ClickableSurfaceDefaults.shape(
             androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
         ),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = ArkivSurfaceHigh,
-            contentColor = Color.White,
-            focusedContainerColor = ArkivRed,
-            focusedContentColor = Color.White,
-            pressedContainerColor = ArkivRed,
-            pressedContentColor = Color.White,
-        ),
+        colors = tvBotonColors(),
+        border = tvBotonBorder(),
     ) {
         androidx.compose.foundation.layout.Row(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
