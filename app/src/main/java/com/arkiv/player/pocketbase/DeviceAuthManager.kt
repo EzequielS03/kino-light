@@ -129,4 +129,23 @@ class DeviceAuthManager(
         _session.value = session
         session
     }
+
+    /** El device adopta un accountId (login de persona): actualiza server + store + sesión viva. */
+    suspend fun switchAccount(newAccountId: String): DeviceSession = mutex.withLock {
+        val current = _session.value ?: error("switchAccount sin sesión de dispositivo")
+        client.updateRecord(col, current.recordId, mapOf("accountId" to newAccountId), current.token)
+        store.load()?.let { store.save(it.copy(accountId = newAccountId)) }
+        val updated = current.copy(accountId = newAccountId)
+        _session.value = updated
+        updated
+    }
+
+    /** Logout: descarta la identidad actual y crea una anónima nueva (accountId nuevo, vacío). */
+    suspend fun resetToAnonymous(): DeviceSession? {
+        mutex.withLock {
+            _session.value = null
+            store.clear()
+        }
+        return ensureBootstrapped()   // store vacío -> createNewAccount()
+    }
 }
