@@ -80,20 +80,26 @@ object LibraryGrouping {
      * puede resolverle un `tmdbId` de tv al ítem MIENTRAS el detalle está abierto, momento en el
      * que su grupo pasa de `item:<identifier>` a `tv:<tmdbId>` y la llave vieja deja de existir.
      *
-     * Tres casos, en orden:
+     * Cuatro casos, en orden:
      *  1. [groupKey] sigue siendo la llave de un grupo: sus miembros, más completo primero.
      *  2. No, pero es una llave `item:<identifier>` y ESE identifier ahora vive dentro de OTRO
      *     grupo: los miembros de ESE grupo. Sin este paso, el detalle se queda apuntando a una
      *     llave fantasma y desaparece (pantalla en negro) apenas el arte resuelve.
-     *  3. Ninguna de las anteriores: la fila suelta con ese identifier (o vacío si ni eso existe).
+     *  3. No, pero es una llave `series:<seriesId>` y ESE seriesId ahora vive dentro de OTRO grupo
+     *     (mismo problema que el paso 2, pero para series): un `series:<X>` NUNCA es igual a un
+     *     identifier (que van prefijados `web:series:`/`torrent:series:`, ver [SeriesItemIds]), así
+     *     que sin este paso el 4 jamás la encuentra y el detalle queda en pantalla negra apenas el
+     *     arte le resuelve un `tmdbId` de tv al ítem y su grupo pasa de `series:<id>` a `tv:<id>`.
+     *  4. Ninguna de las anteriores: la fila suelta con ese identifier (o vacío si ni eso existe).
      *
-     * A PROPÓSITO el paso 2 solo aplica a llaves `item:`, no a un identifier crudo. "Continuar
-     * viendo", el menú de mantener presionado y el detalle del teléfono navegan con el identifier
-     * crudo de una fila puntual asumiendo "esta fila exacta"; si también siguieran el rastro al
-     * grupo, un identifier que resultó formar parte de un grupo (p. ej. porque otra fuente de la
-     * misma serie ya tenía tmdbId) les cambiaría de ítem sin que el usuario lo haya pedido. `tv:`
-     * envuelve un tmdbId y `series:` un seriesId (ninguno de los dos es un identifier de fila), así
-     * que ninguno puede "seguirle el rastro" con este mismo truco.
+     * A PROPÓSITO los pasos 2 y 3 solo aplican a llaves `item:`/`series:`, no a un identifier
+     * crudo. "Continuar viendo", el menú de mantener presionado y el detalle del teléfono navegan
+     * con el identifier crudo de una fila puntual asumiendo "esta fila exacta"; si también
+     * siguieran el rastro al grupo, un identifier que resultó formar parte de un grupo (p. ej.
+     * porque otra fuente de la misma serie ya tenía tmdbId) les cambiaría de ítem sin que el
+     * usuario lo haya pedido. `series:<seriesId>` en cambio SOLO llega desde `TvHomeScreen`
+     * navegando con la llave del grupo (`onOpenItem(it.key)`), un llamador que sí quiere seguir
+     * el rastro — igual que `item:`.
      */
     fun resolveMembers(
         groupKey: String,
@@ -108,6 +114,11 @@ object LibraryGrouping {
             groups.firstOrNull { g -> g.members.any { m -> m.identifier == identifier } }
                 ?.let { return it.members.sortedByDescending { m -> m.episodeCount } }
             return rows.filter { it.identifier == identifier }
+        }
+        if (groupKey.startsWith("series:")) {
+            val seriesId = groupKey.removePrefix("series:")
+            groups.firstOrNull { g -> g.members.any { m -> SeriesItemIds.seriesIdOrNull(m.identifier) == seriesId } }
+                ?.let { return it.members.sortedByDescending { m -> m.episodeCount } }
         }
         return rows.filter { it.identifier == groupKey }
     }

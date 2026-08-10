@@ -186,7 +186,37 @@ class LibraryGroupingTest {
         assertEquals(setOf(naruto.identifier, otraFuente.identifier), result.map { it.identifier }.toSet())
     }
 
-    /** (iii) Un identifier crudo (Continuar viendo / menú de mantener presionado) resuelve a esa sola fila. */
+    /**
+     * (iii) La MISMA regresión que (ii) pero para una llave `series:<seriesId>` (Finding del
+     * closeout 2026-08-10): a diferencia de `item:<identifier>`, un `series:` nunca es igual a
+     * ningún identifier (los identifiers van prefijados `web:series:`/`torrent:series:`), así que
+     * el paso 3 de antes (`rows.filter { it.identifier == groupKey }`) jamás la encontraba. Sin
+     * este fallback, TvHomeScreen navega con `series:tt...`, el arte resuelve mientras el detalle
+     * sigue abierto, la llave `series:` deja de existir y el detalle queda en pantalla negra.
+     */
+    @Test
+    fun `resolveMembers con una llave series cuyo item se sumo a un grupo tv resuelve a ese grupo`() {
+        val pocos = row("web:series:tt30217403", "DAN DA DAN", 24)
+        // Llave que tenía el ítem al momento de navegar: sin tmdbId todavía.
+        val groupKeyDeLaRuta = LibraryGrouping.groupKeyOf(pocos, null)
+        assertEquals("series:tt30217403", groupKeyDeLaRuta)
+
+        // El arte resuelve DESPUÉS: ahora el ítem (y un hermano de otra fuente) viven en tv:240411.
+        val muchos = row("torrent:series:tt30217403", "DAN DA DAN — Pack", 25, source = "torrent")
+        val groups = LibraryGrouping.group(
+            listOf(pocos, muchos),
+            mapOf(
+                pocos.identifier to art(pocos.identifier, 240411, "tv"),
+                muchos.identifier to art(muchos.identifier, 240411, "tv"),
+            ),
+        )
+        assertEquals(emptyList<LibraryGroup>(), groups.filter { it.key == groupKeyDeLaRuta }) // la llave vieja ya no existe
+
+        val result = LibraryGrouping.resolveMembers(groupKeyDeLaRuta, groups, groups.flatMap { it.members })
+        assertEquals(setOf(pocos.identifier, muchos.identifier), result.map { it.identifier }.toSet())
+    }
+
+    /** (iv) Un identifier crudo (Continuar viendo / menú de mantener presionado) resuelve a esa sola fila. */
     @Test
     fun `resolveMembers con un identifier crudo resuelve a esa sola fila`() {
         val suelto = row("torrent:xyz789", "Alguna película", 1, category = null)
@@ -195,7 +225,7 @@ class LibraryGroupingTest {
         assertEquals(listOf("torrent:xyz789"), result.map { it.identifier })
     }
 
-    /** (iv) Una llave que no matchea nada (ni grupo ni fila) devuelve vacío. */
+    /** (v) Una llave que no matchea nada (ni grupo ni fila) devuelve vacío. */
     @Test
     fun `resolveMembers con una llave desconocida devuelve vacio`() {
         val r = row("web:series:tt1", "Algo", 5)
