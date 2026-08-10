@@ -103,4 +103,48 @@ class MagisLinkClientTest {
         client.status()
         Unit
     }
+
+    @Test
+    fun `registerSendCode manda POST con email`() = runBlocking {
+        server.enqueue(MockResponse().setBody("{}"))
+        client.registerSendCode("a@b.co")
+        val req = server.takeRequest()
+        assertEquals("POST", req.method)
+        assertEquals("/v1/magis/register/send-code", req.path)
+        assertEquals("LLAVE", req.getHeader("X-Arkiv-Key"))
+        val body = JSONObject(req.body.readUtf8())
+        assertEquals("a@b.co", body.getString("email"))
+    }
+
+    @Test(expected = MagisLinkException::class)
+    fun `registerSendCode con 503 lanza MagisLinkException`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(503).setBody("""{"detail":"caido"}"""))
+        client.registerSendCode("a@b.co")
+        Unit
+    }
+
+    @Test
+    fun `registerConfirm manda POST con email password y code`() = runBlocking {
+        server.enqueue(MockResponse().setBody("{}"))
+        client.registerConfirm("a@b.co", "secret12", "123456")
+        val req = server.takeRequest()
+        assertEquals("POST", req.method)
+        assertEquals("/v1/magis/register/confirm", req.path)
+        val body = JSONObject(req.body.readUtf8())
+        assertEquals("a@b.co", body.getString("email"))
+        assertEquals("secret12", body.getString("password"))
+        assertEquals("123456", body.getString("code"))
+    }
+
+    @Test
+    fun `registerConfirm con 422 trae el detail en el mensaje`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(422).setBody("""{"detail":"codigo invalido"}"""))
+        try {
+            client.registerConfirm("a@b.co", "secret12", "000000")
+            org.junit.Assert.fail("esperaba MagisLinkException")
+        } catch (e: MagisLinkException) {
+            assertEquals(422, e.code)
+            assertEquals("codigo invalido", e.message)
+        }
+    }
 }

@@ -277,7 +277,10 @@ private fun TvAccountSection(account: AccountManager, magisLinkClient: MagisLink
             )
             TvActionOption(
                 label = if (busy) "Espere…" else "Crear cuenta",
-                onClick = { run(account::register) },
+                // TODO(UI Magis-first): registerSendCode() manda el código y devuelve un
+                // RegistroPaso que la UI todavía no consume (falta el paso de ingresar el
+                // código + registerConfirm) — pendiente en la tarea de UI de este flujo.
+                onClick = { run { e, p -> account.registerSendCode(e, p) } },
             )
             if (busy) {
                 Text("Procesando…", color = ArkivTextSecondary, modifier = Modifier.padding(top = 4.dp))

@@ -342,6 +342,7 @@ class AppGraph(context: Context) {
             client = pbClient,
             deviceAuth = deviceAuth,
             store = deviceStore,
+            magisLink = magisLinkClient,
             onAccountSwitched = { cloudSync.syncNow() },
             onLocalWipe = { libraryWiper.wipe() },
         )

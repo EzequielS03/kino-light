@@ -53,4 +53,16 @@ class MagisLinkClient(
     suspend fun unlink(): Unit = withContext(Dispatchers.IO) {
         exec(req("${baseUrl()}/v1/magis/link").delete().build())
     }
+
+    suspend fun registerSendCode(email: String): Unit = withContext(Dispatchers.IO) {
+        val body = JSONObject(mapOf("email" to email))
+            .toString().toRequestBody(jsonType)
+        exec(req("${baseUrl()}/v1/magis/register/send-code").post(body).build())
+    }
+
+    suspend fun registerConfirm(email: String, password: String, code: String): Unit = withContext(Dispatchers.IO) {
+        val body = JSONObject(mapOf("email" to email, "password" to password, "code" to code))
+            .toString().toRequestBody(jsonType)
+        exec(req("${baseUrl()}/v1/magis/register/confirm").post(body).build())
+    }
 }
