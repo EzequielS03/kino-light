@@ -1070,7 +1070,7 @@ private fun TvResultsContent(
  *  - Archive: `identifier` — id único de archive.org por definición.
  *  - Web: `identity` — el ref del gateway si vino de ahí, si no la URL de la página. Los del
  *    gateway llegan sin `pageUrl`, así que usar la URL a secas los colapsaba en un solo item. */
-private fun sourceKey(s: PlaySource): String = when (s) {
+internal fun sourceKey(s: PlaySource): String = when (s) {
     is PlaySource.Torrent -> "torrent-${s.result.identity}"
     is PlaySource.Archive -> "archive-${s.item.identifier}"
     is PlaySource.Web -> "web-${s.result.identity}"
