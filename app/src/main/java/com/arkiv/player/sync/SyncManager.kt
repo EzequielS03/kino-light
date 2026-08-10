@@ -1,9 +1,6 @@
 package com.arkiv.player.sync
 
-import android.app.UiModeManager
 import android.content.Context
-import android.content.pm.PackageManager
-import android.content.res.Configuration
 import android.net.wifi.WifiManager
 import android.util.Log
 import android.view.KeyEvent
@@ -117,14 +114,6 @@ class SyncManager(
         _tvAvailable.value = presence.available
     }
 
-    // Sincronización en una vía teléfono -> TV: la TV recibe (mergea), el teléfono envía.
-    private val isReceiver: Boolean by lazy {
-        val ui = appContext.getSystemService(Context.UI_MODE_SERVICE) as UiModeManager
-        ui.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION ||
-            appContext.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
-            appContext.packageManager.hasSystemFeature("amazon.hardware.fire_tv")
-    }
-
     private data class Peer(val ip: String, val port: Int)
 
     @Synchronized
@@ -210,10 +199,10 @@ class SyncManager(
                         if (r < 0) break
                         read += r
                     }
-                    // Ambos aceptan: la TV refleja la biblioteca; el teléfono solo el progreso.
+                    // Las dos puntas mergean igual (last-write-wins); no hay emisor ni receptor.
                     val changes = runCatching {
                         runBlocking {
-                            repo.mergeFromSync(SyncSnapshot.fromJson(String(body, Charsets.UTF_8)), mirrorItems = isReceiver)
+                            repo.mergeFromSync(SyncSnapshot.fromJson(String(body, Charsets.UTF_8)))
                         }
                     }.getOrDefault(0)
                     writeJson(out, "{\"merged\":$changes}")
@@ -362,7 +351,8 @@ class SyncManager(
 
     /**
      * Sincroniza con los peers en ambos sentidos: baja su snapshot (mergea) y sube el nuestro.
-     * La biblioteca solo la refleja la TV (mirrorItems=isReceiver); el progreso va en las dos vías.
+     * Biblioteca y progreso van en las dos vías, con la misma regla en las dos puntas
+     * (last-write-wins por `updatedAt`, borrados como tombstone). Ver [SyncMerge].
      */
     suspend fun syncNow(): SyncStatus = withContext(Dispatchers.IO) {
         _status.value = SyncStatus.Syncing
@@ -386,7 +376,7 @@ class SyncManager(
                     runCatching {
                         val req = Request.Builder().url("http://${peer.ip}:${peer.port}/sync/export").build()
                         val json = client.newCall(req).execute().use { it.body?.string() }
-                        if (json != null) changes += repo.mergeFromSync(SyncSnapshot.fromJson(json), mirrorItems = isReceiver)
+                        if (json != null) changes += repo.mergeFromSync(SyncSnapshot.fromJson(json))
                         peerOk = true
                     }.onFailure { lastError = it.message }
                     // Subir lo nuestro (el peer lo mergea según su propio rol).

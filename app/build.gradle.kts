@@ -167,4 +167,7 @@ dependencies {
     testImplementation("org.json:json:20240303")
     // Servidor HTTP falso para tests de HttpFetcher (cookie cacheada, challenge/reintento) sin red real.
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    // SQLite de verdad para probar el DDL que Room no valida (los triggers de `updatedAt`): son SQL
+    // puro, así que ejecutarlos es la única forma honesta de saber si sellan lo que tienen que sellar.
+    testImplementation("org.xerial:sqlite-jdbc:3.45.3.0")
 }

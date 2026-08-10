@@ -119,14 +119,20 @@ class ArkivApiClient(
         val cuerpo = JSONObject().put("ref", ref).toString()
             .toRequestBody("application/json".toMediaType())
         val arr = JSONObject(ejecutar(pedido("${baseUrl()}/v1/episodes").post(cuerpo).build()))
-            .optJSONArray("episodes") ?: return@withContext emptyList()
+            .optJSONArray("episodes")
+        if (arr == null) {
+            // Respondió 200 pero sin `episodes`. La UI lo mostraría como una lista vacía, que se ve
+            // igual que "esta temporada no tiene capítulos" — y no es lo mismo.
+            android.util.Log.w("ArkivGw", "/v1/episodes 200 SIN campo `episodes` ref=${ref.take(24)}…")
+            return@withContext emptyList()
+        }
         (0 until arr.length()).mapNotNull { i ->
             arr.optJSONObject(i)?.let { e ->
                 val r = e.optString("ref")
                 if (r.isBlank()) null
                 else GatewayEpisode(e.optInt("number"), e.optString("title"), r)
             }
-        }
+        }.also { android.util.Log.w("ArkivGw", "/v1/episodes → ${it.size} capitulos (de ${arr.length()} crudos)") }
     }
 
     /**
@@ -164,10 +170,22 @@ class ArkivApiClient(
     }
 
     private fun ejecutar(request: Request): String {
+        // Se loguea el CAMINO (no la URL entera: lleva la llave) y el código. Sin esto, todo fallo
+        // del gateway llega a la UI como un texto genérico y no hay forma de separar "no hubo red"
+        // de "el gateway dijo que no" ni de ver QUÉ dijo. El cuerpo del error se recorta: los
+        // mensajes útiles del gateway vienen al principio.
+        val camino = request.url.encodedPath
         val r = runCatching { http.newCall(request).execute() }
-            .getOrElse { throw GatewayException("no se pudo llamar al gateway", it) }
+            .getOrElse {
+                android.util.Log.w("ArkivGw", "$camino → sin respuesta: ${it.javaClass.simpleName}: ${it.message}")
+                throw GatewayException("no se pudo llamar al gateway", it)
+            }
         r.use {
-            if (!it.isSuccessful) throw GatewayException("gateway respondio ${it.code}")
+            if (!it.isSuccessful) {
+                val detalle = runCatching { it.body?.string().orEmpty() }.getOrDefault("").take(300)
+                android.util.Log.w("ArkivGw", "$camino → HTTP ${it.code}: $detalle")
+                throw GatewayException("gateway respondio ${it.code}")
+            }
             return it.body?.string().orEmpty()
         }
     }

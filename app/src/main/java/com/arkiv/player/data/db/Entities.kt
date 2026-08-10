@@ -21,6 +21,15 @@ data class ItemEntity(
     val updatedAt: Long = 0,
     val deleted: Boolean = false,
     /**
+     * Cuántos episodios tenía esta serie la última vez que se abrió su detalle. Es la base del
+     * badge de "hay capítulos nuevos": la diferencia contra el conteo de ahora es lo que apareció
+     * desde entonces. Ver [com.arkiv.player.data.nuevos.ContadorDeNuevos] para por qué se cuenta
+     * así y no con fechas (spoiler: `refreshItem` re-inserta TODOS los episodios).
+     *
+     * `null` = nunca se abrió desde que existe el contador, y NO pinta badge.
+     */
+    val episodiosVistosEnLista: Int? = null,
+    /**
      * Serie de TMDB a la que corresponde este ítem, cuando se sabe. Se guarda al agregarlo desde
      * la búsqueda; sin esto el vínculo se pierde y la pantalla de detalle no tiene a quién pedirle
      * los títulos de los capítulos. Null para ítems agregados a mano por identificador/URL.

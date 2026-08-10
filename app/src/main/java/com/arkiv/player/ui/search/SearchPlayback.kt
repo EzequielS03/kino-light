@@ -87,8 +87,8 @@ class SearchPlayback(private val graph: AppGraph) {
     /**
      * Reproduce un capítulo suelto de una temporada de Magis.
      *
-     * El id se arma con el contentId de la TEMPORADA más el número de capítulo, para que cada uno
-     * tenga su propia marca de "voy por aquí" dentro de la temporada.
+     * El capítulo entra como episodio del ítem de la TEMPORADA (una tarjeta por serie, marcada como
+     * serie desde el primer capítulo; ver `MagisEntities`), con su propia marca de "voy por aquí".
      */
     /** Guarda el capítulo y devuelve su episodeId, sin navegar. Lo usa el guardado en lote. */
     suspend fun magisEpisodeIdDe(
@@ -97,11 +97,16 @@ class SearchPlayback(private val graph: AppGraph) {
     ): String? = graph.repository.addMagisSource(
         ref = capitulo.ref,
         contentId = temporada.extra["content_id"].orEmpty(),
-        title = "${temporada.title} · ${capitulo.title}",
+        // El título del ítem es el de la TEMPORADA, no el del capítulo: el ítem es la serie, y el
+        // capítulo se nombra aparte adentro. Pegarlos dejaba tarjetas "Daima T1 · Daima T1_1".
+        title = temporada.title,
         episode = capitulo.number,
+        episodeTitle = capitulo.title,
         // El capítulo hereda las imágenes de SU temporada: un GatewayEpisode no trae propias.
         posterUrl = temporada.extra["poster"].orEmpty(),
         backdropUrl = temporada.extra["backdrop"].orEmpty(),
+        // El ref de la temporada es el que responde /v1/episodes; el del capítulo no.
+        seriesRef = temporada.ref,
     )
 
     suspend fun playMagisEpisode(

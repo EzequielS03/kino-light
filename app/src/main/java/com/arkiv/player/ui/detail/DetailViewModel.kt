@@ -52,6 +52,11 @@ class DetailViewModel(
         viewModelScope.launch {
             val id = selectedId.filterNotNull().first()
             repo.refreshItem(id)
+            // Abrir el detalle ES ver la lista: acá se apaga el badge de novedades. Va DESPUÉS del
+            // refresco para que los capítulos que este mismo refresco acaba de traer queden
+            // contados como vistos —el usuario los tiene en pantalla— y no como una novedad que ya
+            // se le mostró. Ver ContadorDeNuevos.
+            repo.marcarCapitulosVistos(id)
         }
     }
 

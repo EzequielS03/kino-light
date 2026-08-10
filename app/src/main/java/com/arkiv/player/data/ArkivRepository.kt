@@ -320,6 +320,19 @@ class ArkivRepository(
      * Solo aplica a ítems de archive.org: los de torrent y los `web:` no tienen metadata que
      * re-consultar ahí, y pedirla igual sería una llamada de red condenada a fallar.
      */
+    /**
+     * Registra que el usuario ya vio la lista de capítulos de este ítem, que es lo que apaga el
+     * badge de novedades.
+     *
+     * Se llama DESPUÉS de refrescar, no antes: si se marcara al abrir el detalle y el refresco
+     * trajera capítulos nuevos un segundo después, esos quedarían contados como "ya vistos" sin
+     * que nadie los haya visto, y no aparecerían nunca como novedad.
+     */
+    suspend fun marcarCapitulosVistos(identifier: String) {
+        val cuantos = itemDao.getEpisodesOf(identifier).count { !it.deleted }
+        itemDao.marcarEpisodiosVistos(identifier, cuantos)
+    }
+
     suspend fun refreshItem(identifier: String): Result<ArchiveItem> {
         val existing = itemDao.getItem(identifier)
         if (existing != null && existing.source != "archive") {
@@ -644,6 +657,13 @@ class ArkivRepository(
      * El id se deriva del `contentId` del portal, NO del ref: el ref se re-emite en cada búsqueda y
      * un id derivado de él perdería la marca de "voy por aquí" cada vez. El ref se guarda aparte
      * (mismo campo donde web guarda su `pageUrl`) y se refresca al volver a encontrarlo.
+     *
+     * [episode] > 0 = capítulo de serie: va como episodio DENTRO del ítem de la temporada y lo
+     * marca como serie desde el primero (ver [MagisEntities] para el porqué). 0 = película, que es
+     * el camino de siempre y reemplaza el ítem entero.
+     *
+     * [seriesRef] es el ref de la TEMPORADA (el que sirve para pedirle al portal la lista de
+     * capítulos), distinto del [ref] del capítulo que se va a reproducir.
      */
     suspend fun addMagisSource(
         ref: String,
@@ -652,22 +672,26 @@ class ArkivRepository(
         episode: Int = 0,
         posterUrl: String = "",
         backdropUrl: String = "",
+        episodeTitle: String = "",
+        seriesRef: String = "",
     ): String? {
         if (ref.isBlank() || contentId.isBlank()) return null
-        val id = "magis:$contentId" + if (episode > 0) ":e$episode" else ""
+        val id = MagisEntities.itemIdDe(contentId)
         val existing = itemDao.getItem(id)
-        val item = com.arkiv.player.data.db.ItemEntity(
-            identifier = id, title = title.ifBlank { "Magis" }, description = null,
-            thumbnailUrl = posterUrl, addedAt = existing?.addedAt ?: clock(),
-            source = "magis", torrentData = ref,
+        val (item, ep) = MagisEntities.build(
+            contentId = contentId, ref = ref, title = title, episode = episode,
+            episodeTitle = episodeTitle, posterUrl = posterUrl, ahora = clock(),
+            seriesRef = seriesRef, existente = existing,
         )
-        val ep = com.arkiv.player.data.db.EpisodeEntity(
-            id = "$id::0", itemId = id, section = "", displayName = MetadataParser.cleanName(title),
-            orderIndex = 0, durationSeconds = 0.0, thumbPath = null, originalPath = null,
-            originalFormat = null, originalSize = 0, derivativePath = null, derivativeFormat = null,
-            derivativeSize = 0, torrentFileIndex = null, torrentData = ref,
-        )
-        itemDao.replaceItem(item, listOf(ep))
+        if (episode > 0) {
+            // upsert y NO replaceItem: los capítulos que ya estaban guardados de esta temporada no
+            // se pueden borrar para meter el nuevo.
+            itemDao.upsertItem(item)
+            itemDao.upsertEpisodes(listOf(ep))
+            barrerItemLegacyDeCapitulo(contentId, episode)
+        } else {
+            itemDao.replaceItem(item, listOf(ep))
+        }
         // La imagen apaisada del portal va al mismo lugar donde el hero del Home busca la de TMDB.
         // Se escribe SOLO si Magis la trajo: una fila con backdrops —aunque tmdbId sea null, como
         // acá— ensureArtwork ya NO la vuelve a tocar (ver LibraryGrouping.shouldRefetchArtwork),
@@ -685,6 +709,22 @@ class ArkivRepository(
             )
         }
         return ep.id
+    }
+
+    /**
+     * Borra la tarjeta que dejó un capítulo guardado con el esquema viejo (un ítem por capítulo).
+     *
+     * Esas filas quedaron en la biblioteca como **películas** de un episodio —el bug que motivó
+     * [MagisEntities]— y no hay migración de Room que las alcance. Se limpian solas al volver a
+     * guardar ese mismo capítulo, que es justo cuando su contenido ya vive en el ítem de la
+     * temporada y la vieja no aporta nada. Soft-delete, igual que [removeItem], para que el borrado
+     * viaje por el sync y no reaparezca desde el otro dispositivo.
+     */
+    private suspend fun barrerItemLegacyDeCapitulo(contentId: String, episode: Int) {
+        val viejo = MagisEntities.idLegacyDeCapitulo(contentId, episode)
+        if (itemDao.getItem(viejo) == null) return
+        itemDao.softDeleteEpisodesOf(viejo)
+        itemDao.softDeleteItem(viejo)
     }
 
     /** Ref opaco guardado de un episodio de Magis (para que loadMagis lo resuelva). */
@@ -835,50 +875,37 @@ class ArkivRepository(
     /**
      * Mergea datos remotos en la DB local. Devuelve cuántas filas cambiaron.
      *
-     * @param mirrorItems si es true, la biblioteca se refleja del origen (agrega/borra/override);
-     *   si es false, la biblioteca local NO se toca y solo se mergea el progreso + marcadores.
-     *   El progreso y los marcadores siempre se mergean en ambos sentidos (last-write-wins).
+     * **Las dos puntas corren esto igual.** Antes la biblioteca era un espejo one-way: el TV
+     * adoptaba la del teléfono y borraba en duro todo ítem que el teléfono no tuviera, así que lo
+     * agregado EN EL TV desaparecía solo en el sync siguiente. Ahora es last-write-wins por
+     * `updatedAt` con tombstones, la misma regla del sync por nube: la ausencia de una fila en el
+     * snapshot del otro ya no significa "borrala", significa que todavía no se enteró. Ver
+     * [com.arkiv.player.sync.SyncMerge].
+     *
+     * Un episodio que la otra punta borró EN DURO (no con tombstone, como hace `replaceItem` al
+     * refrescar un ítem de archive.org) se queda acá: sin tombstone no hay nada que propagar. Es
+     * un capítulo de más colgando, y es a propósito preferible a la alternativa de antes —borrar
+     * por ausencia— que se llevaba puesta la biblioteca entera del otro lado.
      */
-    suspend fun mergeFromSync(
-        snapshot: com.arkiv.player.sync.SyncSnapshot,
-        mirrorItems: Boolean = true,
-    ): Int {
+    suspend fun mergeFromSync(snapshot: com.arkiv.player.sync.SyncSnapshot): Int {
         var changes = 0
-        if (mirrorItems) {
-            val localItems = itemDao.getAllItems()
-            val localItemIds = localItems.map { it.identifier }.toSet()
-            val localOverride = localItems.associate { it.identifier to it.categoryOverride }
-            val episodesByItem = snapshot.episodes.groupBy { it.itemId }
-            for (item in snapshot.items) {
-                val remoteEpisodes = episodesByItem[item.identifier] ?: emptyList()
-                if (item.identifier !in localItemIds) {
-                    itemDao.replaceItem(item, remoteEpisodes)
-                    changes++
-                    continue
-                }
-                // El ítem ya existe: antes solo se adoptaba la categoría y la lista de episodios
-                // quedaba congelada en la del día que se agregó, así que los capítulos nuevos del
-                // origen no llegaban nunca (ver EpisodeMirror).
-                val localEpisodes = itemDao.getEpisodesOf(item.identifier).map { it.id }
-                if (com.arkiv.player.sync.EpisodeMirror.differs(localEpisodes, remoteEpisodes.map { it.id })) {
-                    itemDao.replaceItem(item, remoteEpisodes)
-                    changes++
-                } else if (localOverride[item.identifier] != item.categoryOverride) {
-                    // La fuente (teléfono) manda: adoptar su categoría manual.
-                    itemDao.updateCategoryOverride(item.identifier, item.categoryOverride)
-                    changes++
-                }
-            }
-            // Espejo one-way: borrar ítems locales que ya no existen en el origen (teléfono).
-            val snapshotIds = snapshot.items.map { it.identifier }.toSet()
-            for (local in localItems) {
-                if (local.identifier !in snapshotIds) {
-                    itemDao.deleteEpisodesOf(local.identifier)
-                    itemDao.deleteItem(local.identifier)
-                    changes++
-                }
-            }
-        }
+        val items = com.arkiv.player.sync.SyncMerge.aAplicar(
+            locales = itemDao.getAllItems(), remotas = snapshot.items,
+            llave = { it.identifier }, updatedAt = { it.updatedAt },
+        )
+        // upsert y no replaceItem: los episodios se mergean uno por uno abajo, así que borrar los
+        // de este ítem para reponer los del snapshot sería justamente perder los que el otro no
+        // tiene todavía.
+        items.forEach { itemDao.upsertItem(it) }
+        changes += items.size
+
+        val episodes = com.arkiv.player.sync.SyncMerge.aAplicar(
+            locales = itemDao.getAllEpisodes(), remotas = snapshot.episodes,
+            llave = { it.id }, updatedAt = { it.updatedAt },
+        )
+        if (episodes.isNotEmpty()) itemDao.upsertEpisodes(episodes)
+        changes += episodes.size
+
         // Progreso: siempre bidireccional, last-write-wins por lastPlayedAt.
         for (pb in snapshot.playback) {
             val local = playbackDao.get(pb.episodeId)

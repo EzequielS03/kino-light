@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.OutlinedTextField
@@ -17,8 +18,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -162,6 +166,19 @@ private fun TvActionOption(label: String, onClick: () -> Unit) {
         shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(
             androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
         ),
+        // Los colores van explícitos, como en el resto de la UI de TV: `ClickableSurfaceDefaults`
+        // los saca del tema de tv-material3, y la app nunca envuelve nada en un
+        // `androidx.tv.material3.MaterialTheme` (usa el M3 normal, ver ui/theme/Theme.kt), así que
+        // sin esto el Surface caía en el esquema claro por defecto de la librería —fondo casi
+        // blanco— y el texto blanco de abajo quedaba invisible: los botones se veían "en blanco".
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = ArkivSurfaceHigh,
+            contentColor = Color.White,
+            focusedContainerColor = ArkivRed,
+            focusedContentColor = Color.White,
+            pressedContainerColor = ArkivRed,
+            pressedContentColor = Color.White,
+        ),
     ) {
         Text(label, color = Color.White, modifier = Modifier.padding(16.dp))
     }
@@ -214,6 +231,7 @@ private fun TvQualityOption(label: String, value: Quality, selected: Quality, on
 private fun TvAccountSection(account: AccountManager) {
     val state by account.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
@@ -236,13 +254,23 @@ private fun TvAccountSection(account: AccountManager) {
             )
         }
         AccountState.Anonimo -> {
+            // `dpadFocusEscape` + `imeAction` son lo que hace usable el formulario con el control:
+            // sin el primero el foco queda atrapado en el campo (arriba/abajo los come el cursor
+            // del TextField) y sin el segundo el teclado del Fire TV cierra sobre el mismo campo
+            // en vez de avanzar. Ver [dpadFocusEscape] en TvComponents.kt.
             OutlinedTextField(
                 value = email,
                 onValueChange = { email = it; error = null },
                 label = { androidx.compose.material3.Text("Email") },
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                modifier = Modifier.fillMaxWidth(0.6f),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Email,
+                    imeAction = ImeAction.Next,
+                ),
+                keyboardActions = KeyboardActions(
+                    onNext = { focusManager.moveFocus(FocusDirection.Down) },
+                ),
+                modifier = Modifier.fillMaxWidth(0.6f).dpadFocusEscape(),
             )
             OutlinedTextField(
                 value = password,
@@ -250,8 +278,16 @@ private fun TvAccountSection(account: AccountManager) {
                 label = { androidx.compose.material3.Text("Contraseña") },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                modifier = Modifier.fillMaxWidth(0.6f).padding(top = 8.dp),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Password,
+                    imeAction = ImeAction.Done,
+                ),
+                // Al cerrar el teclado el foco baja a "Iniciar sesión", que es lo siguiente que
+                // uno quiere apretar. `clearFocus()` dejaría el D-pad sin nada enfocado.
+                keyboardActions = KeyboardActions(
+                    onDone = { focusManager.moveFocus(FocusDirection.Down) },
+                ),
+                modifier = Modifier.fillMaxWidth(0.6f).padding(top = 8.dp).dpadFocusEscape(),
             )
             error?.let {
                 Text(it, color = ArkivRed, modifier = Modifier.padding(top = 6.dp))

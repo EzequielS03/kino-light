@@ -25,6 +25,18 @@ data class LibraryGroup(
      * se ve aparte en los chips de "Fuentes"; acá no se pierde nada.
      */
     val episodeCount: Int get() = members.maxOf { it.episodeCount }
+
+    /**
+     * Capítulos nuevos desde la última vez que se abrió el detalle, para el badge de la tarjeta.
+     *
+     * Es el **máximo** entre fuentes por el mismo motivo que [episodeCount] y no por comodidad: las
+     * adquisiciones son copias alternativas de la MISMA serie, no contenido disjunto. Si el mismo
+     * capítulo aparece en la copia de archive y en la web, es UN capítulo nuevo, no dos — sumarlas
+     * mentiría igual que sumaba 794 episodios para una serie de 220.
+     */
+    val nuevos: Int get() = members.maxOf {
+        com.arkiv.player.data.nuevos.ContadorDeNuevos.cuantos(it.episodeCount, it.episodiosVistosEnLista)
+    }
 }
 
 /**

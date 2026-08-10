@@ -23,6 +23,14 @@ data class ContinueRow(
 )
 
 /** Resumen de un ítem para la grilla de la biblioteca. */
+/** Fila cruda para decidir a qué series preguntarles por capítulos nuevos. Ver `SeriesPorRevisar`. */
+data class SerieConProgresoRow(
+    val itemId: String,
+    val source: String,
+    val episodios: Int,
+    val ultimoVistoMs: Long,
+)
+
 data class LibraryRow(
     val identifier: String,
     val title: String,
@@ -34,6 +42,8 @@ data class LibraryRow(
     val addedAt: Long,
     val categoryOverride: String?,
     val source: String,
+    /** Cuántos episodios se le mostraron al usuario la última vez. Null = nunca. Ver `ContadorDeNuevos`. */
+    val episodiosVistosEnLista: Int? = null,
 ) {
     val isTorrent: Boolean get() = source == "torrent"
 
@@ -49,6 +59,14 @@ data class LibraryRow(
 interface ItemDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertItem(item: ItemEntity)
+
+    /**
+     * Deja registrado cuántos episodios se le mostraron al usuario, que es lo que apaga el badge
+     * de "hay capítulos nuevos". Se hace con UPDATE puntual y no con `upsertItem` a propósito: el
+     * upsert es REPLACE y pisaría el resto de la fila con lo que tenga en memoria quien llame.
+     */
+    @Query("UPDATE items SET episodiosVistosEnLista = :cuantos WHERE identifier = :itemId")
+    suspend fun marcarEpisodiosVistos(itemId: String, cuantos: Int)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertEpisodes(episodes: List<EpisodeEntity>)
@@ -80,13 +98,35 @@ interface ItemDao {
         SELECT i.identifier, i.title, i.description, i.thumbnailUrl,
                (SELECT COUNT(*) FROM episodes e WHERE e.itemId = i.identifier AND e.deleted = 0) AS episodeCount,
                (SELECT COALESCE(SUM(e.durationSeconds), 0) FROM episodes e WHERE e.itemId = i.identifier AND e.deleted = 0) AS durationSeconds,
-               i.addedAt, i.categoryOverride, i.source
+               i.addedAt, i.categoryOverride, i.source, i.episodiosVistosEnLista
         FROM items i
         WHERE i.deleted = 0
         ORDER BY i.addedAt DESC
         """
     )
     fun observeLibrary(): Flow<List<LibraryRow>>
+
+    /**
+     * Las series de la biblioteca con lo justo para decidir a cuáles preguntarles si salió un
+     * capítulo nuevo: fuente, cuántos episodios tienen y cuándo se reprodujo algo de ellas por
+     * última vez.
+     *
+     * El `MAX(lastPlayedAt)` es el de CUALQUIER episodio de la serie: da igual por cuál vas, lo
+     * que importa es que la estés viendo. `LEFT JOIN` para que una serie sin progreso aparezca con
+     * 0 y la descarte el filtro puro, en vez de desaparecer acá (ver [SeriesPorRevisar]).
+     */
+    @Query(
+        """
+        SELECT i.identifier AS itemId, i.source AS source,
+               (SELECT COUNT(*) FROM episodes e WHERE e.itemId = i.identifier AND e.deleted = 0) AS episodios,
+               COALESCE((SELECT MAX(p.lastPlayedAt) FROM playback p
+                         JOIN episodes e2 ON e2.id = p.episodeId
+                         WHERE e2.itemId = i.identifier AND p.deleted = 0), 0) AS ultimoVistoMs
+        FROM items i
+        WHERE i.deleted = 0
+        """
+    )
+    suspend fun seriesConProgreso(): List<SerieConProgresoRow>
 
     @Query("SELECT * FROM items WHERE identifier = :itemId")
     fun observeItem(itemId: String): Flow<ItemEntity?>

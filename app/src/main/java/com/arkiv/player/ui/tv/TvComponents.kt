@@ -17,10 +17,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Border
 import androidx.tv.material3.Card
@@ -32,6 +39,30 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
+
+/**
+ * Deja que el foco SALGA de un campo de texto con el D-pad.
+ *
+ * Los `TextField` de Compose (foundation, no tv-material3) consumen arriba/abajo porque los usan
+ * para mover el cursor entre líneas. En el celular no molesta —se toca el siguiente campo— pero en
+ * el TV el único modo de moverse es el D-pad, así que una vez que el foco entra a un campo ya no
+ * sale: en Ajustes no se podía pasar del email a la contraseña ni bajar a "Iniciar sesión".
+ *
+ * `onPreviewKeyEvent` ve la tecla ANTES que el campo, así que movemos el foco a mano. Si no hay a
+ * dónde moverse devolvemos `false` y el evento sigue su curso normal hacia el campo.
+ */
+@Composable
+fun Modifier.dpadFocusEscape(): Modifier {
+    val focusManager = LocalFocusManager.current
+    return onPreviewKeyEvent { event ->
+        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+        when (event.key) {
+            Key.DirectionDown -> focusManager.moveFocus(FocusDirection.Down)
+            Key.DirectionUp -> focusManager.moveFocus(FocusDirection.Up)
+            else -> false
+        }
+    }
+}
 
 /** Relleno para tarjetas sin carátula (p. ej. torrents): degradado + ícono de video. */
 @Composable
@@ -64,6 +95,11 @@ fun TvLandscapeCard(
     badge: String? = null,
     badgeColor: Color = ArkivRed,
     episodeCountLabel: String? = null,
+    /**
+     * Capítulos nuevos desde la última vez que se abrió el detalle. 0 = no se pinta nada.
+     * Ver [com.arkiv.player.data.nuevos.ContadorDeNuevos].
+     */
+    nuevos: Int = 0,
     onFocus: () -> Unit = {},
     onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit,
@@ -120,6 +156,24 @@ fun TvLandscapeCard(
                         .padding(6.dp)
                         .clip(RoundedCornerShape(4.dp))
                         .background(Color(0xAA000000))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                )
+            }
+            // Novedades. Va abajo a la derecha —y no arriba— porque arriba ya conviven el badge de
+            // fuente y el conteo de episodios: una tercera etiqueta ahí tapaba el arte justo donde
+            // suele estar la cara del póster. En rojo para que se distinga de los otros dos, que
+            // son informativos y grises.
+            if (nuevos > 0) {
+                Text(
+                    text = "+$nuevos",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(6.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(ArkivRed)
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }
