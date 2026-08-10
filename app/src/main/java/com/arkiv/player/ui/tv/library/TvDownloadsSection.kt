@@ -35,7 +35,8 @@ import com.arkiv.player.data.local.DownloadGroup
 import com.arkiv.player.data.local.DownloadGroupPolicy
 import com.arkiv.player.ui.downloads.DownloadsViewModel
 import com.arkiv.player.ui.rememberGraph
-import com.arkiv.player.ui.theme.ArkivRed
+import com.arkiv.player.ui.tv.arkivTvButtonBorder
+import com.arkiv.player.ui.tv.arkivTvButtonColors
 import com.arkiv.player.ui.theme.ArkivSurface
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextPrimary
@@ -72,7 +73,9 @@ fun TvDownloadsSection(modifier: Modifier = Modifier) {
         value = withContext(Dispatchers.IO) { graph.localDownloads.espacioLibreBytes() }
     }
 
-    Column(modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 28.dp)) {
+    // Mismo aire contra los bordes que el resto de la biblioteca (ver SAFE_H/SAFE_V): una sección
+    // con distinto margen se nota apenas cambiás de sección con el control.
+    Column(modifier.fillMaxSize().padding(horizontal = SAFE_H, vertical = SAFE_V)) {
         Text("Descargas", style = MaterialTheme.typography.headlineSmall, color = ArkivTextPrimary)
         Text(
             EspacioEnDisco.resumen(libres, ocupado),
@@ -178,27 +181,27 @@ private fun TvDownloadActionsDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = ArkivTextSecondary,
                 )
-                Button(onClick = onQuitar, modifier = Modifier.fillMaxWidth()) {
-                    Text("Sí, borrar del dispositivo", color = ArkivRed, maxLines = 1)
+                Button(onClick = onQuitar, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
+                    Text("Sí, borrar del dispositivo", maxLines = 1)
                 }
-                Button(onClick = { confirmarQuitar = false }, modifier = Modifier.fillMaxWidth()) {
+                Button(onClick = { confirmarQuitar = false }, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
                     Text("Cancelar", maxLines = 1)
                 }
             } else {
                 if (hayActivas) {
-                    Button(onClick = onCancelar, modifier = Modifier.fillMaxWidth()) {
+                    Button(onClick = onCancelar, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
                         Text("Detener lo que está bajando", maxLines = 1)
                     }
                 }
                 if (hayFallidas) {
-                    Button(onClick = onReintentar, modifier = Modifier.fillMaxWidth()) {
+                    Button(onClick = onReintentar, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
                         Text("Reintentar lo que falló", maxLines = 1)
                     }
                 }
-                Button(onClick = { confirmarQuitar = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Quitar del dispositivo", color = ArkivRed, maxLines = 1)
+                Button(onClick = { confirmarQuitar = true }, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
+                    Text("Quitar del dispositivo", maxLines = 1)
                 }
-                Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+                Button(onClick = onDismiss, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
                     Text("Volver", maxLines = 1)
                 }
             }

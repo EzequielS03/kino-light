@@ -88,9 +88,11 @@ fun TvPosterCard(
                 color = ArkivTextPrimary,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+                // 16 dp y no 6: al enfocar, la tarjeta escala 1.08 desde su centro, así que una
+                // carátula de 200 dp crece ~8 dp hacia abajo y con 6 dp de aire tapaba el título.
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 6.dp),
+                    .padding(top = 16.dp),
             )
         }
         if (showTitle && subtitle != null) {

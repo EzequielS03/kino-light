@@ -47,6 +47,8 @@ import com.arkiv.player.data.LibraryGroup
 import com.arkiv.player.data.biblioteca.FiltroDeBiblioteca
 import com.arkiv.player.data.biblioteca.SeccionDeBiblioteca
 import com.arkiv.player.ui.rememberGraph
+import com.arkiv.player.ui.tv.arkivTvButtonBorder
+import com.arkiv.player.ui.tv.arkivTvButtonColors
 import com.arkiv.player.ui.theme.ArkivBlack
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurface
@@ -57,6 +59,17 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val CARD_HEIGHT = 200.dp
+
+/**
+ * Aire contra los bordes de la pantalla, compartido por todas las secciones.
+ *
+ * No es gusto: un TV recorta el borde de la imagen (overscan) y cuánto recorta depende del aparato,
+ * así que lo que quede a menos de ~5% del borde puede no verse. Con los 24 dp que tenía el menú, el
+ * texto quedaba pegado al canto. Estos valores dejan el contenido dentro de la zona segura y de paso
+ * se lee mejor de lejos.
+ */
+internal val SAFE_H = 44.dp
+internal val SAFE_V = 44.dp
 
 /**
  * "Mi biblioteca" del TV: lo guardado, lo ya visto y las descargas al dispositivo.
@@ -116,9 +129,9 @@ fun TvLibraryScreen(
     Row(Modifier.fillMaxSize().background(ArkivBlack)) {
         // --- Menú lateral ---
         Column(
-            modifier = Modifier.width(220.dp).fillMaxHeight()
+            modifier = Modifier.width(260.dp).fillMaxHeight()
                 .background(ArkivSurface)
-                .padding(vertical = 28.dp),
+                .padding(vertical = SAFE_V),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(
@@ -126,7 +139,7 @@ fun TvLibraryScreen(
                 style = MaterialTheme.typography.titleLarge,
                 color = ArkivRed,
                 fontWeight = FontWeight.Black,
-                modifier = Modifier.padding(start = 24.dp, bottom = 20.dp),
+                modifier = Modifier.padding(start = SAFE_H, bottom = 28.dp),
             )
             SeccionDeBiblioteca.values().forEachIndexed { i, s ->
                 TvMenuItem(
@@ -210,7 +223,9 @@ private fun TvMenuItem(
             color = if (seleccionada) ArkivTextPrimary else ArkivTextSecondary,
             fontWeight = if (seleccionada) FontWeight.Bold else FontWeight.Normal,
             maxLines = 1,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = SAFE_H, top = 14.dp, end = 20.dp, bottom = 14.dp),
         )
     }
 }
@@ -230,7 +245,7 @@ private fun TvPosterGrid(
     onClick: (LibraryGroup) -> Unit,
     onLongClick: (LibraryGroup) -> Unit,
 ) {
-    Column(Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 28.dp)) {
+    Column(Modifier.fillMaxSize().padding(horizontal = SAFE_H, vertical = SAFE_V)) {
         Text(
             if (grupos.isEmpty()) titulo else "$titulo  ·  $conteo",
             style = MaterialTheme.typography.headlineSmall,
@@ -312,10 +327,10 @@ private fun TvLibraryItemDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = ArkivTextSecondary,
                 )
-                Button(onClick = onQuitar, modifier = Modifier.fillMaxWidth().focusRequester(focus)) {
-                    Text("Sí, quitar de mi biblioteca", color = ArkivRed, maxLines = 1)
+                Button(onClick = onQuitar, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth().focusRequester(focus)) {
+                    Text("Sí, quitar de mi biblioteca", maxLines = 1)
                 }
-                Button(onClick = { confirmarQuitar = false }, modifier = Modifier.fillMaxWidth()) {
+                Button(onClick = { confirmarQuitar = false }, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
                     Text("Cancelar", maxLines = 1)
                 }
             } else {
@@ -324,27 +339,27 @@ private fun TvLibraryItemDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = ArkivTextSecondary,
                 )
-                Button(onClick = onOpenDetail, modifier = Modifier.fillMaxWidth().focusRequester(focus)) {
+                Button(onClick = onOpenDetail, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth().focusRequester(focus)) {
                     Text("Ver detalle / descargar", maxLines = 1)
                 }
                 if (row.isMovie) {
-                    Button(onClick = { onSetCategory(false) }, modifier = Modifier.fillMaxWidth()) {
+                    Button(onClick = { onSetCategory(false) }, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
                         Text("Marcar como serie", maxLines = 1)
                     }
                 } else {
-                    Button(onClick = { onSetCategory(true) }, modifier = Modifier.fillMaxWidth()) {
+                    Button(onClick = { onSetCategory(true) }, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
                         Text("Marcar como película", maxLines = 1)
                     }
                 }
                 if (row.categoryOverride != null) {
-                    Button(onClick = { onSetCategory(null) }, modifier = Modifier.fillMaxWidth()) {
+                    Button(onClick = { onSetCategory(null) }, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
                         Text("Detección automática", maxLines = 1)
                     }
                 }
-                Button(onClick = { confirmarQuitar = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Quitar de mi biblioteca", color = ArkivRed, maxLines = 1)
+                Button(onClick = { confirmarQuitar = true }, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
+                    Text("Quitar de mi biblioteca", maxLines = 1)
                 }
-                Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+                Button(onClick = onDismiss, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
                     Text("Volver", maxLines = 1)
                 }
             }
