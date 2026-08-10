@@ -22,8 +22,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -78,7 +80,7 @@ class SearchViewModel(
     private val settings: SettingsStore,
     private val torrentEngine: com.arkiv.player.torrent.TorrentEngine,
     private val arkivApiClient: com.arkiv.player.data.gateway.ArkivApiClient,
-    private val searchHistory: com.arkiv.player.data.SearchHistoryStore,
+    private val searchHistory: com.arkiv.player.data.SearchHistoryRepo,
 ) : ViewModel() {
 
     private val trackerScraper = com.arkiv.player.torrent.TrackerScraper()
@@ -185,14 +187,21 @@ class SearchViewModel(
 
     // --- historial del buscador -------------------------------------------
     // Graba el ViewModel, no la pantalla: así da igual quién dispare la búsqueda y hay un solo
-    // lugar donde mirar. El TV usa el mismo ViewModel, así que también llena su historial (no lo
-    // muestra todavía; cuando se le haga UI, el dato ya va a estar).
+    // lugar donde mirar. El TV usa el mismo ViewModel y por eso también graba acá; su pantalla
+    // muestra su propio historial (kind "tv"), que es otra lista.
     val recentQueries: StateFlow<List<String>> = searchHistory.queries
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val recentTitles: StateFlow<List<com.arkiv.player.data.RecentTitle>> = searchHistory.titles
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    fun forgetQuery(q: String) = searchHistory.removeQuery(q)
-    fun forgetTitle(t: com.arkiv.player.data.RecentTitle) = searchHistory.removeTitle(t)
-    fun clearHistory() = searchHistory.clear()
+    // Best-effort: si Room falla, la búsqueda sigue. El historial nunca rompe el buscar.
+    private fun enHistorial(bloque: suspend () -> Unit) {
+        viewModelScope.launch { runCatching { bloque() } }
+    }
+
+    fun forgetQuery(q: String) = enHistorial { searchHistory.removeQuery(q) }
+    fun forgetTitle(t: com.arkiv.player.data.RecentTitle) = enHistorial { searchHistory.removeTitle(t) }
+    fun clearHistory() = enHistorial { searchHistory.clear() }
 
     /** Lanza la búsqueda unificada de Fase 1: TMDB + anime (títulos) y torrent + archive (directos). */
     fun search(q: String) {
@@ -204,7 +213,7 @@ class SearchViewModel(
             _loadingDirect.value = false
             return
         }
-        searchHistory.addQuery(q)
+        enHistorial { searchHistory.addQuery(q) }
         searchJob = viewModelScope.launch {
             _loadingTitles.value = true
             _loadingDirect.value = true
@@ -281,7 +290,7 @@ class SearchViewModel(
 
     /** Elige una card: las películas van directo a RESULTS; series/anime pasan a REFINE. */
     fun pickTitle(card: TitleCard) {
-        searchHistory.addTitle(card.toRecent())
+        enHistorial { searchHistory.addTitle(card.toRecent()) }
         _selected.value = card
         if (card.kind == "movie") {
             runSourceSearch(null, null)

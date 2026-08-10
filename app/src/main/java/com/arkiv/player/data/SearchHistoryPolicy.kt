@@ -16,43 +16,32 @@ data class RecentTitle(
 )
 
 /**
- * Qué entra al historial del buscador, en qué orden y cuándo cae lo viejo.
+ * Lo único del historial que SQLite no resuelve solo.
  *
- * Objeto puro a propósito: la persistencia (SharedPreferences + org.json) no se puede probar en
- * tests unitarios — con `unitTests.isReturnDefaultValues = true` las clases de Android devuelven
- * defaults — así que la decisión vive acá y [SearchHistoryStore] queda como una capa flaca de I/O.
- * Mismo patrón que UnknownLengthPolicy y TorrentSizeGate.
+ * Antes acá vivían el orden, el tope y el dedupe; ahora los hace la consulta
+ * (`ORDER BY atMs DESC LIMIT`) y la PK con REPLACE. Ver [SearchHistoryRepo].
  */
 object SearchHistoryPolicy {
 
     const val MAX_QUERIES = 10
     const val MAX_TITLES = 12
 
-    /** Mete el texto al tope. Recorta, ignora vacíos y deduplica sin mirar mayúsculas. */
-    fun pushQuery(actuales: List<String>, texto: String, max: Int = MAX_QUERIES): List<String> {
-        val limpio = texto.trim()
-        if (limpio.isEmpty()) return actuales
-        val resto = actuales.filterNot { it.equals(limpio, ignoreCase = true) }
-        return (listOf(limpio) + resto).take(max)
-    }
-
-    /** Mete el título al tope, deduplicando por identidad (ver [mismaIdentidad]). */
-    fun pushTitle(actuales: List<RecentTitle>, nuevo: RecentTitle, max: Int = MAX_TITLES): List<RecentTitle> {
-        val resto = actuales.filterNot { mismaIdentidad(it, nuevo) }
-        return (listOf(nuevo) + resto).take(max)
-    }
+    /** Recorta el texto buscado. Devuelve null si no queda nada que valga la pena guardar. */
+    fun normalizeQuery(texto: String): String? = texto.trim().ifEmpty { null }
 
     /**
-     * Si dos entradas son la misma obra. Por id, no por nombre: hay series distintas que se llaman
-     * igual, y el mismo número puede ser una peli en TMDB y otra cosa en AniList — por eso el `kind`
-     * también cuenta. Sin ningún id (no debería pasar, pero el JSON viejo puede traerlo) cae al
-     * nombre, que es mejor que dar todo por distinto y llenar la lista de repetidos.
+     * Id de identidad de un título, que es la PK de `recent_titles`.
+     *
+     * Por id de la fuente, no por nombre: hay series distintas que se llaman igual, y el mismo
+     * número puede ser una peli en TMDB y otra cosa en AniList — por eso el `kind` va adelante.
+     * Sin ningún id (no debería pasar, pero una fila vieja puede traerlo) cae al nombre en
+     * minúsculas, que es mejor que dar todo por distinto y llenar la lista de repetidos.
      */
-    fun mismaIdentidad(a: RecentTitle, b: RecentTitle): Boolean {
-        if (a.kind != b.kind) return false
-        if (a.tmdbId == null && a.anilistId == null && b.tmdbId == null && b.anilistId == null) {
-            return a.title.equals(b.title, ignoreCase = true)
-        }
-        return a.tmdbId == b.tmdbId && a.anilistId == b.anilistId
+    fun titleId(kind: String, tmdbId: Int?, anilistId: Long?, title: String): String = when {
+        tmdbId != null -> "$kind:tmdb-$tmdbId"
+        anilistId != null -> "$kind:anilist-$anilistId"
+        else -> "$kind:n-${title.trim().lowercase()}"
     }
+
+    fun titleId(t: RecentTitle): String = titleId(t.kind, t.tmdbId, t.anilistId, t.title)
 }
