@@ -47,6 +47,11 @@ fun handoffRouteFor(card: TitleCard, season: Int?, episode: Int?): String = when
  *  encuentra a Jackett en frío (~27 s) y no queremos cortar a magis por eso. */
 private const val GATEWAY_BUDGET_MS = 15000
 
+/** El anime necesita más: son 4 consultas a Jackett (una por forma de numerar el capítulo) y
+ *  cada una recorre todos los indexers. Con 15 s la fuente torrent llegaba SIEMPRE vacía. Los
+ *  resultados igual se ven llegando de a poco; esto solo corre el corte. */
+private const val GATEWAY_BUDGET_ANIME_MS = 50000
+
 /** Cuántos resultados del gateway se publican de una. Uno por uno hace que Compose recomponga
  *  la lista entera por cada resultado, y con varias decenas la app llega a ANR. */
 private const val GATEWAY_LOTE = 25
@@ -293,6 +298,13 @@ class SearchViewModel(
         sourceJob = viewModelScope.launch {
             val maxBytes = settings.maxTorrentSizeGb.value.toLong().let { if (it <= 0) 0L else it shl 30 }
 
+            // El gateway atiende las cuatro fuentes, anime incluido: expande los títulos con
+            // AniList/Fribb/Simkl y renumera absoluto↔relativo del lado del servidor, así que el
+            // camino local ya no aporta nada. Para anime hace falta el anilistId: sin él, el
+            // servidor no puede armar la numeración y se cae al camino de siempre.
+            val gatewayCubreTodo = settings.useGateway.value &&
+                (card.kind != "anime" || card.anilistId != null)
+
             var titles: List<String> = listOf(card.title)
             var d: TmdbDetail? = null
             var show: AnimeShow? = null
@@ -300,8 +312,16 @@ class SearchViewModel(
             if (card.kind == "anime") {
                 show = card.anilistId?.let { id -> runCatching { aniListApi.details(id) }.getOrNull() }
                 _animeShow.value = show
-                titles = show?.let { runCatching { animeSourceProvider.browseTitles(it) }.getOrNull() }
-                    ?.takeIf { it.isNotEmpty() } ?: listOf(card.title)
+                // Con el gateway los títulos los expande el servidor; acá solo se usan para el
+                // scraping en vivo de respaldo, y pedirlos al camino local haría que el dispositivo
+                // bajara el dataset de Fribb entero para nada.
+                titles = if (gatewayCubreTodo) {
+                    card.anilistId?.let { id -> arkivApiClient.animeMeta(id)?.titles }
+                        ?.takeIf { it.isNotEmpty() } ?: listOf(card.title)
+                } else {
+                    show?.let { s -> runCatching { animeSourceProvider.browseTitles(s) }.getOrNull() }
+                        ?.takeIf { it.isNotEmpty() } ?: listOf(card.title)
+                }
             } else {
                 val tmdbType = if (card.kind == "movie") "movie" else "tv"
                 d = card.tmdbId?.let { id -> runCatching { tmdbApi.detail(tmdbType, id) }.getOrNull() }
@@ -329,11 +349,6 @@ class SearchViewModel(
             var webDelGateway = -1
             val gatewayTermino = kotlinx.coroutines.CompletableDeferred<Unit>()
 
-            // El gateway atiende las cuatro fuentes salvo en anime: ahí el camino local expande los
-            // títulos con AniList y renumera los capítulos, algo que el gateway todavía no hace, y
-            // migrarlo sin eso devolvería el capítulo equivocado.
-            val gatewayCubreTodo = settings.useGateway.value && card.kind != "anime"
-
             // Magis, por el gateway. Va como una rama más del fan-out: si falla, las otras tres
             // fuentes siguen igual. Detrás del flag para poder apagarlo sin publicar APK.
             if (settings.useGateway.value) {
@@ -341,12 +356,17 @@ class SearchViewModel(
                     runCatching {
                         val ctx = com.arkiv.player.data.gateway.GatewaySearchQuery(
                             q = card.title,
-                            type = if (card.kind == "movie") "movie" else "tv",
+                            type = when (card.kind) {
+                                "movie" -> "movie"
+                                "anime" -> "anime"
+                                else -> "tv"
+                            },
                             season = season ?: 0,
                             episode = episode ?: 0,
                             tmdbId = card.tmdbId ?: 0,
+                            anilistId = card.anilistId ?: 0,
                             maxBytes = maxBytes,
-                            budgetMs = GATEWAY_BUDGET_MS,
+                            budgetMs = if (card.kind == "anime") GATEWAY_BUDGET_ANIME_MS else GATEWAY_BUDGET_MS,
                             sources = if (gatewayCubreTodo) "torrent,web,archive,magis" else "magis",
                         )
                         // Los resultados se acumulan y se publican EN LOTE. Publicar de a uno
@@ -426,7 +446,11 @@ class SearchViewModel(
                     if (webDelGateway == 0) {
                         val ctx = SearchContext(
                             titles = titles,
-                            type = if (card.kind == "movie") ContentType.MOVIE else ContentType.TV,
+                            type = when (card.kind) {
+                                "movie" -> ContentType.MOVIE
+                                "anime" -> ContentType.ANIME
+                                else -> ContentType.TV
+                            },
                             season = season ?: 0,
                             episode = episode ?: 0,
                             year = d?.year ?: "",
@@ -490,7 +514,13 @@ class SearchViewModel(
                 //    título de abajo no los encuentra JAMÁS. El mirror los indexa por tmdb_id.
                 //    Para anime el tmdb_id no viene en la card (AniList): lo resuelve el provider.
                 val libTmdbId = if (card.kind == "anime") {
-                    show?.let { s -> runCatching { animeSourceProvider.browseTmdbId(s) }.getOrNull() }
+                    // El tmdb_id del anime lo sirve el gateway: pedirlo acá evita que el
+                    // dispositivo baje el dataset de Fribb (~30 MB) solo para esto.
+                    if (gatewayCubreTodo) {
+                        card.anilistId?.let { id -> arkivApiClient.animeMeta(id)?.tmdbId }
+                    } else {
+                        show?.let { s -> runCatching { animeSourceProvider.browseTmdbId(s) }.getOrNull() }
+                    }
                 } else {
                     d?.id ?: card.tmdbId
                 }

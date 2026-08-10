@@ -22,7 +22,7 @@ data class GatewaySearchQuery(
     val episode: Int = 0,
     val year: String = "",
     val tmdbId: Int = 0,
-    val anilistId: Int = 0,
+    val anilistId: Long = 0,
     val lang: String = "",
     val sources: String = "",
     /** Tope de tamaño por torrent en bytes (0 = sin tope). */
@@ -125,6 +125,26 @@ class ArkivApiClient(
                 else GatewayEpisode(e.optInt("number"), e.optString("title"), r)
             }
         }
+    }
+
+    /**
+     * Metadata de un anime (títulos, temporada TVDB, offset absoluto y tmdb_id).
+     *
+     * La búsqueda ya no la necesita —la resuelve el gateway por dentro—, pero la biblioteca propia
+     * indexa por `tmdb_id`. Pedirla acá le evita al dispositivo bajar los ~30 MB del dataset de
+     * Fribb que antes descargaba cada teléfono por su cuenta.
+     */
+    suspend fun animeMeta(anilistId: Long): GatewayAnimeMeta? = withContext(Dispatchers.IO) {
+        runCatching {
+            val o = JSONObject(ejecutar(pedido("${baseUrl()}/v1/anime/$anilistId").get().build()))
+            val t = o.optJSONArray("titles")
+            GatewayAnimeMeta(
+                titles = (0 until (t?.length() ?: 0)).map { t!!.getString(it) },
+                tvdbSeason = o.optInt("tvdb_season", -1).takeIf { it >= 0 },
+                offset = o.optInt("offset"),
+                tmdbId = o.optInt("tmdb_id").takeIf { it > 0 },
+            )
+        }.getOrNull()
     }
 
     suspend fun sources(): List<GatewaySource> = withContext(Dispatchers.IO) {

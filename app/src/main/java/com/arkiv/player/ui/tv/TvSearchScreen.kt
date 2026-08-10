@@ -1070,7 +1070,7 @@ private fun TvResultsContent(
  *  - Web: `identity` — el ref del gateway si vino de ahí, si no la URL de la página. Los del
  *    gateway llegan sin `pageUrl`, así que usar la URL a secas los colapsaba en un solo item. */
 private fun sourceKey(s: PlaySource): String = when (s) {
-    is PlaySource.Torrent -> "torrent-${s.result.dedupKey}"
+    is PlaySource.Torrent -> "torrent-${s.result.identity}"
     is PlaySource.Archive -> "archive-${s.item.identifier}"
     is PlaySource.Web -> "web-${s.result.identity}"
     is PlaySource.WebPack -> "webpack-${s.pack.siteId}-${s.pack.showTitle}"

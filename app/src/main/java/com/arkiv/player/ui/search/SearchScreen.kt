@@ -1033,7 +1033,7 @@ private fun sourceSection(
 /** Identidad estable de una fuente, para las keys del LazyColumn (dos resultados distintos con el
  *  mismo nombre romperían la lista si compartieran key). Mismo criterio que usa el buscador del TV. */
 private fun sourceKey(s: PlaySource): String = when (s) {
-    is PlaySource.Torrent -> "t-${s.result.dedupKey}"
+    is PlaySource.Torrent -> "t-${s.result.identity}"
     is PlaySource.Archive -> "a-${s.item.identifier}"
     is PlaySource.Web -> "w-${s.result.identity}"
     is PlaySource.WebPack -> "wp-${s.pack.siteId}-${s.pack.showTitle}"

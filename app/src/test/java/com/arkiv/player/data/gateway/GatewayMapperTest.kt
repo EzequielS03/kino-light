@@ -1,6 +1,7 @@
 package com.arkiv.player.data.gateway
 
 import com.arkiv.player.data.catalog.TorrentLang
+import com.arkiv.player.data.catalog.TorrentResult
 import com.arkiv.player.ui.catalog.PlaySource
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -143,5 +144,20 @@ class GatewayMapperTest {
             language = "", quality = "", kind = "tv",
         )
         assertEquals("https://cuevana/loki-1x1", local.identity)
+    }
+
+    @Test
+    fun `dos torrents del gateway sin infohash no comparten identidad`() {
+        // Jackett devuelve resultados solo-link (sin infohash) y dos indexers publican el MISMO
+        // nombre. Si la identidad cae al nombre, la lista de Compose crashea por key duplicada.
+        val a = (torrent(extra = emptyMap()).copy(ref = "ref-a").toPlaySource() as PlaySource.Torrent).result
+        val b = (torrent(extra = emptyMap()).copy(ref = "ref-b").toPlaySource() as PlaySource.Torrent).result
+        assertTrue(a.identity != b.identity)
+    }
+
+    @Test
+    fun `un torrent local se sigue identificando por su dedupKey`() {
+        val local = TorrentResult(name = "Duna 2021", seeders = 1, sizeBytes = 1, lang = TorrentLang.LATINO, infoHash = "abc")
+        assertEquals(local.dedupKey, local.identity)
     }
 }

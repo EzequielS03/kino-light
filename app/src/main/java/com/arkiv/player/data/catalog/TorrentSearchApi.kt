@@ -75,6 +75,16 @@ data class TorrentResult(
     }
 
     val dedupKey: String get() = infoHash?.lowercase() ?: magnetUri ?: downloadUrl ?: name
+
+    /**
+     * Identidad del resultado para las keys de las listas.
+     *
+     * El `ref` del gateway manda cuando existe: sus resultados llegan sin magnet ni URL (se
+     * resuelven al reproducir) y los de Jackett solo-link tampoco traen infohash, así que
+     * [dedupKey] caía al NOMBRE — y dos indexers que publican el mismo release hacían crashear
+     * la lista de Compose por key duplicada.
+     */
+    val identity: String get() = gatewayRef ?: dedupKey
 }
 
 /**
