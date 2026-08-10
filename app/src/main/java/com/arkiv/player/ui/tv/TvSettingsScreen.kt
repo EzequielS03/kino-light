@@ -164,6 +164,17 @@ private fun TvActionOption(label: String, onClick: () -> Unit) {
         shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(
             androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
         ),
+        // Sin colores explícitos el Surface de tv.material3 usa el color por defecto (claro):
+        // el botón se veía BLANCO. Superficie oscura + rojo Arkiv al enfocar (para que el D-pad
+        // muestre dónde está el foco), texto blanco siempre.
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = ArkivSurfaceHigh,
+            focusedContainerColor = ArkivRed,
+            pressedContainerColor = ArkivRed,
+            contentColor = Color.White,
+            focusedContentColor = Color.White,
+            pressedContentColor = Color.White,
+        ),
     ) {
         Text(label, color = Color.White, modifier = Modifier.padding(16.dp))
     }
