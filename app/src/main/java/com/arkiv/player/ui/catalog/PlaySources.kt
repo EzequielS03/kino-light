@@ -5,9 +5,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -153,17 +156,21 @@ fun SourceSectionHeader(
  * blanco y los datos sueltos (calidad/idioma/seeds/tamaño) en pastillas. El color de la barra dice
  * el origen sin gastar una etiqueta de texto en cada fila.
  */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun SourceRow(source: PlaySource, enabled: Boolean, onDownload: (() -> Unit)? = null, onClick: () -> Unit) {
     val accent = accentOf(source)
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+        // height(IntrinsicSize.Min) para que la barra de color de la izquierda pueda medirse
+        // contra el alto real de la fila: con las pastillas en dos líneas, una barra fija de
+        // 56 dp quedaba como un muñón corto al costado de una fila alta.
+        modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min).padding(vertical = 4.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(ArkivSurfaceHigh.copy(alpha = 0.55f))
             .clickable(enabled = enabled, onClick = onClick),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.width(3.dp).height(56.dp).background(accent))
+        Box(Modifier.width(3.dp).fillMaxHeight().background(accent))
         // Solo Magis trae imagen por resultado. Sin póster no se dibuja nada: un hueco gris en
         // cada fila sería peor que la fila de hoy. Los 38×56 son el 2:3 que entra en el alto
         // que la fila ya tenía, así que la lista no cambia de ritmo entre una fuente y otra.
@@ -190,7 +197,10 @@ fun SourceRow(source: PlaySource, enabled: Boolean, onDownload: (() -> Unit)? = 
                         maxLines = 2, overflow = TextOverflow.Ellipsis,
                     )
                     Spacer(Modifier.height(6.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
                         // Aviso de PACK: sin esto, al buscar un capítulo puedes elegir sin saberlo un
                         // pack de temporada de decenas de GB del que solo verás un episodio.
                         if (com.arkiv.player.data.catalog.PackDetector.isPack(r.name)) {
@@ -210,7 +220,10 @@ fun SourceRow(source: PlaySource, enabled: Boolean, onDownload: (() -> Unit)? = 
                         maxLines = 2, overflow = TextOverflow.Ellipsis,
                     )
                     Spacer(Modifier.height(6.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
                         // Nuestras propias subidas no salen del buscador de archive.org (van con
                         // identificador/título hasheados y no matchean por título): las trae el
                         // mirror por tmdb_id. Se marcan distinto porque son las nuestras — de acá
@@ -233,7 +246,10 @@ fun SourceRow(source: PlaySource, enabled: Boolean, onDownload: (() -> Unit)? = 
                         maxLines = 2, overflow = TextOverflow.Ellipsis,
                     )
                     Spacer(Modifier.height(6.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
                         MetaChip(r.siteName, ArkivWebViolet)
                         if (r.language.isNotBlank()) MetaChip(r.language)
                         if (r.quality.isNotBlank()) MetaChip(r.quality)
@@ -246,7 +262,10 @@ fun SourceRow(source: PlaySource, enabled: Boolean, onDownload: (() -> Unit)? = 
                         maxLines = 2, overflow = TextOverflow.Ellipsis,
                     )
                     Spacer(Modifier.height(6.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
                         MetaChip("PACK", ArkivPackAmber, strong = true)
                         MetaChip("${p.episodeCount} capítulos")
                         if (p.seasons.size > 1) MetaChip("${p.seasons.size} temporadas")
@@ -260,7 +279,10 @@ fun SourceRow(source: PlaySource, enabled: Boolean, onDownload: (() -> Unit)? = 
                         maxLines = 2, overflow = TextOverflow.Ellipsis,
                     )
                     Spacer(Modifier.height(6.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
                         MetaChip("Magis", ArkivMagisBlue)
                         if (r.extra["program_type"] == "teleplay") MetaChip("Serie")
                         if (r.year.isNotBlank()) MetaChip(r.year)
