@@ -157,6 +157,7 @@ fun ArkivTvRoot(
                 onPlayEpisode = { goToPlayer(it) },
                 onOpenSettings = { navController.navigate("settings") },
                 onOpenSearch = { navController.navigate("search") },
+                onOpenLibrary = { navController.navigate("library") },
                 onOpenSearchRoute = { route -> navController.navigate(route) },
             )
         }
@@ -174,6 +175,13 @@ fun ArkivTvRoot(
                 shortcutKind = entry.arguments?.getString("kind"),
                 shortcutTmdbId = entry.arguments?.getString("tmdbId")?.toIntOrNull(),
                 shortcutAnilistId = entry.arguments?.getString("anilistId")?.toLongOrNull(),
+            )
+        }
+        composable("library") {
+            com.arkiv.player.ui.tv.library.TvLibraryScreen(
+                onOpenItem = { navController.navigate("detail/${Uri.encode(it)}") },
+                onPlayEpisode = { goToPlayer(it) },
+                onBack = { navController.popBackStack() },
             )
         }
         composable("detail/{itemId}") { entry ->

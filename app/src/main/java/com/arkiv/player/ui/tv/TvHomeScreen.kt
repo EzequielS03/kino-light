@@ -28,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,17 +45,14 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
-import androidx.tv.material3.Button
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
@@ -63,7 +61,6 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.arkiv.player.data.ArchiveUrls
-import com.arkiv.player.data.LibraryGroup
 import com.arkiv.player.data.db.ContinueRow
 import com.arkiv.player.data.db.LibraryRow
 import com.arkiv.player.sync.SyncStatus
@@ -75,7 +72,6 @@ import com.arkiv.player.ui.libraryMeta
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivBlack
 import com.arkiv.player.ui.theme.ArkivRed
-import com.arkiv.player.ui.theme.ArkivSurface
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -92,9 +88,6 @@ private fun discoveryMeta(card: com.arkiv.player.ui.search.TitleCard): String {
     return if (card.year.isBlank()) kind else "$kind  ·  ${card.year}"
 }
 
-private val SeriesBadgeColor = Color(0xE6444444)
-private val TorrentBadgeColor = Color(0xE60288A7)
-
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TvHomeScreen(
@@ -102,6 +95,7 @@ fun TvHomeScreen(
     onPlayEpisode: (String) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSearch: () -> Unit,
+    onOpenLibrary: () -> Unit,
     onOpenSearchRoute: (String) -> Unit,
 ) {
     val graph = rememberGraph()
@@ -109,7 +103,6 @@ fun TvHomeScreen(
         factory = viewModelFactory { initializer { HomeViewModel(graph.repository, graph.tmdbApi, graph.aniListApi) } },
     )
     val library by vm.library.collectAsStateWithLifecycle()
-    val libraryGroups by vm.libraryGroups.collectAsStateWithLifecycle()
     val continueWatching by vm.continueWatching.collectAsStateWithLifecycle()
     val artwork by vm.artwork.collectAsStateWithLifecycle()
     val discoveryRows by vm.rows.collectAsStateWithLifecycle()
@@ -159,33 +152,6 @@ fun TvHomeScreen(
         }
     }
 
-    // Al elegir un ítem: película -> reproduce directo; serie -> abre la lista de episodios.
-    fun open(row: LibraryRow) {
-        if (row.isMovie) {
-            scope.launch {
-                val ep = graph.repository.firstEpisodeId(row.identifier)
-                if (ep != null) onPlayEpisode(ep) else onOpenItem(row.identifier)
-            }
-        } else {
-            onOpenItem(row.identifier)
-        }
-    }
-
-    // Ítem con el menú contextual (long-press) abierto.
-    var menuRow by remember { mutableStateOf<LibraryRow?>(null) }
-
-    val movies = library.filter { it.isMovie }
-    // Películas por ítem (no se agrupan: ver LibraryGrouping.groupKeyOf), series por grupo.
-    val seriesGroups = libraryGroups.filter { !it.primary.isMovie }
-    // El orden acá DEBE seguir al de render (series antes que películas). La fila de Series se
-    // identifica por la llave del grupo y la de Películas por el identifier del ítem: son espacios
-    // distintos, pero nunca se comparan entre sí porque cada sección solo mira sus propias tarjetas.
-    val firstPosterId = if (continueWatching.isEmpty()) {
-        seriesGroups.firstOrNull()?.key ?: movies.firstOrNull()?.identifier
-    } else {
-        null
-    }
-
     // La primera tarjeta recibe el foco al abrir, para que el hero/fondo reflejen algo de una.
     // La key es la IDENTIDAD de esa tarjeta, no un "¿ya hay datos?": "continuar viendo" y la
     // biblioteca llegan por flows distintos, y si la biblioteca llegaba primero el foco se clavaba
@@ -198,23 +164,29 @@ fun TvHomeScreen(
     // "Continuar viendo", el focusRequester no enganchaba y el foco no podía aterrizar ahí nunca
     // (el scroll no era consecuencia del foco perdido: era su causa).
     val rowsListState = rememberLazyListState()
-    val firstFocusKey = continueWatching.firstOrNull()?.episodeId ?: firstPosterId
+    // Foco inicial. Antes caía en la primera tarjeta de biblioteca; esas filas ya no están, y dejar
+    // el foco suelto es exactamente el bug que costó el comentario largo de más abajo: Android se lo
+    // daba a lo que se fuera componiendo —las filas de descubrimiento—, que al traerse a la vista
+    // scrolleaban el home hasta "En cartelera".
+    //
+    // Sin "Continuar viendo" el foco va a la BARRA SUPERIOR, que es la única zona determinista: no
+    // vive dentro del LazyColumn, así que siempre está compuesta y enfocarla no puede scrollear nada.
+    // Y deja al usuario a un clic de su biblioteca, que es lo que va a querer si no hay nada empezado.
+    val barraFocus = remember { FocusRequester() }
+    val firstFocusKey = continueWatching.firstOrNull()?.episodeId
     LaunchedEffect(firstFocusKey) {
-        if (firstFocusKey == null) return@LaunchedEffect
         delay(200)
-        // Reintento en vez de un único intento: a los 200 ms la tarjeta suele no estar compuesta
-        // todavía (el LazyColumn compone tras el primer layout) y requestFocus() tira
-        // "FocusRequester is not initialized". El runCatching se lo tragaba en silencio, el foco
-        // no aterrizaba en ningún lado y Android terminaba dándoselo a lo que se fuera componiendo
-        // —las filas de descubrimiento—, que al traerse a la vista scrolleaban el home hasta
-        // "En cartelera". Se espera por la condición, no por un tiempo fijo.
         var landed = false
         repeat(20) {
             if (landed) return@repeat
-            // Volver arriba ANTES de pedir foco: si la lista está desplazada, la primera fila ni
-            // siquiera está compuesta y el requester no existe, así que reintentar solo no alcanza.
-            runCatching { rowsListState.scrollToItem(0) }
-            landed = runCatching { firstCardFocus.requestFocus() }.isSuccess
+            if (firstFocusKey != null) {
+                // Volver arriba ANTES de pedir foco: si la lista está desplazada, la primera fila ni
+                // siquiera está compuesta y el requester no existe, así que reintentar solo no alcanza.
+                runCatching { rowsListState.scrollToItem(0) }
+                landed = runCatching { firstCardFocus.requestFocus() }.isSuccess
+            } else {
+                landed = runCatching { barraFocus.requestFocus() }.isSuccess
+            }
             if (!landed) delay(50)
         }
     }
@@ -270,6 +242,12 @@ fun TvHomeScreen(
                         modifier = Modifier.padding(end = 16.dp),
                     )
                     TvNavButton(icon = Icons.Default.Search, label = "Buscar", onClick = onOpenSearch)
+                    TvNavButton(
+                        icon = Icons.Default.VideoLibrary,
+                        label = "Mi biblioteca",
+                        onClick = onOpenLibrary,
+                        modifier = Modifier.focusRequester(barraFocus),
+                    )
                     // El botón "Torrent" (pegar un magnet a mano) se quitó de la barra: ya no se usa,
                     // los torrents entran por el buscador. La ruta "torrent" sigue registrada en
                     // ArkivTvRoot y la pantalla funciona; solo perdió su entrada desde el home.
@@ -353,48 +331,6 @@ fun TvHomeScreen(
                     }
                 }
 
-                // Series ANTES que películas: en la zona de filas entran exactamente 2, así que
-                // esta queda junto a "Continuar viendo" y se llega sin bajar. Desde acá se abre el
-                // detalle con todos los capítulos — que es como se elige uno distinto al que
-                // ofrece "Continuar viendo" (esa tarjeta reproduce directo). Películas baja a
-                // tercera. Si cambia este orden, actualizar también firstPosterId.
-                if (seriesGroups.isNotEmpty()) {
-                    item(key = "lib_series") {
-                        TvSeriesSection(
-                            rows = seriesGroups,
-                            cardHeight = cardHeight,
-                            labelHeight = labelHeight,
-                            rowGap = rowGap,
-                            firstFocusId = firstPosterId,
-                            firstFocus = firstCardFocus,
-                            imageFor = { cardArt(it.primary.identifier, it.primary.thumbnailUrl) },
-                            onFocusRow = { navSound(); featured = libraryFeatured(it.primary) },
-                            // Se abre con la llave del grupo (`tv:46260`), no con la fuente
-                            // principal: DetailViewModel.observeGroupMembers resuelve la llave a
-                            // todas sus adquisiciones y arma el selector de fuente.
-                            onClickRow = { onOpenItem(it.key) },
-                            onLongClickRow = { menuRow = it.primary },
-                        )
-                    }
-                }
-                if (movies.isNotEmpty()) {
-                    item(key = "lib_movies") {
-                        TvLibrarySection(
-                            label = "Películas",
-                            rows = movies,
-                            cardHeight = cardHeight,
-                            labelHeight = labelHeight,
-                            rowGap = rowGap,
-                            firstFocusId = firstPosterId,
-                            firstFocus = firstCardFocus,
-                            imageFor = { cardArt(it.identifier, it.thumbnailUrl) },
-                            onFocusRow = { navSound(); featured = libraryFeatured(it) },
-                            onClickRow = { open(it) },
-                            onLongClickRow = { menuRow = it },
-                        )
-                    }
-                }
-
                 // Filas de descubrimiento (TMDB/AniList): una por género + fijas (cartelera,
                 // populares, etc). loadRow() es idempotente (LoadGuard), así que el
                 // LaunchedEffect solo dispara la carga real la primera vez que la fila entra
@@ -446,100 +382,6 @@ fun TvHomeScreen(
                 item(key = "rows_bottom_pad") { Spacer(Modifier.height(rowGap)) }
             } // fin zona scrolleable de filas
         }
-
-        menuRow?.let { row ->
-            TvCategoryDialog(
-                row = row,
-                onOpenDetail = { onOpenItem(row.identifier); menuRow = null },
-                onSetCategory = { isMovie ->
-                    scope.launch { graph.repository.setCategory(row.identifier, isMovie) }
-                    menuRow = null
-                },
-                onDismiss = { menuRow = null },
-            )
-        }
-    }
-}
-
-/** Diálogo contextual (long-press) para ver detalle o cambiar la categoría del ítem. */
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun TvCategoryDialog(
-    row: LibraryRow,
-    onOpenDetail: () -> Unit,
-    onSetCategory: (Boolean?) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val focus = remember { FocusRequester() }
-    LaunchedEffect(Unit) {
-        delay(100)
-        runCatching { focus.requestFocus() }
-    }
-    Dialog(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .width(380.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(ArkivSurface)
-                .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(
-                row.title,
-                style = MaterialTheme.typography.titleMedium,
-                color = Color.White,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                if (row.isMovie) "Ahora es: Película" else "Ahora es: Serie",
-                style = MaterialTheme.typography.bodySmall,
-                color = ArkivTextSecondary,
-            )
-            Button(
-                onClick = onOpenDetail,
-                colors = arkivTvButtonColors(),
-                border = arkivTvButtonBorder(),
-                modifier = Modifier.fillMaxWidth().focusRequester(focus),
-            ) { Text("Ver detalle / descargar", maxLines = 1) }
-            if (row.isMovie) {
-                Button(
-                    onClick = { onSetCategory(false) },
-                    colors = arkivTvButtonColors(),
-                    border = arkivTvButtonBorder(),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Marcar como serie", maxLines = 1)
-                }
-            } else {
-                Button(
-                    onClick = { onSetCategory(true) },
-                    colors = arkivTvButtonColors(),
-                    border = arkivTvButtonBorder(),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Marcar como película", maxLines = 1)
-                }
-            }
-            if (row.categoryOverride != null) {
-                Button(
-                    onClick = { onSetCategory(null) },
-                    colors = arkivTvButtonColors(),
-                    border = arkivTvButtonBorder(),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Detección automática", maxLines = 1)
-                }
-            }
-            Button(
-                onClick = onDismiss,
-                colors = arkivTvButtonColors(),
-                border = arkivTvButtonBorder(),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Cancelar", maxLines = 1)
-            }
-        }
     }
 }
 
@@ -561,88 +403,6 @@ private fun TvRowLabel(text: String, height: androidx.compose.ui.unit.Dp) {
     }
 }
 
-/** Una fila etiquetada de carátulas apaisadas ("Películas" / "Series") para el inicio de TV. */
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun TvLibrarySection(
-    label: String,
-    rows: List<LibraryRow>,
-    cardHeight: androidx.compose.ui.unit.Dp,
-    labelHeight: androidx.compose.ui.unit.Dp,
-    rowGap: androidx.compose.ui.unit.Dp,
-    firstFocusId: String?,
-    firstFocus: FocusRequester,
-    imageFor: (LibraryRow) -> String?,
-    onFocusRow: (LibraryRow) -> Unit,
-    onClickRow: (LibraryRow) -> Unit,
-    onLongClickRow: (LibraryRow) -> Unit,
-) {
-    TvRowLabel(label, labelHeight)
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 48.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        items(rows, key = { it.identifier }) { row ->
-            TvLandscapeCard(
-                title = row.title,
-                imageUrl = imageFor(row),
-                cardHeight = cardHeight,
-                badge = if (row.isTorrent) "TORRENT" else if (row.isMovie) "PELÍCULA" else "SERIE",
-                badgeColor = if (row.isTorrent) TorrentBadgeColor else if (row.isMovie) ArkivRed else SeriesBadgeColor,
-                episodeCountLabel = if (!row.isMovie) "${row.episodeCount} ep." else null,
-                modifier = if (row.identifier == firstFocusId) Modifier.focusRequester(firstFocus) else Modifier,
-                onFocus = { onFocusRow(row) },
-                onLongClick = { onLongClickRow(row) },
-                onClick = { onClickRow(row) },
-            )
-        }
-    }
-    Spacer(Modifier.height(rowGap))
-}
-
-/**
- * La fila de Series del home. Igual que [TvLibrarySection] pero por grupo: cuando una serie tiene
- * más de una fuente, el badge lo dice ("3 FUENTES") y el contador suma los capítulos de todas.
- */
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun TvSeriesSection(
-    rows: List<LibraryGroup>,
-    cardHeight: androidx.compose.ui.unit.Dp,
-    labelHeight: androidx.compose.ui.unit.Dp,
-    rowGap: androidx.compose.ui.unit.Dp,
-    firstFocusId: String?,
-    firstFocus: FocusRequester,
-    imageFor: (LibraryGroup) -> String?,
-    onFocusRow: (LibraryGroup) -> Unit,
-    onClickRow: (LibraryGroup) -> Unit,
-    onLongClickRow: (LibraryGroup) -> Unit,
-) {
-    TvRowLabel("Series", labelHeight)
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 48.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        items(rows, key = { it.key }) { group ->
-            val multi = group.sourceCount > 1
-            TvLandscapeCard(
-                title = group.primary.title,
-                imageUrl = imageFor(group),
-                cardHeight = cardHeight,
-                badge = if (multi) "${group.sourceCount} FUENTES" else if (group.primary.isTorrent) "TORRENT" else "SERIE",
-                badgeColor = if (group.primary.isTorrent && !multi) TorrentBadgeColor else SeriesBadgeColor,
-                episodeCountLabel = "${group.episodeCount} ep.",
-                nuevos = group.nuevos,
-                modifier = if (group.key == firstFocusId) Modifier.focusRequester(firstFocus) else Modifier,
-                onFocus = { onFocusRow(group) },
-                onLongClick = { onLongClickRow(group) },
-                onClick = { onClickRow(group) },
-            )
-        }
-    }
-    Spacer(Modifier.height(rowGap))
-}
-
 /**
  * Botón de la barra superior estilo Prime Video: colapsado muestra solo el ícono; al enfocarlo
  * con el D-pad se expande mostrando también el texto.
@@ -657,11 +417,12 @@ private fun TvNavButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     var isFocused by remember { mutableStateOf(false) }
     Surface(
         onClick = onClick,
-        modifier = Modifier.onFocusChanged { isFocused = it.isFocused },
+        modifier = modifier.onFocusChanged { isFocused = it.isFocused },
         // 50 sin `.dp` es el overload de PORCENTAJE: 50% = píldora completa, el máximo redondeo
         // posible para esta altura. Si se ve chata, el problema es un recorte, no el radio.
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
