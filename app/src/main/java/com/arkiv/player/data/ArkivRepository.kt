@@ -773,10 +773,17 @@ class ArkivRepository(
      * guardar ese mismo capítulo, que es justo cuando su contenido ya vive en el ítem de la
      * temporada y la vieja no aporta nada. Soft-delete, igual que [removeItem], para que el borrado
      * viaje por el sync y no reaparezca desde el otro dispositivo.
+     *
+     * El guard corta tanto si la fila no existe como si ya está con el tombstone puesto:
+     * `itemDao.getItem` NO filtra `deleted` (trae la fila igual, soft-delete es un UPDATE, no un
+     * DELETE), así que sin el segundo chequeo esto se llama en cada reproducción —`addMagisSeason`
+     * la corre por cada capítulo de la temporada, siempre— y el borrado ya hecho se re-ejecutaría
+     * para siempre: cada UPDATE redundante sobre una fila ya borrada le pisa el `updatedAt` al
+     * tombstone y lo vuelve a marcar "dirty" para el sync, sin necesidad.
      */
     private suspend fun barrerItemLegacyDeCapitulo(contentId: String, episode: Int) {
         val viejo = MagisEntities.idLegacyDeCapitulo(contentId, episode)
-        if (itemDao.getItem(viejo) == null) return
+        if (itemDao.getItem(viejo)?.deleted != false) return
         itemDao.softDeleteEpisodesOf(viejo)
         itemDao.softDeleteItem(viejo)
     }
