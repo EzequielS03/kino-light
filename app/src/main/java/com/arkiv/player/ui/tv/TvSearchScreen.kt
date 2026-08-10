@@ -405,12 +405,8 @@ fun TvSearchScreen(
                         enabled = text.isNotBlank(),
                         modifier = Modifier.fillMaxWidth().height(52.dp),
                         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
-                        colors = ClickableSurfaceDefaults.colors(
-                            containerColor = ArkivRed,
-                            contentColor = Color.White,
-                            focusedContainerColor = Color.White,
-                            focusedContentColor = ArkivRed,
-                        ),
+                        colors = arkivTvSurfaceColors(),
+                        border = arkivTvSurfaceBorder(),
                     ) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Text("Buscar", style = MaterialTheme.typography.titleMedium)
@@ -424,12 +420,8 @@ fun TvSearchScreen(
                             onClick = { nuevaBusqueda() },
                             modifier = Modifier.fillMaxWidth().height(52.dp),
                             shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
-                            colors = ClickableSurfaceDefaults.colors(
-                                containerColor = ArkivSurfaceHigh,
-                                contentColor = ArkivTextPrimary,
-                                focusedContainerColor = Color.White,
-                                focusedContentColor = ArkivBlack,
-                            ),
+                            colors = arkivTvSurfaceColors(),
+                            border = arkivTvSurfaceBorder(),
                         ) {
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Text("Nueva búsqueda", style = MaterialTheme.typography.titleMedium)
@@ -459,12 +451,8 @@ fun TvSearchScreen(
                                     onClick = { runSearch(q) },
                                     modifier = Modifier.fillMaxWidth().height(52.dp),
                                     shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-                                    colors = ClickableSurfaceDefaults.colors(
-                                        containerColor = ArkivSurfaceHigh,
-                                        contentColor = ArkivTextPrimary,
-                                        focusedContainerColor = ArkivRed,
-                                        focusedContentColor = Color.White,
-                                    ),
+                                    colors = arkivTvSurfaceColors(),
+                                    border = arkivTvSurfaceBorder(),
                                 ) {
                                     Box(
                                         Modifier.fillMaxSize().padding(horizontal = 16.dp),
@@ -647,6 +635,8 @@ private fun TvModoDeSerieDialog(
             )
             Button(
                 onClick = onSerieCompleta,
+                colors = arkivTvButtonColors(),
+                border = arkivTvButtonBorder(),
                 modifier = Modifier.fillMaxWidth().focusRequester(primero),
             ) { Text("Ver serie completa") }
             Text(
@@ -654,7 +644,12 @@ private fun TvModoDeSerieDialog(
                 style = MaterialTheme.typography.labelLarge,
                 color = ArkivTextSecondary,
             )
-            Button(onClick = onPorTemporada, modifier = Modifier.fillMaxWidth()) {
+            Button(
+                onClick = onPorTemporada,
+                colors = arkivTvButtonColors(),
+                border = arkivTvButtonBorder(),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
                 Text("Buscar por temporada")
             }
             Text(
@@ -797,6 +792,8 @@ private fun TvRefineContent(
         item {
             Button(
                 onClick = onAllSeries,
+                colors = arkivTvButtonColors(),
+                border = arkivTvButtonBorder(),
                 modifier = Modifier.padding(top = 24.dp, bottom = 8.dp).focusRequester(allSeriesFocus),
             ) { Text("Toda la serie") }
         }
@@ -1343,6 +1340,8 @@ private fun TvPackContent(
                     Button(
                         onClick = { onSaveAll(defaultTitle, c) },
                         enabled = !preparing,
+                        colors = arkivTvButtonColors(),
+                        border = arkivTvButtonBorder(),
                         modifier = Modifier.padding(top = 24.dp, bottom = 8.dp).focusRequester(saveAllFocus),
                     ) { Text("Guardar toda la serie") }
                 }
@@ -1437,6 +1436,8 @@ private fun TvWebPackContent(
                 Button(
                     onClick = onSaveAll,
                     enabled = !preparing,
+                    colors = arkivTvButtonColors(),
+                    border = arkivTvButtonBorder(),
                     modifier = Modifier.padding(top = 24.dp, bottom = 8.dp).focusRequester(saveAllFocus),
                 ) { Text("Guardar toda la serie") }
             }
@@ -1632,6 +1633,8 @@ private fun TvMagisSeasonContent(
                         Button(
                             onClick = { onSaveAll(caps) },
                             enabled = !preparing,
+                            colors = arkivTvButtonColors(),
+                            border = arkivTvButtonBorder(),
                             modifier = Modifier.padding(top = 24.dp, bottom = 8.dp).focusRequester(saveAllFocus),
                         ) { Text("Guardar toda la temporada") }
                     }

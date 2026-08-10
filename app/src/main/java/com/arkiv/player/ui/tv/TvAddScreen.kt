@@ -60,7 +60,7 @@ fun TvAddScreen(onAdded: (String) -> Unit) {
         if (state.error != null) {
             Text(state.error!!, color = ArkivRed)
         }
-        Button(onClick = vm::submit) {
+        Button(onClick = vm::submit, colors = arkivTvButtonColors(), border = arkivTvButtonBorder()) {
             Text(if (state.loading) "Buscando…" else "Agregar a mi biblioteca")
         }
     }

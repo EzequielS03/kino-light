@@ -498,23 +498,45 @@ private fun TvCategoryDialog(
             )
             Button(
                 onClick = onOpenDetail,
+                colors = arkivTvButtonColors(),
+                border = arkivTvButtonBorder(),
                 modifier = Modifier.fillMaxWidth().focusRequester(focus),
             ) { Text("Ver detalle / descargar", maxLines = 1) }
             if (row.isMovie) {
-                Button(onClick = { onSetCategory(false) }, modifier = Modifier.fillMaxWidth()) {
+                Button(
+                    onClick = { onSetCategory(false) },
+                    colors = arkivTvButtonColors(),
+                    border = arkivTvButtonBorder(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
                     Text("Marcar como serie", maxLines = 1)
                 }
             } else {
-                Button(onClick = { onSetCategory(true) }, modifier = Modifier.fillMaxWidth()) {
+                Button(
+                    onClick = { onSetCategory(true) },
+                    colors = arkivTvButtonColors(),
+                    border = arkivTvButtonBorder(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
                     Text("Marcar como película", maxLines = 1)
                 }
             }
             if (row.categoryOverride != null) {
-                Button(onClick = { onSetCategory(null) }, modifier = Modifier.fillMaxWidth()) {
+                Button(
+                    onClick = { onSetCategory(null) },
+                    colors = arkivTvButtonColors(),
+                    border = arkivTvButtonBorder(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
                     Text("Detección automática", maxLines = 1)
                 }
             }
-            Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+            Button(
+                onClick = onDismiss,
+                colors = arkivTvButtonColors(),
+                border = arkivTvButtonBorder(),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
                 Text("Cancelar", maxLines = 1)
             }
         }

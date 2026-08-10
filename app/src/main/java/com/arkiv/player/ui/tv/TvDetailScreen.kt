@@ -216,6 +216,8 @@ fun TvDetailScreen(
                 data.resumeEpisode?.let { resume ->
                     Button(
                         onClick = { onPlayEpisode(resume.id) },
+                        colors = arkivTvButtonColors(),
+                        border = arkivTvButtonBorder(),
                         modifier = Modifier
                             .padding(top = 16.dp)
                             .focusRequester(playFR)

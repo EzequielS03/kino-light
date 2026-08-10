@@ -23,9 +23,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.BorderStroke
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
@@ -125,24 +123,15 @@ fun TvSettingsScreen(onConnectPhone: () -> Unit = {}) {
 
 // Estilo único de los botones de Ajustes (TvWebQualityOption/TvActionOption/TvQualityOption):
 // inactivo = negro + borde blanco 1dp; enfocado/presionado = fondo rojo Arkiv, sin borde blanco.
+// Delega al estilo compartido de botones-acción de TV (TvButtonStyle.kt) para que Ajustes no se
+// desincronice del resto de la app.
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun tvBotonColors() = ClickableSurfaceDefaults.colors(
-    containerColor = Color.Black,
-    focusedContainerColor = ArkivRed,
-    pressedContainerColor = ArkivRed,
-    contentColor = Color.White,
-    focusedContentColor = Color.White,
-    pressedContentColor = Color.White,
-)
+private fun tvBotonColors() = arkivTvSurfaceColors()
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun tvBotonBorder() = ClickableSurfaceDefaults.border(
-    border = Border(BorderStroke(1.dp, Color.White)),
-    focusedBorder = Border(BorderStroke(1.dp, ArkivRed)),
-    pressedBorder = Border(BorderStroke(1.dp, ArkivRed)),
-)
+private fun tvBotonBorder() = arkivTvSurfaceBorder()
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
