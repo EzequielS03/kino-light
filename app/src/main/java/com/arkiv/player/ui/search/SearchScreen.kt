@@ -641,7 +641,16 @@ private fun QueryContent(
     // conserva el scroll de la búsqueda anterior y la nueva aparece empezada por la mitad.
     var busquedaNro by remember { mutableStateOf(0) }
     val gridState = rememberLazyGridState()
-    LaunchedEffect(busquedaNro) { gridState.scrollToItem(0) }
+    // Mismo caso que en el TV: los resultados llegan en dos tandas y el ViewModel publica
+    // `tmdb + anime`, así que la segunda se inserta ARRIBA y la grilla se queda anclada donde
+    // estaba. Se mantiene arriba hasta que la scrolleés vos.
+    var grillaTocada by remember(busquedaNro) { mutableStateOf(false) }
+    LaunchedEffect(gridState.isScrollInProgress) {
+        if (gridState.isScrollInProgress) grillaTocada = true
+    }
+    LaunchedEffect(busquedaNro, titleResults) {
+        if (!grillaTocada) gridState.scrollToItem(0)
+    }
 
     val buscar: (String) -> Unit = { q ->
         text = q

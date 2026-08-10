@@ -448,7 +448,15 @@ fun TvSearchScreen(
                         Text("Sin resultados", color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall)
                     }
                     val gridTitulos = rememberLazyGridState()
-                    LaunchedEffect(busquedaNro) { gridTitulos.scrollToItem(0) }
+                    // Los resultados llegan en dos tandas y el ViewModel publica `tmdb + anime`:
+                    // si el anime llega primero, la tanda de TMDB se INSERTA ARRIBA. Con keys, la
+                    // grilla se ancla a lo que ya estabas viendo y lo nuevo queda fuera de
+                    // pantalla, por encima — se ve igual que si hubiera quedado scrolleada.
+                    // Mientras no hayas movido el foco a la grilla, la mantenemos arriba.
+                    var grillaTocada by remember(busquedaNro) { mutableStateOf(false) }
+                    LaunchedEffect(busquedaNro, titleResults) {
+                        if (!grillaTocada) gridTitulos.scrollToItem(0)
+                    }
                     LazyVerticalGrid(
                         state = gridTitulos,
                         columns = GridCells.Fixed(5),
@@ -464,6 +472,7 @@ fun TvSearchScreen(
                                 title = card.title,
                                 posterUrl = card.posterUrl,
                                 cardHeight = 180.dp,
+                                onFocus = { grillaTocada = true },
                                 // Una peli no tiene nada que elegir: va derecho a las fuentes.
                                 // Una serie sí, y hasta ahora caía siempre en el selector de
                                 // temporadas — con el "Toda la serie" arriba, fácil de no ver.
