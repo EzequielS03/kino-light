@@ -1008,15 +1008,28 @@ class ArkivRepository(
      * tardar (stream TS, sonda de hasta 20 s): hasta entonces el capítulo que estás viendo no
      * existía para el detalle. Preserva posición, duración y `watched` de lo que ya hubiera: esto
      * marca dónde estás, no reinicia el progreso ni desmarca un capítulo ya visto.
+     *
+     * Se salta por completo los capítulos que YA están vistos: `load()` es alcanzable también
+     * para volver a mirar una escena de un capítulo terminado (desde `DetailScreen`/`EpisodeRow`
+     * o el carrusel de `TvDetailScreen`), y ese re-play no puede pisar `lastPlayedAt`. Esa columna
+     * alimenta dos consumidores que no distinguen "recién visto" de "reabrí algo viejo":
+     * [PlaybackDao.observeVistos] (vía `VistosDeLaBiblioteca.cruzar`, ordena "Ya visto" de la
+     * biblioteca) y [PlaybackDao.seriesConProgreso] (vía `SeriesPorRevisar.elegir`, decide qué
+     * series barrer contra la red buscando capítulo nuevo). Sin este corte, reabrir tres segundos
+     * un capítulo viejo subía esa serie al tope de "Ya visto" y la metía otra vez en el barrido de
+     * red por hasta 30 días, sin que se haya visto nada nuevo. Si el usuario efectivamente vuelve a
+     * mirarlo, `savePlayback` igual actualiza la fila (y recalcula `watched`) en cuanto el player
+     * conoce la duración, así que no se pierde nada real.
      */
     suspend fun marcarEnCurso(episodeId: String) {
         val existente = playbackDao.get(episodeId)
+        if (existente?.watched == true) return
         playbackDao.upsert(
             PlaybackEntity(
                 episodeId = episodeId,
                 positionMs = existente?.positionMs ?: 0L,
                 durationMs = existente?.durationMs ?: 0L,
-                watched = existente?.watched ?: false,
+                watched = false,
                 lastPlayedAt = clock(),
             ),
         )
