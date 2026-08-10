@@ -511,6 +511,22 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
                     )
                 }
                 handler.post { retryInSoftware() }
+            } else if (AguanteDeBuffering.hayQueRendirse(now - bufferingSinceWallMs)) {
+                // Se acabó la esperanza: la capa de red ya agotó su presupuesto entero (ver
+                // AguanteDeBuffering) y libVLC sigue sin leer un solo byte. Sin esto el reproductor
+                // se queda girando para siempre — medido en device: 2 minutos largos de
+                // `estado=Buffering pos=0ms` sin un solo aviso al usuario.
+                //
+                // No hace falta limpiar nada acá: con el estado en Error, checkStall() deja de
+                // considerarse activo en el próximo sondeo y resetea el reloj del buffering solo.
+                runCatching {
+                    android.util.Log.w(
+                        "ArkivVlc",
+                        "buffering sin avanzar ${now - bufferingSinceWallMs}ms (tope ${AguanteDeBuffering.LIMITE_MS}ms) → error",
+                    )
+                }
+                event = VlcEvent.Error
+                invalidateState()
             }
         } else if (bufferingSinceWallMs > 0L) {
             runCatching { android.util.Log.w("ArkivVlc", "REANUDO tras ${now - bufferingSinceWallMs}ms de pausa (pos=${t}ms)") }
@@ -573,6 +589,14 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         // minutos como el punto donde se reanudaba, porque para VLC la película empezaba ahí.
         baseOffsetMs = 0L
         mediaCargadaWallMs = System.currentTimeMillis()
+        // La racha de "sin imagen" mide ESTA carga, no la anterior. Sin este reset se arrastraba
+        // entre medias: medido en device, un capítulo nuevo arrancó con `rachaSinVideoMs=371079` a
+        // los 11 s de cargar, heredados de la película anterior. Como el rescate solo exige que la
+        // racha supere SIN_VIDEO_MS, con una racha vieja se dispara SIEMPRE a los 10 s de cargar —
+        // y ahí no está diagnosticando el decodificador, está castigando a un origen lento: tira la
+        // conexión y recarga entero justo cuando archive todavía no soltó el primer byte (que puede
+        // tardar 72 s, ver PoliticaOrigen). Con un origen así, eso es recargar para siempre.
+        sinVideoDesdeWallMs = 0L
         startPositionApplied = false
         defaultSpuApplied = false // cada ítem/recarga arranca con subtítulos apagados
         defaultAudioApplied = false // y re-evalúa la pista de audio preferida

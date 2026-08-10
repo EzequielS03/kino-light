@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -19,6 +20,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
@@ -54,18 +56,43 @@ import com.arkiv.player.ui.theme.ArkivTextSecondary
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TvDetailScreen(
-    identifier: String,
+    /** Llave de grupo (`tv:46260`) o identifier crudo (torrent recién agregado, "Continuar viendo"). */
+    groupKey: String,
     onPlayEpisode: (String) -> Unit,
 ) {
     val graph = rememberGraph()
     val vm: DetailViewModel = viewModel(
-        factory = viewModelFactory { initializer { DetailViewModel(graph.repository, identifier) } },
+        factory = viewModelFactory { initializer { DetailViewModel(graph.repository, groupKey) } },
     )
+    val sources by vm.sources.collectAsStateWithLifecycle()
+    val selectedId by vm.selectedId.collectAsStateWithLifecycle()
     val detail by vm.detail.collectAsStateWithLifecycle()
-    val data = detail ?: return
+    val data = detail
+    if (data == null) {
+        // Antes esto era `?: return`: pantalla en negro sin ningún aviso, tanto mientras el
+        // detalle está cargando como cuando la llave de grupo dejó de existir (ver el bug de
+        // LibraryGrouping.resolveMembers/observeGroupMembers — un grupo que se movía de llave
+        // bajo el usuario y esto no avisaba, se veía IDÉNTICO a un crash). Un mensaje simple
+        // alcanza: no hace falta distinguir "todavía cargando" de "no se encontró".
+        Box(Modifier.fillMaxSize().background(ArkivBlack), contentAlignment = Alignment.Center) {
+            Text(
+                "No se pudo cargar este contenido",
+                style = MaterialTheme.typography.titleMedium,
+                color = ArkivTextSecondary,
+            )
+        }
+        return
+    }
+    // Identifier REAL de la fuente que se está mostrando (no la llave de grupo de la ruta): lo
+    // que trae `data` ya resolvió `groupKey` a un ítem concreto. Stills/títulos de TMDB y el
+    // caché de capítulos enfocados se indexan por ese identifier, no por la llave.
+    val identifier = data.identifier
 
     val playFR = remember { FocusRequester() }
     val resumeEpisodeFR = remember { FocusRequester() }
+    // Ancla del primer chip de "Fuentes": sin esto, el salto directo Reproducir<->capítulo
+    // resumible (de abajo) se saltaba la fila entera y la dejaba inalcanzable con el D-pad.
+    val firstSourceFR = remember { FocusRequester() }
     val episodesListState = rememberLazyListState()
 
     // El carrusel abre posicionado en el capítulo que se venía viendo (el mismo que reproduce el
@@ -84,13 +111,29 @@ fun TvDetailScreen(
 
     // Capítulo enfocado en el carrusel: el fondo y los textos de arriba lo siguen, igual que el
     // hero del Home sigue a la card enfocada. Null = foco fuera del carrusel (p. ej. en
-    // "Reproducir"), y entonces se muestra la info de la serie.
+    // "Reproducir"), y entonces se muestra la info de la serie. También se resetea al cambiar de
+    // fuente (chip de "Fuentes"): el capítulo enfocado pertenece a la lista vieja.
     var focusedEpisode by remember(identifier) { mutableStateOf<Episode?>(null) }
 
     val resumeId = data.resumeEpisode?.id
-    LaunchedEffect(resumeId) {
+    // Reposiciona el carrusel SOLO al cambiar de fuente (chip de "Fuentes"), no en cada cambio
+    // de `resumeId`. `episodesListState` no lleva `key` por `identifier`, así que sobrevive el
+    // cambio de fuente; sin este reset el carrusel se quedaba scrolleado al offset de la fuente
+    // vieja cuando el capítulo a resumir de la fuente nueva caía en el índice 0 — y con eso el
+    // chip resumible (y `resumeEpisodeFR`, que ancla el foco desde el primer chip de fuentes)
+    // fuera de la ventana que compone el LazyRow.
+    //
+    // OJO: la key es `identifier` solo, NO `resumeId`. `resumeId` también cambia dentro de la
+    // MISMA fuente cuando el capítulo en curso pasa el 60% y `savePlayback` lo marca visto
+    // (ArkivRepository.setWatched/inProgressEpisode caen a `episodes.firstOrNull()`): ese es el
+    // flujo más común de volver al detalle, y si el effect corriera con esa key el carrusel le
+    // pegaba un salto a "T1 · E1" apenas el usuario volvía de ver algo. Al depender solo de
+    // `identifier`, este LaunchedEffect no se reinicia en ese caso — seguimos leyendo `data` y
+    // `resumeId` "de tras el cierre" de la composición donde `identifier` cambió, que es
+    // exactamente la fuente nueva recién elegida.
+    LaunchedEffect(identifier) {
         val idx = data.episodes.indexOfFirst { it.id == resumeId }
-        if (idx > 0) episodesListState.scrollToItem(idx)
+        episodesListState.scrollToItem(idx.coerceAtLeast(0))
     }
 
     Box(Modifier.fillMaxSize().background(ArkivBlack)) {
@@ -180,9 +223,59 @@ fun TvDetailScreen(
                             // quedara el último capítulo enfocado, el botón "Reproducir" (que
                             // reanuda otro) estaría describiendo algo que no va a reproducir.
                             .onFocusChanged { if (it.isFocused) focusedEpisode = null }
-                            .focusProperties { down = resumeEpisodeFR },
+                            // Si hay selector de fuente, bajar cae ahí primero; si no, directo al
+                            // capítulo resumible (como antes). Sin este condicional el salto
+                            // explícito se saltaba la fila de "Fuentes" enterita.
+                            .focusProperties { down = if (sources.size > 1) firstSourceFR else resumeEpisodeFR },
                     ) {
                         Text("▶  Reproducir")
+                    }
+                }
+            }
+
+            // --- Selector de fuente: solo aparece si la misma serie entró por más de una vía ---
+            if (sources.size > 1) {
+                Column(modifier = Modifier.padding(bottom = 16.dp)) {
+                    Text(
+                        "Fuentes",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = ArkivTextSecondary,
+                        modifier = Modifier.padding(start = 48.dp, bottom = 8.dp),
+                    )
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 48.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        itemsIndexed(sources, key = { _, it -> it.identifier }) { index, src ->
+                            // El nombre de la fuente + cuántos capítulos aporta: es lo que deja
+                            // decidir (ej. "web · 300 ep." vs "torrent · 267 ep.").
+                            TvSourceChip(
+                                label = "${src.source} · ${src.episodeCount} ep.",
+                                selected = src.identifier == selectedId,
+                                onClick = { vm.selectSource(src.identifier) },
+                                // Solo el primer chip ancla el salto explícito Reproducir<->carrusel:
+                                // es al que aterrizan esos atajos, así que tiene que poder
+                                // devolverlos a ambos lados.
+                                modifier = if (index == 0) {
+                                    Modifier.focusRequester(firstSourceFR)
+                                        .focusProperties {
+                                            // playFR y resumeEpisodeFR solo tienen nodo adjunto
+                                            // cuando la fuente actual tiene un capítulo para
+                                            // resumir (el botón "Reproducir" y el chip resumible
+                                            // se renderizan condicionados a eso). Una fuente recién
+                                            // agregada con 0 episodios (fetch fallido) deja ambos
+                                            // sin adjuntar: seguir apuntándoles ahí hace que Compose
+                                            // tire IllegalStateException al mover el foco. Con
+                                            // FocusRequester.Default el D-pad usa el algoritmo por
+                                            // defecto en vez de crashear.
+                                            up = if (data.resumeEpisode != null) playFR else FocusRequester.Default
+                                            down = if (data.resumeEpisode != null) resumeEpisodeFR else FocusRequester.Default
+                                        }
+                                } else {
+                                    Modifier
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -211,7 +304,10 @@ fun TvDetailScreen(
                             onFocus = { focusedEpisode = ep },
                             modifier = Modifier.then(
                                 if (isResume) {
-                                    Modifier.focusRequester(resumeEpisodeFR).focusProperties { up = playFR }
+                                    // Simétrico al `down` de Reproducir: si hay selector de fuente,
+                                    // subir cae ahí; si no, directo a Reproducir (como antes).
+                                    Modifier.focusRequester(resumeEpisodeFR)
+                                        .focusProperties { up = if (sources.size > 1) firstSourceFR else playFR }
                                 } else {
                                     Modifier
                                 },

@@ -1,5 +1,6 @@
 package com.arkiv.player.playback
 
+import com.arkiv.player.data.NodoDeArchive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -46,6 +47,22 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
     private val totales = ConcurrentHashMap<String, Long>()
 
     /**
+     * Último código HTTP que dio cada origen. Existe porque el reproductor NO puede distinguir por
+     * qué falló: pase lo que pase acá, VLC ve un 502 del proxy. Y la diferencia importa — un 404
+     * significa "archive renombró el archivo" y se puede arreglar solo (ver CoincidenciaDeArchivo),
+     * mientras que un 503 o un timeout solo se pueden reintentar. Guardarlo acá es la forma más
+     * barata de que esa distinción sobreviva hasta quien sabe qué hacer con ella.
+     */
+    private val ultimosCodigos = ConcurrentHashMap<String, Int>()
+
+    /** Qué contestó [originUrl] la última vez, o null si nunca se le pidió nada. */
+    fun ultimoCodigoDe(originUrl: String): Int? = ultimosCodigos[originUrl]
+
+    private fun anotarCodigo(origin: String, code: Int) {
+        ultimosCodigos[origin] = code
+    }
+
+    /**
      * Arranque ya descargado y esperando en memoria, por clave de caché. Ver [precalentar].
      *
      * Solo lo usa magis: nadie más llama a `precalentar`, así que para el resto de las fuentes este
@@ -63,8 +80,10 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
     // al azar (medido: entre 0,2 s y 20 s hasta el primer byte, y no-206 esporádicos sobre rangos
     // perfectamente válidos), así que un solo intento convierte cualquier mala racha en "la película
     // no reproduce". Ver TsDurationProbe, que ya aprendió lo mismo.
-    private val INTENTOS_ORIGEN = 3
-    private val ESPERA_ORIGEN_MS = 400L
+    //
+    // Cuánto esperar y qué vale reintentar vive en [PoliticaOrigen], que es donde está medido el
+    // porqué de cada número (resumen: archive puede tardar 72 s en soltar el primer byte).
+    private val INTENTOS_ORIGEN = PoliticaOrigen.INTENTOS
 
     // Cuánto se precalienta. 2 MB ≈ 15 s de estos TS (~1,1 Mbps): de sobra para que libVLC
     // identifique programas y pistas sin depender de la latencia del CDN, y poco como para tenerlo
@@ -77,8 +96,19 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
         val doneMarker: File,
         val total: Long,
         val headers: Map<String, String> = emptyMap(),
+        /**
+         * Byte del origen que corresponde al principio del archivo de caché. 0 = la descarga de
+         * siempre, desde el arranque del archivo. Ver [VentanaDeDescarga] para cuándo y por qué
+         * puede no serlo.
+         */
+        val inicio: Long = 0L,
     ) {
-        @Volatile var downloaded: Long = 0
+        /**
+         * Byte ABSOLUTO hasta el que hay datos — no cuántos bytes se bajaron. Empieza valiendo
+         * [inicio] justamente para que todas las comparaciones contra rangos del origen sigan
+         * siendo las mismas con ventana y sin ventana.
+         */
+        @Volatile var downloaded: Long = inicio
         @Volatile var done = false
         @Volatile var failed = false
     }
@@ -143,6 +173,22 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
             if (i < 0) return limpia
             return limpia.substring(0, i) + "f=$fraccion&" + limpia.substring(i)
         }
+
+        /**
+         * La misma URL, pero pidiendo que la descarga a caché EMPIECE en [desde] en vez de en el
+         * byte 0. No cambia lo que ve el reproductor —los bytes conservan su posición real— solo
+         * qué pedazo del archivo se baja de corrido. Ver [VentanaDeDescarga].
+         *
+         * Va antes de `u=` como el resto, por el mismo motivo: hay código que saca el origen con
+         * `substringAfter("u=")`.
+         */
+        fun conVentanaDesde(proxyUrl: String, desde: Long): String {
+            if (desde <= 0L) return proxyUrl
+            val limpia = proxyUrl.replace(Regex("""[?&]w=[^&]*"""), "")
+            val i = limpia.indexOf("u=")
+            if (i < 0) return limpia
+            return limpia.substring(0, i) + "w=$desde&" + limpia.substring(i)
+        }
     }
 
     /**
@@ -187,6 +233,10 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                 // para poder REANUDAR sin que el reproductor tenga que saltar. Ver VentanaDeArchivo.
                 val fraccion = path.substringAfter("f=", "").substringBefore('&')
                     .toFloatOrNull()?.takeIf { it > 0f } ?: 0f
+                // Byte donde arranca la descarga secuencial. Distinto de `f=`: acá los bytes NO se
+                // corren, solo se baja otro pedazo. Ver VentanaDeDescarga.
+                val ventanaDesde = path.substringAfter("w=", "").substringBefore('&')
+                    .toLongOrNull()?.takeIf { it > 0L } ?: 0L
                 val rangeHeader = lines.firstOrNull { it.startsWith("Range:", true) }
                     ?.substringAfter(':')?.trim()
                 val range = RangeHeader.parse(rangeHeader)
@@ -224,7 +274,18 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                 }
 
                 // 2) Asegurar/arrancar la descarga única y servir del archivo que crece.
-                val dl = ensureDownload(key, origin, file, doneMarker, extraHeaders)
+                // Si el origen no acepta el Range de la ventana, se reintenta desde 0: es mejor
+                // reproducir sin el colchón que no reproducir.
+                val dl = ensureDownload(key, origin, file, doneMarker, extraHeaders, ventanaDesde)
+                    ?: if (ventanaDesde > 0L) {
+                        android.util.Log.w(
+                            "ArchiveCacheProxy",
+                            "ventana desde $ventanaDesde rechazada por el origen → bajo desde 0",
+                        )
+                        ensureDownload(key, origin, file, doneMarker, extraHeaders)
+                    } else {
+                        null
+                    }
                 if (dl == null) {
                     // Sin red / 404 / 5xx / sin Content-Length: error real (no un 200 vacío que VLC
                     // tomaría como éxito → pantalla negra). Passthrough simple como último recurso.
@@ -252,6 +313,7 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
         file: File,
         doneMarker: File,
         extraHeaders: Map<String, String> = emptyMap(),
+        desde: Long = 0L,
     ): Download? {
         downloads[key]?.let { if (!it.failed) return it }
         return synchronized(initLock(key)) {
@@ -261,16 +323,43 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                     instanceFollowRedirects = true // archive.org 302 → nodo de datos
                     setRequestProperty("User-Agent", "Arkiv/0.1 (personal)")
                     extraHeaders.forEach { (k, v) -> setRequestProperty(k, v) }
-                    connectTimeout = 15000; readTimeout = 20000
+                    // Reanudando lejos del principio, la descarga arranca cerca del punto que se va
+                    // a leer en vez de en el byte 0. Ver VentanaDeDescarga.
+                    if (desde > 0L) setRequestProperty("Range", "bytes=$desde-")
+                    // Un solo tiro: si esto falla no hay descarga secuencial y todo cae a
+                    // passthrough/502. Por eso va con el timeout del peor caso, no con el del
+                    // primer intento.
+                    connectTimeout = PoliticaOrigen.CONECTAR_MS
+                    readTimeout = PoliticaOrigen.leerMs(PoliticaOrigen.INTENTOS - 1)
                 }
             }.getOrNull() ?: return null
-            val code = runCatching { conn.responseCode }.getOrDefault(-1)
-            val total = conn.contentLengthLong
-            if ((code != HttpURLConnection.HTTP_OK && code != HttpURLConnection.HTTP_PARTIAL) || total <= 0) {
+            val code = runCatching { conn.responseCode }.getOrDefault(PoliticaOrigen.SIN_RESPUESTA)
+            anotarCodigo(origin, code)
+            // Con Range, `contentLength` es lo que mide el TRAMO, no el archivo: el tamaño real sale
+            // del Content-Range. Confundirlos dejaría a todo el proxy creyendo que la película mide
+            // lo que falta desde el punto de reanudación.
+            val total = if (desde > 0L) {
+                VentanaDeArchivo.totalDelContentRange(conn.getHeaderField("Content-Range"))
+            } else {
+                conn.contentLengthLong
+            }
+            val rangoAceptado = desde == 0L || code == HttpURLConnection.HTTP_PARTIAL
+            if ((code != HttpURLConnection.HTTP_OK && code != HttpURLConnection.HTTP_PARTIAL) ||
+                total <= 0 || !rangoAceptado
+            ) {
+                // Si el origen ignoró el Range no se puede ventanear: mejor rendirse acá y que el
+                // llamador reintente desde 0 que escribir el archivo con los bytes corridos.
                 runCatching { conn.disconnect() }
                 return null
             }
-            val dl = Download(origin, file, doneMarker, total, extraHeaders)
+            val inicio = if (desde > 0L) desde else 0L
+            if (inicio > 0L) {
+                android.util.Log.w(
+                    "ArchiveCacheProxy",
+                    "descarga con ventana desde $inicio de $total (reanudación lejos del inicio)",
+                )
+            }
+            val dl = Download(origin, file, doneMarker, total, extraHeaders, inicio)
             // El archivo se crea ACÁ, antes de lanzar el hilo: el que sirve lo abre para leer
             // apenas vuelve esta función, y si el escritor todavía no lo creó la lectura muere con
             // ENOENT y el reproductor se queda en "buffering 0%" para siempre.
@@ -299,10 +388,17 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
         }.onFailure { dl.failed = true }
         runCatching { conn.disconnect() }
         if (!dl.failed && dl.downloaded >= dl.total) {
-            // Completo: marcador de "cacheado" para que las próximas veces se sirva directo de disco.
-            runCatching { dl.doneMarker.createNewFile() }
             dl.done = true
-            cache.touch(key); cache.evictIfNeeded()
+            // El marcador de "cacheado" SOLO si el archivo empieza en el byte 0. Una ventana llegó
+            // al final del origen, pero le falta todo lo de antes: marcarla haría que la próxima
+            // reproducción la sirviera entera desde disco y saliera cortada. Ver VentanaDeDescarga.
+            // Sin borrar el archivo: `done` ya está en true, así que puede haber lecturas en curso
+            // sirviéndose de él. Sin marcador nadie lo va a confundir con el archivo completo, y el
+            // espacio lo recupera la caché por su cuenta.
+            if (VentanaDeDescarga.esCacheable(dl.inicio)) {
+                runCatching { dl.doneMarker.createNewFile() }
+                cache.touch(key); cache.evictIfNeeded()
+            }
         } else {
             dl.failed = true
             runCatching { dl.file.delete() }
@@ -338,25 +434,31 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
             append("Content-Type: application/octet-stream\r\n\r\n")
         }
         out.write(respHeaders.toByteArray())
-        val rama = when {
-            dl.done || dl.downloaded > end -> "disco"
-            start > dl.downloaded + AHEAD_THRESHOLD -> "origen"
-            else -> "creciendo"
-        }
+        val rama = VentanaDeDescarga.rama(
+            inicio = dl.inicio,
+            descargado = dl.downloaded,
+            completo = dl.done,
+            start = start,
+            end = end,
+            umbralAdelante = AHEAD_THRESHOLD,
+        )
         // Qué camino se tomó para este tramo: cada uno falla distinto y desde fuera se ven igual.
         android.util.Log.w(
             "ArchiveCacheProxy",
-            "→ rama=$rama tramo=$start-$end descargado=${dl.downloaded}/${dl.total}",
+            "→ rama=$rama tramo=$start-$end descargado=${dl.downloaded}/${dl.total}" +
+                if (dl.inicio > 0) " (ventana desde ${dl.inicio})" else "",
         )
         when (rama) {
             // Todo el tramo ya está en la caché en disco → lectura directa, sin red.
-            "disco" -> readFromDisk(dl.file, start, len, out)
-            // Tramo MUY por delante de la descarga (seek lejano o el `moov` del final) → directo del
-            // origen para no esperar a que la descarga secuencial llegue hasta ahí.
-            "origen" -> fetchOriginRangeBody(dl.origin, start, end, out, dl.headers)
+            VentanaDeDescarga.Rama.DISCO ->
+                readFromDisk(dl.file, VentanaDeDescarga.offsetEnArchivo(dl.inicio, start), len, out)
+            // Tramo MUY por delante de la descarga (seek lejano o el `moov` del final), o ANTES del
+            // principio de la ventana → directo del origen: en los dos casos no está en disco.
+            VentanaDeDescarga.Rama.ORIGEN ->
+                fetchOriginRangeBody(dl.origin, start, end, out, dl.headers)
             // Reproducción secuencial (el playhead): se lee de disco a medida que la descarga —a
             // velocidad plena, que va por delante— lo va llenando; solo espera lo mínimo.
-            else -> streamGrowingFromDisk(dl, start, end, out)
+            VentanaDeDescarga.Rama.CRECIENDO -> streamGrowingFromDisk(dl, start, end, out)
         }
         out.flush()
     }
@@ -386,7 +488,8 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                 while (dl.downloaded <= pos && !dl.done && !dl.failed) Thread.sleep(40)
                 val avail = minOf(end + 1, dl.downloaded)
                 if (avail <= pos) { if (dl.done || dl.failed) break else continue }
-                raf.seek(pos)
+                // `pos` es byte del ORIGEN; el archivo de caché puede empezar más adelante.
+                raf.seek(VentanaDeDescarga.offsetEnArchivo(dl.inicio, pos))
                 val n = raf.read(buf, 0, minOf((avail - pos), buf.size.toLong()).toInt())
                 if (n <= 0) { if (dl.done || dl.failed) break else { Thread.sleep(20); continue } }
                 out.write(buf, 0, n)
@@ -416,7 +519,10 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                 setRequestProperty("User-Agent", "Arkiv/0.1 (personal)")
                 extraHeaders.forEach { (k, v) -> setRequestProperty(k, v) }
                 setRequestProperty("Range", "bytes=$start-$end")
-                connectTimeout = 15000; readTimeout = 20000
+                // También de un solo tiro, y encima con la cabecera 206 ya enviada: si acá se corta
+                // por timeout, el reproductor queda esperando un cuerpo que no llega. Peor caso.
+                connectTimeout = PoliticaOrigen.CONECTAR_MS
+                readTimeout = PoliticaOrigen.leerMs(PoliticaOrigen.INTENTOS - 1)
             }
         }.getOrNull() ?: run {
             android.util.Log.w("ArchiveCacheProxy", "origen: no se pudo abrir la conexión ($start-$end)")
@@ -425,7 +531,8 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
         // El código del origen y los bytes entregados: sin esto, un 403/timeout acá es INVISIBLE —
         // la cabecera 206 ya salió, así que el reproductor espera un cuerpo que nunca llega y se
         // queda buffereando al 0% sin error.
-        val code = runCatching { conn.responseCode }.getOrDefault(-1)
+        val code = runCatching { conn.responseCode }.getOrDefault(PoliticaOrigen.SIN_RESPUESTA)
+        anotarCodigo(origin, code)
         var escritos = 0L
         val t0 = System.currentTimeMillis()
         val fallo = runCatching {
@@ -495,7 +602,10 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                     setRequestProperty("User-Agent", "Arkiv/0.1 (personal)")
                     extraHeaders.forEach { (k, v) -> setRequestProperty(k, v) }
                     setRequestProperty("Range", "bytes=0-0")
-                    connectTimeout = 8000; readTimeout = 8000
+                    // Antes 8 s fijos. Es un solo byte, pero lo que se paga acá es la latencia del
+                    // nodo, no el tamaño: contra los 72 s medidos, 8 s no alcanzaban nunca.
+                    connectTimeout = PoliticaOrigen.CONECTAR_MS
+                    readTimeout = PoliticaOrigen.leerMs(intento)
                 }
                 val cr = conn.getHeaderField("Content-Range")
                 runCatching { conn.inputStream.use { it.readBytes() } }
@@ -503,7 +613,7 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                 VentanaDeArchivo.totalDelContentRange(cr)
             }.getOrDefault(0L)
             if (total > 0) { totales[origin] = total; return total }
-            if (intento < INTENTOS_ORIGEN - 1) Thread.sleep(ESPERA_ORIGEN_MS)
+            if (intento < INTENTOS_ORIGEN - 1) Thread.sleep(PoliticaOrigen.esperaMs(intento))
         }
         android.util.Log.w("ArchiveCacheProxy", "ventana: no se pudo saber el tamaño del origen")
         return 0L
@@ -524,6 +634,7 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
         extraHeaders: Map<String, String>,
         claveUnica: String?,
     ): Pair<HttpURLConnection, ConexionUnica.Cerrable>? {
+        var ultimoCodigo = PoliticaOrigen.SIN_RESPUESTA
         repeat(INTENTOS_ORIGEN) { intento ->
             val conn = runCatching {
                 (URL(origin).openConnection() as HttpURLConnection).apply {
@@ -531,7 +642,10 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                     setRequestProperty("User-Agent", "Arkiv/0.1 (personal)")
                     extraHeaders.forEach { (k, v) -> setRequestProperty(k, v) }
                     if (rango != null) setRequestProperty("Range", rango)
-                    connectTimeout = 15000; readTimeout = 20000
+                    // Crece con el intento: contra un nodo lento, repetir la misma fecha límite
+                    // corta es repetir el mismo fracaso. Ver PoliticaOrigen.
+                    connectTimeout = PoliticaOrigen.CONECTAR_MS
+                    readTimeout = PoliticaOrigen.leerMs(intento)
                 }
             }.getOrNull()
             if (conn != null) {
@@ -554,7 +668,9 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                     "ArchiveCacheProxy",
                     "abro ${rango ?: "(todo)"} → conexiones vivas de este archivo: $vivas",
                 )
-                val code = runCatching { conn.responseCode }.getOrDefault(-1)
+                val code = runCatching { conn.responseCode }.getOrDefault(PoliticaOrigen.SIN_RESPUESTA)
+                anotarCodigo(origin, code)
+                ultimoCodigo = code
                 if (code == HttpURLConnection.HTTP_OK || code == HttpURLConnection.HTTP_PARTIAL) {
                     return conn to cerrable
                 }
@@ -564,11 +680,98 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                 )
                 claveUnica?.let { soltarViva(it) }
                 runCatching { conn.disconnect() }
+                // Un 404 no mejora por insistir: el archivo no está donde lo tenemos anotado. Cortar
+                // acá ahorra dos timeouts y, sobre todo, deja el 404 llegar limpio hasta arriba, que
+                // es lo que dispara la revalidación de la metadata (ver CoincidenciaDeArchivo).
+                if (!PoliticaOrigen.valeReintentar(code)) {
+                    android.util.Log.w(
+                        "ArchiveCacheProxy",
+                        "origen: $code no se reintenta, me rindo con ${rango ?: "(todo)"}",
+                    )
+                    return null
+                }
             }
-            if (intento < INTENTOS_ORIGEN - 1) Thread.sleep(ESPERA_ORIGEN_MS)
+            if (intento < INTENTOS_ORIGEN - 1) Thread.sleep(PoliticaOrigen.esperaMs(intento))
+        }
+        // Se acabaron los intentos contra la puerta de entrada. Si lo que falló es el REDIRECTOR
+        // —no el contenido— todavía queda hablarle directo al servidor que tiene el archivo.
+        // Ver NodoDeArchive: medido, download.php daba 500/503 mientras el nodo servía 206.
+        if (NodoDeArchive.valeIntentarNodo(ultimoCodigo)) {
+            return abrirEnNodo(origin, rango, extraHeaders, claveUnica)
         }
         return null
     }
+
+    /**
+     * Plan B: buscar el archivo en el servidor que lo tiene, salteando `download.php`.
+     *
+     * Se paga una consulta extra a `/metadata/` —que es OTRO servicio de archive y sigue en pie
+     * cuando el redirector no— para saber a qué nodo ir. Solo se llega acá si el camino normal ya
+     * falló del todo, así que ese viaje de más no le cuesta nada al caso bueno.
+     *
+     * La URL resultante NO se guarda en ningún lado a propósito: los ítems se mueven de servidor y
+     * una URL de nodo cacheada envejece hasta apuntar a la nada.
+     */
+    private fun abrirEnNodo(
+        origin: String,
+        rango: String?,
+        extraHeaders: Map<String, String>,
+        claveUnica: String?,
+    ): Pair<HttpURLConnection, ConexionUnica.Cerrable>? {
+        val (identifier, ruta) = NodoDeArchive.partesDeUrlDeDescarga(origin) ?: return null
+        val json = leerTexto(com.arkiv.player.data.ArchiveUrls.metadata(identifier)) ?: run {
+            android.util.Log.w("ArchiveCacheProxy", "nodo: /metadata/ tampoco contestó para $identifier")
+            return null
+        }
+        val urls = NodoDeArchive.urlsDesdeMetadata(json, ruta)
+        if (urls.isEmpty()) {
+            android.util.Log.w("ArchiveCacheProxy", "nodo: la metadata no dice en qué servidor está")
+            return null
+        }
+        android.util.Log.w("ArchiveCacheProxy", "nodo: pruebo ${urls.size} servidor(es) directo(s)")
+        urls.forEachIndexed { i, url ->
+            val conn = runCatching {
+                (URL(url).openConnection() as HttpURLConnection).apply {
+                    instanceFollowRedirects = true
+                    setRequestProperty("User-Agent", "Arkiv/0.1 (personal)")
+                    extraHeaders.forEach { (k, v) -> setRequestProperty(k, v) }
+                    if (rango != null) setRequestProperty("Range", rango)
+                    connectTimeout = PoliticaOrigen.CONECTAR_MS
+                    // Un solo tiro por nodo, así que va con el timeout del peor caso.
+                    readTimeout = PoliticaOrigen.leerMs(PoliticaOrigen.INTENTOS - 1)
+                }
+            }.getOrNull() ?: return@forEachIndexed
+            val code = runCatching { conn.responseCode }.getOrDefault(PoliticaOrigen.SIN_RESPUESTA)
+            if (code == HttpURLConnection.HTTP_OK || code == HttpURLConnection.HTTP_PARTIAL) {
+                // Se anota contra el origen CANÓNICO, que es por el que preguntan arriba: para el
+                // resto de la app esta petición salió bien, sin importar por qué puerta entró.
+                anotarCodigo(origin, code)
+                val vivas = claveUnica?.let { vivasPorClave.merge(it, 1) { a, b -> a + b } } ?: 1
+                android.util.Log.w(
+                    "ArchiveCacheProxy",
+                    "nodo #${i + 1} SIRVIÓ ${rango ?: "(todo)"} con $code (vivas: $vivas)",
+                )
+                return conn to ConexionUnica.Cerrable { runCatching { conn.disconnect() } }
+            }
+            android.util.Log.w("ArchiveCacheProxy", "nodo #${i + 1} devolvió $code")
+            runCatching { conn.disconnect() }
+        }
+        return null
+    }
+
+    /** GET simple de un texto corto (la metadata). null si no se pudo. */
+    private fun leerTexto(url: String): String? = runCatching {
+        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+            instanceFollowRedirects = true
+            setRequestProperty("User-Agent", "Arkiv/0.1 (personal)")
+            connectTimeout = PoliticaOrigen.CONECTAR_MS
+            readTimeout = PoliticaOrigen.leerMs(0)
+        }
+        val code = conn.responseCode
+        if (code != HttpURLConnection.HTTP_OK) { conn.disconnect(); return null }
+        conn.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
+            .also { runCatching { conn.disconnect() } }
+    }.getOrNull()
 
     /**
      * Deja el arranque del stream listo en memoria ANTES de que el reproductor abra la URL.

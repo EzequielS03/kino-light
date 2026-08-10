@@ -78,6 +78,26 @@ class ArkivRepository(
     fun observeLibraryGroups(): Flow<List<LibraryGroup>> =
         LibraryGrouping.groupsFlow(observeLibrary(), observeArtwork())
 
+    /**
+     * Los ítems detrás de una llave de grupo, del más completo al menos.
+     *
+     * Acepta TAMBIÉN un identifier crudo: "Continuar viendo", el menú de mantener presionado y el
+     * detalle del teléfono navegan con el identifier del ítem, no con una llave de grupo. Y acepta
+     * una llave `item:<identifier>` que dejó de ser un grupo vivo porque su ítem se sumó a otro
+     * grupo MIENTRAS el detalle estaba abierto (`ensureArtwork` resolviéndole un tmdbId de tv en
+     * segundo plano): ahí sigue al ítem hasta su grupo nuevo en vez de devolver vacío. Ver
+     * [LibraryGrouping.resolveMembers]. Solo devuelve vacío si de verdad no hay nada con ese
+     * identifier (por ejemplo si se borró la única fuente mientras el detalle estaba abierto).
+     *
+     * Una sola suscripción a la biblioteca: las filas se derivan de los miembros de [groups] (que
+     * ya sale de `observeLibrary()` vía [observeLibraryGroups]) en vez de volver a combinar
+     * `observeLibrary()` acá aparte.
+     */
+    fun observeGroupMembers(groupKey: String): Flow<List<LibraryRow>> =
+        observeLibraryGroups().map { groups ->
+            LibraryGrouping.resolveMembers(groupKey, groups, groups.flatMap { it.members })
+        }
+
     fun observeContinueWatching(): Flow<List<ContinueRow>> =
         playbackDao.observeContinueWatching(CONTINUE_WATCHING_MIN_MS).map { rows ->
             // Una tarjeta por ÍTEM, no por episodio: la consulta devuelve una fila por capítulo
@@ -103,7 +123,15 @@ class ArkivRepository(
     suspend fun ensureArtwork(rows: List<LibraryRow>) {
         val tmdb = tmdbApi?.takeIf { it.configured } ?: return
         for (row in rows) {
-            if (artworkDao.get(row.identifier) != null) continue
+            // Un arte YA resuelto (tmdbId) o que YA tiene backdrops aunque no tenga tmdbId (el
+            // backdrop del portal que guarda addMagisSource) no se vuelve a pedir NUNCA: son los
+            // dos casos donde ya hay algo bueno que perder. Uno vacío de las dos formas sí se
+            // reintenta, pero solo si la fila es vieja: así un título que TMDB no conoce no se
+            // consulta en cada arranque, y a la vez los ítems que fallaron por un título sucio
+            // (ver cleanTitleForSearch) se recuperan solos tras una actualización. Ver
+            // LibraryGrouping.shouldRefetchArtwork para el detalle de la regla.
+            val existing = artworkDao.get(row.identifier)
+            if (!LibraryGrouping.shouldRefetchArtwork(existing, clock())) continue
             val type = if (row.isMovie) "movie" else "tv"
             val match = runCatching { tmdb.search(type, cleanTitleForSearch(row.title)).firstOrNull() }.getOrNull()
                 ?: runCatching { tmdb.search(type, row.title).firstOrNull() }.getOrNull()
@@ -213,19 +241,6 @@ class ArkivRepository(
         episodeStillDao.observeForItem(itemId).map { rows ->
             rows.mapNotNull { r -> r.title?.let { r.episodeId to it } }.toMap()
         }
-
-    /** Limpia un título de ítem (a veces nombre de archivo torrent) para buscar mejor en TMDB. */
-    private fun cleanTitleForSearch(raw: String): String {
-        var s = raw.replace('.', ' ').replace('_', ' ').replace('-', ' ')
-        // Todo lo que sigue al año (19xx/20xx) suele ser ruido del release; córtalo.
-        Regex("""\b(19|20)\d{2}\b""").find(s)?.let { s = s.substring(0, it.range.first) }
-        // Quita tokens típicos de torrent/calidad/idioma.
-        val noise = Regex(
-            """(?i)\b(1080p|720p|480p|2160p|4k|x264|x265|h264|h265|hevc|bluray|blu ray|brrip|bdrip|webrip|web dl|web|hdrip|dvdrip|hdtv|latino|castellano|espanol|español|dual|multi|subs?|ac3|aac|dts|yify|rarbg|proper|remux)\b""",
-        )
-        s = s.replace(noise, " ")
-        return s.replace(Regex("""\s+"""), " ").trim().ifBlank { raw.trim() }
-    }
 
     fun observeDownloadRows() = downloadDao.observeDownloadRows()
 
@@ -654,8 +669,10 @@ class ArkivRepository(
         )
         itemDao.replaceItem(item, listOf(ep))
         // La imagen apaisada del portal va al mismo lugar donde el hero del Home busca la de TMDB.
-        // Se escribe SOLO si Magis la trajo: una fila vacía dejaría al ítem sin arte para siempre,
-        // porque ensureArtwork saltea todo ítem que ya tenga fila. Sin fila, TMDB la completa.
+        // Se escribe SOLO si Magis la trajo: una fila con backdrops —aunque tmdbId sea null, como
+        // acá— ensureArtwork ya NO la vuelve a tocar (ver LibraryGrouping.shouldRefetchArtwork),
+        // así que este backdrop del portal no se pisa con un "[]" cada vez que pasa la ventana de
+        // reintento. Sin fila (backdropUrl vacío), TMDB la completa como siempre.
         if (backdropUrl.isNotBlank()) {
             artworkDao.upsert(
                 com.arkiv.player.data.db.ArtworkEntity(
@@ -906,4 +923,23 @@ class ArkivRepository(
             )
         )
     }
+}
+
+/**
+ * Título "desnudo" para buscar en TMDB.
+ *
+ * El sufijo " — Pack" lo pone la app al guardar un torrent que trae la serie entera; no es parte
+ * del nombre y sin quitarlo TMDB no devuelve nada (verificado: los dos "Naruto — Pack" de la
+ * biblioteca quedaron sin tmdbId y por eso no se agrupaban con el resto de los Naruto).
+ */
+internal fun cleanTitleForSearch(raw: String): String {
+    // Solo el SUFIJO: una raya larga en medio del título es un separador legítimo.
+    var s = raw.replace(Regex("""\s*[—–-]\s*Pack\s*$""", RegexOption.IGNORE_CASE), "")
+    s = s.replace('.', ' ').replace('_', ' ').replace('-', ' ').replace('—', ' ').replace('–', ' ')
+    Regex("""\b(19|20)\d{2}\b""").find(s)?.let { s = s.substring(0, it.range.first) }
+    val noise = Regex(
+        """(?i)\b(1080p|720p|480p|2160p|4k|x264|x265|h264|h265|hevc|bluray|blu ray|brrip|bdrip|webrip|web dl|web|hdrip|dvdrip|hdtv|latino|castellano|espanol|español|dual|multi|subs?|ac3|aac|dts|yify|rarbg|proper|remux)\b""",
+    )
+    s = s.replace(noise, " ")
+    return s.replace(Regex("""\s+"""), " ").trim().ifBlank { raw.trim() }
 }

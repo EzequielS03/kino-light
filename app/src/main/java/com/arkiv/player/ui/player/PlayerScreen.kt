@@ -909,6 +909,19 @@ private fun PlayerContent(
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
             }
+
+            // Sin esto, un fallo de reproducción no llegaba a NINGUNA parte: VlcPlayer lo publicaba
+            // como PlaybackException, pero la pantalla solo pinta `vm.error` —los errores de
+            // resolución— así que la película no arrancaba y no aparecía ningún mensaje. Medido el
+            // 2026-08-10 en el Fire TV: `EncounteredError` en el log y `error=false` en la UI.
+            // El ViewModel decide qué hacer con esto: hay fallos que se reparan solos (el 404 de un
+            // archivo renombrado en archive.org) y otros que solo se pueden contar.
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                val id = playlistRef.value?.items
+                    ?.getOrNull(controller.currentMediaItemIndex)?.episodeId ?: episodeId
+                android.util.Log.w("ArkivPlay", "onPlayerError episodeId=$id → ${error.message}")
+                vm.onPlaybackFailed(id)
+            }
         }
         activePlayer.addListener(listener)
         onDispose { activePlayer.removeListener(listener) }

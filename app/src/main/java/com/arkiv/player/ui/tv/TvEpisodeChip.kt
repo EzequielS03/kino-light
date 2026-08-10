@@ -3,6 +3,7 @@ package com.arkiv.player.ui.tv
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -144,5 +145,42 @@ fun TvEpisodeChip(
                 overflow = TextOverflow.Ellipsis,
             )
         }
+    }
+}
+
+/**
+ * Chip de una fuente de la serie ("web · 300 ep."), para elegir de cuál ver los capítulos cuando
+ * la misma serie entró a la biblioteca desde varias. Mismo tratamiento de foco que
+ * [TvEpisodeChip]: solo avisa al GANAR el foco, porque el "perdí" del chip viejo llega después
+ * del "gané" del nuevo y dejaría la pantalla mostrando la fuente equivocada.
+ */
+@Composable
+fun TvSourceChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    Box(
+        modifier = modifier
+            .onFocusChanged { isFocused = it.isFocused }
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (selected) ArkivRed.copy(alpha = 0.25f) else ArkivSurfaceHigh)
+            .border(
+                width = if (isFocused) 2.dp else 0.dp,
+                color = if (isFocused) Color.White else Color.Transparent,
+                shape = RoundedCornerShape(8.dp),
+            )
+            .clickable(onClick = onClick)
+            .focusable()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            color = Color.White,
+            maxLines = 1,
+        )
     }
 }
