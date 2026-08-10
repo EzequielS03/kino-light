@@ -18,8 +18,13 @@ data class LibraryGroup(
     /** Cuántas adquisiciones distintas hay detrás de la tarjeta (1 = no está agrupada). */
     val sourceCount: Int get() = members.size
 
-    /** Suma de capítulos de todas las fuentes: es lo que el usuario puede ver en total. */
-    val episodeCount: Int get() = members.sumOf { it.episodeCount }
+    /**
+     * Capítulos de la adquisición más completa, NO la suma de todas: las fuentes son copias
+     * alternativas de la MISMA serie, no contenido disjunto, así que sumarlas infla el número (6
+     * adquisiciones de Naruto sumaban 794 ep. para una serie de ~220). El detalle de cada fuente ya
+     * se ve aparte en los chips de "Fuentes"; acá no se pierde nada.
+     */
+    val episodeCount: Int get() = members.maxOf { it.episodeCount }
 }
 
 /**

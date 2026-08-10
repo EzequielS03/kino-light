@@ -101,7 +101,9 @@ class LibraryGroupingTest {
         assertEquals(1, grupos.size)
         assertEquals("web:series:tt30217403", grupos[0].primary.identifier)
         assertEquals(2, grupos[0].sourceCount)
-        assertEquals(25, grupos[0].episodeCount)
+        // episodeCount es el máximo entre fuentes (24), NO la suma (25): son copias alternativas
+        // de la misma serie, no contenido disjunto.
+        assertEquals(24, grupos[0].episodeCount)
     }
 
     /** El orden del home es por lo más reciente del grupo, para que agrupar no reordene la fila. */
