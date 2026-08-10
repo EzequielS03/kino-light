@@ -2,6 +2,7 @@ package com.arkiv.player.ui.search
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -940,7 +941,9 @@ private fun ResultsContent(
     /** Guarda la fuente en el dispositivo (botón de descarga de cada fila). */
     onDownload: (PlaySource) -> Unit,
 ) {
-    var expandedSections by remember { mutableStateOf(setOf("TORRENT", "WEB", "ARCHIVE")) }
+    // MAGIS entra en las abiertas por defecto: es la primera sección, y arrancar colapsada la haría
+    // parecer vacía justo arriba de todo.
+    var expandedSections by remember { mutableStateOf(setOf("MAGIS", "TORRENT", "WEB", "ARCHIVE")) }
     fun toggle(k: String) { expandedSections = if (k in expandedSections) expandedSections - k else expandedSections + k }
     var tab by remember { mutableStateOf(SourceTab.TODO) }
 
@@ -983,9 +986,9 @@ private fun ResultsContent(
         } else if (tab == SourceTab.TODO) {
             // "Todo" mantiene las secciones colapsables: son la única forma de ver los tres orígenes
             // a la vez sin que uno con 60 resultados entierre a los otros.
+            sourceSection(this, "MAGIS", ArkivMagisBlue, magis, loadingMagis, "MAGIS" in expandedSections, { toggle("MAGIS") }, enabled, onPlay, onDownload)
             sourceSection(this, "TORRENT", ArkivRed, torrents, loadingTorrent, "TORRENT" in expandedSections, { toggle("TORRENT") }, enabled, onPlay, onDownload)
             sourceSection(this, "WEB", ArkivWebViolet, webs, loadingWeb, "WEB" in expandedSections, { toggle("WEB") }, enabled, onPlay, onDownload)
-            sourceSection(this, "MAGIS", ArkivMagisBlue, magis, loadingMagis, "MAGIS" in expandedSections, { toggle("MAGIS") }, enabled, onPlay, onDownload)
             sourceSection(this, "ARCHIVE", ArkivArchiveTeal, archives, loadingArchive, "ARCHIVE" in expandedSections, { toggle("ARCHIVE") }, enabled, onPlay, onDownload)
         } else {
             // Con un origen elegido la cabecera de sección sobra: la lista va plana.
@@ -1161,7 +1164,13 @@ private fun sourceKey(s: PlaySource): String = when (s) {
     is PlaySource.Magis -> "m-${s.result.extra["content_id"] ?: s.result.ref}"
 }
 
-/** Chips de filtro por origen: Todo / Torrent / Web / Archive, con su contador. */
+/**
+ * Chips de filtro por origen (el orden lo fija [SourceTab]), con su contador.
+ *
+ * La fila SCROLLEA en horizontal. Con las cinco fuentes ya no caben en el ancho de un teléfono: el
+ * Row repartía el faltante achicando el último chip y "Archive" salía partido letra por letra en
+ * vertical. Scrolleando, cada chip conserva su ancho natural y se lee entero.
+ */
 @Composable
 private fun SourceTabRow(
     selected: SourceTab,
@@ -1170,7 +1179,10 @@ private fun SourceTabRow(
     modifier: Modifier = Modifier,
     onSelect: (SourceTab) -> Unit,
 ) {
-    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(
+        modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         SourceTab.entries.forEach { t ->
             val accent = when (t) {
                 SourceTab.TODO -> Color.White

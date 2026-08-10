@@ -7,11 +7,14 @@ import com.arkiv.player.ui.catalog.PlaySource
  * vuelve un muro: esto deja ver un solo origen cuando ya sabés cuál querés (p. ej. solo torrent
  * porque vas a descargar, o solo web porque no querés esperar seeds).
  */
+/** El orden acá manda: es el de los chips y el de las secciones de "Todo". Magis primero porque es
+ *  la fuente que arranca al toque (sin seeds ni resolver); archive última, que es la de último
+ *  recurso. */
 enum class SourceTab(val label: String) {
     TODO("Todo"),
+    MAGIS("Magis"),
     TORRENT("Torrent"),
     WEB("Web"),
-    MAGIS("Magis"),
     ARCHIVE("Archive"),
 }
 
