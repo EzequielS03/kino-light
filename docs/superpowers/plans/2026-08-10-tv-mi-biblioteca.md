@@ -15,7 +15,8 @@
 - Todo el texto de UI va en español rioplatense, igual que el resto de la app ("Guardar", "Quitar", "Ya visto").
 - Los comentarios de código se escriben en español y explican **por qué**, no qué — es la convención de este repo.
 - Commits sin línea `Co-Authored-By`. La identidad del repo ya está configurada como `lordmacu`.
-- **Otras sesiones de Claude comparten este working tree.** Nunca `git add -A` ni `git add .`: agregar SIEMPRE los archivos por ruta explícita. Antes de commitear, `git diff --cached --stat` para confirmar que no se coló trabajo ajeno.
+- **Otras sesiones de Claude comparten este working tree, y se trabaja directo sobre `main`.** Nunca `git add -A` ni `git add .`: agregar SIEMPRE los archivos por ruta explícita. Y commitear SIEMPRE con pathspec explícito — `git commit -m "..." -- <rutas>` — porque el índice puede tener trabajo ajeno ya preparado y un `git commit` pelado se lo lleva puesto (ya pasó una vez en esta sesión). Antes de commitear, `git diff --cached --stat` para ver qué hay.
+- No cambiar de rama, no hacer `git pull`, `git rebase` ni `git reset`: `main` se mueve sola por debajo. Si un commit falla por conflicto, parar y reportar en vez de resolverlo.
 
 ---
 
