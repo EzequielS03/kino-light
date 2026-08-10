@@ -6,7 +6,7 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
 /** Guarda identidad + token del dispositivo en prefs cifradas. */
-class SecureDeviceStore(context: Context) {
+class SecureDeviceStore(context: Context) : DeviceStore {
     private val prefs: SharedPreferences = run {
         val app = context.applicationContext
         val masterKey = MasterKey.Builder(app)
@@ -21,7 +21,7 @@ class SecureDeviceStore(context: Context) {
         )
     }
 
-    fun save(identity: DeviceIdentity) {
+    override fun save(identity: DeviceIdentity) {
         prefs.edit()
             .putString(K_ACCOUNT, identity.accountId)
             .putString(K_DEVICE, identity.deviceId)
@@ -31,7 +31,7 @@ class SecureDeviceStore(context: Context) {
             .apply()
     }
 
-    fun load(): DeviceIdentity? {
+    override fun load(): DeviceIdentity? {
         val accountId = prefs.getString(K_ACCOUNT, null) ?: return null
         return DeviceIdentity(
             accountId = accountId,
@@ -42,9 +42,13 @@ class SecureDeviceStore(context: Context) {
         )
     }
 
-    fun saveToken(token: String) { prefs.edit().putString(K_TOKEN, token).apply() }
-    fun token(): String? = prefs.getString(K_TOKEN, null)
-    fun clear() { prefs.edit().clear().apply() }
+    override fun saveToken(token: String) { prefs.edit().putString(K_TOKEN, token).apply() }
+    override fun token(): String? = prefs.getString(K_TOKEN, null)
+    override fun clear() { prefs.edit().clear().apply() }
+
+    override fun savePersonEmail(email: String) { prefs.edit().putString(K_PERSON_EMAIL, email).apply() }
+    override fun personEmail(): String? = prefs.getString(K_PERSON_EMAIL, null)
+    override fun clearPersonEmail() { prefs.edit().remove(K_PERSON_EMAIL).apply() }
 
     private companion object {
         const val K_ACCOUNT = "accountId"
@@ -53,5 +57,6 @@ class SecureDeviceStore(context: Context) {
         const val K_PASSWORD = "password"
         const val K_KIND = "kind"
         const val K_TOKEN = "token"
+        const val K_PERSON_EMAIL = "personEmail"
     }
 }

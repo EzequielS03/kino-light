@@ -15,7 +15,7 @@ data class DeviceSession(val accountId: String, val deviceId: String, val record
  */
 class DeviceAuthManager(
     private val client: PocketBaseClient,
-    private val store: SecureDeviceStore,
+    private val store: DeviceStore,
 ) {
     private val _session = MutableStateFlow<DeviceSession?>(null)
     val session: StateFlow<DeviceSession?> = _session.asStateFlow()
