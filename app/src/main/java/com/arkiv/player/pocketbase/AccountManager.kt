@@ -63,7 +63,9 @@ class AccountManager(
                 else e.message ?: "no se pudo iniciar sesión"
             )
         }
-        deviceAuth.switchAccount(auth.record.getString("accountId"))
+        val personAccountId = auth.record.optString("accountId")
+        if (personAccountId.isBlank()) throw AccountException("respuesta del servidor inválida (falta accountId)")
+        deviceAuth.switchAccount(personAccountId)
         onAccountSwitched()   // cloudSync.syncNow() = reset cursores + push local + pull => MERGE
         store.savePersonEmail(email)
         _state.value = AccountState.Conectado(email)

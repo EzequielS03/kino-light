@@ -80,6 +80,23 @@ class AccountManagerTest {
     }
 
     @Test
+    fun login_conRecordSinAccountId_lanzaAccountException() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setBody("""{"token":"dtok","record":{"id":"devrec"}}""")) // bootstrap
+        server.enqueue(MockResponse().setBody("""{"token":"utok","record":{"id":"usr-1"}}""")) // users auth, sin accountId
+        server.start()
+        val client = clientFor(server)
+        val store = FakeDeviceStore(DeviceIdentity("A_anon","dev-1","dev-1@arkiv.local","pw12345678","phone"))
+        val mgr = AccountManager(client, seededAuth(client, store), store, onAccountSwitched = {}, onLocalWipe = {})
+
+        var threw = false
+        try { mgr.login("a@b.co", "secret12") } catch (e: AccountException) { threw = true }
+        assertTrue(threw)
+        assertEquals(AccountState.Anonimo, mgr.state.value)
+        server.shutdown()
+    }
+
+    @Test
     fun logout_limpiaLocalYVuelveAnonimo() = runBlocking {
         val server = MockWebServer()
         // resetToAnonymous -> createNewAccount: createRecord(devices) + authWithPassword(devices)
