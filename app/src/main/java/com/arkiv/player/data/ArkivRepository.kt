@@ -109,6 +109,15 @@ class ArkivRepository(
             rows.distinctBy { it.itemId }.take(20)
         }
 
+    /**
+     * Lo ya visto, por ítem. El cruce contra los grupos de la biblioteca lo hace
+     * [com.arkiv.player.data.biblioteca.VistosDeLaBiblioteca], que es la parte pura y testeada.
+     */
+    fun observeVistos(): Flow<List<com.arkiv.player.data.biblioteca.VistoDeItem>> =
+        playbackDao.observeVistos().map { filas ->
+            filas.map { com.arkiv.player.data.biblioteca.VistoDeItem(it.itemId, it.episodios, it.ultimoVistoMs) }
+        }
+
     // --- Arte de TMDB (local, no sincronizado) -----------------------------------------------
 
     /** Mapa itemId -> arte resuelto de TMDB, para pintar backdrops en el home. */

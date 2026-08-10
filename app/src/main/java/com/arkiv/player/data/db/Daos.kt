@@ -31,6 +31,13 @@ data class SerieConProgresoRow(
     val ultimoVistoMs: Long,
 )
 
+/** Lo visto de un ítem, para la sección "Ya visto" de la biblioteca del TV. */
+data class VistoRow(
+    val itemId: String,
+    val episodios: Int,
+    val ultimoVistoMs: Long,
+)
+
 data class LibraryRow(
     val identifier: String,
     val title: String,
@@ -197,6 +204,28 @@ interface PlaybackDao {
         """
     )
     fun observeContinueWatching(minPositionMs: Long): Flow<List<ContinueRow>>
+
+    /**
+     * Los ítems con capítulos ya vistos, con cuántos y cuándo fue el último.
+     *
+     * Gemela de [observeContinueWatching] pero al revés (`watched = 1`): lo que sale de "Continuar
+     * viendo" al terminarlo tiene que aterrizar en algún lado, y hasta ahora no aterrizaba en
+     * ninguno.
+     *
+     * NO hace `JOIN items`: el filtro por ítem vivo lo aplica `VistosDeLaBiblioteca.cruzar`, que ya
+     * recibe los grupos (y los grupos ya excluyen los borrados). Sumar el join acá duplicaría esa
+     * regla en dos lugares.
+     */
+    @Query(
+        """
+        SELECT e.itemId AS itemId, COUNT(*) AS episodios, MAX(p.lastPlayedAt) AS ultimoVistoMs
+        FROM playback p
+        JOIN episodes e ON e.id = p.episodeId
+        WHERE p.watched = 1 AND p.deleted = 0 AND e.deleted = 0
+        GROUP BY e.itemId
+        """
+    )
+    fun observeVistos(): Flow<List<VistoRow>>
 
     @Query("SELECT * FROM playback WHERE episodeId IN (SELECT id FROM episodes WHERE itemId = :itemId)")
     fun observePlaybackForItem(itemId: String): Flow<List<PlaybackEntity>>
