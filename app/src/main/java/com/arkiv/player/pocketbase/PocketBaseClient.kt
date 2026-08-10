@@ -16,6 +16,8 @@ private const val PER_PAGE = 200
 
 data class AuthResult(val token: String, val recordId: String)
 
+data class AuthRecord(val token: String, val recordId: String, val record: org.json.JSONObject)
+
 class PocketBaseClient(
     private val baseUrl: String = PocketBaseConfig.BASE_URL,
     private val client: OkHttpClient = OkHttpClient(),
@@ -43,6 +45,19 @@ class PocketBaseClient(
                 .build()
             val json = execute(req)
             AuthResult(json.getString("token"), json.getJSONObject("record").getString("id"))
+        }
+
+    suspend fun authWithPasswordRecord(collection: String, identity: String, password: String): AuthRecord =
+        withContext(Dispatchers.IO) {
+            val body = JSONObject(mapOf("identity" to identity, "password" to password))
+                .toString().toRequestBody(jsonType)
+            val req = Request.Builder()
+                .url("$baseUrl/api/collections/$collection/auth-with-password")
+                .post(body)
+                .build()
+            val json = execute(req)
+            val record = json.getJSONObject("record")
+            AuthRecord(json.getString("token"), record.getString("id"), record)
         }
 
     suspend fun authRefresh(collection: String, token: String): AuthResult =
