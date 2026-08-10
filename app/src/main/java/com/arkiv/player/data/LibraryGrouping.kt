@@ -2,6 +2,8 @@ package com.arkiv.player.data
 
 import com.arkiv.player.data.db.ArtworkEntity
 import com.arkiv.player.data.db.LibraryRow
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 
 /**
  * Una serie de la biblioteca vista como UNA sola cosa, con todas las adquisiciones que la
@@ -71,4 +73,14 @@ object LibraryGrouping {
                 )
             }
             .sortedByDescending { g -> g.members.maxOf { it.addedAt } }
+
+    /**
+     * Los dos flows combinados. Vive acá (y no en el repositorio) para poder testearlo sin Room:
+     * el repositorio solo lo cablea con sus DAOs.
+     */
+    fun groupsFlow(
+        rows: Flow<List<LibraryRow>>,
+        artwork: Flow<Map<String, ArtworkEntity>>,
+    ): Flow<List<LibraryGroup>> =
+        combine(rows, artwork) { r, a -> group(r, a) }
 }

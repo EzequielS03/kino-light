@@ -2,6 +2,7 @@ package com.arkiv.player.data
 
 import com.arkiv.player.data.db.ArtworkEntity
 import com.arkiv.player.data.db.LibraryRow
+import kotlinx.coroutines.launch
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -110,5 +111,32 @@ class LibraryGroupingTest {
         val nuevo = row("web:series:tt2", "Nueva", 10, addedAt = 300)
         val grupos = LibraryGrouping.group(listOf(viejo, nuevo), emptyMap())
         assertEquals(listOf("Nueva", "Vieja"), grupos.map { it.primary.title })
+    }
+
+    /**
+     * El combine de los dos flows: si el arte llega DESPUÉS que la biblioteca (que es lo normal —
+     * `ensureArtwork` sale a la red), el grupo tiene que recalcularse solo. Si no, el home se
+     * queda con las tarjetas separadas hasta reabrir la app.
+     */
+    @Test
+    fun `los grupos se recalculan cuando llega el artwork`() = kotlinx.coroutines.runBlocking {
+        val a = row("web:series:tt30217403", "DAN DA DAN", 24)
+        val b = row("web:series:anilist171018", "DAN DA DAN", 1)
+        val artwork = kotlinx.coroutines.flow.MutableStateFlow<Map<String, ArtworkEntity>>(emptyMap())
+        val flow = LibraryGrouping.groupsFlow(
+            kotlinx.coroutines.flow.flowOf(listOf(a, b)),
+            artwork,
+        )
+        val emissions = mutableListOf<List<LibraryGroup>>()
+        val job = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined).launch {
+            flow.collect { emissions += it }
+        }
+        assertEquals(2, emissions.last().size)
+        artwork.value = mapOf(
+            a.identifier to art(a.identifier, 240411, "tv"),
+            b.identifier to art(b.identifier, 240411, "tv"),
+        )
+        assertEquals(1, emissions.last().size)
+        job.cancel()
     }
 }

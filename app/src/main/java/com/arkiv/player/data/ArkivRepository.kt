@@ -70,6 +70,14 @@ class ArkivRepository(
 
     fun observeLibrary(): Flow<List<LibraryRow>> = itemDao.observeLibrary()
 
+    /**
+     * La biblioteca ya agrupada: una entrada por serie, no por adquisición. Ver [LibraryGrouping].
+     * `observeLibrary()` sigue existiendo para quien necesite las filas crudas (la pantalla de
+     * biblioteca del teléfono, el sync).
+     */
+    fun observeLibraryGroups(): Flow<List<LibraryGroup>> =
+        LibraryGrouping.groupsFlow(observeLibrary(), observeArtwork())
+
     fun observeContinueWatching(): Flow<List<ContinueRow>> =
         playbackDao.observeContinueWatching(CONTINUE_WATCHING_MIN_MS).map { rows ->
             // Una tarjeta por ÍTEM, no por episodio: la consulta devuelve una fila por capítulo
