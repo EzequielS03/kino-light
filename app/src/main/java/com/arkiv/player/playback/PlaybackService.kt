@@ -107,6 +107,11 @@ class PlaybackService : MediaSessionService() {
                             userAgent = ex.getString("userAgent"),
                             proxyUrl = ex.getString("proxyUrl"),
                             knownDurationMs = ex.getLong("knownDurationMs", 0L),
+                            // Si se agrega un campo al tag hay que agregarlo ACÁ y en los extras que
+                            // arma PlayerScreen: el tag no cruza el IPC y lo que falte llega en su
+                            // valor por defecto, en silencio. Pasó con esto: el arranque por software
+                            // se quedaba en false y el HEVC seguía abriendo por hardware.
+                            preferirSoftware = ex.getBoolean("preferirSoftware", false),
                         ),
                     )
                 }

@@ -63,6 +63,34 @@ object EpisodeNumbering {
     /** Número tras la "E" del nombre ("T1 · E7  Título" → 7). Null si no hay marca de capítulo. */
     fun episodeOf(displayName: String): Int? =
         Regex("(?i)E(\\d+)").find(displayName)?.groupValues?.get(1)?.toIntOrNull()
+
+    private val SXE = Regex("(?i)s(\\d+)\\s*e(\\d+)")
+    private val TEMPORADA = Regex("(?i)\\bT\\s*(\\d+)")
+    private val CAPITULO = Regex("(?i)\\bE(?:pisodio|p)?\\.?\\s*(\\d+)")
+
+    /**
+     * Rótulo de temporada/capítulo para MOSTRAR en el player ("T1 · E3", o "E7" cuando no hay
+     * temporada). Null si el nombre no declara capítulo: preferimos no mostrar nada antes que
+     * inventar o volcar texto sucio — en la base real hay displayName con la sinopsis entera y la
+     * fecha pegadas, y otros que son puro ruido ("TPO Neon Genesis Evangelion 04 · Trapo2019 …").
+     *
+     * A propósito NO reusa ni amplía seasonOf/episodeOf: esos alimentan DECISIONES (ver el KDoc de
+     * arriba) y ensancharles el regex para tragar formatos sucios movería el tilde de "ya
+     * descargado" y la elección NUC-vs-vivo. Acá el peor caso es quedarse sin rótulo.
+     */
+    fun displayLabel(section: String?, displayName: String): String? {
+        SXE.find(displayName)?.let { m ->
+            val e = m.groupValues[2].toIntOrNull()
+            if (e != null) {
+                val s = m.groupValues[1].toIntOrNull()
+                return if (s != null) "T$s · E$e" else "E$e"
+            }
+        }
+        val episodio = CAPITULO.find(displayName)?.groupValues?.get(1)?.toIntOrNull() ?: return null
+        val temporada = TEMPORADA.find(displayName)?.groupValues?.get(1)?.toIntOrNull()
+            ?: section?.takeIf { it.isNotBlank() }?.let { seasonOf(it) }
+        return if (temporada != null) "T$temporada · E$episodio" else "E$episodio"
+    }
 }
 
 /** Un ítem de archive.org con sus videos ya agrupados. */

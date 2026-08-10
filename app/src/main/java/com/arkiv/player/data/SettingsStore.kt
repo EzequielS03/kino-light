@@ -57,6 +57,12 @@ class SettingsStore(context: Context) {
     private val _cloudflareSolverEnabled = MutableStateFlow(prefs.getBoolean(KEY_CF_ENABLED, true))
     val cloudflareSolverEnabled: StateFlow<Boolean> = _cloudflareSolverEnabled
 
+    // Modo noche del reproductor: nivel del velo negro que va encima del video, de 0 (normal) a
+    // DIM_MAX_LEVEL (negro total). Persistido a propósito (no por sesión): quien lo baja ve casi
+    // siempre de noche. El nivel lo acota el reproductor; acá se guarda tal cual llega.
+    private val _dimLevel = MutableStateFlow(prefs.getInt(KEY_DIM_LEVEL, 0))
+    val dimLevel: StateFlow<Int> = _dimLevel
+
     // --- gateway unificado -------------------------------------------------
     // Una sola credencial para TODO el gateway: reemplaza a refreshApiKey y nucApiKey, y saca del
     // APK las de TMDB, OpenSubtitles y Simkl. Editable acá para poder rotarla sin publicar APK.
@@ -94,6 +100,8 @@ class SettingsStore(context: Context) {
         prefs.edit().putInt(KEY_MAX_SIZE, gb).apply()
         _maxTorrentSizeGb.value = gb
     }
+
+    fun setDimLevel(v: Int) { prefs.edit().putInt(KEY_DIM_LEVEL, v).apply(); _dimLevel.value = v }
 
     fun setArkivApiKey(v: String) { prefs.edit().putString(KEY_ARKIV_API_KEY, v).apply(); _arkivApiKey.value = v }
     fun setGatewayUrl(v: String) { prefs.edit().putString(KEY_GATEWAY_URL, v).apply(); _gatewayUrl.value = v }
@@ -133,6 +141,7 @@ class SettingsStore(context: Context) {
         private const val KEY_WEB_SOURCES_URL = "web_sources_url"
         private const val KEY_WEB_RESOLVER_URL = "web_resolver_url"
         private const val KEY_CF_ENABLED = "cloudflare_solver_enabled"
+        private const val KEY_DIM_LEVEL = "dim_level"
         private const val KEY_ARKIV_API_KEY = "arkiv_api_key"
         private const val KEY_GATEWAY_URL = "gateway_url"
         private const val KEY_USE_GATEWAY = "use_gateway"

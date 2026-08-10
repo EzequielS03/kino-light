@@ -30,6 +30,30 @@ object TsDurationProbe {
      *  repite como mínimo cada 100 ms por norma). */
     const val PROBE_BYTES = 256 * 1024
 
+    /**
+     * Cuánto puede tardar la sonda ENTERA antes de que se la dé por perdida y se reproduzca sin
+     * duración. Lo aplica quien llama (el video no arranca hasta que esto termina).
+     */
+    const val PRESUPUESTO_MS = 30_000L
+
+    /**
+     * Intentos por tramo, y cuánto se le aguanta a cada uno.
+     *
+     * El CDN de magis no es lento parejo: es una lotería. Midiendo el tiempo hasta el primer byte
+     * sobre el mismo archivo salieron 0,26 s / 0,57 s / 0,87 s / 1,55 s / 3,49 s / 6,24 s / 8,50 s
+     * / 19,95 s, y a veces manda las cabeceras y el cuerpo nunca llega. Contra eso, **abandonar
+     * rápido y volver a intentar gana**: una conexión nueva vuelve a jugar la lotería, mientras que
+     * esperar 20 s a la mala solo gasta el presupuesto. Antes era un intento de 15 s + uno de
+     * repuesto, y perdía cuando el CDN se ponía denso (visto en device: los dos tramos vencidos y
+     * la película sin duración).
+     */
+    private const val INTENTOS = 3
+    private const val TIMEOUT_CONEXION_MS = 8_000
+    private const val TIMEOUT_LECTURA_MS = 8_000
+
+    /** Respiro entre intentos: corto a propósito, la gracia es volver a tirar los dados ya. */
+    private const val ESPERA_ENTRE_INTENTOS_MS = 400L
+
     /** El PCR es un contador de 33 bits a 90 kHz: da la vuelta cada ~26,5 h. */
     private const val PCR_WRAP = 1L shl 33
 
@@ -60,10 +84,12 @@ object TsDurationProbe {
      */
     suspend fun probeRemote(url: String, headers: Map<String, String>): Long = withContext(Dispatchers.IO) {
         val t0 = System.currentTimeMillis()
-        // UNA PUNTA A LA VEZ. El CDN de magis atiende de a una conexión por archivo: pedir cabeza y
-        // cola en paralelo se pisa solo y devuelve 504 en las dos (visto en device), y la película
-        // queda sin duración = barra llena. La cola va por rango-sufijo (`bytes=-N`) para no tener
-        // que preguntar antes el tamaño.
+        // UNA PUNTA A LA VEZ, y la cola primero. Medido después: el CDN SÍ atiende dos conexiones
+        // al mismo archivo (la teoría vieja de "una por archivo" era falsa), pero responde cada
+        // rango cuando quiere —entre 0,2 s y 20 s— así que pedir las dos juntas no acorta nada y
+        // duplica las chances de comerse una mala. La cola va por rango-sufijo (`bytes=-N`) para
+        // no tener que preguntar antes el tamaño, y va primera porque es la que más falla: si no
+        // hay cola no hay duración, y así no se gasta el presupuesto bajando una cabeza inútil.
         val cola = fetchRange(url, headers, "bytes=-$PROBE_BYTES")
             ?: return@withContext 0L
         val cabeza = fetchRange(url, headers, "bytes=0-${PROBE_BYTES - 1}")
@@ -127,12 +153,15 @@ object TsDurationProbe {
         return Pcr(pid, base)
     }
 
-    /** Un tramo, con un reintento: el CDN devuelve 504 esporádicos aunque se pida de a uno. */
-    private fun fetchRange(url: String, headers: Map<String, String>, range: String): ByteArray? =
-        intentarTramo(url, headers, range) ?: run {
-            Thread.sleep(600)
-            intentarTramo(url, headers, range)
+    /** Un tramo, reintentando: ver [INTENTOS] para por qué son varios y cortos. */
+    private fun fetchRange(url: String, headers: Map<String, String>, range: String): ByteArray? {
+        repeat(INTENTOS) { i ->
+            intentarTramo(url, headers, range)?.let { return it }
+            if (i < INTENTOS - 1) Thread.sleep(ESPERA_ENTRE_INTENTOS_MS)
         }
+        android.util.Log.w(TAG, "tramo $range: agotados los $INTENTOS intentos")
+        return null
+    }
 
     private fun intentarTramo(url: String, headers: Map<String, String>, range: String): ByteArray? =
         runCatching {
@@ -158,7 +187,7 @@ object TsDurationProbe {
             setRequestProperty("User-Agent", "Arkiv/0.1 (personal)")
             headers.forEach { (k, v) -> setRequestProperty(k, v) }
             setRequestProperty("Range", range)
-            connectTimeout = 10_000
-            readTimeout = 15_000
+            connectTimeout = TIMEOUT_CONEXION_MS
+            readTimeout = TIMEOUT_LECTURA_MS
         }
 }

@@ -99,6 +99,8 @@ class ArkivApiClient(
             } ?: emptyMap(),
             mime = o.optString("mime"),
             expiresAt = o.optString("expires_at"),
+            durationMs = o.optLong("duration_ms", 0L).coerceAtLeast(0L),
+            videoCodec = o.optString("video_codec"),
             fallbackUrl = o.optJSONObject("fallback")?.optString("url"),
             subtitles = o.optJSONArray("subtitles")?.let { arr ->
                 (0 until arr.length()).mapNotNull { i ->

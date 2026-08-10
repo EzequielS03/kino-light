@@ -34,6 +34,18 @@ data class GatewayPlayable(
     /** Pistas que la fuente entrega junto al stream. Magis las trae del portal y el resolver web
      *  las sniffea de la página: descartarlas obligaría a buscarlas de nuevo en OpenSubtitles. */
     val subtitles: List<GatewaySubtitle> = emptyList(),
+    /**
+     * Duración real en ms cuando la fuente la sabe (0 = no la sabe).
+     *
+     * Existe por el MPEG-TS crudo de magis: no la lleva en ninguna cabecera y libVLC tampoco la
+     * deduce sobre HTTP, así que sin este dato hay que bajar las dos puntas del archivo para leer
+     * sus PCR ([com.arkiv.player.playback.TsDurationProbe]) contra un CDN que tarda entre 0,2 s y
+     * 20 s en contestar un rango. Cuando esa sonda pierde, la película queda con la barra llena,
+     * 00:00 a la derecha y sin poder adelantar. El portal ya sabe cuánto dura: esto lo trae.
+     */
+    val durationMs: Long = 0L,
+    /** Códec de video que reporta la fuente ("h264", "h265"…); "" si no se sabe. */
+    val videoCodec: String = "",
 )
 
 data class GatewaySubtitle(val lang: String, val url: String, val format: String = "")

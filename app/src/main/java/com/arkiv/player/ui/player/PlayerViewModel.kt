@@ -19,6 +19,8 @@ import com.arkiv.player.playback.ArchiveCacheProxy
 import com.arkiv.player.playback.PlayerSource
 import com.arkiv.player.playback.SourceKind
 import com.arkiv.player.playback.TsDurationProbe
+import com.arkiv.player.playback.UnknownLengthPolicy
+import com.arkiv.player.playback.VentanaDeArchivo
 import com.arkiv.player.torrent.EpisodeHint
 import com.arkiv.player.torrent.TorrentEngine
 import com.arkiv.player.torrent.TorrentProgress
@@ -48,6 +50,7 @@ data class PlayerData(
     val userAgent: String? = null,
     val proxyUrl: String? = null,   // web: URL proxeada de respaldo si la directa falla (403/geo/anti-leech)
     val knownDurationMs: Long = 0L, // duración sondeada aparte, para fuentes cuya duración VLC no deduce (TS/HTTP)
+    val preferirSoftware: Boolean = false, // HEVC de magis: el hardware falla y deja sin pistas. Ver PlayerSourceTag.
 )
 
 /** La sección como playlist: todos los episodios + dónde/cómo arrancar. */
@@ -359,14 +362,22 @@ class PlayerViewModel(
         // mientras VLC sigue leyendo por el offset viejo → el TS le llega con huecos, el tiempo salta
         // de a minutos y el video se muere. Sin caché no hay nada que truncar.
         val urlLocal = archiveCacheProxy.proxyUrl(play.url, play.headers, directo = true)
-        // El TS no dice cuánto dura y libVLC no lo deduce sobre HTTP: la sondeamos nosotros (dos
-        // Range de 256 KB) o la barra queda llena, en 00:00 y sin poder adelantar. Best-effort: si
-        // tarda o falla se reproduce igual, solo sin duración (que es como estaba antes).
+        // El TS no dice cuánto dura y libVLC no lo deduce sobre HTTP; sin duración la barra queda
+        // llena, en 00:00, sin poder adelantar y sin guardar dónde ibas.
+        //
+        // El camino BUENO es que la diga el gateway: el portal ya la sabe para las películas y
+        // llega gratis en el resolve. Sondearla es el respaldo (capítulos de serie, que el portal
+        // manda sin duración), y cuesta dos viajes al CDN ANTES de arrancar el video contra un
+        // origen que tarda entre 0,2 s y 20 s por rango — o sea que a veces se pierde. Best-effort:
+        // si falla se reproduce igual, solo sin duración.
         val esTs = play.mime.contains("mp2t", true) || play.url.substringBefore('?').endsWith(".ts", true)
-        val duracionSondeada = if (!esTs) 0L else withContext(Dispatchers.IO) {
+        val duracion = if (!UnknownLengthPolicy.hayQueSondear(esTs, play.durationMs)) {
+            if (play.durationMs > 0) Log.w(PLAY, "loadMagis() duracion del gateway=${play.durationMs}ms (sin sonda)")
+            play.durationMs
+        } else withContext(Dispatchers.IO) {
             val t0 = System.currentTimeMillis()
-            // Margen para las dos puntas EN SERIE + un reintento (el CDN suelta 504 esporádicos).
-            val ms = withTimeoutOrNull(20_000) {
+            // Margen para las dos puntas EN SERIE, cada una con sus reintentos.
+            val ms = withTimeoutOrNull(TsDurationProbe.PRESUPUESTO_MS) {
                 runCatching { TsDurationProbe.probeRemote(play.url, play.headers) }.getOrDefault(0L)
             } ?: 0L
             Log.w(PLAY, "loadMagis() sonda de duracion=${ms}ms (tardó ${System.currentTimeMillis() - t0}ms)")
@@ -384,10 +395,17 @@ class PlayerViewModel(
             artworkUrl = "",
             openingStartMs = null, openingEndMs = null, endingStartMs = null,
             kind = SourceKind.MAGIS,
-            knownDurationMs = duracionSondeada,
+            knownDurationMs = duracion,
         )
-        // Los subtítulos viajan por el MISMO canal que los de web: PlayerScreen ya los adjunta
-        // desde acá. El portal los entrega junto al stream, así que no hay que ir a OpenSubtitles.
+        // Acá se forzaba SOFTWARE para el HEVC de magis, dando por hecho que el decodificador por
+        // hardware descartaba las pistas (`pistas=v0/a0`). Ese diagnóstico era falso: el que las
+        // descartaba era el subtítulo externo (ver PlayerScreen, donde magis no lo adjunta). Sin él,
+        // el mismo título arranca con `v2/a3` por hardware y por software. Se deja abrir por
+        // hardware —más rápido y sin gastar CPU—; si algún título de verdad falla ahí, el rescate
+        // "hardware sin imagen → paso a software" de VlcPlayer sigue estando.
+        //
+        // Los subtítulos viajan por el MISMO canal que los de web: PlayerScreen decide qué hacer con
+        // ellos. El portal los entrega junto al stream, así que no hay que ir a OpenSubtitles.
         _webExtras.value = WebExtras(
             episodeId,
             play.headers,
@@ -396,6 +414,16 @@ class PlayerViewModel(
             },
         )
         val startPos = safeStartPosition(episodeId, SourceKind.MAGIS)
+        // ARRANQUE CALIENTE antes de publicar: el CDN de magis tarda entre 0,2 s y 20 s en el
+        // primer byte, y si esa primera lectura se demora libVLC se rinde identificando el stream y
+        // se queda SIN PISTAS para siempre (pantalla negra y sin sonido, con el reloj disparado).
+        // Teniendo el arranque en la mano, esa espera pasa a ocurrir acá —antes de abrir el video,
+        // donde el usuario ve el spinner de siempre— en vez de convertirse en un fallo del que no
+        // se vuelve. Se precalienta el byte 0, que es donde VLC abre SIEMPRE desde que magis dejó de
+        // abrir por ventana: reanuda saltando por tiempo, no abriendo el stream más adelante.
+        withContext(Dispatchers.IO) {
+            runCatching { archiveCacheProxy.precalentar(play.url, play.headers, fraccion = 0f) }
+        }
         _playlist.value = PlaylistData(listOf(item), 0, startPos)
         Log.w(PLAY, "loadMagis() playlist publicada (startPos=$startPos)")
     }

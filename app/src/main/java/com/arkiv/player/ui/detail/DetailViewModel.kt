@@ -21,6 +21,16 @@ class DetailViewModel(
     val skipMarker: StateFlow<SkipMarkerEntity?> = repo.observeSkipMarker(identifier)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    init {
+        // Al abrir el detalle, volver a mirar la fuente: los capítulos que se subieron DESPUÉS de
+        // agregar la serie no aparecían nunca (la lista se copiaba una sola vez, al agregarla).
+        // Va acá y no en las pantallas para que valga igual en TV y en teléfono. El ViewModel
+        // sobrevive a los cambios de configuración, así que es una vez por apertura, no por giro.
+        // `detail` observa la DB, así que la lista nueva se pinta sola; si falla la red,
+        // refreshItem devuelve un Result fallido y la biblioteca se queda como estaba.
+        refresh()
+    }
+
     fun saveSkipMarker(openingStartMs: Long?, openingEndMs: Long?, endingStartMs: Long?) {
         viewModelScope.launch {
             repo.saveSkipMarker(identifier, openingStartMs, openingEndMs, endingStartMs)

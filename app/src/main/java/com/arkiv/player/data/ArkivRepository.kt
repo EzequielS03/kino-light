@@ -9,6 +9,7 @@ import com.arkiv.player.data.db.LibraryRow
 import com.arkiv.player.data.db.PlaybackEntity
 import com.arkiv.player.data.model.ArchiveItem
 import com.arkiv.player.data.model.Episode
+import com.arkiv.player.data.model.EpisodeNumbering
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
@@ -285,12 +286,35 @@ class ArkivRepository(
         itemDao.updateTitle(itemId, clean, clock())
     }
 
-    /** Vuelve a bajar la metadata de un ítem ya guardado (no aplica a torrents). */
+    /**
+     * Vuelve a bajar la metadata de un ítem ya guardado y reemplaza su lista de episodios, que es
+     * como aparecen los capítulos subidos DESPUÉS de agregarlo a la biblioteca.
+     *
+     * Es seguro para el progreso: los ids de episodio se derivan del nombre del archivo en
+     * archive.org, así que al re-bajar salen idénticos, y `playback` no tiene foreign key hacia
+     * `episodes` (borrarlos no arrastra las marcas de "voy por aquí").
+     *
+     * Solo aplica a ítems de archive.org: los de torrent y los `web:` no tienen metadata que
+     * re-consultar ahí, y pedirla igual sería una llamada de red condenada a fallar.
+     */
     suspend fun refreshItem(identifier: String): Result<ArchiveItem> {
-        if (identifier.startsWith("torrent:")) {
-            return Result.failure(IllegalStateException("Los torrents no se refrescan"))
+        val existing = itemDao.getItem(identifier)
+        if (existing != null && existing.source != "archive") {
+            return Result.failure(IllegalStateException("Solo se refrescan los ítems de archive.org"))
         }
-        return addItem(identifier)
+        if (identifier.startsWith("torrent:") || identifier.startsWith("web:")) {
+            return Result.failure(IllegalStateException("Solo se refrescan los ítems de archive.org"))
+        }
+        // Conservar el título y la descripción que ya tiene la biblioteca. Sin esto el refresco los
+        // pisa con los de archive.org, y en NUESTRAS subidas el ítem allá se llama como el hash con
+        // el que se subió ("f75163…_s01e01"): la serie pasaba a mostrarse con ese hash en vez de
+        // "Dragon Ball GT". Es el mismo motivo por el que addItem acepta titleOverride.
+        // También respeta el renombre manual del usuario, que si no se perdía en cada refresco.
+        return addItem(
+            identifier,
+            titleOverride = existing?.title,
+            descriptionOverride = existing?.description,
+        )
     }
 
     /**
@@ -635,7 +659,11 @@ class ArkivRepository(
         return ep.torrentData ?: itemDao.getItem(ep.itemId)?.torrentData
     }
 
-    /** Encabezado del player: título del ítem + nombre del episodio (solo si es serie, no película). */
+    /**
+     * Encabezado del player: título del ítem + rótulo de temporada/capítulo (solo si es serie).
+     * El rótulo se PARSEA, no es el displayName crudo: en la base real esos nombres traen desde
+     * "s01e01" hasta la sinopsis entera con la fecha pegada. Ver EpisodeNumbering.displayLabel.
+     */
     data class PlayerHeaderInfo(val itemTitle: String, val episodeLabel: String?)
 
     suspend fun headerInfo(episodeId: String): PlayerHeaderInfo? {
@@ -647,7 +675,8 @@ class ArkivRepository(
             "series" -> false
             else -> count <= 1
         }
-        return PlayerHeaderInfo(item.title, if (isMovie) null else ep.displayName)
+        val label = if (isMovie) null else EpisodeNumbering.displayLabel(ep.section, ep.displayName)
+        return PlayerHeaderInfo(item.title, label)
     }
 
     /** Contexto para buscar subtítulos de un episodio (imdb del ítem serie, título, temporada/ep). */
@@ -781,8 +810,18 @@ class ArkivRepository(
             val localOverride = localItems.associate { it.identifier to it.categoryOverride }
             val episodesByItem = snapshot.episodes.groupBy { it.itemId }
             for (item in snapshot.items) {
+                val remoteEpisodes = episodesByItem[item.identifier] ?: emptyList()
                 if (item.identifier !in localItemIds) {
-                    itemDao.replaceItem(item, episodesByItem[item.identifier] ?: emptyList())
+                    itemDao.replaceItem(item, remoteEpisodes)
+                    changes++
+                    continue
+                }
+                // El ítem ya existe: antes solo se adoptaba la categoría y la lista de episodios
+                // quedaba congelada en la del día que se agregó, así que los capítulos nuevos del
+                // origen no llegaban nunca (ver EpisodeMirror).
+                val localEpisodes = itemDao.getEpisodesOf(item.identifier).map { it.id }
+                if (com.arkiv.player.sync.EpisodeMirror.differs(localEpisodes, remoteEpisodes.map { it.id })) {
+                    itemDao.replaceItem(item, remoteEpisodes)
                     changes++
                 } else if (localOverride[item.identifier] != item.categoryOverride) {
                     // La fuente (teléfono) manda: adoptar su categoría manual.

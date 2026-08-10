@@ -37,10 +37,13 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Brightness2
+import androidx.compose.material.icons.filled.BrightnessHigh
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.ClosedCaptionOff
 import androidx.compose.material.icons.filled.Download
@@ -69,6 +72,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -178,6 +182,12 @@ private val ZOOM_LABELS = listOf("Ajustar", "Zoom", "Zoom+")
 private const val MOSTRAR_MARCADORES_EN_TELEFONO = false
 private const val MOSTRAR_VELOCIDAD_Y_ZOOM_EN_TELEFONO = false
 
+// Modo noche: el velo negro va ENCIMA del video, con opacidad nivel/DIM_MAX_LEVEL — 0 = brillo
+// normal (sin velo), DIM_MAX_LEVEL = negro total. No se usa el brillo real de la pantalla porque
+// en el Fire TV Stick es no-op (el brillo lo manda el televisor, no Android), y libVLC 3.x no
+// expone el filtro `adjust`. Cambiar la finura del paso = cambiar solo esta línea.
+private const val DIM_MAX_LEVEL = 10
+
 /** Cada cuánto y cuántas veces reintentar leer las pistas si al conectar el cast no había ninguna. */
 private const val RECHEQUEO_MS = 500L
 private const val RECHEQUEO_INTENTOS = 40
@@ -208,6 +218,7 @@ private fun localMediaItems(items: List<PlayerData>): List<MediaItem> = items.ma
                     // Si no viaja acá, el tag reconstruido del otro lado del IPC pierde la duración
                     // sondeada y el player vuelve a quedarse sin ella (barra llena, sin seek).
                     if (d.knownDurationMs > 0) putLong("knownDurationMs", d.knownDurationMs)
+                    if (d.preferirSoftware) putBoolean("preferirSoftware", true)
                 })
                 .build(),
         )
@@ -222,6 +233,7 @@ private fun localMediaItems(items: List<PlayerData>): List<MediaItem> = items.ma
                 userAgent = d.userAgent,
                 proxyUrl = d.proxyUrl,
                 knownDurationMs = d.knownDurationMs,
+                preferirSoftware = d.preferirSoftware,
             ),
         )
         .setMediaMetadata(
@@ -328,6 +340,22 @@ private fun PlayerContent(
     LaunchedEffect(playlist, webExtras) {
         val extras = webExtras ?: return@LaunchedEffect
         if (playlist == null) return@LaunchedEffect
+        // MAGIS NO: engancharle a su MPEG-TS un subtítulo externo le tumba TODAS las pistas al
+        // demuxer de libVLC, y no es cosa del momento en que se haga — medido en device las dos
+        // formas fallan. En marcha: `Vout 1` y 465 ms después `Vout 0` con `pistas=v0/a0`. Desde el
+        // arranque (adjuntándolo al media): nunca llega a tener pistas, se queda en `buffering 0%`
+        // y se traga 365 MB en 59 s. Sin el subtítulo, ese mismo stream arranca limpio con `v2/a3`,
+        // por hardware y por software. Hasta saber por qué, magis va sin subtítulo automático.
+        // Esto era veneno para magis mientras su MPEG-TS lo demuxeaba el módulo `ts` nativo: el
+        // subtítulo entraba como grupo 0, libVLC cambiaba a ese el programa activo y al soltar el
+        // programa 1 del TS se llevaba puestos sus tres PIDs (video 256 + audios 257/258). Quedaba
+        // `pistas=v0/a0` — negro, mudo y con el reloj disparado. Medido con libVLC en -vv:
+        //   input: loading spu-es slave: …srt (forced: 1)
+        //   input: unselecting program id=1
+        //   input: selecting program id=0
+        // Fallaban las tres variantes (en marcha, al abrir el media, y con select=false) y daba
+        // igual http o file://. Lo que lo resolvió fue cambiarle el demuxer a magis: ver
+        // VlcPlayer.loadMedia. Sin programas no hay programa que perder.
         kotlinx.coroutines.delay(800) // dar tiempo a que VLC cargue el media antes del slave
         extras.subtitles.forEach { s -> runCatching { vlc.addSubtitleSlave(Uri.parse(s.url)) } }
     }
@@ -350,6 +378,8 @@ private fun PlayerContent(
     // al mostrarse el overlay el foco de Android pasa del video (que atajaba TODAS las teclas) a
     // estos FocusRequesters; al ocultarse vuelve al video para el "cualquier tecla = mostrar".
     val subtitleFR = remember { FocusRequester() }
+    val dimDownFR = remember { FocusRequester() }
+    val dimUpFR = remember { FocusRequester() }
     val rewindFR = remember { FocusRequester() }
     val playPauseFR = remember { FocusRequester() }
     val forwardFR = remember { FocusRequester() }
@@ -444,6 +474,19 @@ private fun PlayerContent(
         baseOffsetMs = if (casting) graph.castSession?.baseOffsetMs ?: 0L else 0L,
     )
 
+    /**
+     * ¿La posición que reporta el player habla de lo que ESTA pantalla abrió?
+     *
+     * Al entrar a un episodio nuevo el controller todavía tiene el anterior: sigue en READY y sigue
+     * devolviendo su posición y su duración. Adoptarlas pintaba la barra del video nuevo con el
+     * progreso del viejo —una película recién abierta arrancaba marcando 30 minutos— hasta que
+     * llegaba la playlist y lo corregía sola. Vale cuando esta pantalla ya cargó su playlist, o
+     * cuando lo que suena YA es este episodio (volver a entrar a lo que estaba sonando, donde la
+     * posición es correcta desde el primer frame y esconderla sería el parpadeo contrario).
+     */
+    fun posicionEsDeEstaPantalla(): Boolean =
+        loaded || runCatching { controller.currentMediaItem?.mediaId }.getOrNull() == episodeId
+
     fun contentDurationMs(): Long = CastProgress.contentDuration(
         receiverDurMs = activePlayer.duration,
         knownDurationMs = if (casting) graph.castSession?.knownDurationMs ?: 0L else 0L,
@@ -475,6 +518,15 @@ private fun PlayerContent(
     // Fracción [0..1] ya descargada/buffereada por delante (para el tramo gris claro de la barra).
     // Torrent: % de descarga del engine; archive: % del archivo cacheado por el proxy.
     var bufferedFraction by remember { mutableFloatStateOf(0f) }
+
+    // Modo noche: nivel del velo negro sobre el video, 0..DIM_MAX_LEVEL. Persistido en
+    // SettingsStore (sobrevive a cerrar la app). Se acota al leerlo por si quedó un valor viejo
+    // fuera de rango guardado.
+    val dimLevel by graph.settings.dimLevel.collectAsStateWithLifecycle()
+    val dimNivel = dimLevel.coerceIn(0, DIM_MAX_LEVEL)
+    // Tick para que el HUD del nivel se borre solo tras cada pulsación (los gestos limpian el suyo
+    // a mano al soltar; un botón no tiene "soltar", así que necesita temporizador propio).
+    var dimHudTick by remember { mutableIntStateOf(0) }
 
     // Velocidad + zoom nativo de VLC (cíclicos; solo teléfono). Portado de TorrentPlayerScreen.
     var speedIdx by remember { mutableIntStateOf(1) } // arranca en 1×
@@ -691,17 +743,12 @@ private fun PlayerContent(
 
     fun bump() { controlsVisible = true; interactionTick++ }
 
-    // Por qué la barra de transporte se dibuja o no. Son cuatro condiciones en dos niveles y desde
-    // fuera se ven iguales: el overlay entero depende de `controlsVisible`, y DENTRO la fila de
-    // transporte va en un `if (!isBuffering)` — así que con el receptor buffereando el overlay está
-    // pero la barra no. Sin este log, "no apareció la barra" no distingue esos dos casos.
     LaunchedEffect(controlsVisible, isBuffering, casting, dlnaActive, markingMode, loadError) {
         android.util.Log.i(
             "ArkivCast",
             "UI barra · controlsVisible=$controlsVisible isBuffering=$isBuffering casting=$casting " +
                 "dlna=${dlnaActive != null} marcando=${markingMode != null} error=${loadError != null} " +
-                "→ overlay=${controlsVisible && loadError == null && dlnaActive == null && markingMode == null} " +
-                "fila=${!isBuffering}",
+                "→ overlay=${controlsVisible && loadError == null && dlnaActive == null && markingMode == null}",
         )
     }
 
@@ -841,7 +888,7 @@ private fun PlayerContent(
     DisposableEffect(activePlayer) {
         isBuffering = activePlayer.playbackState == Player.STATE_BUFFERING
         isPlaying = activePlayer.isPlaying
-        if (activePlayer.playbackState == Player.STATE_READY) {
+        if (activePlayer.playbackState == Player.STATE_READY && posicionEsDeEstaPantalla()) {
             positionMs = contentPositionMs()
             contentDurationMs().let { if (it > 0) durationMs = it }
         }
@@ -885,7 +932,7 @@ private fun PlayerContent(
                     if (url != null) graph.archiveCacheProxy.bufferedFraction(url) else 0f
                 }
             }
-            val ready = activePlayer.playbackState == Player.STATE_READY
+            val ready = activePlayer.playbackState == Player.STATE_READY && posicionEsDeEstaPantalla()
             if (ready) {
                 positionMs = contentPositionMs()
                 contentDurationMs().let { if (it > 0) durationMs = it }
@@ -922,13 +969,34 @@ private fun PlayerContent(
     // Auto-ocultar los controles mientras reproduce. El timer se reinicia con CUALQUIER tecla
     // mientras el overlay está abierto (ver el onPreviewKeyEvent del contenedor), así que no se
     // desvanece en plena navegación de botones o miniaturas — solo tras ~4.5s de inactividad real.
-    // No se bloquea del todo a propósito: en TV no hay forma manual de cerrarlo (BACK sale del
-    // reproductor), así que un bloqueo dejaría el overlay pegado encima del video para siempre.
+    // No se bloquea del todo a propósito: el auto-ocultado es la única salida cuando el video está
+    // en pausa (con BACK ahí abajo cerrando el overlay, pero solo mientras se esté viendo).
     // chaptersRevealed va como key para que abrir/cerrar el carrusel arranque un timer fresco.
     LaunchedEffect(interactionTick, isPlaying, controlsVisible, chaptersRevealed) {
         if (controlsVisible && isPlaying && markingMode == null) {
             delay(4500)
             controlsVisible = false
+        }
+    }
+
+    // BACK con el overlay en pantalla lo CIERRA en vez de salir del video; con el overlay ya
+    // oculto, este handler queda deshabilitado y BACK sigue de largo a la navegación (= salir),
+    // que es el comportamiento de siempre. Sirve igual para el remoto de la TV, el botón del
+    // sistema y el gesto de atrás del teléfono.
+    // La condición replica la del overlay más abajo (`AnimatedVisibility(visible = ...)`): si solo
+    // mirara controlsVisible, en modo marcado o con un error en pantalla la variable puede seguir
+    // en true sin que se vea nada, y BACK quedaría muerto (ni cierra ni sale). Mantener ambas
+    // iguales si se toca una.
+    BackHandler(enabled = controlsVisible && loadError == null && dlnaActive == null && markingMode == null) {
+        controlsVisible = false
+    }
+
+    // Borra solo el HUD del nivel de brillo. Va por dimHudTick y no por el valor: en los topes el
+    // nivel no cambia, pero la pulsación igual muestra el HUD y tiene que desvanecerse.
+    LaunchedEffect(dimHudTick) {
+        if (dimHudTick > 0) {
+            delay(1200)
+            gestureHud = null
         }
     }
 
@@ -939,10 +1007,6 @@ private fun PlayerContent(
     LaunchedEffect(controlsVisible, isTv) {
         if (!isTv) return@LaunchedEffect
         if (controlsVisible) {
-            // Entra por la BARRA DE PROGRESO, no por los botones: al abrir el overlay lo primero
-            // que se quiere casi siempre es moverse por el video, y bajar un paso deja el foco en
-            // los íconos. Fallback al play porque el bloque barra+botones vive dentro de
-            // `if (!isBuffering)`: mientras bufferea el slider no existe y su requester no engancha.
             runCatching { sliderFR.requestFocus() }
                 .onFailure { runCatching { playPauseFR.requestFocus() } }
         } else {
@@ -1203,6 +1267,19 @@ private fun PlayerContent(
         vlc.setScale(ZOOM_STEPS[zoomIdx])
         bump()
     }
+    /**
+     * Sube (delta<0) o baja (delta>0) un paso el velo del modo noche, acotado a [0, DIM_MAX_LEVEL].
+     * En los extremos la pulsación no cambia nada, pero igual muestra el HUD y reinicia el
+     * auto-ocultado: los botones NO se deshabilitan a propósito (en TV un botón deshabilitado no
+     * recibe foco y rompería la cadena del D-pad justo al llegar al tope).
+     */
+    fun stepDim(delta: Int) {
+        val nuevo = (dimNivel + delta).coerceIn(0, DIM_MAX_LEVEL)
+        if (nuevo != dimNivel) graph.settings.setDimLevel(nuevo)
+        gestureHud = if (nuevo == 0) "☀ Normal" else "🌙 ${nuevo * (100 / DIM_MAX_LEVEL)}%"
+        dimHudTick++
+        bump()
+    }
 
     // Lee las pistas embebidas (audio + subtítulos) del archivo, vía el player vivo.
     fun refreshTracks() {
@@ -1335,6 +1412,18 @@ private fun PlayerContent(
             // de engancharlo y quedás en Vout 0 con el audio sonando.
             onRelease = { vlc.detachVideo("onRelease#$pantallaId") },
         )
+
+        // MODO NOCHE: velo negro ENCIMA del video y DEBAJO de los controles, a propósito — así los
+        // controles se siguen leyendo a brillo normal, que es justo cuando hacen falta de noche.
+        // Sin modificadores de gesto: sin ellos no es blanco de hit-testing, así que la capa de
+        // gestos de abajo (tap/seek/volumen/brillo del teléfono) sigue recibiendo todos los toques.
+        if (dimNivel > 0) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .background(Color.Black.copy(alpha = dimNivel.toFloat() / DIM_MAX_LEVEL)),
+            )
+        }
 
         // Capa de GESTOS (solo teléfono, ambas fuentes; portada de TorrentPlayerScreen): tap = controles;
         // doble-tap izq/der = ∓10s; mantener presionado = 2× temporal; swipe horizontal = seek;
@@ -1664,14 +1753,28 @@ private fun PlayerContent(
                         }
                     }
                     if (!isTv && d != null) {
-                        Text(
-                            d.title,
-                            color = Color.White,
-                            style = MaterialTheme.typography.titleMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-                        )
+                        // Qué se está viendo. El título sale de headerInfo (nombre de la SERIE) y
+                        // no de d.title, para que en series no muestre el nombre del capítulo;
+                        // debajo, temporada/capítulo. d.title queda de respaldo si headerInfo
+                        // todavía no cargó (se lee de la DB en un LaunchedEffect).
+                        Column(modifier = Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                            Text(
+                                headerInfo?.itemTitle ?: d.title,
+                                color = Color.White,
+                                style = MaterialTheme.typography.titleMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            headerInfo?.episodeLabel?.let { ep ->
+                                Text(
+                                    ep,
+                                    color = Color.White.copy(alpha = 0.75f),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
                     } else {
                         Spacer(Modifier.weight(1f))
                     }
@@ -1731,9 +1834,11 @@ private fun PlayerContent(
                     }
                 }
 
-                // TV, overlay de pausa: título del ítem (serie o película) y, si es serie, el
-                // nombre del episodio actual. Solo en pausa (no compite con el video en play).
-                if (isTv && !isPlaying) {
+                // TV: qué se está viendo (serie o película) y, si es serie, temporada/capítulo.
+                // Va siempre que esté la interfaz, no solo en pausa: es justo cuando uno la abre
+                // para saber en qué capítulo va. Como el overlay ya se auto-oculta a los 4.5s, no
+                // compite con el video en reproducción.
+                if (isTv) {
                     headerInfo?.let { info ->
                         Column(
                             modifier = Modifier
@@ -1761,11 +1866,7 @@ private fun PlayerContent(
                     }
                 }
 
-                // Barra inferior única (estilo Netflix/Prime): tiempo + slider arriba, fila de
-                // íconos de transporte abajo. Reemplaza el viejo círculo central flotante por un
-                // layout compacto, navegable con D-pad real en TV (ver FocusRequesters arriba).
-                if (!isBuffering) {
-                    Column(
+                Column(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .fillMaxWidth()
@@ -1939,7 +2040,7 @@ private fun PlayerContent(
                                         .focusRequester(subtitleFR)
                                         .focusProperties {
                                             left = if (showNext) nextEpisodeFR else forwardFR
-                                            right = if (showLiveOverride) liveOverrideFR else subtitleFR
+                                            right = if (showLiveOverride) liveOverrideFR else dimDownFR
                                             up = sliderFR
                                             down = subtitleFR
                                         },
@@ -1958,12 +2059,47 @@ private fun PlayerContent(
                                             .focusRequester(liveOverrideFR)
                                             .focusProperties {
                                                 left = subtitleFR
-                                                right = liveOverrideFR
+                                                right = dimDownFR
                                                 up = sliderFR
                                                 down = liveOverrideFR
                                             },
                                     )
                                 }
+                                // MODO NOCHE, dos botones: bajar (luna) a la izquierda y subir (sol)
+                                // a la derecha, o sea menos → más como se lee. Nunca se deshabilitan
+                                // en los topes: en TV un botón deshabilitado no recibe foco y
+                                // rompería la cadena del D-pad justo al llegar al extremo.
+                                TvTransportButton(
+                                    icon = Icons.Default.Brightness2,
+                                    contentDescription = "Bajar brillo",
+                                    onClick = { stepDim(+1) },
+                                    iconSize = 24.dp,
+                                    tint = if (dimNivel > 0) ArkivRed else Color.White,
+                                    modifier = Modifier
+                                        .focusRequester(dimDownFR)
+                                        .focusProperties {
+                                            left = if (showLiveOverride) liveOverrideFR else subtitleFR
+                                            right = dimUpFR
+                                            up = sliderFR
+                                            down = dimDownFR
+                                        },
+                                )
+                                // Último de la fila: su `right` apunta a sí mismo (tope derecho).
+                                TvTransportButton(
+                                    icon = Icons.Default.BrightnessHigh,
+                                    contentDescription = "Subir brillo",
+                                    onClick = { stepDim(-1) },
+                                    iconSize = 24.dp,
+                                    tint = if (dimNivel > 0) ArkivRed else Color.White,
+                                    modifier = Modifier
+                                        .focusRequester(dimUpFR)
+                                        .focusProperties {
+                                            left = dimDownFR
+                                            right = dimUpFR
+                                            up = sliderFR
+                                            down = dimUpFR
+                                        },
+                                )
                             }
                             // TELÉFONO: subtítulos + override "en vivo" contra el borde derecho. El
                             // Spacer se come el ancho sobrante, así que los controles de transporte
@@ -1985,6 +2121,23 @@ private fun PlayerContent(
                                         if (subsOn || selectedSub != null) Icons.Default.ClosedCaption else Icons.Default.ClosedCaptionOff,
                                         contentDescription = "Subtítulos y audio",
                                         tint = if (subsOn || selectedSub != null) ArkivRed else Color.White,
+                                    )
+                                }
+                                // MODO NOCHE (los mismos dos botones que en TV; acá el gesto de
+                                // brillo del borde izquierdo sigue existiendo y es independiente:
+                                // ese baja el backlight real, estos ponen el velo sobre el video).
+                                IconButton(onClick = { stepDim(+1) }) {
+                                    Icon(
+                                        Icons.Default.Brightness2,
+                                        contentDescription = "Bajar brillo",
+                                        tint = if (dimNivel > 0) ArkivRed else Color.White,
+                                    )
+                                }
+                                IconButton(onClick = { stepDim(-1) }) {
+                                    Icon(
+                                        Icons.Default.BrightnessHigh,
+                                        contentDescription = "Subir brillo",
+                                        tint = if (dimNivel > 0) ArkivRed else Color.White,
                                     )
                                 }
                             }
@@ -2044,7 +2197,6 @@ private fun PlayerContent(
                             }
                         }
                     }
-                }
             }
         }
 
