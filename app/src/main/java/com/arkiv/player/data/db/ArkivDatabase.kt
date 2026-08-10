@@ -22,7 +22,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SeriesPlaybackPrefEntity::class,
         LocalActiveJobEntity::class,
     ],
-    version = 18,
+    version = 19,
     exportSchema = false,
 )
 abstract class ArkivDatabase : RoomDatabase() {
@@ -307,13 +307,48 @@ abstract class ArkivDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Badge de "hay capítulos nuevos": cuántos episodios tenía la serie la última vez que se
+         * abrió su detalle.
+         *
+         * Nullable a propósito, y sin DEFAULT: en las filas que ya existen queda NULL, que
+         * significa "nunca se miró" y NO pinta badge. Con un default de 0, el día que esto se
+         * estrene cada serie de la biblioteca aparecería marcada con todos sus capítulos como si
+         * fueran novedad. Ver [com.arkiv.player.data.nuevos.ContadorDeNuevos].
+         */
+        private val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE items ADD COLUMN episodiosVistosEnLista INTEGER")
+            }
+        }
+
+        /**
+         * Deja los triggers de `updatedAt` puestos en CADA apertura, y sella lo que haya quedado
+         * sin reloj.
+         *
+         * Va acá y no en una migración porque el que instala la app de cero **no corre ninguna
+         * migración**: Room le crea las tablas desde su esquema generado, y los triggers no son
+         * parte de ese esquema. Así fue como el Fire TV terminó sin ninguno, con toda su biblioteca
+         * en `updatedAt = 0` y por lo tanto invisible para el push a la nube (`updatedAt > cursor`).
+         * Ver [SyncTriggers].
+         */
+        private val SELLAR_UPDATED_AT = object : RoomDatabase.Callback() {
+            override fun onOpen(db: SupportSQLiteDatabase) {
+                // Los triggers primero: sellar después no los dispara (la fila cambia de 0 a
+                // `ahora`, o sea NEW.updatedAt != OLD.updatedAt, que es la guarda del trigger).
+                SyncTriggers.ddl().forEach { db.execSQL(it) }
+                SyncTriggers.sellarFilasSinReloj().forEach { db.execSQL(it) }
+            }
+        }
+
         fun get(context: Context): ArkivDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     ArkivDatabase::class.java,
                     "arkiv.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19)
+                    .addCallback(SELLAR_UPDATED_AT)
                     .fallbackToDestructiveMigration()
                     .build().also { instance = it }
             }

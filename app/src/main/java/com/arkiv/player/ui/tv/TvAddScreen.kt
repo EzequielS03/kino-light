@@ -50,12 +50,13 @@ fun TvAddScreen(onAdded: (String) -> Unit) {
             "Escribí el identificador o la URL del ítem.",
             color = ArkivTextSecondary,
         )
+        // Mismo problema que en Ajustes: sin esto el foco entra al campo y ya no baja al botón.
         OutlinedTextField(
             value = state.input,
             onValueChange = vm::onInputChange,
             label = { androidx.compose.material3.Text("URL o identificador") },
             singleLine = true,
-            modifier = Modifier.width(700.dp),
+            modifier = Modifier.width(700.dp).dpadFocusEscape(),
         )
         if (state.error != null) {
             Text(state.error!!, color = ArkivRed)

@@ -257,6 +257,33 @@ class AppGraph(context: Context) {
 
     val applicationScope: CoroutineScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
 
+    private val buscadorDeCapitulos by lazy {
+        com.arkiv.player.data.nuevos.BuscadorDeCapitulos(
+            repo = repository,
+            itemDao = database.itemDao(),
+            gateway = arkivApiClient,
+        )
+    }
+
+    /**
+     * Busca capítulos nuevos de las series que se están viendo, con freno de repetición.
+     *
+     * El freno hace falta porque `Application.onCreate` corre muchas veces por día —basta con
+     * salir de la app y volver a entrar— y cada pasada cuesta red (para web, una búsqueda por
+     * capítulo candidato). Una vez cada [HORAS_ENTRE_BUSQUEDAS] horas alcanza de sobra: los
+     * capítulos no salen más seguido que eso.
+     */
+    suspend fun buscarCapitulosNuevos() {
+        val prefs = appContext.getSharedPreferences("arkiv_nuevos", android.content.Context.MODE_PRIVATE)
+        val ultima = prefs.getLong(KEY_ULTIMA_BUSQUEDA, 0L)
+        val ahora = System.currentTimeMillis()
+        if (ahora - ultima < HORAS_ENTRE_BUSQUEDAS * 60 * 60 * 1000L) return
+        // Se sella ANTES de buscar: si la búsqueda tarda y el usuario cierra y reabre la app en el
+        // medio, no arrancan dos pasadas pisándose contra las mismas fuentes.
+        prefs.edit().putLong(KEY_ULTIMA_BUSQUEDA, ahora).apply()
+        buscadorDeCapitulos.buscar()
+    }
+
     /**
      * Señal para resetear la búsqueda del catálogo al entrar desde otra pestaña. La emite el click
      * en la pestaña "Catálogo" (que solo existe estando en una pestaña, nunca dentro de un detalle),
@@ -500,6 +527,10 @@ class AppGraph(context: Context) {
     companion object {
         @Volatile
         private var instance: AppGraph? = null
+
+        /** Cada cuánto, como mucho, se buscan capítulos nuevos. Ver [buscarCapitulosNuevos]. */
+        private const val HORAS_ENTRE_BUSQUEDAS = 6L
+        private const val KEY_ULTIMA_BUSQUEDA = "ultima_busqueda_ms"
 
         fun from(context: Context): AppGraph =
             instance ?: synchronized(this) {

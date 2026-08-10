@@ -632,6 +632,7 @@ private fun TvSeriesSection(
                 badge = if (multi) "${group.sourceCount} FUENTES" else if (group.primary.isTorrent) "TORRENT" else "SERIE",
                 badgeColor = if (group.primary.isTorrent && !multi) TorrentBadgeColor else SeriesBadgeColor,
                 episodeCountLabel = "${group.episodeCount} ep.",
+                nuevos = group.nuevos,
                 modifier = if (group.key == firstFocusId) Modifier.focusRequester(firstFocus) else Modifier,
                 onFocus = { onFocusRow(group) },
                 onLongClick = { onLongClickRow(group) },

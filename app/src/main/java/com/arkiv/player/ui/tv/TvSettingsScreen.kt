@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.OutlinedTextField
@@ -18,8 +19,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -169,9 +173,9 @@ private fun TvActionOption(label: String, onClick: () -> Unit) {
         shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(
             androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
         ),
-        // Sin colores explícitos el Surface de tv.material3 usa el color por defecto (claro):
-        // el botón se veía BLANCO. Superficie negra + borde blanco inactivo, rojo Arkiv al
-        // enfocar/presionar (para que el D-pad muestre dónde está el foco), texto blanco siempre.
+        // Superficie negra + borde blanco inactivo, rojo Arkiv al enfocar/presionar (estándar
+        // compartido en TvButtonStyle.kt). Sin colores explícitos el Surface de tv.material3 cae
+        // en el esquema claro por defecto de la librería y el botón se veía BLANCO.
         colors = tvBotonColors(),
         border = tvBotonBorder(),
     ) {
@@ -231,6 +235,7 @@ private fun TvAccountSection(account: AccountManager) {
 @Composable
 private fun TvPasswordField(value: String, onValueChange: (String) -> Unit, label: String, modifier: Modifier = Modifier) {
     var visible by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
     Column(modifier = modifier) {
         OutlinedTextField(
             value = value,
@@ -238,8 +243,12 @@ private fun TvPasswordField(value: String, onValueChange: (String) -> Unit, labe
             label = { androidx.compose.material3.Text(label) },
             singleLine = true,
             visualTransformation = if (visible) androidx.compose.ui.text.input.VisualTransformation.None else PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            modifier = Modifier.fillMaxWidth(),
+            // imeAction + dpadFocusEscape: sin el escape el D-pad queda atrapado en el campo (arriba/
+            // abajo los come el cursor) y el teclado del Fire TV cerraría sobre el mismo campo. Ver
+            // [dpadFocusEscape] en TvComponents.kt.
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { focusManager.moveFocus(FocusDirection.Down) }),
+            modifier = Modifier.fillMaxWidth().dpadFocusEscape(),
         )
         TvActionOption(
             label = if (visible) "Ocultar contraseña" else "Mostrar contraseña",
@@ -253,6 +262,7 @@ private fun TvPasswordField(value: String, onValueChange: (String) -> Unit, labe
 private fun TvAnonimoSection(account: AccountManager) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
@@ -265,9 +275,10 @@ private fun TvAnonimoSection(account: AccountManager) {
         onValueChange = { email = it; error = null },
         label = { androidx.compose.material3.Text("Email") },
         singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+        keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
         enabled = !codigoPedido,
-        modifier = Modifier.fillMaxWidth(0.6f),
+        modifier = Modifier.fillMaxWidth(0.6f).dpadFocusEscape(),
     )
     TvPasswordField(password, { password = it; error = null }, "Contraseña", modifier = Modifier.fillMaxWidth(0.6f).padding(top = 8.dp))
 
@@ -277,8 +288,9 @@ private fun TvAnonimoSection(account: AccountManager) {
             onValueChange = { codigo = it; error = null },
             label = { androidx.compose.material3.Text("Código") },
             singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            modifier = Modifier.fillMaxWidth(0.6f).padding(top = 8.dp),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { focusManager.moveFocus(FocusDirection.Down) }),
+            modifier = Modifier.fillMaxWidth(0.6f).padding(top = 8.dp).dpadFocusEscape(),
         )
         Text(
             "Te enviamos un código a tu email. Si no aparece, revisá la carpeta de spam.",
@@ -410,6 +422,7 @@ private fun TvConectadoSection(account: AccountManager, s: AccountState.Conectad
 @Composable
 private fun TvVincularMagisSection(account: AccountManager, accountEmail: String) {
     val scope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
     var expanded by remember { mutableStateOf(false) }
     var email by remember { mutableStateOf(accountEmail) }
     var password by remember { mutableStateOf("") }
@@ -429,9 +442,10 @@ private fun TvVincularMagisSection(account: AccountManager, accountEmail: String
             onValueChange = { email = it; error = null },
             label = { androidx.compose.material3.Text("Email de Magis") },
             singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+            keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
             enabled = !codigoPedido,
-            modifier = Modifier.fillMaxWidth(0.6f),
+            modifier = Modifier.fillMaxWidth(0.6f).dpadFocusEscape(),
         )
         TvPasswordField(password, { password = it; error = null }, "Contraseña de Magis", modifier = Modifier.fillMaxWidth(0.6f).padding(top = 8.dp))
 
@@ -441,8 +455,9 @@ private fun TvVincularMagisSection(account: AccountManager, accountEmail: String
                 onValueChange = { codigo = it; error = null },
                 label = { androidx.compose.material3.Text("Código") },
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth(0.6f).padding(top = 8.dp),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { focusManager.moveFocus(FocusDirection.Down) }),
+                modifier = Modifier.fillMaxWidth(0.6f).padding(top = 8.dp).dpadFocusEscape(),
             )
             Text(
                 "Te enviamos un código a tu email. Si no aparece, revisá la carpeta de spam.",

@@ -72,9 +72,21 @@ fun MagisSeasonDialog(
     val marcados = remember(season.ref) { mutableStateListOf<Int>() }
 
     LaunchedEffect(season.ref) {
+        // Con qué se abrió la ventana. `program_type` es lo que decide que esto sea una serie (ver
+        // MAGIS_SERIES): si el portal etiquetó como serie algo que no tiene temporada, /v1/episodes
+        // responde 422 y desde la UI se ve igual que una caída de red.
+        android.util.Log.w(
+            "ArkivGw",
+            "temporada: pido capitulos titulo=${season.title} tipo=${season.extra["program_type"]} " +
+                "esperados=${season.extra["episode_count"]} kind=${season.kind} ref=${season.ref.take(24)}…",
+        )
         runCatching { client.episodes(season.ref) }
             .onSuccess { capitulos = it }
-            .onFailure { error = "No se pudieron cargar los capítulos." }
+            .onFailure {
+                // El motivo REAL, que hasta ahora se tragaba el runCatching y no llegaba a ningún lado.
+                android.util.Log.w("ArkivGw", "temporada: fallo ${it.javaClass.simpleName}: ${it.message}", it)
+                error = "No se pudieron cargar los capítulos."
+            }
     }
 
     val esperados = season.extra["episode_count"]?.toIntOrNull() ?: 0

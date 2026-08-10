@@ -7,7 +7,16 @@ import com.arkiv.player.data.db.SkipMarkerEntity
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Snapshot de los datos sincronizables (biblioteca + progreso + marcadores). */
+/**
+ * Snapshot de los datos sincronizables (biblioteca + progreso + marcadores).
+ *
+ * `updatedAt` y `deleted` viajan SIEMPRE: son el reloj y el tombstone con los que [SyncMerge]
+ * decide quién gana. Sin ellos el sync no podía hacer otra cosa que espejar una punta sobre la
+ * otra, y un borrado llegaba al otro lado como una fila viva.
+ *
+ * Los campos que se leen con `opt…` son compatibles hacia atrás: un snapshot de la versión anterior
+ * (sin esas claves) entra igual, con los valores por defecto.
+ */
 data class SyncSnapshot(
     val items: List<ItemEntity>,
     val episodes: List<EpisodeEntity>,
@@ -27,7 +36,11 @@ data class SyncSnapshot(
                         .put("addedAt", it.addedAt)
                         .put("categoryOverride", it.categoryOverride ?: JSONObject.NULL)
                         .put("source", it.source)
-                        .put("torrentData", it.torrentData ?: JSONObject.NULL),
+                        .put("torrentData", it.torrentData ?: JSONObject.NULL)
+                        .put("updatedAt", it.updatedAt)
+                        .put("deleted", it.deleted)
+                        .put("episodiosVistosEnLista", it.episodiosVistosEnLista ?: JSONObject.NULL)
+                        .put("tmdbId", it.tmdbId ?: JSONObject.NULL),
                 )
             }
         })
@@ -45,7 +58,12 @@ data class SyncSnapshot(
                         .put("derivativePath", it.derivativePath ?: JSONObject.NULL)
                         .put("derivativeFormat", it.derivativeFormat ?: JSONObject.NULL)
                         .put("derivativeSize", it.derivativeSize)
-                        .put("torrentFileIndex", it.torrentFileIndex ?: JSONObject.NULL),
+                        .put("torrentFileIndex", it.torrentFileIndex ?: JSONObject.NULL)
+                        .put("season", it.season ?: JSONObject.NULL)
+                        .put("episode", it.episode ?: JSONObject.NULL)
+                        .put("torrentData", it.torrentData ?: JSONObject.NULL)
+                        .put("updatedAt", it.updatedAt)
+                        .put("deleted", it.deleted),
                 )
             }
         })
@@ -81,6 +99,9 @@ data class SyncSnapshot(
         private fun JSONObject.optStringOrNull(key: String): String? =
             if (isNull(key)) null else getString(key)
 
+        private fun JSONObject.optIntOrNull(key: String): Int? =
+            if (!has(key) || isNull(key)) null else getInt(key)
+
         fun fromJson(text: String): SyncSnapshot {
             val root = JSONObject(text)
             val items = root.getJSONArray("items").mapObjects {
@@ -93,6 +114,10 @@ data class SyncSnapshot(
                     categoryOverride = if (it.has("categoryOverride")) it.optStringOrNull("categoryOverride") else null,
                     source = if (it.has("source")) it.optString("source", "archive") else "archive",
                     torrentData = if (it.has("torrentData")) it.optStringOrNull("torrentData") else null,
+                    updatedAt = it.optLong("updatedAt", 0),
+                    deleted = it.optBoolean("deleted", false),
+                    episodiosVistosEnLista = it.optIntOrNull("episodiosVistosEnLista"),
+                    tmdbId = it.optIntOrNull("tmdbId"),
                 )
             }
             val episodes = root.getJSONArray("episodes").mapObjects {
@@ -108,6 +133,11 @@ data class SyncSnapshot(
                     derivativeFormat = it.optStringOrNull("derivativeFormat"),
                     derivativeSize = it.getLong("derivativeSize"),
                     torrentFileIndex = if (it.has("torrentFileIndex") && !it.isNull("torrentFileIndex")) it.getInt("torrentFileIndex") else null,
+                    season = it.optIntOrNull("season"),
+                    episode = it.optIntOrNull("episode"),
+                    torrentData = it.optStringOrNull("torrentData"),
+                    updatedAt = it.optLong("updatedAt", 0),
+                    deleted = it.optBoolean("deleted", false),
                 )
             }
             val playback = root.getJSONArray("playback").mapObjects {
