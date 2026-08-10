@@ -21,8 +21,15 @@ temporada N veces es idempotente.
 - **Commits sin coautoría.** Nunca agregar `Co-Authored-By: Claude ...` ni ningún pie de coautoría.
 - **Identidad de git:** `user.name = lordmacu`, `user.email = 10134930+lordmacu@users.noreply.github.com`
   (ya está configurada en el repo; verificar con `git config user.name` antes del primer commit).
-- **Nunca `git add -A` ni `git commit -a`.** Varias sesiones comparten este working tree: agregar
-  siempre las rutas exactas que lista cada tarea.
+- **Otras sesiones de Claude comparten este working tree, y se trabaja directo sobre `main`.** Nunca
+  `git add -A` ni `git add .`: agregar SIEMPRE los archivos por ruta explícita. Y commitear SIEMPRE
+  con pathspec explícito — `git commit -m "..." -- <rutas>` — porque el índice puede tener trabajo
+  ajeno ya preparado y un `git commit` pelado se lo lleva puesto. Antes de commitear,
+  `git diff --cached --stat` para ver qué hay.
+- No cambiar de rama, no hacer `git pull`, `git rebase` ni `git reset`: `main` se mueve sola por
+  debajo. Si un commit falla por conflicto, parar y reportar en vez de resolverlo.
+- Hay trabajo ajeno sin commitear en `app/src/main/java/com/arkiv/player/playback/VlcPlayer.kt`.
+  Ninguna tarea de este plan lo toca: no lo agregues, no lo revierta, no lo commitees.
 - Tests: JUnit 4, nombres de método en `snake_case` en español, sin backticks (convención del repo,
   ver `MagisEntitiesTest`).
 - Comentarios y KDoc en español, explicando **por qué**, no qué (convención del repo).
@@ -224,7 +231,7 @@ romperlos: son los que fijan el contrato del capítulo suelto).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add app/src/main/java/com/arkiv/player/data/MagisEntities.kt app/src/test/java/com/arkiv/player/data/MagisEntitiesTest.kt && git commit -m "feat(magis): armar la temporada completa como dato puro"
+git add app/src/main/java/com/arkiv/player/data/MagisEntities.kt app/src/test/java/com/arkiv/player/data/MagisEntitiesTest.kt && git diff --cached --stat && git commit -m "feat(magis): armar la temporada completa como dato puro" -- app/src/main/java/com/arkiv/player/data/MagisEntities.kt app/src/test/java/com/arkiv/player/data/MagisEntitiesTest.kt
 ```
 
 ---
@@ -376,7 +383,7 @@ proyecto, y por eso toda su lógica decidible vive en `buildSeason` y `reSellar`
 - [ ] **Step 8: Commit**
 
 ```bash
-git add app/src/main/java/com/arkiv/player/data/nuevos/ContadorDeNuevos.kt app/src/main/java/com/arkiv/player/data/ArkivRepository.kt app/src/test/java/com/arkiv/player/data/nuevos/ContadorDeNuevosTest.kt && git commit -m "feat(magis): guardar la temporada completa en la biblioteca"
+RUTAS="app/src/main/java/com/arkiv/player/data/nuevos/ContadorDeNuevos.kt app/src/main/java/com/arkiv/player/data/ArkivRepository.kt app/src/test/java/com/arkiv/player/data/nuevos/ContadorDeNuevosTest.kt" && git add $RUTAS && git diff --cached --stat && git commit -m "feat(magis): guardar la temporada completa en la biblioteca" -- $RUTAS
 ```
 
 ---
@@ -493,7 +500,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add app/src/main/java/com/arkiv/player/ui/search/SearchPlayback.kt app/src/main/java/com/arkiv/player/ui/tv/TvSearchScreen.kt app/src/main/java/com/arkiv/player/ui/catalog/MagisSeasonDialog.kt app/src/main/java/com/arkiv/player/ui/search/SearchScreen.kt && git commit -m "feat(magis): tocar un capitulo guarda la temporada entera"
+RUTAS="app/src/main/java/com/arkiv/player/ui/search/SearchPlayback.kt app/src/main/java/com/arkiv/player/ui/tv/TvSearchScreen.kt app/src/main/java/com/arkiv/player/ui/catalog/MagisSeasonDialog.kt app/src/main/java/com/arkiv/player/ui/search/SearchScreen.kt" && git add $RUTAS && git diff --cached --stat && git commit -m "feat(magis): tocar un capitulo guarda la temporada entera" -- $RUTAS
 ```
 
 ---
@@ -684,7 +691,7 @@ Expected: PASS
 - [ ] **Step 7: Commit**
 
 ```bash
-git add app/src/main/java/com/arkiv/player/data/ArkivRepository.kt app/src/main/java/com/arkiv/player/ui/player/PlayerViewModel.kt app/src/test/java/com/arkiv/player/data/ItemDetailResumeTest.kt && git commit -m "feat(detalle): el capitulo en curso es el que tocaste, y al terminarlo sigue el siguiente"
+RUTAS="app/src/main/java/com/arkiv/player/data/ArkivRepository.kt app/src/main/java/com/arkiv/player/ui/player/PlayerViewModel.kt app/src/test/java/com/arkiv/player/data/ItemDetailResumeTest.kt" && git add $RUTAS && git diff --cached --stat && git commit -m "feat(detalle): el capitulo en curso es el que tocaste, y al terminarlo sigue el siguiente" -- $RUTAS
 ```
 
 ---
@@ -935,7 +942,7 @@ Expected: PASS
 - [ ] **Step 8: Commit**
 
 ```bash
-git add app/src/main/java/com/arkiv/player/ui/EtiquetaDeCapitulo.kt app/src/test/java/com/arkiv/player/ui/EtiquetaDeCapituloTest.kt app/src/main/java/com/arkiv/player/ui/tv/TvDetailScreen.kt app/src/main/java/com/arkiv/player/ui/detail/DetailScreen.kt && git commit -m "feat(detalle): decir por que capitulo vas y arreglar la numeracion de magis"
+RUTAS="app/src/main/java/com/arkiv/player/ui/EtiquetaDeCapitulo.kt app/src/test/java/com/arkiv/player/ui/EtiquetaDeCapituloTest.kt app/src/main/java/com/arkiv/player/ui/tv/TvDetailScreen.kt app/src/main/java/com/arkiv/player/ui/detail/DetailScreen.kt" && git add $RUTAS && git diff --cached --stat && git commit -m "feat(detalle): decir por que capitulo vas y arreglar la numeracion de magis" -- $RUTAS
 ```
 
 ---
