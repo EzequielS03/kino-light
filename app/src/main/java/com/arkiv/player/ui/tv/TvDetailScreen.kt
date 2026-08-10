@@ -100,9 +100,15 @@ fun TvDetailScreen(
     var focusedEpisode by remember(identifier) { mutableStateOf<Episode?>(null) }
 
     val resumeId = data.resumeEpisode?.id
-    LaunchedEffect(resumeId) {
+    // Reposiciona el carrusel cada vez que cambia la fuente (chip de "Fuentes") o el capítulo a
+    // resumir. `episodesListState` no lleva `key` por `identifier`, así que sobrevive el cambio
+    // de fuente; el `if (idx > 0)` de antes se saltaba el reset cuando el capítulo a resumir de
+    // la fuente nueva era el primero, dejando el carrusel scrolleado al offset de la fuente
+    // vieja — y con eso el chip resumible (y `resumeEpisodeFR`, que ancla el foco desde el
+    // primer chip de fuentes) fuera de la ventana que compone el LazyRow.
+    LaunchedEffect(identifier, resumeId) {
         val idx = data.episodes.indexOfFirst { it.id == resumeId }
-        if (idx > 0) episodesListState.scrollToItem(idx)
+        episodesListState.scrollToItem(idx.coerceAtLeast(0))
     }
 
     Box(Modifier.fillMaxSize().background(ArkivBlack)) {
@@ -227,7 +233,19 @@ fun TvDetailScreen(
                                 // devolverlos a ambos lados.
                                 modifier = if (index == 0) {
                                     Modifier.focusRequester(firstSourceFR)
-                                        .focusProperties { up = playFR; down = resumeEpisodeFR }
+                                        .focusProperties {
+                                            // playFR y resumeEpisodeFR solo tienen nodo adjunto
+                                            // cuando la fuente actual tiene un capítulo para
+                                            // resumir (el botón "Reproducir" y el chip resumible
+                                            // se renderizan condicionados a eso). Una fuente recién
+                                            // agregada con 0 episodios (fetch fallido) deja ambos
+                                            // sin adjuntar: seguir apuntándoles ahí hace que Compose
+                                            // tire IllegalStateException al mover el foco. Con
+                                            // FocusRequester.Default el D-pad usa el algoritmo por
+                                            // defecto en vez de crashear.
+                                            up = if (data.resumeEpisode != null) playFR else FocusRequester.Default
+                                            down = if (data.resumeEpisode != null) resumeEpisodeFR else FocusRequester.Default
+                                        }
                                 } else {
                                     Modifier
                                 },
