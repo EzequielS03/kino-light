@@ -55,6 +55,7 @@ import com.arkiv.player.ui.update.UpdateDialog
 fun SettingsScreen(contentPadding: PaddingValues) {
     val graph = rememberGraph()
     val settings = graph.settings
+    val account = graph.accountManager
     val streamQuality by settings.streamQuality.collectAsStateWithLifecycle()
     val downloadQuality by settings.downloadQuality.collectAsStateWithLifecycle()
     val maxSizeGb by settings.maxTorrentSizeGb.collectAsStateWithLifecycle()
@@ -129,6 +130,8 @@ fun SettingsScreen(contentPadding: PaddingValues) {
         SubtitleSection(subStyle, ::setStyle)
 
         UpdateSection(checking = checkingUpdate, onCheck = ::checkForUpdatesNow)
+
+        AccountSection(account)
     }
 }
 
