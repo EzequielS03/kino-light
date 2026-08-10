@@ -6,7 +6,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -82,7 +84,7 @@ fun TvSettingsScreen(onConnectPhone: () -> Unit = {}) {
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(64.dp),
+        modifier = Modifier.fillMaxSize().padding(64.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text("Ajustes", style = MaterialTheme.typography.headlineMedium, color = Color.White)
