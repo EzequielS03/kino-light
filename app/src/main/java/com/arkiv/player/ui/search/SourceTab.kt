@@ -38,3 +38,18 @@ fun countsByTab(sources: List<PlaySource>): Map<SourceTab, Int> {
 
 fun filterByTab(sources: List<PlaySource>, tab: SourceTab): List<PlaySource> =
     if (tab == SourceTab.TODO) sources else sources.filter { tabOf(it) == tab }
+
+/**
+ * Las fuentes a dibujar como filas en los resultados del TV: en el orden del enum, sin las vacías
+ * y respetando el filtro elegido.
+ *
+ * Vive acá y no en la pantalla porque es la única parte de "cómo se ve" que se puede probar sin
+ * Compose, y es justo la que decide si una fuente se pierde de vista — que era el problema: con
+ * 536 torrents y 20 de magis en una sola lista vertical, magis no existía.
+ */
+fun filasVisibles(sources: List<PlaySource>, tab: SourceTab): List<Pair<SourceTab, List<PlaySource>>> {
+    val porFuente = sources.groupBy { tabOf(it) }
+    return SourceTab.entries
+        .filter { it != SourceTab.TODO && (tab == SourceTab.TODO || it == tab) }
+        .mapNotNull { fuente -> porFuente[fuente]?.takeIf { it.isNotEmpty() }?.let { fuente to it } }
+}

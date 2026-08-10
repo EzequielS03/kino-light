@@ -1,47 +1,51 @@
 package com.arkiv.player.ui.search
 
+import com.arkiv.player.data.catalog.TorrentLang
+import com.arkiv.player.data.catalog.TorrentResult
 import com.arkiv.player.data.gateway.GatewayResult
-import com.arkiv.player.playback.PlayerSource
-import com.arkiv.player.playback.SourceKind
 import com.arkiv.player.ui.catalog.PlaySource
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/** Qué filas se dibujan en los resultados del TV, en qué orden y cuáles se saltean. */
 class SourceTabTest {
 
-    private fun magis() = PlaySource.Magis(
-        GatewayResult(source = "magis", title = "Duna", ref = "r", year = "2021"),
+    private fun torrent(nombre: String) = PlaySource.Torrent(
+        TorrentResult(name = nombre, seeders = 1, sizeBytes = 0, lang = TorrentLang.LATINO),
     )
 
-    @Test
-    fun `magis tiene su propia pestana`() {
-        assertEquals(SourceTab.MAGIS, tabOf(magis()))
+    private fun magis(titulo: String) = PlaySource.Magis(
+        GatewayResult(source = "magis", title = titulo, ref = "r-$titulo"),
+    )
+
+    @Test fun las_filas_van_en_el_orden_del_enum() {
+        val r = filasVisibles(listOf(torrent("t"), magis("m")), SourceTab.TODO)
+        assertEquals(listOf(SourceTab.MAGIS, SourceTab.TORRENT), r.map { it.first })
     }
 
-    @Test
-    fun `todo sigue contando todas las fuentes`() {
-        val conteos = countsByTab(listOf(magis()))
-        assertEquals(1, conteos[SourceTab.TODO])
-        assertEquals(1, conteos[SourceTab.MAGIS])
-        assertEquals(0, conteos[SourceTab.TORRENT])
+    @Test fun una_fuente_sin_resultados_no_deja_fila() {
+        val r = filasVisibles(listOf(magis("m")), SourceTab.TODO)
+        assertEquals(listOf(SourceTab.MAGIS), r.map { it.first })
     }
 
-    @Test
-    fun `los chips no bailan- siempre estan todas las claves`() {
-        assertEquals(SourceTab.entries.size, countsByTab(emptyList()).size)
+    @Test fun sin_resultados_no_hay_ninguna_fila() {
+        assertTrue(filasVisibles(emptyList(), SourceTab.TODO).isEmpty())
     }
 
-    @Test
-    fun `filtrar por magis deja solo magis`() {
-        assertEquals(1, filterByTab(listOf(magis()), SourceTab.MAGIS).size)
-        assertEquals(0, filterByTab(listOf(magis()), SourceTab.WEB).size)
+    @Test fun con_un_filtro_puesto_queda_una_sola_fila() {
+        val r = filasVisibles(listOf(torrent("t"), magis("m")), SourceTab.TORRENT)
+        assertEquals(listOf(SourceTab.TORRENT), r.map { it.first })
+        assertEquals(1, r.first().second.size)
     }
 
-    @Test
-    fun `el episodeId de magis se reconoce como MAGIS`() {
-        assertEquals(SourceKind.MAGIS, PlayerSource.kindFor("magis:abc123"))
-        assertEquals(SourceKind.TORRENT, PlayerSource.kindFor("torrent:abc"))
-        assertEquals(SourceKind.WEB, PlayerSource.kindFor("web:abc"))
-        assertEquals(SourceKind.ARCHIVE, PlayerSource.kindFor("cualquier-otra-cosa"))
+    @Test fun un_filtro_sobre_una_fuente_vacia_no_deja_filas() {
+        assertTrue(filasVisibles(listOf(magis("m")), SourceTab.TORRENT).isEmpty())
+    }
+
+    @Test fun cada_fila_conserva_el_orden_de_llegada_de_su_fuente() {
+        val fuentes = listOf(torrent("a"), magis("m"), torrent("b"))
+        val fila = filasVisibles(fuentes, SourceTab.TODO).first { it.first == SourceTab.TORRENT }
+        assertEquals(listOf("a", "b"), fila.second.map { (it as PlaySource.Torrent).result.name })
     }
 }
