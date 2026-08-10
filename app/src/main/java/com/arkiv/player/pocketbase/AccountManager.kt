@@ -41,7 +41,7 @@ class AccountManager(
                 "password" to password,
                 "passwordConfirm" to password,
                 "accountId" to session.accountId,
-            ))
+            ), session.token)   // hardening: registro autenticado con el token del device (createRule PB)
         } catch (e: PocketBaseException) {
             throw AccountException(
                 if (e.code == 400) "ese email ya está registrado o los datos son inválidos"

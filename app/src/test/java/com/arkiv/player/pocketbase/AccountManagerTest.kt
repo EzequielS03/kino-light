@@ -38,6 +38,8 @@ class AccountManagerTest {
         server.takeRequest() // auth
         val create = server.takeRequest()
         assertTrue(create.body.readUtf8().contains("\"accountId\":\"A_anon\""))
+        // hardening: el registro va autenticado con el token del device
+        assertEquals("dtok", create.getHeader("Authorization"))
         server.shutdown()
     }
 
