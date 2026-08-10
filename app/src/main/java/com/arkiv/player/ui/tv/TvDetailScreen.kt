@@ -194,7 +194,7 @@ fun TvDetailScreen(
                 Text(
                     when {
                         focused != null -> episodeMeta(focused)
-                        data.episodes.size > 1 -> "${data.episodes.size} episodios"
+                        data.episodes.size > 1 -> com.arkiv.player.ui.EtiquetaDeCapitulo.avance(data, "episodios")
                         else -> "Película"
                     },
                     style = MaterialTheme.typography.bodyMedium,
@@ -230,7 +230,7 @@ fun TvDetailScreen(
                             // explícito se saltaba la fila de "Fuentes" enterita.
                             .focusProperties { down = if (sources.size > 1) firstSourceFR else resumeEpisodeFR },
                     ) {
-                        Text("▶  Reproducir")
+                        Text("▶  ${com.arkiv.player.ui.EtiquetaDeCapitulo.botonReproducir(data)}")
                     }
                 }
             }
@@ -325,17 +325,11 @@ fun TvDetailScreen(
 /**
  * Línea de datos del capítulo enfocado: "T1 · E3 · 24 min".
  *
- * La numeración sale de `season`/`episode` cuando el nombre del archivo la declaraba; si no, del
- * `orderIndex`, que en packs de torrent codifica temporada*1000 + episodio y en archive.org es
- * un correlativo 1..N. Se omite cada tramo que no se sepa en vez de inventarlo: es preferible
- * "24 min" solo antes que un "T1 · E5" que apunte al capítulo equivocado.
+ * La numeración vive en [com.arkiv.player.ui.EtiquetaDeCapitulo] (compartida con el detalle del
+ * celu); acá solo se le suman los minutos, si se conoce la duración.
  */
 private fun episodeMeta(ep: Episode): String {
-    val numero = when {
-        ep.season != null && ep.episode != null -> "T${ep.season} · E${ep.episode}"
-        ep.orderIndex >= 1000 -> "T${ep.orderIndex / 1000} · E${ep.orderIndex % 1000}"
-        else -> "E${ep.orderIndex + 1}"
-    }
     val minutos = (ep.durationSeconds / 60).toInt()
+    val numero = com.arkiv.player.ui.EtiquetaDeCapitulo.numero(ep)
     return if (minutos > 0) "$numero · $minutos min" else numero
 }

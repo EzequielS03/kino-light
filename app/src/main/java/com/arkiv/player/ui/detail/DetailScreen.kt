@@ -82,6 +82,7 @@ import com.arkiv.player.data.local.LocalDownloadState
 import com.arkiv.player.playback.PlayerSource
 import com.arkiv.player.playback.SourceKind
 import com.arkiv.player.ui.formatDuration
+import com.arkiv.player.ui.EtiquetaDeCapitulo
 import com.arkiv.player.ui.offline.rememberDuplicateDownloadNotice
 import com.arkiv.player.ui.offline.rememberPostNotificationsRequest
 import com.arkiv.player.ui.rememberGraph
@@ -404,7 +405,7 @@ private fun DetailContent(
             Column(Modifier.padding(horizontal = 16.dp)) {
                 Text(data.title, style = MaterialTheme.typography.headlineMedium)
                 Text(
-                    "${data.episodes.size} videos",
+                    EtiquetaDeCapitulo.avance(data, "videos"),
                     color = ArkivTextSecondary,
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(top = 4.dp),
@@ -415,7 +416,7 @@ private fun DetailContent(
                         modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                     ) {
                         Icon(Icons.Default.PlayArrow, contentDescription = null)
-                        Text("  Reproducir", fontWeight = FontWeight.Bold)
+                        Text("  ${EtiquetaDeCapitulo.botonReproducir(data)}", fontWeight = FontWeight.Bold)
                     }
                 }
                 if (!data.description.isNullOrBlank()) {
