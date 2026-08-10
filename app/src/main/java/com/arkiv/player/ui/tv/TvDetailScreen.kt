@@ -100,13 +100,22 @@ fun TvDetailScreen(
     var focusedEpisode by remember(identifier) { mutableStateOf<Episode?>(null) }
 
     val resumeId = data.resumeEpisode?.id
-    // Reposiciona el carrusel cada vez que cambia la fuente (chip de "Fuentes") o el capítulo a
-    // resumir. `episodesListState` no lleva `key` por `identifier`, así que sobrevive el cambio
-    // de fuente; el `if (idx > 0)` de antes se saltaba el reset cuando el capítulo a resumir de
-    // la fuente nueva era el primero, dejando el carrusel scrolleado al offset de la fuente
-    // vieja — y con eso el chip resumible (y `resumeEpisodeFR`, que ancla el foco desde el
-    // primer chip de fuentes) fuera de la ventana que compone el LazyRow.
-    LaunchedEffect(identifier, resumeId) {
+    // Reposiciona el carrusel SOLO al cambiar de fuente (chip de "Fuentes"), no en cada cambio
+    // de `resumeId`. `episodesListState` no lleva `key` por `identifier`, así que sobrevive el
+    // cambio de fuente; sin este reset el carrusel se quedaba scrolleado al offset de la fuente
+    // vieja cuando el capítulo a resumir de la fuente nueva caía en el índice 0 — y con eso el
+    // chip resumible (y `resumeEpisodeFR`, que ancla el foco desde el primer chip de fuentes)
+    // fuera de la ventana que compone el LazyRow.
+    //
+    // OJO: la key es `identifier` solo, NO `resumeId`. `resumeId` también cambia dentro de la
+    // MISMA fuente cuando el capítulo en curso pasa el 60% y `savePlayback` lo marca visto
+    // (ArkivRepository.setWatched/inProgressEpisode caen a `episodes.firstOrNull()`): ese es el
+    // flujo más común de volver al detalle, y si el effect corriera con esa key el carrusel le
+    // pegaba un salto a "T1 · E1" apenas el usuario volvía de ver algo. Al depender solo de
+    // `identifier`, este LaunchedEffect no se reinicia en ese caso — seguimos leyendo `data` y
+    // `resumeId` "de tras el cierre" de la composición donde `identifier` cambió, que es
+    // exactamente la fuente nueva recién elegida.
+    LaunchedEffect(identifier) {
         val idx = data.episodes.indexOfFirst { it.id == resumeId }
         episodesListState.scrollToItem(idx.coerceAtLeast(0))
     }
