@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -15,6 +17,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.ClickableSurfaceDefaults
@@ -28,9 +32,13 @@ import kotlinx.coroutines.launch
 import com.arkiv.player.data.Quality
 import com.arkiv.player.data.WebQuality
 import com.arkiv.player.data.update.UpdateInfo
+import com.arkiv.player.pocketbase.AccountException
+import com.arkiv.player.pocketbase.AccountManager
+import com.arkiv.player.pocketbase.AccountState
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
+import com.arkiv.player.ui.theme.ArkivTextSecondary
 import com.arkiv.player.ui.update.UpdateDialog
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -38,6 +46,7 @@ import com.arkiv.player.ui.update.UpdateDialog
 fun TvSettingsScreen(onConnectPhone: () -> Unit = {}) {
     val graph = rememberGraph()
     val settings = graph.settings
+    val account = graph.accountManager
     val streamQuality by settings.streamQuality.collectAsStateWithLifecycle()
     val webQuality by settings.webQuality.collectAsStateWithLifecycle()
 
@@ -99,6 +108,8 @@ fun TvSettingsScreen(onConnectPhone: () -> Unit = {}) {
         }
         Text("Teléfono", style = MaterialTheme.typography.titleMedium, color = Color.White)
         TvActionOption("Conectar teléfono", onConnectPhone)
+        Text("Cuenta", style = MaterialTheme.typography.titleMedium, color = Color.White)
+        TvAccountSection(account)
         Text("Actualizaciones", style = MaterialTheme.typography.titleMedium, color = Color.White)
         TvActionOption(
             if (checkingUpdate) "Buscando…" else "Buscar actualizaciones",
@@ -186,6 +197,86 @@ private fun TvQualityOption(label: String, value: Quality, selected: Quality, on
                 ),
             )
             Text(label, color = Color.White, modifier = Modifier.padding(start = 12.dp))
+        }
+    }
+}
+
+/**
+ * Misma funcionalidad que `AccountSection` (móvil, `ui/settings/AccountSection.kt`) pero en el
+ * idioma TV: Surfaces focusables (`TvActionOption`) en vez de `Button`/`OutlinedButton`, y los
+ * inputs de texto siguiendo el patrón de `TvAddScreen` (M3 `OutlinedTextField` estándar — tv.material3
+ * no trae un campo de texto propio).
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvAccountSection(account: AccountManager) {
+    val state by account.state.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+
+    when (val s = state) {
+        is AccountState.Conectado -> {
+            Text("Conectado como ${s.email}", color = Color.White)
+            TvActionOption(
+                label = if (busy) "Cerrando sesión…" else "Cerrar sesión",
+                onClick = {
+                    if (!busy) {
+                        scope.launch {
+                            busy = true
+                            runCatching { account.logout() }
+                            busy = false
+                        }
+                    }
+                },
+            )
+        }
+        AccountState.Anonimo -> {
+            OutlinedTextField(
+                value = email,
+                onValueChange = { email = it; error = null },
+                label = { androidx.compose.material3.Text("Email") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                modifier = Modifier.fillMaxWidth(0.6f),
+            )
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it; error = null },
+                label = { androidx.compose.material3.Text("Contraseña") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                modifier = Modifier.fillMaxWidth(0.6f).padding(top = 8.dp),
+            )
+            error?.let {
+                Text(it, color = ArkivRed, modifier = Modifier.padding(top = 6.dp))
+            }
+            fun run(op: suspend (String, String) -> Unit) {
+                if (busy || email.isBlank() || password.isBlank()) return
+                scope.launch {
+                    busy = true
+                    try {
+                        op(email.trim(), password)
+                    } catch (e: AccountException) {
+                        error = e.message
+                    }
+                    busy = false
+                }
+            }
+            TvActionOption(
+                label = if (busy) "Espere…" else "Iniciar sesión",
+                onClick = { run(account::login) },
+            )
+            TvActionOption(
+                label = if (busy) "Espere…" else "Crear cuenta",
+                onClick = { run(account::register) },
+            )
+            if (busy) {
+                Text("Procesando…", color = ArkivTextSecondary, modifier = Modifier.padding(top = 4.dp))
+            }
         }
     }
 }
