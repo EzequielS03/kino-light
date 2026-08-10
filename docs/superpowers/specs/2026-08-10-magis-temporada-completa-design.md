@@ -141,9 +141,12 @@ Hoy la línea de datos del detalle dice `"20 episodios"` (`TvDetailScreen.kt:197
 (`DetailScreen.kt:407`), y el botón dice `"▶ Reproducir"`. Con la temporada completa guardada, el
 dato que falta es por dónde vas.
 
-- Línea: `"Vas en E5  ·  20 episodios"` cuando `ItemDetail.inProgressEpisode != null` (ya existe:
-  último episodio empezado y sin terminar). Sin capítulo en curso, queda como hoy.
-- Botón: `"▶ Reproducir E5"` en ese mismo caso; `"▶ Reproducir"` si no.
+- Línea: `"Vas en E5  ·  20 episodios"` en cuanto haya algo empezado en la serie. El capítulo que
+  nombra es `resumeEpisode` —el que reproduce el botón, con la regla de la sección 3—, no
+  `inProgressEpisode`: si terminaste el E5, tanto el texto como el botón tienen que decir E6, que es
+  lo que va a pasar al apretarlo. Sin nada empezado, queda como hoy.
+- Botón: `"▶ Reproducir E5"` en ese mismo caso; `"▶ Reproducir"` si no, y también en películas (un
+  solo episodio: no hay nada que numerar).
 - Aplica al detalle del TV y al del celu, con el "videos"/"episodios" que ya usa cada uno.
 
 **Helper compartido** `EtiquetaDeCapitulo` (nuevo, puro): arma `"T1 · E5"` / `"E5"` a partir de un
