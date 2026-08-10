@@ -28,9 +28,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import com.arkiv.player.data.ArchiveSearchResult
 import com.arkiv.player.data.catalog.TorrentLang
 import com.arkiv.player.data.catalog.TorrentResult
@@ -160,6 +162,19 @@ fun SourceRow(source: PlaySource, enabled: Boolean, onDownload: (() -> Unit)? = 
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.width(3.dp).height(56.dp).background(accent))
+        // Solo Magis trae imagen por resultado. Sin póster no se dibuja nada: un hueco gris en
+        // cada fila sería peor que la fila de hoy. Los 38×56 son el 2:3 que entra en el alto
+        // que la fila ya tenía, así que la lista no cambia de ritmo entre una fuente y otra.
+        val miniatura = (source as? PlaySource.Magis)?.result?.extra?.get("poster").orEmpty()
+        if (miniatura.isNotBlank()) {
+            AsyncImage(
+                model = miniatura,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.padding(start = 8.dp).size(width = 38.dp, height = 56.dp)
+                    .clip(RoundedCornerShape(4.dp)),
+            )
+        }
         Icon(
             Icons.Default.PlayArrow, contentDescription = null, tint = accent,
             modifier = Modifier.padding(horizontal = 10.dp).size(20.dp),
