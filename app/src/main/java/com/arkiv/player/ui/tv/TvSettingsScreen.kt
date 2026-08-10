@@ -11,6 +11,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,8 +38,7 @@ import com.arkiv.player.data.update.UpdateInfo
 import com.arkiv.player.pocketbase.AccountException
 import com.arkiv.player.pocketbase.AccountManager
 import com.arkiv.player.pocketbase.AccountState
-import com.arkiv.player.pocketbase.MagisLinkClient
-import com.arkiv.player.pocketbase.MagisLinkException
+import com.arkiv.player.pocketbase.RegistroPaso
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
@@ -113,7 +113,7 @@ fun TvSettingsScreen(onConnectPhone: () -> Unit = {}) {
         Text("Teléfono", style = MaterialTheme.typography.titleMedium, color = Color.White)
         TvActionOption("Conectar teléfono", onConnectPhone)
         Text("Cuenta", style = MaterialTheme.typography.titleMedium, color = Color.White)
-        TvAccountSection(account, graph.magisLinkClient)
+        TvAccountSection(account)
         Text("Actualizaciones", style = MaterialTheme.typography.titleMedium, color = Color.White)
         TvActionOption(
             if (checkingUpdate) "Buscando…" else "Buscar actualizaciones",
@@ -206,160 +206,287 @@ private fun TvQualityOption(label: String, value: Quality, selected: Quality, on
 }
 
 /**
- * Misma funcionalidad que `AccountSection` (móvil, `ui/settings/AccountSection.kt`) pero en el
- * idioma TV: Surfaces focusables (`TvActionOption`) en vez de `Button`/`OutlinedButton`, y los
- * inputs de texto siguiendo el patrón de `TvAddScreen` (M3 `OutlinedTextField` estándar — tv.material3
- * no trae un campo de texto propio).
+ * Login unificado Magis-first, idioma TV: Surfaces focusables (`TvActionOption`) en vez de
+ * `Button`/`OutlinedButton`, inputs de texto siguiendo el patrón de `TvAddScreen` (M3
+ * `OutlinedTextField` estándar — tv.material3 no trae un campo de texto propio), y un toggle de
+ * texto en vez de un ícono de ojo (más previsible con mando/D-pad que un IconButton dentro de un
+ * campo). Misma funcionalidad que `AccountSection` (móvil, `ui/settings/AccountSection.kt`).
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun TvAccountSection(account: AccountManager, magisLinkClient: MagisLinkClient) {
+private fun TvAccountSection(account: AccountManager) {
     val state by account.state.collectAsStateWithLifecycle()
+
+    when (val s = state) {
+        is AccountState.Conectado -> TvConectadoSection(account, s)
+        AccountState.Anonimo -> TvAnonimoSection(account)
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvPasswordField(value: String, onValueChange: (String) -> Unit, label: String, modifier: Modifier = Modifier) {
+    var visible by remember { mutableStateOf(false) }
+    Column(modifier = modifier) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            label = { androidx.compose.material3.Text(label) },
+            singleLine = true,
+            visualTransformation = if (visible) androidx.compose.ui.text.input.VisualTransformation.None else PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        TvActionOption(
+            label = if (visible) "Ocultar contraseña" else "Mostrar contraseña",
+            onClick = { visible = !visible },
+        )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvAnonimoSection(account: AccountManager) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var codigoPedido by remember { mutableStateOf(false) }
+    var codigo by remember { mutableStateOf("") }
 
-    when (val s = state) {
-        is AccountState.Conectado -> {
-            Text("Conectado como ${s.email}", color = Color.White)
-            TvActionOption(
-                label = if (busy) "Cerrando sesión…" else "Cerrar sesión",
-                onClick = {
-                    if (!busy) {
-                        scope.launch {
-                            busy = true
-                            runCatching { account.logout() }
+    OutlinedTextField(
+        value = email,
+        onValueChange = { email = it; error = null },
+        label = { androidx.compose.material3.Text("Email") },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+        enabled = !codigoPedido,
+        modifier = Modifier.fillMaxWidth(0.6f),
+    )
+    TvPasswordField(password, { password = it; error = null }, "Contraseña", modifier = Modifier.fillMaxWidth(0.6f).padding(top = 8.dp))
+
+    if (codigoPedido) {
+        OutlinedTextField(
+            value = codigo,
+            onValueChange = { codigo = it; error = null },
+            label = { androidx.compose.material3.Text("Código") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth(0.6f).padding(top = 8.dp),
+        )
+        Text(
+            "Te enviamos un código a tu email. Si no aparece, revisá la carpeta de spam.",
+            color = ArkivTextSecondary,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+
+    error?.let {
+        Text(it, color = ArkivRed, modifier = Modifier.padding(top = 6.dp))
+    }
+
+    if (codigoPedido) {
+        TvActionOption(
+            label = if (busy) "Confirmando…" else "Confirmar",
+            onClick = {
+                if (!busy && codigo.isNotBlank()) {
+                    scope.launch {
+                        busy = true
+                        try {
+                            account.registerConfirm(email.trim(), password, codigo.trim())
+                        } catch (e: AccountException) {
+                            error = e.message
+                        } finally {
                             busy = false
                         }
                     }
-                },
-            )
-            TvMagisSection(magisLinkClient)
-        }
-        AccountState.Anonimo -> {
-            OutlinedTextField(
-                value = email,
-                onValueChange = { email = it; error = null },
-                label = { androidx.compose.material3.Text("Email") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                modifier = Modifier.fillMaxWidth(0.6f),
-            )
-            OutlinedTextField(
-                value = password,
-                onValueChange = { password = it; error = null },
-                label = { androidx.compose.material3.Text("Contraseña") },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                modifier = Modifier.fillMaxWidth(0.6f).padding(top = 8.dp),
-            )
-            error?.let {
-                Text(it, color = ArkivRed, modifier = Modifier.padding(top = 6.dp))
-            }
-            fun run(op: suspend (String, String) -> Unit) {
-                if (busy || email.isBlank() || password.isBlank()) return
-                scope.launch {
-                    busy = true
-                    try {
-                        op(email.trim(), password)
-                    } catch (e: AccountException) {
-                        error = e.message
-                    }
-                    busy = false
                 }
-            }
-            TvActionOption(
-                label = if (busy) "Espere…" else "Iniciar sesión",
-                onClick = { run(account::login) },
-            )
-            TvActionOption(
-                label = if (busy) "Espere…" else "Crear cuenta",
-                // TODO(UI Magis-first): registerSendCode() manda el código y devuelve un
-                // RegistroPaso que la UI todavía no consume (falta el paso de ingresar el
-                // código + registerConfirm) — pendiente en la tarea de UI de este flujo.
-                onClick = { run { e, p -> account.registerSendCode(e, p) } },
-            )
-            if (busy) {
-                Text("Procesando…", color = ArkivTextSecondary, modifier = Modifier.padding(top = 4.dp))
-            }
-        }
+            },
+        )
+    } else {
+        TvActionOption(
+            label = if (busy) "Espere…" else "Iniciar sesión",
+            onClick = {
+                if (!busy && email.isNotBlank() && password.isNotBlank()) {
+                    scope.launch {
+                        busy = true
+                        try {
+                            account.login(email.trim(), password)
+                        } catch (e: AccountException) {
+                            error = e.message
+                        } finally {
+                            busy = false
+                        }
+                    }
+                }
+            },
+        )
+        TvActionOption(
+            label = if (busy) "Espere…" else "Crear cuenta",
+            onClick = {
+                if (!busy && email.isNotBlank() && password.isNotBlank()) {
+                    scope.launch {
+                        busy = true
+                        try {
+                            when (account.registerSendCode(email.trim(), password)) {
+                                RegistroPaso.CODIGO_ENVIADO -> codigoPedido = true
+                                RegistroPaso.CREADA_SIN_MAGIS ->
+                                    Toast.makeText(context, "Magis no disponible; podés vincularlo después", Toast.LENGTH_LONG).show()
+                            }
+                        } catch (e: AccountException) {
+                            error = e.message
+                        } finally {
+                            busy = false
+                        }
+                    }
+                }
+            },
+        )
+    }
+    if (busy) {
+        Text("Procesando…", color = ArkivTextSecondary, modifier = Modifier.padding(top = 4.dp))
     }
 }
 
-/**
- * Sub-bloque "Magis" dentro de la cuenta conectada (equivalente TV de `MagisSection` en
- * `ui/settings/AccountSection.kt`): vincular/desvincular la cuenta de Magis con la cuenta Arkiv.
- * Solo se llama desde `AccountState.Conectado`.
- */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun TvMagisSection(client: MagisLinkClient) {
+private fun TvConectadoSection(account: AccountManager, s: AccountState.Conectado) {
     val scope = rememberCoroutineScope()
-    var linked by remember { mutableStateOf<Boolean?>(null) } // null = todavía consultando
-    var user by remember { mutableStateOf("") }
-    var pass by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
 
-    androidx.compose.runtime.LaunchedEffect(client) {
-        linked = runCatching { client.status() }.getOrDefault(false)
+    LaunchedEffect(s.email) { account.refrescarMagis() }
+
+    Text("Conectado como ${s.email}" + if (s.magisLinked) " · Magis ✓" else "", color = Color.White)
+    TvActionOption(
+        label = if (busy) "Cerrando sesión…" else "Cerrar sesión",
+        onClick = {
+            if (!busy) {
+                scope.launch {
+                    busy = true
+                    runCatching { account.logout() }
+                    busy = false
+                }
+            }
+        },
+    )
+
+    if (!s.magisLinked) {
+        TvVincularMagisSection(account, s.email)
+    }
+}
+
+/** Sub-bloque para vincular Magis a una cuenta Arkiv ya conectada que aún no lo tiene (equivalente
+ *  TV de `VincularMagisSection` en `ui/settings/AccountSection.kt`). */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvVincularMagisSection(account: AccountManager, accountEmail: String) {
+    val scope = rememberCoroutineScope()
+    var expanded by remember { mutableStateOf(false) }
+    var email by remember { mutableStateOf(accountEmail) }
+    var password by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var codigoPedido by remember { mutableStateOf(false) }
+    var codigo by remember { mutableStateOf("") }
+
+    if (!expanded) {
+        TvActionOption(label = "Vincular Magis", onClick = { expanded = true })
+        return
     }
 
-    Text("Magis", style = MaterialTheme.typography.titleMedium, color = Color.White, modifier = Modifier.padding(top = 8.dp))
+    Column(Modifier.padding(top = 8.dp)) {
+        OutlinedTextField(
+            value = email,
+            onValueChange = { email = it; error = null },
+            label = { androidx.compose.material3.Text("Email de Magis") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+            enabled = !codigoPedido,
+            modifier = Modifier.fillMaxWidth(0.6f),
+        )
+        TvPasswordField(password, { password = it; error = null }, "Contraseña de Magis", modifier = Modifier.fillMaxWidth(0.6f).padding(top = 8.dp))
 
-    when (linked) {
-        null -> Text("Consultando…", color = ArkivTextSecondary)
-        true -> {
-            Text("Vinculado", color = Color.White)
+        if (codigoPedido) {
+            OutlinedTextField(
+                value = codigo,
+                onValueChange = { codigo = it; error = null },
+                label = { androidx.compose.material3.Text("Código") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(0.6f).padding(top = 8.dp),
+            )
+            Text(
+                "Te enviamos un código a tu email. Si no aparece, revisá la carpeta de spam.",
+                color = ArkivTextSecondary,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+
+        error?.let {
+            Text(it, color = ArkivRed, modifier = Modifier.padding(top = 6.dp))
+        }
+
+        if (codigoPedido) {
             TvActionOption(
-                label = if (busy) "Desvinculando…" else "Desvincular",
+                label = if (busy) "Confirmando…" else "Confirmar",
                 onClick = {
-                    if (!busy) {
+                    if (!busy && codigo.isNotBlank()) {
                         scope.launch {
                             busy = true
-                            try { client.unlink(); linked = false } catch (e: MagisLinkException) { error = e.message } finally { busy = false }
+                            try {
+                                account.vincularMagisConfirmar(email.trim(), password, codigo.trim())
+                                expanded = false
+                            } catch (e: AccountException) {
+                                error = e.message
+                            } finally {
+                                busy = false
+                            }
+                        }
+                    }
+                },
+            )
+        } else {
+            TvActionOption(
+                label = if (busy) "Vinculando…" else "Vincular",
+                onClick = {
+                    if (!busy && email.isNotBlank() && password.isNotBlank()) {
+                        scope.launch {
+                            busy = true
+                            try {
+                                account.vincularMagis(email.trim(), password)
+                                expanded = false
+                            } catch (e: AccountException) {
+                                error = e.message
+                            } finally {
+                                busy = false
+                            }
+                        }
+                    }
+                },
+            )
+            TvActionOption(
+                label = if (busy) "Espere…" else "Registrar en Magis",
+                onClick = {
+                    if (!busy && email.isNotBlank()) {
+                        scope.launch {
+                            busy = true
+                            try {
+                                account.vincularMagisEnviarCodigo(email.trim())
+                                codigoPedido = true
+                            } catch (e: AccountException) {
+                                error = e.message
+                            } finally {
+                                busy = false
+                            }
                         }
                     }
                 },
             )
         }
-        else -> {
-            OutlinedTextField(
-                value = user,
-                onValueChange = { user = it; error = null },
-                label = { androidx.compose.material3.Text("Usuario de Magis") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(0.6f),
-            )
-            OutlinedTextField(
-                value = pass,
-                onValueChange = { pass = it; error = null },
-                label = { androidx.compose.material3.Text("Clave de Magis") },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                modifier = Modifier.fillMaxWidth(0.6f).padding(top = 8.dp),
-            )
-            error?.let {
-                Text(it, color = ArkivRed, modifier = Modifier.padding(top = 6.dp))
-            }
-            TvActionOption(
-                label = if (busy) "Espere…" else "Vincular Magis",
-                onClick = {
-                    if (!busy && user.isNotBlank() && pass.isNotBlank()) {
-                        scope.launch {
-                            busy = true
-                            try { client.link(user.trim(), pass); linked = true } catch (e: MagisLinkException) { error = e.message } finally { busy = false }
-                        }
-                    }
-                },
-            )
-            if (busy) {
-                Text("Procesando…", color = ArkivTextSecondary, modifier = Modifier.padding(top = 4.dp))
-            }
+        if (busy) {
+            Text("Procesando…", color = ArkivTextSecondary, modifier = Modifier.padding(top = 4.dp))
         }
     }
 }
