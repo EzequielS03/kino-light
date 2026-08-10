@@ -331,6 +331,21 @@ class AppGraph(context: Context) {
             com.arkiv.player.cloudsync.SyncQuarantine(context),
         )
     }
+    val libraryWiper: com.arkiv.player.data.LibraryWiper by lazy {
+        com.arkiv.player.data.LibraryWiper(
+            database.itemDao(), database.playbackDao(), database.skipMarkerDao(), syncCursors,
+        )
+    }
+    val accountManager: com.arkiv.player.pocketbase.AccountManager by lazy {
+        com.arkiv.player.pocketbase.AccountManager(
+            client = pbClient,
+            deviceAuth = deviceAuth,
+            store = deviceStore,
+            onAccountSwitched = { cloudSync.syncNow() },
+            onLocalWipe = { libraryWiper.wipe() },
+        )
+    }
+
     val presence: com.arkiv.player.presence.PresenceManager by lazy {
         com.arkiv.player.presence.PresenceManager(pbClient, deviceAuth, applicationScope)
     }
