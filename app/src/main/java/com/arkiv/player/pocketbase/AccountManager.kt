@@ -83,7 +83,7 @@ class AccountManager(
         // Magis OK → crear la cuenta PocketBase con la MISMA credencial.
         try {
             crearPocketBase(email, password)
-        } catch (e: PocketBaseException) {
+        } catch (e: AccountException) {
             throw AccountException("tu cuenta ya existe con otra clave; usá la clave con la que la creaste")
         }
         _state.value = AccountState.Conectado(email, magisLinked = true)
@@ -170,12 +170,28 @@ class AccountManager(
 
     private suspend fun crearPocketBase(email: String, password: String) {
         val session = deviceAuth.session.value ?: throw AccountException("sin sesión")
-        client.createRecord(users, mapOf(
-            "email" to email,
-            "password" to password,
-            "passwordConfirm" to password,
-            "accountId" to session.accountId,
-        ), session.token)   // hardening: registro autenticado con el token del device (createRule PB)
+        try {
+            client.createRecord(users, mapOf(
+                "email" to email,
+                "password" to password,
+                "passwordConfirm" to password,
+                "accountId" to session.accountId,
+            ), session.token)   // hardening: registro autenticado con el token del device (createRule PB)
+        } catch (e: PocketBaseException) {
+            throw AccountException(
+                if (e.code == 400) "ese email ya está registrado o los datos son inválidos" else e.message ?: "no se pudo crear la cuenta"
+            )
+        }
         store.savePersonEmail(email)
+    }
+
+    /** Desvincula Magis de la cuenta Arkiv conectada; PocketBase sigue como fuente local. */
+    suspend fun desvincularMagis() = mutex.withLock {
+        try {
+            magisLink.unlink()
+        } catch (e: MagisLinkException) {
+            throw AccountException(if (e.code == 503) "Magis no disponible" else (e.message ?: "no se pudo desvincular"))
+        }
+        (_state.value as? AccountState.Conectado)?.let { _state.value = it.copy(magisLinked = false) }
     }
 }

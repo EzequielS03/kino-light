@@ -152,11 +152,12 @@ private fun AnonimoSection(account: AccountManager) {
 private fun ConectadoSection(account: AccountManager, s: AccountState.Conectado) {
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(s.email) { account.refrescarMagis() }
 
     Text(
-        "Conectado como ${s.email}" + if (s.magisLinked) " · Magis ✓" else "",
+        "Conectado como ${s.email}" + if (s.magisLinked) " · Magis vinculado ✓" else "",
         style = MaterialTheme.typography.bodyMedium,
     )
     Button(
@@ -165,7 +166,26 @@ private fun ConectadoSection(account: AccountManager, s: AccountState.Conectado)
         modifier = Modifier.padding(top = 8.dp),
     ) { Text("Cerrar sesión") }
 
-    if (!s.magisLinked) {
+    error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 6.dp)) }
+
+    if (s.magisLinked) {
+        OutlinedButton(
+            enabled = !busy,
+            onClick = {
+                scope.launch {
+                    busy = true
+                    try {
+                        account.desvincularMagis()
+                    } catch (e: AccountException) {
+                        error = e.message
+                    } finally {
+                        busy = false
+                    }
+                }
+            },
+            modifier = Modifier.padding(top = 8.dp),
+        ) { Text(if (busy) "Desvinculando…" else "Desvincular Magis") }
+    } else {
         VincularMagisSection(account, s.email)
     }
 }

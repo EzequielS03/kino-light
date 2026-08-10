@@ -197,6 +197,59 @@ class AccountManagerTest {
     }
 
     @Test
+    fun registerConfirm_magisOk_createRecord400_lanzaAccountExceptionNoCrashea() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setBody("""{"token":"dtok","record":{"id":"devrec"}}""")) // bootstrap
+        server.enqueue(MockResponse().setBody("{}")) // magis registerConfirm OK
+        server.enqueue(MockResponse().setResponseCode(400).setBody("""{"message":"email ya existe"}""")) // crearPocketBase -> createRecord(users) 400
+        server.start()
+        val client = clientFor(server)
+        val store = FakeDeviceStore(DeviceIdentity("A_anon","dev-1","dev-1@arkiv.local","pw12345678","phone"))
+        val mgr = AccountManager(client, seededAuth(client, store), store, magisLinkFor(server), onAccountSwitched = {}, onLocalWipe = {})
+
+        var msg: String? = null
+        try { mgr.registerConfirm("a@b.co", "secret12", "123456") } catch (e: AccountException) { msg = e.message }
+        assertTrue("mensaje: $msg", msg?.contains("ya está registrado") == true)
+        assertEquals(AccountState.Anonimo, mgr.state.value)
+        server.shutdown()
+    }
+
+    @Test
+    fun desvincularMagis_ok_quedaConectadoSinMagis() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setBody("""{"linked":true}""")) // refrescarMagis -> status
+        server.enqueue(MockResponse().setBody("{}")) // magis unlink OK
+        server.start()
+        val client = clientFor(server)
+        val store = FakeDeviceStore(DeviceIdentity("A_person","dev-1","dev-1@arkiv.local","pw12345678","phone"))
+        store.savePersonEmail("a@b.co")
+        val mgr = AccountManager(client, seededAuth(client, store), store, magisLinkFor(server), onAccountSwitched = {}, onLocalWipe = {})
+        mgr.refrescarMagis()
+        assertEquals(AccountState.Conectado("a@b.co", true), mgr.state.value)
+
+        mgr.desvincularMagis()
+
+        assertEquals(AccountState.Conectado("a@b.co", false), mgr.state.value)
+        server.shutdown()
+    }
+
+    @Test
+    fun desvincularMagis_503_lanzaAccountExceptionNoDisponible() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(503).setBody("""{"detail":"caido"}""")) // magis unlink caído
+        server.start()
+        val client = clientFor(server)
+        val store = FakeDeviceStore(DeviceIdentity("A_person","dev-1","dev-1@arkiv.local","pw12345678","phone"))
+        store.savePersonEmail("a@b.co")
+        val mgr = AccountManager(client, seededAuth(client, store), store, magisLinkFor(server), onAccountSwitched = {}, onLocalWipe = {})
+
+        var msg: String? = null
+        try { mgr.desvincularMagis() } catch (e: AccountException) { msg = e.message }
+        assertTrue("mensaje: $msg", msg?.contains("no disponible") == true)
+        server.shutdown()
+    }
+
+    @Test
     fun logout_limpiaLocalYVuelveAnonimo() = runBlocking {
         val server = MockWebServer()
         // resetToAnonymous -> createNewAccount: createRecord(devices) + authWithPassword(devices)

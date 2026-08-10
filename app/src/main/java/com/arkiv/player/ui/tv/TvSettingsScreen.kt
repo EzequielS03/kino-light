@@ -355,10 +355,11 @@ private fun TvAnonimoSection(account: AccountManager) {
 private fun TvConectadoSection(account: AccountManager, s: AccountState.Conectado) {
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(s.email) { account.refrescarMagis() }
 
-    Text("Conectado como ${s.email}" + if (s.magisLinked) " · Magis ✓" else "", color = Color.White)
+    Text("Conectado como ${s.email}" + if (s.magisLinked) " · Magis vinculado ✓" else "", color = Color.White)
     TvActionOption(
         label = if (busy) "Cerrando sesión…" else "Cerrar sesión",
         onClick = {
@@ -372,7 +373,29 @@ private fun TvConectadoSection(account: AccountManager, s: AccountState.Conectad
         },
     )
 
-    if (!s.magisLinked) {
+    error?.let {
+        Text(it, color = ArkivRed, modifier = Modifier.padding(top = 6.dp))
+    }
+
+    if (s.magisLinked) {
+        TvActionOption(
+            label = if (busy) "Desvinculando…" else "Desvincular Magis",
+            onClick = {
+                if (!busy) {
+                    scope.launch {
+                        busy = true
+                        try {
+                            account.desvincularMagis()
+                        } catch (e: AccountException) {
+                            error = e.message
+                        } finally {
+                            busy = false
+                        }
+                    }
+                }
+            },
+        )
+    } else {
         TvVincularMagisSection(account, s.email)
     }
 }
