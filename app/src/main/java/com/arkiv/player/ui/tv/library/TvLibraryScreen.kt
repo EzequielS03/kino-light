@@ -278,9 +278,16 @@ private fun TvLibraryItemDialog(
     val row = grupo.primary
     var confirmarQuitar by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
+    // Mismo patrón de reintento que el menú lateral: un único intento con `runCatching` tragado
+    // causó el bug histórico donde, si el diálogo todavía no estaba compuesto, `requestFocus()`
+    // tiraba "FocusRequester is not initialized" y el foco quedaba sin dueño.
     LaunchedEffect(confirmarQuitar) {
-        delay(100)
-        runCatching { focus.requestFocus() }
+        var landed = false
+        repeat(20) {
+            if (landed) return@repeat
+            landed = runCatching { focus.requestFocus() }.isSuccess
+            if (!landed) delay(50)
+        }
     }
 
     Dialog(onDismissRequest = onDismiss) {
