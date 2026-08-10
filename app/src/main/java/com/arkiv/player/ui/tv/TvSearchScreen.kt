@@ -19,10 +19,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -298,6 +300,10 @@ fun TvSearchScreen(
     // de red (TMDB + AniList + torrents) que casi siempre se descartaba. Se busca con el botón.
     // `searched` distingue "todavía no buscó nada" (mostramos recientes) de "buscó y no hubo nada".
     var searched by remember { mutableStateOf(false) }
+    // Sube en cada búsqueda ejecutada. Es la llave para devolver la grilla al principio:
+    // sin esto, una lista lazy conserva el scroll de la búsqueda anterior y la nueva
+    // aparece empezada por la mitad, con las primeras cards fuera de pantalla.
+    var busquedaNro by remember { mutableStateOf(0) }
     var recents by remember { mutableStateOf(emptyList<String>()) }
     val historyDao = remember { graph.database.searchHistoryDao() }
 
@@ -307,11 +313,26 @@ fun TvSearchScreen(
 
     LaunchedEffect(Unit) { refreshRecents() }
 
+    /**
+     * Vuelve a la pantalla de recientes sin salir del buscador.
+     *
+     * Antes esto era un callejón sin salida: una vez buscado algo no había forma de volver a la
+     * lista de recientes. Borrar todo el texto tampoco servía — el botón se apagaba y los
+     * resultados seguían en pantalla.
+     */
+    fun nuevaBusqueda() {
+        text = ""
+        searched = false
+        vm.search("")
+        scope.launch { refreshRecents() }
+    }
+
     fun runSearch(q: String) {
         val query = q.trim()
         if (query.isBlank()) return
         text = query
         searched = true
+        busquedaNro++
         vm.search(query)
         scope.launch {
             runCatching {
@@ -370,7 +391,12 @@ fun TvSearchScreen(
                     )
                     TvKeyboard(
                         text = text,
-                        onTextChange = { text = it },
+                        // Borrar hasta dejarlo vacío vuelve a las recientes. Es el gesto que ya
+                        // existía (⌫) y que hasta ahora no llevaba a ningún lado.
+                        onTextChange = {
+                            text = it
+                            if (it.isBlank() && searched) nuevaBusqueda()
+                        },
                         firstKeyFocus = firstKeyFocus,
                     )
                     Spacer(Modifier.height(16.dp))
@@ -388,6 +414,26 @@ fun TvSearchScreen(
                     ) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Text("Buscar", style = MaterialTheme.typography.titleMedium)
+                        }
+                    }
+                    // No depende de borrar el texto letra por letra: con el control eso son diez
+                    // clics. Aparece recién cuando hay algo que descartar.
+                    if (searched) {
+                        Spacer(Modifier.height(10.dp))
+                        Surface(
+                            onClick = { nuevaBusqueda() },
+                            modifier = Modifier.fillMaxWidth().height(52.dp),
+                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+                            colors = ClickableSurfaceDefaults.colors(
+                                containerColor = ArkivSurfaceHigh,
+                                contentColor = ArkivTextPrimary,
+                                focusedContainerColor = Color.White,
+                                focusedContentColor = ArkivBlack,
+                            ),
+                        ) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text("Nueva búsqueda", style = MaterialTheme.typography.titleMedium)
+                            }
                         }
                     }
                 }
@@ -440,7 +486,18 @@ fun TvSearchScreen(
                     if (titleResults.isEmpty() && !loadingTitles && searched) {
                         Text("Sin resultados", color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall)
                     }
+                    val gridTitulos = rememberLazyGridState()
+                    // Los resultados llegan en dos tandas y el ViewModel publica `tmdb + anime`:
+                    // si el anime llega primero, la tanda de TMDB se INSERTA ARRIBA. Con keys, la
+                    // grilla se ancla a lo que ya estabas viendo y lo nuevo queda fuera de
+                    // pantalla, por encima — se ve igual que si hubiera quedado scrolleada.
+                    // Mientras no hayas movido el foco a la grilla, la mantenemos arriba.
+                    var grillaTocada by remember(busquedaNro) { mutableStateOf(false) }
+                    LaunchedEffect(busquedaNro, titleResults) {
+                        if (!grillaTocada) gridTitulos.scrollToItem(0)
+                    }
                     LazyVerticalGrid(
+                        state = gridTitulos,
                         columns = GridCells.Fixed(5),
                         // Aire alrededor para que el zoom al enfocar (1.1x) no se recorte contra
                         // los bordes de la grilla ni contra las cards vecinas.
@@ -454,6 +511,7 @@ fun TvSearchScreen(
                                 title = card.title,
                                 posterUrl = card.posterUrl,
                                 cardHeight = 180.dp,
+                                onFocus = { grillaTocada = true },
                                 // Una peli no tiene nada que elegir: va derecho a las fuentes.
                                 // Una serie sí, y hasta ahora caía siempre en el selector de
                                 // temporadas — con el "Toda la serie" arriba, fácil de no ver.
@@ -1034,8 +1092,14 @@ private fun TvResultsContent(
         }
     }
 
+    // Al entrar a las fuentes de OTRO título la lista tiene que arrancar arriba, no donde había
+    // quedado la anterior. La llave es el título + el capítulo: es lo que cambia entre búsquedas.
+    val listaFuentes = rememberLazyListState()
+    LaunchedEffect(title, season, episode) { listaFuentes.scrollToItem(0) }
+
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
+            state = listaFuentes,
             // El margen va DENTRO de la lista (contentPadding), no como padding externo: al enfocar,
             // las filas hacen zoom (1.1x) y con el margen por fuera la lista las recortaba contra su
             // propio borde. Así el zoom se dibuja sobre ese margen en vez de cortarse.
@@ -1487,9 +1551,19 @@ private fun TvMagisSeasonContent(
     val saveAllFocus = remember { FocusRequester() }
 
     LaunchedEffect(season.ref) {
+        // Mismo diagnóstico que en la ventana del celular (ver MagisSeasonDialog): sin esto el
+        // motivo real del fallo no llega a ningún lado.
+        android.util.Log.w(
+            "ArkivGw",
+            "temporada TV: pido capitulos titulo=${season.title} tipo=${season.extra["program_type"]} " +
+                "esperados=${season.extra["episode_count"]} kind=${season.kind} ref=${season.ref.take(24)}…",
+        )
         runCatching { client.episodes(season.ref) }
             .onSuccess { capitulos = it }
-            .onFailure { error = "No se pudieron cargar los capítulos." }
+            .onFailure {
+                android.util.Log.w("ArkivGw", "temporada TV: fallo ${it.javaClass.simpleName}: ${it.message}", it)
+                error = "No se pudieron cargar los capítulos."
+            }
     }
     LaunchedEffect(capitulos) {
         if (!capitulos.isNullOrEmpty()) {
