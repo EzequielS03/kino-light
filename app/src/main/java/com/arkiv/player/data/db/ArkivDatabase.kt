@@ -16,12 +16,13 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SkipMarkerEntity::class,
         ArtworkEntity::class,
         SearchHistoryEntity::class,
+        RecentTitleEntity::class,
         EpisodeStillEntity::class,
         NucLibraryItemEntity::class,
         SeriesPlaybackPrefEntity::class,
         LocalActiveJobEntity::class,
     ],
-    version = 17,
+    version = 18,
     exportSchema = false,
 )
 abstract class ArkivDatabase : RoomDatabase() {
@@ -31,6 +32,7 @@ abstract class ArkivDatabase : RoomDatabase() {
     abstract fun skipMarkerDao(): SkipMarkerDao
     abstract fun artworkDao(): ArtworkDao
     abstract fun searchHistoryDao(): SearchHistoryDao
+    abstract fun recentTitleDao(): RecentTitleDao
     abstract fun episodeStillDao(): EpisodeStillDao
     abstract fun nucLibraryItemDao(): NucLibraryItemDao
     abstract fun seriesPlaybackPrefDao(): SeriesPlaybackPrefDao
@@ -289,13 +291,29 @@ abstract class ArkivDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS recent_titles (" +
+                        "id TEXT NOT NULL PRIMARY KEY, " +
+                        "kind TEXT NOT NULL, " +
+                        "tmdbId INTEGER, " +
+                        "anilistId INTEGER, " +
+                        "title TEXT NOT NULL, " +
+                        "posterUrl TEXT NOT NULL, " +
+                        "year TEXT NOT NULL, " +
+                        "atMs INTEGER NOT NULL)",
+                )
+            }
+        }
+
         fun get(context: Context): ArkivDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     ArkivDatabase::class.java,
                     "arkiv.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18)
                     .fallbackToDestructiveMigration()
                     .build().also { instance = it }
             }

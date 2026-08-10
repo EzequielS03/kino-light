@@ -120,6 +120,24 @@ data class SearchHistoryEntity(
 )
 
 /**
+ * Un título abierto desde el buscador, para poder volver a él sin buscarlo de nuevo.
+ *
+ * La PK es el id derivado que arma [com.arkiv.player.data.SearchHistoryPolicy.titleId]: encierra
+ * la regla de identidad en un solo lugar y deja que REPLACE haga el dedupe.
+ */
+@Entity(tableName = "recent_titles")
+data class RecentTitleEntity(
+    @PrimaryKey val id: String,
+    val kind: String,
+    val tmdbId: Int?,
+    val anilistId: Long?,
+    val title: String,
+    val posterUrl: String,
+    val year: String,
+    val atMs: Long,
+)
+
+/**
  * Una descarga al almacenamiento del PROPIO dispositivo. Sirve a las tres fuentes: `source`
  * distingue archive.org, torrent y web. NO confundir con [NucLibraryItemEntity], que es la caché de
  * lo que vive en la NUC.

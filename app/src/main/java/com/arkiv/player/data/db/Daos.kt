@@ -388,6 +388,34 @@ interface SearchHistoryDao {
     @Query("SELECT * FROM search_history WHERE kind = :kind ORDER BY atMs DESC LIMIT :limit")
     suspend fun recent(kind: String, limit: Int = 20): List<SearchHistoryEntity>
 
+    @Query("SELECT * FROM search_history WHERE kind = :kind ORDER BY atMs DESC LIMIT :limit")
+    fun observeRecent(kind: String, limit: Int = 10): Flow<List<SearchHistoryEntity>>
+
+    @Query("DELETE FROM search_history WHERE kind = :kind AND lower(query) = lower(:query)")
+    suspend fun deleteOne(kind: String, query: String)
+
+    @Query("DELETE FROM search_history WHERE kind = :kind")
+    suspend fun clearKind(kind: String)
+
     @Query("DELETE FROM search_history")
     suspend fun clear()
+}
+
+@Dao
+interface RecentTitleDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entry: RecentTitleEntity)
+
+    @Query("SELECT * FROM recent_titles ORDER BY atMs DESC LIMIT :limit")
+    fun observeRecent(limit: Int = 12): Flow<List<RecentTitleEntity>>
+
+    @Query("DELETE FROM recent_titles WHERE id = :id")
+    suspend fun deleteOne(id: String)
+
+    @Query("DELETE FROM recent_titles")
+    suspend fun clear()
+
+    /** Borra lo que pase del tope. Cada fila arrastra una URL de póster: conviene podar. */
+    @Query("DELETE FROM recent_titles WHERE id NOT IN (SELECT id FROM recent_titles ORDER BY atMs DESC LIMIT :keep)")
+    suspend fun trim(keep: Int)
 }
