@@ -122,6 +122,12 @@ interface ItemDao {
 
     @Query("UPDATE episodes SET deleted = 1 WHERE itemId = :itemId")
     suspend fun softDeleteEpisodesOf(itemId: String)
+
+    @Query("DELETE FROM items")
+    suspend fun deleteAllItems()
+
+    @Query("DELETE FROM episodes")
+    suspend fun deleteAllEpisodes()
 }
 
 @Dao
@@ -164,6 +170,9 @@ interface PlaybackDao {
 
     @Query("UPDATE playback SET deleted = 1 WHERE episodeId = :episodeId")
     suspend fun softDeletePlayback(episodeId: String)
+
+    @Query("DELETE FROM playback")
+    suspend fun deleteAllPlayback()
 }
 
 /** Descarga combinada con datos del episodio para mostrar en pantalla. */
@@ -205,6 +214,9 @@ interface SkipMarkerDao {
 
     @Query("UPDATE skip_markers SET deleted = 1 WHERE itemId = :itemId")
     suspend fun softDeleteMarker(itemId: String)
+
+    @Query("DELETE FROM skip_markers")
+    suspend fun deleteAllMarkers()
 }
 
 @Dao
