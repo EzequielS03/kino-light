@@ -25,7 +25,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
@@ -64,6 +63,7 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.arkiv.player.data.ArchiveUrls
+import com.arkiv.player.data.LibraryGroup
 import com.arkiv.player.data.db.ContinueRow
 import com.arkiv.player.data.db.LibraryRow
 import com.arkiv.player.sync.SyncStatus
@@ -101,7 +101,6 @@ fun TvHomeScreen(
     onOpenItem: (String) -> Unit,
     onPlayEpisode: (String) -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenTorrent: () -> Unit,
     onOpenSearch: () -> Unit,
     onOpenSearchRoute: (String) -> Unit,
 ) {
@@ -110,6 +109,7 @@ fun TvHomeScreen(
         factory = viewModelFactory { initializer { HomeViewModel(graph.repository, graph.tmdbApi, graph.aniListApi) } },
     )
     val library by vm.library.collectAsStateWithLifecycle()
+    val libraryGroups by vm.libraryGroups.collectAsStateWithLifecycle()
     val continueWatching by vm.continueWatching.collectAsStateWithLifecycle()
     val artwork by vm.artwork.collectAsStateWithLifecycle()
     val discoveryRows by vm.rows.collectAsStateWithLifecycle()
@@ -175,12 +175,13 @@ fun TvHomeScreen(
     var menuRow by remember { mutableStateOf<LibraryRow?>(null) }
 
     val movies = library.filter { it.isMovie }
-    val series = library.filter { !it.isMovie }
-    // La primera tarjeta enfocable de la biblioteca (si no hay "continuar viendo").
-    // El orden acá DEBE seguir al de render (series antes que películas): si apunta a una
-    // tarjeta de una fila que quedó fuera de las 2 visibles, el home abre desplazado.
+    // Películas por ítem (no se agrupan: ver LibraryGrouping.groupKeyOf), series por grupo.
+    val seriesGroups = libraryGroups.filter { !it.primary.isMovie }
+    // El orden acá DEBE seguir al de render (series antes que películas). La fila de Series se
+    // identifica por la llave del grupo y la de Películas por el identifier del ítem: son espacios
+    // distintos, pero nunca se comparan entre sí porque cada sección solo mira sus propias tarjetas.
     val firstPosterId = if (continueWatching.isEmpty()) {
-        (series.firstOrNull() ?: movies.firstOrNull())?.identifier
+        seriesGroups.firstOrNull()?.key ?: movies.firstOrNull()?.identifier
     } else {
         null
     }
@@ -269,7 +270,9 @@ fun TvHomeScreen(
                         modifier = Modifier.padding(end = 16.dp),
                     )
                     TvNavButton(icon = Icons.Default.Search, label = "Buscar", onClick = onOpenSearch)
-                    TvNavButton(icon = Icons.Default.Download, label = "Torrent", onClick = onOpenTorrent)
+                    // El botón "Torrent" (pegar un magnet a mano) se quitó de la barra: ya no se usa,
+                    // los torrents entran por el buscador. La ruta "torrent" sigue registrada en
+                    // ArkivTvRoot y la pantalla funciona; solo perdió su entrada desde el home.
                     TvNavButton(icon = Icons.Default.Settings, label = "Ajustes", onClick = onOpenSettings)
                     TvNavButton(
                         icon = Icons.Default.Sync,
@@ -355,20 +358,23 @@ fun TvHomeScreen(
                 // detalle con todos los capítulos — que es como se elige uno distinto al que
                 // ofrece "Continuar viendo" (esa tarjeta reproduce directo). Películas baja a
                 // tercera. Si cambia este orden, actualizar también firstPosterId.
-                if (series.isNotEmpty()) {
+                if (seriesGroups.isNotEmpty()) {
                     item(key = "lib_series") {
-                        TvLibrarySection(
-                            label = "Series",
-                            rows = series,
+                        TvSeriesSection(
+                            rows = seriesGroups,
                             cardHeight = cardHeight,
                             labelHeight = labelHeight,
                             rowGap = rowGap,
                             firstFocusId = firstPosterId,
                             firstFocus = firstCardFocus,
-                            imageFor = { cardArt(it.identifier, it.thumbnailUrl) },
-                            onFocusRow = { navSound(); featured = libraryFeatured(it) },
-                            onClickRow = { open(it) },
-                            onLongClickRow = { menuRow = it },
+                            imageFor = { cardArt(it.primary.identifier, it.primary.thumbnailUrl) },
+                            onFocusRow = { navSound(); featured = libraryFeatured(it.primary) },
+                            // Se abre la fuente principal del grupo, NO la llave (`tv:46260`): el
+                            // detalle todavía resuelve por identifier, así que pasarle la llave lo
+                            // dejaba sin ítem y pintaba la pantalla en negro. Cuando el detalle
+                            // sepa resolver grupos, esto pasa a `it.key`.
+                            onClickRow = { onOpenItem(it.primary.identifier) },
+                            onLongClickRow = { menuRow = it.primary },
                         )
                     }
                 }
@@ -567,6 +573,48 @@ private fun TvLibrarySection(
                 onFocus = { onFocusRow(row) },
                 onLongClick = { onLongClickRow(row) },
                 onClick = { onClickRow(row) },
+            )
+        }
+    }
+    Spacer(Modifier.height(rowGap))
+}
+
+/**
+ * La fila de Series del home. Igual que [TvLibrarySection] pero por grupo: cuando una serie tiene
+ * más de una fuente, el badge lo dice ("3 FUENTES") y el contador suma los capítulos de todas.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvSeriesSection(
+    rows: List<LibraryGroup>,
+    cardHeight: androidx.compose.ui.unit.Dp,
+    labelHeight: androidx.compose.ui.unit.Dp,
+    rowGap: androidx.compose.ui.unit.Dp,
+    firstFocusId: String?,
+    firstFocus: FocusRequester,
+    imageFor: (LibraryGroup) -> String?,
+    onFocusRow: (LibraryGroup) -> Unit,
+    onClickRow: (LibraryGroup) -> Unit,
+    onLongClickRow: (LibraryGroup) -> Unit,
+) {
+    TvRowLabel("Series", labelHeight)
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 48.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        items(rows, key = { it.key }) { group ->
+            val multi = group.sourceCount > 1
+            TvLandscapeCard(
+                title = group.primary.title,
+                imageUrl = imageFor(group),
+                cardHeight = cardHeight,
+                badge = if (multi) "${group.sourceCount} FUENTES" else if (group.primary.isTorrent) "TORRENT" else "SERIE",
+                badgeColor = if (group.primary.isTorrent && !multi) TorrentBadgeColor else SeriesBadgeColor,
+                episodeCountLabel = "${group.episodeCount} ep.",
+                modifier = if (group.key == firstFocusId) Modifier.focusRequester(firstFocus) else Modifier,
+                onFocus = { onFocusRow(group) },
+                onLongClick = { onLongClickRow(group) },
+                onClick = { onClickRow(group) },
             )
         }
     }
