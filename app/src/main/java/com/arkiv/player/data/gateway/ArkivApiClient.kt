@@ -47,6 +47,8 @@ class ArkivApiClient(
     private val baseUrl: () -> String,
     private val apiKey: () -> String,
     http: OkHttpClient,
+    /** AccountId efectivo (Magis por usuario): si no es null/blank, se manda como X-Arkiv-Account. */
+    private val magisAccountId: () -> String? = { null },
 ) {
     // Sin timeout de lectura: la respuesta es un stream largo, no un cuerpo corto.
     private val http = http.newBuilder()
@@ -54,8 +56,11 @@ class ArkivApiClient(
         .connectTimeout(15, TimeUnit.SECONDS)
         .build()
 
-    private fun pedido(url: String): Request.Builder =
-        Request.Builder().url(url).header("X-Arkiv-Key", apiKey())
+    private fun pedido(url: String): Request.Builder {
+        val b = Request.Builder().url(url).header("X-Arkiv-Key", apiKey())
+        magisAccountId()?.takeIf { it.isNotBlank() }?.let { b.header("X-Arkiv-Account", it) }
+        return b
+    }
 
     fun search(ctx: GatewaySearchQuery): Flow<SearchEvent> = flow {
         val url = "${baseUrl()}/v1/search".toHttpUrl().newBuilder().apply {

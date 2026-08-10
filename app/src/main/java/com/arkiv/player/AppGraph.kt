@@ -70,6 +70,7 @@ class AppGraph(context: Context) {
             baseUrl = { settings.gatewayUrl.value },
             apiKey = { settings.arkivApiKey.value },
             http = okhttp3.OkHttpClient(),
+            magisAccountId = { deviceAuth.session.value?.accountId },
         )
     }
 

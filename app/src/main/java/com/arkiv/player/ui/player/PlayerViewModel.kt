@@ -84,6 +84,7 @@ class PlayerViewModel(
     private val playbackPreferenceStore: PlaybackPreferenceStore,
     private val localLibrary: com.arkiv.player.data.local.LocalLibrary,
     private val localFileServer: com.arkiv.player.playback.LocalFileServer,
+    private val deviceAuth: com.arkiv.player.pocketbase.DeviceAuthManager,
 ) : ViewModel() {
 
     private val _playlist = MutableStateFlow<PlaylistData?>(null)
@@ -643,6 +644,7 @@ class PlayerViewModel(
             baseUrl = { settings.gatewayUrl.value },
             apiKey = { settings.arkivApiKey.value },
             http = okhttp3.OkHttpClient(),
+            magisAccountId = { deviceAuth.session.value?.accountId },
         )
     }
 
