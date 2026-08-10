@@ -4,6 +4,14 @@ import com.arkiv.player.data.db.EpisodeEntity
 import com.arkiv.player.data.db.ItemEntity
 
 /**
+ * Un capítulo de una temporada, tal como lo necesita [MagisEntities].
+ *
+ * Modelo propio y no `GatewayEpisode` a propósito: `MagisEntities` es puro/JVM (se testea sin Room
+ * ni red) y no debe depender del paquete `gateway`. El llamador mapea uno al otro.
+ */
+data class CapituloDeTemporada(val number: Int, val title: String, val ref: String)
+
+/**
  * Construye (ítem + episodio) de lo que llega de Magis. Puro/JVM (sin `android.*`) para poder
  * testearse sin Room; el repositorio solo lo guarda. Mismo molde que [PackEntities].
  *
@@ -33,6 +41,70 @@ object MagisEntities {
      * limpian al volver a guardar ese mismo capítulo.
      */
     fun idLegacyDeCapitulo(contentId: String, episode: Int): String = "${itemIdDe(contentId)}:e$episode"
+
+    /**
+     * El episodio de UN capítulo. Lo comparten [build] y [buildSeason] a propósito: el `id` es la
+     * clave primaria, así que si los dos caminos no lo armaran idéntico, guardar la temporada
+     * duplicaría los capítulos que ya estaban guardados sueltos.
+     */
+    private fun capituloDe(itemId: String, number: Int, title: String, ref: String) = EpisodeEntity(
+        id = "$itemId::e$number",
+        itemId = itemId,
+        section = "",
+        displayName = "E$number" + title.trim().takeIf { it.isNotBlank() }?.let { "  $it" }.orEmpty(),
+        orderIndex = number,
+        durationSeconds = 0.0,
+        thumbPath = null,
+        originalPath = null,
+        originalFormat = null,
+        originalSize = 0,
+        derivativePath = null,
+        derivativeFormat = null,
+        derivativeSize = 0,
+        // Numerado a propósito: es con esto que `CapitulosFaltantes` sabe cuál falta.
+        season = null,
+        episode = number,
+        torrentFileIndex = null,
+        torrentData = ref,
+    )
+
+    /**
+     * La temporada COMPLETA: un ítem y un episodio por capítulo.
+     *
+     * Es lo que se guarda al tocar un capítulo para verlo — la lista ya la tiene la pantalla, así
+     * que no cuesta ni una llamada de red. Corre en cada reproducción, así que **tiene que ser
+     * idempotente**: ids derivados del contenido y todo lo que `upsertItem` (REPLACE) borraría
+     * copiado de [existente], igual que en [build].
+     *
+     * [seriesRef] es el ref de la temporada (el que responde `/v1/episodes`). En blanco no pisa el
+     * guardado: los refs caducan y uno vencido es mejor que ninguno. A diferencia de [build], acá
+     * NO se cae al ref de un capítulo como último recurso — un ref de capítulo en el ítem haría que
+     * `BuscadorDeCapitulos` le pidiera la lista de capítulos a un capítulo.
+     */
+    fun buildSeason(
+        contentId: String,
+        title: String,
+        capitulos: List<CapituloDeTemporada>,
+        posterUrl: String,
+        ahora: Long,
+        seriesRef: String,
+        existente: ItemEntity?,
+    ): Pair<ItemEntity, List<EpisodeEntity>> {
+        val itemId = itemIdDe(contentId)
+        val item = ItemEntity(
+            identifier = itemId,
+            title = title.ifBlank { "Magis" },
+            description = null,
+            thumbnailUrl = posterUrl,
+            addedAt = existente?.addedAt ?: ahora,
+            categoryOverride = "series",
+            source = "magis",
+            torrentData = seriesRef.ifBlank { existente?.torrentData.orEmpty() }.takeIf { it.isNotBlank() },
+            episodiosVistosEnLista = existente?.episodiosVistosEnLista,
+            tmdbId = existente?.tmdbId,
+        )
+        return item to capitulos.map { capituloDe(itemId, it.number, it.title, it.ref) }
+    }
 
     /**
      * [episode] > 0 = capítulo de una serie; 0 = película (el camino de siempre, intacto).
@@ -76,26 +148,7 @@ object MagisEntities {
             tmdbId = existente?.tmdbId,
         )
         val ep = if (esCapitulo) {
-            EpisodeEntity(
-                id = "$itemId::e$episode",
-                itemId = itemId,
-                section = "",
-                displayName = "E$episode" + episodeTitle.trim().takeIf { it.isNotBlank() }?.let { "  $it" }.orEmpty(),
-                orderIndex = episode,
-                durationSeconds = 0.0,
-                thumbPath = null,
-                originalPath = null,
-                originalFormat = null,
-                originalSize = 0,
-                derivativePath = null,
-                derivativeFormat = null,
-                derivativeSize = 0,
-                // Numerado a propósito: es con esto que `CapitulosFaltantes` sabe cuál falta.
-                season = null,
-                episode = episode,
-                torrentFileIndex = null,
-                torrentData = ref,
-            )
+            capituloDe(itemId, episode, episodeTitle, ref)
         } else {
             EpisodeEntity(
                 id = "$itemId::0",

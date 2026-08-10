@@ -108,4 +108,64 @@ class MagisEntitiesTest {
         // tarjeta-película por capítulo. Se borran al volver a guardar ese mismo capítulo.
         assertEquals("magis:ABC:e1", MagisEntities.idLegacyDeCapitulo("ABC", 1))
     }
+
+    private fun temporada(
+        contentId: String = "ABC",
+        title: String = "Dragon Ball Daima T1",
+        capitulos: List<CapituloDeTemporada> = listOf(
+            CapituloDeTemporada(1, "El misterio", "ref-1"),
+            CapituloDeTemporada(2, "El deseo", "ref-2"),
+            CapituloDeTemporada(3, "La aventura", "ref-3"),
+        ),
+        seriesRef: String = "ref-temporada",
+        existente: ItemEntity? = null,
+    ) = MagisEntities.buildSeason(
+        contentId = contentId, title = title, capitulos = capitulos,
+        posterUrl = "poster.jpg", ahora = 1_000L, seriesRef = seriesRef, existente = existente,
+    )
+
+    @Test fun la_temporada_entra_como_UN_item_con_todos_sus_capitulos() {
+        val (item, eps) = temporada()
+        assertEquals("magis:ABC", item.identifier)
+        assertEquals("series", item.categoryOverride)
+        assertEquals(listOf("magis:ABC::e1", "magis:ABC::e2", "magis:ABC::e3"), eps.map { it.id })
+        assertEquals(listOf(1, 2, 3), eps.map { it.episode })
+        assertEquals(listOf(1, 2, 3), eps.map { it.orderIndex })
+        assertEquals(listOf("ref-1", "ref-2", "ref-3"), eps.map { it.torrentData })
+    }
+
+    @Test fun un_capitulo_de_la_temporada_sale_igual_que_guardado_de_a_uno() {
+        // Si divergieran, guardar la temporada duplicaría los capítulos que ya estaban sueltos:
+        // el id es la clave primaria y `upsert` es REPLACE, así que TIENE que coincidir.
+        val (_, suelto) = capitulo(episode = 2, ref = "ref-2", episodeTitle = "El deseo")
+        val dentro = temporada().second.first { it.episode == 2 }
+        assertEquals(suelto.id, dentro.id)
+        assertEquals(suelto.displayName, dentro.displayName)
+        assertEquals(suelto.itemId, dentro.itemId)
+    }
+
+    @Test fun guardar_la_temporada_otra_vez_no_duplica_ni_reordena_el_home() {
+        // Esto corre en CADA reproducción: si moviera `addedAt`, la serie saltaría al principio del
+        // home cada vez que le das play a un capítulo.
+        val previo = temporada().first.copy(addedAt = 500L, episodiosVistosEnLista = 4, tmdbId = 123)
+        val (item, eps) = temporada(existente = previo)
+        assertEquals(500L, item.addedAt)
+        assertEquals(4, item.episodiosVistosEnLista)
+        assertEquals(123, item.tmdbId)
+        assertEquals(3, eps.size)
+        assertEquals(3, eps.map { it.id }.distinct().size)
+    }
+
+    @Test fun el_ref_de_la_temporada_manda_y_en_blanco_no_pisa_el_guardado() {
+        // Los refs caducan y se re-emiten; uno en blanco nunca debe borrar uno bueno.
+        assertEquals("ref-temporada", temporada().first.torrentData)
+        val previo = temporada(seriesRef = "ref-buena").first
+        assertEquals("ref-buena", temporada(seriesRef = "", existente = previo).first.torrentData)
+    }
+
+    @Test fun una_temporada_sin_capitulos_no_inventa_episodios() {
+        val (item, eps) = temporada(capitulos = emptyList())
+        assertEquals("magis:ABC", item.identifier)
+        assertEquals(0, eps.size)
+    }
 }
