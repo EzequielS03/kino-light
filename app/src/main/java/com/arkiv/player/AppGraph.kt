@@ -20,6 +20,7 @@ import com.arkiv.player.data.catalog.web.WebSourceEngine
 import com.arkiv.player.data.catalog.web.WebSourceRegistry
 import com.arkiv.player.data.catalog.web.WebTmdbMatcher
 import com.arkiv.player.data.catalog.web.WebViewCloudflareSolver
+import com.arkiv.player.data.SearchHistoryStore
 import com.arkiv.player.data.SettingsStore
 import com.arkiv.player.data.db.ArkivDatabase
 import com.arkiv.player.data.update.ApkDownloader
@@ -45,6 +46,7 @@ class AppGraph(context: Context) {
     val database: ArkivDatabase by lazy { ArkivDatabase.get(appContext) }
     val api: ArchiveApi by lazy { ArchiveApi() }
     val settings: SettingsStore by lazy { SettingsStore(appContext) }
+    val searchHistory: SearchHistoryStore by lazy { SearchHistoryStore(appContext) }
 
     val updateChecker: UpdateChecker by lazy {
         UpdateChecker(okhttp3.OkHttpClient.Builder()
