@@ -129,8 +129,12 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
     private var hardwareActual = true
     // Subtítulos APAGADOS por defecto: libVLC auto-activa la primera pista de subtítulos embebida, pero
     // el usuario quiere arrancar sin subs y prenderlos a mano. Al primer Playing de cada ítem forzamos
-    // spu=-1 (una sola vez, para no pisar una selección posterior del usuario). Se resetea al cargar otro ítem.
+    // spu=-1 — pero NO una sola vez: las pistas de subtítulo pueblan poco DESPUÉS de Playing (igual que
+    // el audio) y VLC auto-activa una tras nuestro -1, así que re-afirmamos el apagado con reintentos en
+    // el primer ~1,5 s. `userTouchedSpu` corta esos reintentos si el usuario eligió un subtítulo a mano
+    // (id>=0). Ambos flags se resetean al cargar otro ítem.
     private var defaultSpuApplied = false
+    private var userTouchedSpu = false
     // Auto-selección de pista de AUDIO por idioma (ventaja exclusiva de Arkiv: elige la pista correcta
     // dentro de un MKV DUAL en vez de la que ponga VLC). Preferencia configurable (default Latino>Cast>Dual);
     // se aplica una sola vez por ítem (defaultAudioApplied) para no pisar una elección manual posterior.
@@ -184,7 +188,9 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
                     event = VlcEvent.Playing
                     if (!defaultSpuApplied) {
                         defaultSpuApplied = true
-                        runCatching { mediaPlayer.spuTrack = -1 }
+                        // Igual que el audio: en el looper (tocar el player en el thread de eventos
+                        // crashea) y con reintentos, porque la pista de subtítulo puebla justo tras Playing.
+                        handler.postDelayed({ applyDefaultSpuOff(retries = 4) }, 150)
                     }
                     // Auto-seleccionar audio por idioma. En el looper (tocar el player en el thread de
                     // eventos crashea) y con reintentos: las pistas a veces pueblan justo tras Playing.
@@ -599,6 +605,7 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         sinVideoDesdeWallMs = 0L
         startPositionApplied = false
         defaultSpuApplied = false // cada ítem/recarga arranca con subtítulos apagados
+        userTouchedSpu = false // …hasta que el usuario prenda uno a mano en ESTE ítem
         defaultAudioApplied = false // y re-evalúa la pista de audio preferida
         val media = Media(libVlc, uri).apply {
             setHWDecoderEnabled(hardware, false)
@@ -651,6 +658,18 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
      * en el looper. Si aún no hay >1 pista (VLC las expone poco después de Playing), reintenta. Si ninguna
      * pista coincide con la preferencia, deja la de VLC (no toca nada). Ganancia clave para MKV DUAL.
      */
+    /**
+     * Mantiene los subtítulos APAGADOS (spu=-1) durante el primer ~1,5 s tras Playing. VLC auto-activa
+     * la primera pista embebida en cuanto puebla (poco después de Playing), así que re-afirmamos el -1
+     * unas veces. Se detiene apenas el usuario elige un subtítulo a mano ([userTouchedSpu], id>=0): a
+     * partir de ahí manda su elección.
+     */
+    private fun applyDefaultSpuOff(retries: Int) {
+        if (userTouchedSpu) return
+        if (currentSpuTrack() >= 0) runCatching { mediaPlayer.spuTrack = -1 }
+        if (retries > 0) handler.postDelayed({ applyDefaultSpuOff(retries - 1) }, 350)
+    }
+
     private fun applyPreferredAudio(retries: Int) {
         val tracks = vlcAudioTracks()
         if (tracks.count { it.first >= 0 } <= 1) {
@@ -888,13 +907,19 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
     fun currentAudioTrack(): Int = runCatching { mediaPlayer.audioTrack }.getOrDefault(-1)
     fun currentSpuTrack(): Int = runCatching { mediaPlayer.spuTrack }.getOrDefault(-1)
     fun setVlcAudioTrack(id: Int) { runCatching { mediaPlayer.setAudioTrack(id) } }
-    fun setVlcSpuTrack(id: Int) { runCatching { mediaPlayer.setSpuTrack(id) } }
+    fun setVlcSpuTrack(id: Int) {
+        // id>=0 = el usuario PRENDE un subtítulo → cortar el forzado de apagado por defecto. id<0
+        // (desactivar) no cuenta como "quiere subs": deja que el default-off siga afirmándose.
+        if (id >= 0) userTouchedSpu = true
+        runCatching { mediaPlayer.setSpuTrack(id) }
+    }
     /**
      * OJO con el MPEG-TS: esto solo es seguro porque magis se demuxea con avformat (ver loadMedia).
      * Con el demuxer `ts` nativo, adjuntar un subtítulo externo le cambia a libVLC el programa
      * activo y se lleva puestas TODAS las pistas del stream.
      */
     fun addSubtitleSlave(uri: Uri) {
+        userTouchedSpu = true // agregar subs externos = el usuario los quiere → no re-forzar el apagado
         runCatching { mediaPlayer.addSlave(IMedia.Slave.Type.Subtitle, uri, true) }
         // NO corregir acá el desfase de la ventana con `spuDelay`. Se probó y congela la
         // reproducción: con un desfase de −29 min VLC se queda clavado en `pos=0` con el buffer
