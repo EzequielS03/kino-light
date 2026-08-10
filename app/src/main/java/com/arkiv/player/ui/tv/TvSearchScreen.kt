@@ -19,10 +19,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -298,6 +300,10 @@ fun TvSearchScreen(
     // de red (TMDB + AniList + torrents) que casi siempre se descartaba. Se busca con el botón.
     // `searched` distingue "todavía no buscó nada" (mostramos recientes) de "buscó y no hubo nada".
     var searched by remember { mutableStateOf(false) }
+    // Sube en cada búsqueda ejecutada. Es la llave para devolver la grilla al principio:
+    // sin esto, una lista lazy conserva el scroll de la búsqueda anterior y la nueva
+    // aparece empezada por la mitad, con las primeras cards fuera de pantalla.
+    var busquedaNro by remember { mutableStateOf(0) }
     var recents by remember { mutableStateOf(emptyList<String>()) }
     val historyDao = remember { graph.database.searchHistoryDao() }
 
@@ -312,6 +318,7 @@ fun TvSearchScreen(
         if (query.isBlank()) return
         text = query
         searched = true
+        busquedaNro++
         vm.search(query)
         scope.launch {
             runCatching {
@@ -440,7 +447,10 @@ fun TvSearchScreen(
                     if (titleResults.isEmpty() && !loadingTitles && searched) {
                         Text("Sin resultados", color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall)
                     }
+                    val gridTitulos = rememberLazyGridState()
+                    LaunchedEffect(busquedaNro) { gridTitulos.scrollToItem(0) }
                     LazyVerticalGrid(
+                        state = gridTitulos,
                         columns = GridCells.Fixed(5),
                         // Aire alrededor para que el zoom al enfocar (1.1x) no se recorte contra
                         // los bordes de la grilla ni contra las cards vecinas.
@@ -1034,8 +1044,14 @@ private fun TvResultsContent(
         }
     }
 
+    // Al entrar a las fuentes de OTRO título la lista tiene que arrancar arriba, no donde había
+    // quedado la anterior. La llave es el título + el capítulo: es lo que cambia entre búsquedas.
+    val listaFuentes = rememberLazyListState()
+    LaunchedEffect(title, season, episode) { listaFuentes.scrollToItem(0) }
+
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
+            state = listaFuentes,
             // El margen va DENTRO de la lista (contentPadding), no como padding externo: al enfocar,
             // las filas hacen zoom (1.1x) y con el margen por fuera la lista las recortaba contra su
             // propio borde. Así el zoom se dibuja sobre ese margen en vez de cortarse.
@@ -1487,9 +1503,19 @@ private fun TvMagisSeasonContent(
     val saveAllFocus = remember { FocusRequester() }
 
     LaunchedEffect(season.ref) {
+        // Mismo diagnóstico que en la ventana del celular (ver MagisSeasonDialog): sin esto el
+        // motivo real del fallo no llega a ningún lado.
+        android.util.Log.w(
+            "ArkivGw",
+            "temporada TV: pido capitulos titulo=${season.title} tipo=${season.extra["program_type"]} " +
+                "esperados=${season.extra["episode_count"]} kind=${season.kind} ref=${season.ref.take(24)}…",
+        )
         runCatching { client.episodes(season.ref) }
             .onSuccess { capitulos = it }
-            .onFailure { error = "No se pudieron cargar los capítulos." }
+            .onFailure {
+                android.util.Log.w("ArkivGw", "temporada TV: fallo ${it.javaClass.simpleName}: ${it.message}", it)
+                error = "No se pudieron cargar los capítulos."
+            }
     }
     LaunchedEffect(capitulos) {
         if (!capitulos.isNullOrEmpty()) {

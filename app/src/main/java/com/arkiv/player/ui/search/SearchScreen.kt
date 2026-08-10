@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -636,13 +637,21 @@ private fun QueryContent(
     // no informan nada. Es estado local: salir de la pantalla y volver muestra el historial otra vez.
     var haBuscado by remember { mutableStateOf(false) }
 
+    // Sube en cada búsqueda: es la llave para devolver la grilla al principio. Sin esto la lista
+    // conserva el scroll de la búsqueda anterior y la nueva aparece empezada por la mitad.
+    var busquedaNro by remember { mutableStateOf(0) }
+    val gridState = rememberLazyGridState()
+    LaunchedEffect(busquedaNro) { gridState.scrollToItem(0) }
+
     val buscar: (String) -> Unit = { q ->
         text = q
         haBuscado = true
+        busquedaNro++
         onSearch(q)
     }
 
     LazyVerticalGrid(
+        state = gridState,
         columns = GridCells.Fixed(3),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
