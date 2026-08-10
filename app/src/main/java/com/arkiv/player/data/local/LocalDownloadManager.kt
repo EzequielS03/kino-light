@@ -62,6 +62,14 @@ class LocalDownloadManager(
         FreeSpacePolicy.fits(StatFs(targetDir().absolutePath).availableBytes, bytes)
 
     /**
+     * Bytes disponibles en el disco donde viven las descargas. Es la misma medición que usa
+     * [hasFreeSpaceFor], expuesta para poder MOSTRARLA: la biblioteca del TV la necesita para que el
+     * disco lleno deje de ser una sorpresa. Bloqueante (toca el filesystem), así que se llama fuera
+     * del hilo principal o dentro de un `produceState`.
+     */
+    fun espacioLibreBytes(): Long = StatFs(targetDir().absolutePath).availableBytes
+
+    /**
      * Encola un episodio. Idempotente: si ya hay una fila que no falló, no hace nada — así tocar dos
      * veces el botón no duplica la descarga.
      *
