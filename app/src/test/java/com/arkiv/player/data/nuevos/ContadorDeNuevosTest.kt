@@ -1,6 +1,7 @@
 package com.arkiv.player.data.nuevos
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
@@ -36,5 +37,18 @@ class ContadorDeNuevosTest {
         assertEquals(false, ContadorDeNuevos.hayQuePintar(26, 26))
         assertEquals(false, ContadorDeNuevos.hayQuePintar(26, null))
         assertEquals(true, ContadorDeNuevos.hayQuePintar(26, 24))
+    }
+
+    @Test fun guardar_capitulos_vos_mismo_no_prende_el_badge() {
+        // Guardás la temporada entera de una serie que ya tenías con 3 capítulos y el detalle ya
+        // abierto: los 17 que aparecen no son novedades del portal, los trajiste vos.
+        assertEquals(20, ContadorDeNuevos.reSellar(vistos = 3, totalAhora = 20))
+        assertEquals(0, ContadorDeNuevos.cuantos(20, ContadorDeNuevos.reSellar(3, 20)))
+    }
+
+    @Test fun una_serie_que_nunca_abriste_sigue_sin_contador() {
+        // `null` es "nunca abriste el detalle": sellarlo acá le apagaría para siempre el badge a
+        // capítulos que sí van a ser novedad más adelante.
+        assertNull(ContadorDeNuevos.reSellar(vistos = null, totalAhora = 20))
     }
 }

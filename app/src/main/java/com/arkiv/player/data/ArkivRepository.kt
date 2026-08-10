@@ -701,23 +701,68 @@ class ArkivRepository(
         } else {
             itemDao.replaceItem(item, listOf(ep))
         }
-        // La imagen apaisada del portal va al mismo lugar donde el hero del Home busca la de TMDB.
-        // Se escribe SOLO si Magis la trajo: una fila con backdrops —aunque tmdbId sea null, como
-        // acá— ensureArtwork ya NO la vuelve a tocar (ver LibraryGrouping.shouldRefetchArtwork),
-        // así que este backdrop del portal no se pisa con un "[]" cada vez que pasa la ventana de
-        // reintento. Sin fila (backdropUrl vacío), TMDB la completa como siempre.
-        if (backdropUrl.isNotBlank()) {
-            artworkDao.upsert(
-                com.arkiv.player.data.db.ArtworkEntity(
-                    itemId = id,
-                    tmdbId = null,
-                    tmdbType = null,
-                    backdropsJson = JSONArray(listOf(backdropUrl)).toString(),
-                    fetchedAt = clock(),
-                ),
-            )
-        }
+        guardarBackdropDeMagis(id, backdropUrl)
         return ep.id
+    }
+
+    /**
+     * La imagen apaisada del portal va al mismo lugar donde el hero del Home busca la de TMDB.
+     * Se escribe SOLO si Magis la trajo: una fila con backdrops —aunque tmdbId sea null, como
+     * acá— ensureArtwork ya NO la vuelve a tocar (ver LibraryGrouping.shouldRefetchArtwork),
+     * así que este backdrop del portal no se pisa con un "[]" cada vez que pasa la ventana de
+     * reintento. Sin fila (backdropUrl vacío), TMDB la completa como siempre.
+     */
+    private suspend fun guardarBackdropDeMagis(itemId: String, backdropUrl: String) {
+        if (backdropUrl.isBlank()) return
+        artworkDao.upsert(
+            com.arkiv.player.data.db.ArtworkEntity(
+                itemId = itemId,
+                tmdbId = null,
+                tmdbType = null,
+                backdropsJson = JSONArray(listOf(backdropUrl)).toString(),
+                fetchedAt = clock(),
+            ),
+        )
+    }
+
+    /**
+     * Guarda la temporada COMPLETA de Magis: es lo que corre al tocar un capítulo para verlo, con la
+     * lista que la pantalla ya tenía cargada (sin red). Gemelo de [savePackAsSeries] para torrent y
+     * de `addWholeWebSeries` para web — Magis era la única fuente que guardaba de a un capítulo.
+     *
+     * `upsert` y NO `replaceItem`: un capítulo que ya tenías guardado tiene que sobrevivir aunque el
+     * portal no lo liste esta vez. Es idempotente (ids derivados del contenido), así que se puede
+     * llamar en cada reproducción.
+     *
+     * Devuelve `número de capítulo → episodeId` para que el llamador sepa cuál reproducir sin
+     * re-derivar ids a mano.
+     */
+    suspend fun addMagisSeason(
+        contentId: String,
+        title: String,
+        capitulos: List<CapituloDeTemporada>,
+        seriesRef: String,
+        posterUrl: String = "",
+        backdropUrl: String = "",
+    ): Map<Int, String> {
+        if (contentId.isBlank() || capitulos.isEmpty()) return emptyMap()
+        val id = MagisEntities.itemIdDe(contentId)
+        val existente = itemDao.getItem(id)
+        val (item, episodios) = MagisEntities.buildSeason(
+            contentId = contentId, title = title, capitulos = capitulos, posterUrl = posterUrl,
+            ahora = clock(), seriesRef = seriesRef, existente = existente,
+        )
+        itemDao.upsertItem(item)
+        itemDao.upsertEpisodes(episodios)
+        // Las tarjetas-película que dejó el esquema viejo (un ítem por capítulo), ahora que su
+        // contenido vive dentro del ítem de la temporada.
+        capitulos.forEach { barrerItemLegacyDeCapitulo(contentId, it.number) }
+        guardarBackdropDeMagis(id, backdropUrl)
+        // El badge es para capítulos que salieron en el portal, no para los que acabás de guardar vos.
+        val total = itemDao.getEpisodesOf(id).count { !it.deleted }
+        com.arkiv.player.data.nuevos.ContadorDeNuevos.reSellar(existente?.episodiosVistosEnLista, total)
+            ?.let { itemDao.marcarEpisodiosVistos(id, it) }
+        return episodios.mapNotNull { ep -> ep.episode?.let { it to ep.id } }.toMap()
     }
 
     /**

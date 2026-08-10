@@ -30,4 +30,15 @@ object ContadorDeNuevos {
 
     /** Si corresponde pintar el badge. Azúcar sobre [cuantos] para que la UI no compare a mano. */
     fun hayQuePintar(actuales: Int, vistos: Int?): Boolean = cuantos(actuales, vistos) > 0
+
+    /**
+     * Qué dejar en `episodiosVistosEnLista` después de guardar capítulos que trajo el usuario (no el
+     * portal), como al guardar la temporada entera para reproducir uno.
+     *
+     * Si el contador ya estaba sellado, se re-sella al total de ahora: el badge es para "salieron
+     * capítulos nuevos", no para "acabás de guardar la temporada". Si era `null` (nunca se abrió el
+     * detalle) sigue `null`, porque sellarlo acá apagaría el badge de novedades que todavía no
+     * ocurrieron.
+     */
+    fun reSellar(vistos: Int?, totalAhora: Int): Int? = if (vistos == null) null else totalAhora
 }
