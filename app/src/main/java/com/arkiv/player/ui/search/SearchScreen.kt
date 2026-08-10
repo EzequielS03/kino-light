@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -19,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
@@ -28,6 +30,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
@@ -36,6 +39,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -64,6 +68,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import coil.compose.AsyncImage
 import com.arkiv.player.data.ArchiveSearchResult
+import com.arkiv.player.data.RecentTitle
 import com.arkiv.player.data.catalog.PackDetector
 import com.arkiv.player.data.catalog.TorrentResult
 import com.arkiv.player.data.catalog.mirror.MirrorWebPack
@@ -133,6 +138,8 @@ fun SearchScreen(
     val animeShow by vm.animeShow.collectAsStateWithLifecycle()
     val processingNow by vm.processingNow.collectAsStateWithLifecycle()
     val processNowMessage by vm.processNowMessage.collectAsStateWithLifecycle()
+    val recentQueries by vm.recentQueries.collectAsStateWithLifecycle()
+    val recentTitles by vm.recentTitles.collectAsStateWithLifecycle()
 
     val scope = rememberCoroutineScope()
     // Permiso de notificaciones (API 33+): se pide al disparar una descarga (el worker de descargas
@@ -465,10 +472,15 @@ fun SearchScreen(
                     directResults = directResults,
                     loadingTitles = loadingTitles,
                     loadingDirect = loadingDirect,
+                    recentQueries = recentQueries,
+                    recentTitles = recentTitles,
                     onSearch = { vm.search(it) },
                     onPickTitle = { card -> vm.pickTitle(card) },
                     onPlayDirect = { playDirect(it) },
                     onDownloadDirect = { saveDirect(it) },
+                    onForgetQuery = { vm.forgetQuery(it) },
+                    onForgetTitle = { vm.forgetTitle(it) },
+                    onClearHistory = { vm.clearHistory() },
                 )
             }
         }
@@ -594,20 +606,37 @@ fun SearchScreen(
     }
 }
 
-/** Fase QUERY: buscador + grilla de títulos (TMDB/anime) + resultados directos (torrent/archive). */
+/**
+ * Fase QUERY: buscador + grilla de títulos (TMDB/anime) + resultados directos (torrent/archive).
+ * Mientras no se haya buscado nada muestra el historial en lugar de los resultados vacíos.
+ */
 @Composable
 private fun QueryContent(
     titleResults: List<TitleCard>,
     directResults: List<PlaySource>,
     loadingTitles: Boolean,
     loadingDirect: Boolean,
+    recentQueries: List<String>,
+    recentTitles: List<RecentTitle>,
     onSearch: (String) -> Unit,
     onPickTitle: (TitleCard) -> Unit,
     onPlayDirect: (PlaySource) -> Unit,
     /** Guarda el resultado directo en el dispositivo (botón de descarga de cada fila). */
     onDownloadDirect: (PlaySource) -> Unit,
+    onForgetQuery: (String) -> Unit,
+    onForgetTitle: (RecentTitle) -> Unit,
+    onClearHistory: () -> Unit,
 ) {
     var text by remember { mutableStateOf("") }
+    // Mientras no se haya buscado nada se muestra el historial en vez de dos "Sin resultados" que
+    // no informan nada. Es estado local: salir de la pantalla y volver muestra el historial otra vez.
+    var haBuscado by remember { mutableStateOf(false) }
+
+    val buscar: (String) -> Unit = { q ->
+        text = q
+        haBuscado = true
+        onSearch(q)
+    }
 
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
@@ -622,11 +651,33 @@ private fun QueryContent(
                 onValueChange = { text = it },
                 placeholder = { Text("Buscar…") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                // Limpiar devuelve al historial. Sin esto, una vez buscada la primera cosa el
+                // historial no vuelve hasta salir y entrar de nuevo a la pantalla.
+                trailingIcon = {
+                    if (text.isNotEmpty()) {
+                        IconButton(onClick = { text = ""; haBuscado = false; onSearch("") }) {
+                            Icon(Icons.Default.Close, contentDescription = "Limpiar")
+                        }
+                    }
+                },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { onSearch(text) }),
+                keyboardActions = KeyboardActions(onSearch = { buscar(text) }),
                 modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
             )
+        }
+
+        if (!haBuscado) {
+            historialItems(
+                queries = recentQueries,
+                titles = recentTitles,
+                onSearch = buscar,
+                onPickTitle = onPickTitle,
+                onForgetQuery = onForgetQuery,
+                onForgetTitle = onForgetTitle,
+                onClearHistory = onClearHistory,
+            )
+            return@LazyVerticalGrid
         }
 
         item(span = { GridItemSpan(maxLineSpan) }) {
@@ -672,6 +723,75 @@ private fun QueryContent(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Historial: los textos buscados como chips y los títulos abiertos como pósters. Va aparte de
+ * [QueryContent] para no engordarlo; es una extensión de LazyGridScope porque vive dentro de la
+ * misma grilla (los pósters tienen que caer en las mismas 3 columnas que los resultados).
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+private fun LazyGridScope.historialItems(
+    queries: List<String>,
+    titles: List<RecentTitle>,
+    onSearch: (String) -> Unit,
+    onPickTitle: (TitleCard) -> Unit,
+    onForgetQuery: (String) -> Unit,
+    onForgetTitle: (RecentTitle) -> Unit,
+    onClearHistory: () -> Unit,
+) {
+    // Primera vez que se abre la app: ni encabezados. Solo el buscador y nada más.
+    if (queries.isEmpty() && titles.isEmpty()) return
+
+    if (queries.isNotEmpty()) {
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Text(
+                "Búsquedas recientes",
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                queries.forEach { q ->
+                    InputChip(
+                        selected = false,
+                        onClick = { onSearch(q) },
+                        label = { Text(q, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        trailingIcon = {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Quitar $q",
+                                modifier = Modifier.size(16.dp).clickable { onForgetQuery(q) },
+                            )
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    if (titles.isNotEmpty()) {
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Text(
+                "Seguí buscando",
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+        }
+        items(titles, key = { "recent-${it.kind}-${it.tmdbId}-${it.anilistId}-${it.title}" }) { reciente ->
+            val card = reciente.toTitleCard()
+            TitleCardItem(card, onClick = { onPickTitle(card) })
+        }
+    }
+
+    item(span = { GridItemSpan(maxLineSpan) }) {
+        TextButton(onClick = onClearHistory, modifier = Modifier.padding(top = 8.dp)) {
+            Text("Borrar historial", color = ArkivTextSecondary)
         }
     }
 }
