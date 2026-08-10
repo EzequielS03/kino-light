@@ -347,6 +347,15 @@ class AppGraph(context: Context) {
         )
     }
 
+    /** Vincular/desvincular la cuenta de Magis con la cuenta Arkiv (mismas fuentes de baseUrl/apiKey que [arkivApiClient]). */
+    val magisLinkClient: com.arkiv.player.pocketbase.MagisLinkClient by lazy {
+        com.arkiv.player.pocketbase.MagisLinkClient(
+            baseUrl = { settings.gatewayUrl.value },
+            apiKey = { settings.arkivApiKey.value },
+            accountId = { deviceAuth.session.value?.accountId },
+        )
+    }
+
     val presence: com.arkiv.player.presence.PresenceManager by lazy {
         com.arkiv.player.presence.PresenceManager(pbClient, deviceAuth, applicationScope)
     }

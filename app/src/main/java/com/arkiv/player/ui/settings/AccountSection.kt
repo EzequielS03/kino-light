@@ -12,6 +12,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.arkiv.player.pocketbase.AccountManager
 import com.arkiv.player.pocketbase.AccountException
 import com.arkiv.player.pocketbase.AccountState
+import com.arkiv.player.pocketbase.MagisLinkClient
+import com.arkiv.player.pocketbase.MagisLinkException
+import com.arkiv.player.ui.rememberGraph
 import kotlinx.coroutines.launch
 
 @Composable
@@ -33,6 +36,8 @@ fun AccountSection(account: AccountManager) {
                 onClick = { scope.launch { busy = true; runCatching { account.logout() }; busy = false } },
                 modifier = Modifier.padding(top = 8.dp),
             ) { Text("Cerrar sesión") }
+
+            MagisSection(rememberGraph().magisLinkClient)
         }
         AccountState.Anonimo -> {
             OutlinedTextField(email, { email = it; error = null }, label = { Text("Email") },
@@ -54,6 +59,65 @@ fun AccountSection(account: AccountManager) {
                 OutlinedButton(enabled = !busy && email.isNotBlank() && password.isNotBlank(),
                     onClick = { run(account::register) }) { Text("Crear cuenta") }
             }
+        }
+    }
+}
+
+/**
+ * Sub-bloque "Magis" dentro de la cuenta conectada: vincular/desvincular la cuenta de Magis con
+ * la cuenta Arkiv del usuario (ver `MagisLinkClient`). Solo tiene sentido con sesión Arkiv activa,
+ * por eso se llama desde el branch `AccountState.Conectado`.
+ */
+@Composable
+private fun MagisSection(client: MagisLinkClient) {
+    val scope = rememberCoroutineScope()
+    var linked by remember { mutableStateOf<Boolean?>(null) } // null = todavía consultando
+    var user by remember { mutableStateOf("") }
+    var pass by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+
+    LaunchedEffect(client) {
+        linked = runCatching { client.status() }.getOrDefault(false)
+    }
+
+    Text("Magis", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 16.dp, bottom = 6.dp))
+
+    when (linked) {
+        null -> Text("Consultando…", style = MaterialTheme.typography.bodySmall)
+        true -> {
+            Text("Vinculado", style = MaterialTheme.typography.bodyMedium)
+            Button(
+                enabled = !busy,
+                onClick = {
+                    scope.launch {
+                        busy = true
+                        try { client.unlink(); linked = false } catch (e: MagisLinkException) { error = e.message }
+                        busy = false
+                    }
+                },
+                modifier = Modifier.padding(top = 8.dp),
+            ) { Text("Desvincular") }
+        }
+        else -> {
+            OutlinedTextField(user, { user = it; error = null }, label = { Text("Usuario de Magis") },
+                singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(pass, { pass = it; error = null }, label = { Text("Clave de Magis") },
+                singleLine = true, visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+            error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 6.dp)) }
+            Button(
+                enabled = !busy && user.isNotBlank() && pass.isNotBlank(),
+                onClick = {
+                    scope.launch {
+                        busy = true
+                        try { client.link(user.trim(), pass); linked = true } catch (e: MagisLinkException) { error = e.message }
+                        busy = false
+                    }
+                },
+                modifier = Modifier.padding(top = 8.dp),
+            ) { Text("Vincular Magis") }
         }
     }
 }

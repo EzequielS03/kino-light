@@ -37,6 +37,8 @@ import com.arkiv.player.data.update.UpdateInfo
 import com.arkiv.player.pocketbase.AccountException
 import com.arkiv.player.pocketbase.AccountManager
 import com.arkiv.player.pocketbase.AccountState
+import com.arkiv.player.pocketbase.MagisLinkClient
+import com.arkiv.player.pocketbase.MagisLinkException
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
@@ -111,7 +113,7 @@ fun TvSettingsScreen(onConnectPhone: () -> Unit = {}) {
         Text("Teléfono", style = MaterialTheme.typography.titleMedium, color = Color.White)
         TvActionOption("Conectar teléfono", onConnectPhone)
         Text("Cuenta", style = MaterialTheme.typography.titleMedium, color = Color.White)
-        TvAccountSection(account)
+        TvAccountSection(account, graph.magisLinkClient)
         Text("Actualizaciones", style = MaterialTheme.typography.titleMedium, color = Color.White)
         TvActionOption(
             if (checkingUpdate) "Buscando…" else "Buscar actualizaciones",
@@ -211,7 +213,7 @@ private fun TvQualityOption(label: String, value: Quality, selected: Quality, on
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun TvAccountSection(account: AccountManager) {
+private fun TvAccountSection(account: AccountManager, magisLinkClient: MagisLinkClient) {
     val state by account.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var email by remember { mutableStateOf("") }
@@ -234,6 +236,7 @@ private fun TvAccountSection(account: AccountManager) {
                     }
                 },
             )
+            TvMagisSection(magisLinkClient)
         }
         AccountState.Anonimo -> {
             OutlinedTextField(
@@ -275,6 +278,83 @@ private fun TvAccountSection(account: AccountManager) {
             TvActionOption(
                 label = if (busy) "Espere…" else "Crear cuenta",
                 onClick = { run(account::register) },
+            )
+            if (busy) {
+                Text("Procesando…", color = ArkivTextSecondary, modifier = Modifier.padding(top = 4.dp))
+            }
+        }
+    }
+}
+
+/**
+ * Sub-bloque "Magis" dentro de la cuenta conectada (equivalente TV de `MagisSection` en
+ * `ui/settings/AccountSection.kt`): vincular/desvincular la cuenta de Magis con la cuenta Arkiv.
+ * Solo se llama desde `AccountState.Conectado`.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvMagisSection(client: MagisLinkClient) {
+    val scope = rememberCoroutineScope()
+    var linked by remember { mutableStateOf<Boolean?>(null) } // null = todavía consultando
+    var user by remember { mutableStateOf("") }
+    var pass by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+
+    androidx.compose.runtime.LaunchedEffect(client) {
+        linked = runCatching { client.status() }.getOrDefault(false)
+    }
+
+    Text("Magis", style = MaterialTheme.typography.titleMedium, color = Color.White, modifier = Modifier.padding(top = 8.dp))
+
+    when (linked) {
+        null -> Text("Consultando…", color = ArkivTextSecondary)
+        true -> {
+            Text("Vinculado", color = Color.White)
+            TvActionOption(
+                label = if (busy) "Desvinculando…" else "Desvincular",
+                onClick = {
+                    if (!busy) {
+                        scope.launch {
+                            busy = true
+                            try { client.unlink(); linked = false } catch (e: MagisLinkException) { error = e.message }
+                            busy = false
+                        }
+                    }
+                },
+            )
+        }
+        else -> {
+            OutlinedTextField(
+                value = user,
+                onValueChange = { user = it; error = null },
+                label = { androidx.compose.material3.Text("Usuario de Magis") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(0.6f),
+            )
+            OutlinedTextField(
+                value = pass,
+                onValueChange = { pass = it; error = null },
+                label = { androidx.compose.material3.Text("Clave de Magis") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                modifier = Modifier.fillMaxWidth(0.6f).padding(top = 8.dp),
+            )
+            error?.let {
+                Text(it, color = ArkivRed, modifier = Modifier.padding(top = 6.dp))
+            }
+            TvActionOption(
+                label = if (busy) "Espere…" else "Vincular Magis",
+                onClick = {
+                    if (!busy && user.isNotBlank() && pass.isNotBlank()) {
+                        scope.launch {
+                            busy = true
+                            try { client.link(user.trim(), pass); linked = true } catch (e: MagisLinkException) { error = e.message }
+                            busy = false
+                        }
+                    }
+                },
             )
             if (busy) {
                 Text("Procesando…", color = ArkivTextSecondary, modifier = Modifier.padding(top = 4.dp))
