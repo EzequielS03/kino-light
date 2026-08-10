@@ -26,6 +26,7 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextPrimary
+import com.arkiv.player.ui.theme.ArkivTextSecondary
 
 /**
  * Tarjeta de póster (2:3, ancho = alto × 2/3) con título debajo, hasta 2 líneas.
@@ -39,7 +40,11 @@ fun TvPosterCard(
     cardHeight: Dp,
     modifier: Modifier = Modifier,
     showTitle: Boolean = true,
+    /** Segunda línea bajo el título ("24 ep.", "12 capítulos vistos"). Null = no se dibuja. */
+    subtitle: String? = null,
     onFocus: () -> Unit = {},
+    /** Mantener pulsado. Null = la tarjeta no ofrece menú contextual. */
+    onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     Column(
@@ -47,6 +52,7 @@ fun TvPosterCard(
     ) {
         Card(
             onClick = onClick,
+            onLongClick = onLongClick,
             modifier = Modifier
                 .fillMaxWidth()
                 .onFocusChanged { if (it.isFocused) onFocus() },
@@ -85,6 +91,16 @@ fun TvPosterCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 6.dp),
+            )
+        }
+        if (showTitle && subtitle != null) {
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = ArkivTextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
             )
         }
     }
