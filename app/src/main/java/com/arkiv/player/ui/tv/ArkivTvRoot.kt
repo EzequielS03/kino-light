@@ -156,7 +156,6 @@ fun ArkivTvRoot(
                 onOpenItem = { navController.navigate("detail/${Uri.encode(it)}") },
                 onPlayEpisode = { goToPlayer(it) },
                 onOpenSettings = { navController.navigate("settings") },
-                onOpenTorrent = { navController.navigate("torrent") },
                 onOpenSearch = { navController.navigate("search") },
                 onOpenSearchRoute = { route -> navController.navigate(route) },
             )

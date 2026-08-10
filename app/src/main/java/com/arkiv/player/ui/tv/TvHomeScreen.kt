@@ -25,7 +25,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
@@ -101,7 +100,6 @@ fun TvHomeScreen(
     onOpenItem: (String) -> Unit,
     onPlayEpisode: (String) -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenTorrent: () -> Unit,
     onOpenSearch: () -> Unit,
     onOpenSearchRoute: (String) -> Unit,
 ) {
@@ -269,7 +267,9 @@ fun TvHomeScreen(
                         modifier = Modifier.padding(end = 16.dp),
                     )
                     TvNavButton(icon = Icons.Default.Search, label = "Buscar", onClick = onOpenSearch)
-                    TvNavButton(icon = Icons.Default.Download, label = "Torrent", onClick = onOpenTorrent)
+                    // El botón "Torrent" (pegar un magnet a mano) se quitó de la barra: ya no se usa,
+                    // los torrents entran por el buscador. La ruta "torrent" sigue registrada en
+                    // ArkivTvRoot y la pantalla funciona; solo perdió su entrada desde el home.
                     TvNavButton(icon = Icons.Default.Settings, label = "Ajustes", onClick = onOpenSettings)
                     TvNavButton(
                         icon = Icons.Default.Sync,
