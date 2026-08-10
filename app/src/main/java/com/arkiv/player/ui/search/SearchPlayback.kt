@@ -80,6 +80,7 @@ class SearchPlayback(private val graph: AppGraph) {
         val contentId = r.extra["content_id"].orEmpty()
         return graph.repository.addMagisSource(
             ref = r.ref, contentId = contentId, title = r.title, episode = r.episode,
+            posterUrl = r.extra["poster"].orEmpty(), backdropUrl = r.extra["backdrop"].orEmpty(),
         )
     }
 
@@ -98,6 +99,9 @@ class SearchPlayback(private val graph: AppGraph) {
         contentId = temporada.extra["content_id"].orEmpty(),
         title = "${temporada.title} · ${capitulo.title}",
         episode = capitulo.number,
+        // El capítulo hereda las imágenes de SU temporada: un GatewayEpisode no trae propias.
+        posterUrl = temporada.extra["poster"].orEmpty(),
+        backdropUrl = temporada.extra["backdrop"].orEmpty(),
     )
 
     suspend fun playMagisEpisode(

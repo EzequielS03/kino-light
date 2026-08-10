@@ -309,6 +309,8 @@ fun CineDetailScreen(
                 contentId = r.extra["content_id"].orEmpty(),
                 title = r.title,
                 episode = r.episode,
+                posterUrl = r.extra["poster"].orEmpty(),
+                backdropUrl = r.extra["backdrop"].orEmpty(),
             )
             preparing = false
             if (epId != null) onPlay(epId) else error = "No se pudo preparar Magis."

@@ -628,6 +628,7 @@ class ArkivRepository(
         title: String,
         episode: Int = 0,
         posterUrl: String = "",
+        backdropUrl: String = "",
     ): String? {
         if (ref.isBlank() || contentId.isBlank()) return null
         val id = "magis:$contentId" + if (episode > 0) ":e$episode" else ""
@@ -644,6 +645,20 @@ class ArkivRepository(
             derivativeSize = 0, torrentFileIndex = null, torrentData = ref,
         )
         itemDao.replaceItem(item, listOf(ep))
+        // La imagen apaisada del portal va al mismo lugar donde el hero del Home busca la de TMDB.
+        // Se escribe SOLO si Magis la trajo: una fila vacía dejaría al ítem sin arte para siempre,
+        // porque ensureArtwork saltea todo ítem que ya tenga fila. Sin fila, TMDB la completa.
+        if (backdropUrl.isNotBlank()) {
+            artworkDao.upsert(
+                com.arkiv.player.data.db.ArtworkEntity(
+                    itemId = id,
+                    tmdbId = null,
+                    tmdbType = null,
+                    backdropsJson = JSONArray(listOf(backdropUrl)).toString(),
+                    fetchedAt = clock(),
+                ),
+            )
+        }
         return ep.id
     }
 
