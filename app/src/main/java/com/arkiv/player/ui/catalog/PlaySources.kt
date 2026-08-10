@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -274,6 +276,83 @@ fun SourceRow(source: PlaySource, enabled: Boolean, onDownload: (() -> Unit)? = 
         }
         Spacer(Modifier.width(8.dp))
     }
+}
+
+/** La carátula de una fuente, o "" si esa fuente no tiene. Hoy solo Magis trae imagen propia. */
+fun posterDe(source: PlaySource): String =
+    (source as? PlaySource.Magis)?.result?.extra?.get("poster").orEmpty()
+
+/**
+ * Una fuente como TARJETA de carátula, para pintar en dos columnas.
+ *
+ * Es la alternativa a [SourceRow] cuando la fuente trae imagen: veinte resultados de Magis en
+ * filas de texto son un muro donde todos los títulos se parecen; con la carátula se reconoce de
+ * un vistazo cuál es cuál. Las fuentes sin imagen siguen en fila — ver [SourceRow].
+ */
+@Composable
+fun SourceCard(source: PlaySource, enabled: Boolean, onDownload: (() -> Unit)? = null, onClick: () -> Unit) {
+    val accent = accentOf(source)
+    val poster = posterDe(source)
+    Column(
+        Modifier.clip(RoundedCornerShape(10.dp))
+            .background(ArkivSurfaceHigh.copy(alpha = 0.55f))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(bottom = 8.dp),
+    ) {
+        Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).background(ArkivSurfaceHigh)) {
+            if (poster.isNotBlank()) {
+                AsyncImage(
+                    model = poster,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            // Sobre la carátula y no debajo: abajo compite con el título, y en una grilla de dos
+            // columnas cada fila de texto que se agrega achica la imagen de todas las tarjetas.
+            if (onDownload != null) {
+                Box(
+                    Modifier.align(Alignment.TopEnd).padding(6.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(Color.Black.copy(alpha = 0.55f)),
+                ) {
+                    IconButton(onClick = onDownload, enabled = enabled, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            Icons.Default.Download, contentDescription = "Descargar offline",
+                            tint = accent, modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+            }
+            Icon(
+                Icons.Default.PlayArrow, contentDescription = null, tint = Color.White,
+                modifier = Modifier.align(Alignment.BottomStart).padding(6.dp).size(22.dp),
+            )
+        }
+        Text(
+            tituloDe(source), color = Color.White, style = MaterialTheme.typography.bodySmall,
+            maxLines = 2, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 6.dp),
+        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 4.dp),
+        ) {
+            val r = (source as? PlaySource.Magis)?.result
+            val anio = r?.year.orEmpty()
+            MetaChip("Magis", ArkivMagisBlue)
+            if (r?.extra?.get("program_type") == "teleplay") MetaChip("Serie")
+            if (anio.isNotBlank()) MetaChip(anio)
+        }
+    }
+}
+
+private fun tituloDe(source: PlaySource): String = when (source) {
+    is PlaySource.Magis -> source.result.title
+    is PlaySource.Torrent -> source.result.name
+    is PlaySource.Archive -> source.item.title
+    is PlaySource.Web -> source.result.title
+    is PlaySource.WebPack -> source.pack.showTitle
 }
 
 fun langColor(l: TorrentLang): Color = when (l) {

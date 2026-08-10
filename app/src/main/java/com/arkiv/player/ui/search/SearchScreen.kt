@@ -80,6 +80,8 @@ import com.arkiv.player.data.local.TorrentSizeGate
 import com.arkiv.player.ui.catalog.PackDialog
 import com.arkiv.player.ui.catalog.PlaySource
 import com.arkiv.player.ui.catalog.SourceRow
+import com.arkiv.player.ui.catalog.posterDe
+import com.arkiv.player.ui.catalog.SourceCard
 import com.arkiv.player.ui.catalog.SourceSection
 import com.arkiv.player.ui.catalog.SourceSectionHeader
 import com.arkiv.player.data.gateway.MAGIS_SERIES
@@ -1011,9 +1013,13 @@ private fun ResultsContent(
                     )
                 }
             }
-            items(shown, key = { sourceKey(it) }) { s ->
-                Box(Modifier.padding(horizontal = HPAD)) {
-                    SourceRow(s, enabled = enabled, onDownload = { onDownload(s) }) { onPlay(s) }
+            if (shown.any { posterDe(it).isNotBlank() }) {
+                tarjetasEnDosColumnas("tab", shown, enabled, onPlay, onDownload)
+            } else {
+                items(shown, key = { sourceKey(it) }) { s ->
+                    Box(Modifier.padding(horizontal = HPAD)) {
+                        SourceRow(s, enabled = enabled, onDownload = { onDownload(s) }) { onPlay(s) }
+                    }
                 }
             }
         }
@@ -1124,6 +1130,36 @@ private fun ResultsHero(
 
 /** Una sección (cabecera + filas) dentro del LazyColumn, para que las filas se compongan on-demand
  *  en vez de todas de golpe: una búsqueda por nombre trae fácil 60+ torrents. */
+/**
+ * Los resultados como grilla de carátulas de dos columnas, para las fuentes que traen imagen.
+ *
+ * Va por pares dentro del LazyColumn en vez de un LazyVerticalGrid: una grilla perezosa anidada en
+ * una lista perezosa del mismo eje no tiene altura contra la cual medirse y revienta. Con veinte
+ * resultados el costo de no ser perezosa por columna es nulo.
+ */
+private fun LazyListScope.tarjetasEnDosColumnas(
+    tag: String,
+    items: List<PlaySource>,
+    enabled: Boolean,
+    onPlay: (PlaySource) -> Unit,
+    onDownload: (PlaySource) -> Unit,
+) {
+    items(items.chunked(2), key = { par -> "$tag-grid-${sourceKey(par.first())}" }) { par ->
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = HPAD, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            par.forEach { s ->
+                Box(Modifier.weight(1f)) {
+                    SourceCard(s, enabled = enabled, onDownload = { onDownload(s) }) { onPlay(s) }
+                }
+            }
+            // Impar: el hueco lo ocupa un espaciador para que la última tarjeta no se estire al ancho.
+            if (par.size == 1) Spacer(Modifier.weight(1f))
+        }
+    }
+}
+
 private fun sourceSection(
     scope: LazyListScope,
     tag: String,
@@ -1142,9 +1178,13 @@ private fun sourceSection(
         }
     }
     if (expanded) {
-        scope.items(items, key = { "$tag-${sourceKey(it)}" }) { s ->
-            Box(Modifier.padding(horizontal = HPAD)) {
-                SourceRow(s, enabled = enabled, onDownload = { onDownload(s) }) { onPlay(s) }
+        if (items.any { posterDe(it).isNotBlank() }) {
+            scope.tarjetasEnDosColumnas(tag, items, enabled, onPlay, onDownload)
+        } else {
+            scope.items(items, key = { "$tag-${sourceKey(it)}" }) { s ->
+                Box(Modifier.padding(horizontal = HPAD)) {
+                    SourceRow(s, enabled = enabled, onDownload = { onDownload(s) }) { onPlay(s) }
+                }
             }
         }
         if (items.isEmpty() && !loading) {
