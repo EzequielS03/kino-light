@@ -3,6 +3,8 @@ package com.arkiv.player.ui.tv
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,7 +21,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -81,7 +82,7 @@ import com.arkiv.player.ui.search.SearchViewModel
 import com.arkiv.player.ui.search.SourceTab
 import com.arkiv.player.ui.search.TitleCard
 import com.arkiv.player.ui.search.countsByTab
-import com.arkiv.player.ui.search.filterByTab
+import com.arkiv.player.ui.search.filasVisibles
 import com.arkiv.player.ui.theme.ArkivBlack
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
@@ -131,6 +132,7 @@ fun TvSearchScreen(
     val loadingTorrent by vm.loadingTorrent.collectAsStateWithLifecycle()
     val loadingWeb by vm.loadingWeb.collectAsStateWithLifecycle()
     val loadingArchive by vm.loadingArchive.collectAsStateWithLifecycle()
+    val loadingMagis by vm.loadingMagis.collectAsStateWithLifecycle()
     val refineSeason by vm.refineSeason.collectAsStateWithLifecycle()
     val refineEpisode by vm.refineEpisode.collectAsStateWithLifecycle()
 
@@ -516,6 +518,7 @@ fun TvSearchScreen(
                         loadingTorrent = loadingTorrent,
                         loadingWeb = loadingWeb,
                         loadingArchive = loadingArchive,
+                        loadingMagis = loadingMagis,
                         preparing = preparing,
                         playError = playError,
                         onSelect = { source -> playResult(source) },
@@ -767,7 +770,12 @@ private fun TvSourceTabRow(
     modifier: Modifier = Modifier,
     onSelect: (SourceTab) -> Unit,
 ) {
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    // Scrollea: con cinco fuentes los chips ya no entran a lo ancho y el Row le sacaba espacio
+    // al ultimo, que salia partido letra por letra en vertical.
+    Row(
+        modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
         SourceTab.entries.forEach { t ->
             val accent = when (t) {
                 SourceTab.TODO -> androidx.compose.ui.graphics.Color.White
@@ -898,6 +906,7 @@ private fun TvResultsContent(
     loadingTorrent: Boolean,
     loadingWeb: Boolean,
     loadingArchive: Boolean,
+    loadingMagis: Boolean,
     preparing: Boolean,
     playError: String?,
     onSelect: (PlaySource) -> Unit,
@@ -910,7 +919,7 @@ private fun TvResultsContent(
             .sortedByDescending { it is PlaySource.Torrent && PackDetector.isPack(it.result.name) }
             .distinctBy { sourceKey(it) }
     }
-    val anyLoading = loadingTorrent || loadingWeb || loadingArchive
+    val anyLoading = loadingTorrent || loadingWeb || loadingArchive || loadingMagis
 
     // Filtro por origen. Los contadores salen de `ordered` (ya deduplicado), no de `sources`, para
     // que el número del chip sea exactamente el de filas que se van a ver al elegirlo.
@@ -920,9 +929,9 @@ private fun TvResultsContent(
         SourceTab.TODO to anyLoading,
         SourceTab.TORRENT to loadingTorrent,
         SourceTab.WEB to loadingWeb,
+        SourceTab.MAGIS to loadingMagis,
         SourceTab.ARCHIVE to loadingArchive,
     )
-    val shown = filterByTab(ordered, tab)
 
     // Foco inicial en la primera fuente apenas aparece la primera tanda (progresiva: no le vuelve
     // a robar el foco al usuario cuando llegan más resultados después).
@@ -952,13 +961,18 @@ private fun TvResultsContent(
             // las filas hacen zoom (1.1x) y con el margen por fuera la lista las recortaba contra su
             // propio borde. Así el zoom se dibuja sobre ese margen en vez de cortarse.
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 48.dp, vertical = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            // Sin margen horizontal en la LISTA: cada item pone el suyo, y las filas de fuente
+            // ponen el suyo como contentPadding del LazyRow, para que las tarjetas scrolleen
+            // hasta el borde de la pantalla en vez de cortarse contra el margen de la lista.
+            contentPadding = PaddingValues(vertical = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             item {
-                Row {
+                // Encabezado compacto: con filas horizontales abajo, cada dp que ocupa acá es una
+                // fuente menos que se ve sin scrollear. Antes eran 140 dp de póster y dos líneas.
+                Row(modifier = Modifier.padding(horizontal = 48.dp)) {
                     Box(
-                        modifier = Modifier.height(140.dp).width(140.dp * 2f / 3f)
+                        modifier = Modifier.height(90.dp).width(90.dp * 2f / 3f)
                             .clip(RoundedCornerShape(8.dp)).background(ArkivSurfaceHigh),
                     ) {
                         if (posterUrl.isNotBlank()) {
@@ -973,14 +987,27 @@ private fun TvResultsContent(
                     Column(modifier = Modifier.padding(start = 20.dp).align(Alignment.CenterVertically)) {
                         Text(
                             title,
-                            style = MaterialTheme.typography.headlineMedium,
+                            style = MaterialTheme.typography.titleLarge,
                             color = ArkivTextPrimary,
-                            maxLines = 2,
+                            maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        if (season != null && episode != null) {
+                        // Una sola línea de contexto: capítulo, cuántas fuentes hay y si sigue buscando.
+                        // El "Fuentes / Buscando…" que estaba aparte se fusionó acá.
+                        val meta = buildString {
+                            if (season != null && episode != null) append("T").append(season).append(" · E").append(episode)
+                            if (ordered.isNotEmpty()) {
+                                if (isNotEmpty()) append("  ·  ")
+                                append(ordered.size).append(" fuentes")
+                            }
+                            if (anyLoading) {
+                                if (isNotEmpty()) append("  ·  ")
+                                append("buscando…")
+                            }
+                        }
+                        if (meta.isNotBlank()) {
                             Text(
-                                "T$season · E$episode",
+                                meta,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = ArkivTextSecondary,
                                 modifier = Modifier.padding(top = 4.dp),
@@ -996,18 +1023,8 @@ private fun TvResultsContent(
                         playError,
                         color = ArkivRed,
                         style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(top = 16.dp),
+                        modifier = Modifier.padding(horizontal = 48.dp, vertical = 12.dp),
                     )
-                }
-            }
-
-            item {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 20.dp, bottom = 8.dp)) {
-                    Text("Fuentes", style = MaterialTheme.typography.titleMedium, color = ArkivTextPrimary)
-                    if (anyLoading) {
-                        Spacer(Modifier.width(8.dp))
-                        Text("Buscando…", style = MaterialTheme.typography.labelSmall, color = ArkivTextSecondary)
-                    }
                 }
             }
 
@@ -1016,10 +1033,12 @@ private fun TvResultsContent(
                     selected = tab,
                     counts = counts,
                     loading = loadingOf,
-                    modifier = Modifier.padding(bottom = 12.dp),
+                    modifier = Modifier.padding(horizontal = 48.dp, vertical = 4.dp),
                     onSelect = { tab = it },
                 )
             }
+
+            val filas = filasVisibles(ordered, tab)
 
             if (ordered.isEmpty() && !anyLoading) {
                 item {
@@ -1027,10 +1046,10 @@ private fun TvResultsContent(
                         "No se encontraron fuentes. Volvé atrás y probá con otra temporada/capítulo, o sin especificar ninguno.",
                         color = ArkivTextSecondary,
                         style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(top = 8.dp),
+                        modifier = Modifier.padding(horizontal = 48.dp, vertical = 8.dp),
                     )
                 }
-            } else if (shown.isEmpty()) {
+            } else if (filas.isEmpty()) {
                 // Hay resultados, pero no de este origen. Sin este aviso la lista queda en blanco y
                 // parece que la app se colgó, cuando en realidad basta con volver a "Todo".
                 item {
@@ -1038,17 +1057,21 @@ private fun TvResultsContent(
                         if (loadingOf[tab] == true) "Buscando en ${tab.label}…" else "Sin resultados en ${tab.label}.",
                         color = ArkivTextSecondary,
                         style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(top = 8.dp),
+                        modifier = Modifier.padding(horizontal = 48.dp, vertical = 8.dp),
                     )
                 }
             }
 
-            itemsIndexed(shown, key = { _, s -> sourceKey(s) }) { index, source ->
-                TvSourceRow(
-                    source = source,
+            // Una fila horizontal por fuente. El foco inicial va a la primera tarjeta de la PRIMERA
+            // fila: si cada fila pidiera el foco, se lo robarían entre ellas al ir llegando.
+            filas.forEach { (fuente, deLaFuente) ->
+                tvFilaDeFuente(
+                    fuente = fuente,
+                    items = deLaFuente,
                     enabled = !preparing,
-                    modifier = if (index == 0) Modifier.focusRequester(firstFocus) else Modifier,
-                    onClick = { onSelect(source) },
+                    loading = loadingOf[fuente] == true,
+                    primeraTarjeta = if (fuente == filas.first().first) firstFocus else null,
+                    onPlay = { onSelect(it) },
                 )
             }
         }
@@ -1076,109 +1099,6 @@ internal fun sourceKey(s: PlaySource): String = when (s) {
     is PlaySource.Web -> "web-${s.result.identity}"
     is PlaySource.WebPack -> "webpack-${s.pack.siteId}-${s.pack.showTitle}"
     is PlaySource.Magis -> "magis-${s.result.extra["content_id"] ?: s.result.ref}"
-}
-
-/** Fila de una fuente: etiqueta de origen (TORRENT/WEB/ARCHIVE), nombre, idioma/calidad/seeds/tamaño
- *  y badge PACK cuando corresponde — mismo contenido que SourceRow del celu, con estilos de TV. */
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun TvSourceRow(
-    source: PlaySource,
-    enabled: Boolean,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    val (tag, tagColor) = when (source) {
-        is PlaySource.Torrent -> "TORRENT" to ArkivRed
-        is PlaySource.Archive -> "ARCHIVE" to Color(0xFF80CBC4)
-        is PlaySource.Web -> "WEB" to Color(0xFFB39DDB)
-        is PlaySource.WebPack -> "WEB" to Color(0xFFB39DDB)
-        is PlaySource.Magis -> "MAGIS" to Color(0xFF64B5F6)
-    }
-    val isPack = source is PlaySource.WebPack ||
-        (source is PlaySource.Torrent && PackDetector.isPack(source.result.name))
-
-    Surface(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = modifier.fillMaxWidth().padding(vertical = 4.dp),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = ArkivSurfaceHigh,
-            focusedContainerColor = ArkivRed,
-        ),
-        border = ClickableSurfaceDefaults.border(
-            focusedBorder = Border(BorderStroke(2.dp, Color.White)),
-        ),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Box(
-                Modifier.clip(RoundedCornerShape(4.dp)).background(tagColor.copy(alpha = 0.25f))
-                    .padding(horizontal = 8.dp, vertical = 3.dp),
-            ) { Text(tag, color = tagColor, style = MaterialTheme.typography.labelSmall) }
-
-            Column(Modifier.weight(1f)) {
-                when (source) {
-                    is PlaySource.Torrent -> {
-                        val r = source.result
-                        Text(r.name, color = Color.White, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        val q = QualityLabel.extract(r.name)
-                        Text(
-                            "${r.lang.label}${if (q.isNotBlank()) "  ·  $q" else ""}  ·  ${r.seeders} seeds${if (r.sizeLabel.isNotBlank()) "  ·  ${r.sizeLabel}" else ""}",
-                            color = langColor(r.lang), style = MaterialTheme.typography.labelSmall,
-                        )
-                    }
-                    is PlaySource.Magis -> {
-                        val r = source.result
-                        Text(r.title, color = Color.White, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        val serie = if (r.extra["program_type"] == "teleplay") "Serie" else "Película"
-                        Text(
-                            "$serie${if (r.year.isNotBlank()) "  ·  ${r.year}" else ""}",
-                            color = Color(0xFF64B5F6), style = MaterialTheme.typography.labelSmall,
-                        )
-                    }
-                    is PlaySource.Archive -> {
-                        Text(source.item.title, color = Color.White, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text(
-                            "Archive.org${if (source.item.year.isNotBlank()) "  ·  ${source.item.year}" else ""}",
-                            color = Color(0xFF80CBC4), style = MaterialTheme.typography.labelSmall,
-                        )
-                    }
-                    is PlaySource.Web -> {
-                        val r = source.result
-                        val extra = buildString {
-                            append(r.siteName)
-                            if (r.language.isNotBlank()) append("  ·  ").append(r.language)
-                            if (r.quality.isNotBlank()) append("  ·  ").append(r.quality)
-                        }
-                        Text(r.title, color = Color.White, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text(extra, color = Color(0xFFB39DDB), style = MaterialTheme.typography.labelSmall)
-                    }
-                    is PlaySource.WebPack -> {
-                        val p = source.pack
-                        Text(p.showTitle, color = Color.White, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text(
-                            "${p.episodeCount} capítulos" +
-                                (if (p.seasons.size > 1) "  ·  ${p.seasons.size} temporadas" else "") +
-                                "  ·  ${p.siteId}",
-                            color = Color(0xFFB39DDB), style = MaterialTheme.typography.labelSmall,
-                        )
-                    }
-                }
-            }
-
-            if (isPack) {
-                Box(
-                    Modifier.clip(RoundedCornerShape(4.dp)).background(Color(0xFFFFB74D).copy(alpha = 0.25f))
-                        .padding(horizontal = 8.dp, vertical = 3.dp),
-                ) { Text("PACK", color = Color(0xFFFFB74D), style = MaterialTheme.typography.labelSmall) }
-            }
-        }
-    }
 }
 
 /**
