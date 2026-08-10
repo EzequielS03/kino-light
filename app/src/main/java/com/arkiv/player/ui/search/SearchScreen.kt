@@ -111,6 +111,7 @@ fun SearchScreen(
                     graph.tmdbApi, graph.aniListApi, graph.torrentSearchApi, graph.api,
                     graph.mirrorApiClient, graph.animeSourceProvider, graph.webSourceEngine,
                     graph.settings, graph.torrentEngine, graph.arkivApiClient,
+                    graph.searchHistory,
                 )
             }
         },

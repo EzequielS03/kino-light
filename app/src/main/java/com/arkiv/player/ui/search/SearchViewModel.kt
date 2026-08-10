@@ -78,6 +78,7 @@ class SearchViewModel(
     private val settings: SettingsStore,
     private val torrentEngine: com.arkiv.player.torrent.TorrentEngine,
     private val arkivApiClient: com.arkiv.player.data.gateway.ArkivApiClient,
+    private val searchHistory: com.arkiv.player.data.SearchHistoryStore,
 ) : ViewModel() {
 
     private val trackerScraper = com.arkiv.player.torrent.TrackerScraper()
@@ -182,6 +183,17 @@ class SearchViewModel(
     private var searchJob: Job? = null
     private var sourceJob: Job? = null
 
+    // --- historial del buscador -------------------------------------------
+    // Graba el ViewModel, no la pantalla: así da igual quién dispare la búsqueda y hay un solo
+    // lugar donde mirar. El TV usa el mismo ViewModel, así que también llena su historial (no lo
+    // muestra todavía; cuando se le haga UI, el dato ya va a estar).
+    val recentQueries: StateFlow<List<String>> = searchHistory.queries
+    val recentTitles: StateFlow<List<com.arkiv.player.data.RecentTitle>> = searchHistory.titles
+
+    fun forgetQuery(q: String) = searchHistory.removeQuery(q)
+    fun forgetTitle(t: com.arkiv.player.data.RecentTitle) = searchHistory.removeTitle(t)
+    fun clearHistory() = searchHistory.clear()
+
     /** Lanza la búsqueda unificada de Fase 1: TMDB + anime (títulos) y torrent + archive (directos). */
     fun search(q: String) {
         searchJob?.cancel()
@@ -192,6 +204,7 @@ class SearchViewModel(
             _loadingDirect.value = false
             return
         }
+        searchHistory.addQuery(q)
         searchJob = viewModelScope.launch {
             _loadingTitles.value = true
             _loadingDirect.value = true
@@ -268,6 +281,7 @@ class SearchViewModel(
 
     /** Elige una card: las películas van directo a RESULTS; series/anime pasan a REFINE. */
     fun pickTitle(card: TitleCard) {
+        searchHistory.addTitle(card.toRecent())
         _selected.value = card
         if (card.kind == "movie") {
             runSourceSearch(null, null)

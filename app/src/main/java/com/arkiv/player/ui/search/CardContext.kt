@@ -1,5 +1,6 @@
 package com.arkiv.player.ui.search
 
+import com.arkiv.player.data.RecentTitle
 import com.arkiv.player.data.catalog.AnimeShow
 import com.arkiv.player.data.catalog.TmdbItem
 
@@ -41,4 +42,25 @@ fun AnimeShow.toTitleCard(): TitleCard = TitleCard(
     overview = description,
     // AniList ya trae una imagen apaisada propia (banner); si falta, el TV cae al póster.
     backdropUrl = bannerUrl,
+)
+
+/** Card → entrada del historial. Se tira `overview`/`backdrop`: el hero los vuelve a pedir igual. */
+fun TitleCard.toRecent(): RecentTitle = RecentTitle(
+    kind = kind,
+    tmdbId = tmdbId,
+    anilistId = anilistId,
+    title = title,
+    posterUrl = posterUrl,
+    year = year,
+)
+
+/** Historial → card, para poder tocar un póster reciente y caer directo en las fuentes. */
+fun RecentTitle.toTitleCard(): TitleCard = TitleCard(
+    kind = kind,
+    tmdbId = tmdbId,
+    anilistId = anilistId,
+    title = title,
+    posterUrl = posterUrl,
+    year = year,
+    overview = null,
 )
