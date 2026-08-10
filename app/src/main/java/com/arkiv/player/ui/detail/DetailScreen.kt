@@ -110,7 +110,9 @@ fun DetailScreen(
     // DuplicateDownloadPolicy): si no, el botón parecería no hacer nada.
     val notifyDuplicates = rememberDuplicateDownloadNotice()
     val vm: DetailViewModel = viewModel(
-        factory = viewModelFactory { initializer { DetailViewModel(graph.repository, identifier) } },
+        // El teléfono siempre navega con un identifier crudo (no con una llave de grupo);
+        // observeGroupMembers lo resuelve igual por su fallback a `rows.filter { identifier == groupKey }`.
+        factory = viewModelFactory { initializer { DetailViewModel(graph.repository, groupKey = identifier) } },
     )
     val detail by vm.detail.collectAsStateWithLifecycle()
     val skipMarker by vm.skipMarker.collectAsStateWithLifecycle()

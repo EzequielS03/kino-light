@@ -179,7 +179,7 @@ fun ArkivTvRoot(
         composable("detail/{itemId}") { entry ->
             val itemId = Uri.decode(entry.arguments?.getString("itemId").orEmpty())
             TvDetailScreen(
-                identifier = itemId,
+                groupKey = itemId,
                 onPlayEpisode = { goToPlayer(it) },
             )
         }

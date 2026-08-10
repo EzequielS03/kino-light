@@ -369,11 +369,10 @@ fun TvHomeScreen(
                             firstFocus = firstCardFocus,
                             imageFor = { cardArt(it.primary.identifier, it.primary.thumbnailUrl) },
                             onFocusRow = { navSound(); featured = libraryFeatured(it.primary) },
-                            // Se abre la fuente principal del grupo, NO la llave (`tv:46260`): el
-                            // detalle todavía resuelve por identifier, así que pasarle la llave lo
-                            // dejaba sin ítem y pintaba la pantalla en negro. Cuando el detalle
-                            // sepa resolver grupos, esto pasa a `it.key`.
-                            onClickRow = { onOpenItem(it.primary.identifier) },
+                            // Se abre con la llave del grupo (`tv:46260`), no con la fuente
+                            // principal: DetailViewModel.observeGroupMembers resuelve la llave a
+                            // todas sus adquisiciones y arma el selector de fuente.
+                            onClickRow = { onOpenItem(it.key) },
                             onLongClickRow = { menuRow = it.primary },
                         )
                     }

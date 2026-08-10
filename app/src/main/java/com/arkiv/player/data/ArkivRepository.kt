@@ -78,6 +78,20 @@ class ArkivRepository(
     fun observeLibraryGroups(): Flow<List<LibraryGroup>> =
         LibraryGrouping.groupsFlow(observeLibrary(), observeArtwork())
 
+    /**
+     * Los ítems detrás de una llave de grupo, del más completo al menos.
+     *
+     * Acepta TAMBIÉN un identifier crudo: "Continuar viendo", el menú de mantener presionado y el
+     * detalle del teléfono navegan con el identifier del ítem, no con una llave de grupo. Si no
+     * matchea ninguna de las dos cosas devuelve vacío (por ejemplo si se borró la única fuente
+     * mientras el detalle estaba abierto).
+     */
+    fun observeGroupMembers(groupKey: String): Flow<List<LibraryRow>> =
+        combine(observeLibrary(), observeLibraryGroups()) { rows, groups ->
+            groups.firstOrNull { it.key == groupKey }?.members?.sortedByDescending { it.episodeCount }
+                ?: rows.filter { it.identifier == groupKey }
+        }
+
     fun observeContinueWatching(): Flow<List<ContinueRow>> =
         playbackDao.observeContinueWatching(CONTINUE_WATCHING_MIN_MS).map { rows ->
             // Una tarjeta por ÍTEM, no por episodio: la consulta devuelve una fila por capítulo
