@@ -535,10 +535,12 @@ fun TvSearchScreen(
                         client = graph.arkivApiClient,
                         posterUrl = resultPoster,
                         preparing = preparing,
-                        onPlayOne = { capitulo ->
+                        onPlayOne = { capitulos, capitulo ->
                             magisSeasonFor = null
                             preparing = true; playError = null
-                            scope.launch { applyResult(playback.playMagisEpisode(currentMagis, capitulo)) }
+                            scope.launch {
+                                applyResult(playback.playMagisSeason(currentMagis, capitulos, capitulo))
+                            }
                         },
                         onSaveAll = { capitulos -> saveMagisSeason(currentMagis, capitulos) },
                     )
@@ -1544,7 +1546,7 @@ private fun TvMagisSeasonContent(
     client: com.arkiv.player.data.gateway.ArkivApiClient,
     posterUrl: String,
     preparing: Boolean,
-    onPlayOne: (com.arkiv.player.data.gateway.GatewayEpisode) -> Unit,
+    onPlayOne: (List<com.arkiv.player.data.gateway.GatewayEpisode>, com.arkiv.player.data.gateway.GatewayEpisode) -> Unit,
     onSaveAll: (List<com.arkiv.player.data.gateway.GatewayEpisode>) -> Unit,
 ) {
     var capitulos by remember(season.ref) { mutableStateOf<List<com.arkiv.player.data.gateway.GatewayEpisode>?>(null) }
@@ -1639,7 +1641,7 @@ private fun TvMagisSeasonContent(
                         ) { Text("Guardar toda la temporada") }
                     }
                     items(caps, key = { it.ref }) { cap ->
-                        TvMagisEpisodeRow(cap = cap, enabled = !preparing, onClick = { onPlayOne(cap) })
+                        TvMagisEpisodeRow(cap = cap, enabled = !preparing, onClick = { onPlayOne(caps, cap) })
                     }
                 }
             }

@@ -118,6 +118,36 @@ class SearchPlayback(private val graph: AppGraph) {
         else PlaybackResult.Failed("No se pudo preparar el capítulo.")
     }
 
+    /**
+     * Guarda la temporada ENTERA y devuelve el capítulo que se tocó, para reproducirlo.
+     *
+     * Es el gemelo de `playPackRow` (torrent) y `saveWebPack` (web): tocar un capítulo trae la serie
+     * completa a la biblioteca, no solo ese capítulo. La lista ya está cargada en la pantalla, así
+     * que esto no cuesta ninguna llamada de red. **No descarga nada**: eso lo sigue haciendo el
+     * botón "Guardar".
+     *
+     * Si la temporada no se pudo guardar (el portal no mandó `content_id`), cae al camino de
+     * siempre —guardar solo el capítulo— antes que dejar al usuario sin reproducir nada.
+     */
+    suspend fun playMagisSeason(
+        temporada: com.arkiv.player.data.gateway.GatewayResult,
+        capitulos: List<com.arkiv.player.data.gateway.GatewayEpisode>,
+        elegido: com.arkiv.player.data.gateway.GatewayEpisode,
+    ): PlaybackResult {
+        val guardados = graph.repository.addMagisSeason(
+            contentId = temporada.extra["content_id"].orEmpty(),
+            title = temporada.title,
+            capitulos = capitulos.map {
+                com.arkiv.player.data.CapituloDeTemporada(it.number, it.title, it.ref)
+            },
+            seriesRef = temporada.ref,
+            posterUrl = temporada.extra["poster"].orEmpty(),
+            backdropUrl = temporada.extra["backdrop"].orEmpty(),
+        )
+        val epId = guardados[elegido.number] ?: return playMagisEpisode(temporada, elegido)
+        return PlaybackResult.Ready(epId)
+    }
+
     /** Reproduce un resultado de Magis: lo guarda y devuelve a dónde navegar. */
     suspend fun playMagis(r: com.arkiv.player.data.gateway.GatewayResult): PlaybackResult {
         val epId = magisEpisodeId(r)

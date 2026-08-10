@@ -62,7 +62,7 @@ fun MagisSeasonDialog(
     season: GatewayResult,
     client: ArkivApiClient,
     onDismiss: () -> Unit,
-    onPlay: (GatewayEpisode) -> Unit,
+    onPlay: (List<GatewayEpisode>, GatewayEpisode) -> Unit,
     onSave: (List<GatewayEpisode>) -> Unit,
 ) {
     var capitulos by remember(season.ref) { mutableStateOf<List<GatewayEpisode>?>(null) }
@@ -165,7 +165,7 @@ fun MagisSeasonDialog(
                                 if (cap.number in marcados) marcados.remove(cap.number)
                                 else marcados.add(cap.number)
                             },
-                            onPlay = { onPlay(cap) },
+                            onPlay = { onPlay(capitulos!!, cap) },
                         )
                     }
                 }

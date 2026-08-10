@@ -505,10 +505,10 @@ fun SearchScreen(
             season = temporada,
             client = graph.arkivApiClient,
             onDismiss = { magisSeason = null },
-            onPlay = { capitulo ->
+            onPlay = { capitulos, capitulo ->
                 magisSeason = null
                 preparing = true; playError = null
-                scope.launch { applyResult(playback.playMagisEpisode(temporada, capitulo)) }
+                scope.launch { applyResult(playback.playMagisSeason(temporada, capitulos, capitulo)) }
             },
             onSave = { elegidos ->
                 askNotifications()
