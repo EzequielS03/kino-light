@@ -124,6 +124,8 @@ class PlayerViewModel(
     /** Carga el episodio como playlist, ramificando por fuente (archive vs torrent vs web). */
     fun load(episodeId: String) {
         viewModelScope.launch {
+            // Antes que nada: que el detalle sepa por qué capítulo vas aunque salgas enseguida.
+            runCatching { repo.marcarEnCurso(episodeId) }
             _error.value = null
             // Si está guardado en el dispositivo, gana sobre cualquier streaming. Va ANTES de
             // ramificar por fuente: da igual de dónde vino el archivo, ya está acá.

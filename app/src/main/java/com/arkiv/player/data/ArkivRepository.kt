@@ -1001,6 +1001,27 @@ class ArkivRepository(
         return changes
     }
 
+    /**
+     * Sella "voy por acá" apenas arranca la reproducción, sin esperar a que se sepa la duración.
+     *
+     * [savePlayback] solo escribe cuando el player ya conoce `durationMs`, y en Magis eso puede
+     * tardar (stream TS, sonda de hasta 20 s): hasta entonces el capítulo que estás viendo no
+     * existía para el detalle. Preserva posición, duración y `watched` de lo que ya hubiera: esto
+     * marca dónde estás, no reinicia el progreso ni desmarca un capítulo ya visto.
+     */
+    suspend fun marcarEnCurso(episodeId: String) {
+        val existente = playbackDao.get(episodeId)
+        playbackDao.upsert(
+            PlaybackEntity(
+                episodeId = episodeId,
+                positionMs = existente?.positionMs ?: 0L,
+                durationMs = existente?.durationMs ?: 0L,
+                watched = existente?.watched ?: false,
+                lastPlayedAt = clock(),
+            ),
+        )
+    }
+
     /** Persiste posición de reproducción. Marca visto al superar el 60%. */
     suspend fun savePlayback(episodeId: String, positionMs: Long, durationMs: Long) {
         val watched = durationMs > 0 && positionMs >= durationMs * 0.6
