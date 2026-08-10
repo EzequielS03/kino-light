@@ -30,6 +30,8 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
     // Una descarga en curso por origen (clave de caché). La comparten todas las conexiones de VLC de
     // ese origen: solo un thread baja, el resto lee del mismo archivo que crece.
     private val downloads = ConcurrentHashMap<String, Download>()
+    // Camino directo (magis): una sola conexión viva por archivo. Ver ConexionUnica.
+    private val conexiones = ConexionUnica()
     private val initLocks = ConcurrentHashMap<String, Any>()
     private fun initLock(key: String): Any = initLocks.computeIfAbsent(key) { Any() }
 
@@ -82,11 +84,16 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
      *
      * `h` va ANTES de `u` a proposito: hay codigo que saca el origen con `substringAfter("u=")`.
      */
-    fun proxyUrl(originUrl: String, headers: Map<String, String> = emptyMap()): String {
+    fun proxyUrl(
+        originUrl: String,
+        headers: Map<String, String> = emptyMap(),
+        directo: Boolean = false,
+    ): String {
         val u = URLEncoder.encode(originUrl, "UTF-8")
-        if (headers.isEmpty()) return "http://127.0.0.1:$port/s?u=$u"
+        val d = if (directo) "d=1&" else ""
+        if (headers.isEmpty()) return "http://127.0.0.1:$port/s?${d}u=$u"
         val h = URLEncoder.encode(HeaderCodec.encode(headers), "UTF-8")
-        return "http://127.0.0.1:$port/s?h=$h&u=$u"
+        return "http://127.0.0.1:$port/s?h=$h&${d}u=$u"
     }
 
     /**
@@ -124,6 +131,9 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                 val extraHeaders = HeaderCodec.decode(
                     path.substringAfter("h=", "").substringBefore('&'),
                 )
+                // Modo de servicio. Lo elige quien arma la URL (magis → directo) para que el camino
+                // de archive siga siendo exactamente el de siempre.
+                val directo = path.contains("d=1")
                 val rangeHeader = lines.firstOrNull { it.startsWith("Range:", true) }
                     ?.substringAfter(':')?.trim()
                 val range = RangeHeader.parse(rangeHeader)
@@ -132,6 +142,26 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                 val file = cache.file(key)
                 val doneMarker = File(cacheDir, "$key.done")
                 val out = s.getOutputStream()
+
+                // Toda petición que entra queda registrada: el proxy es la frontera entre "el
+                // reproductor no pide" y "el proxy no entrega", que desde afuera se ven igual (VLC
+                // buffereando al 0% para siempre).
+                android.util.Log.w(
+                    "ArchiveCacheProxy",
+                    "← pide rango=${rangeHeader ?: "(todo)"} directo=$directo " +
+                        "descargado=${downloads[key]?.downloaded ?: -1}",
+                )
+
+                // 0) Camino DIRECTO (magis): cada Range va tal cual al origen y su cuerpo se devuelve
+                //    sin tocar el disco. Ver la nota de arriba de por qué la caché no sirve acá.
+                if (directo) {
+                    if (!passthrough(origin, rangeHeader, out, extraHeaders, claveUnica = key)) {
+                        android.util.Log.w("ArchiveCacheProxy", "directo: el origen no sirvió el tramo")
+                        out.write("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n".toByteArray())
+                        out.flush()
+                    }
+                    return@runCatching
+                }
 
                 // 1) Ya cacheado completo → servir de disco (rápido, con Range, sin red).
                 if (doneMarker.exists() && file.exists() && file.length() > 0) {
@@ -255,18 +285,25 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
             append("Content-Type: application/octet-stream\r\n\r\n")
         }
         out.write(respHeaders.toByteArray())
-        when {
+        val rama = when {
+            dl.done || dl.downloaded > end -> "disco"
+            start > dl.downloaded + AHEAD_THRESHOLD -> "origen"
+            else -> "creciendo"
+        }
+        // Qué camino se tomó para este tramo: cada uno falla distinto y desde fuera se ven igual.
+        android.util.Log.w(
+            "ArchiveCacheProxy",
+            "→ rama=$rama tramo=$start-$end descargado=${dl.downloaded}/${dl.total}",
+        )
+        when (rama) {
             // Todo el tramo ya está en la caché en disco → lectura directa, sin red.
-            dl.done || dl.downloaded > end ->
-                readFromDisk(dl.file, start, len, out)
+            "disco" -> readFromDisk(dl.file, start, len, out)
             // Tramo MUY por delante de la descarga (seek lejano o el `moov` del final) → directo del
             // origen para no esperar a que la descarga secuencial llegue hasta ahí.
-            start > dl.downloaded + AHEAD_THRESHOLD ->
-                fetchOriginRangeBody(dl.origin, start, end, out, dl.headers)
+            "origen" -> fetchOriginRangeBody(dl.origin, start, end, out, dl.headers)
             // Reproducción secuencial (el playhead): se lee de disco a medida que la descarga —a
             // velocidad plena, que va por delante— lo va llenando; solo espera lo mínimo.
-            else ->
-                streamGrowingFromDisk(dl, start, end, out)
+            else -> streamGrowingFromDisk(dl, start, end, out)
         }
         out.flush()
     }
@@ -328,13 +365,30 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                 setRequestProperty("Range", "bytes=$start-$end")
                 connectTimeout = 15000; readTimeout = 20000
             }
-        }.getOrNull() ?: return
-        runCatching {
+        }.getOrNull() ?: run {
+            android.util.Log.w("ArchiveCacheProxy", "origen: no se pudo abrir la conexión ($start-$end)")
+            return
+        }
+        // El código del origen y los bytes entregados: sin esto, un 403/timeout acá es INVISIBLE —
+        // la cabecera 206 ya salió, así que el reproductor espera un cuerpo que nunca llega y se
+        // queda buffereando al 0% sin error.
+        val code = runCatching { conn.responseCode }.getOrDefault(-1)
+        var escritos = 0L
+        val t0 = System.currentTimeMillis()
+        val fallo = runCatching {
             conn.inputStream.use { ins ->
                 val buf = ByteArray(64 * 1024)
-                while (true) { val n = ins.read(buf); if (n < 0) break; out.write(buf, 0, n) }
+                while (true) {
+                    val n = ins.read(buf); if (n < 0) break
+                    out.write(buf, 0, n); escritos += n
+                }
             }
-        }
+        }.exceptionOrNull()
+        android.util.Log.w(
+            "ArchiveCacheProxy",
+            "origen $start-$end → code=$code ${escritos / 1024}KB en ${System.currentTimeMillis() - t0}ms" +
+                (fallo?.let { " ¡FALLÓ: ${it.message}!" } ?: ""),
+        )
         runCatching { conn.disconnect() }
     }
 
@@ -378,6 +432,7 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
         rangeHeader: String?,
         out: java.io.OutputStream,
         extraHeaders: Map<String, String> = emptyMap(),
+        claveUnica: String? = null,
     ): Boolean {
         val conn = runCatching {
             (URL(origin).openConnection() as HttpURLConnection).apply {
@@ -388,8 +443,13 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                 connectTimeout = 15000; readTimeout = 20000
             }
         }.getOrNull() ?: return false
+        // Antes de hablarle al origen, matar el tramo anterior de ESTE mismo archivo: el CDN de magis
+        // atiende de a una conexión y, si sigue viva la vieja, deja la nueva colgada hasta el timeout.
+        val cerrable = ConexionUnica.Cerrable { runCatching { conn.disconnect() } }
+        claveUnica?.let { conexiones.registrar(it, cerrable) }
         val code = runCatching { conn.responseCode }.getOrDefault(-1)
         if (code != HttpURLConnection.HTTP_OK && code != HttpURLConnection.HTTP_PARTIAL) {
+            claveUnica?.let { conexiones.soltar(it, cerrable) }
             runCatching { conn.disconnect() }; return false
         }
         val contentLength = conn.getHeaderField("Content-Length")
@@ -403,12 +463,30 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
             append("Content-Type: application/octet-stream\r\n\r\n")
         }
         out.write(resp.toByteArray())
-        conn.inputStream.use { ins ->
-            val buf = ByteArray(64 * 1024)
-            while (true) { val n = ins.read(buf); if (n < 0) break; out.write(buf, 0, n) }
+        var escritos = 0L
+        val t0 = System.currentTimeMillis()
+        try {
+            conn.inputStream.use { ins ->
+                val buf = ByteArray(64 * 1024)
+                while (true) {
+                    val n = ins.read(buf); if (n < 0) break
+                    out.write(buf, 0, n); escritos += n
+                }
+            }
+            out.flush()
+        } finally {
+            claveUnica?.let { conexiones.soltar(it, cerrable) }
+            // disconnect() SIEMPRE, también cuando el reproductor corta la conexión a mitad (seek →
+            // "broken pipe"). Antes la excepción se saltaba esta línea y la conexión al CDN quedaba
+            // viva en el pool de HttpURLConnection drenando el resto del archivo: el origen veía dos
+            // conexiones a la vez y la NUEVA (la del punto al que se saltó) se quedaba sin datos.
+            runCatching { conn.disconnect() }
+            android.util.Log.w(
+                "ArchiveCacheProxy",
+                "directo ${rangeHeader ?: "(todo)"} → code=$code ${escritos / 1024}KB " +
+                    "en ${System.currentTimeMillis() - t0}ms",
+            )
         }
-        out.flush()
-        runCatching { conn.disconnect() }
         return true
     }
 }

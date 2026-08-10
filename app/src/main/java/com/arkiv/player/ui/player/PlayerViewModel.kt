@@ -18,6 +18,7 @@ import com.arkiv.player.data.offline.PlaybackPreferenceStore
 import com.arkiv.player.playback.ArchiveCacheProxy
 import com.arkiv.player.playback.PlayerSource
 import com.arkiv.player.playback.SourceKind
+import com.arkiv.player.playback.TsDurationProbe
 import com.arkiv.player.torrent.EpisodeHint
 import com.arkiv.player.torrent.TorrentEngine
 import com.arkiv.player.torrent.TorrentProgress
@@ -28,6 +29,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** Datos de un episodio para el reproductor. */
 data class PlayerData(
@@ -45,6 +47,7 @@ data class PlayerData(
     val referer: String? = null,    // headers para el stream web (algunos hosts exigen Referer)
     val userAgent: String? = null,
     val proxyUrl: String? = null,   // web: URL proxeada de respaldo si la directa falla (403/geo/anti-leech)
+    val knownDurationMs: Long = 0L, // duración sondeada aparte, para fuentes cuya duración VLC no deduce (TS/HTTP)
 )
 
 /** La sección como playlist: todos los episodios + dónde/cómo arrancar. */
@@ -351,7 +354,24 @@ class PlayerViewModel(
 
         withContext(Dispatchers.IO) { archiveCacheProxy.start() }
         val cabecera = repo.headerInfo(episodeId)
-        val urlLocal = archiveCacheProxy.proxyUrl(play.url, play.headers)
+        // `directo`: el proxy reenvía cada Range al CDN sin cachear. Con la caché (el camino de
+        // archive) la descarga de ~1 GB se corta, el proxy borra el archivo y vuelve a empezar en 0
+        // mientras VLC sigue leyendo por el offset viejo → el TS le llega con huecos, el tiempo salta
+        // de a minutos y el video se muere. Sin caché no hay nada que truncar.
+        val urlLocal = archiveCacheProxy.proxyUrl(play.url, play.headers, directo = true)
+        // El TS no dice cuánto dura y libVLC no lo deduce sobre HTTP: la sondeamos nosotros (dos
+        // Range de 256 KB) o la barra queda llena, en 00:00 y sin poder adelantar. Best-effort: si
+        // tarda o falla se reproduce igual, solo sin duración (que es como estaba antes).
+        val esTs = play.mime.contains("mp2t", true) || play.url.substringBefore('?').endsWith(".ts", true)
+        val duracionSondeada = if (!esTs) 0L else withContext(Dispatchers.IO) {
+            val t0 = System.currentTimeMillis()
+            // Margen para las dos puntas EN SERIE + un reintento (el CDN suelta 504 esporádicos).
+            val ms = withTimeoutOrNull(20_000) {
+                runCatching { TsDurationProbe.probeRemote(play.url, play.headers) }.getOrDefault(0L)
+            } ?: 0L
+            Log.w(PLAY, "loadMagis() sonda de duracion=${ms}ms (tardó ${System.currentTimeMillis() - t0}ms)")
+            ms
+        }
         val item = PlayerData(
             episodeId = episodeId,
             itemId = episodeId.substringBefore("::"),
@@ -364,6 +384,7 @@ class PlayerViewModel(
             artworkUrl = "",
             openingStartMs = null, openingEndMs = null, endingStartMs = null,
             kind = SourceKind.MAGIS,
+            knownDurationMs = duracionSondeada,
         )
         // Los subtítulos viajan por el MISMO canal que los de web: PlayerScreen ya los adjunta
         // desde acá. El portal los entrega junto al stream, así que no hay que ir a OpenSubtitles.

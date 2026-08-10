@@ -106,6 +106,7 @@ class PlaybackService : MediaSessionService() {
                             referer = ex.getString("referer"),
                             userAgent = ex.getString("userAgent"),
                             proxyUrl = ex.getString("proxyUrl"),
+                            knownDurationMs = ex.getLong("knownDurationMs", 0L),
                         ),
                     )
                 }

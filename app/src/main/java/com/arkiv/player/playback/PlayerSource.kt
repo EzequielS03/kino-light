@@ -21,6 +21,15 @@ data class PlayerSourceTag(
      * Estos viajan por el proxy local, que sí puede ponerlos en la petición al origen.
      */
     val extraHeaders: Map<String, String> = emptyMap(),
+    /**
+     * Duración real en ms cuando el reproductor NO puede deducirla solo (0 = no se sabe).
+     *
+     * Existe por el MPEG-TS de magis: libVLC solo saca la duración de un TS sondeando el final del
+     * archivo, y eso lo hace únicamente con acceso de lectura rápida (archivo local). Servido por
+     * HTTP, `length` se queda en 0 y la barra queda llena/00:00 y sin poder buscar. La sonda de
+     * [TsDurationProbe] la calcula aparte y viaja hasta el player por acá.
+     */
+    val knownDurationMs: Long = 0L,
 ) {
     /** Todos los headers del origen en un solo mapa, para quien pueda mandarlos completos. */
     val allHeaders: Map<String, String>

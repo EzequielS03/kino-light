@@ -82,6 +82,12 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
     // URL proxeada de respaldo (proxyUrl del tag). Se resetea al cargar otro ítem.
     private var triedProxy = false
     private var currentStartMs = 0L
+    // Duración real del ítem cuando libVLC no puede deducirla (TS servido por HTTP: magis). Viaja en
+    // el tag del MediaItem y la sondea TsDurationProbe. Ver UnknownLengthPolicy.
+    private var knownDurationMs = 0L
+    // Sin duración, `:start-time` se ignora: la posición de arranque hay que aplicarla por fracción
+    // una vez que VLC ya está reproduciendo. Una sola vez por ítem.
+    private var startPositionApplied = false
     // Subtítulos APAGADOS por defecto: libVLC auto-activa la primera pista de subtítulos embebida, pero
     // el usuario quiere arrancar sin subs y prenderlos a mano. Al primer Playing de cada ítem forzamos
     // spu=-1 (una sola vez, para no pisar una selección posterior del usuario). Se resetea al cargar otro ítem.
@@ -144,6 +150,12 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
                         defaultAudioApplied = true
                         handler.postDelayed({ applyPreferredAudio(retries = 3) }, 200)
                     }
+                    // Reanudar donde ibas cuando VLC no conoce la duración: `:start-time` se ignora
+                    // (arranca en 0) y hay que moverlo por fracción ya reproduciendo.
+                    if (!startPositionApplied && currentStartMs > 0) {
+                        startPositionApplied = true
+                        handler.postDelayed({ aplicarArranquePorFraccion() }, 500)
+                    }
                 }
                 // El tiempo de reproducción avanza ⇒ está reproduciendo DE VERDAD. VLC a veces deja el
                 // estado pegado en Buffering (emite Buffering<100 mientras rellena cache sin re-emitir
@@ -202,10 +214,13 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         // getState() (incluido este durationUs y el contentPosition de abajo) también al liberar el
         // player, así que TODA lectura nativa acá va protegida para no tumbar la app al salir.
         val lengthMs = runCatching { mediaPlayer.length }.getOrDefault(0L)
+        // Con TS por HTTP libVLC nunca sabe la duración: se cae a la sondeada, si no la barra de
+        // progreso se pinta llena y en 00:00 (y tampoco se guarda el progreso, que exige dur>0).
+        val duracionMs = UnknownLengthPolicy.effectiveDurationMs(lengthMs, knownDurationMs)
         val playlist = items.mapIndexed { i, item ->
             MediaItemData.Builder(item.mediaId.ifEmpty { "item-$i" })
                 .setMediaItem(item)
-                .setDurationUs(if (lengthMs > 0) lengthMs * 1000 else C.TIME_UNSET)
+                .setDurationUs(if (duracionMs > 0) duracionMs * 1000 else C.TIME_UNSET)
                 .setIsSeekable(true)
                 .build()
         }
@@ -251,7 +266,22 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
             currentIndex = mediaItemIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0))
             loadCurrent(if (positionMs == C.TIME_UNSET) 0L else positionMs)
         } else if (positionMs != C.TIME_UNSET) {
-            mediaPlayer.time = positionMs
+            // Sin duración, VLC IGNORA el seek por tiempo; por fracción sí salta (busca por byte y
+            // el PCR del sitio le devuelve el tiempo bueno). Con duración se busca por tiempo, que
+            // es exacto.
+            val lengthMs = runCatching { mediaPlayer.length }.getOrDefault(0L)
+            val fraccion = UnknownLengthPolicy.seekFraction(positionMs, lengthMs, knownDurationMs)
+            if (fraccion != null) {
+                runCatching {
+                    android.util.Log.w(
+                        "ArkivVlc",
+                        "seek sin duracion: ${positionMs}ms de ${knownDurationMs}ms → position=$fraccion",
+                    )
+                }
+                mediaPlayer.position = fraccion
+            } else {
+                mediaPlayer.time = positionMs
+            }
         }
         return Futures.immediateVoidFuture()
     }
@@ -290,7 +320,15 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
             heartbeatTick = 0
             val dur = runCatching { mediaPlayer.length }.getOrDefault(0L)
             val avanza = t != lastObservedTimeMs
-            runCatching { android.util.Log.w("ArkivVlc", "HB pos=${t}ms dur=${dur}ms buf=${buffering}% estado=$event avanza=$avanza") }
+            // `dur` es lo que sabe VLC y `efectiva` lo que ve la UI: con TS por HTTP el primero es 0
+            // y el segundo sale de la sonda. Verlos juntos dice de un vistazo si la sonda llegó.
+            val efectiva = UnknownLengthPolicy.effectiveDurationMs(dur, knownDurationMs)
+            runCatching {
+                android.util.Log.w(
+                    "ArkivVlc",
+                    "HB pos=${t}ms dur=${dur}ms efectiva=${efectiva}ms buf=${buffering}% estado=$event avanza=$avanza",
+                )
+            }
         }
         if (t != lastObservedTimeMs) {
             // El tiempo avanzó → está reproduciendo; limpiar un posible estado "buffering" pegado.
@@ -362,6 +400,8 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
             else -> 1500
         }
         currentStartMs = startPositionMs
+        knownDurationMs = tag?.knownDurationMs ?: 0L
+        startPositionApplied = false
         defaultSpuApplied = false // cada ítem/recarga arranca con subtítulos apagados
         defaultAudioApplied = false // y re-evalúa la pista de audio preferida
         val media = Media(libVlc, uri).apply {
@@ -392,7 +432,11 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
             tag?.userAgent?.takeIf { it.isNotBlank() }?.let { addOption(":http-user-agent=$it") }
         }
         runCatching {
-            android.util.Log.w("ArkivVlc", "loadMedia hw=$hardware kind=${tag?.kind} referer=${tag?.referer} uri=$uri")
+            android.util.Log.w(
+                "ArkivVlc",
+                "loadMedia hw=$hardware kind=${tag?.kind} referer=${tag?.referer} " +
+                    "duracionSondeada=${knownDurationMs}ms start=${startPositionMs}ms uri=$uri",
+            )
         }
         mediaPlayer.media = media
         media.release()
@@ -414,6 +458,42 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         if (id != currentAudioTrack()) {
             runCatching { android.util.Log.w("ArkivVlc", "auto-audio -> id=$id de ${tracks.map { it.second }}") }
             setVlcAudioTrack(id)
+        }
+    }
+
+    /**
+     * Aplica la posición de arranque por FRACCIÓN cuando VLC no conoce la duración (TS por HTTP).
+     * Si sí la conoce, `:start-time` ya hizo su trabajo y esto no toca nada.
+     */
+    private fun aplicarArranquePorFraccion(intentos: Int = 12) {
+        val lengthMs = runCatching { mediaPlayer.length }.getOrDefault(0L)
+        val fraccion = UnknownLengthPolicy.seekFraction(currentStartMs, lengthMs, knownDurationMs) ?: return
+        // Esperar a que el tiempo AVANCE antes de saltar. Saltar sobre un TS que todavía no decodificó
+        // su primer frame deja el demuxer a medias: la posición se queda en 0, el video se muere y
+        // VLC bufferea al 0% para siempre (visto en device). Con el tiempo ya corriendo, el salto cae
+        // donde debe.
+        // No basta con que el tiempo sea >0: con 69 ms (el primer frame) el salto también dejaba el
+        // demuxer colgado. Se exige reproducción ya asentada.
+        val t = runCatching { mediaPlayer.time }.getOrDefault(0L)
+        if (t < ARRANQUE_MIN_MS) {
+            if (intentos > 0) {
+                handler.postDelayed({ aplicarArranquePorFraccion(intentos - 1) }, 400)
+            } else {
+                runCatching {
+                    android.util.Log.w("ArkivVlc", "arranque descartado: VLC nunca movió el tiempo")
+                }
+            }
+            return
+        }
+        runCatching {
+            android.util.Log.w(
+                "ArkivVlc",
+                "arranque sin duracion: ${currentStartMs}ms de ${knownDurationMs}ms → position=$fraccion",
+            )
+        }
+        runCatching { mediaPlayer.position = fraccion }
+        runCatching {
+            android.util.Log.w("ArkivVlc", "arranque aplicado: time=${mediaPlayer.time}ms")
         }
     }
 
@@ -584,6 +664,8 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         const val STALL_POLL_MS = 500L  // cada cuánto sondea el watcher de estancamiento
         const val STALL_MS = 900L       // tiempo sin avanzar (queriendo reproducir) para marcar buffering
         const val STALL_SOFTWARE_MS = 12_000L   // margen amplio: una conexión lenta puede tardar en arrancar
+        // Reproducción ya asentada antes de saltar a la posición guardada (ver aplicarArranquePorFraccion).
+        const val ARRANQUE_MIN_MS = 2_000L
 
         val AVAILABLE_COMMANDS = Player.Commands.Builder()
             .addAll(
