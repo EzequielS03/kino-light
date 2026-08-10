@@ -58,14 +58,22 @@ data class ItemDetail(
             ?.first
 
     /**
-     * Episodio para el botón "Reproducir": el que estás viendo, o el primero que te falta.
+     * Episodio para el botón "Reproducir": el que estás viendo, o el que sigue al último que
+     * terminaste.
      *
-     * El fallback es el primero **sin ver** y no el primero a secas: con la serie entera en la
-     * biblioteca, terminar el E5 tiene que dejarte en el E6, no devolverte al E1. Si están todos
-     * vistos, el primero (volver a empezar).
+     * El fallback NO es "el primero sin ver" a secas: con la temporada entera guardada de una sola
+     * vez (ver `addMagisSeason`), tocar y terminar el E5 sin haber tocado ningún otro capítulo deja
+     * E1-E4 y E6-E20 igual de "sin ver" que el E6, así que "el primero sin ver" por orden caía
+     * siempre en el E1 en vez de seguir donde ibas. Por eso se busca el capítulo visto más
+     * adelantado en la lista y se devuelve el que le sigue. Si todavía no se vio nada, cae al
+     * primero sin ver (que en ese caso es directamente el primero); si ya se vio todo, vuelve a
+     * empezar por el primero.
      */
     val resumeEpisode: Episode?
         get() = inProgressEpisode
+            ?: episodes.indexOfLast { progress[it.id]?.watched == true }
+                .takeIf { it >= 0 }
+                ?.let { ultimoVistoIdx -> episodes.getOrNull(ultimoVistoIdx + 1) }
             ?: episodes.firstOrNull { progress[it.id]?.watched != true }
             ?: episodes.firstOrNull()
 }
