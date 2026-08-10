@@ -317,8 +317,7 @@ private fun TvMagisSection(client: MagisLinkClient) {
                     if (!busy) {
                         scope.launch {
                             busy = true
-                            try { client.unlink(); linked = false } catch (e: MagisLinkException) { error = e.message }
-                            busy = false
+                            try { client.unlink(); linked = false } catch (e: MagisLinkException) { error = e.message } finally { busy = false }
                         }
                     }
                 },
@@ -350,8 +349,7 @@ private fun TvMagisSection(client: MagisLinkClient) {
                     if (!busy && user.isNotBlank() && pass.isNotBlank()) {
                         scope.launch {
                             busy = true
-                            try { client.link(user.trim(), pass); linked = true } catch (e: MagisLinkException) { error = e.message }
-                            busy = false
+                            try { client.link(user.trim(), pass); linked = true } catch (e: MagisLinkException) { error = e.message } finally { busy = false }
                         }
                     }
                 },

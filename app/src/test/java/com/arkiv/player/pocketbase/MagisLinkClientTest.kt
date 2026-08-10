@@ -96,4 +96,11 @@ class MagisLinkClientTest {
             assertEquals("credenciales invalidas", e.message)
         }
     }
+
+    @Test(expected = MagisLinkException::class)
+    fun `una falla de red al llamar status envuelve en MagisLinkException`() = runBlocking {
+        server.shutdown()
+        client.status()
+        Unit
+    }
 }

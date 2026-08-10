@@ -26,13 +26,18 @@ class MagisLinkClient(
     }
 
     private fun exec(request: Request): JSONObject =
-        client.newCall(request).execute().use { r ->
-            val raw = r.body?.string().orEmpty()
-            if (!r.isSuccessful) {
-                val msg = runCatching { JSONObject(raw).optString("detail") }.getOrNull()
-                throw MagisLinkException(r.code, msg?.ifBlank { raw } ?: raw)
+        runCatching {
+            client.newCall(request).execute().use { r ->
+                val raw = r.body?.string().orEmpty()
+                if (!r.isSuccessful) {
+                    val msg = runCatching { JSONObject(raw).optString("detail") }.getOrNull()
+                    throw MagisLinkException(r.code, msg?.ifBlank { raw } ?: raw)
+                }
+                if (raw.isBlank()) JSONObject() else JSONObject(raw)
             }
-            if (raw.isBlank()) JSONObject() else JSONObject(raw)
+        }.getOrElse { e ->
+            if (e is MagisLinkException) throw e
+            throw MagisLinkException(0, e.message ?: "error de red")
         }
 
     suspend fun status(): Boolean = withContext(Dispatchers.IO) {

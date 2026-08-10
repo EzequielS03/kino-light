@@ -92,8 +92,7 @@ private fun MagisSection(client: MagisLinkClient) {
                 onClick = {
                     scope.launch {
                         busy = true
-                        try { client.unlink(); linked = false } catch (e: MagisLinkException) { error = e.message }
-                        busy = false
+                        try { client.unlink(); linked = false } catch (e: MagisLinkException) { error = e.message } finally { busy = false }
                     }
                 },
                 modifier = Modifier.padding(top = 8.dp),
@@ -112,8 +111,7 @@ private fun MagisSection(client: MagisLinkClient) {
                 onClick = {
                     scope.launch {
                         busy = true
-                        try { client.link(user.trim(), pass); linked = true } catch (e: MagisLinkException) { error = e.message }
-                        busy = false
+                        try { client.link(user.trim(), pass); linked = true } catch (e: MagisLinkException) { error = e.message } finally { busy = false }
                     }
                 },
                 modifier = Modifier.padding(top = 8.dp),
