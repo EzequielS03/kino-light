@@ -4,4 +4,5 @@ package com.arkiv.player.pocketbase
 object PocketBaseConfig {
     const val BASE_URL = "https://db.comparadorinternet.co"
     const val COLLECTION_DEVICES = "devices"
+    const val COLLECTION_USERS = "users"
 }
