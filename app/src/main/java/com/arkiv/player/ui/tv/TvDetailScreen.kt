@@ -20,6 +20,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
@@ -66,7 +67,22 @@ fun TvDetailScreen(
     val sources by vm.sources.collectAsStateWithLifecycle()
     val selectedId by vm.selectedId.collectAsStateWithLifecycle()
     val detail by vm.detail.collectAsStateWithLifecycle()
-    val data = detail ?: return
+    val data = detail
+    if (data == null) {
+        // Antes esto era `?: return`: pantalla en negro sin ningún aviso, tanto mientras el
+        // detalle está cargando como cuando la llave de grupo dejó de existir (ver el bug de
+        // LibraryGrouping.resolveMembers/observeGroupMembers — un grupo que se movía de llave
+        // bajo el usuario y esto no avisaba, se veía IDÉNTICO a un crash). Un mensaje simple
+        // alcanza: no hace falta distinguir "todavía cargando" de "no se encontró".
+        Box(Modifier.fillMaxSize().background(ArkivBlack), contentAlignment = Alignment.Center) {
+            Text(
+                "No se pudo cargar este contenido",
+                style = MaterialTheme.typography.titleMedium,
+                color = ArkivTextSecondary,
+            )
+        }
+        return
+    }
     // Identifier REAL de la fuente que se está mostrando (no la llave de grupo de la ruta): lo
     // que trae `data` ya resolvió `groupKey` a un ítem concreto. Stills/títulos de TMDB y el
     // caché de capítulos enfocados se indexan por ese identifier, no por la llave.

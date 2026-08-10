@@ -139,4 +139,113 @@ class LibraryGroupingTest {
         assertEquals(1, emissions.last().size)
         job.cancel()
     }
+
+    // --- resolveMembers ------------------------------------------------------------------
+
+    /** (i) Una llave de grupo viva devuelve sus miembros, del más completo al menos. */
+    @Test
+    fun `resolveMembers con una llave de grupo viva devuelve sus miembros, mas completo primero`() {
+        val pocos = row("web:series:anilist171018", "DAN DA DAN", 1)
+        val muchos = row("web:series:tt30217403", "DAN DA DAN", 24)
+        val groups = LibraryGrouping.group(
+            listOf(pocos, muchos),
+            mapOf(
+                pocos.identifier to art(pocos.identifier, 240411, "tv"),
+                muchos.identifier to art(muchos.identifier, 240411, "tv"),
+            ),
+        )
+        val result = LibraryGrouping.resolveMembers("tv:240411", groups, groups.flatMap { it.members })
+        assertEquals(listOf(muchos.identifier, pocos.identifier), result.map { it.identifier })
+    }
+
+    /**
+     * (ii) LA REGRESIÓN de Finding 2: una llave `item:<identifier>` que el detalle abrió cuando
+     * el ítem todavía no tenía tmdbId. Si el arte resuelve DESPUÉS (mientras el detalle sigue
+     * abierto), el ítem se muda a un grupo `tv:`, la llave `item:` deja de existir, y sin este
+     * fallback `observeGroupMembers` devolvía vacío -> pantalla negra en el detalle.
+     */
+    @Test
+    fun `resolveMembers con una llave item cuyo item se sumo a un grupo tv resuelve a ese grupo`() {
+        val naruto = row("torrent:abc123", "Naruto — Pack", 220, source = "torrent")
+        // Llave que tenía el ítem al momento de navegar: sin tmdbId todavía.
+        val groupKeyDeLaRuta = LibraryGrouping.groupKeyOf(naruto, null)
+        assertEquals("item:torrent:abc123", groupKeyDeLaRuta)
+
+        // El arte resuelve DESPUÉS: ahora el ítem (y un hermano de otra fuente) viven en tv:46260.
+        val otraFuente = row("web:series:tt0409591", "Naruto", 300)
+        val groups = LibraryGrouping.group(
+            listOf(naruto, otraFuente),
+            mapOf(
+                naruto.identifier to art(naruto.identifier, 46260, "tv"),
+                otraFuente.identifier to art(otraFuente.identifier, 46260, "tv"),
+            ),
+        )
+        assertEquals(emptyList<LibraryGroup>(), groups.filter { it.key == groupKeyDeLaRuta }) // la llave vieja ya no existe
+
+        val result = LibraryGrouping.resolveMembers(groupKeyDeLaRuta, groups, groups.flatMap { it.members })
+        assertEquals(setOf(naruto.identifier, otraFuente.identifier), result.map { it.identifier }.toSet())
+    }
+
+    /** (iii) Un identifier crudo (Continuar viendo / menú de mantener presionado) resuelve a esa sola fila. */
+    @Test
+    fun `resolveMembers con un identifier crudo resuelve a esa sola fila`() {
+        val suelto = row("torrent:xyz789", "Alguna película", 1, category = null)
+        val groups = LibraryGrouping.group(listOf(suelto), emptyMap())
+        val result = LibraryGrouping.resolveMembers("torrent:xyz789", groups, groups.flatMap { it.members })
+        assertEquals(listOf("torrent:xyz789"), result.map { it.identifier })
+    }
+
+    /** (iv) Una llave que no matchea nada (ni grupo ni fila) devuelve vacío. */
+    @Test
+    fun `resolveMembers con una llave desconocida devuelve vacio`() {
+        val r = row("web:series:tt1", "Algo", 5)
+        val groups = LibraryGrouping.group(listOf(r), emptyMap())
+        val result = LibraryGrouping.resolveMembers("tv:99999999", groups, groups.flatMap { it.members })
+        assertEquals(emptyList<LibraryRow>(), result)
+    }
+
+    // --- shouldRefetchArtwork --------------------------------------------------------------
+
+    private val sevenDaysMs = 7 * 24 * 60 * 60 * 1000L
+
+    /** Ya resuelto (tmdbId != null): nunca se reintenta, sin importar la antigüedad. */
+    @Test
+    fun `shouldRefetchArtwork con tmdbId resuelto es false aunque sea vieja`() {
+        val existing = ArtworkEntity(itemId = "x", tmdbId = 240411, tmdbType = "tv", backdropsJson = "[]", fetchedAt = 0L)
+        assertEquals(false, LibraryGrouping.shouldRefetchArtwork(existing, now = sevenDaysMs * 100))
+    }
+
+    /**
+     * LA REGRESIÓN de Finding 1: sin tmdbId pero CON backdrops (el caso Magis, que guarda el
+     * backdrop del portal con tmdbId=null). Antes del fix esto se reintentaba tras 7 días y
+     * `ensureArtwork` pisaba el backdrop con un `"[]"` si TMDB no encontraba match.
+     */
+    @Test
+    fun `shouldRefetchArtwork con backdrops pero sin tmdbId es false aunque sea vieja`() {
+        val existing = ArtworkEntity(
+            itemId = "magis:1", tmdbId = null, tmdbType = null,
+            backdropsJson = """["https://portal/backdrop.jpg"]""", fetchedAt = 0L,
+        )
+        assertEquals(false, LibraryGrouping.shouldRefetchArtwork(existing, now = sevenDaysMs * 100))
+    }
+
+    /** Vacía (sin tmdbId ni backdrops) y ya pasó la ventana de 7 días: sí se reintenta. */
+    @Test
+    fun `shouldRefetchArtwork vacia y vieja es true`() {
+        val existing = ArtworkEntity(itemId = "x", tmdbId = null, tmdbType = null, backdropsJson = "[]", fetchedAt = 0L)
+        assertEquals(true, LibraryGrouping.shouldRefetchArtwork(existing, now = sevenDaysMs + 1))
+    }
+
+    /** Vacía pero reciente (dentro de la ventana): no se reintenta todavía. */
+    @Test
+    fun `shouldRefetchArtwork vacia y fresca es false`() {
+        val existing = ArtworkEntity(itemId = "x", tmdbId = null, tmdbType = null, backdropsJson = "[]", fetchedAt = 1000L)
+        assertEquals(false, LibraryGrouping.shouldRefetchArtwork(existing, now = 1000L + sevenDaysMs - 1))
+    }
+
+    /** Sin fila previa: se pide por primera vez. */
+    @Test
+    fun `shouldRefetchArtwork sin fila previa es true`() {
+        assertEquals(true, LibraryGrouping.shouldRefetchArtwork(null, now = 0L))
+    }
 }

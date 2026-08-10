@@ -82,14 +82,20 @@ class ArkivRepository(
      * Los ítems detrás de una llave de grupo, del más completo al menos.
      *
      * Acepta TAMBIÉN un identifier crudo: "Continuar viendo", el menú de mantener presionado y el
-     * detalle del teléfono navegan con el identifier del ítem, no con una llave de grupo. Si no
-     * matchea ninguna de las dos cosas devuelve vacío (por ejemplo si se borró la única fuente
-     * mientras el detalle estaba abierto).
+     * detalle del teléfono navegan con el identifier del ítem, no con una llave de grupo. Y acepta
+     * una llave `item:<identifier>` que dejó de ser un grupo vivo porque su ítem se sumó a otro
+     * grupo MIENTRAS el detalle estaba abierto (`ensureArtwork` resolviéndole un tmdbId de tv en
+     * segundo plano): ahí sigue al ítem hasta su grupo nuevo en vez de devolver vacío. Ver
+     * [LibraryGrouping.resolveMembers]. Solo devuelve vacío si de verdad no hay nada con ese
+     * identifier (por ejemplo si se borró la única fuente mientras el detalle estaba abierto).
+     *
+     * Una sola suscripción a la biblioteca: las filas se derivan de los miembros de [groups] (que
+     * ya sale de `observeLibrary()` vía [observeLibraryGroups]) en vez de volver a combinar
+     * `observeLibrary()` acá aparte.
      */
     fun observeGroupMembers(groupKey: String): Flow<List<LibraryRow>> =
-        combine(observeLibrary(), observeLibraryGroups()) { rows, groups ->
-            groups.firstOrNull { it.key == groupKey }?.members?.sortedByDescending { it.episodeCount }
-                ?: rows.filter { it.identifier == groupKey }
+        observeLibraryGroups().map { groups ->
+            LibraryGrouping.resolveMembers(groupKey, groups, groups.flatMap { it.members })
         }
 
     fun observeContinueWatching(): Flow<List<ContinueRow>> =
@@ -117,12 +123,15 @@ class ArkivRepository(
     suspend fun ensureArtwork(rows: List<LibraryRow>) {
         val tmdb = tmdbApi?.takeIf { it.configured } ?: return
         for (row in rows) {
-            // Un arte YA resuelto no se vuelve a pedir. Uno que quedó sin match (tmdbId null) sí se
+            // Un arte YA resuelto (tmdbId) o que YA tiene backdrops aunque no tenga tmdbId (el
+            // backdrop del portal que guarda addMagisSource) no se vuelve a pedir NUNCA: son los
+            // dos casos donde ya hay algo bueno que perder. Uno vacío de las dos formas sí se
             // reintenta, pero solo si la fila es vieja: así un título que TMDB no conoce no se
             // consulta en cada arranque, y a la vez los ítems que fallaron por un título sucio
-            // (ver cleanTitleForSearch) se recuperan solos tras una actualización.
+            // (ver cleanTitleForSearch) se recuperan solos tras una actualización. Ver
+            // LibraryGrouping.shouldRefetchArtwork para el detalle de la regla.
             val existing = artworkDao.get(row.identifier)
-            if (existing != null && (existing.tmdbId != null || clock() - existing.fetchedAt < 7 * 24 * 60 * 60 * 1000L)) continue
+            if (!LibraryGrouping.shouldRefetchArtwork(existing, clock())) continue
             val type = if (row.isMovie) "movie" else "tv"
             val match = runCatching { tmdb.search(type, cleanTitleForSearch(row.title)).firstOrNull() }.getOrNull()
                 ?: runCatching { tmdb.search(type, row.title).firstOrNull() }.getOrNull()
@@ -660,8 +669,10 @@ class ArkivRepository(
         )
         itemDao.replaceItem(item, listOf(ep))
         // La imagen apaisada del portal va al mismo lugar donde el hero del Home busca la de TMDB.
-        // Se escribe SOLO si Magis la trajo: una fila vacía dejaría al ítem sin arte para siempre,
-        // porque ensureArtwork saltea todo ítem que ya tenga fila. Sin fila, TMDB la completa.
+        // Se escribe SOLO si Magis la trajo: una fila con backdrops —aunque tmdbId sea null, como
+        // acá— ensureArtwork ya NO la vuelve a tocar (ver LibraryGrouping.shouldRefetchArtwork),
+        // así que este backdrop del portal no se pisa con un "[]" cada vez que pasa la ventana de
+        // reintento. Sin fila (backdropUrl vacío), TMDB la completa como siempre.
         if (backdropUrl.isNotBlank()) {
             artworkDao.upsert(
                 com.arkiv.player.data.db.ArtworkEntity(

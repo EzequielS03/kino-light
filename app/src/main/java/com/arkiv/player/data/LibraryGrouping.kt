@@ -75,6 +75,67 @@ object LibraryGrouping {
             .sortedByDescending { g -> g.members.maxOf { it.addedAt } }
 
     /**
+     * Miembros a mostrar para una llave de ruta ([TvDetailScreen]/`DetailScreen`), que puede
+     * haber dejado de ser la llave de un grupo vivo: `ensureArtwork` corre en segundo plano y
+     * puede resolverle un `tmdbId` de tv al ítem MIENTRAS el detalle está abierto, momento en el
+     * que su grupo pasa de `item:<identifier>` a `tv:<tmdbId>` y la llave vieja deja de existir.
+     *
+     * Tres casos, en orden:
+     *  1. [groupKey] sigue siendo la llave de un grupo: sus miembros, más completo primero.
+     *  2. No, pero es una llave `item:<identifier>` y ESE identifier ahora vive dentro de OTRO
+     *     grupo: los miembros de ESE grupo. Sin este paso, el detalle se queda apuntando a una
+     *     llave fantasma y desaparece (pantalla en negro) apenas el arte resuelve.
+     *  3. Ninguna de las anteriores: la fila suelta con ese identifier (o vacío si ni eso existe).
+     *
+     * A PROPÓSITO el paso 2 solo aplica a llaves `item:`, no a un identifier crudo. "Continuar
+     * viendo", el menú de mantener presionado y el detalle del teléfono navegan con el identifier
+     * crudo de una fila puntual asumiendo "esta fila exacta"; si también siguieran el rastro al
+     * grupo, un identifier que resultó formar parte de un grupo (p. ej. porque otra fuente de la
+     * misma serie ya tenía tmdbId) les cambiaría de ítem sin que el usuario lo haya pedido. `tv:`
+     * envuelve un tmdbId y `series:` un seriesId (ninguno de los dos es un identifier de fila), así
+     * que ninguno puede "seguirle el rastro" con este mismo truco.
+     */
+    fun resolveMembers(
+        groupKey: String,
+        groups: List<LibraryGroup>,
+        rows: List<LibraryRow>,
+    ): List<LibraryRow> {
+        groups.firstOrNull { it.key == groupKey }?.let {
+            return it.members.sortedByDescending { m -> m.episodeCount }
+        }
+        if (groupKey.startsWith("item:")) {
+            val identifier = groupKey.removePrefix("item:")
+            groups.firstOrNull { g -> g.members.any { m -> m.identifier == identifier } }
+                ?.let { return it.members.sortedByDescending { m -> m.episodeCount } }
+            return rows.filter { it.identifier == identifier }
+        }
+        return rows.filter { it.identifier == groupKey }
+    }
+
+    /** Ventana de gracia antes de reintentar en TMDB un ítem que quedó sin match. */
+    private const val ARTWORK_RETRY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000L
+
+    /**
+     * Si `ensureArtwork` tiene que volver a pedirle el arte a TMDB a este ítem.
+     *
+     * NO, si ya tiene [ArtworkEntity.tmdbId] (resuelto) o ya tiene backdrops aunque no tenga
+     * tmdbId — arte que puso OTRA fuente, como el backdrop del portal que guarda
+     * `ArkivRepository.addMagisSource`. Esa fila nunca se vuelve a tocar: si se reintentara,
+     * un ítem de Magis sin match en TMDB perdería su backdrop real (pisado por un `"[]"`) cada
+     * 7 días, para siempre, sin que el usuario hiciera nada.
+     *
+     * Tampoco si está vacía (sin tmdbId ni backdrops) pero es reciente: así un título que TMDB no
+     * conoce no se consulta en cada arranque. Sí, si está vacía y ya pasó la ventana: ahí vale la
+     * pena reintentar por si el título sucio de antes ahora matchea (ver `cleanTitleForSearch`).
+     */
+    fun shouldRefetchArtwork(existing: ArtworkEntity?, now: Long): Boolean {
+        if (existing == null) return true
+        if (existing.tmdbId != null) return false
+        if (existing.backdrops.isNotEmpty()) return false
+        return now - existing.fetchedAt >= ARTWORK_RETRY_WINDOW_MS
+    }
+
+    /**
      * Los dos flows combinados. Vive acá (y no en el repositorio) para poder testearlo sin Room:
      * el repositorio solo lo cablea con sus DAOs.
      */
