@@ -24,8 +24,17 @@ solución: además de guardar, **encola la descarga** de cada capítulo al dispo
 
 ## Alcance
 
-Solo Magis, y solo el camino "toco un capítulo para verlo". No se toca el botón de guardar/descargar,
-ni las otras fuentes, ni el buscador.
+Solo Magis, y solo el camino "toco un capítulo para verlo" — pero **desde donde sea**: todo resultado
+de serie del portal (`program_type` en `MAGIS_SERIES`) abre la pantalla/modal de temporada antes de
+reproducir nada, así que cubrir esos dos puntos (TV y celu) cubre todos los caminos que llevan a
+reproducir un capítulo de Magis. No se toca el botón de guardar/descargar, ni las otras fuentes, ni
+el buscador.
+
+**"Toda la serie" en Magis es la temporada.** Un resultado de serie del portal ES una temporada
+("Breaking Bad T5" es un resultado distinto de "T4", con su propio `contentId`, que es de donde sale
+el id del ítem). Así que tocar un capítulo guarda los capítulos de **esa** temporada; las otras
+temporadas entran cuando las abras, cada una como su propia tarjeta — igual que hoy. Enumerar las
+temporadas hermanas obligaría a re-buscar en el portal y queda fuera.
 
 ## Diseño
 
@@ -86,7 +95,47 @@ Llamadores que cambian:
 `playMagisEpisode`/`magisEpisodeIdDe` se quedan como están: los usa el guardado-con-descarga, y
 `BuscadorDeCapitulos` sigue llamando `addMagisSource` por capítulo cuando busca novedades.
 
-### 2. "Vas en E5" en el detalle
+### 2. Guardar la misma temporada dos veces no duplica nada
+
+Es la condición para poder hacer esto en cada reproducción sin ensuciar la biblioteca:
+
+- Los ids son **estables y derivados del contenido**: el ítem es `magis:<contentId>` (el `contentId`
+  del portal, no el `ref`, que se re-emite en cada búsqueda) y cada capítulo es
+  `magis:<contentId>::e<n>`. El mismo capítulo siempre cae en el mismo id.
+- `upsertItem`/`upsertEpisodes` son `REPLACE` sobre esa clave: guardar la misma temporada diez veces
+  deja los mismos N episodios, con los `ref` refrescados (que es justo lo que se quiere, porque
+  caducan).
+- **`upsert`, no `replaceItem`**: no se borra nada de lo que ya estaba. Un capítulo que ya tenías
+  guardado sobrevive aunque el portal no lo liste esta vez.
+- `addedAt` se preserva del ítem existente, así que la tarjeta **no salta al frente del home** cada
+  vez que reproducís un capítulo. Lo mismo con `episodiosVistosEnLista` y `tmdbId`.
+- El progreso vive en `playback`, indexado por `episodeId`, y no tiene foreign key hacia `episodes`:
+  re-guardar la temporada no toca por dónde ibas.
+
+### 3. El índice de dónde voy
+
+Con un solo capítulo guardado esto no se notaba. Con la temporada completa, "por dónde voy" tiene que
+ser correcto en dos casos que hoy fallan:
+
+- **Recién le diste play y todavía no hay progreso.** `saveProgress` no escribe nada hasta conocer la
+  duración (`durationMs <= 0` → `return`), y en Magis la duración puede tardar (stream TS, sonda de
+  hasta 20 s). Si salís antes, el detalle dice "Vas en E1" cuando acabás de poner el E5. Arreglo: al
+  arrancar la reproducción se sella el capítulo como "en curso" de una (fila de `playback` con
+  `lastPlayedAt = ahora`), sin esperar la duración.
+- **Terminaste el capítulo.** `resumeEpisode` es `inProgressEpisode ?: episodes.firstOrNull()`, y
+  `inProgressEpisode` exige `!watched`: apenas terminás el E5, "vas en" vuelve al **E1**. Arreglo:
+  el fallback pasa a ser el **primero sin ver** en vez del primero a secas. Terminaste el 5 → vas en
+  el 6. Si están todos vistos, el primero (como hoy).
+
+Queda entonces: `inProgressEpisode` = el último capítulo tocado y sin terminar (ordenado por
+`lastPlayedAt`); `resumeEpisode` = ese, o el primero sin ver.
+
+La fila "Continuar viendo" del home **no cambia**: sigue con su umbral de 2 minutos
+(`CONTINUE_WATCHING_MIN_MS`), así que abrir y cerrar un capítulo no la llena de ruido. El "vas en"
+del detalle sí puede ser más ansioso — es la respuesta a "¿por dónde iba?", no a "¿qué estoy
+viendo?".
+
+### 4. "Vas en E5" en el detalle
 
 Hoy la línea de datos del detalle dice `"20 episodios"` (`TvDetailScreen.kt:197`) o `"20 videos"`
 (`DetailScreen.kt:407`), y el botón dice `"▶ Reproducir"`. Con la temporada completa guardada, el
@@ -111,7 +160,7 @@ aunque no haya `season`; el orden de preferencia queda:
 
 `TvDetailScreen.episodeMeta` pasa a usarlo (le agrega los minutos como hoy).
 
-### 3. El badge de "nuevos"
+### 5. El badge de "nuevos"
 
 `episodiosVistosEnLista` guarda cuántos capítulos tenía la serie la última vez que abriste su
 detalle; el badge es la diferencia contra los de ahora (`ContadorDeNuevos`). Arranca en `null` y solo
@@ -146,6 +195,12 @@ Unitarios, sin Room ni red (mismo molde que `MagisEntitiesTest`/`PackEntitiesTes
   `orderIndex = 0` pelado → `"E1"`.
 - **Badge**: guardar una temporada sobre un ítem con `episodiosVistosEnLista = 3` deja el contador en
   el total nuevo (badge apagado); sobre uno con `null` lo deja en `null`.
+- **Idempotencia**: `buildSeason` dos veces sobre la misma temporada da los mismos ids (N episodios,
+  no 2N), refresca los `ref` y conserva el `addedAt` original.
+- **`ItemDetail`** (dato puro, sin Room): con el E5 empezado y sin terminar, `resumeEpisode` es el E5;
+  con el E5 terminado, es el E6; con todos vistos, el E1; sin nada visto, el E1. Y un capítulo tocado
+  sin progreso todavía (`positionMs = 0`, `lastPlayedAt` recién puesto, `watched = false`) cuenta como
+  el que está en curso.
 
 ## Verificación en device
 
@@ -156,4 +211,9 @@ Es la parte que ningún test cubre: la lista de capítulos viene del portal y lo
 3. Volver a la biblioteca: la tarjeta tiene que decir la temporada completa, no "1 episodio".
 4. Abrir el detalle: `"Vas en E5 · 20 episodios"`, botón `"▶ Reproducir E5"`, carrusel posicionado en
    el 5 y sin badge de nuevos.
-5. Tocar otro capítulo de la lista y que reproduzca ese (los refs recién guardados siguen vivos).
+5. Salir del capítulo a los pocos segundos (antes de que la sonda de duración resuelva) y volver al
+   detalle: tiene que seguir diciendo "Vas en E5", no "Vas en E1".
+6. Terminar el E5 y volver: "Vas en E6".
+7. Tocar otro capítulo de la lista y que reproduzca ese (los refs recién guardados siguen vivos).
+8. Volver a entrar a la misma temporada desde el buscador y tocar otro capítulo: la biblioteca sigue
+   con **una** tarjeta y los mismos N episodios, y la tarjeta no se movió al principio del home.
