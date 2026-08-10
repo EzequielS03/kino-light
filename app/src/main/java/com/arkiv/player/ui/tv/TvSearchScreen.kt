@@ -313,6 +313,20 @@ fun TvSearchScreen(
 
     LaunchedEffect(Unit) { refreshRecents() }
 
+    /**
+     * Vuelve a la pantalla de recientes sin salir del buscador.
+     *
+     * Antes esto era un callejón sin salida: una vez buscado algo no había forma de volver a la
+     * lista de recientes. Borrar todo el texto tampoco servía — el botón se apagaba y los
+     * resultados seguían en pantalla.
+     */
+    fun nuevaBusqueda() {
+        text = ""
+        searched = false
+        vm.search("")
+        scope.launch { refreshRecents() }
+    }
+
     fun runSearch(q: String) {
         val query = q.trim()
         if (query.isBlank()) return
@@ -377,7 +391,12 @@ fun TvSearchScreen(
                     )
                     TvKeyboard(
                         text = text,
-                        onTextChange = { text = it },
+                        // Borrar hasta dejarlo vacío vuelve a las recientes. Es el gesto que ya
+                        // existía (⌫) y que hasta ahora no llevaba a ningún lado.
+                        onTextChange = {
+                            text = it
+                            if (it.isBlank() && searched) nuevaBusqueda()
+                        },
                         firstKeyFocus = firstKeyFocus,
                     )
                     Spacer(Modifier.height(16.dp))
@@ -395,6 +414,26 @@ fun TvSearchScreen(
                     ) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Text("Buscar", style = MaterialTheme.typography.titleMedium)
+                        }
+                    }
+                    // No depende de borrar el texto letra por letra: con el control eso son diez
+                    // clics. Aparece recién cuando hay algo que descartar.
+                    if (searched) {
+                        Spacer(Modifier.height(10.dp))
+                        Surface(
+                            onClick = { nuevaBusqueda() },
+                            modifier = Modifier.fillMaxWidth().height(52.dp),
+                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+                            colors = ClickableSurfaceDefaults.colors(
+                                containerColor = ArkivSurfaceHigh,
+                                contentColor = ArkivTextPrimary,
+                                focusedContainerColor = Color.White,
+                                focusedContentColor = ArkivBlack,
+                            ),
+                        ) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text("Nueva búsqueda", style = MaterialTheme.typography.titleMedium)
+                            }
                         }
                     }
                 }
