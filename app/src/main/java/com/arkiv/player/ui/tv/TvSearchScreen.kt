@@ -47,6 +47,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.tv.material3.Border
+import androidx.compose.ui.window.Dialog
 import androidx.tv.material3.Button
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -143,6 +144,8 @@ fun TvSearchScreen(
     // "eligió un pack" dentro de la misma fase RESULTS (lista de capítulos en vez de lista de fuentes).
     val scope = rememberCoroutineScope()
     val playback = remember { SearchPlayback(graph) }
+    // Serie tocada que todavía no eligió cómo verse (completa o por temporada). null = sin diálogo.
+    var preguntarModo by remember { mutableStateOf<TitleCard?>(null) }
     var preparing by remember { mutableStateOf(false) }
     var playError by remember { mutableStateOf<String?>(null) }
     var packFor by remember { mutableStateOf<TorrentResult?>(null) }
@@ -451,7 +454,12 @@ fun TvSearchScreen(
                                 title = card.title,
                                 posterUrl = card.posterUrl,
                                 cardHeight = 180.dp,
-                                onClick = { vm.pickTitle(card) },
+                                // Una peli no tiene nada que elegir: va derecho a las fuentes.
+                                // Una serie sí, y hasta ahora caía siempre en el selector de
+                                // temporadas — con el "Toda la serie" arriba, fácil de no ver.
+                                onClick = {
+                                    if (card.kind == "movie") vm.pickTitle(card) else preguntarModo = card
+                                },
                             )
                         }
                     }
@@ -525,6 +533,77 @@ fun TvSearchScreen(
                     )
                 }
             }
+        }
+    }
+
+    preguntarModo?.let { card ->
+        TvModoDeSerieDialog(
+            titulo = card.title,
+            onSerieCompleta = {
+                preguntarModo = null
+                // pickTitle deja la card como `selected` (y la guarda en el historial); recién
+                // entonces runSourceSearch puede buscar sus fuentes. Sin S/E se surfacean los packs.
+                vm.pickTitle(card)
+                vm.runSourceSearch(null, null)
+            },
+            onPorTemporada = {
+                preguntarModo = null
+                vm.pickTitle(card)
+            },
+            onDismiss = { preguntarModo = null },
+        )
+    }
+}
+
+/**
+ * Qué hacer con una serie recién elegida: verla entera o entrar a elegir temporada y capítulo.
+ *
+ * Antes tocar una serie caía siempre en el selector de temporadas, con un "Toda la serie" arriba
+ * que es fácil de no ver. Preguntarlo de frente convierte una decisión escondida en dos botones.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvModoDeSerieDialog(
+    titulo: String,
+    onSerieCompleta: () -> Unit,
+    onPorTemporada: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val primero = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        delay(150)
+        runCatching { primero.requestFocus() }
+    }
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier.width(560.dp).clip(RoundedCornerShape(16.dp))
+                .background(ArkivSurfaceHigh).padding(32.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Text(titulo, style = MaterialTheme.typography.headlineSmall, color = Color.White, maxLines = 2)
+            Text(
+                "¿Cómo la querés buscar?",
+                style = MaterialTheme.typography.bodyLarge,
+                color = ArkivTextSecondary,
+                modifier = Modifier.padding(bottom = 6.dp),
+            )
+            Button(
+                onClick = onSerieCompleta,
+                modifier = Modifier.fillMaxWidth().focusRequester(primero),
+            ) { Text("Ver serie completa") }
+            Text(
+                "Busca la serie entera: es donde salen los packs de temporada.",
+                style = MaterialTheme.typography.labelLarge,
+                color = ArkivTextSecondary,
+            )
+            Button(onClick = onPorTemporada, modifier = Modifier.fillMaxWidth()) {
+                Text("Buscar por temporada")
+            }
+            Text(
+                "Abre el selector de temporadas y capítulos.",
+                style = MaterialTheme.typography.labelLarge,
+                color = ArkivTextSecondary,
+            )
         }
     }
 }
