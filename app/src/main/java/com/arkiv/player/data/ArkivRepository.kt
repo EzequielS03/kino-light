@@ -117,7 +117,12 @@ class ArkivRepository(
     suspend fun ensureArtwork(rows: List<LibraryRow>) {
         val tmdb = tmdbApi?.takeIf { it.configured } ?: return
         for (row in rows) {
-            if (artworkDao.get(row.identifier) != null) continue
+            // Un arte YA resuelto no se vuelve a pedir. Uno que quedó sin match (tmdbId null) sí se
+            // reintenta, pero solo si la fila es vieja: así un título que TMDB no conoce no se
+            // consulta en cada arranque, y a la vez los ítems que fallaron por un título sucio
+            // (ver cleanTitleForSearch) se recuperan solos tras una actualización.
+            val existing = artworkDao.get(row.identifier)
+            if (existing != null && (existing.tmdbId != null || clock() - existing.fetchedAt < 7 * 24 * 60 * 60 * 1000L)) continue
             val type = if (row.isMovie) "movie" else "tv"
             val match = runCatching { tmdb.search(type, cleanTitleForSearch(row.title)).firstOrNull() }.getOrNull()
                 ?: runCatching { tmdb.search(type, row.title).firstOrNull() }.getOrNull()
@@ -227,19 +232,6 @@ class ArkivRepository(
         episodeStillDao.observeForItem(itemId).map { rows ->
             rows.mapNotNull { r -> r.title?.let { r.episodeId to it } }.toMap()
         }
-
-    /** Limpia un título de ítem (a veces nombre de archivo torrent) para buscar mejor en TMDB. */
-    private fun cleanTitleForSearch(raw: String): String {
-        var s = raw.replace('.', ' ').replace('_', ' ').replace('-', ' ')
-        // Todo lo que sigue al año (19xx/20xx) suele ser ruido del release; córtalo.
-        Regex("""\b(19|20)\d{2}\b""").find(s)?.let { s = s.substring(0, it.range.first) }
-        // Quita tokens típicos de torrent/calidad/idioma.
-        val noise = Regex(
-            """(?i)\b(1080p|720p|480p|2160p|4k|x264|x265|h264|h265|hevc|bluray|blu ray|brrip|bdrip|webrip|web dl|web|hdrip|dvdrip|hdtv|latino|castellano|espanol|español|dual|multi|subs?|ac3|aac|dts|yify|rarbg|proper|remux)\b""",
-        )
-        s = s.replace(noise, " ")
-        return s.replace(Regex("""\s+"""), " ").trim().ifBlank { raw.trim() }
-    }
 
     fun observeDownloadRows() = downloadDao.observeDownloadRows()
 
@@ -920,4 +912,23 @@ class ArkivRepository(
             )
         )
     }
+}
+
+/**
+ * Título "desnudo" para buscar en TMDB.
+ *
+ * El sufijo " — Pack" lo pone la app al guardar un torrent que trae la serie entera; no es parte
+ * del nombre y sin quitarlo TMDB no devuelve nada (verificado: los dos "Naruto — Pack" de la
+ * biblioteca quedaron sin tmdbId y por eso no se agrupaban con el resto de los Naruto).
+ */
+internal fun cleanTitleForSearch(raw: String): String {
+    // Solo el SUFIJO: una raya larga en medio del título es un separador legítimo.
+    var s = raw.replace(Regex("""\s*[—–-]\s*Pack\s*$""", RegexOption.IGNORE_CASE), "")
+    s = s.replace('.', ' ').replace('_', ' ').replace('-', ' ').replace('—', ' ').replace('–', ' ')
+    Regex("""\b(19|20)\d{2}\b""").find(s)?.let { s = s.substring(0, it.range.first) }
+    val noise = Regex(
+        """(?i)\b(1080p|720p|480p|2160p|4k|x264|x265|h264|h265|hevc|bluray|blu ray|brrip|bdrip|webrip|web dl|web|hdrip|dvdrip|hdtv|latino|castellano|espanol|español|dual|multi|subs?|ac3|aac|dts|yify|rarbg|proper|remux)\b""",
+    )
+    s = s.replace(noise, " ")
+    return s.replace(Regex("""\s+"""), " ").trim().ifBlank { raw.trim() }
 }
