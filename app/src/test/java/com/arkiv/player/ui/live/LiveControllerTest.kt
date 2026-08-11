@@ -127,38 +127,30 @@ class LiveControllerTest {
         assertEquals(1, resoluciones.get())
     }
 
-    @Test(timeout = 10_000)
-    fun `cerrar concurrente con abrir no corrompe el mapa de sesiones`() {
-        // Riesgo del brief: la caché sigue viva mientras el usuario zapea. cerrar() es `fun`,
-        // no `suspend`: se puede llamar desde cualquier hilo (p.ej. al salir de la pantalla de
-        // vivo) mientras OTRO hilo está a mitad de un abrir()/precalentar() que escribe en el
-        // mismo mapa. Un mutableMapOf plano (HashMap) mutado así, sin la MISMA sincronización
-        // en ambos lados, es modificación concurrente no protegida -comportamiento indefinido,
-        // no solo una escritura perdida-. El UncaughtExceptionHandler es el mismo patrón que ya
-        // usa LiveHlsProxyTest para pescar excepciones que escapan de OTRO hilo (un assert
-        // normal en este hilo no las vería).
+    @Test
+    fun `cerrar invalida la cache y el proximo abrir vuelve a resolver`() = runBlocking {
+        // Reemplaza a un test anterior ("cerrar concurrente con abrir no corrompe el mapa de
+        // sesiones") que la revisión de esta tarea encontró que NO discriminaba: corrido contra
+        // la versión ingenua (mutableMapOf + clear() sin sincronizar), 4 veces -incluida una
+        // variante amplificada de 16 hilos / 200 canales / 2000 iteraciones-, nunca lanzó una
+        // excepción; pasaba igual con la implementación correcta y con la rota. Tiene sentido:
+        // el único fallo de HashMap con garantía documentada (ConcurrentModificationException)
+        // sale de sus ITERADORES, y ni abrir()/precalentar() ni cerrar() iteran el mapa -solo
+        // get/put/clear-. El otro modo real (escritura perdida en un resize a medias) no es algo
+        // que un test de JUnit pueda forzar de forma confiable en una JVM moderna sin
+        // herramientas fuera de alcance (jcstress). La elección de ConcurrentHashMap se apoya en
+        // su contrato documentado, no en un test rojo→verde -ver el comentario sobre `sesiones`
+        // en LiveController.kt-. Este test, en cambio, verifica el contrato REAL y comprobable
+        // de cerrar(): invalida lo cacheado.
+        var resoluciones = 0
         val ctrl = LiveController(
-            resolver = { code -> LiveSession("h", "http://x/?token=${"A".repeat(32)}", "L", code, 0) },
+            resolver = { code -> resoluciones++; LiveSession("h", "http://x/?token=${"A".repeat(32)}", "L", code, 0) },
             urlPara = { "http://127.0.0.1:9999/live.m3u8" },
         )
-        val previo = Thread.getDefaultUncaughtExceptionHandler()
-        val excepciones = java.util.Collections.synchronizedList(mutableListOf<Throwable>())
-        Thread.setDefaultUncaughtExceptionHandler { _, e -> excepciones.add(e) }
-        try {
-            val lectores = (1..8).map { i ->
-                Thread {
-                    repeat(200) { j -> runBlocking { ctrl.abrir("c${(i + j) % 4}") } }
-                }
-            }
-            val cerrador = Thread { repeat(200) { ctrl.cerrar() } }
-            (lectores + cerrador).forEach { it.start() }
-            (lectores + cerrador).forEach { it.join() }
-        } finally {
-            Thread.setDefaultUncaughtExceptionHandler(previo)
-        }
-        assertTrue(
-            "cerrar() concurrente con abrir() no deberia tirar excepciones: $excepciones",
-            excepciones.isEmpty(),
-        )
+        ctrl.abrir("c5")
+        assertEquals(1, resoluciones)
+        ctrl.cerrar()
+        ctrl.abrir("c5")
+        assertEquals(2, resoluciones)
     }
 }

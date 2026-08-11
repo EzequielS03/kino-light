@@ -34,6 +34,22 @@ class LiveController(
     // catálogo de canales en vivo es finito (categorías+canales del portal) y cada LiveSession
     // son un puñado de Strings cortos -no es una fuga real, tiene un techo natural en el tamaño
     // del catálogo, muy lejos de lo que importa en una sesión de zapping por larga que sea.
+    //
+    // Por qué esto se apoya en el TIPO del mapa y no en un test que lo demuestre: la revisión de
+    // esta tarea reemplazó esta clase por la versión ingenua (mutableMapOf + clear() sin
+    // sincronizar) y corrió el test original "cerrar concurrente no corrompe el mapa" 4 veces
+    // -incluida una variante amplificada de 16 hilos / 200 canales / 2000 iteraciones- sin UNA
+    // sola excepción: pasaba igual con la implementación correcta y con la rota, así que no
+    // probaba nada y se sacó (ver LiveControllerTest.kt y el informe de esta tarea). Tiene
+    // sentido que no discrimine: el único fallo de HashMap con garantía documentada
+    // (ConcurrentModificationException) sale de sus ITERADORES, y ni abrir()/precalentar() ni
+    // cerrar() iteran jamás el mapa -solo get/put/clear-, así que ese camino de falla ni
+    // siquiera aplica acá. El otro modo real (una escritura perdida en medio de un resize
+    // concurrente) no es algo que un test de JUnit pueda disparar de forma confiable en una JVM
+    // moderna sin herramientas fuera del alcance de este proyecto (p.ej. jcstress, que agregaría
+    // una dependencia nueva). Por eso la garantía se apoya en el CONTRATO documentado de
+    // ConcurrentHashMap (thread-safe para get/put/clear concurrentes sin lock externo), no en un
+    // test rojo→verde que -se comprobó- no puede existir para este caso.
     private val sesiones = ConcurrentHashMap<String, LiveSession>()
 
     // Un candado POR CANAL, no uno global envolviendo resolver(): si abrir()/precalentar()
@@ -80,5 +96,20 @@ class LiveController(
         }
     }
 
+    /**
+     * Invalida la caché de sesiones: el próximo `abrir()`/`precalentar()` de cualquier canal
+     * vuelve a resolver contra el gateway.
+     *
+     * A propósito NO limpia [candados]. Un candado es una herramienta de exclusión mutua, no un
+     * dato que "vencer" junto con la sesión: si acá se reemplazara [candados] por uno vacío
+     * mientras OTRA corrutina sigue dentro de `candadoDe(code).withLock { ... }` para ese mismo
+     * canal -sosteniendo la instancia VIEJA de su `Mutex`-, una tercera llamada a `candadoDe(code)`
+     * DESPUÉS de este `cerrar()` encontraría el mapa vacío y crearía una instancia NUEVA -distinta
+     * de la que la corrutina en vuelo sigue sosteniendo- y ambas terminarían resolviendo el mismo
+     * canal a la vez sin excluirse entre sí: exactamente el problema que el candado por canal
+     * existe para evitar (ver el comentario de [candados]). Igual que [sesiones], [candados] tiene
+     * un techo natural en el tamaño del catálogo de canales del portal, y un `Mutex` sin uso es
+     * prácticamente gratis -dejarlo vivir toda la vida del proceso no es una fuga real.
+     */
     fun cerrar() = sesiones.clear()
 }
