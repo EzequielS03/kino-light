@@ -49,28 +49,49 @@ sign2 = tweaked_md5(msg)
 
 Por eso el que firma y el que descarga los bytes pueden ser dos máquinas distintas.
 
-## Fase 0 (bloqueante): `tweaked_md5` sin el binario
+## La firma ya está resuelta (2026-08-11)
 
-Hoy `sign_o3.py` **necesita `libranger-jni.so`**: mapea el ELF, aplica las relocaciones
-`R_AARCH64_RELATIVE`/`DT_RELR` y emula con Unicorn la función de compresión en `0x529178`. El "100%
-Python" del README significa "sin APK ni Frida en runtime", no "sin el binario". Ese `.so` está en el
-`.gitignore` de magia, es propietario y no se redistribuye.
+Esto era una fase bloqueante con riesgo de ingeniería inversa. **Ya no lo es**: `magia` reimplementó
+el MD5 tweakeado en Python puro (`magia/tweaked_md5.py`, commit `42548e5`) — 108 líneas de aritmética
+de 32 bits, **sin `unicorn` y sin `libranger-jni.so`**. Verificado acá: los 5 vectores reales dan 5/5
+con `unicorn` bloqueado y el `.so` fuera de alcance.
 
-El VOD de Magis que ya funciona en el gateway **no usa `sign2`** — solo `Content-Auth` con el token
-de sesión. La emulación es exclusiva del vivo, y es la única pieza nueva realmente difícil.
+El tweak completo, respecto de un MD5 de manual, son dos cosas:
 
-**El tweak es acotado.** El runbook (§5) confirma que conserva IV, constantes K, shifts y padding de
-MD5 estándar: lo que cambia es el *message schedule*. Se recupera por diferencial en el Mac —variar
-una palabra del bloque a la vez sobre la emulación de Unicorn y observar qué rondas se mueven— hasta
-reconstruir el schedule completo, incluidas las rondas que no encajen con MD5 estándar.
+1. El message schedule de la **1ª vuelta** es `[10,11,12,13,14,15,6,7,8,9,0,1,2,3,4,5]`. Las vueltas
+   2–4 son las estándar.
+2. Cuatro constantes K cambiadas — rondas **42** (`d46f3085`), **45** (`e6bd99e5`), **54**
+   (`ffecc47d`) y **62** (`2da7d2bb`) — con pinta de erratas de transcripción del MD5 original.
 
-- **Entregable:** `tweaked_md5` en Python puro dentro de arkiv-api, sin `unicorn` y sin el `.so`.
-- **Criterio de aceptación:** los **5 vectores reales** de `sign_o3.py:213` pasan, los cinco.
-- **Time-box:** una sesión de trabajo. Si al terminarla el schedule no está completo y verificado,
-  se activa la contingencia y el vivo sigue adelante sin esperar.
-- **Contingencia:** se firma con Unicorn y el `.so` copiado a blog por scp, fuera de git. **El
-  contrato de la API es idéntico**, así que la app y el resto del gateway no se enteran del cambio, y
-  el port puro puede retomarse después sin tocar nada más.
+Todo lo demás (IV, F/G/H/I, shifts, padding little-endian, Davies-Meyer) es MD5 estándar.
+
+Consecuencias para este diseño:
+
+- El gateway **copia** ese archivo; no hay `.so` ni `unicorn` en blog, ni contingencia que activar.
+- Portar la firma a Kotlin pasó de ser un proyecto de RE a **~40 líneas**, así que el dispositivo
+  firma solo (ver la sección siguiente).
+- El VOD de Magis sigue sin usar `sign2`: solo `Content-Auth` con el token de sesión. La firma por
+  segmento es exclusiva del vivo.
+- El `.so` conserva un solo uso: es el **oráculo** de los tests de equivalencia en `magia`, lo único
+  que puede avisar si Magis cambia el algoritmo. Vale la pena guardarlo.
+
+## Quién firma: el aparato, con respaldo en el gateway
+
+El dispositivo firma localmente con `TweakedMd5` en Kotlin. Eso elimina una llamada de red por
+ventana durante toda la reproducción, hace irrelevante si el CDN acepta momentos futuros, y mantiene
+el vivo andando aunque el gateway esté caído (salvo el `resolve` inicial del canal).
+
+El gateway conserva su endpoint de firma como **respaldo**: si el CDN rechaza dos firmas locales
+**seguidas**, el proxy conmuta a pedírselas al gateway por lo que resta de la reproducción. Eso cubre
+el caso de que Magis cambie el algoritmo: se arregla con un redespliegue del gateway, sin publicar un
+APK nuevo ni esperar a que se actualice el Fire Stick.
+
+El contador se reinicia con cada firma aceptada a propósito — un 403 aislado es una firma que llegó
+tarde, no un algoritmo roto.
+
+**El riesgo conocido de este diseño** es que un camino de respaldo que nunca corre se pudre en
+silencio. Se mitiga con un test propio del camino de conmutación y un interruptor en Ajustes
+("Firmar en el servidor") que fuerza el camino remoto para poder comprobarlo en un minuto.
 
 ## Gateway: `/v1/live/*`
 
@@ -80,7 +101,7 @@ reconstruir el schedule completo, incluidas las rondas que no encajen con MD5 es
 | `GET /v1/live/channels?category=&page=&size=` | `channelCode`, nombre, número y logo si existe | 1 llamada, cache de horas |
 | `GET /v1/live/epg?channels=a,b,c` | Programación por canal desde Redis; lo ausente se encola y se responde parcial | **0 llamadas en caliente** |
 | `POST /v1/live/resolve` | `{cflHost, authBase, license, channel, expiresAt}` | 2 llamadas (~3 s por el rate-limit) |
-| `POST /v1/live/sign` | `[{moment, sign2}, …]` | **cómputo puro**, no toca el portal |
+| `POST /v1/live/sign` | `[{moment, sign2}, …]` — **solo respaldo**, el aparato firma solo | **cómputo puro**, no toca el portal |
 
 Reglas que se heredan y no se negocian:
 
@@ -123,14 +144,15 @@ Ya existe el patrón: `ArchiveCacheProxy` sirve en `127.0.0.1:$port`.
 
 - `GET /live.m3u8` — baja el playlist de `http://<cflHost>/live/<canal>.m3u8` con los tres headers y
   reescribe cada URL absoluta de `.ts` hacia `/seg?u=<url>`.
-- `GET /seg?u=` — hace streaming del segmento upstream con el `Content-Auth` firmado vigente.
-- Mantiene un **pool de firmas** pedido al gateway y lo rellena antes de agotarse.
-- Ante un `403`: invalida el pool, pide firma fresca y reintenta **una** vez. Si vuelve a fallar,
-  re-resuelve el canal completo, porque lo que caducó es la sesión y no la firma.
+- `GET /seg?u=` — hace streaming del segmento upstream con el `Content-Auth` firmado.
+- **Firma en el momento de cada petición**, localmente: es aritmética, no hay red ni pool que
+  administrar.
+- Ante un `403`: avisa a la fuente de firmas —que es lo que permite conmutar al respaldo— pide una
+  fresca y reintenta **una** vez. Si vuelve a fallar, re-resuelve el canal completo, porque lo que
+  caducó es la sesión y no la firma.
 
-**A verificar en Fase 0, porque define el tamaño del lote:** si el CDN acepta `start_moment`
-futuros, la app pide ~20 firmas de una y queda autónoma varios minutos; si exige "ahora", pide una
-por ventana (~1 request cada 5–10 s). El endpoint sirve a los dos casos sin cambiar de forma.
+**Si el CDN acepta `start_moment` futuros** deja de ser una incógnita bloqueante: solo decide de a
+cuántas firmas pide el camino de respaldo. En el camino normal se firma en el instante.
 
 VLC abre `http://127.0.0.1:<puerto>/live.m3u8` y no sabe nada de todo lo anterior.
 

@@ -4,177 +4,46 @@
 
 **Goal:** Una sección "En vivo" en Arkiv con los canales de TV IP de Magis: guía de programación en el TV, grilla en el celular, favoritos, zapping y envío al TV/Chromecast.
 
-**Architecture:** El gateway (`arkiv-api`) expone `/v1/live/*`: catálogo y EPG cacheados, resolución del canal y **firma `sign_o3`**. El dispositivo levanta un proxy HLS local que reescribe el m3u8 e inyecta `Content-Auth` firmado en cada segmento, así **los bytes de video nunca cruzan blog**. La firma se reimplementa en Python puro para que el servidor no necesite el `.so` propietario ni Unicorn.
+**Architecture:** El gateway (`arkiv-api`) expone `/v1/live/*`: catálogo y EPG cacheados, resolución del canal y firma de respaldo. El dispositivo levanta un proxy HLS local que reescribe el m3u8 e inyecta `Content-Auth` en cada segmento, **firmando localmente**; si el CDN rechaza su firma de forma repetida, conmuta a pedírselas al gateway. **Los bytes de video nunca cruzan blog.**
 
-**Tech Stack:** arkiv-api (Python 3.14, FastAPI, Redis, pytest) · Arkiv app (Kotlin, Compose, Room, OkHttp, libVLC) · magia (Python + Unicorn, solo para la fase de RE).
+**Tech Stack:** arkiv-api (Python 3.14, FastAPI, Redis, pytest) · Arkiv app (Kotlin, Compose, Room, OkHttp, libVLC).
+
+## El punto de partida: la firma ya está resuelta
+
+`magia` ya reimplementó el MD5 tweakeado en **Python puro** (`/Users/cristian/magia/tweaked_md5.py`, commit `42548e5`): 108 líneas de aritmética de 32 bits, **sin `unicorn` y sin `libranger-jni.so`**. Verificado: los 5 vectores reales dan 5/5 con `unicorn` bloqueado y el `.so` fuera de alcance.
+
+El tweak completo, respecto de un MD5 de manual, son dos cosas:
+
+1. El message schedule de la **1ª vuelta** es `[10,11,12,13,14,15,6,7,8,9,0,1,2,3,4,5]`. Las vueltas 2–4 son las estándar.
+2. Cuatro constantes K cambiadas — rondas **42** (`d46f3085`), **45** (`e6bd99e5`), **54** (`ffecc47d`) y **62** (`2da7d2bb`) — con pinta de erratas de transcripción del MD5 original.
+
+Todo lo demás (IV, F/G/H/I, shifts, padding little-endian, Davies-Meyer) es MD5 estándar. Por eso este plan **no tiene fase de ingeniería inversa**: la Tarea 1 copia ese archivo al gateway y la Tarea 2 lo porta a Kotlin.
 
 ## Global Constraints
 
 - **Los bytes de video no cruzan el gateway.** blog es un NUC Celeron N3050 en swap. El gateway solo mueve JSON.
 - **El portal de Magis corta a 1 llamada cada 1,5 s**, con bucket global en Redis (`store/ratelimit.py`). Aplica a `categories`, `channels`, `epg` y `resolve`. **No** aplica a `sign`.
 - **Toda llamada al portal pasa por `session.throttle()` + `asyncio.to_thread`**, como `MagisAdapter._intento` (`adapters/magis/adapter.py:210`). El cliente vendorizado es síncrono.
-- **El `.so` propietario nunca entra a git, ni al APK, ni a blog** salvo que se active la contingencia de la Tarea 2.
+- **El `.so` propietario y `unicorn` no entran a ningún lado**: ni a git, ni al APK, ni a blog. La firma es aritmética pura en los dos lados. El binario se queda en la máquina de Cristian como oráculo de los tests de `magia`, que es donde puede avisar si Magis cambia el algoritmo.
 - **Commits sin coautoría de Claude**, identidad `lordmacu` (ya configurada en ambos repos).
 - Textos de UI en español, tuteo, como el resto de la app ("En vivo", "Ahora", "A continuación").
 - Dos repos distintos: `/Users/cristian/arkiv-api` y `/Users/cristian/archive`. Cada tarea dice en cuál trabaja. **Nunca `git add -A`** en `/Users/cristian/archive`: hay varias sesiones compartiendo el working tree.
 
 ---
 
-# Fase 0 — La firma sin el binario
+# Fase 0 — La firma, en los dos lados
 
-## Task 1: Extraer el message schedule del MD5 tweakeado
-
-**Repo:** `/Users/cristian/magia`
-
-**Files:**
-- Create: `/Users/cristian/magia/extract_schedule.py`
-- Read: `/Users/cristian/magia/sign_o3.py`, `/Users/cristian/magia/MAGIA_RUNBOOK.md` §5
-
-**Interfaces:**
-- Consumes: `TweakedMD5` de `sign_o3.py` (emulador Unicorn ya existente; requiere `libranger-jni.so` presente en el directorio).
-- Produce: un fichero `schedule.json` con `{"schedule": [64 enteros], "anomalias": {...}}` — el índice de palabra del bloque que consume cada una de las 64 rondas, más cualquier ronda que no encaje.
-
-MD5 estándar usa este schedule por ronda: rondas 0–15 → `i`; 16–31 → `(5i+1) mod 16`; 32–47 → `(3i+5) mod 16`; 48–63 → `(7i) mod 16`. El runbook dice que el tweak conserva IV, K, shifts y padding, y solo cambia esta tabla. La estrategia es diferencial: cambiar **una palabra** del bloque y ver qué salida cambia.
-
-- [ ] **Step 1: Verificar que el emulador de referencia funciona**
-
-Run: `cd /Users/cristian/magia && python3 sign_o3.py`
-Expected: `5/5 vectores verificados`. Si falla por `FileNotFoundError`, el `.so` no está: sin él esta tarea no se puede hacer y hay que ir directo a la contingencia de la Tarea 2.
-
-- [ ] **Step 2: Escribir el extractor**
-
-```python
-#!/usr/bin/env python3
-"""Recupera el message schedule del MD5 tweakeado de Magis por diferencial.
-
-Estrategia: la ronda `r` consume la palabra `schedule[r]` del bloque. Si se corre la
-compresion PARANDO en la ronda r (no se puede) no hay observable... asi que se usa el
-observable que si existe: el estado final. Para cada palabra w del bloque se computa
-la compresion con esa palabra alterada y se compara contra la de referencia. Eso da
-que palabras INFLUYEN, pero no el orden.
-
-El orden se obtiene con la propiedad de avalancha parcial: MD5 procesa las rondas en
-orden y el efecto de alterar la palabra usada en la ronda r se propaga a TODAS las
-rondas siguientes. Comparando cuantos bits del estado final cambian por palabra, la
-palabra usada MAS TARDE (ronda 63) produce el cambio mas localizado. Ordenando por
-"grado de avalancha" se recupera la posicion de la ULTIMA aparicion de cada palabra.
-Para el resto se usa emulacion parcial: se ejecuta la funcion de compresion completa
-pero con el bloque en blanco salvo una palabra, y se compara contra MD5 estandar
-ronda a ronda reimplementado en Python (mismo IV/K/shifts), probando cada candidato
-de schedule hasta que el estado final coincide.
-"""
-import itertools
-import json
-import struct
-
-from sign_o3 import TweakedMD5
-
-K = [int(abs(__import__("math").sin(i + 1)) * (1 << 32)) & 0xFFFFFFFF for i in range(64)]
-S = ([7, 12, 17, 22] * 4 + [5, 9, 14, 20] * 4 + [4, 11, 16, 23] * 4 + [6, 10, 15, 21] * 4)
-IV = (0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476)
-
-
-def _rot(x, n):
-    x &= 0xFFFFFFFF
-    return ((x << n) | (x >> (32 - n))) & 0xFFFFFFFF
-
-
-def comprimir_con(schedule, state16, block64):
-    """MD5 estandar pero con el schedule dado. Devuelve el estado de 16 bytes."""
-    a, b, c, d = struct.unpack("<4I", state16)
-    a0, b0, c0, d0 = a, b, c, d
-    m = list(struct.unpack("<16I", block64))
-    for i in range(64):
-        if i < 16:
-            f = (b & c) | (~b & d)
-        elif i < 32:
-            f = (d & b) | (~d & c)
-        elif i < 48:
-            f = b ^ c ^ d
-        else:
-            f = c ^ (b | ~d)
-        tmp = d
-        d = c
-        c = b
-        b = (b + _rot((a + (f & 0xFFFFFFFF) + K[i] + m[schedule[i]]) & 0xFFFFFFFF, S[i])) & 0xFFFFFFFF
-        a = tmp
-    return struct.pack("<4I", (a0 + a) & 0xFFFFFFFF, (b0 + b) & 0xFFFFFFFF,
-                       (c0 + c) & 0xFFFFFFFF, (d0 + d) & 0xFFFFFFFF)
-
-
-def main():
-    emu = TweakedMD5()
-    # Bloques de prueba: uno por palabra alterada, mas ruido determinista.
-    ref_state = bytes.fromhex("0123456789abcdeffedcba9876543210")
-    base = bytes(64)
-    real = emu.compress(ref_state, base)
-
-    # 1) El schedule estandar, como hipotesis nula.
-    estandar = ([i for i in range(16)] + [(5 * i + 1) % 16 for i in range(16)]
-                + [(3 * i + 5) % 16 for i in range(16)] + [(7 * i) % 16 for i in range(16)])
-    if comprimir_con(estandar, ref_state, base) == real:
-        print("[!] el bloque en cero no discrimina; probando bloques con datos")
-
-    # 2) Busqueda por bloque de 16 rondas: cada grupo tiene 16 posiciones y el espacio
-    #    por grupo es manejable si se asume permutacion (cada palabra una vez por grupo).
-    bloques_prueba = [bytes((i * 37 + j * 11) & 0xFF for j in range(64)) for i in range(8)]
-    reales = [emu.compress(ref_state, b) for b in bloques_prueba]
-
-    schedule = []
-    for grupo in range(4):
-        encontrada = None
-        for perm in itertools.permutations(range(16)):
-            cand = schedule + list(perm) + estandar[len(schedule) + 16:]
-            if all(comprimir_con(cand, ref_state, b) == r
-                   for b, r in zip(bloques_prueba, reales)):
-                encontrada = list(perm)
-                break
-        if encontrada is None:
-            print(f"[XX] el grupo {grupo} no es una permutacion simple de 16 palabras.")
-            print("     El tweak va mas alla del schedule: activar la contingencia (Tarea 2).")
-            return
-        schedule += encontrada
-        print(f"[ok] grupo {grupo}: {encontrada}")
-
-    with open("schedule.json", "w") as f:
-        json.dump({"schedule": schedule, "anomalias": {}}, f, indent=2)
-    print(f"[ok] schedule completo escrito en schedule.json")
-
-
-if __name__ == "__main__":
-    main()
-```
-
-- [ ] **Step 3: Correrlo**
-
-Run: `cd /Users/cristian/magia && python3 extract_schedule.py`
-Expected: cuatro líneas `[ok] grupo N: [...]` y `schedule.json` escrito.
-
-**La búsqueda por permutación de 16! es inviable a fuerza bruta.** Si el paso anterior se cuelga más de un minuto, reemplazar el bucle `itertools.permutations` por resolución **ronda a ronda**: fijar las rondas ya resueltas, y para la ronda `r` probar las 16 palabras candidatas comparando el estado final para 8 bloques distintos donde solo esa palabra varía. Con 8 bloques la probabilidad de que una palabra equivocada sobreviva es despreciable (2⁻²⁵⁶).
-
-- [ ] **Step 4: Decidir si seguir o activar la contingencia**
-
-Si `schedule.json` salió: seguir a la Tarea 2 por el camino puro.
-Si el script reportó `[XX]` o la sesión de trabajo se agotó: **activar la contingencia** documentada en la Tarea 2, y seguir con el resto del plan sin más demora. El contrato de la API no cambia.
-
-- [ ] **Step 5: Commit**
-
-```bash
-cd /Users/cristian/magia && git add extract_schedule.py schedule.json && git commit -m "feat(sign): extractor del message schedule del MD5 tweakeado"
-```
-
----
-
-## Task 2: `sign_o3` en Python puro dentro del gateway
+## Task 1: `tweaked_md5` y `sign_o3` en el gateway
 
 **Repo:** `/Users/cristian/arkiv-api`
 
 **Files:**
+- Create: `src/arkiv_api/adapters/magis/tweaked_md5.py` (copia de `/Users/cristian/magia/tweaked_md5.py`)
 - Create: `src/arkiv_api/adapters/magis/sign_o3.py`
 - Test: `tests/test_magis_sign_o3.py`
 
 **Interfaces:**
-- Consumes: `schedule.json` de la Tarea 1.
+- Consumes: nada. `tweaked_md5.py` no tiene dependencias — solo `struct`.
 - Produce: `sign_o3(token: str, start_moment: int) -> str` (32 hex minúsculas) y `SALT: bytes`. Lo usa la Tarea 5.
 
 - [ ] **Step 1: Escribir el test con los 5 vectores reales**
@@ -182,7 +51,7 @@ cd /Users/cristian/magia && git add extract_schedule.py schedule.json && git com
 ```python
 from arkiv_api.adapters.magis.sign_o3 import sign_o3
 
-# Capturados del binario real (magia/sign_o3.py:213). Son el criterio de aceptacion:
+# Capturados de la app en vivo (magia/sign_o3.py:213). Son el criterio de aceptacion:
 # si los cinco pasan, la firma es correcta y no hay nada que adivinar.
 VECTORES = [
     ("941d98961990d67e249dcd1ac57378c8", 1786228951248, "42eda1217c11706f8034f00831f11645"),
@@ -198,11 +67,15 @@ def test_los_cinco_vectores_reales():
         assert sign_o3(token, momento) == esperado, f"momento {momento}"
 
 
-def test_no_depende_de_unicorn_ni_del_so():
-    import arkiv_api.adapters.magis.sign_o3 as m
-    fuente = open(m.__file__).read()
-    assert "unicorn" not in fuente.lower()
-    assert ".so" not in fuente
+def test_no_arrastra_unicorn_ni_el_binario_propietario():
+    """El gateway corre en blog: nada de dependencias nativas ni blobs de 8 MB."""
+    import arkiv_api.adapters.magis.sign_o3 as s
+    import arkiv_api.adapters.magis.tweaked_md5 as t
+
+    for modulo in (s, t):
+        fuente = open(modulo.__file__).read()
+        assert "unicorn" not in fuente.lower()
+        assert "libranger" not in fuente.lower()
 ```
 
 - [ ] **Step 2: Correr el test y verificar que falla**
@@ -210,90 +83,265 @@ def test_no_depende_de_unicorn_ni_del_so():
 Run: `cd /Users/cristian/arkiv-api && uv run pytest tests/test_magis_sign_o3.py -v`
 Expected: FAIL con `ModuleNotFoundError: arkiv_api.adapters.magis.sign_o3`
 
-- [ ] **Step 3: Implementar**
+- [ ] **Step 3: Copiar `tweaked_md5.py` tal cual**
 
-`SCHEDULE` sale de `schedule.json` (Tarea 1), pegado como literal.
+```bash
+cp /Users/cristian/magia/tweaked_md5.py /Users/cristian/arkiv-api/src/arkiv_api/adapters/magis/tweaked_md5.py
+```
+
+**Copiar, no reescribir.** Ese archivo ya está verificado contra el binario en 200 bloques aleatorios y en las fronteras de padding; reimplementarlo "más lindo" solo puede romperlo. Lo único que se le agrega es una línea al docstring diciendo de dónde vino:
 
 ```python
-"""Firma `sign2` de los segmentos de TV en vivo de Magis, en Python puro.
+# Copiado de magia/tweaked_md5.py (commit 42548e5). Si Magis cambia el algoritmo, el
+# oraculo para re-derivarlo (Unicorn + libranger-jni.so) vive alla, no aca.
+```
 
-El algoritmo es un MD5 con el message schedule cambiado: mismo IV, mismas constantes
-K, mismos shifts y mismo padding. El schedule se recupero por diferencial contra la
-emulacion del binario (ver magia/extract_schedule.py). Los cinco vectores reales
-capturados del binario son el test de aceptacion.
+- [ ] **Step 4: Escribir el envoltorio `sign_o3.py`**
+
+```python
+"""Firma `sign2` de los segmentos de TV en vivo de Magis.
+
+El algoritmo es un MD5 con el message schedule de la 1a vuelta cambiado y cuatro
+constantes K distintas; ver `tweaked_md5.py`. Los cinco vectores capturados de la app
+son el test de aceptacion.
 """
 from __future__ import annotations
 
-import math
-import struct
+import time
+
+from .tweaked_md5 import digest_hex
 
 SALT = b"salt3333=4" + bytes.fromhex("980d0a1532c9c3821708c0")
 
-_K = [int(abs(math.sin(i + 1)) * (1 << 32)) & 0xFFFFFFFF for i in range(64)]
-_S = [7, 12, 17, 22] * 4 + [5, 9, 14, 20] * 4 + [4, 11, 16, 23] * 4 + [6, 10, 15, 21] * 4
-_IV = (0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476)
-
-# <<< PEGAR AQUI la lista de 64 enteros de schedule.json (Tarea 1) >>>
-_SCHEDULE: list[int] = []
-
-
-def _rot(x: int, n: int) -> int:
-    x &= 0xFFFFFFFF
-    return ((x << n) | (x >> (32 - n))) & 0xFFFFFFFF
-
-
-def _comprimir(estado: tuple[int, int, int, int], bloque: bytes) -> tuple[int, int, int, int]:
-    a, b, c, d = estado
-    a0, b0, c0, d0 = estado
-    m = struct.unpack("<16I", bloque)
-    for i in range(64):
-        if i < 16:
-            f = (b & c) | (~b & d)
-        elif i < 32:
-            f = (d & b) | (~d & c)
-        elif i < 48:
-            f = b ^ c ^ d
-        else:
-            f = c ^ (b | ~d)
-        tmp = d
-        d = c
-        c = b
-        b = (b + _rot((a + (f & 0xFFFFFFFF) + _K[i] + m[_SCHEDULE[i]]) & 0xFFFFFFFF, _S[i])) & 0xFFFFFFFF
-        a = tmp
-    return ((a0 + a) & 0xFFFFFFFF, (b0 + b) & 0xFFFFFFFF,
-            (c0 + c) & 0xFFFFFFFF, (d0 + d) & 0xFFFFFFFF)
-
-
-def tweaked_md5(msg: bytes) -> str:
-    estado = _IV
-    relleno = b"\x80" + b"\x00" * ((56 - (len(msg) + 1)) % 64) + struct.pack("<Q", len(msg) * 8)
-    datos = msg + relleno
-    for i in range(0, len(datos), 64):
-        estado = _comprimir(estado, datos[i:i + 64])
-    return struct.pack("<4I", *estado).hex()
-
 
 def sign_o3(token: str, start_moment: int) -> str:
-    """`sign2` para un token de sesion y un momento en milisegundos."""
+    """`sign2` (32 hex minusculas) para un token de sesion y un momento en ms."""
     msg = (f"token={token}&sign2_method=sign_o3&instance=0"
            f"&start_moment={start_moment}").encode() + SALT
-    return tweaked_md5(msg)
+    return digest_hex(msg)
+
+
+def now_moment_ms() -> int:
+    return int(time.time() * 1000)
 ```
 
-- [ ] **Step 4: Correr el test y verificar que pasa**
+- [ ] **Step 5: Correr el test y verificar que pasa**
 
 Run: `cd /Users/cristian/arkiv-api && uv run pytest tests/test_magis_sign_o3.py -v`
 Expected: 2 passed.
 
-**Si los vectores no pasan**, el tweak no se agota en el schedule. Activar la **contingencia**: copiar `sign_o3.py` y `so_emulator.py` de magia a `src/arkiv_api/adapters/magis/`, agregar `unicorn` a `pyproject.toml`, copiar el `.so` a blog por `scp` fuera de git (`scp /Users/cristian/magia/libranger-jni.so blog:~/arkiv-api/secrets/`) y montarlo como volumen en `docker-compose.yml` con `LIBRANGER_SO=/secrets/libranger-jni.so`. **La firma de la función y los 5 vectores del test no cambian**, así que ninguna tarea posterior se entera.
+- [ ] **Step 6: Commit**
+
+```bash
+cd /Users/cristian/arkiv-api && git add src/arkiv_api/adapters/magis/tweaked_md5.py src/arkiv_api/adapters/magis/sign_o3.py tests/test_magis_sign_o3.py && git commit -m "feat(live): sign_o3 en el gateway, sin unicorn ni binario propietario"
+```
+
+---
+
+## Task 2: `TweakedMd5` en Kotlin, para firmar en el dispositivo
+
+**Repo:** `/Users/cristian/archive`
+
+**Files:**
+- Create: `app/src/main/java/com/arkiv/player/playback/TweakedMd5.kt`
+- Test: `app/src/test/java/com/arkiv/player/playback/TweakedMd5Test.kt`
+
+**Interfaces:**
+- Consumes: nada. Es aritmética de 32 bits pura.
+- Produce: `object TweakedMd5` con `fun digestHex(msg: ByteArray): String` y `fun signO3(token: String, startMoment: Long): String`. Lo usa la Tarea 8.
+
+Es el mismo algoritmo de la Tarea 1, en Kotlin. **Ojo con dos cosas** que en Python son gratis y acá no: los enteros de Kotlin son con signo (hay que usar `ushr` y máscaras) y `Int` desborda en silencio, que es justo lo que se quiere en MD5.
+
+- [ ] **Step 1: Escribir el test con los mismos 5 vectores**
+
+```kotlin
+package com.arkiv.player.playback
+
+import org.junit.Assert.assertEquals
+import org.junit.Test
+
+class TweakedMd5Test {
+    /** Los mismos vectores que verifican la implementación de Python, capturados de la app real. */
+    private val vectores = listOf(
+        Triple("941d98961990d67e249dcd1ac57378c8", 1786228951248L, "42eda1217c11706f8034f00831f11645"),
+        Triple("941d98961990d67e249dcd1ac57378c8", 1786229028826L, "7b7a1751bd8dc9fa4cb38bcc8dd8acb3"),
+        Triple("941d98961990d67e249dcd1ac57378c8", 1786229709567L, "0cccdfc85f900a6ee407eedd13003494"),
+        Triple("c3ec544b53a526c59ab677ffbdffa1e0", 1786223278615L, "2e055d6f2c0407c82017286e8f4a31ad"),
+        Triple("c3ec544b53a526c59ab677ffbdffa1e0", 1786225491689L, "095a0c6ebc25e6570705fd9d16c6b67b"),
+    )
+
+    @Test
+    fun `los cinco vectores reales`() {
+        vectores.forEach { (token, momento, esperado) ->
+            assertEquals("momento $momento", esperado, TweakedMd5.signO3(token, momento))
+        }
+    }
+
+    @Test
+    fun `las fronteras del padding no se corren`() {
+        // 55 y 56 bytes son el borde donde el padding pasa a necesitar un bloque extra;
+        // un error de un byte ahí no lo detectan los vectores, que miden ~120 bytes.
+        listOf(0, 55, 56, 63, 64, 65).forEach { n ->
+            assertEquals("largo $n", 32, TweakedMd5.digestHex(ByteArray(n)).length)
+        }
+    }
+
+    @Test
+    fun `no es MD5 estandar`() {
+        // Si alguien "arregla" las constantes tweakeadas creyendo que son erratas, esto lo caza.
+        val md5 = java.security.MessageDigest.getInstance("MD5")
+            .digest(ByteArray(64)).joinToString("") { "%02x".format(it) }
+        org.junit.Assert.assertNotEquals(md5, TweakedMd5.digestHex(ByteArray(64)))
+    }
+}
+```
+
+- [ ] **Step 2: Correr los tests y verificar que fallan**
+
+Run: `cd /Users/cristian/archive && ./gradlew :app:testDebugUnitTest --tests "*TweakedMd5Test*"`
+Expected: FAIL de compilación — `TweakedMd5` no existe.
+
+- [ ] **Step 3: Implementar**
+
+```kotlin
+package com.arkiv.player.playback
+
+/**
+ * El MD5 modificado con el que Magis firma cada segmento de TV en vivo.
+ *
+ * Respecto de un MD5 de manual cambian **solo dos cosas** (derivadas emulando el binario
+ * propietario; ver `magia/tweaked_md5.py`, que es la referencia y está verificada contra
+ * el `.so` en 200 bloques aleatorios):
+ *
+ * 1. El message schedule de la 1ª vuelta es [ROUND1], no `0..15`. Las vueltas 2–4 son estándar.
+ * 2. Cuatro constantes K distintas — rondas 42, 45, 54 y 62 — con pinta de erratas de
+ *    transcripción del MD5 original.
+ *
+ * IV, funciones F/G/H/I, shifts, padding little-endian y feed-forward son los de MD5.
+ * Los cinco vectores capturados de la app son el test de aceptación.
+ */
+object TweakedMd5 {
+    private val SALT = "salt3333=4".toByteArray() +
+        byteArrayOf(0x98.toByte(), 0x0d, 0x0a, 0x15, 0x32, 0xc9.toByte(),
+                    0xc3.toByte(), 0x82.toByte(), 0x17, 0x08, 0xc0.toByte())
+
+    private val K = intArrayOf(
+        -0x28955b88, -0x173848aa, 0x242070db, -0x3e423112,
+        -0x0a83f051, 0x4787c62a, -0x57cfb9ed, -0x02b96aff,
+        0x698098d8, -0x74bb0851, -0x0000a44f, -0x76a32842,
+        0x6b901122, -0x02678e6d, -0x5986bc72, 0x49b40821,
+        -0x09e1da9e, -0x3fbf4cc0, 0x265e5a51, -0x16493856,
+        -0x29d0efa3, 0x02441453, -0x275e197f, -0x182c0438,
+        0x21e1cde6, -0x3cc8f82a, -0x0b2af279, 0x455a14ed,
+        -0x561c16fb, -0x03105c08, 0x676f02d9, -0x72d5b376,
+        -0x0005c6be, -0x788e097f, 0x6d9d6122, -0x021ac7f4,
+        -0x5b4115bc, 0x4bdecfa9, -0x0944b4a0, -0x41404390,
+        0x289b7ec6, -0x155ed806, -0x2b10cf7b, 0x04881d05,
+        -0x262b2fc7, -0x1924661b, 0x1fa27cf8, -0x3b53a99b,
+        -0x0bd6ddbc, 0x432aff97, -0x546bdc59, -0x036c5fc7,
+        0x655b59c3, -0x70f3336e, -0x00100b83, -0x7a7ba22f,
+        0x6fa87e4f, -0x01d31920, -0x5cfebcec, 0x4e0811a1,
+        -0x08ac817e, -0x42c50dcb, 0x2ad7d2bb, -0x14792c6f,
+    )
+
+    // El tweak: cuatro constantes cambiadas. Se escriben en hexadecimal literal para que
+    // se puedan cotejar de un vistazo contra la tabla del docstring de tweaked_md5.py.
+    private val KT = K.copyOf().also {
+        it[42] = 0xd46f3085.toInt()   // estándar d4ef3085
+        it[45] = 0xe6bd99e5.toInt()   // estándar e6db99e5
+        it[54] = 0xffecc47d.toInt()   // estándar ffeff47d
+        it[62] = 0x2da7d2bb.toInt()   // estándar 2ad7d2bb
+    }
+
+    private val S = intArrayOf(
+        7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
+        5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
+        4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
+        6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
+    )
+
+    /** El tweak: el schedule de la 1ª vuelta. Las otras tres son las fórmulas estándar. */
+    private val ROUND1 = intArrayOf(10, 11, 12, 13, 14, 15, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5)
+
+    private val G = IntArray(64) { i ->
+        when {
+            i < 16 -> ROUND1[i]
+            i < 32 -> (5 * i + 1) % 16
+            i < 48 -> (3 * i + 5) % 16
+            else -> (7 * i) % 16
+        }
+    }
+
+    private fun rotl(x: Int, n: Int) = (x shl n) or (x ushr (32 - n))
+
+    private fun compress(estado: IntArray, bloque: ByteArray, off: Int) {
+        val m = IntArray(16) { j ->
+            val p = off + j * 4
+            (bloque[p].toInt() and 0xff) or
+                ((bloque[p + 1].toInt() and 0xff) shl 8) or
+                ((bloque[p + 2].toInt() and 0xff) shl 16) or
+                ((bloque[p + 3].toInt() and 0xff) shl 24)
+        }
+        var a = estado[0]; var b = estado[1]; var c = estado[2]; var d = estado[3]
+        for (i in 0 until 64) {
+            val f = when {
+                i < 16 -> (b and c) or (b.inv() and d)
+                i < 32 -> (d and b) or (d.inv() and c)
+                i < 48 -> b xor c xor d
+                else -> c xor (b or d.inv())
+            }
+            val suma = f + a + KT[i] + m[G[i]]
+            a = d; d = c; c = b
+            b += rotl(suma, S[i])
+        }
+        estado[0] += a; estado[1] += b; estado[2] += c; estado[3] += d
+    }
+
+    fun digestHex(msg: ByteArray): String {
+        // IV de MD5: 67452301 efcdab89 98badcfe 10325476, en little-endian.
+        val estado = intArrayOf(0x67452301, -0x10325477, -0x67452302, 0x10325476)
+        val resto = msg.size % 64
+        var i = 0
+        while (i + 64 <= msg.size - resto) { compress(estado, msg, i); i += 64 }
+
+        val cola = msg.copyOfRange(msg.size - resto, msg.size)
+        val relleno = ByteArray(((56 - (cola.size + 1)) % 64 + 64) % 64)
+        val bits = msg.size.toLong() * 8
+        val largo = ByteArray(8) { ((bits ushr (it * 8)) and 0xff).toByte() }
+        val final = cola + byteArrayOf(0x80.toByte()) + relleno + largo
+        var j = 0
+        while (j < final.size) { compress(estado, final, j); j += 64 }
+
+        val sb = StringBuilder(32)
+        estado.forEach { palabra ->
+            for (b in 0 until 4) sb.append("%02x".format((palabra ushr (b * 8)) and 0xff))
+        }
+        return sb.toString()
+    }
+
+    /** `sign2` para un token de sesión y un momento en milisegundos. */
+    fun signO3(token: String, startMoment: Long): String = digestHex(
+        "token=$token&sign2_method=sign_o3&instance=0&start_moment=$startMoment"
+            .toByteArray() + SALT
+    )
+}
+```
+
+- [ ] **Step 4: Correr los tests y verificar que pasan**
+
+Run: `cd /Users/cristian/archive && ./gradlew :app:testDebugUnitTest --tests "*TweakedMd5Test*"`
+Expected: 3 passed.
+
+Si los vectores fallan, el sospechoso número uno es la tabla `K` en complemento a dos: verificarla generándola con `(Math.abs(Math.sin(i + 1.0)) * 4294967296.0).toLong().toInt()` y comparando contra la literal antes de tocar cualquier otra cosa.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/cristian/arkiv-api && git add src/arkiv_api/adapters/magis/sign_o3.py tests/test_magis_sign_o3.py && git commit -m "feat(live): sign_o3 en Python puro, verificado con los 5 vectores reales"
+cd /Users/cristian/archive && git add app/src/main/java/com/arkiv/player/playback/TweakedMd5.kt app/src/test/java/com/arkiv/player/playback/TweakedMd5Test.kt && git commit -m "feat(vivo): MD5 tweakeado de Magis en Kotlin, verificado con los 5 vectores"
 ```
 
 ---
+
 
 # Fase 1 — El gateway sirve el vivo
 
@@ -808,7 +856,7 @@ Expected: todo passed.
 
 - [ ] **Step 6: Verificar contra el portal real si el CDN acepta momentos futuros**
 
-Esta es la incógnita del spec que define el tamaño del lote. Con el gateway desplegado:
+**Ya no es bloqueante**: el dispositivo firma en el instante (Tarea 2), así que esto solo decide el tamaño del lote del **camino de respaldo**. Si no se puede correr ahora, dejar `lote = 1` y seguir. Con el gateway desplegado:
 
 ```bash
 python3 - <<'EOF'
@@ -1349,19 +1397,187 @@ cd /Users/cristian/archive && git add app/src/main/java/com/arkiv/player/data/ga
 
 ---
 
-## Task 8: `LiveHlsProxy` — proxy HLS local con pool de firmas
+## Task 8: `LiveHlsProxy` — proxy HLS local que firma en el dispositivo
 
 **Repo:** `/Users/cristian/archive`
 
 **Files:**
-- Create: `app/src/main/java/com/arkiv/player/playback/LiveHlsProxy.kt`
-- Test: `app/src/test/java/com/arkiv/player/playback/LiveHlsProxyTest.kt`
+- Create: `app/src/main/java/com/arkiv/player/playback/LiveHlsProxy.kt`, `app/src/main/java/com/arkiv/player/playback/FirmaDeSegmentos.kt`
+- Test: `app/src/test/java/com/arkiv/player/playback/LiveHlsProxyTest.kt`, `app/src/test/java/com/arkiv/player/playback/FirmaDeSegmentosTest.kt`
 
 **Interfaces:**
-- Consumes: `LiveApi.firmar` y `LiveSession` (Tarea 7). Sigue el patrón de servidor de `ArchiveCacheProxy.start()` (`playback/ArchiveCacheProxy.kt:118`).
-- Produce: `class LiveHlsProxy(private val firmas: SignatureSource)` con `fun start(bindLan: Boolean = false): Int`, `fun stop()`, `fun urlPara(sesion: LiveSession): String` (no es `suspend`: solo fija la sesión y arma la URL) y `val port: Int`; e `interface SignatureSource { suspend fun lote(token: String, count: Int, spreadMs: Long): List<LiveSignature> }`. Lo usan las Tareas 9 y 15.
+- Consumes: `TweakedMd5.signO3` (Tarea 2), `LiveApi.firmar` y `LiveSession` (Tarea 7). Sigue el patrón de servidor de `ArchiveCacheProxy.start()` (`playback/ArchiveCacheProxy.kt:118`).
+- Produce:
+  - `interface FirmaDeSegmentos { suspend fun firmar(token: String): LiveSignature; fun rechazada() {} }`
+  - `class FirmaLocal : FirmaDeSegmentos` — firma con `TweakedMd5` en el instante.
+  - `class FirmaDelGateway(api: LiveApi, lote: Int = 1, spreadMs: Long = 0) : FirmaDeSegmentos` — pide lotes al gateway.
+  - `class FirmaConRespaldo(local: FirmaDeSegmentos, remota: FirmaDeSegmentos, umbral: Int = 2) : FirmaDeSegmentos` — usa la local y, tras `umbral` rechazos seguidos, conmuta a la remota **por lo que resta de la reproducción**; `val usandoRespaldo: Boolean` lo expone para diagnóstico.
+  - `class LiveHlsProxy(private val firmas: FirmaDeSegmentos)` con `fun start(bindLan: Boolean = false): Int`, `fun stop()`, `fun urlPara(sesion: LiveSession): String` (no es `suspend`) y `val port: Int`.
+  - Lo usan las Tareas 9 y 15.
 
-- [ ] **Step 1: Escribir el test**
+**Por qué hay dos caminos.** El dispositivo firma solo: es aritmética local, así que no hay ida y vuelta por segmento y el vivo sigue andando aunque el gateway esté caído. El respaldo existe para un caso concreto: si Magis cambia el algoritmo, el gateway se arregla con un redespliegue y los aparatos que no actualizaron el APK siguen funcionando. Como un camino de respaldo que nunca corre es un camino que se pudre, lleva test propio (paso 3) y un ajuste para forzarlo a mano (paso 7).
+
+- [ ] **Step 1: Escribir el test de las estrategias de firma**
+
+```kotlin
+package com.arkiv.player.playback
+
+import com.arkiv.player.data.gateway.LiveSignature
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class FirmaDeSegmentosTest {
+    private class Contadora(private val marca: String) : FirmaDeSegmentos {
+        var veces = 0
+        override suspend fun firmar(token: String): LiveSignature {
+            veces++
+            return LiveSignature(veces.toLong(), marca)
+        }
+    }
+
+    @Test
+    fun `la firma local coincide con el algoritmo verificado`() = runBlocking {
+        val token = "941d98961990d67e249dcd1ac57378c8"
+        val f = FirmaLocal().firmar(token)
+        assertEquals(TweakedMd5.signO3(token, f.moment), f.sign2)
+    }
+
+    @Test
+    fun `mientras nadie rechace, no se le pide nada al gateway`() = runBlocking {
+        val remota = Contadora("remota")
+        val f = FirmaConRespaldo(Contadora("local"), remota)
+        repeat(10) { f.firmar("t") }
+        assertEquals(0, remota.veces)
+        assertFalse(f.usandoRespaldo)
+    }
+
+    @Test
+    fun `tras dos rechazos seguidos conmuta al gateway`() = runBlocking {
+        val local = Contadora("local")
+        val remota = Contadora("remota")
+        val f = FirmaConRespaldo(local, remota, umbral = 2)
+        f.firmar("t"); f.rechazada()
+        f.firmar("t"); f.rechazada()
+        assertEquals("remota", f.firmar("t").sign2)
+        assertTrue(f.usandoRespaldo)
+    }
+
+    @Test
+    fun `un rechazo suelto entre firmas buenas no conmuta`() = runBlocking {
+        // Un 403 aislado es una firma que llegó tarde, no un algoritmo roto.
+        val remota = Contadora("remota")
+        val f = FirmaConRespaldo(Contadora("local"), remota, umbral = 2)
+        f.firmar("t"); f.rechazada()
+        f.firmar("t")            // esta salió bien: el contador vuelve a cero
+        f.firmar("t"); f.rechazada()
+        assertEquals(0, remota.veces)
+    }
+
+    @Test
+    fun `una vez en el respaldo se queda ahi`() = runBlocking {
+        val remota = Contadora("remota")
+        val f = FirmaConRespaldo(Contadora("local"), remota, umbral = 1)
+        f.firmar("t"); f.rechazada()
+        repeat(3) { f.firmar("t") }
+        assertEquals(3, remota.veces)
+    }
+}
+```
+
+- [ ] **Step 2: Correr el test y verificar que falla**
+
+Run: `cd /Users/cristian/archive && ./gradlew :app:testDebugUnitTest --tests "*FirmaDeSegmentosTest*"`
+Expected: FAIL de compilación — `FirmaDeSegmentos` no existe.
+
+- [ ] **Step 3: Implementar las tres estrategias**
+
+```kotlin
+package com.arkiv.player.playback
+
+import com.arkiv.player.data.gateway.LiveApi
+import com.arkiv.player.data.gateway.LiveSignature
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
+/** De dónde sale el `sign2` de cada petición al CDN. */
+interface FirmaDeSegmentos {
+    suspend fun firmar(token: String): LiveSignature
+
+    /** El CDN rechazó la última firma entregada. */
+    fun rechazada() {}
+}
+
+/** Firma en el aparato. Es aritmética local: ni red, ni espera, ni pool. */
+class FirmaLocal : FirmaDeSegmentos {
+    override suspend fun firmar(token: String): LiveSignature {
+        val momento = System.currentTimeMillis()
+        return LiveSignature(momento, TweakedMd5.signO3(token, momento))
+    }
+}
+
+/**
+ * Firma en el gateway. Pide de a lotes para no hacer una llamada por segmento; con
+ * [lote] = 1 pide una firma por petición, que es el modo seguro mientras no esté
+ * verificado que el CDN acepta `start_moment` futuros (Tarea 5, paso 6).
+ */
+class FirmaDelGateway(
+    private val api: LiveApi,
+    private val lote: Int = 1,
+    private val spreadMs: Long = 0,
+) : FirmaDeSegmentos {
+    private val cerrojo = Mutex()
+    private val pendientes = ArrayDeque<LiveSignature>()
+
+    override suspend fun firmar(token: String): LiveSignature = cerrojo.withLock {
+        if (pendientes.isEmpty()) pendientes.addAll(api.firmar(token, lote, spreadMs))
+        if (pendientes.size == 1) pendientes.first() else pendientes.removeFirst()
+    }
+
+    override fun rechazada() {
+        pendientes.clear()  // lo que quedaba en el lote ya no sirve
+    }
+}
+
+/**
+ * Firma en el aparato y, si el CDN rechaza [umbral] firmas **seguidas**, pasa a pedírselas
+ * al gateway por lo que resta de la reproducción.
+ *
+ * El contador se reinicia con cada firma aceptada a propósito: un 403 aislado es una firma
+ * que llegó tarde, no un algoritmo roto. Lo que se quiere detectar es el caso en que Magis
+ * cambió la firma — ahí fallan todas, y el gateway (que se arregla con un redespliegue,
+ * sin publicar APK) toma la posta.
+ */
+class FirmaConRespaldo(
+    private val local: FirmaDeSegmentos,
+    private val remota: FirmaDeSegmentos,
+    private val umbral: Int = 2,
+) : FirmaDeSegmentos {
+    @Volatile var usandoRespaldo: Boolean = false
+        private set
+    private var rechazosSeguidos = 0
+
+    override suspend fun firmar(token: String): LiveSignature {
+        val elegida = if (usandoRespaldo) remota else local
+        return elegida.firmar(token).also { if (!usandoRespaldo) rechazosSeguidos = 0 }
+    }
+
+    override fun rechazada() {
+        if (usandoRespaldo) { remota.rechazada(); return }
+        rechazosSeguidos++
+        if (rechazosSeguidos >= umbral) usandoRespaldo = true
+    }
+}
+```
+
+- [ ] **Step 4: Correr el test y verificar que pasa**
+
+Run: `cd /Users/cristian/archive && ./gradlew :app:testDebugUnitTest --tests "*FirmaDeSegmentosTest*"`
+Expected: 5 passed.
+
+- [ ] **Step 5: Escribir el test del proxy**
 
 ```kotlin
 package com.arkiv.player.playback
@@ -1380,11 +1596,15 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 class LiveHlsProxyTest {
-    private class FirmasFalsas(var entregadas: Int = 0) : LiveHlsProxy.SignatureSource {
-        override suspend fun lote(token: String, count: Int, spreadMs: Long): List<LiveSignature> {
-            entregadas += count
-            return (0 until count).map { LiveSignature(1000L + it, "firma%02d".format(it)) }
+    /** Firma predecible, para poder afirmar qué `Content-Auth` salió en cada petición. */
+    private class FirmasFalsas : FirmaDeSegmentos {
+        var entregadas = 0
+        var rechazos = 0
+        override suspend fun firmar(token: String): LiveSignature {
+            entregadas++
+            return LiveSignature(1000L, "firma%02d".format(entregadas))
         }
+        override fun rechazada() { rechazos++ }
     }
 
     private fun leer(url: String): Pair<Int, String> {
@@ -1435,7 +1655,7 @@ class LiveHlsProxyTest {
         val auth = req.getHeader("Content-Auth")!!
         assertTrue(auth.contains("sign2_method=sign_o3"))
         assertTrue(auth.contains("start_moment=1000"))
-        assertTrue(auth.contains("sign2=firma00"))
+        assertTrue(auth.contains("sign2=firma01"))
         proxy.stop(); upstream.shutdown()
     }
 
@@ -1461,6 +1681,7 @@ class LiveHlsProxyTest {
 
         assertEquals(200, codigo)
         assertEquals("un 403 y su reintento, nada mas", 2, pedidos)
+        assertEquals("el 403 se le avisa a la fuente de firmas", 1, firmas.rechazos)
         proxy.stop(); upstream.shutdown()
     }
 
@@ -1483,12 +1704,12 @@ class LiveHlsProxyTest {
 }
 ```
 
-- [ ] **Step 2: Correr los tests y verificar que fallan**
+- [ ] **Step 6: Correr los tests del proxy y verificar que fallan**
 
 Run: `cd /Users/cristian/archive && ./gradlew :app:testDebugUnitTest --tests "*LiveHlsProxyTest*"`
 Expected: FAIL de compilación — `LiveHlsProxy` no existe.
 
-- [ ] **Step 3: Implementar**
+- [ ] **Step 7: Implementar el proxy**
 
 ```kotlin
 package com.arkiv.player.playback
@@ -1516,12 +1737,7 @@ import java.net.URLEncoder
  * El proxy baja el playlist, reescribe las URLs absolutas de los `.ts` hacia sí mismo
  * y pone las cabeceras en cada petición al origen. VLC solo ve `127.0.0.1`.
  */
-class LiveHlsProxy(private val firmas: SignatureSource) {
-
-    /** De dónde salen los pares (momento, firma). En producción, el gateway. */
-    interface SignatureSource {
-        suspend fun lote(token: String, count: Int, spreadMs: Long): List<LiveSignature>
-    }
+class LiveHlsProxy(private val firmas: FirmaDeSegmentos) {
 
     @Volatile private var server: ServerSocket? = null
     @Volatile private var running = false
@@ -1529,25 +1745,9 @@ class LiveHlsProxy(private val firmas: SignatureSource) {
 
     val port: Int get() = server?.localPort ?: -1
 
-    // --- Pool de firmas ---
-    // `SPREAD_MS = 0` (todas "ahora") es el modo seguro mientras no esté verificado que
-    // el CDN acepta momentos futuros; la prueba está en la Tarea 5, paso 6. Si los
-    // adelantados dan 200, subir LOTE y poner SPREAD_MS en unos segundos.
-    private val poolLock = Mutex()
-    private val pool = ArrayDeque<LiveSignature>()
-
-    private suspend fun firmaVigente(refrescar: Boolean = false): LiveSignature {
+    private suspend fun contentAuth(): String {
         val s = sesion ?: error("no hay sesión de canal")
-        return poolLock.withLock {
-            if (refrescar) pool.clear()
-            if (pool.isEmpty()) pool.addAll(firmas.lote(s.token, LOTE, SPREAD_MS))
-            if (LOTE == 1) pool.first() else pool.removeFirst()
-        }
-    }
-
-    private suspend fun contentAuth(refrescar: Boolean = false): String {
-        val s = sesion!!
-        val f = firmaVigente(refrescar)
+        val f = firmas.firmar(s.token)
         return "${s.authBase}&sign2_method=sign_o3&instance=0" +
             "&start_moment=${f.moment}&sign2=${f.sign2}"
     }
@@ -1574,13 +1774,11 @@ class LiveHlsProxy(private val firmas: SignatureSource) {
         runCatching { server?.close() }
         server = null
         sesion = null
-        pool.clear()
     }
 
     /** Fija la sesión del canal y devuelve la URL que se le pasa a VLC. */
     fun urlPara(nueva: LiveSession): String {
         sesion = nueva
-        pool.clear()
         if (port <= 0) start()
         return "http://127.0.0.1:$port/live.m3u8"
     }
@@ -1603,11 +1801,11 @@ class LiveHlsProxy(private val firmas: SignatureSource) {
      * canal, no la firma: quien reproduce debe re-resolver (ver [PlayerViewModel]).
      */
     private fun pedirAlOrigen(url: String): HttpURLConnection? {
-        repeat(2) { intento ->
+        repeat(2) {
             val c = (URL(url).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 12_000
                 readTimeout = 20_000
-                setRequestProperty("Content-Auth", runBlocking { contentAuth(refrescar = intento > 0) })
+                setRequestProperty("Content-Auth", runBlocking { contentAuth() })
                 setRequestProperty("Content-License", sesion!!.license)
                 setRequestProperty("User-Agent", UA)
                 setRequestProperty("App", APP)
@@ -1615,6 +1813,9 @@ class LiveHlsProxy(private val firmas: SignatureSource) {
                 setRequestProperty("X-Buffer", "0")
             }
             if (c.responseCode != 403) return c
+            // El aviso es lo que permite a FirmaConRespaldo detectar que el algoritmo
+            // dejó de servir y conmutar al gateway. Sin esto, el respaldo nunca entra.
+            firmas.rechazada()
             c.disconnect()
         }
         return null
@@ -1656,22 +1857,25 @@ class LiveHlsProxy(private val firmas: SignatureSource) {
         const val UA = "Ranger/4.9.4-17294ac0"
         private const val APP = "com.android.msandroid"
         private const val APP_VERSION = "49902"
-        /** Cuántas firmas se piden de una. Ver la nota del pool. */
-        private const val LOTE = 1
-        private const val SPREAD_MS = 0L
     }
 }
 ```
 
-- [ ] **Step 4: Correr los tests y verificar que pasan**
+- [ ] **Step 8: Correr los tests y verificar que pasan**
 
-Run: `cd /Users/cristian/archive && ./gradlew :app:testDebugUnitTest --tests "*LiveHlsProxyTest*"`
-Expected: 4 passed.
+Run: `cd /Users/cristian/archive && ./gradlew :app:testDebugUnitTest --tests "*LiveHlsProxyTest*" --tests "*FirmaDeSegmentosTest*"`
+Expected: 9 passed (5 de firma + 4 del proxy).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 9: Dejar el respaldo ejercitable a mano**
+
+En Ajustes, un interruptor **"Firmar en el servidor"** que fuerza `FirmaDelGateway` en vez de `FirmaConRespaldo`. Guardarlo en `SettingsStore` junto al resto de las preferencias y leerlo al construir la fuente de firmas en `AppGraph` (Tarea 9, paso 5).
+
+Es la mitigación del riesgo que tiene este diseño: un camino de respaldo que nunca se ejecuta se pudre en silencio y falla justo el día que hace falta. Con el interruptor se puede comprobar en un minuto que el camino del gateway sigue sirviendo, sin esperar a que Magis cambie el algoritmo.
+
+- [ ] **Step 10: Commit**
 
 ```bash
-cd /Users/cristian/archive && git add app/src/main/java/com/arkiv/player/playback/LiveHlsProxy.kt app/src/test/java/com/arkiv/player/playback/LiveHlsProxyTest.kt && git commit -m "feat(vivo): proxy HLS local que re-firma cada segmento"
+cd /Users/cristian/archive && git add app/src/main/java/com/arkiv/player/playback/LiveHlsProxy.kt app/src/main/java/com/arkiv/player/playback/FirmaDeSegmentos.kt app/src/test/java/com/arkiv/player/playback/ && git commit -m "feat(vivo): proxy HLS local que firma en el aparato, con respaldo en el gateway"
 ```
 
 ---
@@ -1801,12 +2005,15 @@ Expected: 3 passed.
 
 ```kotlin
     val liveHlsProxy: com.arkiv.player.playback.LiveHlsProxy by lazy {
-        com.arkiv.player.playback.LiveHlsProxy(
-            object : com.arkiv.player.playback.LiveHlsProxy.SignatureSource {
-                override suspend fun lote(token: String, count: Int, spreadMs: Long) =
-                    liveApi.firmar(token, count, spreadMs)
-            }
+        val remota = com.arkiv.player.playback.FirmaDelGateway(liveApi)
+        // El interruptor de Ajustes (Tarea 8, paso 9) permite forzar el camino del
+        // gateway para comprobar que el respaldo sigue vivo.
+        val fuente = if (settings.firmarEnServidor.value) remota
+        else com.arkiv.player.playback.FirmaConRespaldo(
+            local = com.arkiv.player.playback.FirmaLocal(),
+            remota = remota,
         )
+        com.arkiv.player.playback.LiveHlsProxy(fuente)
     }
 
     val liveController: com.arkiv.player.ui.live.LiveController by lazy {
@@ -1819,7 +2026,7 @@ Expected: 3 passed.
 
 - [ ] **Step 6: Probar en el celular con un canal real**
 
-Aún no hay UI, así que se prueba desde el reproductor existente. Instalar por WiFi (ver la nota de ADB en las memorias) y usar el camino de "pegar URL" del reproductor con la URL que devuelve `liveController.abrir(code)`, o agregar temporalmente un botón de prueba. **Confirmar que el video arranca y sigue andando más de 2 minutos** — ahí es donde se ve si el pool de firmas se agota.
+Aún no hay UI, así que se prueba desde el reproductor existente. Instalar por WiFi (ver la nota de ADB en las memorias) y usar el camino de "pegar URL" del reproductor con la URL que devuelve `liveController.abrir(code)`, o agregar temporalmente un botón de prueba. **Confirmar que el video arranca y sigue andando más de 2 minutos** — ahí es donde se ve si la firma local aguanta segmento tras segmento.
 
 - [ ] **Step 7: Commit**
 
@@ -2556,7 +2763,7 @@ En `PlayerScreen`, con `enVivo`: ocultar la barra de progreso y el seek, mostrar
 
 - [ ] **Step 6: Probar en el celular y en el TV**
 
-Reproducir un canal, dejarlo **más de 5 minutos** (ahí se ve si el pool de firmas o la sesión del canal caducan), zapear arriba y abajo varias veces seguidas y confirmar que el cambio no tarda los ~3 s completos cuando el vecino estaba precalentado.
+Reproducir un canal, dejarlo **más de 5 minutos** (ahí se ve si la sesión del canal caduca y si el proxy la re-resuelve solo), zapear arriba y abajo varias veces seguidas y confirmar que el cambio no tarda los ~3 s completos cuando el vecino estaba precalentado.
 
 - [ ] **Step 7: Commit**
 
@@ -2617,4 +2824,6 @@ cd /Users/cristian/archive && ./gradlew :app:testDebugUnitTest
 
 - [ ] **Anotar en el spec lo que se descubrió**
 
-Dos incógnitas se resuelven durante la ejecución y hay que dejarlas escritas en `docs/superpowers/specs/2026-08-11-canal-en-vivo-design.md`: si el portal manda logo de canal (Tarea 3, paso 5) y si el CDN acepta `start_moment` futuros (Tarea 5, paso 6). Si los momentos futuros funcionan, subir `LOTE` y `SPREAD_MS` en `LiveHlsProxy` y decirlo en el spec.
+Dos incógnitas se resuelven durante la ejecución y hay que dejarlas escritas en `docs/superpowers/specs/2026-08-11-canal-en-vivo-design.md`: si el portal manda logo de canal (Tarea 3, paso 5) y si el CDN acepta `start_moment` futuros (Tarea 5, paso 6). Si los momentos futuros funcionan, subir `lote` y `spreadMs` en `FirmaDelGateway` y decirlo en el spec.
+
+Y un tercero: **si `FirmaConRespaldo` conmutó alguna vez en uso real**. Que `usandoRespaldo` se ponga en `true` significa que Magis cambió el algoritmo de firma — el momento de volver a `magia` con el `.so` y el oráculo de Unicorn a re-derivar el tweak.
