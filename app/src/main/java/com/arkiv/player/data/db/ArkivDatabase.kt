@@ -21,8 +21,11 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         NucLibraryItemEntity::class,
         SeriesPlaybackPrefEntity::class,
         LocalActiveJobEntity::class,
+        LiveFavoriteEntity::class,
+        LiveRecentEntity::class,
+        LiveChannelCacheEntity::class,
     ],
-    version = 19,
+    version = 20,
     exportSchema = false,
 )
 abstract class ArkivDatabase : RoomDatabase() {
@@ -37,6 +40,9 @@ abstract class ArkivDatabase : RoomDatabase() {
     abstract fun nucLibraryItemDao(): NucLibraryItemDao
     abstract fun seriesPlaybackPrefDao(): SeriesPlaybackPrefDao
     abstract fun localActiveJobDao(): LocalActiveJobDao
+    abstract fun liveFavoriteDao(): LiveFavoriteDao
+    abstract fun liveRecentDao(): LiveRecentDao
+    abstract fun liveChannelCacheDao(): LiveChannelCacheDao
 
     companion object {
         @Volatile
@@ -323,6 +329,33 @@ abstract class ArkivDatabase : RoomDatabase() {
         }
 
         /**
+         * v19 -> v20: favoritos y recientes de canales de TV en vivo (Task 10). Favoritos
+         * sincroniza LWW con tombstone -- mismo esquema que `skip_markers` -- y recientes LWW sin
+         * tombstone (se poda por antigüedad, no se borra a mano). La caché del catálogo
+         * (`live_channels_cache`) es local y NO se sincroniza (ver [LiveChannelCacheEntity]): no
+         * lleva `updatedAt`/`deleted` porque nunca pasa por [SyncTriggers] ni por el merge.
+         */
+        private val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS live_favorites (" +
+                        "code TEXT NOT NULL PRIMARY KEY, nombre TEXT NOT NULL, numero INTEGER NOT NULL, " +
+                        "logo TEXT, updatedAt INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0)",
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS live_recents (" +
+                        "code TEXT NOT NULL PRIMARY KEY, nombre TEXT NOT NULL, vistoAt INTEGER NOT NULL, " +
+                        "updatedAt INTEGER NOT NULL DEFAULT 0)",
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS live_channels_cache (" +
+                        "code TEXT NOT NULL PRIMARY KEY, categoria INTEGER NOT NULL, nombre TEXT NOT NULL, " +
+                        "numero INTEGER NOT NULL, logo TEXT, guardadoAt INTEGER NOT NULL)",
+                )
+            }
+        }
+
+        /**
          * Deja los triggers de `updatedAt` puestos en CADA apertura, y sella lo que haya quedado
          * sin reloj.
          *
@@ -347,7 +380,7 @@ abstract class ArkivDatabase : RoomDatabase() {
                     context.applicationContext,
                     ArkivDatabase::class.java,
                     "arkiv.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20)
                     .addCallback(SELLAR_UPDATED_AT)
                     .fallbackToDestructiveMigration()
                     .build().also { instance = it }

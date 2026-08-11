@@ -227,6 +227,46 @@ data class LocalActiveJobEntity(
 )
 
 /**
+ * Canal de TV en vivo marcado como favorito. Sincroniza igual que `skip_markers`: LWW por
+ * `updatedAt` + tombstone (`deleted`) -- ver [com.arkiv.player.data.db.SyncTriggers] y
+ * [com.arkiv.player.sync.SyncMerge].
+ */
+@Entity(tableName = "live_favorites")
+data class LiveFavoriteEntity(
+    @PrimaryKey val code: String,
+    val nombre: String,
+    val numero: Int,
+    val logo: String?,
+    val updatedAt: Long = 0,
+    val deleted: Boolean = false,
+)
+
+/** Últimos canales vistos. No lleva tombstone: se poda por antigüedad, no se borra a mano. */
+@Entity(tableName = "live_recents")
+data class LiveRecentEntity(
+    @PrimaryKey val code: String,
+    val nombre: String,
+    val vistoAt: Long,
+    val updatedAt: Long = 0,
+)
+
+/**
+ * Caché local del catálogo de canales, para que la sección abra al instante y siga
+ * mostrando la grilla aunque el gateway esté lento o caído. **No viaja por el sync**:
+ * es caché reconstruible, no datos del usuario, y meterla al snapshot sería mandar
+ * 1.000 filas entre dispositivos para nada.
+ */
+@Entity(tableName = "live_channels_cache")
+data class LiveChannelCacheEntity(
+    @PrimaryKey val code: String,
+    val categoria: Int,
+    val nombre: String,
+    val numero: Int,
+    val logo: String?,
+    val guardadoAt: Long,
+)
+
+/**
  * Still (fotograma oficial) de un capítulo, resuelto desde TMDB. Local y NO sincronizado, igual
  * que [ArtworkEntity]: es caché derivable, no datos del usuario. Va en su propia tabla y no como
  * columna de `episodes` a propósito — esa tabla tiene triggers de sync, y tocar 49 filas por serie

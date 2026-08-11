@@ -34,6 +34,12 @@ class SyncTriggersTest {
             it.executeUpdate("CREATE TABLE episodes (id TEXT PRIMARY KEY, updatedAt INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0)")
             it.executeUpdate("CREATE TABLE playback (episodeId TEXT PRIMARY KEY, updatedAt INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0)")
             it.executeUpdate("CREATE TABLE skip_markers (itemId TEXT PRIMARY KEY, updatedAt INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0)")
+            // Task 10: favoritos y recientes de TV en vivo, las dos tablas que se sumaron a
+            // SyncTriggers.TABLAS. `live_recents` no lleva `deleted` a propósito -- ver
+            // LiveRecentEntity -- así que acá tampoco, para que el esquema de este test siga
+            // siendo fiel al real.
+            it.executeUpdate("CREATE TABLE live_favorites (code TEXT PRIMARY KEY, updatedAt INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0)")
+            it.executeUpdate("CREATE TABLE live_recents (code TEXT PRIMARY KEY, updatedAt INTEGER NOT NULL DEFAULT 0)")
         }
     }
 
@@ -86,14 +92,18 @@ class SyncTriggersTest {
         assertEquals(555L, relojDe("items", "identifier", "a"))
     }
 
-    @Test fun cubre_las_cuatro_tablas_que_se_sincronizan() {
+    @Test fun cubre_las_seis_tablas_que_se_sincronizan() {
         aplicar(SyncTriggers.ddl())
         ejecutar("INSERT INTO episodes (id) VALUES ('e1')")
         ejecutar("INSERT INTO playback (episodeId) VALUES ('e1')")
         ejecutar("INSERT INTO skip_markers (itemId) VALUES ('i1')")
+        ejecutar("INSERT INTO live_favorites (code) VALUES ('c1')")
+        ejecutar("INSERT INTO live_recents (code) VALUES ('c1')")
         assertTrue(relojDe("episodes", "id", "e1") > 0)
         assertTrue(relojDe("playback", "episodeId", "e1") > 0)
         assertTrue(relojDe("skip_markers", "itemId", "i1") > 0)
+        assertTrue(relojDe("live_favorites", "code", "c1") > 0)
+        assertTrue(relojDe("live_recents", "code", "c1") > 0)
     }
 
     @Test fun aplicarlo_dos_veces_no_falla() {

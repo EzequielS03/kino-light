@@ -289,6 +289,63 @@ interface SkipMarkerDao {
 }
 
 @Dao
+interface LiveFavoriteDao {
+    @Query("SELECT * FROM live_favorites WHERE deleted = 0 ORDER BY numero")
+    fun flowTodos(): Flow<List<LiveFavoriteEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun guardar(f: LiveFavoriteEntity)
+
+    // NO se toca updatedAt acá (el brief original lo ponía en 0): esta tabla SÍ viaja por el
+    // sync, y `updatedAt = 0` es la marca que usa el resto del código para "nunca se subió"
+    // (ver KDoc de SyncTriggers.ddl y MIGRATION_7_8 en ArkivDatabase). Poner el borrado en 0
+    // haría que el trigger de UPDATE no lo resellara (WHEN NEW.updatedAt = OLD.updatedAt no se
+    // cumpliría) y el tombstone se quedaría sin `updatedAt` para siempre: el borrado nunca
+    // llegaría al otro dispositivo. Se deja que el trigger sea quien selle, igual que
+    // `softDeleteMarker`/`softDeleteItem`.
+    @Query("UPDATE live_favorites SET deleted = 1 WHERE code = :code")
+    suspend fun borrar(code: String)
+
+    @Query("SELECT EXISTS(SELECT 1 FROM live_favorites WHERE code = :code AND deleted = 0)")
+    suspend fun esFavorito(code: String): Boolean
+
+    // --- Sync (mismo patrón que skip_markers) ---
+    @Query("SELECT * FROM live_favorites")
+    suspend fun getAll(): List<LiveFavoriteEntity>
+}
+
+@Dao
+interface LiveRecentDao {
+    @Query("SELECT * FROM live_recents ORDER BY vistoAt DESC LIMIT :limite")
+    fun flowUltimos(limite: Int = 20): Flow<List<LiveRecentEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun anotar(r: LiveRecentEntity)
+
+    // --- Sync (mismo patrón que skip_markers) ---
+    @Query("SELECT * FROM live_recents")
+    suspend fun getAll(): List<LiveRecentEntity>
+}
+
+@Dao
+interface LiveChannelCacheDao {
+    @Query("SELECT * FROM live_channels_cache WHERE categoria = :categoria ORDER BY numero")
+    suspend fun deCategoria(categoria: Int): List<LiveChannelCacheEntity>
+
+    @Query("DELETE FROM live_channels_cache WHERE categoria = :categoria")
+    suspend fun limpiar(categoria: Int)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun guardar(filas: List<LiveChannelCacheEntity>)
+
+    @Transaction
+    suspend fun reemplazar(categoria: Int, filas: List<LiveChannelCacheEntity>) {
+        limpiar(categoria)
+        guardar(filas)
+    }
+}
+
+@Dao
 interface DownloadDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(download: DownloadEntity)

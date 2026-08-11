@@ -2,6 +2,8 @@ package com.arkiv.player.sync
 
 import com.arkiv.player.data.db.EpisodeEntity
 import com.arkiv.player.data.db.ItemEntity
+import com.arkiv.player.data.db.LiveFavoriteEntity
+import com.arkiv.player.data.db.LiveRecentEntity
 import com.arkiv.player.data.db.PlaybackEntity
 import com.arkiv.player.data.db.SkipMarkerEntity
 import org.json.JSONArray
@@ -22,6 +24,10 @@ data class SyncSnapshot(
     val episodes: List<EpisodeEntity>,
     val playback: List<PlaybackEntity>,
     val markers: List<SkipMarkerEntity>,
+    /** Favoritos de TV en vivo. Mismo esquema de sync que [markers]: LWW + tombstone. */
+    val liveFavorites: List<LiveFavoriteEntity> = emptyList(),
+    /** Recientes de TV en vivo. LWW sin tombstone (se poda por antigüedad). */
+    val liveRecents: List<LiveRecentEntity> = emptyList(),
 ) {
     fun toJson(): String {
         val root = JSONObject()
@@ -85,6 +91,30 @@ data class SyncSnapshot(
                         .put("openingStartMs", it.openingStartMs ?: JSONObject.NULL)
                         .put("openingEndMs", it.openingEndMs ?: JSONObject.NULL)
                         .put("endingStartMs", it.endingStartMs ?: JSONObject.NULL)
+                        .put("updatedAt", it.updatedAt),
+                )
+            }
+        })
+        root.put("liveFavorites", JSONArray().apply {
+            liveFavorites.forEach {
+                put(
+                    JSONObject()
+                        .put("code", it.code)
+                        .put("nombre", it.nombre)
+                        .put("numero", it.numero)
+                        .put("logo", it.logo ?: JSONObject.NULL)
+                        .put("updatedAt", it.updatedAt)
+                        .put("deleted", it.deleted),
+                )
+            }
+        })
+        root.put("liveRecents", JSONArray().apply {
+            liveRecents.forEach {
+                put(
+                    JSONObject()
+                        .put("code", it.code)
+                        .put("nombre", it.nombre)
+                        .put("vistoAt", it.vistoAt)
                         .put("updatedAt", it.updatedAt),
                 )
             }
@@ -156,7 +186,34 @@ data class SyncSnapshot(
                     updatedAt = it.optLong("updatedAt", 0),
                 )
             }
-            return SyncSnapshot(items, episodes, playback, markers)
+            // Compatibilidad: un snapshot de la versión anterior no manda estas claves.
+            val liveFavorites = if (root.has("liveFavorites")) {
+                root.getJSONArray("liveFavorites").mapObjects {
+                    LiveFavoriteEntity(
+                        code = it.getString("code"),
+                        nombre = it.getString("nombre"),
+                        numero = it.getInt("numero"),
+                        logo = it.optStringOrNull("logo"),
+                        updatedAt = it.optLong("updatedAt", 0),
+                        deleted = it.optBoolean("deleted", false),
+                    )
+                }
+            } else {
+                emptyList()
+            }
+            val liveRecents = if (root.has("liveRecents")) {
+                root.getJSONArray("liveRecents").mapObjects {
+                    LiveRecentEntity(
+                        code = it.getString("code"),
+                        nombre = it.getString("nombre"),
+                        vistoAt = it.getLong("vistoAt"),
+                        updatedAt = it.optLong("updatedAt", 0),
+                    )
+                }
+            } else {
+                emptyList()
+            }
+            return SyncSnapshot(items, episodes, playback, markers, liveFavorites, liveRecents)
         }
 
         private inline fun <T> JSONArray.mapObjects(transform: (JSONObject) -> T): List<T> =
