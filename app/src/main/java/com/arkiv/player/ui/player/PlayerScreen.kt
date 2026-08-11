@@ -357,7 +357,9 @@ private fun PlayerContent(
         // igual http o file://. Lo que lo resolvió fue cambiarle el demuxer a magis: ver
         // VlcPlayer.loadMedia. Sin programas no hay programa que perder.
         kotlinx.coroutines.delay(800) // dar tiempo a que VLC cargue el media antes del slave
-        extras.subtitles.forEach { s -> runCatching { vlc.addSubtitleSlave(Uri.parse(s.url)) } }
+        // byUser=false: es un adjunto automático (el resolver los sniffeó), no una elección del
+        // usuario — igual que los .srt del torrent, así no le tapa la decisión de idioma al player.
+        extras.subtitles.forEach { s -> runCatching { vlc.addSubtitleSlave(Uri.parse(s.url), byUser = false) } }
     }
 
     // La fuente se conoce por el episodeId aunque todavía no haya playlist (para el overlay/servicio).
@@ -1314,13 +1316,36 @@ private fun PlayerContent(
         curAudio = vlc.currentAudioTrack()
     }
 
+    /**
+     * Elegir una pista a mano sube ese idioma al tope de la preferencia — pero solo si el archivo
+     * tenía más de un idioma (ver LangPromotion: sin alternativa, elegir no expresa preferencia).
+     */
+    fun promoteLang(pickedName: String, allNames: List<String>, esAudio: Boolean) {
+        val prefs = graph.subtitlePrefs.prefs.value
+        val nuevo = com.arkiv.player.playback.LangPromotion.promote(
+            order = if (esAudio) prefs.audioLangs else prefs.subtitleLangs,
+            pickedName = pickedName,
+            allNames = allNames,
+            classifier = if (esAudio) {
+                com.arkiv.player.playback.LangTokens::classify
+            } else {
+                com.arkiv.player.playback.LangTokens::classifyFileName
+            },
+        ) ?: return
+        val actualizado = if (esAudio) prefs.copy(audioLangs = nuevo) else prefs.copy(subtitleLangs = nuevo)
+        graph.subtitlePrefs.update(actualizado)
+        graph.applicationScope.launch {
+            runCatching { graph.remoteController.sendSubtitlePrefs(actualizado.toJson()) }
+        }
+    }
+
     // Aplica (o quita) un subtítulo de OpenSubtitles: baja el .srt y lo carga como pista externa.
     fun applySubtitle(sub: com.arkiv.player.data.subtitles.SubtitleTrack?) {
         subPickerOpen = false
         scope.launch {
             val file = if (sub != null) {
                 withContext(Dispatchers.IO) {
-                    graph.subtitleApi.download(sub.fileId, java.io.File(context.cacheDir, "subs"))
+                    graph.subtitleApi.download(sub.fileId, java.io.File(context.cacheDir, "subs"), sub.language)
                 }
             } else null
             if (file != null) {
@@ -1338,6 +1363,7 @@ private fun PlayerContent(
         if (!graph.subtitleApi.configured) return@LaunchedEffect
         val langs = graph.subtitlePrefs.prefs.value.openSubtitlesCodes()
         val subCtx = graph.repository.subtitleContextForEpisode(episodeId)
+        val ordenIdiomas = graph.subtitlePrefs.prefs.value.openSubtitlesCodes().split(",")
         suspend fun runSearch(hash: String?) {
             subtitles = if (subCtx == null && hash == null) emptyList() else runCatching {
                 graph.subtitleApi.search(
@@ -1345,7 +1371,14 @@ private fun PlayerContent(
                     season = subCtx?.season, episode = subCtx?.episode, languages = langs,
                     moviehash = hash,
                 )
-            }.getOrDefault(emptyList()).sortedByDescending { it.hashMatch } // release exacto primero
+            }.getOrDefault(emptyList())
+                // release exacto primero; dentro de cada nivel, tu idioma preferido arriba.
+                .sortedWith(
+                    compareByDescending<com.arkiv.player.data.subtitles.SubtitleTrack> { it.hashMatch }
+                        .thenBy { s ->
+                            ordenIdiomas.indexOf(s.language.lowercase()).takeIf { it >= 0 } ?: Int.MAX_VALUE
+                        },
+                )
         }
         loadingSubs = true
         runSearch(null) // 1) por título/imdb, rápido (no espera la descarga)
@@ -1372,7 +1405,7 @@ private fun PlayerContent(
         val loaded = mutableSetOf<String>()
         repeat(20) {
             withContext(Dispatchers.IO) { graph.torrentEngine.embeddedSubtitleFiles() }.forEach { f ->
-                if (loaded.add(f.absolutePath)) runCatching { vlc.addSubtitleSlave(Uri.fromFile(f)) }
+                if (loaded.add(f.absolutePath)) runCatching { vlc.addSubtitleSlave(Uri.fromFile(f), byUser = false) }
             }
             delay(1000)
         }
@@ -2406,7 +2439,10 @@ private fun PlayerContent(
                     if (audioTracks.count { it.first >= 0 } > 1) {
                         Text("Audio", style = MaterialTheme.typography.titleSmall, color = ArkivRed, modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
                         audioTracks.filter { it.first >= 0 }.forEach { (id, name) ->
-                            TextButton(onClick = { vlc.setVlcAudioTrack(id); curAudio = id }) {
+                            TextButton(onClick = {
+                                vlc.setVlcAudioTrack(id); curAudio = id
+                                promoteLang(name, audioTracks.filter { it.first >= 0 }.map { it.second }, esAudio = true)
+                            }) {
                                 Text((if (id == curAudio) "✓ " else "") + name, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
                         }
@@ -2421,7 +2457,12 @@ private fun PlayerContent(
                         }
                     } else {
                         (listOf(-1 to "Desactivar") + spuTracks.filter { it.first >= 0 }).forEach { (id, name) ->
-                            TextButton(onClick = { vlc.setVlcSpuTrack(id); curSpu = id; if (id < 0) selectedSub = null }) {
+                            TextButton(onClick = {
+                                vlc.setVlcSpuTrack(id); curSpu = id; if (id < 0) selectedSub = null
+                                if (id >= 0) {
+                                    promoteLang(name, spuTracks.filter { it.first >= 0 }.map { it.second }, esAudio = false)
+                                }
+                            }) {
                                 Text((if (id == curSpu && selectedSub == null) "✓ " else "") + name, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
                         }
