@@ -143,6 +143,23 @@ class AppGraph(context: Context) {
         com.arkiv.player.miniaturas.DestructorDeFrames(almacenDeFrames, database.episodeFrameDao())
     }
 
+    /**
+     * Baja best-effort el JPEG de los frames que llegaron por sync desde otro dispositivo, gemelo
+     * de lectura de [frameCapturer] (mismo [almacenDeFrames], mismo `episodeFrameDao`). Necesita
+     * [pbClient] y [deviceAuth] -declarados más abajo en este archivo- para el file-token de dos
+     * pasos que exige el campo `img` protegido; referenciarlos acá arriba funciona igual que en
+     * `arkivApiClient`/`cloudSync`: son `by lazy`, así que se resuelven recién cuando alguien pide
+     * `.value`, sin importar el orden textual de las declaraciones.
+     */
+    val bajadorDeFrames: com.arkiv.player.miniaturas.BajadorDeFrames by lazy {
+        com.arkiv.player.miniaturas.BajadorDeFrames(
+            almacen = almacenDeFrames,
+            dao = database.episodeFrameDao(),
+            client = pbClient,
+            deviceAuth = deviceAuth,
+        )
+    }
+
     /** Sirve el archivo local por HTTP para poder castearlo (un file:// no le llega al Chromecast). */
     val localFileServer: com.arkiv.player.playback.LocalFileServer by lazy {
         com.arkiv.player.playback.LocalFileServer(lanIp = { torrentEngine.lanIp() })
@@ -172,6 +189,10 @@ class AppGraph(context: Context) {
             database, api, tmdbApi,
             almacenDeFrames = almacenDeFrames,
             destructorDeFrames = destructorDeFrames,
+            bajadorDeFrames = bajadorDeFrames,
+            // El mismo scope de vida-de-app que usa todo lo demás (cloudSync, presence, ...): la
+            // bajada no puede depender de que la pantalla que la disparó siga viva.
+            scope = applicationScope,
         )
     }
     val syncManager: SyncManager by lazy { SyncManager(appContext, repository) }

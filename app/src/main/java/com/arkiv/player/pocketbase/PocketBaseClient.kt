@@ -158,6 +158,37 @@ class PocketBaseClient(
             acumulado
         }
 
+    /**
+     * File-token de vida corta para leer un archivo `protected` (ver `BajadorDeFrames`, el único
+     * consumidor hoy: el campo `img` de `episode_frames` se creó protegido porque son escenas de
+     * lo que mira el usuario). El header `Authorization` de la sesión NO alcanza para pedir el
+     * archivo directamente -PocketBase exige este token aparte, como query param `?token=` de la
+     * URL del archivo (ver [downloadFile]).
+     */
+    suspend fun fileToken(token: String): String =
+        withContext(Dispatchers.IO) {
+            val req = Request.Builder()
+                .url("$baseUrl/api/files/token")
+                .header("Authorization", token)
+                .post(ByteArray(0).toRequestBody(null))
+                .build()
+            execute(req).getString("token")
+        }
+
+    /**
+     * Bytes crudos de un archivo de PocketBase. No pasa por [execute] porque la respuesta no es
+     * JSON. El parámetro `fileToken` es el que devuelve [fileToken] (el método de arriba).
+     */
+    suspend fun downloadFile(url: String, fileToken: String): ByteArray =
+        withContext(Dispatchers.IO) {
+            val target = url.toHttpUrl().newBuilder().addQueryParameter("token", fileToken).build()
+            val req = Request.Builder().url(target).get().build()
+            client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) throw PocketBaseException(resp.code, "GET $url -> ${resp.code}")
+                resp.body?.bytes() ?: throw PocketBaseException(resp.code, "cuerpo vacío")
+            }
+        }
+
     suspend fun deleteRecord(collection: String, id: String, token: String) {
         withContext(Dispatchers.IO) {
             val req = Request.Builder()

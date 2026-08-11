@@ -13,11 +13,16 @@ import com.arkiv.player.data.model.ArchiveItem
 import com.arkiv.player.data.model.Episode
 import com.arkiv.player.data.model.EpisodeNumbering
 import com.arkiv.player.miniaturas.AlmacenDeFrames
+import com.arkiv.player.miniaturas.BajadorDeFrames
 import com.arkiv.player.miniaturas.DestructorDeFrames
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 
 /** Fuente para reproducir un episodio torrent: magnet (no bloqueante) o bytes de .torrent. */
@@ -119,6 +124,23 @@ class ArkivRepository(
      */
     private val destructorDeFrames: DestructorDeFrames =
         DestructorDeFrames(almacenDeFrames, db.episodeFrameDao()),
+    /**
+     * Bajador best-effort del JPEG remoto (fase 2 de sync entre dispositivos): lo dispara
+     * [observeContinueWatching] y [observeEpisodeFrames], que son los dos lugares donde el
+     * repositorio ya sabe que un frame hace falta pintarlo (ver el doc de cada uno). Nullable con
+     * default null por el mismo motivo que [almacenDeFrames]: sin bajador, esos dos Flow siguen
+     * funcionando igual que hoy —simplemente no disparan ninguna bajada— para no romper los call
+     * sites que arman un repositorio suelto (pruebas, herramientas).
+     */
+    private val bajadorDeFrames: BajadorDeFrames? = null,
+    /**
+     * Dónde correr `bajadorDeFrames.bajarPendientes()` sin bloquear la emisión del Flow que la
+     * dispara. Un scope propio (no el de la UI) a propósito: la bajada tiene que sobrevivir a que
+     * la pantalla que la disparó se cierre a mitad de camino, igual que el push/pull de
+     * `CloudSyncManager`. El default es un scope nuevo por si algún call site no inyecta uno; en la
+     * app real `AppGraph` pasa el mismo `applicationScope` que usa para todo lo demás.
+     */
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) {
     private val itemDao = db.itemDao()
     private val playbackDao = db.playbackDao()
@@ -127,6 +149,24 @@ class ArkivRepository(
     private val artworkDao = db.artworkDao()
     private val episodeStillDao = db.episodeStillDao()
     private val episodeFrameDao = db.episodeFrameDao()
+
+    /**
+     * Lanza `bajadorDeFrames.bajarPendientes()` en [scope], sin esperar el resultado: a quien
+     * llama (una `map` de Flow) le urge devolver la fila YA, con lo que haya en disco en ESTE
+     * instante -el respaldo de TMDB si el archivo todavía no bajó. `bajarPendientes()` hace
+     * `upsert` de cada fila que resuelve, y eso es lo que hace reaparecer el frame solo: Room
+     * notifica el Flow que originó esta llamada por el cambio en la tabla, se vuelve a correr esta
+     * misma `map` y esta vez `rutaSiExiste`/`observeForItem` ya encuentran el archivo. No hace
+     * falta ningún callback ni reintento manual acá -es el mismo mecanismo por el que una captura
+     * local (`FrameCapturer`) ya hacía aparecer su frame sin recargar la pantalla.
+     *
+     * Sin costo si no hay bajador (call sites de test/herramientas, ver el doc del constructor) ni
+     * si ya hay una pasada en curso (`BajadorDeFrames` se protege solo, ver su doc).
+     */
+    private fun dispararBajadaDeFrames() {
+        val bajador = bajadorDeFrames ?: return
+        scope.launch { bajador.bajarPendientes() }
+    }
 
     fun observeLibrary(): Flow<List<LibraryRow>> = itemDao.observeLibrary()
 
@@ -171,6 +211,12 @@ class ArkivRepository(
             // El framePath NO sale de la query (ver el doc del campo en ContinueRow): se resuelve
             // acá, del disco, después del dedup/take(20) de arriba para no gastar File.exists()
             // de más en filas que ni se van a mostrar. Son ~6 filas por emisión: despreciable.
+            //
+            // Justo acá es donde se sabe que a un capítulo le falta el frame en disco (framePath
+            // sale null): es el punto natural para disparar la bajada pendiente. Ver el doc de
+            // dispararBajadaDeFrames() para el mecanismo completo (por qué no bloquea, y cómo la
+            // tarjeta termina pintando el frame real sin que nadie la recargue a mano).
+            dispararBajadaDeFrames()
             filas.map { it.copy(framePath = almacenDeFrames?.rutaSiExiste(it.episodeId)) }
         }
 
@@ -316,6 +362,10 @@ class ArkivRepository(
      */
     fun observeEpisodeFrames(itemId: String): Flow<Map<String, String>> =
         episodeFrameDao.observeForItem(itemId).map { rows ->
+            // Mismo punto de disparo que observeContinueWatching y mismo motivo: acá es donde se
+            // resuelve, fila por fila, si el frame de cada capítulo ya está en disco -así que acá
+            // es donde se nota cuál todavía no bajó.
+            dispararBajadaDeFrames()
             rows.mapNotNull { r -> almacenDeFrames?.rutaSiExiste(r.episodeId)?.let { r.episodeId to it } }.toMap()
         }
 
