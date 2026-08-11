@@ -3,13 +3,16 @@ package com.arkiv.player.cloudsync
 import android.util.Log
 import com.arkiv.player.data.db.EpisodeEntity
 import com.arkiv.player.data.db.EpisodeFrameDao
+import com.arkiv.player.data.db.EpisodeFrameEntity
 import com.arkiv.player.data.db.ItemDao
 import com.arkiv.player.data.db.PlaybackDao
 import com.arkiv.player.data.db.SkipMarkerDao
+import com.arkiv.player.miniaturas.AlmacenDeFrames
 import com.arkiv.player.miniaturas.DestructorDeFrames
 import com.arkiv.player.pocketbase.DeviceAuthManager
 import com.arkiv.player.pocketbase.PocketBaseConfig
 import com.arkiv.player.pocketbase.PocketBaseRealtime
+import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -43,6 +46,8 @@ class CloudSyncManager(
     private val playbackDao: PlaybackDao,
     private val skipMarkerDao: SkipMarkerDao,
     private val episodeFrameDao: EpisodeFrameDao,
+    /** Dónde viven los JPEG en disco: los lee [pushFrames] para adjuntarlos a la fila que sube. */
+    private val almacenDeFrames: AlmacenDeFrames,
     private val pbSync: PbSyncClient,
     private val realtime: PocketBaseRealtime,
     private val deviceAuth: DeviceAuthManager,
@@ -123,8 +128,7 @@ class CloudSyncManager(
             { it.episodeId }, { playbackToFields(it, acct) }, { it.updatedAt })
         pushRows(COL_MARKERS, skipMarkerDao.getMarkersSince(cursors.lastPushed(COL_MARKERS)),
             { it.itemId }, { markerToFields(it, acct) }, { it.updatedAt })
-        pushRows(COL_FRAMES, episodeFrameDao.getFramesSince(cursors.lastPushed(COL_FRAMES)),
-            { it.episodeId }, { frameToFields(it, acct) }, { it.updatedAt })
+        pushFrames(acct)
     }
 
     /**
@@ -133,8 +137,8 @@ class CloudSyncManager(
      * colección. El cursor avanza al máximo `updatedAt` de TODAS las filas procesadas (para
      * garantizar progreso: una fila permanentemente inválida no atasca el sync para siempre).
      * Las cancelaciones se re-lanzan (no se tragan). El campo natural-key va por el nombre PB:
-     * items=identifier, episodes=epId (=id de la entidad), progress=episodeId, markers=itemId,
-     * frames=episodeId.
+     * items=identifier, episodes=epId (=id de la entidad), progress=episodeId, markers=itemId.
+     * Frames no pasa por acá: tiene su propio camino, ver [pushFrames].
      */
     private suspend fun <T> pushRows(
         col: String,
@@ -146,7 +150,7 @@ class CloudSyncManager(
         if (rows.isEmpty()) return
         val keyField = when (col) {
             COL_ITEMS -> "identifier"; COL_EPISODES -> "epId"; COL_PROGRESS -> "episodeId"
-            COL_FRAMES -> "episodeId"; else -> "itemId"
+            else -> "itemId"
         }
         // En orden cronológico: la marca de agua se corta en la fila sin resolver más vieja.
         val outcomes = rows.sortedBy { updatedAt(it) }.map { row ->
@@ -174,6 +178,61 @@ class CloudSyncManager(
             RowOutcome(updatedAt(row), resuelta)
         }
         cursors.setLastPushed(col, PushFrontier.advance(cursors.lastPushed(col), outcomes))
+    }
+
+    /**
+     * Empuja los frames. Mismo esquema de resiliencia que [pushRows] (cuarentena por fila,
+     * cancelación relanzada, cursor que avanza solo sobre lo resuelto vía [PushFrontier]) pero con
+     * camino propio: a diferencia del resto de las colecciones, cada fila puede llevar además los
+     * bytes del JPEG, y el `fields` genérico de [pushRows] no sabe de archivos.
+     */
+    private suspend fun pushFrames(acct: String) {
+        val rows = episodeFrameDao.getFramesSince(cursors.lastPushed(COL_FRAMES))
+        if (rows.isEmpty()) return
+        val outcomes = rows.sortedBy { it.updatedAt }.map { row ->
+            val k = row.episodeId
+            val resuelta = if (quarantine.enCuarentena(COL_FRAMES, k)) {
+                true // ya se rindió antes; no la reintentamos ni dejamos que atasque la colección
+            } else {
+                try {
+                    subirFrame(row, acct)
+                    quarantine.limpiar(COL_FRAMES, k)
+                    true
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    val n = quarantine.registrarFallo(COL_FRAMES, k)
+                    if (n >= SyncQuarantine.MAX_INTENTOS) {
+                        Log.e(TAG, "cloudsync: fila $COL_FRAMES '$k' EN CUARENTENA tras $n intentos, " +
+                            "el cursor la pasa de largo: ${e.message}")
+                    } else {
+                        Log.w(TAG, "cloudsync: fila $COL_FRAMES '$k' falló (intento $n), se reintenta: ${e.message}")
+                    }
+                    quarantine.enCuarentena(COL_FRAMES, k)
+                }
+            }
+            RowOutcome(row.updatedAt, resuelta)
+        }
+        cursors.setLastPushed(COL_FRAMES, PushFrontier.advance(cursors.lastPushed(COL_FRAMES), outcomes))
+    }
+
+    /**
+     * Sube una fila de frame. Un tombstone (`deleted == 1`) no lleva imagen, y una fila cuyo
+     * archivo ya no está en disco tampoco tiene nada que adjuntar: en ambos casos sube SOLO la
+     * fila, igual que cualquier otra colección. Si el archivo existe, sus bytes viajan junto con
+     * la fila en un único request multipart.
+     */
+    private suspend fun subirFrame(row: EpisodeFrameEntity, acct: String) {
+        val ruta = if (row.deleted == 1) null else almacenDeFrames.rutaSiExiste(row.episodeId)
+        if (ruta == null) {
+            pbSync.upsert(COL_FRAMES, "episodeId", row.episodeId, frameToFields(row, acct))
+        } else {
+            pbSync.upsertConArchivo(
+                COL_FRAMES, "episodeId", row.episodeId, frameToFields(row, acct),
+                campoArchivo = "img", nombre = almacenDeFrames.archivoDe(row.episodeId).name,
+                bytes = File(ruta).readBytes(),
+            )
+        }
     }
 
     // ---- reconcile: pull histórico remoto desde el último cursor de pull ----
