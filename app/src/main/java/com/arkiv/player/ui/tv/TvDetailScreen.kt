@@ -105,6 +105,10 @@ fun TvDetailScreen(
     // el hero —que es texto grande— se nota mucho más que en la lista.
     val episodeTitles by graph.repository.observeEpisodeTitles(identifier)
         .collectAsStateWithLifecycle(initialValue = emptyMap())
+    // Sinopsis por capítulo (TMDB), para el bloque de descripción de más abajo cuando hay uno
+    // enfocado en el carrusel.
+    val episodeOverviews by graph.repository.observeEpisodeOverviews(identifier)
+        .collectAsStateWithLifecycle(initialValue = emptyMap())
     LaunchedEffect(identifier) {
         runCatching { graph.repository.ensureEpisodeStills(identifier) }
     }
@@ -201,9 +205,11 @@ fun TvDetailScreen(
                     color = ArkivTextSecondary,
                     modifier = Modifier.padding(top = 6.dp),
                 )
-                // Sin capítulo enfocado, la sinopsis de la serie. Con uno enfocado no se muestra:
-                // la de la serie no describe ESE capítulo, y TMDB no nos da la del episodio acá.
-                data.description?.takeIf { it.isNotBlank() && focused == null }?.let { desc ->
+                // Con capítulo enfocado, SU sinopsis (TMDB, guardada por Task 5) si la hay; si no
+                // hay, nada — la de la serie no describe ESE capítulo puntual. Sin capítulo
+                // enfocado, la sinopsis de la serie, como siempre.
+                (if (focused != null) episodeOverviews[focused.id] else data.description)
+                    ?.takeIf { it.isNotBlank() }?.let { desc ->
                     Text(
                         desc,
                         style = MaterialTheme.typography.bodyMedium,

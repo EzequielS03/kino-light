@@ -124,6 +124,10 @@ fun DetailScreen(
         .collectAsStateWithLifecycle(emptyMap())
     val tmdbStills by graph.repository.observeEpisodeStills(identifier)
         .collectAsStateWithLifecycle(emptyMap())
+    // Sinopsis de cada capítulo (TMDB). Mismo caché que títulos/stills, y misma regla de vacío
+    // si no se sabe a qué serie pertenece el ítem.
+    val tmdbOverviews by graph.repository.observeEpisodeOverviews(identifier)
+        .collectAsStateWithLifecycle(emptyMap())
     LaunchedEffect(identifier) {
         runCatching { graph.repository.ensureEpisodeStills(identifier) }
     }
@@ -296,6 +300,7 @@ fun DetailScreen(
             onToggleWatched = vm::toggleWatched,
             tmdbTitles = tmdbTitles,
             tmdbStills = tmdbStills,
+            tmdbOverviews = tmdbOverviews,
             // Solo el inferior: el superior ya lo cubre el TopAppBar (agregarlo acá lo duplicaría).
             bottomInset = padding.calculateBottomPadding(),
         )
@@ -312,9 +317,10 @@ private fun DetailContent(
     onPlayEpisode: (String) -> Unit,
     onDownloadEpisode: (Episode) -> Unit,
     onToggleWatched: (String, Boolean) -> Unit,
-    /** episodeId -> título / imagen del capítulo según TMDB. Vacíos si no se sabe la serie. Ver [DetailScreen]. */
+    /** episodeId -> título / imagen / sinopsis del capítulo según TMDB. Vacíos si no se sabe la serie. Ver [DetailScreen]. */
     tmdbTitles: Map<String, String>,
     tmdbStills: Map<String, String>,
+    tmdbOverviews: Map<String, String>,
     bottomInset: androidx.compose.ui.unit.Dp,
 ) {
     // Sitios detectados entre TODOS los episodios de la serie (no de la lista ya filtrada): el
@@ -481,6 +487,7 @@ private fun DetailContent(
                     // del archivo y al fotograma que genera archive.org, como antes.
                     tmdbTitle = tmdbTitles[ep.id],
                     tmdbStill = tmdbStills[ep.id],
+                    tmdbOverview = tmdbOverviews[ep.id],
                     // Fallback de miniatura: los capítulos web nunca traen un still propio
                     // (addWebSeriesEpisode guarda thumbPath = null a propósito, el pack solo da un
                     // póster de la serie), y sin esto la fila quedaba con un recuadro vacío.
@@ -673,6 +680,8 @@ private fun EpisodeRow(
     fallbackThumb: String?,
     tmdbTitle: String?,
     tmdbStill: String?,
+    /** Sinopsis del capítulo (TMDB). Null si no se pudo resolver; la fila simplemente no la muestra. */
+    tmdbOverview: String?,
     /** Ya guardado en el dispositivo. */
     isSaved: Boolean,
     /** En cola o bajando: muestra spinner en vez del botón. */
@@ -753,6 +762,18 @@ private fun EpisodeRow(
                     formatDuration((episode.durationSeconds * 1000).toLong()),
                     style = MaterialTheme.typography.bodyMedium,
                     color = ArkivTextSecondary,
+                )
+            }
+            // Sinopsis del capítulo (TMDB): solo si se pudo resolver. Recortada a 2 líneas -- la
+            // fila ya compite por espacio con la miniatura y los botones, no puede crecer sin límite.
+            if (!tmdbOverview.isNullOrBlank()) {
+                Text(
+                    tmdbOverview,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ArkivTextSecondary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp),
                 )
             }
         }

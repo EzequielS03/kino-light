@@ -365,6 +365,16 @@ class ArkivRepository(
             rows.mapNotNull { r -> r.title?.let { r.episodeId to it } }.toMap()
         }
 
+    /**
+     * Mapa episodeId -> sinopsis del capítulo según TMDB. La llenan tanto Magis
+     * (`addMagisSeason`/`addMagisSource`) como [ensureEpisodeStills] para torrent/web/archive:
+     * cualquier serie con `tmdbId` la tiene, no es un privilegio de una sola fuente.
+     */
+    fun observeEpisodeOverviews(itemId: String): Flow<Map<String, String>> =
+        episodeStillDao.observeForItem(itemId).map { rows ->
+            rows.mapNotNull { r -> r.overview?.let { r.episodeId to it } }.toMap()
+        }
+
     fun observeDownloadRows() = downloadDao.observeDownloadRows()
 
     // `completedDownloadUri` se eliminó: miraba SOLO la columna `localUri` (la que llenaba el
