@@ -43,6 +43,11 @@ data class LiveSignature(val moment: Long, val sign2: String)
  * DELIBERADAMENTE defensivo (solo `opt*`, nunca `get*`): el portal en vivo ya nos sorprendió
  * más de una vez con campos ausentes o de tipo raro del lado del servidor, y una excepción de
  * parseo no debe tumbar la pantalla — a lo sumo, un canal o programa sale con datos vacíos.
+ *
+ * [resolver] es la excepción consciente a esa regla: la `LiveSession` que arma termina en manos
+ * del proxy local que le habla al CDN sin revalidarla, así que un dato esencial vacío se valida
+ * acá y se rechaza con [GatewayException] mientras todavía tenemos la respuesta cruda del
+ * gateway — fallar cerca, no como un 403 opaco del CDN varios saltos después.
  */
 class LiveApi(
     private val baseUrl: () -> String,
@@ -126,13 +131,28 @@ class LiveApi(
         val req = pedido("${baseUrl()}/v1/live/resolve")
             .post(JSONObject(mapOf("channel" to code)).toString().toRequestBody(json)).build()
         val o = cuerpo(req)
-        return LiveSession(
+        val sesion = LiveSession(
             cflHost = o.optString("cflHost"),
             authBase = o.optString("authBase"),
             license = o.optString("license"),
             channel = o.optString("channel"),
             expiresAt = o.optLong("expiresAt"),
         )
+        // A diferencia del resto de LiveApi, ACÁ no alcanza con degradar a "" y seguir: una
+        // LiveSession con cflHost/authBase/token/license vacío es la que LiveHlsProxy (Tarea 8)
+        // usa tal cual contra el CDN real, sin volver a chequearla — el fallo aparecería recién
+        // como un 403/400 opaco del CDN, lejos de acá y sin decir qué faltaba. Este es el único
+        // punto con la respuesta cruda a mano, así que es donde hay que fallar claro. `license`
+        // puede venir "" de forma legítima del lado del portal (el propio gateway lo tolera:
+        // ver MagisLive.resolver en el server), pero el CDN la exige igual, así que del lado de
+        // la app es tan esencial como cflHost/authBase.
+        if (sesion.cflHost.isBlank()) throw GatewayException("live: resolve sin cflHost para $code")
+        if (sesion.authBase.isBlank()) throw GatewayException("live: resolve sin authBase para $code")
+        if (sesion.license.isBlank()) throw GatewayException("live: resolve sin license para $code")
+        if (sesion.token.isBlank()) {
+            throw GatewayException("live: authBase de $code sin token valido (se esperaba token=<32 hex>)")
+        }
+        return sesion
     }
 
     suspend fun firmar(token: String, count: Int, spreadMs: Long): List<LiveSignature> {

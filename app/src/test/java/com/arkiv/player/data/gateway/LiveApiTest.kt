@@ -67,8 +67,10 @@ class LiveApiTest {
     }
 
     // --- JSON hostil: el portal ya nos sorprendió con campos ausentes, tipos raros y nulls.
-    // El contrato de LiveApi es que ESO se degrada a valores por defecto, nunca a una excepción
-    // que tumbe la pantalla. ---
+    // Para categorías/canales/EPG/firmas el contrato es que ESO se degrada a valores por defecto
+    // (o se descarta el elemento puntual), nunca una excepción cruda que tumbe la pantalla.
+    // resolver() es la excepción a esa regla: ver el bloque de comentario más abajo, junto a
+    // sus tests. ---
 
     @Test
     fun `canales sin el campo canales en la respuesta no explota`() = runBlocking {
@@ -170,15 +172,81 @@ class LiveApiTest {
         server.shutdown()
     }
 
+    // --- resolver(): acá el criterio cambia. Un LiveSession con cflHost/authBase/license/token
+    // vacío no es un dato degradado e inofensivo: es una sesión que el proxy de la Tarea 8 va a
+    // usar tal cual contra el CDN real (ver LiveHlsProxy, que manda Content-License sin
+    // chequearlo). Si eso falla, falla LEJOS —como un 403/400 opaco del CDN— y sin decir qué
+    // faltaba. Acá todavía tenemos la respuesta cruda del gateway, así que es el único lugar
+    // donde se puede señalar el campo exacto que vino mal. Por eso resolver() valida y lanza
+    // GatewayException ni bien arma la sesión, en vez de devolverla incompleta. ---
+
     @Test
-    fun `resolver con campos ausentes no explota`() = runBlocking {
+    fun `resolver sin cflHost lanza nombrando el campo que falto`() = runBlocking {
         val server = MockWebServer()
-        // Respuesta 200 pero incompleta: no debe tirar JSONException al armar la sesión.
-        server.enqueue(MockResponse().setBody("""{"channel":"c1"}"""))
+        server.enqueue(MockResponse().setBody(
+            """{"authBase":"http://x/?token=${"A".repeat(32)}","license":"LIC","channel":"c1"}"""
+        ))
+        server.start()
+        val error = runCatching { api(server).resolver("c1") }.exceptionOrNull()
+        assertTrue(error is GatewayException)
+        assertTrue(error!!.message!!.contains("cflHost"))
+        server.shutdown()
+    }
+
+    @Test
+    fun `resolver sin authBase lanza nombrando el campo que falto`() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setBody(
+            """{"cflHost":"h","license":"LIC","channel":"c1"}"""
+        ))
+        server.start()
+        val error = runCatching { api(server).resolver("c1") }.exceptionOrNull()
+        assertTrue(error is GatewayException)
+        assertTrue(error!!.message!!.contains("authBase"))
+        server.shutdown()
+    }
+
+    @Test
+    fun `resolver sin license lanza nombrando el campo que falto`() = runBlocking {
+        val server = MockWebServer()
+        // El servidor SÍ puede mandar license vacío de forma legítima (el portal no siempre
+        // trae ese campo), pero el CDN lo exige igual (ver LiveHlsProxy): del lado de la app
+        // es un dato esencial, no opcional.
+        server.enqueue(MockResponse().setBody(
+            """{"cflHost":"h","authBase":"http://x/?token=${"A".repeat(32)}","channel":"c1"}"""
+        ))
+        server.start()
+        val error = runCatching { api(server).resolver("c1") }.exceptionOrNull()
+        assertTrue(error is GatewayException)
+        assertTrue(error!!.message!!.contains("license"))
+        server.shutdown()
+    }
+
+    @Test
+    fun `resolver con authBase sin token valido lanza nombrando el problema`() = runBlocking {
+        val server = MockWebServer()
+        // authBase presente y no vacío, pero sin el patrón token=<32 hex> que la firma necesita.
+        server.enqueue(MockResponse().setBody(
+            """{"cflHost":"h","authBase":"http://x/?a=1","license":"LIC","channel":"c1"}"""
+        ))
+        server.start()
+        val error = runCatching { api(server).resolver("c1") }.exceptionOrNull()
+        assertTrue(error is GatewayException)
+        assertTrue(error!!.message!!.contains("token"))
+        server.shutdown()
+    }
+
+    @Test
+    fun `resolver en el caso feliz extrae el token del authBase`() = runBlocking {
+        val server = MockWebServer()
+        val tok = "AB12CD34AB12CD34AB12CD34AB12CD34".take(32)
+        server.enqueue(MockResponse().setBody(
+            """{"cflHost":"h","authBase":"http://x/?a=1&token=$tok","license":"LIC","channel":"c1","expiresAt":99}"""
+        ))
         server.start()
         val sesion = api(server).resolver("c1")
+        assertEquals(tok, sesion.token)
         assertEquals("c1", sesion.channel)
-        assertEquals("", sesion.cflHost)
         server.shutdown()
     }
 
