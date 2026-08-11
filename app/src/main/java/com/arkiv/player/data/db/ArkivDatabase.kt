@@ -23,7 +23,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         LocalActiveJobEntity::class,
         EpisodeFrameEntity::class,
     ],
-    version = 21,
+    version = 22,
     exportSchema = false,
 )
 abstract class ArkivDatabase : RoomDatabase() {
@@ -358,6 +358,19 @@ abstract class ArkivDatabase : RoomDatabase() {
         }
 
         /**
+         * v21 -> v22: de dónde bajar el JPEG de un frame que vino de otro dispositivo.
+         *
+         * Nullable y sin DEFAULT a propósito: en las filas que ya existen queda NULL, que
+         * significa "es local, no hay nada que bajar" — que es exactamente la verdad para todo lo
+         * capturado en la fase 1.
+         */
+        private val MIGRATION_21_22 = object : Migration(21, 22) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE episode_frame ADD COLUMN remoteUrl TEXT")
+            }
+        }
+
+        /**
          * Deja los triggers de `updatedAt` puestos en CADA apertura, y sella lo que haya quedado
          * sin reloj.
          *
@@ -382,7 +395,7 @@ abstract class ArkivDatabase : RoomDatabase() {
                     context.applicationContext,
                     ArkivDatabase::class.java,
                     "arkiv.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22)
                     .addCallback(SELLAR_UPDATED_AT)
                     .fallbackToDestructiveMigration()
                     .build().also { instance = it }

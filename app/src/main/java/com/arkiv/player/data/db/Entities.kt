@@ -267,4 +267,10 @@ data class EpisodeFrameEntity(
     val capturedAt: Long,
     val updatedAt: Long = 0,
     val deleted: Int = 0,
+    /**
+     * URL del archivo en PocketBase cuando la fila vino de otro dispositivo y el JPEG todavía no se
+     * bajó. Null = el frame es local (se capturó acá) o ya se bajó. Es lo que hace posible la bajada
+     * perezosa: la fila llega por el sync barato y los bytes recién cuando hay que pintarlos.
+     */
+    val remoteUrl: String? = null,
 )

@@ -531,6 +531,14 @@ interface EpisodeFrameDao {
     @Query("DELETE FROM episode_frame WHERE episodeId = :episodeId")
     suspend fun borrar(episodeId: String)
 
+    /** Filas cambiadas después del cursor, para el push. Espeja a `getPlaybackSince`. */
+    @Query("SELECT * FROM episode_frame WHERE updatedAt > :cursor ORDER BY updatedAt ASC")
+    suspend fun getFramesSince(cursor: Long): List<EpisodeFrameEntity>
+
+    /** Filas que vinieron de otro dispositivo y cuyo JPEG todavía no está en disco. */
+    @Query("SELECT * FROM episode_frame WHERE deleted = 0 AND remoteUrl IS NOT NULL")
+    suspend fun pendientesDeBajar(): List<EpisodeFrameEntity>
+
     /**
      * Filas (sin borrar) de los capítulos de un ítem, para el detalle de una serie. Misma forma
      * que [EpisodeStillDao.observeForItem]: el repositorio la usa solo como DISPARADOR del Flow
