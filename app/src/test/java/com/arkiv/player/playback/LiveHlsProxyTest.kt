@@ -338,4 +338,57 @@ class LiveHlsProxyTest {
         proxy.stop() // segunda vez sobre un server ya cerrado: tampoco debe explotar
         assertEquals(-1, proxy.port)
     }
+
+    /**
+     * Tarea 18 (Chromecast/DLNA para vivo): sin ningún canal abierto todavía no hay nada que
+     * castear -- `lanUrl` no debe inventar una URL con un puerto que ni siquiera existe.
+     */
+    @Test
+    fun `lanUrl sin ningun canal abierto devuelve null`() {
+        val proxy = LiveHlsProxy(FirmasFalsas())
+        assertEquals(null, proxy.lanUrl("192.168.1.50"))
+    }
+
+    /**
+     * `urlPara` (el camino real por el que se abre un canal) tiene que dejar el proxy alcanzable
+     * por la LAN desde el primer canal -- `lanUrl` refleja el MISMO puerto que ya quedó grabado en
+     * la URL local que consume VLC (ver el KDoc de `urlPara`: no hay "ensanchar" a mitad de
+     * reproducción, cambiaría el puerto y rompería lo que ya está reproduciendo).
+     */
+    @Test
+    fun `lanUrl coincide en puerto con la url local que ya usa VLC`() = runBlocking {
+        val upstream = MockWebServer()
+        upstream.enqueue(MockResponse().setBody("#EXTM3U\n"))
+        upstream.start()
+
+        val proxy = LiveHlsProxy(FirmasFalsas())
+        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+            "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
+        val local = proxy.urlPara(sesion)
+
+        val lan = proxy.lanUrl("192.168.1.50")
+        assertEquals("http://192.168.1.50:${proxy.port}/live.m3u8", lan)
+        assertTrue("misma ruta y puerto que la URL local, solo cambia el host", local.endsWith(":${proxy.port}/live.m3u8"))
+        proxy.stop(); upstream.shutdown()
+    }
+
+    /**
+     * El socket que abre `urlPara` (bindLan=true, ver su KDoc) tiene que seguir aceptando
+     * conexiones por loopback igual que antes -- 127.0.0.1 conecta igual con el socket escuchando
+     * en todas las interfaces, así que esto no le cambia nada a la reproducción local.
+     */
+    @Test
+    fun `urlPara sigue siendo alcanzable por loopback tras pasar a escuchar en toda la LAN`() = runBlocking {
+        val upstream = MockWebServer()
+        upstream.enqueue(MockResponse().setBody("#EXTM3U\n"))
+        upstream.start()
+
+        val proxy = LiveHlsProxy(FirmasFalsas())
+        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+            "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
+        val (codigo, _) = leer(proxy.urlPara(sesion))
+
+        assertEquals(200, codigo)
+        proxy.stop(); upstream.shutdown()
+    }
 }

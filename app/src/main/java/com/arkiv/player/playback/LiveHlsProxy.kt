@@ -68,11 +68,34 @@ class LiveHlsProxy(
         sesion = null
     }
 
-    /** Fija la sesión del canal y devuelve la URL que se le pasa a VLC. */
+    /**
+     * Fija la sesión del canal y devuelve la URL que se le pasa a VLC.
+     *
+     * `bindLan = true`: el proxy queda alcanzable por la LAN desde que se abre el PRIMER canal,
+     * no solo cuando se castea -- mismo criterio que ya usa el servidor HTTP del torrent
+     * (`TorrentStreamServer`, `ServerSocket(0)` sin IP = todas las interfaces). La alternativa
+     * -abrir en loopback y "ensanchar" a LAN recién al castear- le cambiaría el PUERTO a mitad de
+     * reproducción: esta URL (con el puerto de HOY) ya quedó grabada como el media local de VLC,
+     * y en el media cargado para Chromecast/DLNA (ver `LiveHlsProxy.lanUrl`); reabrir el socket en
+     * otro puerto rompería ambos. 127.0.0.1 sigue funcionando igual con el socket en todas las
+     * interfaces, así que esto no cambia nada para la reproducción local.
+     */
     fun urlPara(nueva: LiveSession): String {
         sesion = nueva
-        if (port <= 0) start()
+        if (port <= 0) start(bindLan = true)
         return "http://127.0.0.1:$port/live.m3u8"
+    }
+
+    /**
+     * URL del canal que el proxy sirve AHORA MISMO, alcanzable por la LAN (Chromecast/DLNA) --
+     * mismo host:puerto que ya usa VLC en local, solo que con la IP del celu en vez de loopback
+     * (ver el KDoc de [urlPara]: el socket escucha en todas las interfaces desde el primer canal
+     * abierto, así que no hace falta "ensanchar" nada acá). `null` si todavía no se abrió ningún
+     * canal -no hay nada que castear-.
+     */
+    fun lanUrl(ip: String): String? {
+        if (port <= 0) return null
+        return "http://$ip:$port/live.m3u8"
     }
 
     private fun atender(socket: Socket) = socket.use { s ->

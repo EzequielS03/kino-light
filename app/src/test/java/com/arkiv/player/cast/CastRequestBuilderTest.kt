@@ -110,6 +110,52 @@ class CastRequestBuilderTest {
     }
 
     @Test
+    fun `vivo usa la url de la LAN del proxy y el mime de HLS`() {
+        val r = CastRequestBuilder.build(
+            episodeId = "live:espn", title = "ESPN", subtitle = "",
+            artworkUrl = "", mediaUrl = "http://127.0.0.1:1/live.m3u8", castUrl = null,
+            isTorrent = false, lanUrl = "http://192.168.3.20:1/live.m3u8",
+            lanMime = null, startPositionMs = 45_000, isLive = true,
+        )!!
+        assertEquals("http://192.168.3.20:1/live.m3u8", r.uri)
+        assertEquals("application/vnd.apple.mpegurl", r.mimeType)
+    }
+
+    @Test
+    fun `vivo fuerza startPositionMs a cero aunque se pida otra cosa`() {
+        val r = CastRequestBuilder.build(
+            episodeId = "live:espn", title = "ESPN", subtitle = "",
+            artworkUrl = "", mediaUrl = "http://127.0.0.1:1/live.m3u8", castUrl = null,
+            isTorrent = false, lanUrl = "http://192.168.3.20:1/live.m3u8",
+            lanMime = null, startPositionMs = 999_999, isLive = true,
+        )!!
+        assertEquals(0, r.startPositionMs)
+    }
+
+    @Test
+    fun `vivo sin url de LAN no se puede castear`() {
+        assertNull(
+            CastRequestBuilder.build(
+                episodeId = "live:espn", title = "ESPN", subtitle = "", artworkUrl = "",
+                mediaUrl = "http://127.0.0.1:1/live.m3u8", castUrl = null,
+                isTorrent = false, lanUrl = null, lanMime = null,
+                startPositionMs = 0, isLive = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `vivo ignora castUrl y mediaUrl aunque vengan seteados`() {
+        val r = CastRequestBuilder.build(
+            episodeId = "live:espn", title = "ESPN", subtitle = "", artworkUrl = "",
+            mediaUrl = "http://127.0.0.1:1/live.m3u8", castUrl = "https://no-deberia-usarse.mp4",
+            isTorrent = false, lanUrl = "http://192.168.3.20:1/live.m3u8",
+            lanMime = null, startPositionMs = 0, isLive = true,
+        )!!
+        assertEquals("http://192.168.3.20:1/live.m3u8", r.uri)
+    }
+
+    @Test
     fun `episodeId subtitle artworkUrl pasan sin cambios`() {
         val r = CastRequestBuilder.build(
             episodeId = "episode-42-custom", title = "Title", subtitle = "Season 2 Episode 5",

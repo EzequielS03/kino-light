@@ -236,8 +236,11 @@ class PlayerViewModel(
                 title = canal.nombre,
                 subtitle = "",
                 mediaUrl = url,
-                // Vivo no castea todavía: el proxy local (LiveHlsProxy) escucha en 127.0.0.1 y la
-                // TV no llega ahí -- misma limitación que magis, ver el comentario de loadMagis.
+                // Un canal en vivo nunca tiene un mp4 h.264 de respaldo -es un directo, no un
+                // archivo-, así que castUrl siempre es null. Eso NO significa que no castee (Tarea
+                // 18): PlayerScreen.castRequestFor resuelve la URL alcanzable por LAN del proxy
+                // local (LiveHlsProxy.lanUrl) por su cuenta, igual que hace con torrent -- ver su
+                // KDoc.
                 castUrl = null,
                 artworkUrl = canal.logo.orEmpty(),
                 openingStartMs = null, openingEndMs = null, endingStartMs = null,

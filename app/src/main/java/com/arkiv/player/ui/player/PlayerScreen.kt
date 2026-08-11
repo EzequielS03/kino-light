@@ -680,9 +680,13 @@ private fun PlayerContent(
      */
     fun castRequestFor(pl: PlaylistData, idx: Int, startPositionMs: Long): com.arkiv.player.cast.CastRequest? {
         val item = pl.items.getOrNull(idx) ?: return null
+        val esVivo = item.kind == SourceKind.LIVE
         // Qué audio lleva esto y si el receptor puede con él. Se lee del player LOCAL, que es el que
         // ya parseó el archivo. Un "no lo decodifica" acá explica el video mudo que antes no dejaba
         // ni un rastro: AC-3 (Avatar) y DTS (Naruto), los dos con H.264, por eso se veía la imagen.
+        // Vivo (Tarea 18) usa EXACTAMENTE el mismo portero: se lee el audio que YA está sonando en
+        // el celu -el canal está reproduciéndose cuando se llega hasta acá, nunca antes- así que no
+        // hace falta ninguna lista de canales permitidos ni adivinar por nombre/categoría.
         val audio = vlc.currentAudioFormat()
         val decodable = com.arkiv.player.cast.CastAudioSupport.receiverDecodes(
             fourcc = audio?.fourcc ?: 0,
@@ -694,6 +698,16 @@ private fun PlayerContent(
                 "canales=${audio?.channels ?: 0} → ${if (decodable) "va directo" else "hay que transcodificar"}",
         )
 
+        // La URL alcanzable por el receptor: la del server HTTP propio, LAN, sea el del torrent o
+        // la del proxy de vivo (LiveHlsProxy) -- mismo motivo en los dos casos, ver el KDoc de
+        // CastRequestBuilder. `lanIp()` es un helper genérico de TorrentEngine (IP del celu en la
+        // LAN), no algo específico de torrent -- el resto de este método ya lo usa así más abajo.
+        val lanUrl = when (item.kind) {
+            SourceKind.TORRENT -> graph.torrentEngine.lanStreamUrl()
+            SourceKind.LIVE -> graph.torrentEngine.lanIp()?.let { graph.liveHlsProxy.lanUrl(it) }
+            else -> null
+        }
+
         val directo = com.arkiv.player.cast.CastRequestBuilder.build(
             episodeId = item.episodeId,
             title = item.title,
@@ -702,9 +716,10 @@ private fun PlayerContent(
             mediaUrl = item.mediaUrl,
             castUrl = item.castUrl,
             isTorrent = item.kind == SourceKind.TORRENT,
-            lanUrl = graph.torrentEngine.lanStreamUrl(),
+            lanUrl = lanUrl,
             lanMime = graph.torrentEngine.streamMime(),
             startPositionMs = startPositionMs,
+            isLive = esVivo,
         )
         if (decodable || directo == null) {
             // Puede venir de un capítulo que sí lo necesitaba: soltar el puerto y la CPU.
@@ -712,19 +727,24 @@ private fun PlayerContent(
             return directo
         }
 
-        // Hay que convertirle el audio. El origen es el loopback cuando es torrent (no sale a la
-        // red) y la misma URL que se hubiera casteado en el resto de los casos.
-        val origen = if (item.kind == SourceKind.TORRENT) {
-            graph.torrentEngine.localStreamUrl() ?: directo.uri
-        } else {
-            directo.uri
+        // Hay que convertirle el audio. El origen es el loopback cuando hay un servidor propio
+        // (torrent, o el proxy de vivo) -no sale a la red- y la misma URL que se hubiera casteado
+        // en el resto de los casos.
+        val origen = when (item.kind) {
+            SourceKind.TORRENT -> graph.torrentEngine.localStreamUrl() ?: directo.uri
+            SourceKind.LIVE -> item.mediaUrl // http://127.0.0.1:.../live.m3u8, ver abrirCanalActual
+            else -> directo.uri
         }
         val lanIp = graph.torrentEngine.lanIp()
+        // Vivo no tiene "dónde ibas": start-time busca una posición DENTRO del archivo, y un HLS en
+        // vivo no tiene ese eje (ver KDoc de CastSoutChain.mediaOptions) -- forzar 0 sea cual sea la
+        // posición local (el tiempo que lleva ABIERTO el canal, no un punto para retomar).
+        val arranqueMs = if (esVivo) 0L else startPositionMs
         val transcodificada = lanIp?.let {
             graph.castTranscoder.start(
                 sourceUrl = origen,
                 lanIp = it,
-                startAtMs = startPositionMs,
+                startAtMs = arranqueMs,
                 audioTrackIndex = audio?.index,
             )
         }
@@ -740,12 +760,13 @@ private fun PlayerContent(
             uri = transcodificada,
             mimeType = com.arkiv.player.cast.CastSoutChain.MIME,
             startPositionMs = 0,
-            baseOffsetMs = startPositionMs,
+            baseOffsetMs = arranqueMs,
             // El receptor no puede saber la duración de un stream en vivo, pero el celu sí: sin
-            // esto, castear transcodificado no guardaría progreso nunca.
+            // esto, castear transcodificado no guardaría progreso nunca. Un canal en vivo no tiene
+            // duración NUNCA (ni local ni remota): 0 ("no sé"), sin ir a preguntarle al controller.
             // `coerceAtLeast(0)` no es cosmético: media3 devuelve C.TIME_UNSET (muy negativo) cuando
             // no la sabe, y eso hay que traducirlo a "no sé" (0), no dejarlo pasar como duración.
-            knownDurationMs = runCatching { controller.duration }.getOrDefault(0L).coerceAtLeast(0L)
+            knownDurationMs = if (esVivo) 0L else runCatching { controller.duration }.getOrDefault(0L).coerceAtLeast(0L)
                 .also { android.util.Log.i("ArkivCast", "duración local para el cast: ${it}ms (cruda=${runCatching { controller.duration }.getOrDefault(0L)})") },
         )
     }
@@ -758,8 +779,16 @@ private fun PlayerContent(
      * protege a archive.org) manda el original sin transcodificar. En AC-3 eso es justo el fallo que
      * vinimos a eliminar: se ve y no suena. Medido en device: `codec=desconocido → va directo`, y
      * recién 29 s más tarde se corrigió de pura casualidad.
+     *
+     * Vivo (Tarea 18) agrega `liveCanal?.code` a la clave: `currentIndex` NUNCA cambia en vivo (el
+     * playlist siempre tiene un solo ítem en el índice 0, zapees lo que zapees), así que sin esto
+     * el recheque solo correría una vez -tras conectar el Chromecast- y nunca volvería a correr en
+     * los zaps siguientes. La primera lectura de audio al zapear con el Chromecast ya conectado es
+     * necesariamente la del canal ANTERIOR (setMediaItems() del canal nuevo recién dispara después,
+     * ver LaunchedEffect(playlist)); este recheque es lo que corrige esa foto vieja apenas VLC
+     * parsea las pistas del canal nuevo.
      */
-    LaunchedEffect(casting, currentIndex) {
+    LaunchedEffect(casting, currentIndex, liveCanal?.code) {
         if (!casting) return@LaunchedEffect
         repeat(RECHEQUEO_INTENTOS) {
             delay(RECHEQUEO_MS)
@@ -837,18 +866,41 @@ private fun PlayerContent(
             // cada zap es un canal distinto -- sin recrear el reproductor: el controller/vlc siguen
             // siendo los mismos de siempre (los del PlaybackService), solo se les cambia el ítem.
             // No pasa por MediaReusePolicy (pensada para reusar buffer entre capítulos de la MISMA
-            // serie/torrent, un concepto que en vivo no existe) ni por el camino de casteo de abajo
-            // -- vivo no castea todavía, ver el comentario de castUrl en
-            // PlayerViewModel.abrirCanalActual.
+            // serie/torrent, un concepto que en vivo no existe).
             android.util.Log.w("ArkivPlay", "playlist lista (vivo) → setMediaItems (${pl.items.firstOrNull()?.episodeId})")
             loaded = true
             currentIndex = 0
             positionMs = 0L
             durationMs = 0L
+            val epId = pl.items.firstOrNull()?.episodeId
+            // Tarea 18: con el Chromecast YA conectado, cada zap tiene que empujarle el canal nuevo
+            // al receptor -- si no, la TV se queda pegada mirando el canal viejo mientras el celu ya
+            // cambió. Mismo patrón que el salto de capítulo de VOD más abajo (rama `casting &&
+            // castSession != null`), solo que sin startPositionMs: un directo no tiene "dónde ibas".
+            if (casting && castSession != null) {
+                val req = castRequestFor(pl, 0, 0L)
+                if (req != null) {
+                    controller.setMediaItems(localMediaItems(pl.items), 0, 0L)
+                    // El local NO arranca: mientras el Chromecast reproduce el canal, competir por
+                    // el mismo stream en el celu es puro gasto de batería/red (mismo criterio que
+                    // el salto de capítulo de VOD).
+                    controller.playWhenReady = false
+                    castSession.setMedia(req)
+                    casteadoAlReceptor = epId
+                    NowPlaying.episodeId = epId
+                    return@LaunchedEffect
+                }
+                android.util.Log.w("ArkivCast", "zap con Chromecast conectado: sin URL que el receptor pueda alcanzar → se reproduce en el celu")
+                android.widget.Toast.makeText(
+                    context,
+                    "No se pudo castear: la TV no puede alcanzar este stream (revisá el WiFi)",
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            }
             controller.setMediaItems(localMediaItems(pl.items), 0, 0L)
             controller.playWhenReady = true
             controller.prepare()
-            NowPlaying.episodeId = pl.items.firstOrNull()?.episodeId
+            NowPlaying.episodeId = epId
             return@LaunchedEffect
         }
         // WEB: URL efímera (token que expira en cada resolve) → NUNCA reusar el media viejo; siempre
@@ -1175,6 +1227,18 @@ private fun PlayerContent(
             // consume una sola vez: la próxima desconexión (la del botón de cast, no la de parar)
             // vuelve a reanudar normal.
             if (graph.castSession?.consumirParadaIntencional() != true) {
+                if (enVivo) {
+                    // Vivo (Tarea 18): sin "dónde ibas" que reanudar -- sería la posición que
+                    // reporta el receptor sobre un HLS en vivo, que no significa nada como offset
+                    // dentro del proxy local (ver el KDoc de castRequestFor/CastRequestBuilder). El
+                    // controller ya quedó cebado con el canal vigente (LaunchedEffect(playlist), sea
+                    // por la conexión inicial o por el último zap), solo hay que prepararlo y
+                    // arrancarlo desde el vivo actual.
+                    runCatching { controller.prepare() }
+                    runCatching { controller.play() }
+                    casteabaAntes = casting
+                    return@LaunchedEffect
+                }
                 val pl = playlistRef.value
                 val epId = pl?.items?.getOrNull(currentIndex)?.episodeId
                 // La posición del receptor solo vale si es de ESTE episodio. El CastPlayer nunca se
@@ -2354,7 +2418,7 @@ private fun PlayerContent(
             // VOD. Incluye el botón atrás: con el bloque de arriba oculto (visible=!enVivo) esta es
             // la ÚNICA forma en pantalla de salir del reproductor en el teléfono.
             Row(
-                modifier = Modifier.align(Alignment.TopStart).systemBarsPadding().padding(6.dp),
+                modifier = Modifier.align(Alignment.TopStart).fillMaxWidth().systemBarsPadding().padding(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (!isTv) {
@@ -2375,6 +2439,42 @@ private fun PlayerContent(
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                     )
+                }
+                Spacer(Modifier.weight(1f))
+                // Tarea 18: DLNA + Chromecast del vivo -- mismos íconos y mismo diálogo
+                // (dlnaPickerOpen/dlnaDevices/etc son estado único de toda la pantalla) que ya usa
+                // VOD más arriba, solo que colgados de ESTE Row porque el bloque VOD está oculto
+                // acá (visible=!enVivo). Se ofrece DESDE EL REPRODUCTOR, no en el diálogo previo de
+                // LiveScreen: recién con el canal sonando hay audio real que leerle a
+                // CastAudioSupport (ver el KDoc de castRequestFor) -- antes de reproducir no hay de
+                // dónde sacar esa lectura, ni para vivo ni para VOD (VOD tampoco ofrece cast en su
+                // propio diálogo de destino, por el mismo motivo).
+                if (!isTv) {
+                    // Casteando no: DLNA es OTRO renderer, y mezclar los dos deja dos TVs
+                    // reproduciendo el mismo canal a la vez (mismo criterio que el Row de VOD).
+                    if (!casting) IconButton(onClick = {
+                        dlnaPickerOpen = true
+                        dlnaDiscovering = true
+                        dlnaDevices = emptyList()
+                        scope.launch {
+                            val found = withContext(Dispatchers.IO) { dlna.discover() }
+                            dlnaDevices = found
+                            dlnaDiscovering = false
+                        }
+                    }) {
+                        Icon(Icons.Default.Tv, contentDescription = "Reproducir en TV (DLNA)", tint = Color.White)
+                    }
+                    if (castContext != null) {
+                        AndroidView(
+                            modifier = Modifier.padding(horizontal = 8.dp),
+                            factory = { ctx ->
+                                val themed = ContextThemeWrapper(ctx, androidx.appcompat.R.style.Theme_AppCompat_DayNight)
+                                MediaRouteButton(themed).also {
+                                    CastButtonFactory.setUpMediaRouteButton(ctx.applicationContext, it)
+                                }
+                            },
+                        )
+                    }
                 }
             }
 
@@ -2581,11 +2681,23 @@ private fun PlayerContent(
                                         val ep = playlistRef.value?.items?.getOrNull(currentIndex)
                                         controller.pause()
                                         scope.launch {
+                                            // Vivo (Tarea 18): igual que torrent, la URL alcanzable
+                                            // por el renderer es la del server HTTP propio (acá, el
+                                            // proxy de LiveHlsProxy) -- mediaUrl es loopback y
+                                            // castUrl no existe para un canal en vivo (nunca hay un
+                                            // mp4 de respaldo, ver el KDoc de CastRequestBuilder).
                                             val ok = if (ep?.kind == SourceKind.TORRENT) {
                                                 val lan = graph.torrentEngine.lanStreamUrl()
                                                 val mime = graph.torrentEngine.streamMime() ?: "video/mp4"
                                                 if (lan != null) {
                                                     withContext(Dispatchers.IO) { dlna.playRawUrl(device, lan, ep.title, mime) }
+                                                } else false
+                                            } else if (ep?.kind == SourceKind.LIVE) {
+                                                val lan = graph.torrentEngine.lanIp()?.let { graph.liveHlsProxy.lanUrl(it) }
+                                                if (lan != null) {
+                                                    withContext(Dispatchers.IO) {
+                                                        dlna.playRawUrl(device, lan, ep.title, "application/vnd.apple.mpegurl")
+                                                    }
                                                 } else false
                                             } else if (ep != null) {
                                                 withContext(Dispatchers.IO) {

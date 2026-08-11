@@ -23,10 +23,19 @@ data class CastRequest(
  * Torrent: la URL es la del servidor HTTP del PROPIO celu en la LAN, porque el receptor tiene que
  * poder descargarla; y se manda el MIME real del stream, no uno inventado.
  * Archive/web: se prefiere `castUrl` (mp4 h.264, compatible con el receptor) sobre `mediaUrl`.
+ * Vivo (Tarea 18): igual que torrent, la URL es la del servidor HTTP LOCAL (el proxy de
+ * `LiveHlsProxy`) alcanzable por la LAN -- `mediaUrl` es siempre el loopback que consume VLC en
+ * este mismo aparato, y `castUrl` no existe para canales en vivo (nunca hay un mp4 h.264 de
+ * respaldo, es un directo). Un directo tampoco tiene "dónde ibas": `startPositionMs` se fuerza a
+ * 0 pase lo que pase se le pida, y el MIME es siempre el de un playlist HLS, no el que adivinaría
+ * la extensión del archivo (`mimeForUrl` no sabe de `.m3u8`).
  */
 object CastRequestBuilder {
 
     private const val MIME_MP4 = "video/mp4"
+
+    /** El Default Media Receiver de Chromecast decide por esto si abrir el stream como HLS. */
+    private const val MIME_HLS = "application/vnd.apple.mpegurl"
 
     @Suppress("LongParameterList")
     fun build(
@@ -40,17 +49,25 @@ object CastRequestBuilder {
         lanUrl: String?,
         lanMime: String?,
         startPositionMs: Long,
+        isLive: Boolean = false,
     ): CastRequest? {
-        val uri = if (isTorrent) lanUrl else castUrl?.takeIf { it.isNotBlank() } ?: mediaUrl
+        val uri = when {
+            isTorrent || isLive -> lanUrl
+            else -> castUrl?.takeIf { it.isNotBlank() } ?: mediaUrl
+        }
         if (uri.isNullOrBlank()) return null
         return CastRequest(
             uri = uri,
-            mimeType = if (isTorrent) (lanMime ?: MIME_MP4) else mimeForUrl(uri),
+            mimeType = when {
+                isTorrent -> lanMime ?: MIME_MP4
+                isLive -> MIME_HLS
+                else -> mimeForUrl(uri)
+            },
             episodeId = episodeId,
             title = title,
             subtitle = subtitle,
             artworkUrl = artworkUrl,
-            startPositionMs = startPositionMs.coerceAtLeast(0),
+            startPositionMs = if (isLive) 0L else startPositionMs.coerceAtLeast(0),
         )
     }
 

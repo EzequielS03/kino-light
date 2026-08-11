@@ -183,9 +183,10 @@ class PlaybackService : MediaSessionService() {
             // Tarea 14 (canal en vivo) creaba liveHlsProxy/liveController en el grafo pero nunca los
             // cerraba: el ServerSocket en 127.0.0.1 y su hilo accept() quedaban vivos el resto del
             // proceso después de salir de un canal. Mismo hermano que archiveCacheProxy: se cierra
-            // acá, con la MISMA guarda de casteo de arriba (el proxy local no lo usa el Chromecast
-            // todavía -castUrl siempre null para vivo, ver PlayerViewModel.abrirCanalActual-, pero
-            // conviene una sola guarda para todos los recursos de red en vez de reinventar el gate).
+            // acá, con la MISMA guarda de casteo de arriba -desde la Tarea 18 esa guarda protege DE
+            // VERDAD una sesión de Chromecast en curso: el receptor jala los segmentos de ESTE
+            // proxy (ver PlayerScreen.castRequestFor/LiveHlsProxy.lanUrl), así que cerrarlo con la
+            // TV todavía reproduciendo le cortaría el canal en seco.
             runCatching { graph.liveHlsProxy.stop() }
             // cerrar() solo invalida la caché de sesiones resueltas (no hay socket que soltar acá,
             // eso ya lo hizo stop() arriba) para que el próximo canal que se abra no reutilice una
