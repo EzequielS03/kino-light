@@ -518,6 +518,13 @@ private fun PlayerContent(
     var liveInfoVisible by remember { mutableStateOf(true) }
     var liveInfoTick by remember { mutableIntStateOf(0) }
     val liveCanal by vm.liveCanal.collectAsStateWithLifecycle()
+    // Tarea 15: publicar el nombre del canal para NowPlayingPublisher (solo corre en el TV, pero
+    // no cuesta nada tenerlo también seteado acá en el celu). Sin esto la barra del miniplayer
+    // remoto, al enviar un canal al TV, queda en blanco: "live:<code>" no es un episodeId de la
+    // biblioteca, así que ArkivRepository.headerInfo() no tiene título que devolver.
+    LaunchedEffect(liveCanal?.nombre) {
+        com.arkiv.player.playback.NowPlaying.liveChannelName = liveCanal?.nombre
+    }
     // "Ahora"/"A continuación" del canal actual (Tarea 14): pedido best-effort directo al gateway
     // -- es puramente informativo para este overlay, no algo que el ViewModel necesite para poder
     // reproducir, así que no se lo carga con otra dependencia (LiveApi) por esto solo.

@@ -19,4 +19,15 @@ class PlayPayloadTest {
     @Test fun encodeIsPrefixed() {
         assertEquals(true, PlayPayloadCodec.encode(PlayPayload(PlayKind.ARCHIVE, "i", "e")).startsWith("arkivplay|"))
     }
+
+    // Tarea 15: el envío de un canal en vivo al TV pareado usa PlayKind.LIVE con
+    // episodeId = "live:<code>" (el mismo prefijo que PlayerSource.LIVE_PREFIX). El roundtrip
+    // tiene que preservar el kind y el prefijo intacto -- si se perdiera, PlayerSource.kindFor()
+    // del lado del TV ya no reconocería el comando como vivo.
+    @Test fun roundTripLive() {
+        val p = PlayPayload(PlayKind.LIVE, id = "live:canal1", episodeId = "live:canal1")
+        val back = PlayPayloadCodec.decode(PlayPayloadCodec.encode(p))
+        assertEquals(p, back)
+        assertEquals(PlayKind.LIVE, back.kind)
+    }
 }

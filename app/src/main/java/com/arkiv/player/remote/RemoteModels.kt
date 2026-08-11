@@ -1,6 +1,6 @@
 package com.arkiv.player.remote
 
-enum class PlayKind { ARCHIVE, TORRENT, UNKNOWN }
+enum class PlayKind { ARCHIVE, TORRENT, LIVE, UNKNOWN }
 
 data class PlayPayload(
     val kind: PlayKind,

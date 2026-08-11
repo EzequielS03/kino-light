@@ -31,6 +31,18 @@ object NowPlaying {
      *  [playerOpen] es true — no se limpia al cerrar porque no hace falta. */
     @Volatile
     var playerOpenedAtMs: Long = 0L
+
+    /**
+     * Nombre del canal en vivo actual (Tarea 15), o null fuera de modo vivo.
+     *
+     * Existe porque un canal en vivo NO es un episodio de la biblioteca: `episodeId` vale
+     * `"live:<code>"`, y `NowPlayingPublisher.metaFor()` no tiene de dónde sacar un título si busca
+     * eso en `ArkivRepository` (headerInfo/getEpisode devuelven vacío, la barra del celu quedaría en
+     * blanco al enviar un canal al TV). `PlayerScreen` lo actualiza con cada zap, igual que
+     * [episodeId]; no se limpia al salir por el mismo motivo que ese campo no se limpia.
+     */
+    @Volatile
+    var liveChannelName: String? = null
 }
 
 /**
