@@ -141,6 +141,18 @@ class LiveHlsProxy(
         // traga y se loguea en vez de dejarla escapar. En Android una excepción sin atrapar en
         // CUALQUIER hilo mata el proceso ENTERO, no solo esta conexión.
         runCatching {
+            // Host por el que ESTE cliente llegó al proxy: la dirección local del socket ya
+            // aceptado, no la cabecera `Host` del request. Se prefiere esto a parsear `Host`
+            // porque `socket.localAddress` es un hecho de la conexión TCP -qué interfaz recibió
+            // el paquete-, no un dato que declara el cliente: no hace falta validarlo ni
+            // sanitizarlo antes de meterlo en una URL de respuesta, y no depende de que VLC,
+            // Chromecast o el cliente DLNA manden una cabecera Host bien formada (algunos
+            // reproductores HLS no la mandan). Es lo mismo que resolvería a mano leyendo
+            // cabeceras, pero sin el riesgo de header injection ni el parsing extra.
+            // `hostAddress` es un tipo plataforma (String! de Java): en la práctica nunca es null
+            // para una InetAddress ya resuelta como esta, pero el fallback deja el camino local
+            // (VLC) intacto ante cualquier corner case en vez de reventar la conexión.
+            val miHost = s.localAddress.hostAddress ?: "127.0.0.1"
             val entrada = s.getInputStream().bufferedReader()
             val linea = entrada.readLine() ?: return@runCatching
             val ruta = linea.split(" ").getOrNull(1) ?: return@runCatching
@@ -154,7 +166,7 @@ class LiveHlsProxy(
                 return@runCatching
             }
             when {
-                ruta.startsWith("/live.m3u8") -> servirPlaylist(salida)
+                ruta.startsWith("/live.m3u8") -> servirPlaylist(salida, miHost)
                 ruta.startsWith("/seg?") -> servirSegmento(ruta, salida)
                 else -> salida.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n".toByteArray())
             }
@@ -230,7 +242,7 @@ class LiveHlsProxy(
         salida.write("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n".toByteArray())
     }
 
-    private fun servirPlaylist(salida: java.io.OutputStream) {
+    private fun servirPlaylist(salida: java.io.OutputStream, miHost: String) {
         // Una sola lectura de los campos volátiles para TODA la petición: si stop() (o un
         // urlPara() nuevo) cambia `sesion`/`server` desde otro hilo a mitad de camino, esta
         // petición sigue con los valores que tenía al empezar. Ver la nota de [pedirAlOrigen].
@@ -242,7 +254,7 @@ class LiveHlsProxy(
         if (c == null || c.responseCode != 200) return error502(salida)
         val base = URL(urlPlaylist)
         val cuerpo = c.inputStream.bufferedReader().readText().lineSequence()
-            .joinToString("\n") { ln -> reescribirLinea(ln, base, miPuerto, miToken) } + "\n"
+            .joinToString("\n") { ln -> reescribirLinea(ln, base, miHost, miPuerto, miToken) } + "\n"
         val bytes = cuerpo.toByteArray()
         salida.write(
             ("HTTP/1.1 200 OK\r\nContent-Type: application/vnd.apple.mpegurl\r\n" +
@@ -274,26 +286,34 @@ class LiveHlsProxy(
      *
      * `URL(base, spec)` resuelve las tres formas de URI (absoluta, protocol-relative, relativa)
      * exactamente como lo haría un navegador, así que no hace falta reinventar esa lógica a mano.
+     *
+     * [miHost] es el host por el que ESTE cliente pidió el playlist (ver [atender]), no un
+     * `127.0.0.1` fijo (hallazgo del agente anterior, Tarea 20): si las URLs de segmento SIEMPRE
+     * quedaran en loopback, Chromecast/DLNA -que piden el playlist por la IP LAN del celu, ver
+     * [lanUrl]- recibirían segmentos apuntando a `127.0.0.1`, que para ELLOS es su propio
+     * dispositivo, no el celu. Pantalla negra sin ningún error. VLC sigue sirviéndose de
+     * `127.0.0.1` igual que antes porque pide el playlist por loopback (ver [urlPara]), así que
+     * `miHost` le llega como `"127.0.0.1"` sin cambiar nada.
      */
-    private fun reescribirLinea(ln: String, base: URL, miPuerto: Int, miToken: String): String {
+    private fun reescribirLinea(ln: String, base: URL, miHost: String, miPuerto: Int, miToken: String): String {
         val t = ln.trim()
         if (t.isEmpty()) return ln
         if (t.startsWith("#EXT-X-KEY") && t.contains("URI=")) {
-            return reescribirUriEnTag(ln, base, miPuerto, miToken)
+            return reescribirUriEnTag(ln, base, miHost, miPuerto, miToken)
         }
         if (t.startsWith("#")) return ln  // el resto de los tags no llevan URI propia
         val absoluta = runCatching { URL(base, t) }.getOrNull() ?: return ln
         // El token va DESPUÉS de u= (nunca antes): servirSegmento() extrae u con
         // `substringBefore("&")`, así que cualquier parámetro nuevo tiene que ir a continuación.
-        return "http://127.0.0.1:$miPuerto/seg?u=${URLEncoder.encode(absoluta.toString(), "UTF-8")}&t=$miToken"
+        return "http://$miHost:$miPuerto/seg?u=${URLEncoder.encode(absoluta.toString(), "UTF-8")}&t=$miToken"
     }
 
     /** Reescribe SOLO la URI entre comillas de un tag `#EXT-X-KEY:...,URI="..."`, dejando el resto igual. */
-    private fun reescribirUriEnTag(ln: String, base: URL, miPuerto: Int, miToken: String): String {
+    private fun reescribirUriEnTag(ln: String, base: URL, miHost: String, miPuerto: Int, miToken: String): String {
         val m = Regex("URI=\"([^\"]*)\"").find(ln) ?: return ln
         val grupo = m.groups[1] ?: return ln
         val absoluta = runCatching { URL(base, grupo.value) }.getOrNull() ?: return ln
-        val nueva = "http://127.0.0.1:$miPuerto/seg?u=${URLEncoder.encode(absoluta.toString(), "UTF-8")}&t=$miToken"
+        val nueva = "http://$miHost:$miPuerto/seg?u=${URLEncoder.encode(absoluta.toString(), "UTF-8")}&t=$miToken"
         return ln.replaceRange(grupo.range, nueva)
     }
 

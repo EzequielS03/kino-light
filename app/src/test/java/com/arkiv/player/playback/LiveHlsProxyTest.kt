@@ -546,6 +546,59 @@ class LiveHlsProxyTest {
     }
 
     /**
+     * Hallazgo del agente anterior (Tarea 20), confirmado acá: `reescribirLinea` fijaba el host
+     * de las URLs de segmento a `127.0.0.1` SIEMPRE, sin importar por qué interfaz llegó la
+     * petición del playlist. Eso rompe Chromecast/DLNA: al castear, el receptor pide el playlist
+     * por la IP LAN del celu (`lanUrl`), pero las URLs de segmento que recibe adentro apuntan a
+     * `127.0.0.1` -- que para el Chromecast es EL PROPIO CHROMECAST, no el celu. Pantalla negra,
+     * sin ningún error que lo explique.
+     *
+     * Este test pide el playlist por una IP de LAN real (no loopback, mismo helper que el test de
+     * alcanzabilidad de arriba) y comprueba que las URLs de segmento reescritas usan ESA IP, no
+     * `127.0.0.1`. Con el bug, esta aserción falla: las URLs siguen apuntando a loopback aunque la
+     * petición haya entrado por la LAN.
+     */
+    @Test
+    fun `las URLs de segmento apuntan al host por el que se pidio el playlist, no siempre a loopback`() = runBlocking {
+        val ipLan = direccionNoLoopbackAlcanzable() ?: run {
+            println("LiveHlsProxyTest: sin interfaz de LAN alcanzable en esta maquina, se salta el test de host por LAN")
+            return@runBlocking
+        }
+
+        val upstream = MockWebServer()
+        upstream.enqueue(MockResponse().setBody(
+            "#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"http://cdn.key/live/c/key.bin\"\n" +
+                "#EXTINF:6,\nhttp://seg1.cdn/live/c/c_1.ts\n"
+        ))
+        upstream.start()
+
+        val proxy = LiveHlsProxy(FirmasFalsas())
+        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+            "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
+        val local = proxy.urlPara(sesion) // bindLan=true adentro, ver su KDoc
+
+        val urlPorLan = local.replaceFirst("127.0.0.1", ipLan.hostAddress!!)
+        val (codigo, cuerpo) = leer(urlPorLan)
+
+        assertEquals(200, codigo)
+        assertTrue(
+            "el segmento reescrito deberia apuntar a la IP LAN por la que se pidio el playlist, " +
+                "no a loopback (rompe Chromecast/DLNA): $cuerpo",
+            cuerpo.contains("http://${ipLan.hostAddress}:${proxy.port}/seg?u="),
+        )
+        assertTrue(
+            "no deberia quedar ninguna URL de segmento fija a 127.0.0.1 cuando se pidio por LAN: $cuerpo",
+            !cuerpo.contains("http://127.0.0.1"),
+        )
+        val lineaKey = cuerpo.lines().first { it.startsWith("#EXT-X-KEY") }
+        assertTrue(
+            "la URI de EXT-X-KEY tiene el mismo problema: tambien deberia usar la IP LAN: $lineaKey",
+            lineaKey.contains("URI=\"http://${ipLan.hostAddress}:${proxy.port}/seg?u="),
+        )
+        proxy.stop(); upstream.shutdown()
+    }
+
+    /**
      * IPv4 no-loopback REALMENTE alcanzable de esta máquina (no simplemente "la primera que
      * enumera `NetworkInterface`"). Máquinas de desarrollo o CI suelen tener de más: bridges de
      * Docker/VMs, túneles VPN (`utunN`), interfaces con la dirección DE RED en vez de una de
