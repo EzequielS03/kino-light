@@ -22,8 +22,8 @@ android {
         applicationId = "com.arkiv.player"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.3.1"
+        versionCode = 5
+        versionName = "0.4.0"
         // Credenciales desde .env (no hardcodeadas en el código).
         // TMDB, OpenSubtitles y Simkl YA NO viajan en el APK: viven en el gateway y se
         // alcanzan por `/v1/catalog/*` con la credencial única de abajo.
