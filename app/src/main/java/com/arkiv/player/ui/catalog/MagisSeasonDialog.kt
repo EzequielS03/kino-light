@@ -7,11 +7,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.filled.CheckBox
@@ -37,9 +39,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import com.arkiv.player.data.gateway.ArkivApiClient
 import com.arkiv.player.data.gateway.GatewayEpisode
 import com.arkiv.player.data.gateway.GatewayResult
@@ -216,15 +220,33 @@ private fun EpisodeRow(
                 fontWeight = FontWeight.SemiBold,
             )
         }
+        if (!cap.still.isNullOrBlank()) {
+            Box(
+                Modifier.height(40.dp).width(40.dp * 16f / 9f)
+                    .clip(RoundedCornerShape(4.dp)).background(Color.Black),
+            ) {
+                AsyncImage(
+                    model = cap.still,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
         Text(
-            // El portal a veces repite el nombre de la temporada en el capítulo
-            // ("Breaking Bad T5_8"): cuando el título no aporta, se muestra el número.
-            cap.title.takeIf { it.isNotBlank() && it != cap.number.toString() } ?: "Capítulo ${cap.number}",
+            // El número del portal MANDA: identifica el capítulo que se va a reproducir, y si el
+            // cruce con TMDB quedara corrido para esta temporada, sigue siendo el dato cierto. El
+            // nombre va al lado, nunca en su lugar. Prioridad: título de TMDB (el real) -> título
+            // del portal (salvo que solo repita el nombre de la temporada, regla ya existente) ->
+            // "Capítulo N" como último respaldo.
+            cap.tmdbTitle?.takeIf { it.isNotBlank() }
+                ?: cap.title.takeIf { it.isNotBlank() && it != cap.number.toString() }
+                ?: "Capítulo ${cap.number}",
             color = Color.White,
             style = MaterialTheme.typography.bodyMedium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.height(20.dp).weight(1f),
+            modifier = Modifier.height(20.dp).weight(1f).padding(start = 8.dp),
         )
         Icon(Icons.Default.PlayArrow, contentDescription = "Reproducir", tint = ArkivMagisBlue)
     }

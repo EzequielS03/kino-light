@@ -1680,15 +1680,38 @@ private fun TvMagisEpisodeRow(
             focusedBorder = Border(BorderStroke(2.dp, Color.White)),
         ),
     ) {
-        Text(
-            // El portal repite el nombre de la temporada en el capítulo ("Breaking Bad T5_8"):
-            // cuando el título no aporta, se muestra solo el número.
-            "E${cap.number}  " + (cap.title.takeIf { it.isNotBlank() && it != cap.number.toString() } ?: "Capítulo ${cap.number}"),
-            color = Color.White,
-            style = MaterialTheme.typography.bodyMedium,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-        )
+        Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (!cap.still.isNullOrBlank()) {
+                Box(
+                    modifier = Modifier.height(56.dp).width(56.dp * 16f / 9f)
+                        .clip(RoundedCornerShape(6.dp)).background(Color.Black),
+                ) {
+                    AsyncImage(
+                        model = cap.still,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+            }
+            Text(
+                // El número del portal MANDA: identifica el capítulo que se va a reproducir, y si
+                // el cruce con TMDB quedara corrido para esta temporada, sigue siendo el dato cierto.
+                // El nombre va al lado, nunca en su lugar. Prioridad: título de TMDB (el real) ->
+                // título del portal (salvo que solo repita el nombre de la temporada, ver más abajo)
+                // -> "Capítulo N" como último respaldo.
+                "E${cap.number}  " + (
+                    cap.tmdbTitle?.takeIf { it.isNotBlank() }
+                        ?: cap.title.takeIf { it.isNotBlank() && it != cap.number.toString() }
+                        ?: "Capítulo ${cap.number}"
+                    ),
+                color = Color.White,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
 }
