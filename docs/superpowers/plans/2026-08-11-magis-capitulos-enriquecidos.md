@@ -886,6 +886,14 @@ los tests que ya existen de `buildSeason` con el caso: `tmdbId = null` sobre un 
 y guarda las filas con `episodeStillDao.upsertAll(MagisEntities.stillsDeTemporada(...))` — solo si la
 lista no vino vacía, para no hacer una escritura de más en el caso sin enriquecer.
 
+**Y lo mismo para las otras fuentes.** `episode_still` no es de Magis: la llena `ensureEpisodeStills`
+para torrent, web y archive a partir del `tmdbId` que esas fuentes ya resuelven. Su `TmdbEpisode` ya
+trae el `overview` (`TmdbApi.kt`, `seasonEpisodes` lo parsea) y hoy lo descarta al armar las filas.
+Guardarlo ahí también es una línea, no cuesta ninguna llamada de red, y es lo que hace que la
+sinopsis por capítulo no quede como un privilegio de Magis: las dos vías escriben la misma tabla y la
+UI lee un solo lugar. Agregar un test de esa función si el proyecto tiene por dónde; si no, queda
+cubierto por la verificación en device de una serie de torrent.
+
 `SearchPlayback.playMagisSeason` usa `episodesConSerie` y mapea los campos nuevos a
 `CapituloDeTemporada`, pasando el `tmdbId` de la serie.
 

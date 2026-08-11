@@ -53,8 +53,22 @@ ya se sabe que falla (ver `LibraryGrouping.groupKeyOf`: en películas junta "Leg
 
 ## Alcance
 
-**Solo Magis**, y todas las superficies donde se pinta un capítulo suyo. Las otras fuentes ya
-resuelven su propio `tmdbId` y no se tocan.
+El **enlace con TMDB** es solo de Magis: es la fuente que no tenía forma de resolver su `tmdbId`, y
+lo nuevo es usar el ID de IMDb que publica el portal. Las otras fuentes ya lo resuelven por su cuenta
+y ese camino no se toca.
+
+Pero **lo que se ve tiene que ser parejo entre fuentes**. `episode_still` no es una tabla de Magis:
+la llena `ensureEpisodeStills` para torrent, web y archive desde el `tmdbId` de cada una. Así que:
+
+- La columna `overview` la escriben **las dos vías**. `TmdbEpisode` en la app ya trae el `overview` y
+  hoy se descarta al armar las filas; guardarlo hace que la sinopsis aparezca también en una serie de
+  torrent, sin ninguna llamada de red extra.
+- El cruce de "Continuar viendo" con `episode_still` beneficia a **todas** las fuentes, no solo a
+  Magis: cualquier serie con stills resueltos pasa a mostrar la imagen y el nombre del capítulo.
+- Lo único genuinamente Magis-only es la lista de capítulos del buscador (esa pantalla es del portal)
+  y el guardado de la temporada.
+
+La UI lee un solo lugar y no pregunta de qué fuente viene: si el dato está, se muestra.
 
 ## Diseño
 
