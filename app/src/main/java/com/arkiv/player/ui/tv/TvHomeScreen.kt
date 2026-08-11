@@ -118,10 +118,13 @@ fun TvHomeScreen(
     // (los que se agregaron por web o magnet suelto) cae al dato de siempre. Nunca repite el
     // título, que ya está arriba en grande.
     fun continueFeatured(row: ContinueRow): Featured {
-        val thumb = row.thumbPath?.let { ArchiveUrls.download(row.itemId, it) } ?: row.itemThumbnailUrl
+        // El still de TMDB manda si `episode_still` lo tiene; si no, el thumb de siempre.
+        val thumb = row.stillUrl
+            ?: row.thumbPath?.let { ArchiveUrls.download(row.itemId, it) }
+            ?: row.itemThumbnailUrl
         return Featured(
             row.itemTitle,
-            heroSubtitle(row.itemTitle, row.itemDescription, heroFallback(row.itemTitle, row.displayName)),
+            heroSubtitle(row.itemTitle, row.itemDescription, heroFallback(row.itemTitle, row.episodeTitle ?: row.displayName)),
             heroArt(row.itemId, thumb),
         )
     }
@@ -314,7 +317,10 @@ fun TvHomeScreen(
                         ) {
                             items(continueWatching, key = { it.episodeId }) { row ->
                                 val progress = if (row.durationMs > 0) row.positionMs.toFloat() / row.durationMs else 0f
-                                val thumb = row.thumbPath?.let { ArchiveUrls.download(row.itemId, it) } ?: row.itemThumbnailUrl
+                                // El still de TMDB manda si `episode_still` lo tiene; si no, el thumb de siempre.
+                                val thumb = row.stillUrl
+                                    ?: row.thumbPath?.let { ArchiveUrls.download(row.itemId, it) }
+                                    ?: row.itemThumbnailUrl
                                 val isFirst = row.episodeId == continueWatching.first().episodeId
                                 TvWideCard(
                                     title = row.itemTitle,

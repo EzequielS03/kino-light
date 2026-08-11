@@ -113,7 +113,9 @@ fun HomeScreen(
                 Hero(
                     backdropUrl = backdrop,
                     title = heroContinue.itemTitle,
-                    subtitle = heroContinue.displayName,
+                    // Nombre real del capítulo (TMDB) si `episode_still` lo resolvió; si no, el
+                    // displayName crudo de siempre.
+                    subtitle = heroContinue.episodeTitle ?: heroContinue.displayName,
                     actionLabel = "Reanudar",
                     onAction = { onPlayEpisode(heroContinue.episodeId) },
                     onClick = { onPlayEpisode(heroContinue.episodeId) },
@@ -144,10 +146,14 @@ fun HomeScreen(
                     ) {
                         items(continueWatching.drop(1), key = { it.episodeId }) { row ->
                             val progress = if (row.durationMs > 0) row.positionMs.toFloat() / row.durationMs else 0f
-                            val thumb = row.thumbPath?.let { ArchiveUrls.download(row.itemId, it) } ?: row.itemThumbnailUrl
+                            // El still de TMDB manda si `episode_still` lo tiene; si no, el thumb de
+                            // siempre (extraído del archivo) y por último la carátula del ítem.
+                            val thumb = row.stillUrl
+                                ?: row.thumbPath?.let { ArchiveUrls.download(row.itemId, it) }
+                                ?: row.itemThumbnailUrl
                             ContinueCard(
                                 title = row.itemTitle,
-                                subtitle = row.displayName,
+                                subtitle = row.episodeTitle ?: row.displayName,
                                 imageUrl = thumb,
                                 progress = progress,
                                 modifier = Modifier.width(220.dp),

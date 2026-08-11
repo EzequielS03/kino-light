@@ -20,6 +20,13 @@ data class ContinueRow(
     val positionMs: Long,
     val durationMs: Long,
     val lastPlayedAt: Long,
+    /**
+     * Still y título del capítulo según TMDB, cuando `ensureEpisodeStills` los pudo resolver
+     * (cualquier fuente con tmdbId: torrent, web, archive o Magis). Null si el capítulo no tiene
+     * fila en `episode_still` (p.ej. una película) o si TMDB no tenía el dato.
+     */
+    val stillUrl: String? = null,
+    val episodeTitle: String? = null,
 )
 
 /** Resumen de un ítem para la grilla de la biblioteca. */
@@ -194,10 +201,12 @@ interface PlaybackDao {
                e.displayName AS displayName, e.thumbPath AS thumbPath,
                i.thumbnailUrl AS itemThumbnailUrl, i.description AS itemDescription,
                p.positionMs AS positionMs, p.durationMs AS durationMs,
-               p.lastPlayedAt AS lastPlayedAt
+               p.lastPlayedAt AS lastPlayedAt,
+               s.stillUrl AS stillUrl, s.title AS episodeTitle
         FROM playback p
         JOIN episodes e ON e.id = p.episodeId
         JOIN items i ON i.identifier = e.itemId
+        LEFT JOIN episode_still s ON s.episodeId = p.episodeId
         WHERE p.watched = 0 AND p.positionMs > :minPositionMs AND i.deleted = 0 AND p.deleted = 0
         ORDER BY p.lastPlayedAt DESC
         LIMIT 60
