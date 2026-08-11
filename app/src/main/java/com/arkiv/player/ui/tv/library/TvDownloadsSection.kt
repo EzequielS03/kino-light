@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -18,6 +19,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -42,6 +45,7 @@ import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextPrimary
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 /**
@@ -154,6 +158,19 @@ private fun TvDownloadActionsDialog(
     val hayActivas = DownloadGroupPolicy.activeEpisodeIds(grupo).isNotEmpty()
     val hayFallidas = DownloadGroupPolicy.failedEpisodeIds(grupo).isNotEmpty()
     var confirmarQuitar by remember { mutableStateOf(false) }
+    val focus = remember { FocusRequester() }
+    // Mismo patrón de reintento que `TvLibraryItemDialog`: es el único diálogo del feature que
+    // borraba gigabytes sin manejar el foco, así que el D-pad podía quedar sin dueño en el paso
+    // de confirmación. La key en `confirmarQuitar` hace que el foco salte de nuevo cuando cambia
+    // el paso (de la lista de acciones a la confirmación, o viceversa con "Cancelar").
+    LaunchedEffect(confirmarQuitar) {
+        var landed = false
+        repeat(20) {
+            if (landed) return@repeat
+            landed = runCatching { focus.requestFocus() }.isSuccess
+            if (!landed) delay(50)
+        }
+    }
 
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
         Column(
@@ -184,7 +201,10 @@ private fun TvDownloadActionsDialog(
                 Button(onClick = onQuitar, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
                     Text("Sí, borrar del dispositivo", maxLines = 1)
                 }
-                Button(onClick = { confirmarQuitar = false }, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
+                // El foco va al botón seguro, no al destructivo: con el control remoto un doble OK
+                // (normal cuando la UI tarda un frame en componerse) puede llegar antes de que el
+                // usuario alcance a leer la advertencia, y acá lo que se borra son gigabytes.
+                Button(onClick = { confirmarQuitar = false }, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth().focusRequester(focus)) {
                     Text("Cancelar", maxLines = 1)
                 }
             } else {
@@ -201,7 +221,9 @@ private fun TvDownloadActionsDialog(
                 Button(onClick = { confirmarQuitar = true }, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
                     Text("Quitar del dispositivo", maxLines = 1)
                 }
-                Button(onClick = onDismiss, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
+                // Mismo criterio acá: por defecto el foco cae en la opción segura, no en la que
+                // arranca el camino hacia borrar.
+                Button(onClick = onDismiss, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth().focusRequester(focus)) {
                     Text("Volver", maxLines = 1)
                 }
             }
