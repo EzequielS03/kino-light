@@ -149,7 +149,19 @@ fun TvDetailScreen(
     Box(Modifier.fillMaxSize().background(ArkivBlack)) {
         // El fondo sigue al capítulo enfocado. Cae al backdrop de la serie cuando ese capítulo no
         // tiene still (TMDB no siempre los trae) o cuando el foco no está en el carrusel.
-        val focused = focusedEpisode
+        // El hero describe SIEMPRE lo que va a pasar si apretás el botón: con el foco en el
+        // carrusel, el capítulo enfocado; con el foco fuera (en "Reproducir"), el capítulo que ESE
+        // botón reanuda. Antes, sacar el foco del carrusel caía a la info de la SERIE y se veía
+        // incoherente: el botón decía "Reproducir T1 · E8" mientras el fondo cambiaba de imagen y
+        // la descripción del capítulo desaparecía.
+        //
+        // Esto NO contradice el `focusedEpisode = null` del botón, lo completa: ese null está para
+        // que no quede describiendo el último capítulo que recorriste (que no es el que se
+        // reproduce). El respaldo pone en su lugar el que SÍ se reproduce.
+        //
+        // Solo en series: en una película `resumeEpisode` es el único "capítulo", y describirla
+        // como capítulo perdería la sinopsis y la etiqueta de "Película".
+        val focused = focusedEpisode ?: data.resumeEpisode?.takeIf { data.episodes.size > 1 }
         val heroImage = focused?.let { ep ->
             // El frame capturado manda sobre el still de TMDB y sobre el thumb de archive.org,
             // en ese orden — los dos respaldos de siempre, intactos, con el frame agregado adelante.
