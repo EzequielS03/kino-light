@@ -11,6 +11,9 @@ interface FirmaDeSegmentos {
 
     /** El CDN rechazó la última firma entregada. */
     fun rechazada() {}
+
+    /** El CDN aceptó la última firma entregada (`pedirAlOrigen` la usó y NO le siguió un 403). */
+    fun aceptada() {}
 }
 
 /** Firma en el aparato. Es aritmética local: ni red, ni espera, ni pool. */
@@ -25,22 +28,43 @@ class FirmaLocal : FirmaDeSegmentos {
  * Firma en el gateway. Pide de a lotes para no hacer una llamada por segmento; con
  * [lote] = 1 pide una firma por petición, que es el modo seguro mientras no esté
  * verificado que el CDN acepta `start_moment` futuros (Tarea 5, paso 6).
+ *
+ * [pendientes] es un `ArrayDeque` corriente -no thread-safe-, pero lo tocan dos llamantes que NO
+ * comparten el mismo candado: [firmar] es `suspend` y usa [cerrojoRed] (un `Mutex` de corrutina),
+ * mientras que [rechazada] es `fun` corriente -la llama `LiveHlsProxy` desde el hilo plano de cada
+ * conexión, nunca desde una corrutina- y no puede tomar ESE mismo `Mutex` sin volverse `suspend`.
+ * Por eso el propio `ArrayDeque` -no la operación de red- se protege con `synchronized(pendientes)`,
+ * que ambos SÍ pueden compartir: ninguno de los dos lo sostiene mientras suspende (la llamada a
+ * [api] queda siempre FUERA del bloque `synchronized`).
  */
 class FirmaDelGateway(
     private val api: LiveApi,
     private val lote: Int = 1,
     private val spreadMs: Long = 0,
 ) : FirmaDeSegmentos {
-    private val cerrojo = Mutex()
+    private val cerrojoRed = Mutex()
     private val pendientes = ArrayDeque<LiveSignature>()
 
-    override suspend fun firmar(token: String): LiveSignature = cerrojo.withLock {
-        if (pendientes.isEmpty()) pendientes.addAll(api.firmar(token, lote, spreadMs))
-        if (pendientes.size == 1) pendientes.first() else pendientes.removeFirst()
+    override suspend fun firmar(token: String): LiveSignature {
+        synchronized(pendientes) { pendientes.removeFirstOrNull() }?.let { return it }
+        // La cola estaba vacía: pedimos al gateway. El Mutex serializa este tramo entre llamadas
+        // concurrentes a firmar() para no disparar N pedidos de red redundantes cuando N
+        // conexiones se quedan sin firma al mismo tiempo -algo que SÍ puede pasar (un hilo por
+        // conexión en LiveHlsProxy).
+        return cerrojoRed.withLock {
+            // Reconfirmar con el candado de red tomado: otra llamada pudo habernos ganado de mano
+            // mientras esperábamos, y dejar la cola con lo que a nosotros nos alcanza.
+            synchronized(pendientes) { pendientes.removeFirstOrNull() }?.let { return@withLock it }
+            val traidas = api.firmar(token, lote, spreadMs)
+            synchronized(pendientes) {
+                pendientes.addAll(traidas)
+                pendientes.removeFirst()
+            }
+        }
     }
 
     override fun rechazada() {
-        pendientes.clear()  // lo que quedaba en el lote ya no sirve
+        synchronized(pendientes) { pendientes.clear() }  // lo que quedaba en el lote ya no sirve
     }
 }
 
@@ -48,31 +72,25 @@ class FirmaDelGateway(
  * Firma en el aparato y, si el CDN rechaza [umbral] firmas **seguidas**, pasa a pedírselas
  * al gateway por lo que resta de la reproducción.
  *
- * El contador se reinicia con cada firma aceptada a propósito: un 403 aislado es una firma
- * que llegó tarde, no un algoritmo roto. Lo que se quiere detectar es el caso en que Magis
- * cambió la firma — ahí fallan todas, y el gateway (que se arregla con un redespliegue,
- * sin publicar APK) toma la posta.
+ * El contador se reinicia con cada firma aceptada: un 403 aislado es una firma que llegó tarde,
+ * no un algoritmo roto. Lo que se quiere detectar es el caso en que Magis cambió la firma — ahí
+ * fallan todas, y el gateway (que se arregla con un redespliegue, sin publicar APK) toma la posta.
  *
- * La interfaz no tiene un `aceptada()`: la aceptación es implícita — si a una firma emitida
- * NO le sigue un [rechazada] antes del próximo [firmar] **del mismo hilo**, fue aceptada.
+ * La aceptación/rechazo llegan como señales EXPLÍCITAS ([aceptada]/[rechazada]) desde quien de
+ * verdad sabe si el CDN aceptó la firma -`LiveHlsProxy.pedirAlOrigen`-, no como algo que esta
+ * clase infiere. Esto reemplaza un diseño anterior que trataba de inferir "fue aceptada" con el
+ * SILENCIO del llamante (si a una firma emitida no le seguía un [rechazada] antes del próximo
+ * [firmar] del MISMO hilo, se asumía aceptada, rastreado con un `ThreadLocal`). Ese diseño tenía
+ * un defecto de fondo: `LiveHlsProxy` abre un hilo REAL por conexión aceptada (uno por el poll del
+ * playlist, uno por cada segmento en vuelo), así que cada conexión pide UNA firma y su hilo muere
+ * -el `ThreadLocal` se iba con él-. La única segunda llamada a `firmar()` dentro del MISMO hilo era
+ * el reintento interno de `pedirAlOrigen`, que ocurre DESPUÉS de que `rechazada()` ya había hecho
+ * su trabajo: el camino de reinicio nunca se alcanzaba en producción, así que dos 403 cualesquiera
+ * en toda la sesión conmutaban al gateway para siempre (hallazgo F1 de la revisión final).
  *
- * `LiveHlsProxy` abre un hilo real por conexión aceptada (uno para el poll del playlist, uno
- * por cada segmento en vuelo) y todos comparten la MISMA instancia de esta clase — pero cada
- * conexión llama a [firmar] y [rechazada] siempre **desde su propio hilo**, en pares (pide una
- * firma, la usa, y si el CDN la rechaza, avisa antes de reintentar — nunca se mezcla con lo que
- * hace otra conexión). Por eso "pendiente" — si la última firma que pedí sigue sin veredicto —
- * se rastrea **por hilo** con un [ThreadLocal], no con un flag global.
- *
- * Esto no es solo prolijidad: un flag global compartido es un bug real, no únicamente uno de
- * memoria. Con un solo `Boolean`/`Int` compartidos — aunque estén protegidos por un lock, como
- * en un primer intento de este fix — un hilo A pide una firma (marca "pendiente" en la variable
- * GLOBAL) y todavía no tuvo veredicto; antes de que A avise el rechazo, un hilo C totalmente
- * ajeno pide SU PROPIA firma, ve la bandera compartida en `true` (dejada por A) y por eso
- * resetea el contador — borrando de un plumazo rechazos de OTRAS conexiones que ya habían
- * contado. Medido: con 64 hilos rechazando a la vez, el contador nunca llegaba al umbral en
- * 30/30 rondas, CON o SIN el lock — el lock evita que se pisen escrituras, pero no evita que un
- * hilo cancele el conteo de otro. Con el [ThreadLocal], el hilo C ve SU PROPIO "pendiente"
- * (nunca usado todavía, en `false`) y no puede tocar el rastro de A ni de nadie más.
+ * Con señales explícitas el problema desaparece de raíz: no hace falta saber en qué hilo corrió
+ * cada firma, porque ya no se infiere nada -el propio `pedirAlOrigen` avisa `aceptada()` apenas ve
+ * un código de respuesta que no es 403, sin importar en qué conexión/hilo haya sido-.
  *
  * `rechazosSeguidos` y `usandoRespaldo` sí son estado realmente compartido entre hilos (el
  * conteo total tiene que ser uno solo), así que esos dos van protegidos por [estado].
@@ -86,28 +104,49 @@ class FirmaConRespaldo(
         private set
     private var rechazosSeguidos = 0
     private val estado = Any()
-    private val pendiente = ThreadLocal.withInitial { false }
 
     override suspend fun firmar(token: String): LiveSignature {
         // Lectura del volatile SIN el lock: es de solo ida (false→true, nunca vuelve), así que
         // una lectura desactualizada en la ventana de la conmutación cuesta a lo sumo una firma
         // local de más — no un contador que se pierde.
-        val enRespaldo = usandoRespaldo
-        if (!enRespaldo && pendiente.get() == true) {
-            synchronized(estado) { rechazosSeguidos = 0 }
-        }
-        val elegida = if (enRespaldo) remota else local
-        val firma = elegida.firmar(token)
-        if (!enRespaldo) pendiente.set(true)
-        return firma
+        val elegida = if (usandoRespaldo) remota else local
+        return elegida.firmar(token)
     }
 
     override fun rechazada() {
         if (usandoRespaldo) { remota.rechazada(); return }
-        pendiente.set(false)
         synchronized(estado) {
             rechazosSeguidos++
             if (rechazosSeguidos >= umbral) usandoRespaldo = true
         }
     }
+
+    override fun aceptada() {
+        if (usandoRespaldo) { remota.aceptada(); return }
+        synchronized(estado) { rechazosSeguidos = 0 }
+    }
+}
+
+/**
+ * Respeta el interruptor de Ajustes ("Forzar servidor", [forzarRemoto]) en CADA llamada, no solo
+ * al construirse -así cambiarlo en caliente (reproducir → Ajustes → cambiar → reproducir) tiene
+ * efecto en el próximo segmento, sin reiniciar la app. Antes de este envoltorio, `AppGraph`
+ * armaba `liveHlsProxy` como `by lazy` leyendo `settings.liveSignRemote.value` UNA sola vez: el
+ * interruptor -pensado justo para poder comprobar de vez en cuando que el camino de respaldo
+ * sigue andando, sin esperar a que el algoritmo local se rompa de verdad- quedaba mudo hasta
+ * matar la app (hallazgo de la revisión final, "en la misma ola").
+ *
+ * [conRespaldo] es SIEMPRE la misma instancia esté o no forzado el remoto: así su contador de
+ * rechazos seguidos no se pierde al alternar el interruptor de un lado a otro.
+ */
+class FirmaSegunAjustes(
+    private val conRespaldo: FirmaConRespaldo,
+    private val remota: FirmaDeSegmentos,
+    private val forzarRemoto: () -> Boolean,
+) : FirmaDeSegmentos {
+    private fun elegida(): FirmaDeSegmentos = if (forzarRemoto()) remota else conRespaldo
+
+    override suspend fun firmar(token: String): LiveSignature = elegida().firmar(token)
+    override fun rechazada() = elegida().rechazada()
+    override fun aceptada() = elegida().aceptada()
 }

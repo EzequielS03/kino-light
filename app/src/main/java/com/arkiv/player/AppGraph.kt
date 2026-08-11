@@ -84,18 +84,34 @@ class AppGraph(context: Context) {
         )
     }
 
-    /** Proxy HLS local del canal en vivo: firma en el aparato con respaldo en el gateway. */
+    /**
+     * Proxy HLS local del canal en vivo: firma en el aparato con respaldo en el gateway.
+     *
+     * El interruptor de Ajustes (`settings.liveSignRemote`) permite forzar el camino del gateway
+     * para comprobar que el respaldo sigue vivo, sin esperar a que el algoritmo local se rompa de
+     * verdad. Se lee con [com.arkiv.player.playback.FirmaSegunAjustes] -en CADA `firmar()`, no una
+     * sola vez acá- para que cambiarlo en Ajustes tenga efecto en el próximo segmento sin
+     * reiniciar la app (antes, al ser `by lazy`, el `if` de abajo se evaluaba una única vez con el
+     * valor que tuviera el interruptor la primera vez que se tocaba algo en vivo).
+     */
     val liveHlsProxy: com.arkiv.player.playback.LiveHlsProxy by lazy {
         val remota = com.arkiv.player.playback.FirmaDelGateway(liveApi)
-        // El interruptor de Ajustes (settings.liveSignRemote) permite forzar el camino del
-        // gateway para comprobar que el respaldo sigue vivo, sin esperar a que el algoritmo
-        // local se rompa de verdad.
-        val fuente = if (settings.liveSignRemote.value) remota
-        else com.arkiv.player.playback.FirmaConRespaldo(
+        val conRespaldo = com.arkiv.player.playback.FirmaConRespaldo(
             local = com.arkiv.player.playback.FirmaLocal(),
             remota = remota,
         )
-        com.arkiv.player.playback.LiveHlsProxy(fuente)
+        val fuente = com.arkiv.player.playback.FirmaSegunAjustes(
+            conRespaldo = conRespaldo,
+            remota = remota,
+            forzarRemoto = { settings.liveSignRemote.value },
+        )
+        com.arkiv.player.playback.LiveHlsProxy(
+            fuente,
+            // Tras un doble 403 irrecuperable (sesión caducada, no firma): invalida la sesión
+            // cacheada de ESE canal para que el próximo abrir()/precalentar() vuelva a resolver
+            // contra el gateway en vez de reusar la que ya sabemos muerta hasta 300s más.
+            onSesionMuerta = { canal -> liveController.invalidar(canal) },
+        )
     }
 
     /** Abre canales en vivo: resuelve contra [liveApi] y le entrega a VLC la URL de [liveHlsProxy]. */

@@ -21,11 +21,13 @@ class LiveHlsProxyTest {
     private class FirmasFalsas : FirmaDeSegmentos {
         var entregadas = 0
         var rechazos = 0
+        var aceptaciones = 0
         override suspend fun firmar(token: String): LiveSignature {
             entregadas++
             return LiveSignature(1000L, "firma%02d".format(entregadas))
         }
         override fun rechazada() { rechazos++ }
+        override fun aceptada() { aceptaciones++ }
     }
 
     private fun leer(url: String): Pair<Int, String> {
@@ -103,23 +105,78 @@ class LiveHlsProxyTest {
         assertEquals(200, codigo)
         assertEquals("un 403 y su reintento, nada mas", 2, pedidos)
         assertEquals("el 403 se le avisa a la fuente de firmas", 1, firmas.rechazos)
+        assertEquals("el reintento que si funciono se avisa como aceptado", 1, firmas.aceptaciones)
         proxy.stop(); upstream.shutdown()
     }
 
+    /**
+     * Hallazgo F1 de la revisión final: antes, `pedirAlOrigen` llamaba a `firmas.rechazada()` UNA
+     * VEZ POR INTENTO HTTP (hasta dos, acá dentro) -- así que un solo 403 "de verdad" (el caso
+     * "caducó la sesión, no la firma", donde el reintento también 403 sin que el algoritmo esté
+     * roto) ya empujaba el contador de `FirmaConRespaldo` DOS pasos de una, la mitad del umbral
+     * real. `dos 403 seguidos` acá son UNA sola petición de `LiveHlsProxy` (con su reintento
+     * interno) rindiéndose: eso tiene que contar como UN rechazo, no dos.
+     */
     @Test
-    fun `dos 403 seguidos se rinden en vez de reintentar para siempre`() = runBlocking {
+    fun `dos 403 seguidos se rinden en vez de reintentar para siempre, y cuentan como UN solo rechazo`() = runBlocking {
         val upstream = MockWebServer()
         upstream.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest) = MockResponse().setResponseCode(403)
         }
         upstream.start()
 
-        val proxy = LiveHlsProxy(FirmasFalsas())
+        val firmas = FirmasFalsas()
+        val proxy = LiveHlsProxy(firmas)
         proxy.start()
         val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
             "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
         val (codigo, _) = leer(proxy.urlPara(sesion))
         assertEquals(502, codigo)
+        assertEquals("un 403 y su reintento -tambien 403- cuentan como UN solo rechazo", 1, firmas.rechazos)
+        assertEquals(0, firmas.aceptaciones)
+        proxy.stop(); upstream.shutdown()
+    }
+
+    /**
+     * "En la misma ola" de la revisión final: un 403 que sobrevive al reintento significa que
+     * caducó la SESIÓN del canal (token/license), no la firma -ver el KDoc de `pedirAlOrigen`-.
+     * Antes nadie avisaba de esto: `LiveController` seguía sirviendo esa sesión cacheada hasta
+     * 300s más, así que zapear e ir y volver a un canal roto lo dejaba roto todo ese rato.
+     */
+    @Test
+    fun `dos 403 seguidos avisan que la sesion del canal murio`() = runBlocking {
+        val upstream = MockWebServer()
+        upstream.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest) = MockResponse().setResponseCode(403)
+        }
+        upstream.start()
+
+        val canalesMuertos = CopyOnWriteArrayList<String>()
+        val proxy = LiveHlsProxy(FirmasFalsas(), onSesionMuerta = { canalesMuertos.add(it) })
+        proxy.start()
+        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+            "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "canal-x", 0)
+        leer(proxy.urlPara(sesion))
+
+        assertEquals(listOf("canal-x"), canalesMuertos)
+        proxy.stop(); upstream.shutdown()
+    }
+
+    /** El camino feliz (sin 403) no debe avisar sesión muerta -sería un false positive. */
+    @Test
+    fun `sin 403 no avisa sesion muerta`() = runBlocking {
+        val upstream = MockWebServer()
+        upstream.enqueue(MockResponse().setBody("#EXTM3U\n"))
+        upstream.start()
+
+        val canalesMuertos = CopyOnWriteArrayList<String>()
+        val proxy = LiveHlsProxy(FirmasFalsas(), onSesionMuerta = { canalesMuertos.add(it) })
+        proxy.start()
+        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+            "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
+        leer(proxy.urlPara(sesion))
+
+        assertTrue(canalesMuertos.isEmpty())
         proxy.stop(); upstream.shutdown()
     }
 

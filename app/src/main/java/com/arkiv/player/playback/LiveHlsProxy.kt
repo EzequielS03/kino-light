@@ -19,8 +19,18 @@ import java.net.URLEncoder
  *
  * El proxy baja el playlist, reescribe las URLs absolutas de los `.ts` hacia sí mismo y pone
  * las cabeceras en cada petición al origen. VLC solo ve `127.0.0.1`.
+ *
+ * [onSesionMuerta] avisa cuando una petición se rinde tras dos 403 seguidos ([pedirAlOrigen]):
+ * eso significa que caducó la sesión del canal (token/license), no la firma -ver el KDoc de
+ * [pedirAlOrigen]-, así que quien la resolvió (`LiveController`) debe volver a pedirla al gateway
+ * la próxima vez, en vez de servir la copia cacheada que ya sabemos muerta hasta que expire sola
+ * (hasta 300s; ver `LiveController.vigente`). Sin este aviso el canal queda roto todo ese rato
+ * aunque el usuario zapee y vuelva (hallazgo "en la misma ola" de la revisión final).
  */
-class LiveHlsProxy(private val firmas: FirmaDeSegmentos) {
+class LiveHlsProxy(
+    private val firmas: FirmaDeSegmentos,
+    private val onSesionMuerta: (canal: String) -> Unit = {},
+) {
 
     @Volatile private var server: ServerSocket? = null
     @Volatile private var running = false
@@ -89,14 +99,22 @@ class LiveHlsProxy(private val firmas: FirmaDeSegmentos) {
     /**
      * Pide al origen con la firma vigente y, ante un 403, refresca la firma y reintenta
      * **una** vez. Un 403 que sobrevive al reintento significa que caducó la sesión del
-     * canal, no la firma: quien reproduce debe re-resolver (ver [PlayerViewModel]).
+     * canal, no la firma: se avisa por [onSesionMuerta] para que quien reproduce re-resuelva.
      *
      * Recibe [s] ya resuelta (no relee el campo `sesion`): así toda la petición usa la MISMA
      * sesión de punta a punta aunque [stop] (u otro [urlPara]) la cambie desde otro hilo a mitad
      * de camino — es lo que cierra la ventana de carrera del hallazgo C2 (`sesion!!.license` con
      * `sesion` ya nula).
+     *
+     * Un solo 403 cuenta como UN rechazo, sin importar cuántos intentos de HTTP haga esta función
+     * para resolverlo: antes se llamaba a `firmas.rechazada()` una vez POR INTENTO (hasta dos
+     * veces acá dentro), así que un único 403 -por ejemplo el caso "caducó la sesión, no la
+     * firma"- ya empujaba el contador de [FirmaConRespaldo] dos pasos de una, disparando el
+     * respaldo con solo la MITAD de los rechazos reales que haría falta ver (hallazgo F1 de la
+     * revisión final). [avisado] evita eso.
      */
     private fun pedirAlOrigen(url: String, s: LiveSession): HttpURLConnection? {
+        var avisado = false
         repeat(2) {
             val c = (URL(url).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 12_000
@@ -108,12 +126,18 @@ class LiveHlsProxy(private val firmas: FirmaDeSegmentos) {
                 setRequestProperty("App-Version", APP_VERSION)
                 setRequestProperty("X-Buffer", "0")
             }
-            if (c.responseCode != 403) return c
+            if (c.responseCode != 403) {
+                // Avisa que la firma usada en ESTA petición fue aceptada: es la señal que
+                // FirmaConRespaldo necesita para reiniciar su contador de rechazos seguidos.
+                firmas.aceptada()
+                return c
+            }
             // El aviso es lo que permite a FirmaConRespaldo detectar que el algoritmo
             // dejó de servir y conmutar al gateway. Sin esto, el respaldo nunca entra.
-            firmas.rechazada()
+            if (!avisado) { firmas.rechazada(); avisado = true }
             c.disconnect()
         }
+        onSesionMuerta(s.channel)
         return null
     }
 
