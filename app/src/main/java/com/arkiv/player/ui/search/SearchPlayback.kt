@@ -402,7 +402,9 @@ class SearchPlayback(private val graph: AppGraph) {
      *  series TMDB (con season+episode conocidos); anime no tiene esta fuente de nombres. */
     private suspend fun episodeNameFor(detail: TmdbDetail?, season: Int, episode: Int): String {
         val d = detail ?: return ""
-        return runCatching { graph.tmdbApi.seasonEpisodes(d.id, season).firstOrNull { it.episode == episode }?.name }
+        // `?.`: `seasonEpisodes` devuelve null si no se pudo consultar. Acá da lo mismo que una
+        // temporada sin ese capítulo — el label cae al nombre del archivo y no se cachea nada.
+        return runCatching { graph.tmdbApi.seasonEpisodes(d.id, season)?.firstOrNull { it.episode == episode }?.name }
             .getOrNull().orEmpty()
     }
 }

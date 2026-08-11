@@ -739,7 +739,9 @@ private fun TvRefineContent(
         if (episodesBySeason.containsKey(season)) return@LaunchedEffect
         loadingEpisodes = true
         try {
-            val eps = runCatching { tmdbApi.seasonEpisodes(tmdbId, season) }.getOrDefault(emptyList())
+            // `.orEmpty()`: esto solo pinta la lista de capítulos; un fallo de red se ve igual que
+            // una temporada vacía y se reintenta con solo volver a entrar.
+            val eps = runCatching { tmdbApi.seasonEpisodes(tmdbId, season) }.getOrNull().orEmpty()
             episodesBySeason = episodesBySeason + (season to eps)
         } finally {
             loadingEpisodes = false

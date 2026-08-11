@@ -49,6 +49,47 @@ data class TmdbEpisode(
     val stillUrl: String,
 )
 
+/** Base de las imágenes de TMDB. Fuera de la clase para que [parseSeasonEpisodes] siga siendo puro. */
+private const val TMDB_IMG = "https://image.tmdb.org/t/p"
+
+private fun tmdbImgUrl(path: String?, size: String): String =
+    if (path.isNullOrBlank()) "" else "$TMDB_IMG/$size$path"
+
+/**
+ * Parsea la respuesta de `/tv/{id}/season/{n}`. Puro/testeable (sin red).
+ *
+ * **`null` no es lo mismo que la lista vacía**, y esa es toda la razón de que esta función exista
+ * separada: `null` = la consulta no se pudo hacer (timeout, 429, 5xx, respuesta ilegible), lista
+ * vacía = TMDB contestó y esa temporada no traía capítulos. Antes las dos cosas salían como
+ * `emptyList()` y quedaban indistinguibles, así que `ArkivRepository.ensureEpisodeStills` marcaba
+ * como "ya preguntado" lo que nunca se llegó a preguntar: una sola apertura del detalle sin red
+ * escribía todas las filas en null y esa serie se quedaba sin imágenes ni nombres para siempre.
+ *
+ * [seasonNumber] es el que se pidió, y se usa como respaldo cuando el JSON no trae `season_number`.
+ */
+internal fun parseSeasonEpisodes(json: String?, seasonNumber: Int): List<TmdbEpisode>? {
+    if (json == null) return null
+    return runCatching {
+        // `optJSONArray ?: JSONArray()` (lista vacía, no null) a propósito: un JSON válido SIN
+        // capítulos sí es una respuesta, y tiene que escribirse como "preguntado y no había".
+        val eps = JSONObject(json).optJSONArray("episodes") ?: JSONArray()
+        (0 until eps.length()).mapNotNull { i ->
+            val e = eps.optJSONObject(i) ?: return@mapNotNull null
+            TmdbEpisode(
+                season = e.optInt("season_number", seasonNumber),
+                episode = e.optInt("episode_number"),
+                name = e.optString("name").ifBlank { "Episodio ${e.optInt("episode_number")}" },
+                overview = e.optString("overview"),
+                air = e.optString("air_date").take(10),
+                stillUrl = tmdbImgUrl(e.optString("still_path"), "w300"),
+            )
+        }
+        // Un cuerpo que ni siquiera es JSON (error del gateway, portal cautivo de un wifi) cuenta
+        // como "no se pudo consultar": preferimos reintentar en la próxima apertura antes que
+        // sellar la serie entera en null por una respuesta rota.
+    }.getOrNull()
+}
+
 /** Detalle de un título: metadata en español + lista de temporadas (capítulos aparte). */
 data class TmdbDetail(
     val id: Int,
@@ -84,7 +125,6 @@ class TmdbApi(
 ) {
     // Passthrough del gateway: la ruta y los parámetros de TMDB no cambian, solo el host.
     private val base: String get() = "${gatewayUrl()}/v1/catalog/tmdb"
-    private val img = "https://image.tmdb.org/t/p"
 
     val configured: Boolean get() = arkivKey().isNotBlank()
 
@@ -226,23 +266,15 @@ class TmdbApi(
     private fun isLatinScript(s: String): Boolean =
         s.isNotBlank() && s.none { it.code in 0x2E80..0x9FFF || it.code in 0xAC00..0xD7AF || it.code in 0xFF00..0xFFEF }
 
-    /** Capítulos de una temporada de una serie. */
-    suspend fun seasonEpisodes(tvId: Int, seasonNumber: Int): List<TmdbEpisode> = withContext(Dispatchers.IO) {
-        val json = get("$base/tv/$tvId/season/$seasonNumber?$auth") ?: return@withContext emptyList()
-        runCatching {
-            val eps = JSONObject(json).optJSONArray("episodes") ?: JSONArray()
-            (0 until eps.length()).mapNotNull { i ->
-                val e = eps.optJSONObject(i) ?: return@mapNotNull null
-                TmdbEpisode(
-                    season = e.optInt("season_number", seasonNumber),
-                    episode = e.optInt("episode_number"),
-                    name = e.optString("name").ifBlank { "Episodio ${e.optInt("episode_number")}" },
-                    overview = e.optString("overview"),
-                    air = e.optString("air_date").take(10),
-                    stillUrl = imgUrl(e.optString("still_path"), "w300"),
-                )
-            }
-        }.getOrDefault(emptyList())
+    /**
+     * Capítulos de una temporada de una serie.
+     *
+     * Devuelve **`null` si la consulta no se pudo hacer** y lista vacía si TMDB contestó sin
+     * capítulos: ver [parseSeasonEpisodes] para por qué la diferencia importa. Los llamadores que
+     * solo pintan una lista pueden tratarlas igual (`.orEmpty()`); el que cachea en base, no.
+     */
+    suspend fun seasonEpisodes(tvId: Int, seasonNumber: Int): List<TmdbEpisode>? = withContext(Dispatchers.IO) {
+        parseSeasonEpisodes(get("$base/tv/$tvId/season/$seasonNumber?$auth"), seasonNumber)
     }
 
     /**
@@ -282,8 +314,9 @@ class TmdbApi(
 
     // Solo el idioma: la `api_key` la pone el gateway, que es donde vive.
     private val auth get() = "language=$language"
-    private fun imgUrl(path: String?, size: String): String =
-        if (path.isNullOrBlank()) "" else "$img/$size$path"
+    // Delega en el helper de arriba: una sola definición de la base de imágenes para la clase y
+    // para el parseo puro.
+    private fun imgUrl(path: String?, size: String): String = tmdbImgUrl(path, size)
     private fun enc(s: String) = java.net.URLEncoder.encode(s, "UTF-8").replace("+", "%20")
     private fun get(url: String): String? = runCatching {
         client.newCall(

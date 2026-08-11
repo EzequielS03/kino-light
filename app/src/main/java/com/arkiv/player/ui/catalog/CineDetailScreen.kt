@@ -170,7 +170,9 @@ fun CineDetailScreen(
         val d = detail
         if (s == null || d == null || !d.isSeries) { episodes = emptyList(); return@LaunchedEffect }
         loadingEps = true
-        episodes = runCatching { graph.tmdbApi.seasonEpisodes(d.id, s) }.getOrDefault(emptyList())
+        // `.orEmpty()`: acá solo se pinta una lista, así que "no se pudo consultar" (null) y "TMDB
+        // no tenía capítulos" se ven igual. La distinción solo le importa a quien cachea en base.
+        episodes = runCatching { graph.tmdbApi.seasonEpisodes(d.id, s) }.getOrNull().orEmpty()
         loadingEps = false
     }
 
