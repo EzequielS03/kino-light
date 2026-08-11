@@ -73,8 +73,23 @@
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
 
+        <!--
+            El banner va TAMBIÉN acá y no solo en <application>, que es lo que pide la doc de
+            Android TV para la actividad de LEANBACK_LAUNCHER: sin esto, `aapt2 dump badging`
+            mostraba `leanback-launchable-activity: ... banner=''`.
+
+            OJO, que esto NO arregla el Fire TV Stick, y se probó: en el AFTKM (Fire OS /
+            Android 11), con el banner ya resuelto en la actividad (`banner=0x7f0800f9` según
+            `cmd package resolve-activity`) y tras un reinicio COMPLETO para descartar el caché
+            del lanzador, la ficha del home siguió pintando el icono adaptativo con barras
+            grises a los lados. El lanzador de Fire TV usa el ICONO para las apps sideloaded, no
+            el banner. Por eso además existe mipmap-television/: ahí el icono que se le entrega
+            en un TV ya es apaisado 16:9, que es la forma de la ficha. Ese camino quedó SIN
+            verificar (hace falta otro reinicio para vaciar el caché del lanzador).
+        -->
         <activity
             android:name=".MainActivity"
+            android:banner="@drawable/ic_banner"
             android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout"
             android:exported="true"
             android:launchMode="singleTask"
