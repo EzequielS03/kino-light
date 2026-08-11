@@ -45,6 +45,7 @@ import androidx.tv.material3.Text
 import com.arkiv.player.data.LibraryGroup
 import com.arkiv.player.data.biblioteca.FiltroDeBiblioteca
 import com.arkiv.player.data.biblioteca.SeccionDeBiblioteca
+import com.arkiv.player.data.biblioteca.VistosDeLaBiblioteca
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.tv.arkivTvButtonBorder
 import com.arkiv.player.ui.tv.arkivTvButtonColors
@@ -140,7 +141,7 @@ fun TvLibraryScreen(
                 fontWeight = FontWeight.Black,
                 modifier = Modifier.padding(start = SAFE_H, bottom = 28.dp),
             )
-            SeccionDeBiblioteca.values().forEachIndexed { i, s ->
+            SeccionDeBiblioteca.entries.forEachIndexed { i, s ->
                 TvMenuItem(
                     etiqueta = s.etiqueta,
                     seleccionada = s == seccion,
@@ -156,14 +157,14 @@ fun TvLibraryScreen(
         // --- Contenido ---
         Box(Modifier.weight(1f).fillMaxHeight()) {
             when (seccion) {
-                SeccionDeBiblioteca.DESCARGAS -> TvDownloadsSection()
+                SeccionDeBiblioteca.DESCARGAS -> TvDownloadsSection(onPlayEpisode = onPlayEpisode)
                 SeccionDeBiblioteca.VISTOS -> TvPosterGrid(
                     titulo = "Ya visto",
                     conteo = vistos.size,
                     grupos = vistos.map { it.grupo },
                     subtituloDe = { g ->
                         vistos.firstOrNull { it.grupo.key == g.key }
-                            ?.let { "${it.capitulosVistos} capítulos vistos" }
+                            ?.let { VistosDeLaBiblioteca.etiquetaDeVistos(it.capitulosVistos) }
                     },
                     vacio = "Todavía no terminaste nada.\nLo que veas hasta el final va a aparecer acá.",
                     onClick = ::abrir,

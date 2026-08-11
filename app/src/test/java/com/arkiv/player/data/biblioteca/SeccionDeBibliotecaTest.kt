@@ -57,7 +57,7 @@ class SeccionDeBibliotecaTest {
     fun `las etiquetas del menu van en el orden de la pantalla`() {
         assertEquals(
             listOf("Todo", "Series", "Películas", "Ya visto", "Descargas"),
-            SeccionDeBiblioteca.values().map { it.etiqueta },
+            SeccionDeBiblioteca.entries.map { it.etiqueta },
         )
     }
 }
