@@ -62,6 +62,25 @@ Valores de `type`: `play`, `key`, `subprefs`, `webquality`, `pause`, `resume`, `
 
 El emisor crea un record; el receptor (suscrito por realtime a `commands`, filtrando `targetDeviceId == su recordId`) lo ejecuta y marca `ack=true`. Idempotencia por `seq` monótono.
 
+## `episode_frames`
+
+Miniaturas de frame: el JPEG que se captura durante la reproducción, para que se vea en qué punto va cada capítulo. La fase 2 lo sincroniza entre dispositivos. Creada por `1786500000_created_episode_frames.js` (ago 2026).
+
+**Campos:** `accountId` (text, req), `episodeId` (text, req), `positionMs` (number), `updatedAt` (number), `deleted` (number), `img` (file, 1 archivo, `image/jpeg`, máx 256 KB, **protected**).
+
+**Índice:** `idx_episode_frames_acct_ep` ÚNICO sobre (`accountId`, `episodeId`). La unicidad no es decorativa: el cliente hace upsert buscando por esa pareja, y sin ella un push concurrente crearía dos records para el mismo capítulo.
+
+**Reglas:** list/view/create/update/delete = `@request.auth.id != "" && accountId = @request.auth.accountId` (idénticas a `progress`).
+
+> **`img` va `protected: true` a propósito**, porque son escenas de lo que mira el usuario. La
+> consecuencia es que la URL del archivo NO sirve sola: el cliente tiene que pedir un file-token a
+> `/api/files/token` y pasarlo como query param. Si alguna vez se ve que las miniaturas remotas no
+> cargan, es lo primero a mirar.
+>
+> **Ojo con probar esta colección a mano:** un GET sin autenticar devuelve `200` con lista vacía, no
+> `403`. Es lo normal en PocketBase — una regla de lista se aplica como FILTRO, no como rechazo. Se
+> comprobó comparando contra `progress`, que se comporta igual.
+
 ## Pendientes (fases siguientes)
 
 - `library_items`, `progress` (base, realtime) — Plan 4 (sync tiempo real).
