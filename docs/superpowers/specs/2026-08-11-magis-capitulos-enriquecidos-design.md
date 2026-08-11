@@ -176,8 +176,21 @@ pueden no corresponder.
 Reglas:
 
 1. Se cruza por `episode_number`, sin corrimientos ni heurísticas.
-2. **Guard**: si la temporada del portal tiene MÁS capítulos que la de TMDB, no se enriquece nada —
-   es señal fuerte de que las numeraciones no son la misma.
+2. **Guard, por el total que DECLARA el portal.** Cada temporada trae su total en `volumnCount`
+   (Daima declara 20, Breaking Bad T5 declara 16; los dos calzan con TMDB). Se enriquece solo si ese
+   total coincide con la cantidad de capítulos de la temporada en TMDB.
+
+   Comparar el total declarado y no la cantidad de capítulos publicados es lo que hace que la regla
+   sirva en los dos casos a la vez:
+
+   - **One Piece "Temp.1"**: declara 8 donde TMDB tiene 61 → no coinciden → no se enriquece. El
+     portal partió la serie de otra manera y cruzar por número pondría imágenes que no corresponden.
+   - **Una temporada en emisión**: declara 20 y tiene 8 publicados → coincide con TMDB → se
+     enriquecen esos 8. Comparar cantidades reales acá dejaría sin imágenes justo a lo que se está
+     estrenando, que es lo que más se mira.
+
+   Si el portal no declara total (`volumnCount` ausente o 0), se cae a comparar la cantidad real de
+   capítulos contra la de TMDB.
 3. Un capítulo sin match en TMDB queda sin enriquecer; los demás sí. No se rellena con el vecino.
 4. **Idioma**: `es-MX`. Cuando TMDB devuelve el `overview` vacío en español (pasa seguido), se cae al
    inglés para ese campo. El nombre se toma como venga.
@@ -200,7 +213,9 @@ Reglas:
 - TMDB `/find` sin `tv_results` → sin enriquecer.
 - `sameSeasonSeriesList` sin nuestro `contentId` → sin enriquecer (no se asume temporada 1).
 - Cruce correcto por `episode_number`, incluyendo una temporada con un capítulo que TMDB no tiene.
-- **Guard de numeración**: portal con más capítulos que TMDB → no se enriquece ninguno.
+- **Guard de numeración**: total declarado por el portal distinto al de TMDB → no se enriquece
+  ninguno; total declarado igual pero con menos capítulos publicados (temporada en emisión) → sí se
+  enriquecen los publicados; sin `volumnCount` → se comparan las cantidades reales.
 - `overview` vacío en español → cae al inglés.
 - TMDB lanza excepción o timeout → la lista sale completa igual (best-effort).
 - **TTL por completitud**: una temporada con todos sus stills se cachea con el TTL largo; una a la
