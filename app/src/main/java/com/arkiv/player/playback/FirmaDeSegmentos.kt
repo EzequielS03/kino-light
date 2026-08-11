@@ -54,10 +54,28 @@ class FirmaDelGateway(
  * sin publicar APK) toma la posta.
  *
  * La interfaz no tiene un `aceptada()`: la aceptación es implícita — si a una firma emitida
- * NO le sigue un [rechazada] antes del próximo [firmar], fue aceptada. Por eso el reinicio del
- * contador no puede pasar apenas se entrega la firma (ahí todavía no se sabe el veredicto):
- * pasa recién al PRINCIPIO del siguiente [firmar], y solo si la anterior quedó "pendiente" —
- * es decir, nadie la rechazó mientras tanto. [pendiente] es justamente esa bandera.
+ * NO le sigue un [rechazada] antes del próximo [firmar] **del mismo hilo**, fue aceptada.
+ *
+ * `LiveHlsProxy` abre un hilo real por conexión aceptada (uno para el poll del playlist, uno
+ * por cada segmento en vuelo) y todos comparten la MISMA instancia de esta clase — pero cada
+ * conexión llama a [firmar] y [rechazada] siempre **desde su propio hilo**, en pares (pide una
+ * firma, la usa, y si el CDN la rechaza, avisa antes de reintentar — nunca se mezcla con lo que
+ * hace otra conexión). Por eso "pendiente" — si la última firma que pedí sigue sin veredicto —
+ * se rastrea **por hilo** con un [ThreadLocal], no con un flag global.
+ *
+ * Esto no es solo prolijidad: un flag global compartido es un bug real, no únicamente uno de
+ * memoria. Con un solo `Boolean`/`Int` compartidos — aunque estén protegidos por un lock, como
+ * en un primer intento de este fix — un hilo A pide una firma (marca "pendiente" en la variable
+ * GLOBAL) y todavía no tuvo veredicto; antes de que A avise el rechazo, un hilo C totalmente
+ * ajeno pide SU PROPIA firma, ve la bandera compartida en `true` (dejada por A) y por eso
+ * resetea el contador — borrando de un plumazo rechazos de OTRAS conexiones que ya habían
+ * contado. Medido: con 64 hilos rechazando a la vez, el contador nunca llegaba al umbral en
+ * 30/30 rondas, CON o SIN el lock — el lock evita que se pisen escrituras, pero no evita que un
+ * hilo cancele el conteo de otro. Con el [ThreadLocal], el hilo C ve SU PROPIO "pendiente"
+ * (nunca usado todavía, en `false`) y no puede tocar el rastro de A ni de nadie más.
+ *
+ * `rechazosSeguidos` y `usandoRespaldo` sí son estado realmente compartido entre hilos (el
+ * conteo total tiene que ser uno solo), así que esos dos van protegidos por [estado].
  */
 class FirmaConRespaldo(
     private val local: FirmaDeSegmentos,
@@ -67,18 +85,29 @@ class FirmaConRespaldo(
     @Volatile var usandoRespaldo: Boolean = false
         private set
     private var rechazosSeguidos = 0
-    private var pendiente = false
+    private val estado = Any()
+    private val pendiente = ThreadLocal.withInitial { false }
 
     override suspend fun firmar(token: String): LiveSignature {
-        if (!usandoRespaldo && pendiente) rechazosSeguidos = 0
-        val elegida = if (usandoRespaldo) remota else local
-        return elegida.firmar(token).also { if (!usandoRespaldo) pendiente = true }
+        // Lectura del volatile SIN el lock: es de solo ida (false→true, nunca vuelve), así que
+        // una lectura desactualizada en la ventana de la conmutación cuesta a lo sumo una firma
+        // local de más — no un contador que se pierde.
+        val enRespaldo = usandoRespaldo
+        if (!enRespaldo && pendiente.get() == true) {
+            synchronized(estado) { rechazosSeguidos = 0 }
+        }
+        val elegida = if (enRespaldo) remota else local
+        val firma = elegida.firmar(token)
+        if (!enRespaldo) pendiente.set(true)
+        return firma
     }
 
     override fun rechazada() {
         if (usandoRespaldo) { remota.rechazada(); return }
-        pendiente = false
-        rechazosSeguidos++
-        if (rechazosSeguidos >= umbral) usandoRespaldo = true
+        pendiente.set(false)
+        synchronized(estado) {
+            rechazosSeguidos++
+            if (rechazosSeguidos >= umbral) usandoRespaldo = true
+        }
     }
 }

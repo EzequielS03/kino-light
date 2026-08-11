@@ -6,6 +6,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.CyclicBarrier
 
 class FirmaDeSegmentosTest {
     private class Contadora(private val marca: String) : FirmaDeSegmentos {
@@ -61,5 +62,51 @@ class FirmaDeSegmentosTest {
         f.firmar("t"); f.rechazada()
         repeat(3) { f.firmar("t") }
         assertEquals(3, remota.veces)
+    }
+
+    /**
+     * `LiveHlsProxy` abre un hilo REAL por conexión aceptada: uno para el poll del playlist,
+     * uno por cada segmento en vuelo. Todos comparten la MISMA instancia de [FirmaConRespaldo].
+     *
+     * Este test cubre el hallazgo C1 de la revisión: la primera versión de esta clase (con un
+     * único `Boolean pendiente` global) NO conmutaba nunca bajo esta carga — ni siquiera
+     * envolviendo `firmar()`/`rechazada()` en un lock. No es (solo) un lost-update de memoria:
+     * un hilo A deja "pendiente=true" mientras espera su propio veredicto, y un hilo C —
+     * completamente ajeno, con su PROPIA firma rechazada de camino— lee ese `true` compartido y
+     * resetea el contador, borrando rechazos de A que ya habían contado. Es el peor de los dos
+     * modos de falla posibles, porque es justo el caso "Magis cambió el algoritmo y el CDN
+     * rechaza TODO" el que necesita que el respaldo se dispare. Ver el docstring de
+     * [FirmaConRespaldo] para el detalle completo y por qué el fix usa un `ThreadLocal` en vez
+     * de un lock alrededor del flag compartido.
+     *
+     * `CyclicBarrier` alinea a los hilos para maximizar la superposición real (no alcanza con
+     * lanzarlos y esperar: sin la barrera casi todos corren serializados por el scheduler y la
+     * condición de carrera casi no aparece).
+     */
+    @Test
+    fun `bajo rechazos simultaneos de varios hilos, el contador no pierde incrementos y conmuta`() {
+        val hilos = 64
+        val rondas = 30
+        var rondasQueNoConmutaron = 0
+        repeat(rondas) {
+            val f = FirmaConRespaldo(Contadora("local"), Contadora("remota"), umbral = hilos)
+            val barrera = CyclicBarrier(hilos)
+            val threads = (1..hilos).map {
+                Thread {
+                    barrera.await()
+                    runBlocking { f.firmar("t") }
+                    f.rechazada()
+                }
+            }
+            threads.forEach { it.start() }
+            threads.forEach { it.join() }
+            if (!f.usandoRespaldo) rondasQueNoConmutaron++
+        }
+        assertEquals(
+            "con $hilos rechazos simultaneos (umbral=$hilos) TODAS las rondas deberian conmutar; " +
+                "si esto falla es la carrera de C1, no un problema del test",
+            0,
+            rondasQueNoConmutaron,
+        )
     }
 }
