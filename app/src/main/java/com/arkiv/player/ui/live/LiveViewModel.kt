@@ -6,7 +6,7 @@ import com.arkiv.player.data.db.LiveChannelCacheDao
 import com.arkiv.player.data.db.LiveChannelCacheEntity
 import com.arkiv.player.data.db.LiveFavoriteDao
 import com.arkiv.player.data.db.LiveFavoriteEntity
-import com.arkiv.player.data.gateway.LiveApi
+import com.arkiv.player.data.gateway.LiveCatalogGateway
 import com.arkiv.player.data.gateway.LiveCategory
 import com.arkiv.player.data.gateway.LiveChannel
 import com.arkiv.player.data.gateway.LiveProgram
@@ -70,9 +70,14 @@ data class LiveUiState(
  * caído. [com.arkiv.player.ui.live.LiveController] (la resolución de sesión por canal) y
  * [com.arkiv.player.data.db.LiveRecentDao] (recientes) los usa directamente `LiveScreen`, no este
  * ViewModel: acá solo vive lo que la guía (Tarea 12) también necesita reusar.
+ *
+ * [api] es [LiveCatalogGateway] y no [com.arkiv.player.data.gateway.LiveApi] a propósito: es la
+ * interfaz angosta con las tres operaciones que este ViewModel de verdad consume (ver su KDoc
+ * para el porqué completo). El call site de producción (`AppGraph`/`LiveScreen`) no cambia una
+ * línea -- `LiveApi` implementa la interfaz, así que una instancia suya encaja acá tal cual.
  */
 class LiveViewModel(
-    private val api: LiveApi,
+    private val api: LiveCatalogGateway,
     private val favoritosDao: LiveFavoriteDao,
     private val cacheDao: LiveChannelCacheDao,
 ) : ViewModel() {

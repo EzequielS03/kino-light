@@ -4,7 +4,7 @@ import com.arkiv.player.data.db.LiveChannelCacheDao
 import com.arkiv.player.data.db.LiveChannelCacheEntity
 import com.arkiv.player.data.db.LiveFavoriteDao
 import com.arkiv.player.data.db.LiveFavoriteEntity
-import com.arkiv.player.data.gateway.LiveApi
+import com.arkiv.player.data.gateway.LiveCatalogGateway
 import com.arkiv.player.data.gateway.LiveCategory
 import com.arkiv.player.data.gateway.LiveChannel
 import com.arkiv.player.data.gateway.LiveProgram
@@ -18,7 +18,6 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
-import okhttp3.OkHttpClient
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
@@ -77,16 +76,15 @@ class LiveViewModelTest {
 
 // --- Dobles de prueba -------------------------------------------------------------------------
 //
-// El proyecto no tiene Mockito ni mockk (ver app/build.gradle.kts): LiveApi se abrió a propósito
-// (`open class` + `open fun` en categorias/canales/epg, ver el comentario en LiveApi.kt) para que
-// un test pueda heredar y sobreescribir, igual que LiveFavoriteDao/LiveChannelCacheDao -que ya son
-// interfaces- se implementan acá con almacenamiento en memoria.
-
-/**
- * El constructor real no dispara nada: baseUrl/apiKey quedan vacíos y el OkHttpClient nunca hace
- * una llamada real porque las tres funciones que LiveViewModel usa están sobreescritas acá.
- */
-private open class FakeLiveApi : LiveApi(baseUrl = { "" }, apiKey = { "" }, http = OkHttpClient()) {
+// El proyecto no tiene Mockito ni mockk (ver app/build.gradle.kts). LiveViewModel depende de
+// LiveCatalogGateway -la interfaz angosta definida junto a LiveApi en data/gateway/LiveApi.kt,
+// con solo las tres operaciones que este ViewModel consume- y no de LiveApi directo, así que este
+// doble la implementa derecho, sin heredar de ninguna clase de producción ni tocar red. (Una
+// versión anterior abría LiveApi con `open class`/`open fun` para poder heredarla en el test; se
+// descartó en review por ser la única clase abierta de todo el módulo sin motivo arquitectónico
+// -ver el KDoc de LiveCatalogGateway para el razonamiento completo.) LiveFavoriteDao/
+// LiveChannelCacheDao ya eran interfaces y se implementan igual, con almacenamiento en memoria.
+private class FakeLiveApi : LiveCatalogGateway {
     var categoriasResult: List<LiveCategory> = emptyList()
     val canalesPorCategoria = mutableMapOf<Int, List<LiveChannel>>()
 

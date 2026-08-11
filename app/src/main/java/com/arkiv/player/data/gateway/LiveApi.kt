@@ -36,6 +36,32 @@ data class LiveSession(
 data class LiveSignature(val moment: Long, val sign2: String)
 
 /**
+ * Lo que [com.arkiv.player.ui.live.LiveViewModel] necesita del gateway -- angosta a propósito:
+ * NO los cinco métodos de [LiveApi]. `resolver`/`firmar` son de
+ * [com.arkiv.player.ui.live.LiveController] (resolución de sesión y firma de segmentos), un
+ * consumidor completamente distinto con su propio ciclo de vida; meterlos acá solo ataría esta
+ * interfaz a un consumidor que no la usa.
+ *
+ * [LiveApi] la implementa en producción. En tests, un doble liviano la implementa directo (ver
+ * `FakeLiveApi` en `LiveViewModelTest.kt`) sin heredar de la clase concreta ni tocar red: la
+ * alternativa evaluada -abrir `LiveApi` (`open class` + `open fun`)- se descartó porque es la
+ * ÚNICA clase abierta de todo `app/src/main/java` sin ningún otro motivo arquitectónico
+ * (se construye en un solo lugar, `AppGraph.kt`), y el propio [LiveController] ya resuelve este
+ * mismo problema para sus dependencias con funciones inyectadas en vez de herencia. Acá se
+ * prefirió una interfaz angosta -no funciones sueltas como en `LiveController`- porque las tres
+ * operaciones se consumen SIEMPRE juntas desde el mismo cliente concreto (no son dependencias de
+ * fuentes distintas como `resolver` y `urlPara` en `LiveController`): agruparlas mantiene el
+ * call site de producción sin cambios (`LiveViewModel(graph.liveApi, ...)` sigue compilando tal
+ * cual, porque `LiveApi` es un subtipo) y evita esparcir tres parámetros función independientes
+ * donde uno solo, cohesivo, alcanza.
+ */
+interface LiveCatalogGateway {
+    suspend fun categorias(): List<LiveCategory>
+    suspend fun canales(categoria: Int): List<LiveChannel>
+    suspend fun epg(codes: List<String>): Pair<Map<String, List<LiveProgram>>, List<String>>
+}
+
+/**
  * Cliente del gateway para el canal en vivo: categorías, canales, EPG, resolución de sesión
  * y firma de segmentos por lotes.
  *
@@ -48,18 +74,16 @@ data class LiveSignature(val moment: Long, val sign2: String)
  * del proxy local que le habla al CDN sin revalidarla, así que un dato esencial vacío se valida
  * acá y se rechaza con [GatewayException] mientras todavía tenemos la respuesta cruda del
  * gateway — fallar cerca, no como un 403 opaco del CDN varios saltos después.
+ *
+ * Clase FINAL a propósito (ver KDoc de [LiveCatalogGateway] sobre por qué no se abrió para
+ * testear): el único camino de producción es este constructor, vía `AppGraph`.
  */
-// `open`: LiveViewModel toma esta clase concreta (no una interfaz ni funciones sueltas, a
-// diferencia de LiveController), y el proyecto no tiene Mockito ni mockk -- solo así un test
-// puede sobreescribir categorias()/canales()/epg() con un doble controlable (ver
-// FakeLiveApi en LiveViewModelTest.kt). El constructor real sigue siendo el único camino de
-// producción; esto no cambia ningún comportamiento, solo permite heredar en tests.
-open class LiveApi(
+class LiveApi(
     private val baseUrl: () -> String,
     private val apiKey: () -> String,
     private val http: OkHttpClient,
     private val magisAccountId: () -> String? = { null },
-) {
+) : LiveCatalogGateway {
     private val json = "application/json".toMediaType()
 
     private fun pedido(url: String): Request.Builder {
@@ -86,12 +110,12 @@ open class LiveApi(
     private fun <T> JSONArray.mapear(f: (JSONObject) -> T): List<T> =
         (0 until length()).mapNotNull { i -> optJSONObject(i)?.let(f) }
 
-    open suspend fun categorias(): List<LiveCategory> =
+    override suspend fun categorias(): List<LiveCategory> =
         cuerpo(pedido("${baseUrl()}/v1/live/categories").get().build())
             .arrayOrEmpty("categorias")
             .mapear { LiveCategory(id = it.optInt("id"), nombre = it.optString("nombre")) }
 
-    open suspend fun canales(categoria: Int): List<LiveChannel> {
+    override suspend fun canales(categoria: Int): List<LiveChannel> {
         val url = "${baseUrl()}/v1/live/channels".toHttpUrl().newBuilder()
             .addQueryParameter("category", categoria.toString())
             .build().toString()
@@ -111,7 +135,7 @@ open class LiveApi(
             .filter { it.code.isNotBlank() }
     }
 
-    open suspend fun epg(codes: List<String>): Pair<Map<String, List<LiveProgram>>, List<String>> {
+    override suspend fun epg(codes: List<String>): Pair<Map<String, List<LiveProgram>>, List<String>> {
         if (codes.isEmpty()) return emptyMap<String, List<LiveProgram>>() to emptyList()
         val url = "${baseUrl()}/v1/live/epg".toHttpUrl().newBuilder()
             .addQueryParameter("channels", codes.joinToString(","))
