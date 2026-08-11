@@ -75,15 +75,46 @@ private enum class VistaLocal { NINGUNA, RECIENTES }
  * los tres estados que importan: abre al instante con lo cacheado, no se cae sin cuenta de Magis,
  * y no deja un error crudo si el gateway está lento o caído.
  *
+ * El gate de Magis vive ACÁ, antes de construir [LiveViewModel] -- no adentro de [LiveContenido] --
+ * a propósito: `viewModel(factory = ...)` dispara el `init` del ViewModel (que ya llama al
+ * gateway) apenas se compone por primera vez. Si el gate estuviera después de esa llamada, el
+ * "no se cae sin cuenta de Magis" sería solo visual: la pantalla de "Vinculá tu cuenta" se vería
+ * bien, pero [LiveViewModel] ya habría hecho pedidos de red reales antes de que nadie confirmara
+ * que hay con qué autenticarlos (medido en review). Con `viewModel()` fuera de la rama
+ * `sinMagis`, [LiveContenido] -y por lo tanto el ViewModel- ni se compone mientras el gate esté
+ * activo.
+ *
  * [onAbrirCanal] recibe el código del canal tocado; hoy no hay reproductor en modo vivo (llega en
  * la Tarea 14: bandera `enVivo` + zapping en `PlayerViewModel`/`PlayerScreen`), así que el
- * llamador de esta pantalla decide qué hacer con ese código -- ver `ArkivRoot.kt`, que arma la
- * ruta `player/live:<code>` para que la Tarea 14 la resuelva sin tener que tocar esta pantalla.
+ * llamador de esta pantalla decide qué hacer con ese código.
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun LiveScreen(
     onOpenSettings: () -> Unit,
+    onAbrirCanal: (String) -> Unit,
+    contentPadding: PaddingValues,
+) {
+    val graph = rememberGraph()
+    val cuenta by graph.accountManager.state.collectAsStateWithLifecycle()
+    // "Vinculado" es la única condición real: Anónimo o Conectado-sin-Magis se tratan igual, porque
+    // el vivo depende de la cuenta de Magis, no de tener sesión en Arkiv.
+    val sinMagis = (cuenta as? AccountState.Conectado)?.magisLinked != true
+
+    // Por si el vínculo cambió del lado del servidor (otro dispositivo lo vinculó/desvinculó)
+    // desde la última vez que se abrió esta pantalla -- mismo patrón que AccountSection. Corre
+    // SIEMPRE (incluso con sinMagis == true): es lo único que puede sacarnos de ese estado.
+    LaunchedEffect(Unit) { runCatching { graph.accountManager.refrescarMagis() } }
+
+    if (sinMagis) {
+        SinCuentaMagis(onOpenSettings, contentPadding)
+    } else {
+        LiveContenido(onAbrirCanal, contentPadding)
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun LiveContenido(
     onAbrirCanal: (String) -> Unit,
     contentPadding: PaddingValues,
 ) {
@@ -96,20 +127,6 @@ fun LiveScreen(
         },
     )
     val estado by vm.estado.collectAsStateWithLifecycle()
-    val cuenta by graph.accountManager.state.collectAsStateWithLifecycle()
-    // "Vinculado" es la única condición real: Anónimo o Conectado-sin-Magis se tratan igual, porque
-    // el vivo depende de la cuenta de Magis, no de tener sesión en Arkiv.
-    val sinMagis = (cuenta as? AccountState.Conectado)?.magisLinked != true
-
-    // Por si el vínculo cambió del lado del servidor (otro dispositivo lo vinculó/desvinculó)
-    // desde la última vez que se abrió esta pantalla -- mismo patrón que AccountSection.
-    LaunchedEffect(Unit) { runCatching { graph.accountManager.refrescarMagis() } }
-
-    if (sinMagis) {
-        SinCuentaMagis(onOpenSettings, contentPadding)
-        return
-    }
-
     var vista by remember { mutableStateOf(VistaLocal.NINGUNA) }
 
     // Recientes: no pasa por LiveViewModel.elegirCategoria (no es una categoría del portal), se lee

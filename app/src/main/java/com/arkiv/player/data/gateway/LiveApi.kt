@@ -49,7 +49,12 @@ data class LiveSignature(val moment: Long, val sign2: String)
  * acá y se rechaza con [GatewayException] mientras todavía tenemos la respuesta cruda del
  * gateway — fallar cerca, no como un 403 opaco del CDN varios saltos después.
  */
-class LiveApi(
+// `open`: LiveViewModel toma esta clase concreta (no una interfaz ni funciones sueltas, a
+// diferencia de LiveController), y el proyecto no tiene Mockito ni mockk -- solo así un test
+// puede sobreescribir categorias()/canales()/epg() con un doble controlable (ver
+// FakeLiveApi en LiveViewModelTest.kt). El constructor real sigue siendo el único camino de
+// producción; esto no cambia ningún comportamiento, solo permite heredar en tests.
+open class LiveApi(
     private val baseUrl: () -> String,
     private val apiKey: () -> String,
     private val http: OkHttpClient,
@@ -81,12 +86,12 @@ class LiveApi(
     private fun <T> JSONArray.mapear(f: (JSONObject) -> T): List<T> =
         (0 until length()).mapNotNull { i -> optJSONObject(i)?.let(f) }
 
-    suspend fun categorias(): List<LiveCategory> =
+    open suspend fun categorias(): List<LiveCategory> =
         cuerpo(pedido("${baseUrl()}/v1/live/categories").get().build())
             .arrayOrEmpty("categorias")
             .mapear { LiveCategory(id = it.optInt("id"), nombre = it.optString("nombre")) }
 
-    suspend fun canales(categoria: Int): List<LiveChannel> {
+    open suspend fun canales(categoria: Int): List<LiveChannel> {
         val url = "${baseUrl()}/v1/live/channels".toHttpUrl().newBuilder()
             .addQueryParameter("category", categoria.toString())
             .build().toString()
@@ -106,7 +111,7 @@ class LiveApi(
             .filter { it.code.isNotBlank() }
     }
 
-    suspend fun epg(codes: List<String>): Pair<Map<String, List<LiveProgram>>, List<String>> {
+    open suspend fun epg(codes: List<String>): Pair<Map<String, List<LiveProgram>>, List<String>> {
         if (codes.isEmpty()) return emptyMap<String, List<LiveProgram>>() to emptyList()
         val url = "${baseUrl()}/v1/live/epg".toHttpUrl().newBuilder()
             .addQueryParameter("channels", codes.joinToString(","))

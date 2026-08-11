@@ -10,6 +10,7 @@ import com.arkiv.player.data.gateway.LiveApi
 import com.arkiv.player.data.gateway.LiveCategory
 import com.arkiv.player.data.gateway.LiveChannel
 import com.arkiv.player.data.gateway.LiveProgram
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -78,6 +79,26 @@ class LiveViewModel(
     private val _estado = MutableStateFlow(LiveUiState())
     val estado: StateFlow<LiveUiState> = _estado
 
+    /**
+     * Job de la carga de categoría en curso. Cancelar el anterior antes de lanzar uno nuevo evita
+     * trabajo de red desperdiciado cuando el usuario cambia de chip rápido -- pero NO es la
+     * protección real contra la corrupción de estado (ver el chequeo de `categoriaActiva` dentro
+     * de [cargar]): `runCatching` atrapa hasta `CancellationException`, así que una corrutina
+     * cancelada mientras espera una respuesta HTTP puede terminar corriendo su `onFailure` de
+     * todos modos. La cancelación acá es una optimización de "gastar menos", el chequeo de abajo
+     * es la garantía de corrección.
+     */
+    private var cargaJob: Job? = null
+
+    /**
+     * Códigos con un pedido de EPG en vuelo ahora mismo -- ver KDoc de [pedirEpgDe]. Vive fuera del
+     * StateFlow a propósito: es contabilidad interna de "quién ya está pidiendo qué", no algo que
+     * la UI pinte. Sin sincronización explícita porque todo esto corre confinado a
+     * `Dispatchers.Main` (el dispatcher de `viewModelScope`): las llamadas nunca se solapan entre
+     * hilos, solo se intercalan en el mismo hilo.
+     */
+    private val epgEnVuelo = mutableSetOf<String>()
+
     init {
         viewModelScope.launch {
             favoritosDao.flowTodos().collect { favs ->
@@ -95,13 +116,23 @@ class LiveViewModel(
      * Pinta primero lo que hay en la caché local y después refresca contra el gateway.
      * Así la sección abre al instante y sigue mostrando la grilla si el gateway está
      * lento o caído -- en ese caso solo falla al reproducir, con un mensaje concreto.
+     *
+     * Tocar chips rápido es la interacción NORMAL de esta pantalla, no un caso raro: si la
+     * respuesta de una categoría vieja (A) llega después que la de la categoría que el usuario
+     * ya está mirando (B), esa respuesta tardía no debe pisar lo que hay en pantalla -- por eso
+     * cada punto que escribe `canales`/`error` primero comprueba que `categoria` siga siendo
+     * `categoriaActiva`. Sin ese chequeo, el chip seleccionado terminaba siendo B con los canales
+     * de A (medido en review). La caché SÍ se escribe siempre aunque la respuesta llegue tarde:
+     * sirve para la próxima vez que se pida esa categoría, no solo para esta pantalla.
      */
     private fun cargar(categoria: Int) {
-        viewModelScope.launch {
+        cargaJob?.cancel()
+        cargaJob = viewModelScope.launch {
             _estado.update { it.copy(cargando = true, error = null, categoriaActiva = categoria) }
 
             if (categoria == CATEGORIA_FAVORITOS) {
                 val favs = favoritosDao.flowTodos().first()
+                if (_estado.value.categoriaActiva != categoria) return@launch
                 val canales = favs.map { LiveChannel(it.code, it.nombre, it.numero, it.logo) }
                 _estado.update { it.copy(canales = canales, cargando = false) }
                 pedirEpgDe(canales.take(40).map { it.code })
@@ -110,7 +141,7 @@ class LiveViewModel(
 
             val cacheados = cacheDao.deCategoria(categoria)
                 .map { LiveChannel(it.code, it.nombre, it.numero, it.logo) }
-            if (cacheados.isNotEmpty()) {
+            if (cacheados.isNotEmpty() && _estado.value.categoriaActiva == categoria) {
                 _estado.update { it.copy(canales = cacheados, cargando = false) }
                 pedirEpgDe(cacheados.take(40).map { it.code })
             }
@@ -126,15 +157,19 @@ class LiveViewModel(
                 cacheDao.reemplazar(categoria, frescos.map {
                     LiveChannelCacheEntity(it.code, categoria, it.nombre, it.numero, it.logo, ahoraMs)
                 })
-                _estado.update { it.copy(canales = frescos, cargando = false, error = null) }
-                pedirEpgDe(frescos.take(40).map { it.code })
+                if (_estado.value.categoriaActiva == categoria) {
+                    _estado.update { it.copy(canales = frescos, cargando = false, error = null) }
+                    pedirEpgDe(frescos.take(40).map { it.code })
+                }
             }.onFailure {
                 // Con caché ya pintada, un gateway caído no vacía la pantalla.
-                _estado.update {
-                    it.copy(
-                        cargando = false,
-                        error = if (it.canales.isEmpty()) "No se pudo cargar los canales" else null,
-                    )
+                if (_estado.value.categoriaActiva == categoria) {
+                    _estado.update {
+                        it.copy(
+                            cargando = false,
+                            error = if (it.canales.isEmpty()) "No se pudo cargar los canales" else null,
+                        )
+                    }
                 }
             }
         }
@@ -144,19 +179,35 @@ class LiveViewModel(
      * Programación de esos canales: guarda el día completo (lo usa la guía) y deriva el
      * programa en curso (lo usa la grilla). Lo que el gateway todavía no tenga llega en
      * una vuelta posterior; acá no se espera a nadie.
+     *
+     * [cargar] llama a esto DOS veces por carga normal (al pintar la caché y otra vez con la
+     * respuesta fresca), casi siempre con la misma lista de códigos. El filtro original miraba
+     * solo `programacion` (lo que YA volvió), y la primera llamada todavía no había vuelto cuando
+     * la segunda miraba ese mapa -- lo encontraba vacío y pedía la EPG de nuevo. Medido: el
+     * gateway recibía DOS pedidos de EPG idénticos por cada carga normal, contra un endpoint
+     * limitado a 1 pedido cada 1,5s, global. [epgEnVuelo] marca un código como "pedido" ANTES de
+     * lanzar la corrutina (no después de que vuelva), así la segunda llamada lo ve y lo descarta.
      */
     fun pedirEpgDe(codes: List<String>) {
-        val faltantes = codes.filter { it !in _estado.value.programacion }
+        val faltantes = codes.filter { it !in _estado.value.programacion && it !in epgEnVuelo }
         if (faltantes.isEmpty()) return
+        epgEnVuelo.addAll(faltantes)
         viewModelScope.launch {
-            runCatching { api.epg(faltantes) }.onSuccess { (mapa, _) ->
-                val instante = System.currentTimeMillis() / 1000
-                val enCurso = mapa.mapValues { (_, progs) ->
-                    progs.firstOrNull { p -> instante >= p.inicio && instante < p.fin }
+            try {
+                runCatching { api.epg(faltantes) }.onSuccess { (mapa, _) ->
+                    val instante = System.currentTimeMillis() / 1000
+                    val enCurso = mapa.mapValues { (_, progs) ->
+                        progs.firstOrNull { p -> instante >= p.inicio && instante < p.fin }
+                    }
+                    _estado.update {
+                        it.copy(programacion = it.programacion + mapa, ahora = it.ahora + enCurso)
+                    }
                 }
-                _estado.update {
-                    it.copy(programacion = it.programacion + mapa, ahora = it.ahora + enCurso)
-                }
+            } finally {
+                // Pase lo que pase (éxito o fallo): libera los códigos para que un pedido futuro
+                // -otra carga, otro scroll- pueda reintentarlos. Un fallo no debe bloquearlos para
+                // siempre.
+                epgEnVuelo.removeAll(faltantes)
             }
         }
     }

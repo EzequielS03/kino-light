@@ -310,10 +310,18 @@ fun ArkivRoot(
             composable("live") {
                 com.arkiv.player.ui.live.LiveScreen(
                     onOpenSettings = { navController.navigate("settings") },
-                    // Todavía no hay reproductor en modo vivo (Tarea 14): se navega igual con el
-                    // prefijo "live:", mismo patrón que "torrent:" más abajo, para que esa tarea
-                    // solo tenga que enseñarle a PlayerViewModel a reconocerlo.
-                    onAbrirCanal = { code -> goToPlayer("live:$code") },
+                    // Todavía no hay reproductor en modo vivo (llega en la Tarea 14: bandera
+                    // `enVivo` en PlayerViewModel/PlayerScreen). Navegar YA a "player/live:<code>"
+                    // se probó y se descartó: PlayerViewModel.loadArchive() no reconoce ese id,
+                    // `repo.getEpisode("live:<code>")` da null y la función retorna sin tocar
+                    // `_error` ni `_playlist` — el usuario se queda mirando un spinner infinito y
+                    // sin ningún mensaje, que es peor que no navegar (hallazgo de review,
+                    // verificado leyendo PlayerViewModel.kt:207). Mientras tanto, un aviso
+                    // honesto. Cuando la Tarea 14 exista, esta es la única línea que hay que
+                    // cambiar para que reproduzca de verdad.
+                    onAbrirCanal = {
+                        Toast.makeText(context, "La reproducción en vivo todavía no está disponible", Toast.LENGTH_SHORT).show()
+                    },
                     contentPadding = padding,
                 )
             }

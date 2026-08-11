@@ -165,6 +165,11 @@ dependencies {
     // org.json real para unit tests JVM: el de Android (android.jar) es un stub que lanza en runtime,
     // así que cualquier test que parsee JSON fallaría sin esto.
     testImplementation("org.json:json:20240303")
+    // Dispatchers.setMain + runTest/StandardTestDispatcher: sin esto, cualquier ViewModel real
+    // (viewModelScope = Dispatchers.Main.immediate) revienta en un test JVM puro ("Module with the
+    // Main dispatcher had failed to initialize"). Testing-only: no viaja en el APK, mismo trato que
+    // mockwebserver un poco más abajo.
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     // Servidor HTTP falso para tests de HttpFetcher (cookie cacheada, challenge/reintento) sin red real.
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     // SQLite de verdad para probar el DDL que Room no valida (los triggers de `updatedAt`): son SQL
