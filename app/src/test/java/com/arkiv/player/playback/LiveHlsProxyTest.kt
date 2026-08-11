@@ -206,16 +206,19 @@ class LiveHlsProxyTest {
             }
         }
         proxy = LiveHlsProxy(firmaQueMataLaSesion)
-        val puerto = proxy.start()
+        proxy.start()
         val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
             "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
-        proxy.urlPara(sesion)
+        // Hay que usar la URL que devuelve urlPara() (con el token de sesión, ver Tarea 19), no
+        // reconstruirla a mano con el puerto: sin el token, atender() la rechazaría con 403 ANTES
+        // de llegar siquiera a la ventana de carrera que este test quiere reproducir.
+        val url = proxy.urlPara(sesion)
 
         val excepciones = CopyOnWriteArrayList<Throwable>()
         val previo = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { _, e -> excepciones.add(e) }
         try {
-            runCatching { leer("http://127.0.0.1:$puerto/live.m3u8") }
+            runCatching { leer(url) }
             // atender() corre en un hilo daemon aparte: darle margen a que termine (con o sin
             // excepción) antes de revisar qué quedó capturado.
             Thread.sleep(300)
@@ -366,9 +369,15 @@ class LiveHlsProxyTest {
             "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
         val local = proxy.urlPara(sesion)
 
+        // El token (Tarea 19) es el mismo en ambas URLs -misma sesión de proxy-, solo cambia el
+        // host: se extrae de `local` en vez de fijarlo a mano, porque es aleatorio por corrida.
+        val token = local.substringAfter("?t=")
         val lan = proxy.lanUrl("192.168.1.50")
-        assertEquals("http://192.168.1.50:${proxy.port}/live.m3u8", lan)
-        assertTrue("misma ruta y puerto que la URL local, solo cambia el host", local.endsWith(":${proxy.port}/live.m3u8"))
+        assertEquals("http://192.168.1.50:${proxy.port}/live.m3u8?t=$token", lan)
+        assertTrue(
+            "misma ruta, puerto y token que la URL local, solo cambia el host",
+            local.endsWith(":${proxy.port}/live.m3u8?t=$token"),
+        )
         proxy.stop(); upstream.shutdown()
     }
 
@@ -390,5 +399,180 @@ class LiveHlsProxyTest {
 
         assertEquals(200, codigo)
         proxy.stop(); upstream.shutdown()
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Tarea 19 (mitigación del hallazgo de exposición en LAN): desde que start() escucha en
+    // toda la LAN en vez de solo loopback (Tarea 18, Chromecast/DLNA), el token de sesión es el
+    // único control de acceso. Estos tests cubren: 403 sin token / con token equivocado, 200 con
+    // el token correcto (tanto en el playlist como en el segmento reescrito), y que el rechazo no
+    // tira ninguna excepción sin atrapar.
+    // ---------------------------------------------------------------------------------------
+
+    /** Pedir el playlist sin el query param `t` tiene que rebotar con 403, no servir nada. */
+    @Test
+    fun `playlist sin token responde 403`() = runBlocking {
+        val upstream = MockWebServer()
+        upstream.enqueue(MockResponse().setBody("#EXTM3U\n"))
+        upstream.start()
+
+        val proxy = LiveHlsProxy(FirmasFalsas())
+        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+            "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
+        proxy.urlPara(sesion) // arranca el server y fija la sesión; se ignora la URL con token
+
+        val (codigo, cuerpo) = leer("http://127.0.0.1:${proxy.port}/live.m3u8")
+
+        assertEquals(403, codigo)
+        assertTrue("el 403 no debe filtrar nada en el cuerpo", cuerpo.isEmpty())
+        proxy.stop(); upstream.shutdown()
+    }
+
+    /** Un token que NO es el de la sesión actual (adivinado, viejo, de otro proceso) también rebota. */
+    @Test
+    fun `playlist con token equivocado responde 403`() = runBlocking {
+        val upstream = MockWebServer()
+        upstream.enqueue(MockResponse().setBody("#EXTM3U\n"))
+        upstream.start()
+
+        val proxy = LiveHlsProxy(FirmasFalsas())
+        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+            "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
+        proxy.urlPara(sesion)
+
+        val (codigo, _) = leer("http://127.0.0.1:${proxy.port}/live.m3u8?t=token-que-no-es")
+
+        assertEquals(403, codigo)
+        proxy.stop(); upstream.shutdown()
+    }
+
+    /** Pedir un segmento sin token tampoco debe pasar, aunque la URL del segmento sea válida. */
+    @Test
+    fun `segmento sin token responde 403 aunque la URL del segmento exista`() = runBlocking {
+        val upstream = MockWebServer()
+        upstream.enqueue(MockResponse().setBody(
+            "#EXTM3U\n#EXTINF:6,\nhttp://seg1.cdn/live/c/c_1.ts\n"
+        ))
+        upstream.start()
+
+        val proxy = LiveHlsProxy(FirmasFalsas())
+        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+            "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
+        val (_, cuerpo) = leer(proxy.urlPara(sesion))
+        // saca la ruta /seg?u=...&t=... que el propio proxy generó, y le quita el token a mano
+        val rutaSegmentoConToken = cuerpo.lineSequence().first { it.startsWith("http://127.0.0.1") }
+        val sinToken = rutaSegmentoConToken.substringBefore("&t=")
+
+        val (codigo, _) = leer(sinToken)
+
+        assertEquals(403, codigo)
+        proxy.stop(); upstream.shutdown()
+    }
+
+    /**
+     * Camino feliz de punta a punta: el playlist reescribe los segmentos CON el token, y pedir
+     * esa URL reescrita (tal cual la entrega el proxy, sin tocarla) sirve el segmento real.
+     */
+    @Test
+    fun `el token correcto sirve tanto el playlist como el segmento reescrito`() = runBlocking {
+        val upstream = MockWebServer()
+        upstream.start()
+        // El segmento "absoluto" del playlist apunta al MISMO upstream (no a un CDN inventado):
+        // así, cuando el proxy vuelva a pedirle al origen la URL que decodificó de `u=`, es una
+        // petición real que el MockWebServer puede responder con el segundo enqueue.
+        upstream.enqueue(MockResponse().setBody(
+            "#EXTM3U\n#EXTINF:6,\nhttp://${upstream.hostName}:${upstream.port}/live/c/c_1.ts\n"
+        ))
+        upstream.enqueue(MockResponse().setBody("contenido-del-segmento"))
+
+        val proxy = LiveHlsProxy(FirmasFalsas())
+        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+            "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
+        val (codigoPlaylist, cuerpo) = leer(proxy.urlPara(sesion))
+        assertEquals(200, codigoPlaylist)
+
+        val rutaSegmento = cuerpo.lineSequence().first { it.startsWith("http://127.0.0.1") }
+        val (codigoSegmento, cuerpoSegmento) = leer(rutaSegmento)
+
+        assertEquals(200, codigoSegmento)
+        assertEquals("contenido-del-segmento", cuerpoSegmento)
+        proxy.stop(); upstream.shutdown()
+    }
+
+    /**
+     * Hallazgo de la revisión (Tarea 19): los tests de "LAN" que ya existían (`lanUrl coincide
+     * en puerto...`, `urlPara sigue siendo alcanzable por loopback...`) solo prueban el FORMATO
+     * del string de `lanUrl()` o que loopback sigue andando -- ninguno de los dos demuestra que
+     * el `ServerSocket` esté REALMENTE escuchando en una interfaz que no sea loopback. El propio
+     * revisor lo demostró: forzó el bind a loopback SIEMPRE (ignorando `bindLan`) y la suite
+     * completa (1068 tests) siguió en verde.
+     *
+     * Este test pide el playlist por la IP real de una interfaz NO-loopback de la máquina
+     * (`NetworkInterface`, la misma fuente que consultaría un Chromecast/DLNA de la LAN) en vez
+     * de por `127.0.0.1`. Si el bind fuera solo a loopback, esta conexión se cae con
+     * "Connection refused" -el puerto existe, pero no escucha en esa interfaz-. Si la máquina no
+     * tiene ninguna interfaz no-loopback activa (algunos sandboxes de CI), el test se salta: no
+     * hay red real contra la que probar nada, y fallar por eso sería un motivo ajeno a lo que
+     * se quiere verificar.
+     */
+    @Test
+    fun `el proxy es alcanzable por una IP de LAN real, no solo por el string de lanUrl`() = runBlocking {
+        val ipLan = direccionNoLoopbackAlcanzable() ?: run {
+            // android.util.Log revienta en este entorno de test JVM puro (por eso atender() lo
+            // atrapa con runCatching); un println alcanza para dejar rastro de que el test se
+            // saltó por falta de red, sin arriesgar una excepción sin atrapar acá.
+            println("LiveHlsProxyTest: sin interfaz de LAN alcanzable en esta maquina, se salta el test de alcanzabilidad real")
+            return@runBlocking
+        }
+
+        val upstream = MockWebServer()
+        upstream.enqueue(MockResponse().setBody("#EXTM3U\n"))
+        upstream.start()
+
+        val proxy = LiveHlsProxy(FirmasFalsas())
+        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+            "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
+        val local = proxy.urlPara(sesion) // bindLan=true adentro, ver su KDoc
+
+        val urlPorLan = local.replaceFirst("127.0.0.1", ipLan.hostAddress!!)
+        val (codigo, _) = leer(urlPorLan)
+
+        assertEquals(
+            "el proxy tiene que ser alcanzable por una IP no-loopback (para Chromecast/DLNA " +
+                "en la LAN), no solo por el string que arma lanUrl()",
+            200, codigo,
+        )
+        proxy.stop(); upstream.shutdown()
+    }
+
+    /**
+     * IPv4 no-loopback REALMENTE alcanzable de esta máquina (no simplemente "la primera que
+     * enumera `NetworkInterface`"). Máquinas de desarrollo o CI suelen tener de más: bridges de
+     * Docker/VMs, túneles VPN (`utunN`), interfaces con la dirección DE RED en vez de una de
+     * host (p.ej. `172.20.0.0/16` reportando `172.20.0.0`) -- todas aparecen "up" y "no loopback"
+     * pero un `connect()` real contra ellas revienta con `BindException: Can't assign requested
+     * address`, que NO tiene nada que ver con lo que este test quiere probar (si el proxy
+     * escucha en 0.0.0.0 o no). Por eso cada candidata se prueba con una conexión real corta
+     * contra un socket de prueba (mismo patrón `ServerSocket(0)` sin IP que usa el proxio real) y
+     * se descarta si falla, en vez de confiar a ciegas en el orden de enumeración del SO.
+     */
+    private fun direccionNoLoopbackAlcanzable(): java.net.Inet4Address? {
+        val candidatas = java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())
+            .filter { it.isUp && !it.isLoopback }
+            .flatMap { java.util.Collections.list(it.inetAddresses) }
+            .filterIsInstance<java.net.Inet4Address>()
+            .filter { !it.isLoopbackAddress }
+        val prueba = java.net.ServerSocket(0)
+        return try {
+            candidatas.firstOrNull { candidata ->
+                runCatching {
+                    Socket().use { s ->
+                        s.connect(java.net.InetSocketAddress(candidata, prueba.localPort), 300)
+                    }
+                }.isSuccess
+            }
+        } finally {
+            prueba.close()
+        }
     }
 }

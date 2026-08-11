@@ -18,7 +18,13 @@ import java.net.URLEncoder
  * estático.
  *
  * El proxy baja el playlist, reescribe las URLs absolutas de los `.ts` hacia sí mismo y pone
- * las cabeceras en cada petición al origen. VLC solo ve `127.0.0.1`.
+ * las cabeceras en cada petición al origen. VLC ve `127.0.0.1`; Chromecast/DLNA ven la IP LAN
+ * del celu (ver [lanUrl]) porque, desde el primer canal que se abre, el socket escucha en TODAS
+ * las interfaces, no solo loopback (ver el KDoc de [start]/[urlPara]). Eso solo, sin nada más,
+ * dejaría el canal -contenido pago de Magis- a la vista de cualquier equipo en la misma WiFi que
+ * escanee el puerto efímero: por eso cada URL que entrega el proxy ([urlPara], [lanUrl], y las
+ * URLs de segmento que el propio proxy reescribe dentro del m3u8) lleva el token aleatorio de
+ * [generarToken] como query param, y [atender] lo exige antes de resolver cualquier ruta.
  *
  * [onSesionMuerta] avisa cuando una petición se rinde tras dos 403 seguidos ([pedirAlOrigen]):
  * eso significa que caducó la sesión del canal (token/license), no la firma -ver el KDoc de
@@ -36,6 +42,15 @@ class LiveHlsProxy(
     @Volatile private var running = false
     @Volatile private var sesion: LiveSession? = null
 
+    /**
+     * Token aleatorio de la sesión de reproducción actual (ver [generarToken]). Vive tanto como
+     * el `ServerSocket`: nace en [start] y muere en [stop], NO en cada [urlPara] -- si cambiara
+     * en cada zapeo de canal, la URL que YA quedó grabada en VLC o en el media cargado en
+     * Chromecast (mismo puerto, ver el KDoc de [urlPara]) empezaría a dar 403 a mitad de
+     * reproducción.
+     */
+    @Volatile private var token: String? = null
+
     val port: Int get() = server?.localPort ?: -1
 
     private suspend fun contentAuth(s: LiveSession): String {
@@ -51,6 +66,7 @@ class LiveHlsProxy(
         val sock = if (bindLan) ServerSocket(0) else ServerSocket(0, 50, java.net.InetAddress.getByName("127.0.0.1"))
         server = sock
         running = true
+        token = generarToken()
         Thread {
             while (running && !sock.isClosed) {
                 val s = try { sock.accept() } catch (_: Exception) { break }
@@ -66,6 +82,25 @@ class LiveHlsProxy(
         runCatching { server?.close() }
         server = null
         sesion = null
+        token = null
+    }
+
+    /**
+     * Token aleatorio por sesión de reproducción, de fuente criptográficamente segura -no fijo,
+     * no derivado de nada predecible (ni del canal, ni del puerto, ni de la hora)-. Es el único
+     * control de acceso desde que [start] pasó a escuchar en toda la LAN (`0.0.0.0`) en vez de
+     * solo loopback: sin esto, cualquier equipo en la misma WiFi que escanee el puerto efímero
+     * mira el canal -contenido pago de Magis- sin más.
+     *
+     * Hex de 24 bytes de [java.security.SecureRandom] en vez de `java.util.Base64`/
+     * `android.util.Base64`: ni depende de desugaring para el primero, ni revienta en los tests
+     * JVM puros (que no mockean `android.util.*` salvo que algo lo atrape, como sí se hace con
+     * `Log.w` en [atender]) para el segundo.
+     */
+    private fun generarToken(): String {
+        val bytes = ByteArray(24)
+        java.security.SecureRandom().nextBytes(bytes)
+        return bytes.joinToString("") { "%02x".format(it) }
     }
 
     /**
@@ -83,7 +118,7 @@ class LiveHlsProxy(
     fun urlPara(nueva: LiveSession): String {
         sesion = nueva
         if (port <= 0) start(bindLan = true)
-        return "http://127.0.0.1:$port/live.m3u8"
+        return "http://127.0.0.1:$port/live.m3u8?t=$token"
     }
 
     /**
@@ -95,7 +130,8 @@ class LiveHlsProxy(
      */
     fun lanUrl(ip: String): String? {
         if (port <= 0) return null
-        return "http://$ip:$port/live.m3u8"
+        val t = token ?: return null
+        return "http://$ip:$port/live.m3u8?t=$t"
     }
 
     private fun atender(socket: Socket) = socket.use { s ->
@@ -109,6 +145,14 @@ class LiveHlsProxy(
             val linea = entrada.readLine() ?: return@runCatching
             val ruta = linea.split(" ").getOrNull(1) ?: return@runCatching
             val salida = s.getOutputStream()
+            // Control de acceso: desde que start() escucha en toda la LAN (ver su KDoc), CUALQUIER
+            // ruta -playlist o segmento- tiene que traer el token de esta sesión ANTES de que se
+            // resuelva nada. Rechazo limpio y genérico (403, sin cuerpo): no hay que darle a quien
+            // escanea el puerto ninguna pista de qué rutas existen o por qué falló.
+            if (!tokenValido(ruta)) {
+                salida.write("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n".toByteArray())
+                return@runCatching
+            }
             when {
                 ruta.startsWith("/live.m3u8") -> servirPlaylist(salida)
                 ruta.startsWith("/seg?") -> servirSegmento(ruta, salida)
@@ -117,6 +161,24 @@ class LiveHlsProxy(
         }.onFailure { e ->
             runCatching { android.util.Log.w("LiveHlsProxy", "atender() falló: ${e.message}") }
         }
+    }
+
+    /** Extrae el valor de un parámetro de query de una ruta tipo `/live.m3u8?t=...&otro=...`. */
+    private fun valorDeQuery(ruta: String, clave: String): String? {
+        val query = ruta.substringAfter('?', "")
+        if (query.isEmpty()) return null
+        return query.split('&').firstOrNull { it.startsWith("$clave=") }?.substringAfter('=')
+    }
+
+    /**
+     * Compara el token recibido contra el de la sesión actual. `MessageDigest.isEqual` en vez de
+     * `==`: comparación en tiempo constante, para no filtrar por timing cuánto del token acertó
+     * quien está probando a ciegas.
+     */
+    private fun tokenValido(ruta: String): Boolean {
+        val esperado = token ?: return false
+        val recibido = valorDeQuery(ruta, "t") ?: return false
+        return java.security.MessageDigest.isEqual(recibido.toByteArray(), esperado.toByteArray())
     }
 
     /**
@@ -174,12 +236,13 @@ class LiveHlsProxy(
         // petición sigue con los valores que tenía al empezar. Ver la nota de [pedirAlOrigen].
         val s = sesion ?: return error502(salida)
         val miPuerto = port
+        val miToken = token ?: return error502(salida)
         val urlPlaylist = "http://${s.cflHost}/live/${s.channel}.m3u8"
         val c = pedirAlOrigen(urlPlaylist, s)
         if (c == null || c.responseCode != 200) return error502(salida)
         val base = URL(urlPlaylist)
         val cuerpo = c.inputStream.bufferedReader().readText().lineSequence()
-            .joinToString("\n") { ln -> reescribirLinea(ln, base, miPuerto) } + "\n"
+            .joinToString("\n") { ln -> reescribirLinea(ln, base, miPuerto, miToken) } + "\n"
         val bytes = cuerpo.toByteArray()
         salida.write(
             ("HTTP/1.1 200 OK\r\nContent-Type: application/vnd.apple.mpegurl\r\n" +
@@ -212,23 +275,25 @@ class LiveHlsProxy(
      * `URL(base, spec)` resuelve las tres formas de URI (absoluta, protocol-relative, relativa)
      * exactamente como lo haría un navegador, así que no hace falta reinventar esa lógica a mano.
      */
-    private fun reescribirLinea(ln: String, base: URL, miPuerto: Int): String {
+    private fun reescribirLinea(ln: String, base: URL, miPuerto: Int, miToken: String): String {
         val t = ln.trim()
         if (t.isEmpty()) return ln
         if (t.startsWith("#EXT-X-KEY") && t.contains("URI=")) {
-            return reescribirUriEnTag(ln, base, miPuerto)
+            return reescribirUriEnTag(ln, base, miPuerto, miToken)
         }
         if (t.startsWith("#")) return ln  // el resto de los tags no llevan URI propia
         val absoluta = runCatching { URL(base, t) }.getOrNull() ?: return ln
-        return "http://127.0.0.1:$miPuerto/seg?u=${URLEncoder.encode(absoluta.toString(), "UTF-8")}"
+        // El token va DESPUÉS de u= (nunca antes): servirSegmento() extrae u con
+        // `substringBefore("&")`, así que cualquier parámetro nuevo tiene que ir a continuación.
+        return "http://127.0.0.1:$miPuerto/seg?u=${URLEncoder.encode(absoluta.toString(), "UTF-8")}&t=$miToken"
     }
 
     /** Reescribe SOLO la URI entre comillas de un tag `#EXT-X-KEY:...,URI="..."`, dejando el resto igual. */
-    private fun reescribirUriEnTag(ln: String, base: URL, miPuerto: Int): String {
+    private fun reescribirUriEnTag(ln: String, base: URL, miPuerto: Int, miToken: String): String {
         val m = Regex("URI=\"([^\"]*)\"").find(ln) ?: return ln
         val grupo = m.groups[1] ?: return ln
         val absoluta = runCatching { URL(base, grupo.value) }.getOrNull() ?: return ln
-        val nueva = "http://127.0.0.1:$miPuerto/seg?u=${URLEncoder.encode(absoluta.toString(), "UTF-8")}"
+        val nueva = "http://127.0.0.1:$miPuerto/seg?u=${URLEncoder.encode(absoluta.toString(), "UTF-8")}&t=$miToken"
         return ln.replaceRange(grupo.range, nueva)
     }
 
