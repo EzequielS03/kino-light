@@ -31,6 +31,16 @@ class HomeViewModel(
     val library: StateFlow<List<LibraryRow>> = repo.observeLibrary()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /**
+     * La biblioteca ordenada por lo último que viste, para la grilla de "Mi biblioteca".
+     *
+     * Es una suscripción aparte de [library] a propósito: [library] cruda alimenta el
+     * `onEach { ensureArtwork(rows) }` del `init` (una consulta por fila en cada emisión) y el
+     * héroe del home del TV, y no debe re-emitirse cada vez que se guarda progreso.
+     */
+    val bibliotecaOrdenada: StateFlow<List<LibraryRow>> = repo.observeLibraryOrdenada()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     val continueWatching: StateFlow<List<ContinueRow>> = repo.observeContinueWatching()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 

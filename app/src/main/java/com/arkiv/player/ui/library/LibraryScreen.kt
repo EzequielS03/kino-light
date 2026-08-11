@@ -73,7 +73,8 @@ fun LibraryScreen(
     val vm: HomeViewModel = viewModel(
         factory = viewModelFactory { initializer { HomeViewModel(graph.repository, graph.tmdbApi, graph.aniListApi, graph.settings) } },
     )
-    val library by vm.library.collectAsStateWithLifecycle()
+    // Ordenada por lo último que viste: lo que venís viendo queda primero, sin ir a buscarlo abajo.
+    val library by vm.bibliotecaOrdenada.collectAsStateWithLifecycle()
     val continueWatching by vm.continueWatching.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     // Avisa "eso ya lo tenés bajado" cuando la cola saltea una descarga duplicada (ver
