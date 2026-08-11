@@ -7,8 +7,12 @@ import org.junit.Test
 
 class SubtitleDecisionTest {
 
+    // audioLangs se deja a propósito con un orden que NO coincide con understoodLangs: la decisión de
+    // subtítulos solo puede mirar la segunda. Si algún día se vuelve a mirar audioLangs, el japonés de
+    // acá adentro haría fallar a `japaneseAudioStillGetsSubtitlesAfterPromotion`.
     private val prefs = PlaybackPrefs(
         audioLangs = listOf(TrackLang.LATINO, TrackLang.CASTELLANO),
+        understoodLangs = listOf(TrackLang.LATINO, TrackLang.CASTELLANO),
         subtitleLangs = listOf(TrackLang.LATINO, TrackLang.CASTELLANO, TrackLang.SPANISH),
     )
     private val subs = listOf(-1 to "Disable", 0 to "English", 1 to "Spanish")
@@ -26,10 +30,26 @@ class SubtitleDecisionTest {
         assertEquals(-1, SubtitleDecision.decide("Track 1 - [Spanish]", subs, prefs))
     }
 
-    /** Si agregaste inglés a tu lista de audio, el inglés deja de prender subs. */
+    /** Si marcaste que entendés inglés, el audio en inglés deja de prender subs. */
     @Test fun audioInAnAddedLanguageAlsoCountsAsMine() {
-        val conIngles = prefs.copy(audioLangs = prefs.audioLangs + TrackLang.ENGLISH)
+        val conIngles = prefs.copy(understoodLangs = prefs.understoodLangs + TrackLang.ENGLISH)
         assertEquals(-1, SubtitleDecision.decide("English", subs, conIngles))
+    }
+
+    /**
+     * El caso que motivó separar las dos listas: en un anime dual elegís japonés a mano, la promoción
+     * lo sube al tope de `audioLangs` y en el próximo capítulo el japonés se auto-selecciona. Los
+     * subtítulos TIENEN que seguir prendiéndose: nunca dijiste que entendías japonés.
+     */
+    @Test fun japaneseAudioStillGetsSubtitlesAfterPromotion() {
+        val promovido = prefs.copy(audioLangs = listOf(TrackLang.JAPANESE) + prefs.audioLangs)
+        assertEquals(1, SubtitleDecision.decide("Japanese", subs, promovido))
+    }
+
+    /** Y al revés: marcar japonés como entendido sí los apaga, aunque no esté en audioLangs. */
+    @Test fun understandingJapaneseTurnsThemOffWithoutTouchingTheAudioOrder() {
+        val entiendeJapones = prefs.copy(understoodLangs = prefs.understoodLangs + TrackLang.JAPANESE)
+        assertEquals(-1, SubtitleDecision.decide("Japanese", subs, entiendeJapones))
     }
 
     /** Pista sin etiqueta: se asume que es tu idioma. Prender subs porque sí sería peor. */

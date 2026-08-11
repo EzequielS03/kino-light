@@ -136,6 +136,14 @@ fun TvSettingsScreen(onConnectPhone: () -> Unit = {}) {
             order = playbackPrefs.audioLangs,
             onChange = { setPrefs(playbackPrefs.copy(audioLangs = it)) },
         )
+        TvLanguageChecklist(
+            title = "Idiomas que entiendo",
+            subtitle = "Los subtítulos se prenden solos únicamente cuando el audio queda en un " +
+                "idioma que no está en esta lista.",
+            options = IDIOMAS_AUDIO,
+            selected = playbackPrefs.understoodLangs,
+            onChange = { setPrefs(playbackPrefs.copy(understoodLangs = it)) },
+        )
         TvLanguageOrderEditor(
             title = "Idioma de los subtítulos (en orden de preferencia)",
             options = IDIOMAS_SUBTITULO,

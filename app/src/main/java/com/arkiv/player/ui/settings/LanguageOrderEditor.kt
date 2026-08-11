@@ -92,3 +92,47 @@ fun LanguageOrderEditor(
         }
     }
 }
+
+/**
+ * Lista de idiomas SIN orden: acá "entiendo japonés" no es mejor ni peor que "entiendo inglés", así
+ * que no se ofrecen flechas — mostrarlas sugeriría una prioridad que nadie usa. Comparte
+ * [LangOrderEdits.toggle] con el editor ordenado para no repetir la regla de "nunca vaciar la lista".
+ */
+@Composable
+fun LanguageChecklistEditor(
+    title: String,
+    subtitle: String,
+    options: List<TrackLang>,
+    selected: List<TrackLang>,
+    onChange: (List<TrackLang>) -> Unit,
+) {
+    Text(
+        title,
+        style = MaterialTheme.typography.bodyMedium,
+        color = ArkivTextSecondary,
+        modifier = Modifier.padding(top = 16.dp, bottom = 2.dp),
+    )
+    Text(
+        subtitle,
+        style = MaterialTheme.typography.bodySmall,
+        color = ArkivTextSecondary,
+        modifier = Modifier.padding(bottom = 6.dp),
+    )
+    Column {
+        options.forEach { lang ->
+            val marcado = lang in selected
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = marcado,
+                    onCheckedChange = { onChange(LangOrderEdits.toggle(selected, lang)) },
+                    colors = CheckboxDefaults.colors(checkedColor = ArkivRed),
+                )
+                Text(
+                    lang.etiqueta(),
+                    color = if (marcado) Color.White else ArkivTextSecondary,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}

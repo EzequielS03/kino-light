@@ -241,6 +241,15 @@ private fun SubtitleSection(style: PlaybackPrefs, onChange: (PlaybackPrefs) -> U
         onChange = { onChange(style.copy(audioLangs = it)) },
     )
 
+    LanguageChecklistEditor(
+        title = "Idiomas que entiendo",
+        subtitle = "Los subtítulos se prenden solos únicamente cuando el audio queda en un idioma " +
+            "que no está en esta lista.",
+        options = IDIOMAS_AUDIO,
+        selected = style.understoodLangs,
+        onChange = { onChange(style.copy(understoodLangs = it)) },
+    )
+
     LanguageOrderEditor(
         title = "Idioma de los subtítulos (en orden de preferencia)",
         options = IDIOMAS_SUBTITULO,
@@ -258,7 +267,7 @@ private fun SubtitleSection(style: PlaybackPrefs, onChange: (PlaybackPrefs) -> U
         }
     }
     Text(
-        "Automático: se prenden solo si el audio quedó en un idioma que no está en tu lista.",
+        "Automático: se prenden solo si el audio quedó en un idioma que no marcaste como entendido.",
         style = MaterialTheme.typography.bodySmall,
         color = ArkivTextSecondary,
         modifier = Modifier.padding(top = 4.dp),

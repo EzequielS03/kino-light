@@ -57,6 +57,31 @@ fun TvLanguageOrderEditor(
     }
 }
 
+/**
+ * Versión TV de [com.arkiv.player.ui.settings.LanguageChecklistEditor]: los mismos idiomas pero SIN
+ * flechas, porque acá el orden no significa nada. Cada fila es un botón que prende/apaga el ✓.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun TvLanguageChecklist(
+    title: String,
+    subtitle: String,
+    options: List<TrackLang>,
+    selected: List<TrackLang>,
+    onChange: (List<TrackLang>) -> Unit,
+) {
+    Text(title, color = ArkivTextSecondary, modifier = Modifier.padding(top = 20.dp, bottom = 2.dp))
+    Text(subtitle, color = ArkivTextSecondary, modifier = Modifier.padding(bottom = 8.dp))
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        options.forEach { lang ->
+            val marca = if (lang in selected) "✓ " else "   "
+            TvLangBoton("$marca${lang.etiqueta()}", Modifier.fillMaxWidth(0.6f)) {
+                onChange(LangOrderEdits.toggle(selected, lang))
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TvLangBoton(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
