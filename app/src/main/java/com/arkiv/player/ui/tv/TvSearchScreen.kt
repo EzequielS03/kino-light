@@ -535,11 +535,11 @@ fun TvSearchScreen(
                         client = graph.arkivApiClient,
                         posterUrl = resultPoster,
                         preparing = preparing,
-                        onPlayOne = { capitulos, capitulo ->
+                        onPlayOne = { capitulos, capitulo, serie ->
                             magisSeasonFor = null
                             preparing = true; playError = null
                             scope.launch {
-                                applyResult(playback.playMagisSeason(currentMagis, capitulos, capitulo))
+                                applyResult(playback.playMagisSeason(currentMagis, capitulos, capitulo, serie))
                             }
                         },
                         onSaveAll = { capitulos -> saveMagisSeason(currentMagis, capitulos) },
@@ -1546,10 +1546,14 @@ private fun TvMagisSeasonContent(
     client: com.arkiv.player.data.gateway.ArkivApiClient,
     posterUrl: String,
     preparing: Boolean,
-    onPlayOne: (List<com.arkiv.player.data.gateway.GatewayEpisode>, com.arkiv.player.data.gateway.GatewayEpisode) -> Unit,
+    onPlayOne: (List<com.arkiv.player.data.gateway.GatewayEpisode>, com.arkiv.player.data.gateway.GatewayEpisode, com.arkiv.player.data.gateway.GatewaySerie?) -> Unit,
     onSaveAll: (List<com.arkiv.player.data.gateway.GatewayEpisode>) -> Unit,
 ) {
     var capitulos by remember(season.ref) { mutableStateOf<List<com.arkiv.player.data.gateway.GatewayEpisode>?>(null) }
+    // El bloque `series` de la misma respuesta: de ahí sale el `tmdbId` que necesita
+    // `SearchPlayback.playMagisSeason` para guardarlo en el ítem, sin pedirlo de nuevo al tocar un
+    // capítulo (ver su KDoc).
+    var serie by remember(season.ref) { mutableStateOf<com.arkiv.player.data.gateway.GatewaySerie?>(null) }
     var error by remember(season.ref) { mutableStateOf<String?>(null) }
     val saveAllFocus = remember { FocusRequester() }
 
@@ -1561,8 +1565,8 @@ private fun TvMagisSeasonContent(
             "temporada TV: pido capitulos titulo=${season.title} tipo=${season.extra["program_type"]} " +
                 "esperados=${season.extra["episode_count"]} kind=${season.kind} ref=${season.ref.take(24)}…",
         )
-        runCatching { client.episodes(season.ref) }
-            .onSuccess { capitulos = it }
+        runCatching { client.episodesConSerie(season.ref) }
+            .onSuccess { (caps, s) -> capitulos = caps; serie = s }
             .onFailure {
                 android.util.Log.w("ArkivGw", "temporada TV: fallo ${it.javaClass.simpleName}: ${it.message}", it)
                 error = "No se pudieron cargar los capítulos."
@@ -1641,7 +1645,7 @@ private fun TvMagisSeasonContent(
                         ) { Text("Guardar toda la temporada") }
                     }
                     items(caps, key = { it.ref }) { cap ->
-                        TvMagisEpisodeRow(cap = cap, enabled = !preparing, onClick = { onPlayOne(caps, cap) })
+                        TvMagisEpisodeRow(cap = cap, enabled = !preparing, onClick = { onPlayOne(caps, cap, serie) })
                     }
                 }
             }

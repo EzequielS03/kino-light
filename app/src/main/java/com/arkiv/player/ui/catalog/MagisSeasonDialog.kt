@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import com.arkiv.player.data.gateway.ArkivApiClient
 import com.arkiv.player.data.gateway.GatewayEpisode
 import com.arkiv.player.data.gateway.GatewayResult
+import com.arkiv.player.data.gateway.GatewaySerie
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 
@@ -62,10 +63,14 @@ fun MagisSeasonDialog(
     season: GatewayResult,
     client: ArkivApiClient,
     onDismiss: () -> Unit,
-    onPlay: (List<GatewayEpisode>, GatewayEpisode) -> Unit,
+    onPlay: (List<GatewayEpisode>, GatewayEpisode, GatewaySerie?) -> Unit,
     onSave: (List<GatewayEpisode>) -> Unit,
 ) {
     var capitulos by remember(season.ref) { mutableStateOf<List<GatewayEpisode>?>(null) }
+    // El bloque `series` de la misma respuesta: de ahí sale el `tmdbId` que necesita
+    // `SearchPlayback.playMagisSeason` para guardarlo en el ítem, sin pedirlo de nuevo al tocar un
+    // capítulo (ver su KDoc).
+    var serie by remember(season.ref) { mutableStateOf<GatewaySerie?>(null) }
     var error by remember(season.ref) { mutableStateOf<String?>(null) }
     // Selección para guardar. Arranca vacía: el gesto principal de esta ventana es reproducir, y
     // marcar los 16 capítulos por defecto invitaría a bajar una temporada entera sin querer.
@@ -80,8 +85,8 @@ fun MagisSeasonDialog(
             "temporada: pido capitulos titulo=${season.title} tipo=${season.extra["program_type"]} " +
                 "esperados=${season.extra["episode_count"]} kind=${season.kind} ref=${season.ref.take(24)}…",
         )
-        runCatching { client.episodes(season.ref) }
-            .onSuccess { capitulos = it }
+        runCatching { client.episodesConSerie(season.ref) }
+            .onSuccess { (caps, s) -> capitulos = caps; serie = s }
             .onFailure {
                 // El motivo REAL, que hasta ahora se tragaba el runCatching y no llegaba a ningún lado.
                 android.util.Log.w("ArkivGw", "temporada: fallo ${it.javaClass.simpleName}: ${it.message}", it)
@@ -165,7 +170,7 @@ fun MagisSeasonDialog(
                                 if (cap.number in marcados) marcados.remove(cap.number)
                                 else marcados.add(cap.number)
                             },
-                            onPlay = { onPlay(capitulos!!, cap) },
+                            onPlay = { onPlay(capitulos!!, cap, serie) },
                         )
                     }
                 }

@@ -122,9 +122,14 @@ class SearchPlayback(private val graph: AppGraph) {
      * Guarda la temporada ENTERA y devuelve el capítulo que se tocó, para reproducirlo.
      *
      * Es el gemelo de `playPackRow` (torrent) y `saveWebPack` (web): tocar un capítulo trae la serie
-     * completa a la biblioteca, no solo ese capítulo. La lista ya está cargada en la pantalla, así
-     * que esto no cuesta ninguna llamada de red. **No descarga nada**: eso lo sigue haciendo el
-     * botón "Guardar".
+     * completa a la biblioteca, no solo ese capítulo. La lista Y la serie ya las cargó la pantalla
+     * con `client.episodesConSerie` al abrirse, así que esto no cuesta ninguna llamada de red.
+     * **No descarga nada**: eso lo sigue haciendo el botón "Guardar".
+     *
+     * [serie] es el bloque `series` de esa misma respuesta (null si el gateway no pudo resolver la
+     * serie contra TMDB): de ahí sale el `tmdbId` que se guarda en el ítem. Viaja como parámetro y
+     * no se vuelve a pedir acá adentro — este es el camino por el que se reproduce, así que un
+     * round-trip redundante es justo lo que no puede haber.
      *
      * Si la temporada no se pudo guardar (el portal no mandó `content_id`), cae al camino de
      * siempre —guardar solo el capítulo— antes que dejar al usuario sin reproducir nada.
@@ -133,12 +138,8 @@ class SearchPlayback(private val graph: AppGraph) {
         temporada: com.arkiv.player.data.gateway.GatewayResult,
         capitulos: List<com.arkiv.player.data.gateway.GatewayEpisode>,
         elegido: com.arkiv.player.data.gateway.GatewayEpisode,
+        serie: com.arkiv.player.data.gateway.GatewaySerie?,
     ): PlaybackResult {
-        // El tmdbId de la serie no viaja en `capitulos` (la pantalla ya lo cargó con
-        // `client.episodes`, que descarta el bloque `series`): solo lo entrega `episodesConSerie`,
-        // así que hay que volver a pedirlo. El gateway lo cachea, así que el costo es mínimo — y
-        // still/nombre/sinopsis de cada capítulo se toman de `capitulos`, que la pantalla ya tiene.
-        val (_, serie) = graph.arkivApiClient.episodesConSerie(temporada.ref)
         val guardados = graph.repository.addMagisSeason(
             contentId = temporada.extra["content_id"].orEmpty(),
             title = temporada.title,
