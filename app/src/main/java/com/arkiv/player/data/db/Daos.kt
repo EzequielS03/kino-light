@@ -532,6 +532,14 @@ interface EpisodeFrameDao {
     suspend fun borrar(episodeId: String)
 
     /**
+     * Filas (sin borrar) de los capítulos de un ítem, para el detalle de una serie. Misma forma
+     * que [EpisodeStillDao.observeForItem]: el repositorio la usa solo como DISPARADOR del Flow
+     * (ver `ArkivRepository.observeEpisodeFrames`), no como fuente de la ruta.
+     */
+    @Query("SELECT * FROM episode_frame WHERE deleted = 0 AND episodeId IN (SELECT id FROM episodes WHERE itemId = :itemId)")
+    fun observeForItem(itemId: String): Flow<List<EpisodeFrameEntity>>
+
+    /**
      * Se lleva TODAS las filas de una sola vez, para el wipe de logout: ahí no hay una lista de
      * capítulos que recorrer (los `items`/`episodes` se borran en el mismo barrido) y borrar de a
      * uno exigiría leer antes lo que se va a borrar.

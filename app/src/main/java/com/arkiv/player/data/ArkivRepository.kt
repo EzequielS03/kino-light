@@ -126,6 +126,7 @@ class ArkivRepository(
     private val skipMarkerDao = db.skipMarkerDao()
     private val artworkDao = db.artworkDao()
     private val episodeStillDao = db.episodeStillDao()
+    private val episodeFrameDao = db.episodeFrameDao()
 
     fun observeLibrary(): Flow<List<LibraryRow>> = itemDao.observeLibrary()
 
@@ -297,6 +298,25 @@ class ArkivRepository(
     fun observeEpisodeStills(itemId: String): Flow<Map<String, String>> =
         episodeStillDao.observeForItem(itemId).map { rows ->
             rows.mapNotNull { r -> r.stillUrl?.let { r.episodeId to it } }.toMap()
+        }
+
+    /**
+     * Mapa episodeId -> ruta en disco del frame capturado, para que el detalle de una serie pinte
+     * la escena real en vez del still de TMDB. Mismo mecanismo que [observeContinueWatching]
+     * (`ContinueRow.framePath`), pero acá el disparador es una consulta de Room en vez de un
+     * `List<ContinueRow>` ya en memoria.
+     *
+     * SUTILEZA a propósito: la fila de `episode_frame` se usa solo como DISPARADOR (Room notifica
+     * el Flow cuando cambia una fila; el disco no notifica nada), y la ruta en sí sale SIEMPRE de
+     * `almacenDeFrames.rutaSiExiste`, igual que en el home — es la única fuente de verdad de dónde
+     * está el JPEG. Consecuencia asumida: si alguna vez se guardó el JPEG pero falló la escritura
+     * de la fila (o viceversa), el detalle no lo mostraría aunque el home sí. Es un caso raro
+     * (la escritura de fila y archivo son parte de la misma captura) y se corrige solo con la
+     * próxima captura del capítulo.
+     */
+    fun observeEpisodeFrames(itemId: String): Flow<Map<String, String>> =
+        episodeFrameDao.observeForItem(itemId).map { rows ->
+            rows.mapNotNull { r -> almacenDeFrames?.rutaSiExiste(r.episodeId)?.let { r.episodeId to it } }.toMap()
         }
 
     /**
