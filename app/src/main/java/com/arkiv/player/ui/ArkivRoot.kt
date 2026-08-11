@@ -309,7 +309,6 @@ fun ArkivRoot(
             }
             composable("live") {
                 com.arkiv.player.ui.live.LiveScreen(
-                    onOpenSettings = { navController.navigate("settings") },
                     // Todavía no hay reproductor en modo vivo (llega en la Tarea 14: bandera
                     // `enVivo` en PlayerViewModel/PlayerScreen). Navegar YA a "player/live:<code>"
                     // se probó y se descartó: PlayerViewModel.loadArchive() no reconoce ese id,

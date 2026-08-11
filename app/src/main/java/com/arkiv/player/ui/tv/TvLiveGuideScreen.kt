@@ -70,7 +70,6 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.arkiv.player.data.gateway.LiveChannel
 import com.arkiv.player.data.gateway.LiveProgram
-import com.arkiv.player.pocketbase.AccountState
 import com.arkiv.player.ui.live.CATEGORIA_FAVORITOS
 import com.arkiv.player.ui.live.LiveViewModel
 import com.arkiv.player.ui.live.avance
@@ -124,19 +123,23 @@ private enum class TvVistaLocal { NINGUNA, RECIENTES }
  * Guía de programación del TV: canal × hora, recorrida con el mando como un decodificador de
  * cable. Es la pantalla principal de "En vivo" en el televisor (Tarea 13).
  *
- * Jerarquía: `TvLiveGuideScreen` decide si mostrar el aviso de "vincular Magis" (mismo gate que
- * `LiveScreen` en el celular -- ver su KDoc sobre por qué el gate va ANTES de construir el
- * ViewModel) o `TvLiveGuideContenido`, que arma chips de categoría (Favoritos/Recientes primero),
- * la cabecera de horas y un `LazyColumn` de `TvGuiaFilaCanal` (un `Row` con la identidad fija del
- * canal + un timeline scrolleable de `TvBloquePrograma`, o un bloque estático fijo --
- * `TvBloqueCargando`/`TvBloqueVacio` -- mientras no hay programas que recorrer).
+ * No exige cuenta de Magis vinculada: el catálogo de canales usa la sesión anónima del gateway
+ * (por número de serie del dispositivo, igual que el CLI de magia) cuando no hay cuenta
+ * vinculada -- ver `MagisSession` en el gateway. Si el usuario SÍ tiene cuenta vinculada,
+ * `LiveApi` ya manda su `X-Arkiv-Account` de todos modos, sin que esta pantalla tenga que saber
+ * nada al respecto.
+ *
+ * Arma chips de categoría (Favoritos/Recientes primero), la cabecera de horas y un `LazyColumn`
+ * de `TvGuiaFilaCanal` (un `Row` con la identidad fija del canal + un timeline scrolleable de
+ * `TvBloquePrograma`, o un bloque estático fijo -- `TvBloqueCargando`/`TvBloqueVacio` -- mientras
+ * no hay programas que recorrer).
  *
  * Foco con el mando:
  * - Arriba/abajo: navegación estándar de Compose entre los bloques de la fila anterior/siguiente
  *   dentro del `LazyColumn` (no hace falta código extra: cada bloque es un foco más y Compose
  *   busca el más cercano en esa dirección).
  * - Izquierda/derecha: se mueve el foco entre los bloques de programa de la fila. Como TODAS las
- *   filas comparten el mismo [ScrollState] (ver [scrollCompartido] en [TvLiveGuideContenido]),
+ *   filas comparten el mismo [ScrollState] (ver [scrollCompartido] en [TvLiveGuideScreen]),
  *   mover el scroll de una fila mueve el de todas -- así las horas quedan alineadas entre
  *   canales. Se comparte un `ScrollState` (offset en PÍXELES), no un `LazyListState` por índice:
  *   cada canal tiene un número distinto de programas con anchos distintos, así que el índice N de
@@ -149,37 +152,12 @@ private enum class TvVistaLocal { NINGUNA, RECIENTES }
  *
  * Estados: esqueleto gris "Cargando programación…" por fila mientras no llega su EPG (nunca
  * bloquea: se pide con [LiveViewModel.pedirEpgDe] solo para las filas visibles + margen, ver el
- * `LaunchedEffect` de `listState` en [TvLiveGuideContenido]); mensaje simple + reintentar si la
- * carga de canales falla del todo; aviso de "vincular Magis" si la cuenta no está vinculada.
+ * `LaunchedEffect` de `listState` más abajo); mensaje simple + reintentar si la carga de canales
+ * falla del todo.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun TvLiveGuideScreen(
-    onVerCanal: (LiveChannel) -> Unit,
-    onVolver: () -> Unit,
-    onOpenSettings: () -> Unit = {},
-) {
-    val graph = rememberGraph()
-    val cuenta by graph.accountManager.state.collectAsStateWithLifecycle()
-    // Mismo gate que LiveScreen (mobile): el vivo depende de la cuenta de Magis, no de tener
-    // sesión en Arkiv. Va ANTES de construir LiveViewModel (dentro de TvLiveGuideContenido) para
-    // no disparar pedidos de red reales antes de confirmar que hay con qué autenticarlos.
-    val sinMagis = (cuenta as? AccountState.Conectado)?.magisLinked != true
-
-    // Por si el vínculo cambió del lado del servidor desde la última vez que se abrió esta
-    // pantalla -- corre siempre, es lo único que puede sacarnos de sinMagis.
-    LaunchedEffect(Unit) { runCatching { graph.accountManager.refrescarMagis() } }
-
-    if (sinMagis) {
-        TvSinCuentaMagis(onOpenSettings)
-    } else {
-        TvLiveGuideContenido(onVerCanal, onVolver)
-    }
-}
-
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun TvLiveGuideContenido(onVerCanal: (LiveChannel) -> Unit, onVolver: () -> Unit) {
+fun TvLiveGuideScreen(onVerCanal: (LiveChannel) -> Unit, onVolver: () -> Unit) {
     val graph = rememberGraph()
     val vm: LiveViewModel = viewModel(
         factory = viewModelFactory {
@@ -759,31 +737,5 @@ private fun TvGuiaMensaje(titulo: String, subtitulo: String?, onReintentar: (() 
                 modifier = Modifier.padding(top = 16.dp),
             ) { Text("Reintentar") }
         }
-    }
-}
-
-/** Aviso de "vinculá tu cuenta de Magis" -- versión TV de `SinCuentaMagis` (LiveScreen.kt). */
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun TvSinCuentaMagis(onOpenSettings: () -> Unit) {
-    Column(
-        modifier = Modifier.fillMaxSize().background(ArkivBlack).padding(48.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text("Vinculá tu cuenta de Magis", style = MaterialTheme.typography.headlineSmall, color = Color.White)
-        Text(
-            "El canal en vivo necesita una cuenta de Magis vinculada a tu cuenta de Arkiv. " +
-                "Podés vincularla desde Ajustes.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = ArkivTextSecondary,
-            modifier = Modifier.padding(top = 8.dp).width(480.dp),
-        )
-        Button(
-            onClick = onOpenSettings,
-            colors = arkivTvButtonColors(),
-            border = arkivTvButtonBorder(),
-            modifier = Modifier.padding(top = 16.dp),
-        ) { Text("Ir a Ajustes") }
     }
 }

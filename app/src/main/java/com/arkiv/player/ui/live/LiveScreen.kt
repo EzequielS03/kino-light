@@ -24,7 +24,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.ViewAgenda
@@ -62,7 +61,6 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import coil.compose.AsyncImage
 import com.arkiv.player.data.gateway.LiveChannel
 import com.arkiv.player.data.gateway.LiveProgram
-import com.arkiv.player.pocketbase.AccountState
 import com.arkiv.player.ui.components.EmptyState
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivRed
@@ -76,49 +74,22 @@ private enum class VistaLocal { NINGUNA, RECIENTES }
 /**
  * Pestaña "En vivo": grilla de canales con buscador, categorías (con Favoritos/Recientes
  * primero) y "ahora en pantalla". Es la primera pieza de interfaz de la sección, así que cuida
- * los tres estados que importan: abre al instante con lo cacheado, no se cae sin cuenta de Magis,
- * y no deja un error crudo si el gateway está lento o caído.
+ * los dos estados que importan: abre al instante con lo cacheado, y no deja un error crudo si el
+ * gateway está lento o caído.
  *
- * El gate de Magis vive ACÁ, antes de construir [LiveViewModel] -- no adentro de [LiveContenido] --
- * a propósito: `viewModel(factory = ...)` dispara el `init` del ViewModel (que ya llama al
- * gateway) apenas se compone por primera vez. Si el gate estuviera después de esa llamada, el
- * "no se cae sin cuenta de Magis" sería solo visual: la pantalla de "Vinculá tu cuenta" se vería
- * bien, pero [LiveViewModel] ya habría hecho pedidos de red reales antes de que nadie confirmara
- * que hay con qué autenticarlos (medido en review). Con `viewModel()` fuera de la rama
- * `sinMagis`, [LiveContenido] -y por lo tanto el ViewModel- ni se compone mientras el gate esté
- * activo.
+ * No exige cuenta de Magis vinculada: el catálogo de canales usa la sesión anónima del gateway
+ * (por número de serie del dispositivo, igual que el CLI de magia) cuando no hay cuenta
+ * vinculada -- ver `MagisSession` en el gateway. Si el usuario SÍ tiene cuenta vinculada,
+ * [com.arkiv.player.data.gateway.LiveApi] ya manda su `X-Arkiv-Account` de todos modos, sin que
+ * esta pantalla tenga que saber nada al respecto.
  *
  * [onAbrirCanal] recibe el código del canal tocado; hoy no hay reproductor en modo vivo (llega en
  * la Tarea 14: bandera `enVivo` + zapping en `PlayerViewModel`/`PlayerScreen`), así que el
  * llamador de esta pantalla decide qué hacer con ese código.
  */
-@Composable
-fun LiveScreen(
-    onOpenSettings: () -> Unit,
-    onAbrirCanal: (String) -> Unit,
-    contentPadding: PaddingValues,
-) {
-    val graph = rememberGraph()
-    val cuenta by graph.accountManager.state.collectAsStateWithLifecycle()
-    // "Vinculado" es la única condición real: Anónimo o Conectado-sin-Magis se tratan igual, porque
-    // el vivo depende de la cuenta de Magis, no de tener sesión en Arkiv.
-    val sinMagis = (cuenta as? AccountState.Conectado)?.magisLinked != true
-
-    // Por si el vínculo cambió del lado del servidor (otro dispositivo lo vinculó/desvinculó)
-    // desde la última vez que se abrió esta pantalla -- mismo patrón que AccountSection. Corre
-    // SIEMPRE (incluso con sinMagis == true): es lo único que puede sacarnos de ese estado.
-    LaunchedEffect(Unit) { runCatching { graph.accountManager.refrescarMagis() } }
-
-    if (sinMagis) {
-        SinCuentaMagis(onOpenSettings, contentPadding)
-    } else {
-        LiveContenido(onAbrirCanal, contentPadding)
-    }
-}
-
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun LiveContenido(
+fun LiveScreen(
     onAbrirCanal: (String) -> Unit,
     contentPadding: PaddingValues,
 ) {
@@ -300,40 +271,6 @@ private fun ErrorConReintento(mensaje: String, onReintentar: () -> Unit) {
             colors = ButtonDefaults.buttonColors(containerColor = ArkivRed, contentColor = Color.White),
             modifier = Modifier.padding(top = 16.dp),
         ) { Text("Reintentar") }
-    }
-}
-
-@Composable
-private fun SinCuentaMagis(onOpenSettings: () -> Unit, contentPadding: PaddingValues) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(contentPadding).padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Icon(
-            Icons.Default.LiveTv,
-            contentDescription = null,
-            tint = ArkivTextSecondary,
-            modifier = Modifier.size(48.dp),
-        )
-        Text(
-            "Vinculá tu cuenta de Magis",
-            style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.padding(top = 16.dp),
-        )
-        Text(
-            "El canal en vivo necesita una cuenta de Magis vinculada a tu cuenta de Arkiv. " +
-                "Podés vincularla desde Ajustes.",
-            style = MaterialTheme.typography.bodyLarge,
-            color = ArkivTextSecondary,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 8.dp),
-        )
-        Button(
-            onClick = onOpenSettings,
-            colors = ButtonDefaults.buttonColors(containerColor = ArkivRed, contentColor = Color.White),
-            modifier = Modifier.padding(top = 16.dp),
-        ) { Text("Ir a Ajustes") }
     }
 }
 

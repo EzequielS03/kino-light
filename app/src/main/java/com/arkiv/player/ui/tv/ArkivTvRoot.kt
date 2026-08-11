@@ -194,7 +194,6 @@ fun ArkivTvRoot(
                     Toast.makeText(context, "La reproducción en vivo todavía no está disponible", Toast.LENGTH_SHORT).show()
                 },
                 onVolver = { navController.popBackStack() },
-                onOpenSettings = { navController.navigate("settings") },
             )
         }
         composable("detail/{itemId}") { entry ->
