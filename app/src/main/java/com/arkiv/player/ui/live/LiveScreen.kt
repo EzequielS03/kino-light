@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,10 +22,12 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.ViewAgenda
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
@@ -40,6 +43,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -128,6 +132,9 @@ private fun LiveContenido(
     )
     val estado by vm.estado.collectAsStateWithLifecycle()
     var vista by remember { mutableStateOf(VistaLocal.NINGUNA) }
+    // rememberSaveable: el brief pide que el modo sobreviva a la rotación (cambio de configuración
+    // recompone toda la pantalla desde cero, y con `remember` volvería siempre a la grilla).
+    var modoGuia by rememberSaveable { mutableStateOf(false) }
 
     // Recientes: no pasa por LiveViewModel.elegirCategoria (no es una categoría del portal), se lee
     // directo de Room. Sin numero/logo propios (Tarea 10 no los guarda para "recientes"), así que se
@@ -155,21 +162,33 @@ private fun LiveContenido(
     fun favorito(canal: LiveChannel) = vm.alternarFavorito(canal)
 
     Column(modifier = Modifier.fillMaxSize().padding(top = contentPadding.calculateTopPadding())) {
-        OutlinedTextField(
-            value = estado.busqueda,
-            onValueChange = vm::buscar,
-            placeholder = { Text("Buscar por nombre o número…") },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-            trailingIcon = {
-                if (estado.busqueda.isNotEmpty()) {
-                    IconButton(onClick = { vm.buscar("") }) {
-                        Icon(Icons.Default.Close, contentDescription = "Limpiar")
-                    }
-                }
-            },
-            singleLine = true,
+        Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        )
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedTextField(
+                value = estado.busqueda,
+                onValueChange = vm::buscar,
+                placeholder = { Text("Buscar por nombre o número…") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (estado.busqueda.isNotEmpty()) {
+                        IconButton(onClick = { vm.buscar("") }) {
+                            Icon(Icons.Default.Close, contentDescription = "Limpiar")
+                        }
+                    }
+                },
+                singleLine = true,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = { modoGuia = !modoGuia }) {
+                Icon(
+                    imageVector = if (modoGuia) Icons.Default.GridView else Icons.Default.ViewAgenda,
+                    contentDescription = if (modoGuia) "Ver como grilla" else "Ver guía de programación",
+                    tint = if (modoGuia) ArkivRed else ArkivTextSecondary,
+                )
+            }
+        }
 
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp),
@@ -221,6 +240,8 @@ private fun LiveContenido(
                         "Los canales que abras van a aparecer acá.",
                         modifier = Modifier.fillMaxSize(),
                     )
+                } else if (modoGuia) {
+                    LiveGuideList(visibles, estado.programacion, ::abrir, vm::pedirEpgDe, gridPadding)
                 } else {
                     ChannelGrid(visibles, estado.ahora, estado.favoritos, gridPadding, ::abrir, ::favorito)
                 }
@@ -240,6 +261,7 @@ private fun LiveContenido(
                 }
                 EmptyState(title, subtitle, modifier = Modifier.fillMaxSize())
             }
+            modoGuia -> LiveGuideList(estado.visibles, estado.programacion, ::abrir, vm::pedirEpgDe, gridPadding)
             else -> ChannelGrid(estado.visibles, estado.ahora, estado.favoritos, gridPadding, ::abrir, ::favorito)
         }
     }
