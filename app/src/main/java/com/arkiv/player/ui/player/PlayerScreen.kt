@@ -1336,9 +1336,8 @@ private fun PlayerContent(
     // Búsqueda automática de subtítulos online para el idioma preferido.
     LaunchedEffect(episodeId) {
         if (!graph.subtitleApi.configured) return@LaunchedEffect
-        val prefLang = graph.subtitlePrefs.style.value.language
+        val langs = graph.subtitlePrefs.prefs.value.openSubtitlesCodes()
         val subCtx = graph.repository.subtitleContextForEpisode(episodeId)
-        val langs = if (prefLang.isBlank() || prefLang == "off") "es" else prefLang
         suspend fun runSearch(hash: String?) {
             subtitles = if (subCtx == null && hash == null) emptyList() else runCatching {
                 graph.subtitleApi.search(
