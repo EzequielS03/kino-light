@@ -72,16 +72,23 @@ class PlaybackService : MediaSessionService() {
         // El player vive en el servicio, así que se suscribe él mismo a las preferencias: un cambio
         // en Ajustes —o sincronizado desde el celular— llega sin tener que reiniciar la reproducción.
         val graph = com.arkiv.player.AppGraph.from(this)
-        var primeraEmision = true
+        var anteriores: com.arkiv.player.data.subtitles.PlaybackPrefs? = null
         langPrefsJob = graph.applicationScope.launch {
             graph.subtitlePrefs.prefs.collect { prefs ->
                 player.langPrefs = prefs
-                // La primera emisión es el valor que ya había al suscribirse, no un cambio: no hay
-                // nada sonando todavía y del arranque se encarga el pase del evento Playing. De ahí
-                // en más SÍ es un cambio (tuyo o sincronizado del otro equipo) y se aplica sobre lo
-                // que está sonando: sin esto no se veía hasta la próxima carga desde cero, porque
-                // volver a darle play a lo mismo reusa el media y no vuelve a disparar los pases.
-                if (primeraEmision) primeraEmision = false else player.reaplicarIdiomaAlItemActual()
+                val previas = anteriores
+                anteriores = prefs
+                // Se re-aplica sobre lo que ya está sonando, porque volver a darle play a lo mismo
+                // reusa el media y no vuelve a disparar los pases: sin esto, un cambio en Ajustes no
+                // se veía hasta la próxima carga desde cero.
+                //
+                // Con dos recortes. `previas == null` es la primera emisión —el valor que ya había al
+                // suscribirse, no un cambio—, y del arranque se encarga el pase del evento Playing.
+                // Y solo cuentan los campos de IDIOMA: el estilo del subtítulo vive en el mismo objeto
+                // y su slider de tamaño persiste en cada paso del arrastre.
+                if (previas != null && !previas.mismosIdiomasQue(prefs)) {
+                    player.reaplicarIdiomaAlItemActual()
+                }
             }
         }
 

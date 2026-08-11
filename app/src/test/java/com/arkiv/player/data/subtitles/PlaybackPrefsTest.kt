@@ -2,6 +2,8 @@ package com.arkiv.player.data.subtitles
 
 import com.arkiv.player.playback.TrackLang
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlaybackPrefsTest {
@@ -111,6 +113,30 @@ class PlaybackPrefsTest {
     }
 
     // --- códigos para OpenSubtitles ---
+
+    // --- que un cambio de estilo no cuente como cambio de idioma ---
+
+    @Test fun styleOnlyChangesDoNotCountAsALanguageChange() {
+        val base = PlaybackPrefs()
+        assertTrue(base.mismosIdiomasQue(base.copy(sizePercent = 180)))
+        assertTrue(base.mismosIdiomasQue(base.copy(textColor = 0xFFFFEB3B)))
+        assertTrue(base.mismosIdiomasQue(base.copy(backgroundColor = 0xCC000000)))
+        assertTrue(base.mismosIdiomasQue(base.copy(edge = PlaybackPrefs.EDGE_SHADOW)))
+    }
+
+    @Test fun everyLanguageFieldCountsAsAChange() {
+        val base = PlaybackPrefs()
+        assertFalse(base.mismosIdiomasQue(base.copy(audioLangs = listOf(TrackLang.JAPANESE))))
+        assertFalse(base.mismosIdiomasQue(base.copy(understoodLangs = listOf(TrackLang.LATINO))))
+        assertFalse(base.mismosIdiomasQue(base.copy(subtitleLangs = listOf(TrackLang.ENGLISH))))
+        assertFalse(base.mismosIdiomasQue(base.copy(subtitleMode = SubtitleMode.OFF)))
+    }
+
+    /** El orden importa: reordenar la preferencia ES un cambio, aunque el conjunto sea el mismo. */
+    @Test fun reorderingIsAChangeEvenWithTheSameLanguages() {
+        val base = PlaybackPrefs(audioLangs = listOf(TrackLang.LATINO, TrackLang.JAPANESE))
+        assertFalse(base.mismosIdiomasQue(base.copy(audioLangs = listOf(TrackLang.JAPANESE, TrackLang.LATINO))))
+    }
 
     @Test fun spanishVariantsCollapseToASingleEsCode() {
         val p = PlaybackPrefs(subtitleLangs = listOf(TrackLang.LATINO, TrackLang.CASTELLANO, TrackLang.SPANISH))

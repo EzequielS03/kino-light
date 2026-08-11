@@ -40,6 +40,21 @@ data class PlaybackPrefs(
      * buckets del español colapsan a `es` a propósito: es el único código español verificado contra el
      * gateway. Nunca devuelve vacío — OFF significa "no prenderlos solos", no "no buscar".
      */
+    /**
+     * ¿Estas prefs eligen los mismos idiomas que [otro]? Ignora el estilo (tamaño, colores, borde).
+     *
+     * Sirve para no re-aplicar la selección de pista cuando lo único que cambió es cosmético: el
+     * estilo vive en este mismo objeto y el slider de tamaño persiste en CADA paso del arrastre, así
+     * que sin este filtro mover el tamaño dispararía decenas de re-aplicaciones — y como el pase de
+     * audio no corta por elección manual, le revertiría al usuario la pista que hubiera elegido a
+     * mano.
+     */
+    fun mismosIdiomasQue(otro: PlaybackPrefs): Boolean =
+        audioLangs == otro.audioLangs &&
+            understoodLangs == otro.understoodLangs &&
+            subtitleLangs == otro.subtitleLangs &&
+            subtitleMode == otro.subtitleMode
+
     fun openSubtitlesCodes(): String = subtitleLangs.mapNotNull {
         when (it) {
             TrackLang.LATINO, TrackLang.CASTELLANO, TrackLang.SPANISH -> "es"
