@@ -667,13 +667,13 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
     private fun applyPreferredSpu(retries: Int) {
         if (userTouchedSpu) return
         val audio = vlcAudioTracks()
-        // Sin pistas de audio a la vista todavía no hay nada que decidir: la regla depende de QUÉ
-        // audio quedó sonando. Decidir a ciegas prende el subtítulo un instante y el tick siguiente
-        // lo apaga — un parpadeo al arrancar. Se reintenta sin tocar nada hasta poder verlas.
-        if (audio.none { it.first >= 0 }) {
-            if (retries > 0) handler.postDelayed({ applyPreferredSpu(retries - 1) }, 350)
-            return
-        }
+        // OJO: acá NO va un "todavía no hay pistas de audio → no decidas nada". Se probó, con la idea
+        // de evitar un parpadeo al arrancar, y sale caro y gratis a la vez: sin audio a la vista el
+        // nombre queda en null y SubtitleDecision APAGA, que es exactamente lo que hay que hacer en
+        // el primer tick — libVLC ya auto-activó la primera pista embebida y hay que sacarla. Saltear
+        // la decisión ahí deja ese subtítulo en pantalla hasta que el audio puebla. Y no evita ningún
+        // parpadeo: PRENDER exige un audio extranjero, o sea una lista YA poblada, caso en el que ese
+        // guardia ni se activa. El parpadeo real es otro y se corta desde applyPreferredAudio.
         val spu = vlcSpuTracks()
         val audioName = audio.firstOrNull { it.first == currentAudioTrack() }?.second
         val target = SubtitleDecision.decide(audioName, spu, langPrefs, ::clasificarSpu)
@@ -691,7 +691,11 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
      */
     private fun clasificarSpu(nombre: String): TrackLang {
         val n = nombre.lowercase()
-        idiomaExterno.entries.firstOrNull { (clave, _) -> clave in n }?.let { return it.value }
+        // UNKNOWN acá es una clave QUEMADA por ambigua (ver recordarIdioma), no un idioma: se saltea
+        // para que la clasificación siga de largo hasta el nombre de archivo.
+        idiomaExterno.entries
+            .firstOrNull { (clave, lang) -> lang != TrackLang.UNKNOWN && clave in n }
+            ?.let { return it.value }
         return LangTokens.classifyFileName(nombre)
     }
 
@@ -711,6 +715,19 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         if (id != currentAudioTrack()) {
             runCatching { android.util.Log.w("ArkivVlc", "auto-audio -> id=$id de ${tracks.map { it.second }}") }
             setVlcAudioTrack(id)
+            // Cambiar el audio INVALIDA la decisión de subtítulos: se decide por el idioma de la pista
+            // que quedó SONANDO (ver SubtitleDecision), así que cualquier decisión tomada antes de
+            // este cambio se tomó con la entrada vieja. Sin este re-pase hay un parpadeo real medido
+            // en la cadencia de los dos pases, que van cada uno por su lado: el de audio corre a los
+            // 200 ms con las pistas todavía sin poblar y se duerme hasta los 600 ms; las pistas
+            // pueblan a los ~300 ms; el de subtítulos corre a los 400 ms, lee el inglés que VLC dejó
+            // por defecto, lo ve extranjero y PRENDE el subtítulo en español; el audio recién pasa a
+            // latino a los 600 ms y el pase de subtítulos solo se corrige en su tick siguiente, a los
+            // 750 ms. Son ~350 ms de subtítulo visible de gusto en cualquier MKV dual.
+            // Va posteado al looper (nunca se toca el player desde el thread de eventos) y respeta el
+            // corte por `userTouchedSpu` que ya hace applyPreferredSpu: si el usuario eligió a mano,
+            // esto no le pisa nada.
+            handler.post { applyPreferredSpu(retries = 0) }
         }
     }
 
@@ -979,6 +996,13 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
      * Guarda el idioma declarado de una pista externa contra trozos de su URI, porque libVLC bautiza
      * la pista con la ruta y es lo único que se puede reconocer después. Se guarda la URI entera y
      * además su último tramo: según el origen, libVLC muestra una o el otro.
+     *
+     * El último tramo puede CHOCAR entre subtítulos: una fuente web que sirve `…/es/1.vtt` y
+     * `…/en/1.vtt` deja los dos en la clave `1.vtt`, y el segundo registro se quedaba con la clave
+     * pisando al primero. Una pista bautizada solo con el tramo salía entonces con el idioma del otro
+     * subtítulo — mal, y con seguridad. Ante un choque la clave se QUEMA con UNKNOWN (sigue ocupada,
+     * así que un tercer registro tampoco la revive) y clasificarSpu la saltea: se cae al nombre de
+     * archivo, que a lo sumo no sabe. La clave de la URI entera, que es única, no se toca.
      */
     private fun recordarIdioma(uri: Uri, lang: String) {
         val bucket = LangTokens.classifyCode(lang)
@@ -986,8 +1010,9 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         val completa = uri.toString().lowercase()
         if (completa.isBlank()) return
         idiomaExterno[completa] = bucket
-        completa.substringAfterLast('/').takeIf { it.isNotBlank() && it != completa }
-            ?.let { idiomaExterno[it] = bucket }
+        val tramo = completa.substringAfterLast('/').takeIf { it.isNotBlank() && it != completa } ?: return
+        val previo = idiomaExterno[tramo]
+        idiomaExterno[tramo] = if (previo == null || previo == bucket) bucket else TrackLang.UNKNOWN
     }
 
     private companion object {

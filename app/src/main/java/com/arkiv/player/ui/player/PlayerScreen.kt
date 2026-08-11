@@ -1362,8 +1362,15 @@ private fun PlayerContent(
             } else {
                 // La descarga falló (red). NO se toca la pista: apagarla acá quedaría registrado como
                 // una decisión del usuario y dejaría sin auto-selección al resto del ítem — un .srt
-                // del torrent que llegue después ya no se prendería.
-                selectedSub = null
+                // del torrent que llegue después ya no se prendería. Y por lo mismo tampoco se limpia
+                // `selectedSub`: en pantalla sigue el subtítulo de antes, así que ponerlo en null
+                // dejaba al selector marcando "Ninguno" sobre un subtítulo que se seguía viendo. No
+                // cambió nada, así que el estado no cambia; lo único que falta es avisar.
+                android.widget.Toast.makeText(
+                    context,
+                    "No se pudo bajar el subtítulo (revisá la conexión)",
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
             }
         }
     }

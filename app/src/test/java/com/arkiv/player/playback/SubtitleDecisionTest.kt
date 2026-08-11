@@ -7,9 +7,11 @@ import org.junit.Test
 
 class SubtitleDecisionTest {
 
-    // audioLangs se deja a propósito con un orden que NO coincide con understoodLangs: la decisión de
-    // subtítulos solo puede mirar la segunda. Si algún día se vuelve a mirar audioLangs, el japonés de
-    // acá adentro haría fallar a `japaneseAudioStillGetsSubtitlesAfterPromotion`.
+    // Base = el caso normal, con las dos listas iguales: es lo que trae la app recién instalada. Acá
+    // NO hay red de seguridad contra volver a mirar `audioLangs` en vez de `understoodLangs` —
+    // justamente por ser iguales, las dos lecturas dan lo mismo. Esa red la ponen los dos tests que
+    // separan las listas a propósito: `japaneseAudioStillGetsSubtitlesAfterPromotion` (japonés SOLO en
+    // audioLangs) y `understandingJapaneseTurnsThemOffWithoutTouchingTheAudioOrder` (solo en la otra).
     private val prefs = PlaybackPrefs(
         audioLangs = listOf(TrackLang.LATINO, TrackLang.CASTELLANO),
         understoodLangs = listOf(TrackLang.LATINO, TrackLang.CASTELLANO),
