@@ -84,6 +84,28 @@ class AppGraph(context: Context) {
         )
     }
 
+    /** Proxy HLS local del canal en vivo: firma en el aparato con respaldo en el gateway. */
+    val liveHlsProxy: com.arkiv.player.playback.LiveHlsProxy by lazy {
+        val remota = com.arkiv.player.playback.FirmaDelGateway(liveApi)
+        // El interruptor de Ajustes (settings.liveSignRemote) permite forzar el camino del
+        // gateway para comprobar que el respaldo sigue vivo, sin esperar a que el algoritmo
+        // local se rompa de verdad.
+        val fuente = if (settings.liveSignRemote.value) remota
+        else com.arkiv.player.playback.FirmaConRespaldo(
+            local = com.arkiv.player.playback.FirmaLocal(),
+            remota = remota,
+        )
+        com.arkiv.player.playback.LiveHlsProxy(fuente)
+    }
+
+    /** Abre canales en vivo: resuelve contra [liveApi] y le entrega a VLC la URL de [liveHlsProxy]. */
+    val liveController: com.arkiv.player.ui.live.LiveController by lazy {
+        com.arkiv.player.ui.live.LiveController(
+            resolver = { code -> liveApi.resolver(code) },
+            urlPara = { sesion -> liveHlsProxy.urlPara(sesion) },
+        )
+    }
+
     /** Chequeo inmediato de OTA: llamado por [com.arkiv.player.data.update.UpdateWorker] y al arrancar la app. */
     suspend fun checkForUpdate() {
         val info = updateChecker.check(BuildConfig.VERSION_CODE)
