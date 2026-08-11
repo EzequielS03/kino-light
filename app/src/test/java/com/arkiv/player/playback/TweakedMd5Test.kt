@@ -22,10 +22,28 @@ class TweakedMd5Test {
 
     @Test
     fun `las fronteras del padding no se corren`() {
-        // 55 y 56 bytes son el borde donde el padding pasa a necesitar un bloque extra;
-        // un error de un byte ahí no lo detectan los vectores, que miden ~120 bytes.
-        listOf(0, 55, 56, 63, 64, 65).forEach { n ->
-            assertEquals("largo $n", 32, TweakedMd5.digestHex(ByteArray(n)).length)
+        // 55 y 56 bytes son el borde donde el padding pasa a necesitar un bloque extra (63/64/65
+        // cubren el borde análogo un bloque más adelante); un error de un byte ahí no lo detectan
+        // los vectores de arriba, que miden ~120 bytes -siempre del mismo lado del borde-.
+        //
+        // Antes esto solo comprobaba `.length == 32`, que es cierto SIEMPRE (hexa de un digest de
+        // 16 bytes), acierte o no el padding: no era una red, era un test que no podía fallar
+        // (hallazgo "en la misma ola" de la revisión final). Estos valores son la salida REAL de
+        // `digest_hex(bytes(n))` en `/Users/cristian/magia/tweaked_md5.py` -la referencia
+        // verificada contra el `.so` propietario, ver el KDoc de [TweakedMd5]- para cada largo,
+        // capturada así:
+        //   python3 -c "from tweaked_md5 import digest_hex
+        //                [print(n, digest_hex(bytes(n))) for n in [0,55,56,63,64,65]]"
+        val vectoresDePadding = mapOf(
+            0 to "788eb771bc499f0bc7f00fdb08c397aa",
+            55 to "3df0dbf8fb79a50d50d4d1d95a40942c",
+            56 to "0e0b477553c03363f907a303756fb565",
+            63 to "16b54eb04d82dee39edc72de0532523d",
+            64 to "acd46d59775f5cd639b96b2d1a4dc020",
+            65 to "233f868f6402130ab977de8bd5d2b943",
+        )
+        vectoresDePadding.forEach { (n, esperado) ->
+            assertEquals("largo $n", esperado, TweakedMd5.digestHex(ByteArray(n)))
         }
     }
 
