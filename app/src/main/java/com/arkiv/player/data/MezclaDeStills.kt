@@ -36,4 +36,23 @@ object MezclaDeStills {
             overview = nueva.overview?.takeIf { it.isNotBlank() } ?: previa.overview,
         )
     }
+
+    /**
+     * [mezclar] para un lote entero: cada fila nueva contra la que hubiera con su mismo `episodeId`.
+     *
+     * Lo usan los dos caminos de escritura de la tabla, que es justo el punto: el de Magis
+     * (`ArkivRepository.addMagisSource`/`addMagisSeason`, vía `MagisEntities.stillsDeTemporada`)
+     * también pasa por acá. Sin eso, guardar una temporada le devolvía el REPLACE crudo a la tabla:
+     * `stillsDeTemporada` deja en null todo campo que el gateway no resolvió, así que si el gateway
+     * traía solo el still, el nombre y la sinopsis que `ensureEpisodeStills` había completado antes
+     * se perdían en silencio — y como la fila seguía existiendo, su corte temprano impedía volver a
+     * llenarlos.
+     *
+     * [previas] viene como mapa (no lista) porque el llamador ya la tiene indexada por `episodeId`,
+     * que es la PK de la tabla.
+     */
+    fun mezclarTodas(
+        previas: Map<String, EpisodeStillEntity>,
+        nuevas: List<EpisodeStillEntity>,
+    ): List<EpisodeStillEntity> = nuevas.map { mezclar(previas[it.episodeId], it) }
 }

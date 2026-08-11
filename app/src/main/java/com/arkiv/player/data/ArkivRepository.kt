@@ -340,11 +340,13 @@ class ArkivRepository(
         // contestó y no tenía nada": eso último SÍ se escribe, para no repreguntar por siempre.
         val fallaron = mutableSetOf<Int>()
         for (season in coords.values.map { it.first }.distinct().sorted()) {
+            // Doble null: el de `seasonEpisodes` (la consulta no se pudo hacer) y el del
+            // `runCatching` (excepción inesperada). Los dos son "no se pudo preguntar".
             val eps = runCatching { tmdb.seasonEpisodes(tvId, season) }.getOrNull()
             if (eps == null) {
-                // Un `.orEmpty()` acá dejaba el fallo indistinguible del "no tenía nada" y, como
-                // igual se escribía la fila, el corte temprano de arriba daba true para siempre: un
-                // solo timeout dejaba esa serie sin imágenes ni nombres hasta reinstalar la app.
+                // Sin este corte, un fallo se escribía como fila vacía —indistinguible del "TMDB
+                // contestó y no tenía nada"—, el corte temprano de arriba daba true para siempre y
+                // un solo timeout dejaba esa serie sin imágenes ni nombres hasta reinstalar la app.
                 fallaron += season
                 continue
             }
@@ -864,15 +866,39 @@ class ArkivRepository(
             // Reusa `stillsDeTemporada` (mismo filtro "trae algo" y mismo cálculo de episodeId que
             // usa `addMagisSeason` para la temporada entera) en vez de duplicar esa lógica acá para
             // un solo capítulo.
-            val stills = MagisEntities.stillsDeTemporada(
-                id, listOf(CapituloDeTemporada(episode, episodeTitle, ref, still, tmdbTitle, overview)), clock(),
+            guardarStillsDeMagis(
+                id,
+                MagisEntities.stillsDeTemporada(
+                    id, listOf(CapituloDeTemporada(episode, episodeTitle, ref, still, tmdbTitle, overview)), clock(),
+                ),
             )
-            if (stills.isNotEmpty()) episodeStillDao.upsertAll(stills)
         } else {
             itemDao.replaceItem(item, listOf(ep))
         }
         guardarBackdropDeMagis(id, backdropUrl)
         return ep.id
+    }
+
+    /**
+     * Escribe en `episode_still` lo que Magis trajo, **sin pisar lo que ya había** ([MezclaDeStills]).
+     *
+     * Único punto de escritura de esa tabla desde Magis ([addMagisSource] y [addMagisSeason]), y por
+     * eso no hay dos versiones de esta regla. `EpisodeStillDao.upsertAll` es un REPLACE, así que
+     * mandar directo lo que devuelve `MagisEntities.stillsDeTemporada` reescribía la fila ENTERA: esa
+     * lista deja en null todo campo que el gateway no resolvió, y le alcanza con que uno de los tres
+     * traiga algo para incluir la fila. Concreto: se guarda la temporada, se abre el detalle y
+     * [ensureEpisodeStills] completa el nombre y la sinopsis de un capítulo que el gateway no había
+     * cruzado; después se marca ese capítulo y se toca "Guardar", el gateway devuelve solo el still y
+     * —sin la mezcla— nombre y sinopsis se perdían en silencio. Peor todavía: como la fila seguía
+     * existiendo, el corte temprano de [ensureEpisodeStills] impedía volver a llenarlos.
+     *
+     * La lectura de las filas previas se hace SOLO si hay algo que escribir: el caso más común es la
+     * temporada sin enriquecer, y ahí esto no toca la base.
+     */
+    private suspend fun guardarStillsDeMagis(itemId: String, nuevas: List<EpisodeStillEntity>) {
+        if (nuevas.isEmpty()) return
+        val previas = episodeStillDao.forItem(itemId).associateBy { it.episodeId }
+        episodeStillDao.upsertAll(MezclaDeStills.mezclarTodas(previas, nuevas))
     }
 
     /**
@@ -958,10 +984,7 @@ class ArkivRepository(
         // contenido vive dentro del ítem de la temporada.
         capitulos.forEach { barrerItemLegacyDeCapitulo(contentId, it.number) }
         guardarBackdropDeMagis(id, backdropUrl)
-        // Solo si vino algo: llamar igual con una lista vacía sería una escritura de más en el
-        // caso (más común) sin enriquecer.
-        val stills = MagisEntities.stillsDeTemporada(id, capitulos, clock())
-        if (stills.isNotEmpty()) episodeStillDao.upsertAll(stills)
+        guardarStillsDeMagis(id, MagisEntities.stillsDeTemporada(id, capitulos, clock()))
         return episodios.mapNotNull { ep -> ep.episode?.let { it to ep.id } }.toMap()
     }
 
