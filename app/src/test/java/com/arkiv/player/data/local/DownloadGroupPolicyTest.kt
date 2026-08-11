@@ -212,4 +212,31 @@ class DownloadGroupPolicyTest {
         )
         assertEquals(listOf("s::1", "s::2"), DownloadGroupPolicy.trackedEpisodeIds(group))
     }
+
+    // --- firstPlayableEpisodeId ---------------------------------------------------------------
+
+    @Test
+    fun `firstPlayableEpisodeId toma el primer completado en el orden del grupo, no el primero en terminar`() {
+        val group = DownloadGroup(
+            itemId = "s", itemTitle = "Serie", itemThumbnailUrl = "", source = "archive",
+            episodes = listOf(
+                GroupedEpisode(episode("s::1", "s", 0), EpisodeDownloadStatus.NotDownloaded),
+                GroupedEpisode(episode("s::2", "s", 1), EpisodeDownloadStatus.Tracked(row("s::2", "s", LocalDownloadState.COMPLETED))),
+                GroupedEpisode(episode("s::3", "s", 2), EpisodeDownloadStatus.Tracked(row("s::3", "s", LocalDownloadState.COMPLETED))),
+            ),
+        )
+        assertEquals("s::2", DownloadGroupPolicy.firstPlayableEpisodeId(group))
+    }
+
+    @Test
+    fun `firstPlayableEpisodeId es null si ningun episodio esta completado`() {
+        val group = DownloadGroup(
+            itemId = "s", itemTitle = "Serie", itemThumbnailUrl = "", source = "archive",
+            episodes = listOf(
+                GroupedEpisode(episode("s::1", "s", 0), EpisodeDownloadStatus.Tracked(row("s::1", "s", LocalDownloadState.DOWNLOADING))),
+                GroupedEpisode(episode("s::2", "s", 1), EpisodeDownloadStatus.NotDownloaded),
+            ),
+        )
+        assertEquals(null, DownloadGroupPolicy.firstPlayableEpisodeId(group))
+    }
 }

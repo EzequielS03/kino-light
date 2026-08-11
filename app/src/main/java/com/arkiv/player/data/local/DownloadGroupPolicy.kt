@@ -143,6 +143,16 @@ object DownloadGroupPolicy {
         group.episodes.mapNotNull { (it.status as? EpisodeDownloadStatus.Tracked)?.row?.episodeId }
 
     /**
+     * El primer episodio del grupo que ya se puede reproducir sin red (descarga `COMPLETED`), en el
+     * orden en que [DownloadGroup.episodes] ya los trae (orden natural de la serie) -- no el primero
+     * que terminó de bajar. Null si todavía no hay ninguno completo.
+     */
+    fun firstPlayableEpisodeId(group: DownloadGroup): String? =
+        group.episodes
+            .firstOrNull { (it.status as? EpisodeDownloadStatus.Tracked)?.row?.state == LocalDownloadState.COMPLETED }
+            ?.episode?.id
+
+    /**
      * Reconstruye un [Episode] mínimo a partir de una fila de `downloads`, para el caso (transitorio)
      * en que todavía no resolvió `episodesOf(itemId)`. Los campos que no viajan en [DownloadRow]
      * quedan en su valor neutro: no se muestran en la fila (ver `DownloadItem` en la UI) y se
