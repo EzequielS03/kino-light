@@ -1,6 +1,7 @@
 package com.arkiv.player.data
 
 import com.arkiv.player.data.db.EpisodeEntity
+import com.arkiv.player.data.db.EpisodeStillEntity
 import com.arkiv.player.data.db.ItemEntity
 
 /**
@@ -8,8 +9,19 @@ import com.arkiv.player.data.db.ItemEntity
  *
  * Modelo propio y no `GatewayEpisode` a propósito: `MagisEntities` es puro/JVM (se testea sin Room
  * ni red) y no debe depender del paquete `gateway`. El llamador mapea uno al otro.
+ *
+ * [still], [tmdbTitle] y [overview] son lo que el gateway agrega cruzando el capítulo contra TMDB
+ * (ver `GatewayEpisode`); opcionales porque TMDB no siempre resuelve. [MagisEntities.stillsDeTemporada]
+ * los usa para armar la fila de `episode_still` de cada capítulo.
  */
-data class CapituloDeTemporada(val number: Int, val title: String, val ref: String)
+data class CapituloDeTemporada(
+    val number: Int,
+    val title: String,
+    val ref: String,
+    val still: String? = null,
+    val tmdbTitle: String? = null,
+    val overview: String? = null,
+)
 
 /**
  * Construye (ítem + episodio) de lo que llega de Magis. Puro/JVM (sin `android.*`) para poder
@@ -109,6 +121,10 @@ object MagisEntities {
         seriesRef: String,
         existente: ItemEntity?,
         episodiosVistosEnLista: Int?,
+        // Antes de `existente` porque, a diferencia de `episodiosVistosEnLista` (que SIEMPRE llega
+        // ya resuelto por el repositorio), este puede llegar null cuando TMDB no resolvió esta vez
+        // y no por eso hay que descartar lo que ya estaba guardado — de ahí el `?:` de abajo.
+        tmdbId: Int? = null,
     ): Pair<ItemEntity, List<EpisodeEntity>> {
         val itemId = itemIdDe(contentId)
         val item = ItemEntity(
@@ -121,10 +137,38 @@ object MagisEntities {
             source = "magis",
             torrentData = seriesRef.ifBlank { existente?.torrentData.orEmpty() }.takeIf { it.isNotBlank() },
             episodiosVistosEnLista = episodiosVistosEnLista,
-            tmdbId = existente?.tmdbId,
+            // Un tmdbId ausente (TMDB no resolvió esta vez, o el gateway es viejo) no puede borrar
+            // el que ya estaba guardado: los refs de imdb/tmdb no cambian, así que uno viejo sigue
+            // siendo válido.
+            tmdbId = tmdbId ?: existente?.tmdbId,
         )
         return item to capitulos.map { capituloDe(itemId, it.number, it.title, it.ref) }
     }
+
+    /**
+     * Una fila de `episode_still` por cada capítulo que TMDB pudo enriquecer (still, nombre real o
+     * sinopsis) — los que no traen nada quedan afuera, para que la UI caiga al `displayName` del
+     * portal en vez de mostrar una fila vacía.
+     *
+     * `episodeId` sale de [episodioIdDe], el MISMO cálculo que usa [capituloDe] para el id del
+     * `EpisodeEntity`: es la clave por la que esta fila se cruza con su episodio, y si no calzaran
+     * la imagen no aparecería nunca.
+     */
+    fun stillsDeTemporada(
+        itemId: String,
+        capitulos: List<CapituloDeTemporada>,
+        ahora: Long,
+    ): List<EpisodeStillEntity> = capitulos
+        .filter { it.still != null || it.tmdbTitle != null || it.overview != null }
+        .map { cap ->
+            EpisodeStillEntity(
+                episodeId = episodioIdDe(itemId, cap.number),
+                stillUrl = cap.still,
+                fetchedAt = ahora,
+                title = cap.tmdbTitle,
+                overview = cap.overview,
+            )
+        }
 
     /**
      * [episode] > 0 = capítulo de una serie; 0 = película (el camino de siempre, intacto).

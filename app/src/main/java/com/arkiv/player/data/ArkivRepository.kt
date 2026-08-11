@@ -326,11 +326,16 @@ class ArkivRepository(
         // Una llamada por temporada, no por capítulo.
         val stillBySeasonEp = mutableMapOf<Pair<Int, Int>, String>()
         val titleBySeasonEp = mutableMapOf<Pair<Int, Int>, String>()
+        val overviewBySeasonEp = mutableMapOf<Pair<Int, Int>, String>()
         for (season in coords.values.map { it.first }.distinct().sorted()) {
             val eps = runCatching { tmdb.seasonEpisodes(tvId, season) }.getOrNull().orEmpty()
             eps.forEach { e ->
                 if (e.stillUrl.isNotBlank()) stillBySeasonEp[e.season to e.episode] = e.stillUrl
                 if (e.name.isNotBlank()) titleBySeasonEp[e.season to e.episode] = e.name
+                // Misma tabla que llena Magis (`MagisEntities.stillsDeTemporada`): la sinopsis por
+                // capítulo no es un privilegio de una sola fuente, las dos escriben `episode_still`
+                // y la UI lee un solo lugar.
+                if (e.overview.isNotBlank()) overviewBySeasonEp[e.season to e.episode] = e.overview
             }
         }
 
@@ -344,6 +349,7 @@ class ArkivRepository(
                     stillUrl = coords[ep.id]?.let { stillBySeasonEp[it] },
                     fetchedAt = now,
                     title = coords[ep.id]?.let { titleBySeasonEp[it] },
+                    overview = coords[ep.id]?.let { overviewBySeasonEp[it] },
                 )
             },
         )
@@ -865,6 +871,9 @@ class ArkivRepository(
         seriesRef: String,
         posterUrl: String = "",
         backdropUrl: String = "",
+        // Null cuando TMDB no resolvió esta serie (o el gateway todavía no la mandó): `buildSeason`
+        // no lo pisa contra lo que ya estaba guardado, ver su KDoc.
+        tmdbId: Int? = null,
     ): Map<Int, String> {
         if (contentId.isBlank() || capitulos.isEmpty()) return emptyMap()
         val id = MagisEntities.itemIdDe(contentId)
@@ -882,7 +891,7 @@ class ArkivRepository(
         val (item, episodios) = MagisEntities.buildSeason(
             contentId = contentId, title = title, capitulos = capitulos, posterUrl = posterUrl,
             ahora = clock(), seriesRef = seriesRef, existente = existente,
-            episodiosVistosEnLista = episodiosVistosEnLista,
+            episodiosVistosEnLista = episodiosVistosEnLista, tmdbId = tmdbId,
         )
         itemDao.upsertItem(item)
         itemDao.upsertEpisodes(episodios)
@@ -890,6 +899,10 @@ class ArkivRepository(
         // contenido vive dentro del ítem de la temporada.
         capitulos.forEach { barrerItemLegacyDeCapitulo(contentId, it.number) }
         guardarBackdropDeMagis(id, backdropUrl)
+        // Solo si vino algo: escribir una lista vacía sería una escritura de más en el caso (más
+        // común) sin enriquecer, que además pisaría con REPLACE cualquier still que ya hubiera.
+        val stills = MagisEntities.stillsDeTemporada(id, capitulos, clock())
+        if (stills.isNotEmpty()) episodeStillDao.upsertAll(stills)
         return episodios.mapNotNull { ep -> ep.episode?.let { it to ep.id } }.toMap()
     }
 

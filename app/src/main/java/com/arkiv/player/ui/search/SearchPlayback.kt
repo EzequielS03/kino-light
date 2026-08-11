@@ -134,15 +134,24 @@ class SearchPlayback(private val graph: AppGraph) {
         capitulos: List<com.arkiv.player.data.gateway.GatewayEpisode>,
         elegido: com.arkiv.player.data.gateway.GatewayEpisode,
     ): PlaybackResult {
+        // El tmdbId de la serie no viaja en `capitulos` (la pantalla ya lo cargó con
+        // `client.episodes`, que descarta el bloque `series`): solo lo entrega `episodesConSerie`,
+        // así que hay que volver a pedirlo. El gateway lo cachea, así que el costo es mínimo — y
+        // still/nombre/sinopsis de cada capítulo se toman de `capitulos`, que la pantalla ya tiene.
+        val (_, serie) = graph.arkivApiClient.episodesConSerie(temporada.ref)
         val guardados = graph.repository.addMagisSeason(
             contentId = temporada.extra["content_id"].orEmpty(),
             title = temporada.title,
             capitulos = capitulos.map {
-                com.arkiv.player.data.CapituloDeTemporada(it.number, it.title, it.ref)
+                com.arkiv.player.data.CapituloDeTemporada(
+                    number = it.number, title = it.title, ref = it.ref,
+                    still = it.still, tmdbTitle = it.tmdbTitle, overview = it.overview,
+                )
             },
             seriesRef = temporada.ref,
             posterUrl = temporada.extra["poster"].orEmpty(),
             backdropUrl = temporada.extra["backdrop"].orEmpty(),
+            tmdbId = serie?.tmdbId,
         )
         val epId = guardados[elegido.number] ?: return playMagisEpisode(temporada, elegido)
         return PlaybackResult.Ready(epId)

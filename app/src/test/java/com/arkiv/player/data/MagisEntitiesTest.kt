@@ -195,4 +195,41 @@ class MagisEntitiesTest {
         assertEquals("magis:ABC", item.identifier)
         assertEquals(0, eps.size)
     }
+
+    @Test fun el_tmdbId_nuevo_manda_pero_uno_ausente_no_borra_el_que_ya_estaba() {
+        // Si TMDB no resolvió esta vez (tmdbId = null), no puede borrar el que ya se había
+        // guardado en una llamada anterior: es exactamente el mismo caso que `episodiosVistosEnLista`
+        // (ver el test del badge más arriba), pero para el tmdbId.
+        val previo = temporada().first.copy(tmdbId = 123)
+        val (item, _) = temporada(existente = previo)
+        assertEquals(123, item.tmdbId)
+    }
+
+    @Test fun un_capitulo_enriquecido_deja_su_fila_de_still() {
+        val filas = MagisEntities.stillsDeTemporada(
+            itemId = "magis:ABC",
+            capitulos = listOf(
+                CapituloDeTemporada(1, "T1_1", "ref-1", still = "https://img/1.jpg", tmdbTitle = "La conspiración", overview = "Goku…"),
+                CapituloDeTemporada(2, "T1_2", "ref-2"),
+            ),
+            ahora = 1_000L,
+        )
+        assertEquals(1, filas.size)
+        assertEquals("magis:ABC::e1", filas[0].episodeId)
+        assertEquals("https://img/1.jpg", filas[0].stillUrl)
+        assertEquals("La conspiración", filas[0].title)
+        assertEquals("Goku…", filas[0].overview)
+    }
+
+    @Test fun un_capitulo_sin_enriquecer_no_deja_fila() {
+        // Sin fila, la UI cae al displayName del portal. Con una fila vacía mostraría un hueco.
+        assertEquals(0, MagisEntities.stillsDeTemporada("magis:ABC", listOf(CapituloDeTemporada(1, "T1_1", "ref-1")), 1_000L).size)
+    }
+
+    @Test fun el_id_de_la_fila_calza_con_el_del_episodio() {
+        // La fila se cruza por episodeId: si no calzara, la imagen no aparecería nunca.
+        val (_, eps) = temporada()
+        val filas = MagisEntities.stillsDeTemporada("magis:ABC", listOf(CapituloDeTemporada(2, "x", "r", still = "u")), 1_000L)
+        assertEquals(eps.first { it.episode == 2 }.id, filas[0].episodeId)
+    }
 }

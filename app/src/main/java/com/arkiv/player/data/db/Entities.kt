@@ -245,4 +245,9 @@ data class EpisodeStillEntity(
      * Null = ya se consultó y no había título (o la fila es anterior a la v16).
      */
     val title: String? = null,
+    /**
+     * Sinopsis del capítulo según TMDB. Vive acá y no en `episodes` por lo mismo que [stillUrl] y
+     * [title]: es dato derivable y esa tabla tiene triggers de sync. Null = no se pudo resolver.
+     */
+    val overview: String? = null,
 )
