@@ -113,12 +113,45 @@ class ArkivRepository(
     fun observeLibrary(): Flow<List<LibraryRow>> = itemDao.observeLibrary()
 
     /**
+     * `itemId -> cuándo se reprodujo por última vez algo de ese ítem`, para el orden de la
+     * biblioteca. Un ítem que nunca se reprodujo no está en el mapa.
+     */
+    fun observeUltimaReproduccion(): Flow<Map<String, Long>> =
+        playbackDao.observeUltimaReproduccion().map { filas ->
+            filas.associate { it.itemId to it.ultimaMs }
+        }
+
+    /**
+     * La biblioteca ordenada por lo último que viste (ver
+     * [com.arkiv.player.data.biblioteca.OrdenDeBiblioteca]). La consume la grilla del teléfono.
+     *
+     * Es un flow aparte y NO el orden de [observeLibrary] a propósito: esa consulta cruda la usan
+     * `ensureArtwork`, la pantalla de descargas y el héroe del home del TV, a los que el reorden no
+     * les aporta nada. Si el orden viviera en el SQL, la consulta pasaría a depender de `playback`
+     * y Room re-emitiría la biblioteca entera cada vez que se guarda progreso — cada pocos segundos
+     * mientras reproducís —, disparando una pasada de arte por fila en cada emisión.
+     */
+    fun observeLibraryOrdenada(): Flow<List<LibraryRow>> =
+        combine(observeLibrary(), observeUltimaReproduccion()) { rows, ultimas ->
+            com.arkiv.player.data.biblioteca.OrdenDeBiblioteca.filas(rows, ultimas)
+        }
+
+    /**
      * La biblioteca ya agrupada: una entrada por serie, no por adquisición. Ver [LibraryGrouping].
      * `observeLibrary()` sigue existiendo para quien necesite las filas crudas (la pantalla de
      * biblioteca del teléfono, el sync).
+     *
+     * El orden final es por lo último visto ([com.arkiv.player.data.biblioteca.OrdenDeBiblioteca]),
+     * no por fecha de agregado: el `sortedByDescending` de [LibraryGrouping.group] queda como
+     * desempate, porque el orden de Kotlin es estable.
      */
     fun observeLibraryGroups(): Flow<List<LibraryGroup>> =
-        LibraryGrouping.groupsFlow(observeLibrary(), observeArtwork())
+        combine(
+            LibraryGrouping.groupsFlow(observeLibrary(), observeArtwork()),
+            observeUltimaReproduccion(),
+        ) { grupos, ultimas ->
+            com.arkiv.player.data.biblioteca.OrdenDeBiblioteca.grupos(grupos, ultimas)
+        }
 
     /**
      * Los ítems detrás de una llave de grupo, del más completo al menos.
