@@ -329,11 +329,17 @@ class CloudSyncManager(
      * Cuando el remoto llega con `deleted = 1` no alcanza con guardar la fila: hay que destruir el
      * JPEG local, o el archivo queda ocupando disco para siempre y —peor— se seguiría pintando, porque
      * la ruta la resuelve el disco y no la fila (decisión de la fase 1).
+     *
+     * La comparación LWW usa [EpisodeFrameDao.getIncluyendoBorradas] y NO [EpisodeFrameDao.get] a
+     * propósito: desde que `DestructorDeFrames.destruir` deja tombstone (fase 2), este dispositivo
+     * puede tener un frame borrado localmente (`deleted = 1`, `updatedAt` reciente). Si acá
+     * usáramos `get` (que filtra `deleted = 0`), ese tombstone se vería como "no hay fila", el
+     * remoto ganaría siempre el LWW así fuera más viejo, y el frame borrado resucitaría.
      */
     private suspend fun mergeFrame(json: JSONObject, remoteUpdatedAt: Long): Boolean {
         val episodeId = json.optString("episodeId")
         if (episodeId.isBlank()) return false
-        val local = episodeFrameDao.get(episodeId)
+        val local = episodeFrameDao.getIncluyendoBorradas(episodeId)
         if (!LwwMerge.pickWinner(local?.updatedAt ?: 0L, remoteUpdatedAt)) return false
         episodeFrameDao.upsert(recordToFrame(json, PocketBaseConfig.BASE_URL))
         if (json.optInt("deleted") == 1) destructorDeFrames.destruir(episodeId)

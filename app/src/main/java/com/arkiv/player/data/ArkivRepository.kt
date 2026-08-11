@@ -1153,10 +1153,10 @@ class ArkivRepository(
         // Los triggers suben updatedAt; la biblioteca ya filtra deleted=0.
         itemDao.softDeleteEpisodesOf(identifier)
         itemDao.softDeleteItem(identifier)
-        // Los frames sí se borran de verdad: son locales, no viajan por el sync y no los reclama
-        // nadie más. Sacar la serie de la biblioteca y dejar sus JPEG en disco era dejarlos
-        // huérfanos para siempre — el único otro reclamo es "capítulo visto", y a un capítulo que ya
-        // no está en la biblioteca no se lo va a marcar visto nunca.
+        // El JPEG se borra de verdad (nadie más lo reclama), pero la fila del frame queda como
+        // tombstone y SÍ viaja por el sync (ver `DestructorDeFrames.destruir`): si no se
+        // propagara, sacar la serie de la biblioteca en un dispositivo dejaría el frame "resucitar"
+        // en los demás la próxima vez que sincronizaran.
         episodios.forEach { destructorDeFrames.destruir(it.id) }
     }
 

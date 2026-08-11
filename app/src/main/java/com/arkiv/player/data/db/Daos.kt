@@ -528,8 +528,16 @@ interface EpisodeFrameDao {
     @Query("SELECT * FROM episode_frame WHERE episodeId = :episodeId AND deleted = 0")
     suspend fun get(episodeId: String): EpisodeFrameEntity?
 
-    @Query("DELETE FROM episode_frame WHERE episodeId = :episodeId")
-    suspend fun borrar(episodeId: String)
+    /**
+     * Igual que [get] pero SIN el filtro `deleted = 0`: existe solo para el LWW de
+     * `CloudSyncManager.mergeFrame`. Si ese merge usara [get], un tombstone local (creado por
+     * `DestructorDeFrames.destruir`) se vería como fila INEXISTENTE, el LWW compararía el
+     * `updatedAt` remoto contra 0, el remoto ganaría siempre, y un frame que este dispositivo
+     * borró resucitaría en el siguiente sync. No la uses para otra cosa: el resto de los
+     * callers SÍ quiere que una fila borrada cuente como "no hay frame".
+     */
+    @Query("SELECT * FROM episode_frame WHERE episodeId = :episodeId")
+    suspend fun getIncluyendoBorradas(episodeId: String): EpisodeFrameEntity?
 
     /** Filas cambiadas después del cursor, para el push. Espeja a `getPlaybackSince`. */
     @Query("SELECT * FROM episode_frame WHERE updatedAt > :cursor ORDER BY updatedAt ASC")
