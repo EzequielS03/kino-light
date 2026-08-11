@@ -9,6 +9,7 @@ import androidx.media3.session.MediaSessionService
 import com.arkiv.player.MainActivity
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import kotlinx.coroutines.launch
 
 /** Referencia al capítulo que se está reproduciendo (para el deep-link de la notificación). */
 object NowPlaying {
@@ -60,6 +61,13 @@ class PlaybackService : MediaSessionService() {
         super.onCreate()
         val player = VlcPlayer(this, mainLooper)
         PlaybackEngine.vlc = player
+
+        // El player vive en el servicio, así que se suscribe él mismo a las preferencias: un cambio
+        // en Ajustes —o sincronizado desde el celular— llega sin tener que reiniciar la reproducción.
+        val graph = com.arkiv.player.AppGraph.from(this)
+        graph.applicationScope.launch {
+            graph.subtitlePrefs.prefs.collect { player.langPrefs = it }
+        }
 
         // Al tocar la notificación se abre la app en el capítulo actual.
         val openIntent = Intent(this, MainActivity::class.java).apply {

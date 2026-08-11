@@ -12,6 +12,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.SimpleBasePlayer
 import androidx.media3.common.util.UnstableApi
+import com.arkiv.player.data.subtitles.PlaybackPrefs
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import org.videolan.libvlc.LibVLC
@@ -127,18 +128,17 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
     // Con qué decodificador está abierto lo de ahora. Reabrir por ventana tiene que respetarlo: si
     // ya se había caído a software, volver a hardware repetiría el fallo que motivó el cambio.
     private var hardwareActual = true
-    // Subtítulos APAGADOS por defecto: libVLC auto-activa la primera pista de subtítulos embebida, pero
-    // el usuario quiere arrancar sin subs y prenderlos a mano. Al primer Playing de cada ítem forzamos
-    // spu=-1 — pero NO una sola vez: las pistas de subtítulo pueblan poco DESPUÉS de Playing (igual que
-    // el audio) y VLC auto-activa una tras nuestro -1, así que re-afirmamos el apagado con reintentos en
-    // el primer ~1,5 s. `userTouchedSpu` corta esos reintentos si el usuario eligió un subtítulo a mano
-    // (id>=0). Ambos flags se resetean al cargar otro ítem.
+    // Subtítulos: NO se fuerzan en OFF a ciegas. Se decide por idioma (ver SubtitleDecision) apenas
+    // las pistas pueblan — que es DESPUÉS de Playing, no en Playing. El apagado anterior reintentaba
+    // 4 veces en ~1,5 s y, cuando VLC poblaba más tarde, ya se había rendido y se colaba la primera
+    // pista. Ahora se re-afirma la DECISIÓN durante ~3 s. `userTouchedSpu` corta todo si el usuario
+    // eligió un subtítulo a mano. Ambos flags se resetean al cargar otro ítem.
     private var defaultSpuApplied = false
     private var userTouchedSpu = false
-    // Auto-selección de pista de AUDIO por idioma (ventaja exclusiva de Arkiv: elige la pista correcta
-    // dentro de un MKV DUAL en vez de la que ponga VLC). Preferencia configurable (default Latino>Cast>Dual);
-    // se aplica una sola vez por ítem (defaultAudioApplied) para no pisar una elección manual posterior.
-    @Volatile var audioLangPreference: List<TrackLang> = TrackSelector.DEFAULT_AUDIO
+    // Preferencias de idioma del usuario (audio y subtítulos). Las mantiene al día PlaybackService
+    // observando el StateFlow de SubtitlePrefs, así un cambio en Ajustes (o sincronizado desde el
+    // celular) pega en la próxima reproducción sin reiniciar nada.
+    @Volatile var langPrefs: PlaybackPrefs = PlaybackPrefs()
     private var defaultAudioApplied = false
     // Detección de estancamiento por falta de buffer: cuando VLC se queda sin datos a mitad de la
     // reproducción, a veces NO emite un evento Buffering — simplemente deja de avanzar el tiempo. Este
@@ -188,9 +188,9 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
                     event = VlcEvent.Playing
                     if (!defaultSpuApplied) {
                         defaultSpuApplied = true
-                        // Igual que el audio: en el looper (tocar el player en el thread de eventos
-                        // crashea) y con reintentos, porque la pista de subtítulo puebla justo tras Playing.
-                        handler.postDelayed({ applyDefaultSpuOff(retries = 4) }, 150)
+                        // Después del audio (200 ms): la decisión depende de qué pista quedó sonando.
+                        // 8 reintentos × 350 ms ≈ 3 s, que es lo que tarda VLC en poblar en el peor caso.
+                        handler.postDelayed({ applyPreferredSpu(retries = 8) }, 400)
                     }
                     // Auto-seleccionar audio por idioma. En el looper (tocar el player en el thread de
                     // eventos crashea) y con reintentos: las pistas a veces pueblan justo tras Playing.
@@ -659,15 +659,21 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
      * pista coincide con la preferencia, deja la de VLC (no toca nada). Ganancia clave para MKV DUAL.
      */
     /**
-     * Mantiene los subtítulos APAGADOS (spu=-1) durante el primer ~1,5 s tras Playing. VLC auto-activa
-     * la primera pista embebida en cuanto puebla (poco después de Playing), así que re-afirmamos el -1
-     * unas veces. Se detiene apenas el usuario elige un subtítulo a mano ([userTouchedSpu], id>=0): a
-     * partir de ahí manda su elección.
+     * Aplica la decisión de subtítulos de [SubtitleDecision] (idioma preferido, o apagado si el audio
+     * ya quedó en un idioma tuyo). Se re-afirma con reintentos porque libVLC auto-activa la primera
+     * pista embebida en cuanto puebla — poco DESPUÉS de Playing — y hay que ganarle esa carrera.
+     * Se detiene apenas el usuario elige un subtítulo a mano ([userTouchedSpu]).
      */
-    private fun applyDefaultSpuOff(retries: Int) {
+    private fun applyPreferredSpu(retries: Int) {
         if (userTouchedSpu) return
-        if (currentSpuTrack() >= 0) runCatching { mediaPlayer.spuTrack = -1 }
-        if (retries > 0) handler.postDelayed({ applyDefaultSpuOff(retries - 1) }, 350)
+        val spu = vlcSpuTracks()
+        val audioName = vlcAudioTracks().firstOrNull { it.first == currentAudioTrack() }?.second
+        val target = SubtitleDecision.decide(audioName, spu, langPrefs)
+        if (currentSpuTrack() != target) {
+            runCatching { android.util.Log.w("ArkivVlc", "auto-spu -> id=$target de ${spu.map { it.second }}") }
+            runCatching { mediaPlayer.spuTrack = target }
+        }
+        if (retries > 0) handler.postDelayed({ applyPreferredSpu(retries - 1) }, 350)
     }
 
     private fun applyPreferredAudio(retries: Int) {
@@ -676,7 +682,7 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
             if (retries > 0) handler.postDelayed({ applyPreferredAudio(retries - 1) }, 400)
             return
         }
-        val id = TrackSelector.select(tracks, audioLangPreference) ?: return
+        val id = TrackSelector.select(tracks, langPrefs.audioLangs) ?: return
         if (id != currentAudioTrack()) {
             runCatching { android.util.Log.w("ArkivVlc", "auto-audio -> id=$id de ${tracks.map { it.second }}") }
             setVlcAudioTrack(id)
@@ -914,13 +920,20 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         runCatching { mediaPlayer.setSpuTrack(id) }
     }
     /**
+     * Agrega una pista de subtítulo externa. [byUser] distingue la elección del usuario (OpenSubtitles)
+     * de la carga automática de los `.srt` sueltos del torrent: la automática NO debe activarse sola
+     * (`select = false`) ni cortar la selección por idioma — al contrario, la pista nueva entra como
+     * candidata y `applyPreferredSpu` la elige si está en tu idioma.
+     *
      * OJO con el MPEG-TS: esto solo es seguro porque magis se demuxea con avformat (ver loadMedia).
-     * Con el demuxer `ts` nativo, adjuntar un subtítulo externo le cambia a libVLC el programa
-     * activo y se lleva puestas TODAS las pistas del stream.
+     * Con el demuxer `ts` nativo, adjuntar un subtítulo externo le cambia a libVLC el programa activo
+     * y se lleva puestas TODAS las pistas del stream.
      */
-    fun addSubtitleSlave(uri: Uri) {
-        userTouchedSpu = true // agregar subs externos = el usuario los quiere → no re-forzar el apagado
-        runCatching { mediaPlayer.addSlave(IMedia.Slave.Type.Subtitle, uri, true) }
+    fun addSubtitleSlave(uri: Uri, byUser: Boolean = true) {
+        if (byUser) userTouchedSpu = true
+        runCatching { mediaPlayer.addSlave(IMedia.Slave.Type.Subtitle, uri, byUser) }
+        // Recién cargada, la pista todavía no figura: se re-decide un instante después.
+        if (!byUser) handler.postDelayed({ applyPreferredSpu(retries = 2) }, 300)
         // NO corregir acá el desfase de la ventana con `spuDelay`. Se probó y congela la
         // reproducción: con un desfase de −29 min VLC se queda clavado en `pos=0` con el buffer
         // subiendo de a gotas hasta que salta el rescate de "estancado en 0" (medido en device,
