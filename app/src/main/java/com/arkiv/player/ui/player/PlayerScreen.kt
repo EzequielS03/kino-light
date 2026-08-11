@@ -1882,7 +1882,11 @@ private fun PlayerContent(
                             modifier = Modifier
                                 .align(Alignment.TopStart)
                                 .systemBarsPadding()
-                                .padding(top = 56.dp, start = 16.dp, end = 16.dp),
+                                // Sin `top`: antes reservaba 56 dp para no pisar la barra superior
+                                // de iconos, pero esa barra está entera detrás de `!isTv` — en TV
+                                // no dibuja nada. Con la zona segura del contenedor (SAFE_V) esos
+                                // 56 dp se sumaban y el título quedaba hundido a ~100 dp del canto.
+                                .padding(start = 16.dp, end = 16.dp),
                         ) {
                             Text(
                                 info.itemTitle,
