@@ -2545,22 +2545,25 @@ private fun PlayerContent(
                         }
                     }
 
-                    // ONLINE (OpenSubtitles).
-                    Text("Buscar online (OpenSubtitles)", style = MaterialTheme.typography.titleSmall, color = ArkivRed, modifier = Modifier.padding(top = 12.dp, bottom = 2.dp))
-                    if (!graph.subtitleApi.configured) {
-                        Text("Agregá una API key de OpenSubtitles para descargar subtítulos online.", color = ArkivTextSecondary, modifier = Modifier.padding(8.dp))
-                    } else when {
-                        loadingSubs -> Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.padding(end = 12.dp).size(20.dp))
-                            Text("Buscando subtítulos…", color = ArkivTextSecondary)
-                        }
-                        subtitles.isEmpty() -> Text("No se encontraron subtítulos en español.", color = ArkivTextSecondary, modifier = Modifier.padding(8.dp))
-                        else -> subtitles.forEach { s ->
-                            TextButton(onClick = { applySubtitle(s) }) {
-                                Text(
-                                    (if (selectedSub?.fileId == s.fileId) "✓ " else "↓ ") + s.label,
-                                    color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                                )
+                    // ONLINE (OpenSubtitles). Sin credencial la sección entera no se dibuja: ofrecer
+                    // "Buscar online" para después decir que no se puede es ruido, y la llave no se
+                    // configura desde acá (viene del build, ver SettingsStore.DEFAULT_ARKIV_API_KEY),
+                    // así que el aviso tampoco daba una acción al usuario.
+                    if (graph.subtitleApi.configured) {
+                        Text("Buscar online (OpenSubtitles)", style = MaterialTheme.typography.titleSmall, color = ArkivRed, modifier = Modifier.padding(top = 12.dp, bottom = 2.dp))
+                        when {
+                            loadingSubs -> Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.padding(end = 12.dp).size(20.dp))
+                                Text("Buscando subtítulos…", color = ArkivTextSecondary)
+                            }
+                            subtitles.isEmpty() -> Text("No se encontraron subtítulos en español.", color = ArkivTextSecondary, modifier = Modifier.padding(8.dp))
+                            else -> subtitles.forEach { s ->
+                                TextButton(onClick = { applySubtitle(s) }) {
+                                    Text(
+                                        (if (selectedSub?.fileId == s.fileId) "✓ " else "↓ ") + s.label,
+                                        color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
                             }
                         }
                     }
