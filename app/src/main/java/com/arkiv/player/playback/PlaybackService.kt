@@ -57,6 +57,13 @@ class PlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
 
+    // Suscripción a los Ajustes (ver onCreate). Vive en applicationScope —de todo el proceso, no del
+    // service— porque ahí vive graph.subtitlePrefs; por eso hay que cancelarla a mano en onDestroy.
+    // Sin cancelar, el collect queda corriendo para siempre capturando ESTE `player` (y a través de
+    // su `context`, este `PlaybackService` ya destruido): cada ciclo crear→destruir el service fuga
+    // un VlcPlayer completo.
+    private var langPrefsJob: kotlinx.coroutines.Job? = null
+
     override fun onCreate() {
         super.onCreate()
         val player = VlcPlayer(this, mainLooper)
@@ -65,7 +72,7 @@ class PlaybackService : MediaSessionService() {
         // El player vive en el servicio, así que se suscribe él mismo a las preferencias: un cambio
         // en Ajustes —o sincronizado desde el celular— llega sin tener que reiniciar la reproducción.
         val graph = com.arkiv.player.AppGraph.from(this)
-        graph.applicationScope.launch {
+        langPrefsJob = graph.applicationScope.launch {
             graph.subtitlePrefs.prefs.collect { player.langPrefs = it }
         }
 
@@ -147,6 +154,11 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        // Cortar la suscripción a Ajustes ANTES que nada: vive en applicationScope (todo el proceso),
+        // así que si no se cancela acá sigue corriendo después de destruido el service, reteniendo
+        // el player viejo (ver el comentario de langPrefsJob).
+        langPrefsJob?.cancel()
+        langPrefsJob = null
         // Cortar el stream de torrent y el proxy de archive ANTES de liberar el player: ambos viven
         // en el grafo (segundo plano vía service/MediaSession), así que al destruirse el service es
         // acá donde hay que soltarlos para no fugar red/batería/disco.

@@ -604,8 +604,8 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         // tardar 72 s, ver PoliticaOrigen). Con un origen así, eso es recargar para siempre.
         sinVideoDesdeWallMs = 0L
         startPositionApplied = false
-        defaultSpuApplied = false // cada ítem/recarga arranca con subtítulos apagados
-        userTouchedSpu = false // …hasta que el usuario prenda uno a mano en ESTE ítem
+        defaultSpuApplied = false // cada ítem/recarga arranca sin decisión de subtítulo aplicada todavía
+        userTouchedSpu = false // …hasta que el usuario elija uno a mano (prender o apagar) en ESTE ítem
         defaultAudioApplied = false // y re-evalúa la pista de audio preferida
         val media = Media(libVlc, uri).apply {
             setHWDecoderEnabled(hardware, false)
@@ -654,9 +654,10 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
     }
 
     /**
-     * Selecciona la pista de audio según [audioLangPreference] (Latino>Castellano>Dual por defecto). Corre
-     * en el looper. Si aún no hay >1 pista (VLC las expone poco después de Playing), reintenta. Si ninguna
-     * pista coincide con la preferencia, deja la de VLC (no toca nada). Ganancia clave para MKV DUAL.
+     * Selecciona la pista de audio según [langPrefs] (Latino>Castellano>Spanish>Dual por defecto, ver
+     * [PlaybackPrefs.audioLangs]). Corre en el looper. Si aún no hay >1 pista (VLC las expone poco
+     * después de Playing), reintenta. Si ninguna pista coincide con la preferencia, deja la de VLC
+     * (no toca nada). Ganancia clave para MKV DUAL.
      */
     /**
      * Aplica la decisión de subtítulos de [SubtitleDecision] (idioma preferido, o apagado si el audio
@@ -914,9 +915,13 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
     fun currentSpuTrack(): Int = runCatching { mediaPlayer.spuTrack }.getOrDefault(-1)
     fun setVlcAudioTrack(id: Int) { runCatching { mediaPlayer.setAudioTrack(id) } }
     fun setVlcSpuTrack(id: Int) {
-        // id>=0 = el usuario PRENDE un subtítulo → cortar el forzado de apagado por defecto. id<0
-        // (desactivar) no cuenta como "quiere subs": deja que el default-off siga afirmándose.
-        if (id >= 0) userTouchedSpu = true
+        // CUALQUIER elección a mano corta la re-afirmación automática, prenda o apague. Antes solo
+        // cortaba con id>=0 porque el pase viejo (applyDefaultSpuOff) solo sabía apagar: un usuario
+        // que elegía "Desactivar" y el pase de fondo estaban de acuerdo, así que no hacía falta
+        // frenar nada. applyPreferredSpu ya no solo apaga — puede volver a PRENDER una pista en tu
+        // idioma — así que si no se corta acá, elegir "Desactivar" a mano se revierte solo en el
+        // próximo tick (≤350 ms) porque sigue viendo audio extranjero + subtítulo disponible.
+        userTouchedSpu = true
         runCatching { mediaPlayer.setSpuTrack(id) }
     }
     /**
