@@ -42,6 +42,11 @@ class TvLibraryViewModel(private val repo: ArkivRepository) : ViewModel() {
      * está guardada desde dos fuentes (p. ej. los 4 Naruto agrupados en `tv:46260`), borrar solo
      * `primary` deja viva la peor copia y la tarjeta sigue en pantalla: el texto de confirmación
      * promete "se quita en todos tus aparatos" y con un solo miembro no lo cumple.
+     *
+     * Sin test: solo itera `repo.removeItem`, y este repo corre sobre Room, que en este proyecto no
+     * se testea sin Robolectric (no lo hay -- ver restricciones del proyecto). Un test de este método
+     * sería o bien contra Room de verdad (fuera de alcance acá) o un wrapper artificial que solo
+     * probaría el wrapper, no este código.
      */
     fun quitarGrupo(grupo: LibraryGroup) {
         viewModelScope.launch {
