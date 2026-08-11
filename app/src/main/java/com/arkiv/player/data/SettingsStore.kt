@@ -86,6 +86,12 @@ class SettingsStore(context: Context) {
     private val _tvLinked = MutableStateFlow(prefs.getBoolean(KEY_TV_LINKED, false))
     val tvLinked: StateFlow<Boolean> = _tvLinked
 
+    // ¿Ya se reparó el arte que se resolvió antes del match exacto de TMDB? Ver
+    // ArkivRepository.repairArtworkMatches. Se marca SOLO cuando la pasada termina entera, para que
+    // un arranque sin internet no la dé por hecha y deje los títulos mal apuntados para siempre.
+    private val _artworkRematchDone = MutableStateFlow(prefs.getBoolean(KEY_ARTWORK_REMATCH, false))
+    val artworkRematchDone: StateFlow<Boolean> = _artworkRematchDone
+
     fun setStreamQuality(q: Quality) {
         prefs.edit().putString(KEY_STREAM, q.name).apply()
         _streamQuality.value = q
@@ -125,6 +131,12 @@ class SettingsStore(context: Context) {
         _tvLinked.value = v
     }
 
+    fun setArtworkRematchDone(v: Boolean) {
+        if (_artworkRematchDone.value == v) return
+        prefs.edit().putBoolean(KEY_ARTWORK_REMATCH, v).apply()
+        _artworkRematchDone.value = v
+    }
+
     private fun readQuality(key: String, default: Quality): Quality =
         runCatching { Quality.valueOf(prefs.getString(key, default.name)!!) }.getOrDefault(default)
 
@@ -147,6 +159,7 @@ class SettingsStore(context: Context) {
         private const val KEY_USE_GATEWAY = "use_gateway"
         private const val KEY_TORRENT_API_URL = "torrent_api_url"
         private const val KEY_TV_LINKED = "tv_linked"
+        private const val KEY_ARTWORK_REMATCH = "artwork_rematch_done"
         private const val KEY_NUC_LAN_URL = "nuc_lan_base_url"
         private const val KEY_NUC_TUNNEL_URL = "nuc_tunnel_base_url"
         private const val KEY_NUC_API_KEY = "nuc_api_key"

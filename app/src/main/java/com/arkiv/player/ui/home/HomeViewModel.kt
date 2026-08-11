@@ -3,6 +3,7 @@ package com.arkiv.player.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.arkiv.player.data.ArkivRepository
+import com.arkiv.player.data.SettingsStore
 import com.arkiv.player.data.catalog.AniListApi
 import com.arkiv.player.data.catalog.TmdbApi
 import com.arkiv.player.data.db.ArtworkEntity
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
@@ -23,6 +25,7 @@ class HomeViewModel(
     repo: ArkivRepository,
     private val tmdbApi: TmdbApi,
     private val aniListApi: AniListApi,
+    private val settings: SettingsStore,
 ) : ViewModel() {
 
     val library: StateFlow<List<LibraryRow>> = repo.observeLibrary()
@@ -57,6 +60,17 @@ class HomeViewModel(
         library
             .onEach { rows -> repo.ensureArtwork(rows) }
             .launchIn(viewModelScope)
+
+        // Pasada única para reparar el arte que quedó apuntando al título equivocado antes de que
+        // existiera pickTmdbMatch (los Dragon Ball con el tmdbId de Dragon Ball Z). ensureArtwork
+        // no puede hacerlo: salta todo lo que ya tenga tmdbId. Se marca hecha solo si terminó
+        // entera, así un arranque sin red la reintenta en el siguiente.
+        if (!settings.artworkRematchDone.value) {
+            viewModelScope.launch {
+                val rows = library.first { it.isNotEmpty() }
+                if (repo.repairArtworkMatches(rows)) settings.setArtworkRematchDone(true)
+            }
+        }
 
         // Los géneros se piden una sola vez para construir las filas; si falla, quedan las fijas.
         viewModelScope.launch {

@@ -1,6 +1,8 @@
 package com.arkiv.player.data
 
 import com.arkiv.player.data.catalog.TmdbApi
+import com.arkiv.player.data.catalog.TmdbItem
+import com.arkiv.player.data.catalog.web.WebTmdbMatcher
 import com.arkiv.player.data.db.ArkivDatabase
 import com.arkiv.player.data.db.ArtworkEntity
 import com.arkiv.player.data.db.ContinueRow
@@ -182,8 +184,7 @@ class ArkivRepository(
             val existing = artworkDao.get(row.identifier)
             if (!LibraryGrouping.shouldRefetchArtwork(existing, clock())) continue
             val type = if (row.isMovie) "movie" else "tv"
-            val match = runCatching { tmdb.search(type, cleanTitleForSearch(row.title)).firstOrNull() }.getOrNull()
-                ?: runCatching { tmdb.search(type, row.title).firstOrNull() }.getOrNull()
+            val match = searchTmdbMatch(tmdb, type, row.title)
             val backdrops = if (match != null) {
                 runCatching { tmdb.images(type, match.id) }.getOrDefault(emptyList())
             } else {
@@ -199,6 +200,73 @@ class ArkivRepository(
                 ),
             )
         }
+    }
+
+    /**
+     * Busca en TMDB el título de un ítem: primero con el título limpio y, si ese no da nada, con el
+     * crudo. La elección entre los resultados es de [pickTmdbMatch], NO el primero que llegue.
+     *
+     * null = no hubo match, y eso incluye "la red se cayó": quien lo llame decide si eso es
+     * "guardar vacío" (ensureArtwork, que reintenta a los 7 días) o "no tocar nada"
+     * ([repairArtworkMatches], que tiene arte bueno que perder).
+     */
+    private suspend fun searchTmdbMatch(tmdb: TmdbApi, type: String, title: String): TmdbItem? {
+        val cleaned = cleanTitleForSearch(title)
+        return runCatching { pickTmdbMatch(cleaned, tmdb.search(type, cleaned)) }.getOrNull()
+            ?: runCatching { pickTmdbMatch(title, tmdb.search(type, title)) }.getOrNull()
+    }
+
+    /** Que la reparación del arte corra UNA vez por proceso: hay un HomeViewModel por pantalla. */
+    private val artworkRepairRan = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /**
+     * Repara, de una sola pasada, el arte que se resolvió ANTES de que existiera [pickTmdbMatch].
+     *
+     * Hace falta porque arreglar la elección del match no repara lo ya guardado: `ensureArtwork`
+     * salta cualquier fila que ya tenga `tmdbId` (ver [LibraryGrouping.shouldRefetchArtwork]), así
+     * que los títulos que quedaron apuntando al hermano más popular —los tres Dragon Ball con el
+     * `tmdbId` de Dragon Ball Z— se quedarían así para siempre.
+     *
+     * Dos cuidados, los dos por no destruir arte bueno:
+     *  - Solo filas CON `tmdbId`, que son las que resolvió `ensureArtwork` buscando por título. Una
+     *    fila con backdrops pero sin `tmdbId` es arte que puso el portal (`addMagisSource`) y no se
+     *    toca nunca.
+     *  - Si la búsqueda no devuelve nada, la fila se deja **como está**. Sin esto, una pasada con la
+     *    red caída borraría el arte de toda la biblioteca de una.
+     *
+     * Devuelve true solo si la pasada se completó entera; false si algo falló y conviene reintentar
+     * en el próximo arranque.
+     */
+    suspend fun repairArtworkMatches(rows: List<LibraryRow>): Boolean {
+        if (!artworkRepairRan.compareAndSet(false, true)) return false
+        val tmdb = tmdbApi?.takeIf { it.configured } ?: return false
+        var complete = true
+        for (row in rows) {
+            val existing = artworkDao.get(row.identifier) ?: continue
+            val stored = existing.tmdbId ?: continue
+            val type = if (row.isMovie) "movie" else "tv"
+            val match = searchTmdbMatch(tmdb, type, row.title)
+            if (match == null) {
+                complete = false
+                continue
+            }
+            if (match.id == stored && existing.tmdbType == type) continue
+            val backdrops = runCatching { tmdb.images(type, match.id) }.getOrNull()
+            if (backdrops == null) {
+                complete = false
+                continue
+            }
+            artworkDao.upsert(
+                ArtworkEntity(
+                    itemId = row.identifier,
+                    tmdbId = match.id,
+                    tmdbType = type,
+                    backdropsJson = JSONArray(backdrops).toString(),
+                    fetchedAt = clock(),
+                ),
+            )
+        }
+        return complete
     }
 
     // --- Stills de capítulos (TMDB, local y no sincronizado) --------------------------------
@@ -1114,6 +1182,34 @@ class ArkivRepository(
  * del nombre y sin quitarlo TMDB no devuelve nada (verificado: los dos "Naruto — Pack" de la
  * biblioteca quedaron sin tmdbId y por eso no se agrupaban con el resto de los Naruto).
  */
+/**
+ * Cuál de los resultados de TMDB es el arte de este título.
+ *
+ * NO es `results.first()`: TMDB ordena por su score de relevancia, que le gana a la coincidencia
+ * exacta cuando un título es prefijo de otro más popular. Verificado contra la API (2026-08-11):
+ * `search/tv?query=Dragon Ball` devuelve "Dragon Ball Z" de primero y el "Dragon Ball" de 1986 en
+ * la posición 7 de 9. Por eso los tres Dragon Ball de la biblioteca terminaron con el `tmdbId` de
+ * Z: con la carátula de Z y, peor, fundidos en UNA sola tarjeta, porque [LibraryGrouping] agrupa
+ * las series por `tv:<tmdbId>`.
+ *
+ * Primero se busca coincidencia EXACTA de título normalizado, contra el título en español Y contra
+ * el original: TMDB devuelve el localizado (es-MX) pero los releases suelen venir con el original
+ * en inglés ("The Simpsons" contra "Los Simpson"). Si ninguna calza se cae al primero, que es el
+ * comportamiento viejo y sigue siendo la mejor apuesta cuando el título no es exacto ("Dragon Ball
+ * Kai" contra el "Dragon Ball Z Kai" de TMDB).
+ *
+ * Un título que al normalizar queda vacío (japonés, cirílico) no matchea con nada a propósito: si
+ * no, haría "coincidencia exacta" con cualquier original que también normalice a vacío, que es casi
+ * todo el anime.
+ */
+internal fun pickTmdbMatch(query: String, results: List<TmdbItem>): TmdbItem? {
+    val q = WebTmdbMatcher.normalize(query)
+    if (q.isBlank()) return results.firstOrNull()
+    return results.firstOrNull {
+        WebTmdbMatcher.normalize(it.title) == q || WebTmdbMatcher.normalize(it.originalTitle) == q
+    } ?: results.firstOrNull()
+}
+
 internal fun cleanTitleForSearch(raw: String): String {
     // Solo el SUFIJO: una raya larga en medio del título es un separador legítimo.
     var s = raw.replace(Regex("""\s*[—–-]\s*Pack\s*$""", RegexOption.IGNORE_CASE), "")
