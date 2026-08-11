@@ -45,6 +45,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.arkiv.player.data.ArchiveUrls
 import com.arkiv.player.data.db.LibraryRow
 import com.arkiv.player.data.local.LocalDownloadState
+import com.arkiv.player.miniaturas.EleccionDeMiniatura
 import com.arkiv.player.ui.components.ContinueCard
 import com.arkiv.player.ui.components.EmptyState
 import com.arkiv.player.ui.components.PosterCard
@@ -144,8 +145,11 @@ fun LibraryScreen(
                         val progress = if (row.durationMs > 0) {
                             row.positionMs.toFloat() / row.durationMs
                         } else 0f
-                        val thumb = row.thumbPath?.let { ArchiveUrls.download(row.itemId, it) }
-                            ?: row.itemThumbnailUrl
+                        val thumb = EleccionDeMiniatura.elegir(
+                            row.framePath,
+                            row.thumbPath?.let { ArchiveUrls.download(row.itemId, it) },
+                            row.itemThumbnailUrl,
+                        )
                         ContinueCard(
                             title = row.itemTitle,
                             subtitle = row.displayName,
