@@ -208,7 +208,7 @@ private fun MaxSizeSection(selectedGb: Int, onSelect: (Int) -> Unit) {
 @Composable
 private fun SubtitleSection(style: PlaybackPrefs, onChange: (PlaybackPrefs) -> Unit) {
     Text(
-        "Subtítulos",
+        "Audio y subtítulos",
         style = MaterialTheme.typography.titleMedium,
         modifier = Modifier.padding(top = 24.dp, bottom = 4.dp),
     )
@@ -234,12 +234,35 @@ private fun SubtitleSection(style: PlaybackPrefs, onChange: (PlaybackPrefs) -> U
         )
     }
 
-    // Idioma preferido (auto-carga).
-    Label("Idioma preferido")
+    LanguageOrderEditor(
+        title = "Idioma del audio (en orden de preferencia)",
+        options = IDIOMAS_AUDIO,
+        order = style.audioLangs,
+        onChange = { onChange(style.copy(audioLangs = it)) },
+    )
+
+    LanguageOrderEditor(
+        title = "Idioma de los subtítulos (en orden de preferencia)",
+        options = IDIOMAS_SUBTITULO,
+        order = style.subtitleLangs,
+        onChange = { onChange(style.copy(subtitleLangs = it)) },
+    )
+
+    Label("Cuándo mostrarlos")
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Chip("Automático", style.subtitleMode == SubtitleMode.AUTO) { onChange(style.copy(subtitleMode = SubtitleMode.AUTO)) }
-        Chip("Desactivado", style.subtitleMode == SubtitleMode.OFF) { onChange(style.copy(subtitleMode = SubtitleMode.OFF)) }
+        Chip("Automático", style.subtitleMode == SubtitleMode.AUTO) {
+            onChange(style.copy(subtitleMode = SubtitleMode.AUTO))
+        }
+        Chip("Desactivado", style.subtitleMode == SubtitleMode.OFF) {
+            onChange(style.copy(subtitleMode = SubtitleMode.OFF))
+        }
     }
+    Text(
+        "Automático: se prenden solo si el audio quedó en un idioma que no está en tu lista.",
+        style = MaterialTheme.typography.bodySmall,
+        color = ArkivTextSecondary,
+        modifier = Modifier.padding(top = 4.dp),
+    )
 
     // Tamaño.
     Label("Tamaño: ${style.sizePercent}%")
