@@ -75,12 +75,19 @@ class SearchPlayback(private val graph: AppGraph) {
      *
      * El id sale del `contentId` del portal, no del ref: el ref se re-emite en cada búsqueda y un id
      * derivado de él perdería la posición de reproducción. El ref se guarda al lado y se refresca.
+     *
+     * La temporada sale del propio resultado (`GatewayResult.season`, que el portal manda en la
+     * búsqueda) y NO se deja en null: un episodio sin `season` en un ítem donde los demás sí la
+     * tienen hace que `ArkivRepository.ensureEpisodeStills` caiga a su rama de aplanar desde la
+     * temporada 1 y pise los stills buenos de toda la serie (ver el KDoc de `MagisEntities.build`).
+     * `0` es "el portal no la dijo", no la temporada cero, de ahí el `takeIf`.
      */
     suspend fun magisEpisodeId(r: com.arkiv.player.data.gateway.GatewayResult): String? {
         val contentId = r.extra["content_id"].orEmpty()
         return graph.repository.addMagisSource(
             ref = r.ref, contentId = contentId, title = r.title, episode = r.episode,
             posterUrl = r.extra["poster"].orEmpty(), backdropUrl = r.extra["backdrop"].orEmpty(),
+            season = r.season.takeIf { it > 0 },
         )
     }
 
@@ -90,10 +97,28 @@ class SearchPlayback(private val graph: AppGraph) {
      * El capítulo entra como episodio del ítem de la TEMPORADA (una tarjeta por serie, marcada como
      * serie desde el primer capítulo; ver `MagisEntities`), con su propia marca de "voy por aquí".
      */
-    /** Guarda el capítulo y devuelve su episodeId, sin navegar. Lo usa el guardado en lote. */
+    /**
+     * Guarda el capítulo y devuelve su episodeId, sin navegar. Lo usa el guardado en lote (el botón
+     * "Guardar" del diálogo de temporada, en el celu y en el TV) y el respaldo de [playMagisSeason].
+     *
+     * [serie] es el bloque `series` de la misma respuesta que trajo [capitulo] (null si el gateway
+     * no lo pudo resolver contra TMDB), y **no tiene default a propósito**: guardar sin él era el
+     * bug. `upsertEpisodes` es un `@Insert(onConflict = REPLACE)`, así que esta llamada reescribe la
+     * fila ENTERA del episodio; sin `season`, marcar tres capítulos de una temporada ya guardada por
+     * [playMagisSeason] les borraba el número de temporada, y desde ahí `ensureEpisodeStills` cruza
+     * aplanando desde la T1 y pisa los stills de toda la serie (ver el KDoc de
+     * `MagisEntities.build`). Además `episodes` es tabla sincronizada: ese `season = null` viajaba al
+     * otro dispositivo.
+     *
+     * Los tres campos enriquecidos del capítulo (still, nombre real y sinopsis) viajan por lo mismo
+     * que la temporada: el diálogo YA los tiene en la mano, y sin pasarlos un capítulo guardado sin
+     * haberlo reproducido nunca quedaba sin fila en `episode_still` — o sea, tarjeta negra en la
+     * biblioteca hasta que alguien abriera la serie.
+     */
     suspend fun magisEpisodeIdDe(
         temporada: com.arkiv.player.data.gateway.GatewayResult,
         capitulo: com.arkiv.player.data.gateway.GatewayEpisode,
+        serie: com.arkiv.player.data.gateway.GatewaySerie?,
     ): String? = graph.repository.addMagisSource(
         ref = capitulo.ref,
         contentId = temporada.extra["content_id"].orEmpty(),
@@ -107,13 +132,21 @@ class SearchPlayback(private val graph: AppGraph) {
         backdropUrl = temporada.extra["backdrop"].orEmpty(),
         // El ref de la temporada es el que responde /v1/episodes; el del capítulo no.
         seriesRef = temporada.ref,
+        season = serie?.seasonNumber,
+        // Mismo blindaje que en [playMagisSeason]: `tmdbId` sale de un `optInt`, así que un campo
+        // ausente daría 0 y ese 0 le ganaría al `?:` que preserva el tmdbId ya guardado.
+        tmdbId = serie?.tmdbId?.takeIf { it > 0 },
+        still = capitulo.still,
+        tmdbTitle = capitulo.tmdbTitle,
+        overview = capitulo.overview,
     )
 
     suspend fun playMagisEpisode(
         temporada: com.arkiv.player.data.gateway.GatewayResult,
         capitulo: com.arkiv.player.data.gateway.GatewayEpisode,
+        serie: com.arkiv.player.data.gateway.GatewaySerie?,
     ): PlaybackResult {
-        val epId = magisEpisodeIdDe(temporada, capitulo)
+        val epId = magisEpisodeIdDe(temporada, capitulo, serie)
         return if (epId != null) PlaybackResult.Ready(epId)
         else PlaybackResult.Failed("No se pudo preparar el capítulo.")
     }
@@ -159,7 +192,7 @@ class SearchPlayback(private val graph: AppGraph) {
             tmdbId = serie?.tmdbId?.takeIf { it > 0 },
             seasonNumber = serie?.seasonNumber,
         )
-        val epId = guardados[elegido.number] ?: return playMagisEpisode(temporada, elegido)
+        val epId = guardados[elegido.number] ?: return playMagisEpisode(temporada, elegido, serie)
         return PlaybackResult.Ready(epId)
     }
 

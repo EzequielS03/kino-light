@@ -311,6 +311,11 @@ fun CineDetailScreen(
                 episode = r.episode,
                 posterUrl = r.extra["poster"].orEmpty(),
                 backdropUrl = r.extra["backdrop"].orEmpty(),
+                // La temporada la trae el propio resultado del portal y NO se deja en null: un
+                // episodio sin ella, mezclado con otros que sí la tienen, hace que
+                // `ensureEpisodeStills` cruce aplanando desde la T1 y pise los stills buenos de toda
+                // la serie (ver el KDoc de `MagisEntities.build`). `0` es "no la dijo", no la T0.
+                season = r.season.takeIf { it > 0 },
             )
             preparing = false
             if (epId != null) onPlay(epId) else error = "No se pudo preparar Magis."

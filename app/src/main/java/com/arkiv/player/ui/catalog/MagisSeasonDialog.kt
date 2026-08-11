@@ -68,7 +68,10 @@ fun MagisSeasonDialog(
     client: ArkivApiClient,
     onDismiss: () -> Unit,
     onPlay: (List<GatewayEpisode>, GatewayEpisode, GatewaySerie?) -> Unit,
-    onSave: (List<GatewayEpisode>) -> Unit,
+    // La [GatewaySerie] viaja también en el guardado, no solo en el play: guardar escribe la fila
+    // del episodio entera (REPLACE), así que sin ella los capítulos marcados perderían la temporada
+    // que el play ya había guardado bien. Ver `SearchPlayback.magisEpisodeIdDe`.
+    onSave: (List<GatewayEpisode>, GatewaySerie?) -> Unit,
 ) {
     var capitulos by remember(season.ref) { mutableStateOf<List<GatewayEpisode>?>(null) }
     // El bloque `series` de la misma respuesta: de ahí sale el `tmdbId` que necesita
@@ -106,7 +109,7 @@ fun MagisSeasonDialog(
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (marcados.isNotEmpty()) {
                     val elegidos = capitulos.orEmpty().filter { it.number in marcados }
-                    TextButton(onClick = { onSave(elegidos); onDismiss() }) {
+                    TextButton(onClick = { onSave(elegidos, serie); onDismiss() }) {
                         Icon(Icons.Default.Download, contentDescription = null, tint = ArkivMagisBlue)
                         Spacer(Modifier.size(6.dp))
                         Text("Guardar ${elegidos.size}", color = ArkivMagisBlue)

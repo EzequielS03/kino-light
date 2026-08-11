@@ -197,12 +197,15 @@ fun TvSearchScreen(
     fun saveMagisSeason(
         temporada: com.arkiv.player.data.gateway.GatewayResult,
         capitulos: List<com.arkiv.player.data.gateway.GatewayEpisode>,
+        // Igual que en el celu: la serie viaja también en el guardado, porque guardar reescribe la
+        // fila del episodio entera. Ver `SearchPlayback.magisEpisodeIdDe`.
+        serie: com.arkiv.player.data.gateway.GatewaySerie?,
     ) {
         preparing = true; playError = null
         scope.launch {
             var encolados = 0
             for (capitulo in capitulos) {
-                val epId = playback.magisEpisodeIdDe(temporada, capitulo) ?: continue
+                val epId = playback.magisEpisodeIdDe(temporada, capitulo, serie) ?: continue
                 if (graph.localDownloads.enqueue(epId, "magis") ==
                     com.arkiv.player.data.local.EnqueueOutcome.QUEUED
                 ) encolados++
@@ -542,7 +545,7 @@ fun TvSearchScreen(
                                 applyResult(playback.playMagisSeason(currentMagis, capitulos, capitulo, serie))
                             }
                         },
-                        onSaveAll = { capitulos -> saveMagisSeason(currentMagis, capitulos) },
+                        onSaveAll = { capitulos, serie -> saveMagisSeason(currentMagis, capitulos, serie) },
                     )
                 } else if (currentWebPack != null) {
                     TvWebPackContent(
@@ -1547,7 +1550,7 @@ private fun TvMagisSeasonContent(
     posterUrl: String,
     preparing: Boolean,
     onPlayOne: (List<com.arkiv.player.data.gateway.GatewayEpisode>, com.arkiv.player.data.gateway.GatewayEpisode, com.arkiv.player.data.gateway.GatewaySerie?) -> Unit,
-    onSaveAll: (List<com.arkiv.player.data.gateway.GatewayEpisode>) -> Unit,
+    onSaveAll: (List<com.arkiv.player.data.gateway.GatewayEpisode>, com.arkiv.player.data.gateway.GatewaySerie?) -> Unit,
 ) {
     var capitulos by remember(season.ref) { mutableStateOf<List<com.arkiv.player.data.gateway.GatewayEpisode>?>(null) }
     // El bloque `series` de la misma respuesta: de ahí sale el `tmdbId` que necesita
@@ -1637,7 +1640,7 @@ private fun TvMagisSeasonContent(
                 else -> {
                     item {
                         Button(
-                            onClick = { onSaveAll(caps) },
+                            onClick = { onSaveAll(caps, serie) },
                             enabled = !preparing,
                             colors = arkivTvButtonColors(),
                             border = arkivTvButtonBorder(),

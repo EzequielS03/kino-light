@@ -510,14 +510,14 @@ fun SearchScreen(
                 preparing = true; playError = null
                 scope.launch { applyResult(playback.playMagisSeason(temporada, capitulos, capitulo, serie)) }
             },
-            onSave = { elegidos ->
+            onSave = { elegidos, serie ->
                 askNotifications()
                 scope.launch {
                     // Se guarda capítulo por capítulo: cada uno es un archivo aparte en el CDN y
                     // la cola ya sabe agrupar por serie para mostrarlos juntos en Descargas.
                     var encolados = 0
                     for (capitulo in elegidos) {
-                        val epId = playback.magisEpisodeIdDe(temporada, capitulo) ?: continue
+                        val epId = playback.magisEpisodeIdDe(temporada, capitulo, serie) ?: continue
                         if (graph.localDownloads.enqueue(epId, "magis") ==
                             com.arkiv.player.data.local.EnqueueOutcome.QUEUED
                         ) encolados++

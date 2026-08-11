@@ -198,11 +198,25 @@ object MagisEntities {
      * inserta), así que lo que no se copie de ahí se pierde —la fecha de alta reordenaría el home y
      * `episodiosVistosEnLista` volvería a prender el badge sobre capítulos ya mirados.
      *
-     * [season] y [tmdbId] son opcionales (default `null`) para no romper a los llamadores que no
-     * conocen `GatewaySerie` — hoy, todos salvo `BuscadorDeCapitulos.revisarMagis`, que agrega
-     * capítulos nuevos en background y es justo el camino que necesita [season] real: sin ella, un
-     * capítulo agregado así deja el ítem con episodios mezclados (unos con temporada, otros sin) y
-     * `ArkivRepository.ensureEpisodeStills` cae a su rama de aplanar (ver el KDoc de [capituloDe]).
+     * [season] y [tmdbId] son opcionales (default `null`) por compatibilidad, **no porque haya un
+     * camino al que no le importen**: TODO llamador que pueda saber la temporada tiene que pasarla.
+     * `ItemDao.upsertEpisodes` es un `@Insert(onConflict = REPLACE)`, así que cada una de estas
+     * llamadas reescribe la fila entera del episodio; una sin [season] le BORRA la temporada a un
+     * capítulo que otro camino ya había guardado bien, el ítem queda con episodios mezclados (unos
+     * con temporada, otros sin) y `ArkivRepository.ensureEpisodeStills` cae a su rama de aplanar
+     * desde la T1 (ver el KDoc de [capituloDe]), pisando en silencio los stills de toda la serie. Y
+     * `episodes` es tabla sincronizada: ese null viaja al otro dispositivo.
+     *
+     * Quiénes pasan hoy la temporada, y de dónde la sacan:
+     *  - `SearchPlayback.magisEpisodeIdDe` (botón "Guardar" del diálogo de temporada, celu y TV) y
+     *    `BuscadorDeCapitulos.revisarMagis` (capítulos nuevos en background): del `season_number`
+     *    del bloque `series` (`GatewaySerie`) que devuelve `/v1/episodes`.
+     *  - `SearchPlayback.magisEpisodeId` y `CineDetailScreen.playMagis` (resultado suelto de
+     *    búsqueda, sin lista de capítulos): del `season` del propio `GatewayResult`.
+     *
+     * Queda en `null` solo cuando de verdad no se sabe: el gateway no pudo cruzar la serie contra
+     * TMDB, o el portal no mandó temporada en el resultado. Inventarla sería peor.
+     *
      * Mismo `?:` que en [buildSeason] para [tmdbId]: uno nuevo ausente no borra el que ya estaba.
      */
     fun build(
