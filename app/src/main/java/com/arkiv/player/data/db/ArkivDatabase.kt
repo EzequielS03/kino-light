@@ -334,6 +334,13 @@ abstract class ArkivDatabase : RoomDatabase() {
          * tombstone (se poda por antigüedad, no se borra a mano). La caché del catálogo
          * (`live_channels_cache`) es local y NO se sincroniza (ver [LiveChannelCacheEntity]): no
          * lleva `updatedAt`/`deleted` porque nunca pasa por [SyncTriggers] ni por el merge.
+         *
+         * `live_channels_cache` lleva PK COMPUESTA `(code, categoria)`, no solo `code`: un mismo
+         * canal puede estar en varias categorías del portal, y una PK simple hacía que cachear una
+         * categoría reescribiera (REPLACE) la fila de un canal compartido con otra, dejándolo
+         * fantasma al volver a esa otra categoría desde caché sin gateway (hallazgo F5 de la
+         * revisión final). Se corrige ACÁ, en la migración todavía sin publicar, y no con una v21:
+         * ver el informe de la ola final para el porqué de la oportunidad.
          */
         private val MIGRATION_19_20 = object : Migration(19, 20) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -349,8 +356,9 @@ abstract class ArkivDatabase : RoomDatabase() {
                 )
                 db.execSQL(
                     "CREATE TABLE IF NOT EXISTS live_channels_cache (" +
-                        "code TEXT NOT NULL PRIMARY KEY, categoria INTEGER NOT NULL, nombre TEXT NOT NULL, " +
-                        "numero INTEGER NOT NULL, logo TEXT, guardadoAt INTEGER NOT NULL)",
+                        "code TEXT NOT NULL, categoria INTEGER NOT NULL, nombre TEXT NOT NULL, " +
+                        "numero INTEGER NOT NULL, logo TEXT, guardadoAt INTEGER NOT NULL, " +
+                        "PRIMARY KEY(code, categoria))",
                 )
             }
         }

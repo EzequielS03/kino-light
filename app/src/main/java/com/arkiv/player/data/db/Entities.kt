@@ -255,10 +255,17 @@ data class LiveRecentEntity(
  * mostrando la grilla aunque el gateway esté lento o caído. **No viaja por el sync**:
  * es caché reconstruible, no datos del usuario, y meterla al snapshot sería mandar
  * 1.000 filas entre dispositivos para nada.
+ *
+ * PK compuesta `(code, categoria)`, NO solo `code`: un mismo canal puede estar en varias
+ * categorías del portal (p.ej. "Deportes" y "Todos"). Con PK por `code` solo, cachear la
+ * categoría B reescribía (`REPLACE`) las filas de los canales que también están en A, dejándolas
+ * con `categoria = B` -- y al volver a A desde caché (gateway caído), esos canales desaparecían
+ * de la grilla (hallazgo F5 de la revisión final). Se autocuraba en cuanto el gateway volvía a
+ * responder, pero la caché existe justo para cuando NO responde.
  */
-@Entity(tableName = "live_channels_cache")
+@Entity(tableName = "live_channels_cache", primaryKeys = ["code", "categoria"])
 data class LiveChannelCacheEntity(
-    @PrimaryKey val code: String,
+    val code: String,
     val categoria: Int,
     val nombre: String,
     val numero: Int,
