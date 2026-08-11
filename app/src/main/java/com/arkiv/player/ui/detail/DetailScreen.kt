@@ -748,7 +748,12 @@ private fun EpisodeRow(
             Text(
                 // El nombre del archivo es el respaldo, no la primera opción: para nuestras
                 // subidas es "s01e03", que no dice nada de qué capítulo es.
-                tmdbTitle ?: episode.displayName,
+                //
+                // Pero el NÚMERO manda y no puede desaparecer: con `tmdbTitle` a secas, un capítulo
+                // de Magis pasaba de "E5  Daima T1_5" (el displayName ya trae el número) a solo
+                // "Panzy", y la lista se quedaba sin forma de saber cuál era cuál. La regla vive en
+                // [EtiquetaDeCapitulo.conNombre], compartida con el detalle del TV.
+                EtiquetaDeCapitulo.conNombre(episode, tmdbTitle),
                 style = MaterialTheme.typography.bodyLarge,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,

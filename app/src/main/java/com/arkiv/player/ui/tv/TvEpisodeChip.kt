@@ -49,6 +49,13 @@ fun TvEpisodeChip(
     modifier: Modifier = Modifier,
     /** Still del capítulo (TMDB). Si es null se cae al thumb de archive.org. */
     stillUrl: String? = null,
+    /**
+     * Nombre real del capítulo (TMDB o el que trajo el gateway de Magis). Va DEBAJO del número, no
+     * en su lugar: el número identifica el capítulo que se va a reproducir y sigue siendo el dato
+     * cierto aunque el cruce con TMDB quede corrido. Null (o el capítulo sin nombre resuelto) deja
+     * el chip exactamente como estaba.
+     */
+    episodeTitle: String? = null,
     /** Se llama cuando este chip TOMA el foco, para que la pantalla de arriba siga al capítulo
      *  enfocado (fondo + textos), igual que el hero del Home sigue a la card enfocada. */
     onFocus: (() -> Unit)? = null,
@@ -130,6 +137,17 @@ fun TvEpisodeChip(
             maxLines = 1,
             modifier = Modifier.padding(top = 2.dp),
         )
+        episodeTitle?.takeIf { it.isNotBlank() }?.let {
+            Text(
+                it,
+                color = Color.White,
+                style = MaterialTheme.typography.labelSmall,
+                // Una línea: el chip mide 168 dp y abajo todavía va el progreso. Un nombre largo
+                // ("La conspiración de los Saiyajin") se corta, no empuja el resto del carrusel.
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
         progressLabel?.let {
             Text(
                 it,

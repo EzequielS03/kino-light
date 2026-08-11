@@ -317,14 +317,20 @@ fun TvHomeScreen(
                         ) {
                             items(continueWatching, key = { it.episodeId }) { row ->
                                 val progress = if (row.durationMs > 0) row.positionMs.toFloat() / row.durationMs else 0f
-                                // El still de TMDB manda si `episode_still` lo tiene; si no, el thumb de siempre.
-                                val thumb = row.stillUrl
-                                    ?: row.thumbPath?.let { ArchiveUrls.download(row.itemId, it) }
+                                // El respaldo de siempre, para cuando no hay ni still ni backdrop.
+                                val thumb = row.thumbPath?.let { ArchiveUrls.download(row.itemId, it) }
                                     ?: row.itemThumbnailUrl
                                 val isFirst = row.episodeId == continueWatching.first().episodeId
                                 TvWideCard(
                                     title = row.itemTitle,
-                                    imageUrl = cardArt(row.itemId, thumb),
+                                    // ACÁ, y solo acá, el still del CAPÍTULO le gana al backdrop de la
+                                    // serie: esta fila muestra un capítulo, no la serie. En el resto del
+                                    // home (y en el hero de fondo) sigue mandando el backdrop, que es la
+                                    // imagen del título. Sin esta inversión el still no se veía nunca:
+                                    // `cardArt` prueba primero `backdropsOf(itemId)`, y backdrop tienen
+                                    // todos —los de Magis del portal, los demás de TMDB—, así que el
+                                    // still solo entraba como respaldo de algo que jamás faltaba.
+                                    imageUrl = row.stillUrl ?: cardArt(row.itemId, thumb),
                                     progress = progress,
                                     cardHeight = cardHeight,
                                     modifier = if (isFirst) Modifier.focusRequester(firstCardFocus) else Modifier,

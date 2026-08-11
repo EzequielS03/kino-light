@@ -397,6 +397,11 @@ private fun PlayerContent(
     var chaptersProgress by remember { mutableStateOf<Map<String, com.arkiv.player.data.db.PlaybackEntity>>(emptyMap()) }
     // Stills de TMDB por capítulo (ya cacheados por la pantalla de detalle; acá solo se leen).
     var chaptersStills by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    // Nombres reales de los capítulos, de la MISMA tabla que los stills (`episode_still`) y por el
+    // mismo camino que ya usan los dos detalles. El chip mostraba la foto pero no el nombre, así que
+    // en el overlay de pausa la serie seguía siendo una fila de "E1 E2 E3" sin decir de qué es cada
+    // uno, justo el dato que este trabajo trajo desde el gateway.
+    var chaptersTitles by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     val chaptersListState = rememberLazyListState()
     // Índice del capítulo actual (o 0 si no se encuentra, p. ej. packs de torrent con id distinto):
     // se usa tanto para centrar el scroll como para colgar el focusRequester en ESE chip. Antes el
@@ -412,6 +417,13 @@ private fun PlayerContent(
         chaptersProgress = graph.repository.playbackForItem(itemId)
         runCatching { graph.repository.ensureEpisodeStills(itemId) }
         graph.repository.observeEpisodeStills(itemId).collect { chaptersStills = it }
+    }
+    // Colector aparte y no un `combine`: el de arriba se queda colgado para siempre en el `collect`
+    // del flow de stills (es lo último que hace), así que los nombres necesitan su propia corrutina.
+    // No repite `ensureEpisodeStills`: las dos columnas salen de la misma fila, que ya pidió el otro.
+    LaunchedEffect(episodeId, isTv) {
+        if (!isTv) return@LaunchedEffect
+        graph.repository.observeEpisodeTitles(episodeId.substringBefore("::")).collect { chaptersTitles = it }
     }
     LaunchedEffect(chaptersRevealed) {
         if (!chaptersRevealed) return@LaunchedEffect
@@ -2175,6 +2187,7 @@ private fun PlayerContent(
                                             isCurrent = isCurrent,
                                             progress = chaptersProgress[ep.id],
                                             stillUrl = chaptersStills[ep.id],
+                                            episodeTitle = chaptersTitles[ep.id],
                                             onClick = { onNextEpisode(ep.id) },
                                             modifier = Modifier
                                                 // El requester va en el chip del índice actual (no en isCurrent):

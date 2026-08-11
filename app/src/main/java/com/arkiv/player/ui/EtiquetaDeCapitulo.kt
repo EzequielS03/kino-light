@@ -33,6 +33,22 @@ object EtiquetaDeCapitulo {
     }
 
     /**
+     * "T1 · E5  ·  La conspiración": el número y, AL LADO, el nombre real del capítulo.
+     *
+     * El número nunca se reemplaza por el nombre. Identifica el capítulo que se va a reproducir y
+     * sigue siendo el dato cierto aunque el cruce con TMDB quede corrido para esa temporada; el
+     * nombre es lo que se agrega, no lo que sustituye. Sin esta regla, la fila del detalle del celu
+     * mostraba solo "Panzy" donde antes decía "E5  Daima T1_5" y no había forma de saber cuál era.
+     *
+     * Sin nombre resuelto ([nombre] null o en blanco) se cae al [Episode.displayName], que es el
+     * nombre del archivo y en las fuentes que numeran (Magis, packs) ya trae el número adentro.
+     */
+    fun conNombre(ep: Episode, nombre: String?): String {
+        val limpio = nombre?.trim().orEmpty()
+        return if (limpio.isEmpty()) ep.displayName else "${numero(ep)}  ·  $limpio"
+    }
+
+    /**
      * "Vas en E5  ·  20 episodios", o "20 episodios" si todavía no empezaste.
      *
      * [unidad] es "episodios" (TV) o "videos" (celu), que es como los llama hoy cada pantalla.

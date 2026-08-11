@@ -20,8 +20,9 @@ class EtiquetaDeCapituloTest {
         season: Int? = null,
         episode: Int? = null,
         id: String = "item::x",
+        displayName: String = "",
     ) = Episode(
-        id = id, itemId = "item", section = "", displayName = "", orderIndex = orderIndex,
+        id = id, itemId = "item", section = "", displayName = displayName, orderIndex = orderIndex,
         durationSeconds = 0.0, thumbPath = null, original = null, derivative = null,
         season = season, episode = episode,
     )
@@ -42,6 +43,29 @@ class EtiquetaDeCapituloTest {
     @Test fun sin_nada_el_orden_es_1_based() {
         // archive.org: correlativo 0..N-1.
         assertEquals("E1", EtiquetaDeCapitulo.numero(ep(orderIndex = 0)))
+    }
+
+    @Test fun el_nombre_real_va_AL_LADO_del_numero_no_en_su_lugar() {
+        // El bug: la fila del detalle del celu mostraba `tmdbTitle ?: displayName`, así que en un
+        // capítulo de Magis el número desaparecía — se veía solo "Panzy" donde antes decía
+        // "E5  Daima T1_5". El número identifica el capítulo que se va a reproducir y es el dato
+        // cierto aunque el cruce con TMDB quede corrido: no se puede sustituir por el nombre.
+        assertEquals(
+            "E5  ·  Panzy",
+            EtiquetaDeCapitulo.conNombre(ep(orderIndex = 5, episode = 5, displayName = "E5  Daima T1_5"), "Panzy"),
+        )
+        assertEquals(
+            "T5 · E8  ·  Ozymandias",
+            EtiquetaDeCapitulo.conNombre(ep(season = 5, episode = 8, displayName = "s05e08.mkv"), "Ozymandias"),
+        )
+    }
+
+    @Test fun sin_nombre_resuelto_queda_el_del_archivo() {
+        // TMDB no siempre resuelve. Ahí manda el displayName, que en las fuentes que numeran ya
+        // trae el número adentro — meterle un "E5 · " delante lo duplicaría.
+        val e = ep(orderIndex = 5, episode = 5, displayName = "E5  Daima T1_5")
+        assertEquals("E5  Daima T1_5", EtiquetaDeCapitulo.conNombre(e, null))
+        assertEquals("E5  Daima T1_5", EtiquetaDeCapitulo.conNombre(e, "   "))
     }
 
     private fun detalle(progreso: Map<String, PlaybackEntity> = emptyMap()) = ItemDetail(
