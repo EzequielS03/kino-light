@@ -441,6 +441,12 @@ class PlayerViewModel(
             return
         }
 
+        // Los idiomas que declara el portal son lo ÚNICO que permite elegir subtítulo por idioma en
+        // magis: sus pistas embebidas llegan sin idioma en ningún campo (medido en device,
+        // `language=null` en `IMedia.Track` y nombre pelado "Track 1", mientras las de audio sí traen
+        // spa/eng/jpn). Viajan por [webExtras] y los cruza VlcPlayer.clasificarSpuConFuente.
+        Log.w(PLAY, "loadMagis() subtitulos del portal=${play.subtitles.size} langs=${play.subtitles.map { it.lang }}")
+
         withContext(Dispatchers.IO) { archiveCacheProxy.start() }
         val cabecera = repo.headerInfo(episodeId)
         // `directo`: el proxy reenvía cada Range al CDN sin cachear. Con la caché (el camino de

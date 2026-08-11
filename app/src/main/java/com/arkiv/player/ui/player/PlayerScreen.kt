@@ -132,6 +132,7 @@ import androidx.mediarouter.app.MediaRouteButton
 import com.arkiv.player.cast.CastProgress
 import com.arkiv.player.data.model.Episode
 import com.arkiv.player.dlna.DlnaDevice
+import com.arkiv.player.ui.settings.etiqueta
 import com.arkiv.player.ui.tv.TvEpisodeChip
 import com.arkiv.player.playback.LoadedMedia
 import com.arkiv.player.playback.MediaReusePolicy
@@ -338,6 +339,13 @@ private fun PlayerContent(
     val askPlaybackSource by vm.askPlaybackSource.collectAsStateWithLifecycle()
     // Adjunta como pistas externas los subtítulos que sniffeó el resolver (cuando ya hay media).
     LaunchedEffect(playlist, webExtras) {
+        // Los idiomas que declara la fuente. Va PRIMERO, antes de cualquier return y antes del delay
+        // de abajo: son la única forma de saber el idioma de las pistas EMBEBIDAS del MPEG-TS de magis
+        // (llegan sin idioma en ningún campo) y la decisión de subtítulos corre a los 400 ms de
+        // Playing, así que llegar tarde acá es no llegar. Se asigna SIEMPRE —vacío incluido— porque
+        // este es el único punto que limpia lo del ítem anterior: hacerlo en VlcPlayer.loadMedia
+        // competía con esta misma asignación y a veces la pisaba.
+        vlc.idiomasSpuDeLaFuente = webExtras?.subtitles?.map { it.lang }.orEmpty()
         val extras = webExtras ?: return@LaunchedEffect
         if (playlist == null) return@LaunchedEffect
         // MAGIS NO: engancharle a su MPEG-TS un subtítulo externo le tumba TODAS las pistas al
@@ -1341,6 +1349,25 @@ private fun PlayerContent(
         graph.applicationScope.launch {
             runCatching { graph.remoteController.sendSubtitlePrefs(actualizado.toJson()) }
         }
+    }
+
+    /**
+     * Nombre a mostrar de una pista de subtítulo. El MPEG-TS de magis las entrega sin idioma y libVLC
+     * las bautiza "Track 1", "Track 2"…, que no le dice nada a nadie. Cuando la fuente declaró los
+     * idiomas (mismo orden que las pistas) se antepone el idioma; si no, se deja el nombre crudo.
+     *
+     * Misma regla que usa el selector (ver VlcPlayer.clasificarSpuConFuente): cubre las primeras N
+     * pistas por id, que son las del contenedor; de ahí en adelante no se adivina.
+     */
+    fun etiquetaSpu(id: Int, nombre: String): String {
+        if (id < 0) return nombre
+        val idiomas = webExtras?.subtitles?.map { it.lang }.orEmpty()
+        val reales = spuTracks.filter { it.first >= 0 }.sortedBy { it.first }
+        val i = reales.indexOfFirst { it.first == id }
+        if (i < 0 || i >= idiomas.size) return nombre
+        val lang = com.arkiv.player.playback.LangTokens.classifyCode(idiomas[i])
+        if (lang == com.arkiv.player.playback.TrackLang.UNKNOWN) return nombre
+        return "${lang.etiqueta()} · $nombre"
     }
 
     // Aplica (o quita) un subtítulo de OpenSubtitles: baja el .srt y lo carga como pista externa.
@@ -2488,7 +2515,7 @@ private fun PlayerContent(
                                     promoteLang(name, spuTracks.filter { it.first >= 0 }.map { it.second }, esAudio = false)
                                 }
                             }) {
-                                Text((if (id == curSpu && selectedSub == null) "✓ " else "") + name, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text((if (id == curSpu && selectedSub == null) "✓ " else "") + etiquetaSpu(id, name), color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }

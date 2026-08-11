@@ -144,6 +144,18 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
     // como una URL opaca del CDN). Clave: un trozo de la URL, en minúsculas, que aparezca en el
     // nombre con que libVLC bautiza la pista. Ver clasificarSpu. Se limpia al cargar otro ítem.
     private val idiomaExterno = linkedMapOf<String, TrackLang>()
+    /**
+     * Idiomas que la FUENTE declara para las pistas de subtítulo EMBEBIDAS, en su orden.
+     *
+     * Existe por el MPEG-TS de magis: sus pistas de subtítulo llegan sin idioma por ningún lado
+     * —medido en device, `language=null` en `IMedia.Track` y nombre pelado "Track 1"—, mientras las
+     * de audio sí traen `spa`/`eng`/`jpn`. Sin esto no hay nada que clasificar y el subtítulo
+     * automático es imposible en esa fuente. El portal sí sabe los idiomas y los entrega en el mismo
+     * orden que las pistas (verificado a mano: portal `[en, es, es]` ↔ Track 1 inglés, Track 2 y 3
+     * español). Ver clasificarSpuConFuente para el guardia que evita adivinar. Se limpia al cargar
+     * otro ítem.
+     */
+    @Volatile var idiomasSpuDeLaFuente: List<String> = emptyList()
     // Detección de estancamiento por falta de buffer: cuando VLC se queda sin datos a mitad de la
     // reproducción, a veces NO emite un evento Buffering — simplemente deja de avanzar el tiempo. Este
     // watcher sondea la posición: si debería estar reproduciendo (playWhenReady) pero el tiempo no
@@ -612,6 +624,11 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         userTouchedSpu = false // …hasta que el usuario elija uno a mano (prender o apagar) en ESTE ítem
         defaultAudioApplied = false // y re-evalúa la pista de audio preferida
         idiomaExterno.clear() // las pistas externas del ítem anterior ya no existen
+        // OJO: [idiomasSpuDeLaFuente] NO se limpia acá. Se probó y sale mal: quien los asigna es
+        // PlayerScreen al publicarse la playlist, y eso pasa en el mismo instante que este loadMedia
+        // (medido: ambos a las …14.67). El borrado le ganaba a la asignación y la lista quedaba
+        // vacía, con lo que el guardia de cantidad de clasificarSpuConFuente fallaba y ninguna pista
+        // se podía clasificar. Se limpia del lado del que asigna, que sí tiene el orden garantizado.
         val media = Media(libVlc, uri).apply {
             setHWDecoderEnabled(hardware, false)
             addOption(":network-caching=$networkCaching")
@@ -676,12 +693,35 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         // guardia ni se activa. El parpadeo real es otro y se corta desde applyPreferredAudio.
         val spu = vlcSpuTracks()
         val audioName = audio.firstOrNull { it.first == currentAudioTrack() }?.second
-        val target = SubtitleDecision.decide(audioName, spu, langPrefs, ::clasificarSpu)
+        val target = SubtitleDecision.decide(audioName, spu, langPrefs) { clasificarSpuConFuente(it, spu) }
         if (currentSpuTrack() != target) {
             runCatching { android.util.Log.w("ArkivVlc", "auto-spu -> id=$target de ${spu.map { it.second }}") }
             runCatching { mediaPlayer.spuTrack = target }
         }
         if (retries > 0) handler.postDelayed({ applyPreferredSpu(retries - 1) }, 350)
+    }
+
+    /**
+     * Re-aplica la preferencia de idioma al ítem que YA está sonando, sin recargarlo.
+     *
+     * Hace falta porque los dos pases automáticos corren UNA sola vez por carga (los dispara el
+     * evento Playing), y volver a darle play a un capítulo que ya está en el controller no recarga
+     * nada: `MediaReusePolicy` elige REUSAR_ACTUAL —correctamente, recargar un TS de magis cuesta
+     * segundos de sonda y re-buffer—, así que sin esto un cambio en Ajustes no se veía hasta la
+     * próxima carga desde cero. Con esto se siente inmediato.
+     *
+     * `retries = 0`: acá las pistas ya poblaron hace rato, no hay ninguna carrera que esperar.
+     *
+     * El subtítulo elegido A MANO sobrevive: [applyPreferredSpu] corta por [userTouchedSpu] y esto no
+     * lo toca. Es lo menos sorprendente — tu última acción directa sobre el subtítulo manda sobre el
+     * automático, y de paso evita que la promoción (que al elegir a mano ESCRIBE la preferencia, y por
+     * lo tanto vuelve a entrar por acá) se pise a sí misma.
+     */
+    fun reaplicarIdiomaAlItemActual() {
+        handler.post {
+            applyPreferredAudio(retries = 0)
+            applyPreferredSpu(retries = 0)
+        }
     }
 
     /**
@@ -697,6 +737,31 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
             .firstOrNull { (clave, lang) -> lang != TrackLang.UNKNOWN && clave in n }
             ?.let { return it.value }
         return LangTokens.classifyFileName(nombre)
+    }
+
+    /**
+     * [clasificarSpu] y, si el nombre no dice nada, el idioma que declaró la fuente para esa POSICIÓN
+     * ([idiomasSpuDeLaFuente]). Es la única vía para el MPEG-TS de magis, cuyas pistas llegan sin
+     * idioma en ningún campo.
+     *
+     * El mapeo cubre las PRIMERAS [idiomasSpuDeLaFuente].size pistas ordenadas por id, no todas. Las
+     * del contenedor las numera el demuxer al abrir y quedan con los ids más bajos; cualquier pista
+     * externa (`addSlave`) se agrega después y con un id mayor. Exigir que los totales coincidieran
+     * —como se hizo primero— dejaba de mapear en cuanto aparecía una pista de más: visto en device,
+     * una cuarta pista contra los tres idiomas del portal y el auto-subtítulo se apagaba en silencio.
+     *
+     * Fuera de esas primeras N no se adivina: se devuelve UNKNOWN, que deja el subtítulo apagado y al
+     * usuario eligiendo a mano. Mostrar un idioma equivocado sería peor que no prender nada.
+     */
+    private fun clasificarSpuConFuente(nombre: String, spu: List<Pair<Int, String>>): TrackLang {
+        val directo = clasificarSpu(nombre)
+        if (directo != TrackLang.UNKNOWN) return directo
+        val declarados = idiomasSpuDeLaFuente
+        if (declarados.isEmpty()) return TrackLang.UNKNOWN
+        val reales = spu.filter { it.first >= 0 }.sortedBy { it.first }
+        val i = reales.indexOfFirst { it.second == nombre }
+        if (i < 0 || i >= declarados.size) return TrackLang.UNKNOWN
+        return LangTokens.classifyCode(declarados[i])
     }
 
     /**
@@ -967,9 +1032,19 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
     }
     /**
      * Agrega una pista de subtítulo externa. [byUser] distingue la elección del usuario (OpenSubtitles)
-     * de la carga automática de los `.srt` sueltos del torrent: la automática NO debe activarse sola
-     * (`select = false`) ni cortar la selección por idioma — al contrario, la pista nueva entra como
-     * candidata y `applyPreferredSpu` la elige si está en tu idioma.
+     * de la carga automática (los `.srt` sueltos del torrent, los del portal de magis): la automática
+     * no corta la selección por idioma — la pista nueva entra como candidata y `applyPreferredSpu`
+     * decide, en vez de quedar forzada.
+     *
+     * El `select` va en true incluso en la carga automática, que es el comportamiento que esto tenía
+     * antes de existir [byUser]: el re-pase de abajo lo corrige enseguida si la decisión dice que no
+     * van, así que no queda forzado. Se probó en false y no cambia nada de lo que importa.
+     *
+     * OJO — en magis el slave NO se materializa, con true ni con false: `addSlave` devuelve sin
+     * excepción, las URLs del portal contestan 200 con SRT válido, y la pista no aparece nunca
+     * (`pistas=…/s4` = Disable + las tres embebidas del TS, medido en device). No importa: ese mismo
+     * contenido YA viene embebido en el TS, y lo que se aprovecha del portal es la lista de idiomas
+     * (ver [idiomasSpuDeLaFuente]), no los archivos.
      *
      * [lang] es el idioma que declaró la fuente, para cuando la URL no lo dice (una fuente web adjunta
      * `…/9f8a7b.vtt` a secas). Los `.srt` del torrent y los de OpenSubtitles ya lo llevan en el nombre
@@ -982,8 +1057,9 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
     fun addSubtitleSlave(uri: Uri, byUser: Boolean = true, lang: String = "") {
         if (byUser) userTouchedSpu = true
         recordarIdioma(uri, lang)
-        runCatching { mediaPlayer.addSlave(IMedia.Slave.Type.Subtitle, uri, byUser) }
-        // Recién cargada, la pista todavía no figura: se re-decide un instante después.
+        runCatching { mediaPlayer.addSlave(IMedia.Slave.Type.Subtitle, uri, true) }
+        // Recién cargada, la pista todavía no figura: se re-decide un instante después. Este re-pase
+        // es el que deshace el `select = true` de arriba cuando la decisión dice que no van.
         if (!byUser) handler.postDelayed({ applyPreferredSpu(retries = 2) }, 300)
         // NO corregir acá el desfase de la ventana con `spuDelay`. Se probó y congela la
         // reproducción: con un desfase de −29 min VLC se queda clavado en `pos=0` con el buffer
