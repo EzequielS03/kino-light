@@ -70,7 +70,11 @@ fun HomeScreen(
     val vm: HomeViewModel = viewModel(
         factory = viewModelFactory { initializer { HomeViewModel(graph.repository, graph.tmdbApi, graph.aniListApi, graph.settings) } },
     )
-    val library by vm.library.collectAsStateWithLifecycle()
+    // Esta pantalla no colecciona `vm.library` (orden por addedAt): esa suscripción vive solo en
+    // el `init` del VM, para el `ensureArtwork`/hero del TV. La fila "Mi biblioteca" usa
+    // `bibliotecaOrdenada` para coincidir con el orden de la grilla (misma regla, ver
+    // OrdenDeBiblioteca).
+    val bibliotecaOrdenada by vm.bibliotecaOrdenada.collectAsStateWithLifecycle()
     val continueWatching by vm.continueWatching.collectAsStateWithLifecycle()
     val artwork by vm.artwork.collectAsStateWithLifecycle()
     val rows by vm.rows.collectAsStateWithLifecycle()
@@ -166,7 +170,7 @@ fun HomeScreen(
         }
 
         // 3. Mi biblioteca (con "Ver todo" hacia la grilla completa).
-        if (library.isNotEmpty()) {
+        if (bibliotecaOrdenada.isNotEmpty()) {
             item {
                 Column(Modifier.padding(top = 16.dp)) {
                     Row(
@@ -180,7 +184,7 @@ fun HomeScreen(
                         contentPadding = PaddingValues(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        items(library, key = { it.identifier }) { row ->
+                        items(bibliotecaOrdenada, key = { it.identifier }) { row ->
                             com.arkiv.player.ui.components.PosterCard(
                                 title = row.title,
                                 imageUrl = row.thumbnailUrl,
