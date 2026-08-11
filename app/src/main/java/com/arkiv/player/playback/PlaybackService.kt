@@ -72,8 +72,17 @@ class PlaybackService : MediaSessionService() {
         // El player vive en el servicio, así que se suscribe él mismo a las preferencias: un cambio
         // en Ajustes —o sincronizado desde el celular— llega sin tener que reiniciar la reproducción.
         val graph = com.arkiv.player.AppGraph.from(this)
+        var primeraEmision = true
         langPrefsJob = graph.applicationScope.launch {
-            graph.subtitlePrefs.prefs.collect { player.langPrefs = it }
+            graph.subtitlePrefs.prefs.collect { prefs ->
+                player.langPrefs = prefs
+                // La primera emisión es el valor que ya había al suscribirse, no un cambio: no hay
+                // nada sonando todavía y del arranque se encarga el pase del evento Playing. De ahí
+                // en más SÍ es un cambio (tuyo o sincronizado del otro equipo) y se aplica sobre lo
+                // que está sonando: sin esto no se veía hasta la próxima carga desde cero, porque
+                // volver a darle play a lo mismo reusa el media y no vuelve a disparar los pases.
+                if (primeraEmision) primeraEmision = false else player.reaplicarIdiomaAlItemActual()
+            }
         }
 
         // Al tocar la notificación se abre la app en el capítulo actual.
