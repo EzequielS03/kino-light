@@ -283,6 +283,12 @@ class ArkivRepository(
      * Idempotente: si todos los capítulos ya tienen fila (aunque sea con `stillUrl` null porque
      * TMDB no tenía imagen) no vuelve a pedir nada. Sirve igual para series y anime — en TMDB
      * ambos son `tv`, que es lo que ya resuelve [ensureArtwork].
+     *
+     * **No es dueña de la tabla**: Magis escribe las mismas filas al guardar la temporada, con lo
+     * que el gateway ya cruzó contra TMDB. Por eso esta función nunca pisa una fila entera — mezcla
+     * campo por campo ([MezclaDeStills]) y no marca como "ya preguntado" lo que no se pudo
+     * preguntar. Sin eso, abrir el detalle con la red caída borraba lo que Magis había guardado bien
+     * y no se reintentaba nunca más.
      */
     suspend fun ensureEpisodeStills(itemId: String) {
         val tmdb = tmdbApi?.takeIf { it.configured } ?: return
@@ -296,8 +302,11 @@ class ArkivRepository(
 
         val episodes = itemDao.getEpisodesOf(itemId)
         if (episodes.isEmpty()) return
-        val already = episodeStillDao.forItem(itemId).map { it.episodeId }.toSet()
-        if (already.containsAll(episodes.map { it.id })) return
+        // Las filas que ya están, COMPLETAS y no solo sus ids: se usan dos veces — para el corte
+        // temprano de acá abajo y para no pisar con null lo que otra fuente ya había llenado
+        // (ver [MezclaDeStills]).
+        val previas = episodeStillDao.forItem(itemId).associateBy { it.episodeId }
+        if (previas.keys.containsAll(episodes.map { it.id })) return
 
         // Capítulo -> (temporada, episodio). Tres formas, de la más confiable a la menos.
         val coords: Map<String, Pair<Int, Int>> = if (episodes.all { it.season != null && it.episode != null }) {
@@ -327,8 +336,18 @@ class ArkivRepository(
         val stillBySeasonEp = mutableMapOf<Pair<Int, Int>, String>()
         val titleBySeasonEp = mutableMapOf<Pair<Int, Int>, String>()
         val overviewBySeasonEp = mutableMapOf<Pair<Int, Int>, String>()
+        // Temporadas cuya consulta a TMDB se cayó (red, rate-limit, 5xx). Distinto de "TMDB
+        // contestó y no tenía nada": eso último SÍ se escribe, para no repreguntar por siempre.
+        val fallaron = mutableSetOf<Int>()
         for (season in coords.values.map { it.first }.distinct().sorted()) {
-            val eps = runCatching { tmdb.seasonEpisodes(tvId, season) }.getOrNull().orEmpty()
+            val eps = runCatching { tmdb.seasonEpisodes(tvId, season) }.getOrNull()
+            if (eps == null) {
+                // Un `.orEmpty()` acá dejaba el fallo indistinguible del "no tenía nada" y, como
+                // igual se escribía la fila, el corte temprano de arriba daba true para siempre: un
+                // solo timeout dejaba esa serie sin imágenes ni nombres hasta reinstalar la app.
+                fallaron += season
+                continue
+            }
             eps.forEach { e ->
                 if (e.stillUrl.isNotBlank()) stillBySeasonEp[e.season to e.episode] = e.stillUrl
                 if (e.name.isNotBlank()) titleBySeasonEp[e.season to e.episode] = e.name
@@ -340,18 +359,27 @@ class ArkivRepository(
         }
 
         // Se escriben TODOS los capítulos, también los que no tienen still: la fila marca
-        // "ya preguntado" y evita repetir la consulta en cada apertura de la serie.
+        // "ya preguntado" y evita repetir la consulta en cada apertura de la serie. Con dos
+        // excepciones, las dos por lo mismo —una fila escrita acá se lee como respuesta definitiva—:
+        //  1. Los de una temporada que ni siquiera se pudo consultar, para que se reintente.
+        //  2. Los campos que esta consulta no trajo, que conservan lo que ya hubiera guardado (típico:
+        //     lo que Magis dejó al guardar la temporada). Ver [MezclaDeStills].
         val now = clock()
         episodeStillDao.upsertAll(
-            episodes.map { ep ->
-                EpisodeStillEntity(
-                    episodeId = ep.id,
-                    stillUrl = coords[ep.id]?.let { stillBySeasonEp[it] },
-                    fetchedAt = now,
-                    title = coords[ep.id]?.let { titleBySeasonEp[it] },
-                    overview = coords[ep.id]?.let { overviewBySeasonEp[it] },
-                )
-            },
+            episodes
+                .filter { ep -> coords[ep.id]?.first?.let { it !in fallaron } ?: true }
+                .map { ep ->
+                    MezclaDeStills.mezclar(
+                        previa = previas[ep.id],
+                        nueva = EpisodeStillEntity(
+                            episodeId = ep.id,
+                            stillUrl = coords[ep.id]?.let { stillBySeasonEp[it] },
+                            fetchedAt = now,
+                            title = coords[ep.id]?.let { titleBySeasonEp[it] },
+                            overview = coords[ep.id]?.let { overviewBySeasonEp[it] },
+                        ),
+                    )
+                },
         )
     }
 

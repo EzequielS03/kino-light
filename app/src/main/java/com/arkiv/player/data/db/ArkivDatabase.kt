@@ -326,10 +326,18 @@ abstract class ArkivDatabase : RoomDatabase() {
          * v19 -> v20: la sinopsis del capítulo, que llega junto al still y al título desde el
          * gateway. `episode_still` es caché local derivable y NO está entre las tablas que
          * sincroniza `SyncTriggers`, así que esta columna no toca el sync.
+         *
+         * Y se vacía la tabla, exactamente por lo mismo que [MIGRATION_15_16] cuando agregó
+         * `title`: la columna nueva entra en NULL en todas las filas viejas, y `ensureEpisodeStills`
+         * corta temprano cuando cada capítulo ya tiene fila —le da igual que esté a medio llenar—,
+         * así que sin este DELETE **ninguna serie que ya tuviera sus stills resueltos vería jamás
+         * una sinopsis**: la fila existe, luego nadie vuelve a preguntar. Borrarla no pierde nada
+         * del usuario: es caché derivable, se repuebla sola la próxima vez que se abra la serie.
          */
         private val MIGRATION_19_20 = object : Migration(19, 20) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE episode_still ADD COLUMN overview TEXT")
+                db.execSQL("DELETE FROM episode_still")
             }
         }
 
