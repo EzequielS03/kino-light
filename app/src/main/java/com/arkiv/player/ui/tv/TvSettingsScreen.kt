@@ -38,12 +38,16 @@ import androidx.tv.material3.Text
 import kotlinx.coroutines.launch
 import com.arkiv.player.data.Quality
 import com.arkiv.player.data.WebQuality
+import com.arkiv.player.data.subtitles.PlaybackPrefs
+import com.arkiv.player.data.subtitles.SubtitleMode
 import com.arkiv.player.data.update.UpdateInfo
 import com.arkiv.player.pocketbase.AccountException
 import com.arkiv.player.pocketbase.AccountManager
 import com.arkiv.player.pocketbase.AccountState
 import com.arkiv.player.pocketbase.RegistroPaso
 import com.arkiv.player.ui.rememberGraph
+import com.arkiv.player.ui.settings.IDIOMAS_AUDIO
+import com.arkiv.player.ui.settings.IDIOMAS_SUBTITULO
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 import com.arkiv.player.ui.update.UpdateDialog
@@ -56,6 +60,7 @@ fun TvSettingsScreen(onConnectPhone: () -> Unit = {}) {
     val account = graph.accountManager
     val streamQuality by settings.streamQuality.collectAsStateWithLifecycle()
     val webQuality by settings.webQuality.collectAsStateWithLifecycle()
+    val playbackPrefs by graph.subtitlePrefs.prefs.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -88,6 +93,12 @@ fun TvSettingsScreen(onConnectPhone: () -> Unit = {}) {
         graph.applicationScope.launch { runCatching { graph.remoteController.sendWebQuality(q.name) } }
     }
 
+    // Persiste local + sincroniza al celular, igual que hace la pantalla de Ajustes del teléfono.
+    fun setPrefs(p: PlaybackPrefs) {
+        graph.subtitlePrefs.update(p)
+        graph.applicationScope.launch { runCatching { graph.remoteController.sendSubtitlePrefs(p.toJson()) } }
+    }
+
     Column(
         modifier = Modifier.fillMaxSize().padding(64.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -112,6 +123,38 @@ fun TvSettingsScreen(onConnectPhone: () -> Unit = {}) {
         }
         TvWebQualityOption("Máx · la más alta disponible", WebQuality.MAX, webQuality) {
             setWebQuality(WebQuality.MAX)
+        }
+        Text(
+            "Audio y subtítulos",
+            style = MaterialTheme.typography.titleMedium,
+            color = Color.White,
+            modifier = Modifier.padding(top = 24.dp),
+        )
+        TvLanguageOrderEditor(
+            title = "Idioma del audio (en orden de preferencia)",
+            options = IDIOMAS_AUDIO,
+            order = playbackPrefs.audioLangs,
+            onChange = { setPrefs(playbackPrefs.copy(audioLangs = it)) },
+        )
+        TvLanguageOrderEditor(
+            title = "Idioma de los subtítulos (en orden de preferencia)",
+            options = IDIOMAS_SUBTITULO,
+            order = playbackPrefs.subtitleLangs,
+            onChange = { setPrefs(playbackPrefs.copy(subtitleLangs = it)) },
+        )
+        TvActionOption(
+            if (playbackPrefs.subtitleMode == SubtitleMode.AUTO) {
+                "Subtítulos: automáticos (tocá para desactivar)"
+            } else {
+                "Subtítulos: desactivados (tocá para automáticos)"
+            },
+        ) {
+            val nuevo = if (playbackPrefs.subtitleMode == SubtitleMode.AUTO) {
+                SubtitleMode.OFF
+            } else {
+                SubtitleMode.AUTO
+            }
+            setPrefs(playbackPrefs.copy(subtitleMode = nuevo))
         }
         Text("Teléfono", style = MaterialTheme.typography.titleMedium, color = Color.White)
         TvActionOption("Conectar teléfono", onConnectPhone)
