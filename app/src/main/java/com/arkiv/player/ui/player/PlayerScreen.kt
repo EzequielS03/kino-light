@@ -347,7 +347,19 @@ private fun PlayerContent(
         // Playing, así que llegar tarde acá es no llegar. Se asigna SIEMPRE —vacío incluido— porque
         // este es el único punto que limpia lo del ítem anterior: hacerlo en VlcPlayer.loadMedia
         // competía con esta misma asignación y a veces la pisaba.
-        vlc.idiomasSpuDeLaFuente = webExtras?.subtitles?.map { it.lang }.orEmpty()
+        //
+        // SOLO MAGIS, y la distinción importa: ahí la lista del portal describe las pistas EMBEBIDAS
+        // y el cruce por posición es legítimo. En una fuente WEB los subtítulos declarados son los
+        // que se adjuntan acá abajo como pistas EXTERNAS —que ya llevan su idioma por el mapa de
+        // URI—, así que cruzarlos por posición etiquetaría las pistas embebidas del video con
+        // idiomas ajenos: un subtítulo francés sin etiqueta quedaría marcado "es" y se prendería
+        // como si fuera español.
+        vlc.idiomasSpuDeLaFuente =
+            if (PlayerSource.kindFor(episodeId) == SourceKind.MAGIS) {
+                webExtras?.subtitles?.map { it.lang }.orEmpty()
+            } else {
+                emptyList()
+            }
         val extras = webExtras ?: return@LaunchedEffect
         if (playlist == null) return@LaunchedEffect
         // MAGIS NO: engancharle a su MPEG-TS un subtítulo externo le tumba TODAS las pistas al
@@ -1363,6 +1375,9 @@ private fun PlayerContent(
      */
     fun etiquetaSpu(id: Int, nombre: String): String {
         if (id < 0) return nombre
+        // Mismo recorte por fuente que arriba: fuera de magis esta lista no describe las pistas
+        // embebidas y etiquetarlas con ella sería mentir en el menú.
+        if (PlayerSource.kindFor(episodeId) != SourceKind.MAGIS) return nombre
         val idiomas = webExtras?.subtitles?.map { it.lang }.orEmpty()
         val reales = spuTracks.filter { it.first >= 0 }.sortedBy { it.first }
         val i = reales.indexOfFirst { it.first == id }
