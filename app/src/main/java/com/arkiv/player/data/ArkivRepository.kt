@@ -1268,6 +1268,10 @@ class ArkivRepository(
                 lastPlayedAt = clock(),
             )
         )
+        // Este es el camino MÁS COMÚN por el que un capítulo queda visto (el reproductor llama acá
+        // cada ~5 s): si no se destruye el frame también acá, mirar un capítulo hasta el final —sin
+        // tocar nunca el toggle manual de setWatched— lo dejaría vivo para siempre.
+        if (watched) borrarFrameDe(episodeId)
     }
 
     suspend fun setWatched(episodeId: String, watched: Boolean) {
@@ -1281,14 +1285,31 @@ class ArkivRepository(
                 lastPlayedAt = clock(),
             )
         )
-        // El frame se destruye al marcarse visto: sin esto, la carpeta crece para siempre y encima
-        // mostraría la escena de algo que ya terminaste, que no le sirve a nadie. Al desmarcar
-        // (watched = false) NO se borra nada: el capítulo vuelve a estar en curso y el frame que
-        // haya sigue siendo válido.
-        if (watched) {
-            almacenDeFrames?.borrar(episodeId)
-            episodeFrameDao.borrar(episodeId)
-        }
+        // Al desmarcar (watched = false) NO se borra nada: el capítulo vuelve a estar en curso y
+        // el frame que haya sigue siendo válido.
+        if (watched) borrarFrameDe(episodeId)
+    }
+
+    /**
+     * Destruye el frame (archivo + fila) de un capítulo que acaba de quedar visto.
+     *
+     * Hay más de un camino por el que un capítulo pasa a `watched = true`: el toggle manual
+     * ([setWatched], desde el detalle) y el automático por progreso ([savePlayback], al superar el
+     * 60% de la duración — el camino más común, con diferencia). El frame tiene que morir por los
+     * dos, así que la destrucción vive acá una sola vez y ambos la llaman: si mañana se suma un
+     * tercer camino que marca visto, alcanza con que también llame a este helper.
+     *
+     * Se llama incondicionalmente cada vez que `watched` da `true`, sin preguntar antes si el
+     * frame existe: tanto `AlmacenDeFrames.borrar` (usa `File.delete()`, no lanza si no hay
+     * archivo) como `EpisodeFrameDao.borrar` (un `DELETE` que no falla si no hay fila) son seguros
+     * de invocar de más. En particular, `savePlayback` corre cada ~5 s mientras el player está
+     * abierto, así que pasado el 60% esto se repite varias veces por capítulo: el costo es
+     * despreciable (un `File.delete()` sobre un archivo ausente y un `DELETE` sobre una fila que ya
+     * no está) y no vale la pena complicar esto con lógica para evitar la repetición.
+     */
+    private suspend fun borrarFrameDe(episodeId: String) {
+        almacenDeFrames?.borrar(episodeId)
+        episodeFrameDao.borrar(episodeId)
     }
 }
 
