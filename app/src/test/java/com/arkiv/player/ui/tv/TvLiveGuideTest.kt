@@ -10,7 +10,17 @@ class TvLiveGuideTest {
     fun `media hora mide la mitad que una hora`() {
         val hora = LiveProgram("h", 0, 3600, "")
         val media = LiveProgram("m", 0, 1800, "")
-        assertEquals(anchoDp(hora) / 2, anchoDp(media), 0.01f)
+        // Comparar solo la PROPORCIÓN (anchoDp(hora)/2 contra anchoDp(media)) no alcanza: un error
+        // de escala que afecte a los dos por igual -- p. ej. olvidarse el /3600f dentro de anchoDp,
+        // o bajar DP_POR_HORA de 300f a 150f -- deja esta cuenta en verde igual (hallazgo de
+        // revisión, confirmado con mutación). Por eso el valor esperado va LITERAL (300f), no como
+        // `DP_POR_HORA`: si comparara contra el propio símbolo, una mutación que cambie la
+        // constante movería los dos lados de la comparación igual y seguiría sin detectarse. 300
+        // dp/h es la cifra que el brief fija a propósito ("deja ver ~4 h en una pantalla de TV de
+        // 1280 dp"): clavarla acá hace que cambiarla sea una decisión deliberada, no un accidente
+        // silencioso.
+        assertEquals(300f, anchoDp(hora), 0.01f)
+        assertEquals(150f, anchoDp(media), 0.01f)
     }
 
     @Test

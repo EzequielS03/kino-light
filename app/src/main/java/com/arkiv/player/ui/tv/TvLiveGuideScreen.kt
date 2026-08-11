@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -127,7 +128,8 @@ private enum class TvVistaLocal { NINGUNA, RECIENTES }
  * `LiveScreen` en el celular -- ver su KDoc sobre por qué el gate va ANTES de construir el
  * ViewModel) o `TvLiveGuideContenido`, que arma chips de categoría (Favoritos/Recientes primero),
  * la cabecera de horas y un `LazyColumn` de `TvGuiaFilaCanal` (un `Row` con la identidad fija del
- * canal + un timeline scrolleable de `TvBloquePrograma`/`TvBloqueCargando`).
+ * canal + un timeline scrolleable de `TvBloquePrograma`, o un bloque estático fijo --
+ * `TvBloqueCargando`/`TvBloqueVacio` -- mientras no hay programas que recorrer).
  *
  * Foco con el mando:
  * - Arriba/abajo: navegación estándar de Compose entre los bloques de la fila anterior/siguiente
@@ -189,7 +191,8 @@ private fun TvLiveGuideContenido(onVerCanal: (LiveChannel) -> Unit, onVolver: ()
     val estado by vm.estado.collectAsStateWithLifecycle()
 
     var vista by remember { mutableStateOf(TvVistaLocal.NINGUNA) }
-    // Ficha del programa futuro tocado (canal + programa); null = sin diálogo abierto.
+    // Ficha del programa tocado que no está en curso (canal + programa, futuro o ya terminado);
+    // null = sin diálogo abierto.
     var dialogo by remember { mutableStateOf<Pair<LiveChannel, LiveProgram>?>(null) }
 
     // Atrás cierra primero el diálogo si está abierto, no la pantalla entera -- mismo patrón que
@@ -325,21 +328,39 @@ private fun TvLiveGuideContenido(onVerCanal: (LiveChannel) -> Unit, onVolver: ()
                     // --- Cabecera de horas: mismo scroll compartido que las filas de abajo. ---
                     Row(Modifier.fillMaxWidth().height(28.dp)) {
                         Spacer(Modifier.width(ANCHO_CANAL_FIJO))
+                        // OJO acá (hallazgo de revisión, verificado antes de aplicar el fix): un
+                        // solo Box con `.width(dominioTotalDp.dp).horizontalScroll(...)` NO alcanza.
+                        // `.width()` usa `Constraints.constrain()`, que RECORTA el ancho pedido al
+                        // máximo que el padre (este `weight(1f)`, acotado a la pantalla real) ya
+                        // le ofrece -- así que el Box terminaba con el mismo ancho que su propio
+                        // viewport y `ScrollState.maxValue` quedaba en 0 (nada para desplazar).
+                        // La solución NO es solo cambiar `width` por `requiredWidth` en el mismo
+                        // lugar (lo probé: `requiredWidth` ahí fuerza el tamaño de TODO el nodo,
+                        // incluido el propio `horizontalScroll`, así que el "viewport" también
+                        // pasaría a medir 7200dp y `maxValue` seguiría en 0, solo que por la razón
+                        // opuesta). Hacen falta DOS Box distintos: el de afuera (`weight` +
+                        // `horizontalScroll`) recibe el ancho REAL de pantalla y es el viewport; el
+                        // de adentro (`requiredWidth`) es el que la búsqueda de foco 2D encuentra
+                        // como contenido -- `horizontalScroll` mide a SU hijo con ancho infinito
+                        // (así es como sabe cuánto hay para desplazar), así que ahí adentro
+                        // `requiredWidth` sí consigue los 7200dp completos.
                         Box(
-                            modifier = Modifier.width(dominioTotalDp.dp).fillMaxHeight()
+                            modifier = Modifier.weight(1f).fillMaxHeight()
                                 .horizontalScroll(scrollCompartido),
                         ) {
-                            repeat(HORAS_DEL_DOMINIO) { h ->
-                                Box(
-                                    modifier = Modifier.offset(x = (h * DP_POR_HORA).dp)
-                                        .width(DP_POR_HORA.dp).fillMaxHeight(),
-                                    contentAlignment = Alignment.CenterStart,
-                                ) {
-                                    Text(
-                                        "%02d:00".format(h),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = ArkivTextSecondary,
-                                    )
+                            Box(modifier = Modifier.requiredWidth(dominioTotalDp.dp).fillMaxHeight()) {
+                                repeat(HORAS_DEL_DOMINIO) { h ->
+                                    Box(
+                                        modifier = Modifier.offset(x = (h * DP_POR_HORA).dp)
+                                            .width(DP_POR_HORA.dp).fillMaxHeight(),
+                                        contentAlignment = Alignment.CenterStart,
+                                    ) {
+                                        Text(
+                                            "%02d:00".format(h),
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = ArkivTextSecondary,
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -356,7 +377,7 @@ private fun TvLiveGuideContenido(onVerCanal: (LiveChannel) -> Unit, onVolver: ()
                                 dominioTotalDp = dominioTotalDp,
                                 chipsFocus = chipsFocus,
                                 onVerCanal = onVerCanal,
-                                onFuturo = { p -> dialogo = canal to p },
+                                onDetalle = { p -> dialogo = canal to p },
                                 modifier = Modifier.height(ALTO_FILA),
                             )
                         }
@@ -382,6 +403,7 @@ private fun TvLiveGuideContenido(onVerCanal: (LiveChannel) -> Unit, onVolver: ()
         TvProgramaDialog(
             canal = canal,
             programa = programa,
+            ahoraSegundos = ahoraSegundos,
             onVerAhora = { onVerCanal(canal); dialogo = null },
             onDismiss = { dialogo = null },
         )
@@ -399,7 +421,8 @@ private fun TvGuiaFilaCanal(
     dominioTotalDp: Float,
     chipsFocus: FocusRequester,
     onVerCanal: (LiveChannel) -> Unit,
-    onFuturo: (LiveProgram) -> Unit,
+    /** Programa que NO está en curso -- puede ser futuro o ya terminado, ver [TvProgramaDialog]. */
+    onDetalle: (LiveProgram) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -441,27 +464,37 @@ private fun TvGuiaFilaCanal(
         Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
             if (programas == null) {
                 // Esqueleto -- nunca un spinner que bloquee (ver brief). Sigue enfocable para que
-                // Arriba/Abajo entre canales no se rompa mientras la EPG todavía no llegó.
+                // Arriba/Abajo entre canales no se rompa mientras la EPG todavía no llegó. Bloque
+                // chico y ESTÁTICO (no adentro de horizontalScroll): así el aviso de "cargando"
+                // no depende de en qué hora está parado el scroll compartido -- siempre visible.
                 TvBloqueCargando(chipsFocus)
             } else if (programas.isEmpty()) {
-                Box(modifier = Modifier.width(dominioTotalDp.dp).fillMaxHeight().horizontalScroll(scrollCompartido)) {
-                    TvBloqueVacio(xDp = dpDeEpoch(ahoraSegundos, origenDelDia), onClick = { onVerCanal(canal) }, chipsFocus = chipsFocus)
-                }
+                // Mismo criterio que el esqueleto: sin programas no hay nada que recorrer, así que
+                // el aviso queda fijo junto al nombre del canal en vez de colgar de una posición
+                // horaria que podría scrollearse fuera de vista.
+                TvBloqueVacio(onClick = { onVerCanal(canal) }, chipsFocus = chipsFocus)
             } else {
                 val actual = enCurso(programas, ahoraSegundos)
-                Box(modifier = Modifier.width(dominioTotalDp.dp).fillMaxHeight().horizontalScroll(scrollCompartido)) {
-                    programas.forEachIndexed { i, p ->
-                        val esActual = p == actual
-                        TvBloquePrograma(
-                            programa = p,
-                            esActual = esActual,
-                            avanceFraccion = if (esActual) avance(p, ahoraSegundos) else null,
-                            xDp = dpDeEpoch(p.inicio, origenDelDia),
-                            anchoDp = anchoDp(p),
-                            esPrimero = i == 0,
-                            chipsFocus = chipsFocus,
-                            onClick = { if (esActual) onVerCanal(canal) else onFuturo(p) },
-                        )
+                // Dos Box, no uno: `horizontalScroll` (afuera, recibe el ancho REAL del viewport
+                // vía el `weight(1f)` de arriba) + `requiredWidth` (adentro, fuerza el ancho
+                // completo del dominio de 24h contra el ancho infinito que `horizontalScroll` le
+                // da a SU hijo) -- ver el comentario largo en la cabecera de horas, mismo problema
+                // y misma solución acá.
+                Box(modifier = Modifier.fillMaxHeight().horizontalScroll(scrollCompartido)) {
+                    Box(modifier = Modifier.requiredWidth(dominioTotalDp.dp).fillMaxHeight()) {
+                        programas.forEachIndexed { i, p ->
+                            val esActual = p == actual
+                            TvBloquePrograma(
+                                programa = p,
+                                esActual = esActual,
+                                avanceFraccion = if (esActual) avance(p, ahoraSegundos) else null,
+                                xDp = dpDeEpoch(p.inicio, origenDelDia),
+                                anchoDp = anchoDp(p),
+                                esPrimero = i == 0,
+                                chipsFocus = chipsFocus,
+                                onClick = { if (esActual) onVerCanal(canal) else onDetalle(p) },
+                            )
+                        }
                     }
                 }
             }
@@ -488,15 +521,14 @@ private fun TvBloqueCargando(chipsFocus: FocusRequester) {
     }
 }
 
-/** Bloque para un canal con EPG cargada pero sin programas (día vacío). */
+/** Bloque para un canal con EPG cargada pero sin programas (día vacío). Estático, como el esqueleto. */
 @Composable
-private fun TvBloqueVacio(xDp: Float, onClick: () -> Unit, chipsFocus: FocusRequester) {
+private fun TvBloqueVacio(onClick: () -> Unit, chipsFocus: FocusRequester) {
     Box(
         modifier = Modifier
-            .offset(x = xDp.dp)
-            .width((DP_POR_HORA * 2).dp)
-            .fillMaxHeight()
             .padding(2.dp)
+            .width(220.dp)
+            .fillMaxHeight()
             .clip(RoundedCornerShape(6.dp))
             .background(ArkivSurface)
             .dpadEscapaAChips(esPrimero = true, chipsFocus = chipsFocus)
@@ -623,15 +655,31 @@ private fun TvCategoriaChip(
     }
 }
 
-/** Ficha de un programa futuro: título, horario, sinopsis y un único botón, "Ver canal ahora". */
+/**
+ * Ficha de un programa que NO está en curso: puede ser futuro (todavía no empezó) o ya terminado
+ * (más temprano en el día) -- [TvGuiaFilaCanal] llama acá para cualquiera de los dos, porque el
+ * único bloque que abre directo con `onVerCanal` es el que está EN CURSO. El botón es el mismo,
+ * "Ver canal ahora" (sin grabar ni recordatorio -- no existen, ver brief), pero el subtítulo
+ * distingue "Ya terminó" de "Todavía no empezó" para que tocar un programa pasado no se lea igual
+ * que tocar uno futuro (hallazgo de revisión).
+ */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TvProgramaDialog(
     canal: LiveChannel,
     programa: LiveProgram,
+    ahoraSegundos: Long,
     onVerAhora: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    // `esActual` ya se filtra en TvGuiaFilaCanal (ese caso llama a onVerCanal directo, sin pasar
+    // por acá), así que en la práctica es siempre uno de estos dos -- el `null` queda solo como
+    // red de seguridad si algún día cambia esa condición.
+    val estadoPrograma = when {
+        programa.fin <= ahoraSegundos -> "Ya terminó"
+        programa.inicio > ahoraSegundos -> "Todavía no empezó"
+        else -> null
+    }
     // Diálogo manual (Dialog + Column estilizada), no material3.AlertDialog: mismo patrón que
     // TvModoDeSerieDialog (TvSearchScreen.kt) y TvLibraryItemDialog (TvLibraryScreen.kt) -- el
     // resto de la app de TV no usa AlertDialog, y mezclar los dos looks se nota.
@@ -654,7 +702,8 @@ private fun TvProgramaDialog(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                "${canal.nombre} · ${horaDe(programa.inicio)} - ${horaDe(programa.fin)}",
+                "${canal.nombre} · ${horaDe(programa.inicio)} - ${horaDe(programa.fin)}" +
+                    (estadoPrograma?.let { " · $it" } ?: ""),
                 style = MaterialTheme.typography.bodyMedium,
                 color = ArkivTextSecondary,
             )
