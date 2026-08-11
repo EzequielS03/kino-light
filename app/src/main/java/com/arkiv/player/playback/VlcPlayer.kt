@@ -808,6 +808,28 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
     /** Identidad del layout enganchado ahora mismo, para el diagnóstico de la pantalla negra. */
     @Volatile private var layoutEnganchado: String? = null
 
+    /** El layout enganchado, para poder llegar al TextureView donde VLC está pintando. */
+    @Volatile private var layoutActual: VLCVideoLayout? = null
+
+    /**
+     * El TextureView donde libVLC está pintando, o null si todavía no hay salida de video.
+     *
+     * Se busca recorriendo el árbol porque VLCVideoLayout no lo expone: sus ids son internos de la
+     * librería y no hay API pública para pedírselo.
+     */
+    fun textureViewActual(): android.view.TextureView? {
+        val raiz: android.view.View = layoutActual ?: return null
+        val pendientes = ArrayDeque<android.view.View>()
+        pendientes.add(raiz)
+        while (pendientes.isNotEmpty()) {
+            when (val v = pendientes.removeFirst()) {
+                is android.view.TextureView -> return v
+                is android.view.ViewGroup -> for (i in 0 until v.childCount) pendientes.add(v.getChildAt(i))
+            }
+        }
+        return null
+    }
+
     private fun idDe(layout: VLCVideoLayout) = Integer.toHexString(System.identityHashCode(layout))
 
     /**
@@ -829,8 +851,9 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         // attachViews() PISA el VideoHelper anterior sin liberarlo (fuga + callbacks viejos sobre el
         // holder), así que soltamos primero. detachViews() es no-op si no había nada enganchado.
         runCatching { mediaPlayer.detachViews() }
-        runCatching { mediaPlayer.attachViews(layout, null, true, false) }
+        runCatching { mediaPlayer.attachViews(layout, null, true, true) }
         layoutEnganchado = idDe(layout)
+        layoutActual = layout
         // La superficie no está lista en el mismo instante del attach (el callback del holder llega
         // después), así que se le da un respiro a VLC para que rehaga el vout por su cuenta y recién
         // ahí se lo empuja. Se vuelve a preguntar al disparar: si en el intervalo apareció la imagen,
