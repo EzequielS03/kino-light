@@ -391,6 +391,7 @@ class AppGraph(context: Context) {
     val cloudSync: com.arkiv.player.cloudsync.CloudSyncManager by lazy {
         com.arkiv.player.cloudsync.CloudSyncManager(
             database.itemDao(), database.playbackDao(), database.skipMarkerDao(),
+            database.episodeFrameDao(),
             pbSyncClient, pbRealtime, deviceAuth, syncCursors, applicationScope,
             com.arkiv.player.cloudsync.SyncQuarantine(context),
             destructorDeFrames,

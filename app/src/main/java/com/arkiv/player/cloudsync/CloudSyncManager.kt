@@ -2,11 +2,13 @@ package com.arkiv.player.cloudsync
 
 import android.util.Log
 import com.arkiv.player.data.db.EpisodeEntity
+import com.arkiv.player.data.db.EpisodeFrameDao
 import com.arkiv.player.data.db.ItemDao
 import com.arkiv.player.data.db.PlaybackDao
 import com.arkiv.player.data.db.SkipMarkerDao
 import com.arkiv.player.miniaturas.DestructorDeFrames
 import com.arkiv.player.pocketbase.DeviceAuthManager
+import com.arkiv.player.pocketbase.PocketBaseConfig
 import com.arkiv.player.pocketbase.PocketBaseRealtime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -20,6 +22,7 @@ private const val COL_ITEMS = "library_items"
 private const val COL_EPISODES = "episodes"
 private const val COL_PROGRESS = "progress"
 private const val COL_MARKERS = "markers"
+private const val COL_FRAMES = "episode_frames"
 
 /** Cuánto retrocede el cursor de pull al arrancar, para rescatar lo que se subió tarde. */
 private const val RETROCESO_MS = 7L * 24 * 60 * 60 * 1000
@@ -39,6 +42,7 @@ class CloudSyncManager(
     private val itemDao: ItemDao,
     private val playbackDao: PlaybackDao,
     private val skipMarkerDao: SkipMarkerDao,
+    private val episodeFrameDao: EpisodeFrameDao,
     private val pbSync: PbSyncClient,
     private val realtime: PocketBaseRealtime,
     private val deviceAuth: DeviceAuthManager,
@@ -102,7 +106,7 @@ class CloudSyncManager(
         // servidor (bug corregido en PushFrontier, pero los cursores ya dañados siguen ahí): sin
         // esto, esos cambios quedan enterrados para siempre. El upsert es idempotente y el merge es
         // LWW, así que re-empujar todo es seguro — solo cuesta ancho de banda, y es un gesto manual.
-        cursors.resetAll(listOf(COL_ITEMS, COL_EPISODES, COL_PROGRESS, COL_MARKERS))
+        cursors.resetAll(listOf(COL_ITEMS, COL_EPISODES, COL_PROGRESS, COL_MARKERS, COL_FRAMES))
         runCatching { pushAll() }
         runCatching { reconcileAll() }
     }
@@ -119,6 +123,8 @@ class CloudSyncManager(
             { it.episodeId }, { playbackToFields(it, acct) }, { it.updatedAt })
         pushRows(COL_MARKERS, skipMarkerDao.getMarkersSince(cursors.lastPushed(COL_MARKERS)),
             { it.itemId }, { markerToFields(it, acct) }, { it.updatedAt })
+        pushRows(COL_FRAMES, episodeFrameDao.getFramesSince(cursors.lastPushed(COL_FRAMES)),
+            { it.episodeId }, { frameToFields(it, acct) }, { it.updatedAt })
     }
 
     /**
@@ -127,7 +133,8 @@ class CloudSyncManager(
      * colección. El cursor avanza al máximo `updatedAt` de TODAS las filas procesadas (para
      * garantizar progreso: una fila permanentemente inválida no atasca el sync para siempre).
      * Las cancelaciones se re-lanzan (no se tragan). El campo natural-key va por el nombre PB:
-     * items=identifier, episodes=epId (=id de la entidad), progress=episodeId, markers=itemId.
+     * items=identifier, episodes=epId (=id de la entidad), progress=episodeId, markers=itemId,
+     * frames=episodeId.
      */
     private suspend fun <T> pushRows(
         col: String,
@@ -138,7 +145,8 @@ class CloudSyncManager(
     ) {
         if (rows.isEmpty()) return
         val keyField = when (col) {
-            COL_ITEMS -> "identifier"; COL_EPISODES -> "epId"; COL_PROGRESS -> "episodeId"; else -> "itemId"
+            COL_ITEMS -> "identifier"; COL_EPISODES -> "epId"; COL_PROGRESS -> "episodeId"
+            COL_FRAMES -> "episodeId"; else -> "itemId"
         }
         // En orden cronológico: la marca de agua se corta en la fila sin resolver más vieja.
         val outcomes = rows.sortedBy { updatedAt(it) }.map { row ->
@@ -175,7 +183,7 @@ class CloudSyncManager(
         // allá de los eventos realtime que lleguen luego).
         deviceAuth.session.value ?: return
 
-        for (col in listOf(COL_ITEMS, COL_EPISODES, COL_PROGRESS, COL_MARKERS)) {
+        for (col in listOf(COL_ITEMS, COL_EPISODES, COL_PROGRESS, COL_MARKERS, COL_FRAMES)) {
             val cursor = cursors.lastPulled(col)
             // Ventana de retroceso al arrancar: el cursor usa el reloj del CLIENTE, así que un
             // cambio hecho sin conexión se sube más tarde con su fecha original — nace por debajo
@@ -193,7 +201,7 @@ class CloudSyncManager(
     // ---- realtime: aplica eventos SSE apenas llegan ----
 
     private suspend fun subscribeAll() {
-        realtime.subscribe(listOf(COL_ITEMS, COL_EPISODES, COL_PROGRESS, COL_MARKERS)).collect { ev ->
+        realtime.subscribe(listOf(COL_ITEMS, COL_EPISODES, COL_PROGRESS, COL_MARKERS, COL_FRAMES)).collect { ev ->
             mergeRecord(ev.topic, ev.record)
         }
     }
@@ -208,6 +216,7 @@ class CloudSyncManager(
             COL_EPISODES -> mergeEpisode(json, remoteUpdatedAt)
             COL_PROGRESS -> mergePlayback(json, remoteUpdatedAt)
             COL_MARKERS -> mergeMarker(json, remoteUpdatedAt)
+            COL_FRAMES -> mergeFrame(json, remoteUpdatedAt)
             else -> false
         }
         // OJO: NO bumpear cursors.lastPushed acá. El cursor de push es por colección (no por fila)
@@ -252,6 +261,23 @@ class CloudSyncManager(
         val local = skipMarkerDao.get(remote.itemId)
         if (!LwwMerge.pickWinner(local?.updatedAt ?: 0, remoteUpdatedAt)) return false
         skipMarkerDao.upsert(remote)
+        return true
+    }
+
+    /**
+     * Aplica una fila de frame remota si gana el LWW.
+     *
+     * Cuando el remoto llega con `deleted = 1` no alcanza con guardar la fila: hay que destruir el
+     * JPEG local, o el archivo queda ocupando disco para siempre y —peor— se seguiría pintando, porque
+     * la ruta la resuelve el disco y no la fila (decisión de la fase 1).
+     */
+    private suspend fun mergeFrame(json: JSONObject, remoteUpdatedAt: Long): Boolean {
+        val episodeId = json.optString("episodeId")
+        if (episodeId.isBlank()) return false
+        val local = episodeFrameDao.get(episodeId)
+        if (!LwwMerge.pickWinner(local?.updatedAt ?: 0L, remoteUpdatedAt)) return false
+        episodeFrameDao.upsert(recordToFrame(json, PocketBaseConfig.BASE_URL))
+        if (json.optInt("deleted") == 1) destructorDeFrames.destruir(episodeId)
         return true
     }
 }
