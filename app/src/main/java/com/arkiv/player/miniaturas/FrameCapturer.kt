@@ -22,22 +22,27 @@ class FrameCapturer(
         if (!GuardasDeFrame.posicionSirve(positionMs)) return false
         val vista = textureView ?: return false
         val bitmap = runCatching { vista.getBitmap(ANCHO, ALTO) }.getOrNull() ?: return false
+        // Todo lo que sigue —leer los píxeles, comprimir, escribir a disco, escribir en la DB—
+        // queda adentro del mismo runCatching: un disco lleno o una excepción del Room no puede
+        // tumbar la reproducción, así que se traduce en "no se guardó" y listo.
         try {
-            val pixeles = IntArray(bitmap.width * bitmap.height)
-            bitmap.getPixels(pixeles, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-            if (!GuardasDeFrame.noEsCasiNegro(pixeles)) return false
-            val salida = ByteArrayOutputStream()
-            if (!bitmap.compress(Bitmap.CompressFormat.JPEG, CALIDAD, salida)) return false
-            almacen.guardar(episodeId, salida.toByteArray())
-            dao.upsert(
-                EpisodeFrameEntity(
-                    episodeId = episodeId,
-                    positionMs = positionMs,
-                    capturedAt = ahora(),
-                    updatedAt = ahora(),
-                ),
-            )
-            return true
+            return runCatching {
+                val pixeles = IntArray(bitmap.width * bitmap.height)
+                bitmap.getPixels(pixeles, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+                if (!GuardasDeFrame.noEsCasiNegro(pixeles)) return@runCatching false
+                val salida = ByteArrayOutputStream()
+                if (!bitmap.compress(Bitmap.CompressFormat.JPEG, CALIDAD, salida)) return@runCatching false
+                almacen.guardar(episodeId, salida.toByteArray())
+                dao.upsert(
+                    EpisodeFrameEntity(
+                        episodeId = episodeId,
+                        positionMs = positionMs,
+                        capturedAt = ahora(),
+                        updatedAt = ahora(),
+                    ),
+                )
+                true
+            }.getOrDefault(false)
         } finally {
             bitmap.recycle()
         }
