@@ -113,10 +113,21 @@ class AppGraph(context: Context) {
         com.arkiv.player.data.local.LocalLibrary(database)
     }
 
+    /**
+     * Carpeta en disco de los JPEG de frame, un solo punto para que quien escribe
+     * ([frameCapturer]) y quien lee ([almacenDeFrames], desde el repositorio) usen SIEMPRE la
+     * misma ruta.
+     */
+    private val framesDir: java.io.File by lazy { java.io.File(appContext.filesDir, "frames") }
+
+    val almacenDeFrames: com.arkiv.player.miniaturas.AlmacenDeFrames by lazy {
+        com.arkiv.player.miniaturas.AlmacenDeFrames(framesDir)
+    }
+
     /** Captura best-effort del frame que se está viendo, para la miniatura de cada capítulo. */
     val frameCapturer: com.arkiv.player.miniaturas.FrameCapturer by lazy {
         com.arkiv.player.miniaturas.FrameCapturer(
-            almacen = com.arkiv.player.miniaturas.AlmacenDeFrames(java.io.File(appContext.filesDir, "frames")),
+            almacen = almacenDeFrames,
             dao = database.episodeFrameDao(),
         )
     }
@@ -145,7 +156,7 @@ class AppGraph(context: Context) {
     }
 
     val dlna: DlnaController by lazy { DlnaController(appContext) }
-    val repository: ArkivRepository by lazy { ArkivRepository(database, api, tmdbApi) }
+    val repository: ArkivRepository by lazy { ArkivRepository(database, api, tmdbApi, almacenDeFrames = almacenDeFrames) }
     val syncManager: SyncManager by lazy { SyncManager(appContext, repository) }
     val trackerProvider: TrackerListProvider by lazy { TrackerListProvider(appContext) }
     val torrentEngine: TorrentEngine by lazy {

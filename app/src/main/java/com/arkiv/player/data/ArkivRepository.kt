@@ -12,6 +12,7 @@ import com.arkiv.player.data.db.PlaybackEntity
 import com.arkiv.player.data.model.ArchiveItem
 import com.arkiv.player.data.model.Episode
 import com.arkiv.player.data.model.EpisodeNumbering
+import com.arkiv.player.miniaturas.AlmacenDeFrames
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
@@ -102,6 +103,13 @@ class ArkivRepository(
     private val api: ArchiveApi,
     private val tmdbApi: TmdbApi? = null,
     private val clock: () -> Long = System::currentTimeMillis,
+    /**
+     * Dónde vive el JPEG de cada capítulo, para resolver `ContinueRow.framePath` desde disco (ver
+     * `observeContinueWatching`). Nullable con default para no romper otros call sites: sin
+     * almacén, `framePath` queda simplemente en null y las pantallas caen a sus respaldos de
+     * siempre.
+     */
+    private val almacenDeFrames: AlmacenDeFrames? = null,
 ) {
     private val itemDao = db.itemDao()
     private val playbackDao = db.playbackDao()
@@ -149,6 +157,11 @@ class ArkivRepository(
             // OJO: agrupa por itemId, NO por título — el dedup por título se quitó a propósito
             // porque escondía ítems distintos que casualmente compartían nombre.
             rows.distinctBy { it.itemId }.take(20)
+        }.map { filas ->
+            // El framePath NO sale de la query (ver el doc del campo en ContinueRow): se resuelve
+            // acá, del disco, después del dedup/take(20) de arriba para no gastar File.exists()
+            // de más en filas que ni se van a mostrar. Son ~6 filas por emisión: despreciable.
+            filas.map { it.copy(framePath = almacenDeFrames?.rutaSiExiste(it.episodeId)) }
         }
 
     /**

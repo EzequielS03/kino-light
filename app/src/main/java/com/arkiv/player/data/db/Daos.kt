@@ -29,6 +29,14 @@ data class ContinueRow(
      */
     val stillUrl: String? = null,
     val episodeTitle: String? = null,
+    /**
+     * Ruta en disco del frame capturado, o null si el capítulo todavía no tiene uno. Gana sobre
+     * `stillUrl` y el resto: ver [com.arkiv.player.miniaturas.EleccionDeMiniatura].
+     *
+     * NO sale de la query: el nombre del archivo se deriva del episodeId por hash, así que la
+     * única fuente de verdad es el disco. Lo llena el repositorio al mapear.
+     */
+    val framePath: String? = null,
 )
 
 /** Resumen de un ítem para la grilla de la biblioteca. */

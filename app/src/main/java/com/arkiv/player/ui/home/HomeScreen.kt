@@ -44,6 +44,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import coil.compose.AsyncImage
 import com.arkiv.player.data.ArchiveUrls
 import com.arkiv.player.data.db.LibraryRow
+import com.arkiv.player.miniaturas.EleccionDeMiniatura
 import com.arkiv.player.ui.components.ContinueCard
 import com.arkiv.player.ui.components.SectionHeader
 import com.arkiv.player.ui.rememberGraph
@@ -109,7 +110,11 @@ fun HomeScreen(
         item {
             val heroContinue = continueWatching.firstOrNull()
             if (heroContinue != null) {
-                val backdrop = artwork[heroContinue.itemId]?.backdrops?.firstOrNull() ?: heroContinue.itemThumbnailUrl
+                val backdrop = EleccionDeMiniatura.elegir(
+                    heroContinue.framePath,
+                    artwork[heroContinue.itemId]?.backdrops?.firstOrNull(),
+                    heroContinue.itemThumbnailUrl,
+                )
                 Hero(
                     backdropUrl = backdrop,
                     title = heroContinue.itemTitle,
@@ -146,11 +151,14 @@ fun HomeScreen(
                     ) {
                         items(continueWatching.drop(1), key = { it.episodeId }) { row ->
                             val progress = if (row.durationMs > 0) row.positionMs.toFloat() / row.durationMs else 0f
-                            // El still de TMDB manda si `episode_still` lo tiene; si no, el thumb de
-                            // siempre (extraído del archivo) y por último la carátula del ítem.
-                            val thumb = row.stillUrl
-                                ?: row.thumbPath?.let { ArchiveUrls.download(row.itemId, it) }
-                                ?: row.itemThumbnailUrl
+                            // El frame capturado manda si existe; si no, el still de TMDB, luego el
+                            // thumb de siempre (extraído del archivo) y por último la carátula del ítem.
+                            val thumb = EleccionDeMiniatura.elegir(
+                                row.framePath,
+                                row.stillUrl,
+                                row.thumbPath?.let { ArchiveUrls.download(row.itemId, it) },
+                                row.itemThumbnailUrl,
+                            )
                             ContinueCard(
                                 title = row.itemTitle,
                                 subtitle = row.episodeTitle ?: row.displayName,
