@@ -67,8 +67,16 @@ object MagisEntities {
      * El episodio de UN capítulo. Lo comparten [build] y [buildSeason] a propósito: el `id` es la
      * clave primaria, así que si los dos caminos no lo armaran idéntico, guardar la temporada
      * duplicaría los capítulos que ya estaban guardados sueltos.
+     *
+     * [season] es el número de temporada real cuando se conoce ([buildSeason], que lo saca de
+     * `GatewaySerie.seasonNumber`) o `null` cuando no ([build], que guarda un capítulo suelto sin
+     * ese contexto). Importa más de lo que parece: `ArkivRepository.ensureEpisodeStills` cruza por
+     * (temporada, capítulo) SOLO si TODOS los episodios del ítem tienen `season` puesto: uno solo en
+     * `null` lo hace caer a su rama de repartir capítulos 1..N por temporada desde la 1, que para
+     * una serie que no arranca en la T1 (Breaking Bad T5, por ejemplo) pone el still de otro
+     * capítulo. De ahí que esto NO sea cosmético.
      */
-    private fun capituloDe(itemId: String, number: Int, title: String, ref: String) = EpisodeEntity(
+    private fun capituloDe(itemId: String, number: Int, title: String, ref: String, season: Int?) = EpisodeEntity(
         id = episodioIdDe(itemId, number),
         itemId = itemId,
         section = "",
@@ -82,8 +90,8 @@ object MagisEntities {
         derivativePath = null,
         derivativeFormat = null,
         derivativeSize = 0,
+        season = season,
         // Numerado a propósito: es con esto que `CapitulosFaltantes` sabe cuál falta.
-        season = null,
         episode = number,
         torrentFileIndex = null,
         torrentData = ref,
@@ -111,6 +119,10 @@ object MagisEntities {
      * [capitulos] (`addMagisSeason` hace upsert, no replace, para no perder capítulos viejos que el
      * portal ya no liste), y esta función es pura/JVM — no tiene con qué consultar la base. Por eso
      * el repositorio lo resuelve (con `ItemDao.getEpisodesOf`) y lo pasa ya resuelto.
+     *
+     * [tmdbId] y [seasonNumber] son últimos y con default porque todos los llamadores usan
+     * argumentos nombrados; el orden no importa, solo que sean opcionales para no romper a quien ya
+     * llamaba a esta función antes de que existieran.
      */
     fun buildSeason(
         contentId: String,
@@ -121,10 +133,14 @@ object MagisEntities {
         seriesRef: String,
         existente: ItemEntity?,
         episodiosVistosEnLista: Int?,
-        // Antes de `existente` porque, a diferencia de `episodiosVistosEnLista` (que SIEMPRE llega
-        // ya resuelto por el repositorio), este puede llegar null cuando TMDB no resolvió esta vez
-        // y no por eso hay que descartar lo que ya estaba guardado — de ahí el `?:` de abajo.
+        // Puede llegar null cuando TMDB no resolvió esta vez (o el gateway es viejo), y no por eso
+        // hay que descartar lo que ya estaba guardado — de ahí el `?:` de abajo.
         tmdbId: Int? = null,
+        // El `season_number` de `GatewaySerie`: se lo pasa a [capituloDe] para que
+        // `ArkivRepository.ensureEpisodeStills` pueda cruzar por (temporada, capítulo) exacto en vez
+        // de aplanar desde la temporada 1 (ver el KDoc de [capituloDe]). Null cuando el gateway no
+        // resolvió la serie: el episodio queda con `season = null`, igual que hoy.
+        seasonNumber: Int? = null,
     ): Pair<ItemEntity, List<EpisodeEntity>> {
         val itemId = itemIdDe(contentId)
         val item = ItemEntity(
@@ -142,7 +158,7 @@ object MagisEntities {
             // siendo válido.
             tmdbId = tmdbId ?: existente?.tmdbId,
         )
-        return item to capitulos.map { capituloDe(itemId, it.number, it.title, it.ref) }
+        return item to capitulos.map { capituloDe(itemId, it.number, it.title, it.ref, seasonNumber) }
     }
 
     /**
@@ -212,7 +228,8 @@ object MagisEntities {
             tmdbId = existente?.tmdbId,
         )
         val ep = if (esCapitulo) {
-            capituloDe(itemId, episode, episodeTitle, ref)
+            // Sin el contexto de la temporada acá (no llega `GatewaySerie`, ver KDoc de [capituloDe]).
+            capituloDe(itemId, episode, episodeTitle, ref, season = null)
         } else {
             EpisodeEntity(
                 id = "$itemId::0",

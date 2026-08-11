@@ -152,7 +152,12 @@ class SearchPlayback(private val graph: AppGraph) {
             seriesRef = temporada.ref,
             posterUrl = temporada.extra["poster"].orEmpty(),
             backdropUrl = temporada.extra["backdrop"].orEmpty(),
-            tmdbId = serie?.tmdbId,
+            // `GatewaySerie.tmdbId` sale de un `optInt` (GatewayModels.kt): si el campo faltara daría
+            // 0, no null, y ese 0 le ganaría al `?:` de `buildSeason` y borraría un tmdbId válido que
+            // ya estuviera guardado. Hoy el gateway solo manda `series` cuando SÍ resolvió, así que no
+            // es alcanzable, pero blindarlo acá no cuesta nada.
+            tmdbId = serie?.tmdbId?.takeIf { it > 0 },
+            seasonNumber = serie?.seasonNumber,
         )
         val epId = guardados[elegido.number] ?: return playMagisEpisode(temporada, elegido)
         return PlaybackResult.Ready(epId)

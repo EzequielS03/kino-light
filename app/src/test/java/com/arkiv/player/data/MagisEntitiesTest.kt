@@ -123,10 +123,12 @@ class MagisEntitiesTest {
         // base (ver ContadorDeNuevos.reSellar) y se lo pasa ya resuelto. Acá, sin DB, cada test que
         // le importe el badge lo fija a mano.
         episodiosVistosEnLista: Int? = null,
+        tmdbId: Int? = null,
+        seasonNumber: Int? = null,
     ) = MagisEntities.buildSeason(
         contentId = contentId, title = title, capitulos = capitulos,
         posterUrl = "poster.jpg", ahora = 1_000L, seriesRef = seriesRef, existente = existente,
-        episodiosVistosEnLista = episodiosVistosEnLista,
+        episodiosVistosEnLista = episodiosVistosEnLista, tmdbId = tmdbId, seasonNumber = seasonNumber,
     )
 
     @Test fun la_temporada_entra_como_UN_item_con_todos_sus_capitulos() {
@@ -197,12 +199,31 @@ class MagisEntitiesTest {
     }
 
     @Test fun el_tmdbId_nuevo_manda_pero_uno_ausente_no_borra_el_que_ya_estaba() {
+        val previo = temporada().first.copy(tmdbId = 123)
+        // Con un tmdbId NUEVO, ese es el que queda -- si `buildSeason` invirtiera la prioridad
+        // (`existente?.tmdbId ?: tmdbId`, favoreciendo lo viejo) este assert lo agarraría.
+        assertEquals(456, temporada(existente = previo, tmdbId = 456).first.tmdbId)
         // Si TMDB no resolvió esta vez (tmdbId = null), no puede borrar el que ya se había
         // guardado en una llamada anterior: es exactamente el mismo caso que `episodiosVistosEnLista`
         // (ver el test del badge más arriba), pero para el tmdbId.
-        val previo = temporada().first.copy(tmdbId = 123)
-        val (item, _) = temporada(existente = previo)
-        assertEquals(123, item.tmdbId)
+        assertEquals(123, temporada(existente = previo).first.tmdbId)
+    }
+
+    @Test fun el_capitulo_guarda_la_temporada_real() {
+        // Sin esto, `ArkivRepository.ensureEpisodeStills` no puede cruzar por (temporada, capítulo)
+        // exacto y cae a repartir los capítulos 1..N como si la serie arrancara en la T1 (ver el
+        // KDoc de `MagisEntities.capituloDe`): una serie que no arranca ahí (Breaking Bad T5)
+        // terminaría con los stills de otra temporada, en silencio. Si alguien vuelve a poner
+        // `season = null` acá, este test se cae.
+        val (_, eps) = temporada(seasonNumber = 5)
+        assertEquals(listOf(5, 5, 5), eps.map { it.season })
+    }
+
+    @Test fun sin_temporada_resuelta_el_capitulo_queda_sin_season() {
+        // El gateway no siempre pudo cruzar la serie contra TMDB (`GatewaySerie` null): ahí no hay
+        // número de temporada que guardar, y no se inventa uno.
+        val (_, eps) = temporada(seasonNumber = null)
+        assertEquals(listOf(null, null, null), eps.map { it.season })
     }
 
     @Test fun un_capitulo_enriquecido_deja_su_fila_de_still() {

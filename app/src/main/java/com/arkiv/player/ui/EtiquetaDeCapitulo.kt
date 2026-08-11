@@ -16,9 +16,10 @@ object EtiquetaDeCapitulo {
      *
      * Se omite el tramo que no se sepa en vez de inventarlo: es preferible "E5" solo antes que un
      * "T1 · E5" que apunte al capítulo equivocado. El orden de preferencia importa: `episode` manda
-     * aunque no haya `season` —los capítulos de Magis guardan `season = null`— y recién después se
-     * cae al `orderIndex`, que en packs de torrent codifica temporada*1000 + episodio y en
-     * archive.org es un correlativo 0..N-1.
+     * aunque no haya `season` —un capítulo de Magis guardado sin el contexto de la temporada
+     * (`MagisEntities.build`, capítulo suelto) queda con `season = null`, aunque los que sí lo tienen
+     * (`buildSeason`) ya numeran "T1 · E5"— y recién después se cae al `orderIndex`, que en packs de
+     * torrent codifica temporada*1000 + episodio y en archive.org es un correlativo 0..N-1.
      */
     fun numero(ep: Episode): String {
         val temporada = ep.season

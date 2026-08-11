@@ -874,6 +874,9 @@ class ArkivRepository(
         // Null cuando TMDB no resolvió esta serie (o el gateway todavía no la mandó): `buildSeason`
         // no lo pisa contra lo que ya estaba guardado, ver su KDoc.
         tmdbId: Int? = null,
+        // El `season_number` de `GatewaySerie`: `buildSeason` lo necesita para que los episodios
+        // guarden la temporada real, sin la cual `ensureEpisodeStills` aplana mal (ver su KDoc).
+        seasonNumber: Int? = null,
     ): Map<Int, String> {
         if (contentId.isBlank() || capitulos.isEmpty()) return emptyMap()
         val id = MagisEntities.itemIdDe(contentId)
@@ -891,7 +894,7 @@ class ArkivRepository(
         val (item, episodios) = MagisEntities.buildSeason(
             contentId = contentId, title = title, capitulos = capitulos, posterUrl = posterUrl,
             ahora = clock(), seriesRef = seriesRef, existente = existente,
-            episodiosVistosEnLista = episodiosVistosEnLista, tmdbId = tmdbId,
+            episodiosVistosEnLista = episodiosVistosEnLista, tmdbId = tmdbId, seasonNumber = seasonNumber,
         )
         itemDao.upsertItem(item)
         itemDao.upsertEpisodes(episodios)
@@ -899,8 +902,8 @@ class ArkivRepository(
         // contenido vive dentro del ítem de la temporada.
         capitulos.forEach { barrerItemLegacyDeCapitulo(contentId, it.number) }
         guardarBackdropDeMagis(id, backdropUrl)
-        // Solo si vino algo: escribir una lista vacía sería una escritura de más en el caso (más
-        // común) sin enriquecer, que además pisaría con REPLACE cualquier still que ya hubiera.
+        // Solo si vino algo: llamar igual con una lista vacía sería una escritura de más en el
+        // caso (más común) sin enriquecer.
         val stills = MagisEntities.stillsDeTemporada(id, capitulos, clock())
         if (stills.isNotEmpty()) episodeStillDao.upsertAll(stills)
         return episodios.mapNotNull { ep -> ep.episode?.let { it to ep.id } }.toMap()
