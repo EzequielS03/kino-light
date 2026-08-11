@@ -197,6 +197,13 @@ object MagisEntities {
      * [existente] es la fila que ya está en la base, si la hay: `upsertItem` es un REPLACE (borra e
      * inserta), así que lo que no se copie de ahí se pierde —la fecha de alta reordenaría el home y
      * `episodiosVistosEnLista` volvería a prender el badge sobre capítulos ya mirados.
+     *
+     * [season] y [tmdbId] son opcionales (default `null`) para no romper a los llamadores que no
+     * conocen `GatewaySerie` — hoy, todos salvo `BuscadorDeCapitulos.revisarMagis`, que agrega
+     * capítulos nuevos en background y es justo el camino que necesita [season] real: sin ella, un
+     * capítulo agregado así deja el ítem con episodios mezclados (unos con temporada, otros sin) y
+     * `ArkivRepository.ensureEpisodeStills` cae a su rama de aplanar (ver el KDoc de [capituloDe]).
+     * Mismo `?:` que en [buildSeason] para [tmdbId]: uno nuevo ausente no borra el que ya estaba.
      */
     fun build(
         contentId: String,
@@ -208,6 +215,8 @@ object MagisEntities {
         ahora: Long,
         seriesRef: String,
         existente: ItemEntity?,
+        season: Int? = null,
+        tmdbId: Int? = null,
     ): Pair<ItemEntity, EpisodeEntity> {
         val itemId = itemIdDe(contentId)
         val esCapitulo = episode > 0
@@ -225,11 +234,10 @@ object MagisEntities {
                 ref
             },
             episodiosVistosEnLista = existente?.episodiosVistosEnLista,
-            tmdbId = existente?.tmdbId,
+            tmdbId = tmdbId ?: existente?.tmdbId,
         )
         val ep = if (esCapitulo) {
-            // Sin el contexto de la temporada acá (no llega `GatewaySerie`, ver KDoc de [capituloDe]).
-            capituloDe(itemId, episode, episodeTitle, ref, season = null)
+            capituloDe(itemId, episode, episodeTitle, ref, season = season)
         } else {
             EpisodeEntity(
                 id = "$itemId::0",

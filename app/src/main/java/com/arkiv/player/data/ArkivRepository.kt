@@ -787,6 +787,12 @@ class ArkivRepository(
      *
      * [seriesRef] es el ref de la TEMPORADA (el que sirve para pedirle al portal la lista de
      * capítulos), distinto del [ref] del capítulo que se va a reproducir.
+     *
+     * [season], [tmdbId], [still], [tmdbTitle] y [overview] son lo que trae `GatewaySerie`/
+     * `GatewayEpisode` cuando el llamador los tiene a mano (hoy, `BuscadorDeCapitulos.revisarMagis`
+     * al agregar un capítulo nuevo en background): un capítulo que sale así queda enriquecido igual
+     * que si se hubiera tocado a mano, sin que nadie tenga que abrir la temporada. Todos opcionales
+     * para los demás llamadores, que no los conocen.
      */
     suspend fun addMagisSource(
         ref: String,
@@ -797,6 +803,11 @@ class ArkivRepository(
         backdropUrl: String = "",
         episodeTitle: String = "",
         seriesRef: String = "",
+        season: Int? = null,
+        tmdbId: Int? = null,
+        still: String? = null,
+        tmdbTitle: String? = null,
+        overview: String? = null,
     ): String? {
         if (ref.isBlank() || contentId.isBlank()) return null
         val id = MagisEntities.itemIdDe(contentId)
@@ -804,7 +815,7 @@ class ArkivRepository(
         val (item, ep) = MagisEntities.build(
             contentId = contentId, ref = ref, title = title, episode = episode,
             episodeTitle = episodeTitle, posterUrl = posterUrl, ahora = clock(),
-            seriesRef = seriesRef, existente = existing,
+            seriesRef = seriesRef, existente = existing, season = season, tmdbId = tmdbId,
         )
         if (episode > 0) {
             // upsert y NO replaceItem: los capítulos que ya estaban guardados de esta temporada no
@@ -812,6 +823,13 @@ class ArkivRepository(
             itemDao.upsertItem(item)
             itemDao.upsertEpisodes(listOf(ep))
             barrerItemLegacyDeCapitulo(contentId, episode)
+            // Reusa `stillsDeTemporada` (mismo filtro "trae algo" y mismo cálculo de episodeId que
+            // usa `addMagisSeason` para la temporada entera) en vez de duplicar esa lógica acá para
+            // un solo capítulo.
+            val stills = MagisEntities.stillsDeTemporada(
+                id, listOf(CapituloDeTemporada(episode, episodeTitle, ref, still, tmdbTitle, overview)), clock(),
+            )
+            if (stills.isNotEmpty()) episodeStillDao.upsertAll(stills)
         } else {
             itemDao.replaceItem(item, listOf(ep))
         }

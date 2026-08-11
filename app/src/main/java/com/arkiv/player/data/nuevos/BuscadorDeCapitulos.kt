@@ -80,11 +80,20 @@ class BuscadorDeCapitulos(
      * El `ref` guardado **se re-emite en cada búsqueda del portal** (ver `addMagisSource`), así que
      * el nuestro puede estar vencido. Que esto falle es esperable y no es un error del usuario: se
      * registra a nivel info y se sigue.
+     *
+     * Pide `episodesConSerie` (no `episodes`) para que un capítulo agregado acá salga enriquecido
+     * igual que si se hubiera tocado a mano: still, nombre real, sinopsis y la temporada real del
+     * `GatewaySerie`. Esto último no es cosmético — es lo que evita el bug que originó este bloque de
+     * parámetros: un capítulo agregado sin `season` deja el ítem con episodios mezclados (unos con
+     * temporada puesta, otros no) y `ArkivRepository.ensureEpisodeStills` cae a su rama de aplanar
+     * (ver el KDoc de `MagisEntities.capituloDe`), pisando en silencio los stills correctos de toda
+     * la temporada. Si el gateway no pudo resolver TMDB (`GatewaySerie` null), todo esto sale null y
+     * el capítulo se guarda exactamente como antes: con lo del portal, sin fila de still.
      */
     private suspend fun revisarMagis(serie: SerieCandidata): Int {
         val ref = itemDao.getItem(serie.itemId)?.torrentData.orEmpty()
         if (ref.isBlank()) return 0
-        val enLaFuente = gateway.episodes(ref)
+        val (enLaFuente, gatewaySerie) = gateway.episodesConSerie(ref)
         if (enLaFuente.isEmpty()) {
             Log.i(TAG, "magis ${serie.itemId}: sin capítulos (¿ref vencido?)")
             return 0
@@ -103,6 +112,13 @@ class BuscadorDeCapitulos(
                 title = item.title,
                 episode = numero,
                 posterUrl = item.thumbnailUrl,
+                season = gatewaySerie?.seasonNumber,
+                // `optInt` en el parseo da 0 si el campo faltara, y un 0 no es null (ver el mismo
+                // blindaje en SearchPlayback.playMagisSeason).
+                tmdbId = gatewaySerie?.tmdbId?.takeIf { it > 0 },
+                still = ep.still,
+                tmdbTitle = ep.tmdbTitle,
+                overview = ep.overview,
             )
             if (id != null) puestos++
         }

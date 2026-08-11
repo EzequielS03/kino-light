@@ -26,10 +26,12 @@ class MagisEntitiesTest {
         episodeTitle: String = "",
         seriesRef: String = "ref-temporada",
         existente: ItemEntity? = null,
+        season: Int? = null,
+        tmdbId: Int? = null,
     ) = MagisEntities.build(
         contentId = contentId, ref = ref, title = title, episode = episode,
         episodeTitle = episodeTitle, posterUrl = "poster.jpg", ahora = 1_000L,
-        seriesRef = seriesRef, existente = existente,
+        seriesRef = seriesRef, existente = existente, season = season, tmdbId = tmdbId,
     )
 
     @Test fun un_capitulo_marca_el_item_como_serie() {
@@ -107,6 +109,31 @@ class MagisEntitiesTest {
         // Las filas guardadas antes de este cambio quedaron como `magis:<contentId>:e<n>`, o sea una
         // tarjeta-película por capítulo. Se borran al volver a guardar ese mismo capítulo.
         assertEquals("magis:ABC:e1", MagisEntities.idLegacyDeCapitulo("ABC", 1))
+    }
+
+    @Test fun un_capitulo_agregado_suelto_puede_llevar_su_temporada_real() {
+        // El camino de `BuscadorDeCapitulos.revisarMagis`: agrega un capítulo nuevo en background y,
+        // si el gateway resolvió TMDB, ya sabe la temporada real. Sin esto, ese capítulo quedaría
+        // con `season = null` mezclado con los que sí la tienen, y `ensureEpisodeStills` aplanaría
+        // toda la temporada en vez de cruzar por (temporada, capítulo) exacto (ver el KDoc de
+        // `capituloDe`).
+        val (_, ep) = capitulo(episode = 8, season = 5)
+        assertEquals(5, ep.season)
+    }
+
+    @Test fun un_capitulo_suelto_sin_temporada_resuelta_no_inventa_una() {
+        // El gateway no siempre pudo cruzar contra TMDB (`GatewaySerie` null): ahí no hay
+        // temporada que guardar, y no se inventa una.
+        val (_, ep) = capitulo()
+        assertNull(ep.season)
+    }
+
+    @Test fun el_tmdbId_de_un_capitulo_suelto_nuevo_manda_pero_uno_ausente_no_borra_el_que_ya_estaba() {
+        // Mismo contrato que `buildSeason` (ver ese test más abajo), pero para el camino de un
+        // capítulo agregado suelto.
+        val previo = capitulo().first.copy(tmdbId = 123)
+        assertEquals(456, capitulo(existente = previo, tmdbId = 456).first.tmdbId)
+        assertEquals(123, capitulo(existente = previo).first.tmdbId)
     }
 
     private fun temporada(
