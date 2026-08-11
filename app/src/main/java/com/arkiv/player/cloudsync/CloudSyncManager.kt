@@ -3,6 +3,8 @@ package com.arkiv.player.cloudsync
 import android.util.Log
 import com.arkiv.player.data.db.EpisodeEntity
 import com.arkiv.player.data.db.ItemDao
+import com.arkiv.player.data.db.LiveFavoriteDao
+import com.arkiv.player.data.db.LiveRecentDao
 import com.arkiv.player.data.db.PlaybackDao
 import com.arkiv.player.data.db.SkipMarkerDao
 import com.arkiv.player.pocketbase.DeviceAuthManager
@@ -19,6 +21,12 @@ private const val COL_ITEMS = "library_items"
 private const val COL_EPISODES = "episodes"
 private const val COL_PROGRESS = "progress"
 private const val COL_MARKERS = "markers"
+
+// Favoritos y recientes de TV en vivo: mismo patrón que COL_MARKERS (una tabla LWW + tombstone la
+// otra LWW sin tombstone). Antes solo viajaban por el sync LAN (sync/SyncSnapshot.kt), así que
+// favoritos e historial de canales no cruzaban entre celu y TV salvo estando en la misma red.
+private const val COL_LIVE_FAVORITES = "live_favorites"
+private const val COL_LIVE_RECENTS = "live_recents"
 
 /** Cuánto retrocede el cursor de pull al arrancar, para rescatar lo que se subió tarde. */
 private const val RETROCESO_MS = 7L * 24 * 60 * 60 * 1000
@@ -38,6 +46,8 @@ class CloudSyncManager(
     private val itemDao: ItemDao,
     private val playbackDao: PlaybackDao,
     private val skipMarkerDao: SkipMarkerDao,
+    private val liveFavoriteDao: LiveFavoriteDao,
+    private val liveRecentDao: LiveRecentDao,
     private val pbSync: PbSyncClient,
     private val realtime: PocketBaseRealtime,
     private val deviceAuth: DeviceAuthManager,
@@ -51,7 +61,12 @@ class CloudSyncManager(
         // perdieron). Volverlos a cero fuerza un sync completo; es idempotente y LWW lo resuelve.
         if (cursors.necesitaReparacion()) {
             Log.w(TAG, "cloudsync: reparando cursores (sync completo por única vez)")
-            cursors.resetAll(listOf(COL_ITEMS, COL_EPISODES, COL_PROGRESS, COL_MARKERS))
+            cursors.resetAll(
+                listOf(
+                    COL_ITEMS, COL_EPISODES, COL_PROGRESS, COL_MARKERS,
+                    COL_LIVE_FAVORITES, COL_LIVE_RECENTS,
+                ),
+            )
             cursors.marcarReparado()
         }
         scope.launch {
@@ -94,7 +109,12 @@ class CloudSyncManager(
         // servidor (bug corregido en PushFrontier, pero los cursores ya dañados siguen ahí): sin
         // esto, esos cambios quedan enterrados para siempre. El upsert es idempotente y el merge es
         // LWW, así que re-empujar todo es seguro — solo cuesta ancho de banda, y es un gesto manual.
-        cursors.resetAll(listOf(COL_ITEMS, COL_EPISODES, COL_PROGRESS, COL_MARKERS))
+        cursors.resetAll(
+            listOf(
+                COL_ITEMS, COL_EPISODES, COL_PROGRESS, COL_MARKERS,
+                COL_LIVE_FAVORITES, COL_LIVE_RECENTS,
+            ),
+        )
         runCatching { pushAll() }
         runCatching { reconcileAll() }
     }
@@ -111,6 +131,20 @@ class CloudSyncManager(
             { it.episodeId }, { playbackToFields(it, acct) }, { it.updatedAt })
         pushRows(COL_MARKERS, skipMarkerDao.getMarkersSince(cursors.lastPushed(COL_MARKERS)),
             { it.itemId }, { markerToFields(it, acct) }, { it.updatedAt })
+        // live_favorites/live_recents no tienen un `getXSince(cursor)` propio en el DAO (haría
+        // falta agregarlo a LiveFavoriteDao/LiveRecentDao, que hoy está tocando otra tarea en este
+        // mismo worktree) -- se filtra acá en memoria sobre `getAll()`, aceptable porque son tablas
+        // chicas (favoritos del usuario, recientes acotados a lo que el usuario fue viendo).
+        pushRows(
+            COL_LIVE_FAVORITES,
+            liveFavoriteDao.getAll().filter { it.updatedAt > cursors.lastPushed(COL_LIVE_FAVORITES) },
+            { it.code }, { liveFavoriteToFields(it, acct) }, { it.updatedAt },
+        )
+        pushRows(
+            COL_LIVE_RECENTS,
+            liveRecentDao.getAll().filter { it.updatedAt > cursors.lastPushed(COL_LIVE_RECENTS) },
+            { it.code }, { liveRecentToFields(it, acct) }, { it.updatedAt },
+        )
     }
 
     /**
@@ -119,7 +153,8 @@ class CloudSyncManager(
      * colección. El cursor avanza al máximo `updatedAt` de TODAS las filas procesadas (para
      * garantizar progreso: una fila permanentemente inválida no atasca el sync para siempre).
      * Las cancelaciones se re-lanzan (no se tragan). El campo natural-key va por el nombre PB:
-     * items=identifier, episodes=epId (=id de la entidad), progress=episodeId, markers=itemId.
+     * items=identifier, episodes=epId (=id de la entidad), progress=episodeId, markers=itemId,
+     * live_favorites/live_recents=code.
      */
     private suspend fun <T> pushRows(
         col: String,
@@ -130,7 +165,11 @@ class CloudSyncManager(
     ) {
         if (rows.isEmpty()) return
         val keyField = when (col) {
-            COL_ITEMS -> "identifier"; COL_EPISODES -> "epId"; COL_PROGRESS -> "episodeId"; else -> "itemId"
+            COL_ITEMS -> "identifier"
+            COL_EPISODES -> "epId"
+            COL_PROGRESS -> "episodeId"
+            COL_LIVE_FAVORITES, COL_LIVE_RECENTS -> "code"
+            else -> "itemId"
         }
         // En orden cronológico: la marca de agua se corta en la fila sin resolver más vieja.
         val outcomes = rows.sortedBy { updatedAt(it) }.map { row ->
@@ -167,7 +206,10 @@ class CloudSyncManager(
         // allá de los eventos realtime que lleguen luego).
         deviceAuth.session.value ?: return
 
-        for (col in listOf(COL_ITEMS, COL_EPISODES, COL_PROGRESS, COL_MARKERS)) {
+        for (col in listOf(
+            COL_ITEMS, COL_EPISODES, COL_PROGRESS, COL_MARKERS,
+            COL_LIVE_FAVORITES, COL_LIVE_RECENTS,
+        )) {
             val cursor = cursors.lastPulled(col)
             // Ventana de retroceso al arrancar: el cursor usa el reloj del CLIENTE, así que un
             // cambio hecho sin conexión se sube más tarde con su fecha original — nace por debajo
@@ -185,7 +227,12 @@ class CloudSyncManager(
     // ---- realtime: aplica eventos SSE apenas llegan ----
 
     private suspend fun subscribeAll() {
-        realtime.subscribe(listOf(COL_ITEMS, COL_EPISODES, COL_PROGRESS, COL_MARKERS)).collect { ev ->
+        realtime.subscribe(
+            listOf(
+                COL_ITEMS, COL_EPISODES, COL_PROGRESS, COL_MARKERS,
+                COL_LIVE_FAVORITES, COL_LIVE_RECENTS,
+            ),
+        ).collect { ev ->
             mergeRecord(ev.topic, ev.record)
         }
     }
@@ -200,6 +247,8 @@ class CloudSyncManager(
             COL_EPISODES -> mergeEpisode(json, remoteUpdatedAt)
             COL_PROGRESS -> mergePlayback(json, remoteUpdatedAt)
             COL_MARKERS -> mergeMarker(json, remoteUpdatedAt)
+            COL_LIVE_FAVORITES -> mergeLiveFavorite(json, remoteUpdatedAt)
+            COL_LIVE_RECENTS -> mergeLiveRecent(json, remoteUpdatedAt)
             else -> false
         }
         // OJO: NO bumpear cursors.lastPushed acá. El cursor de push es por colección (no por fila)
@@ -240,6 +289,25 @@ class CloudSyncManager(
         val local = skipMarkerDao.get(remote.itemId)
         if (!LwwMerge.pickWinner(local?.updatedAt ?: 0, remoteUpdatedAt)) return false
         skipMarkerDao.upsert(remote)
+        return true
+    }
+
+    // LiveFavoriteDao/LiveRecentDao no tienen un `get(code)` por PK (solo `getAll()`): buscar en la
+    // lista completa es aceptable acá por el mismo motivo que en pushAll -- son tablas chicas, y
+    // agregar la query puntual es un cambio de Daos.kt que hoy toca otra tarea en este worktree.
+    private suspend fun mergeLiveFavorite(json: JSONObject, remoteUpdatedAt: Long): Boolean {
+        val remote = recordToLiveFavorite(json)
+        val local = liveFavoriteDao.getAll().find { it.code == remote.code }
+        if (!LwwMerge.pickWinner(local?.updatedAt ?: 0, remoteUpdatedAt)) return false
+        liveFavoriteDao.guardar(remote)
+        return true
+    }
+
+    private suspend fun mergeLiveRecent(json: JSONObject, remoteUpdatedAt: Long): Boolean {
+        val remote = recordToLiveRecent(json)
+        val local = liveRecentDao.getAll().find { it.code == remote.code }
+        if (!LwwMerge.pickWinner(local?.updatedAt ?: 0, remoteUpdatedAt)) return false
+        liveRecentDao.anotar(remote)
         return true
     }
 }
