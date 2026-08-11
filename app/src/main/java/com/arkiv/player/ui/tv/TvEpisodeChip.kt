@@ -31,6 +31,7 @@ import coil.compose.AsyncImage
 import com.arkiv.player.data.ArchiveUrls
 import com.arkiv.player.data.db.PlaybackEntity
 import com.arkiv.player.data.model.Episode
+import com.arkiv.player.ui.EtiquetaDeCapitulo
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 
@@ -66,14 +67,7 @@ fun TvEpisodeChip(
         progress.watched -> "Visto"
         else -> "${(progress.positionMs / 60000).toInt().coerceAtLeast(0)} de $totalMin min"
     }
-    // orderIndex es secuencial (0, 1, 2...) para archive.org, pero en packs de torrent
-    // codifica temporada*1000 + episodio (p. ej. 1002 = T1E2) para poder ordenar por
-    // temporada/episodio en una sola columna — hay que decodificarlo para mostrarlo.
-    val episodeLabel = if (episode.orderIndex >= 1000) {
-        "T${episode.orderIndex / 1000} · E${episode.orderIndex % 1000}"
-    } else {
-        "${episode.orderIndex + 1}"
-    }
+    val episodeLabel = EtiquetaDeCapitulo.numero(episode)
 
     Column(
         modifier = modifier

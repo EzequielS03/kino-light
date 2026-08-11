@@ -49,6 +49,15 @@ data class ItemDetail(
      * de duración puede tardar (stream TS). Sin esto, darle play al E5 y salir a los tres segundos
      * dejaba el detalle diciendo "vas en el E1". La fila "Continuar viendo" del home sí filtra por
      * posición (`observeContinueWatching`), que es lo que evita que se llene de ruido.
+     *
+     * Consecuencia aceptada de NO tener ese piso acá: tocar un capítulo por error (o por
+     * curiosidad) y salir a los dos segundos lo convierte en "por dónde voy" aunque tuvieras
+     * mucho más progreso en otro -- el detalle lo dice, el botón "Reproducir" lo ofrece, el
+     * carrusel lo resalta y las dos pantallas de detalle hacen auto-scroll hasta ahí. Es a
+     * propósito: es la misma razón por la que "Continuar viendo" SÍ filtra por posición y esto no
+     * (ver el párrafo de arriba), y no hay forma de distinguir "toque por error" de "toque real"
+     * sin ese piso. No es un bug para "arreglar" con un mínimo de segundos acá -- eso rompería el
+     * caso que este getter existe para resolver.
      */
     val inProgressEpisode: Episode?
         get() = episodes
