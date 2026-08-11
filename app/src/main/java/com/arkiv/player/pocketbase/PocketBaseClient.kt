@@ -83,6 +83,43 @@ class PocketBaseClient(
         }
     }
 
+    /** Igual que [createRecord] pero adjuntando un archivo. Ver [PocketBaseMultipart]. */
+    suspend fun createRecordConArchivo(
+        collection: String,
+        fields: Map<String, Any?>,
+        campoArchivo: String,
+        nombre: String,
+        bytes: ByteArray,
+        token: String,
+    ): String = withContext(Dispatchers.IO) {
+        val req = Request.Builder()
+            .url("$baseUrl/api/collections/$collection/records")
+            .header("Authorization", token)
+            .post(PocketBaseMultipart.build(fields, campoArchivo, nombre, bytes))
+            .build()
+        execute(req).getString("id")
+    }
+
+    /** Igual que [updateRecord] pero adjuntando un archivo. */
+    suspend fun updateRecordConArchivo(
+        collection: String,
+        id: String,
+        fields: Map<String, Any?>,
+        campoArchivo: String,
+        nombre: String,
+        bytes: ByteArray,
+        token: String,
+    ) {
+        withContext(Dispatchers.IO) {
+            val req = Request.Builder()
+                .url("$baseUrl/api/collections/$collection/records/$id")
+                .header("Authorization", token)
+                .patch(PocketBaseMultipart.build(fields, campoArchivo, nombre, bytes))
+                .build()
+            execute(req)
+        }
+    }
+
     /**
      * Lista TODOS los registros que matchean el filtro, recorriendo las páginas.
      *
