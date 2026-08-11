@@ -463,6 +463,12 @@ private fun PlayerContent(
     var positionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
     var isPlaying by remember { mutableStateOf(false) }
+    /**
+     * La INTENCIÓN de reproducir (`playWhenReady`), que no es lo mismo que `isPlaying`: isPlaying
+     * también se cae en cada rebuffer. Se sigue aparte porque es lo que distingue "el usuario
+     * pausó" de "el torrent se quedó sin datos un segundo" (ver el efecto de captura al pausar).
+     */
+    var quiereReproducir by remember { mutableStateOf(false) }
     var loaded by remember { mutableStateOf(false) }
     // Episodio que esta pantalla ya mandó al receptor. Coordina los dos caminos que castean (la
     // carga de playlist y el salto local→cast de LaunchedEffect(casting)): si el usuario conecta
@@ -559,6 +565,18 @@ private fun PlayerContent(
 
     // Ref al layout de video (para devolverle el foco en TV al cerrar un diálogo).
     var videoView by remember { mutableStateOf<VLCVideoLayout?>(null) }
+
+    /**
+     * El TextureView donde se está pintando el video, para las capturas de frame.
+     *
+     * Primero se le pregunta al player y recién después se cae al layout de ESTA pantalla: al
+     * salir, el `onRelease` del AndroidView le suelta el layout al player (`detachVideo`, que lo
+     * pone en null para no retener la Activity) y no hay garantía de que corra después del
+     * `onDispose` que captura el frame de salida. El layout sigue vivo acá, así que el respaldo es
+     * lo que hace que salir del reproductor capture de verdad.
+     */
+    fun textureViewDelVideo(): android.view.TextureView? =
+        vlc.textureViewActual() ?: vlc.textureViewDe(videoView)
 
     // Re-enganchar el video al volver de otra app: al irse al fondo Android destruye la Surface y
     // libVLC tumba su salida de video (evento `Vout 0`); sin un attachViews nuevo la salida no se
@@ -902,6 +920,7 @@ private fun PlayerContent(
     DisposableEffect(activePlayer) {
         isBuffering = activePlayer.playbackState == Player.STATE_BUFFERING
         isPlaying = activePlayer.isPlaying
+        quiereReproducir = activePlayer.playWhenReady
         if (activePlayer.playbackState == Player.STATE_READY && posicionEsDeEstaPantalla()) {
             positionMs = contentPositionMs()
             contentDurationMs().let { if (it > 0) durationMs = it }
@@ -922,6 +941,10 @@ private fun PlayerContent(
 
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
+            }
+
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                quiereReproducir = playWhenReady
             }
 
             // Sin esto, un fallo de reproducción no llegaba a NINGUNA parte: VlcPlayer lo publicaba
@@ -984,11 +1007,11 @@ private fun PlayerContent(
                 // Cada 600 ticks = 5 min. Va acá adentro para heredar las mismas guardas que el
                 // progreso: sin `mediaId == epId` se capturaría el frame del capítulo viejo bajo
                 // el id del nuevo.
-                // !casting: casteando, `pos` es la posición del receptor REMOTO, pero
-                // vlc.textureViewActual() sigue siendo el TextureView LOCAL, que en ese momento no
-                // pinta lo que se ve en la tele. Capturarlo guardaría una imagen que no corresponde
-                // a esa posición (y se repetiría en cada disparo mientras dure el casteo).
-                if (tick % 600 == 0 && !casting) vm.capturarFrame(epId, pos, vlc.textureViewActual())
+                // !casting: casteando, `pos` es la posición del receptor REMOTO, pero el
+                // TextureView sigue siendo el LOCAL, que en ese momento no pinta lo que se ve en la
+                // tele. Capturarlo guardaría una imagen que no corresponde a esa posición (y se
+                // repetiría en cada disparo mientras dure el casteo).
+                if (tick % 600 == 0 && !casting) vm.capturarFrame(epId, pos, textureViewDelVideo())
             }
             // Latido mientras se castea: dice si el receptor AVANZA de verdad. Una posición
             // clavada con estado=listo significa que aceptó el medio pero no lo está decodificando.
@@ -998,6 +1021,36 @@ private fun PlayerContent(
                     "latido · pos=${pos}ms dur=${dur}ms estado=${activePlayer.playbackState} reproduciendo=${activePlayer.isPlaying}",
                 )
             }
+        }
+    }
+
+    /**
+     * Captura el frame al PAUSAR quedándose en el reproductor. Salir tiene su propia captura (en el
+     * onDispose de más abajo) y hay otra periódica cada 5 min; esta es la de "pausé para irme a
+     * hacer algo", que es justo cuando la miniatura tiene que quedar en lo último que se vio.
+     *
+     * Va colgada de `quiereReproducir` (playWhenReady) y no de `isPlaying` a propósito: isPlaying
+     * también se cae en cada rebuffer del torrent, así que capturaría —medio millón de píxeles,
+     * comprimir y escribir a disco— en cada tirón de red. playWhenReady solo cambia cuando alguien
+     * pausa de verdad (el botón, el OK sobre la barra, la sesión de medios, la pérdida de foco de
+     * audio).
+     *
+     * Con la clave en el propio estado corre UNA vez por transición: mientras siga pausado no se
+     * relanza, y volver a reproducir tampoco captura (sale por el `return` de arriba).
+     *
+     * Mismas guardas que los otros dos disparadores: `mediaId == epId` (que el frame no se guarde
+     * bajo el id del capítulo equivocado al saltar de episodio), `dur > 0`, `pos in 0 until dur` y
+     * `!casting` (casteando la posición es la del receptor remoto y el TextureView local no está
+     * pintando eso).
+     */
+    LaunchedEffect(quiereReproducir) {
+        if (quiereReproducir || casting) return@LaunchedEffect
+        val pos = activePlayer.currentPosition
+        val dur = activePlayer.duration
+        val mediaId = activePlayer.currentMediaItem?.mediaId
+        val epId = playlistRef.value?.items?.getOrNull(controller.currentMediaItemIndex)?.episodeId
+        if (epId != null && mediaId == epId && dur > 0 && pos in 0 until dur) {
+            vm.capturarFrame(epId, pos, textureViewDelVideo())
         }
     }
 
@@ -1226,11 +1279,13 @@ private fun PlayerContent(
             val epId = playlistRef.value?.items?.getOrNull(currentIndex)?.episodeId
             if (epId != null && mediaId == epId && dur > 0 && pos in 0 until dur) {
                 vm.saveProgress(epId, pos, dur)
-                // Corre después de controller.pause(): cubre pausa y salida de una sola vez. Quien
-                // sale con el botón atrás (sin pasar por un botón de pausa) también guarda acá.
+                // Captura de SALIDA, y solo de salida: el `controller.pause()` de acá arriba es el
+                // que da esta misma función al irse, así que este bloque NO cubre al que aprieta
+                // pausa y se queda mirando la pantalla quieta. Esa la captura el efecto de
+                // `quiereReproducir` (más arriba), y por eso existen las dos.
                 // !casting: mismo motivo que en el sondeo periódico — casteando, `pos` es la
                 // posición del receptor remoto, pero el TextureView local no está pintando eso.
-                if (!casting) vm.capturarFrame(epId, pos, vlc.textureViewActual())
+                if (!casting) vm.capturarFrame(epId, pos, textureViewDelVideo())
             }
             activity?.let {
                 it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED

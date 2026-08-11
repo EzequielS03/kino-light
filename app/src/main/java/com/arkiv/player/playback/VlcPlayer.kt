@@ -811,14 +811,22 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
     /** El layout enganchado, para poder llegar al TextureView donde VLC está pintando. */
     @Volatile private var layoutActual: VLCVideoLayout? = null
 
+    /** El TextureView donde libVLC está pintando, o null si todavía no hay salida de video. */
+    fun textureViewActual(): android.view.TextureView? = textureViewDe(layoutActual)
+
     /**
-     * El TextureView donde libVLC está pintando, o null si todavía no hay salida de video.
+     * El TextureView que haya adentro de [raiz].
      *
      * Se busca recorriendo el árbol porque VLCVideoLayout no lo expone: sus ids son internos de la
      * librería y no hay API pública para pedírselo.
+     *
+     * Se expone aparte de [textureViewActual] porque al salir del reproductor el layout se suelta
+     * (`onRelease` del AndroidView → [detachVideo]) y este player deja de tener por dónde llegar al
+     * view; la pantalla, en cambio, sigue con su propio layout en la mano y puede pasarlo acá para
+     * capturar el último frame antes de irse.
      */
-    fun textureViewActual(): android.view.TextureView? {
-        val raiz: android.view.View = layoutActual ?: return null
+    fun textureViewDe(raiz: android.view.View?): android.view.TextureView? {
+        raiz ?: return null
         val pendientes = ArrayDeque<android.view.View>()
         pendientes.add(raiz)
         while (pendientes.isNotEmpty()) {
@@ -871,6 +879,10 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         runCatching { mediaPlayer.detachViews() }
         voutTracker.onDetach()
         layoutEnganchado = null
+        // Se limpia JUNTO a layoutEnganchado: este player es un singleton de proceso y el
+        // VLCVideoLayout se construye con el contexto de la Activity. Dejar acá el layout ya
+        // soltado retenía la Activity entera mientras el reproductor estaba cerrado.
+        layoutActual = null
     }
 
     /**
