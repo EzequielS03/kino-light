@@ -117,6 +117,7 @@ class ArkivRepository(
     private val skipMarkerDao = db.skipMarkerDao()
     private val artworkDao = db.artworkDao()
     private val episodeStillDao = db.episodeStillDao()
+    private val episodeFrameDao = db.episodeFrameDao()
 
     fun observeLibrary(): Flow<List<LibraryRow>> = itemDao.observeLibrary()
 
@@ -1280,6 +1281,14 @@ class ArkivRepository(
                 lastPlayedAt = clock(),
             )
         )
+        // El frame se destruye al marcarse visto: sin esto, la carpeta crece para siempre y encima
+        // mostraría la escena de algo que ya terminaste, que no le sirve a nadie. Al desmarcar
+        // (watched = false) NO se borra nada: el capítulo vuelve a estar en curso y el frame que
+        // haya sigue siendo válido.
+        if (watched) {
+            almacenDeFrames?.borrar(episodeId)
+            episodeFrameDao.borrar(episodeId)
+        }
     }
 }
 
