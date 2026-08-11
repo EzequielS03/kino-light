@@ -3,7 +3,6 @@ package com.arkiv.player.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.arkiv.player.data.ArkivRepository
-import com.arkiv.player.data.LibraryGroup
 import com.arkiv.player.data.catalog.AniListApi
 import com.arkiv.player.data.catalog.TmdbApi
 import com.arkiv.player.data.db.ArtworkEntity
@@ -27,14 +26,6 @@ class HomeViewModel(
 ) : ViewModel() {
 
     val library: StateFlow<List<LibraryRow>> = repo.observeLibrary()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    /**
-     * La biblioteca agrupada por serie (una entrada por show, no por adquisición). El home de TV
-     * usa esto para la fila de Series; `library` se conserva porque las películas y el destacado
-     * siguen razonando por ítem.
-     */
-    val libraryGroups: StateFlow<List<LibraryGroup>> = repo.observeLibraryGroups()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val continueWatching: StateFlow<List<ContinueRow>> = repo.observeContinueWatching()
