@@ -1272,14 +1272,20 @@ class ArkivRepository(
      * Se salta por completo los capítulos que YA están vistos: `load()` es alcanzable también
      * para volver a mirar una escena de un capítulo terminado (desde `DetailScreen`/`EpisodeRow`
      * o el carrusel de `TvDetailScreen`), y ese re-play no puede pisar `lastPlayedAt`. Esa columna
-     * alimenta dos consumidores que no distinguen "recién visto" de "reabrí algo viejo":
+     * alimenta tres consumidores que no distinguen "recién visto" de "reabrí algo viejo":
      * [PlaybackDao.observeVistos] (vía `VistosDeLaBiblioteca.cruzar`, ordena "Ya visto" de la
-     * biblioteca) y [PlaybackDao.seriesConProgreso] (vía `SeriesPorRevisar.elegir`, decide qué
-     * series barrer contra la red buscando capítulo nuevo). Sin este corte, reabrir tres segundos
-     * un capítulo viejo subía esa serie al tope de "Ya visto" y la metía otra vez en el barrido de
-     * red por hasta 30 días, sin que se haya visto nada nuevo. Si el usuario efectivamente vuelve a
-     * mirarlo, `savePlayback` igual actualiza la fila (y recalcula `watched`) en cuanto el player
-     * conoce la duración, así que no se pierde nada real.
+     * biblioteca), [PlaybackDao.seriesConProgreso] (vía `SeriesPorRevisar.elegir`, decide qué
+     * series barrer contra la red buscando capítulo nuevo) y [PlaybackDao.observeUltimaReproduccion]
+     * (vía `OrdenDeBiblioteca`, decide qué tarjeta sube al tope de "Mi biblioteca"). Sin este corte,
+     * reabrir tres segundos un capítulo viejo subía esa serie al tope de "Ya visto" y la metía otra
+     * vez en el barrido de red por hasta 30 días, sin que se haya visto nada nuevo.
+     *
+     * Este corte solo protege el instante inicial de `load()`: en cuanto el player conoce la
+     * duración, `savePlayback` pisa `lastPlayedAt` sin excepción (no hay piso de segundos, ver el
+     * spec de orden de biblioteca), aunque la posición alcanzada no llegue al 60% y `watched` quede
+     * en `false`. Así que sí, reabrir un capítulo terminado y cerrarlo a los pocos segundos igual
+     * sube ese ítem al tope de "Mi biblioteca" apenas se conoce la duración — es intencional, no un
+     * bug de este corte.
      */
     suspend fun marcarEnCurso(episodeId: String) {
         val existente = playbackDao.get(episodeId)
@@ -1317,7 +1323,11 @@ class ArkivRepository(
                 positionMs = if (watched) (existing?.durationMs ?: 0L) else 0L,
                 durationMs = existing?.durationMs ?: 0L,
                 watched = watched,
-                lastPlayedAt = clock(),
+                // Marcar como visto SÍ es una interacción con el capítulo: pisa lastPlayedAt.
+                // Desmarcar NO lo es (es corregir un error, no "reproducir"), así que se preserva
+                // lo que ya había; si no, la tarjeta saltaría al tope de la biblioteca sin que se
+                // haya visto nada. Ver observeUltimaReproduccion, que ya no filtra por watched.
+                lastPlayedAt = if (watched) clock() else (existing?.lastPlayedAt ?: clock()),
             )
         )
     }
