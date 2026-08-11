@@ -137,6 +137,19 @@ class ArkivRepository(
         }
 
     /**
+     * La biblioteca agrupada SIN ordenar por lo último visto: solo el agrupamiento de
+     * [LibraryGrouping], en el orden de entrada de `observeLibrary()` (`addedAt DESC`).
+     *
+     * Privado a propósito: lo único que lo consume es [observeGroupMembers], al que el orden de
+     * la lista de grupos no le sirve (resuelve los miembros de UNA llave). Si colgara del orden
+     * por lo último visto, dependería de `observeUltimaReproduccion()` y recalcularía el
+     * agrupamiento cada vez que se guarda progreso en CUALQUIER ítem de la biblioteca, aunque el
+     * resultado fuera idéntico.
+     */
+    private fun observeLibraryGroupsSinOrden(): Flow<List<LibraryGroup>> =
+        LibraryGrouping.groupsFlow(observeLibrary(), observeArtwork())
+
+    /**
      * La biblioteca ya agrupada: una entrada por serie, no por adquisición. Ver [LibraryGrouping].
      * `observeLibrary()` sigue existiendo para quien necesite las filas crudas (la pantalla de
      * biblioteca del teléfono, el sync).
@@ -147,7 +160,7 @@ class ArkivRepository(
      */
     fun observeLibraryGroups(): Flow<List<LibraryGroup>> =
         combine(
-            LibraryGrouping.groupsFlow(observeLibrary(), observeArtwork()),
+            observeLibraryGroupsSinOrden(),
             observeUltimaReproduccion(),
         ) { grupos, ultimas ->
             com.arkiv.player.data.biblioteca.OrdenDeBiblioteca.grupos(grupos, ultimas)
@@ -165,11 +178,18 @@ class ArkivRepository(
      * identifier (por ejemplo si se borró la única fuente mientras el detalle estaba abierto).
      *
      * Una sola suscripción a la biblioteca: las filas se derivan de los miembros de [groups] (que
-     * ya sale de `observeLibrary()` vía [observeLibraryGroups]) en vez de volver a combinar
-     * `observeLibrary()` acá aparte.
+     * ya sale de `observeLibrary()` vía [observeLibraryGroupsSinOrden]) en vez de volver a
+     * combinar `observeLibrary()` acá aparte.
+     *
+     * Cuelga de [observeLibraryGroupsSinOrden], NO de [observeLibraryGroups], a propósito: esto
+     * resuelve los miembros de UNA sola llave de grupo, así que el orden de la lista completa de
+     * grupos no lo afecta para nada. Colgarlo del orden por lo último visto haría que el detalle
+     * recalculara el agrupamiento cada vez que se guarda progreso en cualquier ítem de la
+     * biblioteca, aunque el resultado para esta llave no cambiara. No "unificar" esto con
+     * [observeLibraryGroups] sin volver a leer este comentario.
      */
     fun observeGroupMembers(groupKey: String): Flow<List<LibraryRow>> =
-        observeLibraryGroups().map { groups ->
+        observeLibraryGroupsSinOrden().map { groups ->
             LibraryGrouping.resolveMembers(groupKey, groups, groups.flatMap { it.members })
         }
 
