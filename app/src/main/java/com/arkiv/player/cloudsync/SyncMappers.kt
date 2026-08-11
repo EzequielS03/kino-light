@@ -1,6 +1,7 @@
 package com.arkiv.player.cloudsync
 
 import com.arkiv.player.data.db.EpisodeEntity
+import com.arkiv.player.data.db.EpisodeFrameEntity
 import com.arkiv.player.data.db.ItemEntity
 import com.arkiv.player.data.db.PlaybackEntity
 import com.arkiv.player.data.db.SkipMarkerEntity
@@ -139,3 +140,38 @@ fun recordToMarker(json: JSONObject): SkipMarkerEntity = SkipMarkerEntity(
     updatedAt = json.optLong("updatedAt"),
     deleted = json.optBoolean("deleted"),
 )
+
+// ---- frames <-> EpisodeFrameEntity ----
+
+/**
+ * La fila del frame hacia PocketBase. `capturedAt` y `remoteUrl` NO viajan: el primero es
+ * diagnóstico local y el segundo es estado local (de dónde bajar), no un dato de la fila.
+ */
+fun frameToFields(entity: EpisodeFrameEntity, accountId: String): Map<String, Any?> = mapOf(
+    "accountId" to accountId,
+    "episodeId" to entity.episodeId,
+    "positionMs" to entity.positionMs,
+    "updatedAt" to entity.updatedAt,
+    "deleted" to entity.deleted,
+)
+
+/**
+ * La fila del frame desde PocketBase, con la URL de su archivo ya armada.
+ *
+ * `capturedAt` toma el `updatedAt` remoto: el instante real de captura vivía en el otro
+ * dispositivo y no viaja, y este campo solo se usa para diagnóstico.
+ */
+fun recordToFrame(json: JSONObject, baseUrl: String): EpisodeFrameEntity {
+    val archivo = json.optString("img")
+    val url = archivo.takeIf { it.isNotBlank() }?.let {
+        "$baseUrl/api/files/${json.optString("collectionId")}/${json.optString("id")}/$it"
+    }
+    return EpisodeFrameEntity(
+        episodeId = json.optString("episodeId"),
+        positionMs = json.optLong("positionMs"),
+        capturedAt = json.optLong("updatedAt"),
+        updatedAt = json.optLong("updatedAt"),
+        deleted = json.optInt("deleted"),
+        remoteUrl = url,
+    )
+}
