@@ -95,10 +95,16 @@ class OrdenDeBibliotecaTest {
         assertEquals(listOf("tv:46260", "tv:1"), r.map { it.key })
     }
 
+    /**
+     * Mismo argumento que `un empate mantiene el orden entrante`, pero sobre [OrdenDeBiblioteca.grupos]:
+     * `LibraryGrouping.kt` y `observeLibraryGroups` documentan el orden de `group` como desempate,
+     * lo que solo es cierto si `sortedByDescending` es estable también para grupos.
+     */
     @Test
-    fun `una reproduccion de un item que no esta en la lista no rompe nada`() {
-        val a = row("a", addedAt = 100L)
-        val r = OrdenDeBiblioteca.filas(listOf(a), mapOf("borrado" to 900L))
-        assertEquals(listOf("a"), r.map { it.identifier })
+    fun `un empate entre grupos mantiene el orden entrante`() {
+        val primero = grupo("tv:1", row("web:series:a", addedAt = 100L))
+        val segundo = grupo("tv:2", row("web:series:b", addedAt = 100L))
+        val r = OrdenDeBiblioteca.grupos(listOf(primero, segundo), emptyMap())
+        assertEquals(listOf("tv:1", "tv:2"), r.map { it.key })
     }
 }
