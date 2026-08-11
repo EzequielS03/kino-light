@@ -4,6 +4,8 @@ import android.graphics.Bitmap
 import android.view.TextureView
 import com.arkiv.player.data.db.EpisodeFrameDao
 import com.arkiv.player.data.db.EpisodeFrameEntity
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 
 /**
@@ -18,31 +20,45 @@ class FrameCapturer(
     private val dao: EpisodeFrameDao,
     private val ahora: () -> Long = { System.currentTimeMillis() },
 ) {
+    /**
+     * Se la llama desde el hilo principal a propósito: `getBitmap()` lee la capa de hardware del
+     * TextureView y solo vale ahí. Lo caro —medio millón de píxeles, comprimir a JPEG, escribir a
+     * disco y a Room— se va a [Dispatchers.IO]: quien dispara la captura ya está en el hilo de UI
+     * (`viewModelScope` usa `Main.immediate`, así que sin un cambio de hilo explícito el cuerpo
+     * corría INLINE en el hilo de composición hasta la primera suspensión de verdad), y eso en el
+     * Fire TV son decenas de ms = frames de video perdidos en cada captura.
+     */
     suspend fun capturar(episodeId: String, positionMs: Long, textureView: TextureView?): Boolean {
         if (!GuardasDeFrame.posicionSirve(positionMs)) return false
         val vista = textureView ?: return false
         val bitmap = runCatching { vista.getBitmap(ANCHO, ALTO) }.getOrNull() ?: return false
-        // Todo lo que sigue —leer los píxeles, comprimir, escribir a disco, escribir en la DB—
-        // queda adentro del mismo runCatching: un disco lleno o una excepción del Room no puede
-        // tumbar la reproducción, así que se traduce en "no se guardó" y listo.
+        // El try/finally envuelve al withContext, no va adentro: así el recycle() corre también si
+        // la corrutina se cancela antes de que el bloque de IO llegue a ejecutarse (el ViewModel se
+        // limpia mientras tanto, por ejemplo), que es el único camino por el que se fugaría el mapa
+        // de bits.
         try {
-            return runCatching {
-                val pixeles = IntArray(bitmap.width * bitmap.height)
-                bitmap.getPixels(pixeles, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-                if (!GuardasDeFrame.noEsCasiNegro(pixeles)) return@runCatching false
-                val salida = ByteArrayOutputStream()
-                if (!bitmap.compress(Bitmap.CompressFormat.JPEG, CALIDAD, salida)) return@runCatching false
-                almacen.guardar(episodeId, salida.toByteArray())
-                dao.upsert(
-                    EpisodeFrameEntity(
-                        episodeId = episodeId,
-                        positionMs = positionMs,
-                        capturedAt = ahora(),
-                        updatedAt = ahora(),
-                    ),
-                )
-                true
-            }.getOrDefault(false)
+            // Todo lo que sigue —leer los píxeles, comprimir, escribir a disco, escribir en la DB—
+            // queda adentro del mismo runCatching: un disco lleno o una excepción del Room no puede
+            // tumbar la reproducción, así que se traduce en "no se guardó" y listo.
+            return withContext(Dispatchers.IO) {
+                runCatching {
+                    val pixeles = IntArray(bitmap.width * bitmap.height)
+                    bitmap.getPixels(pixeles, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+                    if (!GuardasDeFrame.noEsCasiNegro(pixeles)) return@runCatching false
+                    val salida = ByteArrayOutputStream()
+                    if (!bitmap.compress(Bitmap.CompressFormat.JPEG, CALIDAD, salida)) return@runCatching false
+                    almacen.guardar(episodeId, salida.toByteArray())
+                    dao.upsert(
+                        EpisodeFrameEntity(
+                            episodeId = episodeId,
+                            positionMs = positionMs,
+                            capturedAt = ahora(),
+                            updatedAt = ahora(),
+                        ),
+                    )
+                    true
+                }.getOrDefault(false)
+            }
         } finally {
             bitmap.recycle()
         }
