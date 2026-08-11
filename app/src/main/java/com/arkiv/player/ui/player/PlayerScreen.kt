@@ -324,7 +324,7 @@ private fun PlayerContent(
                 PlayerViewModel(
                     graph.repository, graph.settings, graph.torrentEngine, graph.archiveCacheProxy,
                     graph.webResolverApi, graph.arkivOfflineApi, graph.playbackPreferenceStore,
-                    graph.localLibrary, graph.localFileServer, graph.deviceAuth,
+                    graph.localLibrary, graph.localFileServer, graph.deviceAuth, graph.frameCapturer,
                 )
             }
         },
@@ -981,6 +981,10 @@ private fun PlayerContent(
                 dur > 0 && pos in 0 until dur
             ) {
                 vm.saveProgress(epId, pos, dur)
+                // Cada 600 ticks = 5 min. Va acá adentro para heredar las mismas guardas que el
+                // progreso: sin `mediaId == epId` se capturaría el frame del capítulo viejo bajo
+                // el id del nuevo.
+                if (tick % 600 == 0) vm.capturarFrame(epId, pos, vlc.textureViewActual())
             }
             // Latido mientras se castea: dice si el receptor AVANZA de verdad. Una posición
             // clavada con estado=listo significa que aceptó el medio pero no lo está decodificando.
@@ -1218,6 +1222,9 @@ private fun PlayerContent(
             val epId = playlistRef.value?.items?.getOrNull(currentIndex)?.episodeId
             if (epId != null && mediaId == epId && dur > 0 && pos in 0 until dur) {
                 vm.saveProgress(epId, pos, dur)
+                // Corre después de controller.pause(): cubre pausa y salida de una sola vez. Quien
+                // sale con el botón atrás (sin pasar por un botón de pausa) también guarda acá.
+                vm.capturarFrame(epId, pos, vlc.textureViewActual())
             }
             activity?.let {
                 it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
