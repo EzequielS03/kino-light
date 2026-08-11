@@ -77,7 +77,7 @@ fun TvEpisodeChip(
 
     Column(
         modifier = modifier
-            .width(120.dp)
+            .width(168.dp)
             .onFocusChanged {
                 // Solo al GANAR el foco: si se avisara también al perderlo, al pasar de un chip al
                 // siguiente llegaría el "perdí" del viejo después del "gané" del nuevo y el hero
@@ -98,7 +98,7 @@ fun TvEpisodeChip(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(64.dp)
+                .height(94.dp)
                 .clip(RoundedCornerShape(6.dp))
                 .background(Color.Black),
         ) {

@@ -4,10 +4,8 @@ package com.arkiv.player.ui.tv
 // enfocado/presionado = fondo rojo Arkiv sin borde blanco; deshabilitado = superficie oscura
 // atenuada. Fuente única de verdad para que ningún botón vuelva a caer en los colores default de
 // tv.material3 (blanco inactivo / negro enfocado, exactamente al revés de lo que queremos).
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Border
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.ClickableSurfaceDefaults
@@ -19,7 +17,7 @@ import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun arkivTvButtonColors() = ButtonDefaults.colors(
-    containerColor = Color.Black,
+    containerColor = ArkivSurfaceHigh,
     contentColor = Color.White,
     focusedContainerColor = ArkivRed,
     focusedContentColor = Color.White,
@@ -33,16 +31,16 @@ fun arkivTvButtonColors() = ButtonDefaults.colors(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun arkivTvButtonBorder() = ButtonDefaults.border(
-    border = Border(BorderStroke(1.dp, Color.White)),
-    focusedBorder = Border(BorderStroke(1.dp, ArkivRed)),
-    pressedBorder = Border(BorderStroke(1.dp, ArkivRed)),
+    border = Border.None,
+    focusedBorder = Border.None,
+    pressedBorder = Border.None,
 )
 
 /** Colores para botones de acción hechos con `androidx.tv.material3.Surface(...)`. */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun arkivTvSurfaceColors() = ClickableSurfaceDefaults.colors(
-    containerColor = Color.Black,
+    containerColor = ArkivSurfaceHigh,
     focusedContainerColor = ArkivRed,
     pressedContainerColor = ArkivRed,
     contentColor = Color.White,
@@ -54,7 +52,7 @@ fun arkivTvSurfaceColors() = ClickableSurfaceDefaults.colors(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun arkivTvSurfaceBorder() = ClickableSurfaceDefaults.border(
-    border = Border(BorderStroke(1.dp, Color.White)),
-    focusedBorder = Border(BorderStroke(1.dp, ArkivRed)),
-    pressedBorder = Border(BorderStroke(1.dp, ArkivRed)),
+    border = Border.None,
+    focusedBorder = Border.None,
+    pressedBorder = Border.None,
 )
