@@ -59,6 +59,20 @@ class EpisodesParserTest {
         assertNull(serie)
     }
 
+    @Test fun un_capitulo_sin_ref_se_descarta_y_por_eso_el_log_cuenta_los_dos_numeros() {
+        // Sin ref no hay nada que reproducir, así que el capítulo no entra. Es la diferencia que
+        // reporta el log de `ArkivApiClient.episodesConSerie` ("N capitulos (de M crudos)"): con un
+        // solo número, una temporada de 3 que llega con 1 ref roto se ve igual que una de 2, y son
+        // problemas distintos — uno del portal, otro nuestro.
+        val (caps, _) = parsear(
+            """{"episodes":[
+                 {"number":1,"title":"a","ref":"r1"},
+                 {"number":2,"title":"b","ref":""},
+                 {"number":3,"title":"c","ref":"r3"}]}""",
+        )
+        assertEquals(listOf(1, 3), caps.map { it.number })
+    }
+
     @Test fun un_still_vacio_se_lee_como_null_y_no_como_cadena_vacia() {
         // Si quedara "" la UI intentaría cargar una imagen inexistente en vez de caer al respaldo.
         val (caps, _) = parsear("""{"episodes":[{"number":1,"title":"t","ref":"r","still":"","tmdb_title":""}]}""")

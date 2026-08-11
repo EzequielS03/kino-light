@@ -129,14 +129,19 @@ class ArkivApiClient(
             val cuerpo = JSONObject().put("ref", ref).toString()
                 .toRequestBody("application/json".toMediaType())
             val body = ejecutar(pedido("${baseUrl()}/v1/episodes").post(cuerpo).build())
-            if (JSONObject(body).optJSONArray("episodes") == null) {
+            val crudos = JSONObject(body).optJSONArray("episodes")
+            if (crudos == null) {
                 // Respondió 200 pero sin `episodes`. La UI lo mostraría como una lista vacía, que se
                 // ve igual que "esta temporada no tiene capítulos" — y no es lo mismo.
                 android.util.Log.w("ArkivGw", "/v1/episodes 200 SIN campo `episodes` ref=${ref.take(24)}…")
                 return@withContext emptyList<GatewayEpisode>() to null
             }
             val (caps, serie) = parseEpisodesResponse(body)
-            android.util.Log.w("ArkivGw", "/v1/episodes → ${caps.size} capitulos")
+            // Los dos números, no solo el final: `parseEpisodesResponse` descarta los capítulos que
+            // vienen con `ref` vacío (sin ref no hay nada que reproducir). Con un solo número, una
+            // temporada de 16 que llega con 4 refs rotos se ve igual que una de 12 — y son problemas
+            // distintos, uno del portal y otro nuestro.
+            android.util.Log.w("ArkivGw", "/v1/episodes → ${caps.size} capitulos (de ${crudos.length()} crudos)")
             caps to serie
         }
 

@@ -21,9 +21,11 @@ data class ContinueRow(
     val durationMs: Long,
     val lastPlayedAt: Long,
     /**
-     * Still y título del capítulo según TMDB, cuando `ensureEpisodeStills` los pudo resolver
-     * (cualquier fuente con tmdbId: torrent, web, archive o Magis). Null si el capítulo no tiene
-     * fila en `episode_still` (p.ej. una película) o si TMDB no tenía el dato.
+     * Still y título del capítulo según TMDB. Los escriben DOS caminos distintos, no uno:
+     * `ensureEpisodeStills` (torrent, web y archive, preguntándole a TMDB) y, en Magis,
+     * `addMagisSeason`/`addMagisSource`, con lo que el gateway ya cruzó contra TMDB al entregar los
+     * capítulos. Null si el capítulo no tiene fila en `episode_still` (p.ej. una película) o si no
+     * se pudo resolver el dato.
      */
     val stillUrl: String? = null,
     val episodeTitle: String? = null,
