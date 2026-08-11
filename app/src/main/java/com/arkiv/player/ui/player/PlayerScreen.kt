@@ -984,7 +984,11 @@ private fun PlayerContent(
                 // Cada 600 ticks = 5 min. Va acá adentro para heredar las mismas guardas que el
                 // progreso: sin `mediaId == epId` se capturaría el frame del capítulo viejo bajo
                 // el id del nuevo.
-                if (tick % 600 == 0) vm.capturarFrame(epId, pos, vlc.textureViewActual())
+                // !casting: casteando, `pos` es la posición del receptor REMOTO, pero
+                // vlc.textureViewActual() sigue siendo el TextureView LOCAL, que en ese momento no
+                // pinta lo que se ve en la tele. Capturarlo guardaría una imagen que no corresponde
+                // a esa posición (y se repetiría en cada disparo mientras dure el casteo).
+                if (tick % 600 == 0 && !casting) vm.capturarFrame(epId, pos, vlc.textureViewActual())
             }
             // Latido mientras se castea: dice si el receptor AVANZA de verdad. Una posición
             // clavada con estado=listo significa que aceptó el medio pero no lo está decodificando.
@@ -1224,7 +1228,9 @@ private fun PlayerContent(
                 vm.saveProgress(epId, pos, dur)
                 // Corre después de controller.pause(): cubre pausa y salida de una sola vez. Quien
                 // sale con el botón atrás (sin pasar por un botón de pausa) también guarda acá.
-                vm.capturarFrame(epId, pos, vlc.textureViewActual())
+                // !casting: mismo motivo que en el sondeo periódico — casteando, `pos` es la
+                // posición del receptor remoto, pero el TextureView local no está pintando eso.
+                if (!casting) vm.capturarFrame(epId, pos, vlc.textureViewActual())
             }
             activity?.let {
                 it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
