@@ -138,7 +138,7 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
     // Auto-selección de pista de AUDIO por idioma (ventaja exclusiva de Arkiv: elige la pista correcta
     // dentro de un MKV DUAL en vez de la que ponga VLC). Preferencia configurable (default Latino>Cast>Dual);
     // se aplica una sola vez por ítem (defaultAudioApplied) para no pisar una elección manual posterior.
-    @Volatile var audioLangPreference: List<AudioLang> = AudioTrackSelector.DEFAULT_PREFERENCE
+    @Volatile var audioLangPreference: List<TrackLang> = TrackSelector.DEFAULT_AUDIO
     private var defaultAudioApplied = false
     // Detección de estancamiento por falta de buffer: cuando VLC se queda sin datos a mitad de la
     // reproducción, a veces NO emite un evento Buffering — simplemente deja de avanzar el tiempo. Este
@@ -676,7 +676,7 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
             if (retries > 0) handler.postDelayed({ applyPreferredAudio(retries - 1) }, 400)
             return
         }
-        val id = AudioTrackSelector.select(tracks, audioLangPreference) ?: return
+        val id = TrackSelector.select(tracks, audioLangPreference) ?: return
         if (id != currentAudioTrack()) {
             runCatching { android.util.Log.w("ArkivVlc", "auto-audio -> id=$id de ${tracks.map { it.second }}") }
             setVlcAudioTrack(id)
