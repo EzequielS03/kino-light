@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
@@ -96,6 +97,7 @@ fun TvHomeScreen(
     onOpenSettings: () -> Unit,
     onOpenSearch: () -> Unit,
     onOpenLibrary: () -> Unit,
+    onOpenLive: () -> Unit,
     onOpenSearchRoute: (String) -> Unit,
 ) {
     val graph = rememberGraph()
@@ -248,6 +250,7 @@ fun TvHomeScreen(
                         onClick = onOpenLibrary,
                         modifier = Modifier.focusRequester(barraFocus),
                     )
+                    TvNavButton(icon = Icons.Default.LiveTv, label = "En vivo", onClick = onOpenLive)
                     // El botón "Torrent" (pegar un magnet a mano) se quitó de la barra: ya no se usa,
                     // los torrents entran por el buscador. La ruta "torrent" sigue registrada en
                     // ArkivTvRoot y la pantalla funciona; solo perdió su entrada desde el home.

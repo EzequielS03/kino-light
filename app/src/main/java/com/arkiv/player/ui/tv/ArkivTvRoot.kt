@@ -158,6 +158,7 @@ fun ArkivTvRoot(
                 onOpenSettings = { navController.navigate("settings") },
                 onOpenSearch = { navController.navigate("search") },
                 onOpenLibrary = { navController.navigate("library") },
+                onOpenLive = { navController.navigate("live") },
                 onOpenSearchRoute = { route -> navController.navigate(route) },
             )
         }
@@ -182,6 +183,18 @@ fun ArkivTvRoot(
                 onOpenItem = { navController.navigate("detail/${Uri.encode(it)}") },
                 onPlayEpisode = { goToPlayer(it) },
                 onBack = { navController.popBackStack() },
+            )
+        }
+        composable("live") {
+            TvLiveGuideScreen(
+                // Todavía no hay reproductor en modo vivo (Tarea 14: bandera `enVivo` en
+                // PlayerViewModel/PlayerScreen) -- mismo aviso honesto que ArkivRoot.kt (mobile)
+                // en vez de navegar a un player que no sabe qué hacer con "live:<code>".
+                onVerCanal = {
+                    Toast.makeText(context, "La reproducción en vivo todavía no está disponible", Toast.LENGTH_SHORT).show()
+                },
+                onVolver = { navController.popBackStack() },
+                onOpenSettings = { navController.navigate("settings") },
             )
         }
         composable("detail/{itemId}") { entry ->
