@@ -83,9 +83,10 @@ private enum class VistaLocal { NINGUNA, RECIENTES }
  * [com.arkiv.player.data.gateway.LiveApi] ya manda su `X-Arkiv-Account` de todos modos, sin que
  * esta pantalla tenga que saber nada al respecto.
  *
- * [onAbrirCanal] recibe el código del canal tocado; hoy no hay reproductor en modo vivo (llega en
- * la Tarea 14: bandera `enVivo` + zapping en `PlayerViewModel`/`PlayerScreen`), así que el
- * llamador de esta pantalla decide qué hacer con ese código.
+ * [onAbrirCanal] recibe el código del canal tocado; el llamador (`ArkivRoot`) decide qué hacer con
+ * ese código -- hoy, navegar al reproductor en modo vivo (Tarea 14). Antes de invocarlo, `abrir()`
+ * fija en [LiveZappingSource] la lista con la que se entró (para que el zapping del reproductor la
+ * recorra), así que esta pantalla no necesita saber nada del reproductor.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -129,7 +130,15 @@ fun LiveScreen(
         estado.favoritos.take(5).forEach { code -> launch { graph.liveController.precalentar(code) } }
     }
 
-    fun abrir(canal: LiveChannel) = onAbrirCanal(canal.code)
+    // La lista "con la que se entró" (categoría/favoritos, o recientes) -- Tarea 14: es la que el
+    // zapping del reproductor recorre, no el catálogo completo. Se fija en LiveZappingSource ANTES
+    // de abrir: una lista de LiveChannel no cruza bien la ruta de navegación (un String), ver el
+    // KDoc de LiveZappingSource (LiveZapping.kt).
+    val listaActiva = if (vista == VistaLocal.RECIENTES) filtrar(recientes, estado.busqueda) else estado.visibles
+    fun abrir(canal: LiveChannel) {
+        LiveZappingSource.lista = listaActiva
+        onAbrirCanal(canal.code)
+    }
     fun favorito(canal: LiveChannel) = vm.alternarFavorito(canal)
 
     Column(modifier = Modifier.fillMaxSize().padding(top = contentPadding.calculateTopPadding())) {

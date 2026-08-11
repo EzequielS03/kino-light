@@ -187,11 +187,12 @@ fun ArkivTvRoot(
         }
         composable("live") {
             TvLiveGuideScreen(
-                // Todavía no hay reproductor en modo vivo (Tarea 14: bandera `enVivo` en
-                // PlayerViewModel/PlayerScreen) -- mismo aviso honesto que ArkivRoot.kt (mobile)
-                // en vez de navegar a un player que no sabe qué hacer con "live:<code>".
-                onVerCanal = {
-                    Toast.makeText(context, "La reproducción en vivo todavía no está disponible", Toast.LENGTH_SHORT).show()
+                // Tarea 14: el reproductor en modo vivo ya existe (bandera `enVivo` en
+                // PlayerViewModel/PlayerScreen). `TvLiveGuideScreen.verCanal()` ya dejó en
+                // LiveZappingSource la lista con la que se entró -- acá solo hace falta navegar
+                // con el prefijo que PlayerSource.kindFor() reconoce como vivo.
+                onVerCanal = { canal ->
+                    goToPlayer("${com.arkiv.player.playback.PlayerSource.LIVE_PREFIX}${canal.code}")
                 },
                 onVolver = { navController.popBackStack() },
             )

@@ -128,10 +128,14 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import androidx.compose.ui.text.font.FontWeight
 import androidx.mediarouter.app.MediaRouteButton
+import coil.compose.AsyncImage
 import com.arkiv.player.cast.CastProgress
+import com.arkiv.player.data.gateway.LiveProgram
 import com.arkiv.player.data.model.Episode
 import com.arkiv.player.dlna.DlnaDevice
+import com.arkiv.player.ui.live.enCurso
 import com.arkiv.player.ui.tv.TvEpisodeChip
 import com.arkiv.player.playback.LoadedMedia
 import com.arkiv.player.playback.MediaReusePolicy
@@ -175,6 +179,9 @@ private val SPEED_LABELS = listOf("0.75×", "1×", "1.25×", "1.5×", "2×")
 /** Pasos de zoom nativo de VLC: 0 = ajustar a pantalla; >0 = crop que recorta las barras negras. */
 private val ZOOM_STEPS = listOf(0f, 1.15f, 1.35f)
 private val ZOOM_LABELS = listOf("Ajustar", "Zoom", "Zoom+")
+
+/** Swipe vertical mínimo (px) para que el modo vivo (Tarea 14) lo tome como zapping en el teléfono. */
+private const val UMBRAL_ZAP_PX = 80f
 
 // Controles ocultos en la barra superior del TELÉFONO: llegó a tener 8 elementos y se veían
 // amontonados. El código se conserva —no se borra— para poder reactivarlos con un solo cambio acá.
@@ -323,6 +330,7 @@ private fun PlayerContent(
                     graph.repository, graph.settings, graph.torrentEngine, graph.archiveCacheProxy,
                     graph.webResolverApi, graph.arkivOfflineApi, graph.playbackPreferenceStore,
                     graph.localLibrary, graph.localFileServer, graph.deviceAuth,
+                    graph.liveController, graph.database.liveRecentDao(),
                 )
             }
         },
@@ -362,6 +370,12 @@ private fun PlayerContent(
 
     // La fuente se conoce por el episodeId aunque todavía no haya playlist (para el overlay/servicio).
     val sourceIsTorrent = remember(episodeId) { PlayerSource.kindFor(episodeId) == SourceKind.TORRENT }
+    // Modo vivo (Tarea 14): aísla TODO el comportamiento distinto de VOD (sin barra de progreso ni
+    // seek, overlay propio, zapping) detrás de esta bandera calculada UNA vez del episodeId con el
+    // que se compuso la pantalla. Zapear cambia el canal DENTRO del playlist del ViewModel; nunca
+    // navega a un episodeId nuevo (ver el LaunchedEffect(playlist) más abajo), así que esta bandera
+    // no puede quedar obsoleta durante la sesión de vivo.
+    val enVivo = remember(episodeId) { PlayerSource.kindFor(episodeId) == SourceKind.LIVE }
 
     // Próximo episodio (si lo hay) para el botón "Siguiente episodio" del overlay de pausa.
     // null en películas (una sola sección) o si este es el último episodio de la serie.
@@ -497,6 +511,28 @@ private fun PlayerContent(
     // pausa/barra encima. El usuario toca la pantalla para mostrar los controles.
     var controlsVisible by remember { mutableStateOf(false) }
     var interactionTick by remember { mutableIntStateOf(0) }
+
+    // Modo vivo (Tarea 14): overlay PROPIO, no reusa controlsVisible/interactionTick -- esos
+    // gobiernan la barra de progreso/fila de transporte de VOD, que en vivo no existen. Arranca
+    // visible: el primer canal se anuncia solo, sin que el usuario tenga que tocar nada.
+    var liveInfoVisible by remember { mutableStateOf(true) }
+    var liveInfoTick by remember { mutableIntStateOf(0) }
+    val liveCanal by vm.liveCanal.collectAsStateWithLifecycle()
+    // "Ahora"/"A continuación" del canal actual (Tarea 14): pedido best-effort directo al gateway
+    // -- es puramente informativo para este overlay, no algo que el ViewModel necesite para poder
+    // reproducir, así que no se lo carga con otra dependencia (LiveApi) por esto solo.
+    var liveAhora by remember { mutableStateOf<LiveProgram?>(null) }
+    var liveDespues by remember { mutableStateOf<LiveProgram?>(null) }
+    LaunchedEffect(liveCanal?.code) {
+        val canal = liveCanal ?: return@LaunchedEffect
+        liveAhora = null; liveDespues = null
+        val epg = runCatching { graph.liveApi.epg(listOf(canal.code)) }.getOrNull() ?: return@LaunchedEffect
+        val progs = epg.first[canal.code] ?: return@LaunchedEffect
+        val instante = System.currentTimeMillis() / 1000
+        val actual = enCurso(progs, instante)
+        liveAhora = actual
+        liveDespues = progs.firstOrNull { it.inicio >= (actual?.fin ?: instante) }
+    }
 
     // Marcadores intro/outro (solo archive).
     var markingMode by remember { mutableStateOf<MarkingMode?>(null) }
@@ -743,6 +779,17 @@ private fun PlayerContent(
 
     fun bump() { controlsVisible = true; interactionTick++ }
 
+    // Vivo (Tarea 14): equivalente de bump() para el overlay propio -- ver KDoc de liveInfoVisible.
+    fun mostrarInfoVivo() { liveInfoVisible = true; liveInfoTick++ }
+
+    // Overlay de canal por 3s tras abrir/zapear/tocar (ver mostrarInfoVivo/brief: "el overlay de
+    // 3s"). Se relanza con cada tick nuevo, así que zapear rápido seguido lo mantiene visible.
+    LaunchedEffect(liveInfoTick) {
+        if (!enVivo) return@LaunchedEffect
+        delay(3000)
+        liveInfoVisible = false
+    }
+
     LaunchedEffect(controlsVisible, isBuffering, casting, dlnaActive, markingMode, loadError) {
         android.util.Log.i(
             "ArkivCast",
@@ -778,6 +825,25 @@ private fun PlayerContent(
     // Carga inicial de la playlist en el controller (una sola vez; editar marcadores no recarga).
     LaunchedEffect(playlist) {
         val pl = playlist ?: run { android.util.Log.w("ArkivPlay", "playlist=null (aún resolviendo o descartada)"); return@LaunchedEffect }
+        if (enVivo) {
+            // Vivo (Tarea 14): SIEMPRE reemplaza el media -- no hay "mismo episodio" que reusar,
+            // cada zap es un canal distinto -- sin recrear el reproductor: el controller/vlc siguen
+            // siendo los mismos de siempre (los del PlaybackService), solo se les cambia el ítem.
+            // No pasa por MediaReusePolicy (pensada para reusar buffer entre capítulos de la MISMA
+            // serie/torrent, un concepto que en vivo no existe) ni por el camino de casteo de abajo
+            // -- vivo no castea todavía, ver el comentario de castUrl en
+            // PlayerViewModel.abrirCanalActual.
+            android.util.Log.w("ArkivPlay", "playlist lista (vivo) → setMediaItems (${pl.items.firstOrNull()?.episodeId})")
+            loaded = true
+            currentIndex = 0
+            positionMs = 0L
+            durationMs = 0L
+            controller.setMediaItems(localMediaItems(pl.items), 0, 0L)
+            controller.playWhenReady = true
+            controller.prepare()
+            NowPlaying.episodeId = pl.items.firstOrNull()?.episodeId
+            return@LaunchedEffect
+        }
         // WEB: URL efímera (token que expira en cada resolve) → NUNCA reusar el media viejo; siempre
         // recargar con la URL fresca. El guard "una sola vez" y el reuso de buffer (play()/seekTo) solo
         // valen para fuentes de URL estable (archive/torrent).
@@ -963,7 +1029,10 @@ private fun PlayerContent(
             val mediaId = activePlayer.currentMediaItem?.mediaId
             // El episodio lo identifica la playlist LOCAL, no el player activo.
             val epId = playlistRef.value?.items?.getOrNull(controller.currentMediaItemIndex)?.episodeId
-            if (tick % 10 == 0 && epId != null && mediaId == epId && ready && activePlayer.isPlaying &&
+            // !enVivo (Tarea 14): en vivo no hay "dónde ibas" que guardar -- ni "continuar viendo"
+            // ni barra de progreso que reanudar. Sondear/guardar posición en un directo fue justo
+            // lo que rompió el VOD de Magis (ver KDoc de LiveController).
+            if (!enVivo && tick % 10 == 0 && epId != null && mediaId == epId && ready && activePlayer.isPlaying &&
                 dur > 0 && pos in 0 until dur
             ) {
                 vm.saveProgress(epId, pos, dur)
@@ -1000,7 +1069,7 @@ private fun PlayerContent(
     // mirara controlsVisible, en modo marcado o con un error en pantalla la variable puede seguir
     // en true sin que se vea nada, y BACK quedaría muerto (ni cierra ni sale). Mantener ambas
     // iguales si se toca una.
-    BackHandler(enabled = controlsVisible && loadError == null && dlnaActive == null && markingMode == null) {
+    BackHandler(enabled = !enVivo && controlsVisible && loadError == null && dlnaActive == null && markingMode == null) {
         controlsVisible = false
     }
 
@@ -1202,7 +1271,8 @@ private fun PlayerContent(
             val mediaId = currentPlayer.currentMediaItem?.mediaId
             controller.pause()
             val epId = playlistRef.value?.items?.getOrNull(currentIndex)?.episodeId
-            if (epId != null && mediaId == epId && dur > 0 && pos in 0 until dur) {
+            // !enVivo (Tarea 14): salir de un canal en vivo no tiene "posición" que guardar.
+            if (!enVivo && epId != null && mediaId == epId && dur > 0 && pos in 0 until dur) {
                 vm.saveProgress(epId, pos, dur)
             }
             activity?.let {
@@ -1267,7 +1337,12 @@ private fun PlayerContent(
 
     fun togglePlayPause() {
         if (activePlayer.isPlaying) activePlayer.pause() else activePlayer.play()
-        bump()
+        // Vivo no usa bump()/controlsVisible (ese overlay entero está oculto -- ver más abajo,
+        // "visible = !enVivo && ..."): sin esta guarda, togglePlayPause() (alcanzable desde el
+        // centro del D-pad en TV) dejaba controlsVisible en true igual, y el BackHandler de abajo
+        // (atado a esa misma variable) se comía el primer BACK cerrando un overlay invisible en
+        // vez de salir del reproductor.
+        if (!enVivo) bump()
     }
     // Velocidad y zoom nativo de VLC (cíclicos), aplicados al player vivo. Ambas fuentes.
     fun cycleSpeed() {
@@ -1399,6 +1474,20 @@ private fun PlayerContent(
                             // listener ni siquiera debería recibir el evento; el fallback existe
                             // solo por si el foco no llegó a moverse a tiempo.
                             if (controlsVisible) return@setOnKeyListener false
+                            // Vivo (Tarea 14): Arriba/Abajo zapean en vez de mostrar el overlay de
+                            // VOD (que en vivo no existe, ver `visible = !enVivo && ...`), e
+                            // Izquierda/Derecha no hacen seek (no hay duración/posición en vivo).
+                            if (enVivo) {
+                                return@setOnKeyListener when (keyCode) {
+                                    KeyEvent.KEYCODE_DPAD_UP -> { vm.zapAnterior(); mostrarInfoVivo(); true }
+                                    KeyEvent.KEYCODE_DPAD_DOWN -> { vm.zapSiguiente(); mostrarInfoVivo(); true }
+                                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER,
+                                    KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+                                    KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE ->
+                                        { togglePlayPause(); true }
+                                    else -> false
+                                }
+                            }
                             when (keyCode) {
                                 KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD ->
                                     { seekBy(seekStepMs); true }
@@ -1453,12 +1542,23 @@ private fun PlayerContent(
                     // botón de cast, así que esa lambda es SIEMPRE anterior a la sesión.
                     .pointerInput(casting) {
                         detectTapGestures(
-                            onTap = { if (controlsVisible) controlsVisible = false else bump() },
-                            onDoubleTap = { o -> if (o.x < size.width / 2) seekBy(-seekStepMs) else seekBy(seekStepMs) },
+                            onTap = {
+                                // Vivo (Tarea 14): el tap muestra/oculta la FICHA de canal, no la
+                                // barra de controles de VOD (que en vivo ni se compone -- ver
+                                // `visible = !enVivo && ...` más abajo). Mismo par mostrar/ocultar
+                                // que controlsVisible/bump() de VOD, con su propio estado.
+                                if (enVivo) { if (liveInfoVisible) liveInfoVisible = false else mostrarInfoVivo() }
+                                else if (controlsVisible) controlsVisible = false else bump()
+                            },
+                            onDoubleTap = { o ->
+                                // Sin seek en vivo (no hay duración ni "adelante/atrás" que tengan sentido).
+                                if (!enVivo) { if (o.x < size.width / 2) seekBy(-seekStepMs) else seekBy(seekStepMs) }
+                            },
                             onLongPress = {
                                 // Casteando no: el 2× temporal actúa sobre el VlcPlayer local, que no
-                                // es lo que reproduce el Chromecast — el gesto queda inerte.
-                                if (!casting) {
+                                // es lo que reproduce el Chromecast — el gesto queda inerte. Tampoco en
+                                // vivo: un 2x temporal sobre un directo no tiene "adelante" al que volver.
+                                if (!enVivo && !casting) {
                                     rateBeforeFF = vlc.currentRate()
                                     vlc.setRate(2f); fastForwarding = true; gestureHud = "⏩ 2×"
                                 }
@@ -1497,7 +1597,17 @@ private fun PlayerContent(
                                 seekTarget = activePlayer.currentPosition.coerceAtLeast(0)
                             },
                             onDragEnd = {
-                                if (horizontal) {
+                                // Vivo (Tarea 14): el swipe vertical ES el zapping -- arriba pasa al
+                                // siguiente (como si el contenido "subiera", igual que un scroll),
+                                // abajo al anterior. UMBRAL_ZAP_PX chico a propósito: es la única
+                                // forma de zapear en el teléfono, no compite con nada más (no hay
+                                // seek/volumen/brillo en vivo, ver onDrag de abajo).
+                                if (enVivo) {
+                                    if (!horizontal && kotlin.math.abs(totalDy) > UMBRAL_ZAP_PX) {
+                                        if (totalDy < 0) vm.zapSiguiente() else vm.zapAnterior()
+                                        mostrarInfoVivo()
+                                    }
+                                } else if (horizontal) {
                                     activePlayer.seekTo(seekTarget); positionMs = seekTarget; bump()
                                 } else if (!isTorrent && totalDy > 240f && totalDy > kotlin.math.abs(totalDx) * 1.5f) {
                                     onOpenEpisodesState.value()
@@ -1508,6 +1618,9 @@ private fun PlayerContent(
                                 change.consume()
                                 totalDx += drag.x; totalDy += drag.y
                                 if (!decided) { decided = true; horizontal = kotlin.math.abs(drag.x) >= kotlin.math.abs(drag.y) }
+                                // Vivo: nada que dibujar cuadro a cuadro -- el zap se resuelve entero
+                                // en onDragEnd, arriba. Sin seek/volumen/brillo, ver su comentario.
+                                if (enVivo) return@detectDragGestures
                                 if (horizontal) {
                                     val dur = activePlayer.duration.coerceAtLeast(1)
                                     seekTarget = (seekTarget + (drag.x / size.width * 90_000f).toLong()).coerceIn(0L, dur)
@@ -1572,6 +1685,12 @@ private fun PlayerContent(
                 CircularProgressIndicator(color = if (sourceIsTorrent) ArkivRed else Color.White, strokeWidth = 3.dp)
                 if (resolving) {
                     Text("Resolviendo fuente web…", color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.labelMedium)
+                }
+                // Vivo (Tarea 14): resolver un canal ronda los 3s (dos llamadas al portal, ver
+                // KDoc de LiveController) -- sin texto, este mismo spinner se ve idéntico a un
+                // cuelgue.
+                if (enVivo) {
+                    Text("Cambiando de canal…", color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.labelMedium)
                 }
                 if (esperandoVideo && !casting) {
                     Text("Reanudando video…", color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.labelMedium)
@@ -1698,7 +1817,14 @@ private fun PlayerContent(
             // Casteando SÍ se muestran: el transporte maneja el Chromecast (ver activePlayer).
             // Los elementos de adentro que solo aplican al reproductor local llevan su propia
             // guarda `!casting`.
-            visible = controlsVisible && loadError == null && dlnaActive == null && markingMode == null,
+            //
+            // `!enVivo` (Tarea 14): TODO este bloque es de VOD (slider/seek/"siguiente episodio"/
+            // marcadores/carrusel de capítulos) -- en vivo no aplica nada de eso (sin duración, sin
+            // seek, sin "siguiente" que no sea zapear). En vez de reescribir cada control de acá
+            // adentro con una guarda propia, se corta UNA vez acá arriba (la bandera que aísla el
+            // modo vivo, ver KDoc de `enVivo`) y más abajo hay un overlay chico y propio para vivo
+            // (badge "EN VIVO" + ficha de canal por 3s).
+            visible = !enVivo && controlsVisible && loadError == null && dlnaActive == null && markingMode == null,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.fillMaxSize(),
@@ -2210,6 +2336,111 @@ private fun PlayerContent(
                             }
                         }
                     }
+            }
+        }
+
+        // ---- Modo vivo (Tarea 14): overlay propio, chico -- reemplaza TODO el bloque de arriba. ----
+        if (enVivo) {
+            // Distintivo "EN VIVO": PERSISTENTE (no se desvanece con liveInfoVisible) -- es la
+            // identidad de la pantalla, no información transitoria. Vive afuera del
+            // AnimatedVisibility de abajo a propósito, igual que el cartel de Chromecast/NUC de
+            // VOD. Incluye el botón atrás: con el bloque de arriba oculto (visible=!enVivo) esta es
+            // la ÚNICA forma en pantalla de salir del reproductor en el teléfono.
+            Row(
+                modifier = Modifier.align(Alignment.TopStart).systemBarsPadding().padding(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (!isTv) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Atrás", tint = Color.White)
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .padding(start = if (isTv) 6.dp else 2.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(ArkivRed)
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                ) {
+                    Text(
+                        "EN VIVO",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+
+            // Ficha del canal (número, logo, nombre, Ahora/A continuación): TRANSITORIA, 3s tras
+            // abrir/zapear/tocar -- ver mostrarInfoVivo() y su LaunchedEffect(liveInfoTick).
+            AnimatedVisibility(
+                visible = liveInfoVisible,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.verticalGradient(0f to Color(0x00000000), 1f to Color(0xD9000000)),
+                        )
+                        .systemBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(ArkivSurface),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        val logo = liveCanal?.logo
+                        if (logo != null) {
+                            AsyncImage(
+                                model = logo,
+                                contentDescription = liveCanal?.nombre,
+                                modifier = Modifier.fillMaxSize().padding(6.dp),
+                            )
+                        } else {
+                            Text(
+                                (liveCanal?.numero ?: 0).toString(),
+                                color = Color.White.copy(alpha = 0.7f),
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                        }
+                    }
+                    Column(modifier = Modifier.padding(start = 12.dp).weight(1f)) {
+                        Text(
+                            liveCanal?.nombre.orEmpty(),
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        // Nada si todavía no hay EPG para este canal -- mismo criterio que la
+                        // grilla/guía (LiveScreen/TvLiveGuideScreen): sin hueco fijo ni "cargando".
+                        liveAhora?.let { p ->
+                            Text(
+                                "Ahora: ${p.titulo}",
+                                color = Color.White.copy(alpha = 0.85f),
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        liveDespues?.let { p ->
+                            Text(
+                                "A continuación: ${p.titulo}",
+                                color = ArkivTextSecondary,
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
             }
         }
 

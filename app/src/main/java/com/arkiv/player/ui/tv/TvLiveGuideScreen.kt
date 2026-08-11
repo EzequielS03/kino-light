@@ -72,6 +72,7 @@ import com.arkiv.player.data.gateway.LiveChannel
 import com.arkiv.player.data.gateway.LiveProgram
 import com.arkiv.player.ui.live.CATEGORIA_FAVORITOS
 import com.arkiv.player.ui.live.LiveViewModel
+import com.arkiv.player.ui.live.LiveZappingSource
 import com.arkiv.player.ui.live.avance
 import com.arkiv.player.ui.live.enCurso
 import com.arkiv.player.ui.rememberGraph
@@ -192,6 +193,15 @@ fun TvLiveGuideScreen(onVerCanal: (LiveChannel) -> Unit, onVolver: () -> Unit) {
     }
 
     val canales = if (vista == TvVistaLocal.RECIENTES) recientes else estado.canales
+
+    // Ver el canal ahora (Tarea 14): fija en LiveZappingSource la lista "con la que se entró"
+    // (esta misma `canales`, categoría o recientes) ANTES de delegar a `onVerCanal` -- es la que el
+    // zapping del reproductor recorre. Mismo patrón que `LiveScreen.abrir()` (mobile), ver el KDoc
+    // de LiveZappingSource (LiveZapping.kt).
+    fun verCanal(canal: LiveChannel) {
+        LiveZappingSource.lista = canales
+        onVerCanal(canal)
+    }
 
     // Foco inicial de la pantalla: el primer chip ("Favoritos"). También es el destino de la
     // "fuga" desde el borde izquierdo del timeline (ver KDoc de TvLiveGuideScreen).
@@ -354,7 +364,7 @@ fun TvLiveGuideScreen(onVerCanal: (LiveChannel) -> Unit, onVolver: () -> Unit) {
                                 scrollCompartido = scrollCompartido,
                                 dominioTotalDp = dominioTotalDp,
                                 chipsFocus = chipsFocus,
-                                onVerCanal = onVerCanal,
+                                onVerCanal = ::verCanal,
                                 onDetalle = { p -> dialogo = canal to p },
                                 modifier = Modifier.height(ALTO_FILA),
                             )
@@ -382,7 +392,7 @@ fun TvLiveGuideScreen(onVerCanal: (LiveChannel) -> Unit, onVolver: () -> Unit) {
             canal = canal,
             programa = programa,
             ahoraSegundos = ahoraSegundos,
-            onVerAhora = { onVerCanal(canal); dialogo = null },
+            onVerAhora = { verCanal(canal); dialogo = null },
             onDismiss = { dialogo = null },
         )
     }
