@@ -149,24 +149,43 @@ class NowPlayingPublisher(
      */
     private suspend fun metaFor(episodeId: String): Meta {
         meta?.takeIf { metaEpisodeId == episodeId }?.let { return it }
-        val header = repository.headerInfo(episodeId)
-        val nuevo = Meta(
-            itemId = repository.getEpisode(episodeId)?.itemId.orEmpty(),
-            // Informativo (la UI no lo usa para decidir nada): la fuente real la resuelve el player
-            // del TV por el prefijo del id, igual que hace ArkivTvRoot / PlayerSource.kindFor.
-            kind = when {
-                episodeId.startsWith("torrent:") -> "TORRENT"
-                episodeId.startsWith("web:") -> "WEB"
-                else -> "ARCHIVE"
-            },
-            title = header?.itemTitle.orEmpty(),
-            subtitle = header?.episodeLabel.orEmpty(),
-            // La carátula sale del ítem de la biblioteca, NO de PlayerData.artworkUrl: ésa solo está
-            // poblada para archive y vale "" en torrent y web.
-            posterUrl = repository.itemThumbnailForEpisode(episodeId).orEmpty(),
-            hasNext = repository.nextEpisode(episodeId) != null,
-            hasPrev = repository.previousEpisode(episodeId) != null,
-        )
+        // Vivo (Tarea 15): "live:<code>" no es un episodio de la biblioteca -- headerInfo()/
+        // getEpisode()/itemThumbnailForEpisode() no saben nada de un canal y devolverían todo
+        // vacío (la barra del celu quedaría con el título en blanco al enviar un canal al TV, y
+        // encima se pagarían varias consultas a Room por segundo para nada). El nombre real lo
+        // deja NowPlaying.liveChannelName (lo actualiza PlayerScreen con cada zap); sin eso, cae
+        // al código del canal para no dejar el título vacío del todo.
+        val nuevo = if (episodeId.startsWith(com.arkiv.player.playback.PlayerSource.LIVE_PREFIX)) {
+            Meta(
+                itemId = episodeId,
+                kind = "LIVE",
+                title = com.arkiv.player.playback.NowPlaying.liveChannelName
+                    ?: episodeId.removePrefix(com.arkiv.player.playback.PlayerSource.LIVE_PREFIX),
+                subtitle = "En vivo",
+                posterUrl = "",
+                hasNext = false,
+                hasPrev = false,
+            )
+        } else {
+            val header = repository.headerInfo(episodeId)
+            Meta(
+                itemId = repository.getEpisode(episodeId)?.itemId.orEmpty(),
+                // Informativo (la UI no lo usa para decidir nada): la fuente real la resuelve el
+                // player del TV por el prefijo del id, igual que hace ArkivTvRoot / PlayerSource.kindFor.
+                kind = when {
+                    episodeId.startsWith("torrent:") -> "TORRENT"
+                    episodeId.startsWith("web:") -> "WEB"
+                    else -> "ARCHIVE"
+                },
+                title = header?.itemTitle.orEmpty(),
+                subtitle = header?.episodeLabel.orEmpty(),
+                // La carátula sale del ítem de la biblioteca, NO de PlayerData.artworkUrl: ésa solo
+                // está poblada para archive y vale "" en torrent y web.
+                posterUrl = repository.itemThumbnailForEpisode(episodeId).orEmpty(),
+                hasNext = repository.nextEpisode(episodeId) != null,
+                hasPrev = repository.previousEpisode(episodeId) != null,
+            )
+        }
         meta = nuevo
         metaEpisodeId = episodeId
         return nuevo

@@ -2,6 +2,8 @@ package com.arkiv.player.sync
 
 import com.arkiv.player.data.db.EpisodeEntity
 import com.arkiv.player.data.db.ItemEntity
+import com.arkiv.player.data.db.LiveFavoriteEntity
+import com.arkiv.player.data.db.LiveRecentEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -36,8 +38,14 @@ class SyncSnapshotTest {
             updatedAt = updatedAt, deleted = deleted,
         )
 
-    private fun ida_y_vuelta(items: List<ItemEntity> = emptyList(), episodes: List<EpisodeEntity> = emptyList()) =
-        SyncSnapshot.fromJson(SyncSnapshot(items, episodes, emptyList(), emptyList()).toJson())
+    private fun ida_y_vuelta(
+        items: List<ItemEntity> = emptyList(),
+        episodes: List<EpisodeEntity> = emptyList(),
+        liveFavorites: List<LiveFavoriteEntity> = emptyList(),
+        liveRecents: List<LiveRecentEntity> = emptyList(),
+    ) = SyncSnapshot.fromJson(
+        SyncSnapshot(items, episodes, emptyList(), emptyList(), liveFavorites, liveRecents).toJson(),
+    )
 
     @Test fun el_reloj_del_item_sobrevive_al_viaje() {
         assertEquals(777L, ida_y_vuelta(items = listOf(item(updatedAt = 777))).items.single().updatedAt)
@@ -70,6 +78,29 @@ class SyncSnapshotTest {
         // `season`/`episode` son con lo que se sabe qué capítulo falta y se piden títulos a TMDB.
         val ep = ida_y_vuelta(episodes = listOf(episode())).episodes.single()
         assertEquals(1, ep.episode)
+    }
+
+    // --- liveFavorites/liveRecents: mismo cable, agregados en la Task 10 de TV en vivo. Antes de
+    // este test, SyncLiveFavoritesTest cubría el MERGE (SyncMerge.aAplicar) pero nada probaba el
+    // FORMATO DE CABLE -que toJson()/fromJson() de verdad conserven reloj y tombstone- que es lo
+    // que de verdad viaja celu<->TV. ---
+
+    @Test fun el_favorito_de_vivo_sobrevive_al_viaje_con_reloj_y_tombstone() {
+        val fav = LiveFavoriteEntity("c1", "ESPN", 501, "logo.png", updatedAt = 555, deleted = true)
+        val recibido = ida_y_vuelta(liveFavorites = listOf(fav)).liveFavorites.single()
+        assertEquals("ESPN", recibido.nombre)
+        assertEquals(501, recibido.numero)
+        assertEquals("logo.png", recibido.logo)
+        assertEquals(555L, recibido.updatedAt)
+        assertTrue(recibido.deleted)
+    }
+
+    @Test fun el_reciente_de_vivo_sobrevive_al_viaje() {
+        val rec = LiveRecentEntity("c2", "TNT Sports", vistoAt = 999, updatedAt = 111)
+        val recibido = ida_y_vuelta(liveRecents = listOf(rec)).liveRecents.single()
+        assertEquals("TNT Sports", recibido.nombre)
+        assertEquals(999L, recibido.vistoAt)
+        assertEquals(111L, recibido.updatedAt)
     }
 
     @Test fun un_snapshot_de_la_app_vieja_sigue_leyendose() {

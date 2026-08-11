@@ -2,7 +2,7 @@ package com.arkiv.player.playback
 
 import androidx.media3.common.MediaItem
 
-enum class SourceKind { ARCHIVE, TORRENT, WEB, MAGIS, NUC, LOCAL }
+enum class SourceKind { ARCHIVE, TORRENT, WEB, MAGIS, NUC, LOCAL, LIVE }
 
 data class PlayerSourceTag(
     val kind: SourceKind,
@@ -51,10 +51,19 @@ data class PlayerSourceTag(
 }
 
 object PlayerSource {
+    /**
+     * Prefijo de un canal en vivo (Tarea 14): `episodeId = "live:<code>"`, el mismo `code` que
+     * [com.arkiv.player.ui.live.LiveController.abrir] recibe. Vive acá (y no repetido como string
+     * literal en cada callsite) porque tanto quien arma la ruta de navegación
+     * (ArkivRoot/ArkivTvRoot) como quien la interpreta (PlayerViewModel) tienen que coincidir.
+     */
+    const val LIVE_PREFIX = "live:"
+
     fun kindFor(episodeId: String): SourceKind = when {
         episodeId.startsWith("torrent:") -> SourceKind.TORRENT
         episodeId.startsWith("web:") -> SourceKind.WEB
         episodeId.startsWith("magis:") -> SourceKind.MAGIS
+        episodeId.startsWith(LIVE_PREFIX) -> SourceKind.LIVE
         else -> SourceKind.ARCHIVE
     }
 }

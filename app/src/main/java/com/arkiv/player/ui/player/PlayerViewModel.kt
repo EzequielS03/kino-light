@@ -9,7 +9,10 @@ import com.arkiv.player.data.CoincidenciaDeArchivo
 import com.arkiv.player.data.EpisodeTorrent
 import com.arkiv.player.data.Quality
 import com.arkiv.player.data.SettingsStore
+import com.arkiv.player.data.db.LiveRecentDao
+import com.arkiv.player.data.db.LiveRecentEntity
 import com.arkiv.player.data.db.SkipMarkerEntity
+import com.arkiv.player.data.gateway.LiveChannel
 import com.arkiv.player.data.model.Episode
 import com.arkiv.player.data.model.VideoVariant
 import com.arkiv.player.data.offline.ArkivOfflineApi
@@ -27,6 +30,9 @@ import com.arkiv.player.playback.VentanaDeArchivo
 import com.arkiv.player.torrent.EpisodeHint
 import com.arkiv.player.torrent.TorrentEngine
 import com.arkiv.player.torrent.TorrentProgress
+import com.arkiv.player.ui.live.LiveController
+import com.arkiv.player.ui.live.LiveZapping
+import com.arkiv.player.ui.live.LiveZappingSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -89,6 +95,10 @@ class PlayerViewModel(
     private val localFileServer: com.arkiv.player.playback.LocalFileServer,
     private val deviceAuth: com.arkiv.player.pocketbase.DeviceAuthManager,
     private val frameCapturer: com.arkiv.player.miniaturas.FrameCapturer,
+    // Tarea 14 (modo vivo): pegados al final para no reordenar los parámetros posicionales de
+    // arriba (el callsite en PlayerScreen los pasa por posición, no por nombre).
+    private val liveController: LiveController,
+    private val liveRecentDao: LiveRecentDao,
 ) : ViewModel() {
 
     private val _playlist = MutableStateFlow<PlaylistData?>(null)
@@ -124,6 +134,16 @@ class PlayerViewModel(
 
     /** Carga el episodio como playlist, ramificando por fuente (archive vs torrent vs web). */
     fun load(episodeId: String) {
+        // Modo vivo (Tarea 14): CORTA ACÁ, antes de tocar nada del camino VOD de abajo -- ni
+        // marcarEnCurso, ni localLibrary, ni el prefetch del final (repo.nextEpisode() no sabe de
+        // canales). Es la bandera que aísla TODO el comportamiento distinto: un canal en vivo no
+        // tiene duración que sondear (ver KDoc de LiveZapping/LiveController -- sondearla es lo
+        // que rompía el VOD de Magis), progreso que guardar, ni "siguiente capítulo" de series --
+        // el único "siguiente" que existe en vivo es el zapping.
+        if (PlayerSource.kindFor(episodeId) == SourceKind.LIVE) {
+            loadLive(episodeId.removePrefix(PlayerSource.LIVE_PREFIX))
+            return
+        }
         viewModelScope.launch {
             // Antes que nada: que el detalle sepa por qué capítulo vas aunque salgas enseguida.
             runCatching { repo.marcarEnCurso(episodeId) }
@@ -151,10 +171,109 @@ class PlayerViewModel(
                 // KDoc de esa función ("load() llama a loadWeb directo") sea cierta para TODAS las
                 // ramas, no solo la de WEB.
                 SourceKind.NUC, SourceKind.LOCAL -> loadWeb(episodeId)
+                // Inalcanzable: se corta arriba del todo, antes de este launch (ver el guard de
+                // más arriba). La rama existe porque el `when` sobre SourceKind es exhaustivo.
+                SourceKind.LIVE -> Unit
             }
         }
         prefetchJob?.cancel()
         prefetchJob = viewModelScope.launch(Dispatchers.IO) { prefetchNext(episodeId) }
+    }
+
+    // --- Modo vivo (Tarea 14) ---------------------------------------------------------------
+    // Aislado del resto del archivo a propósito (ver el guard al principio de load()): nada de
+    // esto participa en playlists de VOD, casteo, torrent o resume -- son conceptos que en vivo
+    // no existen. Ver KDoc de LiveController/LiveZapping para el porqué completo.
+
+    /** Zapping en curso -- null fuera de modo vivo. */
+    private var zapping: LiveZapping? = null
+
+    /** Job cancelable del precalentado de vecinos -- ver KDoc de [precalentarVecinos]. */
+    private var precalentarJob: kotlinx.coroutines.Job? = null
+
+    private val _liveCanal = MutableStateFlow<LiveChannel?>(null)
+
+    /** El canal en pantalla ahora mismo (código/nombre/número/logo), para el overlay de PlayerScreen. */
+    val liveCanal: StateFlow<LiveChannel?> = _liveCanal.asStateFlow()
+
+    /**
+     * Arranca el zapping sobre la lista con la que el usuario ENTRÓ (ver [LiveZappingSource]), no
+     * el catálogo completo -- es la que tiene en la cabeza. Sin nada fijado ahí (proceso recreado
+     * a mitad del reproductor en vivo, o un llamador que no pasó por la grilla) cae a una lista de
+     * un solo canal: se pierde el zapping, pero el canal elegido reproduce igual.
+     */
+    private fun loadLive(code: String) {
+        val entrada = LiveZappingSource.lista.ifEmpty { listOf(LiveChannel(code, code, 0, null)) }
+        val indice = entrada.indexOfFirst { it.code == code }.coerceAtLeast(0)
+        zapping = LiveZapping(entrada, indice)
+        abrirCanalActual()
+    }
+
+    /**
+     * Abre el canal actual del zapping: resuelve contra [liveController] y publica un playlist de
+     * UN solo ítem que arranca siempre en 0 -- en vivo no hay "dónde ibas" que reanudar. NO sondea
+     * duración (no la hay) y NO guarda progreso (ver [saveProgress], que PlayerScreen ya no llama
+     * en modo vivo). Anota el canal en [liveRecentDao] -- es lo único que llena el chip
+     * "Recientes" de la grilla, que hasta esta tarea nadie escribía.
+     */
+    private fun abrirCanalActual() {
+        val canal = zapping?.actual ?: return
+        _liveCanal.value = canal
+        viewModelScope.launch {
+            _error.value = null
+            val url = runCatching { liveController.abrir(canal.code) }.getOrElse {
+                Log.w(PLAY, "abrirCanalActual() falló para ${canal.code}: ${it.message}")
+                if (zapping?.actual?.code == canal.code) _error.value = "No se pudo abrir ${canal.nombre}"
+                return@launch
+            }
+            // Zapeos rápidos: si para cuando este abrir() (~3s en el peor caso) vuelve el usuario
+            // ya zapeó a OTRO canal, esta respuesta tardía no debe pisar lo que hay en pantalla --
+            // mismo patrón (y mismo motivo) que LiveViewModel.cargar() con categoriaActiva, ver su
+            // KDoc.
+            if (zapping?.actual?.code != canal.code) return@launch
+            val item = PlayerData(
+                episodeId = "${PlayerSource.LIVE_PREFIX}${canal.code}",
+                itemId = "${PlayerSource.LIVE_PREFIX}${canal.code}",
+                title = canal.nombre,
+                subtitle = "",
+                mediaUrl = url,
+                // Un canal en vivo nunca tiene un mp4 h.264 de respaldo -es un directo, no un
+                // archivo-, así que castUrl siempre es null. Eso NO significa que no castee (Tarea
+                // 18): PlayerScreen.castRequestFor resuelve la URL alcanzable por LAN del proxy
+                // local (LiveHlsProxy.lanUrl) por su cuenta, igual que hace con torrent -- ver su
+                // KDoc.
+                castUrl = null,
+                artworkUrl = canal.logo.orEmpty(),
+                openingStartMs = null, openingEndMs = null, endingStartMs = null,
+                kind = SourceKind.LIVE,
+            )
+            _playlist.value = PlaylistData(listOf(item), 0, 0L)
+            runCatching {
+                liveRecentDao.anotar(LiveRecentEntity(canal.code, canal.nombre, System.currentTimeMillis()))
+            }
+            precalentarVecinos()
+        }
+    }
+
+    /** Zapping: siguiente/anterior de la lista con la que se entró. Sin efecto fuera de modo vivo. */
+    fun zapSiguiente() { zapping?.siguiente() ?: return; abrirCanalActual() }
+    fun zapAnterior() { zapping?.anterior() ?: return; abrirCanalActual() }
+
+    /**
+     * Precalienta los vecinos del zapping ~1s después de abrir el canal actual -- si el usuario
+     * zapea antes de que pase ese segundo, [abrirCanalActual] cancela este job (siguiente llamada)
+     * antes de programar el próximo. Resolver cuesta ~3s (dos llamadas a un portal cortado a 1
+     * cada 1,5s, ver KDoc de LiveController), así que vale la pena adelantarlo mientras el usuario
+     * no está zapeando activamente. Best-effort: un vecino que falla no impide que el otro se
+     * intente, y ninguno de los dos bloquea nada -- el playlist ya se publicó antes de llegar acá.
+     */
+    private fun precalentarVecinos() {
+        precalentarJob?.cancel()
+        val vecinos = zapping?.vecinos() ?: return
+        precalentarJob = viewModelScope.launch {
+            delay(1000)
+            vecinos.forEach { vecino -> launch { runCatching { liveController.precalentar(vecino.code) } } }
+        }
     }
 
     /**
@@ -731,6 +850,11 @@ class PlayerViewModel(
             // Idem LOCAL: no es un kind que devuelva kindFor(), lo decide el atajo de load() en
             // tiempo de reproducción (LocalLibrary.fileFor) -- nada que precargar por acá.
             SourceKind.LOCAL -> Unit
+            // Idem LIVE: repo.nextEpisode() nunca devuelve un id "live:" (no es un episodio de
+            // ninguna serie) -- load() corta antes de programar este prefetch para un canal en
+            // vivo (ver su guard), así que ni currentId llega acá con ese kind. El "siguiente" de
+            // un canal en vivo es el zapping (LiveZapping), no esta precarga de series.
+            SourceKind.LIVE -> Unit
         }
     }.onFailure { Log.w(PLAY, "prefetchNext falló: $it") }
 
@@ -765,6 +889,7 @@ class PlayerViewModel(
 
     override fun onCleared() {
         prefetchJob?.cancel()
+        precalentarJob?.cancel()
         super.onCleared()
     }
 

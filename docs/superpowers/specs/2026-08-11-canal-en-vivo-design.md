@@ -122,8 +122,10 @@ tratamiento tipográfico que ya usan las tarjetas sin póster—, y la guía del
 `v3/getProgram` es **una llamada por canal**. A 1,5 s por llamada, barrer 1.000 canales toma ~25
 minutos: pedir la guía en caliente es inviable. Por eso:
 
-- Un worker de fondo llena Redis respetando el bucket, con prioridad **canales pedidos hace poco →
-  favoritos → el resto**.
+- Un worker de fondo llena Redis respetando el bucket, con los **canales que alguien pidió de
+  verdad**: los que la interfaz muestra al desplazarse. **No hay barrido del catálogo completo**
+  (decidido el 2026-08-11): precargar 1.000 canales son ~25 minutos de llamadas para programación
+  que quizá nadie abra, y el valor está en los canales que efectivamente se miran.
 - `GET /v1/live/epg` responde **siempre al instante** con lo que hay y una lista `missing` de lo que
   encoló. Nunca bloquea.
 - Los datos de programación tienen TTL propio y se refrescan por franjas.

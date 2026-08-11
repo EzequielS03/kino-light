@@ -22,12 +22,18 @@ package com.arkiv.player.data.db
  */
 object SyncTriggers {
 
-    /** Tabla → su clave primaria. Son las cuatro que viajan por el sync. */
+    /**
+     * Tabla → su clave primaria. Son las seis que viajan por el sync. `live_channels_cache`
+     * queda afuera a propósito: es caché reconstruible del catálogo, no datos del usuario, y
+     * ponerle triggers de sync mandaría ~1000 filas entre dispositivos para nada.
+     */
     private val TABLAS = listOf(
         "items" to "identifier",
         "episodes" to "id",
         "playback" to "episodeId",
         "skip_markers" to "itemId",
+        "live_favorites" to "code",
+        "live_recents" to "code",
     )
 
     /** La hora, en milisegundos, según el reloj de SQLite. */

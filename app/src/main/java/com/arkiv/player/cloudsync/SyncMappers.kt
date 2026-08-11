@@ -2,6 +2,8 @@ package com.arkiv.player.cloudsync
 
 import com.arkiv.player.data.db.EpisodeEntity
 import com.arkiv.player.data.db.ItemEntity
+import com.arkiv.player.data.db.LiveFavoriteEntity
+import com.arkiv.player.data.db.LiveRecentEntity
 import com.arkiv.player.data.db.PlaybackEntity
 import com.arkiv.player.data.db.SkipMarkerEntity
 import org.json.JSONObject
@@ -9,7 +11,7 @@ import org.json.JSONObject
 /**
  * Mapeo record (PocketBase, org.json) <-> entity (Room). Android-side (usa org.json), no puro.
  * Claves naturales por colección: items=identifier, episodes=epId(=EpisodeEntity.id),
- * playback=episodeId, markers=itemId.
+ * playback=episodeId, markers=itemId, live_favorites/live_recents=code.
  */
 
 private fun JSONObject.optStringOrNull(name: String): String? =
@@ -138,4 +140,45 @@ fun recordToMarker(json: JSONObject): SkipMarkerEntity = SkipMarkerEntity(
     endingStartMs = json.optLongOrNull("endingStartMs"),
     updatedAt = json.optLong("updatedAt"),
     deleted = json.optBoolean("deleted"),
+)
+
+// ---- live_favorites <-> LiveFavoriteEntity ----
+// Mismo esquema que markers: LWW por updatedAt + tombstone (deleted).
+
+fun liveFavoriteToFields(entity: LiveFavoriteEntity, accountId: String): Map<String, Any?> = mapOf(
+    "accountId" to accountId,
+    "code" to entity.code,
+    "nombre" to entity.nombre,
+    "numero" to entity.numero,
+    "logo" to entity.logo,
+    "updatedAt" to entity.updatedAt,
+    "deleted" to entity.deleted,
+)
+
+fun recordToLiveFavorite(json: JSONObject): LiveFavoriteEntity = LiveFavoriteEntity(
+    code = json.optString("code"),
+    nombre = json.optString("nombre"),
+    numero = json.optInt("numero"),
+    logo = json.optStringOrNull("logo"),
+    updatedAt = json.optLong("updatedAt"),
+    deleted = json.optBoolean("deleted"),
+)
+
+// ---- live_recents <-> LiveRecentEntity ----
+// Sin `deleted`: esta tabla no lleva tombstone (se poda por antigüedad, no se borra a mano) --
+// ver el KDoc de LiveRecentEntity en data/db/Entities.kt.
+
+fun liveRecentToFields(entity: LiveRecentEntity, accountId: String): Map<String, Any?> = mapOf(
+    "accountId" to accountId,
+    "code" to entity.code,
+    "nombre" to entity.nombre,
+    "vistoAt" to entity.vistoAt,
+    "updatedAt" to entity.updatedAt,
+)
+
+fun recordToLiveRecent(json: JSONObject): LiveRecentEntity = LiveRecentEntity(
+    code = json.optString("code"),
+    nombre = json.optString("nombre"),
+    vistoAt = json.optLong("vistoAt"),
+    updatedAt = json.optLong("updatedAt"),
 )

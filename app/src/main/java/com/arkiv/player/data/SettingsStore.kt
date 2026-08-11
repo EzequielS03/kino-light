@@ -92,6 +92,13 @@ class SettingsStore(context: Context) {
     private val _artworkRematchDone = MutableStateFlow(prefs.getBoolean(KEY_ARTWORK_REMATCH, false))
     val artworkRematchDone: StateFlow<Boolean> = _artworkRematchDone
 
+    // Interruptor manual del respaldo de TV en vivo (Tarea 8, LiveHlsProxy): fuerza
+    // FirmaDelGateway en vez de FirmaConRespaldo. Un camino de respaldo que nunca se ejerce se
+    // pudre en silencio y falla justo el día que Magis cambia el algoritmo; con esto se puede
+    // comprobar en un minuto que el camino del gateway sigue sirviendo, sin esperar a que pase.
+    private val _liveSignRemote = MutableStateFlow(prefs.getBoolean(KEY_LIVE_SIGN_REMOTE, false))
+    val liveSignRemote: StateFlow<Boolean> = _liveSignRemote
+
     fun setStreamQuality(q: Quality) {
         prefs.edit().putString(KEY_STREAM, q.name).apply()
         _streamQuality.value = q
@@ -137,6 +144,11 @@ class SettingsStore(context: Context) {
         _artworkRematchDone.value = v
     }
 
+    fun setLiveSignRemote(v: Boolean) {
+        prefs.edit().putBoolean(KEY_LIVE_SIGN_REMOTE, v).apply()
+        _liveSignRemote.value = v
+    }
+
     private fun readQuality(key: String, default: Quality): Quality =
         runCatching { Quality.valueOf(prefs.getString(key, default.name)!!) }.getOrDefault(default)
 
@@ -160,6 +172,7 @@ class SettingsStore(context: Context) {
         private const val KEY_TORRENT_API_URL = "torrent_api_url"
         private const val KEY_TV_LINKED = "tv_linked"
         private const val KEY_ARTWORK_REMATCH = "artwork_rematch_done"
+        private const val KEY_LIVE_SIGN_REMOTE = "live_sign_remote"
         private const val KEY_NUC_LAN_URL = "nuc_lan_base_url"
         private const val KEY_NUC_TUNNEL_URL = "nuc_tunnel_base_url"
         private const val KEY_NUC_API_KEY = "nuc_api_key"

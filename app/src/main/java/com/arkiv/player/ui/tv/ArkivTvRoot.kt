@@ -158,6 +158,7 @@ fun ArkivTvRoot(
                 onOpenSettings = { navController.navigate("settings") },
                 onOpenSearch = { navController.navigate("search") },
                 onOpenLibrary = { navController.navigate("library") },
+                onOpenLive = { navController.navigate("live") },
                 onOpenSearchRoute = { route -> navController.navigate(route) },
             )
         }
@@ -182,6 +183,18 @@ fun ArkivTvRoot(
                 onOpenItem = { navController.navigate("detail/${Uri.encode(it)}") },
                 onPlayEpisode = { goToPlayer(it) },
                 onBack = { navController.popBackStack() },
+            )
+        }
+        composable("live") {
+            TvLiveGuideScreen(
+                // Tarea 14: el reproductor en modo vivo ya existe (bandera `enVivo` en
+                // PlayerViewModel/PlayerScreen). `TvLiveGuideScreen.verCanal()` ya dejó en
+                // LiveZappingSource la lista con la que se entró -- acá solo hace falta navegar
+                // con el prefijo que PlayerSource.kindFor() reconoce como vivo.
+                onVerCanal = { canal ->
+                    goToPlayer("${com.arkiv.player.playback.PlayerSource.LIVE_PREFIX}${canal.code}")
+                },
+                onVolver = { navController.popBackStack() },
             )
         }
         composable("detail/{itemId}") { entry ->

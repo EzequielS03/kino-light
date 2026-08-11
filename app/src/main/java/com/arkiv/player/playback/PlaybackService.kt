@@ -31,6 +31,18 @@ object NowPlaying {
      *  [playerOpen] es true — no se limpia al cerrar porque no hace falta. */
     @Volatile
     var playerOpenedAtMs: Long = 0L
+
+    /**
+     * Nombre del canal en vivo actual (Tarea 15), o null fuera de modo vivo.
+     *
+     * Existe porque un canal en vivo NO es un episodio de la biblioteca: `episodeId` vale
+     * `"live:<code>"`, y `NowPlayingPublisher.metaFor()` no tiene de dónde sacar un título si busca
+     * eso en `ArkivRepository` (headerInfo/getEpisode devuelven vacío, la barra del celu quedaría en
+     * blanco al enviar un canal al TV). `PlayerScreen` lo actualiza con cada zap, igual que
+     * [episodeId]; no se limpia al salir por el mismo motivo que ese campo no se limpia.
+     */
+    @Volatile
+    var liveChannelName: String? = null
 }
 
 /**
@@ -168,6 +180,18 @@ class PlaybackService : MediaSessionService() {
             val graph = (application as com.arkiv.player.ArkivApp).graph
             runCatching { graph.torrentEngine.stopStream() }
             runCatching { graph.archiveCacheProxy.stop() }
+            // Tarea 14 (canal en vivo) creaba liveHlsProxy/liveController en el grafo pero nunca los
+            // cerraba: el ServerSocket en 127.0.0.1 y su hilo accept() quedaban vivos el resto del
+            // proceso después de salir de un canal. Mismo hermano que archiveCacheProxy: se cierra
+            // acá, con la MISMA guarda de casteo de arriba -desde la Tarea 18 esa guarda protege DE
+            // VERDAD una sesión de Chromecast en curso: el receptor jala los segmentos de ESTE
+            // proxy (ver PlayerScreen.castRequestFor/LiveHlsProxy.lanUrl), así que cerrarlo con la
+            // TV todavía reproduciendo le cortaría el canal en seco.
+            runCatching { graph.liveHlsProxy.stop() }
+            // cerrar() solo invalida la caché de sesiones resueltas (no hay socket que soltar acá,
+            // eso ya lo hizo stop() arriba) para que el próximo canal que se abra no reutilice una
+            // sesión vieja del gateway después de un corte largo de red/proceso en pausa.
+            runCatching { graph.liveController.cerrar() }
         }
     }
 

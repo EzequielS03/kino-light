@@ -127,6 +127,8 @@ class ArkivRepository(
     private val artworkDao = db.artworkDao()
     private val episodeStillDao = db.episodeStillDao()
     private val episodeFrameDao = db.episodeFrameDao()
+    private val liveFavoriteDao = db.liveFavoriteDao()
+    private val liveRecentDao = db.liveRecentDao()
 
     fun observeLibrary(): Flow<List<LibraryRow>> = itemDao.observeLibrary()
 
@@ -1204,6 +1206,8 @@ class ArkivRepository(
         episodes = itemDao.getAllEpisodes(),
         playback = playbackDao.getAllPlayback(),
         markers = skipMarkerDao.getAll(),
+        liveFavorites = liveFavoriteDao.getAll(),
+        liveRecents = liveRecentDao.getAll(),
     )
 
     /**
@@ -1261,6 +1265,23 @@ class ArkivRepository(
                 changes++
             }
         }
+
+        // Favoritos y recientes de TV en vivo (Task 10): mismo `aAplicar` que items/episodes.
+        // `live_channels_cache` NO entra acá -- no viaja por el sync, ver [LiveChannelCacheEntity].
+        val liveFavorites = com.arkiv.player.sync.SyncMerge.aAplicar(
+            locales = liveFavoriteDao.getAll(), remotas = snapshot.liveFavorites,
+            llave = { it.code }, updatedAt = { it.updatedAt },
+        )
+        liveFavorites.forEach { liveFavoriteDao.guardar(it) }
+        changes += liveFavorites.size
+
+        val liveRecents = com.arkiv.player.sync.SyncMerge.aAplicar(
+            locales = liveRecentDao.getAll(), remotas = snapshot.liveRecents,
+            llave = { it.code }, updatedAt = { it.updatedAt },
+        )
+        liveRecents.forEach { liveRecentDao.anotar(it) }
+        changes += liveRecents.size
+
         return changes
     }
 

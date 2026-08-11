@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Downloading
+import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SettingsRemote
 import androidx.compose.material.icons.filled.Sync
@@ -95,6 +96,7 @@ private data class Tab(val route: String, val label: String, val icon: @Composab
 
 private val TABS = listOf(
     Tab("home", "Inicio") { Icon(Icons.Default.Home, contentDescription = "Inicio") },
+    Tab("live", "En vivo") { Icon(Icons.Default.LiveTv, contentDescription = "En vivo") },
     // Catálogo oculto: el home de descubrimiento lo reemplaza. La ruta y CineCatalogScreen siguen
     // vivas — para volver a mostrarlo basta devolver esta línea.
     // Tab("catalog", "Catálogo") { Icon(Icons.Default.Movie, contentDescription = "Catálogo") },
@@ -302,6 +304,18 @@ fun ArkivRoot(
                     onOpenConnect = { showConnection = true },
                     onOpenSearchRoute = { route -> navController.navigate(route) },
                     onOpenLibrary = { navController.navigate("library") },
+                    contentPadding = padding,
+                )
+            }
+            composable("live") {
+                com.arkiv.player.ui.live.LiveScreen(
+                    // Tarea 14: el reproductor en modo vivo ya existe (bandera `enVivo` en
+                    // PlayerViewModel/PlayerScreen). `LiveScreen.abrir()` ya dejó en
+                    // LiveZappingSource la lista con la que se entró -- acá solo hace falta navegar
+                    // con el prefijo que PlayerSource.kindFor() reconoce como vivo.
+                    onAbrirCanal = { code ->
+                        goToPlayer("${com.arkiv.player.playback.PlayerSource.LIVE_PREFIX}$code")
+                    },
                     contentPadding = padding,
                 )
             }
