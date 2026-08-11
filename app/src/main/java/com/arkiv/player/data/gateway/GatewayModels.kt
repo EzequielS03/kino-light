@@ -53,11 +53,56 @@ data class GatewaySubtitle(val lang: String, val url: String, val format: String
 /**
  * Un capítulo de una temporada de Magis.
  *
- * Un resultado de serie del portal es una TEMPORADA entera ("Breaking Bad T5" = 16 capítulos), así
- * que hay que pedir la lista aparte. Cada capítulo trae su propio [ref], resoluble sin volver a
- * buscar.
+ * [still], [tmdbTitle] y [overview] los agrega el gateway cruzando el id de IMDb que publica el
+ * portal contra TMDB: el portal NO tiene imagen ni nombre real por capítulo (su `posterList` por
+ * capítulo llega siempre vacío). Son opcionales a propósito — si TMDB no resolvió, el capítulo se
+ * muestra con [title], que es el del portal.
  */
-data class GatewayEpisode(val number: Int, val title: String, val ref: String)
+data class GatewayEpisode(
+    val number: Int,
+    val title: String,
+    val ref: String,
+    val still: String? = null,
+    val tmdbTitle: String? = null,
+    val overview: String? = null,
+)
+
+/** La serie a la que pertenece una temporada, cuando el gateway la pudo identificar. */
+data class GatewaySerie(val imdbId: String, val tmdbId: Int, val seasonNumber: Int)
+
+/**
+ * Parsea el JSON crudo de `/v1/episodes`: la lista de capítulos y, si el gateway pudo cruzar el
+ * imdb_id del portal contra TMDB, el bloque [GatewaySerie]. Los campos nuevos de [GatewayEpisode]
+ * ([GatewayEpisode.still], [GatewayEpisode.tmdbTitle] y [GatewayEpisode.overview]) son opcionales:
+ * ausentes o vacíos quedan en null, nunca rompen el parseo — así un gateway viejo, o uno al que
+ * TMDB le falló para esa temporada, sigue funcionando igual que antes.
+ */
+fun parseEpisodesResponse(json: String): Pair<List<GatewayEpisode>, GatewaySerie?> {
+    val o = JSONObject(json)
+    val arr = o.optJSONArray("episodes")
+    val episodios = (0 until (arr?.length() ?: 0)).mapNotNull { i ->
+        arr!!.optJSONObject(i)?.let { e ->
+            val ref = e.optString("ref")
+            if (ref.isBlank()) null
+            else GatewayEpisode(
+                number = e.optInt("number"),
+                title = e.optString("title"),
+                ref = ref,
+                still = e.optString("still").takeIf { it.isNotBlank() },
+                tmdbTitle = e.optString("tmdb_title").takeIf { it.isNotBlank() },
+                overview = e.optString("overview").takeIf { it.isNotBlank() },
+            )
+        }
+    }
+    val serie = o.optJSONObject("series")?.let { s ->
+        GatewaySerie(
+            imdbId = s.optString("imdb_id"),
+            tmdbId = s.optInt("tmdb_id"),
+            seasonNumber = s.optInt("season_number"),
+        )
+    }
+    return episodios to serie
+}
 
 sealed interface SearchEvent {
     data class SourceStart(val source: String) : SearchEvent

@@ -119,26 +119,29 @@ class ArkivApiClient(
         )
     }
 
-    /** Capítulos de una temporada. Solo Magis los expone; el resto responde 422. */
-    suspend fun episodes(ref: String): List<GatewayEpisode> = withContext(Dispatchers.IO) {
-        val cuerpo = JSONObject().put("ref", ref).toString()
-            .toRequestBody("application/json".toMediaType())
-        val arr = JSONObject(ejecutar(pedido("${baseUrl()}/v1/episodes").post(cuerpo).build()))
-            .optJSONArray("episodes")
-        if (arr == null) {
-            // Respondió 200 pero sin `episodes`. La UI lo mostraría como una lista vacía, que se ve
-            // igual que "esta temporada no tiene capítulos" — y no es lo mismo.
-            android.util.Log.w("ArkivGw", "/v1/episodes 200 SIN campo `episodes` ref=${ref.take(24)}…")
-            return@withContext emptyList()
-        }
-        (0 until arr.length()).mapNotNull { i ->
-            arr.optJSONObject(i)?.let { e ->
-                val r = e.optString("ref")
-                if (r.isBlank()) null
-                else GatewayEpisode(e.optInt("number"), e.optString("title"), r)
+    /**
+     * Capítulos de una temporada, junto con la serie que el gateway pudo identificar contra TMDB
+     * cruzando el imdb_id del portal ([GatewaySerie] es null si no la pudo resolver, o si el
+     * gateway todavía no manda el bloque `series`).
+     */
+    suspend fun episodesConSerie(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?> =
+        withContext(Dispatchers.IO) {
+            val cuerpo = JSONObject().put("ref", ref).toString()
+                .toRequestBody("application/json".toMediaType())
+            val body = ejecutar(pedido("${baseUrl()}/v1/episodes").post(cuerpo).build())
+            if (JSONObject(body).optJSONArray("episodes") == null) {
+                // Respondió 200 pero sin `episodes`. La UI lo mostraría como una lista vacía, que se
+                // ve igual que "esta temporada no tiene capítulos" — y no es lo mismo.
+                android.util.Log.w("ArkivGw", "/v1/episodes 200 SIN campo `episodes` ref=${ref.take(24)}…")
+                return@withContext emptyList<GatewayEpisode>() to null
             }
-        }.also { android.util.Log.w("ArkivGw", "/v1/episodes → ${it.size} capitulos (de ${arr.length()} crudos)") }
-    }
+            val (caps, serie) = parseEpisodesResponse(body)
+            android.util.Log.w("ArkivGw", "/v1/episodes → ${caps.size} capitulos")
+            caps to serie
+        }
+
+    /** Capítulos de una temporada. Solo Magis los expone; el resto responde 422. */
+    suspend fun episodes(ref: String): List<GatewayEpisode> = episodesConSerie(ref).first
 
     /**
      * Metadata de un anime (títulos, temporada TVDB, offset absoluto y tmdb_id).
