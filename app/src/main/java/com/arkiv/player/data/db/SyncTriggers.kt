@@ -15,8 +15,10 @@ package com.arkiv.player.data.db
  * celular, que sí venía migrando desde v6, los tenía todos. Por eso lo que se veía o guardaba en la
  * TV no llegaba nunca al celular.
  *
- * Por eso [ddl] se aplica en CADA apertura de la base y no en una migración: es idempotente
- * (`IF NOT EXISTS`) y así vale igual para el que migra y para el que instala de cero.
+ * Por eso [ddl] se aplica en CADA apertura de la base y no en una migración, y así vale igual
+ * para el que migra y para el que instala de cero. Lo que hace seguro correrlo en cada apertura
+ * NO es el `IF NOT EXISTS` de los `CREATE TRIGGER` -- es el `DROP TRIGGER IF EXISTS` que precede
+ * a cada uno (el porqué, con el bug que causó no tenerlo, está en el KDoc de [ddl]).
  */
 object SyncTriggers {
 
