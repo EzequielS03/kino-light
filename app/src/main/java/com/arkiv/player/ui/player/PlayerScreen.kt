@@ -359,7 +359,11 @@ private fun PlayerContent(
         kotlinx.coroutines.delay(800) // dar tiempo a que VLC cargue el media antes del slave
         // byUser=false: es un adjunto automático (el resolver los sniffeó), no una elección del
         // usuario — igual que los .srt del torrent, así no le tapa la decisión de idioma al player.
-        extras.subtitles.forEach { s -> runCatching { vlc.addSubtitleSlave(Uri.parse(s.url), byUser = false) } }
+        // El idioma va aparte porque estas URLs son opacas (`…/9f8a7b.vtt`): sin pasarlo, la pista
+        // quedaría sin idioma y no habría forma de elegirla.
+        extras.subtitles.forEach { s ->
+            runCatching { vlc.addSubtitleSlave(Uri.parse(s.url), byUser = false, lang = s.lang) }
+        }
     }
 
     // La fuente se conoce por el episodeId aunque todavía no haya playlist (para el overlay/servicio).
@@ -1351,8 +1355,14 @@ private fun PlayerContent(
             if (file != null) {
                 vlc.addSubtitleSlave(Uri.fromFile(file))
                 selectedSub = sub
-            } else {
+            } else if (sub == null) {
+                // "Ninguno": elección real del usuario, y por eso corta la selección automática.
                 vlc.setVlcSpuTrack(-1)
+                selectedSub = null
+            } else {
+                // La descarga falló (red). NO se toca la pista: apagarla acá quedaría registrado como
+                // una decisión del usuario y dejaría sin auto-selección al resto del ítem — un .srt
+                // del torrent que llegue después ya no se prendería.
                 selectedSub = null
             }
         }
@@ -1361,9 +1371,11 @@ private fun PlayerContent(
     // Búsqueda automática de subtítulos online para el idioma preferido.
     LaunchedEffect(episodeId) {
         if (!graph.subtitleApi.configured) return@LaunchedEffect
+        // Un solo origen para lo que se PIDE y para cómo se ORDENA: derivarlos por separado deja que
+        // se desincronicen (se pediría un idioma que el orden no conoce, y se iría al fondo).
         val langs = graph.subtitlePrefs.prefs.value.openSubtitlesCodes()
+        val ordenIdiomas = langs.split(",")
         val subCtx = graph.repository.subtitleContextForEpisode(episodeId)
-        val ordenIdiomas = graph.subtitlePrefs.prefs.value.openSubtitlesCodes().split(",")
         suspend fun runSearch(hash: String?) {
             subtitles = if (subCtx == null && hash == null) emptyList() else runCatching {
                 graph.subtitleApi.search(
@@ -1376,7 +1388,11 @@ private fun PlayerContent(
                 .sortedWith(
                     compareByDescending<com.arkiv.player.data.subtitles.SubtitleTrack> { it.hashMatch }
                         .thenBy { s ->
-                            ordenIdiomas.indexOf(s.language.lowercase()).takeIf { it >= 0 } ?: Int.MAX_VALUE
+                            // Por la subetiqueta base: se pide "es" pero las respuestas traen
+                            // "es-419"/"es-mx" para el latino, que comparado entero no matchearía
+                            // nunca y mandaría justo al latino al fondo de la lista.
+                            val base = s.language.lowercase().substringBefore('-')
+                            ordenIdiomas.indexOf(base).takeIf { it >= 0 } ?: Int.MAX_VALUE
                         },
                 )
         }
@@ -1394,7 +1410,9 @@ private fun PlayerContent(
                 delay(1500)
             }
         }
-        // NO auto-seleccionamos subtítulo: arrancan apagados y el usuario los activa desde el menú CC.
+        // NO se auto-selecciona ninguno de estos: la selección automática (SubtitleDecision) trabaja
+        // sobre las pistas que ya trae el archivo, y bajar uno de OpenSubtitles es una acción manual.
+        // Quedan listados en el menú CC para cuando el archivo no traiga nada en tu idioma.
     }
 
     // Subtítulos EMBEBIDOS en el torrent (.srt/.ass junto al video): el engine los prioriza (son KB, bajan

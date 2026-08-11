@@ -106,6 +106,22 @@ class TrackLanguageTest {
         assertEquals(TrackLang.UNKNOWN, LangTokens.classifyFileName("subtitulo1.srt"))
     }
 
+    // --- NUEVO: el código suelto que declaran las fuentes web junto a la URL del subtítulo ---
+
+    @Test fun classifyCodeReadsAnIsolatedLanguageCode() {
+        assertEquals(TrackLang.SPANISH, LangTokens.classifyCode("es"))
+        assertEquals(TrackLang.LATINO, LangTokens.classifyCode("es-419"))
+        assertEquals(TrackLang.ENGLISH, LangTokens.classifyCode("EN"))
+        assertEquals(TrackLang.JAPANESE, LangTokens.classifyCode(" jpn "))
+    }
+
+    /** La fuente a veces manda el nombre escrito en vez del código. */
+    @Test fun classifyCodeFallsBackToFreeTextForWrittenNames() {
+        assertEquals(TrackLang.LATINO, LangTokens.classifyCode("Español Latino"))
+        assertEquals(TrackLang.UNKNOWN, LangTokens.classifyCode(""))
+        assertEquals(TrackLang.UNKNOWN, LangTokens.classifyCode("zz"))
+    }
+
     // --- NUEVO: "¿está en mi lista?" con el español como familia ---
 
     @Test fun satisfiesTreatsAllSpanishVariantsAsOneFamily() {

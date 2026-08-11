@@ -140,6 +140,10 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
     // celular) pega en la próxima reproducción sin reiniciar nada.
     @Volatile var langPrefs: PlaybackPrefs = PlaybackPrefs()
     private var defaultAudioApplied = false
+    // Idioma declarado de las pistas externas cuyo NOMBRE no lo delata (las de una fuente web llegan
+    // como una URL opaca del CDN). Clave: un trozo de la URL, en minúsculas, que aparezca en el
+    // nombre con que libVLC bautiza la pista. Ver clasificarSpu. Se limpia al cargar otro ítem.
+    private val idiomaExterno = linkedMapOf<String, TrackLang>()
     // Detección de estancamiento por falta de buffer: cuando VLC se queda sin datos a mitad de la
     // reproducción, a veces NO emite un evento Buffering — simplemente deja de avanzar el tiempo. Este
     // watcher sondea la posición: si debería estar reproduciendo (playWhenReady) pero el tiempo no
@@ -607,6 +611,7 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         defaultSpuApplied = false // cada ítem/recarga arranca sin decisión de subtítulo aplicada todavía
         userTouchedSpu = false // …hasta que el usuario elija uno a mano (prender o apagar) en ESTE ítem
         defaultAudioApplied = false // y re-evalúa la pista de audio preferida
+        idiomaExterno.clear() // las pistas externas del ítem anterior ya no existen
         val media = Media(libVlc, uri).apply {
             setHWDecoderEnabled(hardware, false)
             addOption(":network-caching=$networkCaching")
@@ -654,12 +659,6 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
     }
 
     /**
-     * Selecciona la pista de audio según [langPrefs] (Latino>Castellano>Spanish>Dual por defecto, ver
-     * [PlaybackPrefs.audioLangs]). Corre en el looper. Si aún no hay >1 pista (VLC las expone poco
-     * después de Playing), reintenta. Si ninguna pista coincide con la preferencia, deja la de VLC
-     * (no toca nada). Ganancia clave para MKV DUAL.
-     */
-    /**
      * Aplica la decisión de subtítulos de [SubtitleDecision] (idioma preferido, o apagado si el audio
      * ya quedó en un idioma tuyo). Se re-afirma con reintentos porque libVLC auto-activa la primera
      * pista embebida en cuanto puebla — poco DESPUÉS de Playing — y hay que ganarle esa carrera.
@@ -667,9 +666,17 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
      */
     private fun applyPreferredSpu(retries: Int) {
         if (userTouchedSpu) return
+        val audio = vlcAudioTracks()
+        // Sin pistas de audio a la vista todavía no hay nada que decidir: la regla depende de QUÉ
+        // audio quedó sonando. Decidir a ciegas prende el subtítulo un instante y el tick siguiente
+        // lo apaga — un parpadeo al arrancar. Se reintenta sin tocar nada hasta poder verlas.
+        if (audio.none { it.first >= 0 }) {
+            if (retries > 0) handler.postDelayed({ applyPreferredSpu(retries - 1) }, 350)
+            return
+        }
         val spu = vlcSpuTracks()
-        val audioName = vlcAudioTracks().firstOrNull { it.first == currentAudioTrack() }?.second
-        val target = SubtitleDecision.decide(audioName, spu, langPrefs)
+        val audioName = audio.firstOrNull { it.first == currentAudioTrack() }?.second
+        val target = SubtitleDecision.decide(audioName, spu, langPrefs, ::clasificarSpu)
         if (currentSpuTrack() != target) {
             runCatching { android.util.Log.w("ArkivVlc", "auto-spu -> id=$target de ${spu.map { it.second }}") }
             runCatching { mediaPlayer.spuTrack = target }
@@ -677,6 +684,23 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         if (retries > 0) handler.postDelayed({ applyPreferredSpu(retries - 1) }, 350)
     }
 
+    /**
+     * Idioma de una pista de subtítulo. Antes que nada mira lo que declaró la fuente ([idiomaExterno]):
+     * una fuente web adjunta su subtítulo por URL del CDN (`…/9f8a7b.vtt`), que no dice el idioma por
+     * ningún lado, pero lo manda aparte. Sin esto esa pista queda `UNKNOWN` y no se puede elegir.
+     */
+    private fun clasificarSpu(nombre: String): TrackLang {
+        val n = nombre.lowercase()
+        idiomaExterno.entries.firstOrNull { (clave, _) -> clave in n }?.let { return it.value }
+        return LangTokens.classifyFileName(nombre)
+    }
+
+    /**
+     * Selecciona la pista de audio según [langPrefs] (Latino>Castellano>Spanish>Dual por defecto, ver
+     * [PlaybackPrefs.audioLangs]). Corre en el looper. Si aún no hay >1 pista (VLC las expone poco
+     * después de Playing), reintenta. Si ninguna pista coincide con la preferencia, deja la de VLC
+     * (no toca nada). Ganancia clave para MKV DUAL.
+     */
     private fun applyPreferredAudio(retries: Int) {
         val tracks = vlcAudioTracks()
         if (tracks.count { it.first >= 0 } <= 1) {
@@ -930,12 +954,17 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
      * (`select = false`) ni cortar la selección por idioma — al contrario, la pista nueva entra como
      * candidata y `applyPreferredSpu` la elige si está en tu idioma.
      *
+     * [lang] es el idioma que declaró la fuente, para cuando la URL no lo dice (una fuente web adjunta
+     * `…/9f8a7b.vtt` a secas). Los `.srt` del torrent y los de OpenSubtitles ya lo llevan en el nombre
+     * del archivo y no lo necesitan.
+     *
      * OJO con el MPEG-TS: esto solo es seguro porque magis se demuxea con avformat (ver loadMedia).
      * Con el demuxer `ts` nativo, adjuntar un subtítulo externo le cambia a libVLC el programa activo
      * y se lleva puestas TODAS las pistas del stream.
      */
-    fun addSubtitleSlave(uri: Uri, byUser: Boolean = true) {
+    fun addSubtitleSlave(uri: Uri, byUser: Boolean = true, lang: String = "") {
         if (byUser) userTouchedSpu = true
+        recordarIdioma(uri, lang)
         runCatching { mediaPlayer.addSlave(IMedia.Slave.Type.Subtitle, uri, byUser) }
         // Recién cargada, la pista todavía no figura: se re-decide un instante después.
         if (!byUser) handler.postDelayed({ applyPreferredSpu(retries = 2) }, 300)
@@ -944,6 +973,21 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         // subiendo de a gotas hasta que salta el rescate de "estancado en 0" (medido en device,
         // dos veces seguidas). Pedirle un subtítulo casi media hora antes de su marca le rompe el
         // reloj de entrada. El desfase hay que sacarlo de raíz: que magis no abra por ventana.
+    }
+
+    /**
+     * Guarda el idioma declarado de una pista externa contra trozos de su URI, porque libVLC bautiza
+     * la pista con la ruta y es lo único que se puede reconocer después. Se guarda la URI entera y
+     * además su último tramo: según el origen, libVLC muestra una o el otro.
+     */
+    private fun recordarIdioma(uri: Uri, lang: String) {
+        val bucket = LangTokens.classifyCode(lang)
+        if (bucket == TrackLang.UNKNOWN) return
+        val completa = uri.toString().lowercase()
+        if (completa.isBlank()) return
+        idiomaExterno[completa] = bucket
+        completa.substringAfterLast('/').takeIf { it.isNotBlank() && it != completa }
+            ?.let { idiomaExterno[it] = bucket }
     }
 
     private companion object {

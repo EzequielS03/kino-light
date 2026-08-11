@@ -65,6 +65,18 @@ object LangTokens {
     }
 
     /**
+     * Clasifica un CÓDIGO de idioma suelto (`es`, `es-419`, `jpn`), como el que declaran las fuentes
+     * web al lado de la URL del subtítulo. Igual que en [classifyFileName], acá el token viene aislado
+     * y por eso sí se acepta un `en` de dos letras. Si no es un código conocido cae a [classify], por
+     * si la fuente mandó el nombre escrito ("Español"). Vacío → [TrackLang.UNKNOWN].
+     */
+    fun classifyCode(raw: String): TrackLang {
+        val c = raw.trim().lowercase()
+        if (c.isEmpty()) return TrackLang.UNKNOWN
+        return CODIGOS[c] ?: classify(c)
+    }
+
+    /**
      * ¿[lang] cuenta como "un idioma que entiendo", dada mi lista [order]? Las variantes del español
      * son intercambiables: con `Latino > Castellano` configurado, una pista etiquetada solo "Spanish"
      * tiene que contar como propia — si no, prenderíamos subtítulos sobre un audio que se entiende.
