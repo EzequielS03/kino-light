@@ -13,6 +13,7 @@ import com.arkiv.player.data.model.ArchiveItem
 import com.arkiv.player.data.model.Episode
 import com.arkiv.player.data.model.EpisodeNumbering
 import com.arkiv.player.miniaturas.AlmacenDeFrames
+import com.arkiv.player.miniaturas.DestructorDeFrames
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
@@ -118,6 +119,13 @@ class ArkivRepository(
     private val artworkDao = db.artworkDao()
     private val episodeStillDao = db.episodeStillDao()
     private val episodeFrameDao = db.episodeFrameDao()
+
+    /**
+     * Mismo `almacenDeFrames` (nullable) recibido por constructor, mismo `episodeFrameDao` de
+     * arriba: no es una segunda fuente de verdad, es el destructor compartido que también usa
+     * `CloudSyncManager` (instanciado aparte en `AppGraph`, apuntando a las mismas dos cosas).
+     */
+    private val destructorDeFrames = DestructorDeFrames(almacenDeFrames, episodeFrameDao)
 
     fun observeLibrary(): Flow<List<LibraryRow>> = itemDao.observeLibrary()
 
@@ -1210,6 +1218,12 @@ class ArkivRepository(
             if (local == null || pb.lastPlayedAt > local.lastPlayedAt) {
                 playbackDao.upsert(pb)
                 changes++
+                // El progreso sincroniza HOY (esto no es la fase 2 de frames, que sincroniza el
+                // JPEG en sí): si el remoto que gana el merge trae el capítulo visto —p. ej. se
+                // vio en el TV y llega acá por LAN—, el frame de ESTE dispositivo tiene que morir
+                // también. Si no, la tarjeta seguiría mostrando la escena de algo ya terminado en
+                // el aparato que nunca lo reprodujo hasta el final.
+                if (pb.watched) borrarFrameDe(pb.episodeId)
             }
         }
         for (m in snapshot.markers) {
@@ -1291,25 +1305,27 @@ class ArkivRepository(
     }
 
     /**
-     * Destruye el frame (archivo + fila) de un capítulo que acaba de quedar visto.
+     * Destruye el frame de un capítulo que acaba de quedar visto. Delega en
+     * [com.arkiv.player.miniaturas.DestructorDeFrames], que es el único sitio que sabe borrar un
+     * frame (archivo + fila) — [mergeFromSync] acá abajo y
+     * [com.arkiv.player.cloudsync.CloudSyncManager] llaman al mismo destructor cuando el progreso
+     * que gana un merge de sync llega ya visto desde otro dispositivo, así que la lógica de borrado
+     * en sí vive en un solo lugar, no acá repetida.
      *
-     * Hay más de un camino por el que un capítulo pasa a `watched = true`: el toggle manual
-     * ([setWatched], desde el detalle) y el automático por progreso ([savePlayback], al superar el
-     * 60% de la duración — el camino más común, con diferencia). El frame tiene que morir por los
-     * dos, así que la destrucción vive acá una sola vez y ambos la llaman: si mañana se suma un
-     * tercer camino que marca visto, alcanza con que también llame a este helper.
+     * Hay más de un camino por el que un capítulo pasa a `watched = true` DENTRO de este
+     * repositorio: el toggle manual ([setWatched], desde el detalle) y el automático por progreso
+     * ([savePlayback], al superar el 60% de la duración — el camino más común, con diferencia).
+     * Los dos llaman acá; si mañana se suma un tercer camino local que marca visto, alcanza con que
+     * también llame a este helper.
      *
      * Se llama incondicionalmente cada vez que `watched` da `true`, sin preguntar antes si el
-     * frame existe: tanto `AlmacenDeFrames.borrar` (usa `File.delete()`, no lanza si no hay
-     * archivo) como `EpisodeFrameDao.borrar` (un `DELETE` que no falla si no hay fila) son seguros
-     * de invocar de más. En particular, `savePlayback` corre cada ~5 s mientras el player está
-     * abierto, así que pasado el 60% esto se repite varias veces por capítulo: el costo es
-     * despreciable (un `File.delete()` sobre un archivo ausente y un `DELETE` sobre una fila que ya
-     * no está) y no vale la pena complicar esto con lógica para evitar la repetición.
+     * frame existe (ver el doc de [com.arkiv.player.miniaturas.DestructorDeFrames.destruir]). En
+     * particular, `savePlayback` corre cada ~5 s mientras el player está abierto, así que pasado
+     * el 60% esto se repite varias veces por capítulo: el costo es despreciable y no vale la pena
+     * complicar esto con lógica para evitar la repetición.
      */
     private suspend fun borrarFrameDe(episodeId: String) {
-        almacenDeFrames?.borrar(episodeId)
-        episodeFrameDao.borrar(episodeId)
+        destructorDeFrames.destruir(episodeId)
     }
 }
 

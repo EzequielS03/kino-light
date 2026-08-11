@@ -132,6 +132,15 @@ class AppGraph(context: Context) {
         )
     }
 
+    /**
+     * Único punto que sabe borrar un frame (archivo + fila). Lo comparten [repository] (toggle
+     * manual y progreso al 60%) y [cloudSync] (progreso que llega ya visto desde otro dispositivo
+     * por sync en la nube) — mismo [almacenDeFrames], mismo `episodeFrameDao` que [frameCapturer].
+     */
+    val destructorDeFrames: com.arkiv.player.miniaturas.DestructorDeFrames by lazy {
+        com.arkiv.player.miniaturas.DestructorDeFrames(almacenDeFrames, database.episodeFrameDao())
+    }
+
     /** Sirve el archivo local por HTTP para poder castearlo (un file:// no le llega al Chromecast). */
     val localFileServer: com.arkiv.player.playback.LocalFileServer by lazy {
         com.arkiv.player.playback.LocalFileServer(lanIp = { torrentEngine.lanIp() })
@@ -376,6 +385,7 @@ class AppGraph(context: Context) {
             database.itemDao(), database.playbackDao(), database.skipMarkerDao(),
             pbSyncClient, pbRealtime, deviceAuth, syncCursors, applicationScope,
             com.arkiv.player.cloudsync.SyncQuarantine(context),
+            destructorDeFrames,
         )
     }
     val libraryWiper: com.arkiv.player.data.LibraryWiper by lazy {

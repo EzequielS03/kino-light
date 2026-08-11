@@ -5,6 +5,7 @@ import com.arkiv.player.data.db.EpisodeEntity
 import com.arkiv.player.data.db.ItemDao
 import com.arkiv.player.data.db.PlaybackDao
 import com.arkiv.player.data.db.SkipMarkerDao
+import com.arkiv.player.miniaturas.DestructorDeFrames
 import com.arkiv.player.pocketbase.DeviceAuthManager
 import com.arkiv.player.pocketbase.PocketBaseRealtime
 import kotlinx.coroutines.CancellationException
@@ -44,6 +45,13 @@ class CloudSyncManager(
     private val cursors: SyncCursors,
     private val scope: CoroutineScope,
     private val quarantine: SyncQuarantine,
+    /**
+     * Mismo destructor que usa `ArkivRepository` (mismo `AlmacenDeFrames`, mismo
+     * `EpisodeFrameDao`; instanciado una sola vez en `AppGraph`). El progreso sincroniza HOY —no
+     * es la fase 2 de frames—, así que si un capítulo llega visto desde otro dispositivo (p. ej.
+     * se vio en el TV) el frame local tiene que morir acá también, ver [mergePlayback].
+     */
+    private val destructorDeFrames: DestructorDeFrames,
 ) {
     fun start() {
         // Reparación una sola vez tras actualizar: los cursores guardados por la versión anterior
@@ -232,6 +240,10 @@ class CloudSyncManager(
         val local = playbackDao.get(remote.episodeId)
         if (!LwwMerge.pickWinner(local?.updatedAt ?: 0, remoteUpdatedAt)) return false
         playbackDao.upsert(remote)
+        // El remoto ganó el merge: si trae el capítulo visto, el frame de ESTE dispositivo tiene
+        // que morir también (ver el doc del constructor). Si trae watched = false, no se toca
+        // nada: el capítulo vuelve a estar en curso en todas partes.
+        if (remote.watched) destructorDeFrames.destruir(remote.episodeId)
         return true
     }
 
