@@ -530,4 +530,12 @@ interface EpisodeFrameDao {
 
     @Query("DELETE FROM episode_frame WHERE episodeId = :episodeId")
     suspend fun borrar(episodeId: String)
+
+    /**
+     * Se lleva TODAS las filas de una sola vez, para el wipe de logout: ahí no hay una lista de
+     * capítulos que recorrer (los `items`/`episodes` se borran en el mismo barrido) y borrar de a
+     * uno exigiría leer antes lo que se va a borrar.
+     */
+    @Query("DELETE FROM episode_frame")
+    suspend fun borrarTodo()
 }

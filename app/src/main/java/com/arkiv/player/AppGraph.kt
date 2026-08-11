@@ -133,9 +133,11 @@ class AppGraph(context: Context) {
     }
 
     /**
-     * Único punto que sabe borrar un frame (archivo + fila). Lo comparten [repository] (toggle
-     * manual y progreso al 60%) y [cloudSync] (progreso que llega ya visto desde otro dispositivo
-     * por sync en la nube) — mismo [almacenDeFrames], mismo `episodeFrameDao` que [frameCapturer].
+     * Único punto que sabe borrar un frame (archivo + fila), y una sola instancia para todos: se la
+     * pasa por constructor a [repository] (toggle manual, progreso al 60%, y sacar un ítem de la
+     * biblioteca), a [cloudSync] (progreso que llega ya visto desde otro dispositivo) y a
+     * [libraryWiper] (logout) — mismo [almacenDeFrames], mismo `episodeFrameDao` que
+     * [frameCapturer].
      */
     val destructorDeFrames: com.arkiv.player.miniaturas.DestructorDeFrames by lazy {
         com.arkiv.player.miniaturas.DestructorDeFrames(almacenDeFrames, database.episodeFrameDao())
@@ -165,7 +167,13 @@ class AppGraph(context: Context) {
     }
 
     val dlna: DlnaController by lazy { DlnaController(appContext) }
-    val repository: ArkivRepository by lazy { ArkivRepository(database, api, tmdbApi, almacenDeFrames = almacenDeFrames) }
+    val repository: ArkivRepository by lazy {
+        ArkivRepository(
+            database, api, tmdbApi,
+            almacenDeFrames = almacenDeFrames,
+            destructorDeFrames = destructorDeFrames,
+        )
+    }
     val syncManager: SyncManager by lazy { SyncManager(appContext, repository) }
     val trackerProvider: TrackerListProvider by lazy { TrackerListProvider(appContext) }
     val torrentEngine: TorrentEngine by lazy {
@@ -391,6 +399,7 @@ class AppGraph(context: Context) {
     val libraryWiper: com.arkiv.player.data.LibraryWiper by lazy {
         com.arkiv.player.data.LibraryWiper(
             database.itemDao(), database.playbackDao(), database.skipMarkerDao(), syncCursors,
+            destructorDeFrames,
         )
     }
     val accountManager: com.arkiv.player.pocketbase.AccountManager by lazy {

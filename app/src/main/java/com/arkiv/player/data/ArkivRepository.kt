@@ -111,6 +111,14 @@ class ArkivRepository(
      * siempre.
      */
     private val almacenDeFrames: AlmacenDeFrames? = null,
+    /**
+     * El único destructor de frames del proceso: `AppGraph` le pasa acá EL MISMO que le da a
+     * `CloudSyncManager` y a `LibraryWiper`. El default está para los call sites que arman un
+     * repositorio suelto (pruebas, herramientas) y arma uno equivalente sobre las mismas dos cosas
+     * — el almacén de arriba y el DAO de esta base.
+     */
+    private val destructorDeFrames: DestructorDeFrames =
+        DestructorDeFrames(almacenDeFrames, db.episodeFrameDao()),
 ) {
     private val itemDao = db.itemDao()
     private val playbackDao = db.playbackDao()
@@ -118,14 +126,6 @@ class ArkivRepository(
     private val skipMarkerDao = db.skipMarkerDao()
     private val artworkDao = db.artworkDao()
     private val episodeStillDao = db.episodeStillDao()
-    private val episodeFrameDao = db.episodeFrameDao()
-
-    /**
-     * Mismo `almacenDeFrames` (nullable) recibido por constructor, mismo `episodeFrameDao` de
-     * arriba: no es una segunda fuente de verdad, es el destructor compartido que también usa
-     * `CloudSyncManager` (instanciado aparte en `AppGraph`, apuntando a las mismas dos cosas).
-     */
-    private val destructorDeFrames = DestructorDeFrames(almacenDeFrames, episodeFrameDao)
 
     fun observeLibrary(): Flow<List<LibraryRow>> = itemDao.observeLibrary()
 
@@ -1076,10 +1076,18 @@ class ArkivRepository(
     }
 
     suspend fun removeItem(identifier: String) {
+        // Los capítulos se leen ANTES del soft-delete: `getEpisodesOf` filtra `deleted = 0`, así que
+        // después del tombstone ya no habría de dónde sacar los ids.
+        val episodios = itemDao.getEpisodesOf(identifier)
         // Soft-delete (tombstone) para que el borrado se propague por el sync en la nube.
         // Los triggers suben updatedAt; la biblioteca ya filtra deleted=0.
         itemDao.softDeleteEpisodesOf(identifier)
         itemDao.softDeleteItem(identifier)
+        // Los frames sí se borran de verdad: son locales, no viajan por el sync y no los reclama
+        // nadie más. Sacar la serie de la biblioteca y dejar sus JPEG en disco era dejarlos
+        // huérfanos para siempre — el único otro reclamo es "capítulo visto", y a un capítulo que ya
+        // no está en la biblioteca no se lo va a marcar visto nunca.
+        episodios.forEach { destructorDeFrames.destruir(it.id) }
     }
 
     fun observeItemDetail(identifier: String): Flow<ItemDetail?> = combine(

@@ -31,4 +31,18 @@ class DestructorDeFrames(
         almacen?.borrar(episodeId)
         dao.borrar(episodeId)
     }
+
+    /**
+     * El mismo borrado pero de TODO, para el wipe de logout
+     * ([com.arkiv.player.data.LibraryWiper]): sin esto, la identidad nueva se queda con los JPEG de
+     * las escenas que miró la persona anterior (además del disco, es un tema de privacidad).
+     *
+     * No es un `forEach` de [destruir] a propósito: en ese momento no hay una lista de capítulos a
+     * mano —el wipe borra `items` y `episodes` en el mismo barrido— y tanto el directorio como la
+     * tabla se vacían de una sola pasada.
+     */
+    suspend fun destruirTodo() {
+        almacen?.borrarTodo()
+        dao.borrarTodo()
+    }
 }

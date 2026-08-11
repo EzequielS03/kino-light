@@ -46,8 +46,8 @@ class CloudSyncManager(
     private val scope: CoroutineScope,
     private val quarantine: SyncQuarantine,
     /**
-     * Mismo destructor que usa `ArkivRepository` (mismo `AlmacenDeFrames`, mismo
-     * `EpisodeFrameDao`; instanciado una sola vez en `AppGraph`). El progreso sincroniza HOY —no
+     * El MISMO objeto que recibe `ArkivRepository` (y `LibraryWiper`): se instancia una sola vez en
+     * `AppGraph` y se pasa por constructor a los tres. El progreso sincroniza HOY —no
      * es la fase 2 de frames—, así que si un capítulo llega visto desde otro dispositivo (p. ej.
      * se vio en el TV) el frame local tiene que morir acá también, ver [mergePlayback].
      */
