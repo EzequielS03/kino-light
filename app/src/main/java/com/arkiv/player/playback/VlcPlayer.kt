@@ -808,6 +808,36 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
     /** Identidad del layout enganchado ahora mismo, para el diagnóstico de la pantalla negra. */
     @Volatile private var layoutEnganchado: String? = null
 
+    /** El layout enganchado, para poder llegar al TextureView donde VLC está pintando. */
+    @Volatile private var layoutActual: VLCVideoLayout? = null
+
+    /** El TextureView donde libVLC está pintando, o null si todavía no hay salida de video. */
+    fun textureViewActual(): android.view.TextureView? = textureViewDe(layoutActual)
+
+    /**
+     * El TextureView que haya adentro de [raiz].
+     *
+     * Se busca recorriendo el árbol porque VLCVideoLayout no lo expone: sus ids son internos de la
+     * librería y no hay API pública para pedírselo.
+     *
+     * Se expone aparte de [textureViewActual] porque al salir del reproductor el layout se suelta
+     * (`onRelease` del AndroidView → [detachVideo]) y este player deja de tener por dónde llegar al
+     * view; la pantalla, en cambio, sigue con su propio layout en la mano y puede pasarlo acá para
+     * capturar el último frame antes de irse.
+     */
+    fun textureViewDe(raiz: android.view.View?): android.view.TextureView? {
+        raiz ?: return null
+        val pendientes = ArrayDeque<android.view.View>()
+        pendientes.add(raiz)
+        while (pendientes.isNotEmpty()) {
+            when (val v = pendientes.removeFirst()) {
+                is android.view.TextureView -> return v
+                is android.view.ViewGroup -> for (i in 0 until v.childCount) pendientes.add(v.getChildAt(i))
+            }
+        }
+        return null
+    }
+
     private fun idDe(layout: VLCVideoLayout) = Integer.toHexString(System.identityHashCode(layout))
 
     /**
@@ -829,8 +859,9 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         // attachViews() PISA el VideoHelper anterior sin liberarlo (fuga + callbacks viejos sobre el
         // holder), así que soltamos primero. detachViews() es no-op si no había nada enganchado.
         runCatching { mediaPlayer.detachViews() }
-        runCatching { mediaPlayer.attachViews(layout, null, true, false) }
+        runCatching { mediaPlayer.attachViews(layout, null, true, true) }
         layoutEnganchado = idDe(layout)
+        layoutActual = layout
         // La superficie no está lista en el mismo instante del attach (el callback del holder llega
         // después), así que se le da un respiro a VLC para que rehaga el vout por su cuenta y recién
         // ahí se lo empuja. Se vuelve a preguntar al disparar: si en el intervalo apareció la imagen,
@@ -848,6 +879,10 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         runCatching { mediaPlayer.detachViews() }
         voutTracker.onDetach()
         layoutEnganchado = null
+        // Se limpia JUNTO a layoutEnganchado: este player es un singleton de proceso y el
+        // VLCVideoLayout se construye con el contexto de la Activity. Dejar acá el layout ya
+        // soltado retenía la Activity entera mientras el reproductor estaba cerrado.
+        layoutActual = null
     }
 
     /**

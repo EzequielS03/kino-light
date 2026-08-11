@@ -12,6 +12,8 @@ import com.arkiv.player.data.db.PlaybackEntity
 import com.arkiv.player.data.model.ArchiveItem
 import com.arkiv.player.data.model.Episode
 import com.arkiv.player.data.model.EpisodeNumbering
+import com.arkiv.player.miniaturas.AlmacenDeFrames
+import com.arkiv.player.miniaturas.DestructorDeFrames
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
@@ -102,6 +104,21 @@ class ArkivRepository(
     private val api: ArchiveApi,
     private val tmdbApi: TmdbApi? = null,
     private val clock: () -> Long = System::currentTimeMillis,
+    /**
+     * Dónde vive el JPEG de cada capítulo, para resolver `ContinueRow.framePath` desde disco (ver
+     * `observeContinueWatching`). Nullable con default para no romper otros call sites: sin
+     * almacén, `framePath` queda simplemente en null y las pantallas caen a sus respaldos de
+     * siempre.
+     */
+    private val almacenDeFrames: AlmacenDeFrames? = null,
+    /**
+     * El único destructor de frames del proceso: `AppGraph` le pasa acá EL MISMO que le da a
+     * `CloudSyncManager` y a `LibraryWiper`. El default está para los call sites que arman un
+     * repositorio suelto (pruebas, herramientas) y arma uno equivalente sobre las mismas dos cosas
+     * — el almacén de arriba y el DAO de esta base.
+     */
+    private val destructorDeFrames: DestructorDeFrames =
+        DestructorDeFrames(almacenDeFrames, db.episodeFrameDao()),
 ) {
     private val itemDao = db.itemDao()
     private val playbackDao = db.playbackDao()
@@ -109,6 +126,7 @@ class ArkivRepository(
     private val skipMarkerDao = db.skipMarkerDao()
     private val artworkDao = db.artworkDao()
     private val episodeStillDao = db.episodeStillDao()
+    private val episodeFrameDao = db.episodeFrameDao()
 
     fun observeLibrary(): Flow<List<LibraryRow>> = itemDao.observeLibrary()
 
@@ -149,6 +167,11 @@ class ArkivRepository(
             // OJO: agrupa por itemId, NO por título — el dedup por título se quitó a propósito
             // porque escondía ítems distintos que casualmente compartían nombre.
             rows.distinctBy { it.itemId }.take(20)
+        }.map { filas ->
+            // El framePath NO sale de la query (ver el doc del campo en ContinueRow): se resuelve
+            // acá, del disco, después del dedup/take(20) de arriba para no gastar File.exists()
+            // de más en filas que ni se van a mostrar. Son ~6 filas por emisión: despreciable.
+            filas.map { it.copy(framePath = almacenDeFrames?.rutaSiExiste(it.episodeId)) }
         }
 
     /**
@@ -275,6 +298,25 @@ class ArkivRepository(
     fun observeEpisodeStills(itemId: String): Flow<Map<String, String>> =
         episodeStillDao.observeForItem(itemId).map { rows ->
             rows.mapNotNull { r -> r.stillUrl?.let { r.episodeId to it } }.toMap()
+        }
+
+    /**
+     * Mapa episodeId -> ruta en disco del frame capturado, para que el detalle de una serie pinte
+     * la escena real en vez del still de TMDB. Mismo mecanismo que [observeContinueWatching]
+     * (`ContinueRow.framePath`), pero acá el disparador es una consulta de Room en vez de un
+     * `List<ContinueRow>` ya en memoria.
+     *
+     * SUTILEZA a propósito: la fila de `episode_frame` se usa solo como DISPARADOR (Room notifica
+     * el Flow cuando cambia una fila; el disco no notifica nada), y la ruta en sí sale SIEMPRE de
+     * `almacenDeFrames.rutaSiExiste`, igual que en el home — es la única fuente de verdad de dónde
+     * está el JPEG. Consecuencia asumida: si alguna vez se guardó el JPEG pero falló la escritura
+     * de la fila (o viceversa), el detalle no lo mostraría aunque el home sí. Es un caso raro
+     * (la escritura de fila y archivo son parte de la misma captura) y se corrige solo con la
+     * próxima captura del capítulo.
+     */
+    fun observeEpisodeFrames(itemId: String): Flow<Map<String, String>> =
+        episodeFrameDao.observeForItem(itemId).map { rows ->
+            rows.mapNotNull { r -> almacenDeFrames?.rutaSiExiste(r.episodeId)?.let { r.episodeId to it } }.toMap()
         }
 
     /**
@@ -1054,10 +1096,18 @@ class ArkivRepository(
     }
 
     suspend fun removeItem(identifier: String) {
+        // Los capítulos se leen ANTES del soft-delete: `getEpisodesOf` filtra `deleted = 0`, así que
+        // después del tombstone ya no habría de dónde sacar los ids.
+        val episodios = itemDao.getEpisodesOf(identifier)
         // Soft-delete (tombstone) para que el borrado se propague por el sync en la nube.
         // Los triggers suben updatedAt; la biblioteca ya filtra deleted=0.
         itemDao.softDeleteEpisodesOf(identifier)
         itemDao.softDeleteItem(identifier)
+        // Los frames sí se borran de verdad: son locales, no viajan por el sync y no los reclama
+        // nadie más. Sacar la serie de la biblioteca y dejar sus JPEG en disco era dejarlos
+        // huérfanos para siempre — el único otro reclamo es "capítulo visto", y a un capítulo que ya
+        // no está en la biblioteca no se lo va a marcar visto nunca.
+        episodios.forEach { destructorDeFrames.destruir(it.id) }
     }
 
     fun observeItemDetail(identifier: String): Flow<ItemDetail?> = combine(
@@ -1196,6 +1246,12 @@ class ArkivRepository(
             if (local == null || pb.lastPlayedAt > local.lastPlayedAt) {
                 playbackDao.upsert(pb)
                 changes++
+                // El progreso sincroniza HOY (esto no es la fase 2 de frames, que sincroniza el
+                // JPEG en sí): si el remoto que gana el merge trae el capítulo visto —p. ej. se
+                // vio en el TV y llega acá por LAN—, el frame de ESTE dispositivo tiene que morir
+                // también. Si no, la tarjeta seguiría mostrando la escena de algo ya terminado en
+                // el aparato que nunca lo reprodujo hasta el final.
+                if (pb.watched) borrarFrameDe(pb.episodeId)
             }
         }
         for (m in snapshot.markers) {
@@ -1254,6 +1310,10 @@ class ArkivRepository(
                 lastPlayedAt = clock(),
             )
         )
+        // Este es el camino MÁS COMÚN por el que un capítulo queda visto (el reproductor llama acá
+        // cada ~5 s): si no se destruye el frame también acá, mirar un capítulo hasta el final —sin
+        // tocar nunca el toggle manual de setWatched— lo dejaría vivo para siempre.
+        if (watched) borrarFrameDe(episodeId)
     }
 
     suspend fun setWatched(episodeId: String, watched: Boolean) {
@@ -1267,6 +1327,33 @@ class ArkivRepository(
                 lastPlayedAt = clock(),
             )
         )
+        // Al desmarcar (watched = false) NO se borra nada: el capítulo vuelve a estar en curso y
+        // el frame que haya sigue siendo válido.
+        if (watched) borrarFrameDe(episodeId)
+    }
+
+    /**
+     * Destruye el frame de un capítulo que acaba de quedar visto. Delega en
+     * [com.arkiv.player.miniaturas.DestructorDeFrames], que es el único sitio que sabe borrar un
+     * frame (archivo + fila) — [mergeFromSync] acá abajo y
+     * [com.arkiv.player.cloudsync.CloudSyncManager] llaman al mismo destructor cuando el progreso
+     * que gana un merge de sync llega ya visto desde otro dispositivo, así que la lógica de borrado
+     * en sí vive en un solo lugar, no acá repetida.
+     *
+     * Hay más de un camino por el que un capítulo pasa a `watched = true` DENTRO de este
+     * repositorio: el toggle manual ([setWatched], desde el detalle) y el automático por progreso
+     * ([savePlayback], al superar el 60% de la duración — el camino más común, con diferencia).
+     * Los dos llaman acá; si mañana se suma un tercer camino local que marca visto, alcanza con que
+     * también llame a este helper.
+     *
+     * Se llama incondicionalmente cada vez que `watched` da `true`, sin preguntar antes si el
+     * frame existe (ver el doc de [com.arkiv.player.miniaturas.DestructorDeFrames.destruir]). En
+     * particular, `savePlayback` corre cada ~5 s mientras el player está abierto, así que pasado
+     * el 60% esto se repite varias veces por capítulo: el costo es despreciable y no vale la pena
+     * complicar esto con lógica para evitar la repetición.
+     */
+    private suspend fun borrarFrameDe(episodeId: String) {
+        destructorDeFrames.destruir(episodeId)
     }
 }
 

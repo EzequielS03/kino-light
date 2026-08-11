@@ -42,6 +42,7 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.arkiv.player.data.ArchiveUrls
 import com.arkiv.player.data.model.Episode
+import com.arkiv.player.miniaturas.EleccionDeMiniatura
 import com.arkiv.player.ui.detail.DetailViewModel
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivBlack
@@ -101,6 +102,11 @@ fun TvDetailScreen(
     // se encarga del caché de las imágenes en disco.
     val stills by graph.repository.observeEpisodeStills(identifier)
         .collectAsStateWithLifecycle(initialValue = emptyMap())
+    // Frames capturados durante la reproducción: la escena real del capítulo, cuando existe le
+    // gana al still de TMDB (ver EleccionDeMiniatura). Solo tiene entrada si el capítulo se
+    // empezó a ver, así que "gana solo en lo empezado" sale solo de que la clave no esté.
+    val frames by graph.repository.observeEpisodeFrames(identifier)
+        .collectAsStateWithLifecycle(initialValue = emptyMap())
     // Títulos reales del capítulo (TMDB). El nombre del archivo suele ser inútil ("s01e03"), y en
     // el hero —que es texto grande— se nota mucho más que en la lista.
     val episodeTitles by graph.repository.observeEpisodeTitles(identifier)
@@ -143,9 +149,27 @@ fun TvDetailScreen(
     Box(Modifier.fillMaxSize().background(ArkivBlack)) {
         // El fondo sigue al capítulo enfocado. Cae al backdrop de la serie cuando ese capítulo no
         // tiene still (TMDB no siempre los trae) o cuando el foco no está en el carrusel.
-        val focused = focusedEpisode
+        // El hero describe SIEMPRE lo que va a pasar si apretás el botón: con el foco en el
+        // carrusel, el capítulo enfocado; con el foco fuera (en "Reproducir"), el capítulo que ESE
+        // botón reanuda. Antes, sacar el foco del carrusel caía a la info de la SERIE y se veía
+        // incoherente: el botón decía "Reproducir T1 · E8" mientras el fondo cambiaba de imagen y
+        // la descripción del capítulo desaparecía.
+        //
+        // Esto NO contradice el `focusedEpisode = null` del botón, lo completa: ese null está para
+        // que no quede describiendo el último capítulo que recorriste (que no es el que se
+        // reproduce). El respaldo pone en su lugar el que SÍ se reproduce.
+        //
+        // Solo en series: en una película `resumeEpisode` es el único "capítulo", y describirla
+        // como capítulo perdería la sinopsis y la etiqueta de "Película".
+        val focused = focusedEpisode ?: data.resumeEpisode?.takeIf { data.episodes.size > 1 }
         val heroImage = focused?.let { ep ->
-            stills[ep.id] ?: ep.thumbPath?.let { ArchiveUrls.download(ep.itemId, it) }
+            // El frame capturado manda sobre el still de TMDB y sobre el thumb de archive.org,
+            // en ese orden — los dos respaldos de siempre, intactos, con el frame agregado adelante.
+            EleccionDeMiniatura.elegir(
+                frames[ep.id],
+                stills[ep.id],
+                ep.thumbPath?.let { ArchiveUrls.download(ep.itemId, it) },
+            )
         } ?: data.thumbnailUrl
         // Crossfade: sin esto, recorrer el carrusel con el D-pad hace parpadear el fondo entero en
         // cada chip. Con el fundido el cambio se lee como continuo.
@@ -307,7 +331,9 @@ fun TvDetailScreen(
                             episode = ep,
                             isCurrent = data.inProgressEpisode?.id == ep.id,
                             progress = data.progress[ep.id],
-                            stillUrl = stills[ep.id],
+                            // Mismo orden que el hero: frame -> still de TMDB. El respaldo al
+                            // thumb de archive.org sigue viviendo DENTRO de TvEpisodeChip, intacto.
+                            stillUrl = EleccionDeMiniatura.elegir(frames[ep.id], stills[ep.id]),
                             onClick = { onPlayEpisode(ep.id) },
                             onFocus = { focusedEpisode = ep },
                             modifier = Modifier.then(

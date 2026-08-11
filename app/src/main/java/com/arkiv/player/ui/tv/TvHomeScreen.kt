@@ -63,6 +63,7 @@ import coil.compose.AsyncImage
 import com.arkiv.player.data.ArchiveUrls
 import com.arkiv.player.data.db.ContinueRow
 import com.arkiv.player.data.db.LibraryRow
+import com.arkiv.player.miniaturas.EleccionDeMiniatura
 import com.arkiv.player.sync.SyncStatus
 import com.arkiv.player.ui.home.HomeViewModel
 import com.arkiv.player.ui.home.searchShortcutRoute
@@ -122,10 +123,12 @@ fun TvHomeScreen(
         val thumb = row.stillUrl
             ?: row.thumbPath?.let { ArchiveUrls.download(row.itemId, it) }
             ?: row.itemThumbnailUrl
+        // El frame capturado le gana a todo lo demás (incluido el backdrop de `heroArt`), igual
+        // que en el hero del Home del celular: es la escena real de donde vas, no la carátula.
         return Featured(
             row.itemTitle,
             heroSubtitle(row.itemTitle, row.itemDescription, heroFallback(row.itemTitle, row.episodeTitle ?: row.displayName)),
-            heroArt(row.itemId, thumb),
+            EleccionDeMiniatura.elegir(row.framePath, heroArt(row.itemId, thumb)),
         )
     }
 
@@ -323,6 +326,7 @@ fun TvHomeScreen(
                                 val isFirst = row.episodeId == continueWatching.first().episodeId
                                 TvWideCard(
                                     title = row.itemTitle,
+                                    // El frame capturado manda primero (es la escena real del capítulo).
                                     // ACÁ, y solo acá, el still del CAPÍTULO le gana al backdrop de la
                                     // serie: esta fila muestra un capítulo, no la serie. En el resto del
                                     // home (y en el hero de fondo) sigue mandando el backdrop, que es la
@@ -330,7 +334,7 @@ fun TvHomeScreen(
                                     // `cardArt` prueba primero `backdropsOf(itemId)`, y backdrop tienen
                                     // todos —los de Magis del portal, los demás de TMDB—, así que el
                                     // still solo entraba como respaldo de algo que jamás faltaba.
-                                    imageUrl = row.stillUrl ?: cardArt(row.itemId, thumb),
+                                    imageUrl = EleccionDeMiniatura.elegir(row.framePath, row.stillUrl, cardArt(row.itemId, thumb)),
                                     progress = progress,
                                     cardHeight = cardHeight,
                                     modifier = if (isFirst) Modifier.focusRequester(firstCardFocus) else Modifier,

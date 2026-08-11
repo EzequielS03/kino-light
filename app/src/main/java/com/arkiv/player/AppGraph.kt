@@ -113,6 +113,36 @@ class AppGraph(context: Context) {
         com.arkiv.player.data.local.LocalLibrary(database)
     }
 
+    /**
+     * Carpeta en disco de los JPEG de frame, un solo punto para que quien escribe
+     * ([frameCapturer]) y quien lee ([almacenDeFrames], desde el repositorio) usen SIEMPRE la
+     * misma ruta.
+     */
+    private val framesDir: java.io.File by lazy { java.io.File(appContext.filesDir, "frames") }
+
+    val almacenDeFrames: com.arkiv.player.miniaturas.AlmacenDeFrames by lazy {
+        com.arkiv.player.miniaturas.AlmacenDeFrames(framesDir)
+    }
+
+    /** Captura best-effort del frame que se está viendo, para la miniatura de cada capítulo. */
+    val frameCapturer: com.arkiv.player.miniaturas.FrameCapturer by lazy {
+        com.arkiv.player.miniaturas.FrameCapturer(
+            almacen = almacenDeFrames,
+            dao = database.episodeFrameDao(),
+        )
+    }
+
+    /**
+     * Único punto que sabe borrar un frame (archivo + fila), y una sola instancia para todos: se la
+     * pasa por constructor a [repository] (toggle manual, progreso al 60%, y sacar un ítem de la
+     * biblioteca), a [cloudSync] (progreso que llega ya visto desde otro dispositivo) y a
+     * [libraryWiper] (logout) — mismo [almacenDeFrames], mismo `episodeFrameDao` que
+     * [frameCapturer].
+     */
+    val destructorDeFrames: com.arkiv.player.miniaturas.DestructorDeFrames by lazy {
+        com.arkiv.player.miniaturas.DestructorDeFrames(almacenDeFrames, database.episodeFrameDao())
+    }
+
     /** Sirve el archivo local por HTTP para poder castearlo (un file:// no le llega al Chromecast). */
     val localFileServer: com.arkiv.player.playback.LocalFileServer by lazy {
         com.arkiv.player.playback.LocalFileServer(lanIp = { torrentEngine.lanIp() })
@@ -137,7 +167,13 @@ class AppGraph(context: Context) {
     }
 
     val dlna: DlnaController by lazy { DlnaController(appContext) }
-    val repository: ArkivRepository by lazy { ArkivRepository(database, api, tmdbApi) }
+    val repository: ArkivRepository by lazy {
+        ArkivRepository(
+            database, api, tmdbApi,
+            almacenDeFrames = almacenDeFrames,
+            destructorDeFrames = destructorDeFrames,
+        )
+    }
     val syncManager: SyncManager by lazy { SyncManager(appContext, repository) }
     val trackerProvider: TrackerListProvider by lazy { TrackerListProvider(appContext) }
     val torrentEngine: TorrentEngine by lazy {
@@ -357,11 +393,13 @@ class AppGraph(context: Context) {
             database.itemDao(), database.playbackDao(), database.skipMarkerDao(),
             pbSyncClient, pbRealtime, deviceAuth, syncCursors, applicationScope,
             com.arkiv.player.cloudsync.SyncQuarantine(context),
+            destructorDeFrames,
         )
     }
     val libraryWiper: com.arkiv.player.data.LibraryWiper by lazy {
         com.arkiv.player.data.LibraryWiper(
             database.itemDao(), database.playbackDao(), database.skipMarkerDao(), syncCursors,
+            destructorDeFrames,
         )
     }
     val accountManager: com.arkiv.player.pocketbase.AccountManager by lazy {

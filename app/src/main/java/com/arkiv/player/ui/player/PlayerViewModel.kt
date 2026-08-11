@@ -88,6 +88,7 @@ class PlayerViewModel(
     private val localLibrary: com.arkiv.player.data.local.LocalLibrary,
     private val localFileServer: com.arkiv.player.playback.LocalFileServer,
     private val deviceAuth: com.arkiv.player.pocketbase.DeviceAuthManager,
+    private val frameCapturer: com.arkiv.player.miniaturas.FrameCapturer,
 ) : ViewModel() {
 
     private val _playlist = MutableStateFlow<PlaylistData?>(null)
@@ -797,6 +798,18 @@ class PlayerViewModel(
     fun saveProgress(episodeId: String, positionMs: Long, durationMs: Long) {
         if (durationMs <= 0) return
         viewModelScope.launch { repo.savePlayback(episodeId, positionMs, durationMs) }
+    }
+
+    /**
+     * Captura el frame que se está viendo. Best-effort y fuera del camino crítico: si no hay
+     * TextureView o el frame no pasa las guardas, no pasa nada.
+     *
+     * El TextureView viaja como parámetro porque este ViewModel no tiene acceso al `VlcPlayer`
+     * (vive en `PlayerScreen`, que sí puede leerlo con `vlc.textureViewActual()`); acá solo se
+     * necesita `viewModelScope` para que la captura no bloquee el hilo de composición.
+     */
+    fun capturarFrame(episodeId: String, positionMs: Long, textureView: android.view.TextureView?) {
+        viewModelScope.launch { frameCapturer.capturar(episodeId, positionMs, textureView) }
     }
 
     private companion object {

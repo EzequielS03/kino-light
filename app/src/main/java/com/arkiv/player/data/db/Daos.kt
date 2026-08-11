@@ -29,6 +29,14 @@ data class ContinueRow(
      */
     val stillUrl: String? = null,
     val episodeTitle: String? = null,
+    /**
+     * Ruta en disco del frame capturado, o null si el capítulo todavía no tiene uno. Gana sobre
+     * `stillUrl` y el resto: ver [com.arkiv.player.miniaturas.EleccionDeMiniatura].
+     *
+     * NO sale de la query: el nombre del archivo se deriva del episodeId por hash, así que la
+     * única fuente de verdad es el disco. Lo llena el repositorio al mapear.
+     */
+    val framePath: String? = null,
 )
 
 /** Resumen de un ítem para la grilla de la biblioteca. */
@@ -510,4 +518,32 @@ interface RecentTitleDao {
     /** Borra lo que pase del tope. Cada fila arrastra una URL de póster: conviene podar. */
     @Query("DELETE FROM recent_titles WHERE id NOT IN (SELECT id FROM recent_titles ORDER BY atMs DESC LIMIT :keep)")
     suspend fun trim(keep: Int)
+}
+
+@Dao
+interface EpisodeFrameDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(frame: EpisodeFrameEntity)
+
+    @Query("SELECT * FROM episode_frame WHERE episodeId = :episodeId AND deleted = 0")
+    suspend fun get(episodeId: String): EpisodeFrameEntity?
+
+    @Query("DELETE FROM episode_frame WHERE episodeId = :episodeId")
+    suspend fun borrar(episodeId: String)
+
+    /**
+     * Filas (sin borrar) de los capítulos de un ítem, para el detalle de una serie. Misma forma
+     * que [EpisodeStillDao.observeForItem]: el repositorio la usa solo como DISPARADOR del Flow
+     * (ver `ArkivRepository.observeEpisodeFrames`), no como fuente de la ruta.
+     */
+    @Query("SELECT * FROM episode_frame WHERE deleted = 0 AND episodeId IN (SELECT id FROM episodes WHERE itemId = :itemId)")
+    fun observeForItem(itemId: String): Flow<List<EpisodeFrameEntity>>
+
+    /**
+     * Se lleva TODAS las filas de una sola vez, para el wipe de logout: ahí no hay una lista de
+     * capítulos que recorrer (los `items`/`episodes` se borran en el mismo barrido) y borrar de a
+     * uno exigiría leer antes lo que se va a borrar.
+     */
+    @Query("DELETE FROM episode_frame")
+    suspend fun borrarTodo()
 }

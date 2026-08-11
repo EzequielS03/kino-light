@@ -79,6 +79,7 @@ import com.arkiv.player.data.ItemDetail
 import com.arkiv.player.data.model.Episode
 import com.arkiv.player.data.local.DownloadQueuePolicy
 import com.arkiv.player.data.local.LocalDownloadState
+import com.arkiv.player.miniaturas.EleccionDeMiniatura
 import com.arkiv.player.playback.PlayerSource
 import com.arkiv.player.playback.SourceKind
 import com.arkiv.player.ui.formatDuration
@@ -123,6 +124,11 @@ fun DetailScreen(
     val tmdbTitles by graph.repository.observeEpisodeTitles(identifier)
         .collectAsStateWithLifecycle(emptyMap())
     val tmdbStills by graph.repository.observeEpisodeStills(identifier)
+        .collectAsStateWithLifecycle(emptyMap())
+    // Frames capturados durante la reproducción: la escena real del capítulo, cuando existe le
+    // gana al still de TMDB (ver EleccionDeMiniatura). Solo tiene entrada si el capítulo se
+    // empezó a ver, así que "gana solo en lo empezado" sale solo de que la clave no esté.
+    val tmdbFrames by graph.repository.observeEpisodeFrames(identifier)
         .collectAsStateWithLifecycle(emptyMap())
     // Sinopsis de cada capítulo (TMDB). Mismo caché que títulos/stills, y misma regla de vacío
     // si no se sabe a qué serie pertenece el ítem.
@@ -300,6 +306,7 @@ fun DetailScreen(
             onToggleWatched = vm::toggleWatched,
             tmdbTitles = tmdbTitles,
             tmdbStills = tmdbStills,
+            tmdbFrames = tmdbFrames,
             tmdbOverviews = tmdbOverviews,
             // Solo el inferior: el superior ya lo cubre el TopAppBar (agregarlo acá lo duplicaría).
             bottomInset = padding.calculateBottomPadding(),
@@ -320,6 +327,8 @@ private fun DetailContent(
     /** episodeId -> título / imagen / sinopsis del capítulo según TMDB. Vacíos si no se sabe la serie. Ver [DetailScreen]. */
     tmdbTitles: Map<String, String>,
     tmdbStills: Map<String, String>,
+    /** episodeId -> ruta en disco del frame capturado. Le gana a [tmdbStills]; ver [DetailScreen]. */
+    tmdbFrames: Map<String, String>,
     tmdbOverviews: Map<String, String>,
     bottomInset: androidx.compose.ui.unit.Dp,
 ) {
@@ -487,6 +496,7 @@ private fun DetailContent(
                     // del archivo y al fotograma que genera archive.org, como antes.
                     tmdbTitle = tmdbTitles[ep.id],
                     tmdbStill = tmdbStills[ep.id],
+                    tmdbFrame = tmdbFrames[ep.id],
                     tmdbOverview = tmdbOverviews[ep.id],
                     // Fallback de miniatura: los capítulos web nunca traen un still propio
                     // (addWebSeriesEpisode guarda thumbPath = null a propósito, el pack solo da un
@@ -680,6 +690,8 @@ private fun EpisodeRow(
     fallbackThumb: String?,
     tmdbTitle: String?,
     tmdbStill: String?,
+    /** Ruta en disco del frame capturado. Le gana a [tmdbStill]; ver [EleccionDeMiniatura]. */
+    tmdbFrame: String?,
     /** Sinopsis del capítulo (TMDB). Null si no se pudo resolver; la fila simplemente no la muestra. */
     tmdbOverview: String?,
     /** Ya guardado en el dispositivo. */
@@ -712,12 +724,18 @@ private fun EpisodeRow(
                 .clip(RoundedCornerShape(6.dp))
                 .background(ArkivSurfaceHigh),
         ) {
-            // El still de TMDB primero: es la foto del capítulo, mientras que el de archive.org es
-            // un fotograma cualquiera del video (suele salir negro o a mitad de una transición).
-            val thumb = tmdbStill
-                ?: episode.thumbPath?.let { ArchiveUrls.download(episode.itemId, it) }
+            // El frame capturado primero (la escena real de donde vas), después el still de TMDB
+            // (la foto del capítulo), después el fotograma de archive.org (suele salir negro o a
+            // mitad de una transición) y por último el respaldo de la serie. Cadena armada con
+            // EleccionDeMiniatura -- no a mano -- para no desalinearse del resto de las pantallas.
+            val thumb = EleccionDeMiniatura.elegir(
+                tmdbFrame,
+                tmdbStill,
+                episode.thumbPath?.let { ArchiveUrls.download(episode.itemId, it) },
+                fallbackThumb,
+            )
             AsyncImage(
-                model = thumb ?: fallbackThumb,
+                model = thumb,
                 contentDescription = tmdbTitle ?: episode.displayName,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
