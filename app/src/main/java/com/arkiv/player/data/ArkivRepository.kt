@@ -64,16 +64,23 @@ data class ItemDetail(
      * El fallback NO es "el primero sin ver" a secas: con la temporada entera guardada de una sola
      * vez (ver `addMagisSeason`), tocar y terminar el E5 sin haber tocado ningún otro capítulo deja
      * E1-E4 y E6-E20 igual de "sin ver" que el E6, así que "el primero sin ver" por orden caía
-     * siempre en el E1 en vez de seguir donde ibas. Por eso se busca el capítulo visto más
-     * adelantado en la lista y se devuelve el que le sigue. Si todavía no se vio nada, cae al
-     * primero sin ver (que en ese caso es directamente el primero); si ya se vio todo, vuelve a
-     * empezar por el primero.
+     * siempre en el E1 en vez de seguir donde ibas.
+     *
+     * Tampoco alcanza con "el visto más adelantado EN LA LISTA" (por posición): ver el E10 suelto
+     * por curiosidad y después arrancar en orden y terminar E1-E3 dejaría "Reproducir" ofreciendo
+     * el E11, saltándose E4-E9. La regla es por RECENCIA, igual que [inProgressEpisode]: se busca
+     * el capítulo terminado más reciente por `lastPlayedAt` y se ofrece el que le sigue en la
+     * lista. Consecuencia asumida (no es un bug, no "arreglar" esto): si terminaste toda la serie
+     * y después revisitaste el E1, "Reproducir" pasa a ofrecer el E2 -- es lo que espera alguien
+     * que está reviendo. Si todavía no se vio nada, cae al primero sin ver (el primero a secas);
+     * si se vio todo (no hay "siguiente" tras el último terminado), vuelve a empezar por el primero.
      */
     val resumeEpisode: Episode?
         get() = inProgressEpisode
-            ?: episodes.indexOfLast { progress[it.id]?.watched == true }
-                .takeIf { it >= 0 }
-                ?.let { ultimoVistoIdx -> episodes.getOrNull(ultimoVistoIdx + 1) }
+            ?: episodes.withIndex()
+                .filter { (_, ep) -> progress[ep.id]?.watched == true }
+                .maxByOrNull { (_, ep) -> progress.getValue(ep.id).lastPlayedAt }
+                ?.let { (idx, _) -> episodes.getOrNull(idx + 1) }
             ?: episodes.firstOrNull { progress[it.id]?.watched != true }
             ?: episodes.firstOrNull()
 }

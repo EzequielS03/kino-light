@@ -125,9 +125,9 @@ fun TvDetailScreen(
     //
     // OJO: la key es `identifier` solo, NO `resumeId`. `resumeId` también cambia dentro de la
     // MISMA fuente cuando el capítulo en curso pasa el 60% y `savePlayback` lo marca visto
-    // (ArkivRepository.setWatched/inProgressEpisode caen a `episodes.firstOrNull()`): ese es el
-    // flujo más común de volver al detalle, y si el effect corriera con esa key el carrusel le
-    // pegaba un salto a "T1 · E1" apenas el usuario volvía de ver algo. Al depender solo de
+    // (ArkivRepository.resumeEpisode pasa a ofrecer el SIGUIENTE capítulo): ese es el flujo más
+    // común de volver al detalle, y si el effect corriera con esa key el carrusel le pegaba un
+    // salto lejos de donde estaba el usuario cada vez que terminaba algo. Al depender solo de
     // `identifier`, este LaunchedEffect no se reinicia en ese caso — seguimos leyendo `data` y
     // `resumeId` "de tras el cierre" de la composición donde `identifier` cambió, que es
     // exactamente la fuente nueva recién elegida.

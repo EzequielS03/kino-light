@@ -73,4 +73,20 @@ class ItemDetailResumeTest {
         val d = detalle(2 to aMedias(90L), 5 to aMedias(20L))
         assertEquals("magis:ABC::e2", d.inProgressEpisode?.id)
     }
+
+    @Test fun terminaste_un_capitulo_del_medio_vas_en_el_siguiente() {
+        // El caso que motivó el fix: con la temporada entera guardada de una (ver
+        // `addMagisSeason`), tocar y terminar SOLO el E3 no deja rastro en E1-E2 ni en E4-E5 --
+        // antes esto caía al E1 porque "el primero sin ver" por orden ganaba siempre.
+        val d = detalle(3 to visto(30L))
+        assertEquals("magis:ABC::e4", d.resumeEpisode?.id)
+    }
+
+    @Test fun vistos_salteados_gana_el_mas_reciente_no_el_de_mayor_numero() {
+        // Ver el E5 suelto (spoiler/curiosidad) hace rato y después arrancar en orden y terminar
+        // el E2 tiene que ofrecer el E3 -- NO el E6. Razonar por posición en la lista (el visto
+        // "más adelantado") en vez de por `lastPlayedAt` da el E6 acá, salteándose el E3 y el E4.
+        val d = detalle(5 to visto(10L), 2 to visto(90L))
+        assertEquals("magis:ABC::e3", d.resumeEpisode?.id)
+    }
 }
