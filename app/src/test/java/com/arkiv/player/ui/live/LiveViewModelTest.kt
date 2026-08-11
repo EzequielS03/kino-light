@@ -14,12 +14,15 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -93,6 +96,14 @@ private class FakeLiveApi : LiveCatalogGateway {
     val canalesCalls = mutableListOf<Int>()
     val epgCalls = mutableListOf<List<String>>()
 
+    /**
+     * Por default no devuelve nada y no le falta nada -el comportamiento que ya usaban los tests
+     * existentes-. Los tests del reintento acotado de EPG (hallazgo F3) lo reemplazan para simular
+     * que el gateway todavía no tiene la programación de algunos códigos (`missing`).
+     */
+    var epgResponder: (List<String>) -> Pair<Map<String, List<LiveProgram>>, List<String>> =
+        { emptyMap<String, List<LiveProgram>>() to emptyList() }
+
     override suspend fun categorias(): List<LiveCategory> = categoriasResult
 
     override suspend fun canales(categoria: Int): List<LiveChannel> {
@@ -103,7 +114,7 @@ private class FakeLiveApi : LiveCatalogGateway {
 
     override suspend fun epg(codes: List<String>): Pair<Map<String, List<LiveProgram>>, List<String>> {
         epgCalls.add(codes)
-        return emptyMap<String, List<LiveProgram>>() to emptyList()
+        return epgResponder(codes)
     }
 }
 
@@ -203,5 +214,98 @@ class LiveViewModelAsyncTest {
 
         assertEquals(1, api.epgCalls.size)
         assertEquals(listOf("c1"), api.epgCalls.single())
+    }
+
+    // --- Hallazgo F3 de la revisión final: sin barrido de fondo en el servidor, la PRIMERA
+    // consulta de EPG de cualquier canal casi siempre vuelve con ese canal en `missing` -el
+    // worker del gateway recién llena su caché a 1,5s por canal-. Sin reintento, la guía se
+    // quedaba en "Cargando programación…" hasta que el usuario sacara la fila de pantalla y la
+    // volviera a meter. ---
+
+    @Test
+    fun `la EPG que vino en missing se reintenta una vez a los 10s`() = runTest(dispatcher) {
+        val api = FakeLiveApi()
+        val categoria = 7
+        api.canalesPorCategoria[categoria] = listOf(LiveChannel("c1", "Canal 1", 1, null))
+        var llamada = 0
+        api.epgResponder = { codes ->
+            llamada++
+            if (llamada == 1) emptyMap<String, List<LiveProgram>>() to codes
+            else mapOf(codes.first() to listOf(LiveProgram("Partido", 0, 10, ""))) to emptyList()
+        }
+
+        val vm = LiveViewModel(api, FakeFavoriteDao(), FakeCacheDao())
+        advanceUntilIdle()
+        vm.elegirCategoria(categoria)
+        // runCurrent(), no advanceUntilIdle(): éste último NO se detiene en el delay(10s) del
+        // reintento -avanza el reloj virtual hasta agotar TODO lo agendado, incluidas las
+        // corrutinas dormidas-, así que ya habría disparado el reintento antes de este chequeo.
+        runCurrent()
+
+        // Primera vuelta: el gateway todavía no la tiene. Sin el reintento, esto se queda así.
+        assertEquals(1, api.epgCalls.size)
+        assertTrue(vm.estado.value.programacion["c1"].isNullOrEmpty())
+
+        advanceTimeBy(10_000)
+        runCurrent()
+
+        assertEquals("el reintento acotado a los ~10s", 2, api.epgCalls.size)
+        assertEquals(listOf("Partido"), vm.estado.value.programacion["c1"]?.map { it.titulo })
+    }
+
+    @Test
+    fun `si el reintento tambien viene faltante no se encadena un tercer pedido`() = runTest(dispatcher) {
+        val api = FakeLiveApi()
+        val categoria = 8
+        api.canalesPorCategoria[categoria] = listOf(LiveChannel("c1", "Canal 1", 1, null))
+        api.epgResponder = { codes -> emptyMap<String, List<LiveProgram>>() to codes }  // nunca la tiene
+
+        val vm = LiveViewModel(api, FakeFavoriteDao(), FakeCacheDao())
+        advanceUntilIdle()
+        vm.elegirCategoria(categoria)
+        runCurrent()
+        assertEquals(1, api.epgCalls.size)
+
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertEquals("el UNICO reintento acotado", 2, api.epgCalls.size)
+
+        advanceTimeBy(60_000)
+        advanceUntilIdle()  // ya no queda ningun delay agendado (reintentar=false): drenar entero es seguro
+        assertEquals(
+            "no debe encadenar un tercer pedido si el gateway nunca la tiene -bucle infinito",
+            2,
+            api.epgCalls.size,
+        )
+    }
+
+    @Test
+    fun `el reintento no pelea con la proteccion de pedidos duplicados`() = runTest(dispatcher) {
+        val api = FakeLiveApi()
+        val categoria = 9
+        api.canalesPorCategoria[categoria] = listOf(LiveChannel("c1", "Canal 1", 1, null))
+        api.epgResponder = { codes -> emptyMap<String, List<LiveProgram>>() to codes }
+
+        val vm = LiveViewModel(api, FakeFavoriteDao(), FakeCacheDao())
+        advanceUntilIdle()
+        vm.elegirCategoria(categoria)
+        runCurrent()
+        assertEquals(1, api.epgCalls.size)
+
+        // Antes de que el reintento programado dispare, otro pedido (p.ej. el usuario sacó la
+        // fila de pantalla y la volvió a meter) YA pide "c1" de nuevo -y esta vez el gateway sí
+        // la tiene-.
+        api.epgResponder = { codes -> mapOf("c1" to listOf(LiveProgram("Ya llego", 0, 10, ""))) to emptyList() }
+        vm.pedirEpgDe(listOf("c1"))
+        runCurrent()
+        assertEquals(2, api.epgCalls.size)
+        assertEquals(listOf("Ya llego"), vm.estado.value.programacion["c1"]?.map { it.titulo })
+
+        // El reintento programado por la carga original dispara igual, pero como "c1" ya está en
+        // `programacion`, pedirEpgDe() lo descarta solo -sin pelear con epgEnVuelo ni pedir de
+        // nuevo algo que ya llegó por otro camino-.
+        advanceTimeBy(10_000)
+        advanceUntilIdle()
+        assertEquals("no debe volver a pedir lo que ya llego por otro camino", 2, api.epgCalls.size)
     }
 }

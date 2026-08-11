@@ -11,12 +11,16 @@ import com.arkiv.player.data.gateway.LiveCategory
 import com.arkiv.player.data.gateway.LiveChannel
 import com.arkiv.player.data.gateway.LiveProgram
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.text.Normalizer
+
+/** Cuánto se espera antes de reintentar la EPG que el gateway devolvió en `missing`. Ver [LiveViewModel.pedirEpgDe]. */
+private const val REINTENTO_EPG_MS = 10_000L
 
 /** Id de categoría que el portal usa para "todos los canales" (no es una convención nuestra). */
 const val CATEGORIA_TODOS = 76182
@@ -86,12 +90,22 @@ class LiveViewModel(
 
     /**
      * Job de la carga de categoría en curso. Cancelar el anterior antes de lanzar uno nuevo evita
-     * trabajo de red desperdiciado cuando el usuario cambia de chip rápido -- pero NO es la
-     * protección real contra la corrupción de estado (ver el chequeo de `categoriaActiva` dentro
-     * de [cargar]): `runCatching` atrapa hasta `CancellationException`, así que una corrutina
-     * cancelada mientras espera una respuesta HTTP puede terminar corriendo su `onFailure` de
-     * todos modos. La cancelación acá es una optimización de "gastar menos", el chequeo de abajo
-     * es la garantía de corrección.
+     * trabajo de red desperdiciado cuando el usuario cambia de chip rápido -- pero la cancelación
+     * no es instantánea ni alcanza sola para blindar el estado: `runCatching` atrapa hasta
+     * `CancellationException`, así que una corrutina cancelada mientras espera una respuesta HTTP
+     * puede terminar corriendo su `onFailure` de todos modos (nunca su `onSuccess`: para que
+     * `runCatching` capture esa excepción, la cancelación tuvo que interceptar la llamada ANTES de
+     * que devolviera datos, así que ese camino nunca llega a escribir `canales`).
+     *
+     * Por esta vía puntual -una corrutina cancelada que igual corre su `onFailure`- lo único que
+     * se podría corromper sin el chequeo de `categoriaActiva` dentro de [cargar] es `error`/
+     * `cargando`: la categoría VIEJA escribiendo "no se pudo cargar" encima de la que el usuario ya
+     * está mirando. El caso de `canales` pisado por una respuesta vieja es una carrera DISTINTA
+     * -dos pedidos EXITOSOS que vuelven fuera de orden, sin que medie cancelación- y la cubre el
+     * mismo chequeo pero del lado de `onSuccess` (ver el KDoc de [cargar] para ese caso, que sí es
+     * el que se midió en review). La cancelación acá es una optimización de "gastar menos"; el
+     * chequeo de `categoriaActiva` en cada rama es la garantía de corrección de lo que esa rama
+     * puede llegar a escribir.
      */
     private var cargaJob: Job? = null
 
@@ -192,14 +206,28 @@ class LiveViewModel(
      * gateway recibía DOS pedidos de EPG idénticos por cada carga normal, contra un endpoint
      * limitado a 1 pedido cada 1,5s, global. [epgEnVuelo] marca un código como "pedido" ANTES de
      * lanzar la corrutina (no después de que vuelva), así la segunda llamada lo ve y lo descarta.
+     *
+     * No hay barrido de fondo en el servidor (decisión tomada aparte): el worker del gateway
+     * recién llena su caché por canal a 1,5s cada uno, así que la PRIMERA consulta de cualquier
+     * canal casi siempre vuelve con ese canal en `missing` -EPG vacía, no un error-. Sin más, la
+     * guía se quedaba en "Cargando programación…" hasta que el usuario sacara esa fila de pantalla
+     * y la volviera a meter (hallazgo F3 de la revisión final). [reintentar] hace un solo reintento
+     * acotado -a los [REINTENTO_EPG_MS]- de lo que vino en `missing`: `false` en la llamada
+     * recursiva de más abajo corta la cadena ahí, así un canal que el gateway nunca llegue a tener
+     * no dispara reintentos para siempre. El reintento reusa esta misma función -y por lo tanto
+     * [epgEnVuelo]- así que no compite con la protección de pedidos duplicados: si para cuando
+     * corre ya llegó por otro camino (otra carga, otro scroll), el filtro de `faltantes` de abajo
+     * lo descarta solo.
      */
-    fun pedirEpgDe(codes: List<String>) {
+    fun pedirEpgDe(codes: List<String>, reintentar: Boolean = true) {
         val faltantes = codes.filter { it !in _estado.value.programacion && it !in epgEnVuelo }
         if (faltantes.isEmpty()) return
         epgEnVuelo.addAll(faltantes)
         viewModelScope.launch {
+            var siguenFaltando: List<String> = emptyList()
             try {
-                runCatching { api.epg(faltantes) }.onSuccess { (mapa, _) ->
+                runCatching { api.epg(faltantes) }.onSuccess { (mapa, faltan) ->
+                    siguenFaltando = faltan
                     val instante = System.currentTimeMillis() / 1000
                     val enCurso = mapa.mapValues { (_, progs) ->
                         progs.firstOrNull { p -> instante >= p.inicio && instante < p.fin }
@@ -213,6 +241,10 @@ class LiveViewModel(
                 // -otra carga, otro scroll- pueda reintentarlos. Un fallo no debe bloquearlos para
                 // siempre.
                 epgEnVuelo.removeAll(faltantes)
+            }
+            if (reintentar && siguenFaltando.isNotEmpty()) {
+                delay(REINTENTO_EPG_MS)
+                pedirEpgDe(siguenFaltando, reintentar = false)
             }
         }
     }
