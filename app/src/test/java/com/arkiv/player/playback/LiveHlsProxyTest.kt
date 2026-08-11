@@ -11,6 +11,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.net.HttpURLConnection
+import java.net.Socket
 import java.net.URL
 import java.net.URLEncoder
 import java.util.concurrent.CopyOnWriteArrayList
@@ -242,5 +243,42 @@ class LiveHlsProxyTest {
         // no debe pasar es que la URI del tag siga apuntando DIRECTO ahí.
         assertTrue(!lineaKey.contains("URI=\"http://cdn.key"))
         proxy.stop(); upstream.shutdown()
+    }
+
+    /**
+     * Fuga de la Tarea 14: `AppGraph` creaba `liveHlsProxy` pero nada lo cerraba al salir del
+     * canal en vivo, así que el `ServerSocket` en 127.0.0.1 (y su hilo `accept()`) quedaban vivos
+     * el resto del proceso. El fix real vive en `PlaybackService.releaseNetworkResources()` (no
+     * testeable sin Robolectric: es un `android.app.Service`), así que este test verifica la
+     * parte que SÍ se puede probar en JVM pura: que `stop()` de verdad suelta el socket, no solo
+     * que pone en null una referencia.
+     */
+    @Test
+    fun `stop cierra el ServerSocket y libera el puerto`() {
+        val proxy = LiveHlsProxy(FirmasFalsas())
+        val puerto = proxy.start()
+        assertEquals(puerto, proxy.port)
+
+        proxy.stop()
+
+        assertEquals("port debe volver a -1: el ServerSocket ya no existe", -1, proxy.port)
+        // El puerto viejo ya no debe aceptar conexiones: si el hilo accept() siguiera vivo
+        // (el ServerSocket no se cerró de verdad) esta conexión se establecería igual.
+        val seConectaTodavia = runCatching { Socket("127.0.0.1", puerto).close(); true }.getOrDefault(false)
+        assertTrue("el puerto viejo no debería aceptar conexiones tras stop()", !seConectaTodavia)
+    }
+
+    /** `stop()` sin haber llamado `start()`, y llamarlo dos veces seguidas, no deben tirar. */
+    @Test
+    fun `stop es idempotente`() {
+        val proxy = LiveHlsProxy(FirmasFalsas())
+        proxy.stop() // nunca arrancó: no debe explotar
+        assertEquals(-1, proxy.port)
+
+        val puerto = proxy.start()
+        assertTrue(puerto > 0)
+        proxy.stop()
+        proxy.stop() // segunda vez sobre un server ya cerrado: tampoco debe explotar
+        assertEquals(-1, proxy.port)
     }
 }

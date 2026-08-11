@@ -168,6 +168,17 @@ class PlaybackService : MediaSessionService() {
             val graph = (application as com.arkiv.player.ArkivApp).graph
             runCatching { graph.torrentEngine.stopStream() }
             runCatching { graph.archiveCacheProxy.stop() }
+            // Tarea 14 (canal en vivo) creaba liveHlsProxy/liveController en el grafo pero nunca los
+            // cerraba: el ServerSocket en 127.0.0.1 y su hilo accept() quedaban vivos el resto del
+            // proceso después de salir de un canal. Mismo hermano que archiveCacheProxy: se cierra
+            // acá, con la MISMA guarda de casteo de arriba (el proxy local no lo usa el Chromecast
+            // todavía -castUrl siempre null para vivo, ver PlayerViewModel.abrirCanalActual-, pero
+            // conviene una sola guarda para todos los recursos de red en vez de reinventar el gate).
+            runCatching { graph.liveHlsProxy.stop() }
+            // cerrar() solo invalida la caché de sesiones resueltas (no hay socket que soltar acá,
+            // eso ya lo hizo stop() arriba) para que el próximo canal que se abra no reutilice una
+            // sesión vieja del gateway después de un corte largo de red/proceso en pausa.
+            runCatching { graph.liveController.cerrar() }
         }
     }
 
