@@ -43,12 +43,21 @@ object MagisEntities {
     fun idLegacyDeCapitulo(contentId: String, episode: Int): String = "${itemIdDe(contentId)}:e$episode"
 
     /**
+     * El id de un capítulo DENTRO del ítem de su temporada. Lo usa [capituloDe] para armar el
+     * `EpisodeEntity`, y también el repositorio: para saber cuántos episodios va a tener la
+     * temporada TRAS guardar (la unión de lo que ya había con lo que llega del portal, ver
+     * `ArkivRepository.addMagisSeason`) necesita comparar contra los mismos ids sin duplicar acá y
+     * allá el formato `$itemId::e$number`.
+     */
+    fun episodioIdDe(itemId: String, number: Int): String = "$itemId::e$number"
+
+    /**
      * El episodio de UN capítulo. Lo comparten [build] y [buildSeason] a propósito: el `id` es la
      * clave primaria, así que si los dos caminos no lo armaran idéntico, guardar la temporada
      * duplicaría los capítulos que ya estaban guardados sueltos.
      */
     private fun capituloDe(itemId: String, number: Int, title: String, ref: String) = EpisodeEntity(
-        id = "$itemId::e$number",
+        id = episodioIdDe(itemId, number),
         itemId = itemId,
         section = "",
         displayName = "E$number" + title.trim().takeIf { it.isNotBlank() }?.let { "  $it" }.orEmpty(),
@@ -80,6 +89,16 @@ object MagisEntities {
      * guardado: los refs caducan y uno vencido es mejor que ninguno. A diferencia de [build], acá
      * NO se cae al ref de un capítulo como último recurso — un ref de capítulo en el ítem haría que
      * `BuscadorDeCapitulos` le pidiera la lista de capítulos a un capítulo.
+     *
+     * [episodiosVistosEnLista] va COMPLETO, ya calculado por quien llama, y no `existente
+     * ?.episodiosVistosEnLista` leído acá adentro. Antes se guardaba sin tocar y el repositorio lo
+     * corregía después con un segundo UPDATE puntual (`marcarEpisodiosVistos`) — dos escrituras a la
+     * misma fila en la misma llamada, que es justo lo que hacía recursar el trigger de sync cuando
+     * caían en el mismo segundo (ver `SyncTriggers`). Acá adentro no se puede calcular solo: el
+     * total post-guardado es la UNIÓN de los capítulos que ya estaban en la base con los que traen
+     * [capitulos] (`addMagisSeason` hace upsert, no replace, para no perder capítulos viejos que el
+     * portal ya no liste), y esta función es pura/JVM — no tiene con qué consultar la base. Por eso
+     * el repositorio lo resuelve (con `ItemDao.getEpisodesOf`) y lo pasa ya resuelto.
      */
     fun buildSeason(
         contentId: String,
@@ -89,6 +108,7 @@ object MagisEntities {
         ahora: Long,
         seriesRef: String,
         existente: ItemEntity?,
+        episodiosVistosEnLista: Int?,
     ): Pair<ItemEntity, List<EpisodeEntity>> {
         val itemId = itemIdDe(contentId)
         val item = ItemEntity(
@@ -100,7 +120,7 @@ object MagisEntities {
             categoryOverride = "series",
             source = "magis",
             torrentData = seriesRef.ifBlank { existente?.torrentData.orEmpty() }.takeIf { it.isNotBlank() },
-            episodiosVistosEnLista = existente?.episodiosVistosEnLista,
+            episodiosVistosEnLista = episodiosVistosEnLista,
             tmdbId = existente?.tmdbId,
         )
         return item to capitulos.map { capituloDe(itemId, it.number, it.title, it.ref) }

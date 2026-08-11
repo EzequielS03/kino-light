@@ -102,6 +102,63 @@ class SyncTriggersTest {
         aplicar(SyncTriggers.ddl())
     }
 
+    @Test fun dos_escrituras_en_el_mismo_segundo_no_recursan_el_trigger() {
+        // El crash real (Fire TV, 2026-08-10): `ArkivRepository.addMagisSeason` hacía `upsertItem`
+        // (el INSERT sella con AHORA) y, en el mismo segundo, un UPDATE que no mueve el reloj
+        // (`marcarEpisodiosVistos`, el badge). `AHORA` tiene resolución de SEGUNDO: el UPDATE de
+        // adentro del trigger volvía a escribir el mismo número, `NEW.updatedAt = OLD.updatedAt`
+        // daba verdadero otra vez, y el trigger se disparaba a sí mismo hasta que SQLite cortaba
+        // con "too many levels of trigger recursion" -- la app moría después de guardar pero antes
+        // de navegar al reproductor.
+        //
+        // Se fuerza el mismo segundo insertando con `updatedAt` = AHORA (no un valor fijo del
+        // pasado, que es lo que hacen los demás tests de este archivo) y actualizando enseguida:
+        // entre las dos sentencias pasan microsegundos, así que el reloj de segundo real todavía no
+        // avanzó.
+        //
+        // Acá NO se ve el `SQLITE_ERROR` textual del crash: Android trae `recursive_triggers` en ON,
+        // pero xerial/sqlite-jdbc (lo que corre este test, verificado con `PRAGMA
+        // recursive_triggers` = 0) lo trae en OFF por default, así que la re-invocación del trigger
+        // sobre su propia escritura queda desactivada acá y no hay recursión de verdad que contar.
+        // Lo que SÍ es igual en los dos entornos es el defecto de fondo -- el `UPDATE` de adentro del
+        // trigger escribe el mismo valor que ya tenía la fila -- y es eso lo que este test verifica:
+        // con el trigger viejo, `relojDe(...)` después del UPDATE queda IGUAL a `sellado` (el
+        // `assertTrue` de abajo falla); con el nuevo, siempre avanza.
+        aplicar(SyncTriggers.ddl())
+        ejecutar(
+            "INSERT INTO items (identifier, title, updatedAt) VALUES " +
+                "('a', 'viejo', CAST(strftime('%s','now') AS INTEGER)*1000)",
+        )
+        val sellado = relojDe("items", "identifier", "a")
+        ejecutar("UPDATE items SET title = 'nuevo' WHERE identifier = 'a'")
+        assertTrue(
+            "la segunda escritura en el mismo segundo tiene que AVANZAR el reloj, no repetirlo",
+            relojDe("items", "identifier", "a") > sellado,
+        )
+    }
+
+    @Test fun un_trigger_viejo_ya_creado_se_reemplaza_por_el_nuevo() {
+        // `CREATE TRIGGER IF NOT EXISTS` no reemplaza nada: sin el `DROP TRIGGER IF EXISTS` que
+        // ahora precede a cada CREATE, un aparato que ya había abierto la base con el trigger
+        // recursivo (el de antes de este fix) se hubiera quedado con esa definición para siempre.
+        // Acá se simula ese aparato: se crea a mano el trigger VIEJO (el que sella con AHORA a
+        // secas) y se verifica que aplicar `ddl()` de nuevo -- lo que pasa en cada apertura de la
+        // base, ver `ArkivDatabase.SELLAR_UPDATED_AT` -- lo deja con el nuevo.
+        ejecutar(
+            "CREATE TRIGGER trg_items_upd AFTER UPDATE ON items WHEN NEW.updatedAt = OLD.updatedAt " +
+                "BEGIN UPDATE items SET updatedAt = CAST(strftime('%s','now') AS INTEGER)*1000 " +
+                "WHERE identifier = NEW.identifier; END",
+        )
+        aplicar(SyncTriggers.ddl())
+        ejecutar(
+            "INSERT INTO items (identifier, title, updatedAt) VALUES " +
+                "('a', 'viejo', CAST(strftime('%s','now') AS INTEGER)*1000)",
+        )
+        val sellado = relojDe("items", "identifier", "a")
+        ejecutar("UPDATE items SET title = 'nuevo' WHERE identifier = 'a'")
+        assertTrue(relojDe("items", "identifier", "a") > sellado)
+    }
+
     @Test fun sella_las_filas_que_ya_habian_quedado_sin_reloj() {
         // Las 77+1054+7 filas que el Fire TV ya tiene en 0: sin esto siguen sin subir para siempre.
         ejecutar("INSERT INTO items (identifier, title, updatedAt) VALUES ('vieja', 'T', 0)")

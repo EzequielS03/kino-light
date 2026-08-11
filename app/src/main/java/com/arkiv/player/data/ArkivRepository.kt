@@ -774,6 +774,19 @@ class ArkivRepository(
      * portal no lo liste esta vez. Es idempotente (ids derivados del contenido), así que se puede
      * llamar en cada reproducción.
      *
+     * UNA sola escritura sobre el ítem (`upsertItem`), no dos. Antes iba `upsertItem` y después un
+     * UPDATE puntual (`marcarEpisodiosVistos`) para corregir el badge — dos escrituras a la misma
+     * fila en la misma llamada, y si caían en el mismo segundo el trigger de sync (`SyncTriggers`)
+     * recursaba hasta "too many levels of trigger recursion": la app se caía después de guardar la
+     * temporada pero antes de navegar al reproductor. El trigger ya no recursa (ver `SyncTriggers`),
+     * pero la segunda escritura seguía ensuciando el sync de más, así que también se saca: el total
+     * post-guardado se calcula ACÁ (antes de escribir nada) y se le pasa a [MagisEntities.buildSeason]
+     * ya resuelto, para que el ítem salga sellado desde el único `upsertItem`.
+     *
+     * El total NO es `capitulos.size`: es la UNIÓN de los capítulos que ya estaban guardados con los
+     * que trae el portal (ver el porqué del `upsert` arriba), así que se calcula contra lo que ya hay
+     * en la base antes de escribir la temporada nueva.
+     *
      * Devuelve `número de capítulo → episodeId` para que el llamador sepa cuál reproducir sin
      * re-derivar ids a mano.
      */
@@ -788,9 +801,20 @@ class ArkivRepository(
         if (contentId.isBlank() || capitulos.isEmpty()) return emptyMap()
         val id = MagisEntities.itemIdDe(contentId)
         val existente = itemDao.getItem(id)
+        // El badge es para capítulos que salieron en el portal, no para los que acabás de guardar
+        // vos: se re-sella al total que va a quedar tras el upsert, que es la unión de lo que ya
+        // había (undeleted) con lo que trae `capitulos` (upsert nunca los deja deleted).
+        val idsExistentes = itemDao.getEpisodesOf(id).map { it.id }.toSet()
+        val idsNuevos = capitulos.map { MagisEntities.episodioIdDe(id, it.number) }.toSet()
+        val totalTrasGuardar = (idsExistentes + idsNuevos).size
+        val episodiosVistosEnLista = com.arkiv.player.data.nuevos.ContadorDeNuevos.reSellar(
+            existente?.episodiosVistosEnLista,
+            totalTrasGuardar,
+        )
         val (item, episodios) = MagisEntities.buildSeason(
             contentId = contentId, title = title, capitulos = capitulos, posterUrl = posterUrl,
             ahora = clock(), seriesRef = seriesRef, existente = existente,
+            episodiosVistosEnLista = episodiosVistosEnLista,
         )
         itemDao.upsertItem(item)
         itemDao.upsertEpisodes(episodios)
@@ -798,10 +822,6 @@ class ArkivRepository(
         // contenido vive dentro del ítem de la temporada.
         capitulos.forEach { barrerItemLegacyDeCapitulo(contentId, it.number) }
         guardarBackdropDeMagis(id, backdropUrl)
-        // El badge es para capítulos que salieron en el portal, no para los que acabás de guardar vos.
-        val total = itemDao.getEpisodesOf(id).count { !it.deleted }
-        com.arkiv.player.data.nuevos.ContadorDeNuevos.reSellar(existente?.episodiosVistosEnLista, total)
-            ?.let { itemDao.marcarEpisodiosVistos(id, it) }
         return episodios.mapNotNull { ep -> ep.episode?.let { it to ep.id } }.toMap()
     }
 

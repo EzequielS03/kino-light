@@ -119,9 +119,14 @@ class MagisEntitiesTest {
         ),
         seriesRef: String = "ref-temporada",
         existente: ItemEntity? = null,
+        // Null por default: en la app real lo calcula `ArkivRepository.addMagisSeason` contra la
+        // base (ver ContadorDeNuevos.reSellar) y se lo pasa ya resuelto. Acá, sin DB, cada test que
+        // le importe el badge lo fija a mano.
+        episodiosVistosEnLista: Int? = null,
     ) = MagisEntities.buildSeason(
         contentId = contentId, title = title, capitulos = capitulos,
         posterUrl = "poster.jpg", ahora = 1_000L, seriesRef = seriesRef, existente = existente,
+        episodiosVistosEnLista = episodiosVistosEnLista,
     )
 
     @Test fun la_temporada_entra_como_UN_item_con_todos_sus_capitulos() {
@@ -148,12 +153,34 @@ class MagisEntitiesTest {
         // Esto corre en CADA reproducción: si moviera `addedAt`, la serie saltaría al principio del
         // home cada vez que le das play a un capítulo.
         val previo = temporada().first.copy(addedAt = 500L, episodiosVistosEnLista = 4, tmdbId = 123)
-        val (item, eps) = temporada(existente = previo)
+        val (item, eps) = temporada(existente = previo, episodiosVistosEnLista = 4)
         assertEquals(500L, item.addedAt)
         assertEquals(4, item.episodiosVistosEnLista)
         assertEquals(123, item.tmdbId)
         assertEquals(3, eps.size)
         assertEquals(3, eps.map { it.id }.distinct().size)
+    }
+
+    @Test fun el_badge_lo_deja_buildSeason_en_lo_que_le_pasan_no_en_lo_que_tenia_el_existente() {
+        // Antes `buildSeason` copiaba `existente?.episodiosVistosEnLista` sin tocar, y el
+        // repositorio lo corregía después con un segundo UPDATE (`marcarEpisodiosVistos`) -- la
+        // segunda escritura que hacía recursar el trigger de sync si caía en el mismo segundo que
+        // el `upsertItem`. Ahora quien llama (el repositorio, que sí tiene la base para calcular la
+        // unión) ya le pasa el total re-sellado, y `buildSeason` solo lo guarda: si acá adentro
+        // volviera a leer `existente.episodiosVistosEnLista` en vez del parámetro, este test lo
+        // agarraría (dejaría 4, no 9).
+        val previo = temporada().first.copy(episodiosVistosEnLista = 4)
+        val (item, _) = temporada(existente = previo, episodiosVistosEnLista = 9)
+        assertEquals(9, item.episodiosVistosEnLista)
+    }
+
+    @Test fun el_badge_sigue_null_si_nunca_se_habia_sellado() {
+        // `ContadorDeNuevos.reSellar` devuelve null cuando `vistos` es null (nunca se abrió el
+        // detalle): sellarlo acá prendería el badge de novedades sobre capítulos que en realidad
+        // nunca se mostraron como "nuevos". `buildSeason` no debe inventar un valor por su cuenta.
+        val previo = temporada().first.copy(episodiosVistosEnLista = null)
+        val (item, _) = temporada(existente = previo, episodiosVistosEnLista = null)
+        assertNull(item.episodiosVistosEnLista)
     }
 
     @Test fun el_ref_de_la_temporada_manda_y_en_blanco_no_pisa_el_guardado() {

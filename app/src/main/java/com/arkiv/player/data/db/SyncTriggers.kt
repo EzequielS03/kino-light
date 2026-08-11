@@ -35,15 +35,39 @@ object SyncTriggers {
      * Los triggers. Sellan la escritura LOCAL pero **respetan un `updatedAt` explícito**, que es lo
      * que escribe el merge cuando adopta una fila del otro aparato: sellarla acá la haría parecer
      * más nueva de lo que es y las dos puntas se la rebotarían para siempre.
+     *
+     * Cada CREATE va precedido de su propio `DROP TRIGGER IF EXISTS`. Sin eso, `CREATE TRIGGER
+     * IF NOT EXISTS` no reemplaza nada: un aparato que ya abrió la base alguna vez se queda para
+     * siempre con la definición que tenía creada la primera vez, aunque el texto de acá cambie en
+     * una versión nueva de la app. Es justo lo que le pasó a `trg_items_upd`: la versión vieja
+     * sellaba con `AHORA` a secas (ver más abajo) y quedó recursando en cualquier aparato que ya
+     * la tuviera creada, hasta que se agregó este DROP. Barato: dos triggers por tabla, cuatro
+     * tablas, y esto ya corre en cada apertura (ver `ArkivDatabase.SELLAR_UPDATED_AT`).
      */
     fun ddl(): List<String> = TABLAS.flatMap { (tabla, pk) ->
         listOf(
             // INSERT local: el writer no puso reloj (quedó en 0) -> sellar.
+            "DROP TRIGGER IF EXISTS trg_${tabla}_ins",
             "CREATE TRIGGER IF NOT EXISTS trg_${tabla}_ins AFTER INSERT ON $tabla WHEN NEW.updatedAt = 0 " +
                 "BEGIN UPDATE $tabla SET updatedAt = $AHORA WHERE $pk = NEW.$pk; END",
             // UPDATE local: el writer no movió el reloj -> sellar. El merge sí lo mueve, y se salta.
+            //
+            // El sellado interno NO puede quedarse en `$AHORA` a secas: `$AHORA` tiene resolución de
+            // SEGUNDO, así que si esta fila ya tenía `updatedAt` sellado hace menos de un segundo (por
+            // ejemplo el propio INSERT de la línea de arriba, o cualquier otra escritura previa en el
+            // mismo segundo), el UPDATE de acá escribe el MISMO número. Eso deja `NEW.updatedAt =
+            // OLD.updatedAt` otra vez -> el WHEN vuelve a dar verdadero -> el trigger se dispara a sí
+            // mismo -> SQLite corta con "too many levels of trigger recursion" (crash real: guardar
+            // una temporada de Magis hace `upsertItem` seguido de un UPDATE de badge sobre la misma
+            // fila en el mismo segundo). `MAX($AHORA, OLD.updatedAt + 1)` garantiza que el valor
+            // CAMBIE siempre respecto al que ya tenía la fila -- si el reloj de segundo no avanzó,
+            // igual queda uno más que `OLD.updatedAt`, así que la recursión corta en la segunda
+            // pasada. Nunca retrocede (`MAX`, no reemplazo): `updatedAt` es el reloj del que dependen
+            // los dos merges LWW y el cursor del push, y un valor que retroceda haría que una fila
+            // deje de subir.
+            "DROP TRIGGER IF EXISTS trg_${tabla}_upd",
             "CREATE TRIGGER IF NOT EXISTS trg_${tabla}_upd AFTER UPDATE ON $tabla WHEN NEW.updatedAt = OLD.updatedAt " +
-                "BEGIN UPDATE $tabla SET updatedAt = $AHORA WHERE $pk = NEW.$pk; END",
+                "BEGIN UPDATE $tabla SET updatedAt = MAX($AHORA, OLD.updatedAt + 1) WHERE $pk = NEW.$pk; END",
         )
     }
 
