@@ -1973,6 +1973,14 @@ private fun PlayerContent(
                                                 when (e.key) {
                                                     Key.DirectionRight -> { seekBy(seekStepMs); true }
                                                     Key.DirectionLeft -> { seekBy(-seekStepMs); true }
+                                                    // OK sobre la barra alterna play/pausa. Con el foco acá el
+                                                    // centro no hacía nada, y pausar es lo más frecuente: obligaba
+                                                    // a bajar al botón y volver a subir. Se llama al MISMO
+                                                    // `togglePlayPause` que el botón para que no puedan divergir.
+                                                    // Se aceptan las dos teclas porque no todos los controles
+                                                    // remotos mandan lo mismo: los de Android TV suelen mandar
+                                                    // DPAD_CENTER y algunos (y el emulador) mandan ENTER.
+                                                    Key.DirectionCenter, Key.Enter -> { togglePlayPause(); true }
                                                     else -> false
                                                 }
                                             },
