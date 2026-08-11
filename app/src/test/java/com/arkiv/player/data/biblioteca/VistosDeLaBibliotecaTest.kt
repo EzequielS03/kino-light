@@ -91,4 +91,16 @@ class VistosDeLaBibliotecaTest {
         val g = grupo("tv:1", row("web:series:a", 10))
         assertEquals(emptyList<GrupoVisto>(), VistosDeLaBiblioteca.cruzar(listOf(g), emptyList()))
     }
+
+    // --- etiquetaDeVistos --------------------------------------------------------------------
+
+    @Test
+    fun `un solo capitulo va en singular`() {
+        assertEquals("1 capítulo visto", VistosDeLaBiblioteca.etiquetaDeVistos(1))
+    }
+
+    @Test
+    fun `mas de un capitulo va en plural`() {
+        assertEquals("3 capítulos vistos", VistosDeLaBiblioteca.etiquetaDeVistos(3))
+    }
 }

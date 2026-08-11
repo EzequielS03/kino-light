@@ -52,4 +52,8 @@ object VistosDeLaBiblioteca {
             )
         }.sortedByDescending { it.ultimoVistoMs }
     }
+
+    /** "1 capítulo visto" / "3 capítulos vistos". Singular a mano: sin esto, uno solo decía "1 capítulos vistos". */
+    fun etiquetaDeVistos(capitulos: Int): String =
+        if (capitulos == 1) "1 capítulo visto" else "$capitulos capítulos vistos"
 }
