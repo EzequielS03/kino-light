@@ -194,14 +194,20 @@ Reglas:
    (Daima declara 20, Breaking Bad T5 declara 16; los dos calzan con TMDB). Se enriquece solo si ese
    total coincide con la cantidad de capítulos de la temporada en TMDB.
 
-   Comparar el total declarado y no la cantidad de capítulos publicados es lo que hace que la regla
-   sirva en los dos casos a la vez:
+   Comparar el total declarado y no la cantidad de capítulos publicados importa para el caso de
+   **una temporada en emisión**: declara 20 y tiene 8 publicados → coincide con TMDB → se enriquecen
+   esos 8. Comparar cantidades reales acá dejaría sin imágenes justo a lo que se está estrenando, que
+   es lo que más se mira.
 
-   - **One Piece "Temp.1"**: declara 8 donde TMDB tiene 61 → no coinciden → no se enriquece. El
-     portal partió la serie de otra manera y cruzar por número pondría imágenes que no corresponden.
-   - **Una temporada en emisión**: declara 20 y tiene 8 publicados → coincide con TMDB → se
-     enriquecen esos 8. Comparar cantidades reales acá dejaría sin imágenes justo a lo que se está
-     estrenando, que es lo que más se mira.
+   **Corrección de un supuesto (medido en vivo el 2026-08-11):** este guard se justificó con "One
+   Piece Temp.1 trae 8 capítulos y TMDB tiene 61". **Es falso.** El `keyWords` de esa entrada es
+   `tt11737520`, o sea el One Piece **live-action de Netflix**, cuya temporada 1 tiene exactamente 8
+   episodios — se enriquece correcto. El error fue mío: asumí que era el anime porque el título no lo
+   distingue. Es justamente lo que el ID de IMDb resuelve y una búsqueda por título no.
+
+   O sea que hoy el guard **no se dispara en ningún caso real conocido**, y queda como red de
+   seguridad barata: si algún día el portal publica una temporada cuya numeración no es la de TMDB,
+   se prefiere no enriquecer antes que poner imágenes equivocadas.
 
    Si el portal no declara total (`volumnCount` ausente o 0), se cae a comparar la cantidad real de
    capítulos contra la de TMDB.
