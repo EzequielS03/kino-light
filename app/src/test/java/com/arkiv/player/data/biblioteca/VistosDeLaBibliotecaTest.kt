@@ -28,12 +28,15 @@ class VistosDeLaBibliotecaTest {
 
     @Test
     fun `el conteo del grupo es el maximo entre fuentes, no la suma`() {
-        // Misma serie por dos fuentes: 12 y 10 capítulos vistos. Son copias alternativas del MISMO
-        // contenido, así que sumarlas (22) mentiría igual que sumaba 794 episodios de Naruto.
+        // Misma serie por dos fuentes: 10 y 12 capítulos vistos. El 10 va PRIMERO a propósito: si
+        // el cálculo fuera `first()` en lugar de `maxOf`, el test daría 10 y fallaría, así que sí
+        // distingue una implementación de la otra (con el 12 primero, ambas dan el mismo resultado
+        // y el test no prueba nada). Son copias alternativas del MISMO contenido, así que sumarlas
+        // (22) mentiría igual que sumaba 794 episodios de Naruto.
         val g = grupo("tv:46260", row("web:series:a", 24), row("torrent:series:a", 24))
         val vistos = listOf(
-            VistoDeItem("web:series:a", episodios = 12, ultimoVistoMs = 100L),
-            VistoDeItem("torrent:series:a", episodios = 10, ultimoVistoMs = 50L),
+            VistoDeItem("web:series:a", episodios = 10, ultimoVistoMs = 100L),
+            VistoDeItem("torrent:series:a", episodios = 12, ultimoVistoMs = 50L),
         )
         val r = VistosDeLaBiblioteca.cruzar(listOf(g), vistos)
         assertEquals(1, r.size)
