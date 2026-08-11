@@ -60,6 +60,7 @@ fun SettingsScreen(contentPadding: PaddingValues) {
     val downloadQuality by settings.downloadQuality.collectAsStateWithLifecycle()
     val maxSizeGb by settings.maxTorrentSizeGb.collectAsStateWithLifecycle()
     val webQuality by settings.webQuality.collectAsStateWithLifecycle()
+    val liveSignRemote by settings.liveSignRemote.collectAsStateWithLifecycle()
     val subStyle by graph.subtitlePrefs.style.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
@@ -126,6 +127,8 @@ fun SettingsScreen(contentPadding: PaddingValues) {
         WebQualitySection(webQuality, ::setWebQuality)
 
         MaxSizeSection(maxSizeGb, settings::setMaxTorrentSizeGb)
+
+        LiveSignSection(liveSignRemote, settings::setLiveSignRemote)
 
         SubtitleSection(subStyle, ::setStyle)
 
@@ -201,6 +204,27 @@ private fun MaxSizeSection(selectedGb: Int, onSelect: (Int) -> Unit) {
         listOf(8 to "8 GB", 15 to "15 GB", 21 to "21 GB", 30 to "30 GB", 0 to "Sin límite").forEach { (gb, label) ->
             Chip(label, selectedGb == gb) { onSelect(gb) }
         }
+    }
+}
+
+@Composable
+private fun LiveSignSection(remote: Boolean, onSelect: (Boolean) -> Unit) {
+    Text(
+        "TV en vivo",
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.padding(top = 24.dp, bottom = 4.dp),
+    )
+    Text(
+        "Normalmente el celular firma los segmentos solo, sin ida y vuelta al servidor. " +
+            "\"Forzar servidor\" fuerza el camino de respaldo aunque el CDN no esté rechazando " +
+            "nada — sirve para comprobar de vez en cuando que ese camino sigue andando.",
+        style = MaterialTheme.typography.bodySmall,
+        color = ArkivTextSecondary,
+        modifier = Modifier.padding(bottom = 8.dp),
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Chip("Automático", !remote) { onSelect(false) }
+        Chip("Forzar servidor", remote) { onSelect(true) }
     }
 }
 
