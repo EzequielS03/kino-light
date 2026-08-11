@@ -133,6 +133,8 @@ import com.arkiv.player.cast.CastProgress
 import com.arkiv.player.data.model.Episode
 import com.arkiv.player.dlna.DlnaDevice
 import com.arkiv.player.ui.tv.TvEpisodeChip
+import com.arkiv.player.ui.tv.library.SAFE_H
+import com.arkiv.player.ui.tv.library.SAFE_V
 import com.arkiv.player.playback.LoadedMedia
 import com.arkiv.player.playback.MediaReusePolicy
 import com.arkiv.player.playback.NowPlaying
@@ -1738,7 +1740,18 @@ private fun PlayerContent(
                     .onPreviewKeyEvent { e ->
                         if (e.type == KeyEventType.KeyDown) interactionTick++
                         false
-                    },
+                    }
+                    // Zona segura del TV. Va DESPUÉS del `background` a propósito: el degradado
+                    // sigue pintando de borde a borde (es el velo que hace legibles los controles
+                    // sobre el video) y el padding solo mete para adentro el contenido.
+                    //
+                    // No es gusto: un TV recorta el borde de la imagen (overscan) y cuánto recorta
+                    // depende del aparato. Medido en el Fire Stick, el título quedaba a 16 dp del
+                    // canto izquierdo, la duración a 15 dp del derecho y la fila de transporte a
+                    // 17 dp del borde inferior — o sea, lo primero que un TV con overscan se come.
+                    // Se reusan las constantes de la biblioteca del TV para no tener dos números
+                    // que signifiquen lo mismo y se desincronicen.
+                    .then(if (isTv) Modifier.padding(horizontal = SAFE_H, vertical = SAFE_V) else Modifier),
             ) {
                 // Barra superior: atrás (teléfono) + título + marcadores/CC/cast.
                 Row(
