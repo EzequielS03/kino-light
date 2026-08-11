@@ -55,6 +55,12 @@ data class VistoRow(
     val ultimoVistoMs: Long,
 )
 
+/** Cuándo se reprodujo por última vez algo de un ítem, para ordenar la biblioteca. */
+data class UltimaReproduccionRow(
+    val itemId: String,
+    val ultimaMs: Long,
+)
+
 data class LibraryRow(
     val identifier: String,
     val title: String,
@@ -245,6 +251,29 @@ interface PlaybackDao {
         """
     )
     fun observeVistos(): Flow<List<VistoRow>>
+
+    /**
+     * Cuándo se reprodujo por última vez CUALQUIER capítulo de cada ítem, para el orden de la
+     * biblioteca (ver [com.arkiv.player.data.biblioteca.OrdenDeBiblioteca]).
+     *
+     * Gemela de [observeVistos] pero SIN el filtro `watched = 1`: acá cuenta igual el capítulo
+     * terminado que el que quedó a medias. Si solo contara lo terminado, una serie que estás viendo
+     * ahora mismo no subiría hasta que termines el capítulo; si solo contara lo de a medias, se caería
+     * del tope justo al terminarlo.
+     *
+     * NO hace `JOIN items`: el filtro por ítem vivo lo aplica quien cruza este mapa contra la
+     * biblioteca, que ya excluye los borrados. Mismo criterio que [observeVistos].
+     */
+    @Query(
+        """
+        SELECT e.itemId AS itemId, MAX(p.lastPlayedAt) AS ultimaMs
+        FROM playback p
+        JOIN episodes e ON e.id = p.episodeId
+        WHERE p.deleted = 0 AND e.deleted = 0
+        GROUP BY e.itemId
+        """
+    )
+    fun observeUltimaReproduccion(): Flow<List<UltimaReproduccionRow>>
 
     @Query("SELECT * FROM playback WHERE episodeId IN (SELECT id FROM episodes WHERE itemId = :itemId)")
     fun observePlaybackForItem(itemId: String): Flow<List<PlaybackEntity>>
