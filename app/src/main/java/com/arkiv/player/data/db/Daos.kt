@@ -511,3 +511,15 @@ interface RecentTitleDao {
     @Query("DELETE FROM recent_titles WHERE id NOT IN (SELECT id FROM recent_titles ORDER BY atMs DESC LIMIT :keep)")
     suspend fun trim(keep: Int)
 }
+
+@Dao
+interface EpisodeFrameDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(frame: EpisodeFrameEntity)
+
+    @Query("SELECT * FROM episode_frame WHERE episodeId = :episodeId AND deleted = 0")
+    suspend fun get(episodeId: String): EpisodeFrameEntity?
+
+    @Query("DELETE FROM episode_frame WHERE episodeId = :episodeId")
+    suspend fun borrar(episodeId: String)
+}

@@ -251,3 +251,20 @@ data class EpisodeStillEntity(
      */
     val overview: String? = null,
 )
+
+/**
+ * El frame capturado de un capítulo. El JPEG NO está acá: vive en `filesDir/frames/` (ver
+ * [com.arkiv.player.miniaturas.AlmacenDeFrames]) y esta fila es el índice.
+ *
+ * `updatedAt` y `deleted` existen desde el día uno aunque la fase 1 no sincronice: son el reloj y
+ * el tombstone que va a usar la fase 2, y agregarlos después obligaría a otra migración.
+ */
+@Entity(tableName = "episode_frame")
+data class EpisodeFrameEntity(
+    @PrimaryKey val episodeId: String,
+    /** De qué punto del capítulo es el frame. */
+    val positionMs: Long,
+    val capturedAt: Long,
+    val updatedAt: Long = 0,
+    val deleted: Int = 0,
+)
