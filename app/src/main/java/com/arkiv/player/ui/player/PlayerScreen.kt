@@ -134,6 +134,8 @@ import com.arkiv.player.data.model.Episode
 import com.arkiv.player.dlna.DlnaDevice
 import com.arkiv.player.ui.settings.etiqueta
 import com.arkiv.player.ui.tv.TvEpisodeChip
+import com.arkiv.player.ui.tv.library.SAFE_H
+import com.arkiv.player.ui.tv.library.SAFE_V
 import com.arkiv.player.playback.LoadedMedia
 import com.arkiv.player.playback.MediaReusePolicy
 import com.arkiv.player.playback.NowPlaying
@@ -1822,7 +1824,18 @@ private fun PlayerContent(
                     .onPreviewKeyEvent { e ->
                         if (e.type == KeyEventType.KeyDown) interactionTick++
                         false
-                    },
+                    }
+                    // Zona segura del TV. Va DESPUÉS del `background` a propósito: el degradado
+                    // sigue pintando de borde a borde (es el velo que hace legibles los controles
+                    // sobre el video) y el padding solo mete para adentro el contenido.
+                    //
+                    // No es gusto: un TV recorta el borde de la imagen (overscan) y cuánto recorta
+                    // depende del aparato. Medido en el Fire Stick, el título quedaba a 16 dp del
+                    // canto izquierdo, la duración a 15 dp del derecho y la fila de transporte a
+                    // 17 dp del borde inferior — o sea, lo primero que un TV con overscan se come.
+                    // Se reusan las constantes de la biblioteca del TV para no tener dos números
+                    // que signifiquen lo mismo y se desincronicen.
+                    .then(if (isTv) Modifier.padding(horizontal = SAFE_H, vertical = SAFE_V) else Modifier),
             ) {
                 // Barra superior: atrás (teléfono) + título + marcadores/CC/cast.
                 Row(
@@ -1953,7 +1966,11 @@ private fun PlayerContent(
                             modifier = Modifier
                                 .align(Alignment.TopStart)
                                 .systemBarsPadding()
-                                .padding(top = 56.dp, start = 16.dp, end = 16.dp),
+                                // Sin `top`: antes reservaba 56 dp para no pisar la barra superior
+                                // de iconos, pero esa barra está entera detrás de `!isTv` — en TV
+                                // no dibuja nada. Con la zona segura del contenedor (SAFE_V) esos
+                                // 56 dp se sumaban y el título quedaba hundido a ~100 dp del canto.
+                                .padding(start = 16.dp, end = 16.dp),
                         ) {
                             Text(
                                 info.itemTitle,
@@ -2040,6 +2057,14 @@ private fun PlayerContent(
                                                 when (e.key) {
                                                     Key.DirectionRight -> { seekBy(seekStepMs); true }
                                                     Key.DirectionLeft -> { seekBy(-seekStepMs); true }
+                                                    // OK sobre la barra alterna play/pausa. Con el foco acá el
+                                                    // centro no hacía nada, y pausar es lo más frecuente: obligaba
+                                                    // a bajar al botón y volver a subir. Se llama al MISMO
+                                                    // `togglePlayPause` que el botón para que no puedan divergir.
+                                                    // Se aceptan las dos teclas porque no todos los controles
+                                                    // remotos mandan lo mismo: los de Android TV suelen mandar
+                                                    // DPAD_CENTER y algunos (y el emulador) mandan ENTER.
+                                                    Key.DirectionCenter, Key.Enter -> { togglePlayPause(); true }
                                                     else -> false
                                                 }
                                             },
