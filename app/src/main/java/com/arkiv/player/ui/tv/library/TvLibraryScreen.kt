@@ -23,7 +23,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
@@ -178,7 +177,7 @@ fun TvLibraryScreen(
                         titulo = seccion.etiqueta,
                         conteo = filtrados.size,
                         grupos = filtrados,
-                        subtituloDe = { g -> if (g.primary.isMovie) null else "${g.episodeCount} ep." },
+                        subtituloDe = { g -> subtituloDeSerie(g) },
                         vacio = "Todavía no guardaste nada acá.\nBuscá algo y dale Guardar.",
                         onClick = ::abrir,
                         onLongClick = { menuDe = it },
@@ -193,7 +192,7 @@ fun TvLibraryScreen(
             grupo = grupo,
             onOpenDetail = { onOpenItem(grupo.key); menuDe = null },
             onSetCategory = { isMovie -> vm.setCategory(grupo.primary.identifier, isMovie); menuDe = null },
-            onQuitar = { vm.quitar(grupo.primary.identifier); menuDe = null },
+            onQuitar = { vm.quitarGrupo(grupo); menuDe = null },
             onDismiss = { menuDe = null },
         )
     }
@@ -228,6 +227,22 @@ private fun TvMenuItem(
                 .padding(start = SAFE_H, top = 14.dp, end = 20.dp, bottom = 14.dp),
         )
     }
+}
+
+/**
+ * "24 ep." o "24 ep.  ·  +3 nuevos" si hay capítulos nuevos desde la última vez que se abrió el
+ * detalle. Null para películas, que no tienen capítulos.
+ *
+ * Se reusa el `subtitle` de [TvPosterCard] en lugar de un badge sobre la carátula (como el "+N" de
+ * [com.arkiv.player.ui.tv.TvLandscapeCard] en el home) porque esta grilla es la única consumidora
+ * de `nuevos` que queda tras borrarse la fila de Series del home (commit f1a9dbbd): agregar un
+ * segundo lugar donde pintar un badge —con su propio hueco en la carátula y su franja de color—
+ * es más superficie para una sola pantalla, cuando el subtítulo ya existe y tiene lugar de sobra.
+ */
+private fun subtituloDeSerie(grupo: LibraryGroup): String? {
+    if (grupo.primary.isMovie) return null
+    val base = "${grupo.episodeCount} ep."
+    return if (grupo.nuevos > 0) "$base  ·  +${grupo.nuevos} nuevos" else base
 }
 
 /**
@@ -323,14 +338,18 @@ private fun TvLibraryItemDialog(
             )
             if (confirmarQuitar) {
                 Text(
-                    "Se quita de tu biblioteca en todos tus aparatos. Los archivos ya descargados en este aparato NO se borran: eso se hace desde Descargas.",
+                    "Se quita de tu biblioteca en todos tus aparatos. Si tenías capítulos descargados en este aparato y querés liberar espacio, borralos desde Descargas ANTES de confirmar: una vez que la quitás de acá, esos archivos quedan en el aparato pero ya no vas a poder borrarlos desde la app.",
                     style = MaterialTheme.typography.bodySmall,
                     color = ArkivTextSecondary,
                 )
-                Button(onClick = onQuitar, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth().focusRequester(focus)) {
+                Button(onClick = onQuitar, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
                     Text("Sí, quitar de mi biblioteca", maxLines = 1)
                 }
-                Button(onClick = { confirmarQuitar = false }, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
+                // El foco cae acá y NO en el botón de arriba: con el control remoto es normal que
+                // un doble OK le llegue a la UI un frame después de lo que el usuario ve, y si el
+                // foco arrancara en el botón destructivo ese doble OK lo dispara sin que nadie
+                // llegue a leer la advertencia.
+                Button(onClick = { confirmarQuitar = false }, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth().focusRequester(focus)) {
                     Text("Cancelar", maxLines = 1)
                 }
             } else {

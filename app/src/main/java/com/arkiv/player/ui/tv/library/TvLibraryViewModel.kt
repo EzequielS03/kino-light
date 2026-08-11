@@ -35,14 +35,18 @@ class TvLibraryViewModel(private val repo: ArkivRepository) : ViewModel() {
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
-     * Saca el ítem de la biblioteca. Es soft-delete (ver `ArkivRepository.removeItem`), así que el
-     * borrado viaja por el sync y no reaparece desde el otro dispositivo.
+     * Saca TODOS los miembros del grupo de la biblioteca (soft-delete, ver `ArkivRepository.removeItem`),
+     * no solo `primary`.
      *
-     * NO borra los archivos ya descargados al dispositivo: eso se hace desde la sección Descargas.
-     * El diálogo que llama a esto lo dice explícitamente.
+     * La grilla dibuja grupos (`LibraryGroup`), pero `removeItem` opera fila por fila. Si una serie
+     * está guardada desde dos fuentes (p. ej. los 4 Naruto agrupados en `tv:46260`), borrar solo
+     * `primary` deja viva la peor copia y la tarjeta sigue en pantalla: el texto de confirmación
+     * promete "se quita en todos tus aparatos" y con un solo miembro no lo cumple.
      */
-    fun quitar(itemId: String) {
-        viewModelScope.launch { repo.removeItem(itemId) }
+    fun quitarGrupo(grupo: LibraryGroup) {
+        viewModelScope.launch {
+            grupo.members.forEach { repo.removeItem(it.identifier) }
+        }
     }
 
     /** Película <-> serie a mano, cuando la detección automática se equivoca. Null = automática. */
