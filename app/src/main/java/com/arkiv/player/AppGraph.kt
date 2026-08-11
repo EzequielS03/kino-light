@@ -74,6 +74,16 @@ class AppGraph(context: Context) {
         )
     }
 
+    /** Cliente del gateway para el canal en vivo: mismos baseUrl/apiKey/accountId que [arkivApiClient]. */
+    val liveApi: com.arkiv.player.data.gateway.LiveApi by lazy {
+        com.arkiv.player.data.gateway.LiveApi(
+            baseUrl = { settings.gatewayUrl.value },
+            apiKey = { settings.arkivApiKey.value },
+            http = okhttp3.OkHttpClient(),
+            magisAccountId = { deviceAuth.session.value?.accountId },
+        )
+    }
+
     /** Chequeo inmediato de OTA: llamado por [com.arkiv.player.data.update.UpdateWorker] y al arrancar la app. */
     suspend fun checkForUpdate() {
         val info = updateChecker.check(BuildConfig.VERSION_CODE)
