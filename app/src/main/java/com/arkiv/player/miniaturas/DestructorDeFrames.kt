@@ -24,11 +24,21 @@ class DestructorDeFrames(
     private val ahora: () -> Long = { System.currentTimeMillis() },
 ) {
     /**
-     * Se puede llamar incondicionalmente, sin preguntar antes si el frame existe: tanto
-     * `AlmacenDeFrames.borrar` (usa `File.delete()`, no lanza si no hay archivo) como el `upsert`
-     * de más abajo (crea la fila si no existía) son seguros de invocar de más.
+     * Se puede (y hay que poder) llamar de más sin preguntar antes si el frame existe:
+     * `savePlayback` la dispara en CADA tick del reproductor (cada ~5 s, mientras `watched` siga
+     * en `true`) sin ninguna guarda propia, así que esto se repite muchas veces por capítulo.
      *
-     * El archivo se borra de verdad, pero la FILA no: se deja tombstone (`deleted = 1`,
+     * `AlmacenDeFrames.borrar` (usa `File.delete()`, no lanza si no hay archivo) siempre fue
+     * segura de invocar de más, y sigue corriendo en cada llamada. La FILA ya NO: escribir el
+     * tombstone en cada llamada pisaría `updatedAt` con el reloj local en cada tick, y como el
+     * loop de push mira `updatedAt > cursor` para decidir qué empujar, eso mandaría la misma fila
+     * a PocketBase cada ~5 s sostenidos durante todo el resto del capítulo — nada de esto es un
+     * caso borde, es el camino más común (ver más abajo). Por eso se lee la fila primero
+     * ([EpisodeFrameDao.getIncluyendoBorradas], que ve también los tombstones) y si YA es
+     * tombstone (`deleted == 1`) no se toca: el sello (`upsert` con `updatedAt` nuevo) pasa UNA
+     * sola vez, la que hace la transición de vivo a borrado.
+     *
+     * El archivo se borra de verdad, pero la FILA no desaparece: se deja tombstone (`deleted = 1`,
      * `updatedAt` nuevo) en vez de un `DELETE`, para que el borrado viaje por el sync — una fila
      * que desaparece de Room no tiene nada que empujar a PocketBase ni forma de ganarle el LWW a
      * una copia remota vieja. `positionMs`/`capturedAt` quedan en 0 y `remoteUrl` en null a
@@ -37,7 +47,12 @@ class DestructorDeFrames(
      * pisarla, para un dato que no se usa.
      */
     suspend fun destruir(episodeId: String) {
+        // Se borra el archivo SIEMPRE, incluso si la fila ya es tombstone: puede haber quedado un
+        // JPEG huérfano (p. ej. una captura que corrió justo antes de que el tombstone llegara por
+        // sync desde otro dispositivo).
         almacen?.borrar(episodeId)
+        val actual = dao.getIncluyendoBorradas(episodeId)
+        if (actual?.deleted == 1) return // ya sellado: no reescribir updatedAt de nuevo
         dao.upsert(
             EpisodeFrameEntity(
                 episodeId = episodeId,
@@ -48,6 +63,21 @@ class DestructorDeFrames(
                 remoteUrl = null,
             )
         )
+    }
+
+    /**
+     * Borra SOLO el archivo, sin tocar la fila de Room.
+     *
+     * Único uso pensado: `CloudSyncManager.mergeFrame` cuando un tombstone remoto gana el LWW. Ahí
+     * la fila YA quedó escrita por el `upsert` de la fila remota, con el `updatedAt` que trajo el
+     * servidor — llamar a [destruir] encima la volvería a pisar con el reloj LOCAL, inflando el
+     * timestamp del borrado muy por encima del real (con el riesgo de perder, contra ese
+     * timestamp inflado, una actualización legítima de un tercer dispositivo que todavía no
+     * llegó) y generando un push de eco extra. Lo único que falta hacer ahí es lo que ese `upsert`
+     * no hace: borrar el JPEG viejo del disco.
+     */
+    suspend fun borrarArchivo(episodeId: String) {
+        almacen?.borrar(episodeId)
     }
 
     /**

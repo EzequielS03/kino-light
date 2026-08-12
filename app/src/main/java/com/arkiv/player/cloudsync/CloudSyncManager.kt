@@ -342,7 +342,13 @@ class CloudSyncManager(
         val local = episodeFrameDao.getIncluyendoBorradas(episodeId)
         if (!LwwMerge.pickWinner(local?.updatedAt ?: 0L, remoteUpdatedAt)) return false
         episodeFrameDao.upsert(recordToFrame(json, PocketBaseConfig.BASE_URL))
-        if (json.optInt("deleted") == 1) destructorDeFrames.destruir(episodeId)
+        // OJO: NO destructorDeFrames.destruir(episodeId) acá. El upsert de arriba ya dejó la fila
+        // bien sellada con el updatedAt REMOTO (el que ganó el LWW); destruir() la volvería a
+        // pisar con el reloj LOCAL, inflando el timestamp del borrado por encima del real —con
+        // riesgo de perder, contra ese timestamp inflado, una actualización legítima de un tercer
+        // dispositivo que todavía no llegó— y generando un push de eco extra. Lo único que falta
+        // acá es lo que ese upsert no hace: borrar el JPEG viejo del disco.
+        if (json.optInt("deleted") == 1) destructorDeFrames.borrarArchivo(episodeId)
         return true
     }
 }

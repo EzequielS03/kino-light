@@ -529,12 +529,17 @@ interface EpisodeFrameDao {
     suspend fun get(episodeId: String): EpisodeFrameEntity?
 
     /**
-     * Igual que [get] pero SIN el filtro `deleted = 0`: existe solo para el LWW de
-     * `CloudSyncManager.mergeFrame`. Si ese merge usara [get], un tombstone local (creado por
-     * `DestructorDeFrames.destruir`) se vería como fila INEXISTENTE, el LWW compararía el
-     * `updatedAt` remoto contra 0, el remoto ganaría siempre, y un frame que este dispositivo
-     * borró resucitaría en el siguiente sync. No la uses para otra cosa: el resto de los
-     * callers SÍ quiere que una fila borrada cuente como "no hay frame".
+     * Igual que [get] pero SIN el filtro `deleted = 0`: hace falta en los dos únicos lugares que
+     * necesitan VER un tombstone en vez de tratarlo como fila inexistente:
+     * - `CloudSyncManager.mergeFrame`, para el LWW: si usara [get], un tombstone local (creado por
+     *   `DestructorDeFrames.destruir`) se vería como fila INEXISTENTE, el LWW compararía el
+     *   `updatedAt` remoto contra 0, el remoto ganaría siempre, y un frame que este dispositivo
+     *   borró resucitaría en el siguiente sync.
+     * - `DestructorDeFrames.destruir`, para ser idempotente: necesita saber si la fila YA es
+     *   tombstone (y no reescribirla) o si recién ahora pasa de viva a borrada.
+     *
+     * No la uses para otra cosa: el resto de los callers SÍ quiere que una fila borrada cuente
+     * como "no hay frame".
      */
     @Query("SELECT * FROM episode_frame WHERE episodeId = :episodeId")
     suspend fun getIncluyendoBorradas(episodeId: String): EpisodeFrameEntity?
