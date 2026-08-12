@@ -107,6 +107,23 @@ Corta la sesión y vuelve a la pantalla de entrada. **Ya no se re-bootstrapea un
 El dueño pone `estado = revocada`. En el próximo pedido —a lo sumo un minuto después, ver el TTL de
 caché— todos los aparatos de esa persona reciben 403 y vuelven a la pantalla de entrada.
 
+### Qué hace la app cuando el gateway la rechaza
+
+Regla general: **cualquier rechazo de identidad manda a la pantalla de entrada**, se corta la sesión
+local y hay que volver a entrar. Cubre licencia revocada, token vencido, aparato sacado desde "Mis
+aparatos" y cuenta borrada — desde la app son el mismo hecho: esta sesión ya no vale.
+
+Hay que separarlo de **no poder hablar con el backend**, que NO es un rechazo:
+
+| Qué pasó | Qué ve la persona |
+|---|---|
+| 401 / 403 del gateway | Vuelve a la pantalla de entrada, sesión cortada. |
+| Sin red, 5xx, timeout | Aviso de "no se pudo conectar" con reintentar. **No** se corta la sesión. |
+
+La distinción importa porque mandarlo a la pantalla de entrada cuando el backend está caído lo
+dejaría en un callejón: la pantalla de entrada tampoco puede funcionar sin backend, y encima habría
+perdido la sesión que tenía.
+
 ## Gateway (`arkiv-api`)
 
 La app manda el **token de PocketBase** en cada pedido. `require_key` se reemplaza por
