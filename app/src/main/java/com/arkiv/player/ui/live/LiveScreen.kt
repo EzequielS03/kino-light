@@ -308,20 +308,15 @@ fun LiveScreen(
  * "¿Dónde querés ver <canal>?" -- mismo patrón que el diálogo de destino de VOD (`playChoice` en
  * `ArkivRoot`), pero con una tercera opción propia del vivo.
  *
- * El Chromecast queda deshabilitado ACÁ A PROPÓSITO -- no porque no se pueda castear un canal en
- * vivo (Tarea 18: sí se puede, con prevalidación real del audio), sino porque ACÁ TODAVÍA no hay
- * reproductor local abierto -el usuario está eligiendo destino ANTES de reproducir nada- así que no
- * hay de dónde leer el códec del canal (`vlc.currentAudioFormat()`) para decidir si hace falta
- * transcodificar (ver `CastAudioSupport`/`CastTranscoder`, y el KDoc de `castRequestFor` en
- * `PlayerScreen`). Ofrecer el botón igual, mudo en los canales con AC-3/DTS que el Chromecast no
- * decodifica, es exactamente lo que el brief original (Tarea 15) pedía evitar: "es preferible una
- * opción honestamente deshabilitada a una que falla en silencio".
- *
- * VOD tiene el MISMO diálogo de destino y TAMPOCO ofrece Chromecast acá -- por el mismo motivo
- * (ver el comentario en `ArkivRoot`: "Chromecast/DLNA siguen disponibles dentro del player"). El
- * camino real es reproducir el canal ("Este teléfono") y castear DESDE AHÍ con el botón de
- * Chromecast del reproductor, donde el canal ya está sonando y esa lectura sí existe -- el texto de
- * abajo lo dice así, en vez de insinuar que el vivo no puede castear.
+ * Este diálogo NO ofrece Chromecast (ni VOD lo ofrece en el suyo, por el mismo motivo -- ver el
+ * comentario en `ArkivRoot`: "Chromecast/DLNA siguen disponibles dentro del player"): acá todavía
+ * no hay reproductor local abierto -el usuario está eligiendo destino ANTES de reproducir nada-
+ * así que no hay de dónde leer el códec del canal (`vlc.currentAudioFormat()`) para decidir si
+ * hace falta transcodificar (ver `CastAudioSupport`/`CastTranscoder`, y el KDoc de
+ * `castRequestFor` en `PlayerScreen`). El camino real es reproducir el canal ("Este teléfono") y
+ * castear DESDE AHÍ con el botón de Chromecast del reproductor (Tarea 18), donde el canal ya está
+ * sonando y esa lectura sí existe -- el reproductor ya trae Chromecast y DLNA una vez adentro, no
+ * hace falta duplicarlos acá.
  */
 @Composable
 private fun DestinoDialog(
@@ -351,20 +346,6 @@ private fun DestinoDialog(
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(containerColor = ArkivRed, contentColor = Color.White),
                 ) { Text("Este teléfono") }
-                Column {
-                    Button(
-                        onClick = {},
-                        enabled = false,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Chromecast") }
-                    Text(
-                        "Reproducí el canal y casteá desde ahí: recién con el canal sonando " +
-                            "sabemos si tu Chromecast le entiende el audio.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = ArkivTextSecondary,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                }
                 TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Cancelar") }
             }
         }

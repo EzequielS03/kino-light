@@ -158,6 +158,7 @@ import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurface
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 import com.google.android.gms.cast.framework.CastButtonFactory
+import com.google.android.gms.cast.framework.CastContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -696,6 +697,20 @@ private fun PlayerContent(
     var dlnaDevices by remember { mutableStateOf<List<DlnaDevice>>(emptyList()) }
     var dlnaActive by remember { mutableStateOf<DlnaDevice?>(null) }
     var dlnaPaused by remember { mutableStateOf(false) }
+
+    // Arranca la búsqueda DLNA y abre el picker. Un solo lambda para VOD y vivo: ambos bloques de
+    // controles (Row de arriba y Row del modo vivo) lo disparan igual, la única diferencia entre
+    // ambos es el resto del Row que lo rodea (título/marcadores en VOD, badge "EN VIVO" en vivo).
+    val onDlnaDiscover: () -> Unit = {
+        dlnaPickerOpen = true
+        dlnaDiscovering = true
+        dlnaDevices = emptyList()
+        scope.launch {
+            val found = withContext(Dispatchers.IO) { dlna.discover() }
+            dlnaDevices = found
+            dlnaDiscovering = false
+        }
+    }
 
     val d = playlist?.items?.getOrNull(currentIndex)
     val isTorrent = d?.kind == SourceKind.TORRENT
@@ -2104,36 +2119,15 @@ private fun PlayerContent(
                     }
                     // (El botón CC/audio del teléfono se movió abajo a la derecha, junto a la fila
                     // de transporte; en TV siempre estuvo en la fila de íconos inferior.)
-                    // DLNA + Chromecast (solo teléfono).
+                    // DLNA + Chromecast (solo teléfono). Botones compartidos con el modo vivo, ver
+                    // `DlnaCastButtons`.
                     if (!isTv) {
-                        // Casteando no: DLNA es OTRO renderer. Elegir uno con la sesión de
-                        // Chromecast viva deja dos TVs reproduciendo a la vez, y como
-                        // `dlnaActive != null` esconde el overlay entero de controles, el cast se
-                        // queda sin forma de manejarse desde la app. (El botón de Chromecast de
-                        // abajo sí queda visible: es el único camino para cortar la sesión.)
-                        if (!casting) IconButton(onClick = {
-                            dlnaPickerOpen = true
-                            dlnaDiscovering = true
-                            dlnaDevices = emptyList()
-                            scope.launch {
-                                val found = withContext(Dispatchers.IO) { dlna.discover() }
-                                dlnaDevices = found
-                                dlnaDiscovering = false
-                            }
-                        }) {
-                            Icon(Icons.Default.Tv, contentDescription = "Reproducir en TV (DLNA)", tint = Color.White)
-                        }
-                        if (castContext != null) {
-                            AndroidView(
-                                modifier = Modifier.padding(horizontal = 8.dp),
-                                factory = { ctx ->
-                                    val themed = ContextThemeWrapper(ctx, androidx.appcompat.R.style.Theme_AppCompat_DayNight)
-                                    MediaRouteButton(themed).also {
-                                        CastButtonFactory.setUpMediaRouteButton(ctx.applicationContext, it)
-                                    }
-                                },
-                            )
-                        }
+                        // Nota propia de este Row: como `dlnaActive != null` esconde el overlay
+                        // entero de controles (visible = ... && dlnaActive == null más arriba), el
+                        // cast se queda sin forma de manejarse desde la app si DLNA está activo. Por
+                        // eso el botón de Chromecast de abajo sí queda visible pase lo que pase: es
+                        // el único camino para cortar la sesión.
+                        DlnaCastButtons(casting = casting, castContext = castContext, onDiscoverDlna = onDlnaDiscover)
                     }
                 }
 
@@ -2547,40 +2541,16 @@ private fun PlayerContent(
                     )
                 }
                 Spacer(Modifier.weight(1f))
-                // Tarea 18: DLNA + Chromecast del vivo -- mismos íconos y mismo diálogo
-                // (dlnaPickerOpen/dlnaDevices/etc son estado único de toda la pantalla) que ya usa
-                // VOD más arriba, solo que colgados de ESTE Row porque el bloque VOD está oculto
-                // acá (visible=!enVivo). Se ofrece DESDE EL REPRODUCTOR, no en el diálogo previo de
+                // Tarea 18: DLNA + Chromecast del vivo -- mismos botones que VOD (dlnaPickerOpen/
+                // dlnaDevices/etc son estado único de toda la pantalla), ver `DlnaCastButtons`,
+                // solo que colgados de ESTE Row porque el bloque VOD está oculto acá
+                // (visible=!enVivo). Se ofrece DESDE EL REPRODUCTOR, no en el diálogo previo de
                 // LiveScreen: recién con el canal sonando hay audio real que leerle a
                 // CastAudioSupport (ver el KDoc de castRequestFor) -- antes de reproducir no hay de
                 // dónde sacar esa lectura, ni para vivo ni para VOD (VOD tampoco ofrece cast en su
                 // propio diálogo de destino, por el mismo motivo).
                 if (!isTv) {
-                    // Casteando no: DLNA es OTRO renderer, y mezclar los dos deja dos TVs
-                    // reproduciendo el mismo canal a la vez (mismo criterio que el Row de VOD).
-                    if (!casting) IconButton(onClick = {
-                        dlnaPickerOpen = true
-                        dlnaDiscovering = true
-                        dlnaDevices = emptyList()
-                        scope.launch {
-                            val found = withContext(Dispatchers.IO) { dlna.discover() }
-                            dlnaDevices = found
-                            dlnaDiscovering = false
-                        }
-                    }) {
-                        Icon(Icons.Default.Tv, contentDescription = "Reproducir en TV (DLNA)", tint = Color.White)
-                    }
-                    if (castContext != null) {
-                        AndroidView(
-                            modifier = Modifier.padding(horizontal = 8.dp),
-                            factory = { ctx ->
-                                val themed = ContextThemeWrapper(ctx, androidx.appcompat.R.style.Theme_AppCompat_DayNight)
-                                MediaRouteButton(themed).also {
-                                    CastButtonFactory.setUpMediaRouteButton(ctx.applicationContext, it)
-                                }
-                            },
-                        )
-                    }
+                    DlnaCastButtons(casting = casting, castContext = castContext, onDiscoverDlna = onDlnaDiscover)
                 }
             }
 
@@ -2893,6 +2863,39 @@ private fun PlayerContent(
                 }
             },
             confirmButton = { TextButton(onClick = { closeSubs() }) { Text("Cerrar") } },
+        )
+    }
+}
+
+/**
+ * Botón de DLNA + botón de Chromecast (MediaRouteButton), compartidos por el Row de controles de
+ * VOD y el Row propio del modo vivo (Tarea 14/18): ambos ofrecen exactamente los mismos dos
+ * botones con el mismo criterio de visibilidad -- lo único que cambia entre ellos es el resto del
+ * Row que los rodea (título/marcadores en VOD, badge "EN VIVO" en vivo), así que ESE Row se queda
+ * duplicado a propósito pero estos dos botones no.
+ */
+@Composable
+private fun DlnaCastButtons(
+    casting: Boolean,
+    castContext: CastContext?,
+    onDiscoverDlna: () -> Unit,
+) {
+    // Casteando no: DLNA es OTRO renderer, y mezclar los dos deja dos TVs reproduciendo lo mismo
+    // a la vez. (El botón de Chromecast sí queda visible: es el único camino para cortar la sesión.)
+    if (!casting) {
+        IconButton(onClick = onDiscoverDlna) {
+            Icon(Icons.Default.Tv, contentDescription = "Reproducir en TV (DLNA)", tint = Color.White)
+        }
+    }
+    if (castContext != null) {
+        AndroidView(
+            modifier = Modifier.padding(horizontal = 8.dp),
+            factory = { ctx ->
+                val themed = ContextThemeWrapper(ctx, androidx.appcompat.R.style.Theme_AppCompat_DayNight)
+                MediaRouteButton(themed).also {
+                    CastButtonFactory.setUpMediaRouteButton(ctx.applicationContext, it)
+                }
+            },
         )
     }
 }
