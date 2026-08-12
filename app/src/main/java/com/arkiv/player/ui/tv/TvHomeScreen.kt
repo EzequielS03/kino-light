@@ -78,7 +78,17 @@ import com.arkiv.player.ui.theme.ArkivTextSecondary
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private data class Featured(val title: String, val subtitle: String, val imageUrl: String?)
+/**
+ * Lo que muestra el héroe del fondo. [meta] es la línea de datos del capítulo ("T1 · E5  ·  La
+ * conspiración  ·  te faltan 12 min") y solo la llenan las tarjetas de "Continuar viendo": las
+ * filas de descubrimiento muestran títulos de TMDB, que no son capítulos.
+ */
+private data class Featured(
+    val title: String,
+    val subtitle: String,
+    val imageUrl: String?,
+    val meta: String = "",
+)
 
 /** Subtítulo del hero para una card de descubrimiento: tipo y año (lo que se sabe sin abrirla). */
 private fun discoveryMeta(card: com.arkiv.player.ui.search.TitleCard): String {
@@ -131,6 +141,18 @@ fun TvHomeScreen(
             row.itemTitle,
             heroSubtitle(row.itemTitle, row.itemDescription, heroFallback(row.itemTitle, row.episodeTitle ?: row.displayName)),
             EleccionDeMiniatura.elegir(row.framePath, heroArt(row.itemId, thumb)),
+            // Los datos del capítulo enfocado, que es lo que cambia al moverse entre tarjetas (la
+            // sinopsis de arriba es de la SERIE y no cambia). La regla de qué se muestra y qué se
+            // omite vive en EtiquetaDeCapitulo, compartida con los dos detalles.
+            meta = com.arkiv.player.ui.EtiquetaDeCapitulo.lineaDeHeroe(
+                esPelicula = row.episodeCount <= 1,
+                season = row.season,
+                episode = row.episode,
+                orderIndex = row.orderIndex,
+                nombre = row.episodeTitle,
+                positionMs = row.positionMs,
+                durationMs = row.durationMs,
+            ),
         )
     }
 
@@ -289,6 +311,16 @@ fun TvHomeScreen(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.fillMaxWidth(0.55f),
                     )
+                    if (f.meta.isNotBlank()) {
+                        Text(
+                            f.meta,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = ArkivRed,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 8.dp).fillMaxWidth(0.55f),
+                        )
+                    }
                     if (f.subtitle.isNotBlank()) {
                         Text(
                             f.subtitle,
