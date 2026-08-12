@@ -408,6 +408,13 @@ private fun PlayerContent(
 
     // La fuente se conoce por el episodeId aunque todavía no haya playlist (para el overlay/servicio).
     val sourceIsTorrent = remember(episodeId) { PlayerSource.kindFor(episodeId) == SourceKind.TORRENT }
+    // Cómo se nombra la fuente en el cartel de "Resolviendo…". `vm.resolving` lo prenden LAS DOS
+    // cargas que resuelven contra la red —`loadWeb` y `loadMagis`—, pero el texto daba por sentado
+    // que era web: darle play a un capítulo de Magis anunciaba una fuente web que en ese camino no
+    // existe. Ninguna otra fuente prende esa bandera (archive y torrent tienen sus propios carteles).
+    val fuenteQueResuelve = remember(episodeId) {
+        if (PlayerSource.kindFor(episodeId) == SourceKind.MAGIS) "de Magis" else "web"
+    }
     // Modo vivo (Tarea 14): aísla TODO el comportamiento distinto de VOD (sin barra de progreso ni
     // seek, overlay propio, zapping) detrás de esta bandera calculada UNA vez del episodeId con el
     // que se compuso la pantalla. Zapear cambia el canal DENTRO del playlist del ViewModel; nunca
@@ -2030,7 +2037,7 @@ private fun PlayerContent(
             ) {
                 CircularProgressIndicator(color = if (sourceIsTorrent) ArkivRed else Color.White, strokeWidth = 3.dp)
                 if (resolving) {
-                    Text("Resolviendo fuente web…", color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.labelMedium)
+                    Text("Resolviendo fuente $fuenteQueResuelve…", color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.labelMedium)
                 }
                 // Vivo (Tarea 14): resolver un canal ronda los 3s (dos llamadas al portal, ver
                 // KDoc de LiveController) -- sin texto, este mismo spinner se ve idéntico a un
