@@ -636,7 +636,14 @@ class PlayerViewModel(
         val tArranque = System.currentTimeMillis()
         // Precalentado de las DOS puntas, que adentro van en paralelo (ver ArchiveCacheProxy).
         withContext(Dispatchers.IO) {
-            runCatching { archiveCacheProxy.precalentar(play.url, play.headers, fraccion = 0f) }
+            runCatching {
+                archiveCacheProxy.precalentar(
+                    play.url, play.headers, fraccion = 0f,
+                    // La cola solo se espera si de ella tiene que salir la duración. Cuando la manda
+                    // el gateway, sigue bajándose por detrás para los sondeos de EOF de VLC.
+                    esperarCola = hayQueSondear,
+                )
+            }
         }
         val msPrecalentado = System.currentTimeMillis() - tArranque
         // Y la duración sale de ESOS MISMOS bytes, sin pedir nada. El TS no dice cuánto dura y

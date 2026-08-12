@@ -921,6 +921,19 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
         headers: Map<String, String> = emptyMap(),
         fraccion: Float = 0f,
         perfil: PoliticaOrigen.Perfil = PoliticaOrigen.Perfil.MAGIS,
+        /**
+         * Si hay que ESPERAR a la cola antes de volver. Solo hace falta cuando la duración se saca
+         * de ella ([duracionDelPrecalentado]); cuando la manda el gateway, la cola únicamente sirve
+         * para los sondeos de EOF de libVLC, que ocurren DESPUÉS de abrir y por lo tanto se pueden
+         * dejar corriendo por detrás.
+         *
+         * Medido el 2026-08-11 en el Fire TV, y es la razón de que este parámetro exista: con la
+         * cabeza ya sin bloquear, la cola pasó a ser el freno. Tres arranques del mismo capítulo,
+         * los tres con la duración ya en la mano: cola de 281 ms → total 1050 ms; colas de 3398 y
+         * 3446 ms → totales de 3883 y 4083 ms. Se estaban esperando 3,4 s por unos bytes que en ese
+         * momento no le hacían falta a nadie.
+         */
+        esperarCola: Boolean = true,
     ): Boolean = withContext(Dispatchers.IO) {
         val key = cache.keyFor(originUrl)
         val inicio = if (fraccion > 0f) {
@@ -940,14 +953,23 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
             runCatching { bajarArranque(originUrl, headers, inicio, perfil, buffer) }
             buffer.cerrar()
         }.apply { isDaemon = true; name = "arkiv-precalentar" }.start()
-        val cola = async { runCatching { precalentarCola(originUrl, headers, key, perfil) }.getOrNull() }
+        // La cola: se espera solo si de ella sale la duración (ver [esperarCola]). Cuando no, va en
+        // un Thread y NO en un `async`, a propósito: `withContext` no vuelve hasta que sus hijos
+        // terminan, así que un `async` sin `await()` seguiría bloqueando igual — la corrutina hija
+        // no escapa del scope, el hilo sí.
+        val cola = if (esperarCola) {
+            async { runCatching { precalentarCola(originUrl, headers, key, perfil) }.getOrNull() }
+        } else {
+            Thread { runCatching { precalentarCola(originUrl, headers, key, perfil) } }
+                .apply { isDaemon = true; name = "arkiv-precalentar-cola" }.start()
+            null
+        }
 
-        // Lo ÚNICO que se espera: que el arranque haya empezado a fluir. Con eso alcanza para que la
-        // primera lectura de libVLC se responda al instante, que es lo que evitaba el negro-y-mudo.
+        // Lo ÚNICO que se espera siempre: que el arranque haya empezado a fluir. Con eso alcanza
+        // para que la primera lectura de libVLC se responda al instante, que es lo que evitaba el
+        // negro-y-mudo.
         val arranco = buffer.esperarHasta(ARRANQUE_MINIMO, ESPERA_ARRANQUE_MS)
-        // La cola sí se espera: de ella sale la duración (ver duracionDelPrecalentado) y sin ella la
-        // barra queda llena y sin seek. Es la punta chica y la más rápida de las dos.
-        cola.await()
+        cola?.await()
         android.util.Log.w(
             "ArchiveCacheProxy",
             "arranque servible tras ${System.currentTimeMillis() - t0}ms " +
