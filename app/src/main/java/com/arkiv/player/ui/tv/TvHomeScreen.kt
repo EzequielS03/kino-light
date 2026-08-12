@@ -177,6 +177,8 @@ fun TvHomeScreen(
             season = row.season,
             episode = row.episode,
             orderIndex = row.orderIndex,
+            itemId = row.itemId,
+            section = row.section,
             nombre = row.episodeTitle,
             positionMs = row.positionMs,
             durationMs = row.durationMs,

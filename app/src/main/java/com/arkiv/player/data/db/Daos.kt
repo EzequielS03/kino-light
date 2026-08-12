@@ -32,12 +32,15 @@ data class ContinueRow(
     /**
      * Numeración del capítulo, para la línea de datos del héroe del home (ver
      * [com.arkiv.player.ui.EtiquetaDeCapitulo.lineaDeHeroe]). `season`/`episode` son null cuando el
-     * nombre del archivo no declaraba numeración; ahí manda `orderIndex`, que en packs de torrent
-     * codifica temporada*1000 + episodio y en archive.org es un correlativo 0..N-1.
+     * nombre del archivo no declaraba numeración; ahí manda `orderIndex`, que NO significa lo mismo
+     * en todas las fuentes — de eso se encarga [com.arkiv.player.data.NumeracionCodificada], que
+     * para decidirlo necesita también `itemId` (ya está arriba) y `section`.
      */
     val season: Int? = null,
     val episode: Int? = null,
     val orderIndex: Int = 0,
+    /** La sección del episodio ("Temporada 1" en las fuentes que numeran, "" o la carpeta si no). */
+    val section: String = "",
     /**
      * Cuántos episodios vivos tiene el ítem. Entra en [isMovie] junto con [categoryOverride]; no
      * se usa solo, porque un capítulo suelto recién agregado (Magis, web, torrent de catálogo,
@@ -249,6 +252,7 @@ interface PlaybackDao {
                p.lastPlayedAt AS lastPlayedAt,
                s.stillUrl AS stillUrl, s.title AS episodeTitle,
                e.season AS season, e.episode AS episode, e.orderIndex AS orderIndex,
+               e.section AS section,
                (SELECT COUNT(*) FROM episodes e2 WHERE e2.itemId = e.itemId AND e2.deleted = 0) AS episodeCount,
                i.categoryOverride AS categoryOverride
         FROM playback p

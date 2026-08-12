@@ -13,20 +13,39 @@ data class PackFileRow(
     val quality: String,   // "1080p" | ""
     val section: String,   // "Temporada 1" | ""
     val orderIndex: Int,
+    /**
+     * La numeración que declaraba el nombre del archivo, tal cual, para guardarla en su propia
+     * columna en vez de dejarla solo codificada dentro del [orderIndex] (ver [PackRowBuilder]).
+     * En un pack de numeración absoluta (One Piece 1085) va [episode] sin [season].
+     */
+    val season: Int? = null,
+    val episode: Int? = null,
 )
 
 object PackRowBuilder {
+    /**
+     * El `orderIndex` sirve para ORDENAR y por eso codifica temporada*1000 + episodio; la
+     * numeración de verdad viaja aparte, en `season`/`episode`. Antes solo existía la codificada, y
+     * leerla de vuelta obligaba a adivinar: una temporada 0 daba un número por debajo de 1000
+     * (indistinguible de un correlativo de archive.org) y un pack absoluto daba uno por encima
+     * (que se leía como si fuera "T1 · E85").
+     */
     fun build(files: List<TorrentFile>): List<PackFileRow> = files.mapIndexed { pos, f ->
         val info = PackFileParser.parse(f.name)
-        val (label, section, order) = when {
-            info.season != null && info.episode != null ->
-                Triple("T${info.season} · E${info.episode}", "Temporada ${info.season}", info.season * 1000 + info.episode)
-            info.absolute != null ->
-                Triple("Ep ${info.absolute}", "", info.absolute)
-            else ->
-                Triple(MetadataParser.cleanName(f.name), "", pos)
+        when {
+            info.season != null && info.episode != null -> PackFileRow(
+                f.index, "T${info.season} · E${info.episode}", f.sizeBytes, QualityLabel.extract(f.name),
+                "Temporada ${info.season}", info.season * 1000 + info.episode, info.season, info.episode,
+            )
+            info.absolute != null -> PackFileRow(
+                f.index, "Ep ${info.absolute}", f.sizeBytes, QualityLabel.extract(f.name),
+                "", info.absolute, null, info.absolute,
+            )
+            else -> PackFileRow(
+                f.index, MetadataParser.cleanName(f.name), f.sizeBytes, QualityLabel.extract(f.name),
+                "", pos, null, null,
+            )
         }
-        PackFileRow(f.index, label, f.sizeBytes, QualityLabel.extract(f.name), section, order)
     }.sortedBy { it.orderIndex }
 }
 

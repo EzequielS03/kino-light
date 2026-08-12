@@ -21,7 +21,8 @@ object PackEntities {
                 id = "$itemId::${r.index}", itemId = itemId, section = r.section, displayName = r.label,
                 orderIndex = r.orderIndex, durationSeconds = 0.0, thumbPath = null, originalPath = null,
                 originalFormat = null, originalSize = r.sizeBytes, derivativePath = null,
-                derivativeFormat = null, derivativeSize = 0, torrentFileIndex = r.index, torrentData = null,
+                derivativeFormat = null, derivativeSize = 0, season = r.season, episode = r.episode,
+                torrentFileIndex = r.index, torrentData = null,
             )
         }
         return item to episodes

@@ -21,8 +21,10 @@ class EtiquetaDeCapituloTest {
         episode: Int? = null,
         id: String = "item::x",
         displayName: String = "",
+        itemId: String = "item",
+        section: String = "",
     ) = Episode(
-        id = id, itemId = "item", section = "", displayName = displayName, orderIndex = orderIndex,
+        id = id, itemId = itemId, section = section, displayName = displayName, orderIndex = orderIndex,
         durationSeconds = 0.0, thumbPath = null, original = null, derivative = null,
         season = season, episode = episode,
     )
@@ -36,13 +38,60 @@ class EtiquetaDeCapituloTest {
     }
 
     @Test fun un_pack_de_torrent_numera_desde_el_orderIndex() {
-        // Los packs codifican temporada*1000 + episodio.
-        assertEquals("T1 · E3", EtiquetaDeCapitulo.numero(ep(orderIndex = 1003)))
+        // Los packs codifican temporada*1000 + episodio, y lo declaran en la sección. Hacen falta
+        // las dos cosas: el número solo no distingue esto de un correlativo de archive.org (por
+        // debajo de 1000, la temporada 0) ni de un pack de numeración absoluta (por encima).
+        assertEquals(
+            "T1 · E3",
+            EtiquetaDeCapitulo.numero(ep(itemId = "torrent:abc123", section = "Temporada 1", orderIndex = 1003)),
+        )
     }
 
     @Test fun sin_nada_el_orden_es_1_based() {
         // archive.org: correlativo 0..N-1.
         assertEquals("E1", EtiquetaDeCapitulo.numero(ep(orderIndex = 0)))
+    }
+
+    // --- Temporada 0 (los especiales) --------------------------------------------------------
+
+    @Test fun un_especial_de_temporada_0_no_se_corre_al_correlativo() {
+        // El bug: el orderIndex de un especial es 0*1000 + 3 = 3, que NO llega a 1000, así que la
+        // rama que decodifica temporada*1000 + episodio no lo agarraba y caía en el correlativo de
+        // archive.org — el especial 3 se mostraba como "E4".
+        assertEquals(
+            "T0 · E3",
+            EtiquetaDeCapitulo.numero(
+                ep(itemId = "torrent:series:tt0903747", section = "Temporada 0", orderIndex = 3),
+            ),
+        )
+    }
+
+    @Test fun un_especial_de_temporada_0_tambien_en_web() {
+        assertEquals(
+            "T0 · E1",
+            EtiquetaDeCapitulo.numero(ep(itemId = "web:series:tt0944947", section = "Temporada 0", orderIndex = 1)),
+        )
+    }
+
+    /**
+     * El contraejemplo que impide "todo orderIndex chico es temporada 0": en archive.org el
+     * orderIndex es un correlativo 0..N-1, y una subida en español puede tener sus archivos en una
+     * carpeta llamada igual que la sección que escriben las fuentes que SÍ codifican. Lo que
+     * distingue de verdad es de qué fuente viene el ítem, no el tamaño del número.
+     */
+    @Test fun archive_en_una_carpeta_llamada_Temporada_sigue_siendo_correlativo() {
+        assertEquals(
+            "E1",
+            EtiquetaDeCapitulo.numero(ep(itemId = "mi-serie-favorita", section = "Temporada 1", orderIndex = 0)),
+        )
+    }
+
+    /** Un pack con numeración absoluta (One Piece 1085) no es "T1 · E85". */
+    @Test fun un_pack_con_numeracion_absoluta_no_se_lee_como_temporada() {
+        assertEquals(
+            "E1085",
+            EtiquetaDeCapitulo.numero(ep(itemId = "torrent:abc123", section = "", episode = 1085, orderIndex = 1085)),
+        )
     }
 
     @Test fun el_nombre_real_va_AL_LADO_del_numero_no_en_su_lugar() {

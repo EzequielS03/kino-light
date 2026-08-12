@@ -16,6 +16,8 @@ class EtiquetaDeCapituloHeroeTest {
         season: Int? = 1,
         episode: Int? = 5,
         orderIndex: Int = 4,
+        itemId: String = "torrent:series:tt0903747",
+        section: String = "Temporada 1",
         nombre: String? = "La conspiración",
         positionMs: Long = 3 * 60_000L,
         durationMs: Long = 15 * 60_000L,
@@ -24,6 +26,8 @@ class EtiquetaDeCapituloHeroeTest {
         season = season,
         episode = episode,
         orderIndex = orderIndex,
+        itemId = itemId,
+        section = section,
         nombre = nombre,
         positionMs = positionMs,
         durationMs = durationMs,
@@ -56,12 +60,12 @@ class EtiquetaDeCapituloHeroeTest {
         assertEquals("E5  ·  La conspiración  ·  te faltan 12 min", linea(season = null))
     }
 
-    /** En packs de torrent el `orderIndex` codifica temporada*1000 + capítulo. */
+    /** En torrent y web el `orderIndex` codifica temporada*1000 + capítulo. */
     @Test
     fun `sin numeracion cae al orderIndex de pack de torrent`() {
         assertEquals(
             "T2 · E3  ·  La conspiración  ·  te faltan 12 min",
-            linea(season = null, episode = null, orderIndex = 2003),
+            linea(season = null, episode = null, orderIndex = 2003, section = "Temporada 2"),
         )
     }
 
@@ -70,7 +74,20 @@ class EtiquetaDeCapituloHeroeTest {
     fun `sin numeracion cae al orderIndex correlativo de archive`() {
         assertEquals(
             "E1  ·  La conspiración  ·  te faltan 12 min",
-            linea(season = null, episode = null, orderIndex = 0),
+            linea(season = null, episode = null, orderIndex = 0, itemId = "mi-serie", section = ""),
+        )
+    }
+
+    /**
+     * Los especiales (temporada 0). Su `orderIndex` es 0*1000 + N, o sea por DEBAJO de 1000, que es
+     * justo donde la regla vieja lo confundía con un correlativo de archive.org y corría el número
+     * uno para arriba: el especial 3 salía como "E4".
+     */
+    @Test
+    fun `un especial de temporada 0 se numera como T0`() {
+        assertEquals(
+            "T0 · E3  ·  La conspiración  ·  te faltan 12 min",
+            linea(season = null, episode = null, orderIndex = 3, section = "Temporada 0"),
         )
     }
 
@@ -165,9 +182,11 @@ class EtiquetaDeCapituloHeroeTest {
 
     @Test
     fun `el numero con valores sueltos sigue la misma regla que el del modelo`() {
-        assertEquals("T1 · E5", EtiquetaDeCapitulo.numero(season = 1, episode = 5, orderIndex = 4))
-        assertEquals("E5", EtiquetaDeCapitulo.numero(season = null, episode = 5, orderIndex = 4))
-        assertEquals("T2 · E3", EtiquetaDeCapitulo.numero(season = null, episode = null, orderIndex = 2003))
-        assertEquals("E1", EtiquetaDeCapitulo.numero(season = null, episode = null, orderIndex = 0))
+        val torrent = "torrent:series:tt0903747"
+        assertEquals("T1 · E5", EtiquetaDeCapitulo.numero(1, 5, 4, torrent, "Temporada 1"))
+        assertEquals("E5", EtiquetaDeCapitulo.numero(null, 5, 4, torrent, "Temporada 1"))
+        assertEquals("T2 · E3", EtiquetaDeCapitulo.numero(null, null, 2003, torrent, "Temporada 2"))
+        assertEquals("T0 · E3", EtiquetaDeCapitulo.numero(null, null, 3, torrent, "Temporada 0"))
+        assertEquals("E1", EtiquetaDeCapitulo.numero(null, null, 0, "mi-serie", ""))
     }
 }
