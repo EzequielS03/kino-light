@@ -1,6 +1,7 @@
 package com.arkiv.player.ui
 
 import com.arkiv.player.data.ItemDetail
+import com.arkiv.player.data.MagisEntities
 import com.arkiv.player.data.NumeracionCodificada
 import com.arkiv.player.data.model.Episode
 
@@ -37,6 +38,14 @@ object EtiquetaDeCapitulo {
         if (episode != null) return "E$episode"
         val codificada = NumeracionCodificada.coordenadas(itemId, section, orderIndex)
         if (codificada != null) return "T${codificada.first} · E${codificada.second}"
+        // El orderIndex no significa lo mismo en todas las fuentes: archive.org y los packs de
+        // torrent lo reparten con mapIndexed (0..N-1), pero Magis guarda el número de capítulo tal
+        // cual (`MagisEntities.capituloDe`: `orderIndex = number`). Sumarle uno a un ítem de Magis
+        // corría el capítulo entero: el e126 de Dragon Ball salía como "E127" en el héroe del home,
+        // en el detalle y en el botón "Reproducir". Los capítulos guardados por la versión actual
+        // traen `episode` y salen por la rama de arriba sin llegar acá; los viejos lo tienen en
+        // null y son los que dependen de esta cuenta.
+        if (itemId.startsWith(MagisEntities.PREFIX)) return "E$orderIndex"
         return "E${orderIndex + 1}"
     }
 

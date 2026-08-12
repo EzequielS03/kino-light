@@ -52,6 +52,20 @@ class EtiquetaDeCapituloTest {
         assertEquals("E1", EtiquetaDeCapitulo.numero(ep(orderIndex = 0)))
     }
 
+    /**
+     * Magis numera desde 1 (`MagisEntities.capituloDe`: `orderIndex = number`), al revés que el
+     * correlativo 0..N-1 de archive.org. Las filas guardadas antes de que esa función escribiera
+     * `episode` quedaron con `episode = null` y caen a la rama del orderIndex: sumarles uno mostraba
+     * el e126 de Dragon Ball como "E127". Visto en el Fire TV el 2026-08-12, con el héroe diciendo
+     * "E127 · Shen-Long revive" — y "Shen-Long revive" es el título del e126.
+     */
+    @Test fun magis_sin_episode_guardado_no_se_corre_un_capitulo() {
+        assertEquals(
+            "E126",
+            EtiquetaDeCapitulo.numero(ep(itemId = "magis:3DE4A7E7C4EB4EFBABF927DBF1F7EF58", orderIndex = 126)),
+        )
+    }
+
     // --- Temporada 0 (los especiales) --------------------------------------------------------
 
     @Test fun un_especial_de_temporada_0_no_se_corre_al_correlativo() {
