@@ -1465,9 +1465,9 @@ class ArkivRepository(
         )
     }
 
-    /** Persiste posición de reproducción. Marca visto al superar el 60%. */
+    /** Persiste posición de reproducción. Marca visto según [UmbralDeVisto]. */
     suspend fun savePlayback(episodeId: String, positionMs: Long, durationMs: Long) {
-        val watched = durationMs > 0 && positionMs >= durationMs * 0.6
+        val watched = UmbralDeVisto.yaLoViste(positionMs, durationMs)
         playbackDao.upsert(
             PlaybackEntity(
                 episodeId = episodeId,
