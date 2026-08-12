@@ -39,7 +39,7 @@ class AguanteDeBufferingTest {
 
     @Test fun el_presupuesto_de_red_sale_de_PoliticaOrigen_de_verdad() {
         val esperado = (0 until PoliticaOrigen.INTENTOS).sumOf {
-            PoliticaOrigen.leerMs(it).toLong() + PoliticaOrigen.esperaMs(it)
+            PoliticaOrigen.respuestaMs(it).toLong() + PoliticaOrigen.esperaMs(it)
         }
         assertTrue(AguanteDeBuffering.PRESUPUESTO_RED_MS == esperado)
     }

@@ -21,6 +21,7 @@ import com.arkiv.player.data.offline.PlaybackChoice
 import com.arkiv.player.data.offline.PlaybackDecision
 import com.arkiv.player.data.offline.PlaybackPreferenceStore
 import com.arkiv.player.playback.ArchiveCacheProxy
+import com.arkiv.player.playback.ArranqueDeMagis
 import com.arkiv.player.playback.PlayerSource
 import com.arkiv.player.playback.PoliticaOrigen
 import com.arkiv.player.playback.SourceKind
@@ -614,18 +615,40 @@ class PlayerViewModel(
         // origen que tarda entre 0,2 s y 20 s por rango — o sea que a veces se pierde. Best-effort:
         // si falla se reproduce igual, solo sin duración.
         val esTs = play.mime.contains("mp2t", true) || play.url.substringBefore('?').endsWith(".ts", true)
-        val duracion = if (!UnknownLengthPolicy.hayQueSondear(esTs, play.durationMs)) {
-            if (play.durationMs > 0) Log.w(PLAY, "loadMagis() duracion del gateway=${play.durationMs}ms (sin sonda)")
-            play.durationMs
-        } else withContext(Dispatchers.IO) {
-            val t0 = System.currentTimeMillis()
-            // Margen para las dos puntas EN SERIE, cada una con sus reintentos.
-            val ms = withTimeoutOrNull(TsDurationProbe.PRESUPUESTO_MS) {
-                runCatching { TsDurationProbe.probeRemote(play.url, play.headers) }.getOrDefault(0L)
-            } ?: 0L
-            Log.w(PLAY, "loadMagis() sonda de duracion=${ms}ms (tardó ${System.currentTimeMillis() - t0}ms)")
-            ms
+        val hayQueSondear = UnknownLengthPolicy.hayQueSondear(esTs, play.durationMs)
+        if (!hayQueSondear && play.durationMs > 0) {
+            Log.w(PLAY, "loadMagis() duracion del gateway=${play.durationMs}ms (sin sonda)")
         }
+        // La sonda y el ARRANQUE CALIENTE, a la vez. Los dos le hablan al mismo CDN y ninguno
+        // necesita el resultado del otro; iban en serie y eso costaba, medido en device, entre 1,0 s
+        // y 11,5 s de spinner sumados. El porqué de que convivan sin pelearse: [ArranqueDeMagis].
+        //
+        // El arranque caliente se precalienta en el byte 0, que es donde VLC abre SIEMPRE desde que
+        // magis dejó de abrir por ventana: reanuda saltando por tiempo, no abriendo el stream más
+        // adelante. Sin él, si la primera lectura se demora libVLC se rinde identificando el stream
+        // y se queda SIN PISTAS para siempre (negro y mudo, con el reloj disparado).
+        val tArranque = System.currentTimeMillis()
+        val duracion = withContext(Dispatchers.IO) {
+            ArranqueDeMagis.duracionYArranque(
+                sonda = {
+                    if (!hayQueSondear) play.durationMs
+                    // El TS no dice cuánto dura y libVLC no lo deduce sobre HTTP; sin duración la
+                    // barra queda llena, en 00:00, sin poder adelantar y sin guardar dónde ibas. El
+                    // camino BUENO es que la diga el gateway (viene gratis en el resolve para las
+                    // películas); esto es el respaldo para los capítulos de serie, que el portal
+                    // manda sin duración. Best-effort: si falla se reproduce igual, sin duración.
+                    else withTimeoutOrNull(TsDurationProbe.PRESUPUESTO_MS) {
+                        TsDurationProbe.probeRemote(play.url, play.headers)
+                    } ?: 0L
+                },
+                precalentar = { archiveCacheProxy.precalentar(play.url, play.headers, fraccion = 0f) },
+            )
+        }
+        Log.w(
+            PLAY,
+            "loadMagis() sonda+precalentado en paralelo: duracion=${duracion}ms " +
+                "(tardó ${System.currentTimeMillis() - tArranque}ms)",
+        )
         val item = PlayerData(
             episodeId = episodeId,
             itemId = episodeId.substringBefore("::"),
@@ -657,16 +680,9 @@ class PlayerViewModel(
             },
         )
         val startPos = safeStartPosition(episodeId, SourceKind.MAGIS)
-        // ARRANQUE CALIENTE antes de publicar: el CDN de magis tarda entre 0,2 s y 20 s en el
-        // primer byte, y si esa primera lectura se demora libVLC se rinde identificando el stream y
-        // se queda SIN PISTAS para siempre (pantalla negra y sin sonido, con el reloj disparado).
-        // Teniendo el arranque en la mano, esa espera pasa a ocurrir acá —antes de abrir el video,
-        // donde el usuario ve el spinner de siempre— en vez de convertirse en un fallo del que no
-        // se vuelve. Se precalienta el byte 0, que es donde VLC abre SIEMPRE desde que magis dejó de
-        // abrir por ventana: reanuda saltando por tiempo, no abriendo el stream más adelante.
-        withContext(Dispatchers.IO) {
-            runCatching { archiveCacheProxy.precalentar(play.url, play.headers, fraccion = 0f) }
-        }
+        // El arranque caliente ya está en la mano (se pidió arriba, en paralelo con la sonda): la
+        // espera del CDN ocurrió ANTES de abrir el video, donde el usuario ve el spinner de
+        // siempre, en vez de convertirse en un fallo del que no se vuelve.
         _playlist.value = PlaylistData(listOf(item), 0, startPos)
         Log.w(PLAY, "loadMagis() playlist publicada (startPos=$startPos)")
     }

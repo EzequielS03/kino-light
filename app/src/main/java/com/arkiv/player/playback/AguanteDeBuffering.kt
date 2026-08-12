@@ -24,7 +24,7 @@ object AguanteDeBuffering {
      * Se deriva de [PoliticaOrigen] a propósito: son dos números que NO pueden divergir.
      */
     val PRESUPUESTO_RED_MS: Long = (0 until PoliticaOrigen.INTENTOS).sumOf {
-        PoliticaOrigen.leerMs(it).toLong() + PoliticaOrigen.esperaMs(it)
+        PoliticaOrigen.respuestaMs(it).toLong() + PoliticaOrigen.esperaMs(it)
     }
 
     /**

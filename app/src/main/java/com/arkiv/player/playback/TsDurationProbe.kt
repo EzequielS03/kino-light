@@ -33,26 +33,35 @@ object TsDurationProbe {
     /**
      * Cuánto puede tardar la sonda ENTERA antes de que se la dé por perdida y se reproduzca sin
      * duración. Lo aplica quien llama (el video no arranca hasta que esto termina).
+     *
+     * Eran 30 s, que es una barbaridad para algo que solo pinta una barra de progreso: la duración
+     * es una mejora, nunca un motivo para dejar al usuario mirando un spinner. El número de ahora
+     * sale de [TsDurationProbeTest]: tiene que entrar el caso MEDIDO —una conexión muerta por
+     * tramo, recuperada en el segundo intento— y poco más.
      */
-    const val PRESUPUESTO_MS = 30_000L
+    const val PRESUPUESTO_MS = 12_000L
 
     /**
      * Intentos por tramo, y cuánto se le aguanta a cada uno.
      *
-     * El CDN de magis no es lento parejo: es una lotería. Midiendo el tiempo hasta el primer byte
-     * sobre el mismo archivo salieron 0,26 s / 0,57 s / 0,87 s / 1,55 s / 3,49 s / 6,24 s / 8,50 s
-     * / 19,95 s, y a veces manda las cabeceras y el cuerpo nunca llega. Contra eso, **abandonar
-     * rápido y volver a intentar gana**: una conexión nueva vuelve a jugar la lotería, mientras que
-     * esperar 20 s a la mala solo gasta el presupuesto. Antes era un intento de 15 s + uno de
-     * repuesto, y perdía cuando el CDN se ponía denso (visto en device: los dos tramos vencidos y
-     * la película sin duración).
+     * Contra este CDN **abandonar rápido y volver a intentar gana**: una conexión nueva vuelve a
+     * jugar la lotería, mientras que esperar a la mala solo gasta el presupuesto. Antes era un
+     * intento de 15 s + uno de repuesto, y perdía cuando el CDN se ponía denso (visto en device:
+     * los dos tramos vencidos y la película sin duración).
+     *
+     * Los NÚMEROS ya no viven acá. Esta sonda le pega exactamente al mismo CDN que
+     * [ArchiveCacheProxy], así que tener su propia calibración solo servía para que las dos se
+     * fueran separando: el 2026-08-11 el proxy esperaba 20 s y la sonda 8 s a la misma conexión
+     * muerta, y las dos de más (el reintento contestaba en ~1 s). Fuente única:
+     * [PoliticaOrigen.Perfil.MAGIS].
      */
-    private const val INTENTOS = 3
-    private const val TIMEOUT_CONEXION_MS = 8_000
-    private const val TIMEOUT_LECTURA_MS = 8_000
+    private val PERFIL = PoliticaOrigen.Perfil.MAGIS
+    private val INTENTOS = PoliticaOrigen.intentos(PERFIL)
+
+    fun timeoutLecturaMs(intento: Int): Int = PoliticaOrigen.respuestaMs(intento, PERFIL)
 
     /** Respiro entre intentos: corto a propósito, la gracia es volver a tirar los dados ya. */
-    private const val ESPERA_ENTRE_INTENTOS_MS = 400L
+    fun esperaEntreIntentosMs(intento: Int): Long = PoliticaOrigen.esperaMs(intento, PERFIL)
 
     /** El PCR es un contador de 33 bits a 90 kHz: da la vuelta cada ~26,5 h. */
     private const val PCR_WRAP = 1L shl 33
@@ -156,16 +165,21 @@ object TsDurationProbe {
     /** Un tramo, reintentando: ver [INTENTOS] para por qué son varios y cortos. */
     private fun fetchRange(url: String, headers: Map<String, String>, range: String): ByteArray? {
         repeat(INTENTOS) { i ->
-            intentarTramo(url, headers, range)?.let { return it }
-            if (i < INTENTOS - 1) Thread.sleep(ESPERA_ENTRE_INTENTOS_MS)
+            intentarTramo(url, headers, range, i)?.let { return it }
+            if (i < INTENTOS - 1) Thread.sleep(esperaEntreIntentosMs(i))
         }
         android.util.Log.w(TAG, "tramo $range: agotados los $INTENTOS intentos")
         return null
     }
 
-    private fun intentarTramo(url: String, headers: Map<String, String>, range: String): ByteArray? =
+    private fun intentarTramo(
+        url: String,
+        headers: Map<String, String>,
+        range: String,
+        intento: Int,
+    ): ByteArray? =
         runCatching {
-            val conn = abrir(url, headers, range)
+            val conn = abrir(url, headers, range, intento)
             // Sin 206 el servidor ignoró el Range y estaría mandando el archivo ENTERO (cientos de
             // MB por una sonda). Se corta antes de leer nada.
             if (conn.responseCode != HttpURLConnection.HTTP_PARTIAL) {
@@ -181,13 +195,20 @@ object TsDurationProbe {
             null
         }
 
-    private fun abrir(url: String, headers: Map<String, String>, range: String): HttpURLConnection =
+    private fun abrir(
+        url: String,
+        headers: Map<String, String>,
+        range: String,
+        intento: Int,
+    ): HttpURLConnection =
         (URL(url).openConnection() as HttpURLConnection).apply {
             instanceFollowRedirects = true
             setRequestProperty("User-Agent", "Arkiv/0.1 (personal)")
             headers.forEach { (k, v) -> setRequestProperty(k, v) }
             setRequestProperty("Range", range)
-            connectTimeout = TIMEOUT_CONEXION_MS
-            readTimeout = TIMEOUT_LECTURA_MS
+            // Socket nuevo, sin reciclar del pool: ver PoliticaOrigen.Perfil.reusaSockets.
+            if (!PERFIL.reusaSockets) setRequestProperty("Connection", "close")
+            connectTimeout = PERFIL.conectarMs
+            readTimeout = timeoutLecturaMs(intento)
         }
 }

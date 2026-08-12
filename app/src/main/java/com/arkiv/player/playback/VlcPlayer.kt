@@ -456,13 +456,19 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         // "get_buffer() failed" y pantalla negra, con el audio cayéndose atrás). Se vuelve al
         // hardware una sola vez; quedarse acá es quedarse en negro para siempre.
         // Racha de "sin imagen": se corta apenas aparece la salida de video. Los dos rescates de
-        // abajo miran ESTA racha, no el instante.
-        // Sin superficie enganchada NO puede haber imagen, así que esa ausencia no dice NADA del
-        // decodificador y no puede contar para la racha. Contarla igual es lo que hacía que salir
-        // del reproductor 8 s disparara el rescate: al volver, la película se recargaba entera con
-        // una conexión nueva al CDN (medido en device: DETACH a las 23:04:28 y `loadMedia` a las
-        // 23:04:36, sin que nada estuviera fallando).
-        if (voutTracker.hayVideo() || layoutEnganchado == null) sinVideoDesdeWallMs = 0L
+        // abajo miran ESTA racha, no el instante. Qué instantes cuentan y por qué: [RachaSinVideo].
+        val vTracks = runCatching { mediaPlayer.videoTracksCount }.getOrDefault(-1)
+        val aTracks = runCatching { mediaPlayer.audioTracksCount }.getOrDefault(-1)
+        // Un negativo en cualquiera de las dos es "no se pudo consultar", y hay que propagarlo como
+        // tal: sumar a secas mezclaría un -1 con un 1 y daría 0, que significa lo contrario ("el
+        // demuxer no sacó ninguna pista").
+        val pistasDemuxeadas = if (vTracks < 0 || aTracks < 0) -1 else vTracks + aTracks
+        if (!RachaSinVideo.cuenta(
+                hayVideo = voutTracker.hayVideo(),
+                superficieEnganchada = layoutEnganchado != null,
+                pistas = pistasDemuxeadas,
+            )
+        ) sinVideoDesdeWallMs = 0L
         else if (sinVideoDesdeWallMs == 0L) sinVideoDesdeWallMs = now
         val rachaSinVideoMs = if (sinVideoDesdeWallMs == 0L) 0L else now - sinVideoDesdeWallMs
 

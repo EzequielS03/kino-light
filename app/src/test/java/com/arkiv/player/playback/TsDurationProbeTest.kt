@@ -1,6 +1,7 @@
 package com.arkiv.player.playback
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -102,5 +103,42 @@ class TsDurationProbeTest {
         val cabeza = bloque(paqueteConPcr(0x100, 0L))
         val cola = bloque(paqueteConPcr(0x100, 90_000L * 60 * 60 * 25))
         assertEquals(0L, TsDurationProbe.durationMs(cabeza, cola))
+    }
+
+    // ─── cuánto puede tardar la sonda ──────────────────────────────────────
+    // El video NO arranca hasta que esto termina, así que cada segundo de acá es un segundo de
+    // spinner. Medido el 2026-08-11 en el Fire TV: un tramo se comió su timeout de 8 s y la sonda
+    // entera costó 9,01 s de un arranque de 13,4 s. El reintento contestó en ~1 s — el problema no
+    // era el CDN, era cuánto se le esperaba a una conexión que ya estaba muerta.
+
+    @Test fun la_sonda_no_le_aguanta_mas_que_el_proxy_a_la_misma_conexion_muerta() {
+        // Le pega al MISMO CDN que ArchiveCacheProxy, así que tener su propia calibración solo
+        // servía para que las dos se fueran separando. Una sola fuente de verdad: PoliticaOrigen.
+        assertEquals(
+            PoliticaOrigen.respuestaMs(0, PoliticaOrigen.Perfil.MAGIS),
+            TsDurationProbe.timeoutLecturaMs(0),
+        )
+    }
+
+    @Test fun el_presupuesto_de_la_sonda_cabe_en_lo_que_un_humano_espera() {
+        // Eran 30 s: media hora de spinner por una barra de progreso. La duración es una mejora,
+        // nunca un motivo para no reproducir.
+        assertTrue(
+            "presupuesto = ${TsDurationProbe.PRESUPUESTO_MS}ms",
+            TsDurationProbe.PRESUPUESTO_MS <= 12_000,
+        )
+    }
+
+    @Test fun el_caso_medido_una_conexion_muerta_por_tramo_entra_en_el_presupuesto() {
+        // Es el caso REAL, no el peor teórico: cada tramo se come una conexión muerta y se recupera
+        // en el segundo intento. Si eso no entra en el presupuesto, la sonda se cancela y la barra
+        // queda sin duración justo en el caso que sí tenía arreglo.
+        val porTramo = TsDurationProbe.timeoutLecturaMs(0) +
+            TsDurationProbe.esperaEntreIntentosMs(0) +
+            TsDurationProbe.timeoutLecturaMs(1)
+        assertTrue(
+            "dos tramos en serie = ${2 * porTramo}ms contra ${TsDurationProbe.PRESUPUESTO_MS}ms",
+            2 * porTramo <= TsDurationProbe.PRESUPUESTO_MS,
+        )
     }
 }

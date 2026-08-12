@@ -12,6 +12,9 @@ import java.net.URL
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Proxy HTTP local con caché en disco para archive.org, de **descarga única a archivo que crece**:
@@ -71,6 +74,16 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
     private val calientes = ConcurrentHashMap<String, ByteArray>()
     private val initLocks = ConcurrentHashMap<String, Any>()
     private fun initLock(key: String): Any = initLocks.computeIfAbsent(key) { Any() }
+
+    /**
+     * El que le corta la conexión al origen que no contesta a tiempo. Ver [codigoConFechaLimite].
+     *
+     * Un solo hilo alcanza: solo programa `disconnect()`, que no bloquea. Daemon para que no impida
+     * que el proceso muera.
+     */
+    private val verdugo = Executors.newSingleThreadScheduledExecutor { r ->
+        Thread(r, "arkiv-origen-verdugo").apply { isDaemon = true }
+    }
 
     // Si VLC pide un tramo más de 8 MB por delante de lo ya descargado, se asume seek/moov y se trae
     // directo del origen en vez de esperar a la descarga secuencial.
@@ -257,8 +270,18 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
 
                 // 0) Camino DIRECTO (magis): cada Range va tal cual al origen y su cuerpo se devuelve
                 //    sin tocar el disco. Ver la nota de arriba de por qué la caché no sirve acá.
+                //
+                //    `d=1` es también de dónde sale el PERFIL de aguante: hoy este camino lo usa
+                //    solo magis (`proxyUrl(directo = true)` no tiene otro llamador), y magis y
+                //    archive fallan de formas opuestas — ver PoliticaOrigen.Perfil. Si algún día
+                //    otra fuente pide `d=1`, el perfil tiene que viajar en la URL, no deducirse.
                 if (directo) {
-                    if (!passthrough(origin, rangeHeader, out, extraHeaders, claveUnica = key, fraccion = fraccion)) {
+                    if (!passthrough(
+                            origin, rangeHeader, out, extraHeaders,
+                            claveUnica = key, fraccion = fraccion,
+                            perfil = PoliticaOrigen.Perfil.MAGIS,
+                        )
+                    ) {
                         android.util.Log.w("ArchiveCacheProxy", "directo: el origen no sirvió el tramo")
                         out.write("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n".toByteArray())
                         out.flush()
@@ -330,7 +353,7 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                     // passthrough/502. Por eso va con el timeout del peor caso, no con el del
                     // primer intento.
                     connectTimeout = PoliticaOrigen.CONECTAR_MS
-                    readTimeout = PoliticaOrigen.leerMs(PoliticaOrigen.INTENTOS - 1)
+                    readTimeout = PoliticaOrigen.cuerpoMs()
                 }
             }.getOrNull() ?: return null
             val code = runCatching { conn.responseCode }.getOrDefault(PoliticaOrigen.SIN_RESPUESTA)
@@ -522,7 +545,7 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                 // También de un solo tiro, y encima con la cabecera 206 ya enviada: si acá se corta
                 // por timeout, el reproductor queda esperando un cuerpo que no llega. Peor caso.
                 connectTimeout = PoliticaOrigen.CONECTAR_MS
-                readTimeout = PoliticaOrigen.leerMs(PoliticaOrigen.INTENTOS - 1)
+                readTimeout = PoliticaOrigen.cuerpoMs()
             }
         }.getOrNull() ?: run {
             android.util.Log.w("ArchiveCacheProxy", "origen: no se pudo abrir la conexión ($start-$end)")
@@ -593,19 +616,24 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
      * a byte sabiendo el total. Se recuerda por origen porque cada salto vuelve a abrir el stream
      * con otra fracción y este viaje al CDN, aunque sea de un byte, también paga su latencia.
      */
-    private fun totalDelOrigen(origin: String, extraHeaders: Map<String, String>): Long {
+    private fun totalDelOrigen(
+        origin: String,
+        extraHeaders: Map<String, String>,
+        perfil: PoliticaOrigen.Perfil = PoliticaOrigen.Perfil.ARCHIVE,
+    ): Long {
         totales[origin]?.let { return it }
-        repeat(INTENTOS_ORIGEN) { intento ->
+        repeat(PoliticaOrigen.intentos(perfil)) { intento ->
             val total = runCatching {
                 val conn = (URL(origin).openConnection() as HttpURLConnection).apply {
                     instanceFollowRedirects = true
                     setRequestProperty("User-Agent", "Arkiv/0.1 (personal)")
                     extraHeaders.forEach { (k, v) -> setRequestProperty(k, v) }
                     setRequestProperty("Range", "bytes=0-0")
+                    if (!perfil.reusaSockets) setRequestProperty("Connection", "close")
                     // Antes 8 s fijos. Es un solo byte, pero lo que se paga acá es la latencia del
                     // nodo, no el tamaño: contra los 72 s medidos, 8 s no alcanzaban nunca.
-                    connectTimeout = PoliticaOrigen.CONECTAR_MS
-                    readTimeout = PoliticaOrigen.leerMs(intento)
+                    connectTimeout = perfil.conectarMs
+                    readTimeout = PoliticaOrigen.respuestaMs(intento, perfil)
                 }
                 val cr = conn.getHeaderField("Content-Range")
                 runCatching { conn.inputStream.use { it.readBytes() } }
@@ -613,10 +641,40 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                 VentanaDeArchivo.totalDelContentRange(cr)
             }.getOrDefault(0L)
             if (total > 0) { totales[origin] = total; return total }
-            if (intento < INTENTOS_ORIGEN - 1) Thread.sleep(PoliticaOrigen.esperaMs(intento))
+            if (intento < PoliticaOrigen.intentos(perfil) - 1) {
+                Thread.sleep(PoliticaOrigen.esperaMs(intento, perfil))
+            }
         }
         android.util.Log.w("ArchiveCacheProxy", "ventana: no se pudo saber el tamaño del origen")
         return 0L
+    }
+
+    /**
+     * `conn.responseCode` con fecha límite PROPIA, distinta de la de leer el cuerpo.
+     *
+     * `HttpURLConnection` tiene un solo `readTimeout` y rige las dos cosas, y por eso no alcanzaba
+     * con bajar el número: esperar la respuesta y aguantar un hueco a mitad del cuerpo necesitan
+     * plazos opuestos (ver [PoliticaOrigen.Perfil]). Acá el plazo corto lo aplica un temporizador
+     * que le corta la conexión por debajo: un `disconnect()` desde otro hilo hace que el
+     * `responseCode` bloqueado tire excepción, que es exactamente lo que se busca.
+     *
+     * El `AtomicBoolean` es lo que evita la carrera fea —que el temporizador desconecte JUSTO
+     * después de que la respuesta llegó y le rompa el stream a un pedido que había salido bien—:
+     * gana el primero que lo marque, y si gana el temporizador esto devuelve
+     * [PoliticaOrigen.SIN_RESPUESTA] para que el que llama reintente en vez de leer una conexión
+     * ya muerta.
+     */
+    private fun codigoConFechaLimite(conn: HttpURLConnection, limiteMs: Int): Int {
+        val resuelto = AtomicBoolean(false)
+        val corte = verdugo.schedule(
+            { if (resuelto.compareAndSet(false, true)) runCatching { conn.disconnect() } },
+            limiteMs.toLong(),
+            TimeUnit.MILLISECONDS,
+        )
+        val code = runCatching { conn.responseCode }.getOrDefault(PoliticaOrigen.SIN_RESPUESTA)
+        val loMatoElTemporizador = !resuelto.compareAndSet(false, true)
+        corte.cancel(false)
+        return if (loMatoElTemporizador) PoliticaOrigen.SIN_RESPUESTA else code
     }
 
     /**
@@ -633,19 +691,24 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
         rango: String?,
         extraHeaders: Map<String, String>,
         claveUnica: String?,
+        perfil: PoliticaOrigen.Perfil = PoliticaOrigen.Perfil.ARCHIVE,
     ): Pair<HttpURLConnection, ConexionUnica.Cerrable>? {
         var ultimoCodigo = PoliticaOrigen.SIN_RESPUESTA
-        repeat(INTENTOS_ORIGEN) { intento ->
+        val intentos = PoliticaOrigen.intentos(perfil)
+        repeat(intentos) { intento ->
             val conn = runCatching {
                 (URL(origin).openConnection() as HttpURLConnection).apply {
                     instanceFollowRedirects = true
                     setRequestProperty("User-Agent", "Arkiv/0.1 (personal)")
                     extraHeaders.forEach { (k, v) -> setRequestProperty(k, v) }
                     if (rango != null) setRequestProperty("Range", rango)
-                    // Crece con el intento: contra un nodo lento, repetir la misma fecha límite
-                    // corta es repetir el mismo fracaso. Ver PoliticaOrigen.
-                    connectTimeout = PoliticaOrigen.CONECTAR_MS
-                    readTimeout = PoliticaOrigen.leerMs(intento)
+                    // Socket nuevo para los orígenes que no toleran el pool. Ver Perfil.reusaSockets.
+                    if (!perfil.reusaSockets) setRequestProperty("Connection", "close")
+                    connectTimeout = perfil.conectarMs
+                    // El plazo del CUERPO, que es el largo. El de la RESPUESTA —el corto, el que
+                    // corta a una conexión muerta— lo aplica codigoConFechaLimite() más abajo,
+                    // porque HttpURLConnection no distingue los dos y acá hacen falta distintos.
+                    readTimeout = PoliticaOrigen.cuerpoMs(perfil)
                 }
             }.getOrNull()
             if (conn != null) {
@@ -668,7 +731,7 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                     "ArchiveCacheProxy",
                     "abro ${rango ?: "(todo)"} → conexiones vivas de este archivo: $vivas",
                 )
-                val code = runCatching { conn.responseCode }.getOrDefault(PoliticaOrigen.SIN_RESPUESTA)
+                val code = codigoConFechaLimite(conn, PoliticaOrigen.respuestaMs(intento, perfil))
                 anotarCodigo(origin, code)
                 ultimoCodigo = code
                 if (code == HttpURLConnection.HTTP_OK || code == HttpURLConnection.HTTP_PARTIAL) {
@@ -676,7 +739,7 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                 }
                 android.util.Log.w(
                     "ArchiveCacheProxy",
-                    "origen rechazó ${rango ?: "(todo)"} con $code (intento ${intento + 1}/$INTENTOS_ORIGEN)",
+                    "origen rechazó ${rango ?: "(todo)"} con $code (intento ${intento + 1}/$intentos)",
                 )
                 claveUnica?.let { soltarViva(it) }
                 runCatching { conn.disconnect() }
@@ -691,12 +754,15 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                     return null
                 }
             }
-            if (intento < INTENTOS_ORIGEN - 1) Thread.sleep(PoliticaOrigen.esperaMs(intento))
+            if (intento < intentos - 1) Thread.sleep(PoliticaOrigen.esperaMs(intento, perfil))
         }
         // Se acabaron los intentos contra la puerta de entrada. Si lo que falló es el REDIRECTOR
         // —no el contenido— todavía queda hablarle directo al servidor que tiene el archivo.
         // Ver NodoDeArchive: medido, download.php daba 500/503 mientras el nodo servía 206.
-        if (NodoDeArchive.valeIntentarNodo(ultimoCodigo)) {
+        //
+        // Solo para archive: el plan B es `download.php` → nodo, geografía de archive.org. Magis
+        // sirve desde un CDN propio y acá no hay nodo alternativo al que ir.
+        if (perfil == PoliticaOrigen.Perfil.ARCHIVE && NodoDeArchive.valeIntentarNodo(ultimoCodigo)) {
             return abrirEnNodo(origin, rango, extraHeaders, claveUnica)
         }
         return null
@@ -738,7 +804,7 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                     if (rango != null) setRequestProperty("Range", rango)
                     connectTimeout = PoliticaOrigen.CONECTAR_MS
                     // Un solo tiro por nodo, así que va con el timeout del peor caso.
-                    readTimeout = PoliticaOrigen.leerMs(PoliticaOrigen.INTENTOS - 1)
+                    readTimeout = PoliticaOrigen.cuerpoMs()
                 }
             }.getOrNull() ?: return@forEachIndexed
             val code = runCatching { conn.responseCode }.getOrDefault(PoliticaOrigen.SIN_RESPUESTA)
@@ -765,7 +831,7 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
             instanceFollowRedirects = true
             setRequestProperty("User-Agent", "Arkiv/0.1 (personal)")
             connectTimeout = PoliticaOrigen.CONECTAR_MS
-            readTimeout = PoliticaOrigen.leerMs(0)
+            readTimeout = PoliticaOrigen.respuestaMs(0)
         }
         val code = conn.responseCode
         if (code != HttpURLConnection.HTTP_OK) { conn.disconnect(); return null }
@@ -794,13 +860,15 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
         originUrl: String,
         headers: Map<String, String> = emptyMap(),
         fraccion: Float = 0f,
+        perfil: PoliticaOrigen.Perfil = PoliticaOrigen.Perfil.MAGIS,
     ): Boolean = withContext(Dispatchers.IO) {
         val key = cache.keyFor(originUrl)
         val inicio = if (fraccion > 0f) {
-            VentanaDeArchivo.inicio(totalDelOrigen(originUrl, headers), fraccion)
+            VentanaDeArchivo.inicio(totalDelOrigen(originUrl, headers, perfil), fraccion)
         } else 0L
         val t0 = System.currentTimeMillis()
-        val (conn, cerrable) = abrirEnOrigen(originUrl, "bytes=$inicio-", headers, claveUnica = null)
+        val (conn, cerrable) =
+            abrirEnOrigen(originUrl, "bytes=$inicio-", headers, claveUnica = null, perfil = perfil)
             ?: run {
                 android.util.Log.w("ArchiveCacheProxy", "precalentar: el origen no dio el arranque")
                 return@withContext false
@@ -839,12 +907,13 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
         extraHeaders: Map<String, String> = emptyMap(),
         claveUnica: String? = null,
         fraccion: Float = 0f,
+        perfil: PoliticaOrigen.Perfil = PoliticaOrigen.Perfil.ARCHIVE,
     ): Boolean {
         // Ventana: el reproductor pide en coordenadas de un archivo que empieza en 0, y acá se
         // traducen a las del archivo real. Si no se pudo saber el tamaño, `inicio` queda en 0 y
         // esto se comporta como el passthrough de siempre: sin duración es peor, pero reproduce.
         val inicio = if (fraccion > 0f) {
-            VentanaDeArchivo.inicio(totalDelOrigen(origin, extraHeaders), fraccion)
+            VentanaDeArchivo.inicio(totalDelOrigen(origin, extraHeaders, perfil), fraccion)
         } else 0L
         val rangoCliente = RangeHeader.parse(rangeHeader)
         val rangoAlOrigen = if (inicio > 0L) {
@@ -874,7 +943,8 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
         } else null
         // Cada intento mata el tramo anterior de ESTE mismo archivo antes de hablarle al origen: si
         // la conexión vieja sigue viva, la nueva queda colgada hasta el timeout.
-        val (conn, cerrable) = abrirEnOrigen(origin, rangoAlOrigen, extraHeaders, claveUnica)
+        val (conn, cerrable) =
+            abrirEnOrigen(origin, rangoAlOrigen, extraHeaders, claveUnica, perfil)
             ?: return false
         val code = runCatching { conn.responseCode }.getOrDefault(-1)
         val contentLength = conn.getHeaderField("Content-Length")
