@@ -12,7 +12,7 @@ import com.arkiv.player.data.model.Episode
 object EtiquetaDeCapitulo {
 
     /**
-     * "T1 · E5" / "E5".
+     * "T1 · E5" / "E5", a partir de los valores sueltos.
      *
      * Se omite el tramo que no se sepa en vez de inventarlo: es preferible "E5" solo antes que un
      * "T1 · E5" que apunte al capítulo equivocado. El orden de preferencia importa: `episode` manda
@@ -20,17 +20,20 @@ object EtiquetaDeCapitulo {
      * (`MagisEntities.build`, capítulo suelto) queda con `season = null`, aunque los que sí lo tienen
      * (`buildSeason`) ya numeran "T1 · E5"— y recién después se cae al `orderIndex`, que en packs de
      * torrent codifica temporada*1000 + episodio y en archive.org es un correlativo 0..N-1.
+     *
+     * Recibe los valores sueltos y no un [Episode] porque el héroe del home los tiene así, de una
+     * fila de "Continuar viendo" (`ContinueRow`), no como modelo. La regla vive UNA sola vez y las
+     * tres superficies —los dos detalles y el héroe— la comparten.
      */
-    fun numero(ep: Episode): String {
-        val temporada = ep.season
-        val capitulo = ep.episode
-        return when {
-            temporada != null && capitulo != null -> "T$temporada · E$capitulo"
-            capitulo != null -> "E$capitulo"
-            ep.orderIndex >= 1000 -> "T${ep.orderIndex / 1000} · E${ep.orderIndex % 1000}"
-            else -> "E${ep.orderIndex + 1}"
-        }
+    fun numero(season: Int?, episode: Int?, orderIndex: Int): String = when {
+        season != null && episode != null -> "T$season · E$episode"
+        episode != null -> "E$episode"
+        orderIndex >= 1000 -> "T${orderIndex / 1000} · E${orderIndex % 1000}"
+        else -> "E${orderIndex + 1}"
     }
+
+    /** "T1 · E5" / "E5" para un episodio ya cargado como modelo. Ver la versión de valores sueltos. */
+    fun numero(ep: Episode): String = numero(ep.season, ep.episode, ep.orderIndex)
 
     /**
      * "T1 · E5  ·  La conspiración": el número y, AL LADO, el nombre real del capítulo.
@@ -72,5 +75,49 @@ object EtiquetaDeCapitulo {
         if (detail.episodes.size <= 1 || detail.progress.isEmpty()) return "Reproducir"
         val donde = detail.resumeEpisode ?: return "Reproducir"
         return "Reproducir ${numero(donde)}"
+    }
+
+    /** Por debajo de esto no queda nada útil que decir del tiempo restante. */
+    private const val RESTANTE_MINIMO_MS = 60_000L
+
+    /**
+     * La línea de datos del capítulo para el héroe del home: "T1 · E5  ·  La conspiración  ·  te
+     * faltan 12 min".
+     *
+     * **Cada tramo se omite si no se sabe, nunca se inventa.** El héroe es lo primero que se lee en
+     * la pantalla, así que un dato inventado ahí es peor que un dato ausente:
+     *  - el **nombre** depende de que TMDB haya cruzado ese capítulo (`episode_still`);
+     *  - el **tiempo** depende de conocer la duración, y en Magis la sonda tarda: `durationMs` llega
+     *    en 0 hasta que resuelve. También se omite a menos de un minuto del final, donde "te falta
+     *    1 min" no ayuda a decidir nada.
+     *
+     * En una **película** no hay número: "Continuar viendo" también trae películas a medias, y
+     * numerarlas dejaría un "E1" absurdo debajo del título. Ahí queda solo el tiempo, que es
+     * justamente lo que se quiere saber de una película empezada.
+     *
+     * Devuelve "" cuando no queda ningún tramo (una película sin duración conocida); quien la use
+     * decide qué hacer con eso — las dos pantallas simplemente no dibujan la línea.
+     */
+    fun lineaDeHeroe(
+        esPelicula: Boolean,
+        season: Int?,
+        episode: Int?,
+        orderIndex: Int,
+        nombre: String?,
+        positionMs: Long,
+        durationMs: Long,
+    ): String {
+        val tramos = mutableListOf<String>()
+        if (!esPelicula) {
+            tramos += numero(season, episode, orderIndex)
+            nombre?.trim()?.takeIf { it.isNotEmpty() }?.let { tramos += it }
+        }
+        val restante = durationMs - positionMs
+        if (durationMs > 0 && restante >= RESTANTE_MINIMO_MS) {
+            // formatRuntime ya sabe pasar a horas por encima de los 60 minutos ("1 h 26 min"): sin
+            // esto, una película recién empezada decía "te faltan 118 min".
+            tramos += "te faltan ${formatRuntime(restante / 1000.0)}"
+        }
+        return tramos.joinToString("  ·  ")
     }
 }
