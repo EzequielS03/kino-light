@@ -22,16 +22,21 @@ grep -rEn '"[A-Za-z0-9_-]{24,}"' app/src/main/java | grep -viE "import |package 
 
 ## Lo que SÍ viaja dentro del APK
 
-Son **dos**, y las dos salen del `.env` de la raíz por `buildConfigField`
-(`app/build.gradle.kts`).
+**Una sola**, y sale del `.env` de la raíz por `buildConfigField` (`app/build.gradle.kts`).
 
 | Campo | Para qué sirve | Dónde se lee |
 |---|---|---|
-| `ARKIV_API_KEY` | Credencial **única** del gateway `api.comparadorinternet.co`. Cubre búsqueda, catálogo, Magis y resolución de fuentes. Viaja en la cabecera `X-Arkiv-Key`. | `SettingsStore.DEFAULT_ARKIV_API_KEY` |
-| `REFRESH_API_KEY` | La credencial **anterior**. Sigue viva en un solo call site: `SearchViewModel.kt:581`. | `SettingsStore.DEFAULT_REFRESH_API_KEY` |
+| `ARKIV_API_KEY` | Credencial **única** del gateway `api.comparadorinternet.co`. Cubre búsqueda, catálogo, Magis, `refresh` del mirror y resolución de fuentes. Viaja en la cabecera `X-Arkiv-Key`. | `SettingsStore.DEFAULT_ARKIV_API_KEY` |
 
-Las dos entran como **valor por defecto** de una preferencia, así que se pueden sobrescribir sin
-recompilar: desde ajustes, o llegando por el pareo del celular al TV (`PairingManager`).
+Entra como **valor por defecto** de una preferencia, así que se puede sobrescribir sin recompilar:
+desde ajustes, o llegando por el pareo del celular al TV (`PairingManager`).
+
+### `REFRESH_API_KEY`: ya no está (2026-08-12)
+
+Era la llave del `POST /api/refresh` del **mirror**, que la app llamaba directo. Se usaba en un solo
+lugar — el botón "procesar ahora" de la búsqueda. Ahora esa llamada pasa por el gateway
+(`POST /v1/catalog/refresh`), que es quien pone la credencial del mirror; esa llave vive **solo en
+`blog`**. Mismo movimiento que ya se había hecho con TMDB, OpenSubtitles y Simkl.
 
 ---
 
@@ -74,9 +79,6 @@ distribución (`apk.comparadorinternet.co`) es pública, poco descubrible pero n
 **Rotarla obliga a redistribuir.** Al ser el valor por defecto compilado, cambiarla en el gateway
 deja fuera a todo aparato que no reciba un APK nuevo. Hoy no hay forma de revocar el acceso de UN
 dispositivo sin afectar a los demás.
-
-**`REFRESH_API_KEY` es deuda.** Dos credenciales para lo mismo, con la migración a medio hacer. Se
-puede terminar: hay un solo call site.
 
 **Ofuscar no protege esto.** R8/ProGuard renombra símbolos, no oculta strings: la llave sigue
 siendo legible en el APK. Lo único que cambia el modelo de amenaza es que el secreto no esté en el

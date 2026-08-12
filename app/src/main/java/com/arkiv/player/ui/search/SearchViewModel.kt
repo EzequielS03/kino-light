@@ -578,8 +578,7 @@ class SearchViewModel(
                 "anime" -> ContentType.ANIME
                 else -> ContentType.TV
             }
-            val apiKey = settings.refreshApiKey.value
-            val result = torrentSearchApi.refreshTitle(tmdbId, kind, card.title, card.year, apiKey)
+            val result = torrentSearchApi.refreshTitle(tmdbId, kind, card.title, card.year)
             _processingNow.value = false
             _processNowMessage.value = if (result.ok) {
                 "Listo: +${result.webSourcesAdded} web, +${result.torrentsAdded} torrents"

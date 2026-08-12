@@ -63,9 +63,6 @@ class SettingsStore(context: Context) {
     private val _nucApiKey = MutableStateFlow(prefs.getString(KEY_NUC_API_KEY, "")!!)
     val nucApiKey: StateFlow<String> = _nucApiKey
 
-    private val _refreshApiKey = MutableStateFlow(prefs.getString(KEY_REFRESH_API_KEY, DEFAULT_REFRESH_API_KEY)!!)
-    val refreshApiKey: StateFlow<String> = _refreshApiKey
-
     private val _cloudflareSolverEnabled = MutableStateFlow(prefs.getBoolean(KEY_CF_ENABLED, true))
     val cloudflareSolverEnabled: StateFlow<Boolean> = _cloudflareSolverEnabled
 
@@ -178,7 +175,6 @@ class SettingsStore(context: Context) {
     fun setNucLanBaseUrl(v: String) { prefs.edit().putString(KEY_NUC_LAN_URL, v).apply(); _nucLanBaseUrl.value = v }
     fun setNucTunnelBaseUrl(v: String) { prefs.edit().putString(KEY_NUC_TUNNEL_URL, v).apply(); _nucTunnelBaseUrl.value = v }
     fun setNucApiKey(v: String) { prefs.edit().putString(KEY_NUC_API_KEY, v).apply(); _nucApiKey.value = v }
-    fun setRefreshApiKey(v: String) { prefs.edit().putString(KEY_REFRESH_API_KEY, v).apply(); _refreshApiKey.value = v }
 
     fun setWebQuality(q: WebQuality) { prefs.edit().putString(KEY_WEB_QUALITY, q.name).apply(); _webQuality.value = q }
 
@@ -254,7 +250,6 @@ class SettingsStore(context: Context) {
         private const val KEY_NUC_LAN_URL = "nuc_lan_base_url"
         private const val KEY_NUC_TUNNEL_URL = "nuc_tunnel_base_url"
         private const val KEY_NUC_API_KEY = "nuc_api_key"
-        private const val KEY_REFRESH_API_KEY = "refresh_api_key"
         const val DEFAULT_PROVIDERS_URL = "https://raw.githubusercontent.com/lordmacu/arkiv-providers/main/providers.json"
         const val DEFAULT_WEB_SOURCES_URL = "https://jackett.comparadorinternet.co/web_sources.json"
         const val DEFAULT_WEB_RESOLVER_URL = "https://jackett.comparadorinternet.co/resolve"
@@ -263,15 +258,10 @@ class SettingsStore(context: Context) {
         val DEFAULT_ARKIV_API_KEY: String get() = BuildConfig.ARKIV_API_KEY
         const val DEFAULT_NUC_LAN_URL = "http://192.168.1.100:8099"
         const val DEFAULT_NUC_TUNNEL_URL = "https://arkiv-offline.comparadorinternet.co"
-        /**
-         * Key del `POST /api/refresh` del mirror. Sale de `.env` vía BuildConfig, como las de TMDB,
-         * OpenSubtitles y SIMKL — antes estaba hardcodeada acá y GitGuardian la detectó en el repo.
-         *
-         * OJO, que es fácil malentenderlo: esto la saca de git, **no del APK**. Sigue siendo una
-         * cadena en el binario, y el APK se distribuye por una URL pública, así que cualquiera con
-         * el archivo la puede extraer. Un secreto embebido en un cliente distribuido no es un
-         * secreto: lo que de verdad protege ese endpoint tiene que estar del lado del servidor.
-         */
-        val DEFAULT_REFRESH_API_KEY: String get() = BuildConfig.REFRESH_API_KEY
+        // La key del `POST /api/refresh` del mirror ya no existe acá: ese endpoint pasó a pedirse
+        // por el gateway (`/v1/catalog/refresh`), que es quien pone la credencial. Con eso el APK
+        // dejó de llevarla — que era lo que decía el comentario que estaba en este lugar: sacarla de
+        // git no la sacaba del binario, y un secreto embebido en un cliente distribuido no es un
+        // secreto. Ver `MirrorApiClient.refresh`.
     }
 }

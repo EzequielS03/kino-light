@@ -291,7 +291,11 @@ class AppGraph(context: Context) {
     private val providerFetcher by lazy { HttpFetcher(solver = cloudflareSolver, store = cfStore) }
 
     val mirrorApiClient: com.arkiv.player.data.catalog.mirror.MirrorApiClient by lazy {
-        com.arkiv.player.data.catalog.mirror.MirrorApiClient(baseUrl = { settings.torrentApiUrl.value })
+        com.arkiv.player.data.catalog.mirror.MirrorApiClient(
+            baseUrl = { settings.torrentApiUrl.value },
+            gatewayUrl = { settings.gatewayUrl.value },
+            arkivApiKey = { settings.arkivApiKey.value },
+        )
     }
 
     val torrentSearchApi: TorrentSearchApi by lazy {

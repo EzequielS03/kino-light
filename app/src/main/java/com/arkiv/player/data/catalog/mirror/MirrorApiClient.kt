@@ -48,6 +48,13 @@ data class RefreshResult(
  */
 class MirrorApiClient(
     private val baseUrl: () -> String,
+    /**
+     * A dónde va `refresh`: al GATEWAY, no al mirror. Es la única llamada de esta clase que exigía
+     * una credencial propia (`X-Api-Key` del mirror) y por eso esa llave viajaba dentro del APK.
+     * Ahora la pone el gateway y la app solo usa la suya. Ver [refresh].
+     */
+    private val gatewayUrl: () -> String = { "" },
+    private val arkivApiKey: () -> String = { "" },
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
@@ -232,9 +239,18 @@ class MirrorApiClient(
      * lecturas rápidas -- no se toca el timeout compartido para no enmascarar fallas reales ahí. */
     private val refreshClient by lazy { client.newBuilder().readTimeout(100, TimeUnit.SECONDS).build() }
 
-    suspend fun refresh(tmdbId: Int, kind: ContentType, title: String, year: String, apiKey: String): RefreshResult =
+    /**
+     * "Procesar ahora": le pide que busque fuentes web y torrents de un título.
+     *
+     * Va por el GATEWAY (`/v1/catalog/refresh`) y no directo al mirror. El contrato con el mirror no
+     * cambió —el mismo cuerpo, la misma respuesta—, lo que cambió es quién pone su credencial: antes
+     * la app, con una `X-Api-Key` que por eso tenía que viajar compilada dentro del APK. Ahora esa
+     * llave vive solo en el servidor, igual que ya pasaba con TMDB y OpenSubtitles.
+     */
+    suspend fun refresh(tmdbId: Int, kind: ContentType, title: String, year: String): RefreshResult =
         withContext(Dispatchers.IO) {
-            val base = baseUrl().trimEnd('/')
+            val base = gatewayUrl().trimEnd('/')
+            if (base.isBlank()) return@withContext RefreshResult(false, false, 0, 0, "gateway sin configurar")
             val body = JSONObject().apply {
                 put("tmdb_id", tmdbId)
                 put("kind", kindParam(kind))
@@ -242,8 +258,8 @@ class MirrorApiClient(
                 put("year", year.take(4).toIntOrNull())
             }.toString()
             val req = Request.Builder()
-                .url("$base/api/refresh")
-                .addHeader("X-Api-Key", apiKey)
+                .url("$base/v1/catalog/refresh")
+                .addHeader("X-Arkiv-Key", arkivApiKey())
                 .post(body.toRequestBody("application/json".toMediaType()))
                 .build()
             runCatching {

@@ -24,12 +24,13 @@ android {
         targetSdk = 35
         versionCode = 9
         versionName = "0.5.3"
-        // Credenciales desde .env (no hardcodeadas en el código).
-        // TMDB, OpenSubtitles y Simkl YA NO viajan en el APK: viven en el gateway y se
-        // alcanzan por `/v1/catalog/*` con la credencial única de abajo.
-        buildConfigField("String", "REFRESH_API_KEY", "\"${readEnv("REFRESH_API_KEY")}\"")
-        // Credencial ÚNICA del gateway unificado. A futuro reemplaza a REFRESH_API_KEY y a las de
-        // TMDB/OpenSubtitles/Simkl, que pasan a vivir en el servidor.
+        // Credencial ÚNICA que viaja en el APK. TMDB, OpenSubtitles, Simkl y el `refresh` del
+        // mirror ya NO: viven en el gateway y se alcanzan por `/v1/catalog/*` con esta.
+        //
+        // Es la última que queda, y conviene tener presente lo que es: una constante compilada,
+        // igual para todos los aparatos. Cualquiera que abra el APK la extrae, y rotarla obliga a
+        // redistribuir. Lo que cierra eso de verdad es una credencial POR DISPOSITIVO, emitida al
+        // darse de alta y revocable de a una. Ver `docs/INVENTARIO_DE_LLAVES.md`.
         buildConfigField("String", "ARKIV_API_KEY", "\"${readEnv("ARKIV_API_KEY")}\"")
         ndk {
             // Solo ABIs de dispositivos reales (celular arm64, Fire Stick armeabi-v7a).
