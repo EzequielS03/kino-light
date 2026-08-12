@@ -79,8 +79,11 @@ import com.arkiv.player.ui.home.searchShortcutRoute
 import com.arkiv.player.ui.heroFallback
 import com.arkiv.player.ui.heroSubtitle
 import com.arkiv.player.ui.libraryMeta
+import com.arkiv.player.data.SettingsStore
 import com.arkiv.player.ui.live.LiveZappingSource
+import com.arkiv.player.ui.live.canalesDelPaisParaHome
 import com.arkiv.player.ui.live.canalesRecientesParaHome
+import com.arkiv.player.ui.live.filaDeCanalesDelHome
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivBlack
 import com.arkiv.player.ui.theme.ArkivRed
@@ -135,6 +138,8 @@ fun TvHomeScreen(
     val discoveryRowItems by vm.rowItems.collectAsStateWithLifecycle()
     val discoveryRowsLoaded by vm.rowsLoaded.collectAsStateWithLifecycle()
 
+    val context = LocalContext.current
+
     // Canales en vivo recientes -- mismo criterio que el home del celular (ver su KDoc en
     // HomeScreen.kt): se lee directo de Room, sin levantar LiveViewModel (que habla con el
     // gateway) solo para esta fila. Tope de 10: acceso rápido, no el historial completo.
@@ -150,10 +155,28 @@ fun TvHomeScreen(
     val canalesRecientes = remember(liveRecientesCrudo, liveCachePorCodigo) {
         canalesRecientesParaHome(liveRecientesCrudo, liveCachePorCodigo)
     }
+
+    // Canales del país del aparato, igual que en el home del celular (ver canalesDelPaisParaHome):
+    // así la fila sirve desde la primera apertura, sin nada visto todavía. Acá pesa más que en el
+    // celular -- este TV puede no tener SIM, y por eso la detección mira la zona horaria antes que
+    // el idioma.
+    var canalesDelPais by remember { mutableStateOf<List<LiveChannel>>(emptyList()) }
+    LaunchedEffect(Unit) {
+        canalesDelPais = canalesDelPaisParaHome(
+            context = context,
+            api = graph.liveApi,
+            cacheDao = liveCacheDao,
+            prefs = context.getSharedPreferences(SettingsStore.PREFS_NAME, android.content.Context.MODE_PRIVATE),
+        )
+    }
+    val canalesFila = remember(canalesRecientes, canalesDelPais) {
+        filaDeCanalesDelHome(canalesRecientes, canalesDelPais)
+    }
+
     fun reproducirCanal(canal: LiveChannel) {
         // Mismo mecanismo que TvLiveGuideScreen.verCanal: fija la lista con la que se "entró" para
-        // que arriba/abajo en el reproductor recorra estos mismos canales recientes.
-        LiveZappingSource.lista = canalesRecientes
+        // que arriba/abajo en el reproductor recorra los mismos canales que muestra la fila.
+        LiveZappingSource.lista = canalesFila
         onPlayLive(canal.code)
     }
 
@@ -211,7 +234,6 @@ fun TvHomeScreen(
     LaunchedEffect(Unit) { runCatching { graph.syncManager.syncNow() } }
 
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
     val syncStatus by graph.syncManager.status.collectAsStateWithLifecycle()
 
     val navSound = rememberNavSound()
@@ -424,17 +446,18 @@ fun TvHomeScreen(
                     }
                 }
 
-                // Canales en vivo recientes -- acceso directo sin pasar por "En vivo", el último
-                // visto a la izquierda (orden que ya trae `canalesRecientes`). Sin recientes, la
-                // fila no se dibuja: nada de un hueco vacío en medio del home.
-                if (canalesRecientes.isNotEmpty()) {
+                // Canales en vivo -- acceso directo sin pasar por "En vivo": lo último visto a la
+                // izquierda, después los canales del país sin repetir los ya vistos, y al final la
+                // salida a la parrilla completa (ver `filaDeCanalesDelHome`). Sin nada que mostrar,
+                // la fila no se dibuja: nada de un hueco vacío en medio del home.
+                if (canalesFila.isNotEmpty()) {
                     item(key = "live_recientes") {
                         TvRowLabel("Canales en vivo", labelHeight)
                         LazyRow(
                             contentPadding = PaddingValues(horizontal = 48.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
                         ) {
-                            items(canalesRecientes, key = { it.code }) { canal ->
+                            items(canalesFila, key = { it.code }) { canal ->
                                 TvLiveChannelCard(
                                     canal = canal,
                                     cardHeight = cardHeight,
