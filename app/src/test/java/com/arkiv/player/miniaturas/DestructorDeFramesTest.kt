@@ -1,8 +1,6 @@
 package com.arkiv.player.miniaturas
 
-import com.arkiv.player.data.db.EpisodeFrameDao
 import com.arkiv.player.data.db.EpisodeFrameEntity
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -18,32 +16,6 @@ import org.junit.rules.TemporaryFolder
 class DestructorDeFramesTest {
 
     @get:Rule val temp = TemporaryFolder()
-
-    /** Fake mínimo en memoria: alcanza con lo que [DestructorDeFrames] usa. */
-    private class FakeEpisodeFrameDao : EpisodeFrameDao {
-        val filas = mutableMapOf<String, EpisodeFrameEntity>()
-
-        override suspend fun upsert(frame: EpisodeFrameEntity) {
-            filas[frame.episodeId] = frame
-        }
-
-        override suspend fun get(episodeId: String): EpisodeFrameEntity? =
-            filas[episodeId]?.takeIf { it.deleted == 0 }
-
-        override suspend fun getIncluyendoBorradas(episodeId: String): EpisodeFrameEntity? = filas[episodeId]
-
-        override suspend fun getFramesSince(cursor: Long): List<EpisodeFrameEntity> =
-            filas.values.filter { it.updatedAt > cursor }.sortedBy { it.updatedAt }
-
-        override suspend fun pendientesDeBajar(): List<EpisodeFrameEntity> =
-            filas.values.filter { it.deleted == 0 && it.remoteUrl != null }
-
-        override fun observeForItem(itemId: String) = MutableStateFlow(emptyList<EpisodeFrameEntity>())
-
-        override suspend fun borrarTodo() {
-            filas.clear()
-        }
-    }
 
     private fun almacen() = AlmacenDeFrames(temp.newFolder("frames"))
 
