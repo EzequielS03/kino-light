@@ -412,6 +412,17 @@ interface LiveChannelCacheDao {
     @Query("SELECT * FROM live_channels_cache WHERE categoria = :categoria ORDER BY numero")
     suspend fun deCategoria(categoria: Int): List<LiveChannelCacheEntity>
 
+    /**
+     * Filas cacheadas de una lista puntual de canales (por `code`), sin filtrar por categoría --
+     * para enriquecer con logo/número datos que llegan de otra fuente que no trae categoría propia
+     * (los "recientes" de la fila del home, ver
+     * `canalesRecientesParaHome` en `ui/live/RecentLiveChannels.kt`). Puede devolver más de una
+     * fila por `code` (un canal puede estar cacheado en varias categorías del portal): logo/numero
+     * no cambian entre categorías, así que a quien llama le da igual cuál le llegue.
+     */
+    @Query("SELECT * FROM live_channels_cache WHERE code IN (:codes)")
+    suspend fun deCodigos(codes: List<String>): List<LiveChannelCacheEntity>
+
     @Query("DELETE FROM live_channels_cache WHERE categoria = :categoria")
     suspend fun limpiar(categoria: Int)
 

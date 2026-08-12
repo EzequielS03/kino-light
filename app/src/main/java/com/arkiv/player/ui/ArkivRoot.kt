@@ -301,6 +301,12 @@ fun ArkivRoot(
                 HomeScreen(
                     onOpenItem = { navController.navigate("detail/${Uri.encode(it)}") },
                     onPlayEpisode = { playEpisode(it) },
+                    // Directo a este teléfono, sin el diálogo de destino de LiveScreen: ese diálogo
+                    // manda el comando remoto con PlayKind.LIVE (ver LiveScreen.enviarATv), algo
+                    // que este atajo del home no reconstruye -- reproducir acá siempre funciona.
+                    onPlayLive = { code ->
+                        goToPlayer("${com.arkiv.player.playback.PlayerSource.LIVE_PREFIX}$code")
+                    },
                     onOpenConnect = { showConnection = true },
                     onOpenSearchRoute = { route -> navController.navigate(route) },
                     onOpenLibrary = { navController.navigate("library") },
