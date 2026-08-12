@@ -506,7 +506,9 @@ async def resolver_sesion(pb: AdminPocketBase, redis, token: str) -> Persona:
     # PocketBase igual que si lo hubiera tipeado una persona: si quedo corrupto por una
     # edicion a mano, una comilla cerraria el literal antes de tiempo y el filtro pasaria a
     # matchear OTRA licencia -- posiblemente una activa. Se valida la forma antes de armarlo.
-    if not FORMA_DE_CODIGO.match(codigo):
+    if not FORMA_DE_CODIGO.fullmatch(codigo):
+        # fullmatch y no match: `match` ancla solo el principio, asi que un codigo valido de 14
+        # caracteres seguido de basura pasaria el guard y la basura entraria al filtro.
         raise LicenciaNoVigente(codigo)
     filas = await pb.listar("licencias", f'codigo="{codigo}"')
     if not filas or filas[0].get("estado") != "activa":
@@ -764,7 +766,9 @@ async def _licencia_libre(pb: AdminPocketBase, codigo: str) -> dict:
     # Validar la FORMA antes de tocar la red: el codigo lo tipea una persona y termina dentro
     # de un literal del filtro de PocketBase. Una comilla lo cerraria antes de tiempo y el
     # filtro pasaria a matchear otra licencia.
-    if not FORMA_DE_CODIGO.match(codigo or ""):
+    if not FORMA_DE_CODIGO.fullmatch(codigo or ""):
+        # fullmatch y no match: `match` ancla solo el principio, asi que un codigo valido de 14
+        # caracteres seguido de basura pasaria el guard y la basura entraria al filtro.
         raise LicenciaInvalida(codigo)
     filas = await pb.listar("licencias", f'codigo="{codigo}"')
     if not filas:
