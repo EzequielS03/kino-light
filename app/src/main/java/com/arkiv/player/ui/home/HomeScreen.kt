@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -75,6 +76,8 @@ fun HomeScreen(
     onPlayEpisode: (String) -> Unit,
     /** Reproduce un canal en vivo directo (código de canal), sin pasar por la pestaña "En vivo". */
     onPlayLive: (String) -> Unit,
+    /** Abre la pestaña "En vivo" con la parrilla completa (última tarjeta de la fila de canales). */
+    onOpenLive: () -> Unit,
     onOpenConnect: () -> Unit = {},
     onOpenSearchRoute: (String) -> Unit,
     onOpenLibrary: () -> Unit,
@@ -241,6 +244,11 @@ fun HomeScreen(
                         items(canalesRecientes, key = { it.code }) { canal ->
                             LiveChannelCard(canal = canal, onClick = { reproducirCanal(canal) })
                         }
+                        // Al final de la fila, la salida hacia la parrilla completa: los recientes
+                        // son un atajo, no el catálogo.
+                        item(key = "live_ver_mas") {
+                            VerMasCanalesCard(onClick = onOpenLive)
+                        }
                     }
                 }
             }
@@ -345,6 +353,39 @@ private fun Hero(
                 }
             }
         }
+    }
+}
+
+/**
+ * Última tarjeta de la fila "Canales en vivo": abre la pestaña "En vivo" con la parrilla completa.
+ * Mismo molde que [LiveChannelCard] (140.dp, 16:9 y texto debajo) para que la fila no cambie de
+ * altura al llegar al final.
+ */
+@Composable
+private fun VerMasCanalesCard(onClick: () -> Unit) {
+    Column(modifier = Modifier.width(140.dp).clickable(onClick = onClick)) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Brush.linearGradient(listOf(Color(0xFF33333D), Color(0xFF17171C)))),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Default.LiveTv,
+                contentDescription = null,
+                tint = ArkivRed,
+                modifier = Modifier.size(28.dp),
+            )
+        }
+        Text(
+            text = "Ver más canales",
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 6.dp),
+        )
     }
 }
 

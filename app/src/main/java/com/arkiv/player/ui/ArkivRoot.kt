@@ -307,6 +307,15 @@ fun ArkivRoot(
                     onPlayLive = { code ->
                         goToPlayer("${com.arkiv.player.playback.PlayerSource.LIVE_PREFIX}$code")
                     },
+                    // "Ver más canales": mismas opciones que tocar la pestaña "En vivo" abajo, para
+                    // que quede marcada como seleccionada y el back stack no crezca por entrar acá.
+                    onOpenLive = {
+                        navController.navigate("live") {
+                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
                     onOpenConnect = { showConnection = true },
                     onOpenSearchRoute = { route -> navController.navigate(route) },
                     onOpenLibrary = { navController.navigate("library") },

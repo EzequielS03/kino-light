@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -444,6 +445,18 @@ fun TvHomeScreen(
                                     onClick = { reproducirCanal(canal) },
                                 )
                             }
+                            // Al final de la fila, la salida hacia la parrilla completa: los
+                            // recientes son un atajo, no el catálogo.
+                            item(key = "live_ver_mas") {
+                                TvVerMasCanalesCard(
+                                    cardHeight = cardHeight,
+                                    onFocus = {
+                                        navSound()
+                                        featured = Featured("Ver más canales", "Canal en vivo", null)
+                                    },
+                                    onClick = onOpenLive,
+                                )
+                            }
                         }
                         Spacer(Modifier.height(rowGap))
                     }
@@ -557,6 +570,53 @@ private fun TvLiveChannelCard(
                         color = Color.White.copy(alpha = 0.6f),
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Última tarjeta de la fila "Canales en vivo": abre la sección "En vivo" con la parrilla completa.
+ * Mismo molde que [TvLiveChannelCard] (alto de fila, 16:9, mismo foco y borde) para que la fila no
+ * cambie de altura ni de ritmo al llegar al final.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvVerMasCanalesCard(
+    cardHeight: Dp,
+    modifier: Modifier = Modifier,
+    onFocus: () -> Unit = {},
+    onClick: () -> Unit,
+) {
+    Card(
+        onClick = onClick,
+        modifier = modifier.height(cardHeight).onFocusChanged { if (it.isFocused) onFocus() },
+        scale = CardDefaults.scale(focusedScale = 1.08f),
+        colors = CardDefaults.colors(containerColor = ArkivSurfaceHigh),
+        border = CardDefaults.border(
+            focusedBorder = Border(androidx.compose.foundation.BorderStroke(3.dp, Color.White)),
+        ),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .aspectRatio(16f / 9f)
+                .background(Brush.linearGradient(listOf(Color(0xFF33333D), Color(0xFF17171C)))),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    imageVector = Icons.Default.LiveTv,
+                    contentDescription = null,
+                    tint = ArkivRed,
+                    modifier = Modifier.size(28.dp),
+                )
+                Text(
+                    text = "Ver más canales",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
             }
         }
     }
