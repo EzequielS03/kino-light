@@ -68,6 +68,19 @@ data class PlaylistData(
     val items: List<PlayerData>,
     val startIndex: Int,
     val startPositionMs: Long,
+    /**
+     * El episodeId que se pidió cargar cuando se armó esta playlist, o sea DE QUÉ CAPÍTULO es.
+     *
+     * Existe porque el ViewModel sobrevive a la navegación entre capítulos y este StateFlow sigue
+     * publicando la playlist del capítulo anterior hasta que la fuente nueva termina de resolver
+     * (segundos, en magis/web). Sin esta marca, la pantalla no tenía forma de distinguir "ya llegó
+     * lo mío" de "esto todavía es lo de antes", y cargaba lo viejo: elegir el capítulo siguiente en
+     * el carrusel volvía a reproducir el que estaba sonando. Ver [MediaReusePolicy.decide].
+     *
+     * NO es "el capítulo que suena ahora": archive carga la sección entera y el player avanza solo
+     * dentro de ella sin volver a pedir nada (eso lo responde `episodioEnCurso` en PlayerScreen).
+     */
+    val pedido: String,
 )
 
 /** Extras de una fuente web resuelta (subtítulos + headers sniffeados) para adjuntar en la UI. */
@@ -295,7 +308,10 @@ class PlayerViewModel(
                 openingStartMs = null, openingEndMs = null, endingStartMs = null,
                 kind = SourceKind.LIVE,
             )
-            _playlist.value = PlaylistData(listOf(item), 0, 0L)
+            // `pedido` = el canal que se acaba de abrir, no el que se pidió al entrar: zapear cambia
+            // el canal DENTRO de esta pantalla sin navegar (ver KDoc de loadLive), así que la
+            // pantalla lo trata aparte -- en vivo nunca pasa por MediaReusePolicy.
+            _playlist.value = PlaylistData(listOf(item), 0, 0L, pedido = item.episodeId)
             runCatching {
                 liveRecentDao.anotar(LiveRecentEntity(canal.code, canal.nombre, System.currentTimeMillis()))
             }
@@ -345,7 +361,7 @@ class PlayerViewModel(
             kind = SourceKind.LOCAL,
         )
         val startPos = safeStartPosition(episodeId, SourceKind.LOCAL)
-        _playlist.value = PlaylistData(listOf(item), 0, startPos)
+        _playlist.value = PlaylistData(listOf(item), 0, startPos, pedido = episodeId)
         Log.w(PLAY, "loadLocal() $episodeId -> $path (cast=$castUrl)")
     }
 
@@ -384,7 +400,7 @@ class PlayerViewModel(
         }
         if (items.isEmpty()) return
         val startIndex = items.indexOfFirst { it.episodeId == episodeId }.coerceAtLeast(0)
-        _playlist.value = PlaylistData(items, startIndex, startPos)
+        _playlist.value = PlaylistData(items, startIndex, startPos, pedido = episodeId)
     }
 
     /**
@@ -509,7 +525,7 @@ class PlayerViewModel(
             kind = SourceKind.TORRENT,
         )
         val startPos = safeStartPosition(episodeId, SourceKind.TORRENT)
-        _playlist.value = PlaylistData(listOf(item), 0, startPos)
+        _playlist.value = PlaylistData(listOf(item), 0, startPos, pedido = episodeId)
     }
 
     /**
@@ -599,7 +615,7 @@ class PlayerViewModel(
             kind = SourceKind.NUC,
         )
         val startPos = safeStartPosition(episodeId, SourceKind.NUC)
-        _playlist.value = PlaylistData(listOf(item), 0, startPos)
+        _playlist.value = PlaylistData(listOf(item), 0, startPos, pedido = episodeId)
     }
 
     /**
@@ -749,7 +765,7 @@ class PlayerViewModel(
         // El arranque caliente ya está en la mano (se pidió arriba, en paralelo con la sonda): la
         // espera del CDN ocurrió ANTES de abrir el video, donde el usuario ve el spinner de
         // siempre, en vez de convertirse en un fallo del que no se vuelve.
-        _playlist.value = PlaylistData(listOf(item), 0, startPos)
+        _playlist.value = PlaylistData(listOf(item), 0, startPos, pedido = episodeId)
         // RESUMEN, en una línea y en el orden en que se paga. Lo que falta para el primer frame es
         // lo que tarde VLC en abrir, que se mide aparte (ver el "abrió en Xms" de VlcPlayer): la
         // suma de las dos es lo que el usuario ve como spinner.
@@ -793,7 +809,7 @@ class PlayerViewModel(
         )
         _webExtras.value = WebExtras(episodeId, resolved.headers, resolved.subtitles)
         val startPos = safeStartPosition(episodeId, SourceKind.WEB)
-        _playlist.value = PlaylistData(listOf(item), 0, startPos)
+        _playlist.value = PlaylistData(listOf(item), 0, startPos, pedido = episodeId)
         Log.w(PLAY, "loadWeb() playlist publicada (1 item, startPos=$startPos) → PlayerScreen debe cargar en el controller")
     }
 

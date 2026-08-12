@@ -141,6 +141,7 @@ import com.arkiv.player.ui.settings.etiqueta
 import com.arkiv.player.ui.tv.TvEpisodeChip
 import com.arkiv.player.ui.tv.library.SAFE_H
 import com.arkiv.player.ui.tv.library.SAFE_V
+import com.arkiv.player.playback.AutoAvance
 import com.arkiv.player.playback.LoadedMedia
 import com.arkiv.player.playback.MediaReusePolicy
 import com.arkiv.player.playback.NowPlaying
@@ -1024,27 +1025,37 @@ private fun PlayerContent(
         // recargar con la URL fresca. El guard "una sola vez" y el reuso de buffer (play()/seekTo) solo
         // valen para fuentes de URL estable (archive/torrent).
         val isWeb = pl.items.getOrNull(pl.startIndex)?.kind == SourceKind.WEB
+        // ¿Esto es lo que pidió ESTA pantalla, o todavía es la playlist del capítulo anterior? El
+        // ViewModel sobrevive a la navegación entre capítulos, así que al entrar al siguiente lo
+        // publicado sigue siendo lo de antes durante todo el resolve (~4 s en magis). Se pregunta
+        // ANTES de tocar `loaded`, la posición o el cast: darla por buena era reproducir el capítulo
+        // anterior desde el principio y —peor— dejar `loaded=true`, con lo que la playlist buena ya
+        // no entraba nunca. Ver el KDoc de PlaylistData.pedido y MediaReusePolicy.decide.
+        val decision = MediaReusePolicy.decide(
+            episodeId = episodeId,
+            // Qué hay cargado, con su URI. La URI se lee de requestMetadata y NO de localConfiguration:
+            // este lado es el controller, y localConfiguration se pierde al cruzar el IPC (ver
+            // PlaybackService.MediaItemResolverCallback). Sin la URI, "es el mismo episodio" era la única
+            // señal para reusar — y para torrent eso es falso: el puerto del servidor local cambia.
+            cargado = (0 until controller.mediaItemCount).map { i ->
+                val mi = controller.getMediaItemAt(i)
+                LoadedMedia(mi.mediaId, mi.requestMetadata.mediaUri?.toString().orEmpty())
+            },
+            actualMediaId = controller.currentMediaItem?.mediaId,
+            fresco = pl.items.map { LoadedMedia(it.episodeId, it.mediaUrl) },
+            isWeb = isWeb,
+            pedido = pl.pedido,
+        )
+        if (decision == MediaReusePolicy.Decision.ESPERAR) {
+            android.util.Log.w("ArkivPlay", "playlist de OTRO capítulo (pedido=${pl.pedido} ≠ $episodeId) → esperar la mía")
+            return@LaunchedEffect
+        }
         if (loaded && !isWeb) {
             android.util.Log.w("ArkivPlay", "playlist lista pero loaded=true (no-WEB) → NO recarga (guard). items=${pl.items.map { it.episodeId }}")
             return@LaunchedEffect
         }
         loaded = true
         positionMs = pl.startPositionMs
-        // Qué hay cargado, con su URI. La URI se lee de requestMetadata y NO de localConfiguration:
-        // este lado es el controller, y localConfiguration se pierde al cruzar el IPC (ver
-        // PlaybackService.MediaItemResolverCallback). Sin la URI, "es el mismo episodio" era la única
-        // señal para reusar — y para torrent eso es falso: el puerto del servidor local cambia.
-        val cargado = (0 until controller.mediaItemCount).map { i ->
-            val mi = controller.getMediaItemAt(i)
-            LoadedMedia(mi.mediaId, mi.requestMetadata.mediaUri?.toString().orEmpty())
-        }
-        val decision = MediaReusePolicy.decide(
-            episodeId = episodeId,
-            cargado = cargado,
-            actualMediaId = controller.currentMediaItem?.mediaId,
-            fresco = pl.items.map { LoadedMedia(it.episodeId, it.mediaUrl) },
-            isWeb = isWeb,
-        )
         android.util.Log.w("ArkivPlay", "playlist lista → cargar. isWeb=$isWeb decision=$decision startPos=${pl.startPositionMs}")
         if (casting && castSession != null) {
             val idx = pl.items.indexOfFirst { it.episodeId == episodeId }.coerceAtLeast(0)
@@ -1082,6 +1093,9 @@ private fun PlayerContent(
             ).show()
         }
         when (decision) {
+            // Inalcanzable: se corta arriba, apenas se calcula la decisión. La rama existe porque el
+            // `when` sobre Decision es exhaustivo.
+            MediaReusePolicy.Decision.ESPERAR -> Unit
             // Mismo episodio ya en curso Y con la misma URL: re-enganchar (aprovecha el buffer). Solo no-WEB.
             MediaReusePolicy.Decision.REUSAR_ACTUAL -> {
                 android.util.Log.w("ArkivPlay", "rama=REUSAR_ACTUAL → controller.play() (NO recarga media)")
@@ -1125,6 +1139,39 @@ private fun PlayerContent(
             controller.currentMediaItem?.mediaId ?: pl.items.getOrNull(currentIndex)?.episodeId
     }
 
+    // Capítulo cuyo final YA se atendió, para no encadenar dos avances por el mismo final: VLC puede
+    // repetir el EndReached y, casteando, el CastPlayer emite además el suyo.
+    var finAtendido by remember { mutableStateOf<String?>(null) }
+
+    /**
+     * Fin del capítulo → seguir con el siguiente.
+     *
+     * Hasta ahora esto no existía y solo avanzaba archive, de rebote: es la única fuente multi-ítem
+     * (carga la sección entera como playlist, ver `loadArchive`), así que el avance lo hacía media3
+     * solo, por dentro. Las demás —magis, web, torrent, local— publican UN ítem: al terminar, el
+     * player se quedaba en STATE_ENDED con la barra llena y no pasaba nada más.
+     *
+     * Va por el mismo camino que el botón "Siguiente episodio" del transporte ([onNextEpisode]):
+     * navegar a la ruta del capítulo nuevo, que es lo que re-arranca la resolución de la fuente.
+     */
+    fun alTerminarElCapitulo() {
+        // Un directo no termina: su EndReached es el stream que se cortó, y ahí no hay "siguiente
+        // capítulo" que valga (el único siguiente del modo vivo es el zapping).
+        if (enVivo) return
+        val actual = playlistRef.value?.items?.getOrNull(controller.currentMediaItemIndex)?.episodeId
+            ?: episodeId
+        if (finAtendido == actual) return
+        // Un stream cortado avisa igual que un capítulo terminado: ver AutoAvance.
+        if (!AutoAvance.esFinDeCapitulo(positionMs, durationMs)) {
+            android.util.Log.w("ArkivPlay", "fin en pos=$positionMs de $durationMs → no es el final, no avanza")
+            return
+        }
+        finAtendido = actual
+        val siguiente = nextEpisodeId
+        android.util.Log.w("ArkivPlay", "fin de $actual → siguiente=$siguiente")
+        if (siguiente != null) onNextEpisode(siguiente)
+    }
+
     // Índice/buffering/estado del transporte. Sigue al player activo: al conectar o desconectar
     // el cast, el efecto se relanza solo y el listener se re-engancha al que corresponda.
     DisposableEffect(activePlayer) {
@@ -1147,6 +1194,7 @@ private fun PlayerContent(
 
             override fun onPlaybackStateChanged(state: Int) {
                 isBuffering = state == Player.STATE_BUFFERING
+                if (state == Player.STATE_ENDED) alTerminarElCapitulo()
             }
 
             override fun onIsPlayingChanged(playing: Boolean) {
