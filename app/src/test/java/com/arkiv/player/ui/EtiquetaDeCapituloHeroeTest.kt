@@ -141,6 +141,26 @@ class EtiquetaDeCapituloHeroeTest {
         )
     }
 
+    // --- Por encima de la hora reusa formatRuntime, no minutos crudos ------------------------------
+
+    /** Una película recién empezada: por encima de los 60 min pasa a horas, como `formatRuntime`. */
+    @Test
+    fun `mas de una hora restante se muestra en horas y minutos`() {
+        assertEquals(
+            "T1 · E5  ·  La conspiración  ·  te faltan 1 h 26 min",
+            linea(positionMs = 0L, durationMs = 86 * 60_000L),
+        )
+    }
+
+    /** El borde de exactamente 60 min: sin minutos sueltos, `formatRuntime` no los agrega. */
+    @Test
+    fun `exactamente 60 minutos restantes se muestra como 1 h sin minutos`() {
+        assertEquals(
+            "T1 · E5  ·  La conspiración  ·  te faltan 1 h",
+            linea(positionMs = 0L, durationMs = 60 * 60_000L),
+        )
+    }
+
     // --- El núcleo compartido con el detalle -------------------------------------------------
 
     @Test

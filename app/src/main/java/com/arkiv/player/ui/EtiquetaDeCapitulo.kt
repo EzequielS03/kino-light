@@ -114,7 +114,9 @@ object EtiquetaDeCapitulo {
         }
         val restante = durationMs - positionMs
         if (durationMs > 0 && restante >= RESTANTE_MINIMO_MS) {
-            tramos += "te faltan ${restante / 60_000} min"
+            // formatRuntime ya sabe pasar a horas por encima de los 60 minutos ("1 h 26 min"): sin
+            // esto, una película recién empezada decía "te faltan 118 min".
+            tramos += "te faltan ${formatRuntime(restante / 1000.0)}"
         }
         return tramos.joinToString("  ·  ")
     }
