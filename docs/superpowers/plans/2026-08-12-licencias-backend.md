@@ -22,7 +22,7 @@
 | Archivo | Responsabilidad |
 |---|---|
 | `archive/docs/pocketbase/1786800000_created_licencias.js` | Migración: colección `licencias`. |
-| `archive/docs/pocketbase/1786800100_created_users.js` | Migración: colección auth `users`. |
+| `archive/docs/pocketbase/1786800100_updated_users_licencia.js` | Migración: suma `licencia` a la `users` que ya existe. |
 | `archive/docs/pocketbase/collections.md` | Documentar las dos colecciones nuevas. |
 | `arkiv-api/src/arkiv_api/licencias/codigo.py` | Generar el código. Puro, sin red. |
 | `arkiv-api/src/arkiv_api/licencias/cliente.py` | Cliente PocketBase admin: crear/listar/actualizar. |
@@ -97,60 +97,83 @@ git commit -m "feat(pocketbase): coleccion licencias, cerrada a la API"
 
 ---
 
-### Task 2: Colección auth `users`
+### Task 2: Agregar `licencia` a la colección `users` existente
 
 **Files:**
-- Create: `archive/docs/pocketbase/1786800100_created_users.js`
+- Create: `archive/docs/pocketbase/1786800100_updated_users_licencia.js`
 - Modify: `archive/docs/pocketbase/collections.md`
 
 **Interfaces:**
-- Consumes: colección `licencias` de la Task 1 (el campo `licencia` la referencia por código).
-- Produces: colección auth `users` con `accountId` y `licencia`.
+- Consumes: colección `licencias` de la Task 1.
+- Produces: el campo `licencia` en `users`.
+
+**LEER ESTO ANTES DE EMPEZAR — la versión anterior de esta task estaba equivocada.** Decía "crear la
+colección `users`". **`users` YA EXISTE** en la instancia real: es la colección por defecto de
+PocketBase, ya adaptada por dos migraciones previas (`1786369101_updated_users.js` le agregó
+`accountId` y su índice; `1786369470_updated_users_createrule.js` endureció su `createRule`).
+Intentar crearla de nuevo haría fallar la migración. Esta task la **modifica**.
+
+Antes de escribir nada, leé esas dos migraciones para no pisar lo que ya hacen:
+
+```bash
+ssh blog "cat ~/pocketbase/pb_migrations/1786369101_updated_users.js ~/pocketbase/pb_migrations/1786369470_updated_users_createrule.js"
+```
+
+**Qué NO hace esta task:** no toca `createRule`. Hoy esa regla exige un device autenticado pero
+ninguna licencia, y ese agujero se cierra en el Plan 3, cuando el registro pase por el gateway (que
+es quien puede validar "la licencia existe, está activa y no fue usada" — una regla de PocketBase no
+puede expresar esas tres condiciones sobre la misma licencia de forma confiable). Dejarlo acá a
+medias sería peor: una regla que valida el código pero no su estado da falsa sensación de cierre.
 
 - [ ] **Step 1: Escribir la migración**
 
 ```javascript
 /// <reference path="../pb_data/types.d.ts" />
-// `users`: la PERSONA. Hasta ahora la identidad era el device (`devices`) y la persona no existia:
-// `accountId` agrupaba devices pero nadie podia autenticarse "como esa persona".
+// Suma `licencia` a `users`: que persona esta habilitada por que licencia. El gateway lo lee en cada
+// pedido para poder revocar (ver el spec de licencias).
 //
-// `licencia` guarda el CODIGO, no una relacion: el gateway resuelve la licencia por codigo en cada
-// validacion, y una relation obligaria a expandirla en cada consulta sin darnos nada a cambio.
+// Es un UPDATE y no un create: `users` ya existe -- es la coleccion por defecto de PocketBase, ya
+// adaptada por 1786369101_updated_users.js. Crearla de nuevo falla.
+//
+// Guarda el CODIGO y no una relation: el gateway resuelve la licencia por codigo en cada validacion,
+// y una relation lo obligaria a expandirla en cada consulta sin darle nada a cambio.
+//
+// Va sin `required`: los records que ya existen no tienen licencia, y marcarlo obligatorio los
+// dejaria invalidos. Que no falte de verdad lo garantiza el registro, no el esquema.
 migrate((app) => {
-  const users = new Collection({
-    "name": "users",
-    "type": "auth",
+  const users = app.findCollectionByNameOrId("users")
+  users.fields.add(new Field({
+    "hidden": false,
+    "id": "text_licencia_ark",
+    "max": 64,
+    "min": 0,
+    "name": "licencia",
+    "presentable": false,
+    "primaryKey": false,
+    "required": false,
     "system": false,
-    "listRule": "id = @request.auth.id",
-    "viewRule": "id = @request.auth.id",
-    "createRule": null,
-    "updateRule": "id = @request.auth.id",
-    "deleteRule": null,
-    "passwordAuth": { "enabled": true, "identityFields": ["email"] },
-    "indexes": [
-      "CREATE INDEX `idx_users_accountId` ON `users` (`accountId`)"
-    ],
-    "fields": [
-      { "name": "accountId", "type": "text", "required": true, "max": 64 },
-      { "name": "licencia", "type": "text", "required": true, "max": 64 }
-    ]
-  })
-  app.save(users)
+    "type": "text"
+  }))
+  return app.save(users)
 }, (app) => {
-  app.delete(app.findCollectionByNameOrId("users"))
+  const users = app.findCollectionByNameOrId("users")
+  users.fields.removeByName("licencia")
+  return app.save(users)
 })
 ```
 
 - [ ] **Step 2: Documentar**
 
-Agregar la sección `## users` a `collections.md`, con los campos y esta nota: **`createRule: null` significa que nadie se registra solo desde la API.** El alta la hace el flujo de registro de la app pasando por el gateway (Plan 3), que valida la licencia antes de crear. Sin eso, cualquiera con la URL de PocketBase se crearía una cuenta.
+En `docs/pocketbase/collections.md`, en la sección que ya existe de `users`, agregar el campo
+`licencia` a la tabla y una nota con las dos razones de arriba: por qué guarda el código y no una
+relación, y por qué no es `required`.
 
 - [ ] **Step 3: Commit**
 
 ```bash
 cd /Users/cristian/archive
-git add docs/pocketbase/1786800100_created_users.js docs/pocketbase/collections.md
-git commit -m "feat(pocketbase): coleccion users, la persona"
+git add docs/pocketbase/1786800100_updated_users_licencia.js docs/pocketbase/collections.md
+git commit -m "feat(pocketbase): users suma el campo licencia"
 ```
 
 ---

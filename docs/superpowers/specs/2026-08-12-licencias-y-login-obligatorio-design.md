@@ -16,6 +16,30 @@ el acceso a UNA persona.
 
 El objetivo es que **nadie use la app sin permiso explícito**, y que ese permiso se pueda **quitar**.
 
+### Lo que YA está construido (verificado en código el 2026-08-12)
+
+Los Specs 1 y 2 decían "pendiente de plan de implementación", **pero están implementados**. Se
+verificó contra el código y contra la instancia real de PocketBase, no contra la documentación:
+
+- **Colección `users`: existe.** Ya tiene `accountId` (text, requerido) y el índice
+  `idx_users_accountId`, agregados por la migración `1786369101_updated_users.js`.
+- **`AccountManager.kt`** implementa `login`, `registerSendCode` / `registerConfirm`, `logout`,
+  `vincularMagis` / `desvincularMagis` y el estado `Anonimo | Conectado(email, magisLinked)`.
+- **El registro ya crea cuenta de Magis**: pide un código por email al portal y, si Magis responde
+  503, cae a crear solo la cuenta de PocketBase (`RegistroPaso.CREADA_SIN_MAGIS`).
+- **La UI de cuenta vive en ajustes** (`AccountSection.kt`, `TvSettingsScreen.kt`), coherente con
+  que el login era opcional.
+
+**Consecuencia para este spec:** lo que falta no es construir cuentas, es (a) exigir licencia para
+crear una, (b) hacer el login obligatorio al arranque en vez de opcional en ajustes, y (c) que el
+gateway valide sesión en lugar de una llave compartida.
+
+**Y hay un agujero abierto en producción ahora mismo.** La regla de creación de `users` es
+`@request.auth.id != "" && accountId = @request.auth.accountId`
+(migración `1786369470_updated_users_createrule.js`): exige un device autenticado, pero **ninguna
+licencia**. Como cualquier install se da de alta solo como device anónimo, hoy cualquiera con el APK
+se crea una cuenta. Es exactamente el hueco que este spec viene a cerrar.
+
 ### Qué cambia de los specs previos
 
 | Spec previo decía | Ahora |
