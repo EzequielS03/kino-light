@@ -44,12 +44,12 @@ El spec ponía el conteo de aparatos en la app. Un límite que verifica el clien
 
 Todos bajo `/v1/cuenta`, con `Authorization`. En `registrar` es el token del aparato (colección `devices`); en los de aparatos, el de la persona (colección `users`).
 
-**El aparato se identifica con su token, nunca con su id suelto.** Un id en una cabecera lo puede escribir cualquiera: quien mandara el de otra persona quedaría registrado bajo el `accountId` ajeno y vería su biblioteca. El token lo valida PocketBase, y de ahí sale el id.
+**El aparato se identifica con su token, nunca con su id suelto — en `registrar` y tambien en `POST /aparatos`.** Un id en una cabecera lo puede escribir cualquiera: quien mandara el de otra persona quedaría registrado bajo el `accountId` ajeno y vería su biblioteca. El token lo valida PocketBase, y de ahí sale el id.
 
 | Endpoint | Auth | Body | Respuestas |
 |---|---|---|---|
 | `POST /registrar` | `Authorization: <token de devices>` | `{email, password, licencia}` | `201 {userId, accountId}` · `400 licencia_invalida` · `409 email_en_uso` |
-| `POST /aparatos` | token de persona | `{deviceId}` | `200 {kind, usados, tope}` · `403 tope_alcanzado` · `404` |
+| `POST /aparatos` | token de persona | `{deviceToken}` | `200 {kind, usados, tope}` · `403 tope_alcanzado` · `404` |
 | `GET /aparatos` | token de persona | — | `200 {aparatos: [{id, kind, nombre, ultimoUso, esteAparato}]}` |
 | `DELETE /aparatos/{id}` | token de persona | — | `204` · `404` |
 
