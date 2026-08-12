@@ -29,6 +29,9 @@ class LibraryWiper(
         playbackDao.deleteAllPlayback()
         skipMarkerDao.deleteAllMarkers()
         destructorDeFrames.destruirTodo()
-        cursors.resetAll(listOf("library_items", "episodes", "progress", "markers"))
+        // `episode_frames` va en la lista por lo mismo que las otras cuatro: la identidad nueva
+        // arranca en blanco, y un cursor heredado de la anterior la dejaría sin traer los frames que
+        // ya estaban en el servidor por debajo de esa marca (y sin volver a empujar los suyos).
+        cursors.resetAll(listOf("library_items", "episodes", "progress", "markers", "episode_frames"))
     }
 }
