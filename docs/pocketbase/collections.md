@@ -90,6 +90,16 @@ Miniaturas de frame: el JPEG que se captura durante la reproducción, para que s
 > `403`. Es lo normal en PocketBase — una regla de lista se aplica como FILTRO, no como rechazo. Se
 > comprobó comparando contra `progress`, que se comporta igual.
 
+## `licencias` (base) — creada 2026-08-12 (Plan 1)
+
+El derecho de uso que habilita a una persona a usar la app. No es un codigo de invitacion: se consume al registrarse pero sigue vivo, y el gateway lo mira en cada pedido. Revocarla echa a la persona aunque ya este adentro.
+
+**Campos:** `codigo` (text, required, max 64, índice `idx_licencias_codigo` ÚNICO), `estado` (select: activa/revocada, required), `maxCelulares` (number, entero, required), `maxTvs` (number, entero, required), `usadaPor` (text, max 64), `notas` (text, max 200).
+
+**Reglas:** list/view/create/update/delete = `null` (solo superusuario del gateway).
+
+> **Las reglas estan cerradas a proposito.** Nadie puede listar ni crear licencias desde la API. El unico camino es el CLI de `arkiv-api`, que entra como superusuario. Una licencia que se pueda crear desde internet es exactamente el agujero que esto viene a cerrar.
+
 ## Pendientes (fases siguientes)
 
 - `library_items`, `progress` (base, realtime) — Plan 4 (sync tiempo real).
