@@ -44,7 +44,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import com.arkiv.player.data.Quality
 import com.arkiv.player.data.WebQuality
-import com.arkiv.player.data.subtitles.SubtitleStyle
+import com.arkiv.player.data.subtitles.PlaybackPrefs
+import com.arkiv.player.data.subtitles.SubtitleMode
 import com.arkiv.player.data.update.UpdateInfo
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivRed
@@ -61,7 +62,7 @@ fun SettingsScreen(contentPadding: PaddingValues) {
     val maxSizeGb by settings.maxTorrentSizeGb.collectAsStateWithLifecycle()
     val webQuality by settings.webQuality.collectAsStateWithLifecycle()
     val liveSignRemote by settings.liveSignRemote.collectAsStateWithLifecycle()
-    val subStyle by graph.subtitlePrefs.style.collectAsStateWithLifecycle()
+    val subStyle by graph.subtitlePrefs.prefs.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -89,7 +90,7 @@ fun SettingsScreen(contentPadding: PaddingValues) {
     }
 
     // Cambiar estilo: persiste local + sincroniza a los otros dispositivos (TV).
-    fun setStyle(s: SubtitleStyle) {
+    fun setStyle(s: PlaybackPrefs) {
         graph.subtitlePrefs.update(s)
         graph.applicationScope.launch { runCatching { graph.remoteController.sendSubtitlePrefs(s.toJson()) } }
     }
@@ -229,9 +230,9 @@ private fun LiveSignSection(remote: Boolean, onSelect: (Boolean) -> Unit) {
 }
 
 @Composable
-private fun SubtitleSection(style: SubtitleStyle, onChange: (SubtitleStyle) -> Unit) {
+private fun SubtitleSection(style: PlaybackPrefs, onChange: (PlaybackPrefs) -> Unit) {
     Text(
-        "Subtítulos",
+        "Audio y subtítulos",
         style = MaterialTheme.typography.titleMedium,
         modifier = Modifier.padding(top = 24.dp, bottom = 4.dp),
     )
@@ -257,12 +258,44 @@ private fun SubtitleSection(style: SubtitleStyle, onChange: (SubtitleStyle) -> U
         )
     }
 
-    // Idioma preferido (auto-carga).
-    Label("Idioma preferido")
+    LanguageOrderEditor(
+        title = "Idioma del audio (en orden de preferencia)",
+        options = IDIOMAS_AUDIO,
+        order = style.audioLangs,
+        onChange = { onChange(style.copy(audioLangs = it)) },
+    )
+
+    LanguageChecklistEditor(
+        title = "Idiomas que entiendo",
+        subtitle = "Los subtítulos se prenden solos únicamente cuando el audio queda en un idioma " +
+            "que no está en esta lista.",
+        options = IDIOMAS_AUDIO,
+        selected = style.understoodLangs,
+        onChange = { onChange(style.copy(understoodLangs = it)) },
+    )
+
+    LanguageOrderEditor(
+        title = "Idioma de los subtítulos (en orden de preferencia)",
+        options = IDIOMAS_SUBTITULO,
+        order = style.subtitleLangs,
+        onChange = { onChange(style.copy(subtitleLangs = it)) },
+    )
+
+    Label("Cuándo mostrarlos")
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Chip("Español (auto)", style.language == "es") { onChange(style.copy(language = "es")) }
-        Chip("Desactivado", style.language == "off") { onChange(style.copy(language = "off")) }
+        Chip("Automático", style.subtitleMode == SubtitleMode.AUTO) {
+            onChange(style.copy(subtitleMode = SubtitleMode.AUTO))
+        }
+        Chip("Desactivado", style.subtitleMode == SubtitleMode.OFF) {
+            onChange(style.copy(subtitleMode = SubtitleMode.OFF))
+        }
     }
+    Text(
+        "Automático: se prenden solo si el audio quedó en un idioma que no marcaste como entendido.",
+        style = MaterialTheme.typography.bodySmall,
+        color = ArkivTextSecondary,
+        modifier = Modifier.padding(top = 4.dp),
+    )
 
     // Tamaño.
     Label("Tamaño: ${style.sizePercent}%")
@@ -293,9 +326,9 @@ private fun SubtitleSection(style: SubtitleStyle, onChange: (SubtitleStyle) -> U
     // Borde.
     Label("Borde del texto")
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Chip("Contorno", style.edge == SubtitleStyle.EDGE_OUTLINE) { onChange(style.copy(edge = SubtitleStyle.EDGE_OUTLINE)) }
-        Chip("Sombra", style.edge == SubtitleStyle.EDGE_SHADOW) { onChange(style.copy(edge = SubtitleStyle.EDGE_SHADOW)) }
-        Chip("Ninguno", style.edge == SubtitleStyle.EDGE_NONE) { onChange(style.copy(edge = SubtitleStyle.EDGE_NONE)) }
+        Chip("Contorno", style.edge == PlaybackPrefs.EDGE_OUTLINE) { onChange(style.copy(edge = PlaybackPrefs.EDGE_OUTLINE)) }
+        Chip("Sombra", style.edge == PlaybackPrefs.EDGE_SHADOW) { onChange(style.copy(edge = PlaybackPrefs.EDGE_SHADOW)) }
+        Chip("Ninguno", style.edge == PlaybackPrefs.EDGE_NONE) { onChange(style.copy(edge = PlaybackPrefs.EDGE_NONE)) }
     }
     Box(Modifier.padding(bottom = 32.dp))
 }

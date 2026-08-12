@@ -89,8 +89,13 @@ class SubtitleApi(
         }.getOrDefault(emptyList())
     }
 
-    /** Baja el .srt de un subtítulo y lo guarda localmente. Devuelve el archivo o null. */
-    suspend fun download(fileId: Long, dir: File): File? = withContext(Dispatchers.IO) {
+    /**
+     * Baja el .srt de un subtítulo y lo guarda localmente. Devuelve el archivo o null.
+     * [lang] va en el NOMBRE del archivo (`sub-123.es.srt`) porque libVLC nombra las pistas externas
+     * con su ruta: así el clasificador de idioma también reconoce las bajadas de OpenSubtitles, en
+     * vez de que sean la única pista opaca del sistema.
+     */
+    suspend fun download(fileId: Long, dir: File, lang: String = ""): File? = withContext(Dispatchers.IO) {
         if (!configured) return@withContext null
         // 1) pedir el link de descarga.
         val reqBody = JSONObject().put("file_id", fileId).put("sub_format", "srt").toString()
@@ -112,7 +117,8 @@ class SubtitleApi(
         }.getOrNull() ?: return@withContext null
         runCatching {
             dir.mkdirs()
-            File(dir, "sub-$fileId.srt").apply { writeBytes(bytes) }
+            val sufijo = lang.lowercase().takeIf { it.isNotBlank() }?.let { ".$it" }.orEmpty()
+            File(dir, "sub-$fileId$sufijo.srt").apply { writeBytes(bytes) }
         }.getOrNull()
     }
 

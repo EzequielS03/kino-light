@@ -9,6 +9,7 @@ import androidx.media3.session.MediaSessionService
 import com.arkiv.player.MainActivity
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import kotlinx.coroutines.launch
 
 /** Referencia al capítulo que se está reproduciendo (para el deep-link de la notificación). */
 object NowPlaying {
@@ -68,10 +69,40 @@ class PlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
 
+    // Suscripción a los Ajustes (ver onCreate). Vive en applicationScope —de todo el proceso, no del
+    // service— porque ahí vive graph.subtitlePrefs; por eso hay que cancelarla a mano en onDestroy.
+    // Sin cancelar, el collect queda corriendo para siempre capturando ESTE `player` (y a través de
+    // su `context`, este `PlaybackService` ya destruido): cada ciclo crear→destruir el service fuga
+    // un VlcPlayer completo.
+    private var langPrefsJob: kotlinx.coroutines.Job? = null
+
     override fun onCreate() {
         super.onCreate()
         val player = VlcPlayer(this, mainLooper)
         PlaybackEngine.vlc = player
+
+        // El player vive en el servicio, así que se suscribe él mismo a las preferencias: un cambio
+        // en Ajustes —o sincronizado desde el celular— llega sin tener que reiniciar la reproducción.
+        val graph = com.arkiv.player.AppGraph.from(this)
+        var anteriores: com.arkiv.player.data.subtitles.PlaybackPrefs? = null
+        langPrefsJob = graph.applicationScope.launch {
+            graph.subtitlePrefs.prefs.collect { prefs ->
+                player.langPrefs = prefs
+                val previas = anteriores
+                anteriores = prefs
+                // Se re-aplica sobre lo que ya está sonando, porque volver a darle play a lo mismo
+                // reusa el media y no vuelve a disparar los pases: sin esto, un cambio en Ajustes no
+                // se veía hasta la próxima carga desde cero.
+                //
+                // Con dos recortes. `previas == null` es la primera emisión —el valor que ya había al
+                // suscribirse, no un cambio—, y del arranque se encarga el pase del evento Playing.
+                // Y solo cuentan los campos de IDIOMA: el estilo del subtítulo vive en el mismo objeto
+                // y su slider de tamaño persiste en cada paso del arrastre.
+                if (previas != null && !previas.mismosIdiomasQue(prefs)) {
+                    player.reaplicarIdiomaAlItemActual()
+                }
+            }
+        }
 
         // Al tocar la notificación se abre la app en el capítulo actual.
         val openIntent = Intent(this, MainActivity::class.java).apply {
@@ -151,6 +182,11 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        // Cortar la suscripción a Ajustes ANTES que nada: vive en applicationScope (todo el proceso),
+        // así que si no se cancela acá sigue corriendo después de destruido el service, reteniendo
+        // el player viejo (ver el comentario de langPrefsJob).
+        langPrefsJob?.cancel()
+        langPrefsJob = null
         // Cortar el stream de torrent y el proxy de archive ANTES de liberar el player: ambos viven
         // en el grafo (segundo plano vía service/MediaSession), así que al destruirse el service es
         // acá donde hay que soltarlos para no fugar red/batería/disco.
