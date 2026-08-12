@@ -53,6 +53,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.AlertDialog
@@ -407,12 +408,16 @@ private fun PlayerContent(
     // no puede quedar obsoleta durante la sesión de vivo.
     val enVivo = remember(episodeId) { PlayerSource.kindFor(episodeId) == SourceKind.LIVE }
 
-    // Próximo episodio (si lo hay) para el botón "Siguiente episodio" del overlay de pausa.
-    // null en películas (una sola sección) o si este es el último episodio de la serie.
+    // Episodios vecinos (si los hay) para los botones "Capítulo anterior"/"Siguiente episodio" de
+    // los controles. Ambos son null en películas (una sola sección, ver EpisodeNavigation) y cada
+    // uno lo es en su extremo: el primero de la temporada no tiene anterior, el último no tiene
+    // siguiente. Esa nulidad es la ÚNICA condición para mostrarlos (ver `showPrev`/`showNext`).
+    var prevEpisodeId by remember { mutableStateOf<String?>(null) }
     var nextEpisodeId by remember { mutableStateOf<String?>(null) }
     // Título del ítem + nombre del episodio (solo series) para el encabezado del overlay de pausa.
     var headerInfo by remember { mutableStateOf<com.arkiv.player.data.ArkivRepository.PlayerHeaderInfo?>(null) }
     LaunchedEffect(episodeId) {
+        prevEpisodeId = graph.repository.previousEpisode(episodeId)?.id
         nextEpisodeId = graph.repository.nextEpisode(episodeId)?.id
         headerInfo = graph.repository.headerInfo(episodeId)
     }
@@ -427,6 +432,7 @@ private fun PlayerContent(
     val rewindFR = remember { FocusRequester() }
     val playPauseFR = remember { FocusRequester() }
     val forwardFR = remember { FocusRequester() }
+    val prevEpisodeFR = remember { FocusRequester() }
     val nextEpisodeFR = remember { FocusRequester() }
     val sliderFR = remember { FocusRequester() }
     // Botón de override "Reproducir en vivo" (Task 11, solo visible reproduciendo desde la NUC).
@@ -2348,8 +2354,10 @@ private fun PlayerContent(
                             Text(formatDuration(durationMs), color = Color.White, style = MaterialTheme.typography.labelMedium)
                         }
                         Spacer(Modifier.height(8.dp))
-                        // Retroceder / play-pausa / adelantar / siguiente episodio (solo en pausa) /
-                        // subtítulos (TV) — todo en una sola fila, izq/der navegable con D-pad.
+                        // Capítulo anterior / retroceder / play-pausa / adelantar / capítulo
+                        // siguiente / subtítulos (TV) — todo en una sola fila, izq/der navegable
+                        // con D-pad. Los dos saltos de capítulo van en los extremos del transporte,
+                        // como en cualquier reproductor: |< << ▶ >> >|.
                         Row(
                             modifier = Modifier
                                 // En teléfono la fila ocupa todo el ancho para poder empujar el
@@ -2376,6 +2384,32 @@ private fun PlayerContent(
                             horizontalArrangement = Arrangement.spacedBy(20.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            // Los saltos de capítulo dependen SOLO de que el vecino exista, nunca del
+                            // estado de transporte. Colgarlos de `isPlaying` (como estaba el de
+                            // siguiente) los hacía parpadear: isPlaying se cae a false en cada
+                            // rebuffer y en cada seek —VLC emite Buffering y VlcPlaybackState lo
+                            // traduce a STATE_BUFFERING—, así que el botón aparecía al adelantar y
+                            // se iba solo al volver a READY. Ver el KDoc de `quiereReproducir`.
+                            // Se calculan ANTES de los botones para poder armar el grafo de foco
+                            // completo (cada dirección explícita; dejar alguna sin definir hace que
+                            // la búsqueda espacial por defecto de Compose falle y el foco "se pierda").
+                            val prev = prevEpisodeId
+                            val next = nextEpisodeId
+                            val showPrev = prev != null
+                            val showNext = next != null
+                            val forwardRight = if (showNext) nextEpisodeFR else if (isTv) subtitleFR else forwardFR
+                            val nextRight = if (isTv) subtitleFR else nextEpisodeFR
+                            // Primero de la fila cuando existe: su `left` apunta a sí mismo (tope).
+                            if (showPrev) {
+                                TvTransportButton(
+                                    icon = Icons.Default.SkipPrevious,
+                                    contentDescription = "Capítulo anterior",
+                                    onClick = { onNextEpisode(prev) },
+                                    modifier = if (!isTv) Modifier else Modifier
+                                        .focusRequester(prevEpisodeFR)
+                                        .focusProperties { left = prevEpisodeFR; right = rewindFR; up = sliderFR; down = prevEpisodeFR },
+                                )
+                            }
                             // `down` apunta al propio botón (se queda) y NO al slider: bajar desde acá
                             // llevaba el foco a la barra de progreso, donde izq/der hacen seek — de ahí
                             // el "a veces cambia de botón, a veces adelanta/retrocede". Cuando hay
@@ -2386,17 +2420,13 @@ private fun PlayerContent(
                                 onClick = { seekBy(-seekStepMs) },
                                 modifier = if (!isTv) Modifier else Modifier
                                     .focusRequester(rewindFR)
-                                    .focusProperties { left = rewindFR; right = playPauseFR; up = sliderFR; down = rewindFR },
+                                    .focusProperties {
+                                        left = if (showPrev) prevEpisodeFR else rewindFR
+                                        right = playPauseFR
+                                        up = sliderFR
+                                        down = rewindFR
+                                    },
                             )
-                            // Solo en el overlay de pausa (no mientras reproduce) y solo si hay un
-                            // próximo episodio (null en películas o si este ya es el último de la serie).
-                            // Se calcula ANTES de los botones para poder armar el grafo de foco
-                            // completo (cada dirección explícita; dejar alguna sin definir hace que
-                            // la búsqueda espacial por defecto de Compose falle y el foco "se pierda").
-                            val next = nextEpisodeId
-                            val showNext = !isPlaying && next != null
-                            val forwardRight = if (showNext) nextEpisodeFR else if (isTv) subtitleFR else forwardFR
-                            val nextRight = if (isTv) subtitleFR else nextEpisodeFR
                             TvTransportButton(
                                 icon = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                 contentDescription = if (isPlaying) "Pausar" else "Reproducir",
