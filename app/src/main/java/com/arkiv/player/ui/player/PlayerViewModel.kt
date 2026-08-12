@@ -139,6 +139,21 @@ class PlayerViewModel(
     val error: StateFlow<String?> = _error.asStateFlow()
 
     /**
+     * Si lo que hay en [_error] vino de un TROPIEZO del player y no de no poder abrir la fuente.
+     *
+     * Son dos situaciones distintas que hasta ahora compartían canal. "No hay peers" o "no se pudo
+     * resolver la fuente" significan que NO hay nada sonando: el cartel tiene que quedarse. En
+     * cambio [onPlaybackFailed] se dispara con un PlaybackException, y de esos hay que se reparan
+     * solos —un tirón de red, un rebuffer que VLC remonta— con el video siguiendo de largo. Ahí el
+     * cartel queda mintiendo sobre un video que anda bien, y encima tapa los controles: la barra se
+     * compone con `loadError == null`, así que mientras esté en pantalla el D-pad no llega al
+     * slider y no se puede ni pausar. Visto en el Fire TV el 2026-08-12.
+     *
+     * Ver [onReproduccionViva], que es quien lo apaga.
+     */
+    private var errorDeReproduccion = false
+
+    /**
      * Progreso durante la fase de PRE-BUFFER (torrent): antes de emitir la playlist "lista" esperamos
      * a que la cabeza del archivo esté descargada, publicando peers/velocidad/% para que el Paso B
      * muestre un overlay "Cargando inicio…" en vez de una espera a ciegas. null = no estamos pre-buffeando.
@@ -178,6 +193,7 @@ class PlayerViewModel(
             // Antes que nada: que el detalle sepa por qué capítulo vas aunque salgas enseguida.
             runCatching { repo.marcarEnCurso(episodeId) }
             _error.value = null
+            errorDeReproduccion = false
             // Si está guardado en el dispositivo, gana sobre cualquier streaming. Va ANTES de
             // ramificar por fuente: da igual de dónde vino el archivo, ya está acá.
             //
@@ -251,6 +267,7 @@ class PlayerViewModel(
         _liveCanal.value = canal
         viewModelScope.launch {
             _error.value = null
+            errorDeReproduccion = false
             val url = runCatching { liveController.abrir(canal.code) }.getOrElse {
                 Log.w(PLAY, "abrirCanalActual() falló para ${canal.code}: ${it.message}")
                 if (zapping?.actual?.code == canal.code) {
@@ -392,6 +409,10 @@ class PlayerViewModel(
      */
     fun onPlaybackFailed(episodeId: String) {
         viewModelScope.launch {
+            // Todo lo que se escriba de acá para abajo describe un tropiezo del player, no una
+            // fuente que no se pudo abrir: si el video remonta, deja de ser cierto. Ver
+            // [errorDeReproduccion].
+            errorDeReproduccion = true
             val episode = repo.getEpisode(episodeId)
             if (episode == null || PlayerSource.kindFor(episodeId) != SourceKind.ARCHIVE) {
                 _error.value = "No se pudo reproducir este capítulo"
@@ -411,6 +432,25 @@ class PlayerViewModel(
                 else -> _error.value = "archive.org devolvió $code y no se pudo reproducir"
             }
         }
+    }
+
+    /**
+     * El video está sonando: si lo que hay en pantalla era un tropiezo de reproducción, ya no
+     * describe nada y se va.
+     *
+     * Lo llama el sondeo de la pantalla en cada tick mientras el player esté listo y reproduciendo,
+     * y no el `onIsPlayingChanged` del listener, a propósito: hay tropiezos que VLC remonta sin que
+     * `isPlaying` llegue a caer, así que colgado de esa transición el cartel se quedaba puesto
+     * justamente en el caso más común. Es idempotente y sale por el `if` en cuanto no hay nada que
+     * limpiar, que es siempre salvo el instante posterior a un fallo.
+     *
+     * Los errores de RESOLUCIÓN no se tocan: ahí no hay video sonando (o el que suena es el ítem
+     * viejo, mientras el nuevo no pudo abrirse) y el cartel es la única señal de lo que pasó.
+     */
+    fun onReproduccionViva() {
+        if (!errorDeReproduccion) return
+        errorDeReproduccion = false
+        _error.value = null
     }
 
     /**

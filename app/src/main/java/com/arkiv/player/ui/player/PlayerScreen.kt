@@ -1191,6 +1191,9 @@ private fun PlayerContent(
                 contentDurationMs().let { if (it > 0) durationMs = it }
             }
             subsOn = vlc.currentSpuTrack() >= 0
+            // Si el video está sonando, un fallo de reproducción anterior ya no describe nada (y
+            // encima estaría tapando estos mismos controles). No-op salvo justo después de uno.
+            if (ready && activePlayer.isPlaying) vm.onReproduccionViva()
             tick++
             val pos = activePlayer.currentPosition
             val dur = activePlayer.duration
