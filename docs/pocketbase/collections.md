@@ -100,30 +100,6 @@ El derecho de uso que habilita a una persona a usar la app. No es un código de 
 
 > **Las reglas están cerradas a propósito.** Nadie puede listar ni crear licencias desde la API. El único camino es el CLI de `arkiv-api`, que entra como superusuario. Una licencia que se pueda crear desde internet es exactamente el agujero que esto viene a cerrar.
 
-## `users` (auth) — creada 2026-08-12 (licencias-backend)
-
-La persona: cuenta de usuario autenticada por email+password. Hasta ahora la identidad era el dispositivo (`devices`) y la persona no existía como tal; `accountId` agrupaba devices pero nadie podía autenticarse "como esa persona".
-
-**Campos custom** (además de los de sistema id/email/password/tokenKey/emailVisibility/verified):
-
-| Campo | Tipo | Notas |
-|---|---|---|
-| `accountId` | text | required; índice `idx_users_accountId` |
-| `licencia` | text | required; max 64; código de licencia (no relación) |
-
-**Reglas de acceso:**
-
-- **List:** `id = @request.auth.id` (solo ve su propio record)
-- **View:** `id = @request.auth.id`
-- **Create:** `null` (nadie se registra solo desde la API)
-- **Update:** `id = @request.auth.id`
-- **Delete:** `null`
-- **passwordAuth:** enabled, identityFields = `email`
-
-> **`createRule: null` significa que nadie se registra solo desde la API.** El alta la hace el flujo de registro de la app pasando por el gateway (Plan 3), que valida la licencia antes de crear. Sin eso, cualquiera con la URL de PocketBase se crearía una cuenta.
->
-> El campo `licencia` guarda el código, no una relación: el gateway resuelve la licencia por código en cada validación, y una relación obligaría a expandirla en cada consulta sin darnos nada a cambio.
-
 ## Pendientes (fases siguientes)
 
 - `library_items`, `progress` (base, realtime) — Plan 4 (sync tiempo real).
