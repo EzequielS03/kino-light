@@ -100,6 +100,30 @@ El derecho de uso que habilita a una persona a usar la app. No es un código de 
 
 > **Las reglas están cerradas a propósito.** Nadie puede listar ni crear licencias desde la API. El único camino es el CLI de `arkiv-api`, que entra como superusuario. Una licencia que se pueda crear desde internet es exactamente el agujero que esto viene a cerrar.
 
+## `users` (auth) — accountId 2026-08-10, campo `licencia` sumado 2026-08-12 (licencias-backend)
+
+La persona: cuenta de usuario autenticada por email+password (colección default de PocketBase, adaptada). Hasta ahora la identidad era el dispositivo (`devices`); `accountId` agrupa los devices de una cuenta y ahora también identifica qué licencia la habilita. No documentada hasta ahora porque sus dos migraciones (`1786369101_updated_users.js`, `1786369470_updated_users_createrule.js`) se aplicaron directo en el servidor, sin pasar por este repo.
+
+**Campos custom** (además de los de sistema id/email/password/tokenKey/emailVisibility/verified):
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `accountId` | text | required; índice `idx_users_accountId` |
+| `licencia` | text | opcional; max 64; código de licencia (no relación) |
+
+**Reglas de acceso:**
+
+- **List/View/Update/Delete:** `id = @request.auth.id` (cada persona solo ve/edita/borra su propio record)
+- **Create:** `@request.auth.id != "" && accountId = @request.auth.accountId` (exige un device autenticado y que el accountId sea el suyo)
+- **manageRule:** `null`
+- **passwordAuth:** enabled, identityFields = `email`
+
+> El campo `licencia` guarda el código y no una relación: el gateway resuelve la licencia por código en cada validación, y una relación lo obligaría a expandirla en cada consulta sin darle nada a cambio.
+>
+> Va sin `required`: los records que ya existen no tienen licencia, y marcarlo obligatorio los dejaría inválidos. Que no falte de verdad lo garantiza el registro, no el esquema.
+>
+> **El `createRule` de arriba no valida la licencia.** Hoy exige un device autenticado pero ninguna licencia; ese agujero se cierra en el Plan 3, cuando el registro pase por el gateway (quien puede validar que la licencia existe, está activa y no fue usada — tres condiciones que una regla de PocketBase no puede expresar de forma confiable sobre el mismo record).
+
 ## Pendientes (fases siguientes)
 
 - `library_items`, `progress` (base, realtime) — Plan 4 (sync tiempo real).
