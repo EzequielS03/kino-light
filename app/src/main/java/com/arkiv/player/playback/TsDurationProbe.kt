@@ -39,7 +39,7 @@ object TsDurationProbe {
      * sale de [TsDurationProbeTest]: tiene que entrar el caso MEDIDO —una conexión muerta por
      * tramo, recuperada en el segundo intento— y poco más.
      */
-    const val PRESUPUESTO_MS = 12_000L
+    const val PRESUPUESTO_MS = 13_000L
 
     /**
      * Intentos por tramo, y cuánto se le aguanta a cada uno.

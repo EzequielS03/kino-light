@@ -122,10 +122,11 @@ class TsDurationProbeTest {
 
     @Test fun el_presupuesto_de_la_sonda_cabe_en_lo_que_un_humano_espera() {
         // Eran 30 s: media hora de spinner por una barra de progreso. La duración es una mejora,
-        // nunca un motivo para no reproducir.
+        // nunca un motivo para no reproducir. El tope de acá no sale de un número redondo sino del
+        // caso medido (el test de abajo): lo que se le exige es cubrirlo sin pasarse de largo.
         assertTrue(
             "presupuesto = ${TsDurationProbe.PRESUPUESTO_MS}ms",
-            TsDurationProbe.PRESUPUESTO_MS <= 12_000,
+            TsDurationProbe.PRESUPUESTO_MS <= 15_000,
         )
     }
 

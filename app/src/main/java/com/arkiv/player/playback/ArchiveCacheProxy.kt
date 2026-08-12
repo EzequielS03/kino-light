@@ -72,6 +72,18 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
      * mapa está siempre vacío y el camino es exactamente el de siempre.
      */
     private val calientes = ConcurrentHashMap<String, ByteArray>()
+
+    /**
+     * El FINAL de cada archivo, por clave de caché: (byte absoluto donde arranca, bytes). Lo llena
+     * [precalentar] y lo consume [ColaCaliente], que es donde está el porqué.
+     *
+     * A diferencia de [calientes], esta NO se consume al usarla: libVLC sondea el final VARIAS veces
+     * seguidas y con offsets distintos, y todas esas son las que hay que contestar sin red.
+     */
+    private val colas = ConcurrentHashMap<String, Pair<Long, ByteArray>>()
+
+    /** Cuánto del final se guarda. Igual que la sonda de duración: 256 KB alcanzan y sobran. */
+    private val COLA_CALIENTE = TsDurationProbe.PROBE_BYTES
     private val initLocks = ConcurrentHashMap<String, Any>()
     private fun initLock(key: String): Any = initLocks.computeIfAbsent(key) { Any() }
 
@@ -896,7 +908,56 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
             "ArchiveCacheProxy",
             "precalentado ${bytes.size / 1024}KB desde $inicio en ${System.currentTimeMillis() - t0}ms",
         )
+        // La OTRA punta. Va acá y no en paralelo porque la conexión de arriba ya terminó, y este
+        // pedido es chico (256 KB): lo caro sería que VLC lo pidiera después, en medio del arranque,
+        // que es exactamente lo que se está evitando. Best-effort como todo lo de esta función.
+        runCatching { precalentarCola(originUrl, headers, key, perfil) }
         true
+    }
+
+    /**
+     * Se guarda el final del archivo para que los sondeos de EOF de libVLC no toquen la red.
+     * Ver [ColaCaliente] para la medición que justifica esto.
+     *
+     * Va por rango-SUFIJO (`bytes=-N`) por la misma razón que la sonda de duración: no hace falta
+     * preguntar antes el tamaño, y la respuesta trae el `Content-Range` con el total y el byte donde
+     * arranca, que es justo lo que hay que guardar para poder responder rangos absolutos después.
+     */
+    private fun precalentarCola(
+        originUrl: String,
+        headers: Map<String, String>,
+        key: String,
+        perfil: PoliticaOrigen.Perfil,
+    ) {
+        val t0 = System.currentTimeMillis()
+        val (conn, _) = abrirEnOrigen(
+            originUrl, "bytes=-$COLA_CALIENTE", headers, claveUnica = null, perfil = perfil,
+        ) ?: run {
+            android.util.Log.w("ArchiveCacheProxy", "precalentar cola: el origen no la dio")
+            return
+        }
+        val contentRange = conn.getHeaderField("Content-Range")
+        val bytes = runCatching { conn.inputStream.use { it.readBytes() } }.getOrNull()
+        runCatching { conn.disconnect() }
+        // `bytes <inicio>-<fin>/<total>`: sin esto no se puede traducir un rango absoluto a un
+        // offset dentro de lo guardado, y servir a ciegas sería peor que ir al origen.
+        val m = Regex("""bytes (\d+)-(\d+)/(\d+)""").find(contentRange.orEmpty())
+        if (bytes == null || bytes.isEmpty() || m == null) {
+            android.util.Log.w(
+                "ArchiveCacheProxy",
+                "precalentar cola: sin Content-Range utilizable (${contentRange ?: "ninguno"})",
+            )
+            return
+        }
+        val inicio = m.groupValues[1].toLong()
+        val total = m.groupValues[3].toLong()
+        totales[originUrl] = total
+        colas[key] = inicio to bytes
+        android.util.Log.w(
+            "ArchiveCacheProxy",
+            "precalentada la cola: ${bytes.size / 1024}KB desde $inicio (total=$total) " +
+                "en ${System.currentTimeMillis() - t0}ms",
+        )
     }
 
     /** Passthrough directo origen→VLC (sin cachear), último recurso si no se pudo iniciar la descarga. */
@@ -919,6 +980,34 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
         val rangoAlOrigen = if (inicio > 0L) {
             VentanaDeArchivo.rangoAlOrigen(rangoCliente, inicio)
         } else rangeHeader
+        // SONDEO DEL FINAL: contestado desde memoria, sin tocar la red. Es la petición que se
+        // llevaba el arranque — ver ColaCaliente para la medición. Solo aplica sin ventana: con
+        // `f=` los bytes que ve el reproductor están corridos y estos NO son los suyos.
+        if (inicio == 0L && claveUnica != null) {
+            val guardada = colas[claveUnica]
+            val total = totales[origin] ?: 0L
+            val trozo = guardada?.let { (desde, cola) ->
+                ColaCaliente.servir(desde, cola, rangoCliente, total)
+            }
+            if (trozo != null) {
+                val fin = rangoCliente!!.start + trozo.size - 1
+                out.write(
+                    (
+                        "HTTP/1.1 206 Partial Content\r\nAccept-Ranges: bytes\r\n" +
+                            "Content-Length: ${trozo.size}\r\n" +
+                            "Content-Range: bytes ${rangoCliente.start}-$fin/$total\r\n" +
+                            "Content-Type: application/octet-stream\r\n\r\n"
+                        ).toByteArray(),
+                )
+                out.write(trozo)
+                out.flush()
+                android.util.Log.w(
+                    "ArchiveCacheProxy",
+                    "cola caliente: $rangeHeader servido de memoria (${trozo.size}B, sin red)",
+                )
+                return true
+            }
+        }
         // El arranque precalentado sirve UNA vez y solo para la petición que empieza en el byte 0
         // (la primera que hace el reproductor al abrir): es ahí donde se juega la identificación
         // del stream. Se consume del mapa para que un salto posterior no reciba bytes del principio.

@@ -66,13 +66,23 @@ object PoliticaOrigen {
         ARCHIVE(15_000, intArrayOf(20_000, 45_000, 90_000), 90_000, 400L, true),
 
         /**
-         * 2 s → 2,5 s → 3 s, y el presupuesto ENTERO (respuestas + esperas = 9,45 s) cabe adentro
-         * de los 10 s que tarda el rescate "sin imagen → software" de VlcPlayer en dispararse. Esa
-         * es la invariante que importa: si el reintento llega después del rescate, quien salva la
+         * 3 s por intento, y el presupuesto ENTERO (respuestas + esperas = 9,65 s) cabe adentro de
+         * los 10 s que tarda el rescate "sin imagen → software" de VlcPlayer en dispararse. Esa es
+         * la invariante que importa: si el reintento llega después del rescate, quien salva la
          * reproducción es una recarga completa del media —cara, y encima deja el decodificador en
          * software— en vez de un reintento de 101 ms. Ver PoliticaOrigenTest.
+         *
+         * El primer plazo arrancó en 2 s, calibrado contra el CDN medido desde el Mac (0,11-0,30 s).
+         * En device resultó CORTO: verificando en el Fire TV, tres cortes seguidos a 2,002 s /
+         * 2,503 s resultaron ser este temporizador, no el CDN — los mismos offsets contestaron 24 de
+         * 24 veces desde el Mac. El camino real (WiFi del Fire Stick) a veces se pasa de 2 s.
+         *
+         * Las esperas entre intentos son cortas (50 ms → 150 ms → 450 ms) y eso es a propósito: acá
+         * la gracia es volver a tirar los dados ya. El escalón largo de archive existe para no
+         * castigar a un nodo saturado que contesta 503; este CDN no nos frena, el que limita es el
+         * portal y eso lo maneja el gateway.
          */
-        MAGIS(5_000, intArrayOf(2_000, 2_500, 3_000), 30_000, 150L, false),
+        MAGIS(5_000, intArrayOf(3_000, 3_000, 3_000), 30_000, 50L, false),
     }
 
     /** Intentos contra el origen antes de rendirse. */
