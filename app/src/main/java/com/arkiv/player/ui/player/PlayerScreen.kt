@@ -111,6 +111,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
@@ -2230,17 +2231,30 @@ private fun PlayerContent(
             exit = fadeOut(),
             modifier = Modifier.fillMaxSize(),
         ) {
+            // Velo que hace legibles texto y controles sobre el video. En TV el de arriba se sostiene
+            // más abajo (un tramo intermedio en vez de caer de una): el encabezado son dos líneas
+            // grandes —la serie y "E131 · nombre del capítulo"— y con la caída del teléfono la
+            // segunda quedaba ya sobre el video pelado, ilegible en cualquier fondo claro.
+            val velo = if (isTv) {
+                arrayOf(
+                    0.0f to Color(0xB3000000),
+                    0.22f to Color(0x8C000000),
+                    0.42f to Color(0x14000000),
+                    0.70f to Color(0x14000000),
+                    1.0f to Color(0xD9000000),
+                )
+            } else {
+                arrayOf(
+                    0.0f to Color(0xB3000000),
+                    0.30f to Color(0x14000000),
+                    0.70f to Color(0x14000000),
+                    1.0f to Color(0xD9000000),
+                )
+            }
             Box(
                 Modifier
                     .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            0.0f to Color(0xB3000000),
-                            0.30f to Color(0x14000000),
-                            0.70f to Color(0x14000000),
-                            1.0f to Color(0xD9000000),
-                        ),
-                    )
+                    .background(Brush.verticalGradient(*velo))
                     // Cualquier tecla con el overlay abierto reinicia el timer de auto-ocultado, así
                     // no se desvanece encima mientras navegás botones o miniaturas. Antes solo lo
                     // reiniciaba bump(), que dispara el listener de VLC — y ese únicamente actúa con
@@ -2378,20 +2392,39 @@ private fun PlayerContent(
                                 // de iconos, pero esa barra está entera detrás de `!isTv` — en TV
                                 // no dibuja nada. Con la zona segura del contenedor (SAFE_V) esos
                                 // 56 dp se sumaban y el título quedaba hundido a ~100 dp del canto.
-                                .padding(start = 16.dp, end = 16.dp),
+                                .padding(start = 16.dp, end = 16.dp)
+                                // Techo de ancho para que el `Ellipsis` de abajo llegue a aplicarse:
+                                // el Column está alineado en un Box a pantalla completa, así que sin
+                                // esto se estira con el texto y un nombre largo cruzaría la pantalla
+                                // entera por encima del video en vez de cortarse.
+                                .fillMaxWidth(0.6f),
                         ) {
                             Text(
                                 info.itemTitle,
                                 color = Color.White,
-                                style = MaterialTheme.typography.titleLarge,
+                                // headlineMedium (28sp) escalado 1.5×: el nombre de la serie es lo
+                                // primero que se lee al pausar y con 28 competía con la línea del
+                                // capítulo. El lineHeight va escalado igual (36→54) para que la caja
+                                // no le recorte las tildes ni las mayúsculas acentuadas.
+                                style = MaterialTheme.typography.headlineMedium.copy(
+                                    fontSize = 42.sp,
+                                    lineHeight = 54.sp,
+                                ),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
+                            Spacer(Modifier.height(6.dp))
+                            // "E130 · El oponente de Goku es… ¿Goku?": el número solo no dice de qué
+                            // es el capítulo, que es justo lo que uno mira al pausar. El nombre sale
+                            // de la misma tabla (`episode_still`) que ya usa el carrusel de abajo, así
+                            // que no cuesta una consulta nueva — y cuando no lo tenemos (aún no llegó
+                            // del gateway, o es una fuente sin nombres) queda el número solo, como antes.
                             info.episodeLabel?.let { ep ->
+                                val nombre = chaptersTitles[episodioEnCurso]?.takeIf { it.isNotBlank() }
                                 Text(
-                                    ep,
+                                    if (nombre != null) "$ep · $nombre" else ep,
                                     color = Color.White.copy(alpha = 0.75f),
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    style = MaterialTheme.typography.titleLarge,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
