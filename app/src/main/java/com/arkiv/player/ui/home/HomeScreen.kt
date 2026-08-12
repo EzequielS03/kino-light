@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
@@ -29,9 +31,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -44,13 +50,18 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import coil.compose.AsyncImage
 import com.arkiv.player.data.ArchiveUrls
 import com.arkiv.player.data.db.LibraryRow
+import com.arkiv.player.data.db.LiveChannelCacheEntity
+import com.arkiv.player.data.gateway.LiveChannel
 import com.arkiv.player.miniaturas.EleccionDeMiniatura
 import com.arkiv.player.ui.components.ContinueCard
 import com.arkiv.player.ui.components.SectionHeader
+import com.arkiv.player.ui.live.LiveZappingSource
+import com.arkiv.player.ui.live.canalesRecientesParaHome
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.search.TitleCard
 import com.arkiv.player.ui.theme.ArkivBlack
 import com.arkiv.player.ui.theme.ArkivRed
+import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 import kotlinx.coroutines.launch
 
@@ -62,6 +73,8 @@ import kotlinx.coroutines.launch
 fun HomeScreen(
     onOpenItem: (String) -> Unit,
     onPlayEpisode: (String) -> Unit,
+    /** Reproduce un canal en vivo directo (código de canal), sin pasar por la pestaña "En vivo". */
+    onPlayLive: (String) -> Unit,
     onOpenConnect: () -> Unit = {},
     onOpenSearchRoute: (String) -> Unit,
     onOpenLibrary: () -> Unit,
@@ -101,6 +114,30 @@ fun HomeScreen(
         } else {
             onOpenItem(row.identifier)
         }
+    }
+
+    // Canales en vivo recientes, para la fila que evita entrar a "En vivo" (ver
+    // canalesRecientesParaHome). Se lee directo de Room, igual que hace LiveScreen con su propia
+    // pestaña "Recientes" -- no hace falta levantar LiveViewModel (que habla con el gateway) solo
+    // para esto. Tope de 10: es una fila de acceso rápido a mano, no el historial completo (para
+    // eso está la pestaña "Recientes" de "En vivo", sin tope).
+    val liveRecentDao = remember { graph.database.liveRecentDao() }
+    val liveCacheDao = remember { graph.database.liveChannelCacheDao() }
+    val recientesCrudo by liveRecentDao.flowUltimos(10).collectAsStateWithLifecycle(initialValue = emptyList())
+    var cachePorCodigo by remember { mutableStateOf<Map<String, LiveChannelCacheEntity>>(emptyMap()) }
+    LaunchedEffect(recientesCrudo) {
+        if (recientesCrudo.isNotEmpty()) {
+            cachePorCodigo = liveCacheDao.deCodigos(recientesCrudo.map { it.code }).associateBy { it.code }
+        }
+    }
+    val canalesRecientes = remember(recientesCrudo, cachePorCodigo) {
+        canalesRecientesParaHome(recientesCrudo, cachePorCodigo)
+    }
+    fun reproducirCanal(canal: LiveChannel) {
+        // Deja fijada la lista con la que se "entró", mismo mecanismo que LiveScreen.abrirAca --
+        // así arriba/abajo en el reproductor recorre estos mismos canales recientes.
+        LiveZappingSource.lista = canalesRecientes
+        onPlayLive(canal.code)
     }
 
     LazyColumn(
@@ -188,7 +225,26 @@ fun HomeScreen(
             }
         }
 
-        // 3. Mi biblioteca (con "Ver todo" hacia la grilla completa).
+        // 3. Canales en vivo recientes -- acceso directo sin pasar por "En vivo", el último visto
+        // a la izquierda (orden que ya trae `canalesRecientes`, ver su KDoc). Sin recientes, la
+        // fila no se dibuja: nada de un hueco vacío.
+        if (canalesRecientes.isNotEmpty()) {
+            item {
+                Column(Modifier.padding(top = 16.dp)) {
+                    SectionHeader("Canales en vivo", modifier = Modifier.padding(start = 16.dp))
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        items(canalesRecientes, key = { it.code }) { canal ->
+                            LiveChannelCard(canal = canal, onClick = { reproducirCanal(canal) })
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Mi biblioteca (con "Ver todo" hacia la grilla completa).
         if (bibliotecaOrdenada.isNotEmpty()) {
             item {
                 Column(Modifier.padding(top = 16.dp)) {
@@ -216,7 +272,7 @@ fun HomeScreen(
             }
         }
 
-        // 4. Filas remotas: cada una carga sola al entrar en pantalla (ver RemoteRow).
+        // 5. Filas remotas: cada una carga sola al entrar en pantalla (ver RemoteRow).
         rows.forEach { spec ->
             item(key = spec.id) {
                 RemoteRow(
@@ -287,6 +343,55 @@ private fun Hero(
                 }
             }
         }
+    }
+}
+
+/**
+ * Tarjeta de un canal reciente para la fila "Canales en vivo" del home: logo si la caché lo tiene
+ * (ver [canalesRecientesParaHome]); si no, el mismo tratamiento que `ChannelCard` en
+ * `LiveScreen.kt` -- degradado + el número del canal, para que se vea deliberada y no como un logo
+ * roto. Si ni siquiera el número se conoce (canal recién visto, caché sin ese `code`), cae más
+ * abajo todavía: las iniciales del nombre, para no mostrar un "0" que no significa nada.
+ */
+@Composable
+private fun LiveChannelCard(canal: LiveChannel, onClick: () -> Unit) {
+    Column(modifier = Modifier.width(140.dp).clickable(onClick = onClick)) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(8.dp))
+                .background(ArkivSurfaceHigh),
+        ) {
+            if (canal.logo != null) {
+                AsyncImage(
+                    model = canal.logo,
+                    contentDescription = canal.nombre,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize().padding(10.dp),
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Brush.linearGradient(listOf(Color(0xFF33333D), Color(0xFF17171C)))),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = if (canal.numero > 0) canal.numero.toString() else canal.nombre.take(2).uppercase(),
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = Color.White.copy(alpha = 0.6f),
+                    )
+                }
+            }
+        }
+        Text(
+            text = canal.nombre,
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 6.dp),
+        )
     }
 }
 

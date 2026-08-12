@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -49,11 +50,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.tv.material3.Border
+import androidx.tv.material3.Card
+import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
@@ -64,6 +69,8 @@ import coil.compose.AsyncImage
 import com.arkiv.player.data.ArchiveUrls
 import com.arkiv.player.data.db.ContinueRow
 import com.arkiv.player.data.db.LibraryRow
+import com.arkiv.player.data.db.LiveChannelCacheEntity
+import com.arkiv.player.data.gateway.LiveChannel
 import com.arkiv.player.miniaturas.EleccionDeMiniatura
 import com.arkiv.player.sync.SyncStatus
 import com.arkiv.player.ui.home.HomeViewModel
@@ -71,9 +78,12 @@ import com.arkiv.player.ui.home.searchShortcutRoute
 import com.arkiv.player.ui.heroFallback
 import com.arkiv.player.ui.heroSubtitle
 import com.arkiv.player.ui.libraryMeta
+import com.arkiv.player.ui.live.LiveZappingSource
+import com.arkiv.player.ui.live.canalesRecientesParaHome
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivBlack
 import com.arkiv.player.ui.theme.ArkivRed
+import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -105,6 +115,8 @@ private fun discoveryMeta(card: com.arkiv.player.ui.search.TitleCard): String {
 fun TvHomeScreen(
     onOpenItem: (String) -> Unit,
     onPlayEpisode: (String) -> Unit,
+    /** Reproduce un canal en vivo directo (código de canal), sin pasar por "En vivo". */
+    onPlayLive: (String) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSearch: () -> Unit,
     onOpenLibrary: () -> Unit,
@@ -121,6 +133,28 @@ fun TvHomeScreen(
     val discoveryRows by vm.rows.collectAsStateWithLifecycle()
     val discoveryRowItems by vm.rowItems.collectAsStateWithLifecycle()
     val discoveryRowsLoaded by vm.rowsLoaded.collectAsStateWithLifecycle()
+
+    // Canales en vivo recientes -- mismo criterio que el home del celular (ver su KDoc en
+    // HomeScreen.kt): se lee directo de Room, sin levantar LiveViewModel (que habla con el
+    // gateway) solo para esta fila. Tope de 10: acceso rápido, no el historial completo.
+    val liveRecentDao = remember { graph.database.liveRecentDao() }
+    val liveCacheDao = remember { graph.database.liveChannelCacheDao() }
+    val liveRecientesCrudo by liveRecentDao.flowUltimos(10).collectAsStateWithLifecycle(initialValue = emptyList())
+    var liveCachePorCodigo by remember { mutableStateOf<Map<String, LiveChannelCacheEntity>>(emptyMap()) }
+    LaunchedEffect(liveRecientesCrudo) {
+        if (liveRecientesCrudo.isNotEmpty()) {
+            liveCachePorCodigo = liveCacheDao.deCodigos(liveRecientesCrudo.map { it.code }).associateBy { it.code }
+        }
+    }
+    val canalesRecientes = remember(liveRecientesCrudo, liveCachePorCodigo) {
+        canalesRecientesParaHome(liveRecientesCrudo, liveCachePorCodigo)
+    }
+    fun reproducirCanal(canal: LiveChannel) {
+        // Mismo mecanismo que TvLiveGuideScreen.verCanal: fija la lista con la que se "entró" para
+        // que arriba/abajo en el reproductor recorra estos mismos canales recientes.
+        LiveZappingSource.lista = canalesRecientes
+        onPlayLive(canal.code)
+    }
 
     // Backdrop estable (para la tarjeta) y uno al azar (para el hero) de un ítem, con fallback al thumb.
     fun backdropsOf(itemId: String): List<String> = artwork[itemId]?.backdrops ?: emptyList()
@@ -387,6 +421,32 @@ fun TvHomeScreen(
                     }
                 }
 
+                // Canales en vivo recientes -- acceso directo sin pasar por "En vivo", el último
+                // visto a la izquierda (orden que ya trae `canalesRecientes`). Sin recientes, la
+                // fila no se dibuja: nada de un hueco vacío en medio del home.
+                if (canalesRecientes.isNotEmpty()) {
+                    item(key = "live_recientes") {
+                        TvRowLabel("Canales en vivo", labelHeight)
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 48.dp),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        ) {
+                            items(canalesRecientes, key = { it.code }) { canal ->
+                                TvLiveChannelCard(
+                                    canal = canal,
+                                    cardHeight = cardHeight,
+                                    onFocus = {
+                                        navSound()
+                                        featured = Featured(canal.nombre, "Canal en vivo", canal.logo)
+                                    },
+                                    onClick = { reproducirCanal(canal) },
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(rowGap))
+                    }
+                }
+
                 // Filas de descubrimiento (TMDB/AniList): una por género + fijas (cartelera,
                 // populares, etc). loadRow() es idempotente (LoadGuard), así que el
                 // LaunchedEffect solo dispara la carga real la primera vez que la fila entra
@@ -437,6 +497,65 @@ fun TvHomeScreen(
 
                 item(key = "rows_bottom_pad") { Spacer(Modifier.height(rowGap)) }
             } // fin zona scrolleable de filas
+        }
+    }
+}
+
+/**
+ * Tarjeta (16:9, mismo molde que [TvLandscapeCard]/[TvWideCard]) de un canal reciente para la fila
+ * "Canales en vivo". Sin título superpuesto -- el nombre se lee arriba, en el hero, al enfocar
+ * (mismo criterio que el resto de las filas del TV).
+ *
+ * Logo si la caché lo tiene (ver [canalesRecientesParaHome]); si no, el mismo tratamiento que
+ * `ChannelCard` en `LiveScreen.kt` (celular): degradado + el número del canal, deliberado en vez
+ * de un logo roto. Si ni el número se conoce todavía (canal recién visto, caché sin ese `code`),
+ * cae a las iniciales del nombre -- un "0" no significaría nada acá.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvLiveChannelCard(
+    canal: LiveChannel,
+    cardHeight: Dp,
+    modifier: Modifier = Modifier,
+    onFocus: () -> Unit = {},
+    onClick: () -> Unit,
+) {
+    Card(
+        onClick = onClick,
+        modifier = modifier.height(cardHeight).onFocusChanged { if (it.isFocused) onFocus() },
+        scale = CardDefaults.scale(focusedScale = 1.08f),
+        colors = CardDefaults.colors(containerColor = ArkivSurfaceHigh),
+        border = CardDefaults.border(
+            focusedBorder = Border(androidx.compose.foundation.BorderStroke(3.dp, Color.White)),
+        ),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .aspectRatio(16f / 9f)
+                .background(ArkivSurfaceHigh),
+        ) {
+            if (canal.logo != null) {
+                AsyncImage(
+                    model = canal.logo,
+                    contentDescription = canal.nombre,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize().padding(12.dp),
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Brush.linearGradient(listOf(Color(0xFF33333D), Color(0xFF17171C)))),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = if (canal.numero > 0) canal.numero.toString() else canal.nombre.take(2).uppercase(),
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = Color.White.copy(alpha = 0.6f),
+                    )
+                }
+            }
         }
     }
 }

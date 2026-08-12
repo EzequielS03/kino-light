@@ -140,6 +140,10 @@ private class FakeCacheDao : LiveChannelCacheDao {
     }
 
     override suspend fun deCategoria(categoria: Int): List<LiveChannelCacheEntity> = store[categoria].orEmpty()
+    // No lo ejercita ningún test de este archivo (son todos sobre elegirCategoria/deCategoria);
+    // implementación mínima para satisfacer la interfaz.
+    override suspend fun deCodigos(codes: List<String>): List<LiveChannelCacheEntity> =
+        store.values.flatten().filter { it.code in codes }
     override suspend fun limpiar(categoria: Int) { store.remove(categoria) }
     override suspend fun guardar(filas: List<LiveChannelCacheEntity>) {
         filas.groupBy { it.categoria }.forEach { (cat, rows) -> store[cat] = rows }

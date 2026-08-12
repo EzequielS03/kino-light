@@ -155,6 +155,9 @@ fun ArkivTvRoot(
             TvHomeScreen(
                 onOpenItem = { navController.navigate("detail/${Uri.encode(it)}") },
                 onPlayEpisode = { goToPlayer(it) },
+                onPlayLive = { code ->
+                    goToPlayer("${com.arkiv.player.playback.PlayerSource.LIVE_PREFIX}$code")
+                },
                 onOpenSettings = { navController.navigate("settings") },
                 onOpenSearch = { navController.navigate("search") },
                 onOpenLibrary = { navController.navigate("library") },
