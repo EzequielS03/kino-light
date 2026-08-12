@@ -57,6 +57,17 @@ class ItemDetailResumeTest {
         assertEquals("magis:ABC::e3", d.inProgressEpisode?.id)
     }
 
+    @Test fun un_capitulo_solo_tocado_no_le_gana_a_otro_con_progreso_real() {
+        // Dragon Ball, visto en la base del Fire TV el 2026-08-12: el e126 tenía 3:30 reproducidos
+        // y los e127/e128 quedaron con fila de `marcarEnCurso` (posición y duración en 0) de
+        // abrirlos sin que llegara a sonar nada. Como esas filas son MÁS recientes, "por dónde voy"
+        // contestaba el e128 mientras "Continuar viendo" —que sí filtra por posición— seguía
+        // ofreciendo el e126: dos superficies con dos respuestas para la misma pregunta.
+        val d = detalle(2 to aMedias(20L), 4 to reciénTocado(90L))
+        assertEquals("magis:ABC::e2", d.inProgressEpisode?.id)
+        assertEquals("magis:ABC::e2", d.resumeEpisode?.id)
+    }
+
     @Test fun si_terminaste_el_tercero_vas_en_el_cuarto() {
         // Antes caía al E1 apenas el capítulo pasaba a `watched`.
         val d = detalle(1 to visto(10L), 2 to visto(20L), 3 to visto(30L))

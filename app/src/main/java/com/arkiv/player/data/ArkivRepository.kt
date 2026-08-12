@@ -53,27 +53,36 @@ data class ItemDetail(
     /**
      * Último episodio **tocado** y sin terminar (el "capítulo en el que voy"), o null si no hay.
      *
-     * Alcanza con que exista la fila de `playback`: NO se exige `positionMs > 0` porque
-     * `PlayerViewModel.saveProgress` no escribe nada hasta conocer la duración, y en Magis la sonda
-     * de duración puede tardar (stream TS). Sin esto, darle play al E5 y salir a los tres segundos
-     * dejaba el detalle diciendo "vas en el E1". La fila "Continuar viendo" del home sí filtra por
-     * posición (`observeContinueWatching`), que es lo que evita que se llene de ruido.
+     * Gana el capítulo con REPRODUCCIÓN de verdad más reciente; los que solo tienen la fila que
+     * escribe [marcarEnCurso] al abrirlos (`positionMs == 0`, sin duración todavía) quedan de
+     * respaldo y solo contestan si no hay ningún otro.
      *
-     * Consecuencia aceptada de NO tener ese piso acá: tocar un capítulo por error (o por
-     * curiosidad) y salir a los dos segundos lo convierte en "por dónde voy" aunque tuvieras
-     * mucho más progreso en otro -- el detalle lo dice, el botón "Reproducir" lo ofrece, el
-     * carrusel lo resalta y las dos pantallas de detalle hacen auto-scroll hasta ahí. Es a
-     * propósito: es la misma razón por la que "Continuar viendo" SÍ filtra por posición y esto no
-     * (ver el párrafo de arriba), y no hay forma de distinguir "toque por error" de "toque real"
-     * sin ese piso. No es un bug para "arreglar" con un mínimo de segundos acá -- eso rompería el
-     * caso que este getter existe para resolver.
+     * Los dos escalones hacen falta y cada uno arregla un caso distinto:
+     *
+     * - Sin el respaldo, darle play al E5 y salir a los tres segundos dejaba el detalle diciendo
+     *   "vas en el E1": `PlayerViewModel.saveProgress` no escribe nada hasta conocer la duración, y
+     *   en Magis la sonda puede tardar (stream TS), así que ahí todavía no hay posición que mirar.
+     * - Sin la preferencia por el que sí tiene posición, abrir un capítulo que no llega a sonar lo
+     *   convertía en "por dónde voy" por delante de uno con progreso real, solo por ser más
+     *   reciente. Medido en Dragon Ball el 2026-08-12: el e126 con 3:30 vistos perdía contra el
+     *   e127 y el e128, abiertos después y con la fila en 0. Y como "Continuar viendo" SÍ filtra
+     *   por posición (`observeContinueWatching`), las dos superficies contestaban distinto: la fila
+     *   del home ofrecía el e126 y el detalle decía "vas en el e128".
+     *
+     * Sigue sin haber piso de segundos, a propósito: un capítulo con dos segundos reproducidos es
+     * "donde vas" si es lo último que reprodujiste de verdad. Lo que se descarta no es "poco
+     * progreso" sino "ninguno".
      */
     val inProgressEpisode: Episode?
-        get() = episodes
-            .mapNotNull { ep -> progress[ep.id]?.let { ep to it } }
-            .filter { !it.second.watched }
-            .maxByOrNull { it.second.lastPlayedAt }
-            ?.first
+        get() {
+            val candidatos = episodes
+                .mapNotNull { ep -> progress[ep.id]?.let { ep to it } }
+                .filter { !it.second.watched }
+            val reproducidos = candidatos.filter { it.second.positionMs > 0 }
+            return reproducidos.ifEmpty { candidatos }
+                .maxByOrNull { it.second.lastPlayedAt }
+                ?.first
+        }
 
     /**
      * Episodio para el botón "Reproducir": el que estás viendo, o el que sigue al último que
