@@ -132,6 +132,8 @@ fun HomeScreen(
                         season = heroContinue.season,
                         episode = heroContinue.episode,
                         orderIndex = heroContinue.orderIndex,
+                        itemId = heroContinue.itemId,
+                        section = heroContinue.section,
                         nombre = heroContinue.episodeTitle,
                         positionMs = heroContinue.positionMs,
                         durationMs = heroContinue.durationMs,

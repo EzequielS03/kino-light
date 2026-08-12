@@ -410,9 +410,14 @@ class ArkivRepository(
             // El nombre del archivo declaraba la numeración (sNNeNN / NxNN): es exacta, y no se
             // desalinea aunque la copia local traiga OVAs, recaps o le falten capítulos.
             episodes.associate { it.id to (it.season!! to it.episode!!) }
-        } else if (episodes.any { it.orderIndex >= 1000 }) {
-            // Packs de torrent: orderIndex ya viene codificado como temporada*1000 + episodio.
-            episodes.associate { it.id to (it.orderIndex / 1000 to it.orderIndex % 1000) }
+        } else if (episodes.any { NumeracionCodificada.coordenadas(it.itemId, it.section, it.orderIndex) != null }) {
+            // Torrent y web: el orderIndex trae la numeración codificada. Quién la trae y quién no
+            // lo decide la fuente de la fila, no que el número pase de 1000 — mirar el número dejaba
+            // afuera la temporada 0 (los especiales, que dan menos de 1000) y mandaba esas series a
+            // la rama de repartir por conteo, que les ponía el still de otro capítulo.
+            episodes.mapNotNull { ep ->
+                NumeracionCodificada.coordenadas(ep.itemId, ep.section, ep.orderIndex)?.let { ep.id to it }
+            }.toMap()
         } else {
             // Archive: lista plana 1..N sin temporadas. Se aplanan las de TMDB en orden y se
             // reparte por conteo (con 25+24, el capítulo 26 cae en T2E1). Si la copia local
@@ -777,6 +782,11 @@ class ArkivRepository(
             derivativePath = null,
             derivativeFormat = null,
             derivativeSize = 0,
+            // La numeración va también en SU columna, no solo codificada en el orderIndex. Es el
+            // dato exacto y ya se conoce acá (llega por parámetro); guardarlo evita tener que
+            // reconstruirlo después, que es donde la temporada 0 se confundía con un correlativo.
+            season = season,
+            episode = episode,
             torrentFileIndex = fileIndex,
             torrentData = android.util.Base64.encodeToString(infoBytes, android.util.Base64.NO_WRAP),
         )
@@ -855,7 +865,8 @@ class ArkivRepository(
             displayName = com.arkiv.player.data.SeriesEpisodeLabel.format(showTitle, season, episode, episodeName),
             orderIndex = order, durationSeconds = 0.0, thumbPath = null, originalPath = null,
             originalFormat = null, originalSize = 0, derivativePath = null, derivativeFormat = null,
-            derivativeSize = 0, torrentFileIndex = null, torrentData = magnet,
+            derivativeSize = 0, season = season, episode = episode,
+            torrentFileIndex = null, torrentData = magnet,
         )
         itemDao.upsertEpisodes(listOf(ep))
         return episodeId
@@ -905,7 +916,8 @@ class ArkivRepository(
             displayName = "T$season · E$episode" + if (episodeName.isNotBlank()) "  $episodeName" else "",
             orderIndex = order, durationSeconds = 0.0, thumbPath = null, originalPath = null,
             originalFormat = null, originalSize = 0, derivativePath = null, derivativeFormat = null,
-            derivativeSize = 0, torrentFileIndex = null, torrentData = pageUrl,
+            derivativeSize = 0, season = season, episode = episode,
+            torrentFileIndex = null, torrentData = pageUrl,
         )
         itemDao.upsertEpisodes(listOf(ep))
         return episodeId

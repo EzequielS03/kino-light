@@ -1,6 +1,7 @@
 package com.arkiv.player.ui
 
 import com.arkiv.player.data.ItemDetail
+import com.arkiv.player.data.NumeracionCodificada
 import com.arkiv.player.data.model.Episode
 
 /**
@@ -18,22 +19,29 @@ object EtiquetaDeCapitulo {
      * "T1 · E5" que apunte al capítulo equivocado. El orden de preferencia importa: `episode` manda
      * aunque no haya `season` —un capítulo de Magis guardado sin el contexto de la temporada
      * (`MagisEntities.build`, capítulo suelto) queda con `season = null`, aunque los que sí lo tienen
-     * (`buildSeason`) ya numeran "T1 · E5"— y recién después se cae al `orderIndex`, que en packs de
-     * torrent codifica temporada*1000 + episodio y en archive.org es un correlativo 0..N-1.
+     * (`buildSeason`) ya numeran "T1 · E5"— y recién después se cae al `orderIndex`.
+     *
+     * El `orderIndex` NO quiere decir lo mismo en todas las fuentes: en torrent y web trae la
+     * numeración codificada y en archive.org es un correlativo 0..N-1. Quién es quién lo decide
+     * [NumeracionCodificada] mirando la fuente de la fila, no el tamaño del número — mirar el número
+     * es lo que rompía la temporada 0, donde el especial 3 salía como "E4". De ahí que haga falta el
+     * [itemId] y la [section]. Si la fuente no codifica, el `orderIndex` es el correlativo y se
+     * muestra 1-based.
      *
      * Recibe los valores sueltos y no un [Episode] porque el héroe del home los tiene así, de una
      * fila de "Continuar viendo" (`ContinueRow`), no como modelo. La regla vive UNA sola vez y las
      * tres superficies —los dos detalles y el héroe— la comparten.
      */
-    fun numero(season: Int?, episode: Int?, orderIndex: Int): String = when {
-        season != null && episode != null -> "T$season · E$episode"
-        episode != null -> "E$episode"
-        orderIndex >= 1000 -> "T${orderIndex / 1000} · E${orderIndex % 1000}"
-        else -> "E${orderIndex + 1}"
+    fun numero(season: Int?, episode: Int?, orderIndex: Int, itemId: String, section: String): String {
+        if (season != null && episode != null) return "T$season · E$episode"
+        if (episode != null) return "E$episode"
+        val codificada = NumeracionCodificada.coordenadas(itemId, section, orderIndex)
+        if (codificada != null) return "T${codificada.first} · E${codificada.second}"
+        return "E${orderIndex + 1}"
     }
 
     /** "T1 · E5" / "E5" para un episodio ya cargado como modelo. Ver la versión de valores sueltos. */
-    fun numero(ep: Episode): String = numero(ep.season, ep.episode, ep.orderIndex)
+    fun numero(ep: Episode): String = numero(ep.season, ep.episode, ep.orderIndex, ep.itemId, ep.section)
 
     /**
      * "T1 · E5  ·  La conspiración": el número y, AL LADO, el nombre real del capítulo.
@@ -103,13 +111,15 @@ object EtiquetaDeCapitulo {
         season: Int?,
         episode: Int?,
         orderIndex: Int,
+        itemId: String,
+        section: String,
         nombre: String?,
         positionMs: Long,
         durationMs: Long,
     ): String {
         val tramos = mutableListOf<String>()
         if (!esPelicula) {
-            tramos += numero(season, episode, orderIndex)
+            tramos += numero(season, episode, orderIndex, itemId, section)
             nombre?.trim()?.takeIf { it.isNotEmpty() }?.let { tramos += it }
         }
         val restante = durationMs - positionMs
