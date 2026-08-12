@@ -17,6 +17,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.arkiv.player.playback.ACTION_OPEN_PLAYER
 import com.arkiv.player.playback.NowPlaying
+import com.arkiv.player.seguridad.DeteccionDeRoot
+import com.arkiv.player.seguridad.FirmaDelApk
+import com.arkiv.player.seguridad.PantallaBloqueada
+import com.arkiv.player.seguridad.RecolectorDeSenales
 import com.arkiv.player.ui.ArkivRoot
 import com.arkiv.player.ui.ArkivSplash
 import com.arkiv.player.ui.theme.ArkivTheme
@@ -42,6 +46,16 @@ class MainActivity : AppCompatActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         handleIntent(intent)
+
+        // Controles de integridad ANTES de armar nada: ni servicios, ni Room, ni sync. Si el aparato
+        // no pasa, lo único que se compone es el aviso. Ver `DeteccionDeRoot` para qué detecta y,
+        // sobre todo, para qué NO puede detectar.
+        val motivosDeBloqueo = motivosParaNoArrancar()
+        if (motivosDeBloqueo.isNotEmpty()) {
+            setContent { ArkivTheme { PantallaBloqueada(motivosDeBloqueo) } }
+            return
+        }
+
         val isTv = isTelevision() || intent.getBooleanExtra("force_tv", false)
         if (isTv) com.arkiv.player.tvservice.TvConnectionService.start(this)
         if (isTv) com.arkiv.player.tvservice.TvKeepAliveWorker.schedule(this)
@@ -116,6 +130,22 @@ class MainActivity : AppCompatActivity() {
         if (intent?.action == ACTION_OPEN_PLAYER) {
             pendingEpisode = NowPlaying.episodeId
         }
+    }
+
+    /**
+     * Por qué este aparato no puede ejecutar la app. Vacío = puede.
+     *
+     * Dos controles, en el orden en que importan:
+     *
+     * 1. **Firma del APK.** Si no la comprobamos, el bloqueo por root no vale nada: se decompila,
+     *    se le quita y se vuelve a firmar. Solo se exige en release (ver [FirmaDelApk]).
+     * 2. **Root.** Ver [DeteccionDeRoot], que también explica sus límites.
+     */
+    private fun motivosParaNoArrancar(): List<String> {
+        if (!FirmaDelApk.esNuestra(this, BuildConfig.DEBUG)) {
+            return listOf("el APK no está firmado con el certificado de Arkiv")
+        }
+        return DeteccionDeRoot.motivos(RecolectorDeSenales.recoger(this))
     }
 
     private fun isTelevision(): Boolean = DeviceType.isTelevision(this)
