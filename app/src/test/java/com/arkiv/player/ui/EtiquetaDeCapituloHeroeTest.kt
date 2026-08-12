@@ -103,6 +103,44 @@ class EtiquetaDeCapituloHeroeTest {
         )
     }
 
+    // --- Bordes de la aritmética del tiempo restante -----------------------------------------------
+
+    /** El tiempo mostrado es lo que queda completo, sin redondear hacia arriba. */
+    @Test
+    fun `trunca minutos incompletos hacia abajo`() {
+        assertEquals(
+            "T1 · E5  ·  La conspiración  ·  te faltan 1 min",
+            linea(positionMs = 0L, durationMs = 90_000L),  // restante = 90_000 ms = 1.5 min → "1 min"
+        )
+    }
+
+    /** El borde del umbral mínimo: exactamente 60_000 ms se muestra. */
+    @Test
+    fun `en el umbral exacto de 60 segundos si muestra el tiempo`() {
+        assertEquals(
+            "T1 · E5  ·  La conspiración  ·  te faltan 1 min",
+            linea(positionMs = 14 * 60_000L, durationMs = 15 * 60_000L),  // restante = 60_000 ms exacto
+        )
+    }
+
+    /** Justo debajo del umbral: 59_999 ms no se muestra. */
+    @Test
+    fun `debajo del umbral por un milisegundo ya no muestra el tiempo`() {
+        assertEquals(
+            "T1 · E5  ·  La conspiración",
+            linea(positionMs = 14 * 60_000L + 1, durationMs = 15 * 60_000L),  // restante = 59_999 ms
+        )
+    }
+
+    /** Restante negativo (duración se re-mide y baja): se omite sin mostrar negativos. */
+    @Test
+    fun `restante negativo se omite sin inventar tiempo`() {
+        assertEquals(
+            "T1 · E5  ·  La conspiración",
+            linea(positionMs = 20 * 60_000L, durationMs = 15 * 60_000L),  // restante = -300_000 ms
+        )
+    }
+
     // --- El núcleo compartido con el detalle -------------------------------------------------
 
     @Test
