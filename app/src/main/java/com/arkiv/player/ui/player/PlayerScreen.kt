@@ -204,6 +204,13 @@ private const val DIM_MAX_LEVEL = 10
 private const val RECHEQUEO_MS = 500L
 private const val RECHEQUEO_INTENTOS = 40
 
+/**
+ * Cuánto se espera, sin tocar nada, antes de confirmar una ráfaga de saltos incrementales (ver
+ * `seekBy`). Corto a propósito: una pulsación suelta sigue sintiéndose inmediata y solo se fusionan
+ * las ráfagas, que es donde estaba el costo — un Range request y su rebuffer por cada pulsación.
+ */
+private const val SEEK_INCREMENTAL_DEBOUNCE_MS = 350L
+
 private enum class MarkingMode { INTRO, OUTRO }
 
 /** Construye los MediaItem locales para el controller, propagando el tag de fuente/marcadores. */
@@ -652,6 +659,11 @@ private fun PlayerContent(
     var gestureHud by remember { mutableStateOf<String?>(null) }
     // Scrubbing diferido del slider (ambas fuentes): un solo seek al soltar.
     var scrubbing by remember { mutableStateOf(false) }
+    /**
+     * Destino acumulado de los saltos incrementales (D-pad, botones de ±10 s, doble-tap) que
+     * todavía no se confirmó, o null si no hay ninguno en curso. Ver [SEEK_INCREMENTAL_DEBOUNCE_MS].
+     */
+    var seekPendienteMs by remember { mutableStateOf<Long?>(null) }
     // Foco en la barra de progreso (TV): engrosa el track para que se note que está seleccionada.
     // Sin señal visual no se distinguía de estar en los botones, y como acá izq/der hacen seek en
     // vez de cambiar de botón, la navegación parecía errática.
@@ -1474,7 +1486,12 @@ private fun PlayerContent(
             // esto no corre y el audio sigue de fondo; back/swipe sí destruye y pausa (como hoy).
             // La posición sale del player ACTIVO (Chromecast si hay sesión); el pause() en cambio va
             // siempre al local: pausar el Chromecast al salir de la pantalla anularía el casteo.
-            val pos = currentPlayer.currentPosition
+            // Un salto incremental sin confirmar (ver `seekBy`) ES la posición que el usuario eligió:
+            // salir dentro de esos 350 ms no puede guardar la anterior. Solo local: casteando este
+            // destino está en tiempo de CONTENIDO y `currentPosition` es la del receptor, que con
+            // ventana lleva otro origen — ahí se mantiene lo de siempre.
+            val pendiente = seekPendienteMs?.takeIf { !casting }
+            val pos = pendiente ?: currentPlayer.currentPosition
             val dur = currentPlayer.duration
             // De quién son esos números: mismo problema que el sondeo. Salir de la pantalla justo
             // después de saltar de capítulo escribía la posición del capítulo VIEJO (el receptor
@@ -1552,7 +1569,41 @@ private fun PlayerContent(
         bump()
     }
 
-    fun seekBy(deltaMs: Long) = seekTo(contentPositionMs() + deltaMs)
+    /**
+     * Salto incremental: NO toca el player todavía, solo mueve el destino y deja que
+     * [SEEK_INCREMENTAL_DEBOUNCE_MS] confirme uno solo.
+     *
+     * Cada pulsación era un `seekTo` real, o sea un Range request y su rebuffer: moverse dos
+     * minutos con el D-pad de la TV son doce. En Magis cada rango puede tardar de 0,2 a 20 s, así
+     * que la ráfaga de saltos competía contra sí misma. Se acumula sobre el destino anterior (y no
+     * sobre la posición del player) para que la cuenta no dependa de si el seek anterior ya aterrizó.
+     *
+     * Mientras hay uno pendiente se prende `scrubbing`, que es lo que ya usa el arrastre del slider:
+     * la barra y el reloj se pintan con el destino, así que se ve a dónde vas aunque el video siga
+     * en el fotograma viejo. Es el mismo comportamiento que Netflix o Prime en TV.
+     */
+    fun seekBy(deltaMs: Long) {
+        val dur = contentDurationMs()
+        val base = seekPendienteMs ?: contentPositionMs()
+        val target = (base + deltaMs).coerceIn(0L, if (dur > 0) dur else Long.MAX_VALUE)
+        seekPendienteMs = target
+        scrubPosition = target.toFloat()
+        scrubbing = true
+        bump()
+    }
+
+    // Confirma la ráfaga: cada pulsación nueva cambia la clave y cancela este `delay`, así que el
+    // `seekTo` sale una sola vez, cuando dejaste de moverte. Al limpiar el pendiente el efecto se
+    // relanza con null y corta en la primera línea.
+    LaunchedEffect(seekPendienteMs) {
+        val target = seekPendienteMs ?: return@LaunchedEffect
+        delay(SEEK_INCREMENTAL_DEBOUNCE_MS)
+        seekTo(target)
+        // El orden importa: `seekTo` deja `positionMs` en el destino, así que apagar `scrubbing`
+        // recién acá evita que la barra parpadee a la posición vieja durante un frame.
+        seekPendienteMs = null
+        scrubbing = false
+    }
 
     fun togglePlayPause() {
         if (activePlayer.isPlaying) activePlayer.pause() else activePlayer.play()
@@ -2306,7 +2357,15 @@ private fun PlayerContent(
                             )
                             Slider(
                                 value = if (scrubbing) scrubPosition else positionMs.toFloat(),
-                                onValueChange = { v -> scrubbing = true; scrubPosition = v; bump() },
+                                // Agarrar la barra descarta cualquier salto incremental pendiente: si
+                                // no, el debounce de `seekBy` dispararía DESPUÉS de soltar y te
+                                // devolvería al destino de las flechas, pisando el arrastre.
+                                onValueChange = { v ->
+                                    seekPendienteMs = null
+                                    scrubbing = true
+                                    scrubPosition = v
+                                    bump()
+                                },
                                 onValueChangeFinished = {
                                     seekTo(scrubPosition.toLong())
                                     scrubbing = false
@@ -3085,14 +3144,24 @@ private fun MarkerEditor(
                 color = ArkivTextSecondary,
                 modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
             )
+            // Mismo diferido que la barra del reproductor: mientras arrastrás solo se mueve esta
+            // fracción local (y el reloj de acá arriba, que si no se quedaba en la posición vieja),
+            // y el seek sale UNA vez al soltar. Antes cada paso del dedo era un seek real, que es
+            // justo lo que hace inusable marcar sobre una fuente que va por red.
+            var arrastre by remember { mutableStateOf<Float?>(null) }
+            val posicionMostrada = arrastre?.let { (it * durationMs).toLong() } ?: positionMs
             Text(
-                "${formatDuration(positionMs)} / ${formatDuration(durationMs)}",
+                "${formatDuration(posicionMostrada)} / ${formatDuration(durationMs)}",
                 style = MaterialTheme.typography.titleLarge,
                 color = ArkivRed,
             )
             Slider(
-                value = if (durationMs > 0) positionMs.toFloat() / durationMs else 0f,
-                onValueChange = { v -> onSeek((v * durationMs).toLong()) },
+                value = arrastre ?: (if (durationMs > 0) positionMs.toFloat() / durationMs else 0f),
+                onValueChange = { v -> arrastre = v },
+                onValueChangeFinished = {
+                    arrastre?.let { onSeek((it * durationMs).toLong()) }
+                    arrastre = null
+                },
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
