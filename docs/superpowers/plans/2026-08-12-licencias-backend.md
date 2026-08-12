@@ -859,6 +859,17 @@ Y el método en `ClienteLicencias`:
         )
         r.raise_for_status()
 
+        # La cuenta se apunta a la nueva ANTES de revocar la vieja, y el orden no es arbitrario: si
+        # algo falla a mitad de camino, la persona queda con una licencia valida y la vieja sigue
+        # activa un rato mas. Al reves -- revocar primero -- un fallo en el ultimo paso dejaria a la
+        # cuenta apuntando a una licencia ya revocada, o sea a la persona afuera sin poder entrar.
+        r = await self._http.patch(
+            f"{self._base}/api/collections/users/records/{cuenta['id']}",
+            headers=await self._cab(),
+            json={"licencia": codigo_nuevo},
+        )
+        r.raise_for_status()
+
         if vieja:
             registro = await self._buscar(vieja)
             r = await self._http.patch(
@@ -867,13 +878,6 @@ Y el método en `ClienteLicencias`:
                 json={"estado": "revocada"},
             )
             r.raise_for_status()
-
-        r = await self._http.patch(
-            f"{self._base}/api/collections/users/records/{cuenta['id']}",
-            headers=await self._cab(),
-            json={"licencia": codigo_nuevo},
-        )
-        r.raise_for_status()
         return codigo_nuevo
 ```
 
