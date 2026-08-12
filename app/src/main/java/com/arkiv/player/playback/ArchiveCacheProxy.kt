@@ -67,12 +67,32 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
     }
 
     /**
-     * Arranque ya descargado y esperando en memoria, por clave de caché. Ver [precalentar].
+     * Arranque BAJÁNDOSE en memoria, por clave de caché. Ver [precalentar].
+     *
+     * Antes acá había un `ByteArray` ya completo, y por eso [precalentar] tenía que esperar los 2 MB
+     * enteros antes de dejar abrir el video: medido en el Fire TV, 0,5 a 5 s de spinner en cada
+     * reproducción. Ahora es un [BufferQueCrece] y se lee mientras se llena — VLC abre apenas hay
+     * algo y no se queda sin datos porque el buffer sigue creciendo detrás.
      *
      * Solo lo usa magis: nadie más llama a `precalentar`, así que para el resto de las fuentes este
      * mapa está siempre vacío y el camino es exactamente el de siempre.
      */
-    private val calientes = ConcurrentHashMap<String, ByteArray>()
+    private val calientes = ConcurrentHashMap<String, BufferQueCrece>()
+
+    /**
+     * Cuánto del arranque tiene que haber llegado antes de dejar abrir el video.
+     *
+     * No es "cuánto se precalienta" (eso sigue siendo [ARRANQUE_CALIENTE]): es solo cuánto se
+     * ESPERA. Alcanza con que haya empezado a fluir — lo que hundía a libVLC era que su primera
+     * lectura se quedara colgada, no el tamaño del colchón.
+     */
+    private val ARRANQUE_MINIMO = 64 * 1024
+
+    /**
+     * Tope de espera para que el arranque empiece a fluir. Si en este tiempo no llegó ni el primer
+     * bloque, el origen está muerto y se reproduce sin garantía (mejor eso que un spinner eterno).
+     */
+    private val ESPERA_ARRANQUE_MS = 8_000L
 
     /**
      * El FINAL de cada archivo, por clave de caché: (byte absoluto donde arranca, bytes). Lo llena
@@ -912,51 +932,66 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
         // Piden tramos distintos del archivo y el CDN atiende varias conexiones sin degradarse
         // (medido: con tres drenando, un rango de cola seguía contestando en 0,44-0,82 s), así que
         // el costo pasa a ser el MÁXIMO de las dos en vez de la suma.
-        val cabeza = async { runCatching { bajarArranque(originUrl, headers, inicio, perfil) }.getOrNull() }
+        val buffer = BufferQueCrece(ARRANQUE_CALIENTE)
+        calientes["$key@$inicio"] = buffer
+        // El llenado NO se espera: se publica en el mapa ya mismo y sigue por su cuenta. El proxy le
+        // sirve a VLC de este mismo buffer mientras crece (ver serveArranque).
+        Thread {
+            runCatching { bajarArranque(originUrl, headers, inicio, perfil, buffer) }
+            buffer.cerrar()
+        }.apply { isDaemon = true; name = "arkiv-precalentar" }.start()
         val cola = async { runCatching { precalentarCola(originUrl, headers, key, perfil) }.getOrNull() }
-        val bytes = cabeza.await()
+
+        // Lo ÚNICO que se espera: que el arranque haya empezado a fluir. Con eso alcanza para que la
+        // primera lectura de libVLC se responda al instante, que es lo que evitaba el negro-y-mudo.
+        val arranco = buffer.esperarHasta(ARRANQUE_MINIMO, ESPERA_ARRANQUE_MS)
+        // La cola sí se espera: de ella sale la duración (ver duracionDelPrecalentado) y sin ella la
+        // barra queda llena y sin seek. Es la punta chica y la más rápida de las dos.
         cola.await()
-        if (bytes == null || bytes.isEmpty()) {
-            android.util.Log.w("ArchiveCacheProxy", "precalentar: no llegaron bytes")
-            return@withContext false
-        }
-        // Indexado por archivo Y punto de arranque: solo sirve para quien abra exactamente ahí.
-        calientes["$key@$inicio"] = bytes
         android.util.Log.w(
             "ArchiveCacheProxy",
-            "precalentado ${bytes.size / 1024}KB desde $inicio en ${System.currentTimeMillis() - t0}ms " +
-                "(cabeza y cola en paralelo)",
+            "arranque servible tras ${System.currentTimeMillis() - t0}ms " +
+                "(${buffer.disponible / 1024}KB de ${ARRANQUE_CALIENTE / 1024}KB, sigue bajando)",
         )
+        if (!arranco && buffer.disponible == 0) {
+            android.util.Log.w("ArchiveCacheProxy", "precalentar: no llegaron bytes")
+            calientes.remove("$key@$inicio")
+            return@withContext false
+        }
         true
     }
 
-    /** Los primeros [ARRANQUE_CALIENTE] bytes desde [inicio], o null si el origen no colaboró. */
+    /**
+     * Vuelca los primeros [ARRANQUE_CALIENTE] bytes desde [inicio] en [destino], a medida que
+     * llegan. Corre en su propio hilo: quien lo lanza NO lo espera (ver [precalentar]).
+     */
     private fun bajarArranque(
         originUrl: String,
         headers: Map<String, String>,
         inicio: Long,
         perfil: PoliticaOrigen.Perfil,
-    ): ByteArray? {
+        destino: BufferQueCrece,
+    ) {
         val (conn, _) =
             abrirEnOrigen(originUrl, "bytes=$inicio-", headers, claveUnica = null, perfil = perfil)
                 ?: run {
                     android.util.Log.w("ArchiveCacheProxy", "precalentar: el origen no dio el arranque")
-                    return null
+                    return
                 }
-        val bytes = runCatching {
+        runCatching {
             conn.inputStream.use { ins ->
-                val buf = ByteArray(ARRANQUE_CALIENTE)
-                var n = 0
-                while (n < buf.size) {
-                    val leidos = ins.read(buf, n, buf.size - n)
+                val buf = ByteArray(64 * 1024)
+                var total = 0
+                while (total < ARRANQUE_CALIENTE) {
+                    val leidos = ins.read(buf, 0, minOf(buf.size, ARRANQUE_CALIENTE - total))
                     if (leidos < 0) break
-                    n += leidos
+                    // Cada bloque queda disponible EN EL ACTO para quien esté sirviendo a VLC.
+                    destino.escribir(buf, leidos)
+                    total += leidos
                 }
-                buf.copyOf(n)
             }
-        }.getOrNull()
+        }
         runCatching { conn.disconnect() }
-        return bytes
     }
 
     /**
@@ -969,7 +1004,9 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
      */
     fun duracionDelPrecalentado(originUrl: String): Long {
         val key = cache.keyFor(originUrl)
-        val cabeza = calientes["$key@0"] ?: return 0L
+        // Lo que haya llegado del arranque alcanza: el PRIMER PCR está en los primeros paquetes, y
+        // acá ya se esperó a que el buffer pasara ARRANQUE_MINIMO. No hace falta que esté completo.
+        val cabeza = calientes["$key@0"]?.porcion(0)?.takeIf { it.isNotEmpty() } ?: return 0L
         val cola = colas[key]?.second ?: return 0L
         return TsDurationProbe.durationMs(cabeza, cola)
     }
@@ -1119,14 +1156,36 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
         try {
             conn.inputStream.use { ins ->
                 val buf = ByteArray(64 * 1024)
-                // ARRANQUE CALIENTE: si este tramo empieza justo donde se precalentó, esos bytes ya
-                // están en memoria y salen ahora mismo — que es lo único que le importa a libVLC
-                // para no rendirse identificando el stream (ver precalentar). Los mismos bytes se
-                // descartan después del origen para no tener que tocar las cabeceras ya enviadas:
-                // son 2 MB de más una vez por reproducción, a cambio de que nunca quede en negro.
+                // ARRANQUE CALIENTE: si este tramo empieza justo donde se precalentó, los bytes se
+                // le entregan a VLC A MEDIDA QUE LLEGAN del precalentado, sin esperar a que estén
+                // los 2 MB completos. Eso es lo único que le importa a libVLC para no rendirse
+                // identificando el stream (ver precalentar), y es lo que permite que el arranque
+                // deje de bloquear: antes había que tener el bloque entero antes de publicar la
+                // playlist, y eso costaba 0,5-5 s de spinner por reproducción.
+                //
+                // Los mismos bytes se descartan después del origen para no tener que tocar las
+                // cabeceras ya enviadas: son 2 MB de más una vez por reproducción, a cambio de que
+                // nunca quede en negro.
                 if (caliente != null) {
-                    out.write(caliente); out.flush(); escritos += caliente.size
-                    var porDescartar = caliente.size
+                    var servidos = 0
+                    while (true) {
+                        val trozo = caliente.porcion(servidos)
+                        if (trozo.isNotEmpty()) {
+                            out.write(trozo); out.flush()
+                            servidos += trozo.size; escritos += trozo.size
+                        } else if (caliente.cerrado) {
+                            break
+                        } else if (!caliente.esperarHasta(servidos + 1, ESPERA_ARRANQUE_MS)) {
+                            // Se cerró o dejó de fluir: lo que falte se sigue leyendo del origen,
+                            // que es de donde salía todo antes de que esto existiera.
+                            break
+                        }
+                    }
+                    android.util.Log.w(
+                        "ArchiveCacheProxy",
+                        "arranque caliente: ${servidos / 1024}KB servidos mientras se bajaban",
+                    )
+                    var porDescartar = servidos
                     while (porDescartar > 0) {
                         val n = ins.read(buf, 0, minOf(porDescartar, buf.size))
                         if (n < 0) break
