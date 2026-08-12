@@ -122,9 +122,20 @@ fun HomeScreen(
                 Hero(
                     backdropUrl = backdrop,
                     title = heroContinue.itemTitle,
-                    // Nombre real del capítulo (TMDB) si `episode_still` lo resolvió; si no, el
-                    // displayName crudo de siempre.
-                    subtitle = heroContinue.episodeTitle ?: heroContinue.displayName,
+                    // Los datos del capítulo, la MISMA línea que arma el héroe del TV: número,
+                    // nombre y cuánto falta, omitiendo lo que no se sepa. Antes acá solo estaba el
+                    // nombre del capítulo, sin número ni tiempo. Si no queda ningún tramo (una
+                    // película sin duración conocida) se cae al nombre de siempre, para no dejar el
+                    // héroe con una línea vacía.
+                    subtitle = com.arkiv.player.ui.EtiquetaDeCapitulo.lineaDeHeroe(
+                        esPelicula = heroContinue.episodeCount <= 1,
+                        season = heroContinue.season,
+                        episode = heroContinue.episode,
+                        orderIndex = heroContinue.orderIndex,
+                        nombre = heroContinue.episodeTitle,
+                        positionMs = heroContinue.positionMs,
+                        durationMs = heroContinue.durationMs,
+                    ).ifBlank { heroContinue.episodeTitle ?: heroContinue.displayName },
                     actionLabel = "Reanudar",
                     onAction = { onPlayEpisode(heroContinue.episodeId) },
                     onClick = { onPlayEpisode(heroContinue.episodeId) },
