@@ -2,6 +2,11 @@ package com.arkiv.player.ui.tv
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
@@ -47,6 +52,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.platform.LocalContext
@@ -104,6 +110,20 @@ private data class Featured(
     val imageUrl: String?,
     val meta: String = "",
 )
+
+/**
+ * Cuánto se agranda el fondo del héroe para poder pasearlo sin que asome un borde. El 12% deja un 6%
+ * de sobrante a cada lado, o sea unos 140 px de recorrido en 1080p.
+ *
+ * Con 1.06 el movimiento existía —medido: 227 de diferencia de píxel entre dos capturas— pero no se
+ * percibía: el borde derecho de la imagen es el borde de la pantalla y el izquierdo está bajo un
+ * degradado, así que no hay ninguna referencia contra la cual notar un desplazamiento chico.
+ */
+private const val HERO_ESCALA = 1.12f
+
+/** Lo que tarda la deriva en cruzar de un extremo al otro. Sigue siendo lento a propósito: se tiene
+ *  que sentir como que la imagen respira, no como una animación que pide atención. */
+private const val HERO_DERIVA_MS = 14_000
 
 /** Subtítulo del hero para una card de descubrimiento: tipo y año (lo que se sabe sin abrirla). */
 private fun discoveryMeta(card: com.arkiv.player.ui.search.TitleCard): String {
@@ -334,6 +354,19 @@ fun TvHomeScreen(
     val rowUnit = labelHeight + cardHeight + rowGap
     val rowsRegionHeight = rowUnit * 2 + rowsTopPad
 
+    // Deriva del fondo del héroe: 0 = todo a la izquierda del sobrante, 1 = todo a la derecha. Va y
+    // vuelve para que no haya salto al reiniciarse, y tan lento que se percibe como que la imagen
+    // "respira", no como una animación. Ver el graphicsLayer del AsyncImage.
+    val heroDeriva by rememberInfiniteTransition(label = "heroDeriva").animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = HERO_DERIVA_MS, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "heroDerivaX",
+    )
+
     Box(Modifier.fillMaxSize().background(ArkivBlack)) {
         // Fondo inmersivo fijo: backdrop del ítem enfocado + degradados.
         Crossfade(targetState = featured?.imageUrl, animationSpec = tween(450), label = "bg") { url ->
@@ -342,7 +375,20 @@ fun TvHomeScreen(
                     model = url,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxWidth(0.62f).fillMaxHeight().align(Alignment.TopEnd),
+                    modifier = Modifier
+                        .fillMaxWidth(0.62f)
+                        .fillMaxHeight()
+                        .align(Alignment.TopEnd)
+                        // Deriva lenta del fondo: la imagen se agranda un poco y se pasea DENTRO de
+                        // ese sobrante, así que nunca asoma un borde. El recorrido va justo hasta el
+                        // margen que da la escala -- de ahí que la cuenta salga de `size`, y no de un
+                        // número fijo en dp que en otra pantalla se pasaría.
+                        .graphicsLayer {
+                            val margen = size.width * (HERO_ESCALA - 1f) / 2f
+                            scaleX = HERO_ESCALA
+                            scaleY = HERO_ESCALA
+                            translationX = (heroDeriva * 2f - 1f) * margen
+                        },
                 )
                 // Degradado horizontal: negro a la izquierda para leer el texto.
                 Box(
@@ -419,7 +465,10 @@ fun TvHomeScreen(
                         Text(
                             f.meta,
                             style = MaterialTheme.typography.titleSmall,
-                            color = ArkivRed,
+                            // Blanco y no ArkivRed: sobre el backdrop del héroe —que puede ser
+                            // oscuro, saturado o rojo— el rojo de marca se pierde, y esta línea es
+                            // justo la que dice por dónde ibas.
+                            color = Color.White,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(top = 8.dp).fillMaxWidth(0.55f),
