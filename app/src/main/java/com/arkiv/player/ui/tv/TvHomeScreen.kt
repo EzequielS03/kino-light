@@ -39,6 +39,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -173,6 +174,22 @@ fun TvHomeScreen(
         filaDeCanalesDelHome(canalesRecientes, canalesDelPais)
     }
 
+    // La fila CRECE después de pintada: los recientes salen de Room (instantáneos) y los del país
+    // pueden venir de la red. Con la caché fresca (24 h, ver FRESCURA_MS) llegan tan rápido que no
+    // se nota; con la caché vencida llegan tarde y la fila se reacomoda debajo del usuario, dejando
+    // el scroll corrido en el primero de los nuevos. De ahí que el síntoma sea intermitente.
+    //
+    // Al llegar los del país se vuelve al principio, que es donde están los canales que SÍ viste.
+    // La guarda de foco es lo que evita cambiar un bug por otro: si en ese momento estás navegando
+    // la fila, moverte el scroll te arrancaría de la tarjeta en la que estás.
+    val canalesFilaState = rememberLazyListState()
+    var canalesFilaEnfocada by remember { mutableStateOf(false) }
+    LaunchedEffect(canalesDelPais) {
+        if (canalesDelPais.isNotEmpty() && !canalesFilaEnfocada) {
+            runCatching { canalesFilaState.scrollToItem(0) }
+        }
+    }
+
     fun reproducirCanal(canal: LiveChannel) {
         // Mismo mecanismo que TvLiveGuideScreen.verCanal: fija la lista con la que se "entró" para
         // que arriba/abajo en el reproductor recorra los mismos canales que muestra la fila.
@@ -258,6 +275,29 @@ fun TvHomeScreen(
     // "Continuar viendo", el focusRequester no enganchaba y el foco no podía aterrizar ahí nunca
     // (el scroll no era consecuencia del foco perdido: era su causa).
     val rowsListState = rememberLazyListState()
+
+    /**
+     * Engancha el scroll a la frontera de fila cuando se detiene.
+     *
+     * La zona mide EXACTAMENTE dos filas y todas miden lo mismo, así que alineadas entran dos
+     * enteras. El problema es que el foco trae a la vista la TARJETA, no la fila: al bajar, el
+     * scroll se detiene en el punto justo donde esa tarjeta cabe, que cae a mitad de fila y deja
+     * media arriba, una entera al medio y media abajo — tres filas asomando donde caben dos.
+     *
+     * Se redondea a la frontera MÁS CERCANA. Da igual para cuál caiga: como el foco garantiza que
+     * su tarjeta esté visible, la fila enfocada es siempre una de las dos que quedan enteras.
+     */
+    LaunchedEffect(rowsListState) {
+        snapshotFlow { rowsListState.isScrollInProgress }.collect { enMovimiento ->
+            if (enMovimiento) return@collect
+            val corrimiento = rowsListState.firstVisibleItemScrollOffset
+            if (corrimiento == 0) return@collect
+            val alto = rowsListState.layoutInfo.visibleItemsInfo.firstOrNull()?.size ?: return@collect
+            val destino = rowsListState.firstVisibleItemIndex + if (corrimiento > alto / 2) 1 else 0
+            runCatching { rowsListState.animateScrollToItem(destino) }
+        }
+    }
+
     // Foco inicial. Antes caía en la primera tarjeta de biblioteca; esas filas ya no están, y dejar
     // el foco suelto es exactamente el bug que costó el comentario largo de más abajo: Android se lo
     // daba a lo que se fuera componiendo —las filas de descubrimiento—, que al traerse a la vista
@@ -454,6 +494,8 @@ fun TvHomeScreen(
                     item(key = "live_recientes") {
                         TvRowLabel("Canales en vivo", labelHeight)
                         LazyRow(
+                            state = canalesFilaState,
+                            modifier = Modifier.onFocusChanged { canalesFilaEnfocada = it.hasFocus },
                             contentPadding = PaddingValues(horizontal = 48.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
                         ) {
