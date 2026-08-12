@@ -30,6 +30,21 @@ data class ContinueRow(
     val stillUrl: String? = null,
     val episodeTitle: String? = null,
     /**
+     * Numeración del capítulo, para la línea de datos del héroe del home (ver
+     * [com.arkiv.player.ui.EtiquetaDeCapitulo.lineaDeHeroe]). `season`/`episode` son null cuando el
+     * nombre del archivo no declaraba numeración; ahí manda `orderIndex`, que en packs de torrent
+     * codifica temporada*1000 + episodio y en archive.org es un correlativo 0..N-1.
+     */
+    val season: Int? = null,
+    val episode: Int? = null,
+    val orderIndex: Int = 0,
+    /**
+     * Cuántos episodios vivos tiene el ítem. Sirve para UNA cosa: distinguir la película (1) de la
+     * serie, porque "Continuar viendo" trae las dos y numerar una película dejaría un "E1" absurdo
+     * debajo del título del héroe.
+     */
+    val episodeCount: Int = 0,
+    /**
      * Ruta en disco del frame capturado, o null si el capítulo todavía no tiene uno. Gana sobre
      * `stillUrl` y el resto: ver [com.arkiv.player.miniaturas.EleccionDeMiniatura].
      *
@@ -218,7 +233,9 @@ interface PlaybackDao {
                i.thumbnailUrl AS itemThumbnailUrl, i.description AS itemDescription,
                p.positionMs AS positionMs, p.durationMs AS durationMs,
                p.lastPlayedAt AS lastPlayedAt,
-               s.stillUrl AS stillUrl, s.title AS episodeTitle
+               s.stillUrl AS stillUrl, s.title AS episodeTitle,
+               e.season AS season, e.episode AS episode, e.orderIndex AS orderIndex,
+               (SELECT COUNT(*) FROM episodes e2 WHERE e2.itemId = e.itemId AND e2.deleted = 0) AS episodeCount
         FROM playback p
         JOIN episodes e ON e.id = p.episodeId
         JOIN items i ON i.identifier = e.itemId
