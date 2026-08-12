@@ -548,9 +548,31 @@ interface EpisodeFrameDao {
     @Query("SELECT * FROM episode_frame WHERE updatedAt > :cursor ORDER BY updatedAt ASC")
     suspend fun getFramesSince(cursor: Long): List<EpisodeFrameEntity>
 
-    /** Filas que vinieron de otro dispositivo y cuyo JPEG todavía no está en disco. */
-    @Query("SELECT * FROM episode_frame WHERE deleted = 0 AND remoteUrl IS NOT NULL")
-    suspend fun pendientesDeBajar(): List<EpisodeFrameEntity>
+    /**
+     * Filas que vinieron de otro dispositivo, cuyo JPEG todavía no está en disco y que ADEMÁS se
+     * están por pintar ([episodeIds]).
+     *
+     * El filtro por capítulo no es una optimización cosmética: el diseño dice que los bytes se bajan
+     * recién cuando hay que pintar esa tarjeta. Sin él, abrir el home en un aparato desincronizado
+     * bajaba la cola ENTERA de la cuenta (~97 descargas) para pintar 6.
+     */
+    @Query("SELECT * FROM episode_frame WHERE deleted = 0 AND remoteUrl IS NOT NULL AND episodeId IN (:episodeIds)")
+    suspend fun pendientesDeBajar(episodeIds: Collection<String>): List<EpisodeFrameEntity>
+
+    /**
+     * Saca la fila de [pendientesDeBajar] tras publicar su JPEG, pero SOLO si sigue siendo la misma
+     * fila que se leyó (mismo `updatedAt`) y sigue viva.
+     *
+     * Es un UPDATE condicional y no un `upsert` de la copia leída porque entre la lectura de la cola
+     * y esta escritura puede haber corrido `DestructorDeFrames.destruir` (el capítulo pasó el 60%, o
+     * llegó el `watched` del otro aparato): reescribir la copia vieja pisaría el tombstone con
+     * `deleted = 0` y un `updatedAt` MÁS VIEJO que el del borrado — una fila resucitada que además
+     * no se autocorrige, porque el cursor de push ya pasó ese `updatedAt` y nunca se vuelve a
+     * empujar. Devuelve cuántas filas tocó: 0 significa "la fila cambió abajo mío" y quien llama
+     * tiene que deshacer lo que escribió en disco (ver `BajadorDeFrames`).
+     */
+    @Query("UPDATE episode_frame SET remoteUrl = NULL WHERE episodeId = :episodeId AND updatedAt = :updatedAt AND deleted = 0")
+    suspend fun marcarBajado(episodeId: String, updatedAt: Long): Int
 
     /**
      * Filas (sin borrar) de los capítulos de un ítem, para el detalle de una serie. Misma forma
@@ -559,6 +581,24 @@ interface EpisodeFrameDao {
      */
     @Query("SELECT * FROM episode_frame WHERE deleted = 0 AND episodeId IN (SELECT id FROM episodes WHERE itemId = :itemId)")
     fun observeForItem(itemId: String): Flow<List<EpisodeFrameEntity>>
+
+    /**
+     * TODAS las filas vivas, como DISPARADOR del Flow de "Continuar viendo".
+     *
+     * Existe por un agujero del home: `PlaybackDao.observeContinueWatching` toca `playback`,
+     * `episodes`, `items` y `episode_still`, pero NO `episode_frame`. Como Room invalida por tabla,
+     * el frame que baja `BajadorDeFrames` (archivo + fila de `episode_frame`) no le notificaba nada
+     * a esa consulta: la tarjeta se quedaba con el still de TMDB hasta que se tocara otra cosa. Y
+     * peor, tampoco había con qué disparar la bajada en el caso real (el push manda `progress` ANTES
+     * que `episode_frames`, así que cuando llega la fila del frame ya no hay más escrituras de
+     * `playback` que reemitan nada).
+     *
+     * Devuelve la lista entera y no un `COUNT`: da igual el contenido —el repositorio la usa solo
+     * como señal de "algo cambió en `episode_frame`"— pero una consulta de filas es la misma forma
+     * que [observeForItem] y no esconde el costo real.
+     */
+    @Query("SELECT * FROM episode_frame WHERE deleted = 0")
+    fun observeTodos(): Flow<List<EpisodeFrameEntity>>
 
     /**
      * Se lleva TODAS las filas de una sola vez, para el wipe de logout: ahí no hay una lista de
