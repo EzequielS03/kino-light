@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Poder crear, listar, revocar y reactivar licencias desde `blog`, con las colecciones de PocketBase que las sostienen.
+**Goal:** Poder crear, listar, revocar, reactivar, reasignar y liberar licencias desde `blog`, con las colecciones de PocketBase que las sostienen.
 
 **Architecture:** Dos colecciones nuevas en PocketBase (`licencias` y `users`) creadas con migraciones JS, siguiendo el patrón que ya usan `devices` y `episode_frames`. Un CLI en Python dentro del repo `arkiv-api` que habla con PocketBase como superusuario. La generación del código es una función pura, separada del cliente HTTP, para poder testearla sin red.
 
@@ -26,7 +26,7 @@
 | `archive/docs/pocketbase/collections.md` | Documentar las dos colecciones nuevas. |
 | `arkiv-api/src/arkiv_api/licencias/codigo.py` | Generar el código. Puro, sin red. |
 | `arkiv-api/src/arkiv_api/licencias/cliente.py` | Cliente PocketBase admin: crear/listar/actualizar. |
-| `arkiv-api/src/arkiv_api/licencias/__main__.py` | Los cuatro comandos y el parseo de argumentos. |
+| `arkiv-api/src/arkiv_api/licencias/__main__.py` | Los seis comandos y el parseo de argumentos. |
 | `arkiv-api/tests/test_licencias_codigo.py` | Tests del generador. |
 | `arkiv-api/tests/test_licencias_cliente.py` | Tests del cliente, con respx. |
 
@@ -403,7 +403,7 @@ git commit -m "feat(licencias): cliente PocketBase como superusuario"
 
 ---
 
-### Task 5: Los cuatro comandos
+### Task 5: Los comandos crear, listar, revocar y reactivar
 
 **Files:**
 - Create: `arkiv-api/src/arkiv_api/licencias/__main__.py`
@@ -531,7 +531,373 @@ git commit -m "feat(licencias): CLI crear/listar/revocar/reactivar"
 
 ---
 
-### Task 6: Aplicar en `blog` y crear la primera licencia
+### Task 6: Comando `liberar`
+
+**Files:**
+- Modify: `arkiv-api/src/arkiv_api/licencias/cliente.py`
+- Modify: `arkiv-api/src/arkiv_api/licencias/__main__.py`
+- Test: `arkiv-api/tests/test_licencias_cliente.py`
+
+**Interfaces:**
+- Consumes: `ClienteLicencias` y `LicenciaNoExiste` (Task 4).
+- Produces: `ClienteLicencias.liberar(codigo) -> dict` y `python -m arkiv_api.licencias liberar <codigo> --si`.
+
+**Por qué existe:** el código es de un solo uso *para registrarse*, y el Spec 1 dejó fuera recuperar
+contraseña. Sin esto, alguien que olvida su clave queda en un callejón: no puede recuperarla ni
+volver a registrarse, porque su licencia figura consumida.
+
+- [ ] **Step 1: Escribir el test que falla**
+
+Agregar al final de `tests/test_licencias_cliente.py`:
+
+```python
+@respx.mock
+@pytest.mark.asyncio
+async def test_liberar_borra_la_cuenta_y_deja_la_licencia_lista_de_nuevo():
+    respx.post(f"{BASE}/api/collections/_superusers/auth-with-password").mock(
+        return_value=httpx.Response(200, json={"token": "TOK"})
+    )
+    respx.get(url__startswith=f"{BASE}/api/collections/licencias/records").mock(
+        return_value=httpx.Response(200, json={"items": [
+            {"id": "lic1", "codigo": "AAAA-BBBB-CCCC", "usadaPor": "user9"}
+        ]})
+    )
+    borrado = respx.delete(f"{BASE}/api/collections/users/records/user9").mock(
+        return_value=httpx.Response(204)
+    )
+    limpiado = respx.patch(f"{BASE}/api/collections/licencias/records/lic1").mock(
+        return_value=httpx.Response(200, json={"id": "lic1", "usadaPor": ""})
+    )
+    async with httpx.AsyncClient() as http:
+        await _cliente(http).liberar("AAAA-BBBB-CCCC")
+    assert borrado.called
+    assert '"usadaPor":""' in limpiado.calls[0].request.content.decode().replace(" ", "")
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_liberar_una_sin_usar_no_borra_ninguna_cuenta():
+    # Sin `usadaPor` no hay a quien borrar. Mandar un DELETE a /records/ (sin id) borraria
+    # cualquier cosa o daria un error confuso.
+    respx.post(f"{BASE}/api/collections/_superusers/auth-with-password").mock(
+        return_value=httpx.Response(200, json={"token": "TOK"})
+    )
+    respx.get(url__startswith=f"{BASE}/api/collections/licencias/records").mock(
+        return_value=httpx.Response(200, json={"items": [
+            {"id": "lic1", "codigo": "AAAA-BBBB-CCCC", "usadaPor": ""}
+        ]})
+    )
+    borrado = respx.delete(url__startswith=f"{BASE}/api/collections/users/records").mock(
+        return_value=httpx.Response(204)
+    )
+    limpiado = respx.patch(f"{BASE}/api/collections/licencias/records/lic1").mock(
+        return_value=httpx.Response(200, json={"id": "lic1"})
+    )
+    async with httpx.AsyncClient() as http:
+        await _cliente(http).liberar("AAAA-BBBB-CCCC")
+    assert not borrado.called
+    assert limpiado.called
+```
+
+- [ ] **Step 2: Correr los tests y verificar que fallan**
+
+Run: `cd /Users/cristian/arkiv-api && uv run pytest tests/test_licencias_cliente.py -q -k liberar`
+Expected: FAIL con `AttributeError: 'ClienteLicencias' object has no attribute 'liberar'`
+
+- [ ] **Step 3: Implementar en el cliente**
+
+Agregar a `ClienteLicencias`:
+
+```python
+    async def liberar(self, codigo: str) -> dict:
+        """Borra la cuenta que uso esta licencia y la deja lista para registrarse de nuevo.
+
+        Es la salida del callejon "olvide mi contrasena": no hay recuperacion de clave, y el codigo
+        ya figura consumido. DESTRUCTIVO -- se lleva la cuenta puesta; los datos sincronizados de esa
+        persona quedan en el server bajo su viejo accountId, huerfanos.
+        """
+        registro = await self._buscar(codigo)
+        usada_por = registro.get("usadaPor") or ""
+        if usada_por:
+            r = await self._http.delete(
+                f"{self._base}/api/collections/users/records/{usada_por}",
+                headers=await self._cab(),
+            )
+            r.raise_for_status()
+        r = await self._http.patch(
+            f"{self._base}/api/collections/licencias/records/{registro['id']}",
+            headers=await self._cab(),
+            json={"usadaPor": ""},
+        )
+        r.raise_for_status()
+        return r.json()
+```
+
+- [ ] **Step 4: Correr los tests**
+
+Run: `cd /Users/cristian/arkiv-api && uv run pytest tests/test_licencias_cliente.py -q`
+Expected: 4 passed
+
+- [ ] **Step 5: Agregar el comando al CLI**
+
+En `__main__.py`, agregar la función y el subparser. La confirmación **no** es ceremonia: este
+comando borra una cuenta, y un tipeo no puede alcanzar para eso.
+
+```python
+async def _liberar(args) -> None:
+    async with httpx.AsyncClient(timeout=20) as http:
+        cli = _cliente(http)
+        try:
+            if not args.si:
+                sys.exit(
+                    f"esto BORRA la cuenta que uso {args.codigo} y deja la licencia libre.\n"
+                    f"si es lo que queres: licencias liberar {args.codigo} --si"
+                )
+            await cli.liberar(args.codigo)
+        except LicenciaNoExiste:
+            sys.exit(f"no existe la licencia {args.codigo}")
+    print(f"{args.codigo} liberada: se puede volver a registrar")
+```
+
+En `main()`, junto a los otros subparsers:
+
+```python
+    lb = sub.add_parser("liberar", help="borra la cuenta y deja la licencia lista de nuevo")
+    lb.add_argument("codigo")
+    lb.add_argument("--si", action="store_true", help="confirma que se borra la cuenta")
+```
+
+Y en el despacho:
+
+```python
+    elif args.cmd == "liberar":
+        asyncio.run(_liberar(args))
+```
+
+- [ ] **Step 6: Verificar que sin `--si` no hace nada**
+
+Run: `cd /Users/cristian/arkiv-api && uv run python -m arkiv_api.licencias liberar AAAA-BBBB-CCCC`
+Expected: imprime la advertencia y sale con código distinto de 0, **sin** tocar la red.
+
+- [ ] **Step 7: Correr toda la suite**
+
+Run: `cd /Users/cristian/arkiv-api && uv run pytest -q`
+Expected: todos verdes.
+
+- [ ] **Step 8: Commit**
+
+```bash
+cd /Users/cristian/arkiv-api
+git add src/arkiv_api/licencias/ tests/test_licencias_cliente.py
+git commit -m "feat(licencias): comando liberar para el callejon de la contrasena olvidada"
+```
+
+---
+
+### Task 7: Comando `reasignar`
+
+**Files:**
+- Modify: `arkiv-api/src/arkiv_api/licencias/cliente.py`
+- Modify: `arkiv-api/src/arkiv_api/licencias/__main__.py`
+- Test: `arkiv-api/tests/test_licencias_cliente.py`
+
+**Interfaces:**
+- Consumes: `ClienteLicencias` (Task 4), `generar` (Task 3).
+- Produces: `ClienteLicencias.reasignar(email, codigo_nuevo) -> str` y
+  `python -m arkiv_api.licencias reasignar <email>`.
+
+**Por qué existe:** cambiarle la licencia a alguien **sin borrarle la cuenta**. Sirve cuando se
+revocó por error, o cuando el código se filtró y hay que cortarlo sin castigar a la persona. Es lo
+opuesto de `liberar`: acá la cuenta y sus datos quedan intactos y lo único que cambia es qué
+licencia la habilita.
+
+- [ ] **Step 1: Escribir el test que falla**
+
+Agregar al final de `tests/test_licencias_cliente.py`:
+
+```python
+@respx.mock
+@pytest.mark.asyncio
+async def test_reasignar_da_una_licencia_nueva_y_revoca_la_vieja():
+    respx.post(f"{BASE}/api/collections/_superusers/auth-with-password").mock(
+        return_value=httpx.Response(200, json={"token": "TOK"})
+    )
+    # La cuenta existe y hoy usa la vieja.
+    respx.get(url__startswith=f"{BASE}/api/collections/users/records").mock(
+        return_value=httpx.Response(200, json={"items": [
+            {"id": "user9", "email": "her@x", "licencia": "VIEJA-VIEJA-VIEJA"}
+        ]})
+    )
+    respx.get(url__startswith=f"{BASE}/api/collections/licencias/records").mock(
+        return_value=httpx.Response(200, json={"items": [
+            {"id": "licVieja", "codigo": "VIEJA-VIEJA-VIEJA", "usadaPor": "user9"}
+        ]})
+    )
+    alta = respx.post(f"{BASE}/api/collections/licencias/records").mock(
+        return_value=httpx.Response(200, json={"id": "licNueva", "codigo": "NUEV-AAAA-BBBB"})
+    )
+    parche_vieja = respx.patch(f"{BASE}/api/collections/licencias/records/licVieja").mock(
+        return_value=httpx.Response(200, json={"id": "licVieja"})
+    )
+    parche_user = respx.patch(f"{BASE}/api/collections/users/records/user9").mock(
+        return_value=httpx.Response(200, json={"id": "user9"})
+    )
+    async with httpx.AsyncClient() as http:
+        codigo = await _cliente(http).reasignar("her@x", "NUEV-AAAA-BBBB")
+
+    assert codigo == "NUEV-AAAA-BBBB"
+    # La nueva nace ya ligada a esa cuenta: nadie mas puede usarla para registrarse.
+    assert '"usadaPor":"user9"' in alta.calls[0].request.content.decode().replace(" ", "")
+    # La vieja se revoca: si el motivo fue una filtracion, dejarla activa no arregla nada.
+    assert '"estado":"revocada"' in parche_vieja.calls[0].request.content.decode().replace(" ", "")
+    assert '"licencia":"NUEV-AAAA-BBBB"' in parche_user.calls[0].request.content.decode().replace(" ", "")
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_reasignar_a_un_email_que_no_existe_avisa_claro():
+    respx.post(f"{BASE}/api/collections/_superusers/auth-with-password").mock(
+        return_value=httpx.Response(200, json={"token": "TOK"})
+    )
+    respx.get(url__startswith=f"{BASE}/api/collections/users/records").mock(
+        return_value=httpx.Response(200, json={"items": []})
+    )
+    async with httpx.AsyncClient() as http:
+        with pytest.raises(CuentaNoExiste):
+            await _cliente(http).reasignar("nadie@x", "NUEV-AAAA-BBBB")
+```
+
+Agregar `CuentaNoExiste` al import de arriba del archivo:
+
+```python
+from arkiv_api.licencias.cliente import ClienteLicencias, CuentaNoExiste, LicenciaNoExiste
+```
+
+- [ ] **Step 2: Correr los tests y verificar que fallan**
+
+Run: `cd /Users/cristian/arkiv-api && uv run pytest tests/test_licencias_cliente.py -q -k reasignar`
+Expected: FAIL con `ImportError: cannot import name 'CuentaNoExiste'`
+
+- [ ] **Step 3: Implementar en el cliente**
+
+Agregar la excepción arriba, junto a `LicenciaNoExiste`:
+
+```python
+class CuentaNoExiste(RuntimeError):
+    """No hay ninguna cuenta con ese email."""
+```
+
+Y el método en `ClienteLicencias`:
+
+```python
+    async def _buscar_cuenta(self, email: str) -> dict:
+        r = await self._http.get(
+            f"{self._base}/api/collections/users/records",
+            headers=await self._cab(),
+            params={"filter": f'email="{email}"', "perPage": 1},
+        )
+        r.raise_for_status()
+        items = r.json().get("items", [])
+        if not items:
+            raise CuentaNoExiste(email)
+        return items[0]
+
+    async def reasignar(self, email: str, codigo_nuevo: str) -> str:
+        """Le da una licencia NUEVA a una cuenta existente y revoca la que tenia.
+
+        La cuenta y sus datos quedan intactos: lo unico que cambia es que licencia la habilita. La
+        vieja se revoca porque el motivo tipico para reasignar es que se filtro, y dejarla activa no
+        arreglaria nada.
+        """
+        cuenta = await self._buscar_cuenta(email)
+        vieja = cuenta.get("licencia") or ""
+
+        r = await self._http.post(
+            f"{self._base}/api/collections/licencias/records",
+            headers=await self._cab(),
+            json={
+                "codigo": codigo_nuevo,
+                "estado": "activa",
+                "maxCelulares": 1,
+                "maxTvs": 1,
+                "notas": f"reasignada a {email}",
+                "usadaPor": cuenta["id"],
+            },
+        )
+        r.raise_for_status()
+
+        if vieja:
+            registro = await self._buscar(vieja)
+            r = await self._http.patch(
+                f"{self._base}/api/collections/licencias/records/{registro['id']}",
+                headers=await self._cab(),
+                json={"estado": "revocada"},
+            )
+            r.raise_for_status()
+
+        r = await self._http.patch(
+            f"{self._base}/api/collections/users/records/{cuenta['id']}",
+            headers=await self._cab(),
+            json={"licencia": codigo_nuevo},
+        )
+        r.raise_for_status()
+        return codigo_nuevo
+```
+
+- [ ] **Step 4: Correr los tests**
+
+Run: `cd /Users/cristian/arkiv-api && uv run pytest tests/test_licencias_cliente.py -q`
+Expected: 6 passed
+
+- [ ] **Step 5: Agregar el comando al CLI**
+
+En `__main__.py`, importar `CuentaNoExiste` junto a las otras dos y agregar:
+
+```python
+async def _reasignar(args) -> None:
+    async with httpx.AsyncClient(timeout=20) as http:
+        try:
+            codigo = await _cliente(http).reasignar(args.email, generar())
+        except CuentaNoExiste:
+            sys.exit(f"no hay ninguna cuenta con el email {args.email}")
+    print(codigo)
+```
+
+En `main()`:
+
+```python
+    ra = sub.add_parser("reasignar", help="licencia nueva para una cuenta que ya existe")
+    ra.add_argument("email")
+```
+
+Y en el despacho:
+
+```python
+    elif args.cmd == "reasignar":
+        asyncio.run(_reasignar(args))
+```
+
+- [ ] **Step 6: Correr toda la suite**
+
+Run: `cd /Users/cristian/arkiv-api && uv run pytest -q`
+Expected: todos verdes.
+
+- [ ] **Step 7: Documentar los dos comandos en el README**
+
+Agregar `reasignar` y `liberar` a la sección "Licencias", con la diferencia explícita: `reasignar`
+conserva la cuenta y cambia su licencia; `liberar` **borra la cuenta**.
+
+- [ ] **Step 8: Commit**
+
+```bash
+cd /Users/cristian/arkiv-api
+git add src/arkiv_api/licencias/ tests/test_licencias_cliente.py README.md
+git commit -m "feat(licencias): reasignar da una licencia nueva sin borrar la cuenta"
+```
+
+---
+
+### Task 8: Aplicar en `blog` y crear la primera licencia
 
 **Files:**
 - Modify: `blog:~/arkiv-api/.env` (agregar las tres variables)
@@ -587,6 +953,14 @@ ssh blog "cd ~/arkiv-api && sudo docker compose exec -T api python -m arkiv_api.
 ```
 
 Expected: la licencia aparece, pasa a `revocada`, y vuelve a `activa`. Verificar también que revocar un código inexistente imprime el error y sale con código distinto de 0.
+
+Y que `liberar` sin `--si` avisa en vez de borrar:
+
+```bash
+ssh blog "cd ~/arkiv-api && sudo docker compose exec -T api python -m arkiv_api.licencias liberar <codigo>"
+```
+
+Expected: la advertencia y salida distinta de 0. **No** correr con `--si` sobre la licencia del dueño: todavía no hay cuenta registrada, pero el día que la haya, ese comando se la lleva.
 
 - [ ] **Step 7: Commit de lo que haya quedado sin commitear**
 

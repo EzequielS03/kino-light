@@ -48,15 +48,19 @@ al loguear, y el vínculo Magis colgado de la persona.
 
 | Campo | Tipo | Para qué |
 |---|---|---|
-| `codigo` | text, único | La licencia. Se genera a mano. |
+| `codigo` | text, único | La licencia. La genera el CLI. |
 | `estado` | select: `activa` \| `revocada` | Revocar es cambiar esto. |
 | `maxCelulares` | number, default 1 | Tope de devices `kind = "phone"`. |
 | `maxTvs` | number, default 1 | Tope de devices `kind = "tv"`. |
-| `usadaPor` | relation → `users`, opcional | Queda ligada a la cuenta que la consumió. Vacío = sin usar. |
+| `usadaPor` | text, opcional | Id de la cuenta que la consumió. Vacío = sin usar. |
 | `notas` | text, opcional | Para el dueño: "hermana", "TV del living". |
 
 **Colección nueva `users`** (auth, la "persona" del Spec 1): `email`, `password`, `accountId`
-(text, requerido) y `licencia` (relation → `licencias`, requerido).
+(text, requerido) y `licencia` (text, requerido).
+
+Ni `usadaPor` ni `licencia` son *relations*: guardan el id y el código sueltos. El gateway resuelve
+la licencia por código en cada validación, y una relación lo obligaría a expandirla en cada consulta
+sin darle nada a cambio.
 
 **`devices`**: sin cambios de forma. Ya tiene `accountId` y `kind` (`phone` / `tv`), que es lo que
 el conteo por tipo necesita.
@@ -79,6 +83,16 @@ PocketBase con las credenciales de admin que ya viven ahí. Es el único camino 
 | `listar` | Todas las licencias: código, estado, quién la usa, cuántos aparatos tiene. |
 | `revocar <codigo>` | La pasa a `revocada`. En ≤60 s esa persona queda afuera. |
 | `reactivar <codigo>` | La vuelve a `activa`, por si se revocó por error. |
+| `reasignar <email>` | Le da una licencia **nueva** a una cuenta que ya existe y revoca la vieja. La cuenta y sus datos quedan intactos. |
+| `liberar <codigo> --si` | **Borra la cuenta** que usó esa licencia y la deja lista para registrarse de nuevo. |
+
+`reasignar` y `liberar` cubren dos problemas distintos que es fácil confundir:
+
+- **`reasignar`** — la persona sigue siendo la misma y conserva todo; lo que cambia es su licencia.
+  Para cuando revocaste por error, o el código se filtró y querés cortarlo sin castigar a nadie.
+- **`liberar`** — la cuenta se va. Es la salida del callejón "olvidé la contraseña": no hay
+  recuperación de clave y el código figura consumido, así que sin esto esa persona no puede volver
+  a entrar de ninguna forma.
 
 **Por qué CLI y no un endpoint**: crear licencias es la operación más sensible del sistema. Un
 endpoint hay que autenticarlo, exponerlo y cuidarlo; el CLI solo lo puede correr quien ya tiene SSH
