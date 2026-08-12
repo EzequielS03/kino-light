@@ -2,6 +2,7 @@ package com.arkiv.player.playback
 
 import com.arkiv.player.data.NodoDeArchive
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.RandomAccessFile
@@ -110,9 +111,36 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
     // porqué de cada número (resumen: archive puede tardar 72 s en soltar el primer byte).
     private val INTENTOS_ORIGEN = PoliticaOrigen.INTENTOS
 
-    // Cuánto se precalienta. 2 MB ≈ 15 s de estos TS (~1,1 Mbps): de sobra para que libVLC
-    // identifique programas y pistas sin depender de la latencia del CDN, y poco como para tenerlo
-    // en memoria sin pensarlo dos veces.
+    /**
+     * Cuánto se precalienta del arranque. Es el número que hay que mover si esto se vuelve lento, y
+     * también el primero que hay que revisar si vuelve el negro-y-mudo.
+     *
+     * Empezó en 2 MB, elegido con holgura para que libVLC identifique programas y pistas sin
+     * depender de la latencia del CDN. Medido el 2026-08-11 en el Fire TV sobre ocho arranques, esa
+     * holgura pasó a ser LA fase dominante: bajar la cabeza costaba entre 917 y 9210 ms, contra
+     * 246-511 ms de la cola de 256 KB en las mismas corridas — o sea que manda el tamaño.
+     *
+     * **Bajarlo a 512 KB ya se probó, el 2026-08-11 en el Fire TV, y NO conviene.** El razonamiento
+     * era bueno —estos TS van a ~152 KB/s reales, así que 2 MB son ~13 s de video precargados solo
+     * para identificar pistas— pero lo que se ahorra de un lado se paga del otro:
+     *
+     * | | 2 MB (9 arranques) | 512 KB (6 arranques) |
+     * |---|---|---|
+     * | bajar la cabeza (corridas buenas) | 917-1828 ms | 515-911 ms |
+     * | VLC → primera imagen (mediana) | 795 ms | 823 ms |
+     * | heartbeats con `pistas=v0/a0` | 1 de 9 | 2 de 6 |
+     *
+     * Y el detalle que lo decide: los DOS arranques con `v0/a0` fueron justo los dos de peor
+     * apertura (1782 ms y 2018 ms, contra 513-1027 ms del resto). Con menos datos calientes libVLC
+     * no termina de identificar el stream con lo que tiene en memoria y sale a la red en mitad del
+     * arranque, que es precisamente lo que este precalentado existe para evitar. No llegó a fallar
+     * —cero rescates, las dos se recuperaron— pero el final de ese camino es el negro-y-mudo
+     * documentado en [precalentar], y el ahorro no lo justifica.
+     *
+     * Lo que sí domina cuando esto se pone lento no es el tamaño: en las corridas malas la cabeza
+     * de 2 MB y la cola de 256 KB terminan en el MISMO milisegundo (5205/5212, 5264/5266), o sea
+     * que el cuello está en el enlace o en el CDN, y ningún recorte de payload lo arregla.
+     */
     private val ARRANQUE_CALIENTE = 2 * 1024 * 1024
 
     private class Download(
@@ -879,12 +907,42 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
             VentanaDeArchivo.inicio(totalDelOrigen(originUrl, headers, perfil), fraccion)
         } else 0L
         val t0 = System.currentTimeMillis()
-        val (conn, cerrable) =
+        // LAS DOS PUNTAS A LA VEZ. Iban en serie y eso era la fase más cara del arranque: medido en
+        // el Fire TV sobre ocho reproducciones, `precalentado` dominaba en 6 de 8 con 1443-6647 ms.
+        // Piden tramos distintos del archivo y el CDN atiende varias conexiones sin degradarse
+        // (medido: con tres drenando, un rango de cola seguía contestando en 0,44-0,82 s), así que
+        // el costo pasa a ser el MÁXIMO de las dos en vez de la suma.
+        val cabeza = async { runCatching { bajarArranque(originUrl, headers, inicio, perfil) }.getOrNull() }
+        val cola = async { runCatching { precalentarCola(originUrl, headers, key, perfil) }.getOrNull() }
+        val bytes = cabeza.await()
+        cola.await()
+        if (bytes == null || bytes.isEmpty()) {
+            android.util.Log.w("ArchiveCacheProxy", "precalentar: no llegaron bytes")
+            return@withContext false
+        }
+        // Indexado por archivo Y punto de arranque: solo sirve para quien abra exactamente ahí.
+        calientes["$key@$inicio"] = bytes
+        android.util.Log.w(
+            "ArchiveCacheProxy",
+            "precalentado ${bytes.size / 1024}KB desde $inicio en ${System.currentTimeMillis() - t0}ms " +
+                "(cabeza y cola en paralelo)",
+        )
+        true
+    }
+
+    /** Los primeros [ARRANQUE_CALIENTE] bytes desde [inicio], o null si el origen no colaboró. */
+    private fun bajarArranque(
+        originUrl: String,
+        headers: Map<String, String>,
+        inicio: Long,
+        perfil: PoliticaOrigen.Perfil,
+    ): ByteArray? {
+        val (conn, _) =
             abrirEnOrigen(originUrl, "bytes=$inicio-", headers, claveUnica = null, perfil = perfil)
-            ?: run {
-                android.util.Log.w("ArchiveCacheProxy", "precalentar: el origen no dio el arranque")
-                return@withContext false
-            }
+                ?: run {
+                    android.util.Log.w("ArchiveCacheProxy", "precalentar: el origen no dio el arranque")
+                    return null
+                }
         val bytes = runCatching {
             conn.inputStream.use { ins ->
                 val buf = ByteArray(ARRANQUE_CALIENTE)
@@ -898,21 +956,22 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
             }
         }.getOrNull()
         runCatching { conn.disconnect() }
-        if (bytes == null || bytes.isEmpty()) {
-            android.util.Log.w("ArchiveCacheProxy", "precalentar: no llegaron bytes")
-            return@withContext false
-        }
-        // Indexado por archivo Y punto de arranque: solo sirve para quien abra exactamente ahí.
-        calientes["$key@$inicio"] = bytes
-        android.util.Log.w(
-            "ArchiveCacheProxy",
-            "precalentado ${bytes.size / 1024}KB desde $inicio en ${System.currentTimeMillis() - t0}ms",
-        )
-        // La OTRA punta. Va acá y no en paralelo porque la conexión de arriba ya terminó, y este
-        // pedido es chico (256 KB): lo caro sería que VLC lo pidiera después, en medio del arranque,
-        // que es exactamente lo que se está evitando. Best-effort como todo lo de esta función.
-        runCatching { precalentarCola(originUrl, headers, key, perfil) }
-        true
+        return bytes
+    }
+
+    /**
+     * Cuánto dura el archivo, deducido de lo que [precalentar] YA se bajó. 0 = no hay con qué.
+     *
+     * Es el mismo cálculo de PCR que hacía [TsDurationProbe.probeRemote], pero sin red: la sonda
+     * pedía cabeza y cola por su cuenta —los mismos 256 KB del final que el precalentado ya tenía—
+     * y las dos peticiones competían entre sí contra el mismo CDN. Medido el 2026-08-11 en el Fire
+     * TV, en dos de ocho arranques la sonda perdió esa pelea y la película salió sin duración.
+     */
+    fun duracionDelPrecalentado(originUrl: String): Long {
+        val key = cache.keyFor(originUrl)
+        val cabeza = calientes["$key@0"] ?: return 0L
+        val cola = colas[key]?.second ?: return 0L
+        return TsDurationProbe.durationMs(cabeza, cola)
     }
 
     /**

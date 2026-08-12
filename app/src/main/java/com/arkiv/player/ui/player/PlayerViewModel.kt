@@ -21,7 +21,6 @@ import com.arkiv.player.data.offline.PlaybackChoice
 import com.arkiv.player.data.offline.PlaybackDecision
 import com.arkiv.player.data.offline.PlaybackPreferenceStore
 import com.arkiv.player.playback.ArchiveCacheProxy
-import com.arkiv.player.playback.ArranqueDeMagis
 import com.arkiv.player.playback.PlayerSource
 import com.arkiv.player.playback.PoliticaOrigen
 import com.arkiv.player.playback.SourceKind
@@ -583,8 +582,15 @@ class PlayerViewModel(
         _playlist.value = null
         _webExtras.value = null
         _resolving.value = true
+        // CRONÓMETRO DEL ARRANQUE. Cada fase se mide por separado y al final se emite un resumen en
+        // UNA línea: el cuello de botella de magis se mudó tres veces mientras se optimizaba (VLC →
+        // sonda+precalentado → gateway), y cada mudanza costó una ronda de "reproducí algo y miro
+        // los logs" porque los tiempos había que deducirlos de los huecos entre líneas sueltas.
+        val t0 = System.currentTimeMillis()
         val resuelto = withContext(Dispatchers.IO) { runCatching { gatewayClient.resolve(ref) } }
+        val msResolve = System.currentTimeMillis() - t0
         _resolving.value = false
+        Log.w(PLAY, "loadMagis() resolve del gateway=${msResolve}ms")
 
         val play = resuelto.getOrNull()
         if (play == null) {
@@ -621,33 +627,46 @@ class PlayerViewModel(
         }
         // La sonda y el ARRANQUE CALIENTE, a la vez. Los dos le hablan al mismo CDN y ninguno
         // necesita el resultado del otro; iban en serie y eso costaba, medido en device, entre 1,0 s
-        // y 11,5 s de spinner sumados. El porqué de que convivan sin pelearse: [ArranqueDeMagis].
+        // y 11,5 s de spinner sumados. El porqué de que convivan sin pelearse: [ArchiveCacheProxy].
         //
         // El arranque caliente se precalienta en el byte 0, que es donde VLC abre SIEMPRE desde que
         // magis dejó de abrir por ventana: reanuda saltando por tiempo, no abriendo el stream más
         // adelante. Sin él, si la primera lectura se demora libVLC se rinde identificando el stream
         // y se queda SIN PISTAS para siempre (negro y mudo, con el reloj disparado).
         val tArranque = System.currentTimeMillis()
-        val duracion = withContext(Dispatchers.IO) {
-            ArranqueDeMagis.duracionYArranque(
-                sonda = {
-                    if (!hayQueSondear) play.durationMs
-                    // El TS no dice cuánto dura y libVLC no lo deduce sobre HTTP; sin duración la
-                    // barra queda llena, en 00:00, sin poder adelantar y sin guardar dónde ibas. El
-                    // camino BUENO es que la diga el gateway (viene gratis en el resolve para las
-                    // películas); esto es el respaldo para los capítulos de serie, que el portal
-                    // manda sin duración. Best-effort: si falla se reproduce igual, sin duración.
-                    else withTimeoutOrNull(TsDurationProbe.PRESUPUESTO_MS) {
+        // Precalentado de las DOS puntas, que adentro van en paralelo (ver ArchiveCacheProxy).
+        withContext(Dispatchers.IO) {
+            runCatching { archiveCacheProxy.precalentar(play.url, play.headers, fraccion = 0f) }
+        }
+        val msPrecalentado = System.currentTimeMillis() - tArranque
+        // Y la duración sale de ESOS MISMOS bytes, sin pedir nada. El TS no dice cuánto dura y
+        // libVLC no lo deduce sobre HTTP; sin duración la barra queda llena, en 00:00, sin poder
+        // adelantar y sin guardar dónde ibas. El camino BUENO sigue siendo que la diga el gateway
+        // (viene gratis en el resolve para las películas); esto es el respaldo para los capítulos de
+        // serie, que el portal manda sin duración.
+        //
+        // Antes esto era una sonda por red que pedía cabeza y cola por su cuenta — las mismas dos
+        // puntas que el precalentado ya tenía en la mano— y las dos peticiones competían contra el
+        // mismo CDN. Medido en el Fire TV, en 2 de 8 arranques la sonda perdió esa pelea y la
+        // película salió sin duración. La sonda por red queda solo de red de contención, para
+        // cuando el precalentado no pudo.
+        val tSonda = System.currentTimeMillis()
+        val duracion = when {
+            !hayQueSondear -> play.durationMs
+            else -> archiveCacheProxy.duracionDelPrecalentado(play.url).takeIf { it > 0L }
+                ?: withContext(Dispatchers.IO) {
+                    Log.w(PLAY, "loadMagis() sin duracion en el precalentado → sonda por red")
+                    withTimeoutOrNull(TsDurationProbe.PRESUPUESTO_MS) {
                         TsDurationProbe.probeRemote(play.url, play.headers)
                     } ?: 0L
-                },
-                precalentar = { archiveCacheProxy.precalentar(play.url, play.headers, fraccion = 0f) },
-            )
+                }
         }
+        val msSonda = System.currentTimeMillis() - tSonda
+        val msArranque = System.currentTimeMillis() - tArranque
         Log.w(
             PLAY,
-            "loadMagis() sonda+precalentado en paralelo: duracion=${duracion}ms " +
-                "(tardó ${System.currentTimeMillis() - tArranque}ms)",
+            "loadMagis() arranque=${msArranque}ms (precalentado=${msPrecalentado}ms, " +
+                "duracion=${msSonda}ms${if (hayQueSondear) "" else " sin sondear"}) → ${duracion}ms",
         )
         val item = PlayerData(
             episodeId = episodeId,
@@ -684,7 +703,15 @@ class PlayerViewModel(
         // espera del CDN ocurrió ANTES de abrir el video, donde el usuario ve el spinner de
         // siempre, en vez de convertirse en un fallo del que no se vuelve.
         _playlist.value = PlaylistData(listOf(item), 0, startPos)
-        Log.w(PLAY, "loadMagis() playlist publicada (startPos=$startPos)")
+        // RESUMEN, en una línea y en el orden en que se paga. Lo que falta para el primer frame es
+        // lo que tarde VLC en abrir, que se mide aparte (ver el "abrió en Xms" de VlcPlayer): la
+        // suma de las dos es lo que el usuario ve como spinner.
+        Log.w(
+            PLAY,
+            "loadMagis() ⏱ TOTAL=${System.currentTimeMillis() - t0}ms " +
+                "[resolve=${msResolve}ms | arranque=${msArranque}ms " +
+                "(sonda=${msSonda} precal=${msPrecalentado})] startPos=$startPos",
+        )
     }
 
     private suspend fun loadWeb(episodeId: String) {
