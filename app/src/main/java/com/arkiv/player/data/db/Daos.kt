@@ -39,11 +39,18 @@ data class ContinueRow(
     val episode: Int? = null,
     val orderIndex: Int = 0,
     /**
-     * Cuántos episodios vivos tiene el ítem. Sirve para UNA cosa: distinguir la película (1) de la
-     * serie, porque "Continuar viendo" trae las dos y numerar una película dejaría un "E1" absurdo
-     * debajo del título del héroe.
+     * Cuántos episodios vivos tiene el ítem. Entra en [isMovie] junto con [categoryOverride]; no
+     * se usa solo, porque un capítulo suelto recién agregado (Magis, web, torrent de catálogo,
+     * anime) también da 1 y NO es una película (ver [categoryOverride]).
      */
     val episodeCount: Int = 0,
+    /**
+     * Override manual del ítem ("movie"/"series"/null), igual que en `items.categoryOverride`.
+     * Todas las fuentes con capítulos lo escriben como "series" desde el primer capítulo (ver
+     * `MagisEntities`), justamente para que [isMovie] no confunda ese primer capítulo con una
+     * película mientras `episodeCount` todavía vale 1.
+     */
+    val categoryOverride: String? = null,
     /**
      * Ruta en disco del frame capturado, o null si el capítulo todavía no tiene uno. Gana sobre
      * `stillUrl` y el resto: ver [com.arkiv.player.miniaturas.EleccionDeMiniatura].
@@ -52,7 +59,14 @@ data class ContinueRow(
      * única fuente de verdad es el disco. Lo llena el repositorio al mapear.
      */
     val framePath: String? = null,
-)
+) {
+    /** Misma regla que [LibraryRow.isMovie]: override manual si existe, si no, detección por cantidad. */
+    val isMovie: Boolean get() = when (categoryOverride) {
+        "movie" -> true
+        "series" -> false
+        else -> episodeCount <= 1
+    }
+}
 
 /** Resumen de un ítem para la grilla de la biblioteca. */
 /** Fila cruda para decidir a qué series preguntarles por capítulos nuevos. Ver `SeriesPorRevisar`. */
@@ -235,7 +249,8 @@ interface PlaybackDao {
                p.lastPlayedAt AS lastPlayedAt,
                s.stillUrl AS stillUrl, s.title AS episodeTitle,
                e.season AS season, e.episode AS episode, e.orderIndex AS orderIndex,
-               (SELECT COUNT(*) FROM episodes e2 WHERE e2.itemId = e.itemId AND e2.deleted = 0) AS episodeCount
+               (SELECT COUNT(*) FROM episodes e2 WHERE e2.itemId = e.itemId AND e2.deleted = 0) AS episodeCount,
+               i.categoryOverride AS categoryOverride
         FROM playback p
         JOIN episodes e ON e.id = p.episodeId
         JOIN items i ON i.identifier = e.itemId

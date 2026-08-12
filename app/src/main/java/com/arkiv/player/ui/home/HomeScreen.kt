@@ -128,7 +128,7 @@ fun HomeScreen(
                     // película sin duración conocida) se cae al nombre de siempre, para no dejar el
                     // héroe con una línea vacía.
                     subtitle = com.arkiv.player.ui.EtiquetaDeCapitulo.lineaDeHeroe(
-                        esPelicula = heroContinue.episodeCount <= 1,
+                        esPelicula = heroContinue.isMovie,
                         season = heroContinue.season,
                         episode = heroContinue.episode,
                         orderIndex = heroContinue.orderIndex,
@@ -270,7 +270,9 @@ private fun Hero(
                 text = subtitle,
                 style = MaterialTheme.typography.bodyMedium,
                 color = ArkivTextSecondary,
-                maxLines = 1,
+                // 2 líneas: con 1 sola, la línea de datos del capítulo (~48 caracteres) se elipsaba
+                // justo donde importa — "te faltan N min" es lo primero que se pierde.
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             if (actionLabel != null && onAction != null) {
