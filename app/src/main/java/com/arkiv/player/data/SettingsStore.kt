@@ -9,6 +9,18 @@ import kotlinx.coroutines.flow.StateFlow
 enum class Quality { ORIGINAL, DERIVATIVE }
 
 /**
+ * De dónde salió el `gatewayUrl`/`arkivApiKey` que este dispositivo tiene ahora mismo.
+ *
+ * Existe para resolver la precedencia cuando el vínculo TV↔celu (ver [com.arkiv.player.pairing.PairingManager])
+ * intenta propagar la config del celu al TV: [MANUAL] gana siempre (alguien la fijó a propósito
+ * en ESTE dispositivo, p.ej. para apuntar a un gateway de pruebas) y nunca se pisa por sync;
+ * [DEFAULT] (el baked-in de BuildConfig, nunca tocado) SÍ se puede reemplazar; [SYNCED] es lo que
+ * dejó el último pareo -- también reemplazable por un pareo posterior, para no quedar pegado a
+ * una config vieja para siempre.
+ */
+enum class GatewayConfigSource { DEFAULT, MANUAL, SYNCED }
+
+/**
  * Calidad de las fuentes WEB (HLS adaptativo). AUTO = decide por camino (directo del CDN → sube a HD;
  * proxy por el túnel angosto → 480p para no cortarse). SD/HD/MÁX = fijo, la elección del usuario manda.
  */
@@ -72,6 +84,11 @@ class SettingsStore(context: Context) {
     private val _gatewayUrl = MutableStateFlow(prefs.getString(KEY_GATEWAY_URL, DEFAULT_GATEWAY_URL)!!)
     val gatewayUrl: StateFlow<String> = _gatewayUrl
 
+    // Ver KDoc de [GatewayConfigSource]. Arranca en DEFAULT: un install nuevo (celu o TV) todavía
+    // no tiene ni override manual ni config sincronizada por pareo.
+    private val _gatewayConfigSource = MutableStateFlow(readGatewayConfigSource())
+    val gatewayConfigSource: StateFlow<GatewayConfigSource> = _gatewayConfigSource
+
     // Arranca encendido, con caída al camino viejo si el gateway no responde: si el NUC se cae,
     // la búsqueda tiene que seguir funcionando igual.
     private val _useGateway = MutableStateFlow(prefs.getBoolean(KEY_USE_GATEWAY, true))
@@ -116,9 +133,42 @@ class SettingsStore(context: Context) {
 
     fun setDimLevel(v: Int) { prefs.edit().putInt(KEY_DIM_LEVEL, v).apply(); _dimLevel.value = v }
 
-    fun setArkivApiKey(v: String) { prefs.edit().putString(KEY_ARKIV_API_KEY, v).apply(); _arkivApiKey.value = v }
-    fun setGatewayUrl(v: String) { prefs.edit().putString(KEY_GATEWAY_URL, v).apply(); _gatewayUrl.value = v }
+    // Fijan la config a mano en ESTE dispositivo (p.ej. un ajuste de debug): marcan la fuente como
+    // MANUAL para que el pareo nunca la pise en silencio (ver [applySyncedGatewayConfig]).
+    fun setArkivApiKey(v: String) { prefs.edit().putString(KEY_ARKIV_API_KEY, v).apply(); _arkivApiKey.value = v; marcarGatewayManual() }
+    fun setGatewayUrl(v: String) { prefs.edit().putString(KEY_GATEWAY_URL, v).apply(); _gatewayUrl.value = v; marcarGatewayManual() }
     fun setUseGateway(v: Boolean) { prefs.edit().putBoolean(KEY_USE_GATEWAY, v).apply(); _useGateway.value = v }
+
+    private fun marcarGatewayManual() {
+        prefs.edit().putString(KEY_GATEWAY_CONFIG_SOURCE, GatewayConfigSource.MANUAL.name).apply()
+        _gatewayConfigSource.value = GatewayConfigSource.MANUAL
+    }
+
+    /**
+     * Aplica una config de gateway que llegó por el vínculo de cuenta (pareo TV↔celu, ver
+     * [com.arkiv.player.pairing.PairingManager.adoptIdentity]): el TV adopta la URL/llave
+     * EFECTIVAS del celu en ese momento, para no depender de que alguien las tipee a mano en
+     * cada aparato -- ese es justo el fallo de diseño que esto resuelve (ver
+     * docs/superpowers si existe spec asociada).
+     *
+     * Respeta [GatewayConfigSource.MANUAL] (ver [SettingsStore.shouldApplySyncedGateway] para la
+     * regla exacta, extraída aparte porque es pura y así se puede testear sin Context).
+     *
+     * Devuelve si se aplicó, para que el llamador pueda loguear el RESULTADO sin loguear nunca
+     * el valor de la llave.
+     */
+    fun applySyncedGatewayConfig(gatewayUrl: String, arkivApiKey: String): Boolean {
+        if (!shouldApplySyncedGateway(_gatewayConfigSource.value, gatewayUrl, arkivApiKey)) return false
+        prefs.edit()
+            .putString(KEY_GATEWAY_URL, gatewayUrl)
+            .putString(KEY_ARKIV_API_KEY, arkivApiKey)
+            .putString(KEY_GATEWAY_CONFIG_SOURCE, GatewayConfigSource.SYNCED.name)
+            .apply()
+        _gatewayUrl.value = gatewayUrl
+        _arkivApiKey.value = arkivApiKey
+        _gatewayConfigSource.value = GatewayConfigSource.SYNCED
+        return true
+    }
 
     fun setProvidersUrl(v: String) { prefs.edit().putString(KEY_PROVIDERS_URL, v).apply(); _providersUrl.value = v }
     fun setWebSourcesUrl(v: String) { prefs.edit().putString(KEY_WEB_SOURCES_URL, v).apply(); _webSourcesUrl.value = v }
@@ -155,7 +205,34 @@ class SettingsStore(context: Context) {
     private fun readWebQuality(): WebQuality =
         runCatching { WebQuality.valueOf(prefs.getString(KEY_WEB_QUALITY, WebQuality.AUTO.name)!!) }.getOrDefault(WebQuality.AUTO)
 
+    private fun readGatewayConfigSource(): GatewayConfigSource =
+        runCatching {
+            GatewayConfigSource.valueOf(prefs.getString(KEY_GATEWAY_CONFIG_SOURCE, GatewayConfigSource.DEFAULT.name)!!)
+        }.getOrDefault(GatewayConfigSource.DEFAULT)
+
     companion object {
+        /**
+         * Regla de precedencia para [applySyncedGatewayConfig], pura a propósito -- sin
+         * SharedPreferences ni Context de por medio -- para poder testearla en un unit test JVM
+         * plano (SettingsStore no se puede instanciar en ese entorno: pide un Context real).
+         *
+         * NUNCA pisa [GatewayConfigSource.MANUAL]: si el dispositivo tiene una config fijada a
+         * mano (p.ej. un TV de pruebas apuntando a un gateway de staging), un pareo no debe
+         * pisarla en silencio -- el usuario la puso ahí a propósito.
+         *
+         * Tampoco aplica una config a medio llenar: una URL o llave en blanco es peor que el
+         * default (que al menos compila contra el gateway real), así que ambas deben venir con
+         * contenido para que valga la pena reemplazar lo que ya hay.
+         */
+        fun shouldApplySyncedGateway(
+            currentSource: GatewayConfigSource,
+            gatewayUrl: String,
+            arkivApiKey: String,
+        ): Boolean {
+            if (currentSource == GatewayConfigSource.MANUAL) return false
+            return gatewayUrl.isNotBlank() && arkivApiKey.isNotBlank()
+        }
+
         const val PREFS_NAME = "arkiv_settings"
         const val KEY_WEB_QUALITY = "web_quality"
         private const val KEY_STREAM = "stream_quality"
@@ -168,6 +245,7 @@ class SettingsStore(context: Context) {
         private const val KEY_DIM_LEVEL = "dim_level"
         private const val KEY_ARKIV_API_KEY = "arkiv_api_key"
         private const val KEY_GATEWAY_URL = "gateway_url"
+        private const val KEY_GATEWAY_CONFIG_SOURCE = "gateway_config_source"
         private const val KEY_USE_GATEWAY = "use_gateway"
         private const val KEY_TORRENT_API_URL = "torrent_api_url"
         private const val KEY_TV_LINKED = "tv_linked"

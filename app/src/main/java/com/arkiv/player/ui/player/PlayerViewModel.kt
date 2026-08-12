@@ -7,6 +7,7 @@ import com.arkiv.player.data.ArchiveUrls
 import com.arkiv.player.data.ArkivRepository
 import com.arkiv.player.data.CoincidenciaDeArchivo
 import com.arkiv.player.data.EpisodeTorrent
+import com.arkiv.player.data.GatewayConfigSource
 import com.arkiv.player.data.Quality
 import com.arkiv.player.data.SettingsStore
 import com.arkiv.player.data.db.LiveRecentDao
@@ -83,6 +84,31 @@ data class WebExtras(
  */
 data class AskPlaybackSourceState(val episodeId: String, val seriesId: String, val nucItemId: Long)
 
+/**
+ * Mensaje de error para un canal en vivo que no abrió. Función pura (nada de red/estado) para
+ * poder testearla sin construir todo [PlayerViewModel] -- tiene ~15 dependencias, la mayoría de
+ * red/disco.
+ *
+ * Antes de esto, un TV sin la config del gateway (el fallo de diseño real: nunca la tuvo) mostraba
+ * el mismo "No se pudo abrir X" que un canal caído de verdad -- el usuario no tenía forma de
+ * distinguir "el portal está mal" de "este TV no está vinculado", así que no sabía qué hacer.
+ * [esTelevision] + [fuenteGateway] alcanza para distinguir el caso sin tocar la excepción real
+ * (evita parsear mensajes/códigos HTTP, que es frágil): si es un TV que TODAVÍA está en el default
+ * baked-in -nunca sincronizó por pareo ni se le fijó una config a mano-, cualquier fallo al abrir
+ * un canal probablemente es por eso.
+ */
+fun mensajeErrorVivo(
+    esTelevision: Boolean,
+    fuenteGateway: GatewayConfigSource,
+    nombreCanal: String,
+): String =
+    if (esTelevision && fuenteGateway == GatewayConfigSource.DEFAULT) {
+        "Este TV no tiene la configuración del servicio en vivo. Volvé a vincularlo: en el " +
+            "teléfono abrí Arkiv, Conexión con el TV, Re-parear, y escaneá el código acá."
+    } else {
+        "No se pudo abrir $nombreCanal"
+    }
+
 class PlayerViewModel(
     private val repo: ArkivRepository,
     private val settings: SettingsStore,
@@ -99,6 +125,9 @@ class PlayerViewModel(
     // arriba (el callsite en PlayerScreen los pasa por posición, no por nombre).
     private val liveController: LiveController,
     private val liveRecentDao: LiveRecentDao,
+    // ¿Este proceso corre en un Android TV? Solo importa para [mensajeErrorVivo]: ahí (y no en el
+    // celu) un 401/lo-que-sea al abrir un canal suele ser el TV sin vincular, no el portal caído.
+    private val esTelevision: Boolean = false,
 ) : ViewModel() {
 
     private val _playlist = MutableStateFlow<PlaylistData?>(null)
@@ -223,7 +252,9 @@ class PlayerViewModel(
             _error.value = null
             val url = runCatching { liveController.abrir(canal.code) }.getOrElse {
                 Log.w(PLAY, "abrirCanalActual() falló para ${canal.code}: ${it.message}")
-                if (zapping?.actual?.code == canal.code) _error.value = "No se pudo abrir ${canal.nombre}"
+                if (zapping?.actual?.code == canal.code) {
+                    _error.value = mensajeErrorVivo(esTelevision, settings.gatewayConfigSource.value, canal.nombre)
+                }
                 return@launch
             }
             // Zapeos rápidos: si para cuando este abrir() (~3s en el peor caso) vuelve el usuario

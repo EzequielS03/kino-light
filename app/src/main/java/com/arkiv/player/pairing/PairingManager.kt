@@ -130,11 +130,24 @@ class PairingManager(
         )
         // Adoptar la identidad de la cuenta del celu: autentica primero y actualiza la sesión viva.
         val session = deviceAuth.adoptIdentity(id)
+        // El TV nunca tuvo dónde sacar gatewayUrl/arkivApiKey (no hay pantalla para tipearlas, y
+        // el default baked-in en BuildConfig queda viejo apenas la llave rota en el servidor): el
+        // pareo es el único momento en que el celu y el TV están en el mismo lugar con el usuario
+        // presente, así que es el vehículo natural para propagar la config EFECTIVA del celu, sin
+        // que el usuario escriba nada. `optString` (no `getString`) a propósito: un QR/payload
+        // viejo sin estos campos no debe romper el resto del pareo, solo dejar la config como
+        // estaba (ver SettingsStore.applySyncedGatewayConfig, que además respeta una config MANUAL
+        // ya fijada en este TV).
+        val gatewayUrl = json.optString("gatewayUrl", "")
+        val arkivApiKey = json.optString("arkivApiKey", "")
+        val configAplicada = settings.applySyncedGatewayConfig(gatewayUrl, arkivApiKey)
         // Limpiar el pair_request (un solo uso).
         runCatching { client.deleteRecord(col, recordId, session.token) }
         pendingRequestId = null
         _state.value = PairingState.Paired(session.accountId)
-        Log.i("ArkivPair", "TV pareado correctamente")
+        // OJO: nunca loguear gatewayUrl/arkivApiKey acá (son credenciales) -- solo si el pareo
+        // terminó actualizándolas o no.
+        Log.i("ArkivPair", "TV pareado correctamente (config de gateway ${if (configAplicada) "sincronizada" else "sin cambios"})")
         // Ya adoptamos la identidad: detener la suscripción realtime.
         pairingJob?.cancel()
     }
@@ -181,13 +194,19 @@ class PairingManager(
                 ),
                 token = session.token,
             )
-            // 3) Cifrar credenciales con el code y escribirlas en el pair_request.
+            // 3) Cifrar credenciales con el code y escribirlas en el pair_request. Sumamos la
+            //    config de gateway EFECTIVA de este celu (URL + llave que usa ahora mismo, sea el
+            //    default de BuildConfig o una fijada a mano): es la única forma de que el TV quede
+            //    operativo para canales en vivo sin que el usuario tipee nada -- ver KDoc de
+            //    SettingsStore.applySyncedGatewayConfig para el porqué completo.
             val secret = JSONObject(
                 mapOf(
                     "accountId" to tvId.accountId,
                     "deviceId" to tvId.deviceId,
                     "email" to tvId.email,
                     "password" to tvId.password,
+                    "gatewayUrl" to settings.gatewayUrl.value,
+                    "arkivApiKey" to settings.arkivApiKey.value,
                 ),
             ).toString()
             val cipher = PairCrypto.encrypt(secret, payload.code)

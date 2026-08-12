@@ -36,6 +36,15 @@ Rendezvous cross-account para el pareo por QR. El `code` del QR NUNCA se guarda 
 
 **Campos:** `codeHash` (text, required, índice `idx_pair_requests_codeHash`), `status` (select: pending/claimed, required), `payload` (text, cifrado AES-GCM, max 8000), `tvName` (text), `expiresAt` (date).
 
+`payload` (JSON cifrado, ver más abajo) trae `accountId`/`deviceId`/`email`/`password` (identidad
+PocketBase del device TV) y, desde 2026-08, también `gatewayUrl`/`arkivApiKey`: la config EFECTIVA
+del gateway que tiene el celu en ese momento. Es el mecanismo elegido para que un TV recién
+pareado (o re-pareado) quede operativo para canales en vivo sin que el usuario tipee nada -- el TV
+nunca tuvo dónde escribir esos dos valores a mano. Viaja por el mismo canal cifrado que las
+credenciales del device (mismo modelo de amenaza: sin el `code` del QR no se lee), así que no hace
+falta un campo ni una colección nueva. Ver `PairingManager.claimFromQr`/`adoptIdentity` en la app y
+`SettingsStore.applySyncedGatewayConfig` (respeta una config `MANUAL` ya fijada en el TV).
+
 **Reglas:** list/view/create/update/delete = `@request.auth.id != ""` (permisivas a nivel auth porque el pareo es cross-account: el TV y el celu están en cuentas distintas hasta parear).
 
 **Modelo de amenaza:** la seguridad NO depende de las reglas sino de la cripto:

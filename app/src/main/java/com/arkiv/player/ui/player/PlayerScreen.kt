@@ -334,6 +334,7 @@ private fun PlayerContent(
                     graph.webResolverApi, graph.arkivOfflineApi, graph.playbackPreferenceStore,
                     graph.localLibrary, graph.localFileServer, graph.deviceAuth, graph.frameCapturer,
                     graph.liveController, graph.database.liveRecentDao(),
+                    esTelevision = isTv,
                 )
             }
         },
