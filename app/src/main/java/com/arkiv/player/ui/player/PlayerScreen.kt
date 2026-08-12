@@ -408,6 +408,25 @@ private fun PlayerContent(
     // no puede quedar obsoleta durante la sesión de vivo.
     val enVivo = remember(episodeId) { PlayerSource.kindFor(episodeId) == SourceKind.LIVE }
 
+    // Índice del ítem que suena DENTRO de la playlist del ViewModel. Vive acá arriba —y no con el
+    // resto del estado de transporte, más abajo— porque `episodioEnCurso` lo necesita.
+    var currentIndex by remember { mutableIntStateOf(0) }
+
+    /**
+     * El capítulo que está sonando AHORA, que no siempre es el `episodeId` con el que se abrió la
+     * pantalla: archive.org carga la sección entera como playlist (ver `loadArchive`, la única
+     * fuente multi-ítem), así que al terminar un capítulo el player avanza al siguiente por dentro
+     * —o lo hace "Saltar outro" con su `seekToNextMediaItem()`— sin navegar a una ruta nueva. El
+     * argumento de navegación se queda con el capítulo viejo para siempre.
+     *
+     * Colgar los vecinos y el encabezado de ese argumento tenía consecuencias visibles: tras el
+     * auto-avance, "Siguiente episodio" llevaba al capítulo que YA se estaba viendo, "Capítulo
+     * anterior" al que acababa de terminar, el encabezado seguía nombrando al viejo y el carrusel
+     * resaltaba el chip equivocado. El resto de la pantalla (guardar progreso, capturar el frame)
+     * ya se identificaba así, por la playlist y no por el argumento.
+     */
+    val episodioEnCurso = playlist?.items?.getOrNull(currentIndex)?.episodeId ?: episodeId
+
     // Episodios vecinos (si los hay) para los botones "Capítulo anterior"/"Siguiente episodio" de
     // los controles. Ambos son null en películas (una sola sección, ver EpisodeNavigation) y cada
     // uno lo es en su extremo: el primero de la temporada no tiene anterior, el último no tiene
@@ -416,10 +435,10 @@ private fun PlayerContent(
     var nextEpisodeId by remember { mutableStateOf<String?>(null) }
     // Título del ítem + nombre del episodio (solo series) para el encabezado del overlay de pausa.
     var headerInfo by remember { mutableStateOf<com.arkiv.player.data.ArkivRepository.PlayerHeaderInfo?>(null) }
-    LaunchedEffect(episodeId) {
-        prevEpisodeId = graph.repository.previousEpisode(episodeId)?.id
-        nextEpisodeId = graph.repository.nextEpisode(episodeId)?.id
-        headerInfo = graph.repository.headerInfo(episodeId)
+    LaunchedEffect(episodioEnCurso) {
+        prevEpisodeId = graph.repository.previousEpisode(episodioEnCurso)?.id
+        nextEpisodeId = graph.repository.nextEpisode(episodioEnCurso)?.id
+        headerInfo = graph.repository.headerInfo(episodioEnCurso)
     }
 
     // Foco D-pad (TV) de los controles del overlay de pausa: navegación real entre botones y la
@@ -457,8 +476,8 @@ private fun PlayerContent(
     // se usa tanto para centrar el scroll como para colgar el focusRequester en ESE chip. Antes el
     // requester solo colgaba del chip isCurrent, así que si el actual no estaba en la lista el foco
     // nunca podía entrar al carrusel.
-    val currentChapterIdx = remember(allEpisodes, episodeId) {
-        allEpisodes.indexOfFirst { it.id == episodeId }.coerceAtLeast(0)
+    val currentChapterIdx = remember(allEpisodes, episodioEnCurso) {
+        allEpisodes.indexOfFirst { it.id == episodioEnCurso }.coerceAtLeast(0)
     }
     LaunchedEffect(episodeId, isTv) {
         if (!isTv) return@LaunchedEffect
@@ -506,7 +525,6 @@ private fun PlayerContent(
     }
     val casting by castingFlow.collectAsStateWithLifecycle()
 
-    var currentIndex by remember { mutableIntStateOf(0) }
     var isBuffering by remember { mutableStateOf(true) }
     var positionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
@@ -2595,7 +2613,7 @@ private fun PlayerContent(
                                     contentPadding = PaddingValues(horizontal = 4.dp),
                                 ) {
                                     itemsIndexed(allEpisodes, key = { _, it -> it.id }) { index, ep ->
-                                        val isCurrent = ep.id == episodeId
+                                        val isCurrent = ep.id == episodioEnCurso
                                         TvEpisodeChip(
                                             episode = ep,
                                             isCurrent = isCurrent,
