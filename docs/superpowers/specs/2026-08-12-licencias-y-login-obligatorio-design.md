@@ -39,6 +39,7 @@ al loguear, y el vínculo Magis colgado de la persona.
 | Backend caído | **Estricto: no abre.** Ni siquiera para contenido ya descargado. |
 | Credencial hacia el gateway | El **token de PocketBase**. El APK deja de llevar secretos. |
 | Migración | **Corte limpio**: la versión nueva no manda la llave vieja; los aparatos sin actualizar dejan de funcionar. |
+| Cómo se crean las licencias | **CLI en `blog`** (repo `arkiv-api`), no desde la app ni por endpoint. |
 | Magis | Sin vincular → sesión anónima por identidad (lo que ya funciona). Vinculando → credenciales propias (Spec 2). |
 
 ## Modelo de datos (PocketBase)
@@ -62,9 +63,30 @@ el conteo por tipo necesita.
 
 ### El huevo y la gallina
 
-Sin licencia no hay registro, y sin registro no hay app. **La primera licencia se crea a mano en el
-panel de PocketBase**, y con esa se registra el dueño. No hay bootstrap automático a propósito: un
-camino que crea licencias solo es exactamente el agujero que este spec viene a cerrar.
+Sin licencia no hay registro, y sin registro no hay app. La primera se crea con el CLI de abajo, y
+con esa se registra el dueño. **No hay bootstrap automático desde la app ni desde el gateway** a
+propósito: un camino que crea licencias solo, alcanzable desde internet, es exactamente el agujero
+que este spec viene a cerrar.
+
+## CLI de licencias (en `blog`)
+
+Una herramienta de línea de comandos en el repo `arkiv-api`, que corre en `blog` y habla con
+PocketBase con las credenciales de admin que ya viven ahí. Es el único camino para crear licencias.
+
+| Comando | Qué hace |
+|---|---|
+| `crear [--notas "hermana"]` | Genera un código nuevo, lo guarda como `activa` y lo imprime. |
+| `listar` | Todas las licencias: código, estado, quién la usa, cuántos aparatos tiene. |
+| `revocar <codigo>` | La pasa a `revocada`. En ≤60 s esa persona queda afuera. |
+| `reactivar <codigo>` | La vuelve a `activa`, por si se revocó por error. |
+
+**Por qué CLI y no un endpoint**: crear licencias es la operación más sensible del sistema. Un
+endpoint hay que autenticarlo, exponerlo y cuidarlo; el CLI solo lo puede correr quien ya tiene SSH
+a `blog`, que es el mismo que tiene las credenciales de admin. La seguridad sale gratis.
+
+**El código lo genera el CLI**, no una persona: `secrets` con alfabeto sin caracteres ambiguos
+(sin `0`/`O`, sin `1`/`l`), en grupos separados por guiones para poder dictarlo por teléfono sin
+equivocarse.
 
 ## Flujos en la app
 
@@ -154,6 +176,6 @@ el compromiso de no construir emisión y renovación de tokens propios (la opci�
 
 - Recuperar contraseña y verificación de email (ya excluidos en el Spec 1).
 - Vencimiento y renovación de licencias.
-- Generación de licencias desde la app o desde el gateway: se crean a mano en PocketBase.
+- Generación de licencias desde la app o desde el gateway: solo por el CLI en `blog`.
 - Aviso automático cuando alguien se registra: se ve en el panel.
 - Límite de reproducciones simultáneas: el tope es de aparatos registrados, no de streams.
