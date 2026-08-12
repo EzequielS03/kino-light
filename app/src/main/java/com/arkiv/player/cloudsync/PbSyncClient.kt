@@ -45,6 +45,36 @@ class PbSyncClient(
     }
 
     /**
+     * Igual que [upsert] (mismo find-or-create por `accountId` + [naturalKeyField]) pero
+     * adjuntando un archivo en [campoArchivo]. Usado por los frames: la fila y el JPEG viajan
+     * juntos en el mismo request multipart.
+     */
+    suspend fun upsertConArchivo(
+        collection: String,
+        naturalKeyField: String,
+        naturalKey: String,
+        fields: Map<String, Any?>,
+        campoArchivo: String,
+        nombre: String,
+        bytes: ByteArray,
+    ) {
+        val session = deviceAuth.session.value
+            ?: throw IllegalStateException("no hay sesión de dispositivo activa (offline)")
+
+        val filter = "accountId='${escapeFilterValue(session.accountId)}' && " +
+            "$naturalKeyField='${escapeFilterValue(naturalKey)}'"
+        val existing = client.listRecords(collection, filter, session.token)
+
+        if (existing.isNotEmpty()) {
+            client.updateRecordConArchivo(
+                collection, existing.first().getString("id"), fields, campoArchivo, nombre, bytes, session.token,
+            )
+        } else {
+            client.createRecordConArchivo(collection, fields, campoArchivo, nombre, bytes, session.token)
+        }
+    }
+
+    /**
      * Filas de MI cuenta con `updatedAt > cursor`, ordenadas por updatedAt ascendente.
      *
      * El orden de paginación es `updatedAt,id`: `updatedAt` solo no alcanza porque se repite entre

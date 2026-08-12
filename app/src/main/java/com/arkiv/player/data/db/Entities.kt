@@ -314,4 +314,29 @@ data class EpisodeFrameEntity(
     val capturedAt: Long,
     val updatedAt: Long = 0,
     val deleted: Int = 0,
+    /**
+     * URL del archivo en PocketBase cuando la fila vino de otro dispositivo y el JPEG todavía no se
+     * bajó. Null = el frame es local (se capturó acá) o ya se bajó. Es lo que hace posible la bajada
+     * perezosa: la fila llega por el sync barato y los bytes recién cuando hay que pintarlos.
+     */
+    val remoteUrl: String? = null,
+    /**
+     * 1 = esta fila la adoptamos de OTRO dispositivo (la escribió `CloudSyncManager.mergeFrame`);
+     * 0 = nació acá (la capturó [com.arkiv.player.miniaturas.FrameCapturer] o la selló el
+     * destructor).
+     *
+     * Existe para que el que RECIBE un frame no lo vuelva a subir. Una fila adoptada se queda con el
+     * `updatedAt` del otro aparato, que supera el cursor de push de este, así que la próxima pasada
+     * la re-empuja; y como para entonces el JPEG ya está en disco, `subirFrame` re-subía LOS MISMOS
+     * BYTES. Eso hacía cruzar cada frame dos veces por la red, cambiaba el nombre del archivo en el
+     * servidor sin cambiar `updatedAt` (dejando a un tercer aparato con un `remoteUrl` que da 404
+     * para siempre) y, si el eco llegaba después de una captura nueva del original, hacía RETROCEDER
+     * el registro al frame viejo.
+     *
+     * Es un campo LOCAL: no viaja a PocketBase (ver `frameToFields`). No alcanzaba con recordarlo en
+     * memoria —el push posterior puede caer en otro arranque del proceso— ni con comparar contra el
+     * último `updatedAt` adoptado: con el reloj de otro dispositivo adelantado, una captura local
+     * legítima queda por debajo de esa marca y sus bytes no se subirían nunca.
+     */
+    val origenRemoto: Int = 0,
 )

@@ -13,11 +13,16 @@ import com.arkiv.player.data.model.ArchiveItem
 import com.arkiv.player.data.model.Episode
 import com.arkiv.player.data.model.EpisodeNumbering
 import com.arkiv.player.miniaturas.AlmacenDeFrames
+import com.arkiv.player.miniaturas.BajadorDeFrames
 import com.arkiv.player.miniaturas.DestructorDeFrames
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 
 /** Fuente para reproducir un episodio torrent: magnet (no bloqueante) o bytes de .torrent. */
@@ -119,6 +124,23 @@ class ArkivRepository(
      */
     private val destructorDeFrames: DestructorDeFrames =
         DestructorDeFrames(almacenDeFrames, db.episodeFrameDao()),
+    /**
+     * Bajador best-effort del JPEG remoto (fase 2 de sync entre dispositivos): lo dispara
+     * [observeContinueWatching] y [observeEpisodeFrames], que son los dos lugares donde el
+     * repositorio ya sabe que un frame hace falta pintarlo (ver el doc de cada uno). Nullable con
+     * default null por el mismo motivo que [almacenDeFrames]: sin bajador, esos dos Flow siguen
+     * funcionando igual que hoy —simplemente no disparan ninguna bajada— para no romper los call
+     * sites que arman un repositorio suelto (pruebas, herramientas).
+     */
+    private val bajadorDeFrames: BajadorDeFrames? = null,
+    /**
+     * Dónde correr `bajadorDeFrames.bajarPendientes()` sin bloquear la emisión del Flow que la
+     * dispara. Un scope propio (no el de la UI) a propósito: la bajada tiene que sobrevivir a que
+     * la pantalla que la disparó se cierre a mitad de camino, igual que el push/pull de
+     * `CloudSyncManager`. El default es un scope nuevo por si algún call site no inyecta uno; en la
+     * app real `AppGraph` pasa el mismo `applicationScope` que usa para todo lo demás.
+     */
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) {
     private val itemDao = db.itemDao()
     private val playbackDao = db.playbackDao()
@@ -129,6 +151,34 @@ class ArkivRepository(
     private val episodeFrameDao = db.episodeFrameDao()
     private val liveFavoriteDao = db.liveFavoriteDao()
     private val liveRecentDao = db.liveRecentDao()
+
+    /**
+     * Lanza `bajadorDeFrames.bajarPendientes([episodeIds])` en [scope], sin esperar el resultado: a
+     * quien llama (una `map` de Flow) le urge devolver la fila YA, con lo que haya en disco en ESTE
+     * instante -el respaldo de TMDB si el archivo todavía no bajó.
+     *
+     * Se le pasan SOLO los capítulos que se están por pintar: la bajada es perezosa por diseño (los
+     * bytes se traen cuando hay que pintar esa tarjeta), no "vaciar la cola de la cuenta". Sin ese
+     * filtro, abrir el home en un aparato desincronizado disparaba ~97 descargas para pintar 6.
+     *
+     * CÓMO REAPARECE EL FRAME SOLO: `bajarPendientes` escribe el archivo y toca la fila en
+     * `episode_frame`; Room invalida esa TABLA y con eso reemite los Flow que la consultan. Eso
+     * incluye a los dos llamadores de acá, pero por caminos distintos: [observeEpisodeFrames]
+     * consulta `episode_frame` de por sí, y [observeContinueWatching] NO —su query toca `playback`,
+     * `episodes`, `items` y `episode_still`— así que se le combina a propósito
+     * `episodeFrameDao.observeTodos()`, que es lo que la vuelve sensible a la tabla del frame. Sin
+     * ese combine la tarjeta del home se quedaba con el still de TMDB aunque el JPEG ya estuviera
+     * en disco.
+     *
+     * Sin costo si no hay bajador (call sites de test/herramientas, ver el doc del constructor), si
+     * no hay nada que pintar, ni si ya hay una pasada en curso (`BajadorDeFrames` se protege solo,
+     * ver su doc).
+     */
+    private fun dispararBajadaDeFrames(episodeIds: Collection<String>) {
+        val bajador = bajadorDeFrames ?: return
+        if (episodeIds.isEmpty()) return
+        scope.launch { bajador.bajarPendientes(episodeIds) }
+    }
 
     fun observeLibrary(): Flow<List<LibraryRow>> = itemDao.observeLibrary()
 
@@ -213,8 +263,21 @@ class ArkivRepository(
             LibraryGrouping.resolveMembers(groupKey, groups, groups.flatMap { it.members })
         }
 
+    /**
+     * "Continuar viendo", con el frame capturado de cada capítulo si ya está en disco.
+     *
+     * El `combine` con `episodeFrameDao.observeTodos()` NO aporta datos —se descarta el segundo
+     * valor— sino INVALIDACIÓN: la consulta de `playback` no toca `episode_frame`, así que sin esto
+     * Room no reemitía nada cuando el bajador publicaba un JPEG y la tarjeta se quedaba con el still
+     * de TMDB. También es lo que hace que la bajada se dispare cuando la fila del frame llega por
+     * sync DESPUÉS del progreso, que es el orden real del push (`progress` antes que
+     * `episode_frames`). Ver [dispararBajadaDeFrames].
+     */
     fun observeContinueWatching(): Flow<List<ContinueRow>> =
-        playbackDao.observeContinueWatching(CONTINUE_WATCHING_MIN_MS).map { rows ->
+        combine(
+            playbackDao.observeContinueWatching(CONTINUE_WATCHING_MIN_MS),
+            episodeFrameDao.observeTodos(),
+        ) { rows, _ -> rows }.map { rows ->
             // Una tarjeta por ÍTEM, no por episodio: la consulta devuelve una fila por capítulo
             // a medias, así que una serie llenaba la fila con la misma carátula repetida
             // (GetBackers llegó a 9 tarjetas). Como ya viene ordenada por lastPlayedAt desc,
@@ -226,6 +289,13 @@ class ArkivRepository(
             // El framePath NO sale de la query (ver el doc del campo en ContinueRow): se resuelve
             // acá, del disco, después del dedup/take(20) de arriba para no gastar File.exists()
             // de más en filas que ni se van a mostrar. Son ~6 filas por emisión: despreciable.
+            //
+            // Justo acá es donde se sabe que a un capítulo le falta el frame en disco (framePath
+            // sale null): es el punto natural para disparar la bajada pendiente, y con la lista
+            // EXACTA de lo que se va a pintar. Ver el doc de dispararBajadaDeFrames() para el
+            // mecanismo completo (por qué no bloquea, y cómo la tarjeta termina pintando el frame
+            // real sin que nadie la recargue a mano).
+            dispararBajadaDeFrames(filas.map { it.episodeId })
             filas.map { it.copy(framePath = almacenDeFrames?.rutaSiExiste(it.episodeId)) }
         }
 
@@ -371,6 +441,11 @@ class ArkivRepository(
      */
     fun observeEpisodeFrames(itemId: String): Flow<Map<String, String>> =
         episodeFrameDao.observeForItem(itemId).map { rows ->
+            // Mismo punto de disparo que observeContinueWatching y mismo motivo: acá es donde se
+            // resuelve, fila por fila, si el frame de cada capítulo ya está en disco -así que acá
+            // es donde se nota cuál todavía no bajó. Se piden solo los capítulos de ESTA serie, que
+            // son los que la pantalla va a pintar.
+            dispararBajadaDeFrames(rows.map { it.episodeId })
             rows.mapNotNull { r -> almacenDeFrames?.rutaSiExiste(r.episodeId)?.let { r.episodeId to it } }.toMap()
         }
 
@@ -1158,10 +1233,10 @@ class ArkivRepository(
         // Los triggers suben updatedAt; la biblioteca ya filtra deleted=0.
         itemDao.softDeleteEpisodesOf(identifier)
         itemDao.softDeleteItem(identifier)
-        // Los frames sí se borran de verdad: son locales, no viajan por el sync y no los reclama
-        // nadie más. Sacar la serie de la biblioteca y dejar sus JPEG en disco era dejarlos
-        // huérfanos para siempre — el único otro reclamo es "capítulo visto", y a un capítulo que ya
-        // no está en la biblioteca no se lo va a marcar visto nunca.
+        // El JPEG se borra de verdad (nadie más lo reclama), pero la fila del frame queda como
+        // tombstone y SÍ viaja por el sync (ver `DestructorDeFrames.destruir`): si no se
+        // propagara, sacar la serie de la biblioteca en un dispositivo dejaría el frame "resucitar"
+        // en los demás la próxima vez que sincronizaran.
         episodios.forEach { destructorDeFrames.destruir(it.id) }
     }
 

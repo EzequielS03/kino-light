@@ -26,7 +26,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         LiveRecentEntity::class,
         LiveChannelCacheEntity::class,
     ],
-    version = 22,
+    version = 24,
     exportSchema = false,
 )
 abstract class ArkivDatabase : RoomDatabase() {
@@ -399,6 +399,37 @@ abstract class ArkivDatabase : RoomDatabase() {
         }
 
         /**
+         * v22 -> v23: de dónde bajar el JPEG de un frame que vino de otro dispositivo.
+         *
+         * Nullable y sin DEFAULT a propósito: en las filas que ya existen queda NULL, que
+         * significa "es local, no hay nada que bajar" — que es exactamente la verdad para todo lo
+         * capturado en la fase 1.
+         *
+         * OJO con el número: en la rama de la fase 2 esta migración era la 21->22, pero al mergear
+         * chocó con la 21->22 de `main` (la que CREA `episode_frame`, renumerada allá al integrar
+         * la fase 1). Se corrió a 22->23 al resolver el conflicto. Ningún dispositivo había
+         * corrido la numeración vieja: la fase 2 nunca se instaló en ninguno.
+         */
+        private val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE episode_frame ADD COLUMN remoteUrl TEXT")
+            }
+        }
+
+        /**
+         * v23 -> v24: de dónde VINO la fila del frame, para que el que la recibe no la re-suba.
+         *
+         * `DEFAULT 0` = "nació en este aparato", que es la verdad para todo lo que ya existe: hasta
+         * esta versión el único escritor de frames locales era la captura. Ver
+         * [EpisodeFrameEntity.origenRemoto].
+         */
+        private val MIGRATION_23_24 = object : Migration(23, 24) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE episode_frame ADD COLUMN origenRemoto INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        /**
          * Deja los triggers de `updatedAt` puestos en CADA apertura, y sella lo que haya quedado
          * sin reloj.
          *
@@ -423,7 +454,7 @@ abstract class ArkivDatabase : RoomDatabase() {
                     context.applicationContext,
                     ArkivDatabase::class.java,
                     "arkiv.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24)
                     .addCallback(SELLAR_UPDATED_AT)
                     .fallbackToDestructiveMigration()
                     .build().also { instance = it }

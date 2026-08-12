@@ -1,6 +1,7 @@
 package com.arkiv.player.cloudsync
 
 import com.arkiv.player.data.db.EpisodeEntity
+import com.arkiv.player.data.db.EpisodeFrameEntity
 import com.arkiv.player.data.db.ItemEntity
 import com.arkiv.player.data.db.LiveFavoriteEntity
 import com.arkiv.player.data.db.LiveRecentEntity
@@ -182,3 +183,50 @@ fun recordToLiveRecent(json: JSONObject): LiveRecentEntity = LiveRecentEntity(
     vistoAt = json.optLong("vistoAt"),
     updatedAt = json.optLong("updatedAt"),
 )
+
+// ---- frames <-> EpisodeFrameEntity ----
+
+/**
+ * La fila del frame hacia PocketBase. `capturedAt`, `remoteUrl` y `origenRemoto` NO viajan: el
+ * primero es diagnóstico local y los otros dos son estado local (de dónde bajar, y de dónde vino la
+ * fila), no datos de la fila.
+ *
+ * El TOMBSTONE manda `img = null` EXPLÍCITO, no omite el campo: en PocketBase omitir un campo
+ * significa "no lo toques", así que sin esto el JPEG quedaba en el servidor para siempre aunque el
+ * borrado se propagara a todos los dispositivos. Una fila VIVA sí omite `img` a propósito — sus
+ * bytes viajan aparte, en el multipart de `CloudSyncManager.subirFrame`, y mandar null acá borraría
+ * el archivo bueno en cada push que no adjunte imagen.
+ */
+fun frameToFields(entity: EpisodeFrameEntity, accountId: String): Map<String, Any?> = buildMap {
+    put("accountId", accountId)
+    put("episodeId", entity.episodeId)
+    put("positionMs", entity.positionMs)
+    put("updatedAt", entity.updatedAt)
+    put("deleted", entity.deleted)
+    if (entity.deleted == 1) put("img", null)
+}
+
+/**
+ * La fila del frame desde PocketBase, con la URL de su archivo ya armada.
+ *
+ * `capturedAt` toma el `updatedAt` remoto: el instante real de captura vivía en el otro
+ * dispositivo y no viaja, y este campo solo se usa para diagnóstico.
+ *
+ * `origenRemoto = 1` marca la fila como adoptada: es lo que impide que este dispositivo le re-suba
+ * al servidor los mismos bytes que acaba de bajar (ver [EpisodeFrameEntity.origenRemoto]).
+ */
+fun recordToFrame(json: JSONObject, baseUrl: String): EpisodeFrameEntity {
+    val archivo = json.optString("img")
+    val url = archivo.takeIf { it.isNotBlank() }?.let {
+        "$baseUrl/api/files/${json.optString("collectionId")}/${json.optString("id")}/$it"
+    }
+    return EpisodeFrameEntity(
+        episodeId = json.optString("episodeId"),
+        positionMs = json.optLong("positionMs"),
+        capturedAt = json.optLong("updatedAt"),
+        updatedAt = json.optLong("updatedAt"),
+        deleted = json.optInt("deleted"),
+        remoteUrl = url,
+        origenRemoto = 1,
+    )
+}

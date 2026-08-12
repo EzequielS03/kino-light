@@ -181,15 +181,44 @@ episodeId (índice único) · positionMs · updatedAt · deleted · img (file)
   del trabajo de esta parte.
 - **Quién gana:** LWW por `updatedAt`, exactamente la misma regla que ya aplica `SyncMerge`. No se
   inventa un criterio nuevo.
-- **Bajada perezosa y acotada:** solo los capítulos que están en "Continuar viendo", y recién
-  cuando hay que pintar la tarjeta. Sin esto, el primer sync del TV se traga 10 MB de golpe para
-  mostrar seis tarjetas.
-- **Borrado con tombstone:** al marcar visto se borra el archivo local, se marca `deleted` y se
-  borra el record remoto. El tombstone no es opcional — sin él, el otro dispositivo vuelve a bajar
-  el frame ya borrado.
+- **Borrado con tombstone**, para los borrados que el progreso NO cubre (ver más abajo).
 
-Ida y vuelta en concreto: se ve en el celu, se pausa, sube. El TV en su próximo sync ve el
-`updatedAt` mayor y baja el archivo cuando lo necesita para pintar. Al revés, igual.
+### La metadata viaja por el motor; los bytes, al pintar
+
+Decidido con el usuario (2026-08-11), y precisa lo que el borrador dejaba ambiguo con "bajada
+perezosa". Son dos cosas distintas y viajan distinto:
+
+- **La fila** (`episodeId`, `positionMs`, `updatedAt`, `deleted`) va por el motor de sync que ya
+  existe: `CloudSyncManager` + `PbSyncClient.upsert(collection, naturalKeyField, naturalKey,
+  fields)`, con scoping por `accountId`, LWW y realtime por SSE ya resueltos. Es JSON barato y no
+  hay que tocar el diseño del motor.
+- **Los bytes del JPEG** se bajan recién cuando hay que pintar esa tarjeta y el archivo no está en
+  disco. Meter descargas de imágenes en el ciclo de sync convertiría cada tick en varios MB y
+  obligaría a inventar qué pasa si la red se corta a la mitad.
+
+Consecuencia asumida: la primera vez que abrís el home después de haber visto en el otro aparato,
+esa miniatura tarda un instante en aparecer (mientras tanto se ve el respaldo de siempre, el still
+de TMDB). A cambio, el motor de sync no cambia de naturaleza.
+
+### Lo que la fase 1 ya resolvió, y que achica esta fase
+
+Tres cosas cambiaron mientras se construía la fase 1 y hay que tenerlas en cuenta acá:
+
+1. **El progreso ya borra el frame en el otro dispositivo.** `DestructorDeFrames` se llama desde
+   los CUATRO caminos que marcan visto, incluidos los dos de sync (`mergeFromSync` LAN y
+   `CloudSyncManager.mergePlayback`). O sea que "vi el capítulo en el TV" ya hace que el celular
+   destruya su frame al recibir el progreso, sin que el frame tenga que sincronizar nada.
+   El tombstone del frame queda entonces para los borrados que el progreso NO cubre: el wipe de
+   logout y sacar el ítem de la biblioteca.
+2. **Los frames viven poco.** Con la regla de retención un frame existe solo entre los 60 s y el
+   60% del capítulo (medido en device: un capítulo llegó a 64,9% y su frame se destruyó solo). El
+   volumen real es menor que los ~10 MB estimados.
+3. **La plomería de sync es más rica de lo que asumía el borrador**: hay `SyncCursors`,
+   `SyncQuarantine` y realtime por SSE. La fila del frame tiene que entrar por ahí como una
+   colección más, no por un camino paralelo.
+
+Ida y vuelta en concreto: se ve en el celu, se pausa, sube la fila y el archivo. El TV recibe la
+fila por el sync normal y baja el JPEG cuando lo necesita para pintar. Al revés, igual.
 
 ## Volumen
 

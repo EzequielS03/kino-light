@@ -2,14 +2,19 @@ package com.arkiv.player.cloudsync
 
 import android.util.Log
 import com.arkiv.player.data.db.EpisodeEntity
+import com.arkiv.player.data.db.EpisodeFrameDao
+import com.arkiv.player.data.db.EpisodeFrameEntity
 import com.arkiv.player.data.db.ItemDao
 import com.arkiv.player.data.db.LiveFavoriteDao
 import com.arkiv.player.data.db.LiveRecentDao
 import com.arkiv.player.data.db.PlaybackDao
 import com.arkiv.player.data.db.SkipMarkerDao
+import com.arkiv.player.miniaturas.AlmacenDeFrames
 import com.arkiv.player.miniaturas.DestructorDeFrames
 import com.arkiv.player.pocketbase.DeviceAuthManager
+import com.arkiv.player.pocketbase.PocketBaseConfig
 import com.arkiv.player.pocketbase.PocketBaseRealtime
+import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -22,6 +27,7 @@ private const val COL_ITEMS = "library_items"
 private const val COL_EPISODES = "episodes"
 private const val COL_PROGRESS = "progress"
 private const val COL_MARKERS = "markers"
+private const val COL_FRAMES = "episode_frames"
 
 // Favoritos y recientes de TV en vivo: mismo patrón que COL_MARKERS (una tabla LWW + tombstone la
 // otra LWW sin tombstone). Antes solo viajaban por el sync LAN (sync/SyncSnapshot.kt), así que
@@ -49,6 +55,9 @@ class CloudSyncManager(
     private val skipMarkerDao: SkipMarkerDao,
     private val liveFavoriteDao: LiveFavoriteDao,
     private val liveRecentDao: LiveRecentDao,
+    private val episodeFrameDao: EpisodeFrameDao,
+    /** Dónde viven los JPEG en disco: los lee [pushFrames] para adjuntarlos a la fila que sube. */
+    private val almacenDeFrames: AlmacenDeFrames,
     private val pbSync: PbSyncClient,
     private val realtime: PocketBaseRealtime,
     private val deviceAuth: DeviceAuthManager,
@@ -120,7 +129,7 @@ class CloudSyncManager(
         cursors.resetAll(
             listOf(
                 COL_ITEMS, COL_EPISODES, COL_PROGRESS, COL_MARKERS,
-                COL_LIVE_FAVORITES, COL_LIVE_RECENTS,
+                COL_LIVE_FAVORITES, COL_LIVE_RECENTS, COL_FRAMES,
             ),
         )
         runCatching { pushAll() }
@@ -153,6 +162,7 @@ class CloudSyncManager(
             liveRecentDao.getAll().filter { it.updatedAt > cursors.lastPushed(COL_LIVE_RECENTS) },
             { it.code }, { liveRecentToFields(it, acct) }, { it.updatedAt },
         )
+        pushFrames(acct)
     }
 
     /**
@@ -163,6 +173,7 @@ class CloudSyncManager(
      * Las cancelaciones se re-lanzan (no se tragan). El campo natural-key va por el nombre PB:
      * items=identifier, episodes=epId (=id de la entidad), progress=episodeId, markers=itemId,
      * live_favorites/live_recents=code.
+     * Frames no pasa por acá: tiene su propio camino, ver [pushFrames].
      */
     private suspend fun <T> pushRows(
         col: String,
@@ -207,6 +218,69 @@ class CloudSyncManager(
         cursors.setLastPushed(col, PushFrontier.advance(cursors.lastPushed(col), outcomes))
     }
 
+    /**
+     * Empuja los frames. Mismo esquema de resiliencia que [pushRows] (cuarentena por fila,
+     * cancelación relanzada, cursor que avanza solo sobre lo resuelto vía [PushFrontier]) pero con
+     * camino propio: a diferencia del resto de las colecciones, cada fila puede llevar además los
+     * bytes del JPEG, y el `fields` genérico de [pushRows] no sabe de archivos.
+     */
+    private suspend fun pushFrames(acct: String) {
+        val rows = episodeFrameDao.getFramesSince(cursors.lastPushed(COL_FRAMES))
+        if (rows.isEmpty()) return
+        val outcomes = rows.sortedBy { it.updatedAt }.map { row ->
+            val k = row.episodeId
+            val resuelta = if (quarantine.enCuarentena(COL_FRAMES, k)) {
+                true // ya se rindió antes; no la reintentamos ni dejamos que atasque la colección
+            } else {
+                try {
+                    subirFrame(row, acct)
+                    quarantine.limpiar(COL_FRAMES, k)
+                    true
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    val n = quarantine.registrarFallo(COL_FRAMES, k)
+                    if (n >= SyncQuarantine.MAX_INTENTOS) {
+                        Log.e(TAG, "cloudsync: fila $COL_FRAMES '$k' EN CUARENTENA tras $n intentos, " +
+                            "el cursor la pasa de largo: ${e.message}")
+                    } else {
+                        Log.w(TAG, "cloudsync: fila $COL_FRAMES '$k' falló (intento $n), se reintenta: ${e.message}")
+                    }
+                    quarantine.enCuarentena(COL_FRAMES, k)
+                }
+            }
+            RowOutcome(row.updatedAt, resuelta)
+        }
+        cursors.setLastPushed(COL_FRAMES, PushFrontier.advance(cursors.lastPushed(COL_FRAMES), outcomes))
+    }
+
+    /**
+     * Sube una fila de frame. Tres casos suben SOLO la fila, igual que cualquier otra colección:
+     * un tombstone (`deleted == 1`, que además manda `img = null` para que el servidor suelte el
+     * archivo, ver `frameToFields`), una fila cuyo archivo ya no está en disco, y una fila ADOPTADA
+     * de otro dispositivo (`origenRemoto == 1`). Si el archivo existe y la fila nació acá, sus bytes
+     * viajan junto con ella en un único request multipart.
+     *
+     * Lo de `origenRemoto` no es una optimización: re-subir lo que se acaba de bajar cambiaba el
+     * nombre del archivo en el servidor SIN cambiar `updatedAt`, con lo que un tercer dispositivo se
+     * quedaba con un `remoteUrl` que da 404 para siempre, y si el eco llegaba después de una captura
+     * nueva del original hacía retroceder el registro al frame viejo. Ver
+     * [com.arkiv.player.data.db.EpisodeFrameEntity.origenRemoto].
+     */
+    private suspend fun subirFrame(row: EpisodeFrameEntity, acct: String) {
+        val local = row.deleted == 0 && row.origenRemoto == 0
+        val ruta = if (local) almacenDeFrames.rutaSiExiste(row.episodeId) else null
+        if (ruta == null) {
+            pbSync.upsert(COL_FRAMES, "episodeId", row.episodeId, frameToFields(row, acct))
+        } else {
+            pbSync.upsertConArchivo(
+                COL_FRAMES, "episodeId", row.episodeId, frameToFields(row, acct),
+                campoArchivo = "img", nombre = almacenDeFrames.archivoDe(row.episodeId).name,
+                bytes = File(ruta).readBytes(),
+            )
+        }
+    }
+
     // ---- reconcile: pull histórico remoto desde el último cursor de pull ----
 
     private suspend fun reconcileAll(conRetroceso: Boolean = false) {
@@ -216,7 +290,7 @@ class CloudSyncManager(
 
         for (col in listOf(
             COL_ITEMS, COL_EPISODES, COL_PROGRESS, COL_MARKERS,
-            COL_LIVE_FAVORITES, COL_LIVE_RECENTS,
+            COL_LIVE_FAVORITES, COL_LIVE_RECENTS, COL_FRAMES,
         )) {
             val cursor = cursors.lastPulled(col)
             // Ventana de retroceso al arrancar: el cursor usa el reloj del CLIENTE, así que un
@@ -238,7 +312,7 @@ class CloudSyncManager(
         realtime.subscribe(
             listOf(
                 COL_ITEMS, COL_EPISODES, COL_PROGRESS, COL_MARKERS,
-                COL_LIVE_FAVORITES, COL_LIVE_RECENTS,
+                COL_LIVE_FAVORITES, COL_LIVE_RECENTS, COL_FRAMES,
             ),
         ).collect { ev ->
             mergeRecord(ev.topic, ev.record)
@@ -257,6 +331,7 @@ class CloudSyncManager(
             COL_MARKERS -> mergeMarker(json, remoteUpdatedAt)
             COL_LIVE_FAVORITES -> mergeLiveFavorite(json, remoteUpdatedAt)
             COL_LIVE_RECENTS -> mergeLiveRecent(json, remoteUpdatedAt)
+            COL_FRAMES -> mergeFrame(json, remoteUpdatedAt)
             else -> false
         }
         // OJO: NO bumpear cursors.lastPushed acá. El cursor de push es por colección (no por fila)
@@ -320,6 +395,35 @@ class CloudSyncManager(
         val local = liveRecentDao.getAll().find { it.code == remote.code }
         if (!LwwMerge.pickWinner(local?.updatedAt ?: 0, remoteUpdatedAt)) return false
         liveRecentDao.anotar(remote)
+        return true
+    }
+
+    /**
+     * Aplica una fila de frame remota si gana el LWW.
+     *
+     * Cuando el remoto llega con `deleted = 1` no alcanza con guardar la fila: hay que destruir el
+     * JPEG local, o el archivo queda ocupando disco para siempre y —peor— se seguiría pintando, porque
+     * la ruta la resuelve el disco y no la fila (decisión de la fase 1).
+     *
+     * La comparación LWW usa [EpisodeFrameDao.getIncluyendoBorradas] y NO [EpisodeFrameDao.get] a
+     * propósito: desde que `DestructorDeFrames.destruir` deja tombstone (fase 2), este dispositivo
+     * puede tener un frame borrado localmente (`deleted = 1`, `updatedAt` reciente). Si acá
+     * usáramos `get` (que filtra `deleted = 0`), ese tombstone se vería como "no hay fila", el
+     * remoto ganaría siempre el LWW así fuera más viejo, y el frame borrado resucitaría.
+     */
+    private suspend fun mergeFrame(json: JSONObject, remoteUpdatedAt: Long): Boolean {
+        val episodeId = json.optString("episodeId")
+        if (episodeId.isBlank()) return false
+        val local = episodeFrameDao.getIncluyendoBorradas(episodeId)
+        if (!LwwMerge.pickWinner(local?.updatedAt ?: 0L, remoteUpdatedAt)) return false
+        episodeFrameDao.upsert(recordToFrame(json, PocketBaseConfig.BASE_URL))
+        // OJO: NO destructorDeFrames.destruir(episodeId) acá. El upsert de arriba ya dejó la fila
+        // bien sellada con el updatedAt REMOTO (el que ganó el LWW); destruir() la volvería a
+        // pisar con el reloj LOCAL, inflando el timestamp del borrado por encima del real —con
+        // riesgo de perder, contra ese timestamp inflado, una actualización legítima de un tercer
+        // dispositivo que todavía no llegó— y generando un push de eco extra. Lo único que falta
+        // acá es lo que ese upsert no hace: borrar el JPEG viejo del disco.
+        if (json.optInt("deleted") == 1) destructorDeFrames.borrarArchivo(episodeId)
         return true
     }
 }
