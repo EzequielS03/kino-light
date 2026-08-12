@@ -101,6 +101,9 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
     private var baseOffsetMs = 0L
     // Cuándo se abrió el media de ahora, para poder decir "lleva N segundos sin dar imagen".
     private var mediaCargadaWallMs = 0L
+    // Cuándo apareció la PRIMERA imagen de este media (0 = todavía ninguna). Solo para cronometrar
+    // el arranque; se reinicia con cada loadMedia para que una recarga no herede la marca vieja.
+    private var primerVoutWallMs = 0L
     /**
      * Desde cuándo NO hay salida de video, de corrido (0 = ahora mismo sí hay).
      *
@@ -191,6 +194,20 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
                 }
                 if (e.type != MediaPlayer.Event.TimeChanged && e.type != MediaPlayer.Event.PositionChanged) {
                     android.util.Log.w("ArkivVlc", "event=$name")
+                }
+                // La otra mitad del cronómetro del arranque (la primera está en loadMagis): cuánto
+                // tarda libVLC desde que se le da la URL hasta que hay imagen. Se marca UNA vez por
+                // media —el primer Vout, no el `Playing`— porque `Playing` llega con el reloj en 0 y
+                // el buffer al 0%: medido en device, entre ese evento y el primer frame llegó a
+                // haber 12 s de sondeos al CDN. El Vout es el instante en que el usuario ve algo.
+                if (e.type == MediaPlayer.Event.Vout && e.voutCount > 0 &&
+                    mediaCargadaWallMs > 0L && primerVoutWallMs == 0L
+                ) {
+                    primerVoutWallMs = System.currentTimeMillis()
+                    android.util.Log.w(
+                        "ArkivVlc",
+                        "⏱ abrió en ${primerVoutWallMs - mediaCargadaWallMs}ms (loadMedia → primera imagen)",
+                    )
                 }
             }
             when (e.type) {
@@ -617,6 +634,7 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         // minutos como el punto donde se reanudaba, porque para VLC la película empezaba ahí.
         baseOffsetMs = 0L
         mediaCargadaWallMs = System.currentTimeMillis()
+        primerVoutWallMs = 0L
         // La racha de "sin imagen" mide ESTA carga, no la anterior. Sin este reset se arrastraba
         // entre medias: medido en device, un capítulo nuevo arrancó con `rachaSinVideoMs=371079` a
         // los 11 s de cargar, heredados de la película anterior. Como el rescate solo exige que la

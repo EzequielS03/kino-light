@@ -1,5 +1,6 @@
 package com.arkiv.player.ui.home
 
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +21,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -41,6 +43,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -55,8 +58,11 @@ import com.arkiv.player.data.gateway.LiveChannel
 import com.arkiv.player.miniaturas.EleccionDeMiniatura
 import com.arkiv.player.ui.components.ContinueCard
 import com.arkiv.player.ui.components.SectionHeader
+import com.arkiv.player.data.SettingsStore
 import com.arkiv.player.ui.live.LiveZappingSource
+import com.arkiv.player.ui.live.canalesDelPaisParaHome
 import com.arkiv.player.ui.live.canalesRecientesParaHome
+import com.arkiv.player.ui.live.filaDeCanalesDelHome
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.search.TitleCard
 import com.arkiv.player.ui.theme.ArkivBlack
@@ -75,6 +81,8 @@ fun HomeScreen(
     onPlayEpisode: (String) -> Unit,
     /** Reproduce un canal en vivo directo (código de canal), sin pasar por la pestaña "En vivo". */
     onPlayLive: (String) -> Unit,
+    /** Abre la pestaña "En vivo" con la parrilla completa (última tarjeta de la fila de canales). */
+    onOpenLive: () -> Unit,
     onOpenConnect: () -> Unit = {},
     onOpenSearchRoute: (String) -> Unit,
     onOpenLibrary: () -> Unit,
@@ -133,10 +141,28 @@ fun HomeScreen(
     val canalesRecientes = remember(recientesCrudo, cachePorCodigo) {
         canalesRecientesParaHome(recientesCrudo, cachePorCodigo)
     }
+
+    // Canales del país del aparato, para que la fila sirva desde la primera apertura (sin nada
+    // visto todavía) -- ver canalesDelPaisParaHome: detecta el país, sale de la caché de Room si
+    // está fresca y no rompe nada si no hay red ni país detectable.
+    val context = LocalContext.current
+    var canalesDelPais by remember { mutableStateOf<List<LiveChannel>>(emptyList()) }
+    LaunchedEffect(Unit) {
+        canalesDelPais = canalesDelPaisParaHome(
+            context = context,
+            api = graph.liveApi,
+            cacheDao = liveCacheDao,
+            prefs = context.getSharedPreferences(SettingsStore.PREFS_NAME, Context.MODE_PRIVATE),
+        )
+    }
+    val canalesFila = remember(canalesRecientes, canalesDelPais) {
+        filaDeCanalesDelHome(canalesRecientes, canalesDelPais)
+    }
+
     fun reproducirCanal(canal: LiveChannel) {
         // Deja fijada la lista con la que se "entró", mismo mecanismo que LiveScreen.abrirAca --
-        // así arriba/abajo en el reproductor recorre estos mismos canales recientes.
-        LiveZappingSource.lista = canalesRecientes
+        // así arriba/abajo en el reproductor recorre los mismos canales que muestra la fila.
+        LiveZappingSource.lista = canalesFila
         onPlayLive(canal.code)
     }
 
@@ -227,10 +253,11 @@ fun HomeScreen(
             }
         }
 
-        // 3. Canales en vivo recientes -- acceso directo sin pasar por "En vivo", el último visto
-        // a la izquierda (orden que ya trae `canalesRecientes`, ver su KDoc). Sin recientes, la
-        // fila no se dibuja: nada de un hueco vacío.
-        if (canalesRecientes.isNotEmpty()) {
+        // 3. Canales en vivo -- acceso directo sin pasar por "En vivo": lo último visto a la
+        // izquierda, después los canales del país sin repetir los ya vistos, y al final la salida
+        // a la parrilla completa (ver `filaDeCanalesDelHome`). Sin nada que mostrar, la fila no se
+        // dibuja: nada de un hueco vacío.
+        if (canalesFila.isNotEmpty()) {
             item {
                 Column(Modifier.padding(top = 16.dp)) {
                     SectionHeader("Canales en vivo", modifier = Modifier.padding(start = 16.dp))
@@ -238,8 +265,13 @@ fun HomeScreen(
                         contentPadding = PaddingValues(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        items(canalesRecientes, key = { it.code }) { canal ->
+                        items(canalesFila, key = { it.code }) { canal ->
                             LiveChannelCard(canal = canal, onClick = { reproducirCanal(canal) })
+                        }
+                        // Al final de la fila, la salida hacia la parrilla completa: los recientes
+                        // son un atajo, no el catálogo.
+                        item(key = "live_ver_mas") {
+                            VerMasCanalesCard(onClick = onOpenLive)
                         }
                     }
                 }
@@ -345,6 +377,39 @@ private fun Hero(
                 }
             }
         }
+    }
+}
+
+/**
+ * Última tarjeta de la fila "Canales en vivo": abre la pestaña "En vivo" con la parrilla completa.
+ * Mismo molde que [LiveChannelCard] (140.dp, 16:9 y texto debajo) para que la fila no cambie de
+ * altura al llegar al final.
+ */
+@Composable
+private fun VerMasCanalesCard(onClick: () -> Unit) {
+    Column(modifier = Modifier.width(140.dp).clickable(onClick = onClick)) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Brush.linearGradient(listOf(Color(0xFF33333D), Color(0xFF17171C)))),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Default.LiveTv,
+                contentDescription = null,
+                tint = ArkivRed,
+                modifier = Modifier.size(28.dp),
+            )
+        }
+        Text(
+            text = "Ver más canales",
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 6.dp),
+        )
     }
 }
 
