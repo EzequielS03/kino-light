@@ -129,6 +129,7 @@ class AppGraph(context: Context) {
         com.arkiv.player.miniaturas.FrameCapturer(
             almacen = almacenDeFrames,
             dao = database.episodeFrameDao(),
+            playbackDao = database.playbackDao(),
         )
     }
 

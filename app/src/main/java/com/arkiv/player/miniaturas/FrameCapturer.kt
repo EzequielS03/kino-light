@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.view.TextureView
 import com.arkiv.player.data.db.EpisodeFrameDao
 import com.arkiv.player.data.db.EpisodeFrameEntity
+import com.arkiv.player.data.db.PlaybackDao
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -14,10 +15,21 @@ import java.io.ByteArrayOutputStream
  * Best-effort de punta a punta: si algo falla —no hay TextureView, el decodificador devuelve
  * negro, el disco está lleno— no pasa nada y se conserva el frame anterior. Esto es una mejora
  * visual, jamás un motivo para molestar al que está viendo algo.
+ *
+ * NO captura capítulos ya vistos, y la guarda vive ACÁ y no en los disparadores a propósito: son
+ * tres (el sondeo cada 5 min, la pausa y el `onDispose` de salida, todos en `PlayerScreen`) y uno
+ * solo que se olvide vuelve a abrir el agujero. Ver [publicar] para el porqué del momento exacto
+ * en que se chequea.
  */
 class FrameCapturer(
     private val almacen: AlmacenDeFrames,
     private val dao: EpisodeFrameDao,
+    /**
+     * Para saber si el capítulo ya quedó visto. Va sin default: es parte de lo que esta clase
+     * promete ("el frame solo existe si el capítulo se empezó y no se terminó"), no un extra
+     * opcional que se pueda olvidar en un call site nuevo.
+     */
+    private val playbackDao: PlaybackDao,
     private val ahora: () -> Long = { System.currentTimeMillis() },
 ) {
     /**
@@ -47,21 +59,45 @@ class FrameCapturer(
                     if (!GuardasDeFrame.noEsCasiNegro(pixeles)) return@runCatching false
                     val salida = ByteArrayOutputStream()
                     if (!bitmap.compress(Bitmap.CompressFormat.JPEG, CALIDAD, salida)) return@runCatching false
-                    almacen.guardar(episodeId, salida.toByteArray())
-                    dao.upsert(
-                        EpisodeFrameEntity(
-                            episodeId = episodeId,
-                            positionMs = positionMs,
-                            capturedAt = ahora(),
-                            updatedAt = ahora(),
-                        ),
-                    )
-                    true
+                    publicar(episodeId, positionMs, salida.toByteArray())
                 }.getOrDefault(false)
             }
         } finally {
             bitmap.recycle()
         }
+    }
+
+    /**
+     * Escribe el archivo y la fila, salvo que el capítulo YA esté visto.
+     *
+     * El chequeo va acá —después de comprimir, pegado a la escritura— y no al principio de
+     * [capturar], porque el problema es de CARRERA, no de intención: al salir del reproductor, el
+     * `onDispose` lanza `saveProgress` (que pasado el 60% marca visto y destruye el frame) e
+     * inmediatamente la captura. Como comprimir el JPEG cuesta decenas de ms, la captura aterriza
+     * ÚLTIMA: preguntar por `watched` al entrar daría "todavía no" y se escribiría igual, dejando el
+     * capítulo terminado con un frame vivo que ya nadie va a borrar (no quedan ticks del reproductor
+     * que vuelvan a llamar al destructor) — y desde la fase 2 eso se sube a PocketBase y se propaga
+     * a los demás aparatos. Rompía además el invariante del que vive `EleccionDeMiniatura`: el frame
+     * solo existe si el capítulo se empezó.
+     *
+     * Se lee `playback` y no la propia `episode_frame`: el tombstone del destructor podría no
+     * haberse escrito todavía, mientras que el visto es el hecho que lo origina.
+     *
+     * `internal` y no privada para que el test pueda ejercer la guarda sin un TextureView (que no
+     * existe fuera de un dispositivo). El único llamador de producción es [capturar].
+     */
+    internal suspend fun publicar(episodeId: String, positionMs: Long, jpeg: ByteArray): Boolean {
+        if (playbackDao.get(episodeId)?.watched == true) return false
+        almacen.guardar(episodeId, jpeg)
+        dao.upsert(
+            EpisodeFrameEntity(
+                episodeId = episodeId,
+                positionMs = positionMs,
+                capturedAt = ahora(),
+                updatedAt = ahora(),
+            ),
+        )
+        return true
     }
 
     private companion object {
