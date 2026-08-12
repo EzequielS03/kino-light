@@ -939,7 +939,7 @@ Anotar la ruta real antes de copiar nada. **No adivinar**: copiar una migración
 - [ ] **Step 2: Copiar las migraciones y reiniciar PocketBase**
 
 ```bash
-scp docs/pocketbase/1786800000_created_licencias.js docs/pocketbase/1786800100_created_users.js blog:<ruta>/pb_migrations/
+scp docs/pocketbase/1786800000_created_licencias.js docs/pocketbase/1786800100_updated_users_licencia.js blog:<ruta>/pb_migrations/
 ssh blog "systemctl --user restart pocketbase"
 ```
 
