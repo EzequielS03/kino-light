@@ -389,6 +389,11 @@ class ClienteLicencias:
         return r.json().get("items", [])
 
     async def _buscar(self, codigo: str) -> dict:
+        # El codigo se valida ANTES de armar el filtro: llega tipeado a mano desde el CLI, y una
+        # comilla doble cierra el literal del filtro de PocketBase antes de tiempo -- el filtro
+        # pasaria a matchear OTRO registro y se revocaria la licencia equivocada en silencio.
+        if not _CODIGO_VALIDO.fullmatch(codigo):
+            raise CodigoInvalido(codigo)
         r = await self._http.get(
             f"{self._base}/api/collections/licencias/records",
             headers=await self._cab(),
@@ -814,6 +819,11 @@ Y el método en `ClienteLicencias`:
 
 ```python
     async def _buscar_cuenta(self, email: str) -> dict:
+        # Mismo cuidado que en _buscar: el email llega tipeado desde el CLI y se mete en un literal
+        # del filtro de PocketBase. Una comilla doble lo cierra antes de tiempo y el filtro pasaria
+        # a matchear otra cuenta -- se le reasignaria la licencia a la persona equivocada.
+        if '"' in email or "\\" in email:
+            raise CuentaNoExiste(email)
         r = await self._http.get(
             f"{self._base}/api/collections/users/records",
             headers=await self._cab(),
