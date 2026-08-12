@@ -4,6 +4,7 @@ import com.arkiv.player.data.NodoDeArchive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.io.RandomAccessFile
 import java.net.HttpURLConnection
@@ -93,6 +94,15 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
      * bloque, el origen está muerto y se reproduce sin garantía (mejor eso que un spinner eterno).
      */
     private val ESPERA_ARRANQUE_MS = 8_000L
+
+    /**
+     * Tope de espera de la COLA, y solo cuando de ella tiene que salir la duración.
+     *
+     * Corto a propósito: la duración es una mejora de la barra, nunca un motivo para no reproducir.
+     * El camino bueno es que la mande el gateway (ya lo hace para películas y, desde 2026-08-11,
+     * también para capítulos de serie); esto es el respaldo del respaldo.
+     */
+    private val ESPERA_COLA_MS = 2_000L
 
     /**
      * El FINAL de cada archivo, por clave de caché: (byte absoluto donde arranca, bytes). Lo llena
@@ -969,7 +979,20 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
         // para que la primera lectura de libVLC se responda al instante, que es lo que evitaba el
         // negro-y-mudo.
         val arranco = buffer.esperarHasta(ARRANQUE_MINIMO, ESPERA_ARRANQUE_MS)
-        cola?.await()
+        // La espera de la cola va ACOTADA. Medido el 2026-08-11 en el Fire TV: cuando el CDN se
+        // pone denso, esos 256 KB tardan 8 s —y no es lotería por conexión, porque una segunda
+        // conexión en paralelo también tardó lo mismo: es el enlace o el CDN frenando al cliente
+        // entero. Dos reproducciones de seis salieron en 10,3 s y 13,8 s esperando ese dato.
+        //
+        // Pasado este plazo se reproduce SIN duración: la barra queda fea, pero el video arranca.
+        // Al revés no — nunca frenar el video por una barra de progreso. La cola sigue bajando
+        // igual por detrás, así que los sondeos de EOF de VLC la encuentran cuando llegue.
+        if (cola != null && withTimeoutOrNull(ESPERA_COLA_MS) { cola.await() } == null) {
+            android.util.Log.w(
+                "ArchiveCacheProxy",
+                "la cola no llegó en ${ESPERA_COLA_MS}ms → se reproduce sin duración",
+            )
+        }
         android.util.Log.w(
             "ArchiveCacheProxy",
             "arranque servible tras ${System.currentTimeMillis() - t0}ms " +
