@@ -4,6 +4,7 @@ import com.arkiv.player.data.db.EpisodeFrameEntity
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** La fila del frame de ida y de vuelta contra PocketBase. */
@@ -31,6 +32,35 @@ class FrameMappersTest {
         assertEquals(false, f.containsKey("remoteUrl"))
     }
 
+    /**
+     * En PocketBase OMITIR un campo significa "no lo toques". Un tombstone que no manda `img`
+     * dejaba el JPEG en el servidor para siempre, aunque el borrado se propagara a todos lados.
+     */
+    @Test
+    fun `el tombstone manda img en null para que el servidor suelte el jpeg`() {
+        val f = frameToFields(EpisodeFrameEntity("ep-1", 0, 0, updatedAt = 42, deleted = 1), "acct-1")
+        assertTrue("el campo tiene que viajar", f.containsKey("img"))
+        assertNull("y viajar en null, que es lo que borra el archivo", f["img"])
+    }
+
+    /**
+     * Una fila VIVA no manda `img`: sus bytes viajan aparte, en el multipart de
+     * `CloudSyncManager.subirFrame`. Mandar null acá borraría el archivo bueno en cada push que no
+     * adjunte imagen (por ejemplo el de una fila adoptada de otro dispositivo).
+     */
+    @Test
+    fun `una fila viva no toca el campo del archivo`() {
+        val f = frameToFields(EpisodeFrameEntity("ep-1", 1, 1, updatedAt = 1, deleted = 0), "acct-1")
+        assertEquals(false, f.containsKey("img"))
+    }
+
+    /** `origenRemoto` es estado local (de dónde vino la fila): tampoco se sube. */
+    @Test
+    fun `origenRemoto no se sube`() {
+        val f = frameToFields(EpisodeFrameEntity("ep-1", 1, 1, 1, 0, origenRemoto = 1), "acct-1")
+        assertEquals(false, f.containsKey("origenRemoto"))
+    }
+
     /** El registro remoto arma la URL del archivo con el id de la colección, el del record y el nombre. */
     @Test
     fun `el registro remoto trae de donde bajar el jpeg`() {
@@ -43,6 +73,7 @@ class FrameMappersTest {
         assertEquals(5000L, e.positionMs)
         assertEquals(9L, e.updatedAt)
         assertEquals("https://pb.test/api/files/col1/rec1/frame.jpg", e.remoteUrl)
+        assertEquals("la fila queda marcada como adoptada, para no re-subir sus bytes", 1, e.origenRemoto)
     }
 
     /** Un tombstone no trae archivo: sin `img` no hay nada que bajar. */

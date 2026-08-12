@@ -217,13 +217,21 @@ class CloudSyncManager(
     }
 
     /**
-     * Sube una fila de frame. Un tombstone (`deleted == 1`) no lleva imagen, y una fila cuyo
-     * archivo ya no está en disco tampoco tiene nada que adjuntar: en ambos casos sube SOLO la
-     * fila, igual que cualquier otra colección. Si el archivo existe, sus bytes viajan junto con
-     * la fila en un único request multipart.
+     * Sube una fila de frame. Tres casos suben SOLO la fila, igual que cualquier otra colección:
+     * un tombstone (`deleted == 1`, que además manda `img = null` para que el servidor suelte el
+     * archivo, ver `frameToFields`), una fila cuyo archivo ya no está en disco, y una fila ADOPTADA
+     * de otro dispositivo (`origenRemoto == 1`). Si el archivo existe y la fila nació acá, sus bytes
+     * viajan junto con ella en un único request multipart.
+     *
+     * Lo de `origenRemoto` no es una optimización: re-subir lo que se acaba de bajar cambiaba el
+     * nombre del archivo en el servidor SIN cambiar `updatedAt`, con lo que un tercer dispositivo se
+     * quedaba con un `remoteUrl` que da 404 para siempre, y si el eco llegaba después de una captura
+     * nueva del original hacía retroceder el registro al frame viejo. Ver
+     * [com.arkiv.player.data.db.EpisodeFrameEntity.origenRemoto].
      */
     private suspend fun subirFrame(row: EpisodeFrameEntity, acct: String) {
-        val ruta = if (row.deleted == 1) null else almacenDeFrames.rutaSiExiste(row.episodeId)
+        val local = row.deleted == 0 && row.origenRemoto == 0
+        val ruta = if (local) almacenDeFrames.rutaSiExiste(row.episodeId) else null
         if (ruta == null) {
             pbSync.upsert(COL_FRAMES, "episodeId", row.episodeId, frameToFields(row, acct))
         } else {
