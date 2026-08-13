@@ -63,6 +63,9 @@ fun TvPairingScreen(pairing: PairingManager, deviceName: String, onDone: () -> U
                 is PairingState.WaitingScan -> "Esperando escaneo…"
                 is PairingState.Claiming -> "Pareando…"
                 is PairingState.Paired -> "Pareado"
+                // Sin cupo de TVs: reintentar el mismo pareo no cambia nada (ver KDoc de
+                // PairingState.TopeAlcanzado), así que NO se ofrece "vuelve a intentar" acá.
+                is PairingState.TopeAlcanzado -> s.msg
                 is PairingState.Error -> "Error: ${s.msg} — vuelve a intentar"
                 else -> "Generando código…"
             },

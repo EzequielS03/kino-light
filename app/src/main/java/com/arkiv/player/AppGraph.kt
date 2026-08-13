@@ -451,7 +451,18 @@ class AppGraph(context: Context) {
         com.arkiv.player.pocketbase.PocketBaseRealtime(token = { deviceAuth.session.value?.token })
     }
     val pairing: com.arkiv.player.pairing.PairingManager by lazy {
-        com.arkiv.player.pairing.PairingManager(pbClient, pbRealtime, deviceStore, deviceAuth, settings, applicationScope)
+        com.arkiv.player.pairing.PairingManager(
+            client = pbClient,
+            realtime = pbRealtime,
+            deviceAuth = deviceAuth,
+            cuentaApi = cuentaApi,
+            sesion = sesionDePersona,
+            gatewayUrl = { settings.gatewayUrl.value },
+            arkivApiKey = { settings.arkivApiKey.value },
+            applySyncedGatewayConfig = { url, key -> settings.applySyncedGatewayConfig(url, key) },
+            setTvLinked = { settings.setTvLinked(it) },
+            scope = applicationScope,
+        )
     }
     val remoteController: com.arkiv.player.remote.RemoteController by lazy {
         com.arkiv.player.remote.RemoteController(syncManager, pbClient, pbRealtime, deviceAuth, settings, applicationScope)

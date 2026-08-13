@@ -30,20 +30,40 @@ Cada dispositivo (celu/TV) es un record auth con su propio token. El celu se da 
 
 Pruebas pasadas: alta anónima ✓, auth-with-password ✓, list solo ve la cuenta propia ✓, lectura de otra cuenta devuelve 0 ✓.
 
-## `pair_requests` (base) — creada 2026-07-21 (Plan 2)
+## `pair_requests` (base) — creada 2026-07-21 (Plan 2), payload redefinido Task 5 (2026-08-12)
 
-Rendezvous cross-account para el pareo por QR. El `code` del QR NUNCA se guarda (solo su hash con separación de dominio); las credenciales del TV viajan cifradas.
+Rendezvous cross-account para el pareo por QR. El `code` del QR NUNCA se guarda (solo su hash con separación de dominio); todo lo que viaja en `payload` va cifrado con una clave derivada de ese `code`.
 
 **Campos:** `codeHash` (text, required, índice `idx_pair_requests_codeHash`), `status` (select: pending/claimed, required), `payload` (text, cifrado AES-GCM, max 8000), `tvName` (text), `expiresAt` (date).
 
-`payload` (JSON cifrado, ver más abajo) trae `accountId`/`deviceId`/`email`/`password` (identidad
-PocketBase del device TV) y, desde 2026-08, también `gatewayUrl`/`arkivApiKey`: la config EFECTIVA
-del gateway que tiene el celu en ese momento. Es el mecanismo elegido para que un TV recién
-pareado (o re-pareado) quede operativo para canales en vivo sin que el usuario tipee nada -- el TV
-nunca tuvo dónde escribir esos dos valores a mano. Viaja por el mismo canal cifrado que las
-credenciales del device (mismo modelo de amenaza: sin el `code` del QR no se lee), así que no hace
-falta un campo ni una colección nueva. Ver `PairingManager.claimFromQr`/`adoptIdentity` en la app y
-`SettingsStore.applySyncedGatewayConfig` (respeta una config `MANUAL` ya fijada en el TV).
+**`payload` viaja en DOS direcciones distintas, en el mismo campo, en dos momentos** (Task 5 —
+antes de esto solo lo escribía el celu):
+
+1. **TV → celu, al crear la fila** (`status=pending`): `{"deviceToken"}` — el token del PROPIO
+   device de la TV. Es una credencial (autentica como ese aparato), así que viaja cifrada igual
+   que cualquier otro secreto de este campo, nunca en claro. El celu lo descifra al escanear y
+   llama `POST /v1/cuenta/aparatos` (gateway) con él — es el único camino que cuenta contra
+   `maxTvs` de la licencia (antes de la Task 5 el celu creaba el device TV directo con
+   `createRecord`, esquivando el tope por completo).
+2. **celu → TV, al contestar** (`status=claimed`, pisa el `payload` de arriba): éxito ->
+   `{"ok":true,"accountId","personToken","personEmail","gatewayUrl","arkivApiKey"}`; fallo (p.ej.
+   `tope_alcanzado`, `aparato_de_otra_cuenta`) -> `{"ok":false,"errorCode","mensaje"}` — sin esto
+   la TV se queda esperando para siempre un pareo que el gateway ya rechazó.
+   - `personToken`/`personEmail`: la TV **nunca** tiene login manual (decisión del spec), así que
+     adopta el MISMO token de sesión de persona que el celu ya tenía vigente (`SesionDePersona.
+     aplicarSesionCompartida`) en vez de autenticarse ella misma.
+   - `gatewayUrl`/`arkivApiKey`: la config EFECTIVA del gateway que tiene el celu en ese momento,
+     sin cambios respecto a antes de la Task 5 — es el mecanismo elegido para que un TV recién
+     pareado (o re-pareado) quede operativo para canales en vivo sin que el usuario tipee nada, ya
+     que la TV nunca tuvo dónde escribir esos dos valores a mano (ver
+     `SettingsStore.applySyncedGatewayConfig`, que respeta una config `MANUAL` ya fijada en el TV).
+   - `accountId` ya NO viaja para que la TV "adopte una identidad nueva": el device de la TV nunca
+     cambia de identidad (email/password), solo su `accountId` -que el gateway ya movió del lado
+     del servidor-, así que el celu se lo pasa para que la TV solo actualice su sesión viva
+     (`DeviceAuthManager.aplicarAccountIdAdoptado`, SIN volver a escribirlo en PocketBase).
+
+Ver `PairingManager` en la app (`startTvPairing`/`claimFromQr`/`aplicarRespuesta`,
+`interpretarRespuestaDePareo`).
 
 **Reglas:** list/view/create/update/delete = `@request.auth.id != ""` (permisivas a nivel auth porque el pareo es cross-account: el TV y el celu están en cuentas distintas hasta parear).
 

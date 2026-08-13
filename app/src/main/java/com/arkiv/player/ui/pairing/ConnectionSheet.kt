@@ -36,6 +36,7 @@ fun ConnectionSheet(
                     is PairingState.Paired -> "✅ Pareado"
                     is PairingState.WaitingScan -> "Esperando escaneo…"
                     is PairingState.Claiming -> "Pareando…"
+                    is PairingState.TopeAlcanzado -> s.msg
                     is PairingState.Error -> "Error: ${s.msg}"
                     else -> "Sin parear"
                 },

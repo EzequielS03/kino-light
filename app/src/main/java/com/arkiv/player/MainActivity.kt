@@ -116,10 +116,14 @@ class MainActivity : AppCompatActivity() {
                                 }
                             }
                             is EstadoDeEntrada.Entrada -> {
-                                // Provisorio también en TV: TvPantallaDeEntrada (pareo por QR, sin
-                                // login manual) es la Task 5 del plan. Hasta entonces la TV pide
-                                // entrada con el mismo formulario que el celular.
-                                PantallaDeEntrada(entradaVm)
+                                // En la TV no hay login manual (Task 5): la única puerta es
+                                // parear con el celular (QR). El celular sigue usando el
+                                // formulario de siempre.
+                                if (isTv) {
+                                    com.arkiv.player.ui.tv.TvPantallaDeEntrada(graph.pairing)
+                                } else {
+                                    PantallaDeEntrada(entradaVm)
+                                }
                             }
                         }
                     }

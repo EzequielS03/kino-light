@@ -143,7 +143,7 @@ class SettingsStore(context: Context) {
 
     /**
      * Aplica una config de gateway que llegó por el vínculo de cuenta (pareo TV↔celu, ver
-     * [com.arkiv.player.pairing.PairingManager.adoptIdentity]): el TV adopta la URL/llave
+     * `PairingManager.aplicarRespuesta`): el TV adopta la URL/llave
      * EFECTIVAS del celu en ese momento, para no depender de que alguien las tipee a mano en
      * cada aparato -- ese es justo el fallo de diseño que esto resuelve (ver
      * docs/superpowers si existe spec asociada).

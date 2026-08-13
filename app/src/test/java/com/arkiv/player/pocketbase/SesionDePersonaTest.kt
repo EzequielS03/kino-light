@@ -101,6 +101,41 @@ class SesionDePersonaTest {
     }
 
     @Test
+    fun `aplicarSesionCompartida persiste token y email SIN hablarle a PocketBase`() = runBlocking {
+        val server = MockWebServer()
+        server.start() // sin encolar ninguna respuesta: cualquier pedido de red revienta
+        val store = FakeDeviceStore()
+        val sesion = SesionDePersona(clientFor(server), store)
+
+        sesion.aplicarSesionCompartida("tok-compartido", "a@b.co")
+
+        assertEquals("tok-compartido", sesion.token())
+        assertEquals("tok-compartido", store.personToken())
+        assertEquals("a@b.co", store.personEmail())
+        assertEquals(EstadoDeSesion.Con("a@b.co"), sesion.estado.value)
+        // Evidencia, no solo el estado resultante (misma lección que la mutación 2 de la Task 4):
+        // la TV nunca tiene la contraseña de la persona, así que este camino NO puede autenticar.
+        assertEquals(0, server.requestCount)
+        server.shutdown()
+    }
+
+    @Test
+    fun `aplicarSesionCompartida pisa una sesion anterior (re-pareo con otra cuenta)`() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setBody("""{"token":"tok-1","record":{"id":"usr-1"}}"""))
+        server.start()
+        val store = FakeDeviceStore()
+        val sesion = SesionDePersona(clientFor(server), store)
+        sesion.iniciar("viejo@b.co", "secret12")
+
+        sesion.aplicarSesionCompartida("tok-nuevo", "nuevo@b.co")
+
+        assertEquals("tok-nuevo", sesion.token())
+        assertEquals(EstadoDeSesion.Con("nuevo@b.co"), sesion.estado.value)
+        server.shutdown()
+    }
+
+    @Test
     fun `estado inicial es Sin si hay email guardado pero no token (instalacion previa a este cambio)`() {
         val store = FakeDeviceStore()
         store.savePersonEmail("a@b.co")   // simula una instalación de antes de este cambio: solo el email

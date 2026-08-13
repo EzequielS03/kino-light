@@ -42,6 +42,21 @@ class SesionDePersona(
     }
 
     /**
+     * Aplica una sesión de persona YA autenticada en OTRO aparato (Task 5: pareo de TV, sin
+     * login manual por spec). A diferencia de [iniciar], no autentica contra PocketBase -la TV
+     * nunca tiene la contraseña de la persona en texto plano, y el celu tampoco la conserva
+     * pasado el momento del login/registro (ver [PocketBaseClient.authWithPasswordRecord]: solo
+     * se guarda el token resultante)-, así que el único camino es compartir el token de sesión
+     * que el celu ya tenía vigente. Persiste igual que [iniciar]; la diferencia es de dónde sale
+     * el token, no qué se hace con él.
+     */
+    fun aplicarSesionCompartida(token: String, email: String) {
+        store.savePersonToken(token)
+        store.savePersonEmail(email)
+        _estado.value = EstadoDeSesion.Con(email)
+    }
+
+    /**
      * Refresca el token contra PocketBase (`auth-refresh`). La distinción que importa es entre un
      * RECHAZO de identidad y un fallo de TRANSPORTE:
      * - PocketBase responde 401/403: el token guardado ya no vale (expiró, la cuenta se borró) →
