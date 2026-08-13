@@ -73,6 +73,30 @@ fun <C> rememberTvCamposConFoco(inicial: C): TvCamposConFoco<C> =
     remember { TvCamposConFoco(inicial) }
 
 /**
+ * Reparto de ancho entre el teclado y los campos (Task 11). Antes el teclado tenía una columna FIJA
+ * de 380.dp y los campos se quedaban con `fillMaxSize()` -TODO el resto-: en un TV de referencia
+ * (1920×1080) eso eran campos larguísimos y casi vacíos al lado de un teclado apretado, comprobado
+ * en el Fire TV real. Es al revés de lo que conviene: el teclado es lo que se usa TECLA POR TECLA
+ * con el control remoto -cada dp de más en una tecla es un blanco más grande y más fácil de acertar
+ * a la distancia de un sofá-, mientras que los campos solo MUESTRAN el texto ya tipeado -con que se
+ * lean de un vistazo alcanza, no hace falta que crucen la pantalla-.
+ *
+ * 640.dp de teclado reparte sus 6 columnas ([TvKeyboard] deriva el tamaño de tecla del ancho real,
+ * `(maxWidth - gap*5) / 6`) en teclas de exactamente 100.dp -bien por encima del mínimo de 48.dp
+ * recomendado para un blanco táctil, y un 76% más grandes que las ~56.7.dp que daba la columna
+ * vieja de 380.dp-. 520.dp de campos alcanza y sobra para un email o una contraseña largos sin
+ * cortar el texto ([CampoTvChip] usa una sola línea), y deja el resto de la pantalla vacío A
+ * PROPÓSITO -mejor un margen sin usar que un campo que no dice nada más por ser más ancho-.
+ *
+ * `internal`, no `private`: así [TvFormularioConTecladoTest] puede fijar estos números con un test
+ * -sin infraestructura de tests de Compose no hay forma de medir el layout real, pero un valor mal
+ * puesto acá (p.ej. volver a dejar los campos más anchos que el teclado) sí se puede agarrar como
+ * una regresión numérica simple-.
+ */
+internal const val ANCHO_TECLADO_DP = 640
+internal const val ANCHO_CAMPOS_DP = 520
+
+/**
  * Layout de dos columnas -teclado fijo a la izquierda, campos a la derecha- con foco inicial en el
  * primer campo (con el mismo reintento que ya usaba `PanelDeLogin`: pedirlo en la primera composición
  * falla en silencio porque el nodo todavía no está colocado, comprobado en el Fire TV). [campos]
@@ -111,7 +135,10 @@ fun TvTecladoYCampos(
             Text(subtitulo, style = MaterialTheme.typography.bodySmall, color = ArkivTextSecondary)
         }
         Row(Modifier.fillMaxSize()) {
-            Column(Modifier.fillMaxHeight().width(380.dp).padding(start = 48.dp, end = 24.dp, bottom = 16.dp)) {
+            Column(
+                Modifier.fillMaxHeight().width(ANCHO_TECLADO_DP.dp)
+                    .padding(start = 48.dp, end = 24.dp, bottom = 16.dp),
+            ) {
                 TvKeyboard(
                     text = textoActivo,
                     onTextChange = onTextoActivoChange,
@@ -121,8 +148,11 @@ fun TvTecladoYCampos(
                     onModo = onModo,
                 )
             }
+            // Ancho ACOTADO, no `fillMaxSize()`: ver el KDoc de ANCHO_CAMPOS_DP arriba -este era
+            // justo el bug que se arregla en la Task 11, campos cruzando media pantalla vacíos-.
+            // El resto del ancho de la fila queda sin usar a propósito.
             Column(
-                Modifier.fillMaxSize().padding(top = 24.dp, end = 48.dp),
+                Modifier.fillMaxHeight().width(ANCHO_CAMPOS_DP.dp).padding(top = 24.dp, end = 48.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 campos(focoPrimerCampo)

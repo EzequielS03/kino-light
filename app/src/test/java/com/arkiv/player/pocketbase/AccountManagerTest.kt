@@ -190,6 +190,89 @@ class AccountManagerTest {
         server.shutdown()
     }
 
+    // --- vincularMagisEnviarCodigo / vincularMagisConfirmar (Task 11): el alta de una cuenta de
+    // Magis nueva desde la TV, en dos pasos. Mismo criterio que `vincularMagis_*` de arriba: un
+    // rechazo de Magis (email ya registrado, código incorrecto, portal caído) no dice nada de la
+    // cuenta de Kino, así que tiene que quedar intacta.
+
+    @Test
+    fun vincularMagisEnviarCodigo_falloDeMagis_noTocaLaSesionDeKino() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(422).setBody("""{"detail":"ese email ya esta registrado"}"""))
+        server.start()
+        val client = clientFor(server)
+        val store = FakeDeviceStore(DeviceIdentity("A_person", "dev-1", "dev-1@arkiv.local", "pw12345678", "phone"))
+        store.savePersonEmail("a@b.co")
+        store.savePersonToken("ptok")
+        val sesion = sesionFor(client, store)
+        val mgr = AccountManager(
+            client, seededAuth(client, store), store, magisLinkFor(server), cuentaApiSinUsar(sesion), sesion,
+            onAccountSwitched = {}, onLocalWipe = {},
+        )
+        assertEquals(EstadoDeSesion.Con("a@b.co"), sesion.estado.value) // arranca conectada a Kino
+
+        var msg: String? = null
+        try {
+            mgr.vincularMagisEnviarCodigo("magis@x.co")
+        } catch (e: AccountException) {
+            msg = e.message
+        }
+
+        assertTrue("mensaje: $msg", msg?.contains("registrado") == true)
+        assertEquals("la cuenta de Kino sigue conectada", AccountState.Conectado("a@b.co", false), mgr.state.value)
+        assertEquals("la sesion de Kino NO se cierra por un rechazo de Magis", EstadoDeSesion.Con("a@b.co"), sesion.estado.value)
+        server.shutdown()
+    }
+
+    @Test
+    fun vincularMagisConfirmar_ok_dejaMagisLinkedEnTrue() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setBody("{}")) // POST /v1/magis/register/confirm -> 200
+        server.start()
+        val client = clientFor(server)
+        val store = FakeDeviceStore(DeviceIdentity("A_person", "dev-1", "dev-1@arkiv.local", "pw12345678", "phone"))
+        store.savePersonEmail("a@b.co")
+        val sesion = sesionFor(client, store)
+        val mgr = AccountManager(
+            client, seededAuth(client, store), store, magisLinkFor(server), cuentaApiSinUsar(sesion), sesion,
+            onAccountSwitched = {}, onLocalWipe = {},
+        )
+
+        mgr.vincularMagisConfirmar("magis@x.co", "clavenueva1", "123456")
+
+        assertEquals(AccountState.Conectado("a@b.co", true), mgr.state.value)
+        server.shutdown()
+    }
+
+    @Test
+    fun vincularMagisConfirmar_codigoIncorrecto_noTocaLaSesionDeKino() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(422).setBody("""{"detail":"codigo invalido"}"""))
+        server.start()
+        val client = clientFor(server)
+        val store = FakeDeviceStore(DeviceIdentity("A_person", "dev-1", "dev-1@arkiv.local", "pw12345678", "phone"))
+        store.savePersonEmail("a@b.co")
+        store.savePersonToken("ptok")
+        val sesion = sesionFor(client, store)
+        val mgr = AccountManager(
+            client, seededAuth(client, store), store, magisLinkFor(server), cuentaApiSinUsar(sesion), sesion,
+            onAccountSwitched = {}, onLocalWipe = {},
+        )
+        assertEquals(EstadoDeSesion.Con("a@b.co"), sesion.estado.value) // arranca conectada a Kino
+
+        var msg: String? = null
+        try {
+            mgr.vincularMagisConfirmar("magis@x.co", "clavenueva1", "000000")
+        } catch (e: AccountException) {
+            msg = e.message
+        }
+
+        assertTrue("mensaje: $msg", msg?.contains("incorrecto") == true)
+        assertEquals("la cuenta de Kino sigue conectada, y sin Magis", AccountState.Conectado("a@b.co", false), mgr.state.value)
+        assertEquals("la sesion de Kino NO se cierra por un codigo incorrecto", EstadoDeSesion.Con("a@b.co"), sesion.estado.value)
+        server.shutdown()
+    }
+
     @Test
     fun desvincularMagis_ok_quedaConectadoSinMagis() = runBlocking {
         val server = MockWebServer()
