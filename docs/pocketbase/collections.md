@@ -113,7 +113,8 @@ La persona: cuenta de usuario autenticada por email+password (colección default
 
 **Reglas de acceso:**
 
-- **List/View/Update/Delete:** `id = @request.auth.id` (cada persona solo ve/edita/borra su propio record)
+- **List/View/Delete:** `id = @request.auth.id` (cada persona solo ve/borra su propio record)
+- **Update:** `null` (solo el admin) — cerrado en `1786900100_updated_users_updaterule.js` (ver revisión final de la rama `identidad-gateway`, hallazgos C1/C2). Antes era `id = @request.auth.id`: cualquier persona logueada podía PATCHear su propio record, incluidos `accountId` y `licencia` — los dos campos de los que cuelga toda la identidad. Con eso, alguien revocado podía apuntar `licencia` a otro código activo y volver a entrar, y cualquier persona podía inyectar un filtro de PocketBase reescribiendo `accountId` con comillas (el gateway corre esas consultas como superusuario). El único camino para cambiar esos dos campos pasa a ser el gateway (`/v1/cuenta/registrar`, `/v1/cuenta/aparatos`), que valida antes de escribir.
 - **Create:** `@request.auth.id != "" && accountId = @request.auth.accountId` (exige un device autenticado y que el accountId sea el suyo)
 - **manageRule:** `null`
 - **passwordAuth:** enabled, identityFields = `email`
