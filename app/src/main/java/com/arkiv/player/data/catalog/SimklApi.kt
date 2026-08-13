@@ -62,15 +62,7 @@ class SimklApi(
      *  (`DeviceAuthManager.session.value?.token`): `require_sesion` exige las dos juntas. */
     private val deviceToken: () -> String? = { null },
 ) {
-    // Antes chequeaba `arkivKey().isNotBlank()`: en un build sin `.env` esa llave venía vacía y
-    // convenía no llamar al gateway. Task 8 (Paso 3): esa llave salió del todo -- ya no hay
-    // credencial de BUILD que pueda faltar, así que [infoByAniList] ya no tiene ningún estado
-    // real de "no configurado" que chequear. Se deja el flag en `true` (en vez de borrarlo) para
-    // no encadenar cambios de comportamiento fuera del alcance de este paso.
-    val configured: Boolean get() = true
-
     suspend fun infoByAniList(anilistId: Long): SimklAnimeInfo? = withContext(Dispatchers.IO) {
-        if (!configured) return@withContext null
         val sid = SimklParser.parseSearch(
             get("${gatewayUrl()}/v1/catalog/simkl/search/id?anilist=$anilistId") ?: return@withContext null,
         ) ?: return@withContext null

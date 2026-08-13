@@ -132,14 +132,6 @@ class TmdbApi(
     // Passthrough del gateway: la ruta y los parámetros de TMDB no cambian, solo el host.
     private val base: String get() = "${gatewayUrl()}/v1/catalog/tmdb"
 
-    // Antes chequeaba `arkivKey().isNotBlank()`: en un build sin `.env` esa llave venía vacía y
-    // convenía no llamar al gateway. Task 8 (Paso 3): esa llave salió del todo -- ya no hay
-    // credencial de BUILD que pueda faltar, así que no queda ningún estado real de "no
-    // configurado" que chequear acá. Se deja el flag en `true` (en vez de borrarlo) para no tener
-    // que tocar los call sites de [com.arkiv.player.data.ArkivRepository], que siguen usándolo
-    // como guarda de "¿tiene sentido pedirle algo a TMDB ahora?".
-    val configured: Boolean get() = true
-
     /** Busca títulos. type: "movie" | "tv". */
     suspend fun search(type: String, query: String, page: Int = 1): List<TmdbItem> {
         val q = query.trim()

@@ -46,13 +46,6 @@ class SubtitleApi(
     private val ua = "Arkiv v0.1"
     private val jsonType = "application/json".toMediaType()
 
-    // Antes chequeaba `arkivKey().isNotBlank()`: en un build sin `.env` esa llave venía vacía y
-    // convenía no llamar al gateway ni dibujar la sección de subtítulos online. Task 8 (Paso 3):
-    // esa llave salió del todo -- ya no hay credencial de BUILD que pueda faltar, así que no
-    // queda ningún estado real de "no configurado" que chequear acá. Se deja el flag en `true`
-    // (en vez de borrarlo) para no tener que tocar los call sites de PlayerScreen.
-    val configured: Boolean get() = true
-
     /**
      * Busca subtítulos. Pasá imdbId (ej "tt0816692") o query (título). Para series, season/episode.
      * languages: códigos separados por coma (ej "es" = español, "es,en").
@@ -65,7 +58,6 @@ class SubtitleApi(
         languages: String = "es",
         moviehash: String? = null,
     ): List<SubtitleTrack> = withContext(Dispatchers.IO) {
-        if (!configured) return@withContext emptyList()
         val params = buildList {
             add("languages=$languages")
             // moviehash = match EXACTO del release por hash del archivo (OSDb). OpenSubtitles marca los
@@ -107,7 +99,6 @@ class SubtitleApi(
      * vez de que sean la única pista opaca del sistema.
      */
     suspend fun download(fileId: Long, dir: File, lang: String = ""): File? = withContext(Dispatchers.IO) {
-        if (!configured) return@withContext null
         // 1) pedir el link de descarga.
         val reqBody = JSONObject().put("file_id", fileId).put("sub_format", "srt").toString()
         val dlResp = runCatching {

@@ -1812,7 +1812,6 @@ private fun PlayerContent(
 
     // Búsqueda automática de subtítulos online para el idioma preferido.
     LaunchedEffect(episodeId) {
-        if (!graph.subtitleApi.configured) return@LaunchedEffect
         // Un solo origen para lo que se PIDE y para cómo se ORDENA: derivarlos por separado deja que
         // se desincronicen (se pediría un idioma que el orden no conoce, y se iría al fondo).
         val langs = graph.subtitlePrefs.prefs.value.openSubtitlesCodes()
@@ -3174,26 +3173,23 @@ private fun PlayerContent(
                         }
                     }
 
-                    // ONLINE (OpenSubtitles). Sin sesión la sección entera no se dibuja: ofrecer
-                    // "Buscar online" para después decir que no se puede es ruido, y la sesión no
-                    // se abre desde acá (Task 8, Paso 3: la credencial es la sesión de la persona,
-                    // ver SubtitleApi.configured), así que el aviso tampoco daba una acción al
-                    // usuario en esta pantalla.
-                    if (graph.subtitleApi.configured) {
-                        Text("Buscar online (OpenSubtitles)", style = MaterialTheme.typography.titleSmall, color = ArkivRed, modifier = Modifier.padding(top = 12.dp, bottom = 2.dp))
-                        when {
-                            loadingSubs -> Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.padding(end = 12.dp).size(20.dp))
-                                Text("Buscando subtítulos…", color = ArkivTextSecondary)
-                            }
-                            subtitles.isEmpty() -> Text("No se encontraron subtítulos en español.", color = ArkivTextSecondary, modifier = Modifier.padding(8.dp))
-                            else -> subtitles.forEach { s ->
-                                TextButton(onClick = { applySubtitle(s) }) {
-                                    Text(
-                                        (if (selectedSub?.fileId == s.fileId) "✓ " else "↓ ") + s.label,
-                                        color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
+                    // ONLINE (OpenSubtitles): con el login obligatorio SIEMPRE hay sesión de
+                    // persona (no hay pantalla que componga sin ella), así que esta sección ya
+                    // no tiene ningún caso real de "no se puede buscar" que ocultar -- se dibuja
+                    // siempre, directo.
+                    Text("Buscar online (OpenSubtitles)", style = MaterialTheme.typography.titleSmall, color = ArkivRed, modifier = Modifier.padding(top = 12.dp, bottom = 2.dp))
+                    when {
+                        loadingSubs -> Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.padding(end = 12.dp).size(20.dp))
+                            Text("Buscando subtítulos…", color = ArkivTextSecondary)
+                        }
+                        subtitles.isEmpty() -> Text("No se encontraron subtítulos en español.", color = ArkivTextSecondary, modifier = Modifier.padding(8.dp))
+                        else -> subtitles.forEach { s ->
+                            TextButton(onClick = { applySubtitle(s) }) {
+                                Text(
+                                    (if (selectedSub?.fileId == s.fileId) "✓ " else "↓ ") + s.label,
+                                    color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                )
                             }
                         }
                     }

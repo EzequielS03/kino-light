@@ -358,10 +358,10 @@ class ArkivRepository(
     /**
      * Resuelve, para los ítems que aún no tengan arte, sus backdrops de TMDB. Secuencial y
      * best-effort: los ítems sin match quedan con una fila vacía para no re-buscarlos cada vez.
-     * No hace nada si TMDB no está configurado.
+     * No hace nada si no hay [tmdbApi] (el parámetro es nullable, con default `null`).
      */
     suspend fun ensureArtwork(rows: List<LibraryRow>) {
-        val tmdb = tmdbApi?.takeIf { it.configured } ?: return
+        val tmdb = tmdbApi ?: return
         for (row in rows) {
             // Un arte YA resuelto (tmdbId) o que YA tiene backdrops aunque no tenga tmdbId (el
             // backdrop del portal que guarda addMagisSource) no se vuelve a pedir NUNCA: son los
@@ -428,7 +428,7 @@ class ArkivRepository(
      */
     suspend fun repairArtworkMatches(rows: List<LibraryRow>): Boolean {
         if (!artworkRepairRan.compareAndSet(false, true)) return false
-        val tmdb = tmdbApi?.takeIf { it.configured } ?: return false
+        val tmdb = tmdbApi ?: return false
         var complete = true
         for (row in rows) {
             val existing = artworkDao.get(row.identifier) ?: continue
@@ -504,7 +504,7 @@ class ArkivRepository(
      * y no se reintentaba nunca más.
      */
     suspend fun ensureEpisodeStills(itemId: String) {
-        val tmdb = tmdbApi?.takeIf { it.configured } ?: return
+        val tmdb = tmdbApi ?: return
         // El tmdbId del propio ítem manda sobre el de `artwork`: ese se resuelve buscando por
         // título en TMDB (una adivinanza que puede caer en otra serie), mientras que el del ítem
         // lo puso quien lo agregó desde la búsqueda, que sabía exactamente cuál era.
