@@ -20,6 +20,16 @@ class DeviceAuthManager(
     /** Task 7: el alta anónima ([createNewAccount]) ya no escribe `devices` directo -- pasa
      *  por [CuentaApi.altaAparato], con credenciales de admin del lado del gateway. */
     private val cuentaApi: CuentaApi,
+    /**
+     * Qué tipo de aparato es ESTE, para darse de alta con el `kind` correcto.
+     *
+     * Se daba de alta siempre como `"phone"`, incluido el Fire TV. Con el pareo de la Task 5 —donde
+     * la TV aporta su PROPIO aparato en vez de que el celular le fabrique uno— el gateway cuenta el
+     * cupo por el `kind` del registro, así que una TV recién instalada consumía el cupo de
+     * CELULARES: con `maxCelulares = 1` ya ocupado por el teléfono, el pareo fallaba con
+     * "tope alcanzado" sin que hubiera ninguna otra TV.
+     */
+    private val esTv: () -> Boolean = { false },
 ) {
     private val _session = MutableStateFlow<DeviceSession?>(null)
     val session: StateFlow<DeviceSession?> = _session.asStateFlow()
@@ -58,7 +68,7 @@ class DeviceAuthManager(
     }
 
     private suspend fun createNewAccount(): DeviceSession {
-        val id = DeviceIdentityFactory.newPhoneAccount()
+        val id = DeviceIdentityFactory.newAnonimo(esTv = esTv())
         // Alta anónima: Task 7 la mueve del create directo a PocketBase (createRule ya
         // cerrada) al gateway, que la crea con sus propias credenciales de admin.
         // IMPORTANTE: el alta remota DEBE ocurrir antes de store.save(id) (no reordenar):

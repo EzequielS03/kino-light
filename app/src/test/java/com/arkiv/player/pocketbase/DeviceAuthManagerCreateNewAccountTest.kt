@@ -100,4 +100,25 @@ class DeviceAuthManagerCreateNewAccountTest {
         assertNull("sin alta exitosa, no debe quedar identidad local a medias", store.load())
         assertEquals("nunca se llega a auth-with-password si el alta fallo antes", 0, pb.requestCount)
     }
+
+    @Test
+    fun `una TV se da de alta con kind tv, no como celular`() = runBlocking {
+        // El gateway cuenta el cupo de la licencia por este campo. Darse de alta siempre como
+        // "phone" hacia que una TV recien instalada consumiera el cupo de CELULARES y el pareo
+        // fallara con "tope alcanzado" sin que hubiera ninguna otra TV. Verificado en el Fire TV.
+        pb = MockWebServer().also { it.start() }
+        gw = MockWebServer().also { it.start() }
+        gw.enqueue(MockResponse().setResponseCode(201).setBody("""{"id":"dev-tv","accountId":"x"}"""))
+        pb.enqueue(MockResponse().setBody("""{"token":"dtok","record":{"id":"devrec"}}"""))
+
+        val client = PocketBaseClient(baseUrl = pb.url("/").toString().trimEnd('/'))
+        val store = FakeDeviceStore()
+        val mgr = DeviceAuthManager(client, store, cuentaApi(client, store), esTv = { true })
+
+        assertNotNull(mgr.ensureBootstrapped())
+
+        val body = JSONObject(gw.takeRequest().body.readUtf8())
+        assertEquals("tv", body.getString("kind"))
+        assertEquals("tv", store.load()?.kind)
+    }
 }

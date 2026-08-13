@@ -450,7 +450,11 @@ class AppGraph(context: Context) {
     // así que forzar `cuentaApi` acá (Task 7: el alta anónima pasa por `CuentaApi.altaAparato`)
     // no dispara una inicialización recursiva -- mismo patrón que ya usan `pbRealtime`/`pairing`
     // para resolver esta dependencia circular con `by lazy`.
-    val deviceAuth: DeviceAuthManager by lazy { DeviceAuthManager(pbClient, deviceStore, cuentaApi) }
+    val deviceAuth: DeviceAuthManager by lazy {
+        // `esTv` es una lambda y no un booleano fijo: `AppGraph` se arma temprano y
+        // consultarlo en el momento del alta evita depender del orden de inicializacion.
+        DeviceAuthManager(pbClient, deviceStore, cuentaApi, esTv = { DeviceType.isTelevision(appContext) })
+    }
     val pbRealtime: com.arkiv.player.pocketbase.PocketBaseRealtime by lazy {
         com.arkiv.player.pocketbase.PocketBaseRealtime(token = { deviceAuth.session.value?.token })
     }
