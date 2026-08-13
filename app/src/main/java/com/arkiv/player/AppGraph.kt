@@ -594,7 +594,10 @@ class AppGraph(context: Context) {
             cuentaApi = cuentaApi,
             sesion = sesionDePersona,
             onAccountSwitched = { cloudSync.syncNow() },
-            onLocalWipe = { libraryWiper.wipe() },
+            // Task 10: junto con vaciar la biblioteca local, se olvida el "Ahora no" a la oferta de
+            // vincular Magis -ver el KDoc de SettingsStore.magisOfertaDescartada sobre por qué acá y
+            // no en LibraryWiper (ese vive en la capa de datos y no conoce SettingsStore, que es UI).
+            onLocalWipe = { libraryWiper.wipe(); settings.setMagisOfertaDescartada(false) },
         )
     }
 

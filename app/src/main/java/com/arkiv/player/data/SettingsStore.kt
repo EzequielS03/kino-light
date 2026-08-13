@@ -110,6 +110,15 @@ class SettingsStore(context: Context) {
     private val _liveSignRemote = MutableStateFlow(prefs.getBoolean(KEY_LIVE_SIGN_REMOTE, false))
     val liveSignRemote: StateFlow<Boolean> = _liveSignRemote
 
+    // "Ahora no" a la oferta de vincular Magis apenas se entra a la TV (Task 10, ver
+    // `debeOfrecerVincularMagis` en ui/tv/TvOfertaVincularMagis.kt). Es una decisión del DISPOSITIVO,
+    // no de la cuenta -mismo criterio que [tvLinked]/[artworkRematchDone] acá arriba-: este es un TV
+    // de uso personal, no un kiosco compartido entre cuentas. Se resetea en `AccountManager.logout()`
+    // (ver `onLocalWipe` en AppGraph): la sesión que se está yendo ya no importa, y si otra persona
+    // entra después en este mismo aparato tiene sentido que la oferta le aparezca de nuevo.
+    private val _magisOfertaDescartada = MutableStateFlow(prefs.getBoolean(KEY_MAGIS_OFERTA_DESCARTADA, false))
+    val magisOfertaDescartada: StateFlow<Boolean> = _magisOfertaDescartada
+
     fun setStreamQuality(q: Quality) {
         prefs.edit().putString(KEY_STREAM, q.name).apply()
         _streamQuality.value = q
@@ -189,6 +198,12 @@ class SettingsStore(context: Context) {
         _liveSignRemote.value = v
     }
 
+    fun setMagisOfertaDescartada(v: Boolean) {
+        if (_magisOfertaDescartada.value == v) return
+        prefs.edit().putBoolean(KEY_MAGIS_OFERTA_DESCARTADA, v).apply()
+        _magisOfertaDescartada.value = v
+    }
+
     private fun readQuality(key: String, default: Quality): Quality =
         runCatching { Quality.valueOf(prefs.getString(key, default.name)!!) }.getOrDefault(default)
 
@@ -239,6 +254,7 @@ class SettingsStore(context: Context) {
         private const val KEY_TV_LINKED = "tv_linked"
         private const val KEY_ARTWORK_REMATCH = "artwork_rematch_done"
         private const val KEY_LIVE_SIGN_REMOTE = "live_sign_remote"
+        private const val KEY_MAGIS_OFERTA_DESCARTADA = "magis_oferta_descartada"
         private const val KEY_NUC_LAN_URL = "nuc_lan_base_url"
         private const val KEY_NUC_TUNNEL_URL = "nuc_tunnel_base_url"
         private const val KEY_NUC_API_KEY = "nuc_api_key"

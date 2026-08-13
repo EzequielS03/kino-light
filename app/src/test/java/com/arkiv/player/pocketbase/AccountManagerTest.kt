@@ -129,6 +129,67 @@ class AccountManagerTest {
         server.shutdown()
     }
 
+    /** `vincularMagis` con credenciales que Magis acepta: la cuenta de Kino sigue conectada con el
+     *  mismo email y `magisLinked` pasa a true (Task 10, camino que usa la nueva oferta al entrar a
+     *  la TV además de `TvVincularMagisSection`/`VincularMagisSection` en Ajustes). */
+    @Test
+    fun vincularMagis_ok_dejaMagisLinkedEnTrue() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setBody("{}")) // POST /v1/magis/link -> 200 sin cuerpo relevante
+        server.start()
+        val client = clientFor(server)
+        val store = FakeDeviceStore(DeviceIdentity("A_person", "dev-1", "dev-1@arkiv.local", "pw12345678", "phone"))
+        store.savePersonEmail("a@b.co")
+        val sesion = sesionFor(client, store)
+        val mgr = AccountManager(
+            client, seededAuth(client, store), store, magisLinkFor(server), cuentaApiSinUsar(sesion), sesion,
+            onAccountSwitched = {}, onLocalWipe = {},
+        )
+
+        mgr.vincularMagis("magis@x.co", "magispw12")
+
+        assertEquals(AccountState.Conectado("a@b.co", true), mgr.state.value)
+        server.shutdown()
+    }
+
+    /**
+     * El requisito central de la Task 10 (la oferta al entrar a la TV): que Magis rechace unas
+     * credenciales NO dice nada sobre la cuenta de Kino -son dos identidades distintas (ver KDoc de
+     * `AccountManager`)-. Este test fija esa garantía en el lugar de donde depende TODO llamador
+     * (la nueva pantalla, `TvVincularMagisSection` y `VincularMagisSection`): un 422 de Magis lanza
+     * `AccountException` y listo, sin tocar ni `AccountState` ni `SesionDePersona.estado` -si
+     * `vincularMagis` alguna vez llamara `sesion.cerrar()` o pisara el estado en la rama de error,
+     * este test lo agarra-.
+     */
+    @Test
+    fun vincularMagis_credencialesInvalidas_noTocaLaSesionDeKino() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(422).setBody("""{"detail":"credenciales invalidas"}"""))
+        server.start()
+        val client = clientFor(server)
+        val store = FakeDeviceStore(DeviceIdentity("A_person", "dev-1", "dev-1@arkiv.local", "pw12345678", "phone"))
+        store.savePersonEmail("a@b.co")
+        store.savePersonToken("ptok")
+        val sesion = sesionFor(client, store)
+        val mgr = AccountManager(
+            client, seededAuth(client, store), store, magisLinkFor(server), cuentaApiSinUsar(sesion), sesion,
+            onAccountSwitched = {}, onLocalWipe = {},
+        )
+        assertEquals(EstadoDeSesion.Con("a@b.co"), sesion.estado.value) // arranca conectada a Kino
+
+        var msg: String? = null
+        try {
+            mgr.vincularMagis("magis@x.co", "malacontrasena")
+        } catch (e: AccountException) {
+            msg = e.message
+        }
+
+        assertTrue("mensaje: $msg", msg?.contains("inválidas") == true)
+        assertEquals("la cuenta de Kino sigue conectada", AccountState.Conectado("a@b.co", false), mgr.state.value)
+        assertEquals("la sesion de Kino NO se cierra por un rechazo de Magis", EstadoDeSesion.Con("a@b.co"), sesion.estado.value)
+        server.shutdown()
+    }
+
     @Test
     fun desvincularMagis_ok_quedaConectadoSinMagis() = runBlocking {
         val server = MockWebServer()

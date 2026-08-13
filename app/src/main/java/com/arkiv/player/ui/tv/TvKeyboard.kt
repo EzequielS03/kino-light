@@ -79,12 +79,25 @@ private val SIMBOLOS_TV: List<kotlin.Char> = listOf(
  * fila para cambiar de variante y la de espacio/borrar de siempre. Separada de [TV_KEYBOARD_ROWS]
  * para no arriesgar el contrato que ya usa la búsqueda (ver su comentario).
  */
-fun tvKeyboardRows(modo: TvKeyboardMode): List<List<TvKey>> = buildList {
-    val chars: List<TvKey> = when (modo) {
-        TvKeyboardMode.MAYUS -> (('A'..'Z') + ('0'..'9')).map { TvKey.Char(it) }
-        TvKeyboardMode.MINUS -> (('a'..'z') + ('0'..'9')).map { TvKey.Char(it) }
-        TvKeyboardMode.SIMBOLOS -> SIMBOLOS_TV.map { TvKey.Char(it) }
+fun tvKeyboardRows(
+    modo: TvKeyboardMode,
+    /**
+     * Teclas que se suman a la grilla de letras, sin cambiar de capa.
+     *
+     * Existe para el campo de email: `@` y `.` estan en TODAS las direcciones, y mandar a la
+     * persona a la capa de simbolos y de vuelta por cada una son cuatro pulsaciones de control
+     * remoto que no hacen falta. Es la misma idea que un teclado de telefono, que muestra la
+     * arroba cuando el campo es un email.
+     */
+    extras: List<kotlin.Char> = emptyList(),
+): List<List<TvKey>> = buildList {
+    val base: List<kotlin.Char> = when (modo) {
+        TvKeyboardMode.MAYUS -> ('A'..'Z') + ('0'..'9')
+        TvKeyboardMode.MINUS -> ('a'..'z') + ('0'..'9')
+        TvKeyboardMode.SIMBOLOS -> SIMBOLOS_TV
     }
+    // Los extras no se repiten si la capa ya los trae (la de simbolos incluye @ y .).
+    val chars: List<TvKey> = (base + extras.filterNot { it in base }).map { TvKey.Char(it) }
     chars.chunked(6).forEach { add(it) }
     add(
         listOf(

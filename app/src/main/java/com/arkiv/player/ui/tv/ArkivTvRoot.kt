@@ -20,6 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -37,6 +38,48 @@ fun ArkivTvRoot(
     val navController = rememberNavController()
     val graph = rememberGraph()
     val context = LocalContext.current
+
+    // Task 10: ofrecer vincular Magis apenas se entra, ANTES que nada más. `MainActivity` recompone
+    // acá en cuanto hay sesión de persona -así que TvPantallaDeEntrada ya dejó de existir, y este es
+    // el primer lugar donde una pantalla "parecida al login" todavía puede aparecer-. Sirve para las
+    // DOS rutas de entrada (login en la propia TV y pareo desde el celular) porque las dos terminan
+    // acá. Ver el KDoc de `debeOfrecerVincularMagis` para la condición exacta.
+    val accountState by graph.accountManager.state.collectAsStateWithLifecycle()
+    val ofertaDescartada by graph.settings.magisOfertaDescartada.collectAsStateWithLifecycle()
+
+    // El estado en memoria de AccountManager arranca con `magisLinked = false` a secas en un
+    // arranque en frío con sesión ya guardada -no hay chequeo de red hasta que algo lo pide, ver el
+    // KDoc de AccountManager, `_state` inicial-. Sin este refresco la oferta de abajo se dispararía
+    // en CADA arranque incluso para quien YA tiene Magis vinculado, justo lo que el brief pide evitar
+    // ("no molestar"). `magisConfirmado` frena la decisión hasta tener una respuesta real; mientras
+    // tanto se sigue de largo al contenido normal -nunca al revés: un pedido de red que tarda no
+    // puede dejar a nadie mirando una pantalla en blanco antes de llegar al home-.
+    var magisConfirmado by remember {
+        mutableStateOf(
+            when (val s = accountState) {
+                is com.arkiv.player.pocketbase.AccountState.Conectado -> s.magisLinked
+                com.arkiv.player.pocketbase.AccountState.Anonimo -> true
+            },
+        )
+    }
+    LaunchedEffect(Unit) {
+        if (!magisConfirmado) {
+            graph.accountManager.refrescarMagis()
+            magisConfirmado = true
+        }
+    }
+
+    if (magisConfirmado && debeOfrecerVincularMagis(accountState, ofertaDescartada)) {
+        TvOfertaVincularMagis(
+            account = graph.accountManager,
+            accountEmail = (accountState as com.arkiv.player.pocketbase.AccountState.Conectado).email,
+            // Se guarda la decisión (Task 10, ver SettingsStore.magisOfertaDescartada): "Ahora no" no
+            // vuelve a preguntar en cada arranque. El camino sigue vivo en Ajustes
+            // (TvVincularMagisSection), a propósito -esto es un atajo, no la única puerta-.
+            onAhoraNo = { graph.settings.setMagisOfertaDescartada(true) },
+        )
+        return
+    }
 
     // Reproductor unificado: archive y torrent van a la misma ruta; la pantalla resuelve la fuente
     // por el prefijo "torrent:" del id.

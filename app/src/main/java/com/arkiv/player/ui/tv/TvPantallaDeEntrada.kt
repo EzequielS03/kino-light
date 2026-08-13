@@ -26,10 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.password
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Border
@@ -75,6 +72,23 @@ private enum class TabDeEntrada { DESCARGA, PAREO, LOGIN }
 @Composable
 fun TvPantallaDeEntrada(pairing: PairingManager, account: AccountManager) {
     var tab by remember { mutableStateOf(TabDeEntrada.DESCARGA) }
+    var enLogin by remember { mutableStateOf(false) }
+
+    // El login de la TV es una PANTALLA APARTE, no una pestaña mas.
+    //
+    // Numerar las tres como "1 2 3" se leia como un asistente de tres pasos, y no lo es: bajar la
+    // app y parear SI son dos pasos en orden (por eso conservan su numero), pero entrar aca es la
+    // alternativa a todo eso -de ahi el "o" adelante, que es lo que separa las dos rutas de un
+    // vistazo desde el sofa-.
+    //
+    // Y aparte: el teclado en pantalla no entra a lo alto si ademas hay que dejarle lugar a la fila
+    // de opciones. Sus teclas de modo quedaban cortadas contra el borde inferior, que en un
+    // televisor cae justo en la zona de overscan.
+    if (enLogin) {
+        PanelDeLogin(account, onVolver = { enLogin = false })
+        return
+    }
+
     val focoDescarga = remember { FocusRequester() }
 
     // El foco arranca en las pestañas, con reintento: pedirlo en la primera composición falla en
@@ -100,7 +114,7 @@ fun TvPantallaDeEntrada(pairing: PairingManager, account: AccountManager) {
                 fontWeight = FontWeight.Black,
             )
             Text(
-                "Este TV todavía no está emparejado -es en el teléfono donde iniciás sesión-.",
+                "Este TV todavía no está emparejado. Podés entrar desde el teléfono, o acá mismo.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = ArkivTextSecondary,
             )
@@ -113,14 +127,16 @@ fun TvPantallaDeEntrada(pairing: PairingManager, account: AccountManager) {
                     modifier = Modifier.focusRequester(focoDescarga),
                 )
                 PestanaDeEntrada(
-                    texto = "2 · Parear este TV",
+                    texto = "2 · Parear con el teléfono",
                     seleccionada = tab == TabDeEntrada.PAREO,
                     onSelect = { tab = TabDeEntrada.PAREO },
                 )
+                // No es una pestaña mas: abre su propia pantalla. Queda en la misma fila porque es
+                // donde la persona esta mirando, pero se comporta como un boton.
                 PestanaDeEntrada(
-                    texto = "3 · Entrar en esta TV",
-                    seleccionada = tab == TabDeEntrada.LOGIN,
-                    onSelect = { tab = TabDeEntrada.LOGIN },
+                    texto = "o entrar en esta TV",
+                    seleccionada = false,
+                    onSelect = { enLogin = true },
                 )
             }
         }
@@ -132,7 +148,7 @@ fun TvPantallaDeEntrada(pairing: PairingManager, account: AccountManager) {
                     // que dibuja su propio título, y encimarlo al encabezado los hacía caer en la
                     // misma línea, ilegibles uno sobre el otro.
                     TvPairingScreen(pairing = pairing, deviceName = android.os.Build.MODEL, onDone = {})
-                TabDeEntrada.LOGIN -> PanelDeLogin(account)
+                TabDeEntrada.LOGIN -> PanelDeLogin(account, onVolver = { enLogin = false })
             }
         }
     }
@@ -262,22 +278,21 @@ private enum class CampoTv { EMAIL, PASSWORD, LICENCIA }
  * [AccountManager.login]/[AccountManager.registrar] a través de [entrarDesdeTv] -no reimplementa el
  * manejo de errores de licencia/cupo/backend caído que esos métodos ya resuelven-.
  *
- * Mismo layout de dos columnas que `TvSearchScreen` (teclado fijo a la izquierda, contenido a la
- * derecha): a la derecha, los campos como chips seleccionables -el que tiene el foco es el que
- * recibe las teclas, mismo gesto que `TvSeasonChip`, sin necesitar un click aparte- más los botones
- * de acción; a la izquierda, el teclado extendido con sus tres variantes (Task 9).
+ * El layout (teclado a la izquierda, campos a la derecha, foco inicial reintentado) sale de
+ * [TvTecladoYCampos] -Task 10 lo extrajo de acá para compartirlo con [TvOfertaVincularMagis]-.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun PanelDeLogin(account: AccountManager) {
+private fun PanelDeLogin(account: AccountManager, onVolver: () -> Unit) {
     val scope = rememberCoroutineScope()
-    var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-    var licencia by remember { mutableStateOf("") }
+    val campos = rememberTvCamposConFoco(CampoTv.EMAIL)
     var registrando by remember { mutableStateOf(false) }
     var passwordVisible by remember { mutableStateOf(false) }
-    var campoActivo by remember { mutableStateOf(CampoTv.EMAIL) }
-    var modoTeclado by remember { mutableStateOf(TvKeyboardMode.MAYUS) }
+    // Arranca en MINUSCULAS: lo que se escribe aca son emails, contrasenas y un codigo de
+    // licencia. Los dos primeros casi siempre van en minuscula, y el codigo tiene su propia tecla
+    // de mayusculas a un paso. Empezar en MAYUS obligaba a cambiar de capa antes de la primera
+    // letra, en el 100% de los logins.
+    var modoTeclado by remember { mutableStateOf(TvKeyboardMode.MINUS) }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
 
@@ -285,32 +300,7 @@ private fun PanelDeLogin(account: AccountManager) {
     // desaparece de la pantalla -sin este fallback el teclado seguiría escribiendo en un campo que
     // ya no se ve, sin ningún efecto visible, y parecería roto.
     LaunchedEffect(registrando) {
-        if (!registrando && campoActivo == CampoTv.LICENCIA) campoActivo = CampoTv.EMAIL
-    }
-
-    val focoPrimerCampo = remember { FocusRequester() }
-    // Mismo reintento que el foco de las pestañas (ver el KDoc de TvPantallaDeEntrada): pedirlo en
-    // la primera composición falla en silencio porque el nodo todavía no está colocado.
-    LaunchedEffect(Unit) {
-        repeat(20) {
-            if (runCatching { focoPrimerCampo.requestFocus(); true }.getOrDefault(false)) return@LaunchedEffect
-            delay(50)
-        }
-    }
-
-    fun valorActivo(): String = when (campoActivo) {
-        CampoTv.EMAIL -> email
-        CampoTv.PASSWORD -> password
-        CampoTv.LICENCIA -> licencia
-    }
-
-    fun escribirEnCampoActivo(nuevo: String) {
-        when (campoActivo) {
-            CampoTv.EMAIL -> email = nuevo
-            CampoTv.PASSWORD -> password = nuevo
-            CampoTv.LICENCIA -> licencia = nuevo
-        }
-        error = null
+        if (!registrando && campos.activo == CampoTv.LICENCIA) campos.enfocar(CampoTv.EMAIL)
     }
 
     fun enviar() {
@@ -319,7 +309,13 @@ private fun PanelDeLogin(account: AccountManager) {
         error = null
         scope.launch {
             try {
-                entrarDesdeTv(account, email, password, licencia, registrando)
+                entrarDesdeTv(
+                    account,
+                    campos.valor(CampoTv.EMAIL),
+                    campos.valor(CampoTv.PASSWORD),
+                    campos.valor(CampoTv.LICENCIA),
+                    registrando,
+                )
             } catch (e: AccountException) {
                 error = e.message
             } finally {
@@ -328,164 +324,105 @@ private fun PanelDeLogin(account: AccountManager) {
         }
     }
 
-    val puedeEnviar = !busy && email.isNotBlank() && password.isNotBlank() &&
-        (!registrando || licencia.isNotBlank())
+    val puedeEnviar = !busy && campos.valor(CampoTv.EMAIL).isNotBlank() &&
+        campos.valor(CampoTv.PASSWORD).isNotBlank() &&
+        (!registrando || campos.valor(CampoTv.LICENCIA).isNotBlank())
 
-    Row(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxHeight().width(380.dp).padding(24.dp)) {
-            TvKeyboard(
-                text = valorActivo(),
-                onTextChange = { escribirEnCampoActivo(it) },
-                rows = tvKeyboardRows(modoTeclado),
-                onModo = { modoTeclado = it },
+    TvTecladoYCampos(
+        titulo = if (registrando) "Crear cuenta en esta TV" else "Entrar en esta TV",
+        subtitulo = "Volvé con el botón Atrás del control.",
+        modoTeclado = modoTeclado,
+        onModo = { modoTeclado = it },
+        textoActivo = campos.valorActivo(),
+        onTextoActivoChange = { campos.escribirEnActivo(it); error = null },
+        // En el email, `@` y `.` quedan a la vista sin cambiar de capa: estan en todas las
+        // direcciones y son cuatro pulsaciones menos por cada una.
+        extras = if (campos.activo == CampoTv.EMAIL) listOf('@', '.') else emptyList(),
+    ) { focoPrimerCampo ->
+        CampoTvChip(
+            etiqueta = "Email",
+            valor = campos.valor(CampoTv.EMAIL),
+            activo = campos.activo == CampoTv.EMAIL,
+            onFocus = { campos.enfocar(CampoTv.EMAIL) },
+            modifier = Modifier.focusRequester(focoPrimerCampo),
+        )
+        CampoTvChip(
+            etiqueta = "Contraseña",
+            valor = if (passwordVisible) campos.valor(CampoTv.PASSWORD) else "•".repeat(campos.valor(CampoTv.PASSWORD).length),
+            activo = campos.activo == CampoTv.PASSWORD,
+            // Enmascarado SOLO mientras está oculta -mismo criterio que AccountSection.PasswordField-:
+            // `PasswordVisualTransformation` (celu) enmascara lo que se DIBUJA, no lo que se expone en
+            // el árbol de accesibilidad, y eso se comprobó leyendo una contraseña real en claro con un
+            // volcado de accesibilidad. Cuando la persona la muestra con el botón de abajo, se saca la
+            // marca: ahí SÍ decidió que se pueda leer/dictar.
+            enmascarado = !passwordVisible,
+            onFocus = { campos.enfocar(CampoTv.PASSWORD) },
+        )
+        TvBotonMostrarPassword(visible = passwordVisible, onToggle = { passwordVisible = !passwordVisible })
+        if (registrando) {
+            CampoTvChip(
+                etiqueta = "Código de licencia",
+                // Se muestra tal cual se tipeó (guiones incluidos si los puso) para que la
+                // persona vea qué escribió; la normalización (con o sin guiones, mayúsculas) pasa
+                // recién al mandar, en `entrarDesdeTv` -ver `normalizarLicencia`-.
+                valor = campos.valor(CampoTv.LICENCIA),
+                activo = campos.activo == CampoTv.LICENCIA,
+                onFocus = { campos.enfocar(CampoTv.LICENCIA) },
+            )
+            Text(
+                "Con guiones o sin guiones da igual: se acomoda solo.",
+                style = MaterialTheme.typography.labelSmall,
+                color = ArkivTextSecondary,
             )
         }
-        Column(
-            Modifier.fillMaxSize().padding(top = 24.dp, end = 48.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            CampoTvChip(
-                etiqueta = "Email",
-                valor = email,
-                activo = campoActivo == CampoTv.EMAIL,
-                onFocus = { campoActivo = CampoTv.EMAIL },
-                modifier = Modifier.focusRequester(focoPrimerCampo),
+
+        error?.let {
+            Text(
+                it,
+                color = ArkivRed,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 4.dp),
             )
-            CampoTvChip(
-                etiqueta = "Contraseña",
-                valor = if (passwordVisible) password else "•".repeat(password.length),
-                activo = campoActivo == CampoTv.PASSWORD,
-                // Enmascarado SOLO mientras está oculta -mismo criterio que
-                // AccountSection.PasswordField-: `PasswordVisualTransformation` (celu) enmascara lo
-                // que se DIBUJA, no lo que se expone en el árbol de accesibilidad, y eso se comprobó
-                // hoy leyendo una contraseña real en claro con un volcado de accesibilidad. Acá el
-                // valor que recibe `Text` ya son los puntos (no hay transform aparte), pero se marca
-                // igual para que un lector de pantalla anuncie "contraseña" en vez de dictar el
-                // relleno carácter por carácter. Cuando la persona la muestra con el botón de abajo,
-                // se saca la marca: ahí SÍ decidió que se pueda leer/dictar.
-                enmascarado = !passwordVisible,
-                onFocus = { campoActivo = CampoTv.PASSWORD },
-            )
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 8.dp)) {
             Surface(
-                onClick = { passwordVisible = !passwordVisible },
-                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                onClick = { enviar() },
+                enabled = puedeEnviar,
+                modifier = Modifier.height(48.dp),
+                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
                 colors = arkivTvSurfaceColors(),
                 border = arkivTvSurfaceBorder(),
             ) {
-                Text(
-                    if (passwordVisible) "Ocultar contraseña" else "Mostrar contraseña",
-                    style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                )
-            }
-            if (registrando) {
-                CampoTvChip(
-                    etiqueta = "Código de licencia",
-                    // Se muestra tal cual se tipeó (guiones incluidos si los puso) para que la
-                    // persona vea qué escribió; la normalización (con o sin guiones, mayúsculas) pasa
-                    // recién al mandar, en `entrarDesdeTv` -ver `normalizarLicencia`-.
-                    valor = licencia,
-                    activo = campoActivo == CampoTv.LICENCIA,
-                    onFocus = { campoActivo = CampoTv.LICENCIA },
-                )
-                Text(
-                    "Con guiones o sin guiones da igual: se acomoda solo.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = ArkivTextSecondary,
-                )
-            }
-
-            error?.let {
-                Text(
-                    it,
-                    color = ArkivRed,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 8.dp)) {
-                Surface(
-                    onClick = { enviar() },
-                    enabled = puedeEnviar,
-                    modifier = Modifier.height(48.dp),
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
-                    colors = arkivTvSurfaceColors(),
-                    border = arkivTvSurfaceBorder(),
-                ) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            when {
-                                busy && registrando -> "Creando…"
-                                busy -> "Entrando…"
-                                registrando -> "Crear cuenta"
-                                else -> "Entrar"
-                            },
-                            style = MaterialTheme.typography.titleSmall,
-                            modifier = Modifier.padding(horizontal = 18.dp),
-                        )
-                    }
-                }
-                Surface(
-                    onClick = { registrando = !registrando; error = null },
-                    enabled = !busy,
-                    modifier = Modifier.height(48.dp),
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
-                    colors = arkivTvSurfaceColors(),
-                    border = arkivTvSurfaceBorder(),
-                ) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            if (registrando) "Ya tengo cuenta" else "Crear cuenta",
-                            style = MaterialTheme.typography.titleSmall,
-                            modifier = Modifier.padding(horizontal = 18.dp),
-                        )
-                    }
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        when {
+                            busy && registrando -> "Creando…"
+                            busy -> "Entrando…"
+                            registrando -> "Crear cuenta"
+                            else -> "Entrar"
+                        },
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(horizontal = 18.dp),
+                    )
                 }
             }
-        }
-    }
-}
-
-/**
- * Selector de campo con el mismo gesto que `TvSeasonChip` (`TvSearchScreen`): mover el foco ahí
- * ([onFocus]) alcanza para que se vuelva el destino del teclado en pantalla, sin un click aparte
- * -pero el click también funciona, para quien llega con un clic directo-. Muestra el valor actual
- * (o un placeholder si está vacío) para que la persona vea qué tiene tipeado sin adivinar.
- */
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun CampoTvChip(
-    etiqueta: String,
-    valor: String,
-    activo: Boolean,
-    onFocus: () -> Unit,
-    modifier: Modifier = Modifier,
-    enmascarado: Boolean = false,
-) {
-    Surface(
-        onClick = onFocus,
-        modifier = modifier
-            .fillMaxWidth()
-            .onFocusChanged { if (it.isFocused) onFocus() }
-            .let { if (enmascarado) it.semantics { password() } else it },
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (activo) ArkivRed.copy(alpha = 0.28f) else ArkivSurfaceHigh,
-            focusedContainerColor = ArkivRed.copy(alpha = 0.55f),
-        ),
-        border = ClickableSurfaceDefaults.border(
-            focusedBorder = Border(BorderStroke(2.dp, Color.White)),
-        ),
-    ) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-            Text(etiqueta, style = MaterialTheme.typography.labelSmall, color = ArkivTextSecondary)
-            Text(
-                valor.ifBlank { "—" },
-                style = MaterialTheme.typography.bodyLarge,
-                color = Color.White,
-                maxLines = 1,
-            )
+            Surface(
+                onClick = { registrando = !registrando; error = null },
+                enabled = !busy,
+                modifier = Modifier.height(48.dp),
+                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+                colors = arkivTvSurfaceColors(),
+                border = arkivTvSurfaceBorder(),
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        if (registrando) "Ya tengo cuenta" else "Crear cuenta",
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(horizontal = 18.dp),
+                    )
+                }
+            }
         }
     }
 }
