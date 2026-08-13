@@ -268,15 +268,19 @@ fun ArkivSplash(
                     startX = junta.x,
                     endX = junta.x + largoHaz,
                 )
-                // El resplandor, a radio fijo: antes crecía con la animación, lo que obligaba a
-                // rehacer el shader en cada cuadro. Ahora solo se le mueve la opacidad, que es
-                // gratis, y a ojo se ve igual.
-                val radioBrillo = size.height * 0.85f
-                val brilloBrush = Brush.radialGradient(
-                    colors = listOf(ArkivRed.copy(alpha = 0.55f), Color.Transparent),
-                    center = junta,
-                    radius = radioBrillo,
-                )
+                // ACÁ NO VA UN RESPLANDOR DE FONDO. La intro tenía un degradado radial rojo
+                // detrás del monograma y era, de lejos, lo más caro que dibujaba.
+                //
+                // Medido en el Fire Stick con `gfxinfo`, tres corridas de cada variante:
+                //
+                //   a pantalla completa   GPU 15 ms por cuadro (de 16,7 de presupuesto: al 90%)
+                //   ceñido a 0,55 del alto    9-10 ms
+                //   sin resplandor             3-4 ms   <- esto
+                //
+                // Cinco veces menos, y los cuadros con jank pasaron del 55% al 10%. Un degradado
+                // que cubre 1920x1080 en cada cuadro es justo lo que no aguanta la GPU de un Fire
+                // Stick. Si algún día se quiere volver a poner, que sea sobre una capa cacheada y
+                // midiendo con `gfxinfo` antes y después, no a ojo.
 
                 onDrawBehind {
                     val t = intro.value * TOTAL_MS
@@ -289,12 +293,6 @@ fun ArkivSplash(
 
                     drawRect(ArkivBlack)
 
-                    drawCircle(
-                        brush = brilloBrush,
-                        radius = radioBrillo,
-                        center = junta,
-                        alpha = 0.30f + 0.35f * sin(Math.PI.toFloat() * pBrillo),
-                    )
 
                     if (pHaz > 0f) {
                         val abriendo = easeOut(min(pHaz / 0.55f, 1f))
