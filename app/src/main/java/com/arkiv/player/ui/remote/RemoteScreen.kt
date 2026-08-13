@@ -93,7 +93,7 @@ fun RemoteScreen(onBack: () -> Unit) {
         val status = when {
             connecting -> "Buscando la TV…"
             tvAvailable -> "Conectado a la TV"
-            else -> "No se encontró la TV. Abrí Arkiv en el Fire Stick."
+            else -> "No se encontró la TV. Abrí Kino en el Fire Stick."
         }
         Text(
             status,

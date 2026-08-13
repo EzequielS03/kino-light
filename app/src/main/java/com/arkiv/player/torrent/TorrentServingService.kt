@@ -29,7 +29,7 @@ class TorrentServingService : Service() {
             )
         }
         val notif = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Arkiv")
+            .setContentTitle("Kino")
             .setContentText("Transmitiendo…")
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setOngoing(true)

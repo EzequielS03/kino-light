@@ -25,11 +25,11 @@ class TvConnectionService : Service() {
         val nm = getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             nm.createNotificationChannel(
-                NotificationChannel(channelId, "Conexión Arkiv", NotificationManager.IMPORTANCE_LOW),
+                NotificationChannel(channelId, "Conexión Kino", NotificationManager.IMPORTANCE_LOW),
             )
         }
         val notif = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("Arkiv conectado")
+            .setContentTitle("Kino conectado")
             .setContentText("Recibiendo del teléfono")
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setOngoing(true)

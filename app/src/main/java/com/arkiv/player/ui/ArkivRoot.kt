@@ -521,7 +521,7 @@ fun ArkivRoot(
                             color = Color.White,
                         )
                         Text(
-                            "Detectamos tu TV con Arkiv en la red.",
+                            "Detectamos tu TV con Kino en la red.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = ArkivTextSecondary,
                         )

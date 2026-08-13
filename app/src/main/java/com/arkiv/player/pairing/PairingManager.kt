@@ -190,7 +190,7 @@ class PairingManager(
                     "email" to tvId.email,
                     "password" to tvId.password,
                     "passwordConfirm" to tvId.password,
-                    "deviceName" to "Arkiv TV",
+                    "deviceName" to "Kino TV",
                 ),
                 token = session.token,
             )

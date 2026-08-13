@@ -31,7 +31,7 @@ fun PantallaBloqueada(motivos: List<String>) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            "Este dispositivo no puede ejecutar Arkiv",
+            "Este dispositivo no puede ejecutar Kino",
             style = MaterialTheme.typography.headlineSmall,
             color = ArkivRed,
             textAlign = TextAlign.Center,

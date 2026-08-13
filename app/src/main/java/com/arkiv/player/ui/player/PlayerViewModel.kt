@@ -117,7 +117,7 @@ fun mensajeErrorVivo(
 ): String =
     if (esTelevision && fuenteGateway == GatewayConfigSource.DEFAULT) {
         "Este TV no tiene la configuración del servicio en vivo. Volvé a vincularlo: en el " +
-            "teléfono abrí Arkiv, Conexión con el TV, Re-parear, y escaneá el código acá."
+            "teléfono abrí Kino, Conexión con el TV, Re-parear, y escaneá el código acá."
     } else {
         "No se pudo abrir $nombreCanal"
     }
