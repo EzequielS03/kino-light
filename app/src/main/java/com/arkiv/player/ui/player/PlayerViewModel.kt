@@ -24,8 +24,6 @@ import com.arkiv.player.playback.ArchiveCacheProxy
 import com.arkiv.player.playback.PlayerSource
 import com.arkiv.player.playback.PoliticaOrigen
 import com.arkiv.player.playback.SourceKind
-import com.arkiv.player.playback.TsDurationProbe
-import com.arkiv.player.playback.UnknownLengthPolicy
 import com.arkiv.player.playback.VentanaDeDescarga
 import com.arkiv.player.playback.VentanaDeArchivo
 import com.arkiv.player.torrent.EpisodeHint
@@ -683,69 +681,46 @@ class PlayerViewModel(
         // mientras VLC sigue leyendo por el offset viejo → el TS le llega con huecos, el tiempo salta
         // de a minutos y el video se muere. Sin caché no hay nada que truncar.
         val urlLocal = archiveCacheProxy.proxyUrl(play.url, play.headers, directo = true)
-        // El TS no dice cuánto dura y libVLC no lo deduce sobre HTTP; sin duración la barra queda
-        // llena, en 00:00, sin poder adelantar y sin guardar dónde ibas.
+        // LA DURACIÓN YA NO SE BUSCA ANTES DE ARRANCAR. La calcula libVLC solo.
         //
-        // El camino BUENO es que la diga el gateway: el portal ya la sabe para las películas y
-        // llega gratis en el resolve. Sondearla es el respaldo (capítulos de serie, que el portal
-        // manda sin duración), y cuesta dos viajes al CDN ANTES de arrancar el video contra un
-        // origen que tarda entre 0,2 s y 20 s por rango — o sea que a veces se pierde. Best-effort:
-        // si falla se reproduce igual, solo sin duración.
-        val esTs = play.mime.contains("mp2t", true) || play.url.substringBefore('?').endsWith(".ts", true)
-        val hayQueSondear = UnknownLengthPolicy.hayQueSondear(esTs, play.durationMs)
-        if (!hayQueSondear && play.durationMs > 0) {
-            Log.w(PLAY, "loadMagis() duracion del gateway=${play.durationMs}ms (sin sonda)")
+        // Esto era el respaldo de cuando magis se demuxeaba con el `ts` nativo, que sobre HTTP no
+        // deducía la duración y dejaba la barra llena y en 00:00. Desde que se demuxea con avformat
+        // (ver la opción `:demux=avformat` en VlcPlayer) ese respaldo dejó de hacer falta: medido en
+        // el Fire TV el 2026-08-13, VLC informó `dur=7010048ms` en una película y `dur=3831168ms` en
+        // un capítulo de serie, ambos al primer latido y ambos coincidiendo con lo que devolvía la
+        // sonda (7009961 y 3831000). `UnknownLengthPolicy.effectiveDurationMs` ya prefiere la de VLC
+        // cuando existe, así que lo que salía de acá se descartaba un segundo después.
+        //
+        // Y no salía gratis: en ese mismo capítulo, conseguirla costó 9,2 s de spinner —dos viajes
+        // al CDN antes de abrir el video, contra un origen que tarda entre 0,2 s y 20 s por rango—
+        // para un número que llegaba solo. Si el gateway la manda (las películas la traen gratis en
+        // el resolve) se aprovecha; si no, se arranca sin ella y VLC la completa.
+        if (play.durationMs > 0) {
+            Log.w(PLAY, "loadMagis() duracion del gateway=${play.durationMs}ms")
         }
-        // La sonda y el ARRANQUE CALIENTE, a la vez. Los dos le hablan al mismo CDN y ninguno
-        // necesita el resultado del otro; iban en serie y eso costaba, medido en device, entre 1,0 s
-        // y 11,5 s de spinner sumados. El porqué de que convivan sin pelearse: [ArchiveCacheProxy].
+        // El ARRANQUE CALIENTE: lo ÚNICO que se espera antes de abrir el video.
         //
-        // El arranque caliente se precalienta en el byte 0, que es donde VLC abre SIEMPRE desde que
-        // magis dejó de abrir por ventana: reanuda saltando por tiempo, no abriendo el stream más
-        // adelante. Sin él, si la primera lectura se demora libVLC se rinde identificando el stream
-        // y se queda SIN PISTAS para siempre (negro y mudo, con el reloj disparado).
+        // Se precalienta en el byte 0, que es donde VLC abre SIEMPRE desde que magis dejó de abrir
+        // por ventana: reanuda saltando por tiempo, no abriendo el stream más adelante. Sin él, si
+        // la primera lectura se demora libVLC se rinde identificando el stream y se queda SIN PISTAS
+        // para siempre (negro y mudo, con el reloj disparado).
+        //
+        // La COLA sigue bajándose por detrás —para los sondeos de EOF de libVLC, que quiere el final
+        // del archivo apenas abre— pero ya nunca frena el arranque: `esperarCola=false` sin
+        // condiciones. Ver ArchiveCacheProxy.precalentar y PrecalentadoNoBloqueaTest.
         val tArranque = System.currentTimeMillis()
-        // Precalentado de las DOS puntas, que adentro van en paralelo (ver ArchiveCacheProxy).
         withContext(Dispatchers.IO) {
             runCatching {
                 archiveCacheProxy.precalentar(
-                    play.url, play.headers, fraccion = 0f,
-                    // La cola solo se espera si de ella tiene que salir la duración. Cuando la manda
-                    // el gateway, sigue bajándose por detrás para los sondeos de EOF de VLC.
-                    esperarCola = hayQueSondear,
+                    play.url, play.headers, fraccion = 0f, esperarCola = false,
                 )
             }
         }
-        val msPrecalentado = System.currentTimeMillis() - tArranque
-        // Y la duración sale de ESOS MISMOS bytes, sin pedir nada. El TS no dice cuánto dura y
-        // libVLC no lo deduce sobre HTTP; sin duración la barra queda llena, en 00:00, sin poder
-        // adelantar y sin guardar dónde ibas. El camino BUENO sigue siendo que la diga el gateway
-        // (viene gratis en el resolve para las películas); esto es el respaldo para los capítulos de
-        // serie, que el portal manda sin duración.
-        //
-        // Antes esto era una sonda por red que pedía cabeza y cola por su cuenta — las mismas dos
-        // puntas que el precalentado ya tenía en la mano— y las dos peticiones competían contra el
-        // mismo CDN. Medido en el Fire TV, en 2 de 8 arranques la sonda perdió esa pelea y la
-        // película salió sin duración. La sonda por red queda solo de red de contención, para
-        // cuando el precalentado no pudo.
-        val tSonda = System.currentTimeMillis()
-        val duracion = when {
-            !hayQueSondear -> play.durationMs
-            else -> archiveCacheProxy.duracionDelPrecalentado(play.url).takeIf { it > 0L }
-                ?: withContext(Dispatchers.IO) {
-                    Log.w(PLAY, "loadMagis() sin duracion en el precalentado → sonda por red")
-                    withTimeoutOrNull(TsDurationProbe.PRESUPUESTO_MS) {
-                        TsDurationProbe.probeRemote(play.url, play.headers)
-                    } ?: 0L
-                }
-        }
-        val msSonda = System.currentTimeMillis() - tSonda
         val msArranque = System.currentTimeMillis() - tArranque
-        Log.w(
-            PLAY,
-            "loadMagis() arranque=${msArranque}ms (precalentado=${msPrecalentado}ms, " +
-                "duracion=${msSonda}ms${if (hayQueSondear) "" else " sin sondear"}) → ${duracion}ms",
-        )
+        // Si el gateway mandó la duración, se aprovecha; si no, se arranca sin ella y la completa
+        // VLC al abrir. Nada de esto pide un solo byte extra.
+        val duracion = play.durationMs
+        Log.w(PLAY, "loadMagis() arranque caliente=${msArranque}ms → duracion=${duracion}ms")
         val item = PlayerData(
             episodeId = episodeId,
             itemId = episodeId.substringBefore("::"),
@@ -787,8 +762,7 @@ class PlayerViewModel(
         Log.w(
             PLAY,
             "loadMagis() ⏱ TOTAL=${System.currentTimeMillis() - t0}ms " +
-                "[resolve=${msResolve}ms | arranque=${msArranque}ms " +
-                "(sonda=${msSonda} precal=${msPrecalentado})] startPos=$startPos",
+                "[resolve=${msResolve}ms | arranque=${msArranque}ms] startPos=$startPos",
         )
     }
 

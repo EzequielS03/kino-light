@@ -104,6 +104,9 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
     // Cuándo apareció la PRIMERA imagen de este media (0 = todavía ninguna). Solo para cronometrar
     // el arranque; se reinicia con cada loadMedia para que una recarga no herede la marca vieja.
     private var primerVoutWallMs = 0L
+    // Si ya se avisó "CORRIENDO" para este media. Solo interesa la PRIMERA vez: los estancamientos
+    // posteriores ya los cuenta el "REANUDO tras Nms" de siempre.
+    private var corriendoAvisado = false
     /**
      * Desde cuándo NO hay salida de video, de corrido (0 = ahora mismo sí hay).
      *
@@ -576,6 +579,21 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         } else if (bufferingSinceWallMs > 0L) {
             runCatching { android.util.Log.w("ArkivVlc", "REANUDO tras ${now - bufferingSinceWallMs}ms de pausa (pos=${t}ms)") }
             bufferingSinceWallMs = 0L
+            // La primera vez que el video corre de verdad: EL número que ve el usuario. Los otros
+            // relojes miden tramos ("abrió en", "TOTAL" de loadMagis) y para saber cuánto duró el
+            // spinner había que sumarlos a mano entre líneas sueltas de dos etiquetas distintas.
+            // Ojo con leer "abrió en" como si fuera esto: la primera imagen aparece ANTES de que el
+            // video arranque a caminar, y ese hueco fue de 8,5 s en la peor medición del 2026-08-13.
+            if (!corriendoAvisado && mediaCargadaWallMs > 0L) {
+                corriendoAvisado = true
+                runCatching {
+                    android.util.Log.w(
+                        "ArkivVlc",
+                        "⏱ CORRIENDO a los ${now - mediaCargadaWallMs}ms de loadMedia " +
+                            "(primera imagen a los ${if (primerVoutWallMs > 0L) primerVoutWallMs - mediaCargadaWallMs else -1}ms)",
+                    )
+                }
+            }
         }
     }
 
@@ -635,6 +653,7 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         baseOffsetMs = 0L
         mediaCargadaWallMs = System.currentTimeMillis()
         primerVoutWallMs = 0L
+        corriendoAvisado = false
         // La racha de "sin imagen" mide ESTA carga, no la anterior. Sin este reset se arrastraba
         // entre medias: medido en device, un capítulo nuevo arrancó con `rachaSinVideoMs=371079` a
         // los 11 s de cargar, heredados de la película anterior. Como el rescate solo exige que la
@@ -681,7 +700,17 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
             // puestas TODAS las pistas del stream (ver PlayerScreen). avformat no expone programas,
             // así que no hay ninguno que perder. Forzarlo es la ÚNICA manera de usarlo: avformat
             // tiene "mpegts" en su lista negra salvo que se lo pidan (demux/avformat/demux.c).
-            if (tag?.kind == SourceKind.MAGIS) addOption(":demux=avformat")
+            if (tag?.kind == SourceKind.MAGIS) {
+                addOption(":demux=avformat")
+                // Y se le DICE qué formato es, en vez de dejar que lo adivine. Portado de la app
+                // original de magis, que le pasa a su ijkplayer `setOption(4, "iformat", <formato>)`
+                // con el formato que ya trae su backend (yc/C6276a.java en el decompilado). El
+                // equivalente en libVLC es `avformat-format`, que le llega a avformat como el
+                // `-f mpegts` de ffmpeg: se saltea `av_probe_input_format` y, sobre todo, se saltea
+                // el riesgo de que adivine mal justo cuando la primera lectura del CDN llega lenta.
+                // Todo lo que resuelve magis es MPEG-TS (`video/mp2t`, `..._media.ts`).
+                addOption(":avformat-format=mpegts")
+            }
             // Streams web: algunos hosts exigen Referer/UA o devuelven 403.
             tag?.referer?.takeIf { it.isNotBlank() }?.let { addOption(":http-referrer=$it") }
             tag?.userAgent?.takeIf { it.isNotBlank() }?.let { addOption(":http-user-agent=$it") }
@@ -941,6 +970,34 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
 
     /** ¿VLC está pintando video ahora? Falso mientras reconstruye el vout al volver de segundo plano. */
     fun hasVideoOutput(): Boolean = voutTracker.hayVideo()
+
+    /**
+     * ¿Este media se cargó y TODAVÍA no dio su primera imagen?
+     *
+     * Existe por el "arranca negro y con sonido" de magis: libVLC llega a `Playing` y suelta el
+     * audio en cuanto tiene con qué, pero la primera imagen puede tardar bastante más —el
+     * decodificador HEVC del Fire Stick tiene que arrancar— y en ese hueco `playbackState` ya NO es
+     * `STATE_BUFFERING`, así que la pantalla se queda sin spinner y sin imagen: negro pelado con
+     * audio, que se ve igual que un cuelgue. Medido el 2026-08-13 en el Fire TV, entre la primera
+     * imagen y el video caminando llegó a haber 8,5 s.
+     *
+     * Dos guardias, porque acá el modo de fallar sería dejar el spinner puesto para siempre:
+     *
+     * 1. **Contenido sin video.** Si libVLC ya pobló las pistas y no hay ninguna de video, no hay
+     *    imagen que esperar. Se pregunta por `> 0` en audio y no por "la lista está vacía": al
+     *    principio TODAS las cuentas son 0 y eso no significa que no haya video, significa que
+     *    todavía no sabe.
+     * 2. **Un tope de tiempo igual.** Si algo sale distinto a lo previsto, a los [ESPERA_IMAGEN_MS]
+     *    se muestra lo que haya. Más vale un negro que un spinner eterno encima de un video que sí
+     *    estaba reproduciendo.
+     */
+    fun esperandoPrimeraImagen(): Boolean = EsperaDePrimeraImagen.hayQueEsperar(
+        cargadoHaceMs = if (mediaCargadaWallMs > 0L) System.currentTimeMillis() - mediaCargadaWallMs else -1L,
+        huboImagen = primerVoutWallMs > 0L,
+        hayVideoAhora = voutTracker.hayVideo(),
+        pistasDeVideo = runCatching { mediaPlayer.videoTracksCount }.getOrDefault(0),
+        pistasDeAudio = runCatching { mediaPlayer.audioTracksCount }.getOrDefault(0),
+    )
 
     /** Identidad del layout enganchado ahora mismo, para el diagnóstico de la pantalla negra. */
     @Volatile private var layoutEnganchado: String? = null

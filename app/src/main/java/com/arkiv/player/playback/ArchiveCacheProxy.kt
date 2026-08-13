@@ -1,8 +1,8 @@
 package com.arkiv.player.playback
 
 import com.arkiv.player.data.NodoDeArchive
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
@@ -112,6 +112,31 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
      * seguidas y con offsets distintos, y todas esas son las que hay que contestar sin red.
      */
     private val colas = ConcurrentHashMap<String, Pair<Long, ByteArray>>()
+
+    /**
+     * Colas que TODAVÍA se están bajando, por clave de caché.
+     *
+     * Existe porque desde que el arranque dejó de esperar a la cola, el precalentado de la cola y el
+     * sondeo de EOF de libVLC dejaron de ir en fila y pasaron a ir a la vez: dos conexiones pidiendo
+     * LOS MISMOS bytes del final. Medido en el Fire TV el 2026-08-13, con el CDN en una mala racha,
+     * se rechazaron una a la otra durante 7 s —`origen rechazó bytes=-262144`, `origen rechazó
+     * bytes=632603872-`, dos intentos cada una— y recién al tercero contestó, en 167 ms. VLC tardó
+     * 7719 ms en abrir esperando su propia cola.
+     *
+     * Con esto, quien llega segundo espera a la que ya está en vuelo en vez de abrir una conexión
+     * que compite. Es la misma idea de [BufferQueCrece] para la cabeza: una sola descarga, varios
+     * lectores.
+     */
+    private val colasEnVuelo = ConcurrentHashMap<String, java.util.concurrent.CountDownLatch>()
+
+    /**
+     * Cuánto se le espera a una cola en vuelo antes de ir al origen igual.
+     *
+     * Generoso a propósito: acá esperar NO es tiempo perdido —la descarga que se espera es la que va
+     * a contestar— y el plazo solo existe para que un precalentado que murió sin avisar no deje al
+     * reproductor colgado. Pasado el plazo se pide al origen, que es lo que se hacía siempre.
+     */
+    private val ESPERA_COLA_EN_VUELO_MS = 10_000L
 
     /** Cuánto del final se guarda. Igual que la sonda de duración: 256 KB alcanzan y sobran. */
     private val COLA_CALIENTE = TsDurationProbe.PROBE_BYTES
@@ -963,17 +988,21 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
             runCatching { bajarArranque(originUrl, headers, inicio, perfil, buffer) }
             buffer.cerrar()
         }.apply { isDaemon = true; name = "arkiv-precalentar" }.start()
-        // La cola: se espera solo si de ella sale la duración (ver [esperarCola]). Cuando no, va en
-        // un Thread y NO en un `async`, a propósito: `withContext` no vuelve hasta que sus hijos
-        // terminan, así que un `async` sin `await()` seguiría bloqueando igual — la corrutina hija
-        // no escapa del scope, el hilo sí.
-        val cola = if (esperarCola) {
-            async { runCatching { precalentarCola(originUrl, headers, key, perfil) }.getOrNull() }
-        } else {
-            Thread { runCatching { precalentarCola(originUrl, headers, key, perfil) } }
-                .apply { isDaemon = true; name = "arkiv-precalentar-cola" }.start()
-            null
-        }
+        // La cola SIEMPRE va en un Thread, nunca en un `async`, y esto no es una preferencia de
+        // estilo: `withContext` no vuelve hasta que sus hijos terminan. Un `async` es hijo, así que
+        // el `withTimeoutOrNull` de abajo cancelaba la ESPERA y no el trabajo, y al salir del bloque
+        // esta misma función se quedaba quieta aguardando a la cola de la que acababa de
+        // desentenderse. Medido en el Fire TV el 2026-08-13 con un capítulo de serie: el log decía
+        // «la cola no llegó en 2000ms» y el precalentado igual tardó 9218 ms. El hilo SÍ escapa del
+        // scope, y por eso el plazo pasa a ser un plazo. Ver PrecalentadoNoBloqueaTest.
+        //
+        // `esperarCola` ya solo decide si alguien mira el resultado; el trabajo se lanza igual,
+        // porque los sondeos de EOF de libVLC quieren esa cola en memoria en los dos casos.
+        val cola = CompletableDeferred<Unit>()
+        Thread {
+            runCatching { precalentarCola(originUrl, headers, key, perfil) }
+            cola.complete(Unit)
+        }.apply { isDaemon = true; name = "arkiv-precalentar-cola" }.start()
 
         // Lo ÚNICO que se espera siempre: que el arranque haya empezado a fluir. Con eso alcanza
         // para que la primera lectura de libVLC se responda al instante, que es lo que evitaba el
@@ -987,7 +1016,7 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
         // Pasado este plazo se reproduce SIN duración: la barra queda fea, pero el video arranca.
         // Al revés no — nunca frenar el video por una barra de progreso. La cola sigue bajando
         // igual por detrás, así que los sondeos de EOF de VLC la encuentran cuando llegue.
-        if (cola != null && withTimeoutOrNull(ESPERA_COLA_MS) { cola.await() } == null) {
+        if (esperarCola && withTimeoutOrNull(ESPERA_COLA_MS) { cola.await() } == null) {
             android.util.Log.w(
                 "ArchiveCacheProxy",
                 "la cola no llegó en ${ESPERA_COLA_MS}ms → se reproduce sin duración",
@@ -1071,6 +1100,25 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
         perfil: PoliticaOrigen.Perfil,
     ) {
         val t0 = System.currentTimeMillis()
+        // Se avisa ANTES de abrir, no después: la carrera que esto evita empieza en cuanto libVLC
+        // abre el media, que es milisegundos después de que arranque este hilo.
+        val enVuelo = java.util.concurrent.CountDownLatch(1)
+        colasEnVuelo[key] = enVuelo
+        try {
+            precalentarColaAdentro(originUrl, headers, key, perfil, t0)
+        } finally {
+            colasEnVuelo.remove(key)
+            enVuelo.countDown()
+        }
+    }
+
+    private fun precalentarColaAdentro(
+        originUrl: String,
+        headers: Map<String, String>,
+        key: String,
+        perfil: PoliticaOrigen.Perfil,
+        t0: Long,
+    ) {
         val (conn, _) = abrirEnOrigen(
             originUrl, "bytes=-$COLA_CALIENTE", headers, claveUnica = null, perfil = perfil,
         ) ?: run {
@@ -1125,6 +1173,20 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
         // llevaba el arranque — ver ColaCaliente para la medición. Solo aplica sin ventana: con
         // `f=` los bytes que ve el reproductor están corridos y estos NO son los suyos.
         if (inicio == 0L && claveUnica != null) {
+            // Si la cola TODAVÍA se está bajando, se la espera en vez de abrir una conexión que le
+            // compita por los mismos bytes (ver [colasEnVuelo] para la medición). Solo para rangos
+            // que no empiezan en 0: `bytes=0-` es la primera lectura de libVLC —la cabeza— y esa la
+            // contesta el arranque caliente, no la cola.
+            val enVuelo = colasEnVuelo[claveUnica]
+            if (enVuelo != null && colas[claveUnica] == null && (rangoCliente?.start ?: 0L) > 0L) {
+                val t = System.currentTimeMillis()
+                val llego = enVuelo.await(ESPERA_COLA_EN_VUELO_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+                android.util.Log.w(
+                    "ArchiveCacheProxy",
+                    "cola en vuelo: $rangeHeader esperó ${System.currentTimeMillis() - t}ms " +
+                        "(${if (llego) "llegó" else "venció el plazo, voy al origen"})",
+                )
+            }
             val guardada = colas[claveUnica]
             val total = totales[origin] ?: 0L
             val trozo = guardada?.let { (desde, cola) ->

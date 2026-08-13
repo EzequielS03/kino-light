@@ -704,6 +704,11 @@ private fun PlayerContent(
     // colgado en contenido de solo audio (que nunca tiene vout).
     var esperandoVideo by remember { mutableStateOf(false) }
 
+    // Distinto de [esperandoVideo], que es "HABÍA imagen y se perdió al volver del fondo". Esto es
+    // "todavía no hubo ninguna": el arranque negro con sonido. Lo decide VlcPlayer, que es quien
+    // sabe de pistas y de vout; acá solo se sondea. Ver VlcPlayer.esperandoPrimeraImagen.
+    var sinPrimeraImagen by remember { mutableStateOf(false) }
+
     // Identidad de ESTA composición del reproductor. Al recrearse la pantalla (volver del segundo
     // plano, navegación) llegan a convivir dos, cada una con su layout y su observador de ciclo de
     // vida; sin poder nombrarlas, en el log se ven como la misma y no hay manera de saber cuál
@@ -953,6 +958,22 @@ private fun PlayerContent(
             "UI barra · controlsVisible=$controlsVisible isBuffering=$isBuffering casting=$casting " +
                 "dlna=${dlnaActive != null} marcando=${markingMode != null} error=${loadError != null} " +
                 "→ overlay=${controlsVisible && loadError == null && dlnaActive == null && markingMode == null}",
+        )
+    }
+
+    // El SPINNER DE CARGA, que es otra cosa que el overlay de controles de arriba (ese log dice
+    // `overlay=` y es la barra de transporte; confundirlos cuesta una ronda de medición).
+    //
+    // Se loguea aparte porque el fallo que interesa es invisible desde afuera: el arranque negro con
+    // sonido es exactamente el instante en que `isBuffering` ya es false y todavía no hay imagen, o
+    // sea que ninguna de las señales viejas lo delata. Con `sinImagen` se ve si el spinner tapó ese
+    // hueco o si la pantalla se quedó en negro.
+    LaunchedEffect(playlist == null, isBuffering, sinPrimeraImagen, esperandoVideo, casting) {
+        android.util.Log.w(
+            "ArkivVlc",
+            "spinner=${playlist == null || isBuffering || sinPrimeraImagen || (esperandoVideo && !casting)} " +
+                "· sinPlaylist=${playlist == null} buffering=$isBuffering sinImagen=$sinPrimeraImagen " +
+                "perdioVideo=$esperandoVideo",
         )
     }
 
@@ -1249,6 +1270,10 @@ private fun PlayerContent(
                 contentDurationMs().let { if (it > 0) durationMs = it }
             }
             subsOn = vlc.currentSpuTrack() >= 0
+            // "Arranca negro y con sonido": mientras libVLC ya suelta el audio pero todavía no dio
+            // la primera imagen, `playbackState` NO es BUFFERING y la pantalla se quedaba sin
+            // spinner y sin imagen. Casteando no aplica: la imagen la pone la TV, no nosotros.
+            sinPrimeraImagen = !casting && vlc.esperandoPrimeraImagen()
             // Si el video está sonando, un fallo de reproducción anterior ya no describe nada (y
             // encima estaría tapando estos mismos controles). No-op salvo justo después de uno.
             if (ready && activePlayer.isPlaying) vm.onReproduccionViva()
@@ -2077,7 +2102,7 @@ private fun PlayerContent(
         // `esperandoVideo` también se anula casteando: espera a que VLC recupere su salida de video
         // local (hasta 15s tras volver del fondo), que casteando no importa ni va a llegar.
         if (loadError == null && dlnaActive == null &&
-            (playlist == null || isBuffering || (esperandoVideo && !casting))
+            (playlist == null || isBuffering || sinPrimeraImagen || (esperandoVideo && !casting))
         ) {
             val preBuffer = playlist == null && sourceIsTorrent
             val p = if (preBuffer) prepProgress else progress
