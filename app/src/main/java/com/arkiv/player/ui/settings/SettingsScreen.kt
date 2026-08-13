@@ -136,6 +136,8 @@ fun SettingsScreen(contentPadding: PaddingValues) {
         UpdateSection(checking = checkingUpdate, onCheck = ::checkForUpdatesNow)
 
         AccountSection(account)
+
+        MisAparatosSection(graph.misAparatosViewModel)
     }
 }
 

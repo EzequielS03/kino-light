@@ -530,6 +530,21 @@ class AppGraph(context: Context) {
         )
     }
 
+    /**
+     * "Mis aparatos" (Task 6): lista/saca los aparatos de la cuenta. `recordIdDeEsteAparato` lee la
+     * sesión viva del device -no un valor capturado- por el mismo motivo que [cuentaApi] lee
+     * `deviceAuth.session.value?.token`: al construirse este grafo el bootstrap puede no haber
+     * terminado. Una sola instancia (graph-level, como [accountManager]) para que el celular y la
+     * TV -[com.arkiv.player.ui.settings.SettingsScreen]/[com.arkiv.player.ui.tv.TvSettingsScreen]-
+     * compartan el mismo estado.
+     */
+    val misAparatosViewModel: com.arkiv.player.ui.settings.MisAparatosViewModel by lazy {
+        com.arkiv.player.ui.settings.MisAparatosViewModel(
+            cuentaApi = cuentaApi,
+            sesion = sesionDePersona,
+        ) { deviceAuth.session.value?.recordId }
+    }
+
     /** Vincular/desvincular la cuenta de Magis con la cuenta Arkiv (mismas fuentes de baseUrl/apiKey que [arkivApiClient]). */
     val magisLinkClient: com.arkiv.player.pocketbase.MagisLinkClient by lazy {
         com.arkiv.player.pocketbase.MagisLinkClient(
