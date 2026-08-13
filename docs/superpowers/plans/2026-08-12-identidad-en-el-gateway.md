@@ -50,7 +50,7 @@ Todos bajo `/v1/cuenta`, con `Authorization`. En `registrar` es el token del apa
 |---|---|---|---|
 | `POST /registrar` | `Authorization: <token de devices>` | `{email, password, licencia}` | `201 {userId, accountId}` · `400 licencia_invalida` · `409 email_en_uso` |
 | `POST /aparatos` | token de persona | `{deviceToken}` | `200 {kind, usados, tope}` · `403 tope_alcanzado` · `404` |
-| `GET /aparatos` | token de persona | — | `200 {aparatos: [{id, kind, nombre, ultimoUso, esteAparato}]}` |
+| `GET /aparatos` | token de persona | — | `200 {aparatos: [{id, kind, nombre, ultimoUso}]}` |
 | `DELETE /aparatos/{id}` | token de persona | — | `204` · `404` |
 
 Errores con forma estable: `{"detail": {"codigo": "licencia_invalida", "mensaje": "..."}}`. El `codigo` es lo que la app ramifica; el `mensaje` es lo que muestra.
@@ -1233,4 +1233,8 @@ Las migraciones se commitean en el repo `archive`, con su propio commit.
 - TV sin login manual: solo pareo, y el pareo pasa por `POST /v1/cuenta/aparatos`.
 - "Mis aparatos" en ajustes.
 - 401/403 → pantalla de entrada; 5xx y sin red → aviso, sin cortar la sesión.
+**Y algo que este plan NO cubre y el plan 3 tiene que agendar:** `require_sesion` hoy solo esta en `/v1/cuenta`. Los nueve routers de contenido siguen protegidos unicamente por `require_key`. Si el plan 3 retira la llave sin poner `require_sesion` en esos routers, los deja **sin ninguna autenticacion** — abiertos a internet. El retiro de la llave y el cableado de la sesion son la misma tarea, no dos.
+
+`esteAparato` no se puede calcular desde un token de persona (no hay forma de saber cual de los aparatos es el que pregunta). Si la pantalla "Mis aparatos" lo necesita, la app tiene que mandar su propia identidad; queda para el plan 3 decidir como.
+
 - **Última tarea de todas:** sacar `ARKIV_API_KEY` de los **7** archivos que hoy mandan `X-Arkiv-Key` (`ArkivApiClient`, `LiveApi`, `TmdbApi`, `SimklApi`, `MirrorApiClient`, `SubtitleApi`, `MagisLinkClient`) y del `buildConfigField`, y recién ahí retirar `require_key` del gateway. Ese es el corte limpio del spec.
