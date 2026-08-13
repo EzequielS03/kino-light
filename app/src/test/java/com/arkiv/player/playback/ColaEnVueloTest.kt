@@ -46,8 +46,18 @@ class ColaEnVueloTest {
         }
     }
 
-    /** Peticiones de COLA que llegaron al origen (sufijo o rango cerca del final). */
-    private val colasPedidas = java.util.concurrent.atomic.AtomicInteger(0)
+    /**
+     * Se cuentan por SEPARADO las dos formas de pedir el final, porque significan cosas opuestas:
+     *
+     * - por SUFIJO (`bytes=-N`) pide el precalentado, y ese puede salir duplicado a propósito cuando
+     *   el origen se demora (ver ColaDuplicadaTest). Que sean dos ahí es la conducta buscada.
+     * - por rango ABSOLUTO cerca del final pide el reproductor, y ese es el que NO tiene que llegar
+     *   nunca a la red: para eso se le hace esperar la cola que ya viene bajando.
+     *
+     * Contarlos juntos —como se hacía— convertía el duplicado en un falso fallo de este test.
+     */
+    private val precalentados = java.util.concurrent.atomic.AtomicInteger(0)
+    private val sondeosDelReproductor = java.util.concurrent.atomic.AtomicInteger(0)
 
     @Before
     fun setUp() {
@@ -64,7 +74,8 @@ class ColaEnVueloTest {
                     }
                     else -> 0 to (TOTAL - 1)
                 }
-                if (desde > TOTAL / 2) colasPedidas.incrementAndGet()
+                if (esSufijo) precalentados.incrementAndGet()
+                else if (desde > TOTAL / 2) sondeosDelReproductor.incrementAndGet()
                 val trozo = archivo.copyOfRange(desde, hasta + 1)
                 return MockResponse().setResponseCode(206)
                     .setHeader("Content-Range", "bytes $desde-$hasta/$TOTAL")
@@ -102,8 +113,8 @@ class ColaEnVueloTest {
 
         assertEquals("tiene que entregar el tramo entero", (TOTAL - pedido).toInt(), cuerpo.size)
         assertEquals(
-            "el final se pidió más de una vez: el sondeo abrió su propia conexión en vez de esperar",
-            1, colasPedidas.get(),
+            "el sondeo del reproductor abrió su propia conexión en vez de esperar la que ya bajaba",
+            0, sondeosDelReproductor.get(),
         )
     }
 

@@ -752,6 +752,24 @@ class PlayerViewModel(
             },
         )
         val startPos = safeStartPosition(episodeId, SourceKind.MAGIS)
+        // REANUDAR: se le avisa al proxy A DÓNDE va a saltar el reproductor, para que prepare esa
+        // zona mientras el video abre. libVLC abre siempre en el byte 0 y recién después busca el
+        // minuto guardado: medido en el Fire TV, entre una cosa y la otra se bajaban 2,5 MB del
+        // principio de la película que después se tiraban, y eso costaba 3,4 s con la imagen
+        // congelada en el segundo 0. Ver ArchiveCacheProxy.precalentarSalto.
+        //
+        // La duración sale del progreso GUARDADO y no del gateway: acá el gateway suele mandar 0
+        // (la duración la calcula VLC al abrir, que es demasiado tarde para esto), mientras que
+        // quien ya vio un pedazo del capítulo tiene la duración anotada de esa vez.
+        if (startPos > 0L) {
+            val guardado = runCatching { repo.getPlayback(episodeId) }.getOrNull()
+            val duracionGuardada = guardado?.durationMs ?: 0L
+            if (duracionGuardada > 0L) {
+                archiveCacheProxy.precalentarSalto(
+                    play.url, play.headers, startPos.toFloat() / duracionGuardada,
+                )
+            }
+        }
         // El arranque caliente ya está en la mano (se pidió arriba, en paralelo con la sonda): la
         // espera del CDN ocurrió ANTES de abrir el video, donde el usuario ve el spinner de
         // siempre, en vez de convertirse en un fallo del que no se vuelve.

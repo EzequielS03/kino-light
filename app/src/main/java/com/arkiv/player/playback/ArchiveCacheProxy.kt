@@ -138,6 +138,62 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
      */
     private val ESPERA_COLA_EN_VUELO_MS = 10_000L
 
+    /**
+     * Un tramo del archivo alrededor de un punto de SALTO, guardado en memoria.
+     *
+     * El porqué, medido en el Fire TV el 2026-08-13 reanudando una película en 13:26: libVLC no salta
+     * de una: **bisecta**. Pidió diez rangos seguidos —`bytes=62148288-`, `63899508-`, `63533848-`,
+     * `63443420-`…— leyendo unos cientos de KB de cada uno y cortando la conexión enseguida. Cada uno
+     * abría su propia conexión al CDN a ~300 ms. Y los diez caían adentro de **1,8 MB** del archivo.
+     *
+     * Con esto, el primero de esos rangos deja una ventana en memoria y los otros nueve se contestan
+     * sin tocar la red. Es lo mismo que hace la app original por otro camino: su reproductor nunca le
+     * pide bytes al CDN, le avisa al motor de descarga a qué punto va (`Seek {moment, offset}`, ver
+     * `yc/C6280e.java` en la decompilada) y el motor prepara la zona.
+     *
+     * La ventana NO se baja por adelantado, y esa es la parte importante: se llena con la conexión
+     * que el reproductor ya abrió, **siguiendo después de que él corta**. Así la reproducción
+     * secuencial —que nunca corta— no paga nada, ni una conexión ni un byte de más.
+     */
+    private class VentanaDeSalto(val inicio: Long, val buffer: BufferQueCrece) {
+        /** Si [pedido] cae dentro de lo que YA hay guardado. */
+        fun cubre(pedido: Long): Boolean =
+            pedido >= inicio && pedido < inicio + buffer.disponible
+    }
+
+    private val saltos = ConcurrentHashMap<String, MutableList<VentanaDeSalto>>()
+
+    /**
+     * Cuánto se guarda alrededor de un salto. 4 MB cubre con margen los 1,8 MB que abarcó la
+     * bisección medida, y es plata: son 4 MB de RAM en un Fire Stick.
+     */
+    private val VENTANA_SALTO = 4 * 1024 * 1024
+
+    /** Cuántas ventanas por archivo. Dos: la del salto de ahora y la del anterior, nada más. */
+    private val VENTANAS_POR_ARCHIVO = 2
+
+    /**
+     * Cuánto ANTES del byte estimado arranca la ventana del salto precalentado, y cuánto abarca.
+     *
+     * Salen de medir, no de elegir un número redondo: en dos reanudaciones reales el desvío entre el
+     * byte que estima la tasa constante y los que el reproductor terminó pidiendo fue de **-2,7 MB a
+     * +3,7 MB**. Arrancar 4 MB antes y cubrir 8 abarca ese rango entero con algo de aire.
+     */
+    private val MARGEN_SALTO = 4L * 1024 * 1024
+    private val VENTANA_SALTO_PRECALENTADA = 8 * 1024 * 1024
+
+    /**
+     * Cuánto se le da a la primera conexión antes de pedir la cola por una segunda en paralelo.
+     *
+     * 1,2 s: más que el caso bueno del CDN (0,2-0,8 s medidos) y bastante menos que el plazo de
+     * 3 s con el que se da por muerta. Ahí es donde este duplicado gana: cuando la primera va camino
+     * a no contestar, no hay que esperar a que se rinda para volver a tirar los dados.
+     */
+    private val DUPLICAR_TRAS_MS = 1_200L
+
+    /** Cuántas conexiones como mucho para la cola. Dos: el duplicado, no una ráfaga. */
+    private val TIROS_A_LA_COLA = 2
+
     /** Cuánto del final se guarda. Igual que la sonda de duración: 256 KB alcanzan y sobran. */
     private val COLA_CALIENTE = TsDurationProbe.PROBE_BYTES
     private val initLocks = ConcurrentHashMap<String, Any>()
@@ -1112,6 +1168,64 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
         }
     }
 
+    /**
+     * Pide [rango] al origen y, si a los [DUPLICAR_TRAS_MS] todavía no contestó, vuelve a pedirlo por
+     * OTRA conexión y se queda con la que llegue primero.
+     *
+     * El porqué, medido en el Fire TV el 2026-08-13 con un capítulo nuevo: el CDN rechazó la cola dos
+     * veces seguidas —sin contestar nada, que es como falla este CDN— y cada rechazo cuesta los 3 s
+     * de plazo de [PoliticaOrigen.Perfil.MAGIS]. VLC, que necesita el final del archivo para abrir,
+     * se quedó esperando **7,3 s**. El reintento en serie no ayuda: espera a que el anterior se dé
+     * por vencido para recién ahí volver a tirar los dados.
+     *
+     * Que el CDN aguante conexiones simultáneas no es una suposición: está medido (dos al mismo
+     * archivo conviven, la segunda contestó en 0,77 s con la primera descargando). Y el costo del
+     * duplicado es acotado — como mucho una petición de más, y solo cuando la primera ya se está
+     * demorando más de lo normal.
+     *
+     * La app original resuelve esto por otro lado: su motor nativo tiene VARIOS nodos de CDN con su
+     * latencia medida (`Status.links`, `Status.latency`) y elige. Nosotros tenemos un solo nodo, así
+     * que lo que se puede variar es la conexión, no el destino.
+     */
+    private fun abrirConDuplicado(
+        origin: String,
+        rango: String?,
+        headers: Map<String, String>,
+        perfil: PoliticaOrigen.Perfil,
+    ): Pair<HttpURLConnection, ConexionUnica.Cerrable>? {
+        val ganador = java.util.concurrent.atomic.AtomicReference<Pair<HttpURLConnection, ConexionUnica.Cerrable>?>()
+        val terminados = java.util.concurrent.atomic.AtomicInteger(0)
+        val listo = java.util.concurrent.CountDownLatch(1)
+        repeat(TIROS_A_LA_COLA) { i ->
+            Thread {
+                // El duplicado sale TARDE a propósito: si la primera contesta a tiempo —el caso
+                // normal— este hilo se despierta, ve que ya hay ganador y no toca la red.
+                if (i > 0) runCatching { Thread.sleep(DUPLICAR_TRAS_MS) }
+                if (ganador.get() == null) {
+                    val r = runCatching { abrirEnOrigen(origin, rango, headers, null, perfil) }.getOrNull()
+                    if (r != null) {
+                        if (ganador.compareAndSet(null, r)) {
+                            if (i > 0) {
+                                android.util.Log.w(
+                                    "ArchiveCacheProxy",
+                                    "ganó el pedido DUPLICADO de ${rango ?: "(todo)"}",
+                                )
+                            }
+                            listo.countDown()
+                        } else {
+                            // Llegó segunda: su conexión no le sirve a nadie y hay que soltarla, o
+                            // se queda drenando el archivo contra el mismo CDN que estamos apurando.
+                            runCatching { r.first.disconnect() }
+                        }
+                    }
+                }
+                if (terminados.incrementAndGet() == TIROS_A_LA_COLA) listo.countDown()
+            }.apply { isDaemon = true; name = "arkiv-cola-$i" }.start()
+        }
+        runCatching { listo.await() }
+        return ganador.get()
+    }
+
     private fun precalentarColaAdentro(
         originUrl: String,
         headers: Map<String, String>,
@@ -1119,8 +1233,8 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
         perfil: PoliticaOrigen.Perfil,
         t0: Long,
     ) {
-        val (conn, _) = abrirEnOrigen(
-            originUrl, "bytes=-$COLA_CALIENTE", headers, claveUnica = null, perfil = perfil,
+        val (conn, _) = abrirConDuplicado(
+            originUrl, "bytes=-$COLA_CALIENTE", headers, perfil,
         ) ?: run {
             android.util.Log.w("ArchiveCacheProxy", "precalentar cola: el origen no la dio")
             return
@@ -1147,6 +1261,135 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
             "precalentada la cola: ${bytes.size / 1024}KB desde $inicio (total=$total) " +
                 "en ${System.currentTimeMillis() - t0}ms",
         )
+    }
+
+    /**
+     * Contesta [pedido] con lo que hay en [v], sin tocar la red. Devuelve false si no alcanzó y hay
+     * que ir al origen como siempre.
+     *
+     * Solo sirve el tramo que puede entregar ENTERO, y por eso el `Content-Length` que manda es el
+     * de ese tramo y no el del resto del archivo: un cuerpo más corto que el largo anunciado deja al
+     * reproductor esperando bytes que no van a llegar, sin error visible — el mismo cuidado que ya
+     * documenta [ColaCaliente]. Si el reproductor quiere más, lo pide con otro rango, que es
+     * exactamente lo que hace al bisecar.
+     */
+    private fun servirDeVentana(
+        v: VentanaDeSalto,
+        pedido: Long,
+        total: Long,
+        out: java.io.OutputStream,
+        rangeHeader: String?,
+    ): Boolean {
+        val desde = (pedido - v.inicio).toInt()
+        val trozo = runCatching { v.buffer.porcion(desde) }.getOrNull() ?: return false
+        if (trozo.isEmpty()) return false
+        val fin = pedido + trozo.size - 1
+        // DESDE ACÁ NO SE PUEDE VOLVER. En cuanto la cabecera sale por el socket, la respuesta está
+        // comprometida: devolver false haría que el passthrough escribiera OTRA respuesta HTTP
+        // encima de esta, por la misma conexión. Se descubrió por test —un sondeo servía bien y el
+        // de al lado no, sin patrón— y el motivo era justo ese: el reproductor corta a mitad del
+        // cuerpo (lee lo que quiere y se va), el `write` fallaba y esto caía al origen habiendo ya
+        // contestado. Que el cliente se vaya no es un fallo: es lo normal cuando bisecta.
+        runCatching {
+            out.write(
+                (
+                    "HTTP/1.1 206 Partial Content\r\nAccept-Ranges: bytes\r\n" +
+                        "Content-Length: ${trozo.size}\r\n" +
+                        "Content-Range: bytes $pedido-$fin/$total\r\n" +
+                        "Content-Type: application/octet-stream\r\n\r\n"
+                    ).toByteArray(),
+            )
+            out.write(trozo)
+            out.flush()
+        }
+        android.util.Log.w(
+            "ArchiveCacheProxy",
+            "ventana de salto: $rangeHeader servido de memoria (${trozo.size / 1024}KB, sin red)",
+        )
+        return true
+    }
+
+    /**
+     * Prepara la zona a la que el reproductor va a SALTAR al reanudar, antes de que la pida.
+     *
+     * El porqué, medido en el Fire TV el 2026-08-13 reanudando una película en 13:29: libVLC abre
+     * SIEMPRE en el byte 0 y recién después busca el minuto guardado. Entre una cosa y la otra se
+     * bajó **2,5 MB del principio de la película que después tiró**, y eso costó 3,4 s con el
+     * reproductor clavado en `pos=0` — casi un tercio de los 10,8 s que tardó en arrancar.
+     *
+     * Es la pieza que le faltaba a nuestra copia del diseño de la app original: ella le manda a su
+     * motor de descarga `Seek {moment}` **antes** de saltar, con callback, justamente para que la
+     * zona esté lista cuando el reproductor llegue (ver `yc/C6280e.java` en la decompilada).
+     *
+     * El byte se estima suponiendo tasa constante, y eso NO es una licencia: se comprobó contra dos
+     * reanudaciones reales antes de escribirlo. Estimado 119,4 MB → pedidos en 116,7 y 120,5 MB;
+     * estimado 76,1 MB → pedidos entre 76,2 y 79,8 MB. O sea un desvío de -2,7 a +3,7 MB, que es de
+     * dónde salen [MARGEN_SALTO] y el tamaño de esta ventana: empezar antes del estimado y cubrir
+     * para los dos lados. Si aun así se erra, no se pierde nada — la ventana reactiva de siempre
+     * sigue estando.
+     *
+     * No bloquea a nadie: se va a un hilo y el arranque sigue. Si no llega a tiempo, el reproductor
+     * pide por red como hacía antes.
+     */
+    fun precalentarSalto(
+        originUrl: String,
+        headers: Map<String, String> = emptyMap(),
+        fraccion: Float,
+        perfil: PoliticaOrigen.Perfil = PoliticaOrigen.Perfil.MAGIS,
+    ) {
+        if (fraccion <= 0f || fraccion >= 1f) return
+        val key = cache.keyFor(originUrl)
+        Thread {
+            // El tamaño lo trae la cola, que va bajando en paralelo. Se la espera acá —en un hilo
+            // que no frena nada— en vez de pedir el tamaño por separado, que sería otra petición al
+            // mismo CDN al que estamos tratando de no molestar.
+            val limite = System.currentTimeMillis() + ESPERA_COLA_EN_VUELO_MS
+            var total = totales[originUrl] ?: 0L
+            while (total <= 0L && System.currentTimeMillis() < limite) {
+                Thread.sleep(100)
+                total = totales[originUrl] ?: 0L
+            }
+            if (total <= 0L) {
+                android.util.Log.w("ArchiveCacheProxy", "salto: sin tamaño del archivo, no se precalienta")
+                return@Thread
+            }
+            val destino = (total * fraccion.toDouble()).toLong()
+            val inicio = (destino - MARGEN_SALTO).coerceAtLeast(0L)
+            val t0 = System.currentTimeMillis()
+            val buffer = BufferQueCrece(VENTANA_SALTO_PRECALENTADA)
+            registrarVentana(key, inicio, buffer)
+            val abierta = abrirEnOrigen(originUrl, "bytes=$inicio-", headers, null, perfil)
+            if (abierta == null) {
+                buffer.cerrar()
+                android.util.Log.w("ArchiveCacheProxy", "salto: el origen no dio el tramo de $inicio")
+                return@Thread
+            }
+            runCatching {
+                abierta.first.inputStream.use { ins ->
+                    val buf = ByteArray(64 * 1024)
+                    while (buffer.disponible < VENTANA_SALTO_PRECALENTADA) {
+                        val n = ins.read(buf); if (n < 0) break
+                        buffer.escribir(buf, n)
+                    }
+                }
+            }
+            buffer.cerrar()
+            runCatching { abierta.first.disconnect() }
+            android.util.Log.w(
+                "ArchiveCacheProxy",
+                "salto precalentado: ${buffer.disponible / 1024}KB desde $inicio " +
+                    "(destino estimado $destino) en ${System.currentTimeMillis() - t0}ms",
+            )
+        }.apply { isDaemon = true; name = "arkiv-precalentar-salto" }.start()
+    }
+
+    /** Anota una ventana nueva para [clave], tirando la más vieja si ya hay demasiadas. */
+    private fun registrarVentana(clave: String, inicio: Long, buffer: BufferQueCrece) {
+        val lista = saltos.computeIfAbsent(clave) { java.util.Collections.synchronizedList(mutableListOf()) }
+        synchronized(lista) {
+            lista.add(VentanaDeSalto(inicio, buffer))
+            while (lista.size > VENTANAS_POR_ARCHIVO) lista.removeAt(0)
+        }
     }
 
     /** Passthrough directo origen→VLC (sin cachear), último recurso si no se pudo iniciar la descarga. */
@@ -1186,6 +1429,18 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                     "cola en vuelo: $rangeHeader esperó ${System.currentTimeMillis() - t}ms " +
                         "(${if (llego) "llegó" else "venció el plazo, voy al origen"})",
                 )
+            }
+            // SALTO YA GUARDADO: si este rango cae en una ventana de un salto anterior, se contesta
+            // de memoria. Es el caso de los nueve rangos que siguen al primero de una bisección.
+            val pedido = rangoCliente?.start ?: 0L
+            val totalConocido = totales[origin] ?: 0L
+            if (pedido > 0L && totalConocido > 0L) {
+                // `synchronized` y no `firstOrNull` a secas: la lista la escribe cualquier hilo que
+                // esté atendiendo otro rango del mismo archivo, y recorrerla sin el candado es
+                // exactamente la carrera que hace que un salto se sirva bien y el de al lado no.
+                val lista = saltos[claveUnica]
+                val v = if (lista != null) synchronized(lista) { lista.firstOrNull { it.cubre(pedido) } } else null
+                if (v != null && servirDeVentana(v, pedido, totalConocido, out, rangeHeader)) return true
             }
             val guardada = colas[claveUnica]
             val total = totales[origin] ?: 0L
@@ -1258,6 +1513,14 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
             append("Content-Type: application/octet-stream\r\n\r\n")
         }
         out.write(resp.toByteArray())
+        // Se guarda ventana solo para los SALTOS: `bytes=0-` es la lectura principal, esa nunca la
+        // corta el reproductor y guardarla sería 4 MB de RAM a cambio de nada. Tampoco si el tramo
+        // ya lo estaba sirviendo el arranque caliente, que tiene su propio buffer.
+        val ventana = if (
+            claveUnica != null && inicio == 0L && caliente == null && (rangoCliente?.start ?: 0L) > 0L
+        ) {
+            BufferQueCrece(VENTANA_SALTO).also { registrarVentana(claveUnica, rangoCliente!!.start, it) }
+        } else null
         var escritos = 0L
         val t0 = System.currentTimeMillis()
         try {
@@ -1299,13 +1562,37 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                         porDescartar -= n
                     }
                 }
+                // VENTANA DE SALTO. Este tramo se copia a memoria MIENTRAS se le manda al
+                // reproductor, y si él corta —que es lo que hace al bisecar un salto— se sigue
+                // leyendo hasta llenarla. Los bytes que se guardan son los que esta conexión iba a
+                // traer igual: antes se tiraban con el `disconnect()` de acá abajo. Ver
+                // [VentanaDeSalto] para la medición de los diez rangos.
+                var cortoElCliente = false
                 while (true) {
                     val n = ins.read(buf); if (n < 0) break
-                    out.write(buf, 0, n); escritos += n
+                    ventana?.escribir(buf, n)
+                    if (!cortoElCliente) {
+                        val entregado = runCatching { out.write(buf, 0, n) }.isSuccess
+                        if (entregado) escritos += n else cortoElCliente = true
+                    }
+                    // Sin ventana no hay nada que ganar leyendo un archivo que nadie mira.
+                    if (cortoElCliente && ventana == null) break
+                    if (cortoElCliente && (ventana?.disponible ?: 0) >= VENTANA_SALTO) break
+                }
+                // Solo si de verdad hubo ventana: cortar sin ventana es lo normal en la lectura
+                // principal, y anunciarlo como "0KB guardados" hacía parecer que la ventana había
+                // fallado cuando ni siquiera correspondía abrir una.
+                if (cortoElCliente && ventana != null) {
+                    android.util.Log.w(
+                        "ArchiveCacheProxy",
+                        "ventana de salto en ${rangoCliente?.start}: " +
+                            "${ventana.disponible / 1024}KB guardados tras cortar el reproductor",
+                    )
                 }
             }
             out.flush()
         } finally {
+            ventana?.cerrar()
             claveUnica?.let { soltarViva(it) }
             // disconnect() SIEMPRE, también cuando el reproductor corta la conexión a mitad (seek →
             // "broken pipe"). Antes la excepción se saltaba esta línea y la conexión al CDN quedaba
