@@ -52,9 +52,13 @@ class ColaDuplicadaTest {
         origen.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val rango = request.getHeader("Range").orEmpty()
-                val esCola = rango.startsWith("bytes=-")
+                // La cola se pide por rango CERRADO al final del archivo (ver
+                // ColaPorRangoAbsolutoTest: este CDN no contesta los sufijos). Lo que llega abierto
+                // —`bytes=N-`— es el reproductor leyendo, no el precalentado.
+                val esCola = Regex("""bytes=(\d+)-(\d+)""").find(rango)
+                    ?.let { it.groupValues[1].toInt() > TOTAL / 2 } == true
                 val (desde, hasta) = when {
-                    esCola -> (TOTAL - rango.removePrefix("bytes=-").toInt()) to (TOTAL - 1)
+                    rango.startsWith("bytes=-") -> (TOTAL - rango.removePrefix("bytes=-").toInt()) to (TOTAL - 1)
                     rango.startsWith("bytes=") -> {
                         val p = rango.removePrefix("bytes=").split("-")
                         p[0].toInt() to (p.getOrNull(1)?.toIntOrNull() ?: (TOTAL - 1))

@@ -74,14 +74,18 @@ class ColaEnVueloTest {
                     }
                     else -> 0 to (TOTAL - 1)
                 }
-                if (esSufijo) precalentados.incrementAndGet()
-                else if (desde > TOTAL / 2) sondeosDelReproductor.incrementAndGet()
+                // El precalentado pide un rango CERRADO al final (ver ColaPorRangoAbsolutoTest);
+                // el reproductor pide ABIERTO desde donde quiere leer. Esa es la diferencia que
+                // separa "la cola bajando" de "el sondeo que no tiene que tocar la red".
+                val cerrado = Regex("""bytes=\d+-\d+""").matches(rango)
+                if (esSufijo || (cerrado && desde > TOTAL / 2)) precalentados.incrementAndGet()
+                else if (!cerrado && desde > TOTAL / 2) sondeosDelReproductor.incrementAndGet()
                 val trozo = archivo.copyOfRange(desde, hasta + 1)
                 return MockResponse().setResponseCode(206)
                     .setHeader("Content-Range", "bytes $desde-$hasta/$TOTAL")
                     .setHeader("Content-Length", trozo.size.toString())
                     .setBody(okio.Buffer().write(trozo))
-                    .apply { if (esSufijo) setHeadersDelay(COLA_MS, TimeUnit.MILLISECONDS) }
+                    .apply { if (esSufijo || (cerrado && desde > TOTAL / 2)) setHeadersDelay(COLA_MS, TimeUnit.MILLISECONDS) }
             }
         }
         proxy = ArchiveCacheProxy(temp.newFolder("cache"))
