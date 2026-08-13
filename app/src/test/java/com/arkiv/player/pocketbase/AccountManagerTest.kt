@@ -29,13 +29,22 @@ class AccountManagerTest {
             accountId = { "A_anon" },
         )
 
-    /** Ninguno de estos tests pasa por `registrar` (eso lo cubre AccountManagerRegistroTest): esta
-     *  URL nunca se llama, mismo criterio que usa CuentaApiTest con SesionDePersona cuando no le
-     *  hace falta hablarle a nadie. */
+    /** `registrar` lo cubre AccountManagerRegistroTest. Pero `login` SI llama al gateway desde que
+     *  el aparato se adopta por ahi (unico camino que cuenta contra el cupo de la licencia), asi
+     *  que quien lo necesite le pasa un baseUrl de verdad. */
     private fun cuentaApiSinUsar(sesion: SesionDePersona) = CuentaApi(
         baseUrl = { "http://unused.invalid" },
         apiKey = { "LLAVE" },
         deviceToken = { null },
+        sesion = sesion,
+        http = OkHttpClient(),
+    )
+
+    /** Para `login`, que adopta el aparato por el gateway. */
+    private fun cuentaApiDe(server: MockWebServer, sesion: SesionDePersona) = CuentaApi(
+        baseUrl = { server.url("/").toString().trimEnd('/') },
+        apiKey = { "LLAVE" },
+        deviceToken = { "dtok" },
         sesion = sesion,
         http = OkHttpClient(),
     )
@@ -46,7 +55,7 @@ class AccountManagerTest {
         server.enqueue(MockResponse().setBody("""{"token":"dtok","record":{"id":"devrec"}}""")) // bootstrap
         server.enqueue(MockResponse().setBody("""{"token":"utok","record":{"id":"usr-1","accountId":"A_person"}}""")) // users auth (probe: ¿PB la conoce?)
         server.enqueue(MockResponse().setBody("""{"token":"ptok","record":{"id":"usr-1"}}""")) // sesion.iniciar (Task 1): persiste el token de la persona
-        server.enqueue(MockResponse().setBody("""{"id":"devrec"}""")) // switchAccount PATCH
+        server.enqueue(MockResponse().setBody("""{"kind":"phone","usados":1,"tope":1,"yaEra":false}""")) // POST /v1/cuenta/aparatos (adopcion por el gateway)
         server.enqueue(MockResponse().setBody("""{"linked":true}""")) // magisVinculadoSeguro -> status
         server.start()
         val client = clientFor(server)
@@ -55,7 +64,7 @@ class AccountManagerTest {
         val sesion = sesionFor(client, store)
         var merged = false
         val mgr = AccountManager(
-            client, deviceAuth, store, magisLinkFor(server), cuentaApiSinUsar(sesion), sesion,
+            client, deviceAuth, store, magisLinkFor(server), cuentaApiDe(server, sesion), sesion,
             onAccountSwitched = { merged = true }, onLocalWipe = {},
         )
 

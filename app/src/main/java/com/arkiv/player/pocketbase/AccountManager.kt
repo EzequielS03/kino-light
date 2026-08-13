@@ -73,7 +73,26 @@ class AccountManager(
         // accountId del device y fusionar el historial): así un fallo acá no deja el device a medias.
         // `persistirSesion` ya guarda el email en `store` (SesionDePersona.iniciar) — no hace falta repetirlo.
         persistirSesion(email, password)
-        deviceAuth.switchAccount(personAccountId)
+        // El aparato lo mueve a la cuenta EL GATEWAY, no un PATCH directo a PocketBase: es el
+        // unico camino que cuenta contra el cupo de la licencia (`maxCelulares`/`maxTvs`) y que
+        // serializa con el candado de Redis. Con `switchAccount` -que escribia el accountId por su
+        // cuenta- entrar en un telefono nuevo no consumia cupo: se podia iniciar sesion en cinco.
+        // Mismo camino que ya usa el pareo de la TV (Task 5).
+        val tokenDelAparato = deviceAuth.session.value?.token
+            ?: throw AccountException("sin sesión de dispositivo")
+        try {
+            cuentaApi.adoptarAparato(tokenDelAparato)
+        } catch (e: ErrorDeCuenta) {
+            throw AccountException(
+                when (e) {
+                    is ErrorDeCuenta.TopeAlcanzado ->
+                        "Llegaste al límite de aparatos de tu cuenta. Sacá uno desde \"Mis aparatos\" y volvé a entrar."
+                    is ErrorDeCuenta.AparatoDeOtraCuenta -> "Este aparato ya está en otra cuenta."
+                    else -> e.mensaje
+                },
+            )
+        }
+        deviceAuth.aplicarAccountIdAdoptado(personAccountId)
         onAccountSwitched()   // cloudSync.syncNow() = reset cursores + push local + pull => MERGE
         _state.value = AccountState.Conectado(email, magisVinculadoSeguro())
     }
