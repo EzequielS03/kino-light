@@ -23,7 +23,6 @@ class MagisLinkClientTest {
         server = MockWebServer().also { it.start() }
         client = MagisLinkClient(
             baseUrl = { server.url("/").toString().trimEnd('/') },
-            accountId = { "acc-9" },
             client = OkHttpClient(),
         )
     }
@@ -47,22 +46,20 @@ class MagisLinkClientTest {
     }
 
     @Test
-    fun `status manda X-Arkiv-Account, nunca X-Arkiv-Key`() = runBlocking {
+    fun `status nunca manda X-Arkiv-Key`() = runBlocking {
         server.enqueue(MockResponse().setBody("""{"linked":false}"""))
         client.status()
         val req = server.takeRequest()
         assertNull(req.getHeader("X-Arkiv-Key"))
-        assertEquals("acc-9", req.getHeader("X-Arkiv-Account"))
     }
 
-    // --- Task 8 (Paso 3): Authorization + X-Arkiv-Device + X-Arkiv-Account, sin ninguna llave ---
+    // --- Task 8 (Paso 3): Authorization + X-Arkiv-Device, sin ninguna llave ---
 
     @Test
     fun `status manda Authorization y X-Arkiv-Device cuando hay sesion`() = runBlocking {
         server.enqueue(MockResponse().setBody("""{"linked":false}"""))
         val conSesion = MagisLinkClient(
             baseUrl = { server.url("/").toString().trimEnd('/') },
-            accountId = { "acc-9" },
             client = OkHttpClient(),
             personToken = { "person-tok" },
             deviceToken = { "device-tok" },
@@ -91,7 +88,6 @@ class MagisLinkClientTest {
         assertEquals("POST", req.method)
         assertEquals("/v1/magis/link", req.path)
         assertNull(req.getHeader("X-Arkiv-Key"))
-        assertEquals("acc-9", req.getHeader("X-Arkiv-Account"))
         val body = JSONObject(req.body.readUtf8())
         assertEquals("user1", body.getString("username"))
         assertEquals("pass1", body.getString("password"))

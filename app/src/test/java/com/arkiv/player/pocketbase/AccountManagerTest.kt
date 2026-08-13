@@ -25,7 +25,6 @@ class AccountManagerTest {
     private fun magisLinkFor(server: MockWebServer) =
         MagisLinkClient(
             baseUrl = { server.url("/").toString().trimEnd('/') },
-            accountId = { "A_anon" },
         )
 
     /** `registrar` lo cubre AccountManagerRegistroTest. Pero `login` SI llama al gateway desde que
@@ -114,7 +113,7 @@ class AccountManagerTest {
         val sesion = sesionFor(client, store)
         // Si login() todavía cayera a Magis, esto explotaría (host inexistente) en vez de pasar en
         // silencio: es la red de seguridad de este test, no solo el requestCount de abajo.
-        val magisLink = MagisLinkClient(baseUrl = { "http://unused.invalid" }, accountId = { null })
+        val magisLink = MagisLinkClient(baseUrl = { "http://unused.invalid" })
         val mgr = AccountManager(
             client, seededAuth(client, store), store, magisLink, cuentaApiSinUsar(sesion), sesion,
             onAccountSwitched = {}, onLocalWipe = {},
@@ -186,7 +185,7 @@ class AccountManagerTest {
         assertEquals(EstadoDeSesion.Con("a@b.co"), sesion.estado.value)   // arranca conectada
         var wiped = false
         val mgr = AccountManager(
-            client, deviceAuth, store, MagisLinkClient(baseUrl = { "http://unused.invalid" }, accountId = { null }),
+            client, deviceAuth, store, MagisLinkClient(baseUrl = { "http://unused.invalid" }),
             cuentaApiSinUsar(sesion), sesion,
             onAccountSwitched = {}, onLocalWipe = { wiped = true },
         )
@@ -216,7 +215,7 @@ class AccountManagerTest {
         val deviceAuth = DeviceAuthManager(client, store, cuentaApiSinUsarParaBootstrap(client, store))
         val sesion = sesionFor(client, store)
         val mgr = AccountManager(
-            client, deviceAuth, store, MagisLinkClient(baseUrl = { "http://unused.invalid" }, accountId = { null }),
+            client, deviceAuth, store, MagisLinkClient(baseUrl = { "http://unused.invalid" }),
             cuentaApiSinUsar(sesion), sesion,
             onAccountSwitched = {}, onLocalWipe = {},
         )

@@ -46,8 +46,6 @@ data class GatewaySource(
 class ArkivApiClient(
     private val baseUrl: () -> String,
     http: OkHttpClient,
-    /** AccountId efectivo (Magis por usuario): si no es null/blank, se manda como X-Arkiv-Account. */
-    private val magisAccountId: () -> String? = { null },
     /**
      * Token de sesión de la PERSONA (`SesionDePersona.token()`, misma fuente que ya usa
      * `CuentaApi` para `Authorization`). Task 8 (Paso 3): `X-Arkiv-Key` salió del todo -- junto
@@ -69,7 +67,6 @@ class ArkivApiClient(
 
     private fun pedido(url: String): Request.Builder {
         val b = Request.Builder().url(url)
-        magisAccountId()?.takeIf { it.isNotBlank() }?.let { b.header("X-Arkiv-Account", it) }
         // Si todavía no hay sesión/aparato (null o vacío), se OMITEN las cabeceras en vez de
         // mandarlas vacías: un `Authorization: ` en blanco es peor que ausente (el gateway podría
         // tratarlo como un intento de credencial mal formado, en vez de "no mandó nada").

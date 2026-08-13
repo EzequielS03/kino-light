@@ -90,9 +90,10 @@ private enum class VistaLocal { NINGUNA, RECIENTES }
  *
  * No exige cuenta de Magis vinculada: el catálogo de canales usa la sesión anónima del gateway
  * (por número de serie del dispositivo, igual que el CLI de magia) cuando no hay cuenta
- * vinculada -- ver `MagisSession` en el gateway. Si el usuario SÍ tiene cuenta vinculada,
- * [com.arkiv.player.data.gateway.LiveApi] ya manda su `X-Arkiv-Account` de todos modos, sin que
- * esta pantalla tenga que saber nada al respecto.
+ * vinculada -- ver `MagisSession` en el gateway. Si el usuario SÍ tiene cuenta vinculada, el
+ * GATEWAY la resuelve solo, a partir de la sesión autenticada (ya no hace falta que el cliente
+ * mande el accountId por cabecera -- eso permitía pedir con la cuenta de Magis de otra persona),
+ * sin que esta pantalla tenga que saber nada al respecto.
  *
  * [onAbrirCanal] recibe el código del canal tocado; el llamador (`ArkivRoot`) decide qué hacer con
  * ese código -- hoy, navegar al reproductor en modo vivo (Tarea 14). Antes de invocarlo, `abrir()`

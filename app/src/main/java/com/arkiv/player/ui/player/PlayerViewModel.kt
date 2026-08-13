@@ -1001,7 +1001,6 @@ class PlayerViewModel(
         com.arkiv.player.data.gateway.ArkivApiClient(
             baseUrl = { settings.gatewayUrl.value },
             http = httpGateway,
-            magisAccountId = { deviceAuth.session.value?.accountId },
             personToken = personToken,
             deviceToken = { deviceAuth.session.value?.token },
         )

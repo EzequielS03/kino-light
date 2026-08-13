@@ -11,13 +11,14 @@ import org.json.JSONObject
 class MagisLinkException(val code: Int, message: String) : Exception(message)
 
 /**
- * Cliente de los endpoints /v1/magis/link del gateway. Manda X-Arkiv-Account y, desde la Task 8,
- * Authorization + X-Arkiv-Device -- las dos que `require_sesion` exige desde la Task 5b (la
- * sesión está atada al aparato). `X-Arkiv-Key` salió del todo en el Paso 3.
+ * Cliente de los endpoints /v1/magis/link del gateway. Manda, desde la Task 8, Authorization +
+ * X-Arkiv-Device -- las dos que `require_sesion` exige desde la Task 5b (la sesión está atada al
+ * aparato). `X-Arkiv-Key` salió del todo en el Paso 3. `X-Arkiv-Account` salió después: el
+ * gateway dejó de leerla y saca el accountId de la sesión autenticada -- una cabecera la elegía
+ * el CLIENTE, y con eso se podía pedir la cuenta de Magis de otra persona.
  */
 class MagisLinkClient(
     private val baseUrl: () -> String,
-    private val accountId: () -> String?,
     private val client: OkHttpClient = OkHttpClient(),
     /** Token de sesión de la PERSONA, misma fuente que ya usa `CuentaApi` para `Authorization`
      *  (`SesionDePersona.token()`). Task 8 (Paso 3): `X-Arkiv-Key` salió del todo -- ver KDoc del
@@ -31,7 +32,6 @@ class MagisLinkClient(
 
     private fun req(url: String): Request.Builder {
         val b = Request.Builder().url(url)
-        accountId()?.takeIf { it.isNotBlank() }?.let { b.header("X-Arkiv-Account", it) }
         // Sin sesión/aparato todavía (null o vacío) se omiten las cabeceras -- mandarlas vacías
         // sería peor que no mandarlas (ver ArkivApiClient.pedido).
         personToken()?.takeIf { it.isNotBlank() }?.let { b.header("Authorization", it) }

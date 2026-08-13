@@ -29,7 +29,7 @@ class AccountManagerRegistroTest {
      *  `vincularMagisEnviarCodigo`/`vincularMagisConfirmar`-, así que esta URL nunca debería
      *  llamarse: si algo la invocara por error, esto tira en vez de pasar en silencio. */
     private fun magisLinkSinUsar() =
-        MagisLinkClient(baseUrl = { "http://unused.invalid" }, accountId = { null })
+        MagisLinkClient(baseUrl = { "http://unused.invalid" })
 
     private fun cuentaApi(gw: MockWebServer, sesion: SesionDePersona, deviceAuth: DeviceAuthManager) = CuentaApi(
         baseUrl = { gw.url("/").toString().trimEnd('/') },

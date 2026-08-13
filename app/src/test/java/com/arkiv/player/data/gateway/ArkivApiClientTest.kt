@@ -38,25 +38,6 @@ class ArkivApiClientTest {
         assertNull(server.takeRequest().getHeader("X-Arkiv-Key"))
     }
 
-    @Test
-    fun `manda el header X-Arkiv-Account cuando hay accountId efectivo`() = runBlocking {
-        server.enqueue(MockResponse().setBody("""{"type":"done","ms":1}""" + "\n"))
-        val conAccount = ArkivApiClient(
-            baseUrl = { server.url("/").toString().trimEnd('/') },
-            http = OkHttpClient(),
-            magisAccountId = { "acc-9" },
-        )
-        conAccount.search(GatewaySearchQuery(q = "dune")).toList()
-        assertEquals("acc-9", server.takeRequest().getHeader("X-Arkiv-Account"))
-    }
-
-    @Test
-    fun `no manda X-Arkiv-Account cuando no hay accountId`() = runBlocking {
-        server.enqueue(MockResponse().setBody("""{"type":"done","ms":1}""" + "\n"))
-        client.search(GatewaySearchQuery(q = "dune")).toList()
-        assertNull(server.takeRequest().getHeader("X-Arkiv-Account"))
-    }
-
     // --- Task 8 (Paso 3): Authorization + X-Arkiv-Device son la ÚNICA credencial --------------
 
     @Test

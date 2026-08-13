@@ -104,7 +104,6 @@ class AppGraph(context: Context) {
         com.arkiv.player.data.gateway.ArkivApiClient(
             baseUrl = { settings.gatewayUrl.value },
             http = httpGateway,
-            magisAccountId = { deviceAuth.session.value?.accountId },
             // Task 8 (Paso 2): mismas fuentes que ya usa `cuentaApi` para las dos cabeceras de
             // sesión -- no una lectura nueva/paralela del store.
             personToken = { sesionDePersona.token() },
@@ -112,12 +111,11 @@ class AppGraph(context: Context) {
         )
     }
 
-    /** Cliente del gateway para el canal en vivo: mismos baseUrl/apiKey/accountId que [arkivApiClient]. */
+    /** Cliente del gateway para el canal en vivo: mismos baseUrl/apiKey que [arkivApiClient]. */
     val liveApi: com.arkiv.player.data.gateway.LiveApi by lazy {
         com.arkiv.player.data.gateway.LiveApi(
             baseUrl = { settings.gatewayUrl.value },
             http = httpGateway,
-            magisAccountId = { deviceAuth.session.value?.accountId },
             personToken = { sesionDePersona.token() },
             deviceToken = { deviceAuth.session.value?.token },
         )
@@ -619,7 +617,6 @@ class AppGraph(context: Context) {
     val magisLinkClient: com.arkiv.player.pocketbase.MagisLinkClient by lazy {
         com.arkiv.player.pocketbase.MagisLinkClient(
             baseUrl = { settings.gatewayUrl.value },
-            accountId = { deviceAuth.session.value?.accountId },
             client = httpGateway,
             personToken = { sesionDePersona.token() },
             deviceToken = { deviceAuth.session.value?.token },

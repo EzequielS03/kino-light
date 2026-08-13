@@ -81,7 +81,6 @@ interface LiveCatalogGateway {
 class LiveApi(
     private val baseUrl: () -> String,
     private val http: OkHttpClient,
-    private val magisAccountId: () -> String? = { null },
     /** Token de sesión de la PERSONA, misma fuente que ya usa `CuentaApi` para `Authorization`
      *  (`SesionDePersona.token()`). Task 8 (Paso 3): `X-Arkiv-Key` salió del todo -- ver KDoc del
      *  mismo parámetro en `ArkivApiClient`. */
@@ -94,7 +93,6 @@ class LiveApi(
 
     private fun pedido(url: String): Request.Builder {
         val b = Request.Builder().url(url)
-        magisAccountId()?.takeIf { it.isNotBlank() }?.let { b.header("X-Arkiv-Account", it) }
         // Sin sesión/aparato todavía (null o vacío) se omiten las cabeceras -- mandarlas vacías
         // sería peor que no mandarlas (ver ArkivApiClient.pedido).
         personToken()?.takeIf { it.isNotBlank() }?.let { b.header("Authorization", it) }
