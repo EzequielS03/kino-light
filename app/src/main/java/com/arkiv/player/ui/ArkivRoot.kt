@@ -20,13 +20,13 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Downloading
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.SettingsRemote
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -195,6 +195,13 @@ fun ArkivRoot(
                         IconButton(onClick = { navController.navigate("torrent") }) {
                             Icon(Icons.Default.Downloading, contentDescription = "Reproducir torrent", tint = Color.White)
                         }
+                        // Parear con el TV. Va acá, con el resto de los íconos, y no dentro de la
+                        // lista del home: ahí se mezclaba con el contenido. Antes su único acceso
+                        // era el ícono de la pantalla Biblioteca, que no se encuentra si uno no lo
+                        // sabe de antes -- y sin pareo la TV no puede entrar a la app.
+                        IconButton(onClick = { showConnection = true }) {
+                            Icon(Icons.Default.QrCodeScanner, contentDescription = "Conectar con el TV", tint = Color.White)
+                        }
                         // El control remoto solo tiene sentido si hay una TV Arkiv en la red.
                         if (tvAvailable) {
                             IconButton(onClick = { navController.navigate("remote") }) {
@@ -229,17 +236,11 @@ fun ArkivRoot(
                 )
             }
         },
-        floatingActionButton = {
-            if (currentRoute == "home") {
-                FloatingActionButton(
-                    onClick = { navController.navigate("add") },
-                    containerColor = ArkivRed,
-                    contentColor = Color.White,
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = "Agregar")
-                }
-            }
-        },
+        // Sin FAB. El "+" abría `AddScreen` (agregar por identifier de archive.org) y quedó sin
+        // uso: hoy el contenido entra por la búsqueda. Tapaba contenido del home flotando encima,
+        // que es caro para un botón que nadie toca. La ruta "add" y `AddScreen` siguen vivas —
+        // mismo criterio que la pestaña Catálogo de más arriba: para volver a mostrarlo alcanza
+        // con devolver este bloque.
         bottomBar = {
             Column {
                 val render = com.arkiv.player.ui.remote.rememberMiniPlayerRender(

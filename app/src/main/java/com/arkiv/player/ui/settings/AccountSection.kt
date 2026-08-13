@@ -9,6 +9,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.semantics.password
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -54,7 +56,14 @@ private fun PasswordField(value: String, onValueChange: (String) -> Unit, label:
                 )
             }
         },
-        modifier = modifier,
+        // `PasswordVisualTransformation` enmascara lo que se DIBUJA, no lo que se expone en el
+        // árbol de accesibilidad: sin esto, el texto tipeado sale en claro en un `uiautomator
+        // dump` y para cualquier servicio de accesibilidad instalado. Verificado en el S24+ con la
+        // clave autocompletada por el gestor de contraseñas — se leía entera.
+        //
+        // Cuando la clave está a la vista (el ojito), no se marca: ahí la persona ya decidió
+        // mostrarla, y marcarla igual haría que un lector de pantalla no pudiera dictarla.
+        modifier = modifier.semantics { if (!visible) password() },
     )
 }
 
