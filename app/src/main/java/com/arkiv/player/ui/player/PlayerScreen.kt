@@ -347,6 +347,7 @@ private fun PlayerContent(
                     graph.liveController, graph.database.liveRecentDao(),
                     esTelevision = isTv,
                     httpGateway = graph.httpGateway,
+                    personToken = { graph.sesionDePersona.token() },
                 )
             }
         },

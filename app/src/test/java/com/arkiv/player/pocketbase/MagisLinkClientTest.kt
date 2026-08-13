@@ -55,6 +55,36 @@ class MagisLinkClientTest {
         assertEquals("acc-9", req.getHeader("X-Arkiv-Account"))
     }
 
+    // --- Task 8 (Paso 2): Authorization + X-Arkiv-Device, SIN sacar la llave ni X-Arkiv-Account --
+
+    @Test
+    fun `status manda Authorization y X-Arkiv-Device cuando hay sesion, ademas de la llave`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"linked":false}"""))
+        val conSesion = MagisLinkClient(
+            baseUrl = { server.url("/").toString().trimEnd('/') },
+            apiKey = { "LLAVE" },
+            accountId = { "acc-9" },
+            client = OkHttpClient(),
+            personToken = { "person-tok" },
+            deviceToken = { "device-tok" },
+        )
+        conSesion.status()
+        val req = server.takeRequest()
+        assertEquals("person-tok", req.getHeader("Authorization"))
+        assertEquals("device-tok", req.getHeader("X-Arkiv-Device"))
+        assertEquals("LLAVE", req.getHeader("X-Arkiv-Key"))
+    }
+
+    @Test
+    fun `sin sesion no manda Authorization ni X-Arkiv-Device`() = runBlocking {
+        // `client` del setUp no pasa personToken/deviceToken -- quedan en null por default.
+        server.enqueue(MockResponse().setBody("""{"linked":false}"""))
+        client.status()
+        val req = server.takeRequest()
+        assertEquals(null, req.getHeader("Authorization"))
+        assertEquals(null, req.getHeader("X-Arkiv-Device"))
+    }
+
     @Test
     fun `link manda POST con headers y body`() = runBlocking {
         server.enqueue(MockResponse().setBody("{}"))

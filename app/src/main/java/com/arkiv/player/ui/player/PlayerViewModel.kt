@@ -147,6 +147,14 @@ class PlayerViewModel(
     // -sin que ninguna pantalla esté mirando- no cerraba la sesión hasta el próximo pedido que sí
     // pasara por un ViewModel que supiera reaccionar.
     private val httpGateway: okhttp3.OkHttpClient,
+    // Task 8 (Paso 2): [gatewayClient] es OTRA instancia de `ArkivApiClient` además de
+    // `AppGraph.arkivApiClient` -esta la usa [prefetchNext] para pre-resolver el próximo capítulo
+    // de Magis-, así que también necesita las dos cabeceras de sesión o quedaría hablando con
+    // `/v1/resolve` solo con la llave (que el Paso 3 le va a sacar). `deviceAuth` ya viene por
+    // constructor arriba -de ahí sale el token del aparato-; el de la persona no tenía por dónde
+    // entrar, así que se suma esta lambda en vez de todo `SesionDePersona` (acá alcanza con leer
+    // el token, igual que ya hace [deviceAuth] para el suyo).
+    private val personToken: () -> String? = { null },
 ) : ViewModel() {
 
     private val _playlist = MutableStateFlow<PlaylistData?>(null)
@@ -1020,6 +1028,8 @@ class PlayerViewModel(
             apiKey = { settings.arkivApiKey.value },
             http = httpGateway,
             magisAccountId = { deviceAuth.session.value?.accountId },
+            personToken = personToken,
+            deviceToken = { deviceAuth.session.value?.token },
         )
     }
 

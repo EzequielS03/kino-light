@@ -7,6 +7,7 @@ import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -97,5 +98,48 @@ class MirrorApiClientTest {
         val list = client().titleTorrents("naruto")
         assertEquals(setOf("magnet:PACK","magnet:E1","magnet:E2","magnet:S2E1"), list.mapNotNull { it.magnet }.toSet())
         assertEquals(true, list.first { it.magnet == "magnet:PACK" }.isPack)
+    }
+
+    // --- refresh(): la UNICA llamada de esta clase que habla con el GATEWAY (no con el mirror) --
+    // --- Task 8 (Paso 2): Authorization + X-Arkiv-Device, SIN sacar X-Arkiv-Key -----------------
+
+    private fun clientConGateway(personTok: String? = null, deviceTok: String? = null) = MirrorApiClient(
+        baseUrl = { server.url("/").toString().trimEnd('/') },
+        gatewayUrl = { server.url("/").toString().trimEnd('/') },
+        arkivApiKey = { "LLAVE" },
+        personToken = { personTok },
+        deviceToken = { deviceTok },
+    )
+
+    @Test fun `refresh manda Authorization y X-Arkiv-Device cuando hay sesion, ademas de la llave`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"ok":true,"created":false,"web_sources_added":0,"torrents_added":0}"""))
+        clientConGateway(personTok = "person-tok", deviceTok = "device-tok")
+            .refresh(1396, ContentType.TV, "Breaking Bad", "2008")
+        val req = server.takeRequest()
+        assertEquals("/v1/catalog/refresh", req.path)
+        assertEquals("person-tok", req.getHeader("Authorization"))
+        assertEquals("device-tok", req.getHeader("X-Arkiv-Device"))
+        assertEquals("LLAVE", req.getHeader("X-Arkiv-Key"))
+    }
+
+    @Test fun `refresh sin sesion no manda Authorization ni X-Arkiv-Device`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"ok":true,"created":false,"web_sources_added":0,"torrents_added":0}"""))
+        clientConGateway().refresh(1396, ContentType.TV, "Breaking Bad", "2008")
+        val req = server.takeRequest()
+        assertNull(req.getHeader("Authorization"))
+        assertNull(req.getHeader("X-Arkiv-Device"))
+        assertEquals("LLAVE", req.getHeader("X-Arkiv-Key"))
+    }
+
+    @Test fun `resolveSlug (habla con el MIRROR, no el gateway) no manda Authorization ni X-Arkiv-Device`() = runBlocking {
+        // Aunque el cliente tenga sesion configurada, resolveSlug/titleTorrents/etc. van al mirror
+        // -otro host-, donde estas cabeceras no significan nada.
+        server.enqueue(MockResponse().setBody("""{"results":[{"slug":"breaking-bad"}]}"""))
+        clientConGateway(personTok = "person-tok", deviceTok = "device-tok")
+            .resolveSlug(1396, ContentType.TV, titleFallback = null)
+        val req = server.takeRequest()
+        assertNull(req.getHeader("Authorization"))
+        assertNull(req.getHeader("X-Arkiv-Device"))
+        assertTrue(req.path!!.contains("tmdb_id=1396"))
     }
 }

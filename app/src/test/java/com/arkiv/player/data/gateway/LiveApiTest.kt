@@ -40,6 +40,40 @@ class LiveApiTest {
         server.shutdown()
     }
 
+    // --- Task 8 (Paso 2): Authorization + X-Arkiv-Device, SIN sacar la llave ---
+
+    @Test
+    fun `manda Authorization y X-Arkiv-Device cuando hay sesion, ademas de la llave`() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setBody("""{"categorias":[]}"""))
+        server.start()
+        val conSesion = LiveApi(
+            baseUrl = { server.url("/").toString().trimEnd('/') },
+            apiKey = { "k" },
+            http = OkHttpClient(),
+            personToken = { "person-tok" },
+            deviceToken = { "device-tok" },
+        )
+        conSesion.categorias()
+        val req = server.takeRequest()
+        assertEquals("person-tok", req.getHeader("Authorization"))
+        assertEquals("device-tok", req.getHeader("X-Arkiv-Device"))
+        assertEquals("k", req.getHeader("X-Arkiv-Key"))
+        server.shutdown()
+    }
+
+    @Test
+    fun `sin sesion no manda Authorization ni X-Arkiv-Device`() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setBody("""{"categorias":[]}"""))
+        server.start()
+        api(server).categorias()   // api() del helper de arriba no pasa personToken/deviceToken
+        val req = server.takeRequest()
+        assertNull(req.getHeader("Authorization"))
+        assertNull(req.getHeader("X-Arkiv-Device"))
+        server.shutdown()
+    }
+
     @Test
     fun `epg separa lo que llego de lo que falta`() = runBlocking {
         val server = MockWebServer()

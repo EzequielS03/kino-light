@@ -61,6 +61,16 @@ class MirrorApiClient(
         .build(),
     private val ttlMs: Long = 30 * 60 * 1000L,
     private val nowMs: () -> Long = { System.currentTimeMillis() },
+    /**
+     * Task 8 (Paso 2): token de sesión de la PERSONA, misma fuente que ya usa `CuentaApi` para
+     * `Authorization` (`SesionDePersona.token()`). Solo lo usa [refresh] -- es la única llamada de
+     * esta clase que habla con el GATEWAY (ver su KDoc); `resolveSlug`/`titleTorrents`/etc. le
+     * hablan al MIRROR, otro host, donde esta cabecera no significa nada.
+     */
+    private val personToken: () -> String? = { null },
+    /** Token del APARATO que llama, misma fuente que ya usa `CuentaApi` para `X-Arkiv-Device`
+     *  (`DeviceAuthManager.session.value?.token`). Igual que [personToken], solo aplica a [refresh]. */
+    private val deviceToken: () -> String? = { null },
 ) {
     private data class Cached(val torrents: List<MirrorTorrent>, val atMs: Long)
     private val torrentCache = ConcurrentHashMap<String, Cached>()
@@ -257,11 +267,15 @@ class MirrorApiClient(
                 put("title", title)
                 put("year", year.take(4).toIntOrNull())
             }.toString()
-            val req = Request.Builder()
+            val reqBuilder = Request.Builder()
                 .url("$base/v1/catalog/refresh")
                 .addHeader("X-Arkiv-Key", arkivApiKey())
                 .post(body.toRequestBody("application/json".toMediaType()))
-                .build()
+            // Sin sesión/aparato todavía (null o vacío) se omiten las cabeceras -- mandarlas
+            // vacías sería peor que no mandarlas (ver ArkivApiClient.pedido).
+            personToken()?.takeIf { it.isNotBlank() }?.let { reqBuilder.addHeader("Authorization", it) }
+            deviceToken()?.takeIf { it.isNotBlank() }?.let { reqBuilder.addHeader("X-Arkiv-Device", it) }
+            val req = reqBuilder.build()
             runCatching {
                 refreshClient.newCall(req).execute().use { resp ->
                     val json = resp.body?.string()?.let { runCatching { JSONObject(it) }.getOrNull() }

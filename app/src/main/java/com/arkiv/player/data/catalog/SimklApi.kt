@@ -55,6 +55,13 @@ class SimklApi(
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build(),
+    /** Task 8 (Paso 2): token de sesión de la PERSONA, misma fuente que ya usa `CuentaApi` para
+     *  `Authorization` (`SesionDePersona.token()`). Se suma SIN sacar `X-Arkiv-Key`: ver KDoc del
+     *  mismo parámetro en `ArkivApiClient`. */
+    private val personToken: () -> String? = { null },
+    /** Token del APARATO que llama, misma fuente que ya usa `CuentaApi` para `X-Arkiv-Device`
+     *  (`DeviceAuthManager.session.value?.token`): `require_sesion` exige las dos juntas. */
+    private val deviceToken: () -> String? = { null },
 ) {
     val configured: Boolean get() = arkivKey().isNotBlank()
 
@@ -69,8 +76,11 @@ class SimklApi(
     }
 
     private fun get(url: String): String? = runCatching {
-        client.newCall(
-            Request.Builder().url(url).header("X-Arkiv-Key", arkivKey()).build(),
-        ).execute().use { if (it.isSuccessful) it.body?.string() else null }
+        val b = Request.Builder().url(url).header("X-Arkiv-Key", arkivKey())
+        // Sin sesión/aparato todavía (null o vacío) se omiten las cabeceras -- mandarlas vacías
+        // sería peor que no mandarlas (ver ArkivApiClient.pedido).
+        personToken()?.takeIf { it.isNotBlank() }?.let { b.header("Authorization", it) }
+        deviceToken()?.takeIf { it.isNotBlank() }?.let { b.header("X-Arkiv-Device", it) }
+        client.newCall(b.build()).execute().use { if (it.isSuccessful) it.body?.string() else null }
     }.getOrNull()
 }

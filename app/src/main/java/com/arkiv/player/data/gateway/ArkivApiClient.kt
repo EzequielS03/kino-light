@@ -49,6 +49,17 @@ class ArkivApiClient(
     http: OkHttpClient,
     /** AccountId efectivo (Magis por usuario): si no es null/blank, se manda como X-Arkiv-Account. */
     private val magisAccountId: () -> String? = { null },
+    /**
+     * Task 8 (Paso 2): token de sesión de la PERSONA (`SesionDePersona.token()`, misma fuente que
+     * ya usa `CuentaApi` para `Authorization`) -- SIN sacar todavía `X-Arkiv-Key` de arriba: el
+     * gateway acepta cualquiera de las dos desde el Paso 1, así que sumar esta cabecera no puede
+     * dejar a la app sin poder pedir nada si la sesión todavía no existiera.
+     */
+    private val personToken: () -> String? = { null },
+    /** Token del APARATO que llama (`DeviceAuthManager.session.value?.token`, misma fuente que ya
+     *  usa `CuentaApi` para `X-Arkiv-Device`): `require_sesion` (Task 5b) exige las dos cabeceras
+     *  juntas -- la sesión está atada al aparato, así que el `Authorization` solo no alcanza. */
+    private val deviceToken: () -> String? = { null },
 ) {
     // Sin timeout de lectura: la respuesta es un stream largo, no un cuerpo corto.
     private val http = http.newBuilder()
@@ -59,6 +70,11 @@ class ArkivApiClient(
     private fun pedido(url: String): Request.Builder {
         val b = Request.Builder().url(url).header("X-Arkiv-Key", apiKey())
         magisAccountId()?.takeIf { it.isNotBlank() }?.let { b.header("X-Arkiv-Account", it) }
+        // Si todavía no hay sesión/aparato (null o vacío), se OMITEN las cabeceras en vez de
+        // mandarlas vacías: un `Authorization: ` en blanco es peor que ausente (el gateway podría
+        // tratarlo como un intento de credencial mal formado, en vez de "no mandó nada").
+        personToken()?.takeIf { it.isNotBlank() }?.let { b.header("Authorization", it) }
+        deviceToken()?.takeIf { it.isNotBlank() }?.let { b.header("X-Arkiv-Device", it) }
         return b
     }
 

@@ -122,6 +122,13 @@ class TmdbApi(
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build(),
+    /** Task 8 (Paso 2): token de sesión de la PERSONA, misma fuente que ya usa `CuentaApi` para
+     *  `Authorization` (`SesionDePersona.token()`). Se suma SIN sacar `X-Arkiv-Key`: ver KDoc del
+     *  mismo parámetro en `ArkivApiClient`. */
+    private val personToken: () -> String? = { null },
+    /** Token del APARATO que llama, misma fuente que ya usa `CuentaApi` para `X-Arkiv-Device`
+     *  (`DeviceAuthManager.session.value?.token`): `require_sesion` exige las dos juntas. */
+    private val deviceToken: () -> String? = { null },
 ) {
     // Passthrough del gateway: la ruta y los parámetros de TMDB no cambian, solo el host.
     private val base: String get() = "${gatewayUrl()}/v1/catalog/tmdb"
@@ -318,10 +325,18 @@ class TmdbApi(
     // para el parseo puro.
     private fun imgUrl(path: String?, size: String): String = tmdbImgUrl(path, size)
     private fun enc(s: String) = java.net.URLEncoder.encode(s, "UTF-8").replace("+", "%20")
+
+    private fun pedido(url: String): Request.Builder {
+        val b = Request.Builder().url(url).header("X-Arkiv-Key", arkivKey())
+        // Sin sesión/aparato todavía (null o vacío) se omiten las cabeceras -- mandarlas vacías
+        // sería peor que no mandarlas (ver ArkivApiClient.pedido).
+        personToken()?.takeIf { it.isNotBlank() }?.let { b.header("Authorization", it) }
+        deviceToken()?.takeIf { it.isNotBlank() }?.let { b.header("X-Arkiv-Device", it) }
+        return b
+    }
+
     private fun get(url: String): String? = runCatching {
-        client.newCall(
-            Request.Builder().url(url).header("X-Arkiv-Key", arkivKey()).build(),
-        ).execute().use {
+        client.newCall(pedido(url).build()).execute().use {
             if (it.isSuccessful) it.body?.string() else null
         }
     }.getOrNull()

@@ -57,6 +57,51 @@ class ArkivApiClientTest {
         assertNull(server.takeRequest().getHeader("X-Arkiv-Account"))
     }
 
+    // --- Task 8 (Paso 2): Authorization + X-Arkiv-Device, SIN sacar la llave --------------------
+
+    @Test
+    fun `manda Authorization y X-Arkiv-Device cuando hay sesion, ademas de la llave`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"type":"done","ms":1}""" + "\n"))
+        val conSesion = ArkivApiClient(
+            baseUrl = { server.url("/").toString().trimEnd('/') },
+            apiKey = { "LLAVE" },
+            http = OkHttpClient(),
+            personToken = { "person-tok" },
+            deviceToken = { "device-tok" },
+        )
+        conSesion.search(GatewaySearchQuery(q = "dune")).toList()
+        val req = server.takeRequest()
+        assertEquals("person-tok", req.getHeader("Authorization"))
+        assertEquals("device-tok", req.getHeader("X-Arkiv-Device"))
+        assertEquals("LLAVE", req.getHeader("X-Arkiv-Key"))
+    }
+
+    @Test
+    fun `sin sesion no manda Authorization ni X-Arkiv-Device (nunca cabeceras vacias)`() = runBlocking {
+        // `client` del setUp no pasa personToken/deviceToken -- quedan en null por default.
+        server.enqueue(MockResponse().setBody("""{"type":"done","ms":1}""" + "\n"))
+        client.search(GatewaySearchQuery(q = "dune")).toList()
+        val req = server.takeRequest()
+        assertNull(req.getHeader("Authorization"))
+        assertNull(req.getHeader("X-Arkiv-Device"))
+    }
+
+    @Test
+    fun `un token en blanco tambien se omite, no se manda vacio`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"type":"done","ms":1}""" + "\n"))
+        val conBlancos = ArkivApiClient(
+            baseUrl = { server.url("/").toString().trimEnd('/') },
+            apiKey = { "LLAVE" },
+            http = OkHttpClient(),
+            personToken = { "" },
+            deviceToken = { "  " },
+        )
+        conBlancos.search(GatewaySearchQuery(q = "dune")).toList()
+        val req = server.takeRequest()
+        assertNull(req.getHeader("Authorization"))
+        assertNull(req.getHeader("X-Arkiv-Device"))
+    }
+
     @Test
     fun `emite un evento por linea`() = runBlocking {
         server.enqueue(

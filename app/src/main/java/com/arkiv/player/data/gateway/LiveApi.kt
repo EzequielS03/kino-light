@@ -83,12 +83,23 @@ class LiveApi(
     private val apiKey: () -> String,
     private val http: OkHttpClient,
     private val magisAccountId: () -> String? = { null },
+    /** Task 8 (Paso 2): token de sesión de la PERSONA, misma fuente que ya usa `CuentaApi` para
+     *  `Authorization` (`SesionDePersona.token()`). Se suma SIN sacar `X-Arkiv-Key`: ver KDoc del
+     *  mismo parámetro en `ArkivApiClient`. */
+    private val personToken: () -> String? = { null },
+    /** Token del APARATO que llama, misma fuente que ya usa `CuentaApi` para `X-Arkiv-Device`
+     *  (`DeviceAuthManager.session.value?.token`): `require_sesion` exige las dos juntas. */
+    private val deviceToken: () -> String? = { null },
 ) : LiveCatalogGateway {
     private val json = "application/json".toMediaType()
 
     private fun pedido(url: String): Request.Builder {
         val b = Request.Builder().url(url).header("X-Arkiv-Key", apiKey())
         magisAccountId()?.takeIf { it.isNotBlank() }?.let { b.header("X-Arkiv-Account", it) }
+        // Sin sesión/aparato todavía (null o vacío) se omiten las cabeceras -- mandarlas vacías
+        // sería peor que no mandarlas (ver ArkivApiClient.pedido).
+        personToken()?.takeIf { it.isNotBlank() }?.let { b.header("Authorization", it) }
+        deviceToken()?.takeIf { it.isNotBlank() }?.let { b.header("X-Arkiv-Device", it) }
         return b
     }
 

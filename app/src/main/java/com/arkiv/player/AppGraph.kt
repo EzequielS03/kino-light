@@ -106,6 +106,10 @@ class AppGraph(context: Context) {
             apiKey = { settings.arkivApiKey.value },
             http = httpGateway,
             magisAccountId = { deviceAuth.session.value?.accountId },
+            // Task 8 (Paso 2): mismas fuentes que ya usa `cuentaApi` para las dos cabeceras de
+            // sesión -- no una lectura nueva/paralela del store.
+            personToken = { sesionDePersona.token() },
+            deviceToken = { deviceAuth.session.value?.token },
         )
     }
 
@@ -116,6 +120,8 @@ class AppGraph(context: Context) {
             apiKey = { settings.arkivApiKey.value },
             http = httpGateway,
             magisAccountId = { deviceAuth.session.value?.accountId },
+            personToken = { sesionDePersona.token() },
+            deviceToken = { deviceAuth.session.value?.token },
         )
     }
 
@@ -291,6 +297,8 @@ class AppGraph(context: Context) {
             gatewayUrl = { settings.gatewayUrl.value },
             arkivKey = { settings.arkivApiKey.value },
             client = httpGatewayCorto,
+            personToken = { sesionDePersona.token() },
+            deviceToken = { deviceAuth.session.value?.token },
         )
     }
     val animeMappingRepository: AnimeMappingRepository by lazy {
@@ -306,6 +314,8 @@ class AppGraph(context: Context) {
             arkivKey = { settings.arkivApiKey.value },
             language = "es-MX",
             client = httpGatewayCorto,
+            personToken = { sesionDePersona.token() },
+            deviceToken = { deviceAuth.session.value?.token },
         )
     }
     val subtitleApi: com.arkiv.player.data.subtitles.SubtitleApi by lazy {
@@ -313,6 +323,8 @@ class AppGraph(context: Context) {
             gatewayUrl = { settings.gatewayUrl.value },
             arkivKey = { settings.arkivApiKey.value },
             client = httpGatewayCorto,
+            personToken = { sesionDePersona.token() },
+            deviceToken = { deviceAuth.session.value?.token },
         )
     }
     val subtitlePrefs: com.arkiv.player.data.subtitles.SubtitlePrefs by lazy {
@@ -341,6 +353,10 @@ class AppGraph(context: Context) {
             // al MIRROR, otro host, así que `InterceptorDeSesion` los ignora solo por el check de
             // host -no hace falta separar los clientes-.
             client = httpGatewayCorto,
+            // Task 8 (Paso 2): igual que arriba, solo importan para `refresh()` (el único pedido de
+            // esta clase que va al GATEWAY).
+            personToken = { sesionDePersona.token() },
+            deviceToken = { deviceAuth.session.value?.token },
         )
     }
 
@@ -614,6 +630,8 @@ class AppGraph(context: Context) {
             apiKey = { settings.arkivApiKey.value },
             accountId = { deviceAuth.session.value?.accountId },
             client = httpGateway,
+            personToken = { sesionDePersona.token() },
+            deviceToken = { deviceAuth.session.value?.token },
         )
     }
 
