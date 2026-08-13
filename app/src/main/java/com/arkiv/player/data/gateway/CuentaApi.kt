@@ -133,6 +133,12 @@ sealed class ErrorDeCuenta(val codigo: String, val mensaje: String) : Exception(
  * la PERSONA ya autenticada (por eso usan [sesion]). Mezclarlos es un agujero de suplantación -del
  * lado del servidor ya se corrigió una vez exactamente eso-, así que cada método usa una sola de
  * las dos fuentes, nunca la otra.
+ *
+ * Desde que sacar un aparato tiene que desconectarlo de verdad (spec de "Mis aparatos"), los tres
+ * métodos que identifican a la PERSONA mandan ADEMÁS `X-Arkiv-Device` con [deviceToken]: el
+ * gateway valida las dos credenciales -quién sos y desde qué fierro- y exige que el aparato siga
+ * siendo de esa cuenta. [registrar] no cambia: ahí el aparato ya viaja en `Authorization`, porque
+ * todavía no hay ninguna persona a la que atarlo.
  */
 class CuentaApi(
     private val baseUrl: () -> String,
@@ -151,9 +157,16 @@ class CuentaApi(
 
     private val jsonType = "application/json".toMediaType()
 
-    private fun pedido(url: String, token: String?): Request.Builder {
+    private fun pedido(url: String, token: String?, conDevice: Boolean = false): Request.Builder {
         val b = Request.Builder().url(url).header("X-Arkiv-Key", apiKey())
         token?.let { b.header("Authorization", it) }
+        // conDevice: solo lo mandan los tres métodos que identifican a la PERSONA
+        // ([adoptarAparato], [listarAparatos], [sacarAparato]) -- [registrar] ya manda el
+        // token del aparato en `Authorization` (arriba), así que no le hace falta esta
+        // cabecera aparte. Si [deviceToken] todavía no está disponible (null), se omite la
+        // cabecera en vez de fallar acá: el gateway la va a rechazar con `sin_device`
+        // ([ErrorDeCuenta.SinDevice]), que la app ya sabe traducir.
+        if (conDevice) deviceToken()?.let { b.header("X-Arkiv-Device", it) }
         return b
     }
 
@@ -168,7 +181,7 @@ class CuentaApi(
 
     suspend fun adoptarAparato(deviceToken: String): Adopcion = withContext(Dispatchers.IO) {
         val body = JSONObject(mapOf("deviceToken" to deviceToken)).toString().toRequestBody(jsonType)
-        val req = pedido("${baseUrl()}/v1/cuenta/aparatos", sesion.token()).post(body).build()
+        val req = pedido("${baseUrl()}/v1/cuenta/aparatos", sesion.token(), conDevice = true).post(body).build()
         val o = JSONObject(ejecutar(req))
         Adopcion(
             kind = o.getString("kind"),
@@ -179,7 +192,7 @@ class CuentaApi(
     }
 
     suspend fun listarAparatos(): List<Aparato> = withContext(Dispatchers.IO) {
-        val req = pedido("${baseUrl()}/v1/cuenta/aparatos", sesion.token()).get().build()
+        val req = pedido("${baseUrl()}/v1/cuenta/aparatos", sesion.token(), conDevice = true).get().build()
         val arr = JSONObject(ejecutar(req)).optJSONArray("aparatos") ?: return@withContext emptyList()
         (0 until arr.length()).map { i ->
             val o = arr.getJSONObject(i)
@@ -194,7 +207,8 @@ class CuentaApi(
 
     suspend fun sacarAparato(id: String) {
         withContext(Dispatchers.IO) {
-            val req = pedido("${baseUrl()}/v1/cuenta/aparatos/$id", sesion.token()).delete().build()
+            val req = pedido("${baseUrl()}/v1/cuenta/aparatos/$id", sesion.token(), conDevice = true)
+                .delete().build()
             ejecutar(req, allowEmpty = true)
         }
     }

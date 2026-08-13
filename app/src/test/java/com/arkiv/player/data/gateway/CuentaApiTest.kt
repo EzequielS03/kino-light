@@ -99,6 +99,51 @@ class CuentaApiTest {
         assertEquals("LLAVE", server.takeRequest().getHeader("X-Arkiv-Key"))
     }
 
+    // --- Task 5b: el aparato que llama viaja en X-Arkiv-Device, para que el gateway pueda -----
+    // --- desconectarlo de verdad cuando se lo saca de la cuenta (spec de "Mis aparatos") ------
+
+    @Test
+    fun `adoptarAparato manda el token del aparato que llama en X-Arkiv-Device`() = runBlocking {
+        deviceStore.savePersonToken("person-tok")
+        server.enqueue(MockResponse().setBody("""{"kind":"phone","usados":1,"tope":2,"yaEra":false}"""))
+
+        cuentaApi(deviceTok = "device-que-llama").adoptarAparato("otro-device-tok")
+
+        assertEquals("device-que-llama", server.takeRequest().getHeader("X-Arkiv-Device"))
+    }
+
+    @Test
+    fun `listarAparatos manda el token del aparato que llama en X-Arkiv-Device`() = runBlocking {
+        deviceStore.savePersonToken("person-tok")
+        server.enqueue(MockResponse().setBody("""{"aparatos":[]}"""))
+
+        cuentaApi(deviceTok = "device-que-llama").listarAparatos()
+
+        assertEquals("device-que-llama", server.takeRequest().getHeader("X-Arkiv-Device"))
+    }
+
+    @Test
+    fun `sacarAparato manda el token del aparato que llama en X-Arkiv-Device`() = runBlocking {
+        deviceStore.savePersonToken("person-tok")
+        server.enqueue(MockResponse().setResponseCode(204))
+
+        cuentaApi(deviceTok = "device-que-llama").sacarAparato("dev-9")
+
+        assertEquals("device-que-llama", server.takeRequest().getHeader("X-Arkiv-Device"))
+    }
+
+    @Test
+    fun `registrar NO manda X-Arkiv-Device -- ahi el aparato ya viaja en Authorization`() = runBlocking {
+        // Antes de tener cuenta, la única identidad que existe es la del aparato mismo (en
+        // Authorization, ver el test de arriba): mandar además X-Arkiv-Device sería repetir la
+        // misma credencial en dos cabeceras distintas, sin ninguna persona a la que atarla.
+        server.enqueue(MockResponse().setResponseCode(201).setBody("""{"userId":"u1","accountId":"a1"}"""))
+
+        cuentaApi(deviceTok = "device-tok").registrar("a@b.co", "secret12", "LIC-1")
+
+        assertEquals(null, server.takeRequest().getHeader("X-Arkiv-Device"))
+    }
+
     // --- caminos felices: parseo de cada respuesta -----------------------------------------
 
     @Test
