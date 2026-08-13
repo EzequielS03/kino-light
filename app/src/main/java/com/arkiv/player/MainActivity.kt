@@ -15,6 +15,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import com.arkiv.player.playback.ACTION_OPEN_PLAYER
 import com.arkiv.player.playback.NowPlaying
 import com.arkiv.player.seguridad.DeteccionDeRoot
@@ -23,6 +26,10 @@ import com.arkiv.player.seguridad.PantallaBloqueada
 import com.arkiv.player.seguridad.RecolectorDeSenales
 import com.arkiv.player.ui.ArkivRoot
 import com.arkiv.player.ui.ArkivSplash
+import com.arkiv.player.ui.entrada.EntradaViewModel
+import com.arkiv.player.ui.entrada.EstadoDeEntrada
+import com.arkiv.player.ui.entrada.PantallaDeEntrada
+import com.arkiv.player.ui.entrada.estadoDeEntrada
 import com.arkiv.player.ui.theme.ArkivTheme
 import com.arkiv.player.ui.tv.ArkivTvRoot
 import kotlinx.coroutines.delay
@@ -61,6 +68,8 @@ class MainActivity : AppCompatActivity() {
         if (isTv) com.arkiv.player.tvservice.TvKeepAliveWorker.schedule(this)
         setContent {
             ArkivTheme {
+                val graph = (application as ArkivApp).graph
+
                 // La intro se dibuja ENCIMA de la app para tapar el arranque en frío.
                 //
                 // El contenido NO se compone de entrada: armar el root (Room, sync, filas del
@@ -80,16 +89,38 @@ class MainActivity : AppCompatActivity() {
                 }
                 Box(Modifier.fillMaxSize()) {
                     if (loadContent) {
-                        if (isTv) {
-                            ArkivTvRoot(
-                                deepLinkEpisodeId = pendingEpisode,
-                                onDeepLinkConsumed = { pendingEpisode = null },
-                            )
-                        } else {
-                            ArkivRoot(
-                                deepLinkEpisodeId = pendingEpisode,
-                                onDeepLinkConsumed = { pendingEpisode = null },
-                            )
+                        // Gate de sesión (Task 4), al lado del de integridad que ya filtró antes de
+                        // llegar acá: sin sesión no se arma ni Room, ni el sync, ni las filas del
+                        // home. `sesionEstado` es una lectura en memoria (SesionDePersona.estado),
+                        // nunca un pedido de red -ver el KDoc de EntradaViewModel-, así que con
+                        // sesión guardada este `when` no agrega ninguna espera al arranque.
+                        val entradaVm: EntradaViewModel = viewModel(
+                            factory = viewModelFactory {
+                                initializer { EntradaViewModel(graph.sesionDePersona, graph.accountManager) }
+                            },
+                        )
+                        val sesionEstado by entradaVm.sesionEstado.collectAsState()
+                        val aviso by entradaVm.aviso.collectAsState()
+                        when (estadoDeEntrada(sesionEstado, aviso)) {
+                            is EstadoDeEntrada.Adentro -> {
+                                if (isTv) {
+                                    ArkivTvRoot(
+                                        deepLinkEpisodeId = pendingEpisode,
+                                        onDeepLinkConsumed = { pendingEpisode = null },
+                                    )
+                                } else {
+                                    ArkivRoot(
+                                        deepLinkEpisodeId = pendingEpisode,
+                                        onDeepLinkConsumed = { pendingEpisode = null },
+                                    )
+                                }
+                            }
+                            is EstadoDeEntrada.Entrada -> {
+                                // Provisorio también en TV: TvPantallaDeEntrada (pareo por QR, sin
+                                // login manual) es la Task 5 del plan. Hasta entonces la TV pide
+                                // entrada con el mismo formulario que el celular.
+                                PantallaDeEntrada(entradaVm)
+                            }
                         }
                     }
                     if (!splashDone) {
@@ -103,7 +134,6 @@ class MainActivity : AppCompatActivity() {
                     // OTA: se muestra sola cuando AppGraph detecta una versión nueva (chequeo al
                     // arrancar o el UpdateWorker periódico). "dismissed" solo tapa esta instancia
                     // del diálogo global; el chequeo manual desde Ajustes usa su propia instancia.
-                    val graph = (application as ArkivApp).graph
                     val updateAvailable by graph.updateInfo.collectAsState()
                     var dismissed by remember { mutableStateOf(false) }
                     updateAvailable?.let { info ->

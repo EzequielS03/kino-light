@@ -58,8 +58,10 @@ private fun PasswordField(value: String, onValueChange: (String) -> Unit, label:
     )
 }
 
+/** `internal`, no `private`: `PantallaDeEntrada` (ui/entrada) la reusa tal cual para el mismo
+ *  formulario de login/registro -si divergen, se arreglan bugs en uno y no en el otro-. */
 @Composable
-private fun AnonimoSection(account: AccountManager) {
+internal fun AnonimoSection(account: AccountManager) {
     val scope = rememberCoroutineScope()
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
