@@ -2,11 +2,9 @@ package com.arkiv.player.ui
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutLinearInEasing
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -14,39 +12,153 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.sp
-import androidx.compose.material3.Text
 import com.arkiv.player.ui.theme.ArkivBlack
 import com.arkiv.player.ui.theme.ArkivRed
+import kotlin.math.hypot
+import kotlin.math.min
+import kotlin.math.sin
 
-/** Duración de la intro (asentado + barrido), en ms. */
-private const val TOTAL_MS = 750
+/** Duración de la intro, en ms. */
+private const val TOTAL_MS = 880
 
 /** Duración del fundido de salida, en ms. */
-private const val EXIT_MS = 320
+private const val EXIT_MS = 260
 
 /** Sub-progreso [0..1] de un tramo de la línea de tiempo global. */
-private fun seg(p: Float, from: Float, to: Float): Float =
-    ((p - from) / (to - from)).coerceIn(0f, 1f)
+private fun seg(t: Float, from: Float, to: Float): Float =
+    ((t - from) / (to - from)).coerceIn(0f, 1f)
+
+private fun easeOut(t: Float): Float = 1f - (1f - t) * (1f - t) * (1f - t)
+
+/** Ease con un pelo de rebote al final, para que el asta "aterrice" en vez de frenar en seco. */
+private fun easeBack(t: Float): Float {
+    val c = 1.7f
+    val u = t - 1f
+    return 1f + (c + 1f) * u * u * u + c * u * u
+}
 
 /**
- * Intro de arranque estilo Netflix: el wordmark KINO entra con un resplandor rojo y se asienta,
- * un destello de luz lo barre, y termina con un zoom + fundido que descubre la app.
+ * El monograma de Kino, en una caja de 100x100 con la Y hacia abajo.
  *
- * Se dibuja ENCIMA del contenido para tapar el arranque en frío, que antes se veía como una
- * pantalla negra muerta. La salida no arranca hasta que [canExit] es true: así el fundido
- * destapa una pantalla ya dibujada en vez de dejar otro hueco negro. [onFinished] avisa al
- * llamador para que la saque de la composición.
+ * Son los MISMOS números que `docs/marca/kino_logo.py`, que genera el ícono del lanzador y los PNG
+ * del TV. Si se tocan acá y no allá (o al revés), la K de la intro deja de ser la del ícono.
+ */
+private object GeometriaK {
+    private const val ASTA_X0 = 12f
+    private const val ASTA_X1 = 29f
+    private const val ARRIBA = 8f
+    private const val ABAJO = 92f
+    private const val DERECHA = 86f
+    private const val GROSOR = 17.5f
+
+    /** Donde nacen las aspas: metido dentro del asta, para que suelden sin costura. */
+    const val JUNTA_X = ASTA_X1 - 6f
+    const val JUNTA_Y = 50f
+
+    val asta: List<Offset> = listOf(
+        Offset(ASTA_X0, ARRIBA), Offset(ASTA_X1, ARRIBA),
+        Offset(ASTA_X1, ABAJO), Offset(ASTA_X0, ABAJO),
+    )
+    val aspaArriba: List<Offset> = aspa(ARRIBA - 2f)
+    val aspaAbajo: List<Offset> = aspa(ABAJO + 2f)
+
+    /** Un aspa desde la junta hasta el borde derecho, cortada recta. */
+    private fun aspa(hastaY: Float): List<Offset> {
+        val bx = DERECHA + 14f                     // se pasa de largo y después se corta
+        val dx = bx - JUNTA_X
+        val dy = hastaY - JUNTA_Y
+        val n = hypot(dx, dy)
+        val nx = -dy / n * (GROSOR / 2f)
+        val ny = dx / n * (GROSOR / 2f)
+        return cortarEn(
+            listOf(
+                Offset(JUNTA_X + nx, JUNTA_Y + ny), Offset(bx + nx, hastaY + ny),
+                Offset(bx - nx, hastaY - ny), Offset(JUNTA_X - nx, JUNTA_Y - ny),
+            ),
+            DERECHA,
+        )
+    }
+
+    /** Sutherland-Hodgman contra un solo plano vertical: deja el corte recto. */
+    private fun cortarEn(poly: List<Offset>, xMax: Float): List<Offset> {
+        val out = mutableListOf<Offset>()
+        for (i in poly.indices) {
+            val c = poly[i]
+            val p = poly[(i - 1 + poly.size) % poly.size]
+            val cDentro = c.x <= xMax
+            val pDentro = p.x <= xMax
+            if (cDentro != pDentro) {
+                val t = (xMax - p.x) / (c.x - p.x)
+                out += Offset(xMax, p.y + t * (c.y - p.y))
+            }
+            if (cDentro) out += c
+        }
+        return out
+    }
+}
+
+/**
+ * Dibuja una pieza del monograma.
+ *
+ * @param desdeJunta escala la pieza tomando la junta como centro: con 0 no se ve y con 1 está
+ *   entera, así que animarlo de 0 a 1 hace que el aspa SALGA DISPARADA desde el asta. null la
+ *   dibuja tal cual (es lo que quiere el asta, que no se estira).
+ */
+private fun DrawScope.pieza(
+    puntos: List<Offset>,
+    origen: Offset,
+    escala: Float,
+    desdeJunta: Float? = null,
+    color: Color = ArkivRed,
+    alpha: Float = 1f,
+) {
+    if (alpha <= 0f) return
+    val path = Path()
+    puntos.forEachIndexed { i, p ->
+        val x = if (desdeJunta == null) p.x else GeometriaK.JUNTA_X + (p.x - GeometriaK.JUNTA_X) * desdeJunta
+        val y = if (desdeJunta == null) p.y else GeometriaK.JUNTA_Y + (p.y - GeometriaK.JUNTA_Y) * desdeJunta
+        val punto = Offset(origen.x + x * escala, origen.y + y * escala)
+        if (i == 0) path.moveTo(punto.x, punto.y) else path.lineTo(punto.x, punto.y)
+    }
+    path.close()
+    drawPath(path, color, alpha = alpha)
+}
+
+/**
+ * Intro de arranque: la K se abre y proyecta el nombre.
+ *
+ * El asta cae, las dos aspas salen disparadas desde la junta —como un proyector que se abre—, de
+ * ahí sale un haz de luz hacia la derecha y KINO se revela DENTRO del haz, de izquierda a derecha.
+ * Termina con un zoom + fundido que descubre la app.
+ *
+ * ### Por qué el asta NO aparece desde invisible
+ *
+ * `installSplashScreen()` no retiene el splash del sistema: este suelta la K estática en cuanto hay
+ * primer frame y Compose toma el control enseguida. Si la intro empezara desde negro, en el aparato
+ * se vería "K brillante → negro → K armándose", que es justo el salto que documentaba la intro
+ * anterior. Por eso el asta arranca a opacidad plena y lo único que se anima es su caída: en el
+ * frame cero ya hay rojo en pantalla y el relevo no se nota. No "arreglar" esto poniéndole un
+ * fundido de entrada.
+ *
+ * Se dibuja ENCIMA del contenido para tapar el arranque en frío. La salida no arranca hasta que
+ * [canExit] es true: así el fundido destapa una pantalla ya dibujada en vez de dejar otro hueco
+ * negro. [onFinished] avisa al llamador para que la saque de la composición.
  */
 @Composable
 fun ArkivSplash(
@@ -57,6 +169,7 @@ fun ArkivSplash(
     val intro = remember { Animatable(0f) }
     val exitAnim = remember { Animatable(0f) }
     var introDone by remember { mutableStateOf(false) }
+    val medidor = rememberTextMeasurer()
 
     LaunchedEffect(Unit) {
         intro.animateTo(1f, tween(durationMillis = TOTAL_MS, easing = LinearEasing))
@@ -70,69 +183,126 @@ fun ArkivSplash(
         onFinished()
     }
 
-    val p = intro.value
-    // Tramos dentro de la intro: asentado (0–520ms) y barrido de luz (380–1000ms).
-    // OJO: el tramo inicial NO arranca desde invisible — si lo hiciera, el primer frame de
-    // Compose sería negro y se vería un salto feo justo al soltar el splash del sistema.
-    val settle = FastOutSlowInEasing.transform(seg(p, 0f, 0.52f))
-    val sweep = seg(p, 0.38f, 1f)
-    val exit = exitAnim.value
+    val estilo = TextStyle(
+        color = Color.White,
+        fontWeight = FontWeight.Black,
+        fontSize = if (isTv) 84.sp else 52.sp,
+        letterSpacing = if (isTv) 10.sp else 6.sp,
+    )
+    val salida = exitAnim.value
 
-    Box(
-        modifier = Modifier.fillMaxSize().background(ArkivBlack),
-        contentAlignment = Alignment.Center,
+    Canvas(
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                val s = 1f + 0.07f * salida
+                scaleX = s
+                scaleY = s
+                alpha = 1f - salida
+            },
     ) {
-        // Resplandor rojo detrás del wordmark: crece con el asentado y se apaga en la salida.
-        Box(
-            Modifier
-                .fillMaxSize()
-                .graphicsLayer { alpha = (0.35f + 0.65f * settle) * (1f - exit) * 0.45f }
-                .background(
-                    Brush.radialGradient(
-                        listOf(ArkivRed.copy(alpha = 0.55f), Color.Transparent),
-                        radius = if (isTv) 620f else 420f,
-                    ),
+        drawRect(ArkivBlack)
+
+        val t = intro.value * TOTAL_MS
+
+        // El tamaño del lockup se deriva del TEXTO, nunca del alto de la pantalla.
+        //
+        // Atarlo a `size.height` es lo que rompió la primera versión: el teléfono es VERTICAL, así
+        // que un monograma de 0,42 × alto salía gigante y empujaba la palabra fuera del borde
+        // derecho — en el emulador se veía una K enorme y ningún texto. Con el texto de referencia,
+        // la misma cuenta sirve para el celular y para el TV apaisado.
+        var medida = medidor.measure(AnnotatedString("KINO"), estilo)
+        var lado = medida.size.height * 1.30f
+        var aire = medida.size.height * 0.42f
+        var ancho = lado + aire + medida.size.width
+
+        // Y si aun así no entra a lo ancho (pantalla angosta, cuerpo grande), se achica el conjunto
+        // entero midiendo de nuevo: el texto es sp, no se puede escalar sin volver a medirlo.
+        val disponible = size.width * 0.86f
+        if (ancho > disponible) {
+            val f = disponible / ancho
+            medida = medidor.measure(
+                AnnotatedString("KINO"),
+                estilo.copy(fontSize = estilo.fontSize * f, letterSpacing = estilo.letterSpacing * f),
+            )
+            lado = medida.size.height * 1.30f
+            aire = medida.size.height * 0.42f
+            ancho = lado + aire + medida.size.width
+        }
+
+        val anchoTexto = medida.size.width.toFloat()
+        val altoTexto = medida.size.height.toFloat()
+        val escala = lado / 100f
+        val origen = Offset((size.width - ancho) / 2f, (size.height - lado) / 2f)
+        val junta = Offset(
+            origen.x + GeometriaK.JUNTA_X * escala,
+            origen.y + GeometriaK.JUNTA_Y * escala,
+        )
+        val textoX = origen.x + lado + aire
+        val textoY = size.height / 2f - altoTexto / 2f
+
+        val pAsta = easeBack(seg(t, 0f, 260f))
+        val pArriba = easeOut(seg(t, 160f, 400f))
+        val pAbajo = easeOut(seg(t, 220f, 460f))
+        val pHaz = seg(t, 380f, 700f)
+        val pPalabra = easeOut(seg(t, 460f, 800f))
+        val pBrillo = seg(t, 700f, 880f)
+
+        // Resplandor rojo detrás de todo, anclado en la junta: es de donde "sale" la luz.
+        val radio = size.height * (0.5f + 0.35f * pAsta)
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    ArkivRed.copy(alpha = 0.55f * (0.30f + 0.35f * sin(Math.PI.toFloat() * pBrillo))),
+                    Color.Transparent,
                 ),
+                center = junta,
+                radius = radio,
+            ),
+            radius = radio,
+            center = junta,
         )
 
-        Text(
-            text = "KINO",
-            color = ArkivRed,
-            fontWeight = FontWeight.Black,
-            fontSize = if (isTv) 92.sp else 56.sp,
-            letterSpacing = if (isTv) 14.sp else 8.sp,
-            modifier = Modifier
-                .graphicsLayer {
-                    // Entra ya visible (0.92) y se asienta a 1.0; al salir, zoom sutil + fundido
-                    // (como el cierre del intro de Netflix).
-                    val s = (0.92f + 0.08f * settle) + 0.15f * exit
-                    scaleX = s
-                    scaleY = s
-                    alpha = (0.35f + 0.65f * settle) * (1f - exit)
-                    // Necesario para que el BlendMode del destello recorte contra las letras
-                    // y no contra todo el fondo de la pantalla.
-                    compositingStrategy = CompositingStrategy.Offscreen
-                }
-                .drawWithContent {
-                    drawContent()
-                    // Destello que barre las letras. SrcATop (y no SrcIn) es clave: recorta la
-                    // luz contra las letras pero DEJA el texto intacto donde el degradado es
-                    // transparente — con SrcIn el resto del wordmark se borraba.
-                    if (sweep > 0f && sweep < 1f) {
-                        val cx = size.width * (sweep * 1.6f - 0.3f)
-                        val half = size.width * 0.18f
-                        drawRect(
-                            brush = Brush.linearGradient(
-                                0f to Color.Transparent,
-                                0.5f to Color.White,
-                                1f to Color.Transparent,
-                                start = Offset(cx - half, 0f),
-                                end = Offset(cx + half, 0f),
-                            ),
-                            blendMode = BlendMode.SrcAtop,
-                        )
-                    }
-                },
-        )
+        // El haz: un cono que se abre desde la junta hacia la derecha y después se apaga.
+        if (pHaz > 0f) {
+            val abriendo = easeOut(min(pHaz / 0.55f, 1f))
+            val fade = if (pHaz < 0.55f) pHaz / 0.55f else 1f - (pHaz - 0.55f) / 0.45f * 0.72f
+            val largo = (size.width - junta.x) * (0.35f + 0.75f * abriendo)
+            val abre = size.height * 0.30f * abriendo
+            val cono = Path().apply {
+                moveTo(junta.x, junta.y)
+                lineTo(junta.x + largo, junta.y - abre)
+                lineTo(junta.x + largo, junta.y + abre)
+                close()
+            }
+            drawPath(
+                cono,
+                brush = Brush.horizontalGradient(
+                    colors = listOf(Color(0xFFFFEEEE).copy(alpha = 0.30f * fade), Color.Transparent),
+                    startX = junta.x,
+                    endX = junta.x + largo,
+                ),
+            )
+        }
+
+        // El asta cae desde arriba, YA VISIBLE (ver el doc de arriba).
+        translate(top = -lado * 0.5f * (1f - pAsta)) {
+            pieza(GeometriaK.asta, origen, escala)
+        }
+        // Las aspas salen disparadas desde la junta, una detrás de la otra.
+        if (pArriba > 0f) pieza(GeometriaK.aspaArriba, origen, escala, desdeJunta = pArriba)
+        if (pAbajo > 0f) pieza(GeometriaK.aspaAbajo, origen, escala, desdeJunta = pAbajo)
+
+        // La palabra se revela DENTRO del haz, de izquierda a derecha.
+        if (pPalabra > 0f) {
+            clipRect(left = textoX, right = textoX + anchoTexto * pPalabra) {
+                drawText(medida, topLeft = Offset(textoX, textoY))
+            }
+            drawRect(
+                color = ArkivRed,
+                topLeft = Offset(textoX, textoY + altoTexto + size.height * 0.035f),
+                size = Size(anchoTexto * pPalabra, (size.height * 0.022f).coerceAtLeast(2f)),
+            )
+        }
     }
 }
