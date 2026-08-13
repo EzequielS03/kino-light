@@ -194,6 +194,15 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
     /** Cuántas conexiones como mucho para la cola. Dos: el duplicado, no una ráfaga. */
     private val TIROS_A_LA_COLA = 2
 
+    /**
+     * Cuánto espera la cola a saber el tamaño del archivo antes de rendirse y pedir por sufijo.
+     *
+     * Corto porque el dato viene de la respuesta de la CABEZA, que se está bajando en paralelo y
+     * cuyo primer byte es justo lo que el arranque ya estaba esperando: si a los 2 s no llegó, el
+     * problema es el CDN y no este plazo.
+     */
+    private val ESPERA_TOTAL_MS = 2_000L
+
     /** Cuánto del final se guarda. Igual que la sonda de duración: 256 KB alcanzan y sobran. */
     private val COLA_CALIENTE = TsDurationProbe.PROBE_BYTES
     private val initLocks = ConcurrentHashMap<String, Any>()
@@ -1108,6 +1117,10 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                     android.util.Log.w("ArchiveCacheProxy", "precalentar: el origen no dio el arranque")
                     return
                 }
+        // El TAMAÑO del archivo sale gratis de esta misma respuesta, y hace falta enseguida: es lo
+        // que le permite a [precalentarCola] pedir el final por rango ABSOLUTO en vez de por sufijo.
+        // Ver ahí por qué esa diferencia vale segundos.
+        anotarTotal(originUrl, conn, inicio)
         runCatching {
             conn.inputStream.use { ins ->
                 val buf = ByteArray(64 * 1024)
@@ -1233,8 +1246,38 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
         perfil: PoliticaOrigen.Perfil,
         t0: Long,
     ) {
+        // EL FINAL SE PIDE POR RANGO ABSOLUTO, NO POR SUFIJO. Esto no es una preferencia de estilo:
+        // es lo más caro que se encontró midiendo. En el Fire TV, el 2026-08-13, sobre 31 peticiones
+        // al CDN de magis:
+        //
+        //   forma del rango        rechazos   respuestas OK
+        //   bytes=-262144 (sufijo)    19            0
+        //   bytes=N-    (absoluto)     0           12
+        //
+        // Los DIECINUEVE rechazos fueron del sufijo y ninguno del absoluto. Y no es que el tramo no
+        // esté: en el mismo arranque, tras seis rechazos seguidos de `bytes=-262144` —dos conexiones
+        // en paralelo, tres intentos cada una, 8,8 s tirados— el reproductor pidió ese mismo final
+        // por `bytes=322515168-` y el CDN lo sirvió en 267 ms. Cada rechazo cuesta los 3 s de plazo
+        // del perfil MAGIS, y libVLC no abre hasta tener el final: de ahí salían colas de 7036,
+        // 8485 y 9435 ms.
+        //
+        // El tamaño no cuesta una petición extra: lo anotó [anotarTotal] de la respuesta de la
+        // cabeza, que se está bajando en paralelo. Se le da un momento para que llegue; si no llega,
+        // se cae al sufijo de siempre, que es peor pero funciona a veces.
+        val limite = System.currentTimeMillis() + ESPERA_TOTAL_MS
+        var totalConocido = totales[originUrl] ?: 0L
+        while (totalConocido <= 0L && System.currentTimeMillis() < limite) {
+            Thread.sleep(50)
+            totalConocido = totales[originUrl] ?: 0L
+        }
+        val rangoCola = if (totalConocido > COLA_CALIENTE) {
+            "bytes=${totalConocido - COLA_CALIENTE}-${totalConocido - 1}"
+        } else {
+            android.util.Log.w("ArchiveCacheProxy", "cola: sin tamaño a tiempo, cae al sufijo")
+            "bytes=-$COLA_CALIENTE"
+        }
         val (conn, _) = abrirConDuplicado(
-            originUrl, "bytes=-$COLA_CALIENTE", headers, perfil,
+            originUrl, rangoCola, headers, perfil,
         ) ?: run {
             android.util.Log.w("ArchiveCacheProxy", "precalentar cola: el origen no la dio")
             return
@@ -1381,6 +1424,28 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                     "(destino estimado $destino) en ${System.currentTimeMillis() - t0}ms",
             )
         }.apply { isDaemon = true; name = "arkiv-precalentar-salto" }.start()
+    }
+
+    /**
+     * Guarda el tamaño del archivo leyéndolo de una respuesta que ya teníamos en la mano.
+     *
+     * Del `Content-Range` si vino (trae el total explícito) y si no del `Content-Length` sumado al
+     * byte donde arrancaba el tramo. No pide nada: el objetivo es justamente no gastar una petición
+     * de más contra este CDN.
+     */
+    private fun anotarTotal(originUrl: String, conn: HttpURLConnection, inicio: Long) {
+        if ((totales[originUrl] ?: 0L) > 0L) return
+        val total = runCatching {
+            val cr = conn.getHeaderField("Content-Range")
+            val m = Regex("""/(\d+)""").find(cr.orEmpty())
+            if (m != null) {
+                m.groupValues[1].toLong()
+            } else {
+                val len = conn.getHeaderField("Content-Length")?.toLongOrNull() ?: 0L
+                if (len > 0L) inicio + len else 0L
+            }
+        }.getOrDefault(0L)
+        if (total > 0L) totales[originUrl] = total
     }
 
     /** Anota una ventana nueva para [clave], tirando la más vieja si ya hay demasiadas. */
