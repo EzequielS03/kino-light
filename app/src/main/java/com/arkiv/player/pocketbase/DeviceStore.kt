@@ -12,4 +12,11 @@ interface DeviceStore {
     fun savePersonEmail(email: String)
     fun personEmail(): String?
     fun clearPersonEmail()
+
+    /** Token de sesión de la PERSONA (no del aparato): lo que autoriza pedidos al gateway en su
+     *  nombre. Antes se autenticaba y se tiraba; sin persistirlo no hay forma de hablarle al
+     *  gateway como esa persona, así que va cifrado igual que el token del device. */
+    fun savePersonToken(token: String)
+    fun personToken(): String?
+    fun clearPersonToken()
 }

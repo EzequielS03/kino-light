@@ -50,6 +50,10 @@ class SecureDeviceStore(context: Context) : DeviceStore {
     override fun personEmail(): String? = prefs.getString(K_PERSON_EMAIL, null)
     override fun clearPersonEmail() { prefs.edit().remove(K_PERSON_EMAIL).apply() }
 
+    override fun savePersonToken(token: String) { prefs.edit().putString(K_PERSON_TOKEN, token).apply() }
+    override fun personToken(): String? = prefs.getString(K_PERSON_TOKEN, null)
+    override fun clearPersonToken() { prefs.edit().remove(K_PERSON_TOKEN).apply() }
+
     private companion object {
         const val K_ACCOUNT = "accountId"
         const val K_DEVICE = "deviceId"
@@ -58,5 +62,6 @@ class SecureDeviceStore(context: Context) : DeviceStore {
         const val K_KIND = "kind"
         const val K_TOKEN = "token"
         const val K_PERSON_EMAIL = "personEmail"
+        const val K_PERSON_TOKEN = "personToken"
     }
 }
