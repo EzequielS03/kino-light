@@ -51,7 +51,7 @@ fun TvPairingScreen(pairing: PairingManager, deviceName: String, onDone: () -> U
         verticalArrangement = Arrangement.Center,
     ) {
         Text(
-            "Escanea este código con la app Arkiv de tu teléfono",
+            "Escanea este código con la app Kino de tu teléfono",
             style = MaterialTheme.typography.titleMedium,
             color = Color.White,
         )

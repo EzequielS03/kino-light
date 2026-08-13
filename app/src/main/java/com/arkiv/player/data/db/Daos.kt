@@ -71,6 +71,23 @@ data class ContinueRow(
     }
 }
 
+/**
+ * Progreso de un capítulo con el ítem al que pertenece y el capítulo que le SIGUE en la lista.
+ *
+ * El "siguiente" viene resuelto desde SQL porque [com.arkiv.player.data.PorDondeVas] lo necesita
+ * para ofrecer el capítulo que va después del último que terminaste, y traerse la lista completa de
+ * capítulos de cada serie a memoria para averiguarlo sería traer miles de filas para usar una.
+ */
+data class ProgresoConSiguienteRow(
+    val episodeId: String,
+    val itemId: String,
+    val positionMs: Long,
+    val watched: Boolean,
+    val lastPlayedAt: Long,
+    /** El capítulo siguiente del mismo ítem, o null si este es el último. */
+    val siguienteEpisodeId: String?,
+)
+
 /** Resumen de un ítem para la grilla de la biblioteca. */
 /** Fila cruda para decidir a qué series preguntarles por capítulos nuevos. Ver `SeriesPorRevisar`. */
 data class SerieConProgresoRow(
@@ -243,28 +260,69 @@ interface PlaybackDao {
     @Query("SELECT * FROM playback WHERE episodeId = :episodeId")
     fun observe(episodeId: String): Flow<PlaybackEntity?>
 
+    /**
+     * Todo el progreso vivo, con el capítulo siguiente de cada uno, para que
+     * [com.arkiv.player.data.PorDondeVas] arme la fila "Continuar viendo".
+     *
+     * NO filtra por `watched` ni por posición, a propósito: filtrar acá fue exactamente el bug. La
+     * consulta vieja pedía `watched = 0`, así que de una serie vista al día solo sobrevivían los
+     * capítulos ABANDONADOS y la fila terminaba ofreciendo un capítulo de treinta atrás (Dragon Ball
+     * en device, 2026-08-13: e136 terminado anoche, la tarjeta mostraba el e104). Para saber por
+     * dónde vas hay que ver TAMBIÉN lo terminado, que es lo que dice dónde quedaste; el filtrado lo
+     * hace la regla, que tiene el contexto de toda la serie, no la consulta fila por fila.
+     *
+     * El desempate por `id` en el subselect del siguiente NO es cosmético: dos capítulos con el
+     * mismo `orderIndex` (pasa cuando la fuente no numera) harían que `> orderIndex` se saltara al
+     * hermano.
+     */
     @Query(
         """
-        SELECT p.episodeId AS episodeId, e.itemId AS itemId, i.title AS itemTitle,
+        SELECT p.episodeId AS episodeId, e.itemId AS itemId,
+               p.positionMs AS positionMs, p.watched AS watched, p.lastPlayedAt AS lastPlayedAt,
+               (SELECT e2.id FROM episodes e2
+                 WHERE e2.itemId = e.itemId AND e2.deleted = 0
+                   AND (e2.orderIndex > e.orderIndex
+                        OR (e2.orderIndex = e.orderIndex AND e2.id > e.id))
+                 ORDER BY e2.orderIndex ASC, e2.id ASC
+                 LIMIT 1) AS siguienteEpisodeId
+        FROM playback p
+        JOIN episodes e ON e.id = p.episodeId
+        JOIN items i ON i.identifier = e.itemId
+        WHERE p.deleted = 0 AND e.deleted = 0 AND i.deleted = 0
+        """
+    )
+    fun observeProgresoConSiguiente(): Flow<List<ProgresoConSiguienteRow>>
+
+    /**
+     * Los datos de pantalla de los capítulos que ya eligió [com.arkiv.player.data.PorDondeVas].
+     *
+     * Cuelga de `episodes` y NO de `playback`, con el progreso en LEFT JOIN, porque el capítulo
+     * elegido puede ser uno que nunca tocaste (el siguiente al que terminaste): ahí no hay fila de
+     * `playback` y la tarjeta va con la barra en cero.
+     *
+     * `lastPlayedAt` sale en 0 en ese caso; el repositorio lo pisa con el del ancla, que es lo que
+     * ordena la fila (ver `observeContinueWatching`).
+     */
+    @Query(
+        """
+        SELECT e.id AS episodeId, e.itemId AS itemId, i.title AS itemTitle,
                e.displayName AS displayName, e.thumbPath AS thumbPath,
                i.thumbnailUrl AS itemThumbnailUrl, i.description AS itemDescription,
-               p.positionMs AS positionMs, p.durationMs AS durationMs,
-               p.lastPlayedAt AS lastPlayedAt,
+               COALESCE(p.positionMs, 0) AS positionMs, COALESCE(p.durationMs, 0) AS durationMs,
+               COALESCE(p.lastPlayedAt, 0) AS lastPlayedAt,
                s.stillUrl AS stillUrl, s.title AS episodeTitle,
                e.season AS season, e.episode AS episode, e.orderIndex AS orderIndex,
                e.section AS section,
                (SELECT COUNT(*) FROM episodes e2 WHERE e2.itemId = e.itemId AND e2.deleted = 0) AS episodeCount,
                i.categoryOverride AS categoryOverride
-        FROM playback p
-        JOIN episodes e ON e.id = p.episodeId
+        FROM episodes e
         JOIN items i ON i.identifier = e.itemId
-        LEFT JOIN episode_still s ON s.episodeId = p.episodeId
-        WHERE p.watched = 0 AND p.positionMs > :minPositionMs AND i.deleted = 0 AND p.deleted = 0
-        ORDER BY p.lastPlayedAt DESC
-        LIMIT 60
+        LEFT JOIN playback p ON p.episodeId = e.id AND p.deleted = 0
+        LEFT JOIN episode_still s ON s.episodeId = e.id
+        WHERE e.id IN (:episodeIds) AND e.deleted = 0 AND i.deleted = 0
         """
     )
-    fun observeContinueWatching(minPositionMs: Long): Flow<List<ContinueRow>>
+    suspend fun filasParaContinuar(episodeIds: List<String>): List<ContinueRow>
 
     /**
      * Los ítems con capítulos ya vistos, con cuántos y cuándo fue el último.

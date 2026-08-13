@@ -80,7 +80,7 @@ fun TvPantallaDeEntrada(pairing: PairingManager) {
             horizontalAlignment = Alignment.Start,
         ) {
             Text(
-                "ARKIV",
+                "KINO",
                 style = MaterialTheme.typography.headlineMedium,
                 color = ArkivRed,
                 fontWeight = FontWeight.Black,
@@ -172,7 +172,7 @@ private fun PanelDeDescarga() {
         verticalArrangement = Arrangement.Center,
     ) {
         Text(
-            "Escaneá este código para instalar Arkiv en tu teléfono",
+            "Escaneá este código para instalar Kino en tu teléfono",
             style = MaterialTheme.typography.titleMedium,
             color = Color.White,
         )

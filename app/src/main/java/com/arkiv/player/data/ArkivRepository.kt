@@ -74,15 +74,25 @@ data class ItemDetail(
      * progreso" sino "ninguno".
      */
     val inProgressEpisode: Episode?
-        get() {
-            val candidatos = episodes
-                .mapNotNull { ep -> progress[ep.id]?.let { ep to it } }
-                .filter { !it.second.watched }
-            val reproducidos = candidatos.filter { it.second.positionMs > 0 }
-            return reproducidos.ifEmpty { candidatos }
-                .maxByOrNull { it.second.lastPlayedAt }
-                ?.first
-        }
+        get() = porDondeVas?.takeIf { !it.esSiguiente }?.let { elegido -> episodes.find { it.id == elegido.episodeId } }
+
+    /**
+     * La regla compartida con "Continuar viendo", resuelta contra la lista de capítulos que este
+     * detalle ya tiene en memoria. Ver [com.arkiv.player.data.PorDondeVas]: acá SIN piso de
+     * segundos, porque en el detalle "donde vas" es donde vas aunque hayas visto dos segundos.
+     */
+    private val porDondeVas: CapituloAOfrecer?
+        get() = PorDondeVas.elegir(
+            episodes.mapNotNull { ep ->
+                progress[ep.id]?.let {
+                    ProgresoDeCapitulo(ep.id, it.positionMs, it.watched, it.lastPlayedAt)
+                }
+            },
+            siguienteDe = { id ->
+                val i = episodes.indexOfFirst { it.id == id }
+                if (i >= 0) episodes.getOrNull(i + 1)?.id else null
+            },
+        )
 
     /**
      * Episodio para el botón "Reproducir": el que estás viendo, o el que sigue al último que
@@ -95,19 +105,19 @@ data class ItemDetail(
      *
      * Tampoco alcanza con "el visto más adelantado EN LA LISTA" (por posición): ver el E10 suelto
      * por curiosidad y después arrancar en orden y terminar E1-E3 dejaría "Reproducir" ofreciendo
-     * el E11, saltándose E4-E9. La regla es por RECENCIA, igual que [inProgressEpisode]: se busca
-     * el capítulo terminado más reciente por `lastPlayedAt` y se ofrece el que le sigue en la
-     * lista. Consecuencia asumida (no es un bug, no "arreglar" esto): si terminaste toda la serie
-     * y después revisitaste el E1, "Reproducir" pasa a ofrecer el E2 -- es lo que espera alguien
-     * que está reviendo. Si todavía no se vio nada, cae al primero sin ver (el primero a secas);
-     * si se vio todo (no hay "siguiente" tras el último terminado), vuelve a empezar por el primero.
+     * el E11, saltándose E4-E9. La regla es por RECENCIA y la decide [PorDondeVas], la MISMA que
+     * arma "Continuar viendo" en el home: se ancla en lo último que reprodujiste (terminado o no) y
+     * ofrece ese capítulo si quedó a medias, o el que le sigue si lo terminaste. Consecuencia
+     * asumida (no es un bug, no "arreglar" esto): si terminaste toda la serie y después revisitaste
+     * el E1, "Reproducir" pasa a ofrecer el E2 -- es lo que espera alguien que está reviendo.
+     *
+     * Los dos respaldos de abajo son de ESTA superficie y no de la regla: el botón "Reproducir" no
+     * puede quedarse sin capítulo. Si nunca se vio nada, cae al primero sin ver; si se vio todo (no
+     * hay "siguiente" tras el último terminado), vuelve a empezar por el primero. El home, en
+     * cambio, prefiere no mostrar la tarjeta antes que ofrecer algo que ya viste.
      */
     val resumeEpisode: Episode?
-        get() = inProgressEpisode
-            ?: episodes.withIndex()
-                .filter { (_, ep) -> progress[ep.id]?.watched == true }
-                .maxByOrNull { (_, ep) -> progress.getValue(ep.id).lastPlayedAt }
-                ?.let { (idx, _) -> episodes.getOrNull(idx + 1) }
+        get() = porDondeVas?.let { elegido -> episodes.find { it.id == elegido.episodeId } }
             ?: episodes.firstOrNull { progress[it.id]?.watched != true }
             ?: episodes.firstOrNull()
 }
@@ -284,16 +294,38 @@ class ArkivRepository(
      */
     fun observeContinueWatching(): Flow<List<ContinueRow>> =
         combine(
-            playbackDao.observeContinueWatching(CONTINUE_WATCHING_MIN_MS),
+            playbackDao.observeProgresoConSiguiente(),
             episodeFrameDao.observeTodos(),
         ) { rows, _ -> rows }.map { rows ->
-            // Una tarjeta por ÍTEM, no por episodio: la consulta devuelve una fila por capítulo
-            // a medias, así que una serie llenaba la fila con la misma carátula repetida
-            // (GetBackers llegó a 9 tarjetas). Como ya viene ordenada por lastPlayedAt desc,
-            // distinctBy deja el capítulo más reciente de cada serie.
-            // OJO: agrupa por itemId, NO por título — el dedup por título se quitó a propósito
-            // porque escondía ítems distintos que casualmente compartían nombre.
-            rows.distinctBy { it.itemId }.take(20)
+            // Qué capítulo va por cada serie lo decide PorDondeVas, que es la parte pura y testeada
+            // (una tarjeta por ítem, ordenadas por lo último que reprodujiste). Acá solo se traduce
+            // la fila de la base a lo que esa regla entiende.
+            PorDondeVas.porItem(
+                rows.map {
+                    ProgresoEnItem(
+                        itemId = it.itemId,
+                        progreso = ProgresoDeCapitulo(
+                            episodeId = it.episodeId,
+                            positionMs = it.positionMs,
+                            watched = it.watched,
+                            lastPlayedAt = it.lastPlayedAt,
+                        ),
+                        siguienteEpisodeId = it.siguienteEpisodeId,
+                    )
+                },
+                minPositionMs = CONTINUE_WATCHING_MIN_MS,
+            )
+        }.map { elecciones ->
+            if (elecciones.isEmpty()) return@map emptyList()
+            // El IN no conserva el orden y la elección puede apuntar a un capítulo sin fila de
+            // playback, así que se reordena acá y se pisa lastPlayedAt con el del ancla: el
+            // capítulo ofrecido puede no haberse reproducido nunca, pero la serie sí, y es la
+            // serie la que tiene que estar arriba en la fila.
+            val porId = playbackDao.filasParaContinuar(elecciones.map { it.episodeId })
+                .associateBy { it.episodeId }
+            elecciones.mapNotNull { eleccion ->
+                porId[eleccion.episodeId]?.copy(lastPlayedAt = eleccion.lastPlayedAt)
+            }
         }.map { filas ->
             // El framePath NO sale de la query (ver el doc del campo en ContinueRow): se resuelve
             // acá, del disco, después del dedup/take(20) de arriba para no gastar File.exists()

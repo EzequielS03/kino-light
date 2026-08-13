@@ -177,7 +177,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun motivosParaNoArrancar(): List<String> {
         if (!FirmaDelApk.esNuestra(this, BuildConfig.DEBUG)) {
-            return listOf("el APK no está firmado con el certificado de Arkiv")
+            return listOf("el APK no está firmado con el certificado de Kino")
         }
         return DeteccionDeRoot.motivos(RecolectorDeSenales.recoger(this))
     }

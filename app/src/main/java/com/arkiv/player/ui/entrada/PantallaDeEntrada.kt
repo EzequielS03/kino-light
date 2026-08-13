@@ -46,7 +46,7 @@ fun PantallaDeEntrada(vm: EntradaViewModel) {
         ) {
             Spacer(Modifier.height(48.dp))
             Text(
-                "ARKIV",
+                "KINO",
                 style = MaterialTheme.typography.headlineMedium,
                 color = ArkivRed,
                 fontWeight = FontWeight.Black,

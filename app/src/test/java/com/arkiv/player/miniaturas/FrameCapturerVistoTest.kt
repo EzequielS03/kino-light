@@ -4,6 +4,7 @@ import com.arkiv.player.data.db.ContinueRow
 import com.arkiv.player.data.db.PlaybackDao
 import com.arkiv.player.data.db.UltimaReproduccionRow
 import com.arkiv.player.data.db.PlaybackEntity
+import com.arkiv.player.data.db.ProgresoConSiguienteRow
 import com.arkiv.player.data.db.VistoRow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,8 +40,9 @@ class FrameCapturerVistoTest {
         override suspend fun upsert(playback: PlaybackEntity) { filas[playback.episodeId] = playback }
         override suspend fun get(episodeId: String): PlaybackEntity? = filas[episodeId]
         override fun observe(episodeId: String): Flow<PlaybackEntity?> = MutableStateFlow(filas[episodeId])
-        override fun observeContinueWatching(minPositionMs: Long): Flow<List<ContinueRow>> =
+        override fun observeProgresoConSiguiente(): Flow<List<ProgresoConSiguienteRow>> =
             MutableStateFlow(emptyList())
+        override suspend fun filasParaContinuar(episodeIds: List<String>): List<ContinueRow> = emptyList()
         override fun observeVistos(): Flow<List<VistoRow>> = MutableStateFlow(emptyList())
         override fun observePlaybackForItem(itemId: String): Flow<List<PlaybackEntity>> =
             MutableStateFlow(emptyList())
