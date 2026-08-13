@@ -51,10 +51,9 @@ class MirrorApiClient(
     /**
      * A dónde va `refresh`: al GATEWAY, no al mirror. Es la única llamada de esta clase que exigía
      * una credencial propia (`X-Api-Key` del mirror) y por eso esa llave viajaba dentro del APK.
-     * Ahora la pone el gateway y la app solo usa la suya. Ver [refresh].
+     * Ahora la pone el gateway y la app solo se autentica con su propia sesión. Ver [refresh].
      */
     private val gatewayUrl: () -> String = { "" },
-    private val arkivApiKey: () -> String = { "" },
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
@@ -62,10 +61,11 @@ class MirrorApiClient(
     private val ttlMs: Long = 30 * 60 * 1000L,
     private val nowMs: () -> Long = { System.currentTimeMillis() },
     /**
-     * Task 8 (Paso 2): token de sesión de la PERSONA, misma fuente que ya usa `CuentaApi` para
-     * `Authorization` (`SesionDePersona.token()`). Solo lo usa [refresh] -- es la única llamada de
-     * esta clase que habla con el GATEWAY (ver su KDoc); `resolveSlug`/`titleTorrents`/etc. le
-     * hablan al MIRROR, otro host, donde esta cabecera no significa nada.
+     * Token de sesión de la PERSONA, misma fuente que ya usa `CuentaApi` para `Authorization`
+     * (`SesionDePersona.token()`). Solo lo usa [refresh] -- es la única llamada de esta clase que
+     * habla con el GATEWAY (ver su KDoc); `resolveSlug`/`titleTorrents`/etc. le hablan al MIRROR,
+     * otro host, donde esta cabecera no significa nada. Task 8 (Paso 3): `X-Arkiv-Key` salió del
+     * todo, así que junto con [deviceToken] es la ÚNICA credencial de [refresh].
      */
     private val personToken: () -> String? = { null },
     /** Token del APARATO que llama, misma fuente que ya usa `CuentaApi` para `X-Arkiv-Device`
@@ -255,7 +255,8 @@ class MirrorApiClient(
      * Va por el GATEWAY (`/v1/catalog/refresh`) y no directo al mirror. El contrato con el mirror no
      * cambió —el mismo cuerpo, la misma respuesta—, lo que cambió es quién pone su credencial: antes
      * la app, con una `X-Api-Key` que por eso tenía que viajar compilada dentro del APK. Ahora esa
-     * llave vive solo en el servidor, igual que ya pasaba con TMDB y OpenSubtitles.
+     * llave vive solo en el servidor, igual que ya pasaba con TMDB y OpenSubtitles, y la app se
+     * autentica con la sesión de la persona (Task 8, Paso 3).
      */
     suspend fun refresh(tmdbId: Int, kind: ContentType, title: String, year: String): RefreshResult =
         withContext(Dispatchers.IO) {
@@ -269,7 +270,6 @@ class MirrorApiClient(
             }.toString()
             val reqBuilder = Request.Builder()
                 .url("$base/v1/catalog/refresh")
-                .addHeader("X-Arkiv-Key", arkivApiKey())
                 .post(body.toRequestBody("application/json".toMediaType()))
             // Sin sesión/aparato todavía (null o vacío) se omiten las cabeceras -- mandarlas
             // vacías sería peor que no mandarlas (ver ArkivApiClient.pedido).

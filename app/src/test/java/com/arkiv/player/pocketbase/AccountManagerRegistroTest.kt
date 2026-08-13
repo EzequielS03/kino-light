@@ -29,11 +29,10 @@ class AccountManagerRegistroTest {
      *  `vincularMagisEnviarCodigo`/`vincularMagisConfirmar`-, así que esta URL nunca debería
      *  llamarse: si algo la invocara por error, esto tira en vez de pasar en silencio. */
     private fun magisLinkSinUsar() =
-        MagisLinkClient(baseUrl = { "http://unused.invalid" }, apiKey = { "LLAVE" }, accountId = { null })
+        MagisLinkClient(baseUrl = { "http://unused.invalid" }, accountId = { null })
 
     private fun cuentaApi(gw: MockWebServer, sesion: SesionDePersona, deviceAuth: DeviceAuthManager) = CuentaApi(
         baseUrl = { gw.url("/").toString().trimEnd('/') },
-        apiKey = { "LLAVE" },
         deviceToken = { deviceAuth.session.value?.token },
         sesion = sesion,
         http = OkHttpClient(),
@@ -135,7 +134,6 @@ class AccountManagerRegistroTest {
         val e = Escenario(pb)
         val gwMuerto = CuentaApi(
             baseUrl = { gwUrl },
-            apiKey = { "LLAVE" },
             deviceToken = { e.deviceAuth.session.value?.token },
             sesion = e.sesion,
             http = OkHttpClient(),

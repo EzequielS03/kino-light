@@ -39,7 +39,6 @@ class CuentaApiTest {
 
     private fun cuentaApi(deviceTok: String? = "device-tok"): CuentaApi = CuentaApi(
         baseUrl = { server.url("/").toString().trimEnd('/') },
-        apiKey = { "LLAVE" },
         deviceToken = { deviceTok },
         sesion = sesion,
         http = OkHttpClient(),
@@ -48,7 +47,7 @@ class CuentaApiTest {
     // --- altaAparato (Task 7): sin ninguna credencial propia, el aparato todavia no existe -----
 
     @Test
-    fun `altaAparato no manda Authorization ni X-Arkiv-Device, solo la llave`() = runBlocking {
+    fun `altaAparato no manda Authorization, X-Arkiv-Device ni X-Arkiv-Key`() = runBlocking {
         deviceStore.savePersonToken("person-tok")
         server.enqueue(MockResponse().setResponseCode(201).setBody("""{"id":"dev-1","accountId":"A-nuevo"}"""))
 
@@ -60,7 +59,7 @@ class CuentaApiTest {
         val req = server.takeRequest()
         assertEquals(null, req.getHeader("Authorization"))
         assertEquals(null, req.getHeader("X-Arkiv-Device"))
-        assertEquals("LLAVE", req.getHeader("X-Arkiv-Key"))
+        assertEquals(null, req.getHeader("X-Arkiv-Key"))
     }
 
     @Test
@@ -144,13 +143,14 @@ class CuentaApiTest {
         assertTrue(req.path!!.endsWith("/aparatos/dev-9"))
     }
 
+    // Task 8 (Paso 3): `X-Arkiv-Key` salió del todo -- confirma que el corte fue real.
     @Test
-    fun `todos los pedidos mandan la llave X-Arkiv-Key`() = runBlocking {
+    fun `ningun pedido manda X-Arkiv-Key`() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(201).setBody("""{"userId":"u1","accountId":"a1"}"""))
 
         cuentaApi().registrar("a@b.co", "secret12", "LIC-1")
 
-        assertEquals("LLAVE", server.takeRequest().getHeader("X-Arkiv-Key"))
+        assertEquals(null, server.takeRequest().getHeader("X-Arkiv-Key"))
     }
 
     // --- Task 5b: el aparato que llama viaja en X-Arkiv-Device, para que el gateway pueda -----
@@ -344,7 +344,6 @@ class CuentaApiTest {
         server.shutdown()   // a partir de aca, cualquier pedido revienta con IOException (sin red)
         val api = CuentaApi(
             baseUrl = { urlMuerta },
-            apiKey = { "LLAVE" },
             deviceToken = { "device-tok" },
             sesion = sesion,
             http = OkHttpClient(),

@@ -48,22 +48,26 @@ object SimklParser {
  * `search/id?anilist=` da el id de Simkl; `anime/{id}?extended=full` da episodios + cross-ids.
  */
 class SimklApi(
-    /** Base del gateway y credencial unica. El client_id de Simkl vive en el servidor. */
+    /** Base del gateway. El client_id de Simkl vive en el servidor. */
     private val gatewayUrl: () -> String,
-    private val arkivKey: () -> String,
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build(),
-    /** Task 8 (Paso 2): token de sesión de la PERSONA, misma fuente que ya usa `CuentaApi` para
-     *  `Authorization` (`SesionDePersona.token()`). Se suma SIN sacar `X-Arkiv-Key`: ver KDoc del
+    /** Token de sesión de la PERSONA, misma fuente que ya usa `CuentaApi` para `Authorization`
+     *  (`SesionDePersona.token()`). Task 8 (Paso 3): `X-Arkiv-Key` salió del todo -- ver KDoc del
      *  mismo parámetro en `ArkivApiClient`. */
     private val personToken: () -> String? = { null },
     /** Token del APARATO que llama, misma fuente que ya usa `CuentaApi` para `X-Arkiv-Device`
      *  (`DeviceAuthManager.session.value?.token`): `require_sesion` exige las dos juntas. */
     private val deviceToken: () -> String? = { null },
 ) {
-    val configured: Boolean get() = arkivKey().isNotBlank()
+    // Antes chequeaba `arkivKey().isNotBlank()`: en un build sin `.env` esa llave venía vacía y
+    // convenía no llamar al gateway. Task 8 (Paso 3): esa llave salió del todo -- ya no hay
+    // credencial de BUILD que pueda faltar, así que [infoByAniList] ya no tiene ningún estado
+    // real de "no configurado" que chequear. Se deja el flag en `true` (en vez de borrarlo) para
+    // no encadenar cambios de comportamiento fuera del alcance de este paso.
+    val configured: Boolean get() = true
 
     suspend fun infoByAniList(anilistId: Long): SimklAnimeInfo? = withContext(Dispatchers.IO) {
         if (!configured) return@withContext null
@@ -76,7 +80,7 @@ class SimklApi(
     }
 
     private fun get(url: String): String? = runCatching {
-        val b = Request.Builder().url(url).header("X-Arkiv-Key", arkivKey())
+        val b = Request.Builder().url(url)
         // Sin sesión/aparato todavía (null o vacío) se omiten las cabeceras -- mandarlas vacías
         // sería peor que no mandarlas (ver ArkivApiClient.pedido).
         personToken()?.takeIf { it.isNotBlank() }?.let { b.header("Authorization", it) }

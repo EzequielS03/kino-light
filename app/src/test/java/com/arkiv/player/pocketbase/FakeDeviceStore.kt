@@ -31,7 +31,6 @@ class FakeDeviceStore(private var identity: DeviceIdentity? = null) : DeviceStor
  */
 fun cuentaApiSinUsarParaBootstrap(client: PocketBaseClient, store: DeviceStore): CuentaApi = CuentaApi(
     baseUrl = { "http://unused.invalid" },
-    apiKey = { "LLAVE" },
     deviceToken = { null },
     sesion = SesionDePersona(client, store),
     http = OkHttpClient(),

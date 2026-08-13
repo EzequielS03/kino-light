@@ -8,6 +8,7 @@ import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -22,7 +23,6 @@ class MagisLinkClientTest {
         server = MockWebServer().also { it.start() }
         client = MagisLinkClient(
             baseUrl = { server.url("/").toString().trimEnd('/') },
-            apiKey = { "LLAVE" },
             accountId = { "acc-9" },
             client = OkHttpClient(),
         )
@@ -47,22 +47,21 @@ class MagisLinkClientTest {
     }
 
     @Test
-    fun `status manda X-Arkiv-Key y X-Arkiv-Account`() = runBlocking {
+    fun `status manda X-Arkiv-Account, nunca X-Arkiv-Key`() = runBlocking {
         server.enqueue(MockResponse().setBody("""{"linked":false}"""))
         client.status()
         val req = server.takeRequest()
-        assertEquals("LLAVE", req.getHeader("X-Arkiv-Key"))
+        assertNull(req.getHeader("X-Arkiv-Key"))
         assertEquals("acc-9", req.getHeader("X-Arkiv-Account"))
     }
 
-    // --- Task 8 (Paso 2): Authorization + X-Arkiv-Device, SIN sacar la llave ni X-Arkiv-Account --
+    // --- Task 8 (Paso 3): Authorization + X-Arkiv-Device + X-Arkiv-Account, sin ninguna llave ---
 
     @Test
-    fun `status manda Authorization y X-Arkiv-Device cuando hay sesion, ademas de la llave`() = runBlocking {
+    fun `status manda Authorization y X-Arkiv-Device cuando hay sesion`() = runBlocking {
         server.enqueue(MockResponse().setBody("""{"linked":false}"""))
         val conSesion = MagisLinkClient(
             baseUrl = { server.url("/").toString().trimEnd('/') },
-            apiKey = { "LLAVE" },
             accountId = { "acc-9" },
             client = OkHttpClient(),
             personToken = { "person-tok" },
@@ -72,7 +71,6 @@ class MagisLinkClientTest {
         val req = server.takeRequest()
         assertEquals("person-tok", req.getHeader("Authorization"))
         assertEquals("device-tok", req.getHeader("X-Arkiv-Device"))
-        assertEquals("LLAVE", req.getHeader("X-Arkiv-Key"))
     }
 
     @Test
@@ -92,7 +90,7 @@ class MagisLinkClientTest {
         val req = server.takeRequest()
         assertEquals("POST", req.method)
         assertEquals("/v1/magis/link", req.path)
-        assertEquals("LLAVE", req.getHeader("X-Arkiv-Key"))
+        assertNull(req.getHeader("X-Arkiv-Key"))
         assertEquals("acc-9", req.getHeader("X-Arkiv-Account"))
         val body = JSONObject(req.body.readUtf8())
         assertEquals("user1", body.getString("username"))
@@ -141,7 +139,7 @@ class MagisLinkClientTest {
         val req = server.takeRequest()
         assertEquals("POST", req.method)
         assertEquals("/v1/magis/register/send-code", req.path)
-        assertEquals("LLAVE", req.getHeader("X-Arkiv-Key"))
+        assertNull(req.getHeader("X-Arkiv-Key"))
         val body = JSONObject(req.body.readUtf8())
         assertEquals("a@b.co", body.getString("email"))
     }

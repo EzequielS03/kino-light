@@ -101,17 +101,17 @@ class MirrorApiClientTest {
     }
 
     // --- refresh(): la UNICA llamada de esta clase que habla con el GATEWAY (no con el mirror) --
-    // --- Task 8 (Paso 2): Authorization + X-Arkiv-Device, SIN sacar X-Arkiv-Key -----------------
+    // --- Task 8 (Paso 3): Authorization + X-Arkiv-Device son la ÚNICA credencial, X-Arkiv-Key ---
+    // --- salió del todo ------------------------------------------------------------------------
 
     private fun clientConGateway(personTok: String? = null, deviceTok: String? = null) = MirrorApiClient(
         baseUrl = { server.url("/").toString().trimEnd('/') },
         gatewayUrl = { server.url("/").toString().trimEnd('/') },
-        arkivApiKey = { "LLAVE" },
         personToken = { personTok },
         deviceToken = { deviceTok },
     )
 
-    @Test fun `refresh manda Authorization y X-Arkiv-Device cuando hay sesion, ademas de la llave`() = runBlocking {
+    @Test fun `refresh manda Authorization y X-Arkiv-Device cuando hay sesion, nunca X-Arkiv-Key`() = runBlocking {
         server.enqueue(MockResponse().setBody("""{"ok":true,"created":false,"web_sources_added":0,"torrents_added":0}"""))
         clientConGateway(personTok = "person-tok", deviceTok = "device-tok")
             .refresh(1396, ContentType.TV, "Breaking Bad", "2008")
@@ -119,7 +119,7 @@ class MirrorApiClientTest {
         assertEquals("/v1/catalog/refresh", req.path)
         assertEquals("person-tok", req.getHeader("Authorization"))
         assertEquals("device-tok", req.getHeader("X-Arkiv-Device"))
-        assertEquals("LLAVE", req.getHeader("X-Arkiv-Key"))
+        assertNull(req.getHeader("X-Arkiv-Key"))
     }
 
     @Test fun `refresh sin sesion no manda Authorization ni X-Arkiv-Device`() = runBlocking {
@@ -128,7 +128,7 @@ class MirrorApiClientTest {
         val req = server.takeRequest()
         assertNull(req.getHeader("Authorization"))
         assertNull(req.getHeader("X-Arkiv-Device"))
-        assertEquals("LLAVE", req.getHeader("X-Arkiv-Key"))
+        assertNull(req.getHeader("X-Arkiv-Key"))
     }
 
     @Test fun `resolveSlug (habla con el MIRROR, no el gateway) no manda Authorization ni X-Arkiv-Device`() = runBlocking {

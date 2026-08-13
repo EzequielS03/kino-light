@@ -16,17 +16,15 @@ class GatewayConfigPrecedenceTest {
             SettingsStore.shouldApplySyncedGateway(
                 currentSource = GatewayConfigSource.DEFAULT,
                 gatewayUrl = "https://api.comparadorinternet.co",
-                arkivApiKey = "clave-real",
             ),
         )
     }
 
-    @Test fun `un re-pareo posterior tambien actualiza (SYNCED no bloquea, para no quedar pegado a una llave vieja)`() {
+    @Test fun `un re-pareo posterior tambien actualiza (SYNCED no bloquea, para no quedar pegado a una url vieja)`() {
         assertTrue(
             SettingsStore.shouldApplySyncedGateway(
                 currentSource = GatewayConfigSource.SYNCED,
                 gatewayUrl = "https://api.comparadorinternet.co",
-                arkivApiKey = "clave-rotada",
             ),
         )
     }
@@ -36,37 +34,15 @@ class GatewayConfigPrecedenceTest {
             SettingsStore.shouldApplySyncedGateway(
                 currentSource = GatewayConfigSource.MANUAL,
                 gatewayUrl = "https://api.comparadorinternet.co",
-                arkivApiKey = "clave-real",
             ),
         )
     }
 
-    @Test fun `llave en blanco no se aplica aunque la fuente sea DEFAULT (payload viejo o incompleto)`() {
-        assertFalse(
-            SettingsStore.shouldApplySyncedGateway(
-                currentSource = GatewayConfigSource.DEFAULT,
-                gatewayUrl = "https://api.comparadorinternet.co",
-                arkivApiKey = "",
-            ),
-        )
-    }
-
-    @Test fun `url en blanco no se aplica aunque la fuente sea DEFAULT`() {
+    @Test fun `url en blanco no se aplica aunque la fuente sea DEFAULT (payload viejo o incompleto)`() {
         assertFalse(
             SettingsStore.shouldApplySyncedGateway(
                 currentSource = GatewayConfigSource.DEFAULT,
                 gatewayUrl = "",
-                arkivApiKey = "clave-real",
-            ),
-        )
-    }
-
-    @Test fun `ambos en blanco no se aplica`() {
-        assertFalse(
-            SettingsStore.shouldApplySyncedGateway(
-                currentSource = GatewayConfigSource.DEFAULT,
-                gatewayUrl = "",
-                arkivApiKey = "",
             ),
         )
     }

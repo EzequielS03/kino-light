@@ -11,10 +11,10 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Task 8 (Paso 2): [TmdbApi] no tenía test propio (solo [TmdbSearchMultiTest], que ejercita el
- * parseo de `/search/multi` sin mirar cabeceras). Este archivo cubre exclusivamente lo que suma
- * este paso -- Authorization + X-Arkiv-Device, sin sacar `X-Arkiv-Key` -- no una suite completa
- * de [TmdbApi], que está fuera de alcance.
+ * Task 8: [TmdbApi] no tenía test propio (solo [TmdbSearchMultiTest], que ejercita el parseo de
+ * `/search/multi` sin mirar cabeceras). Este archivo cubre exclusivamente lo que sumó el Paso 2
+ * (Authorization + X-Arkiv-Device) y lo que sacó el Paso 3 (`X-Arkiv-Key`) -- no una suite
+ * completa de [TmdbApi], que está fuera de alcance.
  */
 class TmdbApiTest {
     private lateinit var server: MockWebServer
@@ -29,20 +29,26 @@ class TmdbApiTest {
 
     private fun api(personTok: String? = null, deviceTok: String? = null) = TmdbApi(
         gatewayUrl = { server.url("/").toString().trimEnd('/') },
-        arkivKey = { "LLAVE" },
         client = OkHttpClient(),
         personToken = { personTok },
         deviceToken = { deviceTok },
     )
 
     @Test
-    fun `manda Authorization y X-Arkiv-Device cuando hay sesion, ademas de la llave`() = runBlocking {
+    fun `manda Authorization y X-Arkiv-Device cuando hay sesion`() = runBlocking {
         server.enqueue(MockResponse().setBody("""{"results":[]}"""))
         api(personTok = "person-tok", deviceTok = "device-tok").browse("movie", 1)
         val req = server.takeRequest()
         assertEquals("person-tok", req.getHeader("Authorization"))
         assertEquals("device-tok", req.getHeader("X-Arkiv-Device"))
-        assertEquals("LLAVE", req.getHeader("X-Arkiv-Key"))
+    }
+
+    // Task 8 (Paso 3): `X-Arkiv-Key` salió del todo -- confirma que el corte fue real.
+    @Test
+    fun `nunca manda X-Arkiv-Key`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"results":[]}"""))
+        api(personTok = "person-tok", deviceTok = "device-tok").browse("movie", 1)
+        assertNull(server.takeRequest().getHeader("X-Arkiv-Key"))
     }
 
     @Test

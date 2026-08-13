@@ -49,7 +49,6 @@ class MisAparatosViewModelTest {
 
     private fun cuentaApi(): CuentaApi = CuentaApi(
         baseUrl = { server.url("/").toString().trimEnd('/') },
-        apiKey = { "LLAVE" },
         deviceToken = { "device-tok" },
         sesion = sesion,
         http = OkHttpClient(),
@@ -208,7 +207,7 @@ class MisAparatosViewModelTest {
         server.shutdown() // a partir de aca, cualquier pedido revienta con IOException (sin red)
         val v = MisAparatosViewModel(
             CuentaApi(
-                baseUrl = { urlMuerta }, apiKey = { "LLAVE" }, deviceToken = { "device-tok" },
+                baseUrl = { urlMuerta }, deviceToken = { "device-tok" },
                 sesion = sesion, http = OkHttpClient(),
             ),
             sesion,

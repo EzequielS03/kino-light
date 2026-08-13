@@ -37,7 +37,6 @@ class DeviceAuthManagerCreateNewAccountTest {
 
     private fun cuentaApi(client: PocketBaseClient, store: DeviceStore) = CuentaApi(
         baseUrl = { gw.url("/").toString().trimEnd('/') },
-        apiKey = { "LLAVE" },
         // altaAparato no manda ninguna credencial propia (ver su KDoc): este provider nunca
         // se llega a invocar.
         deviceToken = { null },

@@ -39,7 +39,6 @@ class EntradaViewModelTest {
         val client = PocketBaseClient(baseUrl = "http://unused.invalid")
         val cuentaApi = CuentaApi(
             baseUrl = { "http://unused.invalid" },
-            apiKey = { "LLAVE" },
             deviceToken = { null },
             sesion = sesion,
             http = OkHttpClient(),
@@ -48,7 +47,7 @@ class EntradaViewModelTest {
             client = client,
             deviceAuth = DeviceAuthManager(client, store, cuentaApiSinUsarParaBootstrap(client, store)),
             store = store,
-            magisLink = MagisLinkClient(baseUrl = { "http://unused.invalid" }, apiKey = { "LLAVE" }, accountId = { null }),
+            magisLink = MagisLinkClient(baseUrl = { "http://unused.invalid" }, accountId = { null }),
             cuentaApi = cuentaApi,
             sesion = sesion,
             onAccountSwitched = {},
@@ -186,7 +185,6 @@ class EntradaViewModelTest {
         val sesion = SesionDePersona(client, store)
         val cuentaApi = CuentaApi(
             baseUrl = { gw.url("/").toString().trimEnd('/') },
-            apiKey = { "LLAVE" },
             deviceToken = { deviceAuth.session.value?.token },
             sesion = sesion,
             http = OkHttpClient(),
@@ -195,7 +193,7 @@ class EntradaViewModelTest {
             client = client,
             deviceAuth = deviceAuth,
             store = store,
-            magisLink = MagisLinkClient(baseUrl = { "http://unused.invalid" }, apiKey = { "LLAVE" }, accountId = { null }),
+            magisLink = MagisLinkClient(baseUrl = { "http://unused.invalid" }, accountId = { null }),
             cuentaApi = cuentaApi,
             sesion = sesion,
             onAccountSwitched = {},
@@ -227,7 +225,6 @@ class EntradaViewModelTest {
         val sesion = SesionDePersona(client, store)
         val cuentaApi = CuentaApi(
             baseUrl = { gw.url("/").toString().trimEnd('/') },
-            apiKey = { "LLAVE" },
             deviceToken = { deviceAuth.session.value?.token },
             sesion = sesion,
             http = OkHttpClient(),
@@ -236,7 +233,7 @@ class EntradaViewModelTest {
             client = client,
             deviceAuth = deviceAuth,
             store = store,
-            magisLink = MagisLinkClient(baseUrl = { "http://unused.invalid" }, apiKey = { "LLAVE" }, accountId = { null }),
+            magisLink = MagisLinkClient(baseUrl = { "http://unused.invalid" }, accountId = { null }),
             cuentaApi = cuentaApi,
             sesion = sesion,
             onAccountSwitched = {},

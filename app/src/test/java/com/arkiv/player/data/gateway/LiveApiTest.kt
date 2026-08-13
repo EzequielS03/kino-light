@@ -12,7 +12,6 @@ import org.junit.Test
 class LiveApiTest {
     private fun api(server: MockWebServer) = LiveApi(
         baseUrl = { server.url("/").toString().trimEnd('/') },
-        apiKey = { "k" },
         http = OkHttpClient(),
     )
 
@@ -30,26 +29,26 @@ class LiveApiTest {
         server.shutdown()
     }
 
+    // Task 8 (Paso 3): `X-Arkiv-Key` salió del todo -- confirma que el corte fue real.
     @Test
-    fun `la llave del gateway viaja en la cabecera`() = runBlocking {
+    fun `nunca manda X-Arkiv-Key`() = runBlocking {
         val server = MockWebServer()
         server.enqueue(MockResponse().setBody("""{"categorias":[]}"""))
         server.start()
         api(server).categorias()
-        assertEquals("k", server.takeRequest().getHeader("X-Arkiv-Key"))
+        assertNull(server.takeRequest().getHeader("X-Arkiv-Key"))
         server.shutdown()
     }
 
-    // --- Task 8 (Paso 2): Authorization + X-Arkiv-Device, SIN sacar la llave ---
+    // --- Task 8 (Paso 3): Authorization + X-Arkiv-Device son la ÚNICA credencial ---
 
     @Test
-    fun `manda Authorization y X-Arkiv-Device cuando hay sesion, ademas de la llave`() = runBlocking {
+    fun `manda Authorization y X-Arkiv-Device cuando hay sesion`() = runBlocking {
         val server = MockWebServer()
         server.enqueue(MockResponse().setBody("""{"categorias":[]}"""))
         server.start()
         val conSesion = LiveApi(
             baseUrl = { server.url("/").toString().trimEnd('/') },
-            apiKey = { "k" },
             http = OkHttpClient(),
             personToken = { "person-tok" },
             deviceToken = { "device-tok" },
@@ -58,7 +57,6 @@ class LiveApiTest {
         val req = server.takeRequest()
         assertEquals("person-tok", req.getHeader("Authorization"))
         assertEquals("device-tok", req.getHeader("X-Arkiv-Device"))
-        assertEquals("k", req.getHeader("X-Arkiv-Key"))
         server.shutdown()
     }
 

@@ -97,13 +97,12 @@ class AppGraph(context: Context) {
     }
 
     /**
-     * Cliente del gateway unificado. La URL y la llave se leen del [settings] en CADA llamada (no
-     * se capturan): así cambiarlas en Ajustes tiene efecto sin reiniciar la app.
+     * Cliente del gateway unificado. La URL se lee del [settings] en CADA llamada (no se
+     * captura): así cambiarla en Ajustes tiene efecto sin reiniciar la app.
      */
     val arkivApiClient: com.arkiv.player.data.gateway.ArkivApiClient by lazy {
         com.arkiv.player.data.gateway.ArkivApiClient(
             baseUrl = { settings.gatewayUrl.value },
-            apiKey = { settings.arkivApiKey.value },
             http = httpGateway,
             magisAccountId = { deviceAuth.session.value?.accountId },
             // Task 8 (Paso 2): mismas fuentes que ya usa `cuentaApi` para las dos cabeceras de
@@ -117,7 +116,6 @@ class AppGraph(context: Context) {
     val liveApi: com.arkiv.player.data.gateway.LiveApi by lazy {
         com.arkiv.player.data.gateway.LiveApi(
             baseUrl = { settings.gatewayUrl.value },
-            apiKey = { settings.arkivApiKey.value },
             http = httpGateway,
             magisAccountId = { deviceAuth.session.value?.accountId },
             personToken = { sesionDePersona.token() },
@@ -295,7 +293,6 @@ class AppGraph(context: Context) {
     val simklApi: SimklApi by lazy {
         SimklApi(
             gatewayUrl = { settings.gatewayUrl.value },
-            arkivKey = { settings.arkivApiKey.value },
             client = httpGatewayCorto,
             personToken = { sesionDePersona.token() },
             deviceToken = { deviceAuth.session.value?.token },
@@ -311,7 +308,6 @@ class AppGraph(context: Context) {
     val tmdbApi: TmdbApi by lazy {
         TmdbApi(
             gatewayUrl = { settings.gatewayUrl.value },
-            arkivKey = { settings.arkivApiKey.value },
             language = "es-MX",
             client = httpGatewayCorto,
             personToken = { sesionDePersona.token() },
@@ -321,7 +317,6 @@ class AppGraph(context: Context) {
     val subtitleApi: com.arkiv.player.data.subtitles.SubtitleApi by lazy {
         com.arkiv.player.data.subtitles.SubtitleApi(
             gatewayUrl = { settings.gatewayUrl.value },
-            arkivKey = { settings.arkivApiKey.value },
             client = httpGatewayCorto,
             personToken = { sesionDePersona.token() },
             deviceToken = { deviceAuth.session.value?.token },
@@ -347,7 +342,6 @@ class AppGraph(context: Context) {
         com.arkiv.player.data.catalog.mirror.MirrorApiClient(
             baseUrl = { settings.torrentApiUrl.value },
             gatewayUrl = { settings.gatewayUrl.value },
-            arkivApiKey = { settings.arkivApiKey.value },
             // `client` es el ÚNICO camino de esta clase por el que puede pasar un 401/403 del
             // GATEWAY (`refresh()`, `/v1/catalog/refresh`): `getJson`/`titleTorrents`/etc. le hablan
             // al MIRROR, otro host, así que `InterceptorDeSesion` los ignora solo por el check de
@@ -528,8 +522,7 @@ class AppGraph(context: Context) {
             cuentaApi = cuentaApi,
             sesion = sesionDePersona,
             gatewayUrl = { settings.gatewayUrl.value },
-            arkivApiKey = { settings.arkivApiKey.value },
-            applySyncedGatewayConfig = { url, key -> settings.applySyncedGatewayConfig(url, key) },
+            applySyncedGatewayConfig = { url -> settings.applySyncedGatewayConfig(url) },
             setTvLinked = { settings.setTvLinked(it) },
             scope = applicationScope,
         )
@@ -583,7 +576,6 @@ class AppGraph(context: Context) {
     val cuentaApi: com.arkiv.player.data.gateway.CuentaApi by lazy {
         com.arkiv.player.data.gateway.CuentaApi(
             baseUrl = { settings.gatewayUrl.value },
-            apiKey = { settings.arkivApiKey.value },
             deviceToken = { deviceAuth.session.value?.token },
             sesion = sesionDePersona,
             // `InterceptorDeSesion` cierra la sesión ante un 401/403 de identidad real igual que ya
@@ -623,11 +615,10 @@ class AppGraph(context: Context) {
         ) { deviceAuth.session.value?.recordId }
     }
 
-    /** Vincular/desvincular la cuenta de Magis con la cuenta Arkiv (mismas fuentes de baseUrl/apiKey que [arkivApiClient]). */
+    /** Vincular/desvincular la cuenta de Magis con la cuenta Arkiv (misma fuente de baseUrl que [arkivApiClient]). */
     val magisLinkClient: com.arkiv.player.pocketbase.MagisLinkClient by lazy {
         com.arkiv.player.pocketbase.MagisLinkClient(
             baseUrl = { settings.gatewayUrl.value },
-            apiKey = { settings.arkivApiKey.value },
             accountId = { deviceAuth.session.value?.accountId },
             client = httpGateway,
             personToken = { sesionDePersona.token() },

@@ -28,7 +28,6 @@ import org.junit.Test
 class FirmaDelGatewayTest {
     private fun api(server: MockWebServer) = LiveApi(
         baseUrl = { server.url("/").toString().trimEnd('/') },
-        apiKey = { "k" },
         http = OkHttpClient(),
     )
 

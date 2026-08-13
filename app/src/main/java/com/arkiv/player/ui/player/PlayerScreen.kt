@@ -3149,10 +3149,11 @@ private fun PlayerContent(
                         }
                     }
 
-                    // ONLINE (OpenSubtitles). Sin credencial la sección entera no se dibuja: ofrecer
-                    // "Buscar online" para después decir que no se puede es ruido, y la llave no se
-                    // configura desde acá (viene del build, ver SettingsStore.DEFAULT_ARKIV_API_KEY),
-                    // así que el aviso tampoco daba una acción al usuario.
+                    // ONLINE (OpenSubtitles). Sin sesión la sección entera no se dibuja: ofrecer
+                    // "Buscar online" para después decir que no se puede es ruido, y la sesión no
+                    // se abre desde acá (Task 8, Paso 3: la credencial es la sesión de la persona,
+                    // ver SubtitleApi.configured), así que el aviso tampoco daba una acción al
+                    // usuario en esta pantalla.
                     if (graph.subtitleApi.configured) {
                         Text("Buscar online (OpenSubtitles)", style = MaterialTheme.typography.titleSmall, color = ArkivRed, modifier = Modifier.padding(top = 12.dp, bottom = 2.dp))
                         when {

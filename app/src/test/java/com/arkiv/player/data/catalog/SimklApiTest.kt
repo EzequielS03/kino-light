@@ -11,9 +11,9 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Task 8 (Paso 2): [SimklApi] no tenía test propio. Cubre exclusivamente lo que suma este paso --
- * Authorization + X-Arkiv-Device, sin sacar `X-Arkiv-Key` -- en las DOS llamadas que hace
- * [SimklApi.infoByAniList] (search/id y anime/{id}).
+ * Task 8: [SimklApi] no tenía test propio. Cubre exclusivamente lo que sumó el Paso 2
+ * (Authorization + X-Arkiv-Device) y lo que sacó el Paso 3 (`X-Arkiv-Key`) en las DOS llamadas
+ * que hace [SimklApi.infoByAniList] (search/id y anime/{id}).
  */
 class SimklApiTest {
     private lateinit var server: MockWebServer
@@ -28,7 +28,6 @@ class SimklApiTest {
 
     private fun api(personTok: String? = null, deviceTok: String? = null) = SimklApi(
         gatewayUrl = { server.url("/").toString().trimEnd('/') },
-        arkivKey = { "LLAVE" },
         client = OkHttpClient(),
         personToken = { personTok },
         deviceToken = { deviceTok },
@@ -44,14 +43,14 @@ class SimklApiTest {
     }
 
     @Test
-    fun `manda Authorization y X-Arkiv-Device en las dos llamadas, ademas de la llave`() = runBlocking {
+    fun `manda Authorization y X-Arkiv-Device en las dos llamadas, nunca X-Arkiv-Key`() = runBlocking {
         encolarBusquedaYDetalle()
         api(personTok = "person-tok", deviceTok = "device-tok").infoByAniList(1)
         repeat(2) {
             val req = server.takeRequest()
             assertEquals("person-tok", req.getHeader("Authorization"))
             assertEquals("device-tok", req.getHeader("X-Arkiv-Device"))
-            assertEquals("LLAVE", req.getHeader("X-Arkiv-Key"))
+            assertNull(req.getHeader("X-Arkiv-Key"))
         }
     }
 

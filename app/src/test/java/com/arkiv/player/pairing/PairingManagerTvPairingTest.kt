@@ -40,7 +40,6 @@ class PairingManagerTvPairingTest {
         val sesion = SesionDePersona(client, store)
         val cuentaApi = CuentaApi(
             baseUrl = { baseUrl },
-            apiKey = { "LLAVE" },
             deviceToken = { deviceAuth.session.value?.token },
             sesion = sesion,
             http = OkHttpClient(),
@@ -52,8 +51,7 @@ class PairingManagerTvPairingTest {
             cuentaApi = cuentaApi,
             sesion = sesion,
             gatewayUrl = { "" },
-            arkivApiKey = { "" },
-            applySyncedGatewayConfig = { _, _ -> false },
+            applySyncedGatewayConfig = { _ -> false },
             setTvLinked = { },
             scope = CoroutineScope(Job()),
         )

@@ -41,7 +41,6 @@ class AdoptarConReintentoTest {
 
     private fun cuentaApi(): CuentaApi = CuentaApi(
         baseUrl = { server.url("/").toString().trimEnd('/') },
-        apiKey = { "LLAVE" },
         deviceToken = { "device-tok" },
         sesion = sesion,
         http = OkHttpClient(),

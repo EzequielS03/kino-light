@@ -49,7 +49,6 @@ sealed interface RespuestaDePareo {
         val personToken: String,
         val personEmail: String,
         val gatewayUrl: String,
-        val arkivApiKey: String,
     ) : RespuestaDePareo
 
     /** [codigo] es el `codigo` de [ErrorDeCuenta] que causó el fallo (o vacío si la respuesta
@@ -68,8 +67,14 @@ fun payloadDeviceTokenTv(deviceToken: String): String =
  *  fila de una versión vieja de la app, por ejemplo, donde `payload` tenía otra forma. */
 fun deviceTokenDeTv(json: JSONObject): String? = json.optString("deviceToken").ifBlank { null }
 
-/** Arma el JSON de éxito que el celu deja para el TV tras [CuentaApi.adoptarAparato]. */
-fun payloadDeExito(accountId: String, personToken: String, personEmail: String, gatewayUrl: String, arkivApiKey: String): String =
+/**
+ * Arma el JSON de éxito que el celu deja para el TV tras [CuentaApi.adoptarAparato].
+ *
+ * Task 8 (Paso 3): ya no incluye `arkivApiKey` -- esa llave salió del todo, la TV se autentica con
+ * `personToken` (la sesión que este mismo JSON ya comparte), así que no hace falta propagar nada
+ * más. `gatewayUrl` SÍ sigue viajando: la TV no tiene dónde tipearla a mano.
+ */
+fun payloadDeExito(accountId: String, personToken: String, personEmail: String, gatewayUrl: String): String =
     JSONObject(
         mapOf(
             "ok" to true,
@@ -77,7 +82,6 @@ fun payloadDeExito(accountId: String, personToken: String, personEmail: String, 
             "personToken" to personToken,
             "personEmail" to personEmail,
             "gatewayUrl" to gatewayUrl,
-            "arkivApiKey" to arkivApiKey,
         ),
     ).toString()
 
@@ -88,7 +92,15 @@ fun payloadDeExito(accountId: String, personToken: String, personEmail: String, 
 fun payloadDeFalla(codigo: String, mensaje: String): String =
     JSONObject(mapOf("ok" to false, "errorCode" to codigo, "mensaje" to mensaje)).toString()
 
-/** Descifra e interpreta la respuesta del celu del lado de la TV. Ver [RespuestaDePareo]. */
+/**
+ * Descifra e interpreta la respuesta del celu del lado de la TV. Ver [RespuestaDePareo].
+ *
+ * Sigue usando `optString` para `gatewayUrl` (nunca `getString`) a propósito: si algún día ese
+ * campo faltara -un celu de una versión vieja o nueva con otra forma de payload-, la interpretación
+ * tiene que degradar a `""` en vez de reventar el listener. Por el mismo motivo `arkivApiKey` ya NO
+ * se lee acá (Task 8, Paso 3: esa llave salió del payload) -- un payload viejo que todavía la trajera
+ * simplemente la deja sin usar, no rompe el parseo.
+ */
 fun interpretarRespuestaDePareo(json: JSONObject): RespuestaDePareo {
     if (!json.optBoolean("ok", false)) {
         return RespuestaDePareo.Falla(
@@ -109,7 +121,6 @@ fun interpretarRespuestaDePareo(json: JSONObject): RespuestaDePareo {
         personToken = personToken,
         personEmail = personEmail,
         gatewayUrl = json.optString("gatewayUrl", ""),
-        arkivApiKey = json.optString("arkivApiKey", ""),
     )
 }
 
@@ -177,15 +188,16 @@ class PairingManager(
     private val cuentaApi: CuentaApi,
     private val sesion: SesionDePersona,
     /**
-     * Config de gateway efectiva de ESTE aparato (para propagarla al TV) + el hook para aplicar
-     * la que llegue sincronizada. Lambdas en vez de [com.arkiv.player.data.SettingsStore]
-     * directo -mismo patrón que [CuentaApi]- para poder construir y probar [PairingManager]
-     * entero contra `MockWebServer`, sin Context real: `SettingsStore` pide
-     * `SharedPreferences` y este módulo no tiene Robolectric (ver `GatewayConfigPrecedenceTest`).
+     * `gatewayUrl` efectiva de ESTE aparato (para propagarla al TV) + el hook para aplicar la que
+     * llegue sincronizada. Lambda en vez de [com.arkiv.player.data.SettingsStore] directo -mismo
+     * patrón que [CuentaApi]- para poder construir y probar [PairingManager] entero contra
+     * `MockWebServer`, sin Context real: `SettingsStore` pide `SharedPreferences` y este módulo no
+     * tiene Robolectric (ver `GatewayConfigPrecedenceTest`). Task 8 (Paso 3): antes también viajaba
+     * `arkivApiKey` acá -- salió del todo, la TV se autentica con la sesión de la persona que este
+     * mismo pareo ya comparte.
      */
     private val gatewayUrl: () -> String,
-    private val arkivApiKey: () -> String,
-    private val applySyncedGatewayConfig: (gatewayUrl: String, arkivApiKey: String) -> Boolean,
+    private val applySyncedGatewayConfig: (gatewayUrl: String) -> Boolean,
     private val setTvLinked: (Boolean) -> Unit,
     private val scope: CoroutineScope,
 ) {
@@ -297,13 +309,13 @@ class PairingManager(
                 // Sin login manual (spec), la TV nunca escribe su propia contraseña de persona:
                 // adopta el MISMO token de sesión que ya tenía vigente el celu.
                 sesion.aplicarSesionCompartida(r.personToken, r.personEmail)
-                val configAplicada = applySyncedGatewayConfig(r.gatewayUrl, r.arkivApiKey)
+                val configAplicada = applySyncedGatewayConfig(r.gatewayUrl)
                 // Limpiar el pair_request (un solo uso).
                 runCatching { client.deleteRecord(col, recordId, deviceSession.token) }
                 pendingRequestId = null
                 _state.value = PairingState.Paired(deviceSession.accountId)
-                // OJO: nunca loguear gatewayUrl/arkivApiKey/personToken acá (son credenciales) --
-                // solo si el pareo terminó actualizándolas o no.
+                // OJO: nunca loguear gatewayUrl/personToken acá (son credenciales) -- solo si el
+                // pareo terminó actualizándolas o no.
                 Log.i("ArkivPair", "TV pareado correctamente (config de gateway ${if (configAplicada) "sincronizada" else "sin cambios"})")
                 // Ya aplicamos la respuesta: detener la suscripción realtime.
                 pairingJob?.cancel()
@@ -381,16 +393,16 @@ class PairingManager(
             }
 
             // 4) Cifrar la respuesta con el code y escribirla en el pair_request. Sumamos la
-            //    config de gateway EFECTIVA de este celu (URL + llave que usa ahora mismo) y el
-            //    token de sesión de la PERSONA que este celu ya tiene vigente: la TV nunca
-            //    escribe su propia contraseña (sin login manual, spec), así que adopta el MISMO
-            //    token -- ver SesionDePersona.aplicarSesionCompartida.
+            //    gatewayUrl EFECTIVA de este celu (URL que usa ahora mismo) y el token de sesión
+            //    de la PERSONA que este celu ya tiene vigente: la TV nunca escribe su propia
+            //    contraseña (sin login manual, spec), así que adopta el MISMO token -- ver
+            //    SesionDePersona.aplicarSesionCompartida. Task 8 (Paso 3): ya no viaja
+            //    `arkivApiKey` -- la TV se autentica con `personToken`.
             val secret = payloadDeExito(
                 accountId = session.accountId,
                 personToken = personToken,
                 personEmail = personEmail,
                 gatewayUrl = gatewayUrl(),
-                arkivApiKey = arkivApiKey(),
             )
             val cipher = PairCrypto.encrypt(secret, payload.code)
             client.updateRecord(col, reqId, mapOf("payload" to cipher, "status" to "claimed"), session.token)

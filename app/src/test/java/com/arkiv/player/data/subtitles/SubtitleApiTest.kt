@@ -11,11 +11,11 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Task 8 (Paso 2): [SubtitleApi] no tenía test propio. Cubre exclusivamente lo que suma este paso
- * -- Authorization + X-Arkiv-Device, sin sacar `X-Arkiv-Key` -- en las llamadas que van al
- * GATEWAY ([search], y el primer pedido de [download]). El SEGUNDO pedido de [download] -bajar el
- * .srt del `link` que devolvió OpenSubtitles- va a OTRO host (el CDN de OpenSubtitles): ahí estas
- * cabeceras no significan nada y no deben viajar, así que hay un test que lo fija.
+ * Task 8: [SubtitleApi] no tenía test propio. Cubre exclusivamente lo que sumó el Paso 2
+ * (Authorization + X-Arkiv-Device) y lo que sacó el Paso 3 (`X-Arkiv-Key`) en las llamadas que
+ * van al GATEWAY ([search], y el primer pedido de [download]). El SEGUNDO pedido de [download]
+ * -bajar el .srt del `link` que devolvió OpenSubtitles- va a OTRO host (el CDN de OpenSubtitles):
+ * ahí estas cabeceras no significan nada y no deben viajar, así que hay un test que lo fija.
  */
 class SubtitleApiTest {
     private lateinit var server: MockWebServer
@@ -30,20 +30,19 @@ class SubtitleApiTest {
 
     private fun api(personTok: String? = null, deviceTok: String? = null) = SubtitleApi(
         gatewayUrl = { server.url("/").toString().trimEnd('/') },
-        arkivKey = { "LLAVE" },
         client = OkHttpClient(),
         personToken = { personTok },
         deviceToken = { deviceTok },
     )
 
     @Test
-    fun `search manda Authorization y X-Arkiv-Device cuando hay sesion, ademas de la llave`() = runBlocking {
+    fun `search manda Authorization y X-Arkiv-Device cuando hay sesion, nunca X-Arkiv-Key`() = runBlocking {
         server.enqueue(MockResponse().setBody("""{"data":[]}"""))
         api(personTok = "person-tok", deviceTok = "device-tok").search(imdbId = "tt1")
         val req = server.takeRequest()
         assertEquals("person-tok", req.getHeader("Authorization"))
         assertEquals("device-tok", req.getHeader("X-Arkiv-Device"))
-        assertEquals("LLAVE", req.getHeader("X-Arkiv-Key"))
+        assertNull(req.getHeader("X-Arkiv-Key"))
     }
 
     @Test
@@ -72,7 +71,7 @@ class SubtitleApiTest {
         val pedidoGateway = server.takeRequest()
         assertEquals("person-tok", pedidoGateway.getHeader("Authorization"))
         assertEquals("device-tok", pedidoGateway.getHeader("X-Arkiv-Device"))
-        assertEquals("LLAVE", pedidoGateway.getHeader("X-Arkiv-Key"))
+        assertNull(pedidoGateway.getHeader("X-Arkiv-Key"))
 
         val pedidoCdn = server.takeRequest()
         assertEquals("/srt-directo", pedidoCdn.path)

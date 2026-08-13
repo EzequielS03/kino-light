@@ -114,16 +114,15 @@ data class TmdbDetail(
  * torrents (los releases latino a veces conservan el nombre en inglés).
  */
 class TmdbApi(
-    /** Base del gateway y credencial única. La llave de TMDB vive en el servidor. */
+    /** Base del gateway. La llave de TMDB vive en el servidor. */
     private val gatewayUrl: () -> String,
-    private val arkivKey: () -> String,
     private val language: String = "es-MX",
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build(),
-    /** Task 8 (Paso 2): token de sesión de la PERSONA, misma fuente que ya usa `CuentaApi` para
-     *  `Authorization` (`SesionDePersona.token()`). Se suma SIN sacar `X-Arkiv-Key`: ver KDoc del
+    /** Token de sesión de la PERSONA, misma fuente que ya usa `CuentaApi` para `Authorization`
+     *  (`SesionDePersona.token()`). Task 8 (Paso 3): `X-Arkiv-Key` salió del todo -- ver KDoc del
      *  mismo parámetro en `ArkivApiClient`. */
     private val personToken: () -> String? = { null },
     /** Token del APARATO que llama, misma fuente que ya usa `CuentaApi` para `X-Arkiv-Device`
@@ -133,7 +132,13 @@ class TmdbApi(
     // Passthrough del gateway: la ruta y los parámetros de TMDB no cambian, solo el host.
     private val base: String get() = "${gatewayUrl()}/v1/catalog/tmdb"
 
-    val configured: Boolean get() = arkivKey().isNotBlank()
+    // Antes chequeaba `arkivKey().isNotBlank()`: en un build sin `.env` esa llave venía vacía y
+    // convenía no llamar al gateway. Task 8 (Paso 3): esa llave salió del todo -- ya no hay
+    // credencial de BUILD que pueda faltar, así que no queda ningún estado real de "no
+    // configurado" que chequear acá. Se deja el flag en `true` (en vez de borrarlo) para no tener
+    // que tocar los call sites de [com.arkiv.player.data.ArkivRepository], que siguen usándolo
+    // como guarda de "¿tiene sentido pedirle algo a TMDB ahora?".
+    val configured: Boolean get() = true
 
     /** Busca títulos. type: "movie" | "tv". */
     suspend fun search(type: String, query: String, page: Int = 1): List<TmdbItem> {
@@ -327,7 +332,7 @@ class TmdbApi(
     private fun enc(s: String) = java.net.URLEncoder.encode(s, "UTF-8").replace("+", "%20")
 
     private fun pedido(url: String): Request.Builder {
-        val b = Request.Builder().url(url).header("X-Arkiv-Key", arkivKey())
+        val b = Request.Builder().url(url)
         // Sin sesión/aparato todavía (null o vacío) se omiten las cabeceras -- mandarlas vacías
         // sería peor que no mandarlas (ver ArkivApiClient.pedido).
         personToken()?.takeIf { it.isNotBlank() }?.let { b.header("Authorization", it) }

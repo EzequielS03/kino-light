@@ -6,7 +6,7 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class TmdbSearchMultiTest {
-    private val api = TmdbApi(gatewayUrl = { "http://gateway" }, arkivKey = { "llave" })
+    private val api = TmdbApi(gatewayUrl = { "http://gateway" })
 
     @Test fun `mapea movie con titulo y year`() {
         val o = JSONObject("""{"media_type":"movie","id":1,"title":"Superman","release_date":"2025-07-11","poster_path":"/p.jpg"}""")

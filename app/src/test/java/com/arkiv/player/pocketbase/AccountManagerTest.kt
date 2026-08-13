@@ -25,7 +25,6 @@ class AccountManagerTest {
     private fun magisLinkFor(server: MockWebServer) =
         MagisLinkClient(
             baseUrl = { server.url("/").toString().trimEnd('/') },
-            apiKey = { "LLAVE" },
             accountId = { "A_anon" },
         )
 
@@ -34,7 +33,6 @@ class AccountManagerTest {
      *  que quien lo necesite le pasa un baseUrl de verdad. */
     private fun cuentaApiSinUsar(sesion: SesionDePersona) = CuentaApi(
         baseUrl = { "http://unused.invalid" },
-        apiKey = { "LLAVE" },
         deviceToken = { null },
         sesion = sesion,
         http = OkHttpClient(),
@@ -43,7 +41,6 @@ class AccountManagerTest {
     /** Para `login`, que adopta el aparato por el gateway. */
     private fun cuentaApiDe(server: MockWebServer, sesion: SesionDePersona) = CuentaApi(
         baseUrl = { server.url("/").toString().trimEnd('/') },
-        apiKey = { "LLAVE" },
         deviceToken = { "dtok" },
         sesion = sesion,
         http = OkHttpClient(),
@@ -117,7 +114,7 @@ class AccountManagerTest {
         val sesion = sesionFor(client, store)
         // Si login() todavía cayera a Magis, esto explotaría (host inexistente) en vez de pasar en
         // silencio: es la red de seguridad de este test, no solo el requestCount de abajo.
-        val magisLink = MagisLinkClient(baseUrl = { "http://unused.invalid" }, apiKey = { "LLAVE" }, accountId = { null })
+        val magisLink = MagisLinkClient(baseUrl = { "http://unused.invalid" }, accountId = { null })
         val mgr = AccountManager(
             client, seededAuth(client, store), store, magisLink, cuentaApiSinUsar(sesion), sesion,
             onAccountSwitched = {}, onLocalWipe = {},
@@ -189,7 +186,7 @@ class AccountManagerTest {
         assertEquals(EstadoDeSesion.Con("a@b.co"), sesion.estado.value)   // arranca conectada
         var wiped = false
         val mgr = AccountManager(
-            client, deviceAuth, store, MagisLinkClient(baseUrl = { "http://unused.invalid" }, apiKey = { "LLAVE" }, accountId = { null }),
+            client, deviceAuth, store, MagisLinkClient(baseUrl = { "http://unused.invalid" }, accountId = { null }),
             cuentaApiSinUsar(sesion), sesion,
             onAccountSwitched = {}, onLocalWipe = { wiped = true },
         )
@@ -219,7 +216,7 @@ class AccountManagerTest {
         val deviceAuth = DeviceAuthManager(client, store, cuentaApiSinUsarParaBootstrap(client, store))
         val sesion = sesionFor(client, store)
         val mgr = AccountManager(
-            client, deviceAuth, store, MagisLinkClient(baseUrl = { "http://unused.invalid" }, apiKey = { "LLAVE" }, accountId = { null }),
+            client, deviceAuth, store, MagisLinkClient(baseUrl = { "http://unused.invalid" }, accountId = { null }),
             cuentaApiSinUsar(sesion), sesion,
             onAccountSwitched = {}, onLocalWipe = {},
         )

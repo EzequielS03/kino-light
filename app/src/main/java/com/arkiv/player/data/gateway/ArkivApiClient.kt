@@ -45,15 +45,15 @@ data class GatewaySource(
  */
 class ArkivApiClient(
     private val baseUrl: () -> String,
-    private val apiKey: () -> String,
     http: OkHttpClient,
     /** AccountId efectivo (Magis por usuario): si no es null/blank, se manda como X-Arkiv-Account. */
     private val magisAccountId: () -> String? = { null },
     /**
-     * Task 8 (Paso 2): token de sesión de la PERSONA (`SesionDePersona.token()`, misma fuente que
-     * ya usa `CuentaApi` para `Authorization`) -- SIN sacar todavía `X-Arkiv-Key` de arriba: el
-     * gateway acepta cualquiera de las dos desde el Paso 1, así que sumar esta cabecera no puede
-     * dejar a la app sin poder pedir nada si la sesión todavía no existiera.
+     * Token de sesión de la PERSONA (`SesionDePersona.token()`, misma fuente que ya usa
+     * `CuentaApi` para `Authorization`). Task 8 (Paso 3): `X-Arkiv-Key` salió del todo -- junto
+     * con [deviceToken], esta es ahora la ÚNICA credencial que manda este cliente. El gateway
+     * acepta sesión desde el Paso 1, así que sacar la llave acá no deja a nadie sin poder pedir
+     * nada.
      */
     private val personToken: () -> String? = { null },
     /** Token del APARATO que llama (`DeviceAuthManager.session.value?.token`, misma fuente que ya
@@ -68,7 +68,7 @@ class ArkivApiClient(
         .build()
 
     private fun pedido(url: String): Request.Builder {
-        val b = Request.Builder().url(url).header("X-Arkiv-Key", apiKey())
+        val b = Request.Builder().url(url)
         magisAccountId()?.takeIf { it.isNotBlank() }?.let { b.header("X-Arkiv-Account", it) }
         // Si todavía no hay sesión/aparato (null o vacío), se OMITEN las cabeceras en vez de
         // mandarlas vacías: un `Authorization: ` en blanco es peor que ausente (el gateway podría

@@ -64,7 +64,6 @@ class PairingManagerClaimTest {
         sesion = SesionDePersona(client, deviceStore)
         cuentaApi = CuentaApi(
             baseUrl = { baseUrl },
-            apiKey = { "LLAVE" },
             deviceToken = { deviceAuth.session.value?.token },
             sesion = sesion,
             http = OkHttpClient(),
@@ -83,8 +82,7 @@ class PairingManagerClaimTest {
         cuentaApi = cuentaApi,
         sesion = sesion,
         gatewayUrl = { "https://gw.example" },
-        arkivApiKey = { "clave-efectiva" },
-        applySyncedGatewayConfig = { _, _ -> false }, // solo lo usa el rol TV
+        applySyncedGatewayConfig = { _ -> false }, // solo lo usa el rol TV
         setTvLinked = { tvLinked = it },
         scope = CoroutineScope(Job()),
     )
@@ -167,7 +165,6 @@ class PairingManagerClaimTest {
         assertEquals("person-tok", respuesta.personToken)
         assertEquals("persona@x.co", respuesta.personEmail)
         assertEquals("https://gw.example", respuesta.gatewayUrl)
-        assertEquals("clave-efectiva", respuesta.arkivApiKey)
     }
 
     // --- tope_alcanzado: NO se traga en silencio ----------------------------------------------

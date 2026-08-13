@@ -22,20 +22,19 @@ data class SubtitleTrack(
 
 /**
  * Subtítulos vía OpenSubtitles.com (API v1). Busca por imdb id (o título) + idioma y baja el .srt,
- * para verlo con ExoPlayer. Así una fuente en inglés se ve con subtítulos en español. Requiere una
- * La llave de OpenSubtitles vive en el gateway; acá solo viaja la credencial de Arkiv.
+ * para verlo con ExoPlayer. Así una fuente en inglés se ve con subtítulos en español. La llave de
+ * OpenSubtitles vive en el gateway; acá solo viaja la sesión de la persona.
  * OpenSubtitles EXIGE User-Agent, así que se manda igual.
  */
 class SubtitleApi(
-    /** Base del gateway y credencial unica. La llave de OpenSubtitles vive en el servidor. */
+    /** Base del gateway. La llave de OpenSubtitles vive en el servidor. */
     private val gatewayUrl: () -> String,
-    private val arkivKey: () -> String,
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build(),
-    /** Task 8 (Paso 2): token de sesión de la PERSONA, misma fuente que ya usa `CuentaApi` para
-     *  `Authorization` (`SesionDePersona.token()`). Se suma SIN sacar `X-Arkiv-Key`: ver KDoc del
+    /** Token de sesión de la PERSONA, misma fuente que ya usa `CuentaApi` para `Authorization`
+     *  (`SesionDePersona.token()`). Task 8 (Paso 3): `X-Arkiv-Key` salió del todo -- ver KDoc del
      *  mismo parámetro en `ArkivApiClient`. */
     private val personToken: () -> String? = { null },
     /** Token del APARATO que llama, misma fuente que ya usa `CuentaApi` para `X-Arkiv-Device`
@@ -47,7 +46,12 @@ class SubtitleApi(
     private val ua = "Arkiv v0.1"
     private val jsonType = "application/json".toMediaType()
 
-    val configured: Boolean get() = arkivKey().isNotBlank()
+    // Antes chequeaba `arkivKey().isNotBlank()`: en un build sin `.env` esa llave venía vacía y
+    // convenía no llamar al gateway ni dibujar la sección de subtítulos online. Task 8 (Paso 3):
+    // esa llave salió del todo -- ya no hay credencial de BUILD que pueda faltar, así que no
+    // queda ningún estado real de "no configurado" que chequear acá. Se deja el flag en `true`
+    // (en vez de borrarlo) para no tener que tocar los call sites de PlayerScreen.
+    val configured: Boolean get() = true
 
     /**
      * Busca subtítulos. Pasá imdbId (ej "tt0816692") o query (título). Para series, season/episode.
@@ -128,11 +132,11 @@ class SubtitleApi(
         }.getOrNull()
     }
 
-    /** Cabeceras hacia el GATEWAY (`$base/...`): llave + sesión de persona + aparato. El `link`
+    /** Cabeceras hacia el GATEWAY (`$base/...`): sesión de persona + aparato. El `link`
      *  de descarga del .srt (ver [download]) NO pasa por acá -- es un host distinto (el CDN de
      *  OpenSubtitles), donde estas cabeceras no significan nada y no hay que mandarlas. */
     private fun pedido(url: String): Request.Builder {
-        val b = Request.Builder().url(url).header("X-Arkiv-Key", arkivKey())
+        val b = Request.Builder().url(url)
         // Sin sesión/aparato todavía (null o vacío) se omiten las cabeceras -- mandarlas vacías
         // sería peor que no mandarlas (ver ArkivApiClient.pedido).
         personToken()?.takeIf { it.isNotBlank() }?.let { b.header("Authorization", it) }

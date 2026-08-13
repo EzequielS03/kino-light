@@ -1,7 +1,6 @@
 package com.arkiv.player.data
 
 import android.content.Context
-import com.arkiv.player.BuildConfig
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -9,14 +8,14 @@ import kotlinx.coroutines.flow.StateFlow
 enum class Quality { ORIGINAL, DERIVATIVE }
 
 /**
- * De dónde salió el `gatewayUrl`/`arkivApiKey` que este dispositivo tiene ahora mismo.
+ * De dónde salió el `gatewayUrl` que este dispositivo tiene ahora mismo.
  *
  * Existe para resolver la precedencia cuando el vínculo TV↔celu (ver [com.arkiv.player.pairing.PairingManager])
  * intenta propagar la config del celu al TV: [MANUAL] gana siempre (alguien la fijó a propósito
  * en ESTE dispositivo, p.ej. para apuntar a un gateway de pruebas) y nunca se pisa por sync;
- * [DEFAULT] (el baked-in de BuildConfig, nunca tocado) SÍ se puede reemplazar; [SYNCED] es lo que
- * dejó el último pareo -- también reemplazable por un pareo posterior, para no quedar pegado a
- * una config vieja para siempre.
+ * [DEFAULT] (el default de [DEFAULT_GATEWAY_URL], nunca tocado) SÍ se puede reemplazar; [SYNCED]
+ * es lo que dejó el último pareo -- también reemplazable por un pareo posterior, para no quedar
+ * pegado a una config vieja para siempre.
  */
 enum class GatewayConfigSource { DEFAULT, MANUAL, SYNCED }
 
@@ -73,11 +72,9 @@ class SettingsStore(context: Context) {
     val dimLevel: StateFlow<Int> = _dimLevel
 
     // --- gateway unificado -------------------------------------------------
-    // Una sola credencial para TODO el gateway: reemplaza a refreshApiKey y nucApiKey, y saca del
-    // APK las de TMDB, OpenSubtitles y Simkl. Editable acá para poder rotarla sin publicar APK.
-    private val _arkivApiKey = MutableStateFlow(prefs.getString(KEY_ARKIV_API_KEY, DEFAULT_ARKIV_API_KEY)!!)
-    val arkivApiKey: StateFlow<String> = _arkivApiKey
-
+    // Task 8 (Paso 3): acá vivía `arkivApiKey`, la credencial única de build para TODO el gateway.
+    // Salió del todo -- la app ya se autentica con la sesión de la persona (Authorization +
+    // X-Arkiv-Device), así que no queda ningún secreto que persistir ni propagar por pareo.
     private val _gatewayUrl = MutableStateFlow(prefs.getString(KEY_GATEWAY_URL, DEFAULT_GATEWAY_URL)!!)
     val gatewayUrl: StateFlow<String> = _gatewayUrl
 
@@ -130,9 +127,8 @@ class SettingsStore(context: Context) {
 
     fun setDimLevel(v: Int) { prefs.edit().putInt(KEY_DIM_LEVEL, v).apply(); _dimLevel.value = v }
 
-    // Fijan la config a mano en ESTE dispositivo (p.ej. un ajuste de debug): marcan la fuente como
+    // Fija la config a mano en ESTE dispositivo (p.ej. un ajuste de debug): marca la fuente como
     // MANUAL para que el pareo nunca la pise en silencio (ver [applySyncedGatewayConfig]).
-    fun setArkivApiKey(v: String) { prefs.edit().putString(KEY_ARKIV_API_KEY, v).apply(); _arkivApiKey.value = v; marcarGatewayManual() }
     fun setGatewayUrl(v: String) { prefs.edit().putString(KEY_GATEWAY_URL, v).apply(); _gatewayUrl.value = v; marcarGatewayManual() }
     fun setUseGateway(v: Boolean) { prefs.edit().putBoolean(KEY_USE_GATEWAY, v).apply(); _useGateway.value = v }
 
@@ -143,26 +139,24 @@ class SettingsStore(context: Context) {
 
     /**
      * Aplica una config de gateway que llegó por el vínculo de cuenta (pareo TV↔celu, ver
-     * `PairingManager.aplicarRespuesta`): el TV adopta la URL/llave
-     * EFECTIVAS del celu en ese momento, para no depender de que alguien las tipee a mano en
-     * cada aparato -- ese es justo el fallo de diseño que esto resuelve (ver
-     * docs/superpowers si existe spec asociada).
+     * `PairingManager.aplicarRespuesta`): el TV adopta la URL EFECTIVA del celu en ese momento,
+     * para no depender de que alguien la tipee a mano en cada aparato -- ese es justo el fallo de
+     * diseño que esto resuelve. Task 8 (Paso 3): antes también propagaba `arkivApiKey`; esa llave
+     * salió del todo -- la TV ya recibe la sesión de la persona en el mismo pareo (ver
+     * `PairingManager.aplicarRespuesta`), así que no hace falta ninguna credencial extra acá.
      *
      * Respeta [GatewayConfigSource.MANUAL] (ver [SettingsStore.shouldApplySyncedGateway] para la
      * regla exacta, extraída aparte porque es pura y así se puede testear sin Context).
      *
-     * Devuelve si se aplicó, para que el llamador pueda loguear el RESULTADO sin loguear nunca
-     * el valor de la llave.
+     * Devuelve si se aplicó, para que el llamador pueda loguear el RESULTADO.
      */
-    fun applySyncedGatewayConfig(gatewayUrl: String, arkivApiKey: String): Boolean {
-        if (!shouldApplySyncedGateway(_gatewayConfigSource.value, gatewayUrl, arkivApiKey)) return false
+    fun applySyncedGatewayConfig(gatewayUrl: String): Boolean {
+        if (!shouldApplySyncedGateway(_gatewayConfigSource.value, gatewayUrl)) return false
         prefs.edit()
             .putString(KEY_GATEWAY_URL, gatewayUrl)
-            .putString(KEY_ARKIV_API_KEY, arkivApiKey)
             .putString(KEY_GATEWAY_CONFIG_SOURCE, GatewayConfigSource.SYNCED.name)
             .apply()
         _gatewayUrl.value = gatewayUrl
-        _arkivApiKey.value = arkivApiKey
         _gatewayConfigSource.value = GatewayConfigSource.SYNCED
         return true
     }
@@ -216,17 +210,16 @@ class SettingsStore(context: Context) {
          * mano (p.ej. un TV de pruebas apuntando a un gateway de staging), un pareo no debe
          * pisarla en silencio -- el usuario la puso ahí a propósito.
          *
-         * Tampoco aplica una config a medio llenar: una URL o llave en blanco es peor que el
-         * default (que al menos compila contra el gateway real), así que ambas deben venir con
-         * contenido para que valga la pena reemplazar lo que ya hay.
+         * Tampoco aplica una config a medio llenar: una URL en blanco es peor que el default (que
+         * al menos apunta al gateway real), así que tiene que venir con contenido para que valga
+         * la pena reemplazar lo que ya hay.
          */
         fun shouldApplySyncedGateway(
             currentSource: GatewayConfigSource,
             gatewayUrl: String,
-            arkivApiKey: String,
         ): Boolean {
             if (currentSource == GatewayConfigSource.MANUAL) return false
-            return gatewayUrl.isNotBlank() && arkivApiKey.isNotBlank()
+            return gatewayUrl.isNotBlank()
         }
 
         const val PREFS_NAME = "arkiv_settings"
@@ -239,7 +232,6 @@ class SettingsStore(context: Context) {
         private const val KEY_WEB_RESOLVER_URL = "web_resolver_url"
         private const val KEY_CF_ENABLED = "cloudflare_solver_enabled"
         private const val KEY_DIM_LEVEL = "dim_level"
-        private const val KEY_ARKIV_API_KEY = "arkiv_api_key"
         private const val KEY_GATEWAY_URL = "gateway_url"
         private const val KEY_GATEWAY_CONFIG_SOURCE = "gateway_config_source"
         private const val KEY_USE_GATEWAY = "use_gateway"
@@ -255,7 +247,6 @@ class SettingsStore(context: Context) {
         const val DEFAULT_WEB_RESOLVER_URL = "https://jackett.comparadorinternet.co/resolve"
         const val DEFAULT_TORRENT_API_URL = "https://torrents.comparadorinternet.co"
         const val DEFAULT_GATEWAY_URL = "https://api.comparadorinternet.co"
-        val DEFAULT_ARKIV_API_KEY: String get() = BuildConfig.ARKIV_API_KEY
         const val DEFAULT_NUC_LAN_URL = "http://192.168.1.100:8099"
         const val DEFAULT_NUC_TUNNEL_URL = "https://arkiv-offline.comparadorinternet.co"
         // La key del `POST /api/refresh` del mirror ya no existe acá: ese endpoint pasó a pedirse
@@ -263,5 +254,8 @@ class SettingsStore(context: Context) {
         // dejó de llevarla — que era lo que decía el comentario que estaba en este lugar: sacarla de
         // git no la sacaba del binario, y un secreto embebido en un cliente distribuido no es un
         // secreto. Ver `MirrorApiClient.refresh`.
+        //
+        // Task 8 (Paso 3): `DEFAULT_ARKIV_API_KEY`/`ARKIV_API_KEY` (la última llave de build que
+        // quedaba) salió del todo por el mismo motivo -- ver `docs/INVENTARIO_DE_LLAVES.md`.
     }
 }

@@ -40,7 +40,6 @@ class RespuestaDePareoTest {
                 personToken = "ptok",
                 personEmail = "a@b.co",
                 gatewayUrl = "https://gw.example",
-                arkivApiKey = "clave",
             ),
         )
 
@@ -52,7 +51,28 @@ class RespuestaDePareoTest {
         assertEquals("ptok", r.personToken)
         assertEquals("a@b.co", r.personEmail)
         assertEquals("https://gw.example", r.gatewayUrl)
-        assertEquals("clave", r.arkivApiKey)
+    }
+
+    // Task 8 (Paso 3): `arkivApiKey` salió del payload -- un pareo viejo que todavía la mandara
+    // no debe romper el parseo (la clave de más simplemente se ignora, ver KDoc de
+    // `interpretarRespuestaDePareo`).
+    @Test
+    fun `un payload viejo que todavia manda arkivApiKey no rompe el parseo`() {
+        val json = JSONObject(
+            mapOf(
+                "ok" to true,
+                "accountId" to "acc-1",
+                "personToken" to "ptok",
+                "personEmail" to "a@b.co",
+                "gatewayUrl" to "https://gw.example",
+                "arkivApiKey" to "clave-de-un-celu-viejo",
+            ),
+        )
+
+        val r = interpretarRespuestaDePareo(json) as RespuestaDePareo.Ok
+
+        assertEquals("acc-1", r.accountId)
+        assertEquals("https://gw.example", r.gatewayUrl)
     }
 
     @Test

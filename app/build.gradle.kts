@@ -22,16 +22,13 @@ android {
         applicationId = "com.arkiv.player"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
-        versionName = "0.5.3"
-        // Credencial ÚNICA que viaja en el APK. TMDB, OpenSubtitles, Simkl y el `refresh` del
-        // mirror ya NO: viven en el gateway y se alcanzan por `/v1/catalog/*` con esta.
-        //
-        // Es la última que queda, y conviene tener presente lo que es: una constante compilada,
-        // igual para todos los aparatos. Cualquiera que abra el APK la extrae, y rotarla obliga a
-        // redistribuir. Lo que cierra eso de verdad es una credencial POR DISPOSITIVO, emitida al
-        // darse de alta y revocable de a una. Ver `docs/INVENTARIO_DE_LLAVES.md`.
-        buildConfigField("String", "ARKIV_API_KEY", "\"${readEnv("ARKIV_API_KEY")}\"")
+        versionCode = 10
+        versionName = "0.6.0"
+        // Task 8 (Paso 3): acá vivía `ARKIV_API_KEY`, la última credencial de build que quedaba
+        // en el APK -- una constante compilada, igual para todos los aparatos, que cualquiera que
+        // abriera el APK podía extraer. Salió del todo: la app se autentica con la credencial POR
+        // DISPOSITIVO que ya emitía el alta (sesión de persona + aparato), revocable de a una.
+        // Ver `docs/INVENTARIO_DE_LLAVES.md`.
         ndk {
             // Solo ABIs de dispositivos reales (celular arm64, Fire Stick armeabi-v7a).
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")

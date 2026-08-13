@@ -22,7 +22,6 @@ class ArkivApiClientTest {
         server = MockWebServer().also { it.start() }
         client = ArkivApiClient(
             baseUrl = { server.url("/").toString().trimEnd('/') },
-            apiKey = { "LLAVE" },
             http = OkHttpClient(),
         )
     }
@@ -30,11 +29,13 @@ class ArkivApiClientTest {
     @After
     fun tearDown() = server.shutdown()
 
+    // Task 8 (Paso 3): `X-Arkiv-Key` salió del todo -- este test confirma que el corte fue real,
+    // no solo que se dejó de mandar un valor no vacío.
     @Test
-    fun `manda la llave en el header`() = runBlocking {
+    fun `nunca manda X-Arkiv-Key`() = runBlocking {
         server.enqueue(MockResponse().setBody("""{"type":"done","ms":1}""" + "\n"))
         client.search(GatewaySearchQuery(q = "dune")).toList()
-        assertEquals("LLAVE", server.takeRequest().getHeader("X-Arkiv-Key"))
+        assertNull(server.takeRequest().getHeader("X-Arkiv-Key"))
     }
 
     @Test
@@ -42,7 +43,6 @@ class ArkivApiClientTest {
         server.enqueue(MockResponse().setBody("""{"type":"done","ms":1}""" + "\n"))
         val conAccount = ArkivApiClient(
             baseUrl = { server.url("/").toString().trimEnd('/') },
-            apiKey = { "LLAVE" },
             http = OkHttpClient(),
             magisAccountId = { "acc-9" },
         )
@@ -57,14 +57,13 @@ class ArkivApiClientTest {
         assertNull(server.takeRequest().getHeader("X-Arkiv-Account"))
     }
 
-    // --- Task 8 (Paso 2): Authorization + X-Arkiv-Device, SIN sacar la llave --------------------
+    // --- Task 8 (Paso 3): Authorization + X-Arkiv-Device son la ÚNICA credencial --------------
 
     @Test
-    fun `manda Authorization y X-Arkiv-Device cuando hay sesion, ademas de la llave`() = runBlocking {
+    fun `manda Authorization y X-Arkiv-Device cuando hay sesion`() = runBlocking {
         server.enqueue(MockResponse().setBody("""{"type":"done","ms":1}""" + "\n"))
         val conSesion = ArkivApiClient(
             baseUrl = { server.url("/").toString().trimEnd('/') },
-            apiKey = { "LLAVE" },
             http = OkHttpClient(),
             personToken = { "person-tok" },
             deviceToken = { "device-tok" },
@@ -73,7 +72,6 @@ class ArkivApiClientTest {
         val req = server.takeRequest()
         assertEquals("person-tok", req.getHeader("Authorization"))
         assertEquals("device-tok", req.getHeader("X-Arkiv-Device"))
-        assertEquals("LLAVE", req.getHeader("X-Arkiv-Key"))
     }
 
     @Test
@@ -91,7 +89,6 @@ class ArkivApiClientTest {
         server.enqueue(MockResponse().setBody("""{"type":"done","ms":1}""" + "\n"))
         val conBlancos = ArkivApiClient(
             baseUrl = { server.url("/").toString().trimEnd('/') },
-            apiKey = { "LLAVE" },
             http = OkHttpClient(),
             personToken = { "" },
             deviceToken = { "  " },

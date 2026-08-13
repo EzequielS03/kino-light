@@ -127,17 +127,18 @@ sealed class ErrorDeCuenta(val codigo: String, val mensaje: String) : Exception(
 /**
  * Cliente de `/v1/cuenta`: registro con licencia y el ciclo de vida de los aparatos de la cuenta.
  *
- * Sigue la forma de [ArkivApiClient] para `baseUrl`/`apiKey`/`X-Arkiv-Key` (proveedores en vez de
- * valores fijos, para que un cambio de gateway o de llave en caliente -[com.arkiv.player.data.SettingsStore]-
- * se refleje sin reconstruir el cliente). A diferencia de aquel, acá NO hay streaming: son pedidos
- * JSON cortos, así que los timeouts son finitos en lectura (no `0`).
+ * Sigue la forma de [ArkivApiClient] para `baseUrl` (proveedor en vez de valor fijo, para que un
+ * cambio de gateway -[com.arkiv.player.data.SettingsStore]- se refleje sin reconstruir el
+ * cliente). A diferencia de aquel, acá NO hay streaming: son pedidos JSON cortos, así que los
+ * timeouts son finitos en lectura (no `0`).
  *
  * El `Authorization` es la parte que importa: [altaAparato] no manda ninguno -el aparato todavía
  * no existe, ver su KDoc-, [registrar] identifica al APARATO que todavía no tiene cuenta (por eso
  * usa [deviceToken], no la sesión), y los otros tres identifican a la PERSONA ya autenticada (por
  * eso usan [sesion]). Mezclarlos es un agujero de suplantación -del lado del servidor ya se
  * corrigió una vez exactamente eso-, así que cada método usa una sola de las tres fuentes, nunca
- * otra.
+ * otra. Task 8 (Paso 3): `X-Arkiv-Key` salió del todo -- este cliente ya no manda ninguna llave de
+ * build, solo las credenciales de sesión/aparato de arriba.
  *
  * Desde que sacar un aparato tiene que desconectarlo de verdad (spec de "Mis aparatos"), los tres
  * métodos que identifican a la PERSONA mandan ADEMÁS `X-Arkiv-Device` con [deviceToken]: el
@@ -147,7 +148,6 @@ sealed class ErrorDeCuenta(val codigo: String, val mensaje: String) : Exception(
  */
 class CuentaApi(
     private val baseUrl: () -> String,
-    private val apiKey: () -> String,
     /** Token del APARATO (el que ya usa `DeviceAuthManager`/`DeviceStore.token()`). Solo lo usa
      *  [registrar]: antes de tener cuenta, la única identidad que existe es la del fierro. */
     private val deviceToken: () -> String?,
@@ -163,7 +163,7 @@ class CuentaApi(
     private val jsonType = "application/json".toMediaType()
 
     private fun pedido(url: String, token: String?, conDevice: Boolean = false): Request.Builder {
-        val b = Request.Builder().url(url).header("X-Arkiv-Key", apiKey())
+        val b = Request.Builder().url(url)
         token?.let { b.header("Authorization", it) }
         // conDevice: solo lo mandan los tres métodos que identifican a la PERSONA
         // ([adoptarAparato], [listarAparatos], [sacarAparato]) -- [registrar] ya manda el

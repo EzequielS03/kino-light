@@ -1017,15 +1017,14 @@ class PlayerViewModel(
 
     /** Cliente HTTP compartido para [warmHead]: evita crear un OkHttpClient (pool de hilos+conexiones) por episodio. */
     /**
-     * Cliente del gateway. La URL y la llave se leen de [settings] en cada llamada. [httpGateway]
-     * viene por constructor (Task 7b, ver su KDoc): es el `OkHttpClient` compartido de `AppGraph`
-     * con `InterceptorDeSesion`, así que un 401/403 de identidad real cierra la sesión de la persona
+     * Cliente del gateway. La URL se lee de [settings] en cada llamada. [httpGateway] viene por
+     * constructor (Task 7b, ver su KDoc): es el `OkHttpClient` compartido de `AppGraph` con
+     * `InterceptorDeSesion`, así que un 401/403 de identidad real cierra la sesión de la persona
      * aunque el pedido haya salido de acá y no de un ViewModel de pantalla.
      */
     private val gatewayClient by lazy {
         com.arkiv.player.data.gateway.ArkivApiClient(
             baseUrl = { settings.gatewayUrl.value },
-            apiKey = { settings.arkivApiKey.value },
             http = httpGateway,
             magisAccountId = { deviceAuth.session.value?.accountId },
             personToken = personToken,
