@@ -480,12 +480,40 @@ class AppGraph(context: Context) {
             destructorDeFrames,
         )
     }
+    /**
+     * Sesión de la PERSONA (Task 1): token del gateway persistido en las prefs cifradas. Una sola
+     * instancia compartida entre [accountManager] (la persiste al loguear/registrar/cerrar sesión)
+     * y [cuentaApi] (la usa para autenticar los tres pedidos que no son el alta) — dos instancias
+     * separadas se desincronizarían entre sí.
+     */
+    val sesionDePersona: com.arkiv.player.pocketbase.SesionDePersona by lazy {
+        com.arkiv.player.pocketbase.SesionDePersona(pbClient, deviceStore)
+    }
+
+    /**
+     * Cliente de `/v1/cuenta` (Task 2): alta con licencia + ciclo de vida de los aparatos de la
+     * cuenta. [registrar] identifica al APARATO (todavía sin cuenta de persona) con el mismo token
+     * que ya usa [deviceAuth]/[deviceStore] — de ahí `deviceToken` leyendo la sesión viva del
+     * device en vez de `deviceStore.token()` directo, igual que [pbRealtime]/[pairing].
+     */
+    val cuentaApi: com.arkiv.player.data.gateway.CuentaApi by lazy {
+        com.arkiv.player.data.gateway.CuentaApi(
+            baseUrl = { settings.gatewayUrl.value },
+            apiKey = { settings.arkivApiKey.value },
+            deviceToken = { deviceAuth.session.value?.token },
+            sesion = sesionDePersona,
+            http = okhttp3.OkHttpClient(),
+        )
+    }
+
     val accountManager: com.arkiv.player.pocketbase.AccountManager by lazy {
         com.arkiv.player.pocketbase.AccountManager(
             client = pbClient,
             deviceAuth = deviceAuth,
             store = deviceStore,
             magisLink = magisLinkClient,
+            cuentaApi = cuentaApi,
+            sesion = sesionDePersona,
             onAccountSwitched = { cloudSync.syncNow() },
             onLocalWipe = { libraryWiper.wipe() },
         )

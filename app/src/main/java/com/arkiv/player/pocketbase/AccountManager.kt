@@ -1,5 +1,8 @@
 package com.arkiv.player.pocketbase
 
+import com.arkiv.player.data.gateway.CuentaApi
+import com.arkiv.player.data.gateway.ErrorDeCuenta
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -13,29 +16,26 @@ sealed interface AccountState {
 
 class AccountException(message: String) : Exception(message)
 
-/** Qué debe hacer la UI después de [AccountManager.registerSendCode]. */
-enum class RegistroPaso {
-    /** Magis mandó el código: la UI debe pedirlo y llamar a [AccountManager.registerConfirm]. */
-    CODIGO_ENVIADO,
-    /** Magis no estaba disponible: la cuenta ya quedó creada solo en PocketBase (sin Magis). */
-    CREADA_SIN_MAGIS,
-}
-
 /**
- * Cuentas de persona: PocketBase (colección `users`) es la fuente de verdad local del device,
- * Magis es la fuente de verdad de identidad "real" (créditos/plan). Login y registro son
- * Magis-first: primero se valida/crea contra Magis y recién después se refleja en PocketBase con
- * la MISMA credencial, para que ambas cuentas puedan autenticarse indistintamente más adelante.
+ * Cuentas de persona: PocketBase (colección `users`) es la fuente de verdad local del device;
+ * el gateway (`/v1/cuenta`, [CuentaApi]) es quien decide si una persona puede TENER cuenta (exige
+ * licencia); Magis es la fuente de verdad de identidad "real" (créditos/plan), y es enteramente
+ * opcional: se vincula después de que la cuenta Arkiv ya existe, nunca antes ([registrar] no la
+ * toca; ver [vincularMagis]/[vincularMagisEnviarCodigo]/[vincularMagisConfirmar]).
  *
  * Login = el device ADOPTA el accountId de la persona (switchAccount) y se fusiona el historial
- * anónimo vía [onAccountSwitched] (= syncNow). Logout limpia lo local ([onLocalWipe]) y
- * re-bootstrapea anónimo. La clave nunca se persiste.
+ * anónimo vía [onAccountSwitched] (= syncNow). Registro = se crea la cuenta con una licencia y el
+ * accountId del device NO cambia (la biblioteca ya anónima queda atribuida a esa persona sin
+ * migrar nada). Logout limpia lo local ([onLocalWipe]); YA NO re-bootstrapea una identidad anónima
+ * (spec: sin sesión no hay app, así que no tiene sentido fabricar una). La clave nunca se persiste.
  */
 class AccountManager(
     private val client: PocketBaseClient,
     private val deviceAuth: DeviceAuthManager,
     private val store: DeviceStore,
     private val magisLink: MagisLinkClient,
+    private val cuentaApi: CuentaApi,
+    private val sesion: SesionDePersona,
     private val onAccountSwitched: suspend () -> Unit,
     private val onLocalWipe: suspend () -> Unit,
 ) {
@@ -46,85 +46,77 @@ class AccountManager(
     )
     val state: StateFlow<AccountState> = _state.asStateFlow()
 
-    /** Login unificado: primero PocketBase (rápido, ya conocido por el device); si no existe ahí,
-     *  se valida contra Magis y, si Magis lo acepta, se crea/adopta en PocketBase con la misma clave. */
+    /**
+     * Login: valida contra PocketBase, que es la única fuente de identidad de una persona que YA
+     * tiene cuenta. Si PocketBase no la conoce, la respuesta es "no tenés cuenta, registrate con tu
+     * código" — a propósito NO cae a validar contra Magis y crear la cuenta si Magis la acepta:
+     * ese camino (que existía acá) permitía fabricarse una cuenta de Arkiv SIN licencia con
+     * cualquier credencial de Magis válida, que es justo el agujero que este login cierra. Crear
+     * cuenta tiene un solo camino, y pide licencia: [registrar].
+     */
     suspend fun login(email: String, password: String) = mutex.withLock {
         deviceAuth.ensureBootstrapped()
             ?: throw AccountException("sin conexión: intentá de nuevo")
 
-        val pbOk = try {
-            val auth = client.authWithPasswordRecord(users, email, password)
-            val personAccountId = auth.record.optString("accountId")
-            if (personAccountId.isBlank()) throw AccountException("respuesta del servidor inválida (falta accountId)")
-            deviceAuth.switchAccount(personAccountId)
-            onAccountSwitched()   // cloudSync.syncNow() = reset cursores + push local + pull => MERGE
-            true
+        val auth = try {
+            client.authWithPasswordRecord(users, email, password)
         } catch (e: PocketBaseException) {
-            if (e.code !in 400..403) throw AccountException(e.message ?: "no se pudo iniciar sesión")
-            false
-        }
-
-        if (pbOk) {
-            store.savePersonEmail(email)
-            _state.value = AccountState.Conectado(email, magisVinculadoSeguro())
-            return@withLock
-        }
-
-        // PocketBase no la tiene → validar contra Magis.
-        deviceAuth.session.value ?: throw AccountException("sin sesión de dispositivo")
-        try {
-            magisLink.link(email, password)
-        } catch (e: MagisLinkException) {
             throw AccountException(
-                if (e.code == 503) "Magis no disponible, intentá más tarde" else "email o contraseña inválidos"
+                if (e.code in 400..403) "no tenés cuenta, registrate con tu código"
+                else e.message ?: "no se pudo iniciar sesión",
             )
         }
+        val personAccountId = auth.record.optString("accountId")
+        if (personAccountId.isBlank()) throw AccountException("respuesta del servidor inválida (falta accountId)")
 
-        // Magis OK → crear la cuenta PocketBase con la MISMA credencial.
-        try {
-            crearPocketBase(email, password)
-        } catch (e: AccountException) {
-            throw AccountException("tu cuenta ya existe con otra clave; usá la clave con la que la creaste")
-        }
-        _state.value = AccountState.Conectado(email, magisLinked = true)
+        // Lo que puede fallar (persistir la sesión) va antes de lo irreversible (adoptar el
+        // accountId del device y fusionar el historial): así un fallo acá no deja el device a medias.
+        // `persistirSesion` ya guarda el email en `store` (SesionDePersona.iniciar) — no hace falta repetirlo.
+        persistirSesion(email, password)
+        deviceAuth.switchAccount(personAccountId)
+        onAccountSwitched()   // cloudSync.syncNow() = reset cursores + push local + pull => MERGE
+        _state.value = AccountState.Conectado(email, magisVinculadoSeguro())
     }
 
-    /** Registro paso 1: pide el código de verificación a Magis. Si Magis está caído, cae a crear
-     *  solo la cuenta PocketBase (se puede vincular Magis después con [vincularMagisEnviarCodigo]). */
-    suspend fun registerSendCode(email: String, password: String): RegistroPaso = mutex.withLock {
+    /**
+     * Registro: crea la cuenta de Arkiv con una licencia, vía el gateway ([CuentaApi.registrar]).
+     *
+     * El orden es lo que importa acá, no el CRUD: la licencia es lo único de este método que puede
+     * fallar por una razón de negocio (inválida, ya usada, revocada), así que va PRIMERO. Recién con
+     * la cuenta creada se persiste la sesión de la persona ([SesionDePersona.iniciar], Task 1). Antes,
+     * el registro le pedía un código de verificación a Magis ANTES de tocar nada de Arkiv: si la
+     * licencia resultaba inválida, quedaba una cuenta de Magis creada al pedo, y esa no se puede
+     * deshacer desde acá. Magis, si la persona lo quiere, se vincula DESPUÉS y aparte —
+     * [vincularMagisEnviarCodigo] / [vincularMagisConfirmar] — nunca como parte de este método.
+     */
+    suspend fun registrar(email: String, password: String, licencia: String) = mutex.withLock {
         deviceAuth.ensureBootstrapped()
             ?: throw AccountException("sin conexión: intentá de nuevo")
+
         try {
-            magisLink.registerSendCode(email)
-            RegistroPaso.CODIGO_ENVIADO
-        } catch (e: MagisLinkException) {
-            if (e.code == 503) {
-                crearPocketBase(email, password)
-                _state.value = AccountState.Conectado(email, magisLinked = false)
-                RegistroPaso.CREADA_SIN_MAGIS
-            } else {
-                throw AccountException("ese email ya está registrado o los datos son inválidos")
-            }
+            cuentaApi.registrar(email, password, licencia)
+        } catch (e: ErrorDeCuenta) {
+            throw AccountException(e.mensaje)
         }
+
+        // La cuenta ya existe en el gateway; si esto falla (poco probable justo después de crearla,
+        // pero posible: un corte de red entre los dos pedidos) NO se marca Conectado — la cuenta
+        // quedó creada de verdad y la persona puede entrar con `login()` en cuanto vuelva la red.
+        // `persistirSesion` ya guarda el email en `store` (SesionDePersona.iniciar).
+        persistirSesion(email, password)
+        _state.value = AccountState.Conectado(email, magisLinked = false)
     }
 
-    /** Registro paso 2: confirma el código → Magis crea la cuenta y acá se refleja en PocketBase. */
-    suspend fun registerConfirm(email: String, password: String, code: String) = mutex.withLock {
-        deviceAuth.ensureBootstrapped()
-            ?: throw AccountException("sin conexión: intentá de nuevo")
+    /** Autentica y persiste la sesión de la persona (Task 1); traduce cualquier falla a
+     *  [AccountException] para no filtrar tipos internos ([PocketBaseException]) al llamador. */
+    private suspend fun persistirSesion(email: String, password: String) {
         try {
-            magisLink.registerConfirm(email, password, code)
-        } catch (e: MagisLinkException) {
-            if (e.code == 503) {
-                crearPocketBase(email, password)
-                _state.value = AccountState.Conectado(email, magisLinked = false)
-                return@withLock
-            } else {
-                throw AccountException("código incorrecto")
-            }
+            sesion.iniciar(email, password)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw AccountException(e.message ?: "no se pudo iniciar sesión")
         }
-        crearPocketBase(email, password)
-        _state.value = AccountState.Conectado(email, magisLinked = true)
     }
 
     /** Estando Conectado sin Magis: vincula Magis con credenciales de una cuenta Magis existente. */
@@ -158,32 +150,22 @@ class AccountManager(
         (_state.value as? AccountState.Conectado)?.let { _state.value = it.copy(magisLinked = magisVinculadoSeguro()) }
     }
 
+    /**
+     * Corta la sesión de la persona y limpia lo local. YA NO llama a `deviceAuth.resetToAnonymous()`:
+     * ese método fabricaba una identidad de device anónima nueva contra PocketBase, que es
+     * exactamente el modo "sin sesión" que este plan viene a eliminar (spec: sin sesión no hay
+     * app). Recrearla acá no serviría de nada — la persona vuelve a la pantalla de entrada de
+     * todos modos — y de paso deja un record de `devices` huérfano en cada logout.
+     */
     suspend fun logout() = mutex.withLock {
+        sesion.cerrar()
         store.clearPersonEmail()
         onLocalWipe()
-        deviceAuth.resetToAnonymous()
         _state.value = AccountState.Anonimo
     }
 
     private suspend fun magisVinculadoSeguro(): Boolean =
         try { magisLink.status() } catch (e: Exception) { false }
-
-    private suspend fun crearPocketBase(email: String, password: String) {
-        val session = deviceAuth.session.value ?: throw AccountException("sin sesión")
-        try {
-            client.createRecord(users, mapOf(
-                "email" to email,
-                "password" to password,
-                "passwordConfirm" to password,
-                "accountId" to session.accountId,
-            ), session.token)   // hardening: registro autenticado con el token del device (createRule PB)
-        } catch (e: PocketBaseException) {
-            throw AccountException(
-                if (e.code == 400) "ese email ya está registrado o los datos son inválidos" else e.message ?: "no se pudo crear la cuenta"
-            )
-        }
-        store.savePersonEmail(email)
-    }
 
     /** Desvincula Magis de la cuenta Arkiv conectada; PocketBase sigue como fuente local. */
     suspend fun desvincularMagis() = mutex.withLock {

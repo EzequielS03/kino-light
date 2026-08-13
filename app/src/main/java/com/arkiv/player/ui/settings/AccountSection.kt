@@ -1,6 +1,5 @@
 package com.arkiv.player.ui.settings
 
-import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -9,7 +8,6 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -18,13 +16,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.arkiv.player.pocketbase.AccountException
 import com.arkiv.player.pocketbase.AccountManager
 import com.arkiv.player.pocketbase.AccountState
-import com.arkiv.player.pocketbase.RegistroPaso
 import kotlinx.coroutines.launch
 
 /**
- * Login unificado Magis-first: `Entrar` valida contra PocketBase o Magis (lo que reconozca la
- * cuenta), `Crear cuenta` pasa por el flujo de código de Magis (con fallback a cuenta sin Magis
- * si Magis está caído). Estando conectado sin Magis, se puede vincular después.
+ * `Entrar` valida contra PocketBase (única fuente de identidad de una cuenta que ya existe);
+ * `Crear cuenta` exige un código de licencia y pasa por el gateway ([AccountManager.registrar]).
+ * Vincular Magis es un paso aparte y posterior, disponible una vez Conectado sin Magis
+ * ([VincularMagisSection]) — el registro ya no lo intenta por su cuenta.
  */
 @Composable
 fun AccountSection(account: AccountManager) {
@@ -62,45 +60,39 @@ private fun PasswordField(value: String, onValueChange: (String) -> Unit, label:
 
 @Composable
 private fun AnonimoSection(account: AccountManager) {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var licencia by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
-    var codigoPedido by remember { mutableStateOf(false) }
-    var codigo by remember { mutableStateOf("") }
+    // Alterna entre "Entrar" (cuenta ya existente) y "Crear cuenta" (exige código de licencia):
+    // son dos flujos distintos del gateway, no dos pasos del mismo.
+    var registrando by remember { mutableStateOf(false) }
 
     OutlinedTextField(email, { email = it; error = null }, label = { Text("Email") },
         singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-        enabled = !codigoPedido,
         modifier = Modifier.fillMaxWidth())
     PasswordField(password, { password = it; error = null }, "Contraseña",
         modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
 
-    if (codigoPedido) {
-        OutlinedTextField(codigo, { codigo = it; error = null }, label = { Text("Código") },
-            singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+    if (registrando) {
+        OutlinedTextField(licencia, { licencia = it; error = null }, label = { Text("Código de licencia") },
+            singleLine = true,
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
-        Text(
-            "Te enviamos un código a tu email. Si no aparece, revisá la carpeta de spam.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 4.dp),
-        )
     }
 
     error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 6.dp)) }
 
     Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (codigoPedido) {
+        if (registrando) {
             Button(
-                enabled = !busy && codigo.isNotBlank(),
+                enabled = !busy && email.isNotBlank() && password.isNotBlank() && licencia.isNotBlank(),
                 onClick = {
                     scope.launch {
                         busy = true
                         try {
-                            account.registerConfirm(email.trim(), password, codigo.trim())
+                            account.registrar(email.trim(), password, licencia.trim())
                         } catch (e: AccountException) {
                             error = e.message
                         } finally {
@@ -108,7 +100,10 @@ private fun AnonimoSection(account: AccountManager) {
                         }
                     }
                 },
-            ) { Text(if (busy) "Confirmando…" else "Confirmar") }
+            ) { Text(if (busy) "Creando…" else "Crear cuenta") }
+            OutlinedButton(enabled = !busy, onClick = { registrando = false; error = null }) {
+                Text("Ya tengo cuenta")
+            }
         } else {
             Button(
                 enabled = !busy && email.isNotBlank() && password.isNotBlank(),
@@ -126,23 +121,8 @@ private fun AnonimoSection(account: AccountManager) {
                 },
             ) { Text(if (busy) "Entrando…" else "Entrar") }
             OutlinedButton(
-                enabled = !busy && email.isNotBlank() && password.isNotBlank(),
-                onClick = {
-                    scope.launch {
-                        busy = true
-                        try {
-                            when (account.registerSendCode(email.trim(), password)) {
-                                RegistroPaso.CODIGO_ENVIADO -> codigoPedido = true
-                                RegistroPaso.CREADA_SIN_MAGIS ->
-                                    Toast.makeText(context, "Magis no disponible; podés vincularlo después", Toast.LENGTH_LONG).show()
-                            }
-                        } catch (e: AccountException) {
-                            error = e.message
-                        } finally {
-                            busy = false
-                        }
-                    }
-                },
+                enabled = !busy,
+                onClick = { registrando = true; error = null },
             ) { Text("Crear cuenta") }
         }
     }

@@ -44,7 +44,6 @@ import com.arkiv.player.data.update.UpdateInfo
 import com.arkiv.player.pocketbase.AccountException
 import com.arkiv.player.pocketbase.AccountManager
 import com.arkiv.player.pocketbase.AccountState
-import com.arkiv.player.pocketbase.RegistroPaso
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.settings.IDIOMAS_AUDIO
 import com.arkiv.player.ui.settings.IDIOMAS_SUBTITULO
@@ -265,11 +264,12 @@ private fun TvQualityOption(label: String, value: Quality, selected: Quality, on
 }
 
 /**
- * Login unificado Magis-first, idioma TV: Surfaces focusables (`TvActionOption`) en vez de
- * `Button`/`OutlinedButton`, inputs de texto siguiendo el patrón de `TvAddScreen` (M3
- * `OutlinedTextField` estándar — tv.material3 no trae un campo de texto propio), y un toggle de
- * texto en vez de un ícono de ojo (más previsible con mando/D-pad que un IconButton dentro de un
- * campo). Misma funcionalidad que `AccountSection` (móvil, `ui/settings/AccountSection.kt`).
+ * Idioma TV: Surfaces focusables (`TvActionOption`) en vez de `Button`/`OutlinedButton`, inputs de
+ * texto siguiendo el patrón de `TvAddScreen` (M3 `OutlinedTextField` estándar — tv.material3 no
+ * trae un campo de texto propio), y un toggle de texto en vez de un ícono de ojo (más previsible
+ * con mando/D-pad que un IconButton dentro de un campo). Misma funcionalidad que `AccountSection`
+ * (móvil, `ui/settings/AccountSection.kt`): `Iniciar sesión` valida contra PocketBase, `Crear
+ * cuenta` exige código de licencia y pasa por el gateway ([AccountManager.registrar]).
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -311,15 +311,16 @@ private fun TvPasswordField(value: String, onValueChange: (String) -> Unit, labe
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TvAnonimoSection(account: AccountManager) {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var licencia by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
-    var codigoPedido by remember { mutableStateOf(false) }
-    var codigo by remember { mutableStateOf("") }
+    // Alterna entre "Iniciar sesión" (cuenta ya existente) y "Crear cuenta" (exige código de
+    // licencia): son dos flujos distintos del gateway, no dos pasos del mismo.
+    var registrando by remember { mutableStateOf(false) }
 
     OutlinedTextField(
         value = email,
@@ -328,25 +329,19 @@ private fun TvAnonimoSection(account: AccountManager) {
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
         keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
-        enabled = !codigoPedido,
         modifier = Modifier.fillMaxWidth(0.6f).dpadFocusEscape(),
     )
     TvPasswordField(password, { password = it; error = null }, "Contraseña", modifier = Modifier.fillMaxWidth(0.6f).padding(top = 8.dp))
 
-    if (codigoPedido) {
+    if (registrando) {
         OutlinedTextField(
-            value = codigo,
-            onValueChange = { codigo = it; error = null },
-            label = { androidx.compose.material3.Text("Código") },
+            value = licencia,
+            onValueChange = { licencia = it; error = null },
+            label = { androidx.compose.material3.Text("Código de licencia") },
             singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { focusManager.moveFocus(FocusDirection.Down) }),
             modifier = Modifier.fillMaxWidth(0.6f).padding(top = 8.dp).dpadFocusEscape(),
-        )
-        Text(
-            "Te enviamos un código a tu email. Si no aparece, revisá la carpeta de spam.",
-            color = ArkivTextSecondary,
-            modifier = Modifier.padding(top = 4.dp),
         )
     }
 
@@ -354,15 +349,15 @@ private fun TvAnonimoSection(account: AccountManager) {
         Text(it, color = ArkivRed, modifier = Modifier.padding(top = 6.dp))
     }
 
-    if (codigoPedido) {
+    if (registrando) {
         TvActionOption(
-            label = if (busy) "Confirmando…" else "Confirmar",
+            label = if (busy) "Creando…" else "Crear cuenta",
             onClick = {
-                if (!busy && codigo.isNotBlank()) {
+                if (!busy && email.isNotBlank() && password.isNotBlank() && licencia.isNotBlank()) {
                     scope.launch {
                         busy = true
                         try {
-                            account.registerConfirm(email.trim(), password, codigo.trim())
+                            account.registrar(email.trim(), password, licencia.trim())
                         } catch (e: AccountException) {
                             error = e.message
                         } finally {
@@ -372,6 +367,7 @@ private fun TvAnonimoSection(account: AccountManager) {
                 }
             },
         )
+        TvActionOption(label = "Ya tengo cuenta", onClick = { registrando = false; error = null })
     } else {
         TvActionOption(
             label = if (busy) "Espere…" else "Iniciar sesión",
@@ -391,25 +387,8 @@ private fun TvAnonimoSection(account: AccountManager) {
             },
         )
         TvActionOption(
-            label = if (busy) "Espere…" else "Crear cuenta",
-            onClick = {
-                if (!busy && email.isNotBlank() && password.isNotBlank()) {
-                    scope.launch {
-                        busy = true
-                        try {
-                            when (account.registerSendCode(email.trim(), password)) {
-                                RegistroPaso.CODIGO_ENVIADO -> codigoPedido = true
-                                RegistroPaso.CREADA_SIN_MAGIS ->
-                                    Toast.makeText(context, "Magis no disponible; podés vincularlo después", Toast.LENGTH_LONG).show()
-                            }
-                        } catch (e: AccountException) {
-                            error = e.message
-                        } finally {
-                            busy = false
-                        }
-                    }
-                }
-            },
+            label = "Crear cuenta",
+            onClick = { registrando = true; error = null },
         )
     }
     if (busy) {
