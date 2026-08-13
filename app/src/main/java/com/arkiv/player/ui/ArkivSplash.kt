@@ -4,7 +4,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -18,7 +18,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
@@ -34,8 +35,17 @@ import kotlin.math.hypot
 import kotlin.math.min
 import kotlin.math.sin
 
-/** Duración de la intro, en ms. */
-private const val TOTAL_MS = 880
+/**
+ * Duración de la intro, en ms.
+ *
+ * Público porque `MainActivity` calza contra esto cuándo empieza a componer la app (ver
+ * `INTRO_HEAD_START_MS`). Cuando eran dos números sueltos se desfasaron: el head start seguía en
+ * 600 ms, afinado para la intro vieja de 750 ms, así que el root se componía ENCIMA del tramo más
+ * pesado de esta —el haz y el revelado de la palabra— y la animación se atragantaba justo ahí.
+ */
+const val DURACION_DE_LA_INTRO_MS = 880
+
+private const val TOTAL_MS = DURACION_DE_LA_INTRO_MS
 
 /** Duración del fundido de salida, en ms. */
 private const val EXIT_MS = 260
@@ -114,30 +124,22 @@ private object GeometriaK {
 }
 
 /**
- * Dibuja una pieza del monograma.
+ * Arma el `Path` de una pieza del monograma, ya escalado y puesto en su sitio.
  *
- * @param desdeJunta escala la pieza tomando la junta como centro: con 0 no se ve y con 1 está
- *   entera, así que animarlo de 0 a 1 hace que el aspa SALGA DISPARADA desde el asta. null la
- *   dibuja tal cual (es lo que quiere el asta, que no se estira).
+ * Se construye UNA vez por tamaño de pantalla, no por cuadro: en la primera versión cada cuadro
+ * alocaba tres `Path` nuevos, y eso sumado a rehacer los degradados era lo que dejaba la intro en
+ * ~10 fps (medido en emulador, 2026-08-13). Lo que se anima ahora son transformaciones sobre estos
+ * mismos paths, que no alocan nada.
  */
-private fun DrawScope.pieza(
-    puntos: List<Offset>,
-    origen: Offset,
-    escala: Float,
-    desdeJunta: Float? = null,
-    color: Color = ArkivRed,
-    alpha: Float = 1f,
-) {
-    if (alpha <= 0f) return
+private fun pathDe(puntos: List<Offset>, origen: Offset, escala: Float): Path {
     val path = Path()
     puntos.forEachIndexed { i, p ->
-        val x = if (desdeJunta == null) p.x else GeometriaK.JUNTA_X + (p.x - GeometriaK.JUNTA_X) * desdeJunta
-        val y = if (desdeJunta == null) p.y else GeometriaK.JUNTA_Y + (p.y - GeometriaK.JUNTA_Y) * desdeJunta
-        val punto = Offset(origen.x + x * escala, origen.y + y * escala)
-        if (i == 0) path.moveTo(punto.x, punto.y) else path.lineTo(punto.x, punto.y)
+        val x = origen.x + p.x * escala
+        val y = origen.y + p.y * escala
+        if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
     }
     path.close()
-    drawPath(path, color, alpha = alpha)
+    return path
 }
 
 /**
@@ -191,118 +193,137 @@ fun ArkivSplash(
     )
     val salida = exitAnim.value
 
-    Canvas(
-        modifier = Modifier
+    // `drawWithCache` y no `Canvas`: el bloque de arriba corre UNA vez por tamaño de pantalla
+    // (medir el texto, resolver el lockup, armar los paths y los dos degradados) y `onDrawBehind`
+    // corre por cuadro sin alocar nada. La primera versión rehacía todo eso 60 veces por segundo y
+    // la intro dibujaba a ~10 fps; los degradados a pantalla completa son lo más caro, y en el Fire
+    // Stick —GPU floja, 1,7 GB— es exactamente lo que no hay que hacer por cuadro.
+    Spacer(
+        Modifier
             .fillMaxSize()
             .graphicsLayer {
-                val s = 1f + 0.07f * salida
+                val s = 1f + 0.07f * exitAnim.value
                 scaleX = s
                 scaleY = s
-                alpha = 1f - salida
-            },
-    ) {
-        drawRect(ArkivBlack)
-
-        val t = intro.value * TOTAL_MS
-
-        // El tamaño del lockup se deriva del TEXTO, nunca del alto de la pantalla.
-        //
-        // Atarlo a `size.height` es lo que rompió la primera versión: el teléfono es VERTICAL, así
-        // que un monograma de 0,42 × alto salía gigante y empujaba la palabra fuera del borde
-        // derecho — en el emulador se veía una K enorme y ningún texto. Con el texto de referencia,
-        // la misma cuenta sirve para el celular y para el TV apaisado.
-        var medida = medidor.measure(AnnotatedString("KINO"), estilo)
-        var lado = medida.size.height * 1.30f
-        var aire = medida.size.height * 0.42f
-        var ancho = lado + aire + medida.size.width
-
-        // Y si aun así no entra a lo ancho (pantalla angosta, cuerpo grande), se achica el conjunto
-        // entero midiendo de nuevo: el texto es sp, no se puede escalar sin volver a medirlo.
-        val disponible = size.width * 0.86f
-        if (ancho > disponible) {
-            val f = disponible / ancho
-            medida = medidor.measure(
-                AnnotatedString("KINO"),
-                estilo.copy(fontSize = estilo.fontSize * f, letterSpacing = estilo.letterSpacing * f),
-            )
-            lado = medida.size.height * 1.30f
-            aire = medida.size.height * 0.42f
-            ancho = lado + aire + medida.size.width
-        }
-
-        val anchoTexto = medida.size.width.toFloat()
-        val altoTexto = medida.size.height.toFloat()
-        val escala = lado / 100f
-        val origen = Offset((size.width - ancho) / 2f, (size.height - lado) / 2f)
-        val junta = Offset(
-            origen.x + GeometriaK.JUNTA_X * escala,
-            origen.y + GeometriaK.JUNTA_Y * escala,
-        )
-        val textoX = origen.x + lado + aire
-        val textoY = size.height / 2f - altoTexto / 2f
-
-        val pAsta = easeBack(seg(t, 0f, 260f))
-        val pArriba = easeOut(seg(t, 160f, 400f))
-        val pAbajo = easeOut(seg(t, 220f, 460f))
-        val pHaz = seg(t, 380f, 700f)
-        val pPalabra = easeOut(seg(t, 460f, 800f))
-        val pBrillo = seg(t, 700f, 880f)
-
-        // Resplandor rojo detrás de todo, anclado en la junta: es de donde "sale" la luz.
-        val radio = size.height * (0.5f + 0.35f * pAsta)
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(
-                    ArkivRed.copy(alpha = 0.55f * (0.30f + 0.35f * sin(Math.PI.toFloat() * pBrillo))),
-                    Color.Transparent,
-                ),
-                center = junta,
-                radius = radio,
-            ),
-            radius = radio,
-            center = junta,
-        )
-
-        // El haz: un cono que se abre desde la junta hacia la derecha y después se apaga.
-        if (pHaz > 0f) {
-            val abriendo = easeOut(min(pHaz / 0.55f, 1f))
-            val fade = if (pHaz < 0.55f) pHaz / 0.55f else 1f - (pHaz - 0.55f) / 0.45f * 0.72f
-            val largo = (size.width - junta.x) * (0.35f + 0.75f * abriendo)
-            val abre = size.height * 0.30f * abriendo
-            val cono = Path().apply {
-                moveTo(junta.x, junta.y)
-                lineTo(junta.x + largo, junta.y - abre)
-                lineTo(junta.x + largo, junta.y + abre)
-                close()
+                alpha = 1f - exitAnim.value
             }
-            drawPath(
-                cono,
-                brush = Brush.horizontalGradient(
-                    colors = listOf(Color(0xFFFFEEEE).copy(alpha = 0.30f * fade), Color.Transparent),
+            .drawWithCache {
+                // El tamaño del lockup se deriva del TEXTO, nunca del alto de la pantalla.
+                //
+                // Atarlo a `size.height` es lo que rompió la primera versión: el teléfono es
+                // VERTICAL, así que un monograma de 0,42 × alto salía gigante y empujaba la palabra
+                // fuera del borde derecho. Con el texto de referencia, la misma cuenta sirve para el
+                // celular y para el TV apaisado.
+                var medida = medidor.measure(AnnotatedString("KINO"), estilo)
+                var lado = medida.size.height * 1.30f
+                var aire = medida.size.height * 0.42f
+                var ancho = lado + aire + medida.size.width
+
+                // Y si aun así no entra a lo ancho, se achica el conjunto entero midiendo de nuevo:
+                // el texto es sp, no se puede escalar sin volver a medirlo.
+                val disponible = size.width * 0.86f
+                if (ancho > disponible) {
+                    val f = disponible / ancho
+                    medida = medidor.measure(
+                        AnnotatedString("KINO"),
+                        estilo.copy(fontSize = estilo.fontSize * f, letterSpacing = estilo.letterSpacing * f),
+                    )
+                    lado = medida.size.height * 1.30f
+                    aire = medida.size.height * 0.42f
+                    ancho = lado + aire + medida.size.width
+                }
+
+                val anchoTexto = medida.size.width.toFloat()
+                val altoTexto = medida.size.height.toFloat()
+                val escala = lado / 100f
+                val origen = Offset((size.width - ancho) / 2f, (size.height - lado) / 2f)
+                val junta = Offset(
+                    origen.x + GeometriaK.JUNTA_X * escala,
+                    origen.y + GeometriaK.JUNTA_Y * escala,
+                )
+                val textoX = origen.x + lado + aire
+                val textoY = size.height / 2f - altoTexto / 2f
+                val grosorRaya = (size.height * 0.022f).coerceAtLeast(2f)
+                val yRaya = textoY + altoTexto + size.height * 0.035f
+
+                // Los tres paths del monograma, ya en su sitio. Lo que se anima son transformaciones
+                // sobre estos mismos objetos.
+                val astaPath = pathDe(GeometriaK.asta, origen, escala)
+                val aspaArribaPath = pathDe(GeometriaK.aspaArriba, origen, escala)
+                val aspaAbajoPath = pathDe(GeometriaK.aspaAbajo, origen, escala)
+
+                // El haz, armado a su tamaño FINAL. Al dibujarlo se escala desde la junta, y como
+                // largo y apertura crecen juntos, un escalado uniforme es exactamente el cono
+                // abriéndose: no hace falta rehacer el path.
+                val largoHaz = size.width - junta.x
+                val abreHaz = size.height * 0.30f
+                val hazPath = Path().apply {
+                    moveTo(junta.x, junta.y)
+                    lineTo(junta.x + largoHaz, junta.y - abreHaz)
+                    lineTo(junta.x + largoHaz, junta.y + abreHaz)
+                    close()
+                }
+                val hazBrush = Brush.horizontalGradient(
+                    colors = listOf(Color(0xFFFFEEEE), Color.Transparent),
                     startX = junta.x,
-                    endX = junta.x + largo,
-                ),
-            )
-        }
+                    endX = junta.x + largoHaz,
+                )
+                // El resplandor, a radio fijo: antes crecía con la animación, lo que obligaba a
+                // rehacer el shader en cada cuadro. Ahora solo se le mueve la opacidad, que es
+                // gratis, y a ojo se ve igual.
+                val radioBrillo = size.height * 0.85f
+                val brilloBrush = Brush.radialGradient(
+                    colors = listOf(ArkivRed.copy(alpha = 0.55f), Color.Transparent),
+                    center = junta,
+                    radius = radioBrillo,
+                )
 
-        // El asta cae desde arriba, YA VISIBLE (ver el doc de arriba).
-        translate(top = -lado * 0.5f * (1f - pAsta)) {
-            pieza(GeometriaK.asta, origen, escala)
-        }
-        // Las aspas salen disparadas desde la junta, una detrás de la otra.
-        if (pArriba > 0f) pieza(GeometriaK.aspaArriba, origen, escala, desdeJunta = pArriba)
-        if (pAbajo > 0f) pieza(GeometriaK.aspaAbajo, origen, escala, desdeJunta = pAbajo)
+                onDrawBehind {
+                    val t = intro.value * TOTAL_MS
+                    val pAsta = easeBack(seg(t, 0f, 260f))
+                    val pArriba = easeOut(seg(t, 160f, 400f))
+                    val pAbajo = easeOut(seg(t, 220f, 460f))
+                    val pHaz = seg(t, 380f, 700f)
+                    val pPalabra = easeOut(seg(t, 460f, 800f))
+                    val pBrillo = seg(t, 700f, 880f)
 
-        // La palabra se revela DENTRO del haz, de izquierda a derecha.
-        if (pPalabra > 0f) {
-            clipRect(left = textoX, right = textoX + anchoTexto * pPalabra) {
-                drawText(medida, topLeft = Offset(textoX, textoY))
-            }
-            drawRect(
-                color = ArkivRed,
-                topLeft = Offset(textoX, textoY + altoTexto + size.height * 0.035f),
-                size = Size(anchoTexto * pPalabra, (size.height * 0.022f).coerceAtLeast(2f)),
-            )
-        }
-    }
+                    drawRect(ArkivBlack)
+
+                    drawCircle(
+                        brush = brilloBrush,
+                        radius = radioBrillo,
+                        center = junta,
+                        alpha = 0.30f + 0.35f * sin(Math.PI.toFloat() * pBrillo),
+                    )
+
+                    if (pHaz > 0f) {
+                        val abriendo = easeOut(min(pHaz / 0.55f, 1f))
+                        val fade = if (pHaz < 0.55f) pHaz / 0.55f else 1f - (pHaz - 0.55f) / 0.45f * 0.72f
+                        scale(abriendo, abriendo, pivot = junta) {
+                            drawPath(hazPath, hazBrush, alpha = 0.30f * fade)
+                        }
+                    }
+
+                    // El asta cae desde arriba, YA VISIBLE (ver el doc de arriba).
+                    translate(top = -lado * 0.5f * (1f - pAsta)) {
+                        drawPath(astaPath, ArkivRed)
+                    }
+                    // Las aspas salen disparadas desde la junta, una detrás de la otra.
+                    if (pArriba > 0f) scale(pArriba, pArriba, pivot = junta) { drawPath(aspaArribaPath, ArkivRed) }
+                    if (pAbajo > 0f) scale(pAbajo, pAbajo, pivot = junta) { drawPath(aspaAbajoPath, ArkivRed) }
+
+                    // La palabra se revela DENTRO del haz, de izquierda a derecha.
+                    if (pPalabra > 0f) {
+                        clipRect(left = textoX, right = textoX + anchoTexto * pPalabra) {
+                            drawText(medida, topLeft = Offset(textoX, textoY))
+                        }
+                        drawRect(
+                            color = ArkivRed,
+                            topLeft = Offset(textoX, yRaya),
+                            size = Size(anchoTexto * pPalabra, grosorRaya),
+                        )
+                    }
+                }
+            },
+    )
 }

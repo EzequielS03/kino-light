@@ -37,8 +37,14 @@ import kotlinx.coroutines.delay
 /**
  * Ventaja que se le da a la intro antes de empezar a componer la app: sin esto el hilo principal
  * se satura y la animación no llega a dibujarse (ver comentario en setContent).
+ *
+ * Sale de [com.arkiv.player.ui.DURACION_DE_LA_INTRO_MS] y NO es un número suelto, a propósito.
+ * Escrito a mano se desfasó: quedó en 600 ms —afinado para la intro vieja, de 750 ms— mientras la
+ * intro pasaba a durar 880, así que el root se componía encima de su tramo más pesado. Atado a la
+ * duración real, la composición cae siempre DESPUÉS de que la animación terminó de dibujar, y el
+ * fundido de salida la tapa.
  */
-private const val INTRO_HEAD_START_MS = 600L
+private val INTRO_HEAD_START_MS = com.arkiv.player.ui.DURACION_DE_LA_INTRO_MS.toLong()
 
 /** Margen tras arrancar la composición del root antes de destapar la app con el fundido. */
 private const val CONTENT_SETTLE_MS = 400L
