@@ -122,11 +122,13 @@ class MainActivity : AppCompatActivity() {
                                 }
                             }
                             is EstadoDeEntrada.Entrada -> {
-                                // En la TV no hay login manual (Task 5): la única puerta es
-                                // parear con el celular (QR). El celular sigue usando el
-                                // formulario de siempre.
+                                // En la TV la puerta principal sigue siendo parear con el celular
+                                // (QR, Task 5) -más rápido y no expone la contraseña en el living-,
+                                // pero desde la Task 9 hay una tercera pestaña para entrar/registrarse
+                                // con el teclado en pantalla, para quien no tiene un Android a mano.
+                                // El celular sigue usando el formulario de siempre.
                                 if (isTv) {
-                                    com.arkiv.player.ui.tv.TvPantallaDeEntrada(graph.pairing)
+                                    com.arkiv.player.ui.tv.TvPantallaDeEntrada(graph.pairing, entradaVm.account)
                                 } else {
                                     PantallaDeEntrada(entradaVm)
                                 }
