@@ -19,7 +19,10 @@ class DeviceAuthManagerSwitchTest {
         val client = PocketBaseClient(baseUrl = server.url("/").toString().trimEnd('/'))
         val seed = DeviceIdentity("A_anon", "dev-1", "dev-1@arkiv.local", "pw12345678", "phone")
         val store = FakeDeviceStore(seed)
-        val mgr = DeviceAuthManager(client, store)
+        // Identidad ya seedeada -> ensureBootstrapped() usa authExisting(), nunca
+        // createNewAccount(): este CuentaApi apuntado a un host inalcanzable jamás se llama
+        // (Task 7, altaAparato es SOLO del alta anónima).
+        val mgr = DeviceAuthManager(client, store, cuentaApiSinUsarParaBootstrap(client, store))
 
         mgr.ensureBootstrapped()
         val session = mgr.switchAccount("A_person")

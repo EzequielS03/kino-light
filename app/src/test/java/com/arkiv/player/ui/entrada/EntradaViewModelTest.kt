@@ -10,6 +10,7 @@ import com.arkiv.player.pocketbase.FakeDeviceStore
 import com.arkiv.player.pocketbase.MagisLinkClient
 import com.arkiv.player.pocketbase.PocketBaseClient
 import com.arkiv.player.pocketbase.SesionDePersona
+import com.arkiv.player.pocketbase.cuentaApiSinUsarParaBootstrap
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -45,7 +46,7 @@ class EntradaViewModelTest {
         )
         return AccountManager(
             client = client,
-            deviceAuth = DeviceAuthManager(client, store),
+            deviceAuth = DeviceAuthManager(client, store, cuentaApiSinUsarParaBootstrap(client, store)),
             store = store,
             magisLink = MagisLinkClient(baseUrl = { "http://unused.invalid" }, apiKey = { "LLAVE" }, accountId = { null }),
             cuentaApi = cuentaApi,
@@ -181,7 +182,7 @@ class EntradaViewModelTest {
 
         val client = PocketBaseClient(baseUrl = pb.url("/").toString().trimEnd('/'))
         val store = FakeDeviceStore(DeviceIdentity("A_anon", "dev-1", "dev-1@arkiv.local", "pw12345678", "phone"))
-        val deviceAuth = DeviceAuthManager(client, store)
+        val deviceAuth = DeviceAuthManager(client, store, cuentaApiSinUsarParaBootstrap(client, store))
         val sesion = SesionDePersona(client, store)
         val cuentaApi = CuentaApi(
             baseUrl = { gw.url("/").toString().trimEnd('/') },
@@ -222,7 +223,7 @@ class EntradaViewModelTest {
 
         val client = PocketBaseClient(baseUrl = pb.url("/").toString().trimEnd('/'))
         val store = FakeDeviceStore(DeviceIdentity("A_anon", "dev-1", "dev-1@arkiv.local", "pw12345678", "phone"))
-        val deviceAuth = DeviceAuthManager(client, store)
+        val deviceAuth = DeviceAuthManager(client, store, cuentaApiSinUsarParaBootstrap(client, store))
         val sesion = SesionDePersona(client, store)
         val cuentaApi = CuentaApi(
             baseUrl = { gw.url("/").toString().trimEnd('/') },

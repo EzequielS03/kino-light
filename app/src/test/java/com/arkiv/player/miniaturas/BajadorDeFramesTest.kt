@@ -5,6 +5,7 @@ import com.arkiv.player.pocketbase.DeviceAuthManager
 import com.arkiv.player.pocketbase.DeviceIdentity
 import com.arkiv.player.pocketbase.FakeDeviceStore
 import com.arkiv.player.pocketbase.PocketBaseClient
+import com.arkiv.player.pocketbase.cuentaApiSinUsarParaBootstrap
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
@@ -76,10 +77,9 @@ class BajadorDeFramesTest {
         server.start()
         dao = FakeEpisodeFrameDao()
         almacen = AlmacenDeFrames(temp.newFolder("frames"))
-        deviceAuth = DeviceAuthManager(
-            cliente(),
-            FakeDeviceStore(DeviceIdentity("acc-1", "dev-1", "dev-1@arkiv.local", "pw12345678", "phone")),
-        )
+        val deviceStore = FakeDeviceStore(DeviceIdentity("acc-1", "dev-1", "dev-1@arkiv.local", "pw12345678", "phone"))
+        val deviceClient = cliente()
+        deviceAuth = DeviceAuthManager(deviceClient, deviceStore, cuentaApiSinUsarParaBootstrap(deviceClient, deviceStore))
         runBlocking { deviceAuth.ensureBootstrapped() }
     }
 

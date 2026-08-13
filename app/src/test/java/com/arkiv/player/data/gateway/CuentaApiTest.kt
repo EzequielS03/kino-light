@@ -45,6 +45,60 @@ class CuentaApiTest {
         http = OkHttpClient(),
     )
 
+    // --- altaAparato (Task 7): sin ninguna credencial propia, el aparato todavia no existe -----
+
+    @Test
+    fun `altaAparato no manda Authorization ni X-Arkiv-Device, solo la llave`() = runBlocking {
+        deviceStore.savePersonToken("person-tok")
+        server.enqueue(MockResponse().setResponseCode(201).setBody("""{"id":"dev-1","accountId":"A-nuevo"}"""))
+
+        cuentaApi(deviceTok = "device-tok-que-no-deberia-viajar").altaAparato(
+            accountId = "A-nuevo", kind = "phone",
+            email = "d@arkiv.local", password = "x".repeat(32), deviceName = "Mi telefono",
+        )
+
+        val req = server.takeRequest()
+        assertEquals(null, req.getHeader("Authorization"))
+        assertEquals(null, req.getHeader("X-Arkiv-Device"))
+        assertEquals("LLAVE", req.getHeader("X-Arkiv-Key"))
+    }
+
+    @Test
+    fun `altaAparato manda los campos del aparato en el body y parsea id y accountId`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(201).setBody("""{"id":"dev-1","accountId":"A-nuevo"}"""))
+
+        val r = cuentaApi().altaAparato(
+            accountId = "A-nuevo", kind = "phone",
+            email = "d@arkiv.local", password = "x".repeat(32), deviceName = "Mi telefono",
+        )
+
+        assertEquals("dev-1", r.id)
+        assertEquals("A-nuevo", r.accountId)
+        val req = server.takeRequest()
+        assertEquals("/v1/cuenta/aparatos/alta", req.path)
+        val body = JSONObject(req.body.readUtf8())
+        assertEquals("A-nuevo", body.getString("accountId"))
+        assertEquals("phone", body.getString("kind"))
+        assertEquals("d@arkiv.local", body.getString("email"))
+        assertEquals("x".repeat(32), body.getString("password"))
+        assertEquals("Mi telefono", body.getString("deviceName"))
+    }
+
+    @Test
+    fun `altaAparato con tipo_invalido lanza ErrorDeCuenta TipoInvalido`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(400)
+                .setBody("""{"detail":{"codigo":"tipo_invalido","mensaje":"ese aparato no dice si es celular o tv"}}"""),
+        )
+
+        try {
+            cuentaApi().altaAparato("A1", "tablet", "d@arkiv.local", "x".repeat(32), "")
+            fail("se esperaba ErrorDeCuenta")
+        } catch (e: ErrorDeCuenta) {
+            assertTrue(e is ErrorDeCuenta.TipoInvalido)
+        }
+    }
+
     // --- no mezclar el token del aparato con el de la persona (el agujero de suplantacion) -----
 
     @Test

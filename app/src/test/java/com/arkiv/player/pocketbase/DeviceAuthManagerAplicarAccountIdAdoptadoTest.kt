@@ -26,7 +26,7 @@ class DeviceAuthManagerAplicarAccountIdAdoptadoTest {
         val client = PocketBaseClient(baseUrl = server.url("/").toString().trimEnd('/'))
         val seed = DeviceIdentity("A_anon", "dev-1", "dev-1@arkiv.local", "pw12345678", "tv")
         val store = FakeDeviceStore(seed)
-        val mgr = DeviceAuthManager(client, store)
+        val mgr = DeviceAuthManager(client, store, cuentaApiSinUsarParaBootstrap(client, store))
         mgr.ensureBootstrapped()
         val pedidosTrasBootstrap = server.requestCount
 
@@ -43,7 +43,8 @@ class DeviceAuthManagerAplicarAccountIdAdoptadoTest {
     @Test
     fun `aplicarAccountIdAdoptado sin sesion de dispositivo previa falla con un mensaje claro`() = runBlocking {
         val client = PocketBaseClient(baseUrl = "http://unused.invalid")
-        val mgr = DeviceAuthManager(client, FakeDeviceStore())
+        val store = FakeDeviceStore()
+        val mgr = DeviceAuthManager(client, store, cuentaApiSinUsarParaBootstrap(client, store))
 
         val error = runCatching { mgr.aplicarAccountIdAdoptado("A_person") }.exceptionOrNull()
 

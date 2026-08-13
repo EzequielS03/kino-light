@@ -7,6 +7,7 @@ import com.arkiv.player.pocketbase.FakeDeviceStore
 import com.arkiv.player.pocketbase.PocketBaseClient
 import com.arkiv.player.pocketbase.PocketBaseRealtime
 import com.arkiv.player.pocketbase.SesionDePersona
+import com.arkiv.player.pocketbase.cuentaApiSinUsarParaBootstrap
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineScope
@@ -59,7 +60,7 @@ class PairingManagerClaimTest {
             savePersonEmail("persona@x.co")
         }
         val client = PocketBaseClient(baseUrl = baseUrl)
-        deviceAuth = DeviceAuthManager(client, deviceStore)
+        deviceAuth = DeviceAuthManager(client, deviceStore, cuentaApiSinUsarParaBootstrap(client, deviceStore))
         sesion = SesionDePersona(client, deviceStore)
         cuentaApi = CuentaApi(
             baseUrl = { baseUrl },

@@ -7,6 +7,7 @@ import com.arkiv.player.pocketbase.FakeDeviceStore
 import com.arkiv.player.pocketbase.PocketBaseClient
 import com.arkiv.player.pocketbase.PocketBaseRealtime
 import com.arkiv.player.pocketbase.SesionDePersona
+import com.arkiv.player.pocketbase.cuentaApiSinUsarParaBootstrap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.runBlocking
@@ -69,7 +70,8 @@ class PairingManagerTvPairingTest {
         val deviceStore = FakeDeviceStore(
             DeviceIdentity("A_anon", "dev-tv", "dev-tv@arkiv.local", "pw12345678", "tv"),
         )
-        val deviceAuth = DeviceAuthManager(PocketBaseClient(baseUrl = server.url("/").toString().trimEnd('/')), deviceStore)
+        val deviceClient = PocketBaseClient(baseUrl = server.url("/").toString().trimEnd('/'))
+        val deviceAuth = DeviceAuthManager(deviceClient, deviceStore, cuentaApiSinUsarParaBootstrap(deviceClient, deviceStore))
         val pairing = pairingManager(server, deviceAuth)
 
         val qr = pairing.startTvPairing("Mi TV")

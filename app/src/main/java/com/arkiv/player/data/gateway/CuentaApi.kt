@@ -14,6 +14,10 @@ import java.util.concurrent.TimeUnit
 /** Alta con licencia: lo que el gateway devuelve al crear la cuenta. */
 data class Registro(val userId: String, val accountId: String)
 
+/** Alta anónima de un aparato (Task 7): lo que el gateway devuelve al crearlo con
+ *  credenciales de admin -- el `id` real que le quedó en PocketBase. */
+data class AltaDeAparato(val id: String, val accountId: String)
+
 /** Resultado de sumar un aparato al cupo de la cuenta (`POST /v1/cuenta/aparatos`). */
 data class Adopcion(val kind: String, val usados: Int, val tope: Int, val yaEra: Boolean)
 
@@ -125,14 +129,15 @@ sealed class ErrorDeCuenta(val codigo: String, val mensaje: String) : Exception(
  *
  * Sigue la forma de [ArkivApiClient] para `baseUrl`/`apiKey`/`X-Arkiv-Key` (proveedores en vez de
  * valores fijos, para que un cambio de gateway o de llave en caliente -[com.arkiv.player.data.SettingsStore]-
- * se refleje sin reconstruir el cliente). A diferencia de aquel, acá NO hay streaming: son cuatro
- * pedidos JSON cortos, así que los timeouts son finitos en lectura (no `0`).
+ * se refleje sin reconstruir el cliente). A diferencia de aquel, acá NO hay streaming: son pedidos
+ * JSON cortos, así que los timeouts son finitos en lectura (no `0`).
  *
- * El `Authorization` es la parte que importa: [registrar] identifica al APARATO que todavía no
- * tiene cuenta (por eso usa [deviceToken], no la sesión), mientras que los otros tres identifican a
- * la PERSONA ya autenticada (por eso usan [sesion]). Mezclarlos es un agujero de suplantación -del
- * lado del servidor ya se corrigió una vez exactamente eso-, así que cada método usa una sola de
- * las dos fuentes, nunca la otra.
+ * El `Authorization` es la parte que importa: [altaAparato] no manda ninguno -el aparato todavía
+ * no existe, ver su KDoc-, [registrar] identifica al APARATO que todavía no tiene cuenta (por eso
+ * usa [deviceToken], no la sesión), y los otros tres identifican a la PERSONA ya autenticada (por
+ * eso usan [sesion]). Mezclarlos es un agujero de suplantación -del lado del servidor ya se
+ * corrigió una vez exactamente eso-, así que cada método usa una sola de las tres fuentes, nunca
+ * otra.
  *
  * Desde que sacar un aparato tiene que desconectarlo de verdad (spec de "Mis aparatos"), los tres
  * métodos que identifican a la PERSONA mandan ADEMÁS `X-Arkiv-Device` con [deviceToken]: el
@@ -168,6 +173,33 @@ class CuentaApi(
         // ([ErrorDeCuenta.SinDevice]), que la app ya sabe traducir.
         if (conDevice) deviceToken()?.let { b.header("X-Arkiv-Device", it) }
         return b
+    }
+
+    /**
+     * Alta anónima de un aparato (Task 7): reemplaza el `createRecord` directo a PocketBase que
+     * hacía [com.arkiv.player.pocketbase.DeviceAuthManager.ensureBootstrapped] -- `devices.createRule`
+     * ya no acepta creaciones sin autenticar, así que el gateway lo crea con sus propias
+     * credenciales de admin. Sin `Authorization` ni `X-Arkiv-Device`: el aparato todavía no
+     * existe, no hay ninguna credencial propia que mandar. `email`/`password` los generó
+     * [com.arkiv.player.pocketbase.DeviceIdentityFactory] -al azar, local-; el aparato ya los
+     * tiene, así que la respuesta del gateway no necesita repetirlos.
+     */
+    suspend fun altaAparato(
+        accountId: String,
+        kind: String,
+        email: String,
+        password: String,
+        deviceName: String,
+    ): AltaDeAparato = withContext(Dispatchers.IO) {
+        val body = JSONObject(
+            mapOf(
+                "accountId" to accountId, "kind" to kind, "email" to email,
+                "password" to password, "deviceName" to deviceName,
+            ),
+        ).toString().toRequestBody(jsonType)
+        val req = pedido("${baseUrl()}/v1/cuenta/aparatos/alta", token = null).post(body).build()
+        val o = JSONObject(ejecutar(req))
+        AltaDeAparato(id = o.getString("id"), accountId = o.getString("accountId"))
     }
 
     suspend fun registrar(email: String, password: String, licencia: String): Registro =

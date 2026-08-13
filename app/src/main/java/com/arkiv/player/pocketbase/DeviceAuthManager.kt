@@ -1,6 +1,7 @@
 package com.arkiv.player.pocketbase
 
 import android.util.Log
+import com.arkiv.player.data.gateway.CuentaApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,6 +17,9 @@ data class DeviceSession(val accountId: String, val deviceId: String, val record
 class DeviceAuthManager(
     private val client: PocketBaseClient,
     private val store: DeviceStore,
+    /** Task 7: el alta anónima ([createNewAccount]) ya no escribe `devices` directo -- pasa
+     *  por [CuentaApi.altaAparato], con credenciales de admin del lado del gateway. */
+    private val cuentaApi: CuentaApi,
 ) {
     private val _session = MutableStateFlow<DeviceSession?>(null)
     val session: StateFlow<DeviceSession?> = _session.asStateFlow()
@@ -55,21 +59,18 @@ class DeviceAuthManager(
 
     private suspend fun createNewAccount(): DeviceSession {
         val id = DeviceIdentityFactory.newPhoneAccount()
-        // Alta anónima permitida por la regla de create de `devices`.
-        // IMPORTANTE: el create remoto DEBE ocurrir antes de store.save(id) (no reordenar):
+        // Alta anónima: Task 7 la mueve del create directo a PocketBase (createRule ya
+        // cerrada) al gateway, que la crea con sus propias credenciales de admin.
+        // IMPORTANTE: el alta remota DEBE ocurrir antes de store.save(id) (no reordenar):
         // si el proceso muere entre ambos pasos, el próximo arranque simplemente genera una
         // identidad nueva; si guardáramos primero, el dispositivo quedaría varado
         // reautenticando un registro que nunca se creó.
-        client.createRecord(
-            collection = col,
-            fields = mapOf(
-                "accountId" to id.accountId,
-                "kind" to id.kind,
-                "email" to id.email,
-                "password" to id.password,
-                "passwordConfirm" to id.password,
-                "deviceName" to android.os.Build.MODEL,
-            ),
+        cuentaApi.altaAparato(
+            accountId = id.accountId,
+            kind = id.kind,
+            email = id.email,
+            password = id.password,
+            deviceName = android.os.Build.MODEL ?: "",
         )
         store.save(id)
         val auth = client.authWithPassword(col, id.email, id.password)

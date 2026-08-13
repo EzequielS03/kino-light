@@ -44,7 +44,7 @@ class AccountManagerRegistroTest {
     private inner class Escenario(pb: MockWebServer) {
         val client = PocketBaseClient(baseUrl = pb.url("/").toString().trimEnd('/'))
         val store = FakeDeviceStore(identidadSemilla())
-        val deviceAuth = DeviceAuthManager(client, store)
+        val deviceAuth = DeviceAuthManager(client, store, cuentaApiSinUsarParaBootstrap(client, store))
         val sesion = SesionDePersona(client, store)
     }
 

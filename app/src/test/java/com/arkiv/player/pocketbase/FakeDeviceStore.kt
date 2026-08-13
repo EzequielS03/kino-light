@@ -1,5 +1,8 @@
 package com.arkiv.player.pocketbase
 
+import com.arkiv.player.data.gateway.CuentaApi
+import okhttp3.OkHttpClient
+
 class FakeDeviceStore(private var identity: DeviceIdentity? = null) : DeviceStore {
     private var token: String? = null
     private var personEmail: String? = null
@@ -16,3 +19,20 @@ class FakeDeviceStore(private var identity: DeviceIdentity? = null) : DeviceStor
     override fun personToken(): String? = personToken
     override fun clearPersonToken() { personToken = null }
 }
+
+/**
+ * `CuentaApi` de relleno para el 3er parámetro de `DeviceAuthManager` (Task 7) en tests que NO
+ * ejercitan `createNewAccount()` -- es decir, casi todos: alcanza con que el `store` ya tenga una
+ * identidad seedeada (`FakeDeviceStore(DeviceIdentity(...))`) para que `ensureBootstrapped()` tome
+ * el camino de `authExisting()` y jamás llame a `altaAparato`. Apunta a un host inalcanzable a
+ * propósito -mismo criterio que el resto de este archivo de tests-: si algún cambio futuro hiciera
+ * que SÍ se llamara, el test que lo use fallaría ruidoso en vez de pasar en silencio contra un
+ * servidor real.
+ */
+fun cuentaApiSinUsarParaBootstrap(client: PocketBaseClient, store: DeviceStore): CuentaApi = CuentaApi(
+    baseUrl = { "http://unused.invalid" },
+    apiKey = { "LLAVE" },
+    deviceToken = { null },
+    sesion = SesionDePersona(client, store),
+    http = OkHttpClient(),
+)

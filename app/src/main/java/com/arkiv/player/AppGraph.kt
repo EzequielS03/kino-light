@@ -446,7 +446,11 @@ class AppGraph(context: Context) {
 
     val pbClient: PocketBaseClient by lazy { PocketBaseClient() }
     val deviceStore: SecureDeviceStore by lazy { SecureDeviceStore(appContext) }
-    val deviceAuth: DeviceAuthManager by lazy { DeviceAuthManager(pbClient, deviceStore) }
+    // `cuentaApi` referencia a `deviceAuth` solo dentro de una lambda (`deviceToken`, más abajo),
+    // así que forzar `cuentaApi` acá (Task 7: el alta anónima pasa por `CuentaApi.altaAparato`)
+    // no dispara una inicialización recursiva -- mismo patrón que ya usan `pbRealtime`/`pairing`
+    // para resolver esta dependencia circular con `by lazy`.
+    val deviceAuth: DeviceAuthManager by lazy { DeviceAuthManager(pbClient, deviceStore, cuentaApi) }
     val pbRealtime: com.arkiv.player.pocketbase.PocketBaseRealtime by lazy {
         com.arkiv.player.pocketbase.PocketBaseRealtime(token = { deviceAuth.session.value?.token })
     }
@@ -505,7 +509,10 @@ class AppGraph(context: Context) {
      * Cliente de `/v1/cuenta` (Task 2): alta con licencia + ciclo de vida de los aparatos de la
      * cuenta. [registrar] identifica al APARATO (todavía sin cuenta de persona) con el mismo token
      * que ya usa [deviceAuth]/[deviceStore] — de ahí `deviceToken` leyendo la sesión viva del
-     * device en vez de `deviceStore.token()` directo, igual que [pbRealtime]/[pairing].
+     * device en vez de `deviceStore.token()` directo, igual que [pbRealtime]/[pairing]. Task 7:
+     * también lo usa [deviceAuth] mismo (`altaAparato`, alta anónima del aparato) — se referencian
+     * mutuamente pero sin ciclo real: acá `deviceAuth` solo aparece dentro de la lambda
+     * `deviceToken`, nunca evaluado en la construcción de este objeto.
      */
     val cuentaApi: com.arkiv.player.data.gateway.CuentaApi by lazy {
         com.arkiv.player.data.gateway.CuentaApi(

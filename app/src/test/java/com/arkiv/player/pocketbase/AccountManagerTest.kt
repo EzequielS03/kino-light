@@ -15,7 +15,7 @@ class AccountManagerTest {
         PocketBaseClient(baseUrl = server.url("/").toString().trimEnd('/'))
 
     private fun seededAuth(client: PocketBaseClient, store: DeviceStore) =
-        DeviceAuthManager(client, store)
+        DeviceAuthManager(client, store, cuentaApiSinUsarParaBootstrap(client, store))
 
     private fun sesionFor(client: PocketBaseClient, store: DeviceStore) =
         SesionDePersona(client, store)
@@ -175,7 +175,7 @@ class AccountManagerTest {
         // Sin MockWebServer: con el fix, logout() no hace NINGÚN pedido de red (ver el test de abajo,
         // que sí necesita uno para probar la mutación contraria).
         val client = PocketBaseClient(baseUrl = "http://unused.invalid")
-        val deviceAuth = DeviceAuthManager(client, store)
+        val deviceAuth = DeviceAuthManager(client, store, cuentaApiSinUsarParaBootstrap(client, store))
         val sesion = sesionFor(client, store)
         assertEquals(EstadoDeSesion.Con("a@b.co"), sesion.estado.value)   // arranca conectada
         var wiped = false
@@ -207,7 +207,7 @@ class AccountManagerTest {
         val store = FakeDeviceStore(identidad)
         store.savePersonEmail("a@b.co")
         val client = PocketBaseClient(baseUrl = "http://unused.invalid")
-        val deviceAuth = DeviceAuthManager(client, store)
+        val deviceAuth = DeviceAuthManager(client, store, cuentaApiSinUsarParaBootstrap(client, store))
         val sesion = sesionFor(client, store)
         val mgr = AccountManager(
             client, deviceAuth, store, MagisLinkClient(baseUrl = { "http://unused.invalid" }, apiKey = { "LLAVE" }, accountId = { null }),
