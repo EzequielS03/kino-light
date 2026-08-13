@@ -346,6 +346,7 @@ private fun PlayerContent(
                     graph.localLibrary, graph.localFileServer, graph.deviceAuth, graph.frameCapturer,
                     graph.liveController, graph.database.liveRecentDao(),
                     esTelevision = isTv,
+                    httpGateway = graph.httpGateway,
                 )
             }
         },

@@ -141,6 +141,12 @@ class PlayerViewModel(
     // ¿Este proceso corre en un Android TV? Solo importa para [mensajeErrorVivo]: ahí (y no en el
     // celu) un 401/lo-que-sea al abrir un canal suele ser el TV sin vincular, no el portal caído.
     private val esTelevision: Boolean = false,
+    // Task 7b: el `OkHttpClient` COMPARTIDO de `AppGraph` con `InterceptorDeSesion` colgado. Antes
+    // [gatewayClient] armaba su PROPIO `OkHttpClient()` (uno de los seis sueltos del brief), así
+    // que un 401/403 de identidad real disparado por la precarga en frío del siguiente capítulo
+    // -sin que ninguna pantalla esté mirando- no cerraba la sesión hasta el próximo pedido que sí
+    // pasara por un ViewModel que supiera reaccionar.
+    private val httpGateway: okhttp3.OkHttpClient,
 ) : ViewModel() {
 
     private val _playlist = MutableStateFlow<PlaylistData?>(null)
@@ -1003,14 +1009,16 @@ class PlayerViewModel(
 
     /** Cliente HTTP compartido para [warmHead]: evita crear un OkHttpClient (pool de hilos+conexiones) por episodio. */
     /**
-     * Cliente del gateway. Se arma acá y no por constructor para no tocar PlayerScreen.kt (donde se
-     * construye el VM). La URL y la llave se leen de [settings] en cada llamada.
+     * Cliente del gateway. La URL y la llave se leen de [settings] en cada llamada. [httpGateway]
+     * viene por constructor (Task 7b, ver su KDoc): es el `OkHttpClient` compartido de `AppGraph`
+     * con `InterceptorDeSesion`, así que un 401/403 de identidad real cierra la sesión de la persona
+     * aunque el pedido haya salido de acá y no de un ViewModel de pantalla.
      */
     private val gatewayClient by lazy {
         com.arkiv.player.data.gateway.ArkivApiClient(
             baseUrl = { settings.gatewayUrl.value },
             apiKey = { settings.arkivApiKey.value },
-            http = okhttp3.OkHttpClient(),
+            http = httpGateway,
             magisAccountId = { deviceAuth.session.value?.accountId },
         )
     }

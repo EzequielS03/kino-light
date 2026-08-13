@@ -62,6 +62,41 @@ class AppGraph(context: Context) {
     val apkDownloader: ApkDownloader by lazy { ApkDownloader(appContext) }
 
     /**
+     * `OkHttpClient` COMPARTIDO para todo lo que hable con el gateway unificado (Task 7b): antes
+     * había seis `OkHttpClient()` sueltos (acá abajo x3, `PlayerViewModel.gatewayClient`,
+     * `MagisLinkClient`, `PocketBaseClient`), así que un rechazo de identidad real (licencia
+     * revocada, aparato sacado desde "Mis aparatos") no tenía quién lo mirara fuera de las dos
+     * pantallas que ya implementan la regla a mano (`EntradaViewModel`, `MisAparatosViewModel`).
+     * `InterceptorDeSesion` es ese punto único: cierra [sesionDePersona] SOLO ante un 401/403 del
+     * gateway con un `codigo` de rechazo de identidad real -nunca ante un fallo de transporte, ver
+     * su KDoc-. `PocketBaseClient` no lo usa a propósito: habla con OTRO host (PocketBase, no el
+     * gateway), así que el interceptor nunca haría nada ahí -el check de host de
+     * `InterceptorDeSesion` ya lo filtraría solo-, y esa sesión la gobierna
+     * [com.arkiv.player.pocketbase.SesionDePersona.refrescar], que resuelve la misma distinción por
+     * su cuenta.
+     */
+    val httpGateway: okhttp3.OkHttpClient by lazy {
+        okhttp3.OkHttpClient.Builder()
+            .addInterceptor(
+                com.arkiv.player.data.gateway.InterceptorDeSesion(
+                    gatewayUrl = { settings.gatewayUrl.value },
+                    sesion = sesionDePersona,
+                ),
+            )
+            .build()
+    }
+
+    /** [httpGateway] con los timeouts cortos que ya usaban `TmdbApi`/`SimklApi`/`SubtitleApi`/
+     *  `MirrorApiClient` por default (pedidos JSON cortos, no streaming) -se explicita acá para no
+     *  perder ese ajuste al pasar de sus `OkHttpClient` por default a este compartido. */
+    val httpGatewayCorto: okhttp3.OkHttpClient by lazy {
+        httpGateway.newBuilder()
+            .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+    }
+
+    /**
      * Cliente del gateway unificado. La URL y la llave se leen del [settings] en CADA llamada (no
      * se capturan): así cambiarlas en Ajustes tiene efecto sin reiniciar la app.
      */
@@ -69,7 +104,7 @@ class AppGraph(context: Context) {
         com.arkiv.player.data.gateway.ArkivApiClient(
             baseUrl = { settings.gatewayUrl.value },
             apiKey = { settings.arkivApiKey.value },
-            http = okhttp3.OkHttpClient(),
+            http = httpGateway,
             magisAccountId = { deviceAuth.session.value?.accountId },
         )
     }
@@ -79,7 +114,7 @@ class AppGraph(context: Context) {
         com.arkiv.player.data.gateway.LiveApi(
             baseUrl = { settings.gatewayUrl.value },
             apiKey = { settings.arkivApiKey.value },
-            http = okhttp3.OkHttpClient(),
+            http = httpGateway,
             magisAccountId = { deviceAuth.session.value?.accountId },
         )
     }
@@ -252,7 +287,11 @@ class AppGraph(context: Context) {
     val catalogApi: CatalogApi by lazy { CatalogApi() }
     val aniListApi: AniListApi by lazy { AniListApi() }
     val simklApi: SimklApi by lazy {
-        SimklApi(gatewayUrl = { settings.gatewayUrl.value }, arkivKey = { settings.arkivApiKey.value })
+        SimklApi(
+            gatewayUrl = { settings.gatewayUrl.value },
+            arkivKey = { settings.arkivApiKey.value },
+            client = httpGatewayCorto,
+        )
     }
     val animeMappingRepository: AnimeMappingRepository by lazy {
         AnimeMappingRepository(cacheDir = appContext.filesDir)
@@ -266,12 +305,14 @@ class AppGraph(context: Context) {
             gatewayUrl = { settings.gatewayUrl.value },
             arkivKey = { settings.arkivApiKey.value },
             language = "es-MX",
+            client = httpGatewayCorto,
         )
     }
     val subtitleApi: com.arkiv.player.data.subtitles.SubtitleApi by lazy {
         com.arkiv.player.data.subtitles.SubtitleApi(
             gatewayUrl = { settings.gatewayUrl.value },
             arkivKey = { settings.arkivApiKey.value },
+            client = httpGatewayCorto,
         )
     }
     val subtitlePrefs: com.arkiv.player.data.subtitles.SubtitlePrefs by lazy {
@@ -295,6 +336,11 @@ class AppGraph(context: Context) {
             baseUrl = { settings.torrentApiUrl.value },
             gatewayUrl = { settings.gatewayUrl.value },
             arkivApiKey = { settings.arkivApiKey.value },
+            // `client` es el ÚNICO camino de esta clase por el que puede pasar un 401/403 del
+            // GATEWAY (`refresh()`, `/v1/catalog/refresh`): `getJson`/`titleTorrents`/etc. le hablan
+            // al MIRROR, otro host, así que `InterceptorDeSesion` los ignora solo por el check de
+            // host -no hace falta separar los clientes-.
+            client = httpGatewayCorto,
         )
     }
 
@@ -524,7 +570,12 @@ class AppGraph(context: Context) {
             apiKey = { settings.arkivApiKey.value },
             deviceToken = { deviceAuth.session.value?.token },
             sesion = sesionDePersona,
-            http = okhttp3.OkHttpClient(),
+            // `InterceptorDeSesion` cierra la sesión ante un 401/403 de identidad real igual que ya
+            // hacen los llamadores (`EntradaViewModel.manejarErrorDeCuenta`,
+            // `MisAparatosViewModel.manejarErrorDeSesion`) al recibir el `ErrorDeCuenta` -llamar
+            // `cerrar()` dos veces es inofensivo (`SesionDePersona.cerrar` es idempotente)-, y
+            // `/v1/cuenta/registrar` queda afuera por la guarda de ruta del interceptor.
+            http = httpGateway,
         )
     }
 
@@ -562,6 +613,7 @@ class AppGraph(context: Context) {
             baseUrl = { settings.gatewayUrl.value },
             apiKey = { settings.arkivApiKey.value },
             accountId = { deviceAuth.session.value?.accountId },
+            client = httpGateway,
         )
     }
 
