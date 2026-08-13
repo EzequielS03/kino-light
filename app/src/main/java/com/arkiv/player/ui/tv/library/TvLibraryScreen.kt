@@ -135,7 +135,7 @@ fun TvLibraryScreen(
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(
-                "ARKIV",
+                "KINO",
                 style = MaterialTheme.typography.titleLarge,
                 color = ArkivRed,
                 fontWeight = FontWeight.Black,

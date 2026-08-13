@@ -415,7 +415,7 @@ fun TvHomeScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        "ARKIV",
+                        "KINO",
                         style = MaterialTheme.typography.headlineMedium,
                         color = ArkivRed,
                         fontWeight = FontWeight.Black,

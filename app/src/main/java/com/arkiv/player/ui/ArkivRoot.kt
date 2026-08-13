@@ -189,7 +189,7 @@ fun ArkivRoot(
             if (currentRoute == "home") {
                 TopAppBar(
                     title = {
-                        Text("ARKIV", color = ArkivRed, fontWeight = FontWeight.Black)
+                        Text("KINO", color = ArkivRed, fontWeight = FontWeight.Black)
                     },
                     actions = {
                         IconButton(onClick = { navController.navigate("torrent") }) {

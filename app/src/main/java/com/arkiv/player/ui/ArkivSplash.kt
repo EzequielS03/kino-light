@@ -40,7 +40,7 @@ private fun seg(p: Float, from: Float, to: Float): Float =
     ((p - from) / (to - from)).coerceIn(0f, 1f)
 
 /**
- * Intro de arranque estilo Netflix: el wordmark ARKIV entra con un resplandor rojo y se asienta,
+ * Intro de arranque estilo Netflix: el wordmark KINO entra con un resplandor rojo y se asienta,
  * un destello de luz lo barre, y termina con un zoom + fundido que descubre la app.
  *
  * Se dibuja ENCIMA del contenido para tapar el arranque en frío, que antes se veía como una
@@ -96,7 +96,7 @@ fun ArkivSplash(
         )
 
         Text(
-            text = "ARKIV",
+            text = "KINO",
             color = ArkivRed,
             fontWeight = FontWeight.Black,
             fontSize = if (isTv) 92.sp else 56.sp,
