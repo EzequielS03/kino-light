@@ -115,7 +115,7 @@ La persona: cuenta de usuario autenticada por email+password (colección default
 
 - **List/View/Delete:** `id = @request.auth.id` (cada persona solo ve/borra su propio record)
 - **Update:** `null` (solo el admin) — cerrado en `1786900100_updated_users_updaterule.js` (ver revisión final de la rama `identidad-gateway`, hallazgos C1/C2). Antes era `id = @request.auth.id`: cualquier persona logueada podía PATCHear su propio record, incluidos `accountId` y `licencia` — los dos campos de los que cuelga toda la identidad. Con eso, alguien revocado podía apuntar `licencia` a otro código activo y volver a entrar, y cualquier persona podía inyectar un filtro de PocketBase reescribiendo `accountId` con comillas (el gateway corre esas consultas como superusuario). El único camino para cambiar esos dos campos pasa a ser el gateway (`/v1/cuenta/registrar`, `/v1/cuenta/aparatos`), que valida antes de escribir.
-- **Create:** `@request.auth.id != "" && accountId = @request.auth.accountId` (exige un device autenticado y que el accountId sea el suyo)
+- **Create:** `null` (solo el admin) — cerrado en `1786900000_updated_users_createrule.js`, verificado contra la instancia real en la re-revisión de la rama `identidad-gateway` (residuo 6). Antes era `@request.auth.id != "" && accountId = @request.auth.accountId`: exigía un device autenticado pero NINGUNA licencia, así que cualquiera que consiguiera el APK se creaba una cuenta. El único camino legítimo es `POST /v1/cuenta/registrar` en el gateway (ya implementado, rama `identidad-gateway`), que valida el código contra `licencias` antes de crear con credenciales de admin.
 - **manageRule:** `null`
 - **passwordAuth:** enabled, identityFields = `email`
 
@@ -123,7 +123,7 @@ La persona: cuenta de usuario autenticada por email+password (colección default
 >
 > Va sin `required`: los records que ya existen no tienen licencia, y marcarlo obligatorio los dejaría inválidos. Que no falte de verdad lo garantiza el registro, no el esquema.
 >
-> **El `createRule` de arriba no valida la licencia.** Hoy exige un device autenticado pero ninguna licencia; ese agujero se cierra en el Plan 3, cuando el registro pase por el gateway (quien puede validar que la licencia existe, está activa y no fue usada — tres condiciones que una regla de PocketBase no puede expresar de forma confiable sobre el mismo record).
+> **El `createRule` ya está cerrado** (ver la fila de Create arriba): el registro pasa por el gateway, que valida que la licencia existe, está activa y no fue usada — tres condiciones que una regla de PocketBase no podía expresar de forma confiable sobre el mismo record.
 
 ## Pendientes (fases siguientes)
 
