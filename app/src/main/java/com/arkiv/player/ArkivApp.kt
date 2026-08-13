@@ -15,7 +15,14 @@ class ArkivApp : Application(), ImageLoaderFactory {
         super.onCreate()
         graph = AppGraph.from(this)
         // Servidor de sincronización LAN (expone/recibe la DB entre dispositivos).
-        runCatching { graph.syncManager.start() }
+        //
+        // En background y NO acá derecho: medido en emulador (2026-08-13) costaba ~100 ms de hilo
+        // principal —abrir el ServerSocket y tomar el multicast lock—, y eso son 100 ms en los que
+        // la pantalla todavía muestra el ícono congelado del splash del sistema. Nadie lo necesita
+        // para dibujar: solo tiene que estar arriba antes de que otro aparato quiera sincronizar.
+        graph.applicationScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { graph.syncManager.start() }
+        }
 
         // OTA: chequeo periódico cada 6 horas + chequeo inmediato al arrancar.
         androidx.work.WorkManager.getInstance(this).enqueueUniquePeriodicWork(
