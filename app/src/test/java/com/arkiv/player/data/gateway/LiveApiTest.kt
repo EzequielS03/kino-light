@@ -292,4 +292,53 @@ class LiveApiTest {
         assertEquals("", firmas[0].sign2)
         server.shutdown()
     }
+    /**
+     * MEDIDO EN PRODUCCIÓN EL 2026-08-14: en el Google TV unos canales abrían y otros se
+     * quedaban cargando. El portal resolvía bien los dos y el CDN contestaba 401 solo a unos:
+     *
+     * ```
+     * LiveHlsProxy: playlist → 401 FIRMA RECHAZADA (canal=cyx-RCNHD)
+     * LiveHlsProxy: playlist servido canal=cyx_9881490555304164628541864337 segmentos=6
+     * ```
+     *
+     * La señal no siempre se llama en el CDN como el canal: `cyx-RCNHD` se sirve como
+     * `cyx-2EF7E10E40C1ac19D6A9F3ED4CD2`. Los que andaban eran justo aquellos donde los dos
+     * coinciden. El proxy arma `/live/{codigo}.m3u8`, así que con el código equivocado le pedía
+     * al CDN una señal distinta de la que autoriza la licencia que le mandaba — de ahí el 401.
+     */
+    @Test
+    fun `resolver trae el playCode, que es como se llama la señal en el CDN`() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(
+            MockResponse().setBody(
+                """{"cflHost":"h","authBase":"http://x/?token=${"A".repeat(32)}","license":"L",""" +
+                    """"channel":"cyx-RCNHD","playCode":"cyx-2EF7E10E40C1ac19D6A9F3ED4CD2","expiresAt":9}""",
+            ),
+        )
+
+        server.start()
+        val s = api(server).resolver("cyx-RCNHD")
+
+        assertEquals("cyx-2EF7E10E40C1ac19D6A9F3ED4CD2", s.playCode)
+        // El código pedido no se pierde: es la clave con la que el proxy invalida la sesión.
+        assertEquals("cyx-RCNHD", s.channel)
+        server.shutdown()
+    }
+
+    /** Un gateway que todavía no manda `playCode` tiene que seguir andando igual que antes. */
+    @Test
+    fun `sin playCode en la respuesta, se cae al codigo del canal`() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(
+            MockResponse().setBody(
+                """{"cflHost":"h","authBase":"http://x/?token=${"A".repeat(32)}","license":"L",""" +
+                    """"channel":"cyx_abc","expiresAt":9}""",
+            ),
+        )
+
+        server.start()
+        assertEquals("cyx_abc", api(server).resolver("cyx_abc").playCode)
+        server.shutdown()
+    }
+
 }

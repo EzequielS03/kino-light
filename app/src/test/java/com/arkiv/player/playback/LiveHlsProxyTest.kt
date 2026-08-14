@@ -628,4 +628,34 @@ class LiveHlsProxyTest {
             prueba.close()
         }
     }
+    /**
+     * EL BUG DEL 2026-08-14. La señal no siempre se llama en el CDN como el canal: `cyx-RCNHD` se
+     * sirve como `cyx-2EF7E10E40C1ac19D6A9F3ED4CD2`. Pidiéndole al CDN el código del canal, la
+     * ruta no correspondía a la señal que autoriza la licencia que le mandábamos, y contestaba
+     * 401 — el canal se quedaba cargando para siempre. Los que funcionaban eran justamente
+     * aquellos donde `playCode` y `channel` coinciden, que es lo que lo disimuló.
+     */
+    @Test
+    fun `el playlist se le pide al CDN por playCode, no por el codigo del canal`() {
+        val upstream = MockWebServer()
+        upstream.enqueue(MockResponse().setBody("#EXTM3U\n#EXTINF:6,\nseg1.ts\n"))
+        upstream.start()
+
+        val proxy = LiveHlsProxy(FirmasFalsas())
+        proxy.start()
+        val sesion = LiveSession(
+            cflHost = "${upstream.hostName}:${upstream.port}",
+            authBase = "http://x/?a=1&token=${"A".repeat(32)}",
+            license = "LIC", channel = "cyx-RCNHD", expiresAt = 0,
+            playCode = "cyx-2EF7E10E40C1ac19D6A9F3ED4CD2",
+        )
+        leer(proxy.urlPara(sesion))
+
+        assertEquals(
+            "/live/cyx-2EF7E10E40C1ac19D6A9F3ED4CD2.m3u8",
+            upstream.takeRequest().path,
+        )
+        proxy.stop(); upstream.shutdown()
+    }
+
 }

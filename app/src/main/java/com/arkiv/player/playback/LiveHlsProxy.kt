@@ -280,7 +280,11 @@ class LiveHlsProxy(
         val s = sesion ?: return error502(salida, "no hay sesión de canal")
         val miPuerto = port
         val miToken = token ?: return error502(salida, "no hay token del proxy")
-        val urlPlaylist = "http://${s.cflHost}/live/${s.channel}.m3u8"
+        // `playCode`, NO `channel`: así se llama la señal en el CDN, y no siempre son lo mismo
+        // (ver el KDoc de [LiveSession.playCode] — `cyx-RCNHD` se sirve con otro nombre). Con el
+        // código del canal acá, el CDN recibía un pedido por una señal distinta de la que
+        // autoriza la licencia que le mandamos y contestaba 401: el canal cargaba para siempre.
+        val urlPlaylist = "http://${s.cflHost}/live/${s.playCode}.m3u8"
         val c = pedirAlOrigen(urlPlaylist, s)
         if (c == null) return error502(salida, "el CDN no dio el playlist de ${s.channel}")
         if (c.responseCode != 200) return error502(salida, "playlist con código ${c.responseCode}")

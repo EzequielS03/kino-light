@@ -26,8 +26,23 @@ data class LiveSession(
     val cflHost: String,
     val authBase: String,
     val license: String,
+    /** El código con el que se PIDIÓ el canal: la clave con la que se cachea e invalida su
+     *  sesión, y el nombre con el que aparece en los logs. NO sirve para hablarle al CDN. */
     val channel: String,
     val expiresAt: Long,
+    /**
+     * Cómo se llama la señal EN EL CDN — lo que va en `/live/{...}.m3u8`.
+     *
+     * No siempre coincide con [channel]. Medido el 2026-08-14: `cyx-RCNHD` se sirve como
+     * `cyx-2EF7E10E40C1ac19D6A9F3ED4CD2`, mientras que `cyx_9881490555304164628541864337` es
+     * igual en los dos. Usar [channel] acá le pedía al CDN una señal distinta de la que
+     * autoriza la licencia que se le manda, y contestaba 401 — el canal quedaba cargando para
+     * siempre. Los canales que andaban eran justo aquellos donde los dos coinciden.
+     *
+     * Por defecto ES [channel], que es el comportamiento de siempre: es lo correcto para los
+     * canales donde coinciden y para un gateway que todavía no mande el campo.
+     */
+    val playCode: String = channel,
 ) {
     /** El `token=<32 hex>` que va dentro de `authBase`; es lo único que la firma necesita. */
     val token: String get() = Regex("token=([0-9A-Fa-f]{32})").find(authBase)?.groupValues?.get(1).orEmpty()
@@ -183,6 +198,9 @@ class LiveApi(
             license = o.optString("license"),
             channel = o.optString("channel"),
             expiresAt = o.optLong("expiresAt"),
+            // Se cae al código del canal si el gateway todavía no lo manda: es lo que se usaba
+            // antes, así que un gateway viejo se comporta exactamente como se comportaba.
+            playCode = o.optString("playCode").ifBlank { o.optString("channel") },
         )
         // A diferencia del resto de LiveApi, ACÁ no alcanza con degradar a "" y seguir: una
         // LiveSession con cflHost/authBase/token/license vacío es la que LiveHlsProxy (Tarea 8)
