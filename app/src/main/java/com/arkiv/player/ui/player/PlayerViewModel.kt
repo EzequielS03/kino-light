@@ -21,6 +21,7 @@ import com.arkiv.player.data.offline.PlaybackChoice
 import com.arkiv.player.data.offline.PlaybackDecision
 import com.arkiv.player.data.offline.PlaybackPreferenceStore
 import com.arkiv.player.playback.ArchiveCacheProxy
+import com.arkiv.player.playback.ContenidoDeAdultos
 import com.arkiv.player.playback.PlayerSource
 import com.arkiv.player.playback.PoliticaOrigen
 import com.arkiv.player.playback.SourceKind
@@ -61,7 +62,37 @@ data class PlayerData(
     val preferirSoftware: Boolean = false, // HEVC de magis: el hardware falla y deja sin pistas. Ver PlayerSourceTag.
     /** Contenedor que declara la fuente ("ts", "mp4"…); "" = no se sabe. Ver PlayerSourceTag. */
     val contenedorDeLaFuente: String = "",
+    /**
+     * Si esto vino de una sección de adultos: nada de lo que suene con esta marca se anota en el
+     * historial. Ver [com.arkiv.player.playback.ContenidoDeAdultos] y [hayQueAnotarHistorial].
+     *
+     * Viaja en el ÍTEM y no se consulta al vuelo por dos motivos. Uno, el ítem es lo único que
+     * llega hasta acá: `saveProgress` recibe un `episodeId` pelado y no tiene de dónde deducir de
+     * qué sección salió. Y dos, el contenido de adultos NO tiene fila en la biblioteca —esa es toda
+     * la idea—, así que no hay a quién preguntarle después.
+     *
+     * `false` por default a propósito: es lo correcto para todas las fuentes que no son el catálogo
+     * de Magis (archive, torrent, web, local), donde no existe la noción.
+     */
+    val adulto: Boolean = false,
 )
+
+/**
+ * ¿Hay que anotar el progreso de [episodeId] en el historial?
+ *
+ * La pregunta se contesta contra la playlist que está sonando porque `saveProgress` recibe un
+ * `episodeId` pelado, no un ítem. Vive acá afuera —y no dentro del ViewModel— por lo mismo que
+ * [com.arkiv.player.playback.ContenidoDeAdultos] vive afuera de `savePlayback`: es donde se pueden
+ * fijar sus bordes con tests.
+ *
+ * El borde que importa es el episodio que NO está en la playlist, y se resuelve ANOTANDO. No es un
+ * caso teórico: el ViewModel sobrevive a la navegación entre capítulos y `_playlist` sigue
+ * publicando la del capítulo anterior mientras la fuente nueva resuelve (ver [PlaylistData.pedido]),
+ * así que hay ventanas de segundos donde el episodio preguntado todavía no está. Leer eso como "es
+ * adulto" dejaría de guardar el progreso de contenido normal en silencio.
+ */
+internal fun PlaylistData?.hayQueAnotarHistorial(episodeId: String): Boolean =
+    ContenidoDeAdultos.hayQueAnotar(this?.items?.firstOrNull { it.episodeId == episodeId }?.adulto)
 
 /** La sección como playlist: todos los episodios + dónde/cómo arrancar. */
 data class PlaylistData(
@@ -333,7 +364,10 @@ class PlayerViewModel(
             // nunca se sube a la nube, así que tampoco aparece en los otros aparatos de la
             // cuenta. Filtrar al leer deja el dato adentro esperando el primer lugar que no
             // filtre.
-            if (!canal.adulto) {
+            // Por [ContenidoDeAdultos] y no por un `!canal.adulto` suelto: la regla es la misma que
+            // la del progreso y la de los frames, y tenerla escrita en un solo lugar es lo que
+            // evita que mañana una de las tres se corrija y las otras dos no.
+            if (ContenidoDeAdultos.hayQueAnotar(canal.adulto)) {
                 runCatching {
                     liveRecentDao.anotar(LiveRecentEntity(canal.code, canal.nombre, System.currentTimeMillis()))
                 }
@@ -1113,6 +1147,11 @@ class PlayerViewModel(
 
     fun saveProgress(episodeId: String, positionMs: Long, durationMs: Long) {
         if (durationMs <= 0) return
+        // El progreso de contenido de adultos NO se escribe. `playback` es tabla sincronizada y de
+        // ahí sale "seguir viendo", que se pinta en el inicio del televisor, en el del celular y en
+        // la biblioteca: una fila acá no se queda quieta en este aparato. Ver
+        // [hayQueAnotarHistorial], que es donde está la decisión y sus bordes.
+        if (!_playlist.value.hayQueAnotarHistorial(episodeId)) return
         viewModelScope.launch { repo.savePlayback(episodeId, positionMs, durationMs) }
     }
 
@@ -1125,6 +1164,11 @@ class PlayerViewModel(
      * necesita `viewModelScope` para que la captura no bloquee el hilo de composición.
      */
     fun capturarFrame(episodeId: String, positionMs: Long, textureView: android.view.TextureView?) {
+        // MISMO guarda que el progreso, y acá pesa más: un frame no es un número, es una imagen de
+        // lo que se estaba viendo — y `FrameCapturer.publicar` escribe el JPEG en disco Y una fila
+        // en `episode_frame`, que se sube a PocketBase y se propaga a los demás aparatos. Es la
+        // fuga del 2026-08-14 otra vez, pero con foto.
+        if (!_playlist.value.hayQueAnotarHistorial(episodeId)) return
         viewModelScope.launch { frameCapturer.capturar(episodeId, positionMs, textureView) }
     }
 

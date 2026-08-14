@@ -1,7 +1,9 @@
 package com.arkiv.player.playback
 
 /**
- * Qué contenido NO se anota en el historial (progreso, "seguir viendo", biblioteca, recientes).
+ * Qué contenido NO se anota en el historial: progreso, "seguir viendo", biblioteca, recientes y
+ * las miniaturas de frame — esas últimas son una imagen de lo que se estaba viendo, guardada en
+ * disco y sincronizada, así que son la peor de la lista y no la menos importante.
  *
  * El 2026-08-14 dos canales +18 aparecieron en la fila "Canales en vivo" de la pantalla principal.
  * Y no alcanzó con borrarlos del aparato: esa tabla se sincroniza, así que ya habían viajado a la
