@@ -135,6 +135,11 @@ fun DetailScreen(
     val tmdbOverviews by graph.repository.observeEpisodeOverviews(identifier)
         .collectAsStateWithLifecycle(emptyMap())
     LaunchedEffect(identifier) {
+        // Mismo arreglo que en el detalle del TV: los ítems de Magis guardados sin `tmdbId` no
+        // tienen con qué pedir stills, así que primero se le pregunta al gateway (una sola vez).
+        com.arkiv.player.data.gateway.repararIdentidadDeMagis(
+            graph.repository, graph.arkivApiClient, identifier,
+        )
         runCatching { graph.repository.ensureEpisodeStills(identifier) }
     }
     // Estado de descarga al dispositivo de cada capítulo, directo de la tabla `downloads` (la misma

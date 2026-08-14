@@ -1105,6 +1105,38 @@ class ArkivRepository(
     }
 
     /**
+     * El ref con el que pedirle al gateway la identidad de un ítem de Magis guardado sin ella, o
+     * null si no hay nada que reparar. La regla vive en [MagisEntities.refParaReparar]; acá solo se
+     * lee la fila.
+     */
+    suspend fun refDeMagisParaReparar(itemId: String): String? {
+        val fila = itemDao.getItem(itemId) ?: return null
+        return MagisEntities.refParaReparar(fila.identifier, fila.tmdbId, fila.torrentData)
+    }
+
+    /**
+     * Le pega a un ítem de Magis la identidad que el gateway ahora sí resuelve: el `tmdbId` de la
+     * serie y lo que TMDB sepa de cada capítulo.
+     *
+     * Los stills van por [guardarStillsDeMagis], el mismo (y único) punto de escritura que usan
+     * `addMagisSeason`/`addMagisSource`, así que se respeta la mezcla que no pisa lo ya guardado.
+     * No toca los episodios ni el resto del ítem: esto repara metadata, no reescribe la biblioteca.
+     */
+    suspend fun aplicarIdentidadDeMagis(
+        itemId: String,
+        tmdbId: Int?,
+        capitulos: List<CapituloDeTemporada>,
+    ) {
+        val fila = itemDao.getItem(itemId) ?: return
+        if (tmdbId != null && tmdbId > 0 && fila.tmdbId != tmdbId) {
+            itemDao.upsertItem(fila.copy(tmdbId = tmdbId, updatedAt = clock()))
+        }
+        if (capitulos.isNotEmpty()) {
+            guardarStillsDeMagis(itemId, MagisEntities.stillsDeTemporada(itemId, capitulos, clock()))
+        }
+    }
+
+    /**
      * Escribe en `episode_still` lo que Magis trajo, **sin pisar lo que ya había** ([MezclaDeStills]).
      *
      * Único punto de escritura de esa tabla desde Magis ([addMagisSource] y [addMagisSeason]), y por

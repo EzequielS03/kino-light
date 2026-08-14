@@ -281,3 +281,40 @@ class MagisEntitiesTest {
         assertEquals(eps.first { it.episode == 2 }.id, filas[0].episodeId)
     }
 }
+
+/**
+ * Reparación de los ítems de Magis guardados SIN identidad.
+ *
+ * El `tmdbId` se escribe al guardar la temporada, no al abrirla, así que los que se guardaron
+ * cuando el gateway no resolvía la serie se quedaron para siempre sin nombre de capítulo, sin
+ * miniatura y sin sinopsis. El `seriesRef` sí quedó guardado: con eso alcanza para volver a
+ * preguntar una vez.
+ */
+class RefParaRepararTest {
+    private val ref = "eyJzIjoibWFnaXMi"
+
+    @Test fun `un item de magis sin tmdbId se repara con su ref`() {
+        assertEquals(ref, MagisEntities.refParaReparar("magis:ABC", null, ref))
+    }
+
+    @Test fun `un tmdbId invalido cuenta como ausente`() {
+        // `GatewaySerie.tmdbId` sale de un `optInt`: un campo ausente da 0, no null.
+        assertEquals(ref, MagisEntities.refParaReparar("magis:ABC", 0, ref))
+    }
+
+    @Test fun `si ya tiene identidad no se vuelve a preguntar`() {
+        assertNull(MagisEntities.refParaReparar("magis:ABC", 12609, ref))
+    }
+
+    @Test fun `sin ref guardado no hay con que preguntar`() {
+        assertNull(MagisEntities.refParaReparar("magis:ABC", null, null))
+        assertNull(MagisEntities.refParaReparar("magis:ABC", null, "  "))
+    }
+
+    /** Torrent, web y archive tienen su propio camino (`ensureEpisodeStills` por título o tmdbId):
+     *  pedirle capítulos al gateway con lo que guardaron en ese campo no tiene sentido. */
+    @Test fun `lo que no es de magis no se toca`() {
+        assertNull(MagisEntities.refParaReparar("torrent:abc123", null, ref))
+        assertNull(MagisEntities.refParaReparar("web:abc123", null, ref))
+    }
+}

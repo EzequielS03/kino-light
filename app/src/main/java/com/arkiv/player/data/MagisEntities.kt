@@ -98,6 +98,25 @@ object MagisEntities {
     )
 
     /**
+     * El ref de temporada con el que volver a pedirle al gateway la identidad de un ítem de Magis
+     * que se guardó sin ella, o null si no hay nada que reparar.
+     *
+     * El `tmdbId` se escribe al GUARDAR la temporada, no al abrirla: los ítems que entraron cuando
+     * el gateway todavía no sabía identificar la serie se quedaron sin él, y con él sin nombre real
+     * de capítulo, sin miniatura y sin sinopsis — para siempre, porque abrir la pantalla no vuelve
+     * a preguntar. El `seriesRef` sí quedó guardado (mismo campo donde web guarda su `pageUrl`), y
+     * con eso alcanza para preguntar una sola vez.
+     *
+     * Un `tmdbId` en 0 cuenta como ausente: `GatewaySerie.tmdbId` sale de un `optInt` y un campo
+     * que no vino da 0, no null.
+     */
+    fun refParaReparar(identifier: String, tmdbId: Int?, torrentData: String?): String? {
+        if (!identifier.startsWith("magis:")) return null
+        if (tmdbId != null && tmdbId > 0) return null
+        return torrentData?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
+    /**
      * La temporada COMPLETA: un ítem y un episodio por capítulo.
      *
      * Es lo que se guarda al tocar un capítulo para verlo — la lista ya la tiene la pantalla, así
