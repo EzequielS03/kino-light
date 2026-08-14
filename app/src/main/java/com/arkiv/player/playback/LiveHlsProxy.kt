@@ -116,6 +116,15 @@ class LiveHlsProxy(
      * interfaces, así que esto no cambia nada para la reproducción local.
      */
     fun urlPara(nueva: LiveSession): String {
+        // El ZAPPING empieza acá. Es la marca contra la que se mide todo lo del vivo: de este
+        // instante al primer `Vout` de VlcPlayer es lo que el usuario espera mirando negro al
+        // cambiar de canal, y sin esta línea el log arranca recién cuando VLC pide el playlist.
+        val anterior = sesion?.channel
+        android.util.Log.w(
+            "LiveHlsProxy",
+            "canal → ${nueva.channel}" + (if (anterior != null && anterior != nueva.channel) " (venía de $anterior)" else "") +
+                " cdn=${nueva.cflHost}",
+        )
         sesion = nueva
         if (port <= 0) start(bindLan = true)
         return "http://127.0.0.1:$port/live.m3u8?t=$token"
@@ -212,7 +221,12 @@ class LiveHlsProxy(
      */
     private fun pedirAlOrigen(url: String, s: LiveSession): HttpURLConnection? {
         var avisado = false
-        repeat(2) {
+        // El QUÉ del log: de este CDN no sabemos nada todavía (el de VOD tarda entre 0,2 s y 20 s
+        // por rango, medido; el de vivo nunca se midió). Sin la latencia por petición no hay forma
+        // de saber si un corte es del CDN, del proxy o del reproductor -- las tres se ven igual.
+        val queEs = if (url.endsWith(".m3u8")) "playlist" else "segmento"
+        repeat(2) { intento ->
+            val t0 = System.currentTimeMillis()
             val c = (URL(url).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 12_000
                 readTimeout = 20_000
@@ -223,22 +237,36 @@ class LiveHlsProxy(
                 setRequestProperty("App-Version", APP_VERSION)
                 setRequestProperty("X-Buffer", "0")
             }
-            if (c.responseCode != 403) {
+            val code = c.responseCode
+            val ms = System.currentTimeMillis() - t0
+            if (code != 403) {
+                android.util.Log.w(
+                    "LiveHlsProxy",
+                    "$queEs → $code en ${ms}ms" + (if (intento > 0) " (2do intento)" else ""),
+                )
                 // Avisa que la firma usada en ESTA petición fue aceptada: es la señal que
                 // FirmaConRespaldo necesita para reiniciar su contador de rechazos seguidos.
                 firmas.aceptada()
                 return c
             }
+            // 403 = la firma no sirvió. Se registra aparte porque es el fallo CARO: dos intentos y
+            // después la sesión se da por muerta, o sea que el canal se corta.
+            android.util.Log.w("LiveHlsProxy", "$queEs → 403 FIRMA RECHAZADA en ${ms}ms (intento ${intento + 1}/2)")
             // El aviso es lo que permite a FirmaConRespaldo detectar que el algoritmo
             // dejó de servir y conmutar al gateway. Sin esto, el respaldo nunca entra.
             if (!avisado) { firmas.rechazada(); avisado = true }
             c.disconnect()
         }
+        android.util.Log.w("LiveHlsProxy", "$queEs: dos 403 seguidos → doy la sesión por muerta (canal=${s.channel})")
         onSesionMuerta(s.channel)
         return null
     }
 
-    private fun error502(salida: java.io.OutputStream) {
+    private fun error502(salida: java.io.OutputStream, motivo: String = "") {
+        // El 502 es lo ÚNICO que ve el reproductor pase lo que pase acá adentro, así que el motivo
+        // tiene que quedar del lado del proxy o se pierde. Es el mismo problema que ArchiveCacheProxy
+        // resolvió anotando el último código HTTP por origen.
+        if (motivo.isNotEmpty()) android.util.Log.w("LiveHlsProxy", "502 al reproductor: $motivo")
         salida.write("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n".toByteArray())
     }
 
@@ -246,16 +274,30 @@ class LiveHlsProxy(
         // Una sola lectura de los campos volátiles para TODA la petición: si stop() (o un
         // urlPara() nuevo) cambia `sesion`/`server` desde otro hilo a mitad de camino, esta
         // petición sigue con los valores que tenía al empezar. Ver la nota de [pedirAlOrigen].
-        val s = sesion ?: return error502(salida)
+        val t0 = System.currentTimeMillis()
+        val s = sesion ?: return error502(salida, "no hay sesión de canal")
         val miPuerto = port
-        val miToken = token ?: return error502(salida)
+        val miToken = token ?: return error502(salida, "no hay token del proxy")
         val urlPlaylist = "http://${s.cflHost}/live/${s.channel}.m3u8"
         val c = pedirAlOrigen(urlPlaylist, s)
-        if (c == null || c.responseCode != 200) return error502(salida)
+        if (c == null) return error502(salida, "el CDN no dio el playlist de ${s.channel}")
+        if (c.responseCode != 200) return error502(salida, "playlist con código ${c.responseCode}")
         val base = URL(urlPlaylist)
-        val cuerpo = c.inputStream.bufferedReader().readText().lineSequence()
+        val crudo = c.inputStream.bufferedReader().readText()
+        val cuerpo = crudo.lineSequence()
             .joinToString("\n") { ln -> reescribirLinea(ln, base, miHost, miPuerto, miToken) } + "\n"
         val bytes = cuerpo.toByteArray()
+        // Cuántos segmentos anuncia el playlist es EL dato del vivo: define cuánto colchón hay antes
+        // de que el reproductor alcance el borde. Si baja de 2-3, cualquier hipo del CDN corta.
+        // `MEDIA-SEQUENCE` dice si la ventana avanza o si estamos releyendo la misma.
+        val segmentos = crudo.lineSequence().count { it.isNotBlank() && !it.startsWith("#") }
+        val secuencia = crudo.lineSequence()
+            .firstOrNull { it.startsWith("#EXT-X-MEDIA-SEQUENCE") }?.substringAfter(':') ?: "?"
+        android.util.Log.w(
+            "LiveHlsProxy",
+            "playlist servido canal=${s.channel} segmentos=$segmentos seq=$secuencia " +
+                "${bytes.size}B en ${System.currentTimeMillis() - t0}ms",
+        )
         salida.write(
             ("HTTP/1.1 200 OK\r\nContent-Type: application/vnd.apple.mpegurl\r\n" +
                 "Content-Length: ${bytes.size}\r\n\r\n").toByteArray()
@@ -264,11 +306,19 @@ class LiveHlsProxy(
     }
 
     private fun servirSegmento(ruta: String, salida: java.io.OutputStream) {
-        val s = sesion ?: return error502(salida)
+        val t0 = System.currentTimeMillis()
+        val s = sesion ?: return error502(salida, "segmento sin sesión de canal")
         val u = URLDecoder.decode(ruta.substringAfter("u=").substringBefore("&"), "UTF-8")
-        val c = pedirAlOrigen(u, s) ?: return error502(salida)
+        val c = pedirAlOrigen(u, s) ?: return error502(salida, "el CDN no dio el segmento")
         salida.write("HTTP/1.1 ${c.responseCode} OK\r\nContent-Type: video/mp2t\r\n\r\n".toByteArray())
-        runCatching { c.inputStream.copyTo(salida, 64 * 1024) }
+        // Los bytes se cuentan al copiar, no del Content-Length: el CDN puede cortar a mitad y eso
+        // se ve como un segmento corto, que es justo lo que deja al reproductor sin datos.
+        val copiados = runCatching { c.inputStream.copyTo(salida, 64 * 1024) }.getOrDefault(-1L)
+        android.util.Log.w(
+            "LiveHlsProxy",
+            "segmento servido ${copiados / 1024}KB en ${System.currentTimeMillis() - t0}ms" +
+                (if (copiados < 0) " (CORTADO)" else "") + " ${u.substringAfterLast('/')}",
+        )
     }
 
     /**

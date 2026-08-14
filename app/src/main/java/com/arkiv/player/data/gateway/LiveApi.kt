@@ -103,7 +103,16 @@ class LiveApi(
     private suspend fun cuerpo(req: Request): JSONObject = withContext(Dispatchers.IO) {
         http.newCall(req).execute().use { r ->
             val texto = r.body?.string().orEmpty()
-            if (!r.isSuccessful) throw GatewayException("live: el gateway respondio ${r.code}")
+            if (!r.isSuccessful) {
+                // El cuerpo YA está leído en `texto` y se descartaba. Ahí viaja el motivo real -- el
+                // 2026-08-14 ningún canal abría y el log decía solo "el gateway respondio 502",
+                // mientras la respuesta traía que el portal pedía cuenta vinculada. Ver
+                // [motivoDelGateway].
+                val motivo = motivoDelGateway(texto)
+                throw GatewayException(
+                    "live: el gateway respondio ${r.code}" + if (motivo.isNotEmpty()) " — $motivo" else "",
+                )
+            }
             // Un 200 con cuerpo vacío o no-JSON tampoco debe reventar como JSONException cruda:
             // se traduce a la misma excepción tipada que ya usa el resto del gateway.
             runCatching { JSONObject(texto) }
