@@ -22,6 +22,17 @@ data class LiveProgram(val titulo: String, val inicio: Long, val fin: Long, val 
  * patrón de `ref` opaco del gateway: acá la app sí necesita los datos en claro para
  * armar las cabeceras de cada segmento.
  */
+/**
+ * Un CDN donde se puede pedir la señal, con SU propio `authBase`.
+ *
+ * El token de firma viaja dentro de esa url, así que van juntos: firmar con el token de un CDN
+ * contra el host de otro es exactamente el par que el CDN rechaza con 401.
+ */
+data class CdnDeCanal(val cflHost: String, val authBase: String) {
+    /** El `token=<32 hex>` que va dentro de `authBase`; es lo único que la firma necesita. */
+    val token: String get() = Regex("token=([0-9A-Fa-f]{32})").find(authBase)?.groupValues?.get(1).orEmpty()
+}
+
 data class LiveSession(
     val cflHost: String,
     val authBase: String,
@@ -43,6 +54,18 @@ data class LiveSession(
      * canales donde coinciden y para un gateway que todavía no mande el campo.
      */
     val playCode: String = channel,
+    /**
+     * TODOS los CDN donde se puede pedir esta señal, en el orden que los dio el portal.
+     *
+     * Medido el 2026-08-14: el portal devuelve tres entradas de vivo y se usaba solo la primera.
+     * Ese día el CDN contestó 401 dos veces y el canal se terminó (`EndReached`) teniendo otro
+     * host disponible en la misma respuesta. Con la lista, un rechazo pasa a ser "probá el
+     * siguiente" en vez de un canal muerto.
+     *
+     * Por defecto es el primero solo — lo que había antes — para un gateway que todavía no manda
+     * la lista.
+     */
+    val cdns: List<CdnDeCanal> = listOf(CdnDeCanal(cflHost, authBase)),
 ) {
     /** El `token=<32 hex>` que va dentro de `authBase`; es lo único que la firma necesita. */
     val token: String get() = Regex("token=([0-9A-Fa-f]{32})").find(authBase)?.groupValues?.get(1).orEmpty()
@@ -201,6 +224,15 @@ class LiveApi(
             // Se cae al código del canal si el gateway todavía no lo manda: es lo que se usaba
             // antes, así que un gateway viejo se comporta exactamente como se comportaba.
             playCode = o.optString("playCode").ifBlank { o.optString("channel") },
+            cdns = o.optJSONArray("cdns")?.let { a ->
+                (0 until a.length()).mapNotNull { i ->
+                    a.optJSONObject(i)?.let { c ->
+                        val h = c.optString("cflHost")
+                        if (h.isBlank()) null else CdnDeCanal(h, c.optString("authBase"))
+                    }
+                }
+            }?.takeIf { it.isNotEmpty() }
+                ?: listOf(CdnDeCanal(o.optString("cflHost"), o.optString("authBase"))),
         )
         // A diferencia del resto de LiveApi, ACÁ no alcanza con degradar a "" y seguir: una
         // LiveSession con cflHost/authBase/token/license vacío es la que LiveHlsProxy (Tarea 8)

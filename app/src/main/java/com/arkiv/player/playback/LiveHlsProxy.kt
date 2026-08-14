@@ -1,5 +1,6 @@
 package com.arkiv.player.playback
 
+import com.arkiv.player.data.gateway.CdnDeCanal
 import com.arkiv.player.data.gateway.LiveSession
 import kotlinx.coroutines.runBlocking
 import java.net.HttpURLConnection
@@ -53,9 +54,22 @@ class LiveHlsProxy(
 
     val port: Int get() = server?.localPort ?: -1
 
-    private suspend fun contentAuth(s: LiveSession): String {
-        val f = firmas.firmar(s.token)
-        return "${s.authBase}&sign2_method=sign_o3&instance=0" +
+    /**
+     * El CDN que está sirviendo este canal ahora mismo. Cambia cuando el primero rechaza y se
+     * cae al siguiente (ver [servirPlaylist]).
+     *
+     * Los SEGMENTOS lo necesitan tanto como el playlist: sus urls salen del playlist, así que
+     * apuntan al host que lo sirvió, y firmarlas con el `authBase` de otro CDN sería el mismo par
+     * cruzado —token de uno, host de otro— que el CDN rechaza con 401.
+     */
+    @Volatile private var cdnActivo: CdnDeCanal? = null
+
+    private fun cdnDe(s: LiveSession): CdnDeCanal =
+        cdnActivo ?: s.cdns.firstOrNull() ?: CdnDeCanal(s.cflHost, s.authBase)
+
+    private suspend fun contentAuth(s: LiveSession, cdn: CdnDeCanal = cdnDe(s)): String {
+        val f = firmas.firmar(cdn.token)
+        return "${cdn.authBase}&sign2_method=sign_o3&instance=0" +
             "&start_moment=${f.moment}&sign2=${f.sign2}"
     }
 
@@ -123,9 +137,12 @@ class LiveHlsProxy(
         android.util.Log.w(
             "LiveHlsProxy",
             "canal → ${nueva.channel}" + (if (anterior != null && anterior != nueva.channel) " (venía de $anterior)" else "") +
-                " cdn=${nueva.cflHost}",
+                " cdn=${nueva.cflHost}" + (if (nueva.cdns.size > 1) " (+${nueva.cdns.size - 1} de respaldo)" else ""),
         )
         sesion = nueva
+        // El CDN elegido es de la sesión ANTERIOR: sus tokens no valen para este canal, y peor,
+        // el host podría ni servirlo. Cada canal vuelve a elegir desde el principio.
+        cdnActivo = null
         if (port <= 0) start(bindLan = true)
         return "http://127.0.0.1:$port/live.m3u8?t=$token"
     }
@@ -219,7 +236,7 @@ class LiveHlsProxy(
      * respaldo con solo la MITAD de los rechazos reales que haría falta ver (hallazgo F1 de la
      * revisión final). [avisado] evita eso.
      */
-    private fun pedirAlOrigen(url: String, s: LiveSession): HttpURLConnection? {
+    private fun pedirAlOrigen(url: String, s: LiveSession, cdn: CdnDeCanal = cdnDe(s)): HttpURLConnection? {
         var avisado = false
         // El QUÉ del log: de este CDN no sabemos nada todavía (el de VOD tarda entre 0,2 s y 20 s
         // por rango, medido; el de vivo nunca se midió). Sin la latencia por petición no hay forma
@@ -230,7 +247,7 @@ class LiveHlsProxy(
             val c = (URL(url).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 12_000
                 readTimeout = 20_000
-                setRequestProperty("Content-Auth", runBlocking { contentAuth(s) })
+                setRequestProperty("Content-Auth", runBlocking { contentAuth(s, cdn) })
                 setRequestProperty("Content-License", s.license)
                 setRequestProperty("User-Agent", UA)
                 setRequestProperty("App", APP)
@@ -259,8 +276,10 @@ class LiveHlsProxy(
             if (!avisado) { firmas.rechazada(); avisado = true }
             c.disconnect()
         }
-        android.util.Log.w("LiveHlsProxy", "$queEs: dos rechazos seguidos → doy la sesión por muerta (canal=${s.channel})")
-        onSesionMuerta(s.channel)
+        android.util.Log.w(
+            "LiveHlsProxy",
+            "$queEs: dos rechazos seguidos en ${cdn.cflHost} (canal=${s.channel})",
+        )
         return null
     }
 
@@ -284,9 +303,38 @@ class LiveHlsProxy(
         // (ver el KDoc de [LiveSession.playCode] — `cyx-RCNHD` se sirve con otro nombre). Con el
         // código del canal acá, el CDN recibía un pedido por una señal distinta de la que
         // autoriza la licencia que le mandamos y contestaba 401: el canal cargaba para siempre.
-        val urlPlaylist = "http://${s.cflHost}/live/${s.playCode}.m3u8"
-        val c = pedirAlOrigen(urlPlaylist, s)
-        if (c == null) return error502(salida, "el CDN no dio el playlist de ${s.channel}")
+        // Se prueban los CDN en orden hasta que uno sirva. Medido el 2026-08-14: el portal da
+        // TRES hosts de vivo y usábamos solo el primero; ese día contestó 401 dos veces y el canal
+        // se terminó teniendo otro disponible en la misma respuesta. El que gana queda como
+        // [cdnActivo] para que los segmentos —cuyas urls salen de ESTE playlist— se firmen con su
+        // mismo `authBase`.
+        //
+        // Empieza por el que ya estaba andando, si hay: reordenar en cada petición haría que un
+        // hipo del primero mandara todo el canal de vuelta a él en el siguiente refresco.
+        val enOrden = (listOfNotNull(cdnActivo) + s.cdns).distinctBy { it.cflHost }
+        var c: java.net.HttpURLConnection? = null
+        var elegido: CdnDeCanal? = null
+        for (cdn in enOrden) {
+            c = pedirAlOrigen("http://${cdn.cflHost}/live/${s.playCode}.m3u8", s, cdn)
+            if (c != null) { elegido = cdn; break }
+            if (cdn !== enOrden.last()) {
+                android.util.Log.w("LiveHlsProxy", "playlist: ${cdn.cflHost} rechazó → pruebo el siguiente CDN")
+            }
+        }
+        if (c == null || elegido == null) {
+            // Recién ACÁ la sesión está muerta: se agotaron todos los CDN, no solo uno.
+            android.util.Log.w(
+                "LiveHlsProxy",
+                "playlist: los ${enOrden.size} CDN rechazaron → doy la sesión por muerta (canal=${s.channel})",
+            )
+            onSesionMuerta(s.channel)
+            return error502(salida, "el CDN no dio el playlist de ${s.channel}")
+        }
+        if (cdnActivo?.cflHost != elegido.cflHost) {
+            android.util.Log.w("LiveHlsProxy", "CDN activo → ${elegido.cflHost} (canal=${s.channel})")
+        }
+        cdnActivo = elegido
+        val urlPlaylist = "http://${elegido.cflHost}/live/${s.playCode}.m3u8"
         if (c.responseCode != 200) return error502(salida, "playlist con código ${c.responseCode}")
         val base = URL(urlPlaylist)
         val crudo = c.inputStream.bufferedReader().readText()

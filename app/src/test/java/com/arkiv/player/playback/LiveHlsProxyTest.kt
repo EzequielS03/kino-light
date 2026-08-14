@@ -1,5 +1,6 @@
 package com.arkiv.player.playback
 
+import com.arkiv.player.data.gateway.CdnDeCanal
 import com.arkiv.player.data.gateway.LiveSession
 import com.arkiv.player.data.gateway.LiveSignature
 import kotlinx.coroutines.runBlocking
@@ -656,6 +657,62 @@ class LiveHlsProxyTest {
             upstream.takeRequest().path,
         )
         proxy.stop(); upstream.shutdown()
+    }
+
+    /**
+     * EL CANAL NO SE MUERE SI UN CDN RECHAZA. Medido el 2026-08-14: `getSlbInfo` devuelve TRES
+     * CDN de vivo y usábamos solo el primero; ese día contestó 401 dos veces seguidas y el canal
+     * se terminó (`EndReached`) teniendo otro host disponible en la misma respuesta del portal.
+     *
+     * Cada CDN va con SU `authBase`, porque el token viaja dentro de esa url: firmar con el token
+     * de uno contra el host de otro es exactamente el par que el CDN rechaza.
+     */
+    @Test
+    fun `si el primer CDN rechaza, el playlist se le pide al siguiente`() {
+        val malo = MockWebServer()
+        repeat(4) { malo.enqueue(MockResponse().setResponseCode(401)) }
+        malo.start()
+        val bueno = MockWebServer()
+        bueno.enqueue(MockResponse().setBody("#EXTM3U\n#EXTINF:6,\nseg1.ts\n"))
+        bueno.start()
+
+        val proxy = LiveHlsProxy(FirmasFalsas())
+        proxy.start()
+        val sesion = LiveSession(
+            cflHost = "${malo.hostName}:${malo.port}",
+            authBase = "http://x/?a=1&token=${"A".repeat(32)}",
+            license = "LIC", channel = "c", expiresAt = 0,
+            cdns = listOf(
+                CdnDeCanal("${malo.hostName}:${malo.port}", "http://x/?a=1&token=${"A".repeat(32)}"),
+                CdnDeCanal("${bueno.hostName}:${bueno.port}", "http://x/?a=2&token=${"B".repeat(32)}"),
+            ),
+        )
+        val (codigo, cuerpo) = leer(proxy.urlPara(sesion))
+
+        assertEquals("el segundo CDN sirvió el playlist, no puede salir 502", 200, codigo)
+        assertTrue("el cuerpo tiene que venir del CDN bueno", cuerpo.contains("127.0.0.1"))
+        assertTrue("el CDN bueno tuvo que recibir el pedido", bueno.requestCount >= 1)
+        proxy.stop(); malo.shutdown(); bueno.shutdown()
+    }
+
+    /** Con un solo CDN todo sigue igual que siempre: un rechazo es un 502 al reproductor. */
+    @Test
+    fun `con un solo CDN un rechazo sigue siendo 502`() {
+        val malo = MockWebServer()
+        repeat(4) { malo.enqueue(MockResponse().setResponseCode(401)) }
+        malo.start()
+
+        val proxy = LiveHlsProxy(FirmasFalsas())
+        proxy.start()
+        val sesion = LiveSession(
+            cflHost = "${malo.hostName}:${malo.port}",
+            authBase = "http://x/?a=1&token=${"A".repeat(32)}",
+            license = "LIC", channel = "c", expiresAt = 0,
+        )
+        val (codigo, _) = leer(proxy.urlPara(sesion))
+
+        assertEquals(502, codigo)
+        proxy.stop(); malo.shutdown()
     }
 
 }
