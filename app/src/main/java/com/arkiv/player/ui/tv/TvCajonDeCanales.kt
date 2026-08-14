@@ -233,8 +233,31 @@ private fun CajonItem(
             focusedContentColor = Color.White,
         ),
     ) {
-        Box(Modifier.fillMaxSize().padding(horizontal = 12.dp), contentAlignment = Alignment.CenterStart) {
-            Text(etiqueta, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+            // Una barra ROJA a la izquierda, no solo el fondo. El fondo de "seleccionado" es
+            // ArkivSurface (#181818) sobre un cajón casi negro: 24 de 255 de diferencia, o sea
+            // invisible en un televisor a tres metros. Se notó al usarlo -- "no me queda
+            // seleccionada la categoría" -- y la comparación fue exacta: el canal en pantalla SÍ
+            // se distingue, porque tiene un "● EN VIVO" rojo. Esto le da a la categoría la misma
+            // señal, en el mismo idioma visual.
+            Box(
+                Modifier
+                    .width(4.dp)
+                    .fillMaxHeight()
+                    .background(if (seleccionado) ArkivRed else Color.Transparent),
+            )
+            Box(
+                Modifier.fillMaxSize().padding(horizontal = 10.dp),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                Text(
+                    etiqueta,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (seleccionado) FontWeight.Bold else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
