@@ -1,8 +1,10 @@
 package com.arkiv.player.ui.tv
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -160,9 +162,17 @@ fun rememberRegistroMagisFlow(account: AccountManager): RegistroMagisFlow =
  * Reusa [TvTecladoYCampos]/[CampoTvChip]/[TvBotonMostrarPassword] de `PanelDeLogin` -no los copia-,
  * ver el KDoc de `TvFormularioConTeclado.kt`.
  */
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun TvOfertaVincularMagis(account: AccountManager, accountEmail: String, onAhoraNo: () -> Unit) {
+    // ATRAS SALE DE ESTA PANTALLA, no de la app. `ArkivTvRoot` compone esta oferta y hace `return`
+    // antes de llegar a su propio BackHandler, asi que mientras se muestra no habia NINGUNO puesto
+    // y el back se lo llevaba el sistema: cerraba Kino entero. Para quien no queria vincular Magis,
+    // la unica forma de seguir era salir de la app y volver a entrar.
+    //
+    // Hace lo mismo que "Ahora no" a proposito: son la misma intencion -- "esto no, ahora"-- y que
+    // el boton y el control remoto hagan cosas distintas seria peor que cualquiera de las dos.
+    BackHandler(onBack = onAhoraNo)
     val scope = rememberCoroutineScope()
     val campos = rememberTvCamposConFoco(CampoMagisOferta.EMAIL)
     val registro = rememberRegistroMagisFlow(account)
@@ -361,7 +371,18 @@ fun TvOfertaVincularMagis(account: AccountManager, accountEmail: String, onAhora
             )
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 8.dp)) {
+        // FlowRow y no Row: en un `Row` que desborda, Compose RECORTA al ultimo hijo -- y el ultimo
+        // es justo "Ahora no", la salida de la pantalla. Con la TV en 960 dp esta columna queda en
+        // ~382 dp y los tres botones de la rama de vincular suman ~378: al filo. En el paso del
+        // codigo son CUATRO y se pasa seguro, asi que la unica salida quedaba fuera de pantalla y
+        // Magis parecia obligatorio. Ya habia pasado antes en esta misma columna: ver el comentario
+        // de `PESO_CAMPOS` en TvFormularioConTeclado.kt, donde un `width(520.dp)` "se llevaba puesto
+        // el boton de crear cuenta". Envolviendo, el ancho deja de poder esconder una salida.
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(top = 8.dp),
+        ) {
             when {
                 !creandoCuenta -> {
                     TvOfertaAccion(if (busy) "Vinculando…" else "Vincular", enabled = puedeVincular, onClick = ::vincular)
