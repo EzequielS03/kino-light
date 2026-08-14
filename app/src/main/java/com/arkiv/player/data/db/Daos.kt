@@ -467,6 +467,18 @@ interface LiveRecentDao {
     // --- Sync (mismo patrón que skip_markers) ---
     @Query("SELECT * FROM live_recents")
     suspend fun getAll(): List<LiveRecentEntity>
+
+    /**
+     * Purga única del 2026-08-14: canales de adultos que quedaron anotados ANTES de que
+     * `abrirCanalActual` dejara de anotarlos. Aparecían en la fila "Canales en vivo" del inicio,
+     * a la vista de cualquiera.
+     *
+     * Se borra TODO y no solo los de adultos porque el aparato no tiene forma de saber cuáles lo
+     * eran: los recientes guardan código y nombre, no la categoría. Y no cuesta nada — la nube ya
+     * quedó limpia, así que el próximo sync repuebla la lista con los legítimos.
+     */
+    @Query("DELETE FROM live_recents")
+    suspend fun borrarTodos()
 }
 
 @Dao

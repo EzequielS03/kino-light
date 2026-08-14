@@ -29,6 +29,10 @@ interface DeviceStore {
      * televisor del living. Y al estar en el store del aparato, desinstalar la app lo apaga —
      * que es el default correcto para un candado.
      */
+    /** Si ya corrió la purga única de recientes del 2026-08-14 (ver `LiveRecentDao.borrarTodos`). */
+    fun recientesPurgados(): Boolean
+    fun setRecientesPurgados(valor: Boolean)
+
     fun adultosDesbloqueado(): Boolean
     fun setAdultosDesbloqueado(valor: Boolean)
 

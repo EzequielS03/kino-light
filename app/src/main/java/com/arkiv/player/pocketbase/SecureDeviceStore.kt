@@ -53,6 +53,12 @@ class SecureDeviceStore(context: Context) : DeviceStore {
 
     override fun duenoDeLaBase(): String? = prefs.getString(K_DUENO_BASE, null)
 
+    override fun recientesPurgados(): Boolean = prefs.getBoolean(K_PURGA_RECIENTES, false)
+
+    override fun setRecientesPurgados(valor: Boolean) {
+        prefs.edit().putBoolean(K_PURGA_RECIENTES, valor).apply()
+    }
+
     override fun adultosDesbloqueado(): Boolean = prefs.getBoolean(K_ADULTOS, false)
 
     override fun setAdultosDesbloqueado(valor: Boolean) {
@@ -78,6 +84,9 @@ class SecureDeviceStore(context: Context) : DeviceStore {
 
         /** Por APARATO: desbloquear el celular no destraba el televisor. */
         const val K_ADULTOS = "adultosDesbloqueado"
+
+        /** Marca de la purga única de recientes del 2026-08-14. */
+        const val K_PURGA_RECIENTES = "recientesPurgados2026_08_14"
         const val K_PERSON_TOKEN = "personToken"
     }
 }

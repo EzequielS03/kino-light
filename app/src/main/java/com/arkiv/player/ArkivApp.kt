@@ -39,6 +39,23 @@ class ArkivApp : Application(), ImageLoaderFactory {
             }
         }
 
+        // Purga única del 2026-08-14: canales de adultos que quedaron anotados en "Recientes"
+        // ANTES de que `abrirCanalActual` dejara de anotarlos. Estaban saliendo en la fila
+        // "Canales en vivo" del inicio, a la vista de cualquiera, con su nombre y su logo.
+        //
+        // Se borra TODO y no solo los de adultos porque el aparato no puede saber cuáles lo eran:
+        // los recientes guardan código y nombre, nunca la categoría. Y no cuesta nada — los de la
+        // nube ya se limpiaron a mano, así que el próximo sync repuebla la lista con los legítimos.
+        graph.applicationScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                if (!graph.deviceStore.recientesPurgados()) {
+                    graph.database.liveRecentDao().borrarTodos()
+                    graph.deviceStore.setRecientesPurgados(true)
+                    android.util.Log.w("ArkivCuenta", "recientes purgados (fuga de canales de adultos)")
+                }
+            }
+        }
+
         // OTA: chequeo periódico cada 6 horas + chequeo inmediato al arrancar.
         androidx.work.WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             "update_check",

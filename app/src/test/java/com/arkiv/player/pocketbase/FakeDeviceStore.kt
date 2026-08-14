@@ -17,6 +17,10 @@ class FakeDeviceStore(private var identity: DeviceIdentity? = null) : DeviceStor
     override fun saveDuenoDeLaBase(accountId: String) { dueno = accountId }
     override fun duenoDeLaBase(): String? = dueno
 
+    private var purgados = false
+    override fun recientesPurgados(): Boolean = purgados
+    override fun setRecientesPurgados(valor: Boolean) { purgados = valor }
+
     private var adultos = false
     override fun adultosDesbloqueado(): Boolean = adultos
     override fun setAdultosDesbloqueado(valor: Boolean) { adultos = valor }
