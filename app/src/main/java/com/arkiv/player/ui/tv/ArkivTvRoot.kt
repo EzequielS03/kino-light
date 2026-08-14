@@ -206,6 +206,7 @@ fun ArkivTvRoot(
                 onOpenLibrary = { navController.navigate("library") },
                 onOpenLive = { navController.navigate("live") },
                 onOpenSearchRoute = { route -> navController.navigate(route) },
+                onOpenCategorias = { navController.navigate("categorias") },
             )
         }
         composable(
@@ -222,6 +223,18 @@ fun ArkivTvRoot(
                 shortcutKind = entry.arguments?.getString("kind"),
                 shortcutTmdbId = entry.arguments?.getString("tmdbId")?.toIntOrNull(),
                 shortcutAnilistId = entry.arguments?.getString("anilistId")?.toLongOrNull(),
+            )
+        }
+        composable("categorias") {
+            // Las secciones de adultos solo si ESTE aparato tiene el código puesto (Ajustes).
+            // El gateway responde 409 sin el parámetro, así que el default es el seguro incluso
+            // si esta pantalla se abriera por otro camino.
+            val desbloqueado = graph.deviceStore.adultosDesbloqueado()
+            TvSeccionesDeCatalogo(
+                raiz = if (desbloqueado) "adultos" else "series",
+                titulo = if (desbloqueado) "Categorías" else "Series",
+                incluirAdultos = desbloqueado,
+                onVolver = { navController.popBackStack() },
             )
         }
         composable("library") {

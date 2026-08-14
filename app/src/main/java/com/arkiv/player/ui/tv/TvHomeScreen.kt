@@ -37,6 +37,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
@@ -214,6 +215,8 @@ fun TvHomeScreen(
     onOpenLibrary: () -> Unit,
     onOpenLive: () -> Unit,
     onOpenSearchRoute: (String) -> Unit,
+    /** Navegar el catálogo de Magis por secciones (series y, con el código puesto, 18+). */
+    onOpenCategorias: () -> Unit,
 ) {
     val graph = rememberGraph()
     val vm: HomeViewModel = viewModel(
@@ -489,6 +492,11 @@ fun TvHomeScreen(
                         modifier = Modifier.padding(end = 16.dp),
                     )
                     TvNavButton(icon = Icons.Default.Search, label = "Buscar", onClick = onOpenSearch)
+                    TvNavButton(
+                        icon = Icons.Default.GridView,
+                        label = "Categorías",
+                        onClick = onOpenCategorias,
+                    )
                     TvNavButton(
                         icon = Icons.Default.VideoLibrary,
                         label = "Mi biblioteca",
