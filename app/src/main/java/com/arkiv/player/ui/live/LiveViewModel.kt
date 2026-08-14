@@ -84,6 +84,12 @@ class LiveViewModel(
     private val api: LiveCatalogGateway,
     private val favoritosDao: LiveFavoriteDao,
     private val cacheDao: LiveChannelCacheDao,
+    /**
+     * Si ESTE aparato tiene destrabada la sección 18+. Se lee en cada carga, no una vez al
+     * construir: destrabarla desde Ajustes tiene que verse en la próxima entrada a la guía sin
+     * reiniciar la app. Por defecto `false` — el default seguro, y lo que usan los tests.
+     */
+    private val adultosDesbloqueado: () -> Boolean = { false },
 ) : ViewModel() {
     private val _estado = MutableStateFlow(LiveUiState())
     val estado: StateFlow<LiveUiState> = _estado
@@ -167,7 +173,7 @@ class LiveViewModel(
 
             runCatching {
                 if (_estado.value.categorias.isEmpty()) {
-                    val cats = api.categorias()
+                    val cats = api.categorias(incluirAdultos = adultosDesbloqueado())
                     _estado.update { it.copy(categorias = cats) }
                 }
                 api.canales(categoria)

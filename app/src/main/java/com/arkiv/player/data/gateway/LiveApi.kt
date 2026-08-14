@@ -94,7 +94,12 @@ data class LiveSignature(val moment: Long, val sign2: String)
  * donde uno solo, cohesivo, alcanza.
  */
 interface LiveCatalogGateway {
-    suspend fun categorias(): List<LiveCategory>
+    /**
+     * @param incluirAdultos pide también la categoría 18+. El gateway la filtra por DEFECTO, así
+     *   que sin esto no viene — ver `CandadoDeAdultos`. Es un candado de control remoto, no una
+     *   frontera de seguridad: quien arme el pedido a mano puede ponerlo igual.
+     */
+    suspend fun categorias(incluirAdultos: Boolean = false): List<LiveCategory>
     suspend fun canales(categoria: Int): List<LiveChannel>
     suspend fun epg(codes: List<String>): Pair<Map<String, List<LiveProgram>>, List<String>>
 }
@@ -165,10 +170,14 @@ class LiveApi(
     private fun <T> JSONArray.mapear(f: (JSONObject) -> T): List<T> =
         (0 until length()).mapNotNull { i -> optJSONObject(i)?.let(f) }
 
-    override suspend fun categorias(): List<LiveCategory> =
-        cuerpo(pedido("${baseUrl()}/v1/live/categories").get().build())
+    override suspend fun categorias(incluirAdultos: Boolean): List<LiveCategory> {
+        val url = "${baseUrl()}/v1/live/categories".toHttpUrl().newBuilder()
+            .apply { if (incluirAdultos) addQueryParameter("adultos", "1") }
+            .build().toString()
+        return cuerpo(pedido(url).get().build())
             .arrayOrEmpty("categorias")
             .mapear { LiveCategory(id = it.optInt("id"), nombre = it.optString("nombre")) }
+    }
 
     override suspend fun canales(categoria: Int): List<LiveChannel> {
         val url = "${baseUrl()}/v1/live/channels".toHttpUrl().newBuilder()

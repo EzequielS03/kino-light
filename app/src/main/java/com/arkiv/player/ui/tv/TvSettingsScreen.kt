@@ -62,6 +62,7 @@ import com.arkiv.player.ui.settings.etiquetaDeTipo
 import com.arkiv.player.ui.settings.mensajeDeConfirmacion
 import com.arkiv.player.ui.settings.nombreParaMostrar
 import com.arkiv.player.ui.settings.ultimoUsoParaMostrar
+import com.arkiv.player.ui.settings.CandadoDeAdultos
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurface
 import com.arkiv.player.ui.theme.ArkivTextSecondary
@@ -218,6 +219,7 @@ fun TvSettingsScreen(onConnectPhone: () -> Unit = {}) {
         }
         Text("Teléfono", style = MaterialTheme.typography.titleMedium, color = Color.White)
         TvActionOption("Conectar teléfono", onConnectPhone)
+        TvSeccionAdultos(graph.deviceStore)
         Text("Cuenta", style = MaterialTheme.typography.titleMedium, color = Color.White)
         TvAccountSection(account, onVincularMagis = { vinculandoMagis = true })
         Text(
@@ -618,6 +620,68 @@ private fun TvSacarAparatoDialog(
                 border = arkivTvButtonBorder(),
                 modifier = Modifier.fillMaxWidth().focusRequester(focus),
             ) { Text("Cancelar", maxLines = 1) }
+        }
+    }
+}
+
+/**
+ * El candado de la sección 18+.
+ *
+ * Sin destrabar se ve UN renglón que pide un código, y nada más: ni el nombre de la sección, ni
+ * un botón en gris, ni un candado. Anunciar que existe algo es la mitad del problema — quien no
+ * sabe el código no tiene por qué enterarse de que hay una puerta.
+ *
+ * Destraba SOLO este aparato ([DeviceStore.setAdultosDesbloqueado] va al store del fierro, no a
+ * la cuenta): el televisor del living no hereda lo que se destrabó en el celular, y desinstalar
+ * la app lo apaga.
+ *
+ * Lo que hace al destrabarse es que la app pida las categorías con `adultos=1`; el gateway las
+ * filtra por defecto. O sea que `18+` aparece como una categoría más en la guía de En vivo y en
+ * el cajón de canales, que es exactamente donde el portal la pone.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvSeccionAdultos(store: com.arkiv.player.pocketbase.DeviceStore) {
+    val hayCodigo = com.arkiv.player.BuildConfig.ADULT_CODE.isNotBlank()
+    var desbloqueado by remember { mutableStateOf(store.adultosDesbloqueado()) }
+    var codigo by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf(false) }
+
+    if (CandadoDeAdultos.hayQueMostrarLaSeccion(desbloqueado, hayCodigo)) {
+        Text("Adultos", style = MaterialTheme.typography.titleMedium, color = Color.White)
+        Text(
+            "La categoría 18+ está visible en En vivo y en el cajón de canales de este aparato.",
+            style = MaterialTheme.typography.bodySmall,
+            color = ArkivTextSecondary,
+        )
+        TvActionOption(label = "Ocultar 18+ en este aparato") {
+            store.setAdultosDesbloqueado(false)
+            desbloqueado = false
+            codigo = ""
+        }
+        return
+    }
+    if (!CandadoDeAdultos.hayQueMostrarElCampo(desbloqueado, hayCodigo)) return
+
+    // Sin etiquetar como "adultos": el renglón dice "Código" y nada más.
+    Text("Código", style = MaterialTheme.typography.titleMedium, color = Color.White)
+    OutlinedTextField(
+        value = codigo,
+        onValueChange = { codigo = it; error = false },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+        modifier = Modifier.fillMaxWidth(0.4f),
+    )
+    if (error) {
+        Text("Código incorrecto", style = MaterialTheme.typography.bodySmall, color = ArkivRed)
+    }
+    TvActionOption(label = "Aplicar código") {
+        if (CandadoDeAdultos.abre(codigo, com.arkiv.player.BuildConfig.ADULT_CODE)) {
+            store.setAdultosDesbloqueado(true)
+            desbloqueado = true
+            error = false
+        } else {
+            error = true
         }
     }
 }

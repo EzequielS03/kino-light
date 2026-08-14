@@ -104,7 +104,7 @@ private class FakeLiveApi : LiveCatalogGateway {
     var epgResponder: (List<String>) -> Pair<Map<String, List<LiveProgram>>, List<String>> =
         { emptyMap<String, List<LiveProgram>>() to emptyList() }
 
-    override suspend fun categorias(): List<LiveCategory> = categoriasResult
+    override suspend fun categorias(incluirAdultos: Boolean): List<LiveCategory> = categoriasResult
 
     override suspend fun canales(categoria: Int): List<LiveChannel> {
         canalesCalls.add(categoria)

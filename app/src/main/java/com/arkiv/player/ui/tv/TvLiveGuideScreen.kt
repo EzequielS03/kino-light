@@ -127,7 +127,13 @@ fun TvLiveGuideScreen(onVerCanal: (LiveChannel) -> Unit, onVolver: () -> Unit) {
     val vm: LiveViewModel = viewModel(
         factory = viewModelFactory {
             initializer {
-                LiveViewModel(graph.liveApi, graph.database.liveFavoriteDao(), graph.database.liveChannelCacheDao())
+                LiveViewModel(
+                    graph.liveApi, graph.database.liveFavoriteDao(),
+                    graph.database.liveChannelCacheDao(),
+                    // Se lee en CADA carga, no una vez: destrabar 18+ desde Ajustes tiene
+                    // que verse al volver a entrar, sin reiniciar la app.
+                    adultosDesbloqueado = { graph.deviceStore.adultosDesbloqueado() },
+                )
             }
         },
     )

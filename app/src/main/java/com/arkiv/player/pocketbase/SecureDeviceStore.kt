@@ -53,6 +53,12 @@ class SecureDeviceStore(context: Context) : DeviceStore {
 
     override fun duenoDeLaBase(): String? = prefs.getString(K_DUENO_BASE, null)
 
+    override fun adultosDesbloqueado(): Boolean = prefs.getBoolean(K_ADULTOS, false)
+
+    override fun setAdultosDesbloqueado(valor: Boolean) {
+        prefs.edit().putBoolean(K_ADULTOS, valor).apply()
+    }
+
     override fun personEmail(): String? = prefs.getString(K_PERSON_EMAIL, null)
     override fun clearPersonEmail() { prefs.edit().remove(K_PERSON_EMAIL).apply() }
 
@@ -69,6 +75,9 @@ class SecureDeviceStore(context: Context) : DeviceStore {
         const val K_TOKEN = "token"
         const val K_PERSON_EMAIL = "personEmail"
         const val K_DUENO_BASE = "duenoDeLaBase"
+
+        /** Por APARATO: desbloquear el celular no destraba el televisor. */
+        const val K_ADULTOS = "adultosDesbloqueado"
         const val K_PERSON_TOKEN = "personToken"
     }
 }
