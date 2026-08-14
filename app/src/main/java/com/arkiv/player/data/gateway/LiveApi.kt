@@ -12,7 +12,24 @@ import org.json.JSONObject
 
 data class LiveCategory(val id: Int, val nombre: String)
 
-data class LiveChannel(val code: String, val nombre: String, val numero: Int, val logo: String?)
+data class LiveChannel(
+    val code: String,
+    val nombre: String,
+    val numero: Int,
+    val logo: String?,
+    /**
+     * Si el canal viene de una categoría de adultos.
+     *
+     * Va en el CANAL y no solo en la categoría porque el canal viaja solo hasta el reproductor
+     * —zapping, deep link, la propia lista de recientes— y ahí ya no hay categoría a mano. Con la
+     * marca encima, la regla de "esto no se anota en el historial" se aplica en el punto de
+     * escritura y no depende de por dónde llegó.
+     *
+     * Por defecto `false`: el que no sabe, no marca. Un gateway viejo que no mande el campo se
+     * comporta como antes.
+     */
+    val adulto: Boolean = false,
+)
 
 /** Tiempos en epoch **segundos**, como los manda el portal. */
 data class LiveProgram(val titulo: String, val inicio: Long, val fin: Long, val sinopsis: String)
@@ -192,6 +209,7 @@ class LiveApi(
                 // pero además nos cuidamos del clásico donde queda como la CADENA "null" en vez de
                 // Kotlin null (típico si alguien hace `.toString()` sobre el sentinel JSONObject.NULL).
                 logo = it.optString("logo").takeIf { s -> s.isNotBlank() && s != "null" },
+                adulto = it.optBoolean("adulto", false),
             )
         }
             // Sin `code` el canal es inservible (no hay con qué pedir EPG ni resolver()): se descarta

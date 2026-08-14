@@ -327,8 +327,16 @@ class PlayerViewModel(
             // el canal DENTRO de esta pantalla sin navegar (ver KDoc de loadLive), así que la
             // pantalla lo trata aparte -- en vivo nunca pasa por MediaReusePolicy.
             _playlist.value = PlaylistData(listOf(item), 0, 0L, pedido = item.episodeId)
-            runCatching {
-                liveRecentDao.anotar(LiveRecentEntity(canal.code, canal.nombre, System.currentTimeMillis()))
+            // Un canal de adultos NO se anota. Y se resuelve NO ESCRIBIENDO en vez de filtrando
+            // al leer: lo que no se escribe no se puede escapar por una pantalla que nos
+            // olvidamos —"Recientes" se pinta en la guía, en el cajón y en el celular— y además
+            // nunca se sube a la nube, así que tampoco aparece en los otros aparatos de la
+            // cuenta. Filtrar al leer deja el dato adentro esperando el primer lugar que no
+            // filtre.
+            if (!canal.adulto) {
+                runCatching {
+                    liveRecentDao.anotar(LiveRecentEntity(canal.code, canal.nombre, System.currentTimeMillis()))
+                }
             }
             precalentarVecinos()
         }
