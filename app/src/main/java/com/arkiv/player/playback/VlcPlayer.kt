@@ -562,7 +562,14 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
             val avanza = t != lastObservedTimeMs
             // `dur` es lo que sabe VLC y `efectiva` lo que ve la UI: con TS por HTTP el primero es 0
             // y el segundo sale de la sonda. Verlos juntos dice de un vistazo si la sonda llegó.
-            val efectiva = UnknownLengthPolicy.duracionAbsolutaMs(dur, knownDurationMs, baseOffsetMs)
+            //
+            // Tiene que calcularse EXACTAMENTE igual que en getState() —de ahí el `esVivo`—: si el
+            // log dice una cosa y la UI recibe otra, el log deja de servir para diagnosticar y
+            // encima despista. Pasó apenas se agregó la rama del vivo: getState() ya devolvía 0 y
+            // el heartbeat seguía imprimiendo los 30 s de la ventana del playlist.
+            val efectiva = UnknownLengthPolicy.duracionAbsolutaMs(
+                dur, knownDurationMs, baseOffsetMs, esVivo = kindActual() == SourceKind.LIVE,
+            )
             runCatching {
                 android.util.Log.w(
                     "ArkivVlc",
