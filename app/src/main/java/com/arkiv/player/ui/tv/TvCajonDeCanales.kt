@@ -43,6 +43,7 @@ import androidx.tv.material3.Text
 import com.arkiv.player.data.gateway.LiveChannel
 import com.arkiv.player.ui.live.CATEGORIA_FAVORITOS
 import com.arkiv.player.ui.live.FocoDelDrawer
+import com.arkiv.player.ui.live.IndiceDelCajon
 import com.arkiv.player.ui.live.LiveViewModel
 import com.arkiv.player.ui.live.filtrar
 import com.arkiv.player.ui.rememberGraph
@@ -96,27 +97,30 @@ fun TvCajonDeCanales(
     val focoCanales = remember { FocusRequester() }
     val focoTeclado = remember { FocusRequester() }
 
+    // UN solo índice para poner la fila a la vista Y para decidir cuál lleva el FocusRequester.
+    // Antes eran dos efectos distintos —uno hacía scroll al canal en vivo, el otro pedía foco
+    // sobre el ítem 0— y peleaban: pedirle foco a la primera fila arrastra la lista entera de
+    // vuelta al principio. Con 1040 canales eso se veía como un scroll interminable hacia arriba
+    // que terminaba lejos del canal que se estaba mirando. Ver [IndiceDelCajon].
+    val listaCanales = rememberLazyListState()
+    val indiceActual = remember(canales, canalActual) { IndiceDelCajon.para(canales, canalActual) }
+
     // El foco de Android tarda en existir: la fila a la que hay que ir puede no estar compuesta
     // todavía cuando cambia `foco`. Se reintenta un rato corto en vez de pedirlo una sola vez --
     // mismo patrón que ya usa TvLiveGuideScreen para su chip inicial.
-    LaunchedEffect(foco, canales.isEmpty()) {
+    LaunchedEffect(foco, indiceActual, canales.isEmpty()) {
         val destino = when (foco) {
             FocoDelDrawer.CATEGORIAS -> focoCategorias
             FocoDelDrawer.CANALES -> if (canales.isEmpty()) focoCategorias else focoCanales
             FocoDelDrawer.TECLADO -> focoTeclado
         }
+        // Posicionar ANTES de pedir el foco, y sin animar: una fila que no está compuesta no
+        // puede recibirlo, y el intento hace saltar la lista a la que sí lo está.
+        if (destino === focoCanales) listaCanales.scrollToItem(indiceActual)
         repeat(20) {
             if (runCatching { destino.requestFocus() }.isSuccess) return@LaunchedEffect
             delay(50)
         }
-    }
-
-    // Arranca en la lista del canal que se está viendo, no en el principio del catálogo: con 200
-    // canales, abrir el cajón y tener que bajar a mano hasta donde estabas lo vuelve inútil.
-    val listaCanales = rememberLazyListState()
-    LaunchedEffect(canales, canalActual) {
-        val i = canales.indexOfFirst { it.code == canalActual }
-        if (i > 0) listaCanales.scrollToItem(i)
     }
 
     Row(
@@ -199,7 +203,7 @@ fun TvCajonDeCanales(
                             // arriba/abajo tiene que recorrer después -- si buscaste "deportes",
                             // zapear debería moverse entre esos, no entre el catálogo entero.
                             onClick = { onElegirCanal(canales, canal) },
-                            modifier = if (i == 0) Modifier.focusRequester(focoCanales) else Modifier,
+                            modifier = if (i == indiceActual) Modifier.focusRequester(focoCanales) else Modifier,
                         )
                     }
                 }
