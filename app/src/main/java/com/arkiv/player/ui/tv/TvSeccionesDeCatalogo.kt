@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -49,8 +50,7 @@ import com.arkiv.player.ui.theme.ArkivSurface
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 import kotlinx.coroutines.delay
 
-private val ANCHO_RAICES = 200.dp
-private val ANCHO_SECCIONES = 260.dp
+private val ANCHO_SECCIONES = 300.dp
 private val ALTO_SECCION = 52.dp
 
 /**
@@ -131,24 +131,29 @@ fun TvSeccionesDeCatalogo(
             modifier = Modifier.padding(bottom = 12.dp),
         )
 
-        // Las raíces se pintan SIEMPRE, aunque la raíz elegida esté cargando o falle: si el estado
-        // de carga tapara la columna, no habría forma de volver a elegir otra raíz con el control.
+        // Las raíces son TABS arriba, no una tercera columna: en un televisor el ancho es el
+        // recurso escaso —tres columnas dejaban los pósters apretados— y una fila horizontal es
+        // el gesto natural del control para "cambiar de sección grande".
+        //
+        // Se pintan SIEMPRE, aunque la raíz elegida esté cargando o falle: si el estado de carga
+        // las tapara, no habría forma de volver a elegir otra con el control.
+        LazyRow(
+            Modifier.fillMaxWidth().padding(bottom = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(end = 24.dp),
+        ) {
+            items(raices.size) { i ->
+                TabDeRaiz(
+                    etiqueta = raices[i].second,
+                    seleccionada = i == raizIdx,
+                    onClick = { raizIdx = i },
+                    modifier = if (i == 0) Modifier.focusRequester(focoSecciones) else Modifier,
+                )
+            }
+        }
+
         run {
             Row(Modifier.fillMaxSize()) {
-                LazyColumn(
-                    Modifier.width(ANCHO_RAICES).fillMaxHeight().padding(end = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                    contentPadding = PaddingValues(bottom = 24.dp),
-                ) {
-                    items(raices.size) { i ->
-                        FilaDeSeccion(
-                            etiqueta = raices[i].second,
-                            seleccionada = i == raizIdx,
-                            onClick = { raizIdx = i },
-                            modifier = if (i == 0) Modifier.focusRequester(focoSecciones) else Modifier,
-                        )
-                    }
-                }
                 LazyColumn(
                     Modifier.width(ANCHO_SECCIONES).fillMaxHeight().padding(end = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -214,6 +219,36 @@ fun TvSeccionesDeCatalogo(
                     }
                 }
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TabDeRaiz(
+    etiqueta: String,
+    seleccionada: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier.height(ALTO_SECCION),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(24.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = if (seleccionada) ArkivRed else ArkivSurface,
+            focusedContainerColor = ArkivRed,
+            contentColor = Color.White,
+            focusedContentColor = Color.White,
+        ),
+    ) {
+        Box(Modifier.fillMaxSize().padding(horizontal = 22.dp), contentAlignment = Alignment.Center) {
+            Text(
+                etiqueta,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (seleccionada) FontWeight.Bold else FontWeight.Normal,
+                maxLines = 1,
+            )
         }
     }
 }
