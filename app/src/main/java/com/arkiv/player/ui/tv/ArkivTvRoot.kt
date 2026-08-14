@@ -231,8 +231,6 @@ fun ArkivTvRoot(
             // si esta pantalla se abriera por otro camino.
             val desbloqueado = graph.deviceStore.adultosDesbloqueado()
             TvSeccionesDeCatalogo(
-                raiz = if (desbloqueado) "adultos" else "series",
-                titulo = if (desbloqueado) "Categorías" else "Series",
                 incluirAdultos = desbloqueado,
                 onVolver = { navController.popBackStack() },
             )

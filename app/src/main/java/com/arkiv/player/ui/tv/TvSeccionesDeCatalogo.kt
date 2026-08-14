@@ -49,7 +49,8 @@ import com.arkiv.player.ui.theme.ArkivSurface
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 import kotlinx.coroutines.delay
 
-private val ANCHO_SECCIONES = 300.dp
+private val ANCHO_RAICES = 200.dp
+private val ANCHO_SECCIONES = 260.dp
 private val ALTO_SECCION = 52.dp
 
 /**
@@ -65,18 +66,36 @@ private val ALTO_SECCION = 52.dp
  * ítem de una sección de adultos no puede anotarse en ningún lado (el 2026-08-14 una fuga así
  * apareció en la pantalla principal y hubo que limpiarla en el aparato Y en la nube).
  *
- * @param raiz `"series"` o `"adultos"`. La de adultos exige [incluirAdultos]; el gateway responde
- *   409 sin eso, y quien decide es el código por aparato de Ajustes.
+ * Tres columnas: raíz (Películas, Series, Infantil, Anime y —si el aparato tiene el código— 18+),
+ * sus secciones, y los contenidos. Los dos niveles son a propósito: con todas las secciones juntas
+ * quedaban 100+ entradas sin jerarquía, donde no se distinguía una categoría de películas de una
+ * de series.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TvSeccionesDeCatalogo(
-    raiz: String,
-    titulo: String,
+    /** Si este aparato tiene el código puesto: agrega la raíz 18+ al final de la lista. */
     incluirAdultos: Boolean = false,
     onVolver: () -> Unit,
 ) {
     val graph = rememberGraph()
+    // Dos niveles, no todo junto: primero la RAÍZ (Películas, Series…) y recién después sus
+    // secciones. Mezclarlas daba una lista de 100+ entradas sin jerarquía donde no se distinguía
+    // una categoría de películas de una de series.
+    //
+    // La de adultos va ÚLTIMA y solo si el aparato está desbloqueado: no puede quedar en el
+    // camino de quien está navegando el catálogo normal.
+    val raices = remember(incluirAdultos) {
+        buildList {
+            add("peliculas" to "Películas")
+            add("series" to "Series")
+            add("infantil" to "Infantil")
+            add("anime" to "Anime")
+            if (incluirAdultos) add("adultos" to "18+")
+        }
+    }
+    var raizIdx by remember { mutableStateOf(0) }
+    val raiz = raices[raizIdx].first
     var secciones by remember { mutableStateOf<List<SeccionDeCatalogo>>(emptyList()) }
     var elegida by remember { mutableStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -85,6 +104,8 @@ fun TvSeccionesDeCatalogo(
     BackHandler(onBack = onVolver)
 
     LaunchedEffect(raiz, incluirAdultos) {
+        secciones = emptyList()
+        elegida = 0
         cargando = true
         runCatching { graph.liveApi.arbol(raiz, incluirAdultos) }
             .onSuccess { secciones = it; error = null }
@@ -102,7 +123,7 @@ fun TvSeccionesDeCatalogo(
     }
 
     Column(Modifier.fillMaxSize().background(ArkivBlack).padding(start = 48.dp, top = 24.dp, end = 24.dp)) {
-        Text(titulo, style = MaterialTheme.typography.headlineSmall, color = Color.White)
+        Text("Categorías", style = MaterialTheme.typography.headlineSmall, color = Color.White)
         Text(
             "Volvé con el botón Atrás del control.",
             style = MaterialTheme.typography.bodySmall,
@@ -110,22 +131,44 @@ fun TvSeccionesDeCatalogo(
             modifier = Modifier.padding(bottom = 12.dp),
         )
 
-        when {
-            cargando && secciones.isEmpty() -> Mensaje("Cargando…")
-            error != null && secciones.isEmpty() -> Mensaje(error!!)
-            secciones.isEmpty() -> Mensaje("No hay secciones para mostrar.")
-            else -> Row(Modifier.fillMaxSize()) {
+        // Las raíces se pintan SIEMPRE, aunque la raíz elegida esté cargando o falle: si el estado
+        // de carga tapara la columna, no habría forma de volver a elegir otra raíz con el control.
+        run {
+            Row(Modifier.fillMaxSize()) {
+                LazyColumn(
+                    Modifier.width(ANCHO_RAICES).fillMaxHeight().padding(end = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    contentPadding = PaddingValues(bottom = 24.dp),
+                ) {
+                    items(raices.size) { i ->
+                        FilaDeSeccion(
+                            etiqueta = raices[i].second,
+                            seleccionada = i == raizIdx,
+                            onClick = { raizIdx = i },
+                            modifier = if (i == 0) Modifier.focusRequester(focoSecciones) else Modifier,
+                        )
+                    }
+                }
                 LazyColumn(
                     Modifier.width(ANCHO_SECCIONES).fillMaxHeight().padding(end = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     contentPadding = PaddingValues(bottom = 24.dp),
                 ) {
+                    if (secciones.isEmpty()) {
+                        item {
+                            Text(
+                                if (cargando) "Cargando…" else (error ?: "Sin secciones"),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = ArkivTextSecondary,
+                                modifier = Modifier.padding(8.dp),
+                            )
+                        }
+                    }
                     items(secciones.size) { i ->
                         FilaDeSeccion(
                             etiqueta = secciones[i].nombre,
                             seleccionada = i == elegida,
                             onClick = { elegida = i },
-                            modifier = if (i == 0) Modifier.focusRequester(focoSecciones) else Modifier,
                         )
                     }
                 }
