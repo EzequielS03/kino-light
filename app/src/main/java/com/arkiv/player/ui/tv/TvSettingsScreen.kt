@@ -26,6 +26,11 @@ import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
@@ -663,19 +668,9 @@ private fun TvSeccionAdultos(store: com.arkiv.player.pocketbase.DeviceStore) {
     }
     if (!CandadoDeAdultos.hayQueMostrarElCampo(desbloqueado, hayCodigo)) return
 
-    // Sin etiquetar como "adultos": el renglón dice "Código" y nada más.
-    Text("Código", style = MaterialTheme.typography.titleMedium, color = Color.White)
-    OutlinedTextField(
-        value = codigo,
-        onValueChange = { codigo = it; error = false },
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-        modifier = Modifier.fillMaxWidth(0.4f),
-    )
-    if (error) {
-        Text("Código incorrecto", style = MaterialTheme.typography.bodySmall, color = ArkivRed)
-    }
-    TvActionOption(label = "Aplicar código") {
+    val focusManager = LocalFocusManager.current
+
+    fun intentar() {
         if (CandadoDeAdultos.abre(codigo, com.arkiv.player.BuildConfig.ADULT_CODE)) {
             store.setAdultosDesbloqueado(true)
             desbloqueado = true
@@ -684,4 +679,35 @@ private fun TvSeccionAdultos(store: com.arkiv.player.pocketbase.DeviceStore) {
             error = true
         }
     }
+
+    // Sin etiquetar como "adultos": el renglón dice "Código" y nada más.
+    Text("Código", style = MaterialTheme.typography.titleMedium, color = Color.White)
+    OutlinedTextField(
+        value = codigo,
+        onValueChange = { codigo = it; error = false },
+        singleLine = true,
+        // `Done` que APLICA, no que solo cierra el teclado. En un televisor, cerrar el IME deja el
+        // foco atrapado en el campo -- el D-pad no lo suelta y no se llega al botón de abajo. Con
+        // esto el código se aplica sin tener que salir del campo, que es el camino natural: se
+        // termina de escribir y se confirma en el mismo teclado.
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { intentar(); focusManager.moveFocus(FocusDirection.Down) }),
+        // Y la salida de emergencia: abajo sale del campo aunque el IME no coopere. Sin esto, un
+        // teclado que se cierra sin disparar `onDone` deja el foco encerrado y no hay forma de
+        // llegar al botón con el control.
+        modifier = Modifier
+            .fillMaxWidth(0.4f)
+            .onPreviewKeyEvent { e ->
+                if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown) {
+                    focusManager.moveFocus(FocusDirection.Down)
+                    true
+                } else {
+                    false
+                }
+            },
+    )
+    if (error) {
+        Text("Código incorrecto", style = MaterialTheme.typography.bodySmall, color = ArkivRed)
+    }
+    TvActionOption(label = "Aplicar código") { intentar() }
 }
