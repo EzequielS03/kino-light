@@ -102,6 +102,12 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.ui.input.key.nativeKeyCode
+import com.arkiv.player.ui.live.AccionDelDrawer
+import com.arkiv.player.ui.live.DpadDelDrawer
+import com.arkiv.player.ui.live.FocoDelDrawer
+import com.arkiv.player.ui.tv.TvCajonDeCanales
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
@@ -611,6 +617,12 @@ private fun PlayerContent(
     // visible: el primer canal se anuncia solo, sin que el usuario tenga que tocar nada.
     var liveInfoVisible by remember { mutableStateOf(true) }
     var liveInfoTick by remember { mutableIntStateOf(0) }
+    // Cajón de canales (solo TV, solo vivo): se abre con la flecha izquierda sobre el video. Las
+    // reglas de qué hace cada flecha viven en `DpadDelDrawer` -- puro y con tests -- porque este
+    // proyecto no tiene tests de interfaz y una regla escrita adentro del key listener no se
+    // podría probar de ninguna forma. Acá solo se guarda el estado y se mueve el foco.
+    var cajonAbierto by remember { mutableStateOf(false) }
+    var focoCajon by remember { mutableStateOf(FocoDelDrawer.CANALES) }
     val liveCanal by vm.liveCanal.collectAsStateWithLifecycle()
     // Tarea 15: publicar el nombre del canal para NowPlayingPublisher (solo corre en el TV, pero
     // no cuesta nada tenerlo también seteado acá en el celu). Sin esto la barra del miniplayer
@@ -1913,6 +1925,16 @@ private fun PlayerContent(
                             // VOD (que en vivo no existe, ver `visible = !enVivo && ...`), e
                             // Izquierda/Derecha no hacen seek (no hay duración/posición en vivo).
                             if (enVivo) {
+                                // El cajón se queda con la flecha izquierda ANTES que nada. Con el
+                                // cajón abierto este listener ya no recibe teclas (el foco de
+                                // Android está en las filas de Compose), así que acá solo puede
+                                // pasar el caso "cerrado + izquierda".
+                                if (DpadDelDrawer.accion(keyCode, cajonAbierto, focoCajon) == AccionDelDrawer.ABRIR) {
+                                    focoCajon = FocoDelDrawer.CANALES
+                                    cajonAbierto = true
+                                    liveInfoVisible = false
+                                    return@setOnKeyListener true
+                                }
                                 return@setOnKeyListener when (keyCode) {
                                     KeyEvent.KEYCODE_DPAD_UP -> { vm.zapAnterior(); mostrarInfoVivo(); true }
                                     KeyEvent.KEYCODE_DPAD_DOWN -> { vm.zapSiguiente(); mostrarInfoVivo(); true }
@@ -3036,6 +3058,54 @@ private fun PlayerContent(
                         }
                     }) { Text("Detener") }
                 }
+            }
+        }
+
+        // Cajón de canales del vivo. Va ÚLTIMO dentro del Box para quedar por encima del resto de
+        // overlays -- y a la izquierda, dejando el video visible a su derecha: es un cajón, no otra
+        // pantalla.
+        if (isTv && enVivo && cajonAbierto) {
+            Box(
+                Modifier
+                    .align(Alignment.CenterStart)
+                    .fillMaxHeight()
+                    // PREVIEW y no onKeyEvent: el preview baja desde el contenedor ANTES de que la
+                    // fila con el foco se quede la tecla, que es la única forma de que "derecha"
+                    // cierre el cajón en vez de que la lista se la coma.
+                    .onPreviewKeyEvent { e ->
+                        if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        when (DpadDelDrawer.accion(e.key.nativeKeyCode, abierto = true, foco = focoCajon)) {
+                            AccionDelDrawer.CERRAR -> { cajonAbierto = false; true }
+                            AccionDelDrawer.A_CANALES -> { focoCajon = FocoDelDrawer.CANALES; true }
+                            AccionDelDrawer.A_CATEGORIAS -> { focoCajon = FocoDelDrawer.CATEGORIAS; true }
+                            // De la lista: que la resuelva el foco de Compose. `false` la deja
+                            // seguir; consumirla acá dejaría la lista inmóvil.
+                            else -> false
+                        }
+                    },
+            ) {
+                TvCajonDeCanales(
+                    foco = focoCajon,
+                    onFoco = { focoCajon = it },
+                    canalActual = liveCanal?.code,
+                    onElegirCanal = { lista, canal ->
+                        vm.irACanal(lista, canal)
+                        cajonAbierto = false
+                        mostrarInfoVivo()
+                    },
+                )
+            }
+        }
+    }
+
+    // Al cerrarse el cajón hay que devolverle el foco al video: si no, queda en una fila que ya no
+    // existe y el control deja de responder -- ni zapping ni Atrás. El `videoView` es quien tiene
+    // el `setOnKeyListener` del vivo.
+    LaunchedEffect(cajonAbierto) {
+        if (!cajonAbierto) {
+            repeat(10) {
+                if (videoView?.requestFocus() == true) return@LaunchedEffect
+                delay(50)
             }
         }
     }

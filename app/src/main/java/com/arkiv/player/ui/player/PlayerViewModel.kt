@@ -339,6 +339,25 @@ class PlayerViewModel(
     fun zapAnterior() { zapping?.anterior() ?: return; abrirCanalActual() }
 
     /**
+     * El cajón de canales eligió otro canal: cambia el canal Y la lista que el zapping recorre.
+     *
+     * Las dos cosas juntas a propósito. El cajón lista el catálogo entero por categorías, así que
+     * el canal elegido puede no estar en la lista con la que se entró — dejar el zapping viejo
+     * haría que la primera flecha arriba saltara a un canal de otra categoría, sin relación con
+     * lo que se acaba de elegir. `lista` es la que el cajón tenía en pantalla (ya filtrada por la
+     * búsqueda, si había una), que es exactamente lo que se espera recorrer después.
+     *
+     * También se fija en [LiveZappingSource] para que sobreviva a una recreación de la pantalla,
+     * que es de donde [loadLive] la lee.
+     */
+    fun irACanal(lista: List<LiveChannel>, canal: LiveChannel) {
+        val entrada = lista.ifEmpty { listOf(canal) }
+        LiveZappingSource.lista = entrada
+        zapping = LiveZapping(entrada, entrada.indexOfFirst { it.code == canal.code }.coerceAtLeast(0))
+        abrirCanalActual()
+    }
+
+    /**
      * Precalienta los vecinos del zapping ~1s después de abrir el canal actual -- si el usuario
      * zapea antes de que pase ese segundo, [abrirCanalActual] cancela este job (siguiente llamada)
      * antes de programar el próximo. Resolver cuesta ~3s (dos llamadas a un portal cortado a 1
