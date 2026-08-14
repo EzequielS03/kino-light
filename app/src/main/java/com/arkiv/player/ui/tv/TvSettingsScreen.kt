@@ -89,6 +89,17 @@ fun TvSettingsScreen(onConnectPhone: () -> Unit = {}) {
             // La sesión se cayó mientras estaba abierta: no hay a qué cuenta vincular.
             vinculandoMagis = false
         } else {
+            // Y se cierra sola al vincular. `TvOfertaVincularMagis` no avisa cuando sale bien: no
+            // le hacía falta, porque en su uso original (`ArkivTvRoot`, la oferta al entrar) el
+            // que la compone reevalúa si todavía hay que ofrecerla y deja de pintarla. Acá el
+            // `if` de arriba lo gobierna esta pantalla, así que si nadie mira `magisLinked` la
+            // vinculación sale bien —el gateway contesta 200— y la persona se queda mirando el
+            // mismo formulario, sin ninguna señal de que pasó algo. Medido en el Fire TV el
+            // 2026-08-14: "le di vincular y no dijo nada", con `POST /v1/magis/link → 200 OK` en
+            // el servidor.
+            LaunchedEffect(conectado.magisLinked) {
+                if (conectado.magisLinked) vinculandoMagis = false
+            }
             TvOfertaVincularMagis(
                 account = account,
                 accountEmail = conectado.email,
