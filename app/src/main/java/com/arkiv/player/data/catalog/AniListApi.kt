@@ -170,10 +170,21 @@ class AniListApi(
         }
     }
 
+    /**
+     * Texto del JSON, con el null de verdad convertido en vacío.
+     *
+     * `optString` de Android devuelve el STRING "null" cuando el valor del JSON es `null` (el
+     * org.json del JVM devuelve "", así que esto NO se reproduce en un test unitario: hay que
+     * verlo en el aparato). AniList manda `english: null` en casi todo lo que no tiene título en
+     * inglés, así que la grilla mostraba la palabra "null" como nombre del anime en vez de caer al
+     * romaji, que sí estaba.
+     */
+    private fun JSONObject.texto(name: String): String = if (isNull(name)) "" else optString(name)
+
     private fun parseMedia(o: JSONObject): AnimeShow? {
         val t = o.optJSONObject("title")
-        val english = t?.optString("english").orEmpty()
-        val romaji = t?.optString("romaji").orEmpty()
+        val english = t?.texto("english").orEmpty()
+        val romaji = t?.texto("romaji").orEmpty()
         val display = english.ifBlank { romaji }
         if (display.isBlank()) return null
         return AnimeShow(
@@ -181,14 +192,14 @@ class AniListApi(
             title = display,
             // Para buscar en AnimeTosho conviene el romaji (así nombran los releases).
             searchTitle = romaji.ifBlank { english },
-            posterUrl = o.optJSONObject("coverImage")?.optString("large").orEmpty(),
-            bannerUrl = o.optString("bannerImage"),
+            posterUrl = o.optJSONObject("coverImage")?.texto("large").orEmpty(),
+            bannerUrl = o.texto("bannerImage"),
             scorePct = o.optInt("averageScore"),
             episodes = o.optInt("episodes"),
             year = o.optInt("seasonYear"),
             genres = o.optJSONArray("genres")?.let { g -> (0 until g.length()).map { g.getString(it) } } ?: emptyList(),
-            description = stripHtml(o.optString("description")),
-            format = o.optString("format"),
+            description = stripHtml(o.texto("description")),
+            format = o.texto("format"),
         )
     }
 
