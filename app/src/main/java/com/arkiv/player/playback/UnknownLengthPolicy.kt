@@ -28,7 +28,18 @@ object UnknownLengthPolicy {
      * (medido en device: `dur=3101234ms` sobre una de `7560000ms`). Con ventana manda la duración
      * conocida; si no hubiera ninguna, se reconstruye sumándole el desfase al tramo.
      */
-    fun duracionAbsolutaMs(lengthMs: Long, knownDurationMs: Long, baseOffsetMs: Long): Long = when {
+    fun duracionAbsolutaMs(
+        lengthMs: Long,
+        knownDurationMs: Long,
+        baseOffsetMs: Long,
+        esVivo: Boolean = false,
+    ): Long = when {
+        // UN DIRECTO NO TIENE DURACIÓN, y lo que libVLC informa ahí no es una: es la VENTANA
+        // DESLIZANTE del playlist. Medido en el Fire TV el 2026-08-14 con un canal a los 4:50 de
+        // abierto: `pos=289990ms dur=30143ms` — 6 segmentos de 5 s. O sea que la posición supera
+        // diez veces al total, que para media3 es un estado incoherente: la barra mide contra un
+        // número que no significa nada y que además se mueve solo. 0 es "no sé", que es la verdad.
+        esVivo -> 0L
         baseOffsetMs <= 0L -> effectiveDurationMs(lengthMs, knownDurationMs)
         knownDurationMs > 0L -> knownDurationMs
         lengthMs > 0L -> baseOffsetMs + lengthMs

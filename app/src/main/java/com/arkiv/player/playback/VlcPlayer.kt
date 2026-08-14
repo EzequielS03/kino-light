@@ -314,7 +314,11 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         // Sin duración propia se cae a la sondeada, o la barra se pinta llena y en 00:00 (y tampoco
         // se guarda el progreso, que exige dur>0). Y dentro de una ventana lo que informa el
         // reproductor es solo el tramo abierto, así que ahí no puede ganar.
-        val duracionMs = UnknownLengthPolicy.duracionAbsolutaMs(lengthMs, knownDurationMs, baseOffsetMs)
+        // En vivo lo que informa libVLC no es una duración sino la ventana del playlist (medido:
+        // `pos=289990ms dur=30143ms`), así que ahí se reporta "no sé". Ver [UnknownLengthPolicy].
+        val duracionMs = UnknownLengthPolicy.duracionAbsolutaMs(
+            lengthMs, knownDurationMs, baseOffsetMs, esVivo = kindActual() == SourceKind.LIVE,
+        )
         val playlist = items.mapIndexed { i, item ->
             MediaItemData.Builder(item.mediaId.ifEmpty { "item-$i" })
                 .setMediaItem(item)
@@ -485,6 +489,10 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         }
     }.getOrNull()
 
+    /** De qué fuente es lo que está sonando ahora, o null si no hay nada cargado. */
+    private fun kindActual(): SourceKind? =
+        (items.getOrNull(currentIndex)?.localConfiguration?.tag as? PlayerSourceTag)?.kind
+
     /** La duración contra la que se calcula la fracción del salto. Ver [UnknownLengthPolicy]. */
     private fun duracionParaElSalto(lengthMs: Long): Long =
         UnknownLengthPolicy.duracionAbsolutaMs(lengthMs, knownDurationMs, baseOffsetMs)
@@ -644,8 +652,14 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
             lastObservedTimeMs = t
             lastAdvanceWallMs = now
             if (event == VlcEvent.Buffering) { event = VlcEvent.Playing; invalidateState() }
-        } else if (event != VlcEvent.Buffering && now - lastAdvanceWallMs > STALL_MS) {
+        } else if (
+            event != VlcEvent.Buffering &&
+            DeteccionDeEstancamiento.hayEstancamiento(now - lastAdvanceWallMs, kindActual())
+        ) {
             // Debería reproducir pero el tiempo lleva rato sin avanzar → estancado por falta de buffer.
+            // El umbral depende de la FUENTE porque el reloj no ticka igual en todas: en vivo avanza
+            // de a ~1 s (medido) y un umbral por debajo de eso marcaba pausas sobre un canal sano.
+            // Ver [DeteccionDeEstancamiento].
             event = VlcEvent.Buffering
             invalidateState()
         }
@@ -1416,8 +1430,9 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
          */
         const val RENDER_POR_TEXTURE = true
 
-        const val STALL_POLL_MS = 500L  // cada cuánto sondea el watcher de estancamiento
-        const val STALL_MS = 900L       // tiempo sin avanzar (queriendo reproducir) para marcar buffering
+        /** Cada cuánto sondea el watcher. La define [DeteccionDeEstancamiento], que es quien
+         *  necesita que el umbral la supere. */
+        const val STALL_POLL_MS = DeteccionDeEstancamiento.SONDEO_MS
         // Cuánto se le aguanta al hardware antes de darlo por colgado y caer a software.
         //
         // 12 s, y la tentación de subirlo ya se probó y salió mal. El razonamiento era: el CDN de

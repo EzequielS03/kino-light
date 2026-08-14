@@ -94,4 +94,33 @@ class UnknownLengthPolicyTest {
         // mp4 y demás traen la duración en su índice: VLC la saca solo.
         assertFalse(UnknownLengthPolicy.hayQueSondear(esTs = false, duracionDeLaFuente = 0L))
     }
+
+    // ---- El directo no tiene duración ----
+
+    /**
+     * MEDIDO EN EL FIRE TV el 2026-08-14, con un canal en vivo a los 4:50 de abierto:
+     *
+     * ```
+     * HB pos=289990ms dur=30143ms efectiva=30143ms estado=Playing
+     * ```
+     *
+     * En vivo libVLC informa como duración la VENTANA DESLIZANTE del playlist (6 segmentos de 5 s
+     * = 30 s), no cuánto dura el contenido — que en un directo no existe. Así la posición supera
+     * diez veces a la "duración", que para media3 es un estado incoherente: la barra mide contra un
+     * total que no significa nada y que además se mueve.
+     *
+     * 0 es "no sé", que es la verdad y lo que la UI ya sabe manejar.
+     */
+    @Test
+    fun `en vivo no se reporta duracion, porque no hay`() {
+        assertEquals(0L, UnknownLengthPolicy.duracionAbsolutaMs(30_143L, 0L, 0L, esVivo = true))
+        // Ni siquiera si alguien dejó una duración conocida colgada de otra reproducción.
+        assertEquals(0L, UnknownLengthPolicy.duracionAbsolutaMs(30_143L, 7_200_000L, 0L, esVivo = true))
+    }
+
+    @Test
+    fun `fuera del vivo todo sigue igual`() {
+        assertEquals(30_143L, UnknownLengthPolicy.duracionAbsolutaMs(30_143L, 0L, 0L, esVivo = false))
+        assertEquals(7_200_000L, UnknownLengthPolicy.duracionAbsolutaMs(0L, 7_200_000L, 0L))
+    }
 }
