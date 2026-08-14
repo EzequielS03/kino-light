@@ -51,7 +51,9 @@ class AccountManagerTest {
         server.enqueue(MockResponse().setBody("""{"token":"dtok","record":{"id":"devrec"}}""")) // bootstrap
         server.enqueue(MockResponse().setBody("""{"token":"utok","record":{"id":"usr-1","accountId":"A_person"}}""")) // users auth (probe: ¿PB la conoce?)
         server.enqueue(MockResponse().setBody("""{"token":"ptok","record":{"id":"usr-1"}}""")) // sesion.iniciar (Task 1): persiste el token de la persona
-        server.enqueue(MockResponse().setBody("""{"kind":"phone","usados":1,"tope":1,"yaEra":false}""")) // POST /v1/cuenta/aparatos (adopcion por el gateway)
+        // POST /v1/cuenta/entrar: el login adopta el aparato por ahi, no por /aparatos -- ver
+        // login_adoptaElAparatoPorEntrar_noPorAdoptarQueExigeSesionPrevia mas abajo.
+        server.enqueue(MockResponse().setBody("""{"userId":"usr-1","accountId":"A_person","kind":"phone","usados":1,"tope":1,"yaEra":false,"desvinculado":null}"""))
         server.enqueue(MockResponse().setBody("""{"linked":true}""")) // magisVinculadoSeguro -> status
         server.start()
         val client = clientFor(server)
@@ -369,4 +371,53 @@ class AccountManagerTest {
         assertNotNull("logout no debe re-bootstrapear (eso borraría la identidad del device)", store.load())
         assertEquals(identidad, store.load())
     }
+    /**
+     * EL BUG DEL 2026-08-14. En el Google TV, con la cuenta recien creada, el login volvia siempre
+     * a la pantalla de login. En el gateway:
+     *
+     * ```
+     * POST /v1/cuenta/aparatos/alta  -> 201 Created
+     * POST /v1/cuenta/aparatos       -> 401 Unauthorized
+     * ```
+     *
+     * `POST /aparatos` exige que el aparato que llama YA sea de la cuenta, y meterlo en la cuenta
+     * es lo que ese endpoint viene a hacer: en un aparato nuevo no sale nunca. El login tiene que
+     * ir por `/entrar`, que corre sin sesion previa y usa la contrasena como prueba.
+     *
+     * Este test mira la RUTA del pedido, no solo que login termine bien: con `/aparatos` el
+     * MockWebServer contestaria igual y el test pasaria sobre el camino roto.
+     */
+    @Test
+    fun login_adoptaElAparatoPorEntrar_noPorAdoptarQueExigeSesionPrevia() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setBody("""{"token":"dtok","record":{"id":"devrec"}}""")) // bootstrap
+        server.enqueue(MockResponse().setBody("""{"token":"utok","record":{"id":"usr-1","accountId":"A_person"}}""")) // users auth
+        server.enqueue(MockResponse().setBody("""{"token":"ptok","record":{"id":"usr-1"}}""")) // sesion.iniciar
+        server.enqueue(MockResponse().setBody("""{"userId":"usr-1","accountId":"A_person","kind":"tv","usados":1,"tope":1,"yaEra":false,"desvinculado":"tv_vieja"}"""))
+        server.enqueue(MockResponse().setBody("""{"linked":true}""")) // magisVinculadoSeguro
+        server.start()
+        val client = clientFor(server)
+        val store = FakeDeviceStore(DeviceIdentity("A_anon","dev-1","dev-1@arkiv.local","pw12345678","tv"))
+        val deviceAuth = seededAuth(client, store)
+        val sesion = sesionFor(client, store)
+        val mgr = AccountManager(
+            client, deviceAuth, store, magisLinkFor(server), cuentaApiDe(server, sesion), sesion,
+            onAccountSwitched = {}, onLocalWipe = {},
+        )
+
+        mgr.login("a@b.co", "secret12")
+
+        val rutas = (1..4).map { server.takeRequest().path }
+        assertTrue(
+            "el login tiene que pasar por /v1/cuenta/entrar; rutas=$rutas",
+            rutas.any { it == "/v1/cuenta/entrar" },
+        )
+        assertTrue(
+            "no puede seguir yendo por /aparatos, que en un aparato nuevo es un 401 eterno; rutas=$rutas",
+            rutas.none { it == "/v1/cuenta/aparatos" },
+        )
+        assertEquals(AccountState.Conectado("a@b.co", true), mgr.state.value)
+        server.shutdown()
+    }
+
 }

@@ -371,4 +371,75 @@ class CuentaApiTest {
             assertTrue(e is ErrorDeCuenta.BackendNoDisponible)
         }
     }
+    // --- entrar (login de un aparato nuevo) -----------------------------------------------
+    //
+    // MEDIDO EN PRODUCCION EL 2026-08-14: el login en el Google TV volvia siempre a la pantalla
+    // de login. `POST /v1/cuenta/aparatos` -adoptar- pide sesion de persona Y que el aparato que
+    // llama YA sea de la cuenta; meterlo en la cuenta es lo que adoptar viene a hacer. En un
+    // aparato recien instalado eso no se cumple nunca. `/entrar` corre sin sesion previa: el token
+    // del APARATO en Authorization (igual que [registrar]) y la contrasena como prueba de identidad.
+
+    @Test
+    fun `entrar manda el token del APARATO en Authorization, nunca el de la persona`() = runBlocking {
+        // Hay sesion de persona guardada (el caso real: se persiste antes de entrar). Aun asi no
+        // puede viajar: el gateway espera el token del aparato en esa cabecera.
+        deviceStore.savePersonToken("person-tok")
+        server.enqueue(MockResponse().setBody("""{"userId":"u1","accountId":"A1","kind":"tv","usados":1,"tope":1,"yaEra":false,"desvinculado":null}"""))
+
+        cuentaApi(deviceTok = "device-tok").entrar("a@b.co", "secret12")
+
+        val req = server.takeRequest()
+        assertEquals("/v1/cuenta/entrar", req.path)
+        assertEquals("device-tok", req.getHeader("Authorization"))
+        // Sin X-Arkiv-Device: el aparato ya viaja en Authorization, como en registrar.
+        assertEquals(null, req.getHeader("X-Arkiv-Device"))
+        val body = JSONObject(req.body.readUtf8())
+        assertEquals("a@b.co", body.getString("email"))
+        assertEquals("secret12", body.getString("password"))
+    }
+
+    @Test
+    fun `entrar parsea la cuenta y el aparato que quedo desvinculado`() = runBlocking {
+        // La TV vieja sale sola al entrar en la nueva: una TV por cuenta.
+        server.enqueue(MockResponse().setBody("""{"userId":"u1","accountId":"A1","kind":"tv","usados":1,"tope":1,"yaEra":false,"desvinculado":"tv_vieja"}"""))
+
+        val e = cuentaApi().entrar("a@b.co", "secret12")
+
+        assertEquals("A1", e.accountId)
+        assertEquals("tv", e.kind)
+        assertEquals(false, e.yaEra)
+        assertEquals("tv_vieja", e.desvinculado)
+    }
+
+    @Test
+    fun `entrar sin desvinculado deja el campo en null y no en el texto null`() = runBlocking {
+        // `optString` sobre un JSON null devuelve la CADENA "null" -- ya paso en el catalogo, con
+        // un anime que se llamaba literalmente "null" en pantalla.
+        server.enqueue(MockResponse().setBody("""{"userId":"u1","accountId":"A1","kind":"tv","usados":1,"tope":1,"yaEra":true,"desvinculado":null}"""))
+
+        val e = cuentaApi().entrar("a@b.co", "secret12")
+
+        assertEquals(null, e.desvinculado)
+        assertEquals(true, e.yaEra)
+    }
+
+    @Test
+    fun `entrar con credenciales invalidas es su propia rama, no sesion invalida`() = runBlocking {
+        // Importa que NO caiga en SesionInvalida: esa rama cierra la sesion y manda a la pantalla
+        // de entrada -- justo donde la persona ya esta parada tipeando.
+        server.enqueue(
+            MockResponse().setResponseCode(401)
+                .setBody("""{"detail":{"codigo":"credenciales_invalidas","mensaje":"revisa el email y la contrasena"}}"""),
+        )
+
+        try {
+            cuentaApi().entrar("a@b.co", "mal")
+            fail("tenia que lanzar")
+        } catch (e: ErrorDeCuenta) {
+            assertTrue("fue ${e::class.simpleName}", e is ErrorDeCuenta.CredencialesInvalidas)
+            assertEquals("credenciales_invalidas", e.codigo)
+        }
+        Unit
+    }
+
 }

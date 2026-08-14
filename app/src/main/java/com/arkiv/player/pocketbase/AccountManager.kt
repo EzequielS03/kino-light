@@ -78,14 +78,27 @@ class AccountManager(
         // unico camino que cuenta contra el cupo de la licencia (`maxCelulares`/`maxTvs`) y que
         // serializa con el candado de Redis. Con `switchAccount` -que escribia el accountId por su
         // cuenta- entrar en un telefono nuevo no consumia cupo: se podia iniciar sesion en cinco.
-        // Mismo camino que ya usa el pareo de la TV (Task 5).
-        val tokenDelAparato = deviceAuth.session.value?.token
-            ?: throw AccountException("sin sesión de dispositivo")
+        //
+        // Por `/entrar` y NO por `/aparatos` (que es lo que hacia hasta el 2026-08-14): adoptar
+        // exige sesion de persona Y que el aparato que llama ya sea de la cuenta, y meterlo en la
+        // cuenta es lo que adoptar viene a hacer. En un aparato recien instalado esa condicion no
+        // se cumple nunca, asi que el login era un 401 eterno -de vuelta a la pantalla de login-
+        // en cualquier aparato nuevo. `/entrar` corre sin sesion previa: manda el token del
+        // aparato y la contrasena, que es la prueba que un aparato recien echado no tiene.
+        // `cuentaApi` saca el token del aparato de esta MISMA sesión viva (`deviceToken` en
+        // AppGraph), así que el chequeo no es redundante con el suyo: está para cortar acá con un
+        // mensaje claro en vez de mandar un pedido sin `Authorization` y traducir el `sin_device`
+        // que devolvería el gateway.
+        if (deviceAuth.session.value?.token == null) throw AccountException("sin sesión de dispositivo")
         try {
-            cuentaApi.adoptarAparato(tokenDelAparato)
+            // Y de paso: si la cuenta ya tenia una TV (o un celular) y este es otro, el gateway
+            // desvincula el viejo solo. Una TV y un celular por cuenta, sin tener que ir a "Mis
+            // aparatos" a hacer lugar a mano.
+            cuentaApi.entrar(email, password)
         } catch (e: ErrorDeCuenta) {
             throw AccountException(
                 when (e) {
+                    is ErrorDeCuenta.CredencialesInvalidas -> "revisá el email y la contraseña"
                     is ErrorDeCuenta.TopeAlcanzado ->
                         "Llegaste al límite de aparatos de tu cuenta. Sacá uno desde \"Mis aparatos\" y volvé a entrar."
                     is ErrorDeCuenta.AparatoDeOtraCuenta -> "Este aparato ya está en otra cuenta."

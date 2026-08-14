@@ -86,7 +86,9 @@ class TvPantallaDeEntradaTest {
         pb.enqueue(MockResponse().setBody("""{"token":"dtok","record":{"id":"devrec"}}""")) // bootstrap
         pb.enqueue(MockResponse().setBody("""{"token":"utok","record":{"id":"usr-1","accountId":"A_person"}}""")) // users auth
         pb.enqueue(MockResponse().setBody("""{"token":"ptok","record":{"id":"usr-1"}}""")) // sesion.iniciar
-        gw.enqueue(MockResponse().setBody("""{"kind":"tv","usados":1,"tope":1,"yaEra":false}""")) // POST /v1/cuenta/aparatos
+        // POST /v1/cuenta/entrar: desde el 2026-08-14 el login adopta el aparato por ahi y no por
+        // /aparatos, que en un aparato nuevo es un 401 eterno (ver AccountManager.login).
+        gw.enqueue(MockResponse().setBody("""{"userId":"usr-1","accountId":"A1","kind":"tv","usados":1,"tope":1,"yaEra":false,"desvinculado":null}"""))
         gw.enqueue(MockResponse().setBody("""{"linked":false}""")) // magisVinculadoSeguro
         val (account, _) = armarCuenta(pb, gw)
 
@@ -95,7 +97,7 @@ class TvPantallaDeEntradaTest {
         assertEquals(AccountState.Conectado("a@b.co", false), account.state.value)
         assertEquals(
             "el gateway tiene que ver la adopcion de aparato del login, no /v1/cuenta/registrar",
-            "/v1/cuenta/aparatos",
+            "/v1/cuenta/entrar",
             gw.takeRequest().path,
         )
         pb.shutdown(); gw.shutdown()

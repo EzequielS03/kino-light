@@ -21,6 +21,23 @@ data class AltaDeAparato(val id: String, val accountId: String)
 /** Resultado de sumar un aparato al cupo de la cuenta (`POST /v1/cuenta/aparatos`). */
 data class Adopcion(val kind: String, val usados: Int, val tope: Int, val yaEra: Boolean)
 
+/**
+ * Resultado del login de un aparato nuevo (`POST /v1/cuenta/entrar`).
+ *
+ * [desvinculado] es el id del aparato que SALIÓ de la cuenta para hacerle lugar a este —
+ * el más viejo del mismo tipo, cuando el cupo ya estaba lleno. Es `null` cuando no hubo que
+ * sacar a nadie (había lugar, o este aparato ya era de la cuenta).
+ */
+data class Entrada(
+    val userId: String,
+    val accountId: String,
+    val kind: String,
+    val usados: Int,
+    val tope: Int,
+    val yaEra: Boolean,
+    val desvinculado: String?,
+)
+
 /** Un aparato dado de alta contra la cuenta (una fila de "Mis aparatos"). */
 data class Aparato(val id: String, val kind: String, val nombre: String, val ultimoUso: String)
 
@@ -62,6 +79,15 @@ sealed class ErrorDeCuenta(val codigo: String, val mensaje: String) : Exception(
     /** El aparato que llama no está dado de alta contra el gateway. */
     class SinDevice(mensaje: String) : ErrorDeCuenta("sin_device", mensaje)
 
+    /**
+     * El email o la contraseña no son (login, `POST /v1/cuenta/entrar`). Error inline.
+     *
+     * Rama propia y NO [SesionInvalida], aunque las dos lleguen como 401: aquella cierra la sesión
+     * y manda a la pantalla de entrada, que es justo donde la persona está parada tipeando cuando
+     * pasa esto. Confundirlas convierte un typo en un rebote inexplicable.
+     */
+    class CredencialesInvalidas(mensaje: String) : ErrorDeCuenta("credenciales_invalidas", mensaje)
+
     /** Este aparato ya tiene una cuenta asociada (no puede registrarse de nuevo). */
     class DeviceYaRegistrado(mensaje: String) : ErrorDeCuenta("device_ya_registrado", mensaje)
 
@@ -99,6 +125,7 @@ sealed class ErrorDeCuenta(val codigo: String, val mensaje: String) : Exception(
             "email_en_uso" -> EmailEnUso(mensaje)
             "datos_invalidos" -> DatosInvalidos(mensaje)
             "sin_device" -> SinDevice(mensaje)
+            "credenciales_invalidas" -> CredencialesInvalidas(mensaje)
             "device_ya_registrado" -> DeviceYaRegistrado(mensaje)
             "tope_alcanzado" -> TopeAlcanzado(mensaje)
             "aparato_de_otra_cuenta" -> AparatoDeOtraCuenta(mensaje)
@@ -210,6 +237,36 @@ class CuentaApi(
             val o = JSONObject(ejecutar(req))
             Registro(userId = o.getString("userId"), accountId = o.getString("accountId"))
         }
+
+    /**
+     * Login de un aparato que TODAVÍA no es de ninguna cuenta.
+     *
+     * Existe porque [adoptarAparato] no puede correr en un aparato nuevo: el gateway le exige
+     * sesión de persona Y que el aparato que llama ya sea de la cuenta — que es exactamente lo que
+     * adoptar viene a hacer. Medido en producción el 2026-08-14 en el Google TV: `alta -> 201`,
+     * `aparatos -> 401`, en bucle, y el login rebotando a la pantalla de login para siempre.
+     *
+     * Por eso las credenciales van en el cuerpo y el token del APARATO en `Authorization`, igual
+     * que [registrar] y por el mismo motivo: la única identidad que existe antes de entrar es la
+     * del fierro, y la de la persona es su contraseña. NO usa [sesion] — puede no haber ninguna.
+     */
+    suspend fun entrar(email: String, password: String): Entrada = withContext(Dispatchers.IO) {
+        val body = JSONObject(mapOf("email" to email, "password" to password))
+            .toString().toRequestBody(jsonType)
+        val req = pedido("${baseUrl()}/v1/cuenta/entrar", deviceToken()).post(body).build()
+        val o = JSONObject(ejecutar(req))
+        Entrada(
+            userId = o.optString("userId"),
+            accountId = o.getString("accountId"),
+            kind = o.optString("kind"),
+            usados = o.optInt("usados"),
+            tope = o.optInt("tope"),
+            yaEra = o.optBoolean("yaEra", false),
+            // `isNull` antes de leer: `optString` sobre un JSON null devuelve la CADENA "null",
+            // no null. Ya mordió una vez en el catálogo, con un anime llamado literalmente "null".
+            desvinculado = if (o.isNull("desvinculado")) null else o.optString("desvinculado"),
+        )
+    }
 
     suspend fun adoptarAparato(deviceToken: String): Adopcion = withContext(Dispatchers.IO) {
         val body = JSONObject(mapOf("deviceToken" to deviceToken)).toString().toRequestBody(jsonType)
