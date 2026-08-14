@@ -1,5 +1,6 @@
 package com.arkiv.player.pocketbase
 
+import org.json.JSONObject
 import com.arkiv.player.data.gateway.CuentaApi
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
@@ -151,5 +152,30 @@ class AccountManagerRegistroTest {
         assertEquals(EstadoDeSesion.Sin, e.sesion.estado.value)
         assertNull(e.store.personToken())
         pb.shutdown()
+    }
+
+    @Test
+    fun `la licencia se normaliza antes de mandarla, se haya tipeado como se haya tipeado`() = runBlocking {
+        // El gateway compara el codigo LITERAL. Esto vivia solo en la pantalla de la TV, asi que el
+        // mismo codigo andaba ahi y fallaba en el celular -donde solo se le hacia trim()-. Quien
+        // tipea no tiene por que saber que los guiones son obligatorios.
+        val pb = MockWebServer().also { it.start() }
+        val gw = MockWebServer().also { it.start() }
+        pb.enqueue(MockResponse().setBody("""{"token":"dtok","record":{"id":"devrec"}}"""))
+        gw.enqueue(MockResponse().setResponseCode(201).setBody("""{"userId":"u1","accountId":"A_anon"}"""))
+        pb.enqueue(MockResponse().setBody("""{"token":"ptok","record":{"id":"usr-1"}}"""))
+        val e = Escenario(pb)
+        val mgr = AccountManager(
+            e.client, e.deviceAuth, e.store, magisLinkSinUsar(), cuentaApi(gw, e.sesion, e.deviceAuth), e.sesion,
+            onAccountSwitched = {}, onLocalWipe = {},
+        )
+
+        // Tipeado sin guiones, en minusculas y con un espacio de mas: el caso realista de alguien
+        // copiando un codigo que le dictaron.
+        mgr.registrar("a@b.co", "secret12", " 622zn4z8nq9c ")
+
+        val enviado = JSONObject(gw.takeRequest().body.readUtf8()).getString("licencia")
+        assertEquals("622Z-N4Z8-NQ9C", enviado)
+        pb.shutdown(); gw.shutdown()
     }
 }

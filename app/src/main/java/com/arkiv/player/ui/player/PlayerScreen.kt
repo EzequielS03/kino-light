@@ -1069,6 +1069,9 @@ private fun PlayerContent(
             fresco = pl.items.map { LoadedMedia(it.episodeId, it.mediaUrl) },
             isWeb = isWeb,
             pedido = pl.pedido,
+            // ¿Volvimos sobre una pantalla NUEVA? Reusar el media con una superficie nueva mata al
+            // decodificador (ver MediaReusePolicy.decide para los números medidos).
+            pantallaNueva = vlc.superficieDistintaALaDelVideo(),
         )
         if (decision == MediaReusePolicy.Decision.ESPERAR) {
             android.util.Log.w("ArkivPlay", "playlist de OTRO capítulo (pedido=${pl.pedido} ≠ $episodeId) → esperar la mía")

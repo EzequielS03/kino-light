@@ -26,6 +26,32 @@ object MediaReusePolicy {
         fresco: List<LoadedMedia>,
         isWeb: Boolean,
         pedido: String,
+        /**
+         * Si esta pantalla del reproductor es OTRA que la que dejó ese media reproduciendo — o sea si
+         * la superficie de video es nueva.
+         *
+         * Existe porque reusar un media con una superficie nueva MATA al decodificador. Medido en el
+         * Fire TV el 2026-08-13, contando sobre cuatro capturas de logcat:
+         *
+         * ```
+         *   REUSAR_ACTUAL   RECARGAR   decodificador muerto
+         *        0              7                0
+         *        4              6                6
+         *        2              2                2
+         *        1              3                2
+         * ```
+         *
+         * Cero reusos, cero muertes; y en las demás, dos fatales por cada reuso. El decodificador
+         * HEVC de este aparato contesta `err 0x80001005` (OMX_ErrorBadParameter), se marca
+         * `DecoderErrorFatal = 1` y hay que crear uno nuevo — mientras tanto el audio sigue y la
+         * pantalla queda NEGRA entre 2 y 6 s, sin spinner, porque para la app el video "ya tenía
+         * imagen". Recargar, en cambio, no falló ni una vez en 18 pruebas.
+         *
+         * No se saca el reuso entero: sigue siendo lo correcto cuando la pantalla es la MISMA (volver
+         * del overlay, cambiar de pista), donde no hay superficie nueva y recargar seria tirar el
+         * buffer al pedo.
+         */
+        pantallaNueva: Boolean = false,
     ): Decision {
         // Lo que llegó es de otro capítulo: no hay nada que decidir todavía. Va PRIMERO —antes que
         // `isWeb`— porque cargarla es reproducir el capítulo equivocado en cualquier fuente. Ver el
@@ -39,7 +65,10 @@ object MediaReusePolicy {
         val urlCargada = cargado.firstOrNull { it.mediaId == episodeId }?.uri
         val urlFresca = fresco.firstOrNull { it.mediaId == episodeId }?.uri
         if (urlCargada != null && urlCargada != urlFresca) return Decision.RECARGAR
-        if (actualMediaId == episodeId) return Decision.REUSAR_ACTUAL
+        // Con superficie nueva se recarga aunque sea el mismo media: ver [pantallaNueva].
+        if (actualMediaId == episodeId) {
+            return if (pantallaNueva) Decision.RECARGAR else Decision.REUSAR_ACTUAL
+        }
         if (cargado.isNotEmpty() && cargado.map { it.mediaId } == fresco.map { it.mediaId }) {
             return Decision.SALTAR_EN_PLAYLIST
         }

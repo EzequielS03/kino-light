@@ -22,8 +22,8 @@ android {
         applicationId = "com.arkiv.player"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10
-        versionName = "0.6.0"
+        versionCode = 11
+        versionName = "0.6.1"
         // Task 8 (Paso 3): acá vivía `ARKIV_API_KEY`, la última credencial de build que quedaba
         // en el APK -- una constante compilada, igual para todos los aparatos, que cualquiera que
         // abriera el APK podía extraer. Salió del todo: la app se autentica con la credencial POR

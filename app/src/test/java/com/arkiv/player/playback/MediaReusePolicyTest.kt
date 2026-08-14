@@ -182,4 +182,39 @@ class MediaReusePolicyTest {
         )
         assertEquals(Decision.RECARGAR, d)
     }
+
+    @Test
+    fun volver_sobre_una_pantalla_nueva_recarga_aunque_sea_el_mismo_media() {
+        // Reusar el media con una superficie NUEVA mata al decodificador HEVC de este aparato.
+        // Medido en el Fire TV el 2026-08-13 sobre cuatro capturas de logcat: con 0 reusos, 0
+        // muertes (y 7 recargas limpias); con 4, 2 y 1 reusos, 6, 2 y 2 fatales respectivamente.
+        // El sintoma es `err 0x80001005` (OMX_ErrorBadParameter) + `DecoderErrorFatal = 1`, y de 2
+        // a 6 s de pantalla NEGRA con el audio andando, sin spinner que lo tape.
+        val d = MediaReusePolicy.decide(
+            episodeId = EP,
+            cargado = listOf(LoadedMedia(EP, "http://127.0.0.1:8080/v")),
+            actualMediaId = EP,
+            fresco = listOf(LoadedMedia(EP, "http://127.0.0.1:8080/v")),
+            isWeb = false,
+            pedido = EP,
+            pantallaNueva = true,
+        )
+        assertEquals(Decision.RECARGAR, d)
+    }
+
+    @Test
+    fun sobre_la_misma_pantalla_se_sigue_reusando() {
+        // No se saca el reuso: sin superficie nueva no hay decodificador que se muera, y recargar
+        // seria tirar el buffer por nada.
+        val d = MediaReusePolicy.decide(
+            episodeId = EP,
+            cargado = listOf(LoadedMedia(EP, "http://127.0.0.1:8080/v")),
+            actualMediaId = EP,
+            fresco = listOf(LoadedMedia(EP, "http://127.0.0.1:8080/v")),
+            isWeb = false,
+            pedido = EP,
+            pantallaNueva = false,
+        )
+        assertEquals(Decision.REUSAR_ACTUAL, d)
+    }
 }

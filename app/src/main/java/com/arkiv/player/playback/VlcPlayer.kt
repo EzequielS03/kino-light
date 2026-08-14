@@ -107,6 +107,9 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
     // Si ya se avisó "CORRIENDO" para este media. Solo interesa la PRIMERA vez: los estancamientos
     // posteriores ya los cuenta el "REANUDO tras Nms" de siempre.
     private var corriendoAvisado = false
+    // El layout donde ESTE media dio su primera imagen. Null hasta que la da, y se reinicia con cada
+    // carga: sirve para comparar contra el layout enganchado ahora. Ver superficieDistintaALaDelVideo.
+    @Volatile private var layoutDelVideo: String? = null
     /**
      * Desde cuándo NO hay salida de video, de corrido (0 = ahora mismo sí hay).
      *
@@ -207,6 +210,9 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
                     mediaCargadaWallMs > 0L && primerVoutWallMs == 0L
                 ) {
                     primerVoutWallMs = System.currentTimeMillis()
+                    // De QUÉ superficie salió esa imagen. Es lo que después permite saber si el
+                    // reproductor volvió sobre una pantalla distinta. Ver superficieDistintaALaDelVideo.
+                    layoutDelVideo = layoutEnganchado
                     android.util.Log.w(
                         "ArkivVlc",
                         "⏱ abrió en ${primerVoutWallMs - mediaCargadaWallMs}ms (loadMedia → primera imagen)",
@@ -654,6 +660,7 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         mediaCargadaWallMs = System.currentTimeMillis()
         primerVoutWallMs = 0L
         corriendoAvisado = false
+        layoutDelVideo = null
         // La racha de "sin imagen" mide ESTA carga, no la anterior. Sin este reset se arrastraba
         // entre medias: medido en device, un capítulo nuevo arrancó con `rachaSinVideoMs=371079` a
         // los 11 s de cargar, heredados de la película anterior. Como el rescate solo exige que la
@@ -968,6 +975,21 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
     fun vlcVolume(): Int = runCatching { mediaPlayer.volume }.getOrDefault(100)
     fun setVlcVolume(v: Int) { runCatching { mediaPlayer.setVolume(v.coerceIn(0, 200)) } }
 
+    /**
+     * ¿La superficie de ahora es OTRA que aquella en la que este media dio imagen?
+     *
+     * Dicho de otra forma: ¿el reproductor volvió sobre una pantalla nueva? Es lo que decide si se
+     * puede reusar el media o hay que recargarlo, y el porqué —con los números— está en
+     * [MediaReusePolicy.decide]: reusarlo con una superficie nueva mata al decodificador HEVC de
+     * este aparato, y recargarlo no falló nunca.
+     *
+     * Falso mientras el media todavía no dio ninguna imagen: ahí no hay nada que comparar.
+     */
+    fun superficieDistintaALaDelVideo(): Boolean {
+        val deLaImagen = layoutDelVideo ?: return false
+        return deLaImagen != layoutEnganchado
+    }
+
     /** ¿VLC está pintando video ahora? Falso mientras reconstruye el vout al volver de segundo plano. */
     fun hasVideoOutput(): Boolean = voutTracker.hayVideo()
 
@@ -1053,7 +1075,8 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         // attachViews() PISA el VideoHelper anterior sin liberarlo (fuga + callbacks viejos sobre el
         // holder), así que soltamos primero. detachViews() es no-op si no había nada enganchado.
         runCatching { mediaPlayer.detachViews() }
-        runCatching { mediaPlayer.attachViews(layout, null, true, true) }
+        // El último `true`/`false` elige TextureView o SurfaceView para pintar. Ver RENDER_POR_TEXTURE.
+        runCatching { mediaPlayer.attachViews(layout, null, true, RENDER_POR_TEXTURE) }
         layoutEnganchado = idDe(layout)
         layoutActual = layout
         // La superficie no está lista en el mismo instante del attach (el callback del holder llega
@@ -1211,6 +1234,31 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         // Respiro tras enganchar una superficie antes de forzar la reconstrucción del vout: le da
         // margen a VLC para rehacerlo solo (y así no parpadear de gusto) sin que la espera se note.
         const val REBUILD_VOUT_DELAY_MS = 400L
+        /**
+         * Si libVLC pinta en un `TextureView` (true) o en el `SurfaceView` que usa por defecto.
+         *
+         * Está en `true` desde que se hicieron las miniaturas de frame: de un `SurfaceView` no se
+         * pueden leer los píxeles y de un `TextureView` sí (ver `textureViewActual`). O sea que
+         * ponerlo en `false` DEJA SIN MINIATURAS a la app — no es un ajuste gratuito.
+         *
+         * Se saca a constante porque hay una pregunta abierta que solo se contesta midiendo: al
+         * recrearse la pantalla del reproductor, el decodificador HEVC se reinicia (`MediaCodec […]
+         * setting surface generation`) y hay que esperar al próximo fotograma clave para volver a
+         * ver imagen — medido en el Fire TV el 2026-08-13 entre 2,2 s y 6,5 s de pantalla negra con
+         * el audio andando. Ese reinicio lo dispara recibir una superficie NUEVA, y eso pasa con las
+         * dos clases de vista, así que el TextureView no era sospechoso obvio.
+         *
+         * SE PROBÓ en `false` el 2026-08-13 y NO sirvió: con SurfaceView el decodificador se reinició
+         * igual —dos `setting surface generation` seguidos en el mismo arranque— y el negro al
+         * reentrar siguió estando. O sea que la clase de vista no es la causa; la causa es recibir
+         * una superficie nueva, y eso pasa siempre que se recrea la pantalla. Queda en `true`, que
+         * además es lo que las miniaturas necesitan.
+         *
+         * De paso, algo que cuesta al diagnosticar: con SurfaceView `adb exec-out screencap` captura
+         * NEGRO aunque en la tele se vea bien, porque el video va en una capa de hardware aparte.
+         */
+        const val RENDER_POR_TEXTURE = true
+
         const val STALL_POLL_MS = 500L  // cada cuánto sondea el watcher de estancamiento
         const val STALL_MS = 900L       // tiempo sin avanzar (queriendo reproducir) para marcar buffering
         // Cuánto se le aguanta al hardware antes de darlo por colgado y caer a software.

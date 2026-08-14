@@ -207,7 +207,18 @@ fun TvKeyboard(
     BoxWithConstraints(modifier) {
         // El tamaño de tecla se deriva del ancho real (6 columnas + 5 separaciones): así entran
         // siempre las 6 columnas, sin cortar la última (F, L, R, X, 3, 9), mida lo que mida.
-        val keySize = (maxWidth - gap * 5) / 6
+        //
+        // ...pero el ancho solo no alcanza: con una columna generosa, esa cuenta daba teclas tan
+        // altas que las últimas filas -las de modo, el espacio y el borrar- quedaban FUERA DE
+        // PANTALLA. Visto en un Google TV Stick de 1920x1080 a 320dpi, o sea 960x540 dp: seis
+        // columnas de 106 dp pedían 850 dp de alto y solo había 540.
+        //
+        // Por eso se toma el MENOR de los dos: el que da el ancho y el que da el alto disponible
+        // repartido entre las filas que hay que dibujar. Así el teclado entra entero siempre, y en
+        // una pantalla ancha y baja simplemente no usa todo el ancho que podría.
+        val porAncho = (maxWidth - gap * 5) / 6
+        val porAlto = (maxHeight - gap * (rows.size - 1)) / rows.size
+        val keySize = minOf(porAncho, porAlto)
         Column(verticalArrangement = Arrangement.spacedBy(gap)) {
             rows.forEachIndexed { rowIndex, row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(gap)) {

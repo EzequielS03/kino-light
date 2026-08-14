@@ -1,5 +1,6 @@
 package com.arkiv.player.ui.settings
 
+import com.arkiv.player.ui.entrada.MascaraDeLicencia
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -88,7 +89,12 @@ internal fun AnonimoSection(account: AccountManager) {
         modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
 
     if (registrando) {
-        OutlinedTextField(licencia, { licencia = it; error = null }, label = { Text("Código de licencia") },
+        // La licencia se formatea mientras se escribe: guiones automáticos, mayúsculas y los
+        // caracteres ambiguos (O/0, I/1/L) corregidos en el acto. Ver MascaraDeLicencia.
+        OutlinedTextField(
+            licencia,
+            { licencia = MascaraDeLicencia.formatear(it); error = null },
+            label = { Text("Código de licencia") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
     }

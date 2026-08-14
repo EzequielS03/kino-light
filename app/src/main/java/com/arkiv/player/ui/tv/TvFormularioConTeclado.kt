@@ -53,14 +53,29 @@ import kotlinx.coroutines.delay
  * escribe sobre "el campo que tiene el foco ahora", sin un click aparte para "entrar" al campo (mismo
  * gesto que `TvSeasonChip` en `TvSearchScreen`).
  */
-class TvCamposConFoco<C>(inicial: C) {
+class TvCamposConFoco<C>(
+    inicial: C,
+    /**
+     * Da forma a lo que se escribe, por campo. Por defecto no toca nada.
+     *
+     * Existe para el código de licencia: son catorce caracteres con el D-pad, dos de ellos guiones
+     * que hay que acordarse de poner, y sobre un alfabeto que a propósito no tiene `I`, `L`, `O`,
+     * `0` ni `1`. Formatear al ESCRIBIR (y no solo al enviar, que es lo que se hacía) pone los
+     * guiones solo y corrige los ambiguos en el momento, en vez de dejar que el gateway conteste
+     * "licencia inválida" a alguien que tipeó exactamente lo que leía. Ver `MascaraDeLicencia`.
+     *
+     * Va acá y no en cada pantalla porque este es el ÚNICO punto por el que entra texto desde el
+     * teclado de la TV: puesto en un solo lugar, ningún campo nuevo se puede olvidar de aplicarlo.
+     */
+    private val formato: (C, String) -> String = { _, valor -> valor },
+) {
     var activo: C by mutableStateOf(inicial)
         private set
     private val valores = mutableStateMapOf<C, String>()
 
     fun valor(campo: C): String = valores[campo].orEmpty()
     fun valorActivo(): String = valor(activo)
-    fun escribir(campo: C, nuevo: String) { valores[campo] = nuevo }
+    fun escribir(campo: C, nuevo: String) { valores[campo] = formato(campo, nuevo) }
     fun escribirEnActivo(nuevo: String) = escribir(activo, nuevo)
     fun enfocar(campo: C) { activo = campo }
 }
@@ -69,8 +84,10 @@ class TvCamposConFoco<C>(inicial: C) {
  *  recordado de Compose, solo que empaquetado porque son dos piezas (foco + valores) que siempre
  *  viajan juntas. */
 @Composable
-fun <C> rememberTvCamposConFoco(inicial: C): TvCamposConFoco<C> =
-    remember { TvCamposConFoco(inicial) }
+fun <C> rememberTvCamposConFoco(
+    inicial: C,
+    formato: (C, String) -> String = { _, valor -> valor },
+): TvCamposConFoco<C> = remember { TvCamposConFoco(inicial, formato) }
 
 /**
  * Reparto de ancho entre el teclado y los campos (Task 11). Antes el teclado tenía una columna FIJA

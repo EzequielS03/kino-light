@@ -1,5 +1,6 @@
 package com.arkiv.player.pocketbase
 
+import com.arkiv.player.ui.entrada.MascaraDeLicencia
 import com.arkiv.player.data.gateway.CuentaApi
 import com.arkiv.player.data.gateway.ErrorDeCuenta
 import kotlinx.coroutines.CancellationException
@@ -112,8 +113,13 @@ class AccountManager(
         deviceAuth.ensureBootstrapped()
             ?: throw AccountException("sin conexión: intentá de nuevo")
 
+        // La licencia se normaliza ACA y no en cada pantalla: el gateway la compara literal, y
+        // tenerlo resuelto solo en la TV hacía que el MISMO código anduviera ahí y fallara en el
+        // celular -donde solo se le hacía `trim()`-. Quien tipea no tiene por qué saber que los
+        // guiones son obligatorios, ni pelear con las mayúsculas: el alfabeto de los códigos se
+        // eligió sin caracteres ambiguos justamente para poder dictarlos por teléfono.
         try {
-            cuentaApi.registrar(email, password, licencia)
+            cuentaApi.registrar(email, password, normalizarCodigoDeLicencia(licencia))
         } catch (e: ErrorDeCuenta) {
             throw AccountException(e.mensaje)
         }
@@ -196,3 +202,15 @@ class AccountManager(
         (_state.value as? AccountState.Conectado)?.let { _state.value = it.copy(magisLinked = false) }
     }
 }
+
+/**
+ * Deja un código de licencia en la forma exacta que el gateway compara: `XXXX-XXXX-XXXX`.
+ *
+ * Delega en [MascaraDeLicencia], que es la MISMA regla que da forma al campo mientras se escribe.
+ * Tener dos versiones era el problema: esta aceptaba cualquier letra o dígito, así que una `O` o un
+ * `1` —los que el alfabeto de la licencia excluyó justamente por confundirse al leer— viajaban tal
+ * cual al gateway, que no los tiene en su alfabeto y devolvía "licencia inválida" a alguien que
+ * había tipeado exactamente lo que veía en el papel.
+ */
+fun normalizarCodigoDeLicencia(input: String): String =
+    MascaraDeLicencia.formatear(input)

@@ -245,7 +245,7 @@ private fun PanelDeDescarga() {
  * de más.
  */
 fun normalizarLicencia(input: String): String =
-    input.filter { it.isLetterOrDigit() }.uppercase().chunked(4).joinToString("-")
+    com.arkiv.player.pocketbase.normalizarCodigoDeLicencia(input)
 
 /**
  * Arma el pedido de entrada desde la TV: normaliza la licencia (arriba) y elige `login` o
@@ -285,7 +285,15 @@ private enum class CampoTv { EMAIL, PASSWORD, LICENCIA }
 @Composable
 private fun PanelDeLogin(account: AccountManager, onVolver: () -> Unit) {
     val scope = rememberCoroutineScope()
-    val campos = rememberTvCamposConFoco(CampoTv.EMAIL)
+    // La licencia se formatea MIENTRAS se escribe: guiones automáticos y ambiguos corregidos en el
+    // acto. Ver MascaraDeLicencia — y `normalizarLicencia`, que usa la misma regla al enviar.
+    val campos = rememberTvCamposConFoco(CampoTv.EMAIL) { campo, valor ->
+        if (campo == CampoTv.LICENCIA) {
+            com.arkiv.player.ui.entrada.MascaraDeLicencia.formatear(valor)
+        } else {
+            valor
+        }
+    }
     var registrando by remember { mutableStateOf(false) }
     var passwordVisible by remember { mutableStateOf(false) }
     // Arranca en MINUSCULAS: lo que se escribe aca son emails, contrasenas y un codigo de
