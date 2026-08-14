@@ -7,6 +7,7 @@ import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
@@ -27,6 +28,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.BringIntoViewSpec
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -38,6 +42,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -96,6 +101,7 @@ import com.arkiv.player.ui.theme.ArkivBlack
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
+import kotlin.math.abs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -135,7 +141,68 @@ private fun discoveryMeta(card: com.arkiv.player.ui.search.TitleCard): String {
     return if (card.year.isBlank()) kind else "$kind  ·  ${card.year}"
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+/**
+ * El pivote de TV, tal cual lo hace Compose, pero escrito acá porque el suyo es `internal`.
+ *
+ * Deja lo enfocado a un 30 % del largo del contenedor y hace que el contenido corra por debajo, en
+ * vez de arrastrar la tarjeta contra el borde. Es lo que se quiere EN HORIZONTAL —la fila se mueve,
+ * la tarjeta enfocada se queda quieta— y lo que NO se quiere en vertical, donde la zona mide dos
+ * filas justas y ese 30 % cae a mitad de fila (ver [TraerConScrollMinimo]).
+ *
+ * Valores sacados del `PivotBringIntoViewSpec` de foundation 1.7.6 para que el TV se sienta igual
+ * que antes: fracción 0.3 y tween de 125 ms. Contrastado con lo medido en el Fire TV: en una fila de
+ * 1920 px la tarjeta enfocada queda en x=576, o sea 0,3 × 1920.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+private val PivotoDeTv = object : BringIntoViewSpec {
+    override val scrollAnimationSpec = tween<Float>(
+        durationMillis = 125,
+        easing = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1f),
+    )
+
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+        val destinoInicial = 0.3f * containerSize
+        val sobra = containerSize - destinoInicial
+        // Si en lo que queda no cabe entero, se lo pega al final en vez de dejarlo cortado.
+        val destino = if (size <= containerSize && sobra < size) containerSize - size else destinoInicial
+        return offset - destino
+    }
+}
+
+/**
+ * Trae a la vista con el scroll MÍNIMO: si lo enfocado ya se ve entero, no se mueve nada.
+ *
+ * Es el comportamiento por defecto de Compose en celular, pero NO en TV. En un aparato leanback
+ * (`android.software.leanback`, o sea el Fire TV) `LocalBringIntoViewSpec` arranca valiendo
+ * `PivotBringIntoViewSpec`, que es otra cosa: no "hacelo visible" sino "dejalo SIEMPRE al 30 % del
+ * alto visible" (`parentFraction = 0.3f`). Con la zona de filas midiendo exactamente dos filas,
+ * ese 30 % cae a mitad de fila —158,4 px de 528— y no coincide con ninguna frontera.
+ *
+ * El resultado, medido en el Fire TV: al pasar de una tarjeta a la de al lado, el pivote pedía subir
+ * 106,4 px para reubicar la tarjeta en su 30 %, y el enganche de abajo la devolvía a la frontera.
+ * Un rebote de arriba abajo en CADA cambio de tarjeta, aunque el movimiento fuera horizontal y no
+ * hubiera absolutamente nada que traer a la vista.
+ *
+ * Con el scroll mínimo, moverse en horizontal deja el scroll vertical quieto (verificado: tres
+ * pulsaciones seguidas, cero movimiento de la lista) y bajar sigue enganchando a la fila.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+private val TraerConScrollMinimo = object : BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+        val bordeSuperior = offset
+        val bordeInferior = offset + size
+        return when {
+            // Ya entra entero, o es más grande que el viewport: no hay nada que corregir.
+            bordeSuperior >= 0f && bordeInferior <= containerSize -> 0f
+            bordeSuperior < 0f && bordeInferior > containerSize -> 0f
+            // Se sale por un lado: se mueve lo justo por ese lado.
+            abs(bordeSuperior) < abs(bordeInferior - containerSize) -> bordeSuperior
+            else -> bordeInferior - containerSize
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun TvHomeScreen(
     onOpenItem: (String) -> Unit,
@@ -492,140 +559,157 @@ fun TvHomeScreen(
             // (Task 3), un Column compondría TODAS a la vez y dispararía todas sus cargas
             // de red al abrir el home. LazyColumn solo compone lo visible; cada fila de
             // descubrimiento pide sus datos recién cuando entra en pantalla (loadRow más abajo).
-            LazyColumn(
-                state = rowsListState,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(rowsRegionHeight)
-                    .padding(top = rowsTopPad),
-            ) {
-                if (continueWatching.isNotEmpty()) {
-                    item(key = "continue_watching") {
-                        TvRowLabel("Continuar viendo", labelHeight)
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 48.dp),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        ) {
-                            items(continueWatching, key = { it.episodeId }) { row ->
-                                val progress = if (row.durationMs > 0) row.positionMs.toFloat() / row.durationMs else 0f
-                                // El respaldo de siempre, para cuando no hay ni still ni backdrop.
-                                val thumb = row.thumbPath?.let { ArchiveUrls.download(row.itemId, it) }
-                                    ?: row.itemThumbnailUrl
-                                val isFirst = row.episodeId == continueWatching.first().episodeId
-                                TvWideCard(
-                                    title = row.itemTitle,
-                                    // El frame capturado manda primero (es la escena real del capítulo).
-                                    // ACÁ, y solo acá, el still del CAPÍTULO le gana al backdrop de la
-                                    // serie: esta fila muestra un capítulo, no la serie. En el resto del
-                                    // home (y en el hero de fondo) sigue mandando el backdrop, que es la
-                                    // imagen del título. Sin esta inversión el still no se veía nunca:
-                                    // `cardArt` prueba primero `backdropsOf(itemId)`, y backdrop tienen
-                                    // todos —los de Magis del portal, los demás de TMDB—, así que el
-                                    // still solo entraba como respaldo de algo que jamás faltaba.
-                                    imageUrl = EleccionDeMiniatura.elegir(row.framePath, row.stillUrl, cardArt(row.itemId, thumb)),
-                                    progress = progress,
-                                    cardHeight = cardHeight,
-                                    modifier = if (isFirst) Modifier.focusRequester(firstCardFocus) else Modifier,
-                                    onFocus = { navSound(); featured = continueFeatured(row) },
-                                    onClick = { onPlayEpisode(row.episodeId) },
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(rowGap))
-                    }
-                }
-
-                // Canales en vivo -- acceso directo sin pasar por "En vivo": lo último visto a la
-                // izquierda, después los canales del país sin repetir los ya vistos, y al final la
-                // salida a la parrilla completa (ver `filaDeCanalesDelHome`). Sin nada que mostrar,
-                // la fila no se dibuja: nada de un hueco vacío en medio del home.
-                if (canalesFila.isNotEmpty()) {
-                    item(key = "live_recientes") {
-                        TvRowLabel("Canales en vivo", labelHeight)
-                        LazyRow(
-                            state = canalesFilaState,
-                            modifier = Modifier.onFocusChanged { canalesFilaEnfocada = it.hasFocus },
-                            contentPadding = PaddingValues(horizontal = 48.dp),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        ) {
-                            items(canalesFila, key = { it.code }) { canal ->
-                                TvLiveChannelCard(
-                                    canal = canal,
-                                    cardHeight = cardHeight,
-                                    onFocus = {
-                                        navSound()
-                                        featured = Featured(canal.nombre, "Canal en vivo", canal.logo)
-                                    },
-                                    onClick = { reproducirCanal(canal) },
-                                )
-                            }
-                            // Al final de la fila, la salida hacia la parrilla completa: los
-                            // recientes son un atajo, no el catálogo.
-                            item(key = "live_ver_mas") {
-                                TvVerMasCanalesCard(
-                                    cardHeight = cardHeight,
-                                    onFocus = {
-                                        navSound()
-                                        featured = Featured("Ver más canales", "Canal en vivo", null)
-                                    },
-                                    onClick = onOpenLive,
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(rowGap))
-                    }
-                }
-
-                // Filas de descubrimiento (TMDB/AniList): una por género + fijas (cartelera,
-                // populares, etc). loadRow() es idempotente (LoadGuard), así que el
-                // LaunchedEffect solo dispara la carga real la primera vez que la fila entra
-                // en pantalla; al reciclarse en el LazyColumn, vuelve a componerse pero no
-                // vuelve a pedir red.
-                items(discoveryRows, key = { it.id }) { spec ->
-                    val cards = discoveryRowItems[spec.id].orEmpty()
-                    val loaded = spec.id in discoveryRowsLoaded
-                    LaunchedEffect(spec.id) { vm.loadRow(spec.id) }
-                    if (loaded && cards.isEmpty()) return@items
-                    Column {
-                        TvRowLabel(spec.title, labelHeight)
-                        if (!loaded) {
-                            // Placeholder de alto fijo: mismo alto que ocupa la fila cargada
-                            // (TvLandscapeCard mide exactamente cardHeight, igual que el resto
-                            // de las filas) para que el scroll no salte cuando llegan los datos.
-                            Spacer(Modifier.height(cardHeight))
-                        } else {
-                            LazyRow(
-                                contentPadding = PaddingValues(horizontal = 48.dp),
-                                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                            ) {
-                                items(cards, key = { "${spec.id}-${it.kind}-${it.tmdbId}-${it.anilistId}" }) { card ->
-                                    // Misma card (16:9) que biblioteca y "continuar viendo": a igual
-                                    // alto, un póster 2:3 se veía diminuto. Usamos la imagen apaisada
-                                    // (backdrop de TMDB / banner de AniList) y caemos al póster si falta.
-                                    val art = card.backdropUrl.ifBlank { card.posterUrl }
-                                    TvLandscapeCard(
-                                        title = card.title,
-                                        imageUrl = art,
-                                        cardHeight = cardHeight,
-                                        onFocus = {
-                                            navSound()
-                                            featured = Featured(
-                                                card.title,
-                                                heroSubtitle(card.title, card.overview, discoveryMeta(card)),
-                                                art,
-                                            )
-                                        },
-                                        onClick = { onOpenSearchRoute(searchShortcutRoute(card)) },
-                                    )
+            CompositionLocalProvider(LocalBringIntoViewSpec provides TraerConScrollMinimo) {
+                LazyColumn(
+                    state = rowsListState,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(rowsRegionHeight)
+                        .padding(top = rowsTopPad),
+                ) {
+                    if (continueWatching.isNotEmpty()) {
+                        item(key = "continue_watching") {
+                            TvRowLabel("Continuar viendo", labelHeight)
+                            // El pivote de TV (tarjeta enfocada al 30 %) se conserva ACÁ, en horizontal:
+                            // es el que hace que la fila corra bajo una tarjeta quieta en vez de arrastrarla
+                            // contra el borde. Lo que estorbaba era el pivote VERTICAL (ver TraerConScrollMinimo).
+                            CompositionLocalProvider(LocalBringIntoViewSpec provides PivotoDeTv) {
+                                LazyRow(
+                                    contentPadding = PaddingValues(horizontal = 48.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                ) {
+                                    items(continueWatching, key = { it.episodeId }) { row ->
+                                        val progress = if (row.durationMs > 0) row.positionMs.toFloat() / row.durationMs else 0f
+                                        // El respaldo de siempre, para cuando no hay ni still ni backdrop.
+                                        val thumb = row.thumbPath?.let { ArchiveUrls.download(row.itemId, it) }
+                                            ?: row.itemThumbnailUrl
+                                        val isFirst = row.episodeId == continueWatching.first().episodeId
+                                        TvWideCard(
+                                            title = row.itemTitle,
+                                            // El frame capturado manda primero (es la escena real del capítulo).
+                                            // ACÁ, y solo acá, el still del CAPÍTULO le gana al backdrop de la
+                                            // serie: esta fila muestra un capítulo, no la serie. En el resto del
+                                            // home (y en el hero de fondo) sigue mandando el backdrop, que es la
+                                            // imagen del título. Sin esta inversión el still no se veía nunca:
+                                            // `cardArt` prueba primero `backdropsOf(itemId)`, y backdrop tienen
+                                            // todos —los de Magis del portal, los demás de TMDB—, así que el
+                                            // still solo entraba como respaldo de algo que jamás faltaba.
+                                            imageUrl = EleccionDeMiniatura.elegir(row.framePath, row.stillUrl, cardArt(row.itemId, thumb)),
+                                            progress = progress,
+                                            cardHeight = cardHeight,
+                                            modifier = if (isFirst) Modifier.focusRequester(firstCardFocus) else Modifier,
+                                            onFocus = { navSound(); featured = continueFeatured(row) },
+                                            onClick = { onPlayEpisode(row.episodeId) },
+                                        )
+                                    }
                                 }
                             }
+                            Spacer(Modifier.height(rowGap))
                         }
-                        Spacer(Modifier.height(rowGap))
                     }
-                }
 
-                item(key = "rows_bottom_pad") { Spacer(Modifier.height(rowGap)) }
-            } // fin zona scrolleable de filas
+                    // Canales en vivo -- acceso directo sin pasar por "En vivo": lo último visto a la
+                    // izquierda, después los canales del país sin repetir los ya vistos, y al final la
+                    // salida a la parrilla completa (ver `filaDeCanalesDelHome`). Sin nada que mostrar,
+                    // la fila no se dibuja: nada de un hueco vacío en medio del home.
+                    if (canalesFila.isNotEmpty()) {
+                        item(key = "live_recientes") {
+                            TvRowLabel("Canales en vivo", labelHeight)
+                            // El pivote de TV (tarjeta enfocada al 30 %) se conserva ACÁ, en horizontal:
+                            // es el que hace que la fila corra bajo una tarjeta quieta en vez de arrastrarla
+                            // contra el borde. Lo que estorbaba era el pivote VERTICAL (ver TraerConScrollMinimo).
+                            CompositionLocalProvider(LocalBringIntoViewSpec provides PivotoDeTv) {
+                                LazyRow(
+                                    state = canalesFilaState,
+                                    modifier = Modifier.onFocusChanged { canalesFilaEnfocada = it.hasFocus },
+                                    contentPadding = PaddingValues(horizontal = 48.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                ) {
+                                    items(canalesFila, key = { it.code }) { canal ->
+                                        TvLiveChannelCard(
+                                            canal = canal,
+                                            cardHeight = cardHeight,
+                                            onFocus = {
+                                                navSound()
+                                                featured = Featured(canal.nombre, "Canal en vivo", canal.logo)
+                                            },
+                                            onClick = { reproducirCanal(canal) },
+                                        )
+                                    }
+                                    // Al final de la fila, la salida hacia la parrilla completa: los
+                                    // recientes son un atajo, no el catálogo.
+                                    item(key = "live_ver_mas") {
+                                        TvVerMasCanalesCard(
+                                            cardHeight = cardHeight,
+                                            onFocus = {
+                                                navSound()
+                                                featured = Featured("Ver más canales", "Canal en vivo", null)
+                                            },
+                                            onClick = onOpenLive,
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(Modifier.height(rowGap))
+                        }
+                    }
+
+                    // Filas de descubrimiento (TMDB/AniList): una por género + fijas (cartelera,
+                    // populares, etc). loadRow() es idempotente (LoadGuard), así que el
+                    // LaunchedEffect solo dispara la carga real la primera vez que la fila entra
+                    // en pantalla; al reciclarse en el LazyColumn, vuelve a componerse pero no
+                    // vuelve a pedir red.
+                    items(discoveryRows, key = { it.id }) { spec ->
+                        val cards = discoveryRowItems[spec.id].orEmpty()
+                        val loaded = spec.id in discoveryRowsLoaded
+                        LaunchedEffect(spec.id) { vm.loadRow(spec.id) }
+                        if (loaded && cards.isEmpty()) return@items
+                        Column {
+                            TvRowLabel(spec.title, labelHeight)
+                            if (!loaded) {
+                                // Placeholder de alto fijo: mismo alto que ocupa la fila cargada
+                                // (TvLandscapeCard mide exactamente cardHeight, igual que el resto
+                                // de las filas) para que el scroll no salte cuando llegan los datos.
+                                Spacer(Modifier.height(cardHeight))
+                            } else {
+                                // El pivote de TV (tarjeta enfocada al 30 %) se conserva ACÁ, en horizontal:
+                                // es el que hace que la fila corra bajo una tarjeta quieta en vez de arrastrarla
+                                // contra el borde. Lo que estorbaba era el pivote VERTICAL (ver TraerConScrollMinimo).
+                                CompositionLocalProvider(LocalBringIntoViewSpec provides PivotoDeTv) {
+                                    LazyRow(
+                                        contentPadding = PaddingValues(horizontal = 48.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                    ) {
+                                        items(cards, key = { "${spec.id}-${it.kind}-${it.tmdbId}-${it.anilistId}" }) { card ->
+                                            // Misma card (16:9) que biblioteca y "continuar viendo": a igual
+                                            // alto, un póster 2:3 se veía diminuto. Usamos la imagen apaisada
+                                            // (backdrop de TMDB / banner de AniList) y caemos al póster si falta.
+                                            val art = card.backdropUrl.ifBlank { card.posterUrl }
+                                            TvLandscapeCard(
+                                                title = card.title,
+                                                imageUrl = art,
+                                                cardHeight = cardHeight,
+                                                onFocus = {
+                                                    navSound()
+                                                    featured = Featured(
+                                                        card.title,
+                                                        heroSubtitle(card.title, card.overview, discoveryMeta(card)),
+                                                        art,
+                                                    )
+                                                },
+                                                onClick = { onOpenSearchRoute(searchShortcutRoute(card)) },
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            Spacer(Modifier.height(rowGap))
+                        }
+                    }
+
+                    item(key = "rows_bottom_pad") { Spacer(Modifier.height(rowGap)) }
+                } // fin zona scrolleable de filas
+            }
         }
     }
 }
