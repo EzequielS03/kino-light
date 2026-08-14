@@ -1,5 +1,6 @@
 package com.arkiv.player.ui.tv
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
@@ -284,6 +285,12 @@ private enum class CampoTv { EMAIL, PASSWORD, LICENCIA }
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun PanelDeLogin(account: AccountManager, onVolver: () -> Unit) {
+    // El Atrás vuelve a los pasos de entrada (QR / parear / entrar acá), NO cierra la app.
+    //
+    // `onVolver` llegaba como parámetro y no lo usaba nadie: sin BackHandler, el Atrás se escapaba
+    // a la Activity y se salía de Kino de una. Y encima el subtítulo de esta misma pantalla dice
+    // "Volvé con el botón Atrás del control", así que prometía justo lo que no hacía.
+    BackHandler(onBack = onVolver)
     val scope = rememberCoroutineScope()
     // La licencia se formatea MIENTRAS se escribe: guiones automáticos y ambiguos corregidos en el
     // acto. Ver MascaraDeLicencia — y `normalizarLicencia`, que usa la misma regla al enviar.
@@ -393,11 +400,18 @@ private fun PanelDeLogin(account: AccountManager, onVolver: () -> Unit) {
             )
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 8.dp)) {
+        // Los dos botones REPARTEN el ancho, no lo pelean. Sin el `weight`, "Entrar" se estiraba
+        // hasta ocupar la columna entera -los chips de campo de arriba son `fillMaxWidth`, y esta
+        // fila hereda ese ancho- y "Crear cuenta" quedaba dibujado FUERA de la pantalla: desde el
+        // sillón parecía que la opción de registrarse no existía. Verificado en el Fire TV.
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        ) {
             Surface(
                 onClick = { enviar() },
                 enabled = puedeEnviar,
-                modifier = Modifier.height(48.dp),
+                modifier = Modifier.weight(1f).height(48.dp),
                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
                 colors = arkivTvSurfaceColors(),
                 border = arkivTvSurfaceBorder(),
@@ -418,7 +432,7 @@ private fun PanelDeLogin(account: AccountManager, onVolver: () -> Unit) {
             Surface(
                 onClick = { registrando = !registrando; error = null },
                 enabled = !busy,
-                modifier = Modifier.height(48.dp),
+                modifier = Modifier.weight(1f).height(48.dp),
                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
                 colors = arkivTvSurfaceColors(),
                 border = arkivTvSurfaceBorder(),

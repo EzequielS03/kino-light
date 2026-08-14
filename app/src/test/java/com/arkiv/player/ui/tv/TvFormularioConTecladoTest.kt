@@ -30,4 +30,18 @@ class TvFormularioConTecladoTest {
         // llegar a cruzar media pantalla vacios, que es exactamente el bug que se esta arreglando.
         assertTrue(ANCHO_CAMPOS_DP < 960)
     }
+
+    @Test fun `el reparto por peso conserva que el teclado se lleve mas`() {
+        // El reparto REAL es por peso; los dp de arriba quedaron como referencia de la intencion.
+        assertTrue(PESO_TECLADO > PESO_CAMPOS)
+    }
+
+    @Test fun `los dos anchos fijos no entraban en un televisor de referencia`() {
+        // Este es el numero que se escapo en la Task 11 y que rompio la pantalla: un TV de
+        // referencia son 960 dp (1920 px a densidad 320, medido en el Fire TV) y los dos anchos
+        // fijos suman 1160. La fila no envuelve, asi que 200 dp de campos -con el boton de crear
+        // cuenta adentro- se dibujaban fuera de la pantalla. Queda escrito para que nadie vuelva a
+        // usarlos como anchos.
+        assertTrue(ANCHO_TECLADO_DP + ANCHO_CAMPOS_DP > 960)
+    }
 }
