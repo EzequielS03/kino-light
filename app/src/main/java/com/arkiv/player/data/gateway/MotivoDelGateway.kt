@@ -23,9 +23,21 @@ fun motivoDelGateway(cuerpo: String): String {
     if (limpio.isEmpty()) return ""
     val texto = runCatching {
         val o = JSONObject(limpio)
-        // `detail` puede ser un string (lo normal en FastAPI) o un objeto (así lo manda la capa de
-        // identidad, con `codigo` y `mensaje`). Los dos sirven; se muestra lo que haya.
-        if (o.has("detail")) o.get("detail").toString() else limpio
+        // `detail` puede ser un string (lo normal en FastAPI) o un objeto con `codigo` y
+        // `mensaje` (la capa de identidad, y desde el 2026-08-14 también los fallos del portal en
+        // vivo, que pasaron de 502 a 409 justamente para que el cuerpo llegue).
+        //
+        // De un objeto se muestra `mensaje` y no el objeto entero: esto termina EN PANTALLA, y
+        // `{"codigo":"magis_sesion_vencida","mensaje":"Tu sesión…"}` es peor que el "502" que se
+        // mostraba antes. Sin `mensaje` se cae al objeto crudo — feo, pero es lo único que hay, y
+        // callarse deja a la persona sin ninguna pista.
+        val detalle = if (o.has("detail")) o.get("detail") else null
+        when {
+            detalle is JSONObject ->
+                detalle.optString("mensaje").ifBlank { detalle.toString() }
+            detalle != null -> detalle.toString()
+            else -> limpio
+        }
     }.getOrDefault(limpio)
     return if (texto.length <= MOTIVO_MAX) texto else texto.take(MOTIVO_MAX) + "…"
 }

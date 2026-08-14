@@ -1,6 +1,7 @@
 package com.arkiv.player.data.gateway
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -23,10 +24,19 @@ class MotivoDelGatewayTest {
         )
     }
 
-    /** El `detail` puede venir como objeto (así lo manda la capa de identidad). */
-    @Test fun `un detail que es objeto se muestra entero`() {
+    /**
+     * El `detail` puede venir como objeto (así lo manda la capa de identidad). Antes se volcaba
+     * ENTERO; desde el 2026-08-14 se muestra solo `mensaje`.
+     *
+     * El cambio es porque esto termina en pantalla. Mientras el único objeto así venía de
+     * identidad —donde el llamador ya ramifica por `codigo` y arma su propio texto— daba igual.
+     * Ahora los fallos del portal en vivo también llegan así (pasaron de 502 a 409 justamente
+     * para que el cuerpo cruce Cloudflare), y ese motivo se muestra tal cual: volcar el objeto
+     * le pondría `{"codigo":…,"mensaje":…}` a la persona, que es peor que el "502" de antes.
+     */
+    @Test fun `de un detail objeto se muestra el mensaje, no el objeto entero`() {
         assertEquals(
-            """{"codigo":"sesion_invalida","mensaje":"volve a entrar"}""",
+            "volve a entrar",
             motivoDelGateway("""{"detail":{"codigo":"sesion_invalida","mensaje":"volve a entrar"}}"""),
         )
     }
@@ -55,4 +65,26 @@ class MotivoDelGatewayTest {
         assert(largo.length <= MOTIVO_MAX + 1) { "quedó en ${largo.length}" }
         assert(largo.endsWith("…")) { largo }
     }
+    /**
+     * Desde el 2026-08-14 los fallos del portal en vivo salen como 409 con
+     * `detail: {codigo, mensaje}` en vez de un 502 con texto suelto — un 5xx no llegaba nunca,
+     * Cloudflare le cambia el cuerpo. Lo que se le muestra a la persona es `mensaje`: volcar el
+     * objeto entero le pondría `{"codigo":"magis_sesion_vencida","mensaje":"Tu sesión…"}` en
+     * pantalla, que es peor que el "502" que veníamos mostrando.
+     */
+    @Test
+    fun `de un detail con codigo y mensaje se muestra el mensaje, no el JSON`() {
+        val cuerpo = """{"detail":{"codigo":"magis_sesion_vencida","mensaje":"Tu sesión de Magis venció."}}"""
+
+        assertEquals("Tu sesión de Magis venció.", motivoDelGateway(cuerpo))
+    }
+
+    /** Un `detail` objeto SIN `mensaje` no puede quedar en blanco: algo hay que decir. */
+    @Test
+    fun `un detail objeto sin mensaje cae al objeto entero antes que a nada`() {
+        val motivo = motivoDelGateway("""{"detail":{"codigo":"raro"}}""")
+
+        assertTrue("motivo=$motivo", motivo.contains("raro"))
+    }
+
 }
