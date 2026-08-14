@@ -1,6 +1,7 @@
 package com.arkiv.player.torrent
 
 import android.util.Log
+import com.arkiv.player.playback.ContenedorDeVideo
 import org.libtorrent4j.Priority
 import org.libtorrent4j.TorrentHandle
 import org.libtorrent4j.TorrentInfo
@@ -301,11 +302,18 @@ class TorrentStreamServer(
         return runCatching { RandomAccessFile(file, "r") }.getOrNull()
     }
 
-    private fun contentType(): String = when (file.extension.lowercase()) {
-        "mp4", "m4v", "mov" -> "video/mp4"
-        "webm" -> "video/webm"
-        else -> "video/x-matroska"
-    }
+    /**
+     * El `Content-Type` sale de los BYTES del archivo, no de su extensión.
+     *
+     * Esto lo consume el receptor de Chromecast y el renderer DLNA (ver `castRequestFor`), y los
+     * dos deciden con ese string si abren el stream. Adivinando por extensión, todo lo que no fuera
+     * mp4/webm se anunciaba como Matroska: un `.avi`, un `.ts` o un `.m2ts` de un torrent se le
+     * mandaban a la TV con el tipo equivocado. Ver [ContenedorDeVideo].
+     *
+     * Si la cabeza todavía no bajó, [ContenedorDeVideo.deArchivo] cae solo a la extensión, que es
+     * exactamente lo que se hacía antes: nunca es peor que el comportamiento viejo.
+     */
+    private fun contentType(): String = ContenedorDeVideo.deArchivo(file).mime
 
     companion object {
         /** Bytes de read-ahead por delante del cabezal (se traduce a piezas según el tamaño de pieza).

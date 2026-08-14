@@ -1,5 +1,7 @@
 package com.arkiv.player.torrent
 
+import com.arkiv.player.playback.ContenedorDeVideo
+
 /**
  * Empareja los archivos de subtítulos que vienen DENTRO de un torrent con el video servido — robado del
  * patrón de Alfa (servers/torrent.py:444, copiar los .srt que acompañan al video). Muchos releases de
@@ -8,7 +10,6 @@ package com.arkiv.player.torrent
  */
 object SubtitleFilePicker {
     val SUB_EXT = setOf("srt", "ass", "ssa", "sub", "vtt")
-    private val VIDEO_EXT = setOf("mkv", "mp4", "avi", "webm", "m4v", "mov", "ts", "m2ts")
     private val SUB_DIRS = setOf("subs", "subtitles", "subtitulos", "subtítulos", "sub")
 
     /**
@@ -35,7 +36,7 @@ object SubtitleFilePicker {
         if (inSubDir.isNotEmpty()) return inSubDir.map { it.first }
 
         // 3) torrent de un solo video → todos los subs le pertenecen.
-        val videoCount = files.count { ext(it.second) in VIDEO_EXT }
+        val videoCount = files.count { ContenedorDeVideo.esVideo(it.second) }
         if (videoCount <= 1) return subs.map { it.first }
 
         return emptyList()

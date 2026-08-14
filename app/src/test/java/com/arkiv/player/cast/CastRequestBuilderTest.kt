@@ -109,6 +109,27 @@ class CastRequestBuilderTest {
         assertEquals("video/webm", r.mimeType)
     }
 
+    /**
+     * La tabla de MIME por URL cubría cuatro extensiones (mp4/m4v/mkv/webm) y mandaba TODO lo demás
+     * a `video/mp4`. Un `.ts` de magis o un `.avi` de archive se le anunciaban al receptor como
+     * mp4, que es justo el string con el que decide si abre el stream. Ver `ContenedorDeVideo`.
+     */
+    @Test
+    fun `el mime por URL cubre los contenedores que servimos, no solo cuatro`() {
+        fun mimeDe(url: String) = CastRequestBuilder.build(
+            episodeId = "ep1", title = "t", subtitle = "s", artworkUrl = "",
+            mediaUrl = url, castUrl = null,
+            isTorrent = false, lanUrl = null, lanMime = null, startPositionMs = 0,
+        )!!.mimeType
+
+        assertEquals("video/mp2t", mimeDe("https://cdn/vod/ABC_media.ts"))
+        assertEquals("video/x-msvideo", mimeDe("https://archive.org/peli.avi"))
+        assertEquals("video/mpeg", mimeDe("https://archive.org/peli.mpg"))
+        // Y lo que ya andaba sigue andando.
+        assertEquals("video/mp4", mimeDe("https://archive.org/peli.mp4"))
+        assertEquals("video/x-matroska", mimeDe("https://archive.org/peli.mkv"))
+    }
+
     @Test
     fun `vivo usa la url de la LAN del proxy y el mime de HLS`() {
         val r = CastRequestBuilder.build(

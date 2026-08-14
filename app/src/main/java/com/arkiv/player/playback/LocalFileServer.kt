@@ -135,13 +135,16 @@ class LocalFileServer(private val lanIp: () -> String?) {
         out.flush()
     }
 
-    private fun mimeOf(file: File): String = when (file.extension.lowercase()) {
-        "mkv" -> "video/x-matroska"
-        "webm" -> "video/webm"
-        "avi" -> "video/x-msvideo"
-        "ts" -> "video/mp2t"
-        else -> "video/mp4"
-    }
+    /**
+     * El `Content-Type` sale de los BYTES, no de la extensión. Ver [ContenedorDeVideo].
+     *
+     * Acá el nombre miente sistemáticamente: `LocalFilePaths.fileNameFor` guarda como `.mp4` todo
+     * lo que no traiga una extensión de video reconocible en el origen, y a la descarga de la NUC
+     * le llega una URL de página web —sin extensión— aunque yt-dlp haya producido un mkv. Como
+     * este servidor es el que alimenta al Chromecast, ese `.mp4` inventado se convertía en un
+     * `video/mp4` que el receptor no podía cumplir.
+     */
+    private fun mimeOf(file: File): String = ContenedorDeVideo.deArchivo(file).mime
 
     private companion object { const val TAG = "ArkivLocalServer" }
 }

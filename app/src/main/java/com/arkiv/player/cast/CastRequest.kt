@@ -71,15 +71,16 @@ object CastRequestBuilder {
         )
     }
 
-    /** MIME por extensión. El receptor decide por esto, así que inventarlo se paga con un
-     *  video que no arranca o que arranca sin sonido. */
-    internal fun mimeForUrl(url: String): String {
-        val ext = url.substringBefore('?').substringAfterLast('.', "").lowercase()
-        return when (ext) {
-            "mp4", "m4v" -> "video/mp4"
-            "mkv" -> "video/x-matroska"
-            "webm" -> "video/webm"
-            else -> "video/mp4"
-        }
-    }
+    /**
+     * MIME por extensión. El receptor decide por esto, así que inventarlo se paga con un video que
+     * no arranca o que arranca sin sonido.
+     *
+     * Acá NO se pueden mirar los bytes (la URL es remota y no hay archivo que abrir), así que la
+     * extensión es todo lo que hay; lo que sí se comparte con el resto de la app es la TABLA, para
+     * que no vuelva a haber tres versiones distintas de "qué MIME tiene un .ts". Los casos con
+     * archivo en disco —torrent y descargas locales— sí lo resuelven por firma, y esos son los que
+     * llegan por `lanMime`. Ver [com.arkiv.player.playback.ContenedorDeVideo].
+     */
+    internal fun mimeForUrl(url: String): String =
+        com.arkiv.player.playback.ContenedorDeVideo.mimePorNombre(url)
 }

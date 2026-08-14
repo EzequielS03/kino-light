@@ -1,5 +1,6 @@
 package com.arkiv.player.data.local
 
+import com.arkiv.player.playback.ContenedorDeVideo
 import java.io.File
 
 /**
@@ -8,9 +9,6 @@ import java.io.File
  * `LocalDownloadManager`, que lo saca de `getExternalFilesDir(DIRECTORY_MOVIES)`.
  */
 object LocalFilePaths {
-
-    /** Extensiones de video plausibles. Todo lo demás después de un punto es parte del título. */
-    private val VIDEO_EXT = setOf("mkv", "mp4", "avi", "m4v", "mov", "webm", "ts", "mpg", "mpeg", "ogv", "wmv")
 
     private const val DEFAULT_EXT = "mp4"
 
@@ -22,8 +20,11 @@ object LocalFilePaths {
      * y así el mapeo es directo sin depender de la tabla.
      */
     fun fileNameFor(episodeId: String, sourceName: String?): String {
-        val ext = sourceName?.substringAfterLast('.', "")?.lowercase()
-            ?.takeIf { it in VIDEO_EXT } ?: DEFAULT_EXT
+        // La extensión sale de la lista ÚNICA de contenedores y normalizada como URL, no de un
+        // corte por el último punto: a la descarga de la NUC le llega una URL de página como
+        // nombre de origen, y sobre `https://sitio.com/peli` ese corte devuelve `"com/peli"`.
+        // Todo lo demás después de un punto es parte del título.
+        val ext = sourceName?.let { ContenedorDeVideo.extensionDeVideo(it) } ?: DEFAULT_EXT
         return "${sanitize(episodeId)}.$ext"
     }
 

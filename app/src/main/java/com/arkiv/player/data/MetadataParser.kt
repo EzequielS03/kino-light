@@ -11,8 +11,6 @@ import com.arkiv.player.data.model.VideoVariant
  */
 object MetadataParser {
 
-    private val VIDEO_EXTENSIONS = setOf("mkv", "mp4", "avi", "webm", "m4v", "ogv", "mov")
-
     fun parse(
         identifier: String,
         title: String,
@@ -62,7 +60,7 @@ object MetadataParser {
 
     private fun RawFile.isVideo(): Boolean {
         if (format.equals("Thumbnail", ignoreCase = true)) return false
-        return extensionOf(name) in VIDEO_EXTENSIONS
+        return com.arkiv.player.playback.ContenedorDeVideo.esVideo(name)
     }
 
     private fun RawFile.toVariant() = VideoVariant(path = name, format = format, sizeBytes = sizeBytes)

@@ -5,6 +5,7 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.PowerManager
 import android.util.Log
+import com.arkiv.player.playback.ContenedorDeVideo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.libtorrent4j.AnnounceEntry
@@ -342,7 +343,7 @@ class TorrentEngine(context: Context, private val extraTrackers: () -> List<Stri
     private fun pickVideoIndex(info: TorrentInfo): Int {
         val fs = info.files()
         val videos = (0 until fs.numFiles()).filter {
-            fs.fileName(it).substringAfterLast('.', "").lowercase() in VIDEO_EXT
+            ContenedorDeVideo.esVideo(fs.fileName(it))
         }.ifEmpty { (0 until fs.numFiles()).toList() }
             // Quitar samples/extras: sin esto un torrent con "movie.mkv" + "sample.mkv" podía servir el
             // sample (30s) si el matching por nombre lo pescaba. Si todo parece basura, no filtra.
@@ -398,14 +399,13 @@ class TorrentEngine(context: Context, private val extraTrackers: () -> List<Stri
 
     /** Todos los archivos de video del torrent, ordenados por nombre (para packs/series). */
     fun videoFiles(meta: TorrentMeta): List<TorrentFile> =
-        meta.files.filter { it.name.substringAfterLast('.', "").lowercase() in VIDEO_EXT }
+        meta.files.filter { ContenedorDeVideo.esVideo(it.name) }
             .sortedWith(compareBy({ naturalKey(it.name) }, { it.name }))
 
     /** Elige el archivo de video más grande (o el más grande si no hay video claro). */
     fun pickVideo(meta: TorrentMeta): TorrentFile? {
-        val videos = meta.files.filter {
-            it.name.substringAfterLast('.', "").lowercase() in VIDEO_EXT
-        }.ifEmpty { meta.files }
+        val videos = meta.files.filter { ContenedorDeVideo.esVideo(it.name) }
+            .ifEmpty { meta.files }
         val notJunk = videos.filterNot { SampleFilter.isJunk(it.name) }.ifEmpty { videos }
         return notJunk.maxByOrNull { it.sizeBytes }
     }
@@ -952,8 +952,6 @@ class TorrentEngine(context: Context, private val extraTrackers: () -> List<Stri
             val headEnd = (firstPiece + headWin - 1).coerceAtMost(lastPiece)
             return firstPiece..headEnd
         }
-
-        private val VIDEO_EXT = setOf("mkv", "mp4", "avi", "webm", "m4v", "mov", "ts", "m2ts")
 
         /** Contenedores tipo ISO-BMFF cuyo `moov` (índice) va al final y es obligatorio para arrancar. */
         private val MP4_LIKE = setOf("mp4", "m4v", "mov")

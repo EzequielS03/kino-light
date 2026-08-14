@@ -69,6 +69,22 @@ class MetadataParserTest {
         assertEquals(listOf(0, 1, 2), eps.map { it.orderIndex })
     }
 
+    /**
+     * A esta lista le faltaban `ts`, `m2ts`, `mpg` y `wmv` —los tenía `TorrentEngine` y no ella—,
+     * así que un ítem de archive.org servido en MPEG-TS no mostraba ni un episodio: la pantalla
+     * quedaba vacía sin ningún error. Ahora la lista es una sola (`ContenedorDeVideo`).
+     */
+    @Test
+    fun `reconoce como episodio los contenedores que sabemos reproducir`() {
+        val files = listOf(
+            video("cap01.ts", "original", "MPEG2", null, 600, 10.0),
+            video("cap02.m2ts", "original", "MPEG2", null, 600, 10.0),
+            video("cap03.mpg", "original", "MPEG2", null, 600, 10.0),
+        )
+        val item = MetadataParser.parse("id", "T", null, "thumb", files)
+        assertEquals(3, item.episodes.size)
+    }
+
     @Test
     fun `ignora thumbnails y archivos no-video`() {
         val files = listOf(
