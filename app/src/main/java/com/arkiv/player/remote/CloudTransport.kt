@@ -54,7 +54,24 @@ class CloudTransport(
 
     private companion object {
         const val COALESCE_MS = 120L
-        const val POLL_MS = 3000L
+
+        /**
+         * Cada cuánto sondear `commands` como RESPALDO del SSE.
+         *
+         * Estaba en 3s porque el SSE se caía cada ~125s: Cloudflare corta todo stream proxeado que
+         * pase ~100s sin datos y PocketBase no emitía ningún keepalive, así que el realtime no era
+         * confiable y este poll cargaba con casi todo. Eso costaba 45.948 peticiones al día — el 74%
+         * de todo lo que recibía el servidor.
+         *
+         * Con el keepalive del lado del servidor (`pb_hooks/sse_keepalive.pb.js`) el SSE ya sobrevive
+         * indefinidamente, y este poll vuelve a ser lo que debía ser: la red que cubre el hueco de
+         * una reconexión. 15s baja el tráfico 5x; el costo es que si el SSE está caído JUSTO en ese
+         * momento, un comando puede tardar hasta 15s en vez de 3s.
+         *
+         * NO bajarlo de nuevo sin mirar antes si el SSE está sano: el síntoma de "el remoto va
+         * lento" casi siempre es el stream cayéndose, no este intervalo.
+         */
+        const val POLL_MS = 15_000L
     }
 
     private suspend fun send(type: String, payload: String, seq: Long): Boolean {
