@@ -49,11 +49,15 @@ class RemoteController(
 
     init {
         // Resolver proactivamente el device tv una vez haya sesión, para exponer tvPaired.
+        // El reintento se ESPACIA (ver backoffDeResolucionDeTv): sin TV pareado este bucle no
+        // termina nunca, y a intervalo fijo pedía la lista de devices cada 5s las 24 horas.
         scope.launch {
+            val backoff = backoffDeResolucionDeTv()
+            var intento = 0
             while (cachedTvId == null) {
                 if (deviceAuth.session.value != null) resolveTvId()
                 if (cachedTvId != null) break
-                delay(5000)
+                delay(backoff.nextDelayMs(intento++))
             }
         }
     }
@@ -157,5 +161,22 @@ class RemoteController(
         if (cmd.type != "key" || cmd.key == null) return@mapNotNull null
         if (cmd.seq != 0L && !inSeq.isFresh(cmd.seq)) return@mapNotNull null
         cmd.key.toIntOrNull() ?: SyncManager.keyCodeFor(cmd.key)
+    }
+
+    internal companion object {
+        /**
+         * Cada cuánto reintentar la resolución del TV de la cuenta mientras no aparezca ninguno.
+         *
+         * Era un intervalo FIJO de 5s, y como el bucle solo termina al encontrar un TV, un aparato
+         * sin TV pareado pedía `devices?filter=kind='tv'` cada 5s mientras viviera el proceso. En
+         * los logs de PocketBase eso se veía como 694 peticiones por hora sostenidas de madrugada,
+         * sin nadie usando nada, contra un server que ya está en swap.
+         *
+         * Arranca rápido (el caso frecuente es "la sesión todavía no estaba lista") y se estira
+         * hasta 10 min. Que tarde en notar una TV nueva no importa: el pareo actualiza el estado por
+         * su cuenta, y `tvAvailable()` fuerza una resolución cuando la UI de verdad la necesita.
+         */
+        fun backoffDeResolucionDeTv(random: java.util.Random = java.util.Random()) =
+            com.arkiv.player.pocketbase.Backoff(baseMs = 5_000, maxMs = 600_000, random = random)
     }
 }
