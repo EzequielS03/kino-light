@@ -40,15 +40,29 @@ object CachingDeRed {
      * segmento es variable y con 1,5 s el colchón se drena y la reproducción alcanza al buffer
      * ("se va pasando", medido contra el proxy de blog, que corre en 2 CPU detrás de Cloudflare).
      *
-     * Lo comparten WEB y LIVE porque el camino es el mismo; en el vivo el proxy es [LiveHlsProxy],
-     * que además firma cada segmento contra el CDN. Y en el vivo el costo de este colchón es gratis:
-     * arrancar unos segundos más atrás del borde no se nota, cortarse sí.
+     * El proxy de blog corre en 2 CPU detrás de Cloudflare, y esa es la parte lenta.
      */
     private const val PROXY_MAS_CDN_MS = 8_000
 
+    /**
+     * VIVO: su CDN es OTRO, y mucho mejor. Medido en el Fire TV el 2026-08-14 sobre 15 minutos de
+     * canal: playlist en 141 ms de mediana (p95 283, max 355) y segmento en 206 ms (p95 360, max
+     * 596), con cero 403 de firma, cero 502 y cero segmentos cortados.
+     *
+     * Compartía los 8000 ms de WEB por precaución, de cuando no sabíamos nada de él. Contra un peor
+     * segmento de 596 ms, eso son ~13× de colchón: puro retardo de arranque sobre los 4,1 s que
+     * tarda un canal en empezar. 3000 ms siguen siendo 5× ese peor caso.
+     *
+     * Ojo con bajarlo más: acá el proxy le pide cada segmento al CDN en el momento (no hay
+     * read-ahead propio, ver [LiveHlsProxy.servirSegmento]), así que el colchón es lo ÚNICO que
+     * separa un hipo del CDN de un corte en pantalla.
+     */
+    private const val VIVO_MS = 3_000
+
     fun msPara(kind: SourceKind?): Int = when (kind) {
         SourceKind.TORRENT -> TORRENT_MS
-        SourceKind.WEB, SourceKind.LIVE -> PROXY_MAS_CDN_MS
+        SourceKind.WEB -> PROXY_MAS_CDN_MS
+        SourceKind.LIVE -> VIVO_MS
         else -> ORIGEN_ESTABLE_MS
     }
 }

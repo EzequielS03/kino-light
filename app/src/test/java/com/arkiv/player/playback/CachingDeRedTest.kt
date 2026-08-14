@@ -32,12 +32,30 @@ class CachingDeRedTest {
     }
 
     /**
-     * El vivo tiene el MISMO camino que web —VLC → proxy local (LiveHlsProxy) → CDN— así que hereda
-     * su colchón. Y a diferencia del VOD acá el costo es gratis: en un canal en vivo arrancar unos
-     * segundos más atrás del borde no se nota, cortarse sí.
+     * El vivo ya NO hereda el colchón de web: se midió su CDN y no se parece.
+     *
+     * Cuando se separó del caso general no sabíamos nada de ese CDN, así que se le puso el de web
+     * (8000 ms) por precaución. Medido en el Fire TV el 2026-08-14 sobre 15 minutos de canal:
+     * playlist en 141 ms de mediana (p95 283, max 355) y segmento en 206 ms (p95 360, max 596),
+     * con cero 403, cero 502 y cero segmentos cortados. Es un orden de magnitud más predecible que
+     * el CDN de VOD, que va de 0,2 s a 20 s por rango y rechaza al azar.
+     *
+     * Con esa latencia, 8 s de colchón son ~13× el peor segmento observado: puro retardo de
+     * arranque. 3000 ms siguen siendo 5× ese peor caso.
      */
-    @Test fun `el vivo hereda el colchon de web y no el caso general`() {
-        assertEquals(8_000, CachingDeRed.msPara(SourceKind.LIVE))
+    @Test fun `el vivo usa el colchon medido de su propio CDN`() {
+        assertEquals(3_000, CachingDeRed.msPara(SourceKind.LIVE))
+    }
+
+    /**
+     * El piso NO es arbitrario: el colchón tiene que cubrir con margen al peor segmento medido
+     * (596 ms). Si alguien lo baja de ahí, este test lo frena.
+     */
+    @Test fun `el colchon del vivo cubre con margen el peor segmento medido`() {
+        val peorSegmentoMedidoMs = 596
+        assert(CachingDeRed.msPara(SourceKind.LIVE) >= peorSegmentoMedidoMs * 4) {
+            "el colchón del vivo (${CachingDeRed.msPara(SourceKind.LIVE)}ms) no cubre 4× el peor segmento"
+        }
     }
 
     /**

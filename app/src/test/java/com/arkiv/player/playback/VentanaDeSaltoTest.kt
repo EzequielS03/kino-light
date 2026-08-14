@@ -76,13 +76,25 @@ class VentanaDeSaltoTest {
         runCatching { origen.shutdown() }
     }
 
-    /** Pide un rango, lee [leer] bytes y CORTA — igual que libVLC bisecando. */
+    /**
+     * Pide un rango, lee [leer] bytes y CORTA — igual que libVLC bisecando.
+     *
+     * Falla FUERTE si el sondeo no sale bien, y eso es el arreglo de una intermitencia real: antes
+     * el `runCatching` se tragaba cualquier problema y devolvia lo que hubiera leido. Un sondeo que
+     * reventaba quedaba indistinguible de uno servido de memoria —los dos dejan el contador del
+     * origen en cero—, asi que el test fallaba con "el primer sondeo tenia que ir al origen una
+     * sola vez, expected 1 but was 0" señalando al proxy cuando el que se habia roto era el sondeo.
+     * Visto 1 de 4 corridas de la suite completa (nunca aislado), el 2026-08-14.
+     */
     private fun sondear(proxyUrl: String, desde: Long, leer: Int): ByteArray {
         val conn = (URL(proxyUrl).openConnection() as HttpURLConnection).apply {
             setRequestProperty("Range", "bytes=$desde-")
             connectTimeout = 15_000
             readTimeout = 30_000
         }
+        val codigo = runCatching { conn.responseCode }
+            .getOrElse { throw AssertionError("el sondeo desde $desde no tuvo respuesta del proxy", it) }
+        assertEquals("el proxy no sirvio el rango desde $desde", 206, codigo)
         val buf = ByteArray(leer)
         var n = 0
         runCatching {
@@ -93,8 +105,9 @@ class VentanaDeSaltoTest {
                     n += l
                 }
             }
-        }
+        }.getOrElse { throw AssertionError("el sondeo desde $desde corto leyendo ($n de $leer bytes)", it) }
         conn.disconnect()
+        assertEquals("el sondeo desde $desde leyo de menos", leer, n)
         return buf.copyOf(n)
     }
 
