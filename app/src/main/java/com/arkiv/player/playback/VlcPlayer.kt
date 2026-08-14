@@ -679,6 +679,9 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         // (medido: ambos a las …14.67). El borrado le ganaba a la asignación y la lista quedaba
         // vacía, con lo que el guardia de cantidad de clasificarSpuConFuente fallaba y ninguna pista
         // se podía clasificar. Se limpia del lado del que asigna, que sí tiene el orden garantizado.
+        // Se calcula acá para que también salga en el log de abajo: cuál demuxer terminó eligiendo
+        // avformat es lo primero que hay que mirar cuando magis abre y se queda en 0:00.
+        val formatoMagis = if (tag?.kind == SourceKind.MAGIS) formatoAvformatDe(uri.toString()) else null
         val media = Media(libVlc, uri).apply {
             setHWDecoderEnabled(hardware, false)
             addOption(":network-caching=$networkCaching")
@@ -715,8 +718,11 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
                 // equivalente en libVLC es `avformat-format`, que le llega a avformat como el
                 // `-f mpegts` de ffmpeg: se saltea `av_probe_input_format` y, sobre todo, se saltea
                 // el riesgo de que adivine mal justo cuando la primera lectura del CDN llega lenta.
-                // Todo lo que resuelve magis es MPEG-TS (`video/mp2t`, `..._media.ts`).
-                addOption(":avformat-format=mpegts")
+                //
+                // El formato sale del ARCHIVO, no de una suposición. Acá decía `mpegts` fijo, con la
+                // premisa de que "todo lo que resuelve magis es MPEG-TS": es falsa, el gateway elige
+                // el contenedor por título y prefiere mp4 cuando existe. Ver [formatoAvformatDe].
+                formatoMagis?.let { addOption(":avformat-format=$it") }
             }
             // Streams web: algunos hosts exigen Referer/UA o devuelven 403.
             tag?.referer?.takeIf { it.isNotBlank() }?.let { addOption(":http-referrer=$it") }
@@ -727,7 +733,7 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
                 "ArkivVlc",
                 "loadMedia player=#$idInstancia hw=$hardware kind=${tag?.kind} referer=${tag?.referer} " +
                     "duracionConocida=${knownDurationMs}ms start=${startPositionMs}ms " +
-                    "uri=$uri",
+                    "formato=${formatoMagis ?: "(sondea)"} uri=$uri",
             )
         }
         mediaPlayer.media = media

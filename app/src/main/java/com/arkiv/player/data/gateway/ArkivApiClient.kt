@@ -154,7 +154,19 @@ class ArkivApiClient(
             // vienen con `ref` vacío (sin ref no hay nada que reproducir). Con un solo número, una
             // temporada de 16 que llega con 4 refs rotos se ve igual que una de 12 — y son problemas
             // distintos, uno del portal y otro nuestro.
-            android.util.Log.w("ArkivGw", "/v1/episodes → ${caps.size} capitulos (de ${crudos.length()} crudos)")
+            // También se loguea la IDENTIFICACIÓN de la serie, porque de ella cuelga TODO lo que la
+            // biblioteca muestra de los capítulos: nombre, miniatura y sinopsis salen de TMDB, no del
+            // portal. Sin esto, "los capítulos salen en negro y numerados" es indistinguible de sus
+            // tres causas posibles —el portal no dio imdb_id, TMDB no lo encontró, o el guard de
+            // numeración del gateway apagó el enriquecimiento— y no hay forma de saber cuál fue.
+            val identidad = serie
+                ?.let { "imdb=${it.imdbId.ifBlank { "(vacio)" }} tmdb=${it.tmdbId} temporada=${it.seasonNumber}" }
+                ?: "(el gateway no mandó bloque `series`)"
+            android.util.Log.w(
+                "ArkivGw",
+                "/v1/episodes → ${caps.size} capitulos (de ${crudos.length()} crudos) " +
+                    "serie: $identidad · con miniatura=${caps.count { it.still != null }}",
+            )
             caps to serie
         }
 

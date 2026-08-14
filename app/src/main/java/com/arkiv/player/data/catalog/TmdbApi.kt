@@ -52,8 +52,11 @@ data class TmdbEpisode(
 /** Base de las imágenes de TMDB. Fuera de la clase para que [parseSeasonEpisodes] siga siendo puro. */
 private const val TMDB_IMG = "https://image.tmdb.org/t/p"
 
+// "null" se descarta igual que el vacío: `optString` de Android devuelve ese string cuando el JSON
+// trae un null de verdad, y TMDB manda `poster_path: null` seguido. Sin esto se armaba la URL
+// ".../w500null", que es una imagen rota en vez de la card sin póster.
 private fun tmdbImgUrl(path: String?, size: String): String =
-    if (path.isNullOrBlank()) "" else "$TMDB_IMG/$size$path"
+    if (path.isNullOrBlank() || path == "null") "" else "$TMDB_IMG/$size$path"
 
 /**
  * Parsea la respuesta de `/tv/{id}/season/{n}`. Puro/testeable (sin red).
@@ -298,21 +301,27 @@ class TmdbApi(
         }.getOrDefault(emptyList())
     }
 
+    /** Texto del JSON con el null de verdad convertido en vacío: `optString` de Android devuelve el
+     *  STRING "null" en ese caso (el org.json del JVM devuelve "", así que un test unitario NO lo
+     *  reproduce). Sin esto la sinopsis de lo que TMDB no tiene traducido era la palabra "null" —
+     *  y así se guardaba en la biblioteca. */
+    private fun JSONObject.texto(name: String): String = if (isNull(name)) "" else optString(name)
+
     private fun parseItem(o: JSONObject, type: String): TmdbItem? {
         val id = o.optInt("id", 0)
         if (id == 0) return null
         val isTv = type == "tv"
-        val title = if (isTv) o.optString("name") else o.optString("title")
+        val title = if (isTv) o.texto("name") else o.texto("title")
         if (title.isBlank()) return null
         return TmdbItem(
             id = id,
             type = type,
             title = title,
-            originalTitle = if (isTv) o.optString("original_name") else o.optString("original_title"),
-            posterUrl = imgUrl(o.optString("poster_path"), "w500"),
-            year = (if (isTv) o.optString("first_air_date") else o.optString("release_date")).take(4),
-            backdropUrl = imgUrl(o.optString("backdrop_path"), "w780"),
-            overview = o.optString("overview"),
+            originalTitle = if (isTv) o.texto("original_name") else o.texto("original_title"),
+            posterUrl = imgUrl(o.texto("poster_path"), "w500"),
+            year = (if (isTv) o.texto("first_air_date") else o.texto("release_date")).take(4),
+            backdropUrl = imgUrl(o.texto("backdrop_path"), "w780"),
+            overview = o.texto("overview"),
         )
     }
 

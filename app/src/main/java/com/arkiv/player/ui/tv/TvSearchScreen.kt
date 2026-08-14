@@ -100,9 +100,15 @@ private const val SEARCH_HISTORY_KIND = "tv"
 /**
  * Buscador del TV: dos columnas navegables por control remoto — teclado en pantalla a la
  * izquierda, y a la derecha las búsquedas recientes (antes de buscar) o la grilla de títulos
- * (TMDB/anime). La búsqueda se dispara con el botón "Buscar", no al teclear. REFINE agrega el
- * selector visual de temporada/capítulo; RESULTS muestra las fuentes (packs primero) con
- * reproducción inmediata, y la lista de capítulos cuando se elige un pack.
+ * (TMDB/anime). Nada se dispara al teclear: con el control cada letra costaba una vuelta de red.
+ *
+ * Debajo del teclado hay dos botones. "Autocompletar" trae la grilla de títulos del catálogo, que
+ * funciona como sugerencias: al elegir una card se puede escribir su nombre en el buscador (y
+ * editarlo) en vez de arrancar una búsqueda. "Buscar" manda el texto —autocompletado o tecleado a
+ * mano— derecho a las fuentes, sin atarse al título exacto del catálogo.
+ *
+ * REFINE agrega el selector visual de temporada/capítulo; RESULTS muestra las fuentes (packs
+ * primero) con reproducción inmediata, y la lista de capítulos cuando se elige un pack.
  */
 @Composable
 fun TvSearchScreen(
@@ -162,6 +168,17 @@ fun TvSearchScreen(
     val resultPoster = vmDetail?.posterUrl ?: vmAnimeShow?.posterUrl ?: selected?.posterUrl ?: ""
     val resultDescription = vmDetail?.overview ?: vmAnimeShow?.description
 
+    /**
+     * El título con el que se GUARDA, que no es el mismo que el que se muestra.
+     *
+     * En una búsqueda por texto, la consulta sirve de encabezado de la pantalla pero no es metadata:
+     * "dragon ball 137" no es el nombre de nada. Vacío acá deja que gane el nombre propio de cada
+     * fuente —el release del torrent, el `showTitle` del pack, el título del resultado web— que es
+     * lo que corresponde que quede en la biblioteca. Con una ficha real del catálogo no cambia nada.
+     */
+    val busquedaPorTexto by vm.busquedaPorTexto.collectAsStateWithLifecycle()
+    val tituloGuardado = if (busquedaPorTexto) "" else resultTitle
+
     fun applyResult(result: PlaybackResult) {
         preparing = false
         when (result) {
@@ -178,7 +195,14 @@ fun TvSearchScreen(
         val episode = refineEpisode
         preparing = true; playError = null
         scope.launch {
-            applyResult(playback.playTorrent(result, card, vmDetail, resultTitle, resultPoster, resultDescription, season, episode))
+            // Sin ficha, el nombre del release ES el título: guardarlo con la consulta cruda dejaba
+            // "dragon ball 137" en la biblioteca en vez de lo que de verdad se bajó.
+            applyResult(
+                playback.playTorrent(
+                    result, card, vmDetail, tituloGuardado.ifBlank { result.name },
+                    resultPoster, resultDescription, season, episode,
+                ),
+            )
         }
     }
 
@@ -235,7 +259,7 @@ fun TvSearchScreen(
         preparing = true; playError = null
         scope.launch {
             applyResult(
-                playback.playWeb(r, card, vmDetail, vmAnimeShow, resultTitle, resultPoster, season, episode, mirrorSeason, animeEpisode),
+                playback.playWeb(r, card, vmDetail, vmAnimeShow, tituloGuardado, resultPoster, season, episode, mirrorSeason, animeEpisode),
             )
         }
     }
@@ -260,7 +284,7 @@ fun TvSearchScreen(
         val card = selected ?: return
         preparing = true; playError = null
         scope.launch {
-            val title = resultTitle.ifBlank { pack.showTitle }
+            val title = tituloGuardado.ifBlank { pack.showTitle }
             val result = playback.addWholeWebSeries(
                 pack, card, vmDetail, vmAnimeShow, resultPoster, title, pack.episodes, playEpisode,
             )
@@ -330,18 +354,55 @@ fun TvSearchScreen(
         scope.launch { refreshRecents() }
     }
 
-    fun runSearch(q: String) {
+    fun recordarConsulta(query: String) {
+        scope.launch {
+            runCatching {
+                historyDao.upsert(SearchHistoryEntity(query, SEARCH_HISTORY_KIND, System.currentTimeMillis()))
+            }
+            refreshRecents()
+        }
+    }
+
+    /** Botón "Autocompletar": trae la grilla de títulos del catálogo, que son las sugerencias. */
+    fun buscarTitulos(q: String) {
         val query = q.trim()
         if (query.isBlank()) return
         text = query
         searched = true
         busquedaNro++
         vm.search(query)
+        recordarConsulta(query)
+    }
+
+    /**
+     * Botón "Buscar": manda el texto tal cual a las fuentes, sin pasar por la ficha del catálogo.
+     *
+     * El camino por card ata la búsqueda al título EXACTO de TMDB; acá va lo que haya en el
+     * buscador, venga de una sugerencia o del teclado.
+     *
+     * A propósito no toca `searched`: la columna derecha se queda como estaba, así que volver de
+     * las fuentes no deja la pantalla en "Sin resultados" por una búsqueda de títulos que nunca
+     * corrió.
+     */
+    fun buscarFuentes() {
+        val query = text.trim()
+        if (query.isBlank()) return
+        text = query
+        vm.buscarFuentesPorTexto(query)
+        recordarConsulta(query)
+    }
+
+    /**
+     * "Usar este nombre" de una sugerencia: escribe el título de la card en el buscador y deja el
+     * foco en "Buscar", que es lo único que falta hacer. Sin esto el foco se queda en la grilla y
+     * hay que cruzar toda la columna con el D-pad para rematar la búsqueda.
+     */
+    val buscarFuentesFocus = remember { FocusRequester() }
+    fun usarNombre(nombre: String) {
+        text = nombre
         scope.launch {
-            runCatching {
-                historyDao.upsert(SearchHistoryEntity(query, SEARCH_HISTORY_KIND, System.currentTimeMillis()))
-            }
-            refreshRecents()
+            delay(150)
+            runCatching { buscarFuentesFocus.requestFocus() }
         }
     }
 
@@ -403,16 +464,36 @@ fun TvSearchScreen(
                         firstKeyFocus = firstKeyFocus,
                     )
                     Spacer(Modifier.height(16.dp))
-                    Surface(
-                        onClick = { runSearch(text) },
-                        enabled = text.isNotBlank(),
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
-                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
-                        colors = arkivTvSurfaceColors(),
-                        border = arkivTvSurfaceBorder(),
+                    // Izquierda a derecha, el orden del flujo: "Autocompletar" trae las sugerencias
+                    // del catálogo y "Buscar" remata con el texto que quedó. Mitad y mitad porque
+                    // los dos se usan, y se navegan entre sí con izquierda/derecha.
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("Buscar", style = MaterialTheme.typography.titleMedium)
+                        Surface(
+                            onClick = { buscarTitulos(text) },
+                            enabled = text.isNotBlank(),
+                            modifier = Modifier.weight(1f).height(52.dp),
+                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+                            colors = arkivTvSurfaceColors(),
+                            border = arkivTvSurfaceBorder(),
+                        ) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text("Autocompletar", style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                            }
+                        }
+                        Surface(
+                            onClick = { buscarFuentes() },
+                            enabled = text.isNotBlank(),
+                            modifier = Modifier.weight(1f).height(52.dp).focusRequester(buscarFuentesFocus),
+                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+                            colors = arkivTvSurfaceColors(),
+                            border = arkivTvSurfaceBorder(),
+                        ) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text("Buscar", style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                            }
                         }
                     }
                     // No depende de borrar el texto letra por letra: con el control eso son diez
@@ -451,7 +532,7 @@ fun TvSearchScreen(
                         ) {
                             items(recents, key = { it }) { q ->
                                 Surface(
-                                    onClick = { runSearch(q) },
+                                    onClick = { buscarTitulos(q) },
                                     modifier = Modifier.fillMaxWidth().height(52.dp),
                                     shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
                                     colors = arkivTvSurfaceColors(),
@@ -503,12 +584,10 @@ fun TvSearchScreen(
                                 posterUrl = card.posterUrl,
                                 cardHeight = 180.dp,
                                 onFocus = { grillaTocada = true },
-                                // Una peli no tiene nada que elegir: va derecho a las fuentes.
-                                // Una serie sí, y hasta ahora caía siempre en el selector de
-                                // temporadas — con el "Toda la serie" arriba, fácil de no ver.
-                                onClick = {
-                                    if (card.kind == "movie") vm.pickTitle(card) else preguntarModo = card
-                                },
+                                // Ninguna card arranca una búsqueda sola: las pelis también
+                                // preguntan. La grilla es tanto el catálogo como el autocompletador
+                                // del buscador, y cuál de las dos cosas querés no se puede adivinar.
+                                onClick = { preguntarModo = card },
                             )
                         }
                     }
@@ -550,7 +629,7 @@ fun TvSearchScreen(
                 } else if (currentWebPack != null) {
                     TvWebPackContent(
                         pack = currentWebPack,
-                        title = resultTitle.ifBlank { currentWebPack.showTitle },
+                        title = tituloGuardado.ifBlank { currentWebPack.showTitle },
                         posterUrl = resultPoster,
                         preparing = preparing,
                         onSaveAll = { saveWebPack(currentWebPack) },
@@ -560,7 +639,8 @@ fun TvSearchScreen(
                     TvPackContent(
                         result = currentPack,
                         packResolver = graph.packResolver,
-                        defaultTitle = "$resultTitle — Pack",
+                        // Sin ficha, "— Pack" solo no nombra nada: se propone el release del torrent.
+                        defaultTitle = if (tituloGuardado.isBlank()) currentPack.name else "$tituloGuardado — Pack",
                         posterUrl = resultPoster,
                         preparing = preparing,
                         onSaveAll = { title, contents -> saveAllPack(title, contents) },
@@ -588,8 +668,13 @@ fun TvSearchScreen(
     }
 
     preguntarModo?.let { card ->
-        TvModoDeSerieDialog(
+        TvQueHacerConLaCardDialog(
             titulo = card.title,
+            esSerie = card.kind != "movie",
+            onUsarNombre = {
+                preguntarModo = null
+                usarNombre(card.title)
+            },
             onSerieCompleta = {
                 preguntarModo = null
                 // pickTitle deja la card como `selected` (y la guarda en el historial); recién
@@ -597,6 +682,7 @@ fun TvSearchScreen(
                 vm.pickTitle(card)
                 vm.runSourceSearch(null, null)
             },
+            // Una peli no tiene temporadas que elegir: pickTitle la manda derecho a RESULTS.
             onPorTemporada = {
                 preguntarModo = null
                 vm.pickTitle(card)
@@ -607,15 +693,25 @@ fun TvSearchScreen(
 }
 
 /**
- * Qué hacer con una serie recién elegida: verla entera o entrar a elegir temporada y capítulo.
+ * Qué hacer con la card recién elegida: usar su nombre como autocompletado del buscador, o buscar
+ * sus fuentes por la ficha del catálogo.
  *
- * Antes tocar una serie caía siempre en el selector de temporadas, con un "Toda la serie" arriba
- * que es fácil de no ver. Preguntarlo de frente convierte una decisión escondida en dos botones.
+ * La grilla hace dos trabajos a la vez —es el catálogo y es el autocompletador— y cuál de los dos
+ * querés no se puede adivinar desde el click, así que se pregunta. "Usar este nombre" va primero
+ * y con el foco porque es la razón de ser de la grilla cuando uno solo se acuerda de un pedazo del
+ * nombre: TMDB completa el título y de ahí la búsqueda sigue por texto, sin atarse al `tmdb_id`
+ * (que es justo lo que a veces no encuentra nada en el mirror).
+ *
+ * Para las series se conservan las dos entradas de siempre: la serie entera (donde salen los packs)
+ * y el selector de temporada/capítulo. Una película no tiene nada que elegir, así que su único
+ * camino por catálogo es "Ver fuentes".
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun TvModoDeSerieDialog(
+private fun TvQueHacerConLaCardDialog(
     titulo: String,
+    esSerie: Boolean,
+    onUsarNombre: () -> Unit,
     onSerieCompleta: () -> Unit,
     onPorTemporada: () -> Unit,
     onDismiss: () -> Unit,
@@ -633,35 +729,58 @@ private fun TvModoDeSerieDialog(
         ) {
             Text(titulo, style = MaterialTheme.typography.headlineSmall, color = Color.White, maxLines = 2)
             Text(
-                "¿Cómo la querés buscar?",
+                "¿Qué querés hacer?",
                 style = MaterialTheme.typography.bodyLarge,
                 color = ArkivTextSecondary,
                 modifier = Modifier.padding(bottom = 6.dp),
             )
             Button(
-                onClick = onSerieCompleta,
+                onClick = onUsarNombre,
                 colors = arkivTvButtonColors(),
                 border = arkivTvButtonBorder(),
                 modifier = Modifier.fillMaxWidth().focusRequester(primero),
-            ) { Text("Ver serie completa") }
+            ) { Text("Usar este nombre") }
             Text(
-                "Busca la serie entera: es donde salen los packs de temporada.",
+                "Lo escribe en el buscador para que lo edites si querés, y con \"Buscar\" va tal cual a las fuentes.",
                 style = MaterialTheme.typography.labelLarge,
                 color = ArkivTextSecondary,
             )
-            Button(
-                onClick = onPorTemporada,
-                colors = arkivTvButtonColors(),
-                border = arkivTvButtonBorder(),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Buscar por temporada")
+            if (esSerie) {
+                Button(
+                    onClick = onSerieCompleta,
+                    colors = arkivTvButtonColors(),
+                    border = arkivTvButtonBorder(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Ver serie completa") }
+                Text(
+                    "Busca la serie entera: es donde salen los packs de temporada.",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = ArkivTextSecondary,
+                )
+                Button(
+                    onClick = onPorTemporada,
+                    colors = arkivTvButtonColors(),
+                    border = arkivTvButtonBorder(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Buscar por temporada") }
+                Text(
+                    "Abre el selector de temporadas y capítulos.",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = ArkivTextSecondary,
+                )
+            } else {
+                Button(
+                    onClick = onPorTemporada,
+                    colors = arkivTvButtonColors(),
+                    border = arkivTvButtonBorder(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Ver fuentes") }
+                Text(
+                    "Busca por la ficha del catálogo, con su título exacto.",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = ArkivTextSecondary,
+                )
             }
-            Text(
-                "Abre el selector de temporadas y capítulos.",
-                style = MaterialTheme.typography.labelLarge,
-                color = ArkivTextSecondary,
-            )
         }
     }
 }

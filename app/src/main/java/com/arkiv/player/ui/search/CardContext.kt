@@ -44,6 +44,56 @@ fun AnimeShow.toTitleCard(): TitleCard = TitleCard(
     backdropUrl = bannerUrl,
 )
 
+/**
+ * Texto del buscador → card, para buscar fuentes por lo que hay escrito y no por la ficha del
+ * catálogo (botón "Buscar" del buscador del TV). Devuelve null si no hay nada que buscar.
+ *
+ * Va sin `tmdbId`/`anilistId` a propósito: en el gateway el tmdb_id es solo el desempate entre los
+ * títulos que matchean el texto, así que sin él las cuatro fuentes buscan por `q` — que es
+ * justamente lo que se quiere acá. `kind` es "movie" porque con season/episode en 0 ninguna fuente
+ * filtra por tipo (magis devuelve pelis y series igual), y porque `SearchViewModel.back()` manda
+ * las películas de vuelta a QUERY: sin eso, atrás desde las fuentes caería en el selector de
+ * temporadas de una card que no existe.
+ */
+fun cardDeTextoLibre(texto: String): TitleCard? {
+    val q = texto.trim().takeIf { it.isNotBlank() } ?: return null
+    return TitleCard(
+        kind = "movie",
+        tmdbId = null,
+        anilistId = null,
+        title = q,
+        posterUrl = "",
+        year = "",
+        overview = null,
+    )
+}
+
+/**
+ * Quita los repetidos de la grilla de títulos, que junta TMDB con AniList: todo lo que es anime y
+ * además está en TMDB salía dos veces con el mismo nombre. Gana el primero de la lista, así el
+ * orden que ya se ve no cambia.
+ *
+ * La clave lleva el AÑO además del nombre: dos películas con el mismo título y distinto año son
+ * dos películas distintas (los remakes), y colapsarlas escondería una. Un título vacío no tiene con
+ * qué compararse, así que pasa siempre — juntarlos sería juntar cosas que no sabemos si son la
+ * misma.
+ */
+fun sinRepetidos(cards: List<TitleCard>): List<TitleCard> {
+    val vistos = HashSet<String>()
+    return cards.filter { card ->
+        val clave = normalizarTitulo(card.title)
+        clave.isEmpty() || vistos.add("$clave|${card.year}")
+    }
+}
+
+/** Nombre comparable: sin mayúsculas, sin acentos, sin puntuación y con un solo espacio entre
+ *  palabras. "¡El  PADRINO!" y "el padrino" son el mismo título. */
+private fun normalizarTitulo(titulo: String): String =
+    java.text.Normalizer.normalize(titulo.lowercase(), java.text.Normalizer.Form.NFD)
+        .replace(Regex("\\p{Mn}+"), "")
+        .replace(Regex("[^a-z0-9]+"), " ")
+        .trim()
+
 /** Card → entrada del historial. Se tira `overview`/`backdrop`: el hero los vuelve a pedir igual. */
 fun TitleCard.toRecent(): RecentTitle = RecentTitle(
     kind = kind,

@@ -114,6 +114,24 @@ internal const val ANCHO_TECLADO_DP = 640
 internal const val ANCHO_CAMPOS_DP = 520
 
 /**
+ * Y el reparto REAL se hace por peso, no con esos dos anchos fijos.
+ *
+ * Los anchos de arriba se eligieron bien de intención pero suman 1160 dp, y un televisor de
+ * referencia tiene 960 dp de ancho (1920 px a densidad 320, medido en el Fire TV): 200 dp de más.
+ * Como la fila no envuelve, lo que sobraba se dibujaba FUERA de la pantalla — la columna de campos
+ * salía cortada por la derecha y con ella el botón "Crear cuenta", así que desde el sillón parecía
+ * que la opción de registrarse no existía. Y de paso los campos se veían más angostos de lo que
+ * decían ser, porque lo visible era el pedazo que entraba.
+ *
+ * Repartir por peso arregla las dos cosas y encima no depende del tamaño del televisor. La
+ * proporción conserva la intención de la Task 11 —el teclado se lleva más, porque es lo que se usa
+ * tecla por tecla con el control remoto, mientras que los campos solo muestran texto ya escrito—
+ * pero ahora sobre el ancho que de verdad hay.
+ */
+internal const val PESO_TECLADO = 1.2f
+internal const val PESO_CAMPOS = 1f
+
+/**
  * Layout de dos columnas -teclado fijo a la izquierda, campos a la derecha- con foco inicial en el
  * primer campo (con el mismo reintento que ya usaba `PanelDeLogin`: pedirlo en la primera composición
  * falla en silencio porque el nodo todavía no está colocado, comprobado en el Fire TV). [campos]
@@ -153,7 +171,7 @@ fun TvTecladoYCampos(
         }
         Row(Modifier.fillMaxSize()) {
             Column(
-                Modifier.fillMaxHeight().width(ANCHO_TECLADO_DP.dp)
+                Modifier.fillMaxHeight().weight(PESO_TECLADO)
                     .padding(start = 48.dp, end = 24.dp, bottom = 16.dp),
             ) {
                 TvKeyboard(
@@ -165,11 +183,10 @@ fun TvTecladoYCampos(
                     onModo = onModo,
                 )
             }
-            // Ancho ACOTADO, no `fillMaxSize()`: ver el KDoc de ANCHO_CAMPOS_DP arriba -este era
-            // justo el bug que se arregla en la Task 11, campos cruzando media pantalla vacíos-.
-            // El resto del ancho de la fila queda sin usar a propósito.
+            // Ancho por PESO y no fijo: ver el KDoc de PESO_TECLADO. Con `width(520.dp)` la columna
+            // se salía de la pantalla y se llevaba puesto el botón de crear cuenta.
             Column(
-                Modifier.fillMaxHeight().width(ANCHO_CAMPOS_DP.dp).padding(top = 24.dp, end = 48.dp),
+                Modifier.fillMaxHeight().weight(PESO_CAMPOS).padding(top = 24.dp, end = 48.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 campos(focoPrimerCampo)
