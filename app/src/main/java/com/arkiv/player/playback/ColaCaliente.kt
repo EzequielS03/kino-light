@@ -29,6 +29,32 @@ package com.arkiv.player.playback
 object ColaCaliente {
 
     /**
+     * Si al contenedor [contenedor] le hace falta que le precalentemos la cola.
+     *
+     * Medido en el Fire TV el 2026-08-14 sobre siete reproducciones: los tres títulos en **mp4**
+     * bajaron su cola y NO la usaron ni una vez (cero líneas `cola caliente`), mientras que los
+     * mpegts la usaron en todas sus aperturas y varias veces cada una. Y bajarla no sale gratis: en
+     * uno de esos mp4 costó **8284 ms y tres rechazos del CDN**, en paralelo con la apertura del
+     * video y peleándole el ancho de banda al mismo origen que tiene que servirlo.
+     *
+     * Solo se saltea el mp4, que es el caso medido. **Ante la duda se precalienta**: un contenedor
+     * desconocido puede tener su índice al final —el Matroska guarda ahí los Cues, que es de donde
+     * salió el bug del buffering infinito en los torrents `.mkv`— y ahorrarse 256 KB no vale volver
+     * a ese fallo.
+     *
+     * Ojo con el riesgo residual: un mp4 SIN faststart lleva el `moov` al final y sí necesitaría la
+     * cola. Los de magis —los únicos que pasan por acá, [ArchiveCacheProxy.precalentar] tiene un
+     * solo llamador— no lo hacen. Si alguno lo hiciera, se vería en el log como un
+     * `pide rango=bytes=<cerca del final>` sobre un mp4, y lo peor que pasa es que ese rango va al
+     * origen como iba antes de que la cola existiera.
+     */
+    fun hayQuePrecalentar(contenedor: String?): Boolean =
+        contenedor?.trim()?.lowercase() !in SIN_INDICE_AL_FINAL
+
+    /** Contenedores que abren sin tocar el final del archivo. */
+    private val SIN_INDICE_AL_FINAL = setOf("mp4", "m4v", "mov")
+
+    /**
      * Los bytes de [rango] si caen ENTEROS dentro de la cola guardada, o null para que lo resuelva
      * el origen.
      *

@@ -42,4 +42,34 @@ class PlayerSourceTagTest {
     fun `sin extras el comportamiento es el de antes`() {
         assertEquals(mapOf("Referer" to "https://x/"), tag(referer = "https://x/").allHeaders)
     }
+
+    /**
+     * GUARDIA DEL IPC. El tag NO cruza de `MediaController` a `MediaSession`: se desarma en los
+     * extras que arma `PlayerScreen.localMediaItems` y se rearma en
+     * `PlaybackService.MediaItemResolverCallback`. Un campo que se agregue acá y no en esos dos
+     * lugares llega del otro lado con su valor por defecto, EN SILENCIO — sin error, sin log, sin
+     * nada. Ya pasó una vez: `preferirSoftware` se quedaba en false y los HEVC de magis seguían
+     * abriendo por hardware, que es exactamente lo que ese campo venía a evitar.
+     *
+     * Si este test falla es porque agregaste (o sacaste) un campo. Lo que hay que hacer NO es
+     * actualizar la lista de acá y seguir: es cablearlo en los DOS lugares de arriba y recién
+     * después sumarlo a esta lista.
+     */
+    @Test
+    fun `todo campo del tag tiene que viajar por el IPC`() {
+        val cableados = setOf(
+            "kind", "openingStartMs", "openingEndMs", "endingStartMs", "castUrl",
+            "referer", "userAgent", "proxyUrl", "extraHeaders", "knownDurationMs",
+            "preferirSoftware", "contenedorDeLaFuente",
+        )
+        val declarados = PlayerSourceTag::class.java.declaredFields
+            .filterNot { it.isSynthetic || it.name.startsWith("$") }
+            .map { it.name }
+            .toSet()
+        assertEquals(
+            "Campo del tag sin cablear en el IPC (ver el KDoc de este test)",
+            cableados,
+            declarados,
+        )
+    }
 }

@@ -58,4 +58,44 @@ class ColaCalienteTest {
         // origen: un 206 mal armado deja al reproductor colgado sin error.
         assertNull(ColaCaliente.servir(INICIO, COLA, RangeHeader.parse("bytes=940-"), 0L))
     }
+
+    // ---- A qué contenedores les hace falta la cola ----
+
+    /**
+     * MEDIDO EN EL FIRE TV el 2026-08-14, siete reproducciones seguidas: los tres títulos en **mp4**
+     * bajaron su cola y NO la usaron **ni una vez** (cero líneas `cola caliente`), mientras que los
+     * mpegts la usaron en todas sus aperturas, varias veces cada una.
+     *
+     * Y bajarla no es gratis: en uno de esos mp4 costó **8284 ms y tres rechazos del CDN**, en
+     * paralelo con la apertura del video y contra el mismo origen que tiene que servirlo.
+     *
+     * ```
+     * 10:04:42.079  origen rechazó bytes=129893353-130155496 con -1 (intento 1/3)
+     * 10:04:43.279  origen rechazó bytes=129893353-130155496 con -1 (intento 1/3)
+     * 10:04:45.131  origen rechazó bytes=129893353-130155496 con -1 (intento 2/3)
+     * 10:04:46.758  precalentada la cola: 256KB en 8284ms
+     * ```
+     */
+    @Test fun el_mp4_no_necesita_la_cola() {
+        assert(!ColaCaliente.hayQuePrecalentar("mp4"))
+        assert(!ColaCaliente.hayQuePrecalentar("MP4"))
+    }
+
+    /** El TS sí: libVLC le lee el último PCR para deducir la duración, y sin eso no abre. */
+    @Test fun el_ts_la_necesita() {
+        assert(ColaCaliente.hayQuePrecalentar("ts"))
+        assert(ColaCaliente.hayQuePrecalentar("mpegts"))
+    }
+
+    /**
+     * Ante la duda, se precalienta. Un contenedor desconocido puede tener su índice al final —el
+     * Matroska guarda los Cues ahí, que es de donde salió el bug del buffering infinito en los
+     * torrents `.mkv`— y no traerla sería volver a ese fallo por ahorrar 256 KB.
+     */
+    @Test fun ante_la_duda_se_precalienta() {
+        assert(ColaCaliente.hayQuePrecalentar(""))
+        assert(ColaCaliente.hayQuePrecalentar("matroska"))
+        assert(ColaCaliente.hayQuePrecalentar("flv"))
+        assert(ColaCaliente.hayQuePrecalentar(null))
+    }
 }

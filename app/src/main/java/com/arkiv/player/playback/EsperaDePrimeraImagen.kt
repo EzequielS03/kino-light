@@ -25,22 +25,50 @@ object EsperaDePrimeraImagen {
     const val TOPE_MS = 30_000L
 
     /**
+     * Cuánto puede aterrizar ANTES del punto pedido y seguir contando como "llegó".
+     *
+     * El salto cae en el keyframe anterior al punto pedido, así que exigir `posición >= pedido`
+     * dejaría el spinner puesto sobre un video que ya arrancó bien. Medido en el Fire TV el
+     * 2026-08-14: se pidió 1327653 ms y aterrizó en 1327116, o sea 537 ms antes. 10 s cubre con
+     * holgura cualquier tamaño de GOP razonable sin llegar a tapar un salto que salió mal.
+     */
+    const val MARGEN_DE_ATERRIZAJE_MS = 10_000L
+
+    /**
      * @param cargadoHaceMs desde que se cargó el media (negativo = todavía no hay ninguno).
      * @param huboImagen si este media ya dio alguna imagen.
      * @param hayVideoAhora si libVLC está pintando en este instante.
      * @param pistasDeVideo cuántas pistas de video declara el media (0 = todavía no sabe, o no hay).
      * @param pistasDeAudio ídem para audio.
+     * @param pedidoMs a qué punto se pidió reanudar (0 = no se pidió ninguno).
+     * @param posicionMs dónde va el reloj del reproductor ahora.
      */
+    @Suppress("LongParameterList")
     fun hayQueEsperar(
         cargadoHaceMs: Long,
         huboImagen: Boolean,
         hayVideoAhora: Boolean,
         pistasDeVideo: Int,
         pistasDeAudio: Int,
+        pedidoMs: Long = 0L,
+        posicionMs: Long = 0L,
     ): Boolean {
         if (cargadoHaceMs < 0L) return false          // no hay media cargado
-        if (huboImagen || hayVideoAhora) return false // ya hubo imagen: esto no es asunto suyo
         if (cargadoHaceMs > TOPE_MS) return false     // pasó el tope: mejor un negro que un spinner eterno
+        // REANUDACIÓN TODAVÍA EN CAMINO: hay imagen, pero NO es la del punto que se pidió.
+        //
+        // Medido en el Fire TV el 2026-08-14: `:start-time` no abre en el minuto guardado. VLC abre
+        // en el byte 0, saca un frame de ahí (`⏱ abrió en 1025ms`) y RECIÉN ENTONCES salta —el
+        // `PAUSA (buffering) en pos=0ms` que sigue dura 1,5 s—. Esa primera imagen prendía
+        // `huboImagen` y apagaba el spinner, así que el usuario se quedaba mirando un fotograma
+        // congelado DEL PRINCIPIO, con el audio ya sonando, hasta que el salto aterrizaba. Se ve
+        // igual que un cuelgue y encima muestra contenido equivocado.
+        //
+        // Va ANTES del corte por "ya hubo imagen" justamente porque el caso es "hubo imagen, pero
+        // no la que corresponde". El reproductor original tapa este mismo hueco: su salto prende el
+        // spinner en el instante en que lo pide.
+        if (pedidoMs > 0L && posicionMs < pedidoMs - MARGEN_DE_ATERRIZAJE_MS) return true
+        if (huboImagen || hayVideoAhora) return false // ya hubo imagen: esto no es asunto suyo
         // Contenido SIN VIDEO: no hay imagen que esperar.
         //
         // Se pregunta por "hay audio y no hay video" y no por "la lista está vacía", y esa

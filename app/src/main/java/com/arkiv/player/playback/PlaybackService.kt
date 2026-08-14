@@ -84,6 +84,13 @@ class PlaybackService : MediaSessionService() {
         // El player vive en el servicio, así que se suscribe él mismo a las preferencias: un cambio
         // en Ajustes —o sincronizado desde el celular— llega sin tener que reiniciar la reproducción.
         val graph = com.arkiv.player.AppGraph.from(this)
+        // Que el reproductor pueda avisarle a la capa de entrega A DÓNDE va a saltar, antes de
+        // saltar. `precalentarSalto` ya existía y se llamaba solo al abrir, desde PlayerViewModel;
+        // los saltos hechos a mano con la barra no avisaban nada y el proxy se enteraba del destino
+        // recién cuando VLC le pedía el rango. Ver [AvisoDeSalto].
+        player.precalentarSalto = { origen, headers, fraccion ->
+            graph.archiveCacheProxy.precalentarSalto(origen, headers, fraccion)
+        }
         var anteriores: com.arkiv.player.data.subtitles.PlaybackPrefs? = null
         langPrefsJob = graph.applicationScope.launch {
             graph.subtitlePrefs.prefs.collect { prefs ->
@@ -155,6 +162,7 @@ class PlaybackService : MediaSessionService() {
                             // valor por defecto, en silencio. Pasó con esto: el arranque por software
                             // se quedaba en false y el HEVC seguía abriendo por hardware.
                             preferirSoftware = ex.getBoolean("preferirSoftware", false),
+                            contenedorDeLaFuente = ex.getString("contenedorDeLaFuente").orEmpty(),
                         ),
                     )
                 }

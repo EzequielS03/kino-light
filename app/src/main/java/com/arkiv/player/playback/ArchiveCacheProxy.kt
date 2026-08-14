@@ -48,6 +48,30 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
     private fun soltarViva(clave: String) {
         vivasPorClave.computeIfPresent(clave) { _, n -> if (n <= 1) null else n - 1 }
     }
+
+    /**
+     * Las conexiones al origen abiertas AHORA, para poder abandonarlas cuando la red cambia debajo.
+     * A diferencia de [vivasPorClave] —que solo cuenta, para diagnóstico— esto guarda con qué
+     * cerrarlas. Ver [abandonarConexiones] y [CambioDeRed].
+     */
+    private val conexionesVivas = ConexionesVivas()
+
+    /**
+     * Cierra todas las conexiones al origen que haya abiertas. Lo llama el vigilante de red cuando
+     * el aparato cambia de red: esos sockets quedaron atados a una interfaz que ya no existe y sin
+     * esto la lectura se queda esperando hasta el plazo del CUERPO de [PoliticaOrigen] —90 s en
+     * archive, 30 s en magis— ANTES de que empiece siquiera el primer reintento.
+     *
+     * No hace falta avisarle a nadie más: cerrar el socket hace que la lectura falle en el acto, y
+     * de ahí en adelante se encarga la política de reintentos de siempre, que ya sabe abrir de nuevo
+     * — esta vez por la red nueva.
+     */
+    fun abandonarConexiones(motivo: String) {
+        val cerradas = conexionesVivas.cerrarTodas()
+        if (cerradas > 0) {
+            android.util.Log.w("ArchiveCacheProxy", "$motivo → abandono $cerradas conexión(es) al origen")
+        }
+    }
     // Tamaño real de cada origen, para poder ventanear. Ver totalDelOrigen.
     private val totales = ConcurrentHashMap<String, Long>()
 
@@ -112,6 +136,16 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
      * seguidas y con offsets distintos, y todas esas son las que hay que contestar sin red.
      */
     private val colas = ConcurrentHashMap<String, Pair<Long, ByteArray>>()
+
+    /**
+     * La misma cola, pero en disco, para que sobreviva al reinicio de la app.
+     *
+     * Sin esto [colas] se vaciaba en cada arranque y el sondeo de EOF de libVLC volvía a pagar la
+     * red — medido en el Fire TV el 2026-08-14: 6205 ms para traer 256 KB con dos rechazos del CDN,
+     * y 5376 ms hasta la primera imagen. En un Fire TV, que mata la app apenas se va al fondo, esa
+     * "primera vez" es casi siempre. Ver [ColaEnDisco].
+     */
+    private val colaEnDisco = ColaEnDisco(File(cacheDir, "colas"))
 
     /**
      * Colas que TODAVÍA se están bajando, por clave de caché.
@@ -873,6 +907,9 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
             }.getOrNull()
             if (conn != null) {
                 val cerrable = ConexionUnica.Cerrable { runCatching { conn.disconnect() } }
+                // Desde ACÁ y no desde el `return` de más abajo: entre medio está la espera de las
+                // cabeceras (`codigoConFechaLimite`), que contra una red muerta se cuelga hasta 90 s.
+                conexionesVivas.registrar(cerrable)
                 // NO se mata la conexión anterior, y esto es lo contrario de lo que hacía antes.
                 //
                 // `ConexionUnica` se puso creyendo que el CDN atendía de a una conexión por archivo.
@@ -902,6 +939,7 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                     "origen rechazó ${rango ?: "(todo)"} con $code (intento ${intento + 1}/$intentos)",
                 )
                 claveUnica?.let { soltarViva(it) }
+                conexionesVivas.soltar(cerrable)
                 runCatching { conn.disconnect() }
                 // Un 404 no mejora por insistir: el archivo no está donde lo tenemos anotado. Cortar
                 // acá ahorra dos timeouts y, sobre todo, deja el 404 llegar limpio hasta arriba, que
@@ -977,7 +1015,8 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                     "ArchiveCacheProxy",
                     "nodo #${i + 1} SIRVIÓ ${rango ?: "(todo)"} con $code (vivas: $vivas)",
                 )
-                return conn to ConexionUnica.Cerrable { runCatching { conn.disconnect() } }
+                return (conn to ConexionUnica.Cerrable { runCatching { conn.disconnect() } })
+                    .also { conexionesVivas.registrar(it.second) }
             }
             android.util.Log.w("ArchiveCacheProxy", "nodo #${i + 1} devolvió $code")
             runCatching { conn.disconnect() }
@@ -1034,6 +1073,11 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
          * momento no le hacían falta a nadie.
          */
         esperarCola: Boolean = true,
+        /**
+         * Contenedor que declara la fuente ("ts", "mp4"…), para decidir si la cola hace falta.
+         * Vacío = no se sabe, y ahí se precalienta igual. Ver [ColaCaliente.hayQuePrecalentar].
+         */
+        contenedor: String = "",
     ): Boolean = withContext(Dispatchers.IO) {
         val key = cache.keyFor(originUrl)
         val inicio = if (fraccion > 0f) {
@@ -1045,6 +1089,16 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
         // Piden tramos distintos del archivo y el CDN atiende varias conexiones sin degradarse
         // (medido: con tres drenando, un rango de cola seguía contestando en 0,44-0,82 s), así que
         // el costo pasa a ser el MÁXIMO de las dos en vez de la suma.
+        // ¿HACE FALTA LA COLA? En mp4 no: medido en el Fire TV, tres títulos la bajaron y no la
+        // usaron ni una vez, y uno de ellos costó 8284 ms con tres rechazos del CDN en paralelo con
+        // la apertura del video. Ante la duda se baja igual. Ver [ColaCaliente.hayQuePrecalentar].
+        val colaHaceFalta = ColaCaliente.hayQuePrecalentar(contenedor)
+        if (!colaHaceFalta) {
+            android.util.Log.w(
+                "ArchiveCacheProxy",
+                "cola omitida: el contenedor '$contenedor' abre sin leer el final del archivo",
+            )
+        }
         val buffer = BufferQueCrece(ARRANQUE_CALIENTE)
         calientes["$key@$inicio"] = buffer
         // El llenado NO se espera: se publica en el mapa ya mismo y sigue por su cuenta. El proxy le
@@ -1064,10 +1118,20 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
         // `esperarCola` ya solo decide si alguien mira el resultado; el trabajo se lanza igual,
         // porque los sondeos de EOF de libVLC quieren esa cola en memoria en los dos casos.
         val cola = CompletableDeferred<Unit>()
-        Thread {
-            runCatching { precalentarCola(originUrl, headers, key, perfil) }
+        if (colaHaceFalta) {
+            Thread {
+                runCatching { precalentarCola(originUrl, headers, key, perfil) }
+                cola.complete(Unit)
+            }.apply { isDaemon = true; name = "arkiv-precalentar-cola" }.start()
+        } else {
+            // Nadie la va a esperar, pero el tamaño del archivo SÍ hace falta para el precalentado
+            // del salto ([precalentarSalto] lo lee de `totales`). Se pide con un rango de UN byte
+            // en vez de con los 256 KB de la cola.
             cola.complete(Unit)
-        }.apply { isDaemon = true; name = "arkiv-precalentar-cola" }.start()
+            Thread {
+                runCatching { totalDelOrigen(originUrl, headers, perfil) }
+            }.apply { isDaemon = true; name = "arkiv-tamano" }.start()
+        }
 
         // Lo ÚNICO que se espera siempre: que el arranque haya empezado a fluir. Con eso alcanza
         // para que la primera lectura de libVLC se responda al instante, que es lo que evitaba el
@@ -1169,6 +1233,18 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
         perfil: PoliticaOrigen.Perfil,
     ) {
         val t0 = System.currentTimeMillis()
+        // ¿YA LA TENEMOS DE OTRA SESIÓN? Es lo primero que se prueba: la cola de un archivo no
+        // cambia, y traerla del disco cuesta microsegundos contra los segundos que cuesta el CDN.
+        colaEnDisco.leer(key)?.let { guardada ->
+            colas[key] = guardada.inicio to guardada.bytes
+            totales[originUrl] = guardada.total
+            android.util.Log.w(
+                "ArchiveCacheProxy",
+                "cola del disco: ${guardada.bytes.size / 1024}KB desde ${guardada.inicio} " +
+                    "(total=${guardada.total}) sin tocar la red",
+            )
+            return
+        }
         // Se avisa ANTES de abrir, no después: la carrera que esto evita empieza en cuanto libVLC
         // abre el media, que es milisegundos después de que arranque este hilo.
         val enVuelo = java.util.concurrent.CountDownLatch(1)
@@ -1299,6 +1375,8 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
         val total = m.groupValues[3].toLong()
         totales[originUrl] = total
         colas[key] = inicio to bytes
+        // Y al disco, para que la próxima vez que se abra este título no haya que volver a pedirla.
+        colaEnDisco.guardar(key, inicio, total, bytes)
         android.util.Log.w(
             "ArchiveCacheProxy",
             "precalentada la cola: ${bytes.size / 1024}KB desde $inicio (total=$total) " +
@@ -1391,6 +1469,12 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
             while (total <= 0L && System.currentTimeMillis() < limite) {
                 Thread.sleep(100)
                 total = totales[originUrl] ?: 0L
+            }
+            if (total <= 0L) {
+                // La cola es la vía normal para saber el tamaño, pero puede no haberse pedido
+                // (contenedor que no la necesita) o no haber llegado. Un rango de un byte lo
+                // resuelve por su cuenta; sin esto el salto se quedaba sin precalentar en silencio.
+                total = runCatching { totalDelOrigen(originUrl, headers, perfil) }.getOrDefault(0L)
             }
             if (total <= 0L) {
                 android.util.Log.w("ArchiveCacheProxy", "salto: sin tamaño del archivo, no se precalienta")
@@ -1659,6 +1743,7 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
         } finally {
             ventana?.cerrar()
             claveUnica?.let { soltarViva(it) }
+            conexionesVivas.soltar(cerrable)
             // disconnect() SIEMPRE, también cuando el reproductor corta la conexión a mitad (seek →
             // "broken pipe"). Antes la excepción se saltaba esta línea y la conexión al CDN quedaba
             // viva en el pool de HttpURLConnection drenando el resto del archivo: el origen veía dos

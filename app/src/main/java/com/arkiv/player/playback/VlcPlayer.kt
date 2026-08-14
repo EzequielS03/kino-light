@@ -148,6 +148,13 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
     // observando el StateFlow de SubtitlePrefs, así un cambio en Ajustes (o sincronizado desde el
     // celular) pega en la próxima reproducción sin reiniciar nada.
     @Volatile var langPrefs: PlaybackPrefs = PlaybackPrefs()
+    /**
+     * Cómo avisarle a la capa de entrega que el reproductor va a saltar. Lo cablea `PlaybackService`
+     * al `ArchiveCacheProxy`; sin cablear, el salto se comporta como antes. Ver [AvisoDeSalto].
+     */
+    @Volatile var precalentarSalto: ((origen: String, headers: Map<String, String>, fraccion: Float) -> Unit)? = null
+    /** Cuándo se avisó por última vez, para el freno de [AvisoDeSalto.MINIMO_ENTRE_AVISOS_MS]. */
+    private var ultimoAvisoDeSaltoWallMs = 0L
     private var defaultAudioApplied = false
     // Idioma declarado de las pistas externas cuyo NOMBRE no lo delata (las de una fuente web llegan
     // como una URL opaca del CDN). Clave: un trozo de la URL, en minúsculas, que aparezca en el
@@ -400,6 +407,17 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
                 }
                 return Futures.immediateVoidFuture()
             }
+            // AVISO A LA CAPA DE ENTREGA, ANTES de mover nada.
+            //
+            // Es la técnica central del reproductor de magis original: su seek no va al player, va
+            // al motor de entrega, y el player se mueve recién cuando ese motor contesta. Acá el
+            // aviso no bloquea el salto —el proxy precalienta en un hilo aparte— pero le da la
+            // ventaja de arrancar a buscar los bytes del destino ANTES de que VLC los pida, que es
+            // lo que separa un salto instantáneo de uno que espera al CDN. `precalentarSalto` ya
+            // existía y estaba probado; lo único que faltaba era llamarlo también acá y no solo al
+            // abrir. Ver [AvisoDeSalto].
+            val uriDelItem = items.getOrNull(currentIndex)?.localConfiguration?.uri?.toString()
+            avisarDelSalto(uriDelItem.orEmpty(), positionMs, duracionParaElSalto(lengthMs))
             if (ventanaAplica) {
                 ultimaReaperturaWallMs = ahora
                 // Sin duración propia, el salto de libVLC deja el demuxer con el reloj del punto
@@ -416,6 +434,85 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
             }
         }
         return Futures.immediateVoidFuture()
+    }
+
+    /**
+     * Escribe QUÉ contenido es el que está fallando, junto al rescate que se dispara. Ver
+     * [DiagnosticoDeFallo] para el porqué de cada campo.
+     *
+     * Todo va envuelto: leer las pistas del Media puede lanzar si libVLC ya soltó el objeto, y un
+     * log no puede ser lo que impida el rescate.
+     */
+    private fun registrarFallo(motivo: String) {
+        runCatching {
+            val uriActual = items.getOrNull(currentIndex)?.localConfiguration?.uri?.toString().orEmpty()
+            val video = pistaDeVideoActual()
+            android.util.Log.w(
+                "ArkivVlc",
+                DiagnosticoDeFallo.linea(
+                    motivo = motivo,
+                    // El contenedor forzado si lo hay (magis), y si no el que declara el origen.
+                    contenedor = formatoAvformatDe(uriActual)
+                        ?: ContenedorDeVideo.porExtension(UrlDeProxy.origenDe(uriActual) ?: uriActual)?.name,
+                    codecVideo = video?.first.orEmpty(),
+                    ancho = video?.second ?: 0,
+                    alto = video?.third ?: 0,
+                    pistasVideo = runCatching { mediaPlayer.videoTracksCount }.getOrDefault(-1),
+                    pistasAudio = runCatching { mediaPlayer.audioTracksCount }.getOrDefault(-1),
+                    porHardware = hardwareActual,
+                    equipo = android.os.Build.MODEL.orEmpty(),
+                ),
+            )
+        }
+    }
+
+    /**
+     * (códec, ancho, alto) de la pista de video en uso, o null si todavía no hay media parseada.
+     *
+     * Mismo cuidado que [currentAudioFormat] con `mediaPlayer.media`: RETIENE la referencia y hay
+     * que soltarla, o se fuga en cada consulta.
+     */
+    private fun pistaDeVideoActual(): Triple<String, Int, Int>? = runCatching {
+        val media = mediaPlayer.media ?: return@runCatching null
+        try {
+            for (i in 0 until media.trackCount) {
+                val t = media.getTrack(i) as? IMedia.VideoTrack ?: continue
+                return@runCatching Triple(t.codec.orEmpty(), t.width, t.height)
+            }
+            null
+        } finally {
+            runCatching { media.release() }
+        }
+    }.getOrNull()
+
+    /** La duración contra la que se calcula la fracción del salto. Ver [UnknownLengthPolicy]. */
+    private fun duracionParaElSalto(lengthMs: Long): Long =
+        UnknownLengthPolicy.duracionAbsolutaMs(lengthMs, knownDurationMs, baseOffsetMs)
+
+    /**
+     * Le pide a la capa de entrega que vaya preparando [posicionMs] mientras el reproductor salta.
+     *
+     * Best-effort a propósito: si no hay quien escuche, o la fuente no sale de nuestro proxy, o el
+     * salto cae en un extremo, no pasa nada y el salto sigue igual que antes. Lo que NO puede pasar
+     * es que esto frene o rompa el seek — de ahí el `runCatching`.
+     */
+    private fun avisarDelSalto(uriActual: String, posicionMs: Long, duracionMs: Long) {
+        val ahora = System.currentTimeMillis()
+        if (!AvisoDeSalto.hayQueAvisar(
+                esDelProxy = UrlDeProxy.esDelProxy(uriActual),
+                msDesdeElUltimo = ahora - ultimoAvisoDeSaltoWallMs,
+            )
+        ) return
+        val fraccion = AvisoDeSalto.fraccion(posicionMs, duracionMs) ?: return
+        val origen = UrlDeProxy.origenDe(uriActual) ?: return
+        ultimoAvisoDeSaltoWallMs = ahora
+        runCatching {
+            android.util.Log.w(
+                "ArkivVlc",
+                "aviso de salto al proxy: pos=${posicionMs}ms de ${duracionMs}ms (fraccion=$fraccion)",
+            )
+            precalentarSalto?.invoke(origen, UrlDeProxy.headersDe(uriActual), fraccion)
+        }
     }
 
     override fun handleStop(): ListenableFuture<*> {
@@ -508,6 +605,7 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
                     "software sin imagen ${rachaSinVideoMs}ms seguidos (pos=${t}ms) → vuelvo a hardware",
                 )
             }
+            registrarFallo("software-sin-imagen")
             handler.post { reintentarEnHardware() }
             return
         }
@@ -528,10 +626,20 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
                     "hardware sin imagen ${rachaSinVideoMs}ms seguidos (pos=${t}ms) → paso a software",
                 )
             }
+            registrarFallo("hardware-sin-imagen")
             handler.post { retryInSoftware() }
             return
         }
         if (t != lastObservedTimeMs) {
+            // EL número que ve el usuario, y sale SIEMPRE. Vivía dentro del fin-de-pausa, así que
+            // un arranque perfecto —sin una sola pausa— no dejaba medición: en la tanda del
+            // 2026-08-14, los tres títulos en mp4 arrancaron de corrido y ninguno registró cuánto
+            // tardó. Justo los buenos eran los que no se podían comparar.
+            //
+            // Va con [RelojDeReproduccion] y no con el `!=` de arriba porque ese `!=` es cierto
+            // también en la PRIMERA lectura (`lastObservedTimeMs` arranca en -1), y eso reportaba
+            // el video corriendo 1,8 s antes de que hubiera imagen.
+            if (RelojDeReproduccion.avanzoDeVerdad(lastObservedTimeMs, t)) avisarCorriendo(now)
             // El tiempo avanzó → está reproduciendo; limpiar un posible estado "buffering" pegado.
             lastObservedTimeMs = t
             lastAdvanceWallMs = now
@@ -564,6 +672,7 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
                         "estancado en 0 con hardware tras ${now - bufferingSinceWallMs}ms → reintento por software",
                     )
                 }
+                registrarFallo("estancado-en-0")
                 handler.post { retryInSoftware() }
             } else if (AguanteDeBuffering.hayQueRendirse(now - bufferingSinceWallMs)) {
                 // Se acabó la esperanza: la capa de red ya agotó su presupuesto entero (ver
@@ -590,16 +699,30 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
             // spinner había que sumarlos a mano entre líneas sueltas de dos etiquetas distintas.
             // Ojo con leer "abrió en" como si fuera esto: la primera imagen aparece ANTES de que el
             // video arranque a caminar, y ese hueco fue de 8,5 s en la peor medición del 2026-08-13.
-            if (!corriendoAvisado && mediaCargadaWallMs > 0L) {
-                corriendoAvisado = true
-                runCatching {
-                    android.util.Log.w(
-                        "ArkivVlc",
-                        "⏱ CORRIENDO a los ${now - mediaCargadaWallMs}ms de loadMedia " +
-                            "(primera imagen a los ${if (primerVoutWallMs > 0L) primerVoutWallMs - mediaCargadaWallMs else -1}ms)",
-                    )
-                }
-            }
+            avisarCorriendo(now)
+        }
+    }
+
+    /**
+     * "El video está caminando de verdad": la primera vez que el reloj avanza tras cargar el media.
+     *
+     * Es EL número que ve el usuario, y por eso sale una sola vez y sin condiciones. Estaba adentro
+     * del bloque de fin-de-pausa, o sea que un arranque que nunca se pausó —el bueno— no dejaba
+     * medición ninguna: en la tanda del Fire TV del 2026-08-14, los tres títulos en mp4 arrancaron
+     * de corrido y ninguno registró su tiempo. Justo los que había que comparar.
+     *
+     * Ojo con leer "abrió en" como si fuera esto: la primera imagen aparece ANTES de que el video
+     * arranque a caminar, y ese hueco fue de 8,5 s en la peor medición del 2026-08-13.
+     */
+    private fun avisarCorriendo(now: Long) {
+        if (corriendoAvisado || mediaCargadaWallMs <= 0L) return
+        corriendoAvisado = true
+        runCatching {
+            android.util.Log.w(
+                "ArkivVlc",
+                "⏱ CORRIENDO a los ${now - mediaCargadaWallMs}ms de loadMedia " +
+                    "(primera imagen a los ${if (primerVoutWallMs > 0L) primerVoutWallMs - mediaCargadaWallMs else -1}ms)",
+            )
         }
     }
 
@@ -631,18 +754,10 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         val item = items.getOrNull(currentIndex) ?: return
         val uri = uriOverride ?: item.localConfiguration?.uri ?: return
         val tag = item.localConfiguration?.tag as? PlayerSourceTag
-        // Torrent: colchón de 6s para absorber baches de descarga durante la reproducción (validado en
-        // device: con 2.5s VLC se quedaba sin datos y estancaba; 6s da el arranque más limpio). El bache
-        // que ocurre justo al abrir VLC es CPU-bound (arranque del decoder HW en la TV) y VLC lee por
-        // delante, así que subir más el caché no lo elimina — sólo agrega latencia de arranque.
-        // WEB: el HLS va PROXEADO por blog (2 CPU) + Cloudflare, con latencia por-segmento variable →
-        // 1.5s se drena y la reproducción alcanza al buffer ("se va pasando"). 8s de colchón para
-        // absorber esa variabilidad de la red/proxy. archive/local: 1.5s basta (origen estable).
-        val networkCaching = when (tag?.kind) {
-            SourceKind.TORRENT -> 6000
-            SourceKind.WEB -> 8000
-            else -> 1500
-        }
+        // El colchón de red por FUENTE, con el porqué de cada número, vive en [CachingDeRed]. El
+        // vivo dejó de caer en el caso general: comparte camino con WEB (VLC → proxy nuestro → CDN)
+        // y por lo tanto su misma latencia variable por segmento.
+        val networkCaching = CachingDeRed.msPara(tag?.kind)
         currentStartMs = startPositionMs
         hardwareActual = hardware
         knownDurationMs = tag?.knownDurationMs ?: 0L
@@ -681,7 +796,11 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         // se podía clasificar. Se limpia del lado del que asigna, que sí tiene el orden garantizado.
         // Se calcula acá para que también salga en el log de abajo: cuál demuxer terminó eligiendo
         // avformat es lo primero que hay que mirar cuando magis abre y se queda en 0:00.
-        val formatoMagis = if (tag?.kind == SourceKind.MAGIS) formatoAvformatDe(uri.toString()) else null
+        val formatoMagis = if (tag?.kind == SourceKind.MAGIS) {
+            formatoAvformatDe(uri.toString(), tag.contenedorDeLaFuente)
+        } else {
+            null
+        }
         val media = Media(libVlc, uri).apply {
             setHWDecoderEnabled(hardware, false)
             addOption(":network-caching=$networkCaching")
@@ -719,11 +838,25 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
                 // `-f mpegts` de ffmpeg: se saltea `av_probe_input_format` y, sobre todo, se saltea
                 // el riesgo de que adivine mal justo cuando la primera lectura del CDN llega lenta.
                 //
-                // El formato sale del ARCHIVO, no de una suposición. Acá decía `mpegts` fijo, con la
-                // premisa de que "todo lo que resuelve magis es MPEG-TS": es falsa, el gateway elige
-                // el contenedor por título y prefiere mp4 cuando existe. Ver [formatoAvformatDe].
+                // El formato sale de LA FUENTE, no de una suposición. Acá decía `mpegts` fijo, con
+                // la premisa de que "todo lo que resuelve magis es MPEG-TS": es falsa, el portal
+                // sirve mp4 cuando lo tiene. Después se dedujo de la extensión de la URL, que
+                // tampoco alcanza: esa extensión la arma el gateway colapsando a `.mp4` todo lo que
+                // no sea `ts`, porque es la clave del objeto en el CDN y solo existe en dos
+                // sabores. Ahora el contenedor viaja como DATO desde el portal (`container` del
+                // gateway → [PlayerSourceTag.contenedorDeLaFuente]), igual que hace la app original
+                // con el `format` de su backend. Ver [formatoAvformatDe].
                 formatoMagis?.let { addOption(":avformat-format=$it") }
             }
+            // IDIOMA DE AUDIO PEDIDO AL ABRIR, no corregido después.
+            //
+            // Portado de la app original de magis (`setOption(4, "audio_language", …)` sobre su
+            // ijkplayer, ver el decompilado): así el demuxer ya elige bien en el momento de abrir,
+            // en vez de abrir con la primera pista y pelearle la corrección a libVLC durante los
+            // ~3 s siguientes. [applyPreferredAudio] sigue corriendo y sigue haciendo falta —es el
+            // único que distingue Latino de Castellano, que para el código ISO son los dos `spa`—
+            // pero pasa a ser el AJUSTE FINO y no el mecanismo principal. Ver [OpcionesDeIdioma].
+            OpcionesDeIdioma.opcionDeAudio(langPrefs)?.let { addOption(it) }
             // Streams web: algunos hosts exigen Referer/UA o devuelven 403.
             tag?.referer?.takeIf { it.isNotBlank() }?.let { addOption(":http-referrer=$it") }
             tag?.userAgent?.takeIf { it.isNotBlank() }?.let { addOption(":http-user-agent=$it") }
@@ -1025,6 +1158,24 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         hayVideoAhora = voutTracker.hayVideo(),
         pistasDeVideo = runCatching { mediaPlayer.videoTracksCount }.getOrDefault(0),
         pistasDeAudio = runCatching { mediaPlayer.audioTracksCount }.getOrDefault(0),
+        // La reanudación: mientras el reloj no haya llegado al punto pedido, la imagen que hay en
+        // pantalla es la del PRINCIPIO y no la que corresponde. Ver el KDoc de la política, que
+        // lleva la medición del Fire TV. Dentro de una ventana el reloj de VLC no ubica, así que se
+        // usa la posición absoluta —la misma que ve la barra— y no `mediaPlayer.time` a secas.
+        pedidoMs = currentStartMs,
+        posicionMs = if (baseOffsetMs <= 0L) {
+            runCatching { mediaPlayer.time.coerceAtLeast(0) }.getOrDefault(0L)
+        } else {
+            VentanaDeArchivo.posicionAbsolutaMs(
+                baseOffsetMs,
+                runCatching { mediaPlayer.position }.getOrDefault(0f),
+                UnknownLengthPolicy.duracionAbsolutaMs(
+                    runCatching { mediaPlayer.length }.getOrDefault(0L),
+                    knownDurationMs,
+                    baseOffsetMs,
+                ),
+            )
+        },
     )
 
     /** Identidad del layout enganchado ahora mismo, para el diagnóstico de la pantalla negra. */

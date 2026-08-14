@@ -240,6 +240,9 @@ private fun localMediaItems(items: List<PlayerData>): List<MediaItem> = items.ma
                     // sondeada y el player vuelve a quedarse sin ella (barra llena, sin seek).
                     if (d.knownDurationMs > 0) putLong("knownDurationMs", d.knownDurationMs)
                     if (d.preferirSoftware) putBoolean("preferirSoftware", true)
+                    if (d.contenedorDeLaFuente.isNotEmpty()) {
+                        putString("contenedorDeLaFuente", d.contenedorDeLaFuente)
+                    }
                 })
                 .build(),
         )
@@ -255,6 +258,7 @@ private fun localMediaItems(items: List<PlayerData>): List<MediaItem> = items.ma
                 proxyUrl = d.proxyUrl,
                 knownDurationMs = d.knownDurationMs,
                 preferirSoftware = d.preferirSoftware,
+                contenedorDeLaFuente = d.contenedorDeLaFuente,
             ),
         )
         .setMediaMetadata(

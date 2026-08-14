@@ -59,6 +59,8 @@ data class PlayerData(
     val proxyUrl: String? = null,   // web: URL proxeada de respaldo si la directa falla (403/geo/anti-leech)
     val knownDurationMs: Long = 0L, // duración sondeada aparte, para fuentes cuya duración VLC no deduce (TS/HTTP)
     val preferirSoftware: Boolean = false, // HEVC de magis: el hardware falla y deja sin pistas. Ver PlayerSourceTag.
+    /** Contenedor que declara la fuente ("ts", "mp4"…); "" = no se sabe. Ver PlayerSourceTag. */
+    val contenedorDeLaFuente: String = "",
 )
 
 /** La sección como playlist: todos los episodios + dónde/cómo arrancar. */
@@ -713,6 +715,12 @@ class PlayerViewModel(
             runCatching {
                 archiveCacheProxy.precalentar(
                     play.url, play.headers, fraccion = 0f, esperarCola = false,
+                    // El contenedor decide si hace falta traer la cola del archivo: un mp4 abre sin
+                    // leer el final y bajarla es gasto puro contra el CDN. Si el gateway no lo
+                    // manda, la extensión de la URL lo dice igual para magis.
+                    contenedor = play.container.ifBlank {
+                        com.arkiv.player.playback.ContenedorDeVideo.extensionDeVideo(play.url).orEmpty()
+                    },
                 )
             }
         }
@@ -734,6 +742,10 @@ class PlayerViewModel(
             openingStartMs = null, openingEndMs = null, endingStartMs = null,
             kind = SourceKind.MAGIS,
             knownDurationMs = duracion,
+            // Lo que DICE el portal, no lo que sugiere la extensión que el gateway le puso a la
+            // URL: esa extensión colapsa a `.mp4` todo lo que no sea `ts` porque es la clave del
+            // objeto en el CDN. Ver [com.arkiv.player.playback.formatoAvformatDe].
+            contenedorDeLaFuente = play.container,
         )
         // Acá se forzaba SOFTWARE para el HEVC de magis, dando por hecho que el decodificador por
         // hardware descartaba las pistas (`pistas=v0/a0`). Ese diagnóstico era falso: el que las

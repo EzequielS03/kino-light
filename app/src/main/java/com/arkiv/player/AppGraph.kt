@@ -323,8 +323,21 @@ class AppGraph(context: Context) {
     val subtitlePrefs: com.arkiv.player.data.subtitles.SubtitlePrefs by lazy {
         com.arkiv.player.data.subtitles.SubtitlePrefs(appContext)
     }
+    /**
+     * Vigila los cambios de red para que [archiveCacheProxy] abandone las conexiones que quedaron
+     * atadas a la red anterior. Se guarda la referencia aunque nadie la use: el vigilante vive lo
+     * que vive el proceso, igual que el proxy, y tenerlo a mano deja poder pararlo si algún día
+     * hace falta. Ver [com.arkiv.player.playback.CambioDeRed].
+     */
+    private var vigilanteDeRed: com.arkiv.player.playback.VigilanteDeRed? = null
+
     val archiveCacheProxy: com.arkiv.player.playback.ArchiveCacheProxy by lazy {
         com.arkiv.player.playback.ArchiveCacheProxy(java.io.File(appContext.cacheDir, "archive-cache"))
+            .also { proxy ->
+                vigilanteDeRed = com.arkiv.player.playback.VigilanteDeRed(appContext) { motivo ->
+                    proxy.abandonarConexiones(motivo)
+                }.apply { empezar() }
+            }
     }
     // --- Fetcher HTTP compartido (con resolución de Cloudflare) usado por la capa web on-device ---
     // Store único compartido entre el solver y el fetcher: así el short-circuit de caché del

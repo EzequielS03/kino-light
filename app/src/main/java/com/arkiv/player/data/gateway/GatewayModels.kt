@@ -46,6 +46,15 @@ data class GatewayPlayable(
     val durationMs: Long = 0L,
     /** Códec de video que reporta la fuente ("h264", "h265"…); "" si no se sabe. */
     val videoCodec: String = "",
+    /**
+     * Contenedor tal como lo nombra la FUENTE ("ts", "mp4"…); "" si no se sabe.
+     *
+     * Es el dato con el que la app le declara el contenedor al demuxer antes de abrir. Antes se
+     * deducía de la extensión de [url], que para magis no es un dato de la fuente sino algo que
+     * arma el gateway colapsando a `.mp4` todo lo que el portal no llame `ts`. Ver
+     * [com.arkiv.player.playback.formatoAvformatDe]. "" = sondear, nunca suponer.
+     */
+    val container: String = "",
 )
 
 data class GatewaySubtitle(val lang: String, val url: String, val format: String = "")
