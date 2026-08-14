@@ -148,6 +148,16 @@ class SearchViewModel(
     private val _selected = MutableStateFlow<TitleCard?>(null)
     val selected: StateFlow<TitleCard?> = _selected.asStateFlow()
 
+    /**
+     * Si lo que se está buscando salió de escribir texto y no de elegir una ficha del catálogo.
+     *
+     * Importa al GUARDAR: con una ficha real, el título y el póster de TMDB son la mejor metadata
+     * que hay; con texto libre, la consulta no es metadata de nada —"dragon ball 137" no es el
+     * nombre de nada— y lo que corresponde es el nombre propio de cada fuente.
+     */
+    private val _busquedaPorTexto = MutableStateFlow(false)
+    val busquedaPorTexto: StateFlow<Boolean> = _busquedaPorTexto.asStateFlow()
+
     // --- Fase RESULTS: resultados multi-fuente (torrent/web/archive) de la card elegida ---
     private val _sources = MutableStateFlow<List<PlaySource>>(emptyList())
     val sources: StateFlow<List<PlaySource>> = _sources.asStateFlow()
@@ -223,16 +233,21 @@ class SearchViewModel(
             var tmdbDone = false
             var animeDone = false
 
+            // Las dos fuentes se pisan mucho (todo el anime que además está en TMDB), y en la
+            // grilla eso son dos cards con el mismo nombre. Se limpia al publicar, que es el único
+            // punto por el que pasan las dos tandas.
+            fun publicarTitulos() { _titleResults.value = sinRepetidos(tmdbCards + animeCards) }
+
             val tmdbJob = launch {
                 tmdbCards = runCatching { tmdbApi.searchMulti(q) }.getOrDefault(emptyList()).map { it.toTitleCard() }
                 tmdbDone = true
-                _titleResults.value = tmdbCards + animeCards
+                publicarTitulos()
                 if (animeDone) _loadingTitles.value = false
             }
             val animeJob = launch {
                 animeCards = runCatching { aniListApi.browse(1, "SEARCH_MATCH", q, null) }.getOrDefault(emptyList()).map { it.toTitleCard() }
                 animeDone = true
-                _titleResults.value = tmdbCards + animeCards
+                publicarTitulos()
                 if (tmdbDone) _loadingTitles.value = false
             }
 
@@ -292,11 +307,32 @@ class SearchViewModel(
     fun pickTitle(card: TitleCard) {
         enHistorial { searchHistory.addTitle(card.toRecent()) }
         _selected.value = card
+        _busquedaPorTexto.value = false
         if (card.kind == "movie") {
             runSourceSearch(null, null)
         } else {
             _phase.value = SearchPhase.REFINE
         }
+    }
+
+    /**
+     * Busca fuentes por el texto crudo, sin pasar por el catálogo (botón "Ir" del TV): sirve
+     * cuando uno se acuerda de un pedazo del nombre y no del título exacto con el que TMDB lo
+     * tiene. La card la arma [cardDeTextoLibre]; de ahí en adelante es la misma búsqueda de
+     * siempre, así que la lista de fuentes, los packs y la reproducción no cambian en nada.
+     *
+     * NO va al historial de títulos: una card sin póster ni ids ensuciaría la fila de "recientes"
+     * del celu. La consulta sí la graba quien llama, en el historial de texto que le corresponda.
+     */
+    fun buscarFuentesPorTexto(q: String) {
+        val card = cardDeTextoLibre(q) ?: return
+        _selected.value = card
+        _busquedaPorTexto.value = true
+        // Metadata de la búsqueda anterior: `runSourceSearch` limpia `_detail` sola (la card no
+        // tiene tmdbId), pero `_animeShow` solo se toca en la rama de anime — y si quedó la de un
+        // anime buscado antes, la pantalla de fuentes mostraría SU título en vez del texto tecleado.
+        _animeShow.value = null
+        runSourceSearch(null, null)
     }
 
     /**
@@ -601,6 +637,9 @@ class SearchViewModel(
             SearchPhase.REFINE -> _phase.value = SearchPhase.QUERY
             SearchPhase.QUERY -> Unit
         }
-        if (_phase.value == SearchPhase.QUERY) _selected.value = null
+        if (_phase.value == SearchPhase.QUERY) {
+            _selected.value = null
+            _busquedaPorTexto.value = false
+        }
     }
 }
