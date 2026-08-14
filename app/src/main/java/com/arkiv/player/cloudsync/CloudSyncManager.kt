@@ -191,31 +191,71 @@ class CloudSyncManager(
             else -> "itemId"
         }
         // En orden cronológico: la marca de agua se corta en la fila sin resolver más vieja.
-        val outcomes = rows.sortedBy { updatedAt(it) }.map { row ->
+        // Primero se intenta TODO el lote sin tocar la cuarentena: hasta no verlo completo no se
+        // puede saber si un fallo es de la fila o del servidor (ver [resolverLote]).
+        val intentos = rows.sortedBy { updatedAt(it) }.map { row ->
             val k = key(row)
-            val resuelta = if (quarantine.enCuarentena(col, k)) {
-                true // ya se rindió antes; no la reintentamos ni dejamos que atasque la colección
+            if (quarantine.enCuarentena(col, k)) {
+                // ya se rindió antes; no la reintentamos ni dejamos que atasque la colección
+                IntentoDeFila(updatedAt(row), k, intentada = false, error = null)
             } else {
                 try {
                     pbSync.upsert(col, keyField, k, fields(row))
                     quarantine.limpiar(col, k)
-                    true
+                    IntentoDeFila(updatedAt(row), k, intentada = true, error = null)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    val n = quarantine.registrarFallo(col, k)
-                    if (n >= SyncQuarantine.MAX_INTENTOS) {
-                        Log.e(TAG, "cloudsync: fila $col '$k' EN CUARENTENA tras $n intentos, " +
-                            "el cursor la pasa de largo: ${e.message}")
-                    } else {
-                        Log.w(TAG, "cloudsync: fila $col '$k' falló (intento $n), se reintenta: ${e.message}")
-                    }
-                    quarantine.enCuarentena(col, k)
+                    IntentoDeFila(updatedAt(row), k, intentada = true, error = e)
                 }
             }
-            RowOutcome(updatedAt(row), resuelta)
         }
-        cursors.setLastPushed(col, PushFrontier.advance(cursors.lastPushed(col), outcomes))
+        cursors.setLastPushed(col, PushFrontier.advance(cursors.lastPushed(col), resolverLote(col, intentos)))
+    }
+
+    /** Una fila ya intentada, a la espera de saber cómo le fue al RESTO del lote. */
+    private class IntentoDeFila(
+        val updatedAt: Long,
+        val key: String,
+        val intentada: Boolean,
+        val error: Exception?,
+    )
+
+    /**
+     * Decide el destino de cada fila del lote, ya sabiendo cómo le fue a todas.
+     *
+     * Si el lote rebotó ENTERO ([PushLote.esRechazoSistemico]) el problema es del servidor, no de
+     * las filas: no se cuentan intentos —si no, en 3 pasadas la biblioteca completa termina en
+     * cuarentena y el cursor salta por encima— y las filas quedan sin resolver, con lo que
+     * [PushFrontier] deja el cursor quieto hasta que se arregle. Si solo fallaron algunas, cada una
+     * cuenta su intento como siempre.
+     */
+    private fun resolverLote(col: String, intentos: List<IntentoDeFila>): List<RowOutcome> {
+        val sistemico = PushLote.esRechazoSistemico(
+            intentadas = intentos.count { it.intentada },
+            fallidas = intentos.count { it.error != null },
+        )
+        if (sistemico) {
+            Log.e(TAG, "cloudsync: $col rechazó el LOTE ENTERO (${intentos.size} filas); no se " +
+                "cuentan intentos y el cursor espera: ${intentos.firstNotNullOf { it.error }.message}")
+        }
+        return intentos.map { i ->
+            val resuelta = when {
+                i.error == null -> true          // subió bien, o ya estaba en cuarentena
+                sistemico -> false               // no es culpa de la fila: el cursor la espera
+                else -> {
+                    val n = quarantine.registrarFallo(col, i.key)
+                    if (n >= SyncQuarantine.MAX_INTENTOS) {
+                        Log.e(TAG, "cloudsync: fila $col '${i.key}' EN CUARENTENA tras $n intentos, " +
+                            "el cursor la pasa de largo: ${i.error.message}")
+                    } else {
+                        Log.w(TAG, "cloudsync: fila $col '${i.key}' falló (intento $n), se reintenta: ${i.error.message}")
+                    }
+                    quarantine.enCuarentena(col, i.key)
+                }
+            }
+            RowOutcome(i.updatedAt, resuelta)
+        }
     }
 
     /**
@@ -227,31 +267,27 @@ class CloudSyncManager(
     private suspend fun pushFrames(acct: String) {
         val rows = episodeFrameDao.getFramesSince(cursors.lastPushed(COL_FRAMES))
         if (rows.isEmpty()) return
-        val outcomes = rows.sortedBy { it.updatedAt }.map { row ->
+        val intentos = rows.sortedBy { it.updatedAt }.map { row ->
             val k = row.episodeId
-            val resuelta = if (quarantine.enCuarentena(COL_FRAMES, k)) {
-                true // ya se rindió antes; no la reintentamos ni dejamos que atasque la colección
+            if (quarantine.enCuarentena(COL_FRAMES, k)) {
+                // ya se rindió antes; no la reintentamos ni dejamos que atasque la colección
+                IntentoDeFila(row.updatedAt, k, intentada = false, error = null)
             } else {
                 try {
                     subirFrame(row, acct)
                     quarantine.limpiar(COL_FRAMES, k)
-                    true
+                    IntentoDeFila(row.updatedAt, k, intentada = true, error = null)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    val n = quarantine.registrarFallo(COL_FRAMES, k)
-                    if (n >= SyncQuarantine.MAX_INTENTOS) {
-                        Log.e(TAG, "cloudsync: fila $COL_FRAMES '$k' EN CUARENTENA tras $n intentos, " +
-                            "el cursor la pasa de largo: ${e.message}")
-                    } else {
-                        Log.w(TAG, "cloudsync: fila $COL_FRAMES '$k' falló (intento $n), se reintenta: ${e.message}")
-                    }
-                    quarantine.enCuarentena(COL_FRAMES, k)
+                    IntentoDeFila(row.updatedAt, k, intentada = true, error = e)
                 }
             }
-            RowOutcome(row.updatedAt, resuelta)
         }
-        cursors.setLastPushed(COL_FRAMES, PushFrontier.advance(cursors.lastPushed(COL_FRAMES), outcomes))
+        cursors.setLastPushed(
+            COL_FRAMES,
+            PushFrontier.advance(cursors.lastPushed(COL_FRAMES), resolverLote(COL_FRAMES, intentos)),
+        )
     }
 
     /**

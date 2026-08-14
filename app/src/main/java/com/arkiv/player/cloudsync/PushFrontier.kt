@@ -15,6 +15,28 @@ data class RowOutcome(val updatedAt: Long, val settled: Boolean)
  * La regla correcta: avanzar solo hasta lo que quedó resuelto, deteniéndose ESTRICTAMENTE ANTES
  * de la fila sin resolver más vieja, para que el próximo ciclo la vuelva a tomar.
  */
+/**
+ * Distingue un lote que rebotó ENTERO de unas pocas filas malas entre muchas.
+ *
+ * La cuarentena ([SyncQuarantine]) existe para que UNA fila inválida no atasque la colección para
+ * siempre: tras N intentos se la da por perdida y el cursor la pasa de largo. Pero cuando el
+ * rechazo viene del servidor y afecta a TODAS las filas por igual, ese mecanismo se vuelve en
+ * contra — cada fila quema sus intentos, todas caen en cuarentena y el cursor salta por encima de
+ * la biblioteca completa. Pasó de verdad: 1.095 `episodes` + 307 `progress` rechazados en 25 h
+ * porque el `accountId` del aparato quedó desfasado del de su record y la regla
+ * `accountId = @request.auth.accountId` los rechazaba en bloque.
+ *
+ * Si NADA del lote pasó, no son N filas malas: es el servidor. No se cuentan los intentos, y como
+ * las filas quedan sin resolver [PushFrontier] deja el cursor quieto hasta que se arregle.
+ *
+ * Con una sola fila el caso es indistinguible de una fila envenenada, así que ahí se conserva la
+ * cuarentena: es la garantía de que la colección no se atasca para siempre.
+ */
+object PushLote {
+    fun esRechazoSistemico(intentadas: Int, fallidas: Int): Boolean =
+        intentadas > 1 && fallidas == intentadas
+}
+
 object PushFrontier {
 
     fun advance(current: Long, outcomes: List<RowOutcome>): Long {

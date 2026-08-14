@@ -89,8 +89,8 @@ class DeviceAuthManager(
 
     private suspend fun authExisting(id: DeviceIdentity): DeviceSession {
         return try {
-            val auth = client.authWithPassword(col, id.email, id.password)
-            DeviceSession(id.accountId, id.deviceId, auth.recordId, auth.token)
+            val auth = client.authWithPasswordRecord(col, id.email, id.password)
+            DeviceSession(reconciliarAccountId(id, auth.record), id.deviceId, auth.recordId, auth.token)
         } catch (e: PocketBaseException) {
             // Fallo de AUTENTICACIÓN (400/401/403): la identidad guardada ya no vale (device
             // borrado en el servidor, credenciales muertas). Descartarla y crear una cuenta nueva
@@ -105,6 +105,28 @@ class DeviceAuthManager(
                 throw e
             }
         }
+    }
+
+    /**
+     * El `accountId` del record en el SERVIDOR manda sobre el guardado localmente.
+     *
+     * Cuando el celu adopta un aparato, el gateway escribe el `accountId` nuevo en su record y el
+     * aparato se entera por un ÚNICO evento SSE (`PairingManager`), sin poll de respaldo. Si ese
+     * evento se pierde -y el realtime de PocketBase no re-entrega-, el aparato se queda con su
+     * `accountId` viejo mientras el servidor ya tiene el nuevo; desde ahí la regla
+     * `accountId = @request.auth.accountId` rechaza EN BLOQUE todo lo que empuja el sync, que las
+     * pone en cuarentena y avanza el cursor por encima: la biblioteca se pierde en silencio.
+     *
+     * Reautenticar es el momento natural para reconciliar, porque la respuesta de auth YA trae el
+     * record: no cuesta ninguna petición extra. Un `accountId` remoto vacío o ausente NO pisa al
+     * guardado -preferir un valor que no está por encima de uno bueno dejaría al aparato sin cuenta.
+     */
+    private fun reconciliarAccountId(id: DeviceIdentity, record: org.json.JSONObject): String {
+        val remoto = record.optString("accountId")
+        if (remoto.isBlank() || remoto == id.accountId) return id.accountId
+        Log.i("ArkivPB", "accountId reconciliado con el servidor: el guardado estaba desactualizado")
+        store.save(id.copy(accountId = remoto))
+        return remoto
     }
 
     /**
