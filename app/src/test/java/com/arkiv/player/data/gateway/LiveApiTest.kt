@@ -341,4 +341,41 @@ class LiveApiTest {
         server.shutdown()
     }
 
+    @Test
+    fun `arbol parsea secciones con sus items y marca los de adultos`() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(
+            MockResponse().setBody(
+                """{"secciones":[{"id":1,"nombre":"Recentes","adulto":true,"items":[""" +
+                    """{"id":"A1","titulo":"Uno","poster":"http://p/1.jpg","duracionS":600},""" +
+                    """{"id":"","titulo":"sin id"}]}]}""",
+            ),
+        )
+        server.start()
+
+        val secciones = api(server).arbol("adultos", incluirAdultos = true)
+
+        assertEquals(1, secciones.size)
+        assertEquals("Recentes", secciones[0].nombre)
+        // El ítem sin id se descarta: no hay con qué reproducirlo.
+        assertEquals(1, secciones[0].items.size)
+        assertEquals("Uno", secciones[0].items[0].titulo)
+        // La marca baja de la sección a CADA ítem: el ítem viaja solo hasta el reproductor.
+        assertTrue(secciones[0].items[0].adulto)
+        assertEquals("adultos", server.takeRequest().requestUrl?.queryParameter("raiz"))
+        server.shutdown()
+    }
+
+    @Test
+    fun `arbol sin incluirAdultos no manda el parametro`() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setBody("""{"secciones":[]}"""))
+        server.start()
+
+        api(server).arbol("series")
+
+        assertNull(server.takeRequest().requestUrl?.queryParameter("adultos"))
+        server.shutdown()
+    }
+
 }

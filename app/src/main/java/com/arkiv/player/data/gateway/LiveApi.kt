@@ -88,6 +88,28 @@ data class LiveSession(
     val token: String get() = Regex("token=([0-9A-Fa-f]{32})").find(authBase)?.groupValues?.get(1).orEmpty()
 }
 
+/** Un ítem del catálogo de Magis (una película/video de una sección). */
+data class ItemDeCatalogo(
+    val id: String,
+    val titulo: String,
+    val poster: String?,
+    val duracionS: Int,
+    /**
+     * Si vino de una sección de adultos. Va en el ÍTEM y no solo en la sección porque el ítem
+     * viaja solo hasta el reproductor, y ahí la regla de "esto no se anota en el historial" tiene
+     * que poder aplicarse sin saber de dónde vino. Es lo mismo que se hizo con [LiveChannel].
+     */
+    val adulto: Boolean = false,
+)
+
+/** Una sección del catálogo, con sus primeros ítems (el portal los manda en la misma respuesta). */
+data class SeccionDeCatalogo(
+    val id: Int,
+    val nombre: String,
+    val adulto: Boolean,
+    val items: List<ItemDeCatalogo>,
+)
+
 data class LiveSignature(val moment: Long, val sign2: String)
 
 /**
@@ -194,6 +216,35 @@ class LiveApi(
         return cuerpo(pedido(url).get().build())
             .arrayOrEmpty("categorias")
             .mapear { LiveCategory(id = it.optInt("id"), nombre = it.optString("nombre")) }
+    }
+
+    /**
+     * Las secciones de una raíz del catálogo de Magis (`series`, `adultos`), con sus ítems.
+     *
+     * `adultos` exige [incluirAdultos]; sin eso el gateway responde 409. El candado real es el
+     * código por aparato — esto es el default seguro, no una frontera de seguridad.
+     */
+    suspend fun arbol(raiz: String, incluirAdultos: Boolean = false): List<SeccionDeCatalogo> {
+        val url = "${baseUrl()}/v1/live/arbol".toHttpUrl().newBuilder()
+            .addQueryParameter("raiz", raiz)
+            .apply { if (incluirAdultos) addQueryParameter("adultos", "1") }
+            .build().toString()
+        return cuerpo(pedido(url).get().build()).arrayOrEmpty("secciones").mapear { s ->
+            SeccionDeCatalogo(
+                id = s.optInt("id"),
+                nombre = s.optString("nombre"),
+                adulto = s.optBoolean("adulto", false),
+                items = (s.optJSONArray("items") ?: JSONArray()).mapear { i ->
+                    ItemDeCatalogo(
+                        id = i.optString("id"),
+                        titulo = i.optString("titulo"),
+                        poster = i.optString("poster").takeIf { p -> p.isNotBlank() && p != "null" },
+                        duracionS = i.optInt("duracionS"),
+                        adulto = s.optBoolean("adulto", false),
+                    )
+                }.filter { it.id.isNotBlank() },
+            )
+        }.filter { it.nombre.isNotBlank() }
     }
 
     override suspend fun canales(categoria: Int): List<LiveChannel> {
