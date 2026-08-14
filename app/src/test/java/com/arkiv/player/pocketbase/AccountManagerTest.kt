@@ -1,7 +1,14 @@
 package com.arkiv.player.pocketbase
 
 import com.arkiv.player.data.gateway.CuentaApi
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -50,10 +57,10 @@ class AccountManagerTest {
         val server = MockWebServer()
         server.enqueue(MockResponse().setBody("""{"token":"dtok","record":{"id":"devrec"}}""")) // bootstrap
         server.enqueue(MockResponse().setBody("""{"token":"utok","record":{"id":"usr-1","accountId":"A_person"}}""")) // users auth (probe: ¿PB la conoce?)
-        server.enqueue(MockResponse().setBody("""{"token":"ptok","record":{"id":"usr-1"}}""")) // sesion.iniciar (Task 1): persiste el token de la persona
         // POST /v1/cuenta/entrar: el login adopta el aparato por ahi, no por /aparatos -- ver
         // login_adoptaElAparatoPorEntrar_noPorAdoptarQueExigeSesionPrevia mas abajo.
         server.enqueue(MockResponse().setBody("""{"userId":"usr-1","accountId":"A_person","kind":"phone","usados":1,"tope":1,"yaEra":false,"desvinculado":null}"""))
+        server.enqueue(MockResponse().setBody("""{"token":"ptok","record":{"id":"usr-1"}}""")) // sesion.iniciar (Task 1): persiste el token de la persona
         server.enqueue(MockResponse().setBody("""{"linked":true}""")) // magisVinculadoSeguro -> status
         server.start()
         val client = clientFor(server)
@@ -392,8 +399,8 @@ class AccountManagerTest {
         val server = MockWebServer()
         server.enqueue(MockResponse().setBody("""{"token":"dtok","record":{"id":"devrec"}}""")) // bootstrap
         server.enqueue(MockResponse().setBody("""{"token":"utok","record":{"id":"usr-1","accountId":"A_person"}}""")) // users auth
-        server.enqueue(MockResponse().setBody("""{"token":"ptok","record":{"id":"usr-1"}}""")) // sesion.iniciar
         server.enqueue(MockResponse().setBody("""{"userId":"usr-1","accountId":"A_person","kind":"tv","usados":1,"tope":1,"yaEra":false,"desvinculado":"tv_vieja"}"""))
+        server.enqueue(MockResponse().setBody("""{"token":"ptok","record":{"id":"usr-1"}}""")) // sesion.iniciar
         server.enqueue(MockResponse().setBody("""{"linked":true}""")) // magisVinculadoSeguro
         server.start()
         val client = clientFor(server)
@@ -417,6 +424,112 @@ class AccountManagerTest {
             rutas.none { it == "/v1/cuenta/aparatos" },
         )
         assertEquals(AccountState.Conectado("a@b.co", true), mgr.state.value)
+        server.shutdown()
+    }
+
+    /**
+     * MEDIDO EN EL GOOGLE TV el 2026-08-14, con `/entrar` ya desplegado y andando. El gateway
+     * decia que si -- adopto el aparato y desalojo la TV vieja -- y la app te devolvia al login
+     * igual. En el log del servidor, en 15 segundos:
+     *
+     * ```
+     * 19:07:11.645  GET /v1/catalog/... -> 401     <- la app YA estaba adentro
+     * 19:07:12.070  POST /v1/cuenta/entrar -> 200  <- recien aca el aparato entra a la cuenta
+     * ...  82 pedidos, TODOS 401 ...
+     * ```
+     *
+     * El portero de la app (`MainActivity`) mira `SesionDePersona.estado`, no el estado de
+     * AccountManager. Y `login()` persistia la sesion ANTES de adoptar el aparato: la puerta se
+     * abria medio segundo antes de que el aparato tuviera derecho a pedir nada, el home disparaba
+     * decenas de pedidos autenticados contra un aparato todavia huerfano, y el interceptor de
+     * sesion -- que cierra la sesion cuando ve un 401 -- echaba a la persona de vuelta al login.
+     *
+     * Este test fija el orden por su consecuencia observable: si la adopcion NO sale, la puerta
+     * no se abre. Con el orden viejo la sesion quedaba persistida igual y la persona entraba a
+     * una app que la iba a expulsar sola.
+     */
+    @Test
+    fun login_siLaAdopcionFalla_noDejaLaSesionPersistidaAbriendoLaPuerta() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setBody("""{"token":"dtok","record":{"id":"devrec"}}""")) // bootstrap
+        server.enqueue(MockResponse().setBody("""{"token":"utok","record":{"id":"usr-1","accountId":"A_person"}}""")) // users auth
+        // POST /v1/cuenta/entrar: el aparato NO entra. Ninguna respuesta de `sesion.iniciar`
+        // encolada a proposito -- ese pedido ya no tiene que llegar a ocurrir.
+        server.enqueue(
+            MockResponse().setResponseCode(403)
+                .setBody("""{"detail":{"codigo":"tope_alcanzado","mensaje":"sin cupo"}}"""),
+        )
+        server.start()
+        val client = clientFor(server)
+        val store = FakeDeviceStore(DeviceIdentity("A_anon","dev-1","dev-1@arkiv.local","pw12345678","tv"))
+        val sesion = sesionFor(client, store)
+        val mgr = AccountManager(
+            client, seededAuth(client, store), store, magisLinkFor(server), cuentaApiDe(server, sesion), sesion,
+            onAccountSwitched = {}, onLocalWipe = {},
+        )
+
+        var threw = false
+        try { mgr.login("a@b.co", "secret12") } catch (e: AccountException) { threw = true }
+
+        assertTrue("la adopcion fallo, login tiene que fallar", threw)
+        assertEquals(
+            "sin aparato adoptado la puerta NO se puede abrir: la app entraria al home para que la echen a 401",
+            EstadoDeSesion.Sin, sesion.estado.value,
+        )
+        assertEquals(AccountState.Anonimo, mgr.state.value)
+        server.shutdown()
+    }
+
+    /**
+     * La otra mitad del mismo dia. `login()` lo llama la pantalla de entrada desde un
+     * `rememberCoroutineScope()`, y persistir la sesion SACA esa pantalla de la composicion --
+     * o sea que el scope desde el que corre `login()` se muere en medio de `login()`. En el
+     * aparato se veia asi:
+     *
+     * ```
+     * ArkivSync: sync -> Error(message=The coroutine scope left the composition)
+     * ```
+     *
+     * Consecuencia: el merge no corria y `_state` se quedaba en Anonimo aunque la persona
+     * estuviera adentro -- Ajustes le mostraba "no tenes cuenta" a alguien logueado.
+     *
+     * El test reproduce exactamente eso: cancela el scope de quien llama en cuanto la sesion
+     * queda persistida, que es cuando la pantalla real desaparece.
+     */
+    @Test
+    fun login_siLaPantallaSeVaAlAbrirLaPuerta_elMergeYElEstadoTerminanIgual() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setBody("""{"token":"dtok","record":{"id":"devrec"}}""")) // bootstrap
+        server.enqueue(MockResponse().setBody("""{"token":"utok","record":{"id":"usr-1","accountId":"A_person"}}""")) // users auth
+        server.enqueue(MockResponse().setBody("""{"userId":"usr-1","accountId":"A_person","kind":"tv","usados":1,"tope":1,"yaEra":false,"desvinculado":null}""")) // /entrar
+        server.enqueue(MockResponse().setBody("""{"token":"ptok","record":{"id":"usr-1"}}""")) // sesion.iniciar
+        server.enqueue(MockResponse().setBody("""{"linked":false}""")) // magisVinculadoSeguro
+        server.start()
+        val client = clientFor(server)
+        val store = FakeDeviceStore(DeviceIdentity("A_anon","dev-1","dev-1@arkiv.local","pw12345678","tv"))
+        val sesion = sesionFor(client, store)
+        var merged = false
+        val mgr = AccountManager(
+            client, seededAuth(client, store), store, magisLinkFor(server), cuentaApiDe(server, sesion), sesion,
+            // `delay` a proposito: el merge real suspende (push + pull contra la nube) y por eso
+            // una cancelacion lo corta. Un lambda sin suspension no puede observarla.
+            onAccountSwitched = { delay(50); merged = true }, onLocalWipe = {},
+        )
+
+        val scopeDeLaPantalla = CoroutineScope(Dispatchers.Default)
+        // El portero real: `persistirSesion` deja `EstadoDeSesion.Con`, MainActivity recompone y la
+        // pantalla de entrada -con su scope- deja de existir. `Unconfined` para que el cancel corra
+        // EN la misma emision, no cuando otro hilo se despierte: sin eso la carrera decide el
+        // resultado y el test pasa igual con el codigo roto (comprobado).
+        val portero = scopeDeLaPantalla.launch(Dispatchers.Unconfined) {
+            sesion.estado.first { it is EstadoDeSesion.Con }
+            scopeDeLaPantalla.cancel()
+        }
+        val login = scopeDeLaPantalla.launch { mgr.login("a@b.co", "secret12") }
+        withTimeout(10_000) { login.join(); portero.join() }
+
+        assertTrue("el merge tiene que correr aunque la pantalla ya no este", merged)
+        assertEquals(AccountState.Conectado("a@b.co", false), mgr.state.value)
         server.shutdown()
     }
 

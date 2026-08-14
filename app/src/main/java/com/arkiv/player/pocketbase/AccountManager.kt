@@ -4,6 +4,8 @@ import com.arkiv.player.ui.entrada.MascaraDeLicencia
 import com.arkiv.player.data.gateway.CuentaApi
 import com.arkiv.player.data.gateway.ErrorDeCuenta
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -70,10 +72,6 @@ class AccountManager(
         val personAccountId = auth.record.optString("accountId")
         if (personAccountId.isBlank()) throw AccountException("respuesta del servidor inválida (falta accountId)")
 
-        // Lo que puede fallar (persistir la sesión) va antes de lo irreversible (adoptar el
-        // accountId del device y fusionar el historial): así un fallo acá no deja el device a medias.
-        // `persistirSesion` ya guarda el email en `store` (SesionDePersona.iniciar) — no hace falta repetirlo.
-        persistirSesion(email, password)
         // El aparato lo mueve a la cuenta EL GATEWAY, no un PATCH directo a PocketBase: es el
         // unico camino que cuenta contra el cupo de la licencia (`maxCelulares`/`maxTvs`) y que
         // serializa con el candado de Redis. Con `switchAccount` -que escribia el accountId por su
@@ -112,8 +110,36 @@ class AccountManager(
         // verdad el 2026-08-14 -- una cuenta recien creada abrio con 145 items ajenos y los subio
         // con su accountId. Ver [DuenoDeLaBase].
         borrarSiEsDeOtro(personAccountId)
-        onAccountSwitched()   // cloudSync.syncNow() = reset cursores + push local + pull => MERGE
-        _state.value = AccountState.Conectado(email, magisVinculadoSeguro())
+
+        // ---- LA PUERTA ----
+        //
+        // `persistirSesion` no es un paso más: es lo que DEJA ENTRAR a la app. El portero de
+        // `MainActivity` mira `SesionDePersona.estado`, así que en el instante en que esto vuelve,
+        // la pantalla de entrada desaparece y el home empieza a pedir contra el gateway.
+        //
+        // Por eso va acá abajo y no arriba de todo, que es donde estaba. Con el orden viejo la
+        // puerta se abría ANTES de que el aparato estuviera en la cuenta, y el home disparaba
+        // decenas de pedidos autenticados con un aparato que el gateway todavía no reconocía. El
+        // 2026-08-14 en el Google TV fueron 82 pedidos, todos 401, medio segundo antes de que la
+        // adopción saliera bien — y el interceptor de sesión, que cierra la sesión cuando ve un
+        // 401, echaba a la persona de vuelta al login. El login "fallaba" con todo funcionando.
+        //
+        // El orden viejo se justificaba con "lo que puede fallar va antes de lo irreversible".
+        // Sigue siendo cierto y ya no alcanza: si `persistirSesion` falla después de adoptar, la
+        // persona reintenta y `entrar` contesta `yaEra` sin cobrar cupo. Barato. Al revés no:
+        // abrir la puerta sin llave no se arregla reintentando.
+        persistirSesion(email, password)
+
+        // Y de acá en más, lo que quede tiene que poder terminar SIN la pantalla que llamó: la
+        // línea de arriba acaba de sacarla de la composición, y con ella muere el
+        // `rememberCoroutineScope()` desde el que corre este método (`PanelDeLogin.enviar`). Sin
+        // esto, la cancelación se comía el merge y el `Conectado` de abajo: en el aparato se veía
+        // como `sync -> Error(The coroutine scope left the composition)`, y Ajustes le mostraba
+        // "no tenés cuenta" a alguien que estaba adentro.
+        withContext(NonCancellable) {
+            onAccountSwitched()   // cloudSync.syncNow() = reset cursores + push local + pull => MERGE
+            _state.value = AccountState.Conectado(email, magisVinculadoSeguro())
+        }
     }
 
     /**
