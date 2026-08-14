@@ -24,6 +24,21 @@ class ArkivApp : Application(), ImageLoaderFactory {
             runCatching { graph.syncManager.start() }
         }
 
+        // ADOPCION DE LA BASE LOCAL. Quien ya venia usando la app tiene datos que SI son suyos y
+        // todavia no hay dueño anotado; sin esto, el primer login despues de actualizar los tomaria
+        // por huerfanos y le vaciaria la biblioteca. Con sesion viva y sin dueño, el dueño pasa a
+        // ser esa cuenta y no se borra nada. Corre una sola vez: despues siempre hay dueño.
+        // Ver [com.arkiv.player.pocketbase.DuenoDeLaBase].
+        graph.applicationScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                val cuenta = graph.deviceAuth.session.value?.accountId
+                if (com.arkiv.player.pocketbase.DuenoDeLaBase.hayQueAdoptar(graph.deviceStore.duenoDeLaBase(), cuenta)) {
+                    graph.deviceStore.saveDuenoDeLaBase(cuenta!!)
+                    android.util.Log.w("ArkivCuenta", "base local adoptada por la cuenta de la sesion")
+                }
+            }
+        }
+
         // OTA: chequeo periódico cada 6 horas + chequeo inmediato al arrancar.
         androidx.work.WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             "update_check",

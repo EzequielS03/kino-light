@@ -13,7 +13,11 @@ class FakeDeviceStore(private var identity: DeviceIdentity? = null) : DeviceStor
     override fun token(): String? = token
     override fun clear() { identity = null; token = null; personEmail = null; personToken = null }
     override fun savePersonEmail(email: String) { personEmail = email }
-    override fun personEmail(): String? = personEmail
+     private var dueno: String? = null
+    override fun saveDuenoDeLaBase(accountId: String) { dueno = accountId }
+    override fun duenoDeLaBase(): String? = dueno
+
+   override fun personEmail(): String? = personEmail
     override fun clearPersonEmail() { personEmail = null }
     override fun savePersonToken(token: String) { personToken = token }
     override fun personToken(): String? = personToken

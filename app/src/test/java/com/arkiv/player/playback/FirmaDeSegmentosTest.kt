@@ -161,4 +161,35 @@ class FirmaDeSegmentosTest {
             rondasQueNoConmutaron,
         )
     }
+
+    // ---- Que respuesta del CDN cuenta como firma rechazada ----
+
+    /**
+     * MEDIDO EN EL GOOGLE TV el 2026-08-14: ningun canal cargaba, y el gateway resolvia PERFECTO
+     * (`live resolve OK ... direcciones=2` y 200 en todos). El log del aparato lo destapo:
+     *
+     * ```
+     * 12:56:58.653  playlist → 401 en 346ms
+     * 12:56:58.654  502 al reproductor: playlist con codigo 401
+     * ```
+     *
+     * El CDN rechaza con **401**, no con 403. Y `pedirAlOrigen` solo trataba el 403 como rechazo:
+     * con un 401 llamaba a `aceptada()`, el contador de rechazos seguidos se reseteaba y
+     * [FirmaConRespaldo] **nunca conmutaba al firmador del gateway**. Tampoco se llegaba a dar la
+     * sesion por muerta, que es el otro camino de recuperacion. O sea que la defensa entera estaba
+     * mirando el codigo equivocado.
+     */
+    @Test
+    fun `el 401 tambien es una firma rechazada, no solo el 403`() {
+        assertTrue("401 = no autorizado", esRechazoDeFirma(401))
+        assertTrue("403 = prohibido", esRechazoDeFirma(403))
+    }
+
+    /** Lo que NO es un rechazo de firma: si contara, el respaldo conmutaria por cualquier cosa. */
+    @Test
+    fun `el resto de los codigos no son rechazo de firma`() {
+        listOf(200, 206, 404, 500, 502, 503, -1).forEach {
+            assertFalse("codigo $it", esRechazoDeFirma(it))
+        }
+    }
 }

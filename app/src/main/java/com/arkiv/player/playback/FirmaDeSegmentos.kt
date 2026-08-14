@@ -95,6 +95,28 @@ class FirmaDelGateway(
  * `rechazosSeguidos` y `usandoRespaldo` sí son estado realmente compartido entre hilos (el
  * conteo total tiene que ser uno solo), así que esos dos van protegidos por [estado].
  */
+/**
+ * Si esta respuesta del CDN significa "no te autorizo", o sea que la firma no sirvio.
+ *
+ * Existe porque este CDN rechaza con **401**, no con 403, y el codigo solo miraba el 403. Medido en
+ * el Google TV el 2026-08-14: ningun canal cargaba mientras el gateway resolvia perfecto
+ * (`live resolve OK ... direcciones=2`, 200 en todos). El log del aparato lo destapo:
+ *
+ * ```
+ * 12:56:58.653  playlist → 401 en 346ms
+ * 12:56:58.654  502 al reproductor: playlist con codigo 401
+ * ```
+ *
+ * Con un 401, `pedirAlOrigen` llamaba a `aceptada()` -- daba la firma por BUENA-- el contador de
+ * rechazos seguidos se reseteaba y [FirmaConRespaldo] no conmutaba nunca al firmador del gateway.
+ * Tampoco se llegaba a dar la sesion por muerta, que es el otro camino de recuperacion: las dos
+ * defensas estaban mirando el codigo equivocado y el canal moria en un 502 sin remedio.
+ *
+ * Solo 401 y 403. Un 5xx o un timeout NO son rechazo de firma -- son el CDN teniendo un problema--
+ * y contarlos haria conmutar al respaldo por cualquier bache de red.
+ */
+fun esRechazoDeFirma(codigo: Int): Boolean = codigo == 401 || codigo == 403
+
 class FirmaConRespaldo(
     private val local: FirmaDeSegmentos,
     private val remota: FirmaDeSegmentos,

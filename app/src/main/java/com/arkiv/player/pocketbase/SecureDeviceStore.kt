@@ -47,6 +47,12 @@ class SecureDeviceStore(context: Context) : DeviceStore {
     override fun clear() { prefs.edit().clear().apply() }
 
     override fun savePersonEmail(email: String) { prefs.edit().putString(K_PERSON_EMAIL, email).apply() }
+    override fun saveDuenoDeLaBase(accountId: String) {
+        prefs.edit().putString(K_DUENO_BASE, accountId).apply()
+    }
+
+    override fun duenoDeLaBase(): String? = prefs.getString(K_DUENO_BASE, null)
+
     override fun personEmail(): String? = prefs.getString(K_PERSON_EMAIL, null)
     override fun clearPersonEmail() { prefs.edit().remove(K_PERSON_EMAIL).apply() }
 
@@ -62,6 +68,7 @@ class SecureDeviceStore(context: Context) : DeviceStore {
         const val K_KIND = "kind"
         const val K_TOKEN = "token"
         const val K_PERSON_EMAIL = "personEmail"
+        const val K_DUENO_BASE = "duenoDeLaBase"
         const val K_PERSON_TOKEN = "personToken"
     }
 }

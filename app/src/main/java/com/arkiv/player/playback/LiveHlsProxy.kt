@@ -239,7 +239,9 @@ class LiveHlsProxy(
             }
             val code = c.responseCode
             val ms = System.currentTimeMillis() - t0
-            if (code != 403) {
+            // 401 y 403 los dos: este CDN usa 401 y mirar solo el 403 dejaba la firma dada por
+            // buena, el respaldo sin conmutar y el canal muerto en un 502. Ver [esRechazoDeFirma].
+            if (!esRechazoDeFirma(code)) {
                 android.util.Log.w(
                     "LiveHlsProxy",
                     "$queEs → $code en ${ms}ms" + (if (intento > 0) " (2do intento)" else ""),
@@ -249,15 +251,15 @@ class LiveHlsProxy(
                 firmas.aceptada()
                 return c
             }
-            // 403 = la firma no sirvió. Se registra aparte porque es el fallo CARO: dos intentos y
-            // después la sesión se da por muerta, o sea que el canal se corta.
-            android.util.Log.w("LiveHlsProxy", "$queEs → 403 FIRMA RECHAZADA en ${ms}ms (intento ${intento + 1}/2)")
+            // 401/403 = la firma no sirvió. Se registra aparte porque es el fallo CARO: dos
+            // intentos y después la sesión se da por muerta, o sea que el canal se corta.
+            android.util.Log.w("LiveHlsProxy", "$queEs → $code FIRMA RECHAZADA en ${ms}ms (intento ${intento + 1}/2)")
             // El aviso es lo que permite a FirmaConRespaldo detectar que el algoritmo
             // dejó de servir y conmutar al gateway. Sin esto, el respaldo nunca entra.
             if (!avisado) { firmas.rechazada(); avisado = true }
             c.disconnect()
         }
-        android.util.Log.w("LiveHlsProxy", "$queEs: dos 403 seguidos → doy la sesión por muerta (canal=${s.channel})")
+        android.util.Log.w("LiveHlsProxy", "$queEs: dos rechazos seguidos → doy la sesión por muerta (canal=${s.channel})")
         onSesionMuerta(s.channel)
         return null
     }

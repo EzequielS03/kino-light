@@ -94,6 +94,11 @@ class AccountManager(
             )
         }
         deviceAuth.aplicarAccountIdAdoptado(personAccountId)
+        // ANTES del merge, no despues: `onAccountSwitched` hace push local + pull, y si lo que hay
+        // en el aparato es de OTRA persona eso se lo sube a la cuenta que acaba de entrar. Paso de
+        // verdad el 2026-08-14 -- una cuenta recien creada abrio con 145 items ajenos y los subio
+        // con su accountId. Ver [DuenoDeLaBase].
+        borrarSiEsDeOtro(personAccountId)
         onAccountSwitched()   // cloudSync.syncNow() = reset cursores + push local + pull => MERGE
         _state.value = AccountState.Conectado(email, magisVinculadoSeguro())
     }
@@ -129,7 +134,25 @@ class AccountManager(
         // quedó creada de verdad y la persona puede entrar con `login()` en cuanto vuelva la red.
         // `persistirSesion` ya guarda el email en `store` (SesionDePersona.iniciar).
         persistirSesion(email, password)
+        // Mismo guardia que en login, y por el mismo motivo: registrarse en un aparato que ya tenia
+        // biblioteca de otra persona la heredaba entera. Ver [DuenoDeLaBase].
+        borrarSiEsDeOtro(deviceAuth.session.value?.accountId.orEmpty())
         _state.value = AccountState.Conectado(email, magisLinked = false)
+    }
+
+    /**
+     * Deja la base local lista para [cuenta]: si era de otra persona -o no se sabe de quien es- la
+     * borra, y en cualquier caso la marca como suya de ahi en mas.
+     *
+     * La decision vive en [DuenoDeLaBase], que es pura y esta cubierta por tests: aca el modo de
+     * fallar en la otra direccion es borrarle la biblioteca a quien no hizo nada.
+     */
+    private suspend fun borrarSiEsDeOtro(cuenta: String) {
+        if (cuenta.isBlank()) return
+        if (DuenoDeLaBase.hayQueBorrar(store.duenoDeLaBase(), cuenta)) {
+            onLocalWipe()
+        }
+        store.saveDuenoDeLaBase(cuenta)
     }
 
     /** Autentica y persiste la sesión de la persona (Task 1); traduce cualquier falla a
