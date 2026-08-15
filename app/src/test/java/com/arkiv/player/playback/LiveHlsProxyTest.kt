@@ -715,4 +715,215 @@ class LiveHlsProxyTest {
         proxy.stop(); malo.shutdown()
     }
 
+    // -----------------------------------------------------------------------------------------
+    // Segmentos que el CDN todavía no publicó (404 en el borde del vivo).
+    //
+    // Medido en el Fire TV el 2026-08-14 con RCN FHD: VLC pidió tres segmentos de ~5 s de video
+    // con 1,3 s de diferencia -- venía corriendo hacia el borde del vivo -- y el tercero dio 404
+    // porque todavía no existía. El proxy escribía la cabecera con el código del CDN tal cual y
+    // después intentaba copiar `inputStream`, que en un 404 tira excepción: al reproductor le
+    // llegaban CERO bytes. Un cuerpo vacío es exactamente como se ve el final de un stream, así
+    // que VLC drenó el decoder y emitió EndReached a los 19 s con el canal perfectamente vivo
+    // (el playlist seguía refrescando, seq 2080 -> 2082).
+    // -----------------------------------------------------------------------------------------
+
+    /** Devuelve la URL del segmento ya reescrita por el proxy (con su token), a partir del playlist. */
+    private fun urlDelSegmento(proxy: LiveHlsProxy, sesion: LiveSession): String {
+        val (codigo, cuerpo) = leer(proxy.urlPara(sesion))
+        assertEquals(200, codigo)
+        return cuerpo.lineSequence().first { it.startsWith("http://127.0.0.1") }
+    }
+
+    @Test
+    fun `un segmento que aun no se publico se reintenta y termina sirviendose`() = runBlocking {
+        val upstream = MockWebServer()
+        var pedidosDelSegmento = 0
+        upstream.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                if (request.path!!.endsWith(".m3u8")) {
+                    return MockResponse().setBody(
+                        "#EXTM3U\n#EXTINF:6,\nhttp://${upstream.hostName}:${upstream.port}/live/c/c_1.ts\n"
+                    )
+                }
+                pedidosDelSegmento++
+                // Todavía no está en el primer pedido; el CDN lo publica un instante después.
+                return if (pedidosDelSegmento < 2) {
+                    MockResponse().setResponseCode(404)
+                } else {
+                    MockResponse().setBody("contenido-del-segmento")
+                }
+            }
+        }
+        upstream.start()
+
+        val proxy = LiveHlsProxy(FirmasFalsas())
+        proxy.start()
+        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+            "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
+        val (codigo, cuerpo) = leer(urlDelSegmento(proxy, sesion))
+
+        assertEquals(200, codigo)
+        assertEquals("contenido-del-segmento", cuerpo)
+        assertEquals("tiene que haber reintentado", 2, pedidosDelSegmento)
+        proxy.stop(); upstream.shutdown()
+    }
+
+    /**
+     * EL test de esta corrección: pase lo que pase, el reproductor NUNCA recibe un cuerpo vacío
+     * detrás de una cabecera que no sea de error. Un 502 se reintenta; cero bytes se interpretan
+     * como el fin del stream y el canal se muere.
+     */
+    @Test
+    fun `un segmento que nunca aparece contesta 502 y no un cuerpo vacio`() = runBlocking {
+        val upstream = MockWebServer()
+        upstream.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse =
+                if (request.path!!.endsWith(".m3u8")) {
+                    MockResponse().setBody(
+                        "#EXTM3U\n#EXTINF:6,\nhttp://${upstream.hostName}:${upstream.port}/live/c/c_1.ts\n"
+                    )
+                } else {
+                    MockResponse().setResponseCode(404)
+                }
+        }
+        upstream.start()
+
+        val proxy = LiveHlsProxy(FirmasFalsas())
+        proxy.start()
+        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+            "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
+        val (codigo, cuerpo) = leer(urlDelSegmento(proxy, sesion))
+
+        assertEquals(502, codigo)
+        assertTrue("un 200 con cuerpo vacío es indistinguible del fin del stream", cuerpo.isEmpty())
+        proxy.stop(); upstream.shutdown()
+    }
+
+    /**
+     * El respaldo estaba ahí y no se usaba: el camino del playlist recorre todos los CDN, pero el
+     * de segmentos se quedaba con el activo y un solo 404 mataba el canal.
+     */
+    @Test
+    fun `si el CDN activo no tiene el segmento lo busca en el otro CDN del canal`() = runBlocking {
+        val primero = MockWebServer()
+        primero.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse =
+                if (request.path!!.endsWith(".m3u8")) {
+                    MockResponse().setBody(
+                        "#EXTM3U\n#EXTINF:6,\nhttp://${primero.hostName}:${primero.port}/live/c/c_1.ts\n"
+                    )
+                } else {
+                    MockResponse().setResponseCode(404)
+                }
+        }
+        primero.start()
+        val segundo = MockWebServer()
+        segundo.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest) =
+                MockResponse().setBody("segmento-del-respaldo")
+        }
+        segundo.start()
+
+        val proxy = LiveHlsProxy(FirmasFalsas())
+        proxy.start()
+        val auth = "http://x/?a=1&token=${"A".repeat(32)}"
+        val sesion = LiveSession(
+            cflHost = "${primero.hostName}:${primero.port}",
+            authBase = auth, license = "LIC", channel = "c", expiresAt = 0,
+            cdns = listOf(
+                CdnDeCanal("${primero.hostName}:${primero.port}", auth),
+                CdnDeCanal("${segundo.hostName}:${segundo.port}", auth),
+            ),
+        )
+        val (codigo, cuerpo) = leer(urlDelSegmento(proxy, sesion))
+
+        assertEquals(200, codigo)
+        assertEquals("segmento-del-respaldo", cuerpo)
+        proxy.stop(); primero.shutdown(); segundo.shutdown()
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // El playlist también se reintenta. El 2026-08-14 el origen de `cyx-RCNHD` contestó 404 al
+    // playlist cuatro veces en 9 s, con el canal reproduciendo bien hasta el segundo 39, y volvió
+    // solo. Antes eso era 502 al primer intento y sin probar el CDN de respaldo.
+    // -----------------------------------------------------------------------------------------
+
+    @Test
+    fun `un playlist que falla y despues vuelve se sirve igual`() = runBlocking {
+        val upstream = MockWebServer()
+        var pedidos = 0
+        upstream.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                pedidos++
+                return if (pedidos < 3) MockResponse().setResponseCode(404)
+                else MockResponse().setBody("#EXTM3U\n#EXTINF:5,\nhttp://cdn/live/c/c_1.ts\n")
+            }
+        }
+        upstream.start()
+
+        val proxy = LiveHlsProxy(FirmasFalsas())
+        proxy.start()
+        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+            "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
+        val (codigo, cuerpo) = leer(proxy.urlPara(sesion))
+
+        assertEquals(200, codigo)
+        assertTrue(cuerpo.contains("#EXTM3U"))
+        assertEquals("dos 404 y el bueno", 3, pedidos)
+        proxy.stop(); upstream.shutdown()
+    }
+
+    /** Un 404 no es una firma rechazada: pedirle la sesión de nuevo al gateway sería tratar un bache como credencial vencida. */
+    @Test
+    fun `un playlist con 404 no da la sesion por muerta`() = runBlocking {
+        val upstream = MockWebServer()
+        upstream.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest) = MockResponse().setResponseCode(404)
+        }
+        upstream.start()
+
+        val muertos = CopyOnWriteArrayList<String>()
+        val proxy = LiveHlsProxy(FirmasFalsas(), onSesionMuerta = { muertos.add(it) })
+        proxy.start()
+        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+            "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "canal-x", 0)
+        val (codigo, _) = leer(proxy.urlPara(sesion))
+
+        assertEquals(502, codigo)
+        assertEquals("un 404 del CDN no es una sesión vencida", emptyList<String>(), muertos)
+        proxy.stop(); upstream.shutdown()
+    }
+
+    /** Un 404 del CDN activo tiene que hacer pasar al siguiente, igual que un rechazo de firma. */
+    @Test
+    fun `si el CDN activo da 404 en el playlist, se prueba el otro`() = runBlocking {
+        val malo = MockWebServer()
+        malo.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest) = MockResponse().setResponseCode(404)
+        }
+        malo.start()
+        val bueno = MockWebServer()
+        bueno.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest) =
+                MockResponse().setBody("#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:7\n")
+        }
+        bueno.start()
+
+        val auth = "http://x/?a=1&token=${"A".repeat(32)}"
+        val proxy = LiveHlsProxy(FirmasFalsas())
+        proxy.start()
+        val sesion = LiveSession(
+            cflHost = "${malo.hostName}:${malo.port}", authBase = auth,
+            license = "LIC", channel = "c", expiresAt = 0,
+            cdns = listOf(
+                CdnDeCanal("${malo.hostName}:${malo.port}", auth),
+                CdnDeCanal("${bueno.hostName}:${bueno.port}", auth),
+            ),
+        )
+        val (codigo, cuerpo) = leer(proxy.urlPara(sesion))
+
+        assertEquals(200, codigo)
+        assertTrue(cuerpo.contains("#EXT-X-MEDIA-SEQUENCE:7"))
+        proxy.stop(); malo.shutdown(); bueno.shutdown()
+    }
 }

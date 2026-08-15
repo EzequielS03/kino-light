@@ -363,6 +363,8 @@ private fun PlayerContent(
         },
     )
     val playlist by vm.playlist.collectAsStateWithLifecycle()
+    val generacionVivo by vm.generacionVivo.collectAsStateWithLifecycle()
+    val cortesEnVivo by vlc.cortesEnVivo.collectAsStateWithLifecycle()
     val loadError by vm.error.collectAsStateWithLifecycle()
     // Progreso de la fase de pre-buffer (antes de tener playlist; solo torrent). null al terminar.
     val prepProgress by vm.prepProgress.collectAsStateWithLifecycle()
@@ -960,6 +962,22 @@ private fun PlayerContent(
     // Vivo (Tarea 14): equivalente de bump() para el overlay propio -- ver KDoc de liveInfoVisible.
     fun mostrarInfoVivo() { liveInfoVisible = true; liveInfoTick++ }
 
+    // El corte de un directo, por el contador de [VlcPlayer.cortesEnVivo] y NO por STATE_ENDED:
+    // ese estado viaja por el MediaController y se pierde cuando VLC manda Stopped a los pocos ms
+    // de EndReached -- medido el 2026-08-14, dos de cinco cortes no llegaron y el canal quedó
+    // pausado sin que la reapertura disparara. Un contador que solo sube no se puede perder.
+    var cortesAtendidos by remember(episodeId) { mutableStateOf(-1) }
+    LaunchedEffect(cortesEnVivo, enVivo) {
+        if (!enVivo) return@LaunchedEffect
+        // La primera lectura solo toma nota: el contador es del reproductor, que sobrevive a esta
+        // pantalla, así que al entrar ya puede venir con cortes de un canal anterior.
+        if (cortesAtendidos < 0) { cortesAtendidos = cortesEnVivo; return@LaunchedEffect }
+        if (cortesEnVivo > cortesAtendidos) {
+            cortesAtendidos = cortesEnVivo
+            vm.reabrirVivoPorCorte()
+        }
+    }
+
     // Overlay de canal por 3s tras abrir/zapear/tocar (ver mostrarInfoVivo/brief: "el overlay de
     // 3s"). Se relanza con cada tick nuevo, así que zapear rápido seguido lo mantiene visible.
     LaunchedEffect(liveInfoTick) {
@@ -1017,7 +1035,10 @@ private fun PlayerContent(
     }
 
     // Carga inicial de la playlist en el controller (una sola vez; editar marcadores no recarga).
-    LaunchedEffect(playlist) {
+    // `generacionVivo` además de `playlist`: reabrir un canal cortado republica un PlaylistData
+    // IGUAL al anterior y el StateFlow lo descarta, así que sin esta clave el efecto no volvía a
+    // correr y la reapertura no cargaba nada. Ver su KDoc en PlayerViewModel.
+    LaunchedEffect(playlist, generacionVivo) {
         val pl = playlist ?: run { android.util.Log.w("ArkivPlay", "playlist=null (aún resolviendo o descartada)"); return@LaunchedEffect }
         if (enVivo) {
             // Vivo (Tarea 14): SIEMPRE reemplaza el media -- no hay "mismo episodio" que reusar,
@@ -1199,7 +1220,10 @@ private fun PlayerContent(
      */
     fun alTerminarElCapitulo() {
         // Un directo no termina: su EndReached es el stream que se cortó, y ahí no hay "siguiente
-        // capítulo" que valga (el único siguiente del modo vivo es el zapping).
+        // capítulo" que valga (el único siguiente del modo vivo es el zapping). Reabrirlo NO se
+        // engancha acá: este camino depende de que el STATE_ENDED cruce el MediaController, y se
+        // pierde cuando VLC manda Stopped a los pocos ms (ver [VlcPlayer.cortesEnVivo], que es de
+        // donde sale la señal buena).
         if (enVivo) return
         val actual = playlistRef.value?.items?.getOrNull(controller.currentMediaItemIndex)?.episodeId
             ?: episodeId
@@ -1287,6 +1311,13 @@ private fun PlayerContent(
             if (ready) {
                 positionMs = contentPositionMs()
                 contentDurationMs().let { if (it > 0) durationMs = it }
+                // El presupuesto de reaperturas se repone con la POSICIÓN, no con `isPlaying`.
+                // Medido en el Fire TV el 2026-08-14: `isPlaying` se pone en true apenas VLC abre,
+                // antes del primer fotograma, así que un canal que reabría y moría en pos=0ms
+                // reponía igual las tres reaperturas — el tope no se agotaba nunca y el aviso en
+                // pantalla no podía aparecer. Reponer solo cuando de verdad se reprodujo un rato
+                // es lo que distingue "se recuperó" de "reabrió y se cayó de nuevo".
+                if (enVivo) vm.vivoAndando(positionMs)
             }
             subsOn = vlc.currentSpuTrack() >= 0
             // "Arranca negro y con sonido": mientras libVLC ya suelta el audio pero todavía no dio

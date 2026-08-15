@@ -15,6 +15,9 @@ import androidx.media3.common.util.UnstableApi
 import com.arkiv.player.data.subtitles.PlaybackPrefs
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
@@ -1101,6 +1104,23 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         loadMedia(hardware = true, startPositionMs = if (resumeAt > 0) resumeAt else currentStartMs, uriOverride = Uri.parse(proxyUrl))
     }
 
+    private val _cortesEnVivo = MutableStateFlow(0)
+
+    /**
+     * Cuántas veces un DIRECTO se quedó sin datos. Sube en [onEndReached] y no baja nunca.
+     *
+     * Es la señal de corte del vivo, y existe porque **el estado del reproductor no sirve para
+     * esto**: la pantalla escucha por un `MediaController`, y libVLC emite `EndReached` y `Stopped`
+     * con ~7 ms de diferencia. Ese par viaja por la sesión de medios, que junta los cambios
+     * rápidos, así que a veces del otro lado solo aparece el `IDLE` final y el `ENDED` se pierde.
+     * Medido en el Fire TV el 2026-08-14: de cinco cortes seguidos, dos no llegaron y el canal se
+     * quedó pausado para siempre con la reapertura sin disparar.
+     *
+     * Un contador que solo sube no se puede perder: aunque la pantalla lea tarde, ve que el número
+     * cambió. El estado, en cambio, es una foto que puede quedar vieja.
+     */
+    val cortesEnVivo: StateFlow<Int> = _cortesEnVivo.asStateFlow()
+
     private fun onEndReached() {
         // Web: un EndReached casi inmediato (posición ~0) NO es fin real — el stream directo no entregó
         // datos (roto/geo/anti-leech) y VLC lo dio por "terminado". Reintentar UNA vez con el proxy antes
@@ -1119,6 +1139,21 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
             currentIndex++
             loadCurrent(0L)
         } else {
+            // En VIVO esto no es un final: es el stream que se quedó sin datos, y quien lo atiende
+            // es [PlayerViewModel.reabrirVivoPorCorte] al ver STATE_ENDED. Se loguea ACÁ, en el
+            // origen, porque el 2026-08-14 hubo un corte en vivo que no disparó la reapertura y no
+            // había forma de saber si el evento no llegaba o si lo descartaba la pantalla. `pos` es
+            // el dato que separa los dos casos: con 0 ms el canal nunca arrancó (fallo de apertura,
+            // otro camino), con miles se cortó reproduciendo.
+            if (tag?.kind == SourceKind.LIVE) {
+                _cortesEnVivo.value++
+                runCatching {
+                    android.util.Log.w(
+                        "ArkivVlc",
+                        "EndReached en VIVO en pos=${playedMs}ms → corte #${_cortesEnVivo.value}",
+                    )
+                }
+            }
             event = VlcEvent.EndReached
         }
     }

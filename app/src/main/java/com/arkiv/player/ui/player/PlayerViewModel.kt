@@ -315,6 +315,18 @@ class PlayerViewModel(
     /** El canal en pantalla ahora mismo (código/nombre/número/logo), para el overlay de PlayerScreen. */
     val liveCanal: StateFlow<LiveChannel?> = _liveCanal.asStateFlow()
 
+    private val _generacionVivo = MutableStateFlow(0)
+
+    /**
+     * Sube en CADA carga de un canal en vivo: abrir, zapear y reabrir tras un corte.
+     *
+     * Existe porque [playlist] no alcanza para avisar de una reapertura: el `PlaylistData` que se
+     * publica al reabrir el mismo canal es igual al anterior y `StateFlow` no emite valores
+     * iguales. La pantalla mira las dos cosas, así que una carga siempre le llega aunque el
+     * contenido no haya cambiado ni un byte.
+     */
+    val generacionVivo: StateFlow<Int> = _generacionVivo.asStateFlow()
+
     /**
      * Arranca el zapping sobre la lista con la que el usuario ENTRÓ (ver [LiveZappingSource]), no
      * el catálogo completo -- es la que tiene en la cabeza. Sin nada fijado ahí (proceso recreado
@@ -373,6 +385,14 @@ class PlayerViewModel(
             // el canal DENTRO de esta pantalla sin navegar (ver KDoc de loadLive), así que la
             // pantalla lo trata aparte -- en vivo nunca pasa por MediaReusePolicy.
             _playlist.value = PlaylistData(listOf(item), 0, 0L, pedido = item.episodeId)
+            // Y el aviso de que ACÁ HUBO UNA CARGA, aunque el valor de arriba sea idéntico al que
+            // ya estaba. Reabrir un canal cortado produce un `PlaylistData` **igual** al anterior
+            // -mismo canal, y `mediaUrl` es la url del proxy local, cuyo puerto y token viven
+            // tanto como el socket-, y un `StateFlow` descarta los valores iguales: la pantalla no
+            // se enteraba, no volvía a llamar a `setMediaItems`, y la reapertura quedaba en el log
+            // sin que se reprodujera nada. Medido en el Fire TV el 2026-08-14: `canal →` a las
+            // 22:19:20 y después silencio, con la sesión de medios congelada en pos=99631ms.
+            _generacionVivo.value++
             // Un canal de adultos NO se anota. Y se resuelve NO ESCRIBIENDO en vez de filtrando
             // al leer: lo que no se escribe no se puede escapar por una pantalla que nos
             // olvidamos —"Recientes" se pinta en la guía, en el cajón y en el celular— y además
@@ -394,6 +414,88 @@ class PlayerViewModel(
     /** Zapping: siguiente/anterior de la lista con la que se entró. Sin efecto fuera de modo vivo. */
     fun zapSiguiente() { zapping?.siguiente() ?: return; abrirCanalActual() }
     fun zapAnterior() { zapping?.anterior() ?: return; abrirCanalActual() }
+
+    /** Reaperturas seguidas del canal actual sin que haya vuelto a dar imagen, y de qué canal son. */
+    private var reaperturasVivo = 0
+    private var canalDelContador: String? = null
+    private var reabrirJob: kotlinx.coroutines.Job? = null
+
+    /**
+     * Cuándo empezó el hueco sin imagen que estamos tratando de tapar (0 = no hay ninguno).
+     *
+     * Es el número que mide lo que la persona VE. `pos` y los códigos del CDN cuentan qué pasó por
+     * dentro; esto cuenta cuántos segundos estuvo la pantalla sin avanzar, que es lo único por lo
+     * que se juzga si el vivo quedó usable.
+     */
+    private var cortadoEn = 0L
+
+    /**
+     * El directo se cortó: reabrirlo, porque un directo no termina.
+     *
+     * Un `EndReached` en vivo nunca es "se acabó el contenido" — es que el reproductor se quedó sin
+     * datos. Hasta ahora eso dejaba el canal muerto y ahí se quedaba: la pantalla se congelaba y la
+     * única salida era volver atrás y entrar de nuevo. Medido en el Fire TV el 2026-08-14, cuatro
+     * veces seguidas con RCN FHD: el origen de esa señal fallaba de a ratos —404 en los segmentos y
+     * hasta en el playlist— y a los pocos segundos volvía solo. O sea que lo que faltaba no era
+     * adivinar mejor el fallo, era volver a intentar.
+     *
+     * Tres reaperturas con espera que se duplica (2 s, 4 s, 8 s): cubre un bache de ~15 s, que es de
+     * la magnitud de lo medido. Al cuarto corte se avisa en pantalla en vez de seguir. Reintentar sin
+     * tope dejaría un canal dado de baja en bucle para siempre, gastando datos y sin decir nunca qué
+     * está pasando — el silencio es peor que el error.
+     *
+     * El presupuesto es POR CANAL ([canalDelContador]) y se repone entero apenas el canal vuelve a
+     * reproducir ([vivoAndando]): si aguanta una hora y después tiene un hipo, arranca de cero.
+     */
+    fun reabrirVivoPorCorte() {
+        val canal = zapping?.actual ?: return
+        if (canal.code != canalDelContador) {
+            canalDelContador = canal.code
+            reaperturasVivo = 0
+        }
+        if (reaperturasVivo >= MAX_REAPERTURAS_VIVO) {
+            Log.w(PLAY, "vivo: ${canal.code} no volvió tras $MAX_REAPERTURAS_VIVO reaperturas → aviso")
+            _error.value = "Se cortó la señal de ${canal.nombre} y no volvió. " +
+                "Puede ser un problema del canal: probá de nuevo o mirá otro."
+            return
+        }
+        if (cortadoEn == 0L) cortadoEn = System.currentTimeMillis()
+        reaperturasVivo++
+        val espera = ESPERA_REAPERTURA_MS shl (reaperturasVivo - 1)
+        Log.w(
+            PLAY,
+            "vivo: ${canal.code} se cortó → reabro en ${espera}ms " +
+                "(intento $reaperturasVivo/$MAX_REAPERTURAS_VIVO)",
+        )
+        reabrirJob?.cancel()
+        reabrirJob = viewModelScope.launch {
+            delay(espera)
+            // Zapear durante la espera gana: reabrir acá el canal viejo pisaría el que la persona
+            // acaba de elegir.
+            if (zapping?.actual?.code == canal.code) abrirCanalActual()
+        }
+    }
+
+    /**
+     * El canal se está reproduciendo de verdad: se le repone el presupuesto de reaperturas.
+     *
+     * Pide la POSICIÓN y no un booleano porque `isPlaying` se pone en true apenas VLC abre el
+     * medio, antes del primer fotograma: con eso, un canal que reabría y moría en `pos=0ms`
+     * reponía igual el presupuesto, el tope no se agotaba nunca y el aviso de [reabrirVivoPorCorte]
+     * era inalcanzable. [MINIMO_VIVO_SANO_MS] es la línea entre "se recuperó" y "reabrió y se cayó
+     * de nuevo".
+     */
+    fun vivoAndando(posicionMs: Long) {
+        if (reaperturasVivo == 0 || posicionMs < MINIMO_VIVO_SANO_MS) return
+        val hueco = if (cortadoEn > 0L) System.currentTimeMillis() - cortadoEn else -1L
+        Log.w(
+            PLAY,
+            "vivo: recuperado tras ${hueco}ms sin imagen y $reaperturasVivo reapertura(s) " +
+                "(reprodujo ${posicionMs}ms) → repongo el presupuesto",
+        )
+        reaperturasVivo = 0
+        cortadoEn = 0L
+    }
 
     /**
      * El cajón de canales eligió otro canal: cambia el canal Y la lista que el zapping recorre.
@@ -1207,6 +1309,18 @@ class PlayerViewModel(
 
         /** Tope de la espera de pre-buffer (ms): si el torrent es muy lento, se abre igual a los 30s. */
         const val PREBUFFER_CAP_MS = 30_000
+
+        /** Cuántas veces se reabre un directo cortado antes de avisar. Ver [reabrirVivoPorCorte]. */
+        const val MAX_REAPERTURAS_VIVO = 3
+
+        /** Espera de la PRIMERA reapertura; las siguientes la duplican (2 s → 4 s → 8 s). */
+        const val ESPERA_REAPERTURA_MS = 2_000L
+
+        /**
+         * Cuánto tiene que reproducir un canal reabierto para considerarlo recuperado y devolverle
+         * el presupuesto entero de reaperturas. Ver [vivoAndando].
+         */
+        const val MINIMO_VIVO_SANO_MS = 5_000L
 
         /** Tag del gate de arranque torrent (filtrar con `adb logcat -s ArkivGate`). */
         const val GATE = "ArkivGate"
