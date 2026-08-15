@@ -57,8 +57,6 @@ import com.arkiv.player.ui.theme.ArkivSurface
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 import kotlinx.coroutines.delay
 
-private val ALTO_TAB = 52.dp
-
 /**
  * Navegación del catálogo de Magis: **la misma forma que el inicio** — cada sección es una fila
  * horizontal con su nombre encima.
@@ -240,7 +238,7 @@ fun TvSeccionesDeCatalogo(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(raices.size) { i ->
-                    TabDeRaiz(
+                    TvTab(
                         etiqueta = raices[i].second,
                         seleccionada = i == raizIdx,
                         onClick = { raizIdx = i },
@@ -477,44 +475,6 @@ private fun FilaDeItems(
                     },
                 )
             }
-        }
-    }
-}
-
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun TabDeRaiz(
-    etiqueta: String,
-    seleccionada: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        onClick = onClick,
-        modifier = modifier.height(ALTO_TAB),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(24.dp)),
-        colors = ClickableSurfaceDefaults.colors(
-            // Seleccionada y enfocada NO pueden ser el mismo rojo: con los dos iguales, mirando la
-            // pantalla no se distingue en qué tab estás parado de cuál está abierto.
-            containerColor = if (seleccionada) ArkivRed else ArkivSurface,
-            focusedContainerColor = if (seleccionada) ArkivRed else ArkivSurface,
-            contentColor = Color.White,
-            focusedContentColor = Color.White,
-        ),
-        border = ClickableSurfaceDefaults.border(
-            focusedBorder = androidx.tv.material3.Border(
-                androidx.compose.foundation.BorderStroke(3.dp, Color.White),
-                shape = RoundedCornerShape(24.dp),
-            ),
-        ),
-    ) {
-        Box(Modifier.fillMaxSize().padding(horizontal = 22.dp), contentAlignment = Alignment.Center) {
-            Text(
-                etiqueta,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = if (seleccionada) FontWeight.Bold else FontWeight.Normal,
-                maxLines = 1,
-            )
         }
     }
 }
