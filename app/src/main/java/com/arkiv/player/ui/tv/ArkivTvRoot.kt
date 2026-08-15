@@ -16,7 +16,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import com.arkiv.player.playback.MagisEfimero
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -230,8 +233,33 @@ fun ArkivTvRoot(
             // El gateway responde 409 sin el parámetro, así que el default es el seguro incluso
             // si esta pantalla se abriera por otro camino.
             val desbloqueado = graph.deviceStore.adultosDesbloqueado()
+            val alcance = rememberCoroutineScope()
             TvSeccionesDeCatalogo(
                 incluirAdultos = desbloqueado,
+                onReproducir = { item ->
+                    alcance.launch {
+                        if (item.adulto) {
+                            // NO pasa por la biblioteca. `addMagisSource` escribiría una fila que se
+                            // sincroniza y termina en el celular y en la otra TV, que es exactamente
+                            // la fuga del 2026-08-14. El ref viaja por afuera; ver [MagisEfimero].
+                            val id = MagisEfimero.idPara(item.id)
+                            MagisEfimero.dejar(
+                                MagisEfimero.Pendiente(id, item.ref, item.titulo, adulto = true),
+                            )
+                            goToPlayer(id)
+                        } else {
+                            // Camino de siempre: guardarlo es lo que le da "seguir viendo" y tarjeta
+                            // en la biblioteca, igual que si hubiera entrado por el buscador.
+                            val epId = graph.repository.addMagisSource(
+                                ref = item.ref,
+                                contentId = item.id,
+                                title = item.titulo,
+                                posterUrl = item.poster.orEmpty(),
+                            )
+                            if (epId != null) goToPlayer(epId)
+                        }
+                    }
+                },
                 onVolver = { navController.popBackStack() },
             )
         }

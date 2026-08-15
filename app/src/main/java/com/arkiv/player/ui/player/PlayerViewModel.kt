@@ -22,6 +22,7 @@ import com.arkiv.player.data.offline.PlaybackDecision
 import com.arkiv.player.data.offline.PlaybackPreferenceStore
 import com.arkiv.player.playback.ArchiveCacheProxy
 import com.arkiv.player.playback.ContenidoDeAdultos
+import com.arkiv.player.playback.MagisEfimero
 import com.arkiv.player.playback.PlayerSource
 import com.arkiv.player.playback.PoliticaOrigen
 import com.arkiv.player.playback.SourceKind
@@ -249,7 +250,21 @@ class PlayerViewModel(
         }
         viewModelScope.launch {
             // Antes que nada: que el detalle sepa por qué capítulo vas aunque salgas enseguida.
-            runCatching { repo.marcarEnCurso(episodeId) }
+            //
+            // Salvo que no haya que anotarlo. Este es el TERCER camino de escritura del historial,
+            // y el que se escapó de los otros dos: no escribe posición ni duración —la fila queda
+            // en 0— pero SÍ escribe `lastPlayedAt`, y `playback` se sincroniza. O sea deja el
+            // registro con hora de que esto se vio, y lo manda a la nube y a los otros aparatos.
+            // Encontrado reproduciendo de verdad en el Fire TV el 2026-08-14: los guardas de
+            // progreso, frames y biblioteca aguantaron los tres, y esta fila apareció igual.
+            //
+            // Acá NO sirve [hayQueAnotarHistorial]: esto corre ANTES de resolver la fuente, cuando
+            // `_playlist` todavía es la del episodio anterior (o null), así que preguntarle daría
+            // "no sé" → anotar, que es justo lo contrario de lo que hace falta. Lo que sí se sabe a
+            // esta altura es el pendiente efímero, que la pantalla dejó antes de navegar.
+            if (ContenidoDeAdultos.hayQueAnotar(MagisEfimero.tomar(episodeId)?.adulto)) {
+                runCatching { repo.marcarEnCurso(episodeId) }
+            }
             _error.value = null
             errorDeReproduccion = false
             // Si está guardado en el dispositivo, gana sobre cualquier streaming. Va ANTES de
@@ -707,8 +722,11 @@ class PlayerViewModel(
      * origen. El [ref] guardado se manda tal cual a `/v1/resolve`; la app nunca lo interpreta.
      */
     private suspend fun loadMagis(episodeId: String) {
-        val ref = repo.magisRefForEpisode(episodeId)
-        Log.w(PLAY, "loadMagis() episodeId=$episodeId ref=${ref?.take(12)}…")
+        // El contenido de adultos NO tiene fila en la biblioteca —esa es toda la idea, ver
+        // [MagisEfimero]—, así que su `ref` no se puede leer de ahí: viaja por afuera.
+        val efimero = MagisEfimero.tomar(episodeId)
+        val ref = efimero?.ref ?: repo.magisRefForEpisode(episodeId)
+        Log.w(PLAY, "loadMagis() episodeId=$episodeId efimero=${efimero != null} ref=${ref?.take(12)}…")
         if (ref.isNullOrBlank()) { _error.value = "No se encontró la fuente de Magis"; return }
 
         _playlist.value = null
@@ -738,7 +756,9 @@ class PlayerViewModel(
         Log.w(PLAY, "loadMagis() subtitulos del portal=${play.subtitles.size} langs=${play.subtitles.map { it.lang }}")
 
         withContext(Dispatchers.IO) { archiveCacheProxy.start() }
-        val cabecera = repo.headerInfo(episodeId)
+        // Sin fila en la biblioteca no hay cabecera que leer: el título lo trae el propio pendiente,
+        // que es lo que la pantalla de categorías tenía en la mano al tocarlo.
+        val cabecera = if (efimero != null) null else repo.headerInfo(episodeId)
         // `directo`: el proxy reenvía cada Range al CDN sin cachear. Con la caché (el camino de
         // archive) la descarga de ~1 GB se corta, el proxy borra el archivo y vuelve a empezar en 0
         // mientras VLC sigue leyendo por el offset viejo → el TS le llega con huecos, el tiempo salta
@@ -793,7 +813,7 @@ class PlayerViewModel(
         val item = PlayerData(
             episodeId = episodeId,
             itemId = episodeId.substringBefore("::"),
-            title = cabecera?.itemTitle ?: "Magis",
+            title = cabecera?.itemTitle ?: efimero?.titulo?.takeIf { it.isNotBlank() } ?: "Magis",
             subtitle = cabecera?.episodeLabel.orEmpty(),
             mediaUrl = urlLocal,
             // Castear NO va a funcionar: el proxy escucha en 127.0.0.1 y la TV no llega ahí. Se deja
@@ -807,6 +827,9 @@ class PlayerViewModel(
             // URL: esa extensión colapsa a `.mp4` todo lo que no sea `ts` porque es la clave del
             // objeto en el CDN. Ver [com.arkiv.player.playback.formatoAvformatDe].
             contenedorDeLaFuente = play.container,
+            // De acá lo lee [hayQueAnotarHistorial] en cada tick del reproductor. Es la segunda
+            // vuelta de llave: la primera es que esto no tenga fila en la biblioteca.
+            adulto = efimero?.adulto == true,
         )
         // Acá se forzaba SOFTWARE para el HEVC de magis, dando por hecho que el decodificador por
         // hardware descartaba las pistas (`pistas=v0/a0`). Ese diagnóstico era falso: el que las
@@ -824,7 +847,10 @@ class PlayerViewModel(
                 com.arkiv.player.data.catalog.web.ResolvedSub(lang = it.lang, url = it.url)
             },
         )
-        val startPos = safeStartPosition(episodeId, SourceKind.MAGIS)
+        // Lo efímero SIEMPRE arranca en cero, y no por olvido: no se guardó progreso, así que no hay
+        // dónde reanudar. Es la consecuencia directa de la regla — no se puede retomar lo que
+        // decidimos no anotar — y se prefiere eso a dejar el rastro.
+        val startPos = if (efimero != null) 0L else safeStartPosition(episodeId, SourceKind.MAGIS)
         // REANUDAR: se le avisa al proxy A DÓNDE va a saltar el reproductor, para que prepare esa
         // zona mientras el video abre. libVLC abre siempre en el byte 0 y recién después busca el
         // minuto guardado: medido en el Fire TV, entre una cosa y la otra se bajaban 2,5 MB del

@@ -5,6 +5,7 @@ import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -363,6 +364,57 @@ class LiveApiTest {
         // La marca baja de la sección a CADA ítem: el ítem viaja solo hasta el reproductor.
         assertTrue(secciones[0].items[0].adulto)
         assertEquals("adultos", server.takeRequest().requestUrl?.queryParameter("raiz"))
+        server.shutdown()
+    }
+
+    /**
+     * El `ref` es lo ÚNICO con lo que se puede reproducir: `/v1/resolve` no toma el `id` del
+     * ítem (que es el contentId del portal), toma un token firmado que solo acuña el gateway.
+     * Y `tipo` decide el camino sin abrir el ref, que la app trata como opaco.
+     */
+    @Test
+    fun `arbol trae el ref y el tipo de cada item`() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(
+            MockResponse().setBody(
+                """{"secciones":[{"id":2,"nombre":"Telenovelas","adulto":false,"items":[""" +
+                    """{"id":"P1","titulo":"Peli","ref":"abc.def","tipo":"movie"},""" +
+                    """{"id":"S1","titulo":"Serie","ref":"ghi.jkl","tipo":"teleplay"}]}]}""",
+            ),
+        )
+        server.start()
+
+        val items = api(server).arbol("series")[0].items
+
+        assertEquals("abc.def", items[0].ref)
+        assertFalse(items[0].esSerie)
+        assertEquals("ghi.jkl", items[1].ref)
+        assertTrue(items[1].esSerie)
+        server.shutdown()
+    }
+
+    /**
+     * Un gateway sin llave de firma sirve el catálogo SIN refs (degrada a propósito, en vez de
+     * mandar uno roto). Esos ítems se siguen listando —se pueden ver— pero no se reproducen: sin
+     * ref no hay nada que resolver, y quedarse callado es mejor que un error al tocar play.
+     */
+    @Test
+    fun `un item sin ref se lista pero no es reproducible`() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(
+            MockResponse().setBody(
+                """{"secciones":[{"id":2,"nombre":"X","adulto":false,"items":[""" +
+                    """{"id":"P1","titulo":"Peli"}]}]}""",
+            ),
+        )
+        server.start()
+
+        val item = api(server).arbol("series")[0].items.single()
+
+        assertEquals("P1", item.id)
+        assertFalse(item.reproducible)
+        // Sin `tipo` del gateway cae a película, igual que la búsqueda.
+        assertFalse(item.esSerie)
         server.shutdown()
     }
 

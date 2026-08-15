@@ -155,7 +155,7 @@ private fun discoveryMeta(card: com.arkiv.player.ui.search.TitleCard): String {
  * 1920 px la tarjeta enfocada queda en x=576, o sea 0,3 × 1920.
  */
 @OptIn(ExperimentalFoundationApi::class)
-private val PivotoDeTv = object : BringIntoViewSpec {
+internal val PivotoDeTv = object : BringIntoViewSpec {
     override val scrollAnimationSpec = tween<Float>(
         durationMillis = 125,
         easing = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1f),
@@ -188,7 +188,7 @@ private val PivotoDeTv = object : BringIntoViewSpec {
  * pulsaciones seguidas, cero movimiento de la lista) y bajar sigue enganchando a la fila.
  */
 @OptIn(ExperimentalFoundationApi::class)
-private val TraerConScrollMinimo = object : BringIntoViewSpec {
+internal val TraerConScrollMinimo = object : BringIntoViewSpec {
     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
         val bordeSuperior = offset
         val bordeInferior = offset + size
@@ -831,7 +831,7 @@ private fun TvVerMasCanalesCard(
 /** Etiqueta de fila con alto fijo, para que 2 filas quepan exactas en la zona scrolleable. */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun TvRowLabel(text: String, height: androidx.compose.ui.unit.Dp) {
+internal fun TvRowLabel(text: String, height: androidx.compose.ui.unit.Dp) {
     Box(
         modifier = Modifier.fillMaxWidth().height(height).padding(start = 48.dp),
         contentAlignment = Alignment.CenterStart,

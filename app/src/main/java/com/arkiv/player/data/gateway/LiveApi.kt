@@ -100,7 +100,28 @@ data class ItemDeCatalogo(
      * que poder aplicarse sin saber de dónde vino. Es lo mismo que se hizo con [LiveChannel].
      */
     val adulto: Boolean = false,
-)
+    /**
+     * El token con el que se le pide el stream al gateway. Es lo ÚNICO reproducible que trae el
+     * ítem: `/v1/resolve` NO toma [id] (que es el contentId del portal), toma este token firmado,
+     * que solo el gateway puede acuñar. La app lo trata como opaco y nunca lo interpreta.
+     *
+     * Vacío = el gateway no lo pudo firmar. Ese ítem se lista igual —se puede ver— pero no se
+     * reproduce; ver [reproducible].
+     */
+    val ref: String = "",
+    /** Lo que el portal dice que es: "movie", "teleplay"… Ver [esSerie]. */
+    val tipo: String = "movie",
+) {
+    /**
+     * Si hay que pedirle los capítulos antes de reproducir, en vez de reproducirlo derecho.
+     *
+     * Se pregunta por [tipo] y no abriendo el [ref] a propósito: el ref es opaco para la app, y
+     * que siga siéndolo es lo que deja al gateway cambiarle la forma sin publicar un APK.
+     */
+    val esSerie: Boolean get() = tipo == "teleplay"
+
+    val reproducible: Boolean get() = ref.isNotBlank()
+}
 
 /** Una sección del catálogo, con sus primeros ítems (el portal los manda en la misma respuesta). */
 data class SeccionDeCatalogo(
@@ -241,6 +262,9 @@ class LiveApi(
                         poster = i.optString("poster").takeIf { p -> p.isNotBlank() && p != "null" },
                         duracionS = i.optInt("duracionS"),
                         adulto = s.optBoolean("adulto", false),
+                        ref = i.optString("ref"),
+                        // Mismo default que la búsqueda: sin el campo, película.
+                        tipo = i.optString("tipo").ifBlank { "movie" },
                     )
                 }.filter { it.id.isNotBlank() },
             )
