@@ -197,6 +197,14 @@ fun TvSeccionesDeCatalogo(
     // De que seccion es lo enfocado. Va en el hero y no encima de cada fila: ahi partia en dos la
     // pareja de filas de una misma seccion, que es justo lo que hay que leer junto.
     var seccionEnfocada by remember { mutableStateOf("") }
+    // Aviso transitorio para lo que no se puede reproducir. Se borra solo: es informacion de un
+    // momento, y dejarla fija en pantalla confundiria con el titulo que si esta enfocado.
+    var aviso by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(aviso) {
+        if (aviso == null) return@LaunchedEffect
+        delay(3500)
+        aviso = null
+    }
     // Al cambiar de raíz, lo que había enfocado ya no está en pantalla: dejarlo pintado mostraría
     // el nombre de una película de otra pestaña.
     LaunchedEffect(raiz) { enfocado = null; seccionEnfocada = "" }
@@ -245,7 +253,7 @@ fun TvSeccionesDeCatalogo(
         if (conItems.isEmpty()) {
             Mensaje(if (cargando) "Cargando…" else (error ?: "Sin secciones"))
         } else {
-            TextoDelHero(enfocado, seccionEnfocada)
+            TextoDelHero(enfocado, seccionEnfocada, aviso)
         }
         }
 
@@ -278,6 +286,7 @@ fun TvSeccionesDeCatalogo(
                             cardHeight = cardHeight,
                             onReproducir = onReproducir,
                             onEnfocar = { enfocado = it; seccionEnfocada = fila.seccion },
+                            onAviso = { aviso = it },
                         )
                         Spacer(Modifier.height(gapEntreFilas))
                     }
@@ -350,8 +359,21 @@ private fun FondoDelHero(imageUrl: String?) {
  * saltarían cada vez que el foco entra o sale de una tarjeta.
  */
 @Composable
-private fun TextoDelHero(item: ItemDeCatalogo?, seccion: String) {
+private fun TextoDelHero(item: ItemDeCatalogo?, seccion: String, aviso: String?) {
     Column(Modifier.fillMaxWidth(0.55f).height(96.dp).padding(start = 48.dp, bottom = 12.dp)) {
+        // El aviso PISA al ítem enfocado mientras dura: es la respuesta a algo que la persona acaba
+        // de hacer, así que tiene que estar donde ya está mirando. Ocupa el mismo bloque de alto
+        // fijo, así que nada de abajo se mueve cuando aparece o se va.
+        if (aviso != null) {
+            Text(
+                aviso,
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+            return@Column
+        }
         if (item == null) return@Column
         if (seccion.isNotBlank()) {
             Text(
@@ -418,6 +440,7 @@ private fun FilaDeItems(
     cardHeight: androidx.compose.ui.unit.Dp,
     onReproducir: (ItemDeCatalogo) -> Unit,
     onEnfocar: (ItemDeCatalogo) -> Unit,
+    onAviso: (String) -> Unit,
 ) {
     CompositionLocalProvider(LocalBringIntoViewSpec provides PivotoDeTv) {
         LazyRow(
@@ -444,7 +467,14 @@ private fun FilaDeItems(
                     cardHeight = cardHeight,
                     badge = marca,
                     onFocus = { onEnfocar(item) },
-                    onClick = { if (marca == null) onReproducir(item) },
+                    // Lo que no se puede reproducir AVISA en vez de quedarse mudo. La marca en la
+                    // tarjeta no alcanzaba: en un televisor, un boton que acepta el clic y no hace
+                    // nada se lee como que la app se colgo -- y eso fue exactamente lo que paso.
+                    onClick = {
+                        if (marca == null) onReproducir(item)
+                        else if (item.esSerie) onAviso("Las series todavía no se reproducen desde acá. Buscala por nombre.")
+                        else onAviso("Este título no está disponible para reproducir.")
+                    },
                 )
             }
         }
