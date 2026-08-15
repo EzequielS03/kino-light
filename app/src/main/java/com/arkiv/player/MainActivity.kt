@@ -49,6 +49,19 @@ private val INTRO_HEAD_START_MS = com.arkiv.player.ui.DURACION_DE_LA_INTRO_MS.to
 /** Margen tras arrancar la composición del root antes de destapar la app con el fundido. */
 private const val CONTENT_SETTLE_MS = 400L
 
+/**
+ * Si el aparato rooteado se bloquea o no. **Apagado a propósito**: hoy queremos que un aparato con
+ * root pueda usar la app igual.
+ *
+ * Se apaga con un interruptor en vez de borrar [com.arkiv.player.seguridad.DeteccionDeRoot] porque
+ * la detección en sí quedó hecha y probada (tests incluidos); volver a prenderla es cambiar este
+ * `false` por `true`, no reescribirla.
+ *
+ * Ojo con lo que este interruptor NO cambia: la comprobación de firma del APK sigue viva, y es la
+ * que hay que dejar en pie —sin ella cualquier control futuro se quita decompilando y re-firmando.
+ */
+private const val BLOQUEAR_POR_ROOT = false
+
 class MainActivity : AppCompatActivity() {
 
     private var pendingEpisode by mutableStateOf<String?>(null)
@@ -181,12 +194,14 @@ class MainActivity : AppCompatActivity() {
      *
      * 1. **Firma del APK.** Si no la comprobamos, el bloqueo por root no vale nada: se decompila,
      *    se le quita y se vuelve a firmar. Solo se exige en release (ver [FirmaDelApk]).
-     * 2. **Root.** Ver [DeteccionDeRoot], que también explica sus límites.
+     * 2. **Root.** Ver [DeteccionDeRoot], que también explica sus límites. Hoy NO bloquea: está
+     *    detrás de [BLOQUEAR_POR_ROOT], apagado.
      */
     private fun motivosParaNoArrancar(): List<String> {
         if (!FirmaDelApk.esNuestra(this, BuildConfig.DEBUG)) {
             return listOf("el APK no está firmado con el certificado de Kino")
         }
+        if (!BLOQUEAR_POR_ROOT) return emptyList()
         return DeteccionDeRoot.motivos(RecolectorDeSenales.recoger(this))
     }
 
