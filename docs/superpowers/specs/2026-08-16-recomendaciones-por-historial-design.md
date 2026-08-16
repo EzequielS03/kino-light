@@ -9,11 +9,11 @@
 
 ## Problema
 
-Cuando terminás una serie no hay nada que te diga qué sigue. La biblioteca muestra lo que ya
-agregaste y el catálogo muestra lo que es popular, pero nada mira **lo que vos viste** para
+Cuando terminas una serie no hay nada que te diga qué sigue. La biblioteca muestra lo que ya
+agregaste y el catálogo muestra lo que es popular, pero nada mira **lo que tú viste** para
 proponerte algo.
 
-El objetivo es una fila **"Para vos"** en la pantalla de inicio, que se recalcula **cuando terminás
+El objetivo es una fila **"Para ti"** en la pantalla de inicio, que se recalcula **cuando terminas
 algo**, con títulos que **se pueden reproducir de verdad**.
 
 ## Lo que ya existe (verificado en código y contra PocketBase el 2026-08-16)
@@ -74,9 +74,9 @@ temporada entera produce un solo cálculo.
    4. arma el prompt          terminado / abandonado / repetido
    5. MiniMax                 ~20 candidatos + el porqué de cada uno
    6. verifica en cascada     existe → no visto → tiene fuente
-   7. escribe               colección `recomendaciones`
+   7. escribe                 colección `recomendaciones`
    ▼
-[PocketBase] ──SSE──▶ [App] sync existente → Room → fila "Para vos"
+[PocketBase] ──SSE──▶ [App] sync existente → Room → fila "Para ti"
 ```
 
 ### Por qué el gateway hace todo
@@ -97,8 +97,8 @@ multiplican el costo. Tres señales, que significan cosas distintas:
 ### Regla no negociable: nada de contenido adulto
 
 No entra como señal y no puede salir como sugerencia. Es coherente con la regla que ya existe en el
-reproductor (un canal de adultos no se anota en el historial), y acá importa más todavía: la fila
-"Para vos" está en la pantalla de inicio, a la vista de cualquiera que prenda el TV.
+reproductor (un canal de adultos no se anota en el historial), y aquí importa más todavía: la fila
+"Para ti" está en la pantalla de inicio, a la vista de cualquiera que prenda el TV.
 
 ### Salida del modelo
 
@@ -113,7 +113,7 @@ En este orden, del descarte más barato al más caro:
 1. **¿Existe?** Búsqueda en TMDB. Si TMDB no lo conoce, era una alucinación → afuera. De paso se
    obtiene el `tmdbId` real, el título en es-MX y el póster.
 2. **¿Ya lo viste?** Contra biblioteca e historial → afuera.
-3. **¿Se puede reproducir?** Recién acá se consultan las fuentes (magis/torrent/web) con presupuesto
+3. **¿Se puede reproducir?** Recién aquí se consultan las fuentes (magis/torrent/web) con presupuesto
    de tiempo. Sin fuente → afuera.
 
 Se piden ~20 para quedarse con ~10: la cascada descarta bastante y pedir de más es más barato que
@@ -141,12 +141,12 @@ que es por-persona.
   Responder al final dejaría a la app esperando 30 s o más justo al terminar un capítulo.
 - **Un fallo no empeora lo que ya había.** Si MiniMax se cae, devuelve basura o las fuentes no
   responden, la fila anterior **sobrevive**. Una fila vacía por un error transitorio se ve idéntica
-  a "no tengo nada para vos".
+  a "no tengo nada para ti".
 - **Tope por cuenta y por día.** Hoy la llave la comparten tres apps: sin tope, un bucle en Kino
   apaga el bot. **Recomendado: llave propia de MiniMax para Kino.**
 - **Deduplicación**: candado por cuenta + ventana mínima de **6 h** entre cálculos (ver "Qué cuenta
-  como terminaste algo"). Maratonear una temporada, o el celu y el TV avisando lo mismo, producen un
-  solo cálculo.
+  como terminaste algo"). Maratonear una temporada, o el celular y el TV avisando lo mismo, producen
+  un solo cálculo.
 
 ## Pruebas
 
