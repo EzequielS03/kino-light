@@ -44,7 +44,7 @@ Es exactamente por eso que el disparo es "al terminar algo" y no "al abrir la pa
 | Superficie | Fila en el inicio | Encaja con la forma que la app ya tiene; si no hay nada, no aparece |
 | Candidatos | Verificados antes de mostrar | Una recomendación que no se reproduce es peor que ninguna |
 | Alcance | Todas las cuentas, con interruptor | Permite prenderlo solo para Cristian primero |
-| Frecuencia | Al terminar algo | Es el momento en que la pregunta "¿qué sigo?" existe de verdad |
+| Frecuencia | Al terminar algo, máximo 1 vez al día | Es el momento en que la pregunta "¿qué sigo?" existe de verdad, y un día basta porque el historial casi no cambia entre sesiones |
 | Disparo | La app avisa al gateway | Inmediato, y deja la lógica en Python, donde hay tests |
 
 **Consecuencia aceptada del disparo por evento:** si pasan semanas sin terminar nada, la fila queda
@@ -60,8 +60,13 @@ una serie no siempre es posible (depende de la fuente), y una detección que a v
 una función que a veces no anda, sin que se note por qué.
 
 Lo que evita que eso dispare de más es la **deduplicación por tiempo**, no la precisión del evento:
-si ya se calculó para esa cuenta hace menos de **6 horas**, el disparo se descarta. Maratonear una
-temporada entera produce un solo cálculo.
+si ya se calculó para esa cuenta hace menos de **24 horas**, el disparo se descarta. O sea, **como
+mucho una generación por día y por cuenta**.
+
+Un día es la ventana correcta y no seis horas, porque nadie ve películas todo el día: entre una
+sesión de la tarde y una de la noche tu historial casi no cambió, así que recalcular habría gastado
+una llamada al modelo para proponer prácticamente lo mismo. Y de paso el tope diario deja de ser un
+mecanismo aparte: es exactamente una.
 
 ```
 [App] marca algo como visto
@@ -142,11 +147,12 @@ que es por-persona.
 - **Un fallo no empeora lo que ya había.** Si MiniMax se cae, devuelve basura o las fuentes no
   responden, la fila anterior **sobrevive**. Una fila vacía por un error transitorio se ve idéntica
   a "no tengo nada para ti".
-- **Tope por cuenta y por día.** Hoy la llave la comparten tres apps: sin tope, un bucle en Kino
-  apaga el bot. **Recomendado: llave propia de MiniMax para Kino.**
-- **Deduplicación**: candado por cuenta + ventana mínima de **6 h** entre cálculos (ver "Qué cuenta
-  como terminaste algo"). Maratonear una temporada, o el celular y el TV avisando lo mismo, producen
-  un solo cálculo.
+- **Tope por cuenta y por día.** Lo garantiza la ventana de 24 h: una generación diaria como máximo,
+  sin necesidad de un contador aparte. Importa porque hoy la llave la comparten tres apps y sin tope
+  un bucle en Kino apagaría el bot. **Recomendado: llave propia de MiniMax para Kino.**
+- **Deduplicación**: candado por cuenta + ventana de **24 h** entre cálculos (ver "Qué cuenta como
+  terminaste algo"). Maratonear una temporada, o el celular y el TV avisando lo mismo, producen un
+  solo cálculo.
 
 ## Pruebas
 
