@@ -84,6 +84,7 @@ import com.arkiv.player.data.ArchiveUrls
 import com.arkiv.player.data.db.ContinueRow
 import com.arkiv.player.data.db.LibraryRow
 import com.arkiv.player.data.db.LiveChannelCacheEntity
+import com.arkiv.player.data.db.RecomendacionEntity
 import com.arkiv.player.data.gateway.LiveChannel
 import com.arkiv.player.miniaturas.EleccionDeMiniatura
 import com.arkiv.player.sync.SyncStatus
@@ -107,11 +108,16 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * Lo que muestra el héroe del fondo. [meta] es la línea de datos del capítulo ("T1 · E5  ·  La
- * conspiración  ·  te faltan 12 min") y solo la llenan las tarjetas de "Continuar viendo": las
- * filas de descubrimiento muestran títulos de TMDB, que no son capítulos.
+ * Lo que muestra el héroe del fondo. [meta] es la línea de datos que se destaca en blanco debajo
+ * del título: la etiqueta de capítulo ("T1 · E5  ·  La conspiración  ·  te faltan 12 min") en
+ * "Continuar viendo", o el porqué de una recomendación ("porque terminaste Dragon Ball") en
+ * "Para ti" (ver [recommendationFeatured]). Las filas de descubrimiento no la usan: sus títulos de
+ * TMDB no son capítulos y no tienen un "porqué" que mostrar.
+ *
+ * `internal` (no `private`) para que [recommendationFeatured] se pueda probar sin Compose, ver
+ * `TvHomeScreenParaTiTest`.
  */
-private data class Featured(
+internal data class Featured(
     val title: String,
     val subtitle: String,
     val imageUrl: String?,
@@ -141,6 +147,27 @@ private fun discoveryMeta(card: com.arkiv.player.ui.search.TitleCard): String {
     }
     return if (card.year.isBlank()) kind else "$kind  ·  ${card.year}"
 }
+
+/**
+ * Si hay recomendaciones vigentes, la fila "Para ti" se dibuja; si no, ni el título ni un hueco --
+ * mismo criterio que "Canales en vivo" acá al lado. Función aparte (en vez de un `.isNotEmpty()`
+ * suelto en el composable) para poder probar la regla sin levantar Compose.
+ */
+internal fun mostrarFilaParaTi(recomendaciones: List<RecomendacionEntity>): Boolean = recomendaciones.isNotEmpty()
+
+/**
+ * Lo que muestra el hero al enfocar una tarjeta de "Para ti": el "porqué" que trae el gateway va en
+ * [Featured.meta] -- el mismo lugar donde "Continuar viendo" pone "te faltan 12 min" -- porque es
+ * el dato que explica la recomendación, no una sinopsis. Top-level y no local a [TvHomeScreen] (a
+ * diferencia de `continueFeatured`/`libraryFeatured`, que si leen estado del composable) para que se
+ * pueda probar sin Compose: es pura, solo depende de los campos de [RecomendacionEntity].
+ */
+internal fun recommendationFeatured(rec: RecomendacionEntity): Featured = Featured(
+    title = rec.titulo,
+    subtitle = if (rec.tipo == "movie") "Película" else "Serie",
+    imageUrl = rec.posterUrl.ifBlank { null },
+    meta = rec.porque,
+)
 
 /**
  * El pivote de TV, tal cual lo hace Compose, pero escrito acá porque el suyo es `internal`.
@@ -230,6 +257,14 @@ fun TvHomeScreen(
     val discoveryRowsLoaded by vm.rowsLoaded.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
+
+    // Recomendaciones del gateway ("Para ti"): se lee directo de Room, igual que los canales en
+    // vivo recientes de acá abajo -- es una fila de solo lectura que no necesita su propio
+    // ViewModel. Llegan por el sync existente (ver CloudSyncManager), así que pueden aparecer
+    // TARDE, con el home ya dibujado; de ahí que la fila viva DESPUÉS del ancla del foco inicial
+    // ("Continuar viendo") y no antes -- ver el comentario de más abajo, junto al LazyColumn.
+    val recomendacionDao = remember { graph.database.recomendacionDao() }
+    val recomendaciones by recomendacionDao.observeVigentes().collectAsStateWithLifecycle(initialValue = emptyList())
 
     // Canales en vivo recientes -- mismo criterio que el home del celular (ver su KDoc en
     // HomeScreen.kt): se lee directo de Room, sin levantar LiveViewModel (que habla con el
@@ -608,6 +643,53 @@ fun TvHomeScreen(
                                             modifier = if (isFirst) Modifier.focusRequester(firstCardFocus) else Modifier,
                                             onFocus = { navSound(); featured = continueFeatured(row) },
                                             onClick = { onPlayEpisode(row.episodeId) },
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(Modifier.height(rowGap))
+                        }
+                    }
+
+                    // Recomendaciones ("Para ti"): va ACÁ, DESPUÉS de "Continuar viendo" y no antes,
+                    // y no es estético. Esta fila llega por sync y puede aparecer TARDE, con el home
+                    // ya dibujado y el foco puesto (ver el LaunchedEffect de `firstFocusKey` más
+                    // arriba). "Continuar viendo" es el ancla de ese foco inicial; poniendo "Para ti"
+                    // DEBAJO de ella, si aparece de golpe no empuja lo de arriba ni le roba el foco a
+                    // nadie -- es exactamente el bug que ya se peleó acá (ver el comentario largo
+                    // sobre `firstFocusKey`/`rowsListState` unas líneas más arriba).
+                    if (mostrarFilaParaTi(recomendaciones)) {
+                        item(key = "para_ti") {
+                            TvRowLabel("Para ti", labelHeight)
+                            CompositionLocalProvider(LocalBringIntoViewSpec provides PivotoDeTv) {
+                                LazyRow(
+                                    contentPadding = PaddingValues(horizontal = 48.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                ) {
+                                    items(recomendaciones, key = { it.id }) { rec ->
+                                        TvLandscapeCard(
+                                            title = rec.titulo,
+                                            imageUrl = rec.posterUrl.ifBlank { null },
+                                            cardHeight = cardHeight,
+                                            onFocus = { navSound(); featured = recommendationFeatured(rec) },
+                                            onClick = {
+                                                // Mismo camino que TvSeccionesDeCatalogo.onReproducir
+                                                // para lo que no está en la biblioteca: se guarda vía
+                                                // addMagisSource (con el `ref` ya resuelto por el
+                                                // gateway) y se reproduce el episodio que devuelve. Sin
+                                                // pasar `tmdbId`: asociarlo a la biblioteca es de otra
+                                                // etapa. Si el `ref` ya no sirve, el reproductor avisa
+                                                // por su cuenta -- no hay que duplicar ese manejo acá.
+                                                scope.launch {
+                                                    val epId = graph.repository.addMagisSource(
+                                                        ref = rec.ref,
+                                                        contentId = rec.id,
+                                                        title = rec.titulo,
+                                                        posterUrl = rec.posterUrl,
+                                                    )
+                                                    if (epId != null) onPlayEpisode(epId)
+                                                }
+                                            },
                                         )
                                     }
                                 }
