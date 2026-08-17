@@ -1,5 +1,6 @@
 package com.arkiv.player.ui.tv
 
+import com.arkiv.player.data.MagisEntities
 import com.arkiv.player.data.db.RecomendacionEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -7,9 +8,10 @@ import org.junit.Test
 
 /**
  * Cubre la lógica pura detrás de la fila "Para ti" del inicio de TV: si se dibuja o no
- * ([mostrarFilaParaTi]) y qué muestra el hero al enfocar una tarjeta ([recommendationFeatured]).
- * Compose para TV no tiene infraestructura de tests de UI en este proyecto (mismo motivo que
- * `TvOfertaVincularMagisTest`), así que estas dos funciones -extraídas fuera del composable a
+ * ([mostrarFilaParaTi]), qué muestra el hero al enfocar una tarjeta ([recommendationFeatured]) y
+ * con qué llave se navega al detalle al seleccionarla ([recommendationItemId]). Compose para TV no
+ * tiene infraestructura de tests de UI en este proyecto (mismo motivo que
+ * `TvOfertaVincularMagisTest`), así que estas funciones -extraídas fuera del composable a
  * propósito- son la parte que sí se puede probar en un JVM plano.
  */
 class TvHomeScreenParaTiTest {
@@ -68,5 +70,24 @@ class TvHomeScreenParaTiTest {
     @Test fun `posterUrl con datos se conserva`() {
         val f = recommendationFeatured(recomendacion(posterUrl = "https://image.tmdb.org/poster.jpg"))
         assertEquals("https://image.tmdb.org/poster.jpg", f.imageUrl)
+    }
+
+    // --- recommendationItemId: la llave con la que se navega al detalle tras guardar ---
+
+    @Test fun `la llave sale del id de la recomendacion con el prefijo magis`() {
+        assertEquals("magis:r1", recommendationItemId(recomendacion(id = "r1")))
+    }
+
+    @Test fun `la llave cambia con el id de la recomendacion`() {
+        assertEquals("magis:otro-id", recommendationItemId(recomendacion(id = "otro-id")))
+    }
+
+    @Test fun `la llave coincide con la que addMagisSource calcula para el mismo contentId`() {
+        // Este es el chequeo que importa: addMagisSource guarda el ítem con
+        // MagisEntities.itemIdDe(contentId), pasándole el `id` de la recomendación como contentId
+        // (ver el onClick de la fila). Si esta cuenta se desalineara de esa, el detalle no
+        // encontraría el ítem recién guardado y se vería como una recomendación rota.
+        val rec = recomendacion(id = "r-42")
+        assertEquals(MagisEntities.itemIdDe(rec.id), recommendationItemId(rec))
     }
 }

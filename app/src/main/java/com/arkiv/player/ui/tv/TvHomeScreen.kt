@@ -170,6 +170,20 @@ internal fun recommendationFeatured(rec: RecomendacionEntity): Featured = Featur
 )
 
 /**
+ * La llave con la que se navega al detalle (`onOpenItem`) tras guardar una recomendación.
+ *
+ * Tiene que ser EXACTAMENTE la misma que calcula `addMagisSource` puertas adentro para el ítem que
+ * guarda ([com.arkiv.player.data.MagisEntities.build]: `itemIdDe(contentId)`) -- ahí se le pasa
+ * `contentId = rec.id`, así que acá se recalcula con el mismo `rec.id` y la misma función, en vez
+ * de partir el episodeId que devuelve `addMagisSource` (que además ni se necesita: el detalle
+ * resuelve sus propias fuentes a partir del itemId). Si esta llave no coincidiera con la que
+ * `addMagisSource` guardó, el detalle no encontraría nada y la recomendación se vería rota
+ * ("No se pudo cargar este contenido").
+ */
+internal fun recommendationItemId(rec: RecomendacionEntity): String =
+    com.arkiv.player.data.MagisEntities.itemIdDe(rec.id)
+
+/**
  * El pivote de TV, tal cual lo hace Compose, pero escrito acá porque el suyo es `internal`.
  *
  * Deja lo enfocado a un 30 % del largo del contenedor y hace que el contenido corra por debajo, en
@@ -673,13 +687,30 @@ fun TvHomeScreen(
                                             cardHeight = cardHeight,
                                             onFocus = { navSound(); featured = recommendationFeatured(rec) },
                                             onClick = {
-                                                // Mismo camino que TvSeccionesDeCatalogo.onReproducir
-                                                // para lo que no está en la biblioteca: se guarda vía
-                                                // addMagisSource (con el `ref` ya resuelto por el
-                                                // gateway) y se reproduce el episodio que devuelve. Sin
-                                                // pasar `tmdbId`: asociarlo a la biblioteca es de otra
-                                                // etapa. Si el `ref` ya no sirve, el reproductor avisa
-                                                // por su cuenta -- no hay que duplicar ese manejo acá.
+                                                // Guarda vía addMagisSource, mismo mecanismo que usa
+                                                // TvSeccionesDeCatalogo.onReproducir para lo que no
+                                                // está en la biblioteca (con el `ref` ya resuelto por
+                                                // el gateway). Sin pasar `tmdbId`: asociarlo a la
+                                                // biblioteca es de otra etapa.
+                                                //
+                                                // A DIFERENCIA de TvSeccionesDeCatalogo, acá NO se
+                                                // reproduce directo: se abre el DETALLE (mismo `onOpenItem`
+                                                // que usa "Continuar viendo"/biblioteca), a pedido
+                                                // explícito -- si la recomendación es una serie, la
+                                                // persona tiene que poder elegir el capítulo, y
+                                                // reproducir directo no deja. El ítem ya quedó
+                                                // guardado en la biblioteca por addMagisSource ANTES
+                                                // de esto (en las dos variantes, reproducir directo o
+                                                // abrir detalle), así que abrir el detalle no cuesta
+                                                // nada de más.
+                                                //
+                                                // La llave con la que se navega es la MISMA que
+                                                // addMagisSource calculó puertas adentro para guardar
+                                                // el ítem (ver [recommendationItemId]): si no
+                                                // coincidieran, el detalle no encontraría nada y se
+                                                // vería como una recomendación rota. Si el guardado
+                                                // falla (ref/contentId en blanco), no se navega a un
+                                                // detalle que no va a resolver nada.
                                                 scope.launch {
                                                     val epId = graph.repository.addMagisSource(
                                                         ref = rec.ref,
@@ -687,7 +718,7 @@ fun TvHomeScreen(
                                                         title = rec.titulo,
                                                         posterUrl = rec.posterUrl,
                                                     )
-                                                    if (epId != null) onPlayEpisode(epId)
+                                                    if (epId != null) onOpenItem(recommendationItemId(rec))
                                                 }
                                             },
                                         )
