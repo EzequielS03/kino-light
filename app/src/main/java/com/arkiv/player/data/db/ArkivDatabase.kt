@@ -27,7 +27,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         LiveChannelCacheEntity::class,
         RecomendacionEntity::class,
     ],
-    version = 25,
+    version = 26,
     exportSchema = false,
 )
 abstract class ArkivDatabase : RoomDatabase() {
@@ -451,6 +451,22 @@ abstract class ArkivDatabase : RoomDatabase() {
         }
 
         /**
+         * v25 -> v26: `tipo` ("movie"|"tv") del ítem, para que la biblioteca sepa con exactitud si
+         * ya viste algo (colección `library_items` de PocketBase, campo `tipo`) en vez de comparar
+         * por título, que es difuso. Ver [ItemEntity.tipo].
+         *
+         * NULL sin DEFAULT a propósito, igual que [MIGRATION_15_16] con `tmdbId`: los ítems que ya
+         * existen no saben su tipo con certeza, y adivinarlo (por ejemplo por `categoryOverride`,
+         * que usa "series" y no "tv") dejaría un dato con la MISMA forma que uno confirmado por la
+         * fuente, sin serlo. Con NULL simplemente no participa de esa comparación exacta todavía.
+         */
+        private val MIGRATION_25_26 = object : Migration(25, 26) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE items ADD COLUMN tipo TEXT")
+            }
+        }
+
+        /**
          * Deja los triggers de `updatedAt` puestos en CADA apertura, y sella lo que haya quedado
          * sin reloj.
          *
@@ -475,7 +491,7 @@ abstract class ArkivDatabase : RoomDatabase() {
                     context.applicationContext,
                     ArkivDatabase::class.java,
                     "arkiv.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26)
                     .addCallback(SELLAR_UPDATED_AT)
                     .fallbackToDestructiveMigration()
                     .build().also { instance = it }

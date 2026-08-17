@@ -176,6 +176,9 @@ object MagisEntities {
             // el que ya estaba guardado: los refs de imdb/tmdb no cambian, así que uno viejo sigue
             // siendo válido.
             tmdbId = tmdbId ?: existente?.tmdbId,
+            // Es SIEMPRE una temporada -no hace falta el `?:` de tmdbId: acá no hay ambigüedad que
+            // preservar, cada llamada a buildSeason es de una serie.
+            tipo = "tv",
         )
         return item to capitulos.map { capituloDe(itemId, it.number, it.title, it.ref, seasonNumber) }
     }
@@ -268,6 +271,9 @@ object MagisEntities {
             },
             episodiosVistosEnLista = existente?.episodiosVistosEnLista,
             tmdbId = tmdbId ?: existente?.tmdbId,
+            // `episode` dice con certeza si esto es un capítulo de serie o una película: no hace
+            // falta el `?:` de tmdbId, cada llamada sabe cuál de las dos es.
+            tipo = if (esCapitulo) "tv" else "movie",
         )
         val ep = if (esCapitulo) {
             capituloDe(itemId, episode, episodeTitle, ref, season = season)

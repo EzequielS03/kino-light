@@ -35,6 +35,16 @@ data class ItemEntity(
      * los títulos de los capítulos. Null para ítems agregados a mano por identificador/URL.
      */
     val tmdbId: Int? = null,
+    /**
+     * "movie" | "tv" (mismo vocabulario que [com.arkiv.player.data.catalog.TmdbItem.type]), cuando
+     * se sabe con certeza al agregar. Distinto de [categoryOverride] -que es un override MANUAL y
+     * usa "series", no "tv"-: esto es el tipo que trajo la fuente, no una corrección de la persona.
+     *
+     * Sirve para que el gateway (colección `library_items` de PocketBase, campo `tipo`) sepa con
+     * exactitud si ya viste algo en vez de comparar por título, que es difuso. Null cuando la
+     * fuente no lo sabe (torrent por hash, web por URL): mejor un hueco que un tipo inventado.
+     */
+    val tipo: String? = null,
 )
 
 @Entity(

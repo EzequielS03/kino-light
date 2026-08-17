@@ -42,6 +42,12 @@ fun itemToFields(entity: ItemEntity, accountId: String): Map<String, Any?> = map
     "torrentData" to entity.torrentData.takeUnless { entity.deleted },
     "updatedAt" to entity.updatedAt,
     "deleted" to entity.deleted,
+    // tmdbId/tipo: para que el gateway sepa con exactitud si ya viste algo (por id, no por título
+    // difuso). `entity.tmdbId` puede ser null (ítem sin identificar) -PocketBase lo deja vacío, no
+    // rompe- así que no hace falta un `takeUnless { entity.deleted }` como con torrentData: son
+    // livianos, no hay motivo para aligerar el tombstone quitándolos.
+    "tmdbId" to entity.tmdbId,
+    "tipo" to entity.tipo,
 )
 
 fun recordToItem(json: JSONObject): ItemEntity = ItemEntity(
@@ -55,6 +61,12 @@ fun recordToItem(json: JSONObject): ItemEntity = ItemEntity(
     torrentData = json.optStringOrNull("torrentData"),
     updatedAt = json.optLong("updatedAt"),
     deleted = json.optBoolean("deleted"),
+    // 0 cuenta como ausente, no como un tmdbId real -mismo criterio que
+    // `MagisEntities.refParaReparar`-: el campo numérico de PocketBase nace en 0 en las filas que
+    // todavía no lo tienen, así que sin este filtro un ítem sin tmdbId llegaría con un 0 que
+    // después se lee como "sí tiene", solo que apuntando a nada.
+    tmdbId = json.optIntOrNull("tmdbId")?.takeIf { it > 0 },
+    tipo = json.optStringOrNull("tipo"),
 )
 
 // ---- episodes <-> EpisodeEntity ----

@@ -105,6 +105,18 @@ class MagisEntitiesTest {
         assertEquals("magis:ABC::0", ep.id)
     }
 
+    @Test fun un_capitulo_suelto_queda_tipado_como_tv() {
+        // Para que `library_items` (PocketBase) sepa con exactitud que esto es una serie, no por
+        // título difuso -- ver el KDoc de ItemEntity.tipo.
+        val (item, _) = capitulo(episode = 3)
+        assertEquals("tv", item.tipo)
+    }
+
+    @Test fun una_pelicula_suelta_queda_tipada_como_movie() {
+        val (item, _) = capitulo(episode = 0)
+        assertEquals("movie", item.tipo)
+    }
+
     @Test fun el_id_viejo_de_un_capitulo_se_puede_reconocer_para_barrerlo() {
         // Las filas guardadas antes de este cambio quedaron como `magis:<contentId>:e<n>`, o sea una
         // tarjeta-película por capítulo. Se borran al volver a guardar ese mismo capítulo.
@@ -223,6 +235,10 @@ class MagisEntitiesTest {
         val (item, eps) = temporada(capitulos = emptyList())
         assertEquals("magis:ABC", item.identifier)
         assertEquals(0, eps.size)
+    }
+
+    @Test fun la_temporada_siempre_queda_tipada_como_tv() {
+        assertEquals("tv", temporada().first.tipo)
     }
 
     @Test fun el_tmdbId_nuevo_manda_pero_uno_ausente_no_borra_el_que_ya_estaba() {
