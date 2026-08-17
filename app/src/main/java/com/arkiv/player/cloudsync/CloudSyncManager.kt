@@ -376,7 +376,7 @@ class CloudSyncManager(
             COL_LIVE_FAVORITES -> mergeLiveFavorite(json, remoteUpdatedAt)
             COL_LIVE_RECENTS -> mergeLiveRecent(json, remoteUpdatedAt)
             COL_FRAMES -> mergeFrame(json, remoteUpdatedAt)
-            COL_RECOMENDACIONES -> mergeRecomendacion(json, remoteUpdatedAt)
+            COL_RECOMENDACIONES -> mergeRecomendacion(recomendacionDao, json, remoteUpdatedAt)
             else -> false
         }
         // OJO: NO bumpear cursors.lastPushed acá. El cursor de push es por colección (no por fila)
@@ -421,19 +421,6 @@ class CloudSyncManager(
         val local = skipMarkerDao.get(remote.itemId)
         if (!LwwMerge.pickWinner(local?.updatedAt ?: 0, remoteUpdatedAt)) return false
         skipMarkerDao.upsert(remote)
-        return true
-    }
-
-    /**
-     * Igual que [mergeMarker]: LWW por `updatedAt` contra la fila local (buscada por `id` de
-     * PocketBase, ver el KDoc de [com.arkiv.player.data.db.RecomendacionEntity]) y upsert si gana el
-     * remoto. Sin caso especial de push -- esta colección es de solo lectura.
-     */
-    private suspend fun mergeRecomendacion(json: JSONObject, remoteUpdatedAt: Long): Boolean {
-        val remote = recordToRecomendacion(json)
-        val local = recomendacionDao.get(remote.id)
-        if (!LwwMerge.pickWinner(local?.updatedAt ?: 0, remoteUpdatedAt)) return false
-        recomendacionDao.upsert(remote)
         return true
     }
 
@@ -484,4 +471,32 @@ class CloudSyncManager(
         if (json.optInt("deleted") == 1) destructorDeFrames.borrarArchivo(episodeId)
         return true
     }
+}
+
+/**
+ * La regla de merge de `recomendaciones`: LWW por `updatedAt` contra la fila local (buscada por
+ * `id` de PocketBase -- ver el KDoc de [com.arkiv.player.data.db.RecomendacionEntity]) y upsert si
+ * gana el remoto. Mismo criterio que `mergeMarker`/`mergeLiveFavorite`, y sin caso especial de push:
+ * esta colección es de solo lectura.
+ *
+ * Vive FUERA de [CloudSyncManager] -- no como método privado de la clase, que es como nació -- para
+ * poder probarla de verdad con un [RecomendacionDao] de mentira, sin tener que construir un
+ * `CloudSyncManager` completo: la clase además necesita `PbSyncClient`,
+ * `PocketBaseRealtime`, `DeviceAuthManager`, `SyncCursors` y `SyncQuarantine` -- todas piden
+ * `Context` de Android -- y este módulo no tiene Robolectric en sus tests unitarios de JVM (ver el
+ * KDoc de `RecomendacionQueryTest` en `data.db`, que tiene la misma limitación). Es el mismo
+ * criterio que ya usa el sync LAN para su propia regla de merge: vive en una función aparte y
+ * testeable (`SyncMerge.aAplicar`), y quien orquesta (acá, [CloudSyncManager.mergeRecord]) solo la
+ * invoca -- así el test ejercita la MISMA función que corre en producción, no una reimplementación.
+ */
+internal suspend fun mergeRecomendacion(
+    dao: RecomendacionDao,
+    json: JSONObject,
+    remoteUpdatedAt: Long,
+): Boolean {
+    val remote = recordToRecomendacion(json)
+    val local = dao.get(remote.id)
+    if (!LwwMerge.pickWinner(local?.updatedAt ?: 0, remoteUpdatedAt)) return false
+    dao.upsert(remote)
+    return true
 }

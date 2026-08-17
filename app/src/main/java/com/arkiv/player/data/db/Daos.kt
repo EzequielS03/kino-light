@@ -812,6 +812,17 @@ interface EpisodeFrameDao {
     suspend fun borrarTodo()
 }
 
+/**
+ * Única fuente de verdad de la consulta "vigentes" de [RecomendacionDao.observeVigentes]: la usa el
+ * `@Query` real de abajo Y `RecomendacionQueryTest` (que la corre contra SQLite de verdad por JDBC,
+ * ver su KDoc). Un `@Query` de Room solo acepta constantes de compilación, así que un `const val`
+ * es lo mínimo que permite que las dos partes lean el MISMO string en vez de mantener dos copias a
+ * mano que se puedan desincronizar en silencio -- que es exactamente lo que pasaba antes: el test
+ * tenía su propia copia del SQL, y quitar el `WHERE deleted = 0` de acá no lo hacía fallar.
+ */
+internal const val QUERY_RECOMENDACIONES_VIGENTES =
+    "SELECT * FROM recomendaciones WHERE deleted = 0 ORDER BY orden ASC"
+
 @Dao
 interface RecomendacionDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -831,6 +842,6 @@ interface RecomendacionDao {
      * orden que decidió el gateway, sin lo que ya se marcó como tombstone. Es la fuente de la fila
      * "Para ti" del inicio.
      */
-    @Query("SELECT * FROM recomendaciones WHERE deleted = 0 ORDER BY orden ASC")
+    @Query(QUERY_RECOMENDACIONES_VIGENTES)
     fun observeVigentes(): Flow<List<RecomendacionEntity>>
 }

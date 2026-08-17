@@ -1,6 +1,5 @@
 package com.arkiv.player.cloudsync
 
-import com.arkiv.player.data.db.RecomendacionEntity
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -82,38 +81,8 @@ class RecomendacionMappersTest {
         assertEquals(9999L, e.updatedAt)
     }
 
-    /**
-     * El merge en `CloudSyncManager.mergeRecomendacion` es: mapear, comparar LWW por `updatedAt`
-     * contra la fila local (buscada por `id`), y si el remoto gana, hacer upsert -- MISMO patrón que
-     * `mergeMarker`/`mergeLiveFavorite`. Estos dos tests fijan las dos mitades de esa regla usando
-     * las mismas piezas que usa la producción (`recordToRecomendacion` + `LwwMerge.pickWinner`), sin
-     * necesidad de instanciar `CloudSyncManager` completo (no hay infraestructura de Room en los
-     * tests unitarios de este módulo).
-     */
-    @Test fun una_actualizacion_vieja_no_pisa_a_una_mas_nueva() {
-        val local = RecomendacionEntity(
-            id = "rec1", tmdbId = 603, tipo = "movie", titulo = "The Matrix",
-            posterUrl = "https://x/matrix.jpg", porque = "porque sí", ref = "torrent:abc",
-            orden = 0, generadoAt = 1000L, updatedAt = 5000L, deleted = false,
-        )
-        val remoto = recordToRecomendacion(json(updatedAt = 1000L))
-        assertFalse(
-            "el remoto es más viejo que lo local: no debería ganar el LWW",
-            LwwMerge.pickWinner(local.updatedAt, remoto.updatedAt),
-        )
-    }
-
-    @Test fun un_tombstone_mas_nuevo_gana_y_borra_localmente() {
-        val local = RecomendacionEntity(
-            id = "rec1", tmdbId = 603, tipo = "movie", titulo = "The Matrix",
-            posterUrl = "https://x/matrix.jpg", porque = "porque sí", ref = "torrent:abc",
-            orden = 0, generadoAt = 1000L, updatedAt = 2000L, deleted = false,
-        )
-        val remoto = recordToRecomendacion(json(deleted = true, updatedAt = 3000L))
-        assertTrue(
-            "el tombstone es más nuevo: tiene que ganar el LWW",
-            LwwMerge.pickWinner(local.updatedAt, remoto.updatedAt),
-        )
-        assertTrue("y lo que gana es un borrado", remoto.deleted)
-    }
+    // La regla de merge (LWW contra la fila local + upsert si gana el remoto) NO se prueba acá
+    // combinando `recordToRecomendacion` y `LwwMerge.pickWinner` por separado -- eso deja pasar un
+    // guard roto en la función real sin que ningún test se entere (hallazgo de la revisión del
+    // 2026-08-17). Ver MergeRecomendacionTest, que ejercita `mergeRecomendacion` de verdad.
 }

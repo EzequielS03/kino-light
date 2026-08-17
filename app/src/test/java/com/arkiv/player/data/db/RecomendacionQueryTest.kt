@@ -14,9 +14,12 @@ import org.junit.Test
  *
  * Se ejecuta contra SQLite de verdad -- mismo criterio que [SyncTriggersTest] -- porque es SQL puro
  * y este módulo no tiene infraestructura de Room (ni Robolectric) en los tests unitarios de la JVM.
- * El `CREATE TABLE` de acá tiene que quedarse en sincro con `MIGRATION_24_25` de [ArkivDatabase] y
- * el `@Query` de acá con el de [RecomendacionDao.observeVigentes] -- no hay forma automática de
- * comprobarlo, así que cualquier cambio en uno tiene que reflejarse en el otro.
+ * El `CREATE TABLE` de acá tiene que quedarse en sincro con `MIGRATION_24_25` de [ArkivDatabase] --
+ * eso no hay forma de comprobarlo automáticamente -- pero el SQL en sí NO se copia a mano: usa
+ * [QUERY_RECOMENDACIONES_VIGENTES], la misma constante que el `@Query` real de
+ * [RecomendacionDao.observeVigentes]. Antes este test tenía su propia copia del string, y ese fue
+ * justo el hueco que encontró la revisión: quitarle el `WHERE deleted = 0` a la consulta real no
+ * hacía fallar nada acá, porque corrían dos SQL distintos que por las dudas decían lo mismo.
  */
 class RecomendacionQueryTest {
 
@@ -47,10 +50,10 @@ class RecomendacionQueryTest {
         }
     }
 
-    /** Misma consulta que [RecomendacionDao.observeVigentes]. */
+    /** LA consulta de [RecomendacionDao.observeVigentes] -- no una copia, la misma constante. */
     private fun vigentes(): List<String> =
         db.createStatement().use { st ->
-            st.executeQuery("SELECT id FROM recomendaciones WHERE deleted = 0 ORDER BY orden ASC").use { rs ->
+            st.executeQuery(QUERY_RECOMENDACIONES_VIGENTES).use { rs ->
                 val out = mutableListOf<String>()
                 while (rs.next()) out.add(rs.getString("id"))
                 out
