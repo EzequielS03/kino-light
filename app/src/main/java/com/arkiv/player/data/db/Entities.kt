@@ -340,3 +340,39 @@ data class EpisodeFrameEntity(
      */
     val origenRemoto: Int = 0,
 )
+
+/**
+ * Una recomendación generada por el gateway a partir del historial de la cuenta, para la fila
+ * "Para ti" del inicio. SOLO LECTURA: la app nunca escribe acá, solo recibe por el sync (ver
+ * [com.arkiv.player.cloudsync.CloudSyncManager]) -- las reglas de la colección en PocketBase ya lo
+ * imponen del lado del servidor (escribir es solo del admin).
+ *
+ * La clave local es [id] (el `id` de PocketBase) y **NO** [orden]: el gateway RECREA la lista
+ * entera en cada generación en vez de reusar identidad entre tandas (ver
+ * `arkiv-api/src/arkiv_api/recomendaciones/almacen.py::guardar`) -- crea filas nuevas y entierra
+ * (`deleted=true`) las viejas con el MISMO `updatedAt`. Dos generaciones distintas pueden compartir
+ * el mismo `orden` (0..9) con `id`s distintos; si `orden` fuera la PK, la tanda nueva y la tumba de
+ * la vieja competirían por la MISMA fila en el LWW, y el orden de llegada del pull decidiría cuál de
+ * las dos (en realidad independientes) sobrevive.
+ */
+@Entity(tableName = "recomendaciones")
+data class RecomendacionEntity(
+    @PrimaryKey val id: String,
+    /** Puede venir en 0 (candidato sin `tmdbId` confirmado): es un valor legítimo, no una ausencia. */
+    val tmdbId: Int,
+    /** "movie" | "tv". */
+    val tipo: String,
+    val titulo: String,
+    /** Puede venir vacío, igual que [tmdbId]. */
+    val posterUrl: String,
+    /** La frase que explica por qué se recomienda (p. ej. "porque terminaste Dragon Ball"). */
+    val porque: String,
+    /** La fuente ya resuelta para reproducir, armada por el gateway. */
+    val ref: String,
+    /** Posición 0..9 para ordenar la fila. NO es identidad -- ver el KDoc de la clase. */
+    val orden: Int,
+    val generadoAt: Long,
+    /** Sync: reloj de última modificación (LWW) y tombstone de borrado. */
+    val updatedAt: Long = 0,
+    val deleted: Boolean = false,
+)

@@ -8,6 +8,7 @@ import com.arkiv.player.data.db.ItemDao
 import com.arkiv.player.data.db.LiveFavoriteDao
 import com.arkiv.player.data.db.LiveRecentDao
 import com.arkiv.player.data.db.PlaybackDao
+import com.arkiv.player.data.db.RecomendacionDao
 import com.arkiv.player.data.db.SkipMarkerDao
 import com.arkiv.player.miniaturas.AlmacenDeFrames
 import com.arkiv.player.miniaturas.DestructorDeFrames
@@ -35,6 +36,11 @@ private const val COL_FRAMES = "episode_frames"
 private const val COL_LIVE_FAVORITES = "live_favorites"
 private const val COL_LIVE_RECENTS = "live_recents"
 
+// Recomendaciones generadas por el gateway a partir del historial (fila "Para ti"). Colección de
+// SOLO LECTURA: no tiene entrada en pushRows/pushAll -- la app nunca escribe acá, ver el KDoc de
+// RecomendacionEntity -- solo en reconcileAll/subscribeAll/mergeRecord.
+private const val COL_RECOMENDACIONES = "recomendaciones"
+
 /** Cuánto retrocede el cursor de pull al arrancar, para rescatar lo que se subió tarde. */
 private const val RETROCESO_MS = 7L * 24 * 60 * 60 * 1000
 
@@ -53,6 +59,8 @@ class CloudSyncManager(
     private val itemDao: ItemDao,
     private val playbackDao: PlaybackDao,
     private val skipMarkerDao: SkipMarkerDao,
+    /** Solo lectura: ver el KDoc de [com.arkiv.player.data.db.RecomendacionEntity]. */
+    private val recomendacionDao: RecomendacionDao,
     private val liveFavoriteDao: LiveFavoriteDao,
     private val liveRecentDao: LiveRecentDao,
     private val episodeFrameDao: EpisodeFrameDao,
@@ -129,7 +137,7 @@ class CloudSyncManager(
         cursors.resetAll(
             listOf(
                 COL_ITEMS, COL_EPISODES, COL_PROGRESS, COL_MARKERS,
-                COL_LIVE_FAVORITES, COL_LIVE_RECENTS, COL_FRAMES,
+                COL_LIVE_FAVORITES, COL_LIVE_RECENTS, COL_FRAMES, COL_RECOMENDACIONES,
             ),
         )
         runCatching { pushAll() }
@@ -326,7 +334,7 @@ class CloudSyncManager(
 
         for (col in listOf(
             COL_ITEMS, COL_EPISODES, COL_PROGRESS, COL_MARKERS,
-            COL_LIVE_FAVORITES, COL_LIVE_RECENTS, COL_FRAMES,
+            COL_LIVE_FAVORITES, COL_LIVE_RECENTS, COL_FRAMES, COL_RECOMENDACIONES,
         )) {
             val cursor = cursors.lastPulled(col)
             // Ventana de retroceso al arrancar: el cursor usa el reloj del CLIENTE, así que un
@@ -348,7 +356,7 @@ class CloudSyncManager(
         realtime.subscribe(
             listOf(
                 COL_ITEMS, COL_EPISODES, COL_PROGRESS, COL_MARKERS,
-                COL_LIVE_FAVORITES, COL_LIVE_RECENTS, COL_FRAMES,
+                COL_LIVE_FAVORITES, COL_LIVE_RECENTS, COL_FRAMES, COL_RECOMENDACIONES,
             ),
         ).collect { ev ->
             mergeRecord(ev.topic, ev.record)
@@ -368,6 +376,7 @@ class CloudSyncManager(
             COL_LIVE_FAVORITES -> mergeLiveFavorite(json, remoteUpdatedAt)
             COL_LIVE_RECENTS -> mergeLiveRecent(json, remoteUpdatedAt)
             COL_FRAMES -> mergeFrame(json, remoteUpdatedAt)
+            COL_RECOMENDACIONES -> mergeRecomendacion(json, remoteUpdatedAt)
             else -> false
         }
         // OJO: NO bumpear cursors.lastPushed acá. El cursor de push es por colección (no por fila)
@@ -412,6 +421,19 @@ class CloudSyncManager(
         val local = skipMarkerDao.get(remote.itemId)
         if (!LwwMerge.pickWinner(local?.updatedAt ?: 0, remoteUpdatedAt)) return false
         skipMarkerDao.upsert(remote)
+        return true
+    }
+
+    /**
+     * Igual que [mergeMarker]: LWW por `updatedAt` contra la fila local (buscada por `id` de
+     * PocketBase, ver el KDoc de [com.arkiv.player.data.db.RecomendacionEntity]) y upsert si gana el
+     * remoto. Sin caso especial de push -- esta colección es de solo lectura.
+     */
+    private suspend fun mergeRecomendacion(json: JSONObject, remoteUpdatedAt: Long): Boolean {
+        val remote = recordToRecomendacion(json)
+        val local = recomendacionDao.get(remote.id)
+        if (!LwwMerge.pickWinner(local?.updatedAt ?: 0, remoteUpdatedAt)) return false
+        recomendacionDao.upsert(remote)
         return true
     }
 

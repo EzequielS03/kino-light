@@ -550,6 +550,8 @@ class AppGraph(context: Context) {
     val cloudSync: com.arkiv.player.cloudsync.CloudSyncManager by lazy {
         com.arkiv.player.cloudsync.CloudSyncManager(
             database.itemDao(), database.playbackDao(), database.skipMarkerDao(),
+            // Recomendaciones del gateway (fila "Para ti"): solo lectura, ver RecomendacionEntity.
+            database.recomendacionDao(),
             // Favoritos y recientes de TV en vivo viajaban solo por el sync LAN; ahora también
             // por PocketBase, igual que el resto de la biblioteca (ver CloudSyncManager).
             database.liveFavoriteDao(), database.liveRecentDao(),

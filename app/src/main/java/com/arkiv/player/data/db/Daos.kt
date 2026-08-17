@@ -811,3 +811,26 @@ interface EpisodeFrameDao {
     @Query("DELETE FROM episode_frame")
     suspend fun borrarTodo()
 }
+
+@Dao
+interface RecomendacionDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(r: RecomendacionEntity)
+
+    /**
+     * Por `id` de PocketBase (la clave local, ver [RecomendacionEntity]), para el LWW del merge en
+     * [com.arkiv.player.cloudsync.CloudSyncManager]. Sin filtro de `deleted`: la app nunca la borra
+     * localmente por su cuenta (colección de solo lectura), así que no hay tombstone LOCAL que este
+     * `get` pueda esconder -- a diferencia de [EpisodeFrameDao.getIncluyendoBorradas].
+     */
+    @Query("SELECT * FROM recomendaciones WHERE id = :id")
+    suspend fun get(id: String): RecomendacionEntity?
+
+    /**
+     * Las recomendaciones vigentes de la cuenta (la app solo tiene una cuenta local a la vez), en el
+     * orden que decidió el gateway, sin lo que ya se marcó como tombstone. Es la fuente de la fila
+     * "Para ti" del inicio.
+     */
+    @Query("SELECT * FROM recomendaciones WHERE deleted = 0 ORDER BY orden ASC")
+    fun observeVigentes(): Flow<List<RecomendacionEntity>>
+}

@@ -6,6 +6,7 @@ import com.arkiv.player.data.db.ItemEntity
 import com.arkiv.player.data.db.LiveFavoriteEntity
 import com.arkiv.player.data.db.LiveRecentEntity
 import com.arkiv.player.data.db.PlaybackEntity
+import com.arkiv.player.data.db.RecomendacionEntity
 import com.arkiv.player.data.db.SkipMarkerEntity
 import org.json.JSONObject
 
@@ -182,6 +183,25 @@ fun recordToLiveRecent(json: JSONObject): LiveRecentEntity = LiveRecentEntity(
     nombre = json.optString("nombre"),
     vistoAt = json.optLong("vistoAt"),
     updatedAt = json.optLong("updatedAt"),
+)
+
+// ---- recomendaciones -> RecomendacionEntity ----
+// SOLO LECTURA: la app nunca escribe acá (ver KDoc de RecomendacionEntity), así que no hay
+// `recomendacionToFields` -- solo la mitad que hace falta para que el pull/SSE la traiga a Room.
+// La clave local es `id` (el de PocketBase), no `orden`: ver el KDoc de RecomendacionEntity.
+
+fun recordToRecomendacion(json: JSONObject): RecomendacionEntity = RecomendacionEntity(
+    id = json.optString("id"),
+    tmdbId = json.optInt("tmdbId"),
+    tipo = json.optString("tipo"),
+    titulo = json.optString("titulo"),
+    posterUrl = json.optString("posterUrl"),
+    porque = json.optString("porque"),
+    ref = json.optString("ref"),
+    orden = json.optInt("orden"),
+    generadoAt = json.optLong("generadoAt"),
+    updatedAt = json.optLong("updatedAt"),
+    deleted = json.optBoolean("deleted"),
 )
 
 // ---- frames <-> EpisodeFrameEntity ----

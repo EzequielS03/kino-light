@@ -25,8 +25,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         LiveFavoriteEntity::class,
         LiveRecentEntity::class,
         LiveChannelCacheEntity::class,
+        RecomendacionEntity::class,
     ],
-    version = 24,
+    version = 25,
     exportSchema = false,
 )
 abstract class ArkivDatabase : RoomDatabase() {
@@ -45,6 +46,7 @@ abstract class ArkivDatabase : RoomDatabase() {
     abstract fun liveFavoriteDao(): LiveFavoriteDao
     abstract fun liveRecentDao(): LiveRecentDao
     abstract fun liveChannelCacheDao(): LiveChannelCacheDao
+    abstract fun recomendacionDao(): RecomendacionDao
 
     companion object {
         @Volatile
@@ -430,6 +432,25 @@ abstract class ArkivDatabase : RoomDatabase() {
         }
 
         /**
+         * v24 -> v25: recomendaciones generadas por el gateway a partir del historial ("Para ti").
+         * Colección de SOLO LECTURA -- la app nunca escribe acá, ver [RecomendacionEntity] -- así
+         * que a diferencia de MIGRATION_6_7/7_8 no hace falta sellar filas existentes con la hora
+         * actual: no hay filas previas (la tabla nace vacía) y el sync la llena con el `updatedAt`
+         * remoto, que el merge respeta tal cual.
+         */
+        private val MIGRATION_24_25 = object : Migration(24, 25) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS recomendaciones (" +
+                        "id TEXT NOT NULL PRIMARY KEY, tmdbId INTEGER NOT NULL, tipo TEXT NOT NULL, " +
+                        "titulo TEXT NOT NULL, posterUrl TEXT NOT NULL, porque TEXT NOT NULL, " +
+                        "ref TEXT NOT NULL, orden INTEGER NOT NULL, generadoAt INTEGER NOT NULL, " +
+                        "updatedAt INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0)",
+                )
+            }
+        }
+
+        /**
          * Deja los triggers de `updatedAt` puestos en CADA apertura, y sella lo que haya quedado
          * sin reloj.
          *
@@ -454,7 +475,7 @@ abstract class ArkivDatabase : RoomDatabase() {
                     context.applicationContext,
                     ArkivDatabase::class.java,
                     "arkiv.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25)
                     .addCallback(SELLAR_UPDATED_AT)
                     .fallbackToDestructiveMigration()
                     .build().also { instance = it }
