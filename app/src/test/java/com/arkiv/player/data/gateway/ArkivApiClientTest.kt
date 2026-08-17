@@ -237,6 +237,21 @@ class ArkivApiClientTest {
     }
 
     @Test
+    fun `refrescarRecomendaciones pega al POST correcto`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(202).setBody("{}"))
+        client.refrescarRecomendaciones()
+        val req = server.takeRequest()
+        assertEquals("POST", req.method)
+        assertEquals("/v1/recomendaciones/refrescar", req.path)
+    }
+
+    @Test(expected = GatewayException::class)
+    fun `refrescarRecomendaciones lanza si el gateway falla`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(500))
+        client.refrescarRecomendaciones()
+    }
+
+    @Test
     fun `sources lista las fuentes activas`() = runBlocking {
         server.enqueue(
             MockResponse().setBody(

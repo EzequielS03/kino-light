@@ -153,6 +153,13 @@ class ArkivRepository(
      */
     private val bajadorDeFrames: BajadorDeFrames? = null,
     /**
+     * Avisa al gateway cuando un capítulo pasa a visto, para que reconsidere la fila "Para ti"
+     * (spec `2026-08-16-recomendaciones-por-historial`). Nullable con default null por el mismo
+     * motivo que [bajadorDeFrames]: sin avisador, los call sites de test/herramientas siguen
+     * guardando progreso igual, solo que sin avisarle a nadie.
+     */
+    private val avisadorDeRecomendaciones: com.arkiv.player.data.gateway.AvisadorDeRecomendaciones? = null,
+    /**
      * Dónde correr `bajadorDeFrames.bajarPendientes()` sin bloquear la emisión del Flow que la
      * dispara. Un scope propio (no el de la UI) a propósito: la bajada tiene que sobrevivir a que
      * la pantalla que la disparó se cierre a mitad de camino, igual que el push/pull de
@@ -197,6 +204,19 @@ class ArkivRepository(
         val bajador = bajadorDeFrames ?: return
         if (episodeIds.isEmpty()) return
         scope.launch { bajador.bajarPendientes(episodeIds) }
+    }
+
+    /**
+     * Lanza [AvisadorDeRecomendaciones.avisar] en [scope], sin esperar el resultado.
+     *
+     * Se llama SIEMPRE después de que el progreso ya quedó guardado (`playbackDao.upsert`), nunca
+     * antes: guardar que se vio un capítulo es lo importante, y no puede depender de que el
+     * gateway responda rápido, de que haya red, o de nada de lo que pase acá adentro -- por eso
+     * `scope.launch` (no se espera) y el avisador traga sus propios errores (ver su doc).
+     */
+    private fun dispararRefrescoDeRecomendaciones() {
+        val avisador = avisadorDeRecomendaciones ?: return
+        scope.launch { avisador.avisar() }
     }
 
     fun observeLibrary(): Flow<List<LibraryRow>> = itemDao.observeLibrary()
@@ -1468,7 +1488,13 @@ class ArkivRepository(
                 // vio en el TV y llega acá por LAN—, el frame de ESTE dispositivo tiene que morir
                 // también. Si no, la tarjeta seguiría mostrando la escena de algo ya terminado en
                 // el aparato que nunca lo reprodujo hasta el final.
-                if (pb.watched) borrarFrameDe(pb.episodeId)
+                if (pb.watched) {
+                    borrarFrameDe(pb.episodeId)
+                    // El TV y el celular sincronizando por LAN avisando lo mismo no es un
+                    // problema: el gateway dedupea por cuenta con su ventana de 24 h (ver el
+                    // spec), así que dos avisos del mismo capítulo visto producen un solo cálculo.
+                    dispararRefrescoDeRecomendaciones()
+                }
             }
         }
         for (m in snapshot.markers) {
@@ -1553,7 +1579,13 @@ class ArkivRepository(
         // Este es el camino MÁS COMÚN por el que un capítulo queda visto (el reproductor llama acá
         // cada ~5 s): si no se destruye el frame también acá, mirar un capítulo hasta el final —sin
         // tocar nunca el toggle manual de setWatched— lo dejaría vivo para siempre.
-        if (watched) borrarFrameDe(episodeId)
+        if (watched) {
+            borrarFrameDe(episodeId)
+            // El progreso YA quedó guardado arriba (`playbackDao.upsert`): este aviso es un extra
+            // que corre después y en su propio scope, nunca puede ser la causa de que un capítulo
+            // visto no se guarde.
+            dispararRefrescoDeRecomendaciones()
+        }
     }
 
     suspend fun setWatched(episodeId: String, watched: Boolean) {
@@ -1573,7 +1605,11 @@ class ArkivRepository(
         )
         // Al desmarcar (watched = false) NO se borra nada: el capítulo vuelve a estar en curso y
         // el frame que haya sigue siendo válido.
-        if (watched) borrarFrameDe(episodeId)
+        if (watched) {
+            borrarFrameDe(episodeId)
+            // Mismo motivo que en savePlayback: el progreso ya está guardado, esto es un extra.
+            dispararRefrescoDeRecomendaciones()
+        }
     }
 
     /**

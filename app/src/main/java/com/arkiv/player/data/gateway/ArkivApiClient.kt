@@ -194,6 +194,27 @@ class ArkivApiClient(
         }.getOrNull()
     }
 
+    /**
+     * Avisa al gateway que conviene reconsiderar la fila "Para ti" (spec
+     * `2026-08-16-recomendaciones-por-historial`): responde 202 al instante y decide él mismo si
+     * corresponde generar -tiene su propia ventana de 24 h y su interruptor por cuenta-, así que
+     * este cliente no intenta adivinar nada de esa decisión, solo avisa.
+     *
+     * Lanza [GatewayException] igual que el resto de los métodos de esta clase si el pedido falla:
+     * acá NO se traga el error -eso es responsabilidad de quien llama (ver
+     * [com.arkiv.player.data.gateway.AvisadorDeRecomendaciones]), mismo criterio que [resolve] o
+     * [episodes].
+     */
+    suspend fun refrescarRecomendaciones() {
+        withContext(Dispatchers.IO) {
+            ejecutar(
+                pedido("${baseUrl()}/v1/recomendaciones/refrescar")
+                    .post(JSONObject().toString().toRequestBody("application/json".toMediaType()))
+                    .build(),
+            )
+        }
+    }
+
     suspend fun sources(): List<GatewaySource> = withContext(Dispatchers.IO) {
         val arr = JSONObject(ejecutar(pedido("${baseUrl()}/v1/sources").get().build()))
             .optJSONArray("sources") ?: return@withContext emptyList()
