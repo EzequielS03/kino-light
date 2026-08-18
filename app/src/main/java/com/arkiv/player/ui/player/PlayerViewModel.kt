@@ -994,6 +994,57 @@ class PlayerViewModel(
         _playlist.value = null
         _webExtras.value = null
         _resolving.value = true
+
+        // Resultados web que vienen del gateway guardan el ref (no una URL HTTP): se resuelven
+        // llamando al gateway igual que Magis, sin pasar por el web resolver de blog.
+        if (!pageUrl.startsWith("http://") && !pageUrl.startsWith("https://")) {
+            val resuelto = withContext(Dispatchers.IO) { runCatching { gatewayClient.resolve(pageUrl) } }
+            _resolving.value = false
+            val play = resuelto.getOrNull()
+            Log.w(PLAY, "loadWeb() gateway ref=«$pageUrl» → ${if (play == null) "FALLO: ${resuelto.exceptionOrNull()}" else "ok"}")
+            if (play == null) { _error.value = "No se pudo resolver esta fuente web"; return }
+            Log.w(PLAY, "loadWeb() gateway.url=${play.url}")
+            Log.w(PLAY, "loadWeb() gateway.fallbackUrl=${play.fallbackUrl}")
+            Log.w(PLAY, "loadWeb() gateway.mime=${play.mime} container=${play.container} durationMs=${play.durationMs}")
+            Log.w(PLAY, "loadWeb() gateway.headers=${play.headers}")
+            Log.w(PLAY, "loadWeb() gateway.subtitles=${play.subtitles.size}")
+            // El web resolver de blog devuelve una URL de proxy local (127.0.0.1:8123). El proxy está
+            // expuesto públicamente vía Cloudflare en jackett.comparadorinternet.co/(proxy|resolve).
+            // Reescribir la URL para que el Fire TV la alcance por ese host; así el CDN ve la IP de
+            // blog (donde se generó el token) en lugar de la IP del TV, y el Referer lo pone el proxy.
+            val streamUrl = if (play.url.contains("127.0.0.1:8123")) {
+                val publicUrl = play.url.replace("http://127.0.0.1:8123", "https://jackett.comparadorinternet.co")
+                Log.w(PLAY, "loadWeb() proxy local → público: $publicUrl")
+                publicUrl
+            } else {
+                Log.w(PLAY, "loadWeb() URL directa (no proxy): ${play.url}")
+                play.url
+            }
+            Log.w(PLAY, "loadWeb() streamUrl final: $streamUrl  referer=${play.headers["Referer"]}")
+            val ep = repo.getEpisode(episodeId)
+            val item = PlayerData(
+                episodeId = episodeId,
+                itemId = episodeId.substringBefore("::"),
+                title = ep?.displayName ?: "Web",
+                subtitle = ep?.section ?: "",
+                mediaUrl = streamUrl,
+                castUrl = play.fallbackUrl ?: streamUrl,
+                artworkUrl = "",
+                openingStartMs = null, openingEndMs = null, endingStartMs = null,
+                kind = SourceKind.WEB,
+                referer = play.headers["Referer"],
+                userAgent = play.headers["User-Agent"],
+            )
+            _webExtras.value = WebExtras(
+                episodeId, play.headers,
+                play.subtitles.map { com.arkiv.player.data.catalog.web.ResolvedSub(lang = it.lang, url = it.url) },
+            )
+            val startPos = safeStartPosition(episodeId, SourceKind.WEB)
+            _playlist.value = PlaylistData(listOf(item), 0, startPos, pedido = episodeId)
+            Log.w(PLAY, "loadWeb() gateway resuelto → playlist publicada startPos=$startPos ep=${ep?.displayName}")
+            return
+        }
+
         val resolved = withContext(Dispatchers.IO) { webResolverApi.resolve(pageUrl) }
         _resolving.value = false
         Log.w(PLAY, "loadWeb() resuelto: ${if (resolved == null) "NULL (falló)" else "ok streamUrl=${resolved.streamUrl}"}")

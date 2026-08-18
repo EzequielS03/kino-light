@@ -328,13 +328,16 @@ class SearchPlayback(private val graph: AppGraph) {
         animeEpisode: Int,
     ): PlaybackResult {
         val tvSeason = season ?: result.season
+        // Los resultados del gateway no traen pageUrl: la resolución ocurre al reproducir vía
+        // /v1/resolve con el ref. Se guarda el ref como fuente para que loadWeb lo detecte.
+        val urlOrRef = result.gatewayRef?.takeIf { result.pageUrl.isBlank() } ?: result.pageUrl
         val epId = if (card.kind == "anime" && episode != null) {
-            graph.repository.addWebSeriesEpisode(seriesIdOf(graph, card, detail, animeShow), resultTitle, resultPoster, mirrorSeason, animeEpisode, "$resultTitle - Ep $animeEpisode", result.pageUrl)
+            graph.repository.addWebSeriesEpisode(seriesIdOf(graph, card, detail, animeShow), resultTitle, resultPoster, mirrorSeason, animeEpisode, "$resultTitle - Ep $animeEpisode", urlOrRef)
         } else if (tvSeason != null && episode != null) {
             val epName = episodeNameFor(detail, tvSeason, episode)
-            graph.repository.addWebSeriesEpisode(seriesIdOf(graph, card, detail, animeShow), resultTitle, resultPoster, tvSeason, episode, epName, result.pageUrl)
+            graph.repository.addWebSeriesEpisode(seriesIdOf(graph, card, detail, animeShow), resultTitle, resultPoster, tvSeason, episode, epName, urlOrRef)
         } else {
-            graph.repository.addWebSource(result.pageUrl, result.title.ifBlank { resultTitle }, resultPoster)
+            graph.repository.addWebSource(urlOrRef, result.title.ifBlank { resultTitle }, resultPoster)
         }
         return if (epId != null) PlaybackResult.Ready(epId) else PlaybackResult.Failed("No se pudo abrir la fuente web")
     }
