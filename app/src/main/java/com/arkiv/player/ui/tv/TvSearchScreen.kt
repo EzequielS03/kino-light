@@ -80,6 +80,7 @@ import com.arkiv.player.ui.catalog.langColor
 import com.arkiv.player.ui.home.CategoriasViewModel
 import com.arkiv.player.ui.home.matchCategoryRow
 import com.arkiv.player.ui.rememberGraph
+import com.arkiv.player.ui.search.ordenarTorrents
 import com.arkiv.player.ui.search.PlaybackResult
 import com.arkiv.player.ui.search.SearchPhase
 import com.arkiv.player.ui.search.SearchPlayback
@@ -1188,9 +1189,10 @@ private fun TvResultsContent(
     // duplicados, pero WebSourceEngine no dedupea y el pack/anime tampoco pasa por finalize(),
     // así que esto es lo que evita el crash de Compose por keys repetidas si algo se cuela.
     val ordered = remember(sources) {
-        sources
-            .sortedByDescending { it is PlaySource.Torrent && PackDetector.isPack(it.result.name) }
-            .distinctBy { sourceKey(it) }
+        // Temporada ascendente (T1, T2…), packs primero dentro de cada temporada; el resto va al final.
+        val torrents = ordenarTorrents(sources.filterIsInstance<PlaySource.Torrent>())
+        val rest = sources.filter { it !is PlaySource.Torrent }
+        (torrents + rest).distinctBy { sourceKey(it) }
     }
     val anyLoading = loadingTorrent || loadingWeb || loadingArchive || loadingMagis
 

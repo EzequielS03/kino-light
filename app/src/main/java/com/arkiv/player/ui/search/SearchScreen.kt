@@ -747,8 +747,14 @@ private fun QueryContent(
         }
         if (directResults.isNotEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) {
+                // Torrents ordenados por temporada (T1, T2, T3…); el resto (archive) va al final.
+                val directOrdenados = remember(directResults) {
+                    val torrents = ordenarTorrents(directResults.filterIsInstance<PlaySource.Torrent>())
+                    val rest = directResults.filter { it !is PlaySource.Torrent }
+                    torrents + rest
+                }
                 Column {
-                    directResults.forEach { source ->
+                    directOrdenados.forEach { source ->
                         SourceRow(
                             source, enabled = true,
                             onDownload = { onDownloadDirect(source) },
@@ -946,9 +952,28 @@ private fun RefineContent(card: TitleCard, onContinue: (season: Int?, episode: I
     }
 }
 
-/** Ordena dejando los packs primero (estable: conserva el orden de relevancia dentro de cada grupo). */
-internal fun packsFirst(items: List<PlaySource.Torrent>): List<PlaySource.Torrent> =
-    items.sortedByDescending { PackDetector.isPack(it.result.name) }
+/**
+ * Extrae el número de temporada del nombre de un torrent.
+ * Detecta: "T6", "T06", "S06", "S06E03", "Temporada 4".
+ * Devuelve [Int.MAX_VALUE] si no encuentra temporada (así esos ítems van al final).
+ */
+internal fun seasonOf(name: String): Int {
+    Regex("""(?:^|[ .\-_\[(])(?i:[ts])0*(\d{1,2})(?:[ .\-_\]Ee]|$)""").find(name)
+        ?.groupValues?.get(1)?.toIntOrNull()?.let { return it }
+    Regex("""(?i)temporada\s*0*(\d{1,2})""").find(name)
+        ?.groupValues?.get(1)?.toIntOrNull()?.let { return it }
+    return Int.MAX_VALUE
+}
+
+/**
+ * Ordena por temporada ascendente y, dentro de cada temporada, packs primero.
+ * Ítems sin temporada detectable van al final.
+ */
+internal fun ordenarTorrents(items: List<PlaySource.Torrent>): List<PlaySource.Torrent> =
+    items.sortedWith(
+        compareBy<PlaySource.Torrent> { seasonOf(it.result.name) }
+            .thenByDescending { PackDetector.isPack(it.result.name) },
+    )
 
 /**
  * Fase RESULTS: búsqueda multi-fuente (torrent/web/archive) de la card elegida, con S/E inyectado
@@ -982,9 +1007,8 @@ private fun ResultsContent(
     // otra vez en "Todo", con el ítem que acababas de tocar enterrado entre 210 resultados.
     var tab by rememberSaveable { mutableStateOf(SourceTab.TODO) }
 
-    // Los packs primero: el usuario busca por nombre justamente para encontrar temporadas completas.
-    // sortedByDescending es estable, así que dentro de cada grupo se conserva el orden de relevancia.
-    val torrents = packsFirst(sources.filterIsInstance<PlaySource.Torrent>())
+    // Temporada ascendente primero (T1, T2, T3…) y packs antes que capítulos en cada temporada.
+    val torrents = ordenarTorrents(sources.filterIsInstance<PlaySource.Torrent>())
     // WEB incluye tanto capítulos sueltos (Web) como packs de serie completa (WebPack): son
     // mutuamente excluyentes por búsqueda (el mirror devuelve uno u otro, ver SearchViewModel), pero
     // ambos se listan en la misma sección — sin esto un WebPack nunca aparece en pantalla.

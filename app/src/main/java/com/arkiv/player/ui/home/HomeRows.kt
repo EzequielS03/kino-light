@@ -55,15 +55,20 @@ private fun String.normalizarBusqueda(): String =
     }.joinToString("").trim()
 
 /**
- * Devuelve la primera [HomeRowSpec] cuyo nombre base (antes del " · ") coincida con [q].
- * Tolerante a tildes y mayúsculas: "accion", "Acción" y "ACCIÓN" son equivalentes.
- * Devuelve null si no hay coincidencia o si [q] está en blanco.
+ * Devuelve la primera [HomeRowSpec] cuya fila coincide con [q].
+ * Estrategias (en orden):
+ *  1. El genre-name antes del " · " es idéntico: "Acción · Películas" ← "accion" ✓
+ *  2. Alguna palabra suelta del título coincide: "Anime del momento" ← "anime" ✓
+ *                                                 "En cartelera"     ← "cartelera" ✓
+ * Tolerante a tildes y mayúsculas. Devuelve null si [q] está en blanco.
  */
 fun matchCategoryRow(q: String, rows: List<HomeRowSpec>): HomeRowSpec? {
     val normalized = q.normalizarBusqueda()
     if (normalized.isBlank()) return null
     return rows.firstOrNull { spec ->
-        spec.title.split(" · ").first().normalizarBusqueda() == normalized
+        val titleNorm = spec.title.normalizarBusqueda()
+        val base = spec.title.split(" · ").first().normalizarBusqueda()
+        base == normalized || titleNorm.split(" ").contains(normalized)
     }
 }
 
