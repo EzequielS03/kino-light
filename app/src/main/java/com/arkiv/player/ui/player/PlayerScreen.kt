@@ -2496,7 +2496,7 @@ private fun PlayerContent(
                                     fontSize = 42.sp,
                                     lineHeight = 54.sp,
                                 ),
-                                maxLines = 1,
+                                maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Spacer(Modifier.height(6.dp))
@@ -2511,7 +2511,7 @@ private fun PlayerContent(
                                     if (nombre != null) "$ep · $nombre" else ep,
                                     color = Color.White.copy(alpha = 0.75f),
                                     style = MaterialTheme.typography.titleLarge,
-                                    maxLines = 1,
+                                    maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
                                 )
                             }
