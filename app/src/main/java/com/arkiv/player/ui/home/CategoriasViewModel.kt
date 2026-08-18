@@ -55,6 +55,8 @@ class CategoriasViewModel(
     val previews: StateFlow<Map<String, String?>> = _previews.asStateFlow()
 
     private val fetchedPreviews = mutableSetOf<String>()
+    // Contador global: cada categoría elige un ítem distinto de la página (evita repetir la misma portada).
+    private var previewSlot = 0
 
     init {
         viewModelScope.launch {
@@ -75,29 +77,34 @@ class CategoriasViewModel(
         }
     }
 
-    /** Carga el primer póster de una categoría. Idempotente. */
+    /** Carga una imagen representativa de la categoría. Idempotente; cada categoría rota el índice del ítem elegido. */
     fun fetchPreview(rowId: String) {
         if (!fetchedPreviews.add(rowId)) return
         val source = RowBrowseViewModel.sourceFor(rowId) ?: return
+        val slot = previewSlot++
         viewModelScope.launch {
+            fun <T> List<T>.atSlot() = getOrNull(slot % size.coerceAtLeast(1))
             val url: String? = when (source) {
-                is RowSource.Curated ->
-                    runCatching { tmdbApi.curated(source.type, source.category, 1) }
-                        .getOrNull()?.firstOrNull()?.let {
-                            if (source.type == "movie") it.backdropUrl.ifBlank { it.posterUrl }
-                            else it.posterUrl
-                        }
-                is RowSource.Discover ->
-                    runCatching { tmdbApi.discover(source.type, source.genreId, 1) }
-                        .getOrNull()?.firstOrNull()?.let {
-                            if (source.type == "movie") it.backdropUrl.ifBlank { it.posterUrl }
-                            else it.posterUrl
-                        }
-                is RowSource.Anime ->
-                    runCatching { aniListApi.browse(1, source.sort, null, source.genre) }
-                        .getOrNull()?.firstOrNull()?.let { anime ->
-                            anime.bannerUrl.ifBlank { null } ?: anime.posterUrl.ifBlank { null }
-                        }
+                is RowSource.Curated -> {
+                    val items = runCatching { tmdbApi.curated(source.type, source.category, 1) }.getOrNull()
+                    items?.atSlot()?.let {
+                        if (source.type == "movie") it.backdropUrl.ifBlank { it.posterUrl }
+                        else it.posterUrl
+                    }
+                }
+                is RowSource.Discover -> {
+                    val items = runCatching { tmdbApi.discover(source.type, source.genreId, 1) }.getOrNull()
+                    items?.atSlot()?.let {
+                        if (source.type == "movie") it.backdropUrl.ifBlank { it.posterUrl }
+                        else it.posterUrl
+                    }
+                }
+                is RowSource.Anime -> {
+                    val items = runCatching { aniListApi.browse(1, source.sort, null, source.genre) }.getOrNull()
+                    items?.atSlot()?.let { anime ->
+                        anime.bannerUrl.ifBlank { null } ?: anime.posterUrl.ifBlank { null }
+                    }
+                }
             }
             _previews.update { it + (rowId to url) }
         }
