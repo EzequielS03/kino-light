@@ -1,22 +1,30 @@
 package com.arkiv.player.ui.tv
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -24,12 +32,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -38,24 +48,21 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
-import androidx.tv.material3.Card
-import androidx.tv.material3.CardDefaults
-import androidx.tv.material3.ExperimentalTvMaterial3Api
 import coil.compose.AsyncImage
 import com.arkiv.player.ui.home.CategoriasViewModel
-import com.arkiv.player.ui.home.HomeRowSpec
+import com.arkiv.player.ui.home.searchShortcutRoute
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivBlack
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
+import com.arkiv.player.ui.theme.ArkivTextSecondary
 
-private val TV_CARD_HEIGHT = 120.dp
-private val TV_CARD_RADIUS = RoundedCornerShape(8.dp)
+private const val HERO_ESCALA = 1.12f
+private const val HERO_DERIVA_MS = 14_000
 
-@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TvCategoriasScreen(
     onBrowseRow: (rowId: String, title: String) -> Unit,
+    onOpenSearchRoute: (String) -> Unit,
     onBack: () -> Unit,
 ) {
     BackHandler(onBack = onBack)
@@ -66,164 +73,178 @@ fun TvCategoriasScreen(
     )
     val rows by vm.rows.collectAsStateWithLifecycle()
     val loading by vm.loading.collectAsStateWithLifecycle()
-    val previews by vm.previews.collectAsStateWithLifecycle()
-    val firstFocus = remember { FocusRequester() }
+    val rowItems by vm.rowItems.collectAsStateWithLifecycle()
+    val rowsLoaded by vm.rowsLoaded.collectAsStateWithLifecycle()
 
-    LaunchedEffect(rows) {
-        if (rows.isNotEmpty()) runCatching { firstFocus.requestFocus() }
-    }
+    var featured by remember { mutableStateOf<Featured?>(null) }
 
-    if (loading && rows.size <= 8) {
+    val navSound = rememberNavSound()
+
+    val cardHeight = 92.dp
+    val labelHeight = 26.dp
+    val rowGap = 14.dp
+    val rowsTopPad = 6.dp
+    val rowUnit = labelHeight + cardHeight + rowGap
+    val rowsRegionHeight = rowUnit * 2 + rowsTopPad
+
+    val heroDeriva by rememberInfiniteTransition(label = "heroDeriva").animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = HERO_DERIVA_MS, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "heroDerivaX",
+    )
+
+    if (loading && rows.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
         }
         return
     }
 
-    val fijas = rows.filter { it.id in setOf("cartelera", "peliculas_populares", "tendencias", "series_populares", "series_top", "anime", "anime_populares", "anime_top") }
-    val generosPelis = rows.filter { it.id.startsWith("g_movie_") }
-    val generosSeries = rows.filter { it.id.startsWith("g_tv_") }
-    val generosAnime = rows.filter { it.id.startsWith("g_anime_") }
+    Box(Modifier.fillMaxSize().background(ArkivBlack)) {
 
-    CompositionLocalProvider(LocalBringIntoViewSpec provides TraerConScrollMinimo) {
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(3),
-            state = rememberLazyGridState(),
-            contentPadding = PaddingValues(horizontal = 48.dp, vertical = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Text(
-                    "Categorías",
-                    style = MaterialTheme.typography.headlineLarge,
-                    modifier = Modifier.padding(bottom = 8.dp),
+        // Fondo inmersivo: backdrop de la tarjeta enfocada + degradados.
+        Crossfade(targetState = featured?.imageUrl, animationSpec = tween(450), label = "bg") { url ->
+            Box(Modifier.fillMaxSize()) {
+                AsyncImage(
+                    model = url,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxWidth(0.62f)
+                        .fillMaxHeight()
+                        .align(Alignment.TopEnd)
+                        .graphicsLayer {
+                            val margen = size.width * (HERO_ESCALA - 1f) / 2f
+                            scaleX = HERO_ESCALA
+                            scaleY = HERO_ESCALA
+                            translationX = (heroDeriva * 2f - 1f) * margen
+                        },
                 )
-            }
-
-            if (fijas.isNotEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }) { TvSectionHeader("Destacadas") }
-                items(fijas, key = { it.id }) { spec ->
-                    LaunchedEffect(spec.id) { vm.fetchPreview(spec.id) }
-                    TvCategoryCard(
-                        spec = spec,
-                        imageUrl = previews[spec.id],
-                        modifier = if (spec == fijas.first()) Modifier.focusRequester(firstFocus) else Modifier,
-                        onClick = { onBrowseRow(spec.id, spec.title) },
-                    )
-                }
-            }
-
-            if (generosPelis.isNotEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }) { TvSectionHeader("Géneros · Películas") }
-                items(generosPelis, key = { it.id }) { spec ->
-                    LaunchedEffect(spec.id) { vm.fetchPreview(spec.id) }
-                    TvCategoryCard(
-                        spec = spec,
-                        imageUrl = previews[spec.id],
-                        onClick = { onBrowseRow(spec.id, spec.title) },
-                    )
-                }
-            }
-
-            if (generosSeries.isNotEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }) { TvSectionHeader("Géneros · Series") }
-                items(generosSeries, key = { it.id }) { spec ->
-                    LaunchedEffect(spec.id) { vm.fetchPreview(spec.id) }
-                    TvCategoryCard(
-                        spec = spec,
-                        imageUrl = previews[spec.id],
-                        onClick = { onBrowseRow(spec.id, spec.title) },
-                    )
-                }
-            }
-
-            if (generosAnime.isNotEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }) { TvSectionHeader("Géneros · Anime") }
-                items(generosAnime, key = { it.id }) { spec ->
-                    LaunchedEffect(spec.id) { vm.fetchPreview(spec.id) }
-                    TvCategoryCard(
-                        spec = spec,
-                        imageUrl = previews[spec.id],
-                        onClick = { onBrowseRow(spec.id, spec.title) },
-                    )
-                }
-            }
-
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Text(
-                    "← Atrás para volver",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                    modifier = Modifier.padding(top = 8.dp),
+                Box(
+                    Modifier.fillMaxSize().background(
+                        Brush.horizontalGradient(listOf(ArkivBlack, ArkivBlack, ArkivBlack.copy(alpha = 0.15f), Color.Transparent)),
+                    ),
+                )
+                Box(
+                    Modifier.fillMaxSize().background(
+                        Brush.verticalGradient(listOf(Color.Transparent, ArkivBlack.copy(alpha = 0.4f), ArkivBlack)),
+                    ),
                 )
             }
         }
-    }
-}
 
-@Composable
-private fun TvSectionHeader(title: String) {
-    Text(
-        title,
-        style = MaterialTheme.typography.titleMedium,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
-    )
-}
+        Column(Modifier.fillMaxSize()) {
 
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun TvCategoryCard(
-    spec: HomeRowSpec,
-    imageUrl: String?,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    val label = spec.title
-        .removeSuffix(" · Películas")
-        .removeSuffix(" · Series")
-        .removeSuffix(" · Anime")
-
-    Card(
-        onClick = onClick,
-        modifier = modifier
-            .fillMaxWidth()
-            .height(TV_CARD_HEIGHT)
-            .clip(TV_CARD_RADIUS),
-        colors = CardDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        shape = CardDefaults.shape(TV_CARD_RADIUS),
-    ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            if (!imageUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = imageUrl,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
+            // ── Hero fijo (no scrollea) ────────────────────────────────────────────────────────
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(horizontal = 48.dp, vertical = 28.dp),
+            ) {
+                Text(
+                    "Categorías",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = ArkivTextSecondary,
+                    fontWeight = FontWeight.Bold,
                 )
+
+                Spacer(Modifier.weight(1f))
+
+                // Nombre de la categoría / título del ítem enfocado.
+                featured?.let { f ->
+                    Text(
+                        f.title,
+                        style = MaterialTheme.typography.displaySmall,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth(0.55f),
+                    )
+                    if (f.subtitle.isNotBlank()) {
+                        Text(
+                            f.subtitle,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = ArkivTextSecondary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 8.dp).fillMaxWidth(0.55f),
+                        )
+                    }
+                }
             }
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(Color.Transparent, ArkivBlack.copy(alpha = 0.88f)),
-                        ),
-                    ),
-            )
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = Color.White,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-            )
+
+            // ── Filas scrolleables (exactamente 2 visibles al mismo tiempo) ──────────────────
+            CompositionLocalProvider(LocalBringIntoViewSpec provides TraerConScrollMinimo) {
+                LazyColumn(
+                    state = rememberLazyListState(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(rowsRegionHeight)
+                        .padding(top = rowsTopPad),
+                ) {
+                    items(rows, key = { it.id }) { spec ->
+                        val cards = rowItems[spec.id].orEmpty()
+                        val loaded = spec.id in rowsLoaded
+                        LaunchedEffect(spec.id) { vm.loadRow(spec.id) }
+                        if (loaded && cards.isEmpty()) return@items
+
+                        Column {
+                            TvRowLabel(spec.title, labelHeight)
+                            if (!loaded) {
+                                Spacer(Modifier.height(cardHeight))
+                            } else {
+                                CompositionLocalProvider(LocalBringIntoViewSpec provides PivotoDeTv) {
+                                    LazyRow(
+                                        contentPadding = PaddingValues(horizontal = 48.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                    ) {
+                                        items(cards, key = { "${spec.id}-${it.kind}-${it.tmdbId}-${it.anilistId}" }) { card ->
+                                            val art = card.backdropUrl.ifBlank { card.posterUrl }
+                                            TvLandscapeCard(
+                                                title = card.title,
+                                                imageUrl = art,
+                                                cardHeight = cardHeight,
+                                                onFocus = {
+                                                    navSound()
+                                                    featured = Featured(
+                                                        title = spec.title,
+                                                        subtitle = card.title,
+                                                        imageUrl = art,
+                                                    )
+                                                },
+                                                onClick = { onOpenSearchRoute(searchShortcutRoute(card)) },
+                                            )
+                                        }
+                                        item(key = "${spec.id}-ver-mas") {
+                                            TvVerMasFilaCard(
+                                                cardHeight = cardHeight,
+                                                onFocus = {
+                                                    navSound()
+                                                    featured = Featured(
+                                                        title = spec.title,
+                                                        subtitle = "Ver todo",
+                                                        imageUrl = null,
+                                                    )
+                                                },
+                                                onClick = { onBrowseRow(spec.id, spec.title) },
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            Spacer(Modifier.height(rowGap))
+                        }
+                    }
+
+                    item(key = "bottom_pad") { Spacer(Modifier.height(rowGap)) }
+                }
+            }
         }
     }
 }

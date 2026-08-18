@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.arkiv.player.data.catalog.AniListApi
 import com.arkiv.player.data.catalog.TmdbApi
+import com.arkiv.player.ui.search.TitleCard
+import com.arkiv.player.ui.search.toTitleCard
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -50,6 +52,8 @@ class CategoriasViewModel(
     private val _loading = MutableStateFlow(true)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
+    // ── Previews (una imagen por categoría para el grid del móvil) ────────────────────────────────
+
     /** rowId → URL del primer póster de esa categoría (null = aún no cargado). */
     private val _previews = MutableStateFlow<Map<String, String?>>(emptyMap())
     val previews: StateFlow<Map<String, String?>> = _previews.asStateFlow()
@@ -57,6 +61,18 @@ class CategoriasViewModel(
     private val fetchedPreviews = mutableSetOf<String>()
     // Contador global: cada categoría elige un ítem distinto de la página (evita repetir la misma portada).
     private var previewSlot = 0
+
+    // ── Filas completas (para el layout de TV con héroe + filas de tarjetas) ──────────────────────
+
+    /** rowId → lista de tarjetas ya cargadas. */
+    private val _rowItems = MutableStateFlow<Map<String, List<TitleCard>>>(emptyMap())
+    val rowItems: StateFlow<Map<String, List<TitleCard>>> = _rowItems.asStateFlow()
+
+    /** rowIds de las filas que ya terminaron de cargar (con o sin resultados). */
+    private val _rowsLoaded = MutableStateFlow<Set<String>>(emptySet())
+    val rowsLoaded: StateFlow<Set<String>> = _rowsLoaded.asStateFlow()
+
+    private val rowLoadGuard = LoadGuard()
 
     init {
         viewModelScope.launch {
@@ -77,7 +93,7 @@ class CategoriasViewModel(
         }
     }
 
-    /** Carga una imagen representativa de la categoría. Idempotente; cada categoría rota el índice del ítem elegido. */
+    /** Carga una imagen representativa de la categoría (para el grid del móvil). Idempotente. */
     fun fetchPreview(rowId: String) {
         if (!fetchedPreviews.add(rowId)) return
         val source = RowBrowseViewModel.sourceFor(rowId) ?: return
@@ -107,6 +123,24 @@ class CategoriasViewModel(
                 }
             }
             _previews.update { it + (rowId to url) }
+        }
+    }
+
+    /** Carga las tarjetas de una fila (para el layout de TV). Idempotente (LoadGuard). */
+    fun loadRow(id: String) {
+        val spec = _rows.value.firstOrNull { it.id == id } ?: return
+        if (!rowLoadGuard.shouldLoad(id)) return
+        viewModelScope.launch {
+            val cards: List<TitleCard> = when (val s = spec.source) {
+                is RowSource.Curated ->
+                    runCatching { tmdbApi.curated(s.type, s.category, 1) }.getOrDefault(emptyList()).map { it.toTitleCard() }
+                is RowSource.Discover ->
+                    runCatching { tmdbApi.discover(s.type, s.genreId, 1) }.getOrDefault(emptyList()).map { it.toTitleCard() }
+                is RowSource.Anime ->
+                    runCatching { aniListApi.browse(1, s.sort, null, s.genre) }.getOrDefault(emptyList()).map { it.toTitleCard() }
+            }
+            _rowItems.value = _rowItems.value + (id to cards)
+            _rowsLoaded.value = _rowsLoaded.value + id
         }
     }
 }

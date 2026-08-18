@@ -272,6 +272,7 @@ fun ArkivTvRoot(
                 onBrowseRow = { rowId, title ->
                     navController.navigate("row_browse/$rowId?title=${android.net.Uri.encode(title)}")
                 },
+                onOpenSearchRoute = { navController.navigate(it) },
                 onBack = { navController.popBackStack() },
             )
         }

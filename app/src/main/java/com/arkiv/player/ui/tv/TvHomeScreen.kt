@@ -1001,7 +1001,7 @@ private fun TvVerMasCanalesCard(
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun TvVerMasFilaCard(
+internal fun TvVerMasFilaCard(
     cardHeight: Dp,
     modifier: Modifier = Modifier,
     onFocus: () -> Unit = {},
