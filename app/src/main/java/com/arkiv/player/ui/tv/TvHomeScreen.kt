@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -258,6 +259,7 @@ fun TvHomeScreen(
     onOpenSearchRoute: (String) -> Unit,
     /** Navegar el catálogo de Magis por secciones (series y, con el código puesto, 18+). */
     onOpenCategorias: () -> Unit,
+    onBrowseRow: (rowId: String, title: String) -> Unit,
 ) {
     val graph = rememberGraph()
     val vm: HomeViewModel = viewModel(
@@ -821,6 +823,20 @@ fun TvHomeScreen(
                                                 onClick = { onOpenSearchRoute(searchShortcutRoute(card)) },
                                             )
                                         }
+                                        item(key = "${spec.id}-ver-mas") {
+                                            TvVerMasFilaCard(
+                                                cardHeight = cardHeight,
+                                                onFocus = {
+                                                    navSound()
+                                                    featured = Featured(
+                                                        spec.title,
+                                                        "Ver más de ${spec.title}",
+                                                        null,
+                                                    )
+                                                },
+                                                onClick = { onBrowseRow(spec.id, spec.title) },
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -932,6 +948,53 @@ private fun TvVerMasCanalesCard(
                 )
                 Text(
                     text = "Ver más canales",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Última tarjeta de cada fila de descubrimiento: abre [TvRowBrowseScreen] con la parrilla completa
+ * de ese género/categoría. Mismo molde que [TvLandscapeCard] (16:9, alto de fila) para que la fila
+ * no cambie de ritmo al llegar al final.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvVerMasFilaCard(
+    cardHeight: Dp,
+    modifier: Modifier = Modifier,
+    onFocus: () -> Unit = {},
+    onClick: () -> Unit,
+) {
+    Card(
+        onClick = onClick,
+        modifier = modifier.height(cardHeight).onFocusChanged { if (it.isFocused) onFocus() },
+        scale = CardDefaults.scale(focusedScale = 1.08f),
+        colors = CardDefaults.colors(containerColor = ArkivSurfaceHigh),
+        border = CardDefaults.border(
+            focusedBorder = Border(androidx.compose.foundation.BorderStroke(3.dp, Color.White)),
+        ),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .aspectRatio(16f / 9f)
+                .background(Brush.linearGradient(listOf(Color(0xFF33333D), Color(0xFF17171C)))),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = null,
+                    tint = ArkivRed,
+                    modifier = Modifier.size(28.dp),
+                )
+                Text(
+                    text = "Ver más",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.White,
                     modifier = Modifier.padding(top = 6.dp),
