@@ -75,6 +75,10 @@ class CategoriasViewModel(
     private val rowLoadGuard = LoadGuard()
     private val seenCards = mutableSetOf<String>()
 
+    // Posición del scroll de la pantalla TV — sobrevive la navegación a una sub-pantalla y vuelta.
+    var tvScrollIndex: Int = 0
+    var tvScrollOffset: Int = 0
+
     init {
         viewModelScope.launch {
             val movie = runCatching { tmdbApi.genres("movie") }.getOrDefault(emptyList())
