@@ -72,6 +72,7 @@ import com.arkiv.player.ui.catalog.ShowDetailScreen
 import com.arkiv.player.ui.detail.DetailScreen
 import com.arkiv.player.ui.downloads.DownloadsScreen
 import com.arkiv.player.ui.home.HomeScreen
+import com.arkiv.player.ui.home.RowBrowseScreen
 import com.arkiv.player.ui.library.LibraryScreen
 import com.arkiv.player.ui.pairing.QrScannerScreen
 import com.arkiv.player.ui.player.PlayerScreen
@@ -320,6 +321,9 @@ fun ArkivRoot(
                     onOpenConnect = { showConnection = true },
                     onOpenSearchRoute = { route -> navController.navigate(route) },
                     onOpenLibrary = { navController.navigate("library") },
+                    onBrowseRow = { rowId, title ->
+                        navController.navigate("row_browse/$rowId?title=${android.net.Uri.encode(title)}")
+                    },
                     contentPadding = padding,
                 )
             }
@@ -505,6 +509,23 @@ fun ArkivRoot(
                         }
                     },
                     onNextEpisode = { goToPlayer(it) },
+                )
+            }
+            composable(
+                "row_browse/{rowId}?title={title}",
+                arguments = listOf(
+                    navArgument("rowId") { type = NavType.StringType },
+                    navArgument("title") { type = NavType.StringType; defaultValue = "" },
+                ),
+            ) { entry ->
+                val rowId = entry.arguments?.getString("rowId").orEmpty()
+                val title = entry.arguments?.getString("title").orEmpty()
+                RowBrowseScreen(
+                    rowId = rowId,
+                    title = title,
+                    onOpenSearchRoute = { route -> navController.navigate(route) },
+                    onBack = { navController.popBackStack() },
+                    graph = graph,
                 )
             }
         }

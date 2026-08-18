@@ -210,6 +210,9 @@ fun ArkivTvRoot(
                 onOpenLive = { navController.navigate("live") },
                 onOpenSearchRoute = { route -> navController.navigate(route) },
                 onOpenCategorias = { navController.navigate("categorias") },
+                onBrowseRow = { rowId, title ->
+                    navController.navigate("row_browse/$rowId?title=${android.net.Uri.encode(title)}")
+                },
             )
         }
         composable(
@@ -328,6 +331,23 @@ fun ArkivTvRoot(
                 onOpenEpisodes = { navController.popBackStack() },
                 onNextEpisode = { goToPlayer(it) },
                 isTv = true,
+            )
+        }
+        composable(
+            "row_browse/{rowId}?title={title}",
+            arguments = listOf(
+                navArgument("rowId") { type = NavType.StringType },
+                navArgument("title") { type = NavType.StringType; defaultValue = "" },
+            ),
+        ) { entry ->
+            val rowId = entry.arguments?.getString("rowId").orEmpty()
+            val title = entry.arguments?.getString("title").orEmpty()
+            TvRowBrowseScreen(
+                rowId = rowId,
+                title = title,
+                onOpenSearchRoute = { route -> navController.navigate(route) },
+                onBack = { navController.popBackStack() },
+                graph = graph,
             )
         }
     }
