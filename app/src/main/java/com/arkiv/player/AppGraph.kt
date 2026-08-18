@@ -59,6 +59,34 @@ class AppGraph(context: Context) {
     private val _updateInfo = kotlinx.coroutines.flow.MutableStateFlow<UpdateInfo?>(null)
     val updateInfo: kotlinx.coroutines.flow.StateFlow<UpdateInfo?> = _updateInfo
 
+    private val _hayInternet = kotlinx.coroutines.flow.MutableStateFlow(true)
+    val hayInternet: kotlinx.coroutines.flow.StateFlow<Boolean> = _hayInternet
+
+    private val monitorDeRed: android.net.ConnectivityManager.NetworkCallback by lazy {
+        object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: android.net.Network) { _hayInternet.value = true }
+            override fun onLost(network: android.net.Network) {
+                val cm = appContext.getSystemService(android.net.ConnectivityManager::class.java)
+                val activa = cm?.activeNetwork
+                if (activa == null) _hayInternet.value = false
+            }
+            override fun onUnavailable() { _hayInternet.value = false }
+        }.also { cb ->
+            runCatching {
+                val cm = appContext.getSystemService(android.net.ConnectivityManager::class.java)
+                    ?: return@runCatching
+                // Estado inicial: verificar si ya hay red al arrancar
+                val activa = cm.activeNetwork
+                val caps = activa?.let { cm.getNetworkCapabilities(it) }
+                _hayInternet.value = caps?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+                cm.registerDefaultNetworkCallback(cb)
+            }.onFailure { android.util.Log.w("ArkivRed", "monitorDeRed: ${it.message}") }
+        }
+    }
+
+    /** Inicia el monitor de conectividad; llamar desde Application.onCreate. */
+    fun iniciarMonitorDeRed() { monitorDeRed }  // acceso fuerza la inicialización del lazy
+
     val apkDownloader: ApkDownloader by lazy { ApkDownloader(appContext) }
 
     /**

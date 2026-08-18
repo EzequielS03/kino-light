@@ -36,8 +36,9 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.SignalWifiOff
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
@@ -60,6 +61,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.platform.LocalContext
@@ -265,6 +267,7 @@ fun TvHomeScreen(
     val vm: HomeViewModel = viewModel(
         factory = viewModelFactory { initializer { HomeViewModel(graph.repository, graph.tmdbApi, graph.aniListApi, graph.settings) } },
     )
+    val hayInternet by graph.hayInternet.collectAsStateWithLifecycle()
     val library by vm.library.collectAsStateWithLifecycle()
     val continueWatching by vm.continueWatching.collectAsStateWithLifecycle()
     val artwork by vm.artwork.collectAsStateWithLifecycle()
@@ -489,6 +492,32 @@ fun TvHomeScreen(
     )
 
     Box(Modifier.fillMaxSize().background(ArkivBlack)) {
+        if (!hayInternet) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .background(androidx.compose.ui.graphics.Color(0xFFB00020))
+                    .padding(horizontal = 48.dp, vertical = 8.dp)
+                    .zIndex(10f),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.SignalWifiOff,
+                    contentDescription = null,
+                    tint = androidx.compose.ui.graphics.Color.White,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = "Sin conexión — revisa tu red",
+                    color = androidx.compose.ui.graphics.Color.White,
+                    style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
+
         // Fondo inmersivo fijo: backdrop del ítem enfocado + degradados.
         Crossfade(targetState = featured?.imageUrl, animationSpec = tween(450), label = "bg") { url ->
             Box(Modifier.fillMaxSize()) {

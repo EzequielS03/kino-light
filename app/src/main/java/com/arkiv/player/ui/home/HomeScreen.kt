@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SignalWifiOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -166,6 +167,35 @@ fun HomeScreen(
         // así arriba/abajo en el reproductor recorre los mismos canales que muestra la fila.
         LiveZappingSource.lista = canalesFila
         onPlayLive(canal.code)
+    }
+
+    val hayInternet by graph.hayInternet.collectAsStateWithLifecycle()
+
+    if (!hayInternet) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(androidx.compose.ui.graphics.Color(0xFFB00020))
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            contentAlignment = androidx.compose.ui.Alignment.Center,
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.SignalWifiOff,
+                    contentDescription = null,
+                    tint = androidx.compose.ui.graphics.Color.White,
+                    modifier = Modifier.size(18.dp),
+                )
+                androidx.compose.material3.Text(
+                    text = "Sin conexión — revisa tu red",
+                    color = androidx.compose.ui.graphics.Color.White,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
     }
 
     LazyColumn(

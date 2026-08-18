@@ -56,6 +56,8 @@ class ArkivApp : Application(), ImageLoaderFactory {
             }
         }
 
+        graph.iniciarMonitorDeRed()
+
         // OTA: chequeo periódico cada 6 horas + chequeo inmediato al arrancar.
         androidx.work.WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             "update_check",
