@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
@@ -86,6 +87,7 @@ fun HomeScreen(
     onOpenConnect: () -> Unit = {},
     onOpenSearchRoute: (String) -> Unit,
     onOpenLibrary: () -> Unit,
+    onBrowseRow: (rowId: String, title: String) -> Unit,
     contentPadding: PaddingValues,
 ) {
     val graph = rememberGraph()
@@ -315,6 +317,7 @@ fun HomeScreen(
                     loaded = spec.id in rowsLoaded,
                     onLoad = { vm.loadRow(spec.id) },
                     onOpenCard = { card -> onOpenSearchRoute(searchShortcutRoute(card)) },
+                    onVerMas = { onBrowseRow(spec.id, spec.title) },
                 )
             }
         }
@@ -470,9 +473,9 @@ private fun RemoteRow(
     loaded: Boolean,
     onLoad: () -> Unit,
     onOpenCard: (TitleCard) -> Unit,
+    onVerMas: () -> Unit,
 ) {
     LaunchedEffect(spec.id) { onLoad() }
-    // Fila que ya cargó y vino vacía (o falló) -> se oculta, sin dejar hueco ni error.
     if (loaded && items.isEmpty()) return
     Column(Modifier.padding(top = 16.dp)) {
         Text(
@@ -482,7 +485,6 @@ private fun RemoteRow(
             modifier = Modifier.padding(start = 16.dp, bottom = 8.dp),
         )
         if (!loaded) {
-            // Placeholder de carga (alto fijo para que el scroll no salte).
             Box(Modifier.height(180.dp).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = ArkivRed, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
             }
@@ -493,6 +495,9 @@ private fun RemoteRow(
             ) {
                 items(items, key = { "${spec.id}-${it.kind}-${it.tmdbId}-${it.anilistId}" }) { card ->
                     PosterCard(card) { onOpenCard(card) }
+                }
+                item(key = "${spec.id}-ver-mas") {
+                    VerMasPosterCard(onClick = onVerMas)
                 }
             }
         }
@@ -508,4 +513,36 @@ private fun PosterCard(card: TitleCard, onClick: () -> Unit) {
         modifier = Modifier.width(120.dp),
         onClick = onClick,
     )
+}
+
+@Composable
+private fun VerMasPosterCard(onClick: () -> Unit) {
+    Column(
+        modifier = Modifier.width(120.dp).clickable(onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(2f / 3f)
+                .clip(RoundedCornerShape(8.dp))
+                .background(ArkivSurfaceHigh),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = null,
+                    tint = ArkivRed,
+                    modifier = Modifier.size(28.dp),
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Ver más",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White,
+                )
+            }
+        }
+    }
 }
