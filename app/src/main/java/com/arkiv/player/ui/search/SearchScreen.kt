@@ -91,6 +91,8 @@ import com.arkiv.player.ui.catalog.ArkivWebViolet
 import com.arkiv.player.ui.catalog.ArkivArchiveTeal
 import com.arkiv.player.ui.catalog.MetaChip
 import com.arkiv.player.ui.catalog.WebPackDialog
+import com.arkiv.player.ui.home.CategoriasViewModel
+import com.arkiv.player.ui.home.matchCategoryRow
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivBlack
 import com.arkiv.player.ui.theme.ArkivRed
@@ -109,11 +111,16 @@ fun SearchScreen(
     onOpenDetail: (String) -> Unit,
     onPlay: (String) -> Unit,
     onBack: () -> Unit,
+    onBrowseRow: ((rowId: String, title: String) -> Unit)? = null,
     shortcutKind: String? = null,
     shortcutTmdbId: Int? = null,
     shortcutAnilistId: Long? = null,
 ) {
     val graph = rememberGraph()
+    val categoriasVm: CategoriasViewModel = viewModel(
+        factory = viewModelFactory { initializer { CategoriasViewModel(graph.tmdbApi, graph.aniListApi) } },
+    )
+    val categoryRows by categoriasVm.rows.collectAsStateWithLifecycle()
     val vm: SearchViewModel = viewModel(
         factory = viewModelFactory {
             initializer {
@@ -479,7 +486,11 @@ fun SearchScreen(
                     loadingDirect = loadingDirect,
                     recentQueries = recentQueries,
                     recentTitles = recentTitles,
-                    onSearch = { vm.search(it) },
+                    onSearch = { q ->
+                        val match = if (onBrowseRow != null) matchCategoryRow(q, categoryRows) else null
+                        if (match != null) onBrowseRow?.invoke(match.id, match.title)
+                        else vm.search(q)
+                    },
                     onPickTitle = { card -> vm.pickTitle(card) },
                     onPlayDirect = { playDirect(it) },
                     onDownloadDirect = { saveDirect(it) },

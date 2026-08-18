@@ -41,6 +41,32 @@ fun buildRowSpecs(
     }
 }
 
+/**
+ * Normaliza un texto para comparación tolerante a tildes y mayúsculas.
+ * "Acción" y "accion" resultan iguales; "Sci-Fi" y "sci-fi" también.
+ */
+private fun String.normalizarBusqueda(): String =
+    this.lowercase().map { c ->
+        when (c) {
+            'á', 'à', 'â', 'ä' -> 'a'; 'é', 'è', 'ê', 'ë' -> 'e'
+            'í', 'ì', 'î', 'ï' -> 'i'; 'ó', 'ò', 'ô', 'ö' -> 'o'
+            'ú', 'ù', 'û', 'ü' -> 'u'; 'ñ' -> 'n'; else -> c
+        }
+    }.joinToString("").trim()
+
+/**
+ * Devuelve la primera [HomeRowSpec] cuyo nombre base (antes del " · ") coincida con [q].
+ * Tolerante a tildes y mayúsculas: "accion", "Acción" y "ACCIÓN" son equivalentes.
+ * Devuelve null si no hay coincidencia o si [q] está en blanco.
+ */
+fun matchCategoryRow(q: String, rows: List<HomeRowSpec>): HomeRowSpec? {
+    val normalized = q.normalizarBusqueda()
+    if (normalized.isBlank()) return null
+    return rows.firstOrNull { spec ->
+        spec.title.split(" · ").first().normalizarBusqueda() == normalized
+    }
+}
+
 /** Ruta del buscador que salta la fase de escribir y arranca ya en ese título. */
 fun searchShortcutRoute(card: TitleCard): String = when (card.kind) {
     "anime" -> "search?kind=anime&anilistId=${card.anilistId}"

@@ -389,6 +389,9 @@ fun ArkivRoot(
                         onOpenDetail = { route -> navController.navigate(route) },
                         onPlay = { id -> playEpisode(id) },
                         onBack = { navController.popBackStack() },
+                        onBrowseRow = { rowId, title ->
+                            navController.navigate("row_browse/$rowId?title=${android.net.Uri.encode(title)}")
+                        },
                         shortcutKind = entry.arguments?.getString("kind"),
                         shortcutTmdbId = entry.arguments?.getString("tmdbId")?.toIntOrNull(),
                         shortcutAnilistId = entry.arguments?.getString("anilistId")?.toLongOrNull(),

@@ -77,6 +77,8 @@ import com.arkiv.player.ui.catalog.ArkivArchiveTeal
 import com.arkiv.player.ui.catalog.ArkivWebViolet
 import com.arkiv.player.ui.catalog.PlaySource
 import com.arkiv.player.ui.catalog.langColor
+import com.arkiv.player.ui.home.CategoriasViewModel
+import com.arkiv.player.ui.home.matchCategoryRow
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.search.PlaybackResult
 import com.arkiv.player.ui.search.SearchPhase
@@ -114,11 +116,16 @@ private const val SEARCH_HISTORY_KIND = "tv"
 fun TvSearchScreen(
     onPlay: (String) -> Unit,
     onBack: () -> Unit,
+    onBrowseRow: ((rowId: String, title: String) -> Unit)? = null,
     shortcutKind: String? = null,
     shortcutTmdbId: Int? = null,
     shortcutAnilistId: Long? = null,
 ) {
     val graph = rememberGraph()
+    val categoriasVm: CategoriasViewModel = viewModel(
+        factory = viewModelFactory { initializer { CategoriasViewModel(graph.tmdbApi, graph.aniListApi) } },
+    )
+    val categoryRows by categoriasVm.rows.collectAsStateWithLifecycle()
     val vm: SearchViewModel = viewModel(
         factory = viewModelFactory {
             initializer {
@@ -363,10 +370,16 @@ fun TvSearchScreen(
         }
     }
 
-    /** Botón "Autocompletar": trae la grilla de títulos del catálogo, que son las sugerencias. */
+    /** Botón "Autocompletar": trae la grilla de títulos del catálogo, que son las sugerencias.
+     *  Si la consulta coincide con una categoría conocida, navega directo a ella. */
     fun buscarTitulos(q: String) {
         val query = q.trim()
         if (query.isBlank()) return
+        val match = if (onBrowseRow != null) matchCategoryRow(query, categoryRows) else null
+        if (match != null) {
+            onBrowseRow?.invoke(match.id, match.title)
+            return
+        }
         text = query
         searched = true
         busquedaNro++
