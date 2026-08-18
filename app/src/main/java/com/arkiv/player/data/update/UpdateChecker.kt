@@ -2,6 +2,7 @@ package com.arkiv.player.data.update
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.CacheControl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -12,7 +13,7 @@ class UpdateChecker(
 ) {
     suspend fun check(currentVersionCode: Int): UpdateInfo? = withContext(Dispatchers.IO) {
         runCatching {
-            val raw = client.newCall(Request.Builder().url(url).build()).execute()
+            val raw = client.newCall(Request.Builder().url(url).cacheControl(CacheControl.FORCE_NETWORK).build()).execute()
                 .use { if (it.isSuccessful) it.body?.string() else null } ?: return@withContext null
             // Cloudflare transforms JSON bodies; the server prepends )]}'\n to bypass it.
             val body = raw.substringAfter("{", "").let { "{$it" }
@@ -37,7 +38,7 @@ class UpdateChecker(
      */
     suspend fun urlDeDescarga(): String? = withContext(Dispatchers.IO) {
         runCatching {
-            val raw = client.newCall(Request.Builder().url(url).build()).execute()
+            val raw = client.newCall(Request.Builder().url(url).cacheControl(CacheControl.FORCE_NETWORK).build()).execute()
                 .use { if (it.isSuccessful) it.body?.string() else null } ?: return@withContext null
             val body = raw.substringAfter("{", "").let { "{$it" }
             JSONObject(body).getString("url")

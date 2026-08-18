@@ -1662,6 +1662,26 @@ private fun PlayerContent(
         }
     }
 
+    // Guarda progreso cuando la app va al fondo (botón Home, notificaciones, etc.). El onDispose
+    // de arriba solo corre al DESTRUIR la pantalla (back/swipe); con Home el composable sobrevive
+    // y el audio sigue, pero si el proceso muere después la posición se pierde.
+    DisposableEffect(lifecycleOwner) {
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
+                val epId = playlistRef.value?.items?.getOrNull(currentPlayer.currentMediaItemIndex)?.episodeId
+                val pos = currentPlayer.currentPosition
+                val dur = currentPlayer.duration
+                val mediaId = currentPlayer.currentMediaItem?.mediaId
+                if (!enVivo && epId != null && mediaId == epId && dur > 0 && pos in 0 until dur) {
+                    vm.saveProgress(epId, pos, dur)
+                    if (!casting) vm.capturarFrame(epId, pos, textureViewDelVideo())
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+    }
+
     // Servicio en primer plano (solo torrent): mantiene vivo el proceso (sesión + server local)
     // mientras el reproductor está abierto, para que backgroundear/castear no lo mate.
     DisposableEffect(sourceIsTorrent) {
@@ -1742,7 +1762,21 @@ private fun PlayerContent(
     }
 
     fun togglePlayPause() {
-        if (activePlayer.isPlaying) activePlayer.pause() else activePlayer.play()
+        if (activePlayer.isPlaying) {
+            activePlayer.pause()
+            // Guarda posición al pausar: si la app se cierra mientras está en pausa (crash, Fire
+            // Stick reinicia), la posición está guardada y no se pierde.
+            val epId = playlistRef.value?.items?.getOrNull(currentIndex)?.episodeId
+            val pos = activePlayer.currentPosition
+            val dur = activePlayer.duration
+            val mediaId = activePlayer.currentMediaItem?.mediaId
+            if (!enVivo && epId != null && mediaId == epId && dur > 0 && pos in 0 until dur) {
+                vm.saveProgress(epId, pos, dur)
+                if (!casting) vm.capturarFrame(epId, pos, textureViewDelVideo())
+            }
+        } else {
+            activePlayer.play()
+        }
         // Vivo no usa bump()/controlsVisible (ese overlay entero está oculto -- ver más abajo,
         // "visible = !enVivo && ..."): sin esta guarda, togglePlayPause() (alcanzable desde el
         // centro del D-pad en TV) dejaba controlsVisible en true igual, y el BackHandler de abajo
