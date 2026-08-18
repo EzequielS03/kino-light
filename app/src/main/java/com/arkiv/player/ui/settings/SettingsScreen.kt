@@ -45,7 +45,7 @@ private enum class TabDeAjustes(val etiqueta: String) {
  * fuera del scroll, así queda siempre a mano.
  */
 @Composable
-fun SettingsScreen(contentPadding: PaddingValues) {
+fun SettingsScreen(contentPadding: PaddingValues, onOpenDownloads: () -> Unit = {}) {
     val graph = rememberGraph()
     var tab by rememberSaveable { mutableStateOf(TabDeAjustes.REPRODUCCION) }
     // Un scroll por tab: con uno solo compartido, entrar a "Cuenta" desde el fondo de "Subtítulos"
@@ -85,7 +85,7 @@ fun SettingsScreen(contentPadding: PaddingValues) {
                 TabDeAjustes.SUBTITULOS -> SubtitulosTab()
                 TabDeAjustes.CUENTA -> AccountSection(graph.accountManager)
                 TabDeAjustes.APARATOS -> MisAparatosSection(graph.misAparatosViewModel)
-                TabDeAjustes.APP -> AppTab()
+                TabDeAjustes.APP -> AppTab(onOpenDownloads = onOpenDownloads)
             }
             // El aire de abajo lo pone la cáscara: los tabs no tienen por qué saber que debajo hay
             // una barra de navegación.

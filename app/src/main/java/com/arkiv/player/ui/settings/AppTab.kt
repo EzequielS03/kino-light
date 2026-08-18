@@ -22,9 +22,9 @@ import com.arkiv.player.data.update.UpdateInfo
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.update.UpdateDialog
 
-/** Lo que es de la app y no del contenido: por ahora, buscar actualizaciones. */
+/** Lo que es de la app y no del contenido: actualizaciones y acceso a descargas offline. */
 @Composable
-internal fun AppTab() {
+internal fun AppTab(onOpenDownloads: () -> Unit = {}) {
     val graph = rememberGraph()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -49,6 +49,15 @@ internal fun AppTab() {
 
     manualUpdate?.let { info ->
         UpdateDialog(info = info, graph = graph, onDismiss = { manualUpdate = null })
+    }
+
+    Text(
+        "Descargas",
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.padding(top = 24.dp, bottom = 8.dp),
+    )
+    Button(onClick = onOpenDownloads) {
+        Text("Ver descargas")
     }
 
     Text(

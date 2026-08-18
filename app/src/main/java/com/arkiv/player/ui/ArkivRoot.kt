@@ -15,7 +15,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Downloading
 import androidx.compose.material.icons.filled.LiveTv
@@ -97,11 +99,9 @@ private data class Tab(val route: String, val label: String, val icon: @Composab
 
 private val TABS = listOf(
     Tab("home", "Inicio") { Icon(Icons.Default.Home, contentDescription = "Inicio") },
+    Tab("catalog", "Categorías") { Icon(Icons.Default.GridView, contentDescription = "Categorías") },
+    Tab("library", "Biblioteca") { Icon(Icons.Default.VideoLibrary, contentDescription = "Biblioteca") },
     Tab("live", "En vivo") { Icon(Icons.Default.LiveTv, contentDescription = "En vivo") },
-    // Catálogo oculto: el home de descubrimiento lo reemplaza. La ruta y CineCatalogScreen siguen
-    // vivas — para volver a mostrarlo basta devolver esta línea.
-    // Tab("catalog", "Catálogo") { Icon(Icons.Default.Movie, contentDescription = "Catálogo") },
-    Tab("downloads", "Descargas") { Icon(Icons.Default.Download, contentDescription = "Descargas") },
     Tab("settings", "Ajustes") { Icon(Icons.Default.Settings, contentDescription = "Ajustes") },
 )
 
@@ -353,7 +353,12 @@ fun ArkivRoot(
                     onPlayEpisode = { playEpisode(it) },
                 )
             }
-            composable("settings") { SettingsScreen(contentPadding = padding) }
+            composable("settings") {
+    SettingsScreen(
+        contentPadding = padding,
+        onOpenDownloads = { navController.navigate("downloads") },
+    )
+}
             composable("catalog") {
                 CineCatalogScreen(
                     onOpen = { navController.navigate("cine/${it.type}/${it.id}") },
