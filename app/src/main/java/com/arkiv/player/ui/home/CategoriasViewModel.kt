@@ -73,6 +73,7 @@ class CategoriasViewModel(
     val rowsLoaded: StateFlow<Set<String>> = _rowsLoaded.asStateFlow()
 
     private val rowLoadGuard = LoadGuard()
+    private val seenCards = mutableSetOf<String>()
 
     init {
         viewModelScope.launch {
@@ -139,7 +140,9 @@ class CategoriasViewModel(
                 is RowSource.Anime ->
                     runCatching { aniListApi.browse(1, s.sort, null, s.genre) }.getOrDefault(emptyList()).map { it.toTitleCard() }
             }
-            _rowItems.value = _rowItems.value + (id to cards)
+            val fresh = dedupAgainst(seenCards, cards)
+            seenCards += fresh.map { cardKey(it) }
+            _rowItems.value = _rowItems.value + (id to fresh)
             _rowsLoaded.value = _rowsLoaded.value + id
         }
     }
