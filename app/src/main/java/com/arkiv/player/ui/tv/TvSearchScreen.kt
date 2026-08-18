@@ -77,7 +77,7 @@ import com.arkiv.player.ui.catalog.ArkivArchiveTeal
 import com.arkiv.player.ui.catalog.ArkivWebViolet
 import com.arkiv.player.ui.catalog.PlaySource
 import com.arkiv.player.ui.catalog.langColor
-import com.arkiv.player.ui.home.CategoriasViewModel
+import com.arkiv.player.ui.home.buildRowSpecs
 import com.arkiv.player.ui.home.matchCategoryRow
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.search.ordenarTorrents
@@ -123,10 +123,7 @@ fun TvSearchScreen(
     shortcutAnilistId: Long? = null,
 ) {
     val graph = rememberGraph()
-    val categoriasVm: CategoriasViewModel = viewModel(
-        factory = viewModelFactory { initializer { CategoriasViewModel(graph.tmdbApi, graph.aniListApi) } },
-    )
-    val categoryRows by categoriasVm.rows.collectAsStateWithLifecycle()
+    val fixedRows = remember { buildRowSpecs(emptyList(), emptyList(), emptyList()) }
     val vm: SearchViewModel = viewModel(
         factory = viewModelFactory {
             initializer {
@@ -371,20 +368,25 @@ fun TvSearchScreen(
         }
     }
 
-    /** Botón "Autocompletar": trae la grilla de títulos del catálogo, que son las sugerencias.
-     *  Si la consulta coincide con una categoría conocida, navega directo a ella. */
     fun buscarTitulos(q: String) {
         val query = q.trim()
         if (query.isBlank()) return
-        val match = if (onBrowseRow != null) matchCategoryRow(query, categoryRows) else null
-        if (match != null) {
-            onBrowseRow?.invoke(match.id, match.title)
-            return
-        }
+        val match = if (onBrowseRow != null) matchCategoryRow(query, fixedRows) else null
+        if (match != null) { onBrowseRow?.invoke(match.id, match.title); return }
         text = query
         searched = true
         busquedaNro++
         vm.search(query)
+        recordarConsulta(query)
+    }
+
+    fun buscarFuentes() {
+        val query = text.trim()
+        if (query.isBlank()) return
+        val match = if (onBrowseRow != null) matchCategoryRow(query, fixedRows) else null
+        if (match != null) { onBrowseRow?.invoke(match.id, match.title); return }
+        text = query
+        vm.buscarFuentesPorTexto(query)
         recordarConsulta(query)
     }
 
@@ -398,13 +400,6 @@ fun TvSearchScreen(
      * las fuentes no deja la pantalla en "Sin resultados" por una búsqueda de títulos que nunca
      * corrió.
      */
-    fun buscarFuentes() {
-        val query = text.trim()
-        if (query.isBlank()) return
-        text = query
-        vm.buscarFuentesPorTexto(query)
-        recordarConsulta(query)
-    }
 
     /**
      * "Usar este nombre" de una sugerencia: escribe el título de la card en el buscador y deja el

@@ -91,7 +91,7 @@ import com.arkiv.player.ui.catalog.ArkivWebViolet
 import com.arkiv.player.ui.catalog.ArkivArchiveTeal
 import com.arkiv.player.ui.catalog.MetaChip
 import com.arkiv.player.ui.catalog.WebPackDialog
-import com.arkiv.player.ui.home.CategoriasViewModel
+import com.arkiv.player.ui.home.buildRowSpecs
 import com.arkiv.player.ui.home.matchCategoryRow
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivBlack
@@ -117,10 +117,8 @@ fun SearchScreen(
     shortcutAnilistId: Long? = null,
 ) {
     val graph = rememberGraph()
-    val categoriasVm: CategoriasViewModel = viewModel(
-        factory = viewModelFactory { initializer { CategoriasViewModel(graph.tmdbApi, graph.aniListApi) } },
-    )
-    val categoryRows by categoriasVm.rows.collectAsStateWithLifecycle()
+    // Filas fijas siempre disponibles (sin API): anime, cartelera, tendencias, series, etc.
+    val fixedRows = remember { buildRowSpecs(emptyList(), emptyList(), emptyList()) }
     val vm: SearchViewModel = viewModel(
         factory = viewModelFactory {
             initializer {
@@ -487,7 +485,7 @@ fun SearchScreen(
                     recentQueries = recentQueries,
                     recentTitles = recentTitles,
                     onSearch = { q ->
-                        val match = if (onBrowseRow != null) matchCategoryRow(q, categoryRows) else null
+                        val match = if (onBrowseRow != null) matchCategoryRow(q, fixedRows) else null
                         if (match != null) onBrowseRow?.invoke(match.id, match.title)
                         else vm.search(q)
                     },
