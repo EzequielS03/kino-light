@@ -27,6 +27,9 @@ class RowBrowseViewModel(
     private val _canLoadMore = MutableStateFlow(true)
     val canLoadMore: StateFlow<Boolean> = _canLoadMore.asStateFlow()
 
+    private val _hasError = MutableStateFlow(false)
+    val hasError: StateFlow<Boolean> = _hasError.asStateFlow()
+
     private var page = 1
     private var loading = false
 
@@ -38,6 +41,7 @@ class RowBrowseViewModel(
         viewModelScope.launch {
             val source = sourceFor(rowId)
             if (source == null) {
+                _hasError.value = true
                 _canLoadMore.value = false
                 _isLoading.value = false
                 loading = false
@@ -62,6 +66,16 @@ class RowBrowseViewModel(
             _isLoading.value = false
             loading = false
         }
+    }
+
+    /** Limpia el estado y relanza la primera carga. Útil para el botón "Reintentar". */
+    fun resetAndLoad() {
+        _hasError.value = false
+        _canLoadMore.value = true
+        _items.value = emptyList()
+        page = 1
+        loading = false
+        loadMore()
     }
 
     companion object {

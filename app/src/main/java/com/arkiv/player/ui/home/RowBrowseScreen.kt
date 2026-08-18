@@ -35,6 +35,7 @@ fun RowBrowseScreen(
     val items by vm.items.collectAsStateWithLifecycle()
     val isLoading by vm.isLoading.collectAsStateWithLifecycle()
     val canLoadMore by vm.canLoadMore.collectAsStateWithLifecycle()
+    val hasError by vm.hasError.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) { vm.loadMore() }
 
@@ -65,35 +66,54 @@ fun RowBrowseScreen(
         },
         containerColor = ArkivBlack,
     ) { padding ->
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(3),
-            state = state,
-            contentPadding = PaddingValues(
-                start = 16.dp, end = 16.dp,
-                top = padding.calculateTopPadding() + 8.dp,
-                bottom = padding.calculateBottomPadding() + 16.dp,
-            ),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            items(items, key = { "${it.kind}-${it.tmdbId}-${it.anilistId}" }) { card ->
-                PosterCard(
-                    title = card.title,
-                    imageUrl = card.posterUrl,
-                    onClick = { onOpenSearchRoute(searchShortcutRoute(card)) },
-                )
+        Box(modifier = Modifier.fillMaxSize()) {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(3),
+                state = state,
+                contentPadding = PaddingValues(
+                    start = 16.dp, end = 16.dp,
+                    top = padding.calculateTopPadding() + 8.dp,
+                    bottom = padding.calculateBottomPadding() + 16.dp,
+                ),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                items(items, key = { "${it.kind}-${it.tmdbId}-${it.anilistId}" }) { card ->
+                    PosterCard(
+                        title = card.title,
+                        imageUrl = card.posterUrl,
+                        onClick = { onOpenSearchRoute(searchShortcutRoute(card)) },
+                    )
+                }
+                if (isLoading) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(
+                                color = ArkivRed,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
+                    }
+                }
             }
-            if (isLoading) {
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    Box(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator(
-                            color = ArkivRed,
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(24.dp),
+
+            if (items.isEmpty() && !isLoading && !canLoadMore) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "No se pudo cargar el contenido",
+                            color = Color.White,
                         )
+                        TextButton(onClick = { vm.resetAndLoad() }) {
+                            Text("Reintentar", color = ArkivRed)
+                        }
                     }
                 }
             }
