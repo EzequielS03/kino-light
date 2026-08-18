@@ -37,6 +37,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.SignalWifiOff
 import androidx.compose.material.icons.filled.Search
@@ -261,6 +262,8 @@ fun TvHomeScreen(
     onOpenSearchRoute: (String) -> Unit,
     /** Navegar el catálogo de Magis por secciones (series y, con el código puesto, 18+). */
     onOpenCategorias: () -> Unit,
+    /** Listado de todas las filas del home como accesos directos por categoría. */
+    onOpenCategoriasHome: () -> Unit,
     onBrowseRow: (rowId: String, title: String) -> Unit,
 ) {
     val graph = rememberGraph()
@@ -575,6 +578,11 @@ fun TvHomeScreen(
                     TvNavButton(
                         icon = Icons.Default.GridView,
                         label = "Categorías",
+                        onClick = onOpenCategoriasHome,
+                    )
+                    TvNavButton(
+                        icon = Icons.Default.PlayCircle,
+                        label = "Magis",
                         onClick = onOpenCategorias,
                     )
                     TvNavButton(

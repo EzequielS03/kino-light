@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.Search
@@ -99,9 +100,10 @@ private data class Tab(val route: String, val label: String, val icon: @Composab
 
 private val TABS = listOf(
     Tab("home", "Inicio") { Icon(Icons.Default.Home, contentDescription = "Inicio") },
-    Tab("catalog", "Categorías") { Icon(Icons.Default.GridView, contentDescription = "Categorías") },
+    Tab("categorias_home", "Categorías") { Icon(Icons.Default.GridView, contentDescription = "Categorías") },
     Tab("library", "Biblioteca") { Icon(Icons.Default.VideoLibrary, contentDescription = "Biblioteca") },
     Tab("live", "En vivo") { Icon(Icons.Default.LiveTv, contentDescription = "En vivo") },
+    Tab("catalog", "Magis") { Icon(Icons.Default.PlayCircle, contentDescription = "Magis") },
     Tab("settings", "Ajustes") { Icon(Icons.Default.Settings, contentDescription = "Ajustes") },
 )
 
@@ -359,6 +361,14 @@ fun ArkivRoot(
         onOpenDownloads = { navController.navigate("downloads") },
     )
 }
+            composable("categorias_home") {
+                com.arkiv.player.ui.home.CategoriasScreen(
+                    contentPadding = padding,
+                    onBrowseRow = { rowId, title ->
+                        navController.navigate("row_browse/$rowId?title=${android.net.Uri.encode(title)}")
+                    },
+                )
+            }
             composable("catalog") {
                 CineCatalogScreen(
                     onOpen = { navController.navigate("cine/${it.type}/${it.id}") },
