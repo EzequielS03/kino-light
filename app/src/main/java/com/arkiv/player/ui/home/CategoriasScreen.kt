@@ -1,29 +1,58 @@
 package com.arkiv.player.ui.home
 
-import android.net.Uri
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.ListItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import coil.compose.AsyncImage
 import com.arkiv.player.ui.rememberGraph
+import com.arkiv.player.ui.theme.ArkivBlack
+
+private val CARD_HEIGHT = 110.dp
+private val CARD_RADIUS = RoundedCornerShape(10.dp)
 
 @Composable
 fun CategoriasScreen(
@@ -36,6 +65,20 @@ fun CategoriasScreen(
     )
     val rows by vm.rows.collectAsStateWithLifecycle()
     val loading by vm.loading.collectAsStateWithLifecycle()
+    val previews by vm.previews.collectAsStateWithLifecycle()
+
+    var query by remember { mutableStateOf("") }
+    val focusManager = LocalFocusManager.current
+
+    val displayRows = remember(rows, query) {
+        if (query.isBlank()) rows
+        else rows.filter { it.title.contains(query.trim(), ignoreCase = true) }
+    }
+
+    val fijas = displayRows.filter { it.id in setOf("cartelera", "peliculas_populares", "tendencias", "series_populares", "series_top", "anime", "anime_populares", "anime_top") }
+    val generosPelis = displayRows.filter { it.id.startsWith("g_movie_") }
+    val generosSeries = displayRows.filter { it.id.startsWith("g_tv_") }
+    val generosAnime = displayRows.filter { it.id.startsWith("g_anime_") }
 
     if (loading && rows.size <= 8) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -44,72 +87,155 @@ fun CategoriasScreen(
         return
     }
 
-    // Agrupamos las filas por tipo para mostrar cabeceras de sección.
-    val fijas = rows.filter { it.id.none { c -> c == '_' } || it.id in listOf("cartelera", "peliculas_populares", "tendencias", "series_populares", "series_top", "anime", "anime_populares", "anime_top") }
-    val generosPelis = rows.filter { it.id.startsWith("g_movie_") }
-    val generosSeries = rows.filter { it.id.startsWith("g_tv_") }
-    val generosAnime = rows.filter { it.id.startsWith("g_anime_") }
-
-    LazyColumn(
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(2),
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(
-            top = contentPadding.calculateTopPadding(),
+            start = 16.dp,
+            end = 16.dp,
+            top = contentPadding.calculateTopPadding() + 8.dp,
             bottom = contentPadding.calculateBottomPadding() + 16.dp,
         ),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        item {
-            Text(
-                "Categorías",
-                style = MaterialTheme.typography.headlineMedium,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
-            )
+        // Título + buscador — span completo
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Column(modifier = Modifier.padding(bottom = 8.dp)) {
+                Text(
+                    "Categorías",
+                    style = MaterialTheme.typography.headlineMedium,
+                    modifier = Modifier.padding(bottom = 12.dp),
+                )
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Buscar categoría…") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (query.isNotEmpty()) {
+                            IconButton(onClick = { query = "" }) {
+                                Icon(Icons.Default.Clear, contentDescription = "Limpiar")
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
+                )
+            }
         }
 
         if (fijas.isNotEmpty()) {
-            item { SectionHeader("Destacadas") }
+            item(span = { GridItemSpan(maxLineSpan) }) { SectionLabel("Destacadas") }
             items(fijas, key = { it.id }) { spec ->
-                CategoryRow(spec.title) { onBrowseRow(spec.id, spec.title) }
+                LaunchedEffect(spec.id) { vm.fetchPreview(spec.id) }
+                CategoryCard(
+                    title = spec.title,
+                    imageUrl = previews[spec.id],
+                    onClick = { onBrowseRow(spec.id, spec.title) },
+                )
             }
         }
 
         if (generosPelis.isNotEmpty()) {
-            item { SectionHeader("Géneros · Películas") }
+            item(span = { GridItemSpan(maxLineSpan) }) { SectionLabel("Géneros · Películas") }
             items(generosPelis, key = { it.id }) { spec ->
-                CategoryRow(spec.title.removeSuffix(" · Películas")) { onBrowseRow(spec.id, spec.title) }
+                LaunchedEffect(spec.id) { vm.fetchPreview(spec.id) }
+                CategoryCard(
+                    title = spec.title.removeSuffix(" · Películas"),
+                    imageUrl = previews[spec.id],
+                    onClick = { onBrowseRow(spec.id, spec.title) },
+                )
             }
         }
 
         if (generosSeries.isNotEmpty()) {
-            item { SectionHeader("Géneros · Series") }
+            item(span = { GridItemSpan(maxLineSpan) }) { SectionLabel("Géneros · Series") }
             items(generosSeries, key = { it.id }) { spec ->
-                CategoryRow(spec.title.removeSuffix(" · Series")) { onBrowseRow(spec.id, spec.title) }
+                LaunchedEffect(spec.id) { vm.fetchPreview(spec.id) }
+                CategoryCard(
+                    title = spec.title.removeSuffix(" · Series"),
+                    imageUrl = previews[spec.id],
+                    onClick = { onBrowseRow(spec.id, spec.title) },
+                )
             }
         }
 
         if (generosAnime.isNotEmpty()) {
-            item { SectionHeader("Géneros · Anime") }
+            item(span = { GridItemSpan(maxLineSpan) }) { SectionLabel("Géneros · Anime") }
             items(generosAnime, key = { it.id }) { spec ->
-                CategoryRow(spec.title.removeSuffix(" · Anime")) { onBrowseRow(spec.id, spec.title) }
+                LaunchedEffect(spec.id) { vm.fetchPreview(spec.id) }
+                CategoryCard(
+                    title = spec.title.removeSuffix(" · Anime"),
+                    imageUrl = previews[spec.id],
+                    onClick = { onBrowseRow(spec.id, spec.title) },
+                )
+            }
+        }
+
+        if (displayRows.isEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Box(Modifier.fillMaxWidth().padding(top = 32.dp), contentAlignment = Alignment.Center) {
+                    Text("Sin resultados para \"$query\"", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
     }
 }
 
 @Composable
-private fun SectionHeader(title: String) {
+private fun SectionLabel(text: String) {
     Text(
-        title,
-        style = MaterialTheme.typography.titleSmall,
+        text,
+        style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 4.dp),
+        modifier = Modifier.padding(top = 12.dp, bottom = 2.dp),
     )
 }
 
 @Composable
-private fun CategoryRow(label: String, onClick: () -> Unit) {
-    ListItem(
-        headlineContent = { Text(label) },
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-    )
-    HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
+private fun CategoryCard(title: String, imageUrl: String?, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(CARD_HEIGHT)
+            .clip(CARD_RADIUS)
+            .clickable(onClick = onClick)
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        if (!imageUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        // Degradado oscuro para que el texto sea siempre legible.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(Color.Transparent, ArkivBlack.copy(alpha = 0.85f)),
+                        startY = 0f,
+                        endY = Float.POSITIVE_INFINITY,
+                    ),
+                ),
+        )
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = Color.White,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+        )
+    }
 }
