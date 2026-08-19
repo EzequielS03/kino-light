@@ -1158,10 +1158,10 @@ private fun TvRefineRow(label: String, onClick: () -> Unit) {
 /**
  * Fase RESULTS del TV: lista vertical ÚNICA de fuentes (torrent/web/archive) — a diferencia del
  * teléfono, que las agrupa en secciones colapsables por tipo, acá van todas juntas porque el
- * D-pad navega mejor una sola lista que saltar entre secciones. Los packs van primero
- * (sortedByDescending es estable: conserva el orden de relevancia recibido dentro de cada grupo,
- * mismo criterio que packsFirst() del celu). Elegir una fuente suelta reproduce YA
- * (SearchPlayback vía onSelect, sin diálogo de "dónde ver"); un pack lo maneja el padre
+ * D-pad navega mejor una sola lista que saltar entre secciones. El orden lo pone
+ * ordenarTorrents() — la misma del celu: temporada ascendente y packs primero dentro de cada una,
+ * con sort estable, así que la relevancia recibida manda dentro de cada grupo. Elegir una fuente
+ * suelta reproduce YA (SearchPlayback vía onSelect, sin diálogo de "dónde ver"); un pack lo maneja el padre
  * (TvSearchScreen) mostrando TvPackContent en su lugar.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
