@@ -13,9 +13,6 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -30,7 +27,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.activity.compose.BackHandler
@@ -129,8 +125,6 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import androidx.compose.ui.text.font.FontWeight
 import com.arkiv.player.cast.CastProgress
-import com.arkiv.player.data.model.Episode
-import com.arkiv.player.ui.tv.TvEpisodeChip
 import com.arkiv.player.ui.tv.library.SAFE_H
 import com.arkiv.player.ui.tv.library.SAFE_V
 import com.arkiv.player.playback.AutoAvance
@@ -472,62 +466,10 @@ private fun PlayerContent(
     // Botón de override "Reproducir en vivo" (Task 11, solo visible reproduciendo desde la NUC).
     val liveOverrideFR = remember { FocusRequester() }
     // Carrusel de capítulos (TV): un paso más abajo desde la fila de íconos. Aparece con todos
-    // los episodios de la serie en scroll horizontal, con el actual centrado y enfocado.
-    val chaptersFR = remember { FocusRequester() }
-    var chaptersRevealed by remember { mutableStateOf(false) }
-    var allEpisodes by remember { mutableStateOf<List<Episode>>(emptyList()) }
-    // Progreso (posición/duración/visto) de cada episodio, para mostrar "10 de 25 min" en las
-    // tarjetas del carrusel — la barra sola no alcanza para saber cuánto falta en minutos.
-    var chaptersProgress by remember { mutableStateOf<Map<String, com.arkiv.player.data.db.PlaybackEntity>>(emptyMap()) }
-    // Stills de TMDB por capítulo (ya cacheados por la pantalla de detalle; acá solo se leen).
-    var chaptersStills by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
-    // Nombres reales de los capítulos, de la MISMA tabla que los stills (`episode_still`) y por el
-    // mismo camino que ya usan los dos detalles. El chip mostraba la foto pero no el nombre, así que
-    // en el overlay de pausa la serie seguía siendo una fila de "E1 E2 E3" sin decir de qué es cada
-    // uno, justo el dato que este trabajo trajo desde el gateway.
-    var chaptersTitles by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
-    val chaptersListState = rememberLazyListState()
-    // Índice del capítulo actual (o 0 si no se encuentra, p. ej. packs de torrent con id distinto):
-    // se usa tanto para centrar el scroll como para colgar el focusRequester en ESE chip. Antes el
-    // requester solo colgaba del chip isCurrent, así que si el actual no estaba en la lista el foco
-    // nunca podía entrar al carrusel.
-    val currentChapterIdx = remember(allEpisodes, episodioEnCurso) {
-        allEpisodes.indexOfFirst { it.id == episodioEnCurso }.coerceAtLeast(0)
-    }
-    LaunchedEffect(episodeId, isTv) {
-        if (!isTv) return@LaunchedEffect
-        val itemId = episodeId.substringBefore("::")
-        allEpisodes = graph.repository.episodesOf(itemId)
-        chaptersProgress = graph.repository.playbackForItem(itemId)
-        runCatching { graph.repository.ensureEpisodeStills(itemId) }
-        graph.repository.observeEpisodeStills(itemId).collect { chaptersStills = it }
-    }
-    // Colector aparte y no un `combine`: el de arriba se queda colgado para siempre en el `collect`
-    // del flow de stills (es lo último que hace), así que los nombres necesitan su propia corrutina.
-    // No repite `ensureEpisodeStills`: las dos columnas salen de la misma fila, que ya pidió el otro.
-    LaunchedEffect(episodeId, isTv) {
-        if (!isTv) return@LaunchedEffect
-        graph.repository.observeEpisodeTitles(episodeId.substringBefore("::")).collect { chaptersTitles = it }
-    }
-    LaunchedEffect(chaptersRevealed) {
-        if (!chaptersRevealed) return@LaunchedEffect
-        // Refrescar el progreso al abrir el carrusel: la posición del episodio actual recién
-        // pausado puede no estar reflejada todavía en la carga inicial de arriba.
-        chaptersProgress = graph.repository.playbackForItem(episodeId.substringBefore("::"))
-        chaptersListState.scrollToItem(currentChapterIdx)
-        // Mover el foco al chip actual. En TV de gama baja (Fire Stick) el LazyRow recién revelado
-        // no está compuesto/medido en el primer frame, así que un requestFocus() único fallaría
-        // (FocusRequester not initialized) y el runCatching lo tragaba en silencio: el foco se
-        // quedaba en la fila de botones -> izquierda/derecha hacían seek en vez de navegar. Se
-        // reintenta hasta que el requester está enganchado (esperar por condición, no por un delay
-        // fijo que no alcanza en hardware lento).
-        var landed = false
-        repeat(12) {
-            if (landed || !chaptersRevealed) return@repeat
-            landed = runCatching { chaptersFR.requestFocus() }.isSuccess
-            if (!landed) delay(32)
-        }
-    }
+    // los episodios de la serie en scroll horizontal, con el actual centrado y enfocado. Todo su
+    // estado y sus tres efectos viven en `PlayerCapitulos.kt`.
+    val estadoCapitulos = rememberEstadoDeCapitulos(graph.repository)
+    EfectosDeCapitulos(estadoCapitulos, episodeId, episodioEnCurso, isTv)
 
     // El CastPlayer vive en el AppGraph, no acá: liberarlo termina la sesión de Chromecast, así que
     // mientras fue de la pantalla, salir del reproductor mataba el casteo.
@@ -1353,8 +1295,8 @@ private fun PlayerContent(
     // desvanece en plena navegación de botones o miniaturas — solo tras ~4.5s de inactividad real.
     // No se bloquea del todo a propósito: el auto-ocultado es la única salida cuando el video está
     // en pausa (con BACK ahí abajo cerrando el overlay, pero solo mientras se esté viendo).
-    // chaptersRevealed va como key para que abrir/cerrar el carrusel arranque un timer fresco.
-    LaunchedEffect(interactionTick, isPlaying, controlsVisible, chaptersRevealed) {
+    // estadoCapitulos.revelado va como key para que abrir/cerrar el carrusel arranque un timer fresco.
+    LaunchedEffect(interactionTick, isPlaying, controlsVisible, estadoCapitulos.revelado) {
         if (controlsVisible && isPlaying && markingMode == null) {
             delay(4500)
             controlsVisible = false
@@ -1392,9 +1334,9 @@ private fun PlayerContent(
             runCatching { sliderFR.requestFocus() }
                 .onFailure { runCatching { playPauseFR.requestFocus() } }
         } else {
-            // Al ocultarse el overlay el carrusel deja de existir: si chaptersRevealed quedara en
+            // Al ocultarse el overlay el carrusel deja de existir: si estadoCapitulos.revelado quedara en
             // true, al reaparecer se mostraría ya abierto pero con el foco en el botón de play.
-            chaptersRevealed = false
+            estadoCapitulos.ocultar()
             runCatching { videoView?.requestFocus() }
         }
     }
@@ -2390,7 +2332,7 @@ private fun PlayerContent(
                             // que no cuesta una consulta nueva — y cuando no lo tenemos (aún no llegó
                             // del gateway, o es una fuente sin nombres) queda el número solo, como antes.
                             info.episodeLabel?.let { ep ->
-                                val nombre = chaptersTitles[episodioEnCurso]?.takeIf { it.isNotBlank() }
+                                val nombre = estadoCapitulos.titulos[episodioEnCurso]?.takeIf { it.isNotBlank() }
                                 Text(
                                     if (nombre != null) "$ep · $nombre" else ep,
                                     color = Color.White.copy(alpha = 0.75f),
@@ -2503,16 +2445,16 @@ private fun PlayerContent(
                                 .then(if (isTv) Modifier else Modifier.fillMaxWidth())
                                 .then(
                                 // Un paso más de ABAJO desde esta fila revela el carrusel de
-                                // capítulos (aún no existe en el árbol hasta que chaptersRevealed
+                                // capítulos (aún no existe en el árbol hasta que estadoCapitulos.revelado
                                 // es true, así que no se puede resolver con un focusProperties.down
                                 // normal — se intercepta la tecla acá y se dispara la revelación).
-                                if (!isTv || allEpisodes.size <= 1) Modifier else Modifier.onKeyEvent { e ->
+                                if (!isTv || !estadoCapitulos.hayCarrusel) Modifier else Modifier.onKeyEvent { e ->
                                     if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown) {
                                         // Cerrado: revelarlo (el LaunchedEffect mueve el foco al chip).
                                         // Ya abierto: bajar el foco al carrusel — antes caía en el
                                         // `down` del botón y no había forma de volver a entrar.
-                                        if (!chaptersRevealed) chaptersRevealed = true
-                                        else runCatching { chaptersFR.requestFocus() }
+                                        if (!estadoCapitulos.revelado) estadoCapitulos.revelar()
+                                        else runCatching { estadoCapitulos.focusRequester.requestFocus() }
                                         true
                                     } else {
                                         false
@@ -2743,57 +2685,13 @@ private fun PlayerContent(
                         // Carrusel de capítulos (TV, series con más de 1 episodio): un paso más
                         // abajo desde la fila de íconos. Todos los episodios en scroll horizontal,
                         // con el actual resaltado y centrado al aparecer.
-                        if (isTv && allEpisodes.size > 1) {
-                            AnimatedVisibility(visible = chaptersRevealed, enter = fadeIn(), exit = fadeOut()) {
-                                LazyRow(
-                                    state = chaptersListState,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = 14.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    contentPadding = PaddingValues(horizontal = 4.dp),
-                                ) {
-                                    itemsIndexed(allEpisodes, key = { _, it -> it.id }) { index, ep ->
-                                        val isCurrent = ep.id == episodioEnCurso
-                                        TvEpisodeChip(
-                                            episode = ep,
-                                            isCurrent = isCurrent,
-                                            progress = chaptersProgress[ep.id],
-                                            stillUrl = chaptersStills[ep.id],
-                                            episodeTitle = chaptersTitles[ep.id],
-                                            onClick = { onNextEpisode(ep.id) },
-                                            modifier = Modifier
-                                                // El requester va en el chip del índice actual (no en isCurrent):
-                                                // así el foco siempre tiene dónde aterrizar aunque el id actual
-                                                // no esté en la lista (idx cae en 0).
-                                                .then(if (index == currentChapterIdx) Modifier.focusRequester(chaptersFR) else Modifier)
-                                                .focusProperties { up = playPauseFR }
-                                                .onKeyEvent { e ->
-                                                    if (e.type != KeyEventType.KeyDown) return@onKeyEvent false
-                                                    if (e.key == Key.DirectionUp) {
-                                                        chaptersRevealed = false
-                                                        runCatching { playPauseFR.requestFocus() }
-                                                        return@onKeyEvent true
-                                                    }
-                                                    // Tragarse las teclas que se saldrían de la fila: abajo
-                                                    // del carrusel no hay nada, así que la búsqueda espacial
-                                                    // de Compose enganchaba el VLCVideoLayout (focusable en
-                                                    // TV) — el foco se iba al video y, como controlsVisible
-                                                    // seguía en true, su listener ignoraba todo y ninguna
-                                                    // tecla respondía. Igual en los extremos con izq/der.
-                                                    // Se consume acá (return true) en vez de usar
-                                                    // FocusRequester.Cancel porque esa API es experimental.
-                                                    // (El timer de auto-ocultado lo reinicia el
-                                                    // onPreviewKeyEvent del contenedor, que ve estas
-                                                    // teclas antes que este handler.)
-                                                    e.key == Key.DirectionDown ||
-                                                        (e.key == Key.DirectionLeft && index == 0) ||
-                                                        (e.key == Key.DirectionRight && index == allEpisodes.lastIndex)
-                                                },
-                                        )
-                                    }
-                                }
-                            }
+                        if (isTv && estadoCapitulos.hayCarrusel) {
+                            CarruselDeCapitulos(
+                                estado = estadoCapitulos,
+                                episodioEnCurso = episodioEnCurso,
+                                focoDeArriba = playPauseFR,
+                                onElegirEpisodio = onNextEpisode,
+                            )
                         }
                     }
             }
