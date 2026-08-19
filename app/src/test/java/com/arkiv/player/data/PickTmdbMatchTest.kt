@@ -2,7 +2,9 @@ package com.arkiv.player.data
 
 import com.arkiv.player.data.catalog.TmdbItem
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -36,7 +38,7 @@ class PickTmdbMatchTest {
 
     @Test
     fun `elige la coincidencia exacta aunque TMDB la mande al fondo`() {
-        assertEquals(12609, pickTmdbMatch("Dragon Ball", dragonBall)?.id)
+        assertEquals(12609, pickTmdbMatch("Dragon Ball", dragonBall)?.item?.id)
     }
 
     /**
@@ -45,7 +47,7 @@ class PickTmdbMatchTest {
      */
     @Test
     fun `la coincidencia exacta gana tambien cuando el titulo corto va primero`() {
-        assertEquals(12971, pickTmdbMatch("Dragon Ball Z", dragonBall.reversed())?.id)
+        assertEquals(12971, pickTmdbMatch("Dragon Ball Z", dragonBall.reversed())?.item?.id)
     }
 
     /**
@@ -55,7 +57,7 @@ class PickTmdbMatchTest {
     @Test
     fun `sin coincidencia exacta cae al primer resultado`() {
         val kai = listOf(tv(61709, "Dragon Ball Z Kai", "ドラゴンボール改「カイ」", "2009"))
-        assertEquals(61709, pickTmdbMatch("Dragon Ball Kai", kai)?.id)
+        assertEquals(61709, pickTmdbMatch("Dragon Ball Kai", kai)?.item?.id)
     }
 
     /**
@@ -69,7 +71,7 @@ class PickTmdbMatchTest {
             tv(304530, "Fortnite x Los Simpson", "Fortnite x The Simpsons", "2025"),
             tv(456, "Los Simpson", "The Simpsons", "1989"),
         )
-        assertEquals(456, pickTmdbMatch("The Simpsons", simpsons)?.id)
+        assertEquals(456, pickTmdbMatch("The Simpsons", simpsons)?.item?.id)
     }
 
     /** Normalización: tildes, mayúsculas y puntuación no deben romper la coincidencia exacta. */
@@ -79,7 +81,7 @@ class PickTmdbMatchTest {
             tv(1, "Otra Cosa", "Something Else", "2020"),
             tv(2, "El Señor de los Cielos", "El Señor de los Cielos", "2013"),
         )
-        assertEquals(2, pickTmdbMatch("el senor de los cielos!", list)?.id)
+        assertEquals(2, pickTmdbMatch("el senor de los cielos!", list)?.item?.id)
     }
 
     /**
@@ -89,11 +91,38 @@ class PickTmdbMatchTest {
      */
     @Test
     fun `un titulo sin caracteres latinos no inventa coincidencia exacta`() {
-        assertEquals(12971, pickTmdbMatch("ドラゴンボール", dragonBall)?.id)
+        assertEquals(12971, pickTmdbMatch("ドラゴンボール", dragonBall)?.item?.id)
     }
 
     @Test
     fun `sin resultados no hay match`() {
         assertNull(pickTmdbMatch("Lo Que Sea", emptyList()))
+    }
+
+    @Test
+    fun `un match por titulo igual se marca exacto`() {
+        assertTrue(pickTmdbMatch("Dragon Ball", dragonBall)!!.exacto)
+    }
+
+    @Test
+    fun `un match por descarte NO se marca exacto`() {
+        // Este es el que importa. El primer resultado sirve para sacarle un backdrop
+        // decente a "Dragon Ball Kai", pero NO es identidad: `ensureArtwork` guardaba
+        // ese id y `LibraryGrouping` agrupa por el, asi que un titulo que TMDB no
+        // conoce -- "Construido por los hombres" -- se llevaba el id del primer
+        // resultado que cayera y fundia dos obras sin relacion en una tarjeta.
+        val kai = listOf(tv(61709, "Dragon Ball Z Kai", "ドラゴンボール改「カイ」", "2009"))
+        val m = pickTmdbMatch("Dragon Ball Kai", kai)
+        assertEquals(61709, m?.item?.id)
+        assertFalse(m!!.exacto)
+    }
+
+    @Test
+    fun `sin query util el primer resultado tampoco es exacto`() {
+        // Query en blanco tras limpiar: se devuelve algo para el arte, pero no hay
+        // NADA con que afirmar que es la misma obra.
+        val m = pickTmdbMatch("", dragonBall)
+        assertEquals(12971, m?.item?.id)
+        assertFalse(m!!.exacto)
     }
 }

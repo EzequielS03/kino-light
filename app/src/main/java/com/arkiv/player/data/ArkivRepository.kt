@@ -395,15 +395,19 @@ class ArkivRepository(
             val type = if (row.isMovie) "movie" else "tv"
             val match = searchTmdbMatch(tmdb, type, row.title)
             val backdrops = if (match != null) {
-                runCatching { tmdb.images(type, match.id) }.getOrDefault(emptyList())
+                runCatching { tmdb.images(type, match.item.id) }.getOrDefault(emptyList())
             } else {
                 emptyList()
             }
             artworkDao.upsert(
                 ArtworkEntity(
                     itemId = row.identifier,
-                    tmdbId = match?.id,
-                    tmdbType = match?.let { type },
+                    // El id se guarda igual aunque el match sea por descarte: sirve para el arte.
+                    tmdbId = match?.item?.id,
+                    // El TIPO solo si el match fue exacto, porque es lo que [LibraryGrouping] exige
+                    // para juntar dos filas en una tarjeta. Un id "más o menos" da un backdrop
+                    // aceptable; una identidad "más o menos" funde obras distintas.
+                    tmdbType = match?.takeIf { it.exacto }?.let { type },
                     backdropsJson = JSONArray(backdrops).toString(),
                     fetchedAt = clock(),
                 ),
@@ -419,7 +423,7 @@ class ArkivRepository(
      * "guardar vacío" (ensureArtwork, que reintenta a los 7 días) o "no tocar nada"
      * ([repairArtworkMatches], que tiene arte bueno que perder).
      */
-    private suspend fun searchTmdbMatch(tmdb: TmdbApi, type: String, title: String): TmdbItem? {
+    private suspend fun searchTmdbMatch(tmdb: TmdbApi, type: String, title: String): TmdbMatch? {
         val cleaned = cleanTitleForSearch(title)
         return runCatching { pickTmdbMatch(cleaned, tmdb.search(type, cleaned)) }.getOrNull()
             ?: runCatching { pickTmdbMatch(title, tmdb.search(type, title)) }.getOrNull()
@@ -459,8 +463,9 @@ class ArkivRepository(
                 complete = false
                 continue
             }
-            if (match.id == stored && existing.tmdbType == type) continue
-            val backdrops = runCatching { tmdb.images(type, match.id) }.getOrNull()
+            val tipoSiExacto = type.takeIf { match.exacto }
+            if (match.item.id == stored && existing.tmdbType == tipoSiExacto) continue
+            val backdrops = runCatching { tmdb.images(type, match.item.id) }.getOrNull()
             if (backdrops == null) {
                 complete = false
                 continue
@@ -468,8 +473,10 @@ class ArkivRepository(
             artworkDao.upsert(
                 ArtworkEntity(
                     itemId = row.identifier,
-                    tmdbId = match.id,
-                    tmdbType = type,
+                    tmdbId = match.item.id,
+                    // Misma regla que en ensureArtwork: la reparación no puede ASCENDER un match
+                    // por descarte a identidad, que es justo lo que arregla este cambio.
+                    tmdbType = tipoSiExacto,
                     backdropsJson = JSONArray(backdrops).toString(),
                     fetchedAt = clock(),
                 ),
@@ -1664,12 +1671,28 @@ class ArkivRepository(
  * no, haría "coincidencia exacta" con cualquier original que también normalice a vacío, que es casi
  * todo el anime.
  */
-internal fun pickTmdbMatch(query: String, results: List<TmdbItem>): TmdbItem? {
+internal data class TmdbMatch(
+    val item: TmdbItem,
+    /**
+     * Si el título coincidió DE VERDAD, o si es el primer resultado por descarte.
+     *
+     * La distinción existe porque los dos usos del match tienen tolerancias distintas: para sacarle
+     * un backdrop a "Dragon Ball Kai", el "Dragon Ball Z Kai" de TMDB sirve de sobra; para decir que
+     * dos filas son LA MISMA OBRA —que es lo que hace [LibraryGrouping] agrupando por
+     * `tv:<tmdbId>`— no alcanza ni de lejos. Sin esta marca, un título que TMDB no conoce
+     * ("Construido por los hombres", que es un capítulo de Evangelion) se llevaba el id del primer
+     * resultado que cayera y fundía dos obras sin relación en una sola tarjeta.
+     */
+    val exacto: Boolean,
+)
+
+internal fun pickTmdbMatch(query: String, results: List<TmdbItem>): TmdbMatch? {
     val q = WebTmdbMatcher.normalize(query)
-    if (q.isBlank()) return results.firstOrNull()
-    return results.firstOrNull {
+    if (q.isBlank()) return results.firstOrNull()?.let { TmdbMatch(it, exacto = false) }
+    results.firstOrNull {
         WebTmdbMatcher.normalize(it.title) == q || WebTmdbMatcher.normalize(it.originalTitle) == q
-    } ?: results.firstOrNull()
+    }?.let { return TmdbMatch(it, exacto = true) }
+    return results.firstOrNull()?.let { TmdbMatch(it, exacto = false) }
 }
 
 internal fun cleanTitleForSearch(raw: String): String {
