@@ -69,12 +69,21 @@ object TriviaDelPlayer {
     /**
      * Si hay que pedirle trivia de serie o de película.
      *
-     * `tipoDelItem` lo escribe el gateway al canonizar, verificado contra TMDB: cuando está, manda.
-     * Cuando no -- un ítem que todavía no se canonizó --, tener número de capítulo es la mejor
-     * pista que queda.
+     * **Equivocarse acá no da "sin datos", da datos de OTRA OBRA**: un id de TMDB solo significa
+     * algo dentro de su catálogo. Medido en producción -- se pidió `movie:82452` para Avatar, y en
+     * TMDB `tv:82452` es "Avatar: La leyenda de Aang" mientras que `movie:82452` es "Savage Water",
+     * una película de rafting de 1979. Eso fue lo que se le mostró a quien estaba viendo Avatar.
+     *
+     * Por eso se miran todas las señales, de la más confiable a la más débil:
+     *  1. `tipoDelItem`, que el gateway escribió verificando contra TMDB.
+     *  2. `categoryOverride`, que es lo que la app ya usa para decidir si algo es serie
+     *     (ver `LibraryRow.isMovie`) y puede venir corregido a mano por la persona.
+     *  3. Que ESTE capítulo traiga número.
      */
-    fun tipoDe(tipoDelItem: String?, episodio: Int?): String = when {
+    fun tipoDe(tipoDelItem: String?, categoryOverride: String?, episodio: Int?): String = when {
         tipoDelItem == "tv" || tipoDelItem == "movie" -> tipoDelItem
+        categoryOverride == "series" -> "tv"
+        categoryOverride == "movie" -> "movie"
         episodio != null -> "tv"
         else -> "movie"
     }

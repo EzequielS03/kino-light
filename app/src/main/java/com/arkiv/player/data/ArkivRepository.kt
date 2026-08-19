@@ -1357,7 +1357,9 @@ class ArkivRepository(
         val episodio = com.arkiv.player.data.model.EpisodeNumbering.episodeOf(ep.displayName)
         return ObraDeTrivia(
             tmdbId = tmdbId,
-            tipo = com.arkiv.player.ui.player.TriviaDelPlayer.tipoDe(item.tipo, episodio),
+            tipo = com.arkiv.player.ui.player.TriviaDelPlayer.tipoDe(
+                item.tipo, item.categoryOverride, episodio,
+            ),
             temporada = com.arkiv.player.data.model.EpisodeNumbering.seasonOf(ep.section),
             episodio = episodio,
         )
