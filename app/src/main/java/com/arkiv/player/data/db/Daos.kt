@@ -261,6 +261,13 @@ interface ItemDao {
     @Query("UPDATE episodes SET deleted = 1 WHERE itemId = :itemId")
     suspend fun softDeleteEpisodesOf(itemId: String)
 
+    /**
+     * Un solo episodio. Lo usa `ArkivRepository.addMagisSeason` para barrer el que dejó un guardado
+     * con forma de película sobre una serie (ver `MagisEntities.episodioIdDePelicula`).
+     */
+    @Query("UPDATE episodes SET deleted = 1 WHERE id = :episodeId")
+    suspend fun softDeleteEpisode(episodeId: String)
+
     @Query("DELETE FROM items")
     suspend fun deleteAllItems()
 

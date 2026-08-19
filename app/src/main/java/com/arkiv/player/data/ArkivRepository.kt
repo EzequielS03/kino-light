@@ -1253,7 +1253,17 @@ class ArkivRepository(
         // El badge es para capítulos que salieron en el portal, no para los que acabás de guardar
         // vos: se re-sella al total que va a quedar tras el upsert, que es la unión de lo que ya
         // había (undeleted) con lo que trae `capitulos` (upsert nunca los deja deleted).
-        val idsExistentes = itemDao.getEpisodesOf(id).map { it.id }.toSet()
+        val vivos = itemDao.getEpisodesOf(id).map { it.id }.toSet()
+        // El episodio con forma de PELÍCULA que pudo dejar un guardado suelto de esta misma serie
+        // (`addMagisSource` sin `episode` -- así entraba una recomendación de "Para ti" antes de que
+        // supiera pedirle los capítulos al gateway). Su id no es el de ningún capítulo, así que el
+        // upsert de abajo no lo pisa: quedaría de capítulo fantasma, con el título de la serie y el
+        // ref de la temporada entera. Borrado suave para que viaje por el sync, igual que
+        // [barrerItemLegacyDeCapitulo]; y como `getEpisodesOf` ya filtra los tombstones, lo que se
+        // barrió una vez no se vuelve a tocar (nada de re-ensuciar la fila para el sync).
+        val fantasma = MagisEntities.episodioIdDePelicula(id).takeIf { it in vivos }
+        if (fantasma != null) itemDao.softDeleteEpisode(fantasma)
+        val idsExistentes = vivos - setOfNotNull(fantasma)
         val idsNuevos = capitulos.map { MagisEntities.episodioIdDe(id, it.number) }.toSet()
         val totalTrasGuardar = (idsExistentes + idsNuevos).size
         val episodiosVistosEnLista = com.arkiv.player.data.nuevos.ContadorDeNuevos.reSellar(

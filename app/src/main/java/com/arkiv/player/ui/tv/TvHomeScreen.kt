@@ -286,6 +286,7 @@ fun TvHomeScreen(
     // TARDE, con el home ya dibujado; de ahí que la fila viva DESPUÉS del ancla del foco inicial
     // ("Continuar viendo") y no antes -- ver el comentario de más abajo, junto al LazyColumn.
     val recomendacionDao = remember { graph.database.recomendacionDao() }
+    val agregador = remember { graph.agregadorDeRecomendaciones }
     val recomendaciones by recomendacionDao.observeVigentes().collectAsStateWithLifecycle(initialValue = emptyList())
 
     // Canales en vivo recientes -- mismo criterio que el home del celular (ver su KDoc en
@@ -726,38 +727,25 @@ fun TvHomeScreen(
                                             cardHeight = cardHeight,
                                             onFocus = { navSound(); featured = recommendationFeatured(rec) },
                                             onClick = {
-                                                // Guarda vía addMagisSource, mismo mecanismo que usa
-                                                // TvSeccionesDeCatalogo.onReproducir para lo que no
-                                                // está en la biblioteca (con el `ref` ya resuelto por
-                                                // el gateway). Sin pasar `tmdbId`: asociarlo a la
-                                                // biblioteca es de otra etapa.
+                                                // Guarda en la biblioteca y abre el DETALLE (mismo
+                                                // `onOpenItem` que usa "Continuar viendo"), a pedido
+                                                // explícito y no reproducir directo como hace
+                                                // TvSeccionesDeCatalogo: si la recomendación es una
+                                                // serie, la persona tiene que poder elegir el capítulo.
                                                 //
-                                                // A DIFERENCIA de TvSeccionesDeCatalogo, acá NO se
-                                                // reproduce directo: se abre el DETALLE (mismo `onOpenItem`
-                                                // que usa "Continuar viendo"/biblioteca), a pedido
-                                                // explícito -- si la recomendación es una serie, la
-                                                // persona tiene que poder elegir el capítulo, y
-                                                // reproducir directo no deja. El ítem ya quedó
-                                                // guardado en la biblioteca por addMagisSource ANTES
-                                                // de esto (en las dos variantes, reproducir directo o
-                                                // abrir detalle), así que abrir el detalle no cuesta
-                                                // nada de más.
+                                                // El guardado lo decide [AgregadorDeRecomendaciones]:
+                                                // una serie entra como TEMPORADA con todos sus
+                                                // capítulos, no como el ref suelto que antes la dejaba
+                                                // con uno solo y en la fila de Películas.
                                                 //
-                                                // La llave con la que se navega es la MISMA que
-                                                // addMagisSource calculó puertas adentro para guardar
-                                                // el ítem (ver [recommendationItemId]): si no
+                                                // La llave con la que se navega es la MISMA que el
+                                                // agregador calculó puertas adentro para guardar el
+                                                // ítem (ver [recommendationItemId]): si no
                                                 // coincidieran, el detalle no encontraría nada y se
-                                                // vería como una recomendación rota. Si el guardado
-                                                // falla (ref/contentId en blanco), no se navega a un
-                                                // detalle que no va a resolver nada.
+                                                // vería como una recomendación rota. Si no se guardó
+                                                // nada, no se navega a un detalle que no va a resolver.
                                                 scope.launch {
-                                                    val epId = graph.repository.addMagisSource(
-                                                        ref = rec.ref,
-                                                        contentId = rec.id,
-                                                        title = rec.titulo,
-                                                        posterUrl = rec.posterUrl,
-                                                    )
-                                                    if (epId != null) onOpenItem(recommendationItemId(rec))
+                                                    if (agregador.agregar(rec)) onOpenItem(recommendationItemId(rec))
                                                 }
                                             },
                                         )

@@ -64,6 +64,19 @@ object MagisEntities {
     fun episodioIdDe(itemId: String, number: Int): String = "$itemId::e$number"
 
     /**
+     * El id del episodio de una PELÍCULA -- o de una serie que entró como ref suelto, que es como
+     * guardaba "Para ti" antes de saber pedirle los capítulos al gateway.
+     *
+     * Tiene nombre propio porque no alcanza con escribirlo donde se guarda:
+     * `ArkivRepository.addMagisSeason` lo BARRE al guardar la temporada de una serie que ya había
+     * entrado así. Su id no es el de ningún capítulo ([episodioIdDe] siempre lleva `:e`), así que el
+     * upsert de la temporada no lo pisa y quedaría de capítulo fantasma —con el título de la serie y
+     * el ref de la temporada entera— para siempre. Si el barrido y el guardado no calcularan
+     * exactamente el mismo id, uno borraría algo que no es y el otro dejaría el fantasma intacto.
+     */
+    fun episodioIdDePelicula(itemId: String): String = "$itemId::0"
+
+    /**
      * El episodio de UN capítulo. Lo comparten [build] y [buildSeason] a propósito: el `id` es la
      * clave primaria, así que si los dos caminos no lo armaran idéntico, guardar la temporada
      * duplicaría los capítulos que ya estaban guardados sueltos.
@@ -279,7 +292,7 @@ object MagisEntities {
             capituloDe(itemId, episode, episodeTitle, ref, season = season)
         } else {
             EpisodeEntity(
-                id = "$itemId::0",
+                id = episodioIdDePelicula(itemId),
                 itemId = itemId,
                 section = "",
                 displayName = MetadataParser.cleanName(title),

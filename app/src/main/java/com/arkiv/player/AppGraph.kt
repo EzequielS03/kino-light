@@ -469,6 +469,18 @@ class AppGraph(context: Context) {
 
     val applicationScope: CoroutineScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
 
+    /**
+     * Agrega a la biblioteca lo que se elige en la fila "Para ti" del inicio. Necesita el gateway
+     * además del repositorio: una recomendación de serie trae el ref de la temporada, y los
+     * capítulos hay que pedírselos a `/v1/episodes`.
+     */
+    val agregadorDeRecomendaciones by lazy {
+        com.arkiv.player.data.recomendaciones.AgregadorDeRecomendaciones(
+            repo = repository,
+            gateway = arkivApiClient,
+        )
+    }
+
     private val buscadorDeCapitulos by lazy {
         com.arkiv.player.data.nuevos.BuscadorDeCapitulos(
             repo = repository,

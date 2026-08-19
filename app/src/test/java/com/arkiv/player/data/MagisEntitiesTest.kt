@@ -296,6 +296,30 @@ class MagisEntitiesTest {
         val filas = MagisEntities.stillsDeTemporada("magis:ABC", listOf(CapituloDeTemporada(2, "x", "r", still = "u")), 1_000L)
         assertEquals(eps.first { it.episode == 2 }.id, filas[0].episodeId)
     }
+
+    /**
+     * El id del episodio con forma de PELÍCULA, como función y no como literal suelto: quien guarda
+     * una temporada tiene que poder BARRERLO.
+     *
+     * Una serie que primero entró como ref suelto —así guardaba "Para ti" antes de saber pedirle los
+     * capítulos al gateway— deja esta fila, y su id no es el de ningún capítulo: el upsert de la
+     * temporada no la pisa y quedaría de capítulo fantasma, con el título de la serie y el ref de la
+     * temporada entera.
+     */
+    @Test fun el_episodio_de_una_pelicula_no_comparte_id_con_ningun_capitulo() {
+        val itemId = MagisEntities.itemIdDe("ABC")
+        val dePelicula = MagisEntities.episodioIdDePelicula(itemId)
+        assertEquals("magis:ABC::0", dePelicula)
+        (1..13).forEach { assertNotEquals(dePelicula, MagisEntities.episodioIdDe(itemId, it)) }
+    }
+
+    /** Y es EXACTAMENTE el id con el que [MagisEntities.build] guarda una película: si divergieran, el
+     * barrido borraría algo que no es, o dejaría el fantasma intacto. */
+    @Test fun el_barrido_apunta_al_mismo_id_con_el_que_se_guardo_la_pelicula() {
+        val (_, ep) = capitulo(episode = 0, seriesRef = "")
+        assertEquals(MagisEntities.episodioIdDePelicula(MagisEntities.itemIdDe("ABC")), ep.id)
+    }
+
 }
 
 /**
