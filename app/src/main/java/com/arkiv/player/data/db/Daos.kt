@@ -123,6 +123,15 @@ data class LibraryRow(
     val source: String,
     /** Cuántos episodios se le mostraron al usuario la última vez. Null = nunca. Ver `ContadorDeNuevos`. */
     val episodiosVistosEnLista: Int? = null,
+    /**
+     * La obra que este ítem ES, según TMDB. Lo llena el gateway con la canonización de títulos y
+     * baja por el sync (ver `SyncMappers.recordToItem`, que ya trata el 0 como ausente).
+     *
+     * Existe acá porque es la llave que le falta a la biblioteca para agrupar: un capítulo suelto
+     * guardado con el título del capítulo ("T1 - E7: Construido por los hombres") no le pega a
+     * ninguna búsqueda de TMDB, así que `artwork` nunca le resuelve nada. Ver [LibraryGrouping].
+     */
+    val tmdbId: Int? = null,
 ) {
     val isTorrent: Boolean get() = source == "torrent"
 
@@ -177,7 +186,7 @@ interface ItemDao {
         SELECT i.identifier, i.title, i.description, i.thumbnailUrl,
                (SELECT COUNT(*) FROM episodes e WHERE e.itemId = i.identifier AND e.deleted = 0) AS episodeCount,
                (SELECT COALESCE(SUM(e.durationSeconds), 0) FROM episodes e WHERE e.itemId = i.identifier AND e.deleted = 0) AS durationSeconds,
-               i.addedAt, i.categoryOverride, i.source, i.episodiosVistosEnLista
+               i.addedAt, i.categoryOverride, i.source, i.episodiosVistosEnLista, i.tmdbId
         FROM items i
         WHERE i.deleted = 0
         ORDER BY i.addedAt DESC

@@ -19,6 +19,7 @@ class LibraryGroupingTest {
         source: String = "web",
         category: String? = "series",
         addedAt: Long = 0L,
+        tmdbId: Int? = null,
     ) = LibraryRow(
         identifier = id,
         title = title,
@@ -29,6 +30,7 @@ class LibraryGroupingTest {
         addedAt = addedAt,
         categoryOverride = category,
         source = source,
+        tmdbId = tmdbId,
     )
 
     private fun art(id: String, tmdbId: Int?, type: String?) =
@@ -279,5 +281,53 @@ class LibraryGroupingTest {
     @Test
     fun `shouldRefetchArtwork sin fila previa es true`() {
         assertEquals(true, LibraryGrouping.shouldRefetchArtwork(null, now = 0L))
+    }
+
+    // ---- tmdbId del propio ítem: el que llena el gateway con la canonización ----
+
+    @Test
+    fun `sin arte resuelto agrupa por el tmdbId del item`() {
+        // El gateway escribe `library_items.tmdbId` con la obra canónica, verificada
+        // contra TMDB. Es la llave que a estas filas les falta: su título no existe en
+        // TMDB ("T1 - E7: Construido por los hombres") así que `ensureArtwork` nunca
+        // les resolvió nada y cada una quedaba en su propia tarjeta.
+        val a = row("web:9c9f5748", "T1 - E7: Construido por los hombres", 1, tmdbId = 890)
+        val b = row("web:a59ba433", "T1 - E5: Rei, más allá de su corazón", 1, tmdbId = 890)
+
+        assertEquals("tv:890", LibraryGrouping.groupKeyOf(a, null))
+        assertEquals("tv:890", LibraryGrouping.groupKeyOf(b, null))
+    }
+
+    @Test
+    fun `el arte exacto sigue mandando sobre el tmdbId del item`() {
+        // El tmdbId del ítem es RESPALDO, no reemplazo: lo que hoy agrupa tiene que
+        // seguir agrupando igual. Si alguna vez discrepan, gana lo que el aparato
+        // resolvió por su cuenta, que es el comportamiento que ya estaba probado.
+        val a = row("web:series:x", "DAN DA DAN", 24, tmdbId = 999)
+
+        assertEquals("tv:240411", LibraryGrouping.groupKeyOf(a, art(a.identifier, 240411, "tv")))
+    }
+
+    @Test
+    fun `una pelicula no agrupa aunque traiga tmdbId`() {
+        // Misma razón por la que no agrupa con el tmdbId del arte: en películas juntar
+        // dos filas es peor que dejar el duplicado.
+        val a = row("web:1", "Batman", 1, category = "movie", tmdbId = 414906)
+        val b = row("web:2", "Batman", 1, category = "movie", tmdbId = 414906)
+
+        assertEquals("item:web:1", LibraryGrouping.groupKeyOf(a, null))
+        assertEquals("item:web:2", LibraryGrouping.groupKeyOf(b, null))
+    }
+
+    @Test
+    fun `un tmdbId en cero no es un id`() {
+        // El campo numérico de PocketBase nace en 0 en las filas que todavía no lo
+        // tienen. Agrupar por "tv:0" juntaría TODA la biblioteca sin canonizar en una
+        // sola tarjeta, que es el peor resultado posible de este cambio.
+        val a = row("web:1", "Algo", 5, tmdbId = 0)
+        val b = row("web:2", "Otra cosa", 5, tmdbId = 0)
+
+        assertEquals("item:web:1", LibraryGrouping.groupKeyOf(a, null))
+        assertEquals("item:web:2", LibraryGrouping.groupKeyOf(b, null))
     }
 }

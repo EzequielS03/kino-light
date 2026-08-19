@@ -61,14 +61,25 @@ object LibraryGrouping {
      *     `tv:46260`, DAN DA DAN en `tv:240411`) y es lo ÚNICO que cruza fuentes distintas, porque
      *     no depende del prefijo del identifier. Ranma 1989 y el remake 2024 caen en ids distintos,
      *     así que no las fusiona.
-     *  3. **seriesId del identifier**, que es exacto pero solo existe en `web:series:` y
+     *  3. **`tmdbId` del propio ítem**, que llena el gateway canonizando el título contra TMDB.
+     *     Va después del arte porque el arte ya estaba probado; rescata las filas cuyo título no
+     *     existe en TMDB y que por eso el aparato nunca pudo resolver solo.
+     *  4. **seriesId del identifier**, que es exacto pero solo existe en `web:series:` y
      *     `torrent:series:`.
-     *  4. El propio identifier: grupo de uno, o sea lo que hace la app hoy.
+     *  5. El propio identifier: grupo de uno, o sea lo que hace la app hoy.
      */
     fun groupKeyOf(row: LibraryRow, artwork: ArtworkEntity?): String {
         if (row.isMovie) return "item:${row.identifier}"
         val tvId = artwork?.tmdbId?.takeIf { artwork.tmdbType == "tv" }
         if (tvId != null) return "tv:$tvId"
+        // Respaldo: el `tmdbId` que el gateway le puso al ÍTEM canonizando su título. Va DESPUÉS
+        // del arte a propósito -- lo que hoy agrupa tiene que seguir agrupando igual -- y rescata
+        // justo lo que el arte no puede: un capítulo suelto guardado con el título del capítulo no
+        // le pega a ninguna búsqueda de TMDB, así que `ensureArtwork` nunca le resuelve nada y
+        // cada fila queda en su propia tarjeta. El `> 0` no es paranoia: el campo numérico de
+        // PocketBase nace en 0, y agrupar por "tv:0" juntaría toda la biblioteca sin canonizar en
+        // una sola tarjeta.
+        row.tmdbId?.takeIf { it > 0 }?.let { return "tv:$it" }
         SeriesItemIds.seriesIdOrNull(row.identifier)?.let { return "series:$it" }
         return "item:${row.identifier}"
     }
