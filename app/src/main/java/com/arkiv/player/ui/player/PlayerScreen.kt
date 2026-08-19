@@ -97,12 +97,8 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.ui.input.key.nativeKeyCode
 import com.arkiv.player.ui.live.AccionDelDrawer
 import com.arkiv.player.ui.live.DpadDelDrawer
-import com.arkiv.player.ui.live.FocoDelDrawer
-import com.arkiv.player.ui.tv.TvCajonDeCanales
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
@@ -132,11 +128,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import androidx.compose.ui.text.font.FontWeight
-import coil.compose.AsyncImage
 import com.arkiv.player.cast.CastProgress
-import com.arkiv.player.data.gateway.LiveProgram
 import com.arkiv.player.data.model.Episode
-import com.arkiv.player.ui.live.enCurso
 import com.arkiv.player.ui.tv.TvEpisodeChip
 import com.arkiv.player.ui.tv.library.SAFE_H
 import com.arkiv.player.ui.tv.library.SAFE_V
@@ -627,16 +620,10 @@ private fun PlayerContent(
     var interactionTick by remember { mutableIntStateOf(0) }
 
     // Modo vivo (Tarea 14): overlay PROPIO, no reusa controlsVisible/interactionTick -- esos
-    // gobiernan la barra de progreso/fila de transporte de VOD, que en vivo no existen. Arranca
-    // visible: el primer canal se anuncia solo, sin que el usuario tenga que tocar nada.
-    var liveInfoVisible by remember { mutableStateOf(true) }
-    var liveInfoTick by remember { mutableIntStateOf(0) }
-    // Cajón de canales (solo TV, solo vivo): se abre con la flecha izquierda sobre el video. Las
-    // reglas de qué hace cada flecha viven en `DpadDelDrawer` -- puro y con tests -- porque este
-    // proyecto no tiene tests de interfaz y una regla escrita adentro del key listener no se
-    // podría probar de ninguna forma. Acá solo se guarda el estado y se mueve el foco.
-    var cajonAbierto by remember { mutableStateOf(false) }
-    var focoCajon by remember { mutableStateOf(FocoDelDrawer.CANALES) }
+    // gobiernan la barra de progreso/fila de transporte de VOD, que en vivo no existen. Todo su
+    // estado (ficha del canal, EPG y cajón) vive en `PlayerVivo.kt`; de acá solo lo mueve el
+    // listener de teclas del video, que sigue siendo de esta pantalla.
+    val estadoVivo = rememberEstadoDeVivo()
     val liveCanal by vm.liveCanal.collectAsStateWithLifecycle()
     // Tarea 15: publicar el nombre del canal para NowPlayingPublisher (solo corre en el TV, pero
     // no cuesta nada tenerlo también seteado acá en el celu). Sin esto la barra del miniplayer
@@ -644,21 +631,6 @@ private fun PlayerContent(
     // biblioteca, así que ArkivRepository.headerInfo() no tiene título que devolver.
     LaunchedEffect(liveCanal?.nombre) {
         com.arkiv.player.playback.NowPlaying.liveChannelName = liveCanal?.nombre
-    }
-    // "Ahora"/"A continuación" del canal actual (Tarea 14): pedido best-effort directo al gateway
-    // -- es puramente informativo para este overlay, no algo que el ViewModel necesite para poder
-    // reproducir, así que no se lo carga con otra dependencia (LiveApi) por esto solo.
-    var liveAhora by remember { mutableStateOf<LiveProgram?>(null) }
-    var liveDespues by remember { mutableStateOf<LiveProgram?>(null) }
-    LaunchedEffect(liveCanal?.code) {
-        val canal = liveCanal ?: return@LaunchedEffect
-        liveAhora = null; liveDespues = null
-        val epg = runCatching { graph.liveApi.epg(listOf(canal.code)) }.getOrNull() ?: return@LaunchedEffect
-        val progs = epg.first[canal.code] ?: return@LaunchedEffect
-        val instante = System.currentTimeMillis() / 1000
-        val actual = enCurso(progs, instante)
-        liveAhora = actual
-        liveDespues = progs.firstOrNull { it.inicio >= (actual?.fin ?: instante) }
     }
 
     // Marcadores intro/outro (solo archive).
@@ -948,8 +920,6 @@ private fun PlayerContent(
 
     fun bump() { controlsVisible = true; interactionTick++ }
 
-    // Vivo (Tarea 14): equivalente de bump() para el overlay propio -- ver KDoc de liveInfoVisible.
-    fun mostrarInfoVivo() { liveInfoVisible = true; liveInfoTick++ }
 
     // El corte de un directo, por el contador de [VlcPlayer.cortesEnVivo] y NO por STATE_ENDED:
     // ese estado viaja por el MediaController y se pierde cuando VLC manda Stopped a los pocos ms
@@ -967,13 +937,6 @@ private fun PlayerContent(
         }
     }
 
-    // Overlay de canal por 3s tras abrir/zapear/tocar (ver mostrarInfoVivo/brief: "el overlay de
-    // 3s"). Se relanza con cada tick nuevo, así que zapear rápido seguido lo mantiene visible.
-    LaunchedEffect(liveInfoTick) {
-        if (!enVivo) return@LaunchedEffect
-        delay(3000)
-        liveInfoVisible = false
-    }
 
     LaunchedEffect(controlsVisible, isBuffering, casting, estadoDlna.activo, markingMode, loadError) {
         android.util.Log.i(
@@ -1857,15 +1820,15 @@ private fun PlayerContent(
                                 // cajón abierto este listener ya no recibe teclas (el foco de
                                 // Android está en las filas de Compose), así que acá solo puede
                                 // pasar el caso "cerrado + izquierda".
-                                if (DpadDelDrawer.accion(keyCode, cajonAbierto, focoCajon) == AccionDelDrawer.ABRIR) {
-                                    focoCajon = FocoDelDrawer.CANALES
-                                    cajonAbierto = true
-                                    liveInfoVisible = false
+                                val accionDelCajon =
+                                    DpadDelDrawer.accion(keyCode, estadoVivo.cajonAbierto, estadoVivo.focoCajon)
+                                if (accionDelCajon == AccionDelDrawer.ABRIR) {
+                                    estadoVivo.abrirCajon()
                                     return@setOnKeyListener true
                                 }
                                 return@setOnKeyListener when (keyCode) {
-                                    KeyEvent.KEYCODE_DPAD_UP -> { vm.zapAnterior(); mostrarInfoVivo(); true }
-                                    KeyEvent.KEYCODE_DPAD_DOWN -> { vm.zapSiguiente(); mostrarInfoVivo(); true }
+                                    KeyEvent.KEYCODE_DPAD_UP -> { vm.zapAnterior(); estadoVivo.mostrarInfo(); true }
+                                    KeyEvent.KEYCODE_DPAD_DOWN -> { vm.zapSiguiente(); estadoVivo.mostrarInfo(); true }
                                     KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER,
                                     KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
                                     KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE ->
@@ -1932,7 +1895,7 @@ private fun PlayerContent(
                                 // barra de controles de VOD (que en vivo ni se compone -- ver
                                 // `visible = !enVivo && ...` más abajo). Mismo par mostrar/ocultar
                                 // que controlsVisible/bump() de VOD, con su propio estado.
-                                if (enVivo) { if (liveInfoVisible) liveInfoVisible = false else mostrarInfoVivo() }
+                                if (enVivo) estadoVivo.alternarInfo()
                                 else if (controlsVisible) controlsVisible = false else bump()
                             },
                             onDoubleTap = { o ->
@@ -1990,7 +1953,7 @@ private fun PlayerContent(
                                 if (enVivo) {
                                     if (!horizontal && kotlin.math.abs(totalDy) > UMBRAL_ZAP_PX) {
                                         if (totalDy < 0) vm.zapSiguiente() else vm.zapAnterior()
-                                        mostrarInfoVivo()
+                                        estadoVivo.mostrarInfo()
                                     }
                                 } else if (horizontal) {
                                     activePlayer.seekTo(seekTarget); positionMs = seekTarget; bump()
@@ -2836,121 +2799,20 @@ private fun PlayerContent(
             }
         }
 
-        // ---- Modo vivo (Tarea 14): overlay propio, chico -- reemplaza TODO el bloque de arriba. ----
+        // ---- Modo vivo (Tarea 14): overlay propio, chico -- reemplaza TODO el bloque de arriba.
+        // Las tres piezas viven en `PlayerVivo.kt`. ----
         if (enVivo) {
-            // Distintivo "EN VIVO": PERSISTENTE (no se desvanece con liveInfoVisible) -- es la
-            // identidad de la pantalla, no información transitoria. Vive afuera del
-            // AnimatedVisibility de abajo a propósito, igual que el cartel de Chromecast/NUC de
-            // VOD. Incluye el botón atrás: con el bloque de arriba oculto (visible=!enVivo) esta es
-            // la ÚNICA forma en pantalla de salir del reproductor en el teléfono.
-            Row(
-                modifier = Modifier.align(Alignment.TopStart).fillMaxWidth().systemBarsPadding().padding(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (!isTv) {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Atrás", tint = Color.White)
-                    }
-                }
-                Box(
-                    modifier = Modifier
-                        .padding(start = if (isTv) 6.dp else 2.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(ArkivRed)
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
-                ) {
-                    Text(
-                        "EN VIVO",
-                        color = Color.White,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-                Spacer(Modifier.weight(1f))
-                // Tarea 18: DLNA + Chromecast del vivo -- mismos botones que VOD (`estadoDlna` es
-                // uno solo para toda la pantalla), ver `DlnaCastButtons` en `PlayerDlna.kt`,
-                // solo que colgados de ESTE Row porque el bloque VOD está oculto acá
+            FranjaEnVivo(isTv = isTv, onBack = onBack) {
+                // Tarea 18: los MISMOS botones que VOD (`estadoDlna` es uno solo para toda la
+                // pantalla), solo que colgados de ESTA franja porque el bloque VOD está oculto acá
                 // (visible=!enVivo). Se ofrece DESDE EL REPRODUCTOR, no en el diálogo previo de
                 // LiveScreen: recién con el canal sonando hay audio real que leerle a
                 // CastAudioSupport (ver el KDoc de castRequestFor) -- antes de reproducir no hay de
                 // dónde sacar esa lectura, ni para vivo ni para VOD (VOD tampoco ofrece cast en su
                 // propio diálogo de destino, por el mismo motivo).
-                if (!isTv) {
-                    DlnaCastButtons(casting = casting, castContext = castContext, onDiscoverDlna = estadoDlna::descubrir)
-                }
+                DlnaCastButtons(casting = casting, castContext = castContext, onDiscoverDlna = estadoDlna::descubrir)
             }
-
-            // Ficha del canal (número, logo, nombre, Ahora/A continuación): TRANSITORIA, 3s tras
-            // abrir/zapear/tocar -- ver mostrarInfoVivo() y su LaunchedEffect(liveInfoTick).
-            AnimatedVisibility(
-                visible = liveInfoVisible,
-                enter = fadeIn(),
-                exit = fadeOut(),
-                modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth(),
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            Brush.verticalGradient(0f to Color(0x00000000), 1f to Color(0xD9000000)),
-                        )
-                        .systemBarsPadding()
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(52.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(ArkivSurface),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        val logo = liveCanal?.logo
-                        if (logo != null) {
-                            AsyncImage(
-                                model = logo,
-                                contentDescription = liveCanal?.nombre,
-                                modifier = Modifier.fillMaxSize().padding(6.dp),
-                            )
-                        } else {
-                            Text(
-                                (liveCanal?.numero ?: 0).toString(),
-                                color = Color.White.copy(alpha = 0.7f),
-                                style = MaterialTheme.typography.titleMedium,
-                            )
-                        }
-                    }
-                    Column(modifier = Modifier.padding(start = 12.dp).weight(1f)) {
-                        Text(
-                            liveCanal?.nombre.orEmpty(),
-                            color = Color.White,
-                            style = MaterialTheme.typography.titleMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        // Nada si todavía no hay EPG para este canal -- mismo criterio que la
-                        // grilla/guía (LiveScreen/TvLiveGuideScreen): sin hueco fijo ni "cargando".
-                        liveAhora?.let { p ->
-                            Text(
-                                "Ahora: ${p.titulo}",
-                                color = Color.White.copy(alpha = 0.85f),
-                                style = MaterialTheme.typography.bodySmall,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                        liveDespues?.let { p ->
-                            Text(
-                                "A continuación: ${p.titulo}",
-                                color = ArkivTextSecondary,
-                                style = MaterialTheme.typography.bodySmall,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                }
-            }
+            FichaDelCanal(estado = estadoVivo, canal = liveCanal, liveApi = graph.liveApi)
         }
 
         // Botones flotantes de saltar intro/outro (solo archive, teléfono). Casteando SÍ se
@@ -3002,48 +2864,21 @@ private fun PlayerContent(
         // Barra "Reproduciendo en <TV>" (DLNA activo).
         BarraDlnaActiva(estadoDlna)
 
-        // Cajón de canales del vivo. Va ÚLTIMO dentro del Box para quedar por encima del resto de
-        // overlays -- y a la izquierda, dejando el video visible a su derecha: es un cajón, no otra
-        // pantalla.
-        if (isTv && enVivo && cajonAbierto) {
-            Box(
-                Modifier
-                    .align(Alignment.CenterStart)
-                    .fillMaxHeight()
-                    // PREVIEW y no onKeyEvent: el preview baja desde el contenedor ANTES de que la
-                    // fila con el foco se quede la tecla, que es la única forma de que "derecha"
-                    // cierre el cajón en vez de que la lista se la coma.
-                    .onPreviewKeyEvent { e ->
-                        if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                        when (DpadDelDrawer.accion(e.key.nativeKeyCode, abierto = true, foco = focoCajon)) {
-                            AccionDelDrawer.CERRAR -> { cajonAbierto = false; true }
-                            AccionDelDrawer.A_CANALES -> { focoCajon = FocoDelDrawer.CANALES; true }
-                            AccionDelDrawer.A_CATEGORIAS -> { focoCajon = FocoDelDrawer.CATEGORIAS; true }
-                            // De la lista: que la resuelva el foco de Compose. `false` la deja
-                            // seguir; consumirla acá dejaría la lista inmóvil.
-                            else -> false
-                        }
-                    },
-            ) {
-                TvCajonDeCanales(
-                    foco = focoCajon,
-                    onFoco = { focoCajon = it },
-                    canalActual = liveCanal?.code,
-                    onElegirCanal = { lista, canal ->
-                        vm.irACanal(lista, canal)
-                        cajonAbierto = false
-                        mostrarInfoVivo()
-                    },
-                )
-            }
+        // Va ÚLTIMO dentro del Box para quedar por encima del resto de overlays.
+        if (isTv && enVivo && estadoVivo.cajonAbierto) {
+            CajonDeCanalesDelVivo(
+                estado = estadoVivo,
+                canalActual = liveCanal?.code,
+                onElegirCanal = { lista, canal -> vm.irACanal(lista, canal) },
+            )
         }
     }
 
     // Al cerrarse el cajón hay que devolverle el foco al video: si no, queda en una fila que ya no
     // existe y el control deja de responder -- ni zapping ni Atrás. El `videoView` es quien tiene
     // el `setOnKeyListener` del vivo.
-    LaunchedEffect(cajonAbierto) {
-        if (!cajonAbierto) {
+    LaunchedEffect(estadoVivo.cajonAbierto) {
+        if (!estadoVivo.cajonAbierto) {
             repeat(10) {
                 if (videoView?.requestFocus() == true) return@LaunchedEffect
                 delay(50)
