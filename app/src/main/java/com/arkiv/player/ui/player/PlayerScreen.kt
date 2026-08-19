@@ -424,19 +424,10 @@ private fun PlayerContent(
      */
     val episodioEnCurso = playlist?.items?.getOrNull(currentIndex)?.episodeId ?: episodeId
 
-    // Episodios vecinos (si los hay) para los botones "Capítulo anterior"/"Siguiente episodio" de
-    // los controles. Ambos son null en películas (una sola sección, ver EpisodeNavigation) y cada
-    // uno lo es en su extremo: el primero de la temporada no tiene anterior, el último no tiene
-    // siguiente. Esa nulidad es la ÚNICA condición para mostrarlos (ver `showPrev`/`showNext`).
-    var prevEpisodeId by remember { mutableStateOf<String?>(null) }
-    var nextEpisodeId by remember { mutableStateOf<String?>(null) }
-    // Título del ítem + nombre del episodio (solo series) para el encabezado del overlay de pausa.
-    var headerInfo by remember { mutableStateOf<com.arkiv.player.data.ArkivRepository.PlayerHeaderInfo?>(null) }
-    LaunchedEffect(episodioEnCurso) {
-        prevEpisodeId = graph.repository.previousEpisode(episodioEnCurso)?.id
-        nextEpisodeId = graph.repository.nextEpisode(episodioEnCurso)?.id
-        headerInfo = graph.repository.headerInfo(episodioEnCurso)
-    }
+    // Cabecera del overlay y episodios vecinos: en `PlayerCabecera.kt`, los tres salen de la misma
+    // consulta y cambian juntos al saltar de capítulo.
+    val cabecera = rememberEstadoDeCabecera(graph.repository)
+    EfectoDeCabecera(cabecera, episodioEnCurso)
 
     // Foco D-pad (TV) de los controles del overlay de pausa: los once puntos de aterrizaje viven
     // juntos en `PlayerFoco.kt`, ver su KDoc.
@@ -1067,7 +1058,7 @@ private fun PlayerContent(
             return
         }
         finAtendido = actual
-        val siguiente = nextEpisodeId
+        val siguiente = cabecera.siguiente
         android.util.Log.w("ArkivPlay", "fin de $actual → siguiente=$siguiente")
         if (siguiente != null) onNextEpisode(siguiente)
     }
@@ -1956,7 +1947,7 @@ private fun PlayerContent(
         AvisoDeTrivia(estadoTrivia, bajarParaNoTapar = showLiveOverride)
 
         // TopEnd + top=64dp para no pisar el back/título de la barra superior (que ocupa la franja
-        // 0–56dp) ni, en TV en pausa, el título/nombre de episodio de headerInfo (TopStart).
+        // 0–56dp) ni, en TV en pausa, el título/nombre de episodio de cabecera.info (TopStart).
         if (showLiveOverride) {
             Row(
                 modifier = Modifier
@@ -2099,19 +2090,19 @@ private fun PlayerContent(
                         }
                     }
                     if (!isTv && d != null) {
-                        // Qué se está viendo. El título sale de headerInfo (nombre de la SERIE) y
+                        // Qué se está viendo. El título sale de cabecera.info (nombre de la SERIE) y
                         // no de d.title, para que en series no muestre el nombre del capítulo;
-                        // debajo, temporada/capítulo. d.title queda de respaldo si headerInfo
+                        // debajo, temporada/capítulo. d.title queda de respaldo si cabecera.info
                         // todavía no cargó (se lee de la DB en un LaunchedEffect).
                         Column(modifier = Modifier.weight(1f).padding(horizontal = 8.dp)) {
                             Text(
-                                headerInfo?.itemTitle ?: d.title,
+                                cabecera.titulo(d.title),
                                 color = Color.White,
                                 style = MaterialTheme.typography.titleMedium,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            headerInfo?.episodeLabel?.let { ep ->
+                            cabecera.etiquetaDeEpisodio?.let { ep ->
                                 Text(
                                     ep,
                                     color = Color.White.copy(alpha = 0.75f),
@@ -2164,7 +2155,7 @@ private fun PlayerContent(
                 // para saber en qué capítulo va. Como el overlay ya se auto-oculta a los 4.5s, no
                 // compite con el video en reproducción.
                 if (isTv) {
-                    headerInfo?.let { info ->
+                    cabecera.info?.let { info ->
                         Column(
                             modifier = Modifier
                                 .align(Alignment.TopStart)
@@ -2337,8 +2328,8 @@ private fun PlayerContent(
                             // Se calculan ANTES de los botones para poder armar el grafo de foco
                             // completo (cada dirección explícita; dejar alguna sin definir hace que
                             // la búsqueda espacial por defecto de Compose falle y el foco "se pierda").
-                            val prev = prevEpisodeId
-                            val next = nextEpisodeId
+                            val prev = cabecera.anterior
+                            val next = cabecera.siguiente
                             val showPrev = prev != null
                             val showNext = next != null
                             val forwardRight = if (showNext) focos.episodioSiguiente else if (isTv) focos.subtitulos else focos.adelantar
