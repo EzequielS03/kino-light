@@ -162,12 +162,8 @@ private fun Context.findActivity(): Activity? {
 }
 
 /** Pasos de velocidad de reproducción (portado de TorrentPlayerScreen). */
-private val SPEED_STEPS = listOf(0.75f, 1f, 1.25f, 1.5f, 2f)
-private val SPEED_LABELS = listOf("0.75×", "1×", "1.25×", "1.5×", "2×")
 
 /** Pasos de zoom nativo de VLC: 0 = ajustar a pantalla; >0 = crop que recorta las barras negras. */
-private val ZOOM_STEPS = listOf(0f, 1.15f, 1.35f)
-private val ZOOM_LABELS = listOf("Ajustar", "Zoom", "Zoom+")
 
 /** Swipe vertical mínimo (px) para que el modo vivo (Tarea 14) lo tome como zapping en el teléfono. */
 private const val UMBRAL_ZAP_PX = 80f
@@ -182,7 +178,6 @@ private const val MOSTRAR_VELOCIDAD_Y_ZOOM_EN_TELEFONO = false
 // normal (sin velo), DIM_MAX_LEVEL = negro total. No se usa el brillo real de la pantalla porque
 // en el Fire TV Stick es no-op (el brillo lo manda el televisor, no Android), y libVLC 3.x no
 // expone el filtro `adjust`. Cambiar la finura del paso = cambiar solo esta línea.
-private const val DIM_MAX_LEVEL = 10
 
 /** Cada cuánto y cuántas veces reintentar leer las pistas si al conectar el cast no había ninguna. */
 private const val RECHEQUEO_MS = 500L
@@ -580,17 +575,6 @@ private fun PlayerContent(
     // fuera de rango guardado.
     val dimLevel by graph.settings.dimLevel.collectAsStateWithLifecycle()
     val dimNivel = dimLevel.coerceIn(0, DIM_MAX_LEVEL)
-    // Tick para que el HUD del nivel se borre solo tras cada pulsación (los gestos limpian el suyo
-    // a mano al soltar; un botón no tiene "soltar", así que necesita temporizador propio).
-    var dimHudTick by remember { mutableIntStateOf(0) }
-
-    // Velocidad + zoom nativo de VLC (cíclicos; solo teléfono). Portado de TorrentPlayerScreen.
-    var speedIdx by remember { mutableIntStateOf(1) } // arranca en 1×
-    var zoomIdx by remember { mutableIntStateOf(0) }   // arranca en "Ajustar"
-    // Gestos: long-press = 2× temporal; HUD central del gesto en curso.
-    var fastForwarding by remember { mutableStateOf(false) }
-    var rateBeforeFF by remember { mutableFloatStateOf(1f) }
-    var gestureHud by remember { mutableStateOf<String?>(null) }
     // Scrubbing diferido del slider (ambas fuentes): un solo seek al soltar.
     var scrubbing by remember { mutableStateOf(false) }
     /**
@@ -847,6 +831,13 @@ private fun PlayerContent(
     }
 
     fun bump() { controlsVisible = true; interactionTick++ }
+
+    // Velocidad, zoom, modo noche y el HUD central: todo en `PlayerGestos.kt`. El `bump()` que
+    // recibe es lo único que los ata a esta pantalla — cada ajuste cuenta como actividad y
+    // reinicia el auto-ocultado de los controles. Va acá abajo, y no con el resto del estado,
+    // porque necesita que `bump` ya esté declarado.
+    val gestos = rememberEstadoDeGestos(vlc, graph.settings) { bump() }
+    EfectoDelHudDeBrillo(gestos)
 
 
     // El corte de un directo, por el contador de [VlcPlayer.cortesEnVivo] y NO por STATE_ENDED:
@@ -1301,14 +1292,6 @@ private fun PlayerContent(
         controlsVisible = false
     }
 
-    // Borra solo el HUD del nivel de brillo. Va por dimHudTick y no por el valor: en los topes el
-    // nivel no cambia, pero la pulsación igual muestra el HUD y tiene que desvanecerse.
-    LaunchedEffect(dimHudTick) {
-        if (dimHudTick > 0) {
-            delay(1200)
-            gestureHud = null
-        }
-    }
 
     // TV: al mostrarse el overlay, mover el foco de Android desde el video (que hasta ahora
     // atajaba TODAS las teclas con acciones fijas) hacia los controles de Compose, para que el
@@ -1664,30 +1647,6 @@ private fun PlayerContent(
         // vez de salir del reproductor.
         if (!enVivo) bump()
     }
-    // Velocidad y zoom nativo de VLC (cíclicos), aplicados al player vivo. Ambas fuentes.
-    fun cycleSpeed() {
-        speedIdx = (speedIdx + 1) % SPEED_STEPS.size
-        vlc.setRate(SPEED_STEPS[speedIdx])
-        bump()
-    }
-    fun cycleZoom() {
-        zoomIdx = (zoomIdx + 1) % ZOOM_STEPS.size
-        vlc.setScale(ZOOM_STEPS[zoomIdx])
-        bump()
-    }
-    /**
-     * Sube (delta<0) o baja (delta>0) un paso el velo del modo noche, acotado a [0, DIM_MAX_LEVEL].
-     * En los extremos la pulsación no cambia nada, pero igual muestra el HUD y reinicia el
-     * auto-ocultado: los botones NO se deshabilitan a propósito (en TV un botón deshabilitado no
-     * recibe foco y rompería la cadena del D-pad justo al llegar al tope).
-     */
-    fun stepDim(delta: Int) {
-        val nuevo = (dimNivel + delta).coerceIn(0, DIM_MAX_LEVEL)
-        if (nuevo != dimNivel) graph.settings.setDimLevel(nuevo)
-        gestureHud = if (nuevo == 0) "☀ Normal" else "🌙 ${nuevo * (100 / DIM_MAX_LEVEL)}%"
-        dimHudTick++
-        bump()
-    }
 
     // Búsqueda automática de subtítulos online para el idioma preferido (ver `EstadoDePistas`).
     LaunchedEffect(episodeId) {
@@ -1835,22 +1794,16 @@ private fun PlayerContent(
                                 // es lo que reproduce el Chromecast — el gesto queda inerte. Tampoco en
                                 // vivo: un 2x temporal sobre un directo no tiene "adelante" al que volver.
                                 if (!enVivo && !casting) {
-                                    rateBeforeFF = vlc.currentRate()
-                                    vlc.setRate(2f); fastForwarding = true; gestureHud = "⏩ 2×"
+                                    gestos.empezarAAcelerar()
                                 }
                             },
                             onPress = {
                                 tryAwaitRelease()
-                                if (fastForwarding) {
-                                    fastForwarding = false
-                                    // Restaurar SIEMPRE, aunque el cast haya arrancado a mitad del
-                                    // gesto: si no, la velocidad local queda pegada en 2× y al
-                                    // terminar la sesión de cast la reproducción local resume rápida.
-                                    // Restaurarla no hace daño mientras castea (el motor local está
-                                    // pausado igual).
-                                    vlc.setRate(rateBeforeFF)
-                                    gestureHud = null
-                                }
+                                // Restaura SIEMPRE, aunque el cast haya arrancado a mitad del
+                                // gesto: si no, la velocidad local queda pegada en 2× y al terminar
+                                // la sesión de cast la reproducción local resume rápida. Restaurarla
+                                // no hace daño mientras castea (el motor local está pausado igual).
+                                gestos.terminarDeAcelerar()
                             },
                         )
                     }
@@ -1888,7 +1841,7 @@ private fun PlayerContent(
                                 } else if (!isTorrent && totalDy > 240f && totalDy > kotlin.math.abs(totalDx) * 1.5f) {
                                     onOpenEpisodesState.value()
                                 }
-                                gestureHud = null
+                                gestos.limpiarHud()
                             },
                             onDrag = { change, drag ->
                                 change.consume()
@@ -1900,20 +1853,20 @@ private fun PlayerContent(
                                 if (horizontal) {
                                     val dur = activePlayer.duration.coerceAtLeast(1)
                                     seekTarget = (seekTarget + (drag.x / size.width * 90_000f).toLong()).coerceIn(0L, dur)
-                                    gestureHud = "⏱ ${formatDuration(seekTarget)}"
+                                    gestos.mostrarHud("⏱ ${formatDuration(seekTarget)}")
                                 } else if (startX > size.width / 2) {
                                     // Casteando no: el volumen se lee/ajusta sobre el VlcPlayer local,
                                     // que no es lo que suena en el receptor Chromecast — gesto inerte.
                                     if (!casting) {
                                         val v = (vlc.vlcVolume() - (drag.y / size.height * 150f).toInt()).coerceIn(0, 100)
-                                        vlc.setVlcVolume(v); gestureHud = "🔊 $v%"
+                                        vlc.setVlcVolume(v); gestos.mostrarHud("🔊 $v%")
                                     }
                                 } else {
                                     activity?.window?.let { w ->
                                         val cur = w.attributes.screenBrightness.let { if (it < 0f) 0.5f else it }
                                         val nb = (cur - drag.y / size.height).coerceIn(0.02f, 1f)
                                         w.attributes = w.attributes.apply { screenBrightness = nb }
-                                        gestureHud = "☀ ${(nb * 100).toInt()}%"
+                                        gestos.mostrarHud("☀ ${(nb * 100).toInt()}%")
                                     }
                                 }
                             },
@@ -1923,7 +1876,7 @@ private fun PlayerContent(
         }
 
         // HUD central del gesto en curso (velocidad/seek/volumen/brillo).
-        gestureHud?.let { hud ->
+        gestos.hud?.let { hud ->
             Surface(
                 modifier = Modifier.align(Alignment.Center),
                 color = Color.Black.copy(alpha = 0.6f),
@@ -2244,20 +2197,20 @@ private fun PlayerContent(
                     // Velocidad + zoom nativo de VLC (solo teléfono): cíclicos al tocar. Ambas fuentes.
                     // Ocultos: el gesto de mantener presionado sigue dando 2× temporal, así que no se
                     // pierde el control de velocidad del todo.
-                    // Casteando no: cycleSpeed()/cycleZoom() actúan sobre el VlcPlayer local, que
+                    // Casteando no: siguienteVelocidad()/siguienteZoom() actúan sobre el VlcPlayer local, que
                     // no es lo que reproduce el Chromecast.
                     if (MOSTRAR_VELOCIDAD_Y_ZOOM_EN_TELEFONO && !isTv && !casting) {
-                        TextButton(onClick = { cycleSpeed() }) {
+                        TextButton(onClick = { gestos.siguienteVelocidad() }) {
                             Text(
-                                SPEED_LABELS[speedIdx],
-                                color = if (speedIdx == 1) Color.White else ArkivRed,
+                                gestos.etiquetaDeVelocidad,
+                                color = if (gestos.velocidadEsNormal) Color.White else ArkivRed,
                                 style = MaterialTheme.typography.labelLarge,
                             )
                         }
-                        TextButton(onClick = { cycleZoom() }) {
+                        TextButton(onClick = { gestos.siguienteZoom() }) {
                             Text(
-                                ZOOM_LABELS[zoomIdx],
-                                color = if (zoomIdx == 0) Color.White else ArkivRed,
+                                gestos.etiquetaDeZoom,
+                                color = if (gestos.zoomEsAjustar) Color.White else ArkivRed,
                                 style = MaterialTheme.typography.labelMedium,
                             )
                         }
@@ -2577,7 +2530,7 @@ private fun PlayerContent(
                                 TvTransportButton(
                                     icon = Icons.Default.Brightness2,
                                     contentDescription = "Bajar brillo",
-                                    onClick = { stepDim(+1) },
+                                    onClick = { gestos.pasoDeBrillo(+1, dimNivel) },
                                     iconSize = 24.dp,
                                     tint = if (dimNivel > 0) ArkivRed else Color.White,
                                     modifier = Modifier
@@ -2593,7 +2546,7 @@ private fun PlayerContent(
                                 TvTransportButton(
                                     icon = Icons.Default.BrightnessHigh,
                                     contentDescription = "Subir brillo",
-                                    onClick = { stepDim(-1) },
+                                    onClick = { gestos.pasoDeBrillo(-1, dimNivel) },
                                     iconSize = 24.dp,
                                     tint = if (dimNivel > 0) ArkivRed else Color.White,
                                     modifier = Modifier
@@ -2652,14 +2605,14 @@ private fun PlayerContent(
                                 // MODO NOCHE (los mismos dos botones que en TV; acá el gesto de
                                 // brillo del borde izquierdo sigue existiendo y es independiente:
                                 // ese baja el backlight real, estos ponen el velo sobre el video).
-                                IconButton(onClick = { stepDim(+1) }) {
+                                IconButton(onClick = { gestos.pasoDeBrillo(+1, dimNivel) }) {
                                     Icon(
                                         Icons.Default.Brightness2,
                                         contentDescription = "Bajar brillo",
                                         tint = if (dimNivel > 0) ArkivRed else Color.White,
                                     )
                                 }
-                                IconButton(onClick = { stepDim(-1) }) {
+                                IconButton(onClick = { gestos.pasoDeBrillo(-1, dimNivel) }) {
                                     Icon(
                                         Icons.Default.BrightnessHigh,
                                         contentDescription = "Subir brillo",
