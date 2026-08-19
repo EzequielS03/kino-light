@@ -7,7 +7,6 @@ import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.net.Uri
-import android.view.ContextThemeWrapper
 import android.view.KeyEvent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
@@ -138,12 +137,10 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import androidx.compose.ui.text.font.FontWeight
-import androidx.mediarouter.app.MediaRouteButton
 import coil.compose.AsyncImage
 import com.arkiv.player.cast.CastProgress
 import com.arkiv.player.data.gateway.LiveProgram
 import com.arkiv.player.data.model.Episode
-import com.arkiv.player.dlna.DlnaDevice
 import com.arkiv.player.ui.live.enCurso
 import com.arkiv.player.ui.settings.etiqueta
 import com.arkiv.player.ui.tv.TvEpisodeChip
@@ -168,8 +165,6 @@ import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurface
 import com.arkiv.player.ui.theme.ArkivTextSecondary
-import com.google.android.gms.cast.framework.CastButtonFactory
-import com.google.android.gms.cast.framework.CastContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -811,26 +806,10 @@ private fun PlayerContent(
         esperandoVideo = false
     }
 
-    // Estado DLNA.
-    var dlnaPickerOpen by remember { mutableStateOf(false) }
-    var dlnaDiscovering by remember { mutableStateOf(false) }
-    var dlnaDevices by remember { mutableStateOf<List<DlnaDevice>>(emptyList()) }
-    var dlnaActive by remember { mutableStateOf<DlnaDevice?>(null) }
-    var dlnaPaused by remember { mutableStateOf(false) }
-
-    // Arranca la búsqueda DLNA y abre el picker. Un solo lambda para VOD y vivo: ambos bloques de
-    // controles (Row de arriba y Row del modo vivo) lo disparan igual, la única diferencia entre
-    // ambos es el resto del Row que lo rodea (título/marcadores en VOD, badge "EN VIVO" en vivo).
-    val onDlnaDiscover: () -> Unit = {
-        dlnaPickerOpen = true
-        dlnaDiscovering = true
-        dlnaDevices = emptyList()
-        scope.launch {
-            val found = withContext(Dispatchers.IO) { dlna.discover() }
-            dlnaDevices = found
-            dlnaDiscovering = false
-        }
-    }
+    // Estado DLNA: vive entero en `PlayerDlna.kt` (estado, acciones y sus tres piezas de UI). De
+    // todo eso, esta pantalla solo consulta `activo`, porque tener un renderer andando esconde los
+    // controles locales.
+    val estadoDlna = rememberEstadoDlna(dlna)
 
     val d = playlist?.items?.getOrNull(currentIndex)
     val isTorrent = d?.kind == SourceKind.TORRENT
@@ -1009,12 +988,12 @@ private fun PlayerContent(
         liveInfoVisible = false
     }
 
-    LaunchedEffect(controlsVisible, isBuffering, casting, dlnaActive, markingMode, loadError) {
+    LaunchedEffect(controlsVisible, isBuffering, casting, estadoDlna.activo, markingMode, loadError) {
         android.util.Log.i(
             "ArkivCast",
             "UI barra · controlsVisible=$controlsVisible isBuffering=$isBuffering casting=$casting " +
-                "dlna=${dlnaActive != null} marcando=${markingMode != null} error=${loadError != null} " +
-                "→ overlay=${controlsVisible && loadError == null && dlnaActive == null && markingMode == null}",
+                "dlna=${estadoDlna.activo != null} marcando=${markingMode != null} error=${loadError != null} " +
+                "→ overlay=${controlsVisible && loadError == null && estadoDlna.activo == null && markingMode == null}",
         )
     }
 
@@ -1440,7 +1419,7 @@ private fun PlayerContent(
     // mirara controlsVisible, en modo marcado o con un error en pantalla la variable puede seguir
     // en true sin que se vea nada, y BACK quedaría muerto (ni cierra ni sale). Mantener ambas
     // iguales si se toca una.
-    BackHandler(enabled = !enVivo && controlsVisible && loadError == null && dlnaActive == null && markingMode == null) {
+    BackHandler(enabled = !enVivo && controlsVisible && loadError == null && estadoDlna.activo == null && markingMode == null) {
         controlsVisible = false
     }
 
@@ -1681,7 +1660,7 @@ private fun PlayerContent(
                     w.attributes = lp
                 }
             }
-            dlnaActive?.let { dev -> scope.launch { withContext(Dispatchers.IO) { runCatching { dlna.stop(dev) } } } }
+            estadoDlna.detenerAlSalir()
         }
     }
 
@@ -2217,7 +2196,7 @@ private fun PlayerContent(
         // torrent (abajo): es del motor local, que está pausado, y no describe lo que carga la TV.
         // `esperandoVideo` también se anula casteando: espera a que VLC recupere su salida de video
         // local (hasta 15s tras volver del fondo), que casteando no importa ni va a llegar.
-        if (loadError == null && dlnaActive == null &&
+        if (loadError == null && estadoDlna.activo == null &&
             (playlist == null || isBuffering || sinPrimeraImagen || (esperandoVideo && !casting))
         ) {
             val preBuffer = playlist == null && sourceIsTorrent
@@ -2286,7 +2265,7 @@ private fun PlayerContent(
         // Indicador persistente de descarga (torrent; aunque reproduzca y con controles ocultos).
         run {
             val p = progress
-            if (isTorrent && !isTv && loadError == null && !casting && dlnaActive == null && !isBuffering &&
+            if (isTorrent && !isTv && loadError == null && !casting && estadoDlna.activo == null && !isBuffering &&
                 !controlsVisible && p != null && p.progress in 0f..0.999f
             ) {
                 Row(
@@ -2393,7 +2372,7 @@ private fun PlayerContent(
             // adentro con una guarda propia, se corta UNA vez acá arriba (la bandera que aísla el
             // modo vivo, ver KDoc de `enVivo`) y más abajo hay un overlay chico y propio para vivo
             // (badge "EN VIVO" + ficha de canal por 3s).
-            visible = !enVivo && controlsVisible && loadError == null && dlnaActive == null && markingMode == null,
+            visible = !enVivo && controlsVisible && loadError == null && estadoDlna.activo == null && markingMode == null,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.fillMaxSize(),
@@ -2536,12 +2515,12 @@ private fun PlayerContent(
                     // DLNA + Chromecast (solo teléfono). Botones compartidos con el modo vivo, ver
                     // `DlnaCastButtons`.
                     if (!isTv) {
-                        // Nota propia de este Row: como `dlnaActive != null` esconde el overlay
-                        // entero de controles (visible = ... && dlnaActive == null más arriba), el
+                        // Nota propia de este Row: como `estadoDlna.activo != null` esconde el overlay
+                        // entero de controles (visible = ... && estadoDlna.activo == null más arriba), el
                         // cast se queda sin forma de manejarse desde la app si DLNA está activo. Por
                         // eso el botón de Chromecast de abajo sí queda visible pase lo que pase: es
                         // el único camino para cortar la sesión.
-                        DlnaCastButtons(casting = casting, castContext = castContext, onDiscoverDlna = onDlnaDiscover)
+                        DlnaCastButtons(casting = casting, castContext = castContext, onDiscoverDlna = estadoDlna::descubrir)
                     }
                 }
 
@@ -3027,8 +3006,8 @@ private fun PlayerContent(
                     )
                 }
                 Spacer(Modifier.weight(1f))
-                // Tarea 18: DLNA + Chromecast del vivo -- mismos botones que VOD (dlnaPickerOpen/
-                // dlnaDevices/etc son estado único de toda la pantalla), ver `DlnaCastButtons`,
+                // Tarea 18: DLNA + Chromecast del vivo -- mismos botones que VOD (`estadoDlna` es
+                // uno solo para toda la pantalla), ver `DlnaCastButtons` en `PlayerDlna.kt`,
                 // solo que colgados de ESTE Row porque el bloque VOD está oculto acá
                 // (visible=!enVivo). Se ofrece DESDE EL REPRODUCTOR, no en el diálogo previo de
                 // LiveScreen: recién con el canal sonando hay audio real que leerle a
@@ -3036,7 +3015,7 @@ private fun PlayerContent(
                 // dónde sacar esa lectura, ni para vivo ni para VOD (VOD tampoco ofrece cast en su
                 // propio diálogo de destino, por el mismo motivo).
                 if (!isTv) {
-                    DlnaCastButtons(casting = casting, castContext = castContext, onDiscoverDlna = onDlnaDiscover)
+                    DlnaCastButtons(casting = casting, castContext = castContext, onDiscoverDlna = estadoDlna::descubrir)
                 }
             }
 
@@ -3116,7 +3095,7 @@ private fun PlayerContent(
         // Botones flotantes de saltar intro/outro (solo archive, teléfono). Casteando SÍ se
         // muestran: "Saltar intro" es un seekTo simple que el CastPlayer soporta igual; la guarda
         // real está en el botón "Saltar outro" de abajo (ese sí depende del ítem siguiente LOCAL).
-        if (d != null && !isTorrent && markingMode == null && !isTv && dlnaActive == null) {
+        if (d != null && !isTorrent && markingMode == null && !isTv && estadoDlna.activo == null) {
             val inOpening = d.openingEndMs != null &&
                 positionMs in (d.openingStartMs ?: 0L)..d.openingEndMs
             val inEnding = d.endingStartMs != null && positionMs >= d.endingStartMs
@@ -3160,39 +3139,7 @@ private fun PlayerContent(
         }
 
         // Barra "Reproduciendo en <TV>" (DLNA activo).
-        val active = dlnaActive
-        if (active != null) {
-            Surface(
-                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().systemBarsPadding().padding(16.dp),
-                color = ArkivSurface.copy(alpha = 0.96f),
-                shape = RoundedCornerShape(16.dp),
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Default.Tv, contentDescription = null, tint = ArkivRed)
-                    Text(
-                        "Reproduciendo en ${active.friendlyName}",
-                        modifier = Modifier.weight(1f).padding(start = 12.dp),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    TextButton(onClick = {
-                        scope.launch {
-                            withContext(Dispatchers.IO) { if (dlnaPaused) dlna.play(active) else dlna.pause(active) }
-                            dlnaPaused = !dlnaPaused
-                        }
-                    }) { Text(if (dlnaPaused) "Reanudar" else "Pausar") }
-                    TextButton(onClick = {
-                        scope.launch {
-                            withContext(Dispatchers.IO) { dlna.stop(active) }
-                            dlnaActive = null
-                        }
-                    }) { Text("Detener") }
-                }
-            }
-        }
+        BarraDlnaActiva(estadoDlna)
 
         // Cajón de canales del vivo. Va ÚLTIMO dentro del Box para quedar por encima del resto de
         // overlays -- y a la izquierda, dejando el video visible a su derecha: es un cajón, no otra
@@ -3277,79 +3224,23 @@ private fun PlayerContent(
         )
     }
 
-    // Diálogo de dispositivos DLNA.
-    if (dlnaPickerOpen) {
-        AlertDialog(
-            onDismissRequest = { dlnaPickerOpen = false },
-            title = { Text("Reproducir en TV (DLNA)") },
-            text = {
-                Column {
-                    when {
-                        dlnaDiscovering -> Row(verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.padding(end = 12.dp).size(20.dp))
-                            Text("Buscando dispositivos…")
-                        }
-                        dlnaDevices.isEmpty() -> Text(
-                            "No se encontraron dispositivos DLNA. Asegurate de que la TV esté encendida, " +
-                                "en la misma red WiFi y con DLNA habilitado.",
-                            color = ArkivTextSecondary,
-                        )
-                        else -> dlnaDevices.forEach { device ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        dlnaPickerOpen = false
-                                        val ep = playlistRef.value?.items?.getOrNull(currentIndex)
-                                        controller.pause()
-                                        scope.launch {
-                                            // Vivo (Tarea 18): igual que torrent, la URL alcanzable
-                                            // por el renderer es la del server HTTP propio (acá, el
-                                            // proxy de LiveHlsProxy) -- mediaUrl es loopback y
-                                            // castUrl no existe para un canal en vivo (nunca hay un
-                                            // mp4 de respaldo, ver el KDoc de CastRequestBuilder).
-                                            val ok = if (ep?.kind == SourceKind.TORRENT) {
-                                                val lan = graph.torrentEngine.lanStreamUrl()
-                                                val mime = graph.torrentEngine.streamMime() ?: "video/mp4"
-                                                if (lan != null) {
-                                                    withContext(Dispatchers.IO) { dlna.playRawUrl(device, lan, ep.title, mime) }
-                                                } else false
-                                            } else if (ep?.kind == SourceKind.LIVE) {
-                                                val lan = graph.torrentEngine.lanIp()?.let { graph.liveHlsProxy.lanUrl(it) }
-                                                if (lan != null) {
-                                                    withContext(Dispatchers.IO) {
-                                                        dlna.playRawUrl(device, lan, ep.title, "application/vnd.apple.mpegurl")
-                                                    }
-                                                } else false
-                                            } else if (ep != null) {
-                                                withContext(Dispatchers.IO) {
-                                                    dlna.setUrlAndPlay(device, ep.castUrl ?: ep.mediaUrl, ep.title)
-                                                }
-                                            } else false
-                                            if (ok) {
-                                                dlnaActive = device
-                                                dlnaPaused = false
-                                            } else {
-                                                android.widget.Toast.makeText(
-                                                    context,
-                                                    "No se pudo castear (revisá el WiFi)",
-                                                    android.widget.Toast.LENGTH_SHORT,
-                                                ).show()
-                                            }
-                                        }
-                                    }
-                                    .padding(vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(Icons.Default.Tv, contentDescription = null, tint = ArkivRed)
-                                Text(device.friendlyName, modifier = Modifier.padding(start = 12.dp))
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { dlnaPickerOpen = false }) { Text("Cerrar") } },
-        )
+    // Diálogo de dispositivos DLNA. El armado de la URL que se le manda al renderer vive en
+    // `mandarAlRenderer`; acá solo queda de qué ítem sale y qué hacer si el renderer la rechaza.
+    DialogoDispositivosDlna(estadoDlna) { device ->
+        val ep = playlistRef.value?.items?.getOrNull(currentIndex)
+        controller.pause()
+        scope.launch {
+            val ok = mandarAlRenderer(dlna, device, ep, graph.torrentEngine, graph.liveHlsProxy)
+            if (ok) {
+                estadoDlna.marcarActivo(device)
+            } else {
+                android.widget.Toast.makeText(
+                    context,
+                    "No se pudo castear (revisá el WiFi)",
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
     }
 
     // Diálogo de audio y subtítulos (embebidos vía VLC + OpenSubtitles).
@@ -3418,39 +3309,6 @@ private fun PlayerContent(
                 }
             },
             confirmButton = { TextButton(onClick = { closeSubs() }) { Text("Cerrar") } },
-        )
-    }
-}
-
-/**
- * Botón de DLNA + botón de Chromecast (MediaRouteButton), compartidos por el Row de controles de
- * VOD y el Row propio del modo vivo (Tarea 14/18): ambos ofrecen exactamente los mismos dos
- * botones con el mismo criterio de visibilidad -- lo único que cambia entre ellos es el resto del
- * Row que los rodea (título/marcadores en VOD, badge "EN VIVO" en vivo), así que ESE Row se queda
- * duplicado a propósito pero estos dos botones no.
- */
-@Composable
-private fun DlnaCastButtons(
-    casting: Boolean,
-    castContext: CastContext?,
-    onDiscoverDlna: () -> Unit,
-) {
-    // Casteando no: DLNA es OTRO renderer, y mezclar los dos deja dos TVs reproduciendo lo mismo
-    // a la vez. (El botón de Chromecast sí queda visible: es el único camino para cortar la sesión.)
-    if (!casting) {
-        IconButton(onClick = onDiscoverDlna) {
-            Icon(Icons.Default.Tv, contentDescription = "Reproducir en TV (DLNA)", tint = Color.White)
-        }
-    }
-    if (castContext != null) {
-        AndroidView(
-            modifier = Modifier.padding(horizontal = 8.dp),
-            factory = { ctx ->
-                val themed = ContextThemeWrapper(ctx, androidx.appcompat.R.style.Theme_AppCompat_DayNight)
-                MediaRouteButton(themed).also {
-                    CastButtonFactory.setUpMediaRouteButton(ctx.applicationContext, it)
-                }
-            },
         )
     }
 }
