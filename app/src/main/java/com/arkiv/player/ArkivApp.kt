@@ -1,6 +1,7 @@
 package com.arkiv.player
 
 import android.app.Application
+import android.content.Context
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
@@ -10,6 +11,16 @@ import kotlinx.coroutines.launch
 class ArkivApp : Application(), ImageLoaderFactory {
     lateinit var graph: AppGraph
         private set
+
+    /**
+     * Lo más temprano que corre en el proceso: antes que los ContentProviders (WorkManager y
+     * compañía) y antes de [onCreate]. El reporte de errores se instala acá a propósito, para que
+     * un crash al abrir -incluido el de armar el [AppGraph]- también quede capturado.
+     */
+    override fun attachBaseContext(base: Context?) {
+        super.attachBaseContext(base)
+        com.arkiv.player.crash.Crash.instalar(this)
+    }
 
     override fun onCreate() {
         super.onCreate()
