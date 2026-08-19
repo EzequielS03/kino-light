@@ -828,9 +828,16 @@ private fun PlayerContent(
     // sea que ninguna de las señales viejas lo delata. Con `sinImagen` se ve si el spinner tapó ese
     // hueco o si la pantalla se quedó en negro.
     LaunchedEffect(playlist == null, espejo.buffereando, sinPrimeraImagen, esperandoVideo, casting) {
+        val spinner = hayQueMostrarElSpinner(
+            sinPlaylist = playlist == null,
+            buffereando = espejo.buffereando,
+            sinPrimeraImagen = sinPrimeraImagen,
+            perdioLaSalidaDeVideo = esperandoVideo,
+            casting = casting,
+        )
         android.util.Log.w(
             "ArkivVlc",
-            "spinner=${playlist == null || espejo.buffereando || sinPrimeraImagen || (esperandoVideo && !casting)} " +
+            "spinner=$spinner " +
                 "· sinPlaylist=${playlist == null} buffering=${espejo.buffereando} sinImagen=$sinPrimeraImagen " +
                 "perdioVideo=$esperandoVideo",
         )
@@ -1842,8 +1849,15 @@ private fun PlayerContent(
         // torrent (abajo): es del motor local, que está pausado, y no describe lo que carga la TV.
         // `esperandoVideo` también se anula casteando: espera a que VLC recupere su salida de video
         // local (hasta 15s tras volver del fondo), que casteando no importa ni va a llegar.
-        if (loadError == null && estadoDlna.activo == null &&
-            (playlist == null || espejo.buffereando || sinPrimeraImagen || (esperandoVideo && !casting))
+        if (
+            loadError == null && estadoDlna.activo == null &&
+            hayQueMostrarElSpinner(
+                sinPlaylist = playlist == null,
+                buffereando = espejo.buffereando,
+                sinPrimeraImagen = sinPrimeraImagen,
+                perdioLaSalidaDeVideo = esperandoVideo,
+                casting = casting,
+            )
         ) {
             val preBuffer = playlist == null && sourceIsTorrent
             val p = if (preBuffer) prepProgress else espejo.descarga
