@@ -517,10 +517,9 @@ private fun PlayerContent(
     // Controles custom (estilo torrent): visibles al tocar, se auto-ocultan mientras reproduce.
     // Arranca OCULTO: al abrir se ve el spinner de carga y luego el video limpio, sin el overlay de
     // pausa/barra encima. El usuario toca la pantalla para mostrar los controles.
-    var controlsVisible by remember { mutableStateOf(false) }
-    var interactionTick by remember { mutableIntStateOf(0) }
+    val controles = rememberEstadoDeControles()
 
-    // Modo vivo (Tarea 14): overlay PROPIO, no reusa controlsVisible/interactionTick -- esos
+    // Modo vivo (Tarea 14): overlay PROPIO, no reusa controles.visible/controles.tickDeActividad -- esos
     // gobiernan la barra de progreso/fila de transporte de VOD, que en vivo no existen. Todo su
     // estado (ficha del canal, EPG y cajón) vive en `PlayerVivo.kt`; de acá solo lo mueve el
     // listener de teclas del video, que sigue siendo de esta pantalla.
@@ -794,7 +793,7 @@ private fun PlayerContent(
         }
     }
 
-    fun bump() { controlsVisible = true; interactionTick++ }
+    fun bump() = controles.huboActividad()
 
     // Velocidad, zoom, modo noche y el HUD central: todo en `PlayerGestos.kt`. El `bump()` que
     // recibe es lo único que los ata a esta pantalla — cada ajuste cuenta como actividad y
@@ -821,12 +820,12 @@ private fun PlayerContent(
     }
 
 
-    LaunchedEffect(controlsVisible, espejo.buffereando, casting, estadoDlna.activo, marcadores.modo, loadError) {
+    LaunchedEffect(controles.visible, espejo.buffereando, casting, estadoDlna.activo, marcadores.modo, loadError) {
         android.util.Log.i(
             "ArkivCast",
-            "UI barra · controlsVisible=$controlsVisible buffering=${espejo.buffereando} casting=$casting " +
+            "UI barra · controles=${controles.visible} buffering=${espejo.buffereando} casting=$casting " +
                 "dlna=${estadoDlna.activo != null} marcando=${marcadores.marcando} error=${loadError != null} " +
-                "→ overlay=${controlsVisible && loadError == null && estadoDlna.activo == null && !marcadores.marcando}",
+                "→ overlay=${controles.visible && loadError == null && estadoDlna.activo == null && !marcadores.marcando}",
         )
     }
 
@@ -1233,28 +1232,23 @@ private fun PlayerContent(
     }
 
     // Auto-ocultar los controles mientras reproduce. El timer se reinicia con CUALQUIER tecla
-    // mientras el overlay está abierto (ver el onPreviewKeyEvent del contenedor), así que no se
-    // desvanece en plena navegación de botones o miniaturas — solo tras ~4.5s de inactividad real.
-    // No se bloquea del todo a propósito: el auto-ocultado es la única salida cuando el video está
-    // en pausa (con BACK ahí abajo cerrando el overlay, pero solo mientras se esté viendo).
-    // estadoCapitulos.revelado va como key para que abrir/cerrar el carrusel arranque un timer fresco.
-    LaunchedEffect(interactionTick, espejo.reproduciendo, controlsVisible, estadoCapitulos.revelado) {
-        if (controlsVisible && espejo.reproduciendo && !marcadores.marcando) {
-            delay(4500)
-            controlsVisible = false
-        }
-    }
+    EfectoDeAutoOcultado(
+        estado = controles,
+        reproduciendo = espejo.reproduciendo,
+        marcando = marcadores.marcando,
+        carruselRevelado = estadoCapitulos.revelado,
+    )
 
     // BACK con el overlay en pantalla lo CIERRA en vez de salir del video; con el overlay ya
     // oculto, este handler queda deshabilitado y BACK sigue de largo a la navegación (= salir),
     // que es el comportamiento de siempre. Sirve igual para el remoto de la TV, el botón del
     // sistema y el gesto de atrás del teléfono.
     // La condición replica la del overlay más abajo (`AnimatedVisibility(visible = ...)`): si solo
-    // mirara controlsVisible, en modo marcado o con un error en pantalla la variable puede seguir
+    // mirara controles.visible, en modo marcado o con un error en pantalla la variable puede seguir
     // en true sin que se vea nada, y BACK quedaría muerto (ni cierra ni sale). Mantener ambas
     // iguales si se toca una.
-    BackHandler(enabled = !enVivo && controlsVisible && loadError == null && estadoDlna.activo == null && !marcadores.marcando) {
-        controlsVisible = false
+    BackHandler(enabled = !enVivo && controles.visible && loadError == null && estadoDlna.activo == null && !marcadores.marcando) {
+        controles.ocultar()
     }
 
 
@@ -1262,9 +1256,9 @@ private fun PlayerContent(
     // atajaba TODAS las teclas con acciones fijas) hacia los controles de Compose, para que el
     // D-pad navegue los botones/la barra como un player real (Netflix/Prime) en vez de mapeos
     // fijos por tecla. Al ocultarse, el foco vuelve al video para el "cualquier tecla = mostrar".
-    LaunchedEffect(controlsVisible, isTv) {
+    LaunchedEffect(controles.visible, isTv) {
         if (!isTv) return@LaunchedEffect
-        if (controlsVisible) {
+        if (controles.visible) {
             runCatching { focos.barra.requestFocus() }
                 .onFailure { runCatching { focos.playPausa.requestFocus() } }
         } else {
@@ -1277,7 +1271,7 @@ private fun PlayerContent(
 
     // TV: al cerrarse el diálogo de audio/subtítulos hay que reubicar el foco a mano. Antes iba al
     // videoView, pero con el overlay todavía visible ese es un punto muerto —su listener descarta
-    // las teclas mientras controlsVisible es true— y el D-pad dejaba de responder. Vuelve al botón
+    // las teclas mientras controles.visible es true— y el D-pad dejaba de responder. Vuelve al botón
     // que abrió el diálogo; el video solo tiene sentido si el overlay ya se ocultó.
     // Va en un efecto y no en el onDismiss para cubrir las DOS salidas: descartar el diálogo y
     // elegir una pista (`aplicarSubtituloOnline` también cierra el picker, y ahí nadie toca el foco).
@@ -1293,7 +1287,7 @@ private fun PlayerContent(
         if (!subPickerWasOpen) return@LaunchedEffect
         subPickerWasOpen = false
         var landed = false
-        if (controlsVisible) {
+        if (controles.visible) {
             repeat(12) {
                 if (landed) return@repeat
                 landed = runCatching { focos.subtitulos.requestFocus() }.isSuccess
@@ -1596,9 +1590,9 @@ private fun PlayerContent(
         } else {
             activePlayer.play()
         }
-        // Vivo no usa bump()/controlsVisible (ese overlay entero está oculto -- ver más abajo,
+        // Vivo no usa bump()/controles.visible (ese overlay entero está oculto -- ver más abajo,
         // "visible = !enVivo && ..."): sin esta guarda, togglePlayPause() (alcanzable desde el
-        // centro del D-pad en TV) dejaba controlsVisible en true igual, y el BackHandler de abajo
+        // centro del D-pad en TV) dejaba controles.visible en true igual, y el BackHandler de abajo
         // (atado a esa misma variable) se comía el primer BACK cerrando un overlay invisible en
         // vez de salir del reproductor.
         if (!enVivo) bump()
@@ -1651,10 +1645,10 @@ private fun PlayerContent(
                             if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
                             if (marcadores.marcando) return@setOnKeyListener false
                             // Con el overlay de controles visible, el foco de Android ya está en
-                            // los botones de Compose (ver LaunchedEffect(controlsVisible)) y este
+                            // los botones de Compose (ver LaunchedEffect(controles.visible)) y este
                             // listener ni siquiera debería recibir el evento; el fallback existe
                             // solo por si el foco no llegó a moverse a tiempo.
-                            if (controlsVisible) return@setOnKeyListener false
+                            if (controles.visible) return@setOnKeyListener false
                             // Vivo (Tarea 14): Arriba/Abajo zapean en vez de mostrar el overlay de
                             // VOD (que en vivo no existe, ver `visible = !enVivo && ...`), e
                             // Izquierda/Derecha no hacen seek (no hay duración/posición en vivo).
@@ -1737,9 +1731,9 @@ private fun PlayerContent(
                                 // Vivo (Tarea 14): el tap muestra/oculta la FICHA de canal, no la
                                 // barra de controles de VOD (que en vivo ni se compone -- ver
                                 // `visible = !enVivo && ...` más abajo). Mismo par mostrar/ocultar
-                                // que controlsVisible/bump() de VOD, con su propio estado.
+                                // que controles.visible/bump() de VOD, con su propio estado.
                                 if (enVivo) estadoVivo.alternarInfo()
-                                else if (controlsVisible) controlsVisible = false else bump()
+                                else controles.alternar()
                             },
                             onDoubleTap = { o ->
                                 // Sin seek en vivo (no hay duración ni "adelante/atrás" que tengan sentido).
@@ -1927,7 +1921,7 @@ private fun PlayerContent(
         run {
             val p = espejo.descarga
             if (isTorrent && !isTv && loadError == null && !casting && estadoDlna.activo == null && !espejo.buffereando &&
-                !controlsVisible && p != null && p.progress in 0f..0.999f
+                !controles.visible && p != null && p.progress in 0f..0.999f
             ) {
                 Row(
                     modifier = Modifier
@@ -2013,7 +2007,7 @@ private fun PlayerContent(
             // adentro con una guarda propia, se corta UNA vez acá arriba (la bandera que aísla el
             // modo vivo, ver KDoc de `enVivo`) y más abajo hay un overlay chico y propio para vivo
             // (badge "EN VIVO" + ficha de canal por 3s).
-            visible = !enVivo && controlsVisible && loadError == null && estadoDlna.activo == null && !marcadores.marcando,
+            visible = !enVivo && controles.visible && loadError == null && estadoDlna.activo == null && !marcadores.marcando,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.fillMaxSize(),
@@ -2052,7 +2046,7 @@ private fun PlayerContent(
                     // ABAJO, que con el burbujeo normal nunca habrían llegado hasta acá.
                     // Devuelve false: solo observa, no altera el despacho.
                     .onPreviewKeyEvent { e ->
-                        if (e.type == KeyEventType.KeyDown) interactionTick++
+                        if (e.type == KeyEventType.KeyDown) controles.sigueVivo()
                         false
                     }
                     // Zona segura del TV. Va DESPUÉS del `background` a propósito: el degradado
