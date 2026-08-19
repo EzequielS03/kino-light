@@ -2472,7 +2472,6 @@ private fun PlayerContent(
                                             down = focos.bajarBrillo
                                         },
                                 )
-                                // Último de la fila: su `right` apunta a sí mismo (tope derecho).
                                 TvTransportButton(
                                     icon = Icons.Default.BrightnessHigh,
                                     contentDescription = "Subir brillo",
@@ -2488,6 +2487,29 @@ private fun PlayerContent(
                                             down = focos.subirBrillo
                                         },
                                 )
+                                // Datos curiosos: solo existe si el gateway devolvió algo. Va al
+                                // FINAL de la fila a propósito -- insertarlo en el medio obligaría a
+                                // reescribir varios eslabones de esta cadena de foco, y una
+                                // equivocación ahí se siente como un control remoto roto. El `right`
+                                // del botón de arriba ya lo tenía previsto.
+                                if (TriviaDelPlayer.hayBoton(trivia)) {
+                                    TvTransportButton(
+                                        icon = Icons.Default.Info,
+                                        contentDescription = "Dato curioso",
+                                        onClick = { estadoTrivia.abrirDialogo() },
+                                        iconSize = 24.dp,
+                                        tint = Color.White,
+                                        // Último de la fila: su `right` apunta a sí mismo (tope derecho).
+                                        modifier = Modifier
+                                            .focusRequester(focos.trivia)
+                                            .focusProperties {
+                                                left = focos.subirBrillo
+                                                right = focos.trivia
+                                                up = focos.barra
+                                                down = focos.trivia
+                                            },
+                                    )
+                                }
                             }
                             // TELÉFONO: subtítulos + override "en vivo" contra el borde derecho. El
                             // Spacer se come el ancho sobrante, así que los controles de transporte
@@ -2502,28 +2524,7 @@ private fun PlayerContent(
                                 if (showLiveOverride) {
                                     IconButton(onClick = { vm.forcePlayLive(episodeId) }) {
                                         Icon(Icons.Default.LiveTv, contentDescription = "Reproducir en vivo", tint = Color.White)
-                                    // Datos curiosos: solo existe si el gateway devolvió algo. Va al
-                                // FINAL de la fila a propósito -- insertarlo en el medio obligaría
-                                // a reescribir varios eslabones de esta cadena de foco, y una
-                                // equivocación ahí se siente como un control remoto roto.
-                                if (TriviaDelPlayer.hayBoton(trivia)) {
-                                    TvTransportButton(
-                                        icon = Icons.Default.Info,
-                                        contentDescription = "Dato curioso",
-                                        onClick = { estadoTrivia.abrirDialogo() },
-                                        iconSize = 24.dp,
-                                        tint = Color.White,
-                                        modifier = Modifier
-                                            .focusRequester(focos.trivia)
-                                            .focusProperties {
-                                                left = focos.subirBrillo
-                                                right = focos.trivia
-                                                up = focos.barra
-                                                down = focos.trivia
-                                            },
-                                    )
-                                }
-                                }
+                                    }
                                 }
                                 IconButton(onClick = { estadoPistas.abrirPicker() }) {
                                     Icon(
@@ -2548,6 +2549,16 @@ private fun PlayerContent(
                                         contentDescription = "Subir brillo",
                                         tint = if (dimNivel > 0) ArkivRed else Color.White,
                                     )
+                                }
+                                // El mismo botón de dato curioso que en TV, al final de la fila.
+                                if (TriviaDelPlayer.hayBoton(trivia)) {
+                                    IconButton(onClick = { estadoTrivia.abrirDialogo() }) {
+                                        Icon(
+                                            Icons.Default.Info,
+                                            contentDescription = "Dato curioso",
+                                            tint = Color.White,
+                                        )
+                                    }
                                 }
                             }
                         }
