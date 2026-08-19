@@ -60,6 +60,8 @@ import kotlinx.coroutines.withContext
 internal class EstadoDlna(
     private val dlna: DlnaController,
     private val scope: CoroutineScope,
+    /** Scope de todo el proceso: lo único que sobrevive a que la pantalla salga de la composición. */
+    private val scopeDeApp: CoroutineScope,
 ) {
     /** El diálogo de dispositivos está abierto. */
     var pickerAbierto by mutableStateOf(false)
@@ -124,17 +126,30 @@ internal class EstadoDlna(
         }
     }
 
-    /** Corte best-effort al salir de la pantalla: no toca el estado porque ya se está muriendo. */
+    /**
+     * Corte best-effort al salir de la pantalla: no toca el estado porque ya se está muriendo.
+     *
+     * Va por [scopeDeApp] y NO por `scope`, y eso no es cosmética: quien llama es el `onDispose` de
+     * PlayerScreen, y Compose cancela el scope de `rememberCoroutineScope` en esa misma pasada de
+     * aplicar cambios, apenas termina el `onDispose`. El `launch` alcanza a encolarse (el scope
+     * todavía está activo), pero se despacha por el dispatcher de la composición: no corre en línea,
+     * y para cuando le tocaría arrancar el scope ya está cancelado. La corrutina muere sin ejecutar
+     * su primera instrucción y el Stop nunca sale, así que la TV se queda reproduciendo.
+     *
+     * Verificado el 2026-08-19 contra un MediaRenderer de prueba: con `scope` el renderer no recibe
+     * NADA al salir con Atrás (y un log dentro del `launch` nunca llega a imprimirse, aunque el
+     * scope todavía diera `isActive == true` al encolarlo); con [scopeDeApp] recibe el Stop.
+     */
     fun detenerAlSalir() {
         val dev = activo ?: return
-        scope.launch { withContext(Dispatchers.IO) { runCatching { dlna.stop(dev) } } }
+        scopeDeApp.launch { withContext(Dispatchers.IO) { runCatching { dlna.stop(dev) } } }
     }
 }
 
 @Composable
-internal fun rememberEstadoDlna(dlna: DlnaController): EstadoDlna {
+internal fun rememberEstadoDlna(dlna: DlnaController, scopeDeApp: CoroutineScope): EstadoDlna {
     val scope = rememberCoroutineScope()
-    return remember(dlna, scope) { EstadoDlna(dlna, scope) }
+    return remember(dlna, scope, scopeDeApp) { EstadoDlna(dlna, scope, scopeDeApp) }
 }
 
 /**
