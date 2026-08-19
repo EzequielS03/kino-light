@@ -20,6 +20,7 @@ class LibraryGroupingTest {
         category: String? = "series",
         addedAt: Long = 0L,
         tmdbId: Int? = null,
+        tipo: String? = null,
     ) = LibraryRow(
         identifier = id,
         title = title,
@@ -31,6 +32,7 @@ class LibraryGroupingTest {
         categoryOverride = category,
         source = source,
         tmdbId = tmdbId,
+        tipo = tipo,
     )
 
     private fun art(id: String, tmdbId: Int?, type: String?) =
@@ -329,5 +331,39 @@ class LibraryGroupingTest {
 
         assertEquals("item:web:1", LibraryGrouping.groupKeyOf(a, null))
         assertEquals("item:web:2", LibraryGrouping.groupKeyOf(b, null))
+    }
+
+    @Test
+    fun `un capitulo suelto se agrupa con su serie aunque parezca pelicula`() {
+        // Medido en la base del Fire TV: los capítulos sueltos entran con UN solo video
+        // y sin categoryOverride, así que `isMovie` los llama película por la regla de
+        // "1 video = película" -- y las películas nunca se agrupan. Resultado: las cinco
+        // filas de Evangelion seguían separadas justo después de darles su tmdbId.
+        // El tipo canónico lo verificó el gateway contra TMDB: si dice serie, es serie.
+        val a = row("web:9c9f5748", "T1 - E7: Construido por los hombres", 1, category = null,
+            tmdbId = 890, tipo = "tv")
+        val b = row("web:a59ba433", "Shin seiki evangerion Temp.1", 26, tmdbId = 890, tipo = "tv")
+
+        assertEquals("tv:890", LibraryGrouping.groupKeyOf(a, null))
+        assertEquals("tv:890", LibraryGrouping.groupKeyOf(b, null))
+    }
+
+    @Test
+    fun `una pelicula de verdad sigue sin agruparse`() {
+        // La regla que protege del match difuso del arte no se toca: si el tipo canónico
+        // dice película, se queda sola aunque comparta id con otra.
+        val a = row("web:1", "Batman", 1, category = "movie", tmdbId = 414906, tipo = "movie")
+        val b = row("web:2", "Batman", 1, category = "movie", tmdbId = 414906, tipo = "movie")
+
+        assertEquals("item:web:1", LibraryGrouping.groupKeyOf(a, null))
+        assertEquals("item:web:2", LibraryGrouping.groupKeyOf(b, null))
+    }
+
+    @Test
+    fun `sin tipo canonico una pelicula sigue sin agruparse`() {
+        // Lo que no sabemos no habilita nada: sin tipo, manda la heurística de siempre.
+        val a = row("web:1", "Algo", 1, category = null, tmdbId = 555)
+
+        assertEquals("item:web:1", LibraryGrouping.groupKeyOf(a, null))
     }
 }

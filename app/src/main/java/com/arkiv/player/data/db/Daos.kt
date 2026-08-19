@@ -132,6 +132,16 @@ data class LibraryRow(
      * ninguna búsqueda de TMDB, así que `artwork` nunca le resuelve nada. Ver [LibraryGrouping].
      */
     val tmdbId: Int? = null,
+    /**
+     * "tv" o "movie" según la obra que este ítem ES, verificado por el gateway contra TMDB.
+     * Vacío cuando nadie lo sabe: mejor un hueco que un tipo inventado.
+     *
+     * NO es [isMovie] ni lo reemplaza: `isMovie` sigue decidiendo qué pasa al tocar la tarjeta
+     * (una película reproduce directo, una serie abre la lista). Esto solo le dice a
+     * [LibraryGrouping] si el `tmdbId` es de una serie, porque agrupar por el id de una película
+     * junta obras distintas.
+     */
+    val tipo: String? = null,
 ) {
     val isTorrent: Boolean get() = source == "torrent"
 
@@ -186,7 +196,7 @@ interface ItemDao {
         SELECT i.identifier, i.title, i.description, i.thumbnailUrl,
                (SELECT COUNT(*) FROM episodes e WHERE e.itemId = i.identifier AND e.deleted = 0) AS episodeCount,
                (SELECT COALESCE(SUM(e.durationSeconds), 0) FROM episodes e WHERE e.itemId = i.identifier AND e.deleted = 0) AS durationSeconds,
-               i.addedAt, i.categoryOverride, i.source, i.episodiosVistosEnLista, i.tmdbId
+               i.addedAt, i.categoryOverride, i.source, i.episodiosVistosEnLista, i.tmdbId, i.tipo
         FROM items i
         WHERE i.deleted = 0
         ORDER BY i.addedAt DESC

@@ -69,7 +69,13 @@ object LibraryGrouping {
      *  5. El propio identifier: grupo de uno, o sea lo que hace la app hoy.
      */
     fun groupKeyOf(row: LibraryRow, artwork: ArtworkEntity?): String {
-        if (row.isMovie) return "item:${row.identifier}"
+        // El tipo canónico manda sobre la heurística de "1 video = película": un capítulo suelto
+        // tiene un solo video y sin `categoryOverride` cae como película, que es exactamente lo
+        // que impedía juntarlo con su serie. Medido en la base del Fire TV: las cinco filas de
+        // Evangelion seguían separadas incluso teniendo ya su tmdbId. Si el gateway verificó
+        // contra TMDB que la obra es una serie, es una serie.
+        val canonTv = row.tmdbId?.takeIf { it > 0 && row.tipo == "tv" }
+        if (row.isMovie) return canonTv?.let { "tv:$it" } ?: "item:${row.identifier}"
         val tvId = artwork?.tmdbId?.takeIf { artwork.tmdbType == "tv" }
         if (tvId != null) return "tv:$tvId"
         // Respaldo: el `tmdbId` que el gateway le puso al ÍTEM canonizando su título. Va DESPUÉS
@@ -79,7 +85,10 @@ object LibraryGrouping {
         // cada fila queda en su propia tarjeta. El `> 0` no es paranoia: el campo numérico de
         // PocketBase nace en 0, y agrupar por "tv:0" juntaría toda la biblioteca sin canonizar en
         // una sola tarjeta.
-        row.tmdbId?.takeIf { it > 0 }?.let { return "tv:$it" }
+        // `tipo != "movie"`: lo que no sabemos sigue agrupando como hasta ahora, pero un id que
+        // el gateway marcó como PELÍCULA no junta nada -- misma razón por la que las películas
+        // nunca se agrupan.
+        row.tmdbId?.takeIf { it > 0 && row.tipo != "movie" }?.let { return "tv:$it" }
         SeriesItemIds.seriesIdOrNull(row.identifier)?.let { return "series:$it" }
         return "item:${row.identifier}"
     }
