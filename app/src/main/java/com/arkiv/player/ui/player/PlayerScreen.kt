@@ -1061,7 +1061,7 @@ private fun PlayerContent(
                 android.util.Log.w("ArkivCast", "zap con Chromecast conectado: sin URL que el receptor pueda alcanzar → se reproduce en el celu")
                 android.widget.Toast.makeText(
                     context,
-                    "No se pudo castear: la TV no puede alcanzar este stream (revisá el WiFi)",
+                    "No se pudo castear: la TV no puede alcanzar este stream (revisa el WiFi)",
                     android.widget.Toast.LENGTH_SHORT,
                 ).show()
             }
@@ -1141,7 +1141,7 @@ private fun PlayerContent(
             android.util.Log.w("ArkivCast", "casteando pero no hay URL que mandarle al receptor → se reproduce en el celu")
             android.widget.Toast.makeText(
                 context,
-                "No se pudo castear: la TV no puede alcanzar este stream (revisá el WiFi)",
+                "No se pudo castear: la TV no puede alcanzar este stream (revisa el WiFi)",
                 android.widget.Toast.LENGTH_SHORT,
             ).show()
         }
@@ -1487,7 +1487,7 @@ private fun PlayerContent(
                     android.util.Log.w("ArkivCast", "sesión abierta pero no hay URL que mandarle al receptor")
                     android.widget.Toast.makeText(
                         context,
-                        "No se pudo castear: la TV no puede alcanzar este stream (revisá el WiFi)",
+                        "No se pudo castear: la TV no puede alcanzar este stream (revisa el WiFi)",
                         android.widget.Toast.LENGTH_SHORT,
                     ).show()
                 } else {
@@ -3097,7 +3097,7 @@ private fun PlayerContent(
             } else {
                 android.widget.Toast.makeText(
                     context,
-                    "No se pudo castear (revisá el WiFi)",
+                    "No se pudo castear (revisa el WiFi)",
                     android.widget.Toast.LENGTH_SHORT,
                 ).show()
             }

@@ -228,7 +228,7 @@ internal fun DialogoDispositivosDlna(
                     }
 
                     estado.dispositivos.isEmpty() -> Text(
-                        "No se encontraron dispositivos DLNA. Asegurate de que la TV esté encendida, " +
+                        "No se encontraron dispositivos DLNA. Asegúrate de que la TV esté encendida, " +
                             "en la misma red WiFi y con DLNA habilitado.",
                         color = ArkivTextSecondary,
                     )
