@@ -27,8 +27,8 @@ android {
         // codigo vacio, asi que un build sin .env simplemente no ofrece la seccion en vez de
         // dejarla abierta.
         buildConfigField("String", "ADULT_CODE", "\"${readEnv("ARKIV_ADULT_CODE")}\"")
-        versionCode = 40
-        versionName = "0.9.9"
+        versionCode = 41
+        versionName = "0.9.10"
         // Task 8 (Paso 3): acá vivía `ARKIV_API_KEY`, la última credencial de build que quedaba
         // en el APK -- una constante compilada, igual para todos los aparatos, que cualquiera que
         // abriera el APK podía extraer. Salió del todo: la app se autentica con la credencial POR
