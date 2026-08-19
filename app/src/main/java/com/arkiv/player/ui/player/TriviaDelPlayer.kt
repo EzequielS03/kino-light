@@ -3,16 +3,20 @@ package com.arkiv.player.ui.player
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
@@ -44,19 +48,19 @@ import kotlinx.coroutines.delay
  */
 object TriviaDelPlayer {
 
-    /** Cada cuánto se pasa al siguiente dato. */
-    const val INTERVALO_MS = 10 * 60 * 1000L
-
     /**
-     * El índice del dato que toca, o -1 si no hay ninguno.
+     * El dato que sigue al [actual], o -1 si no hay ninguno.
      *
-     * Al llegar al último SE QUEDA ahí en vez de volver a empezar: repetir haría que el aviso
-     * mienta -- anunciaría "hay algo nuevo" para mostrar lo mismo de hace media hora.
+     * Rota en círculo: después del último vuelve el primero, así pulsar arriba siempre muestra
+     * algo. Antes el índice salía de la POSICIÓN del video (uno nuevo cada diez minutos), pero
+     * desde que avanza a pulsación las dos cosas no pueden gobernar el mismo número — el tiempo
+     * lo movería por debajo mientras el usuario lo mueve a mano.
+     *
+     * Un [actual] de -1 significa "todavía no se mostró ninguno", y cae en el primero.
      */
-    fun indiceEn(transcurridoMs: Long, cantidad: Int): Int {
+    fun siguienteIndice(actual: Int, cantidad: Int): Int {
         if (cantidad <= 0) return -1
-        val pasos = (transcurridoMs.coerceAtLeast(0L) / INTERVALO_MS).toInt()
-        return pasos.coerceAtMost(cantidad - 1)
+        return (actual + 1).mod(cantidad)
     }
 
     /** Sin datos no se dibuja el botón: es el fallo bueno, nadie ve un error ni una espera. */
@@ -76,108 +80,189 @@ object TriviaDelPlayer {
     }
 }
 
-/** Cuánto queda en pantalla el aviso de dato nuevo. */
-private const val AVISO_VISIBLE_MS = 5000L
+/** Cuánto queda el cartel rojo tras llegar los datos. */
+private const val CARTEL_VISIBLE_MS = 5000L
+
+/** Cuánto queda el panel abierto sin que lo toquen. */
+private const val PANEL_VISIBLE_MS = 10_000L
 
 /**
- * El estado del dato curioso en el reproductor: qué se anunció ya, si el aviso está puesto y si el
- * diálogo está abierto.
+ * El estado del dato curioso: cuál se está mostrando, si el panel está desplegado y si el cartel
+ * de aviso sigue en pantalla.
  *
- * Acompaña a [TriviaDelPlayer] —que decide QUÉ dato toca— con lo poco que hay que recordar entre
- * frames. Salió de `PlayerContent` por la misma razón que el resto de su estado: eran tres
- * variables que no lee nadie más de la pantalla.
+ * Acompaña a [TriviaDelPlayer] —que decide QUÉ dato sigue— con lo poco que hay que recordar entre
+ * frames.
  */
 @Stable
 internal class EstadoDeTrivia {
-    /** El diálogo con el texto del dato está abierto. */
-    var dialogoAbierto by mutableStateOf(false)
+    /** El panel con el texto está desplegado. */
+    var panelAbierto by mutableStateOf(false)
         private set
 
     /**
-     * El aviso ("!") es un overlay PROPIO, como el de en vivo: los controles arrancan ocultos y se
-     * auto-ocultan, así que un aviso colgado de la barra no lo vería nadie.
+     * Cartel rojo de "Dato curioso" pegado arriba. Es un overlay PROPIO: los controles arrancan
+     * ocultos y se auto-ocultan, así que un aviso colgado de la barra no lo vería nadie.
+     *
+     * Sale UNA vez, cuando llegan los datos, y se va solo. No vuelve: el dato ya no rota con el
+     * tiempo, así que no hay nada nuevo que anunciar después.
      */
-    var avisoVisible by mutableStateOf(false)
+    var cartelVisible by mutableStateOf(false)
         private set
 
-    /** Último índice que ya se anunció, para no repetir el aviso del mismo dato. */
-    private var indiceAnunciado by mutableIntStateOf(-1)
+    /** El dato que se está mostrando, o -1 si todavía no se abrió ninguno. */
+    var indiceVisible by mutableIntStateOf(-1)
+        private set
+
+    /** Sube con cada apertura o avance, para reiniciar la cuenta del auto-cierre. */
+    var tickDelPanel by mutableIntStateOf(0)
+        private set
+
+    private var yaSeAnuncio = false
+
+    /** Llegaron los datos: se anuncia una sola vez por carga. [cantidad] 0 no anuncia nada. */
+    fun anunciarLlegada(cantidad: Int) {
+        if (cantidad <= 0 || yaSeAnuncio) return
+        yaSeAnuncio = true
+        cartelVisible = true
+    }
+
+    /** Otro episodio: vuelve a estar todo por mostrar. */
+    fun reiniciar() {
+        yaSeAnuncio = false
+        cartelVisible = false
+        panelAbierto = false
+        indiceVisible = -1
+        tickDelPanel = 0
+    }
 
     /**
-     * Anuncia [indice] si es un dato que todavía no se mostró. Idempotente a propósito: lo llama el
-     * cuerpo del composable en cada recomposición, porque el índice se deriva de la posición y no
-     * de un temporizador — adelantar o retroceder mueve el dato igual que mueve el video.
+     * Abre el panel, o avanza al siguiente dato si ya estaba abierto. Es lo que hace la flecha
+     * arriba, el botón "i" y tocar el cartel: siempre "muéstrame el que sigue".
      */
-    fun anunciarSiEsNuevo(indice: Int) {
-        if (indice < 0 || indice == indiceAnunciado) return
-        indiceAnunciado = indice
-        avisoVisible = true
+    fun mostrarSiguiente(cantidad: Int) {
+        val siguiente = TriviaDelPlayer.siguienteIndice(indiceVisible, cantidad)
+        if (siguiente < 0) return
+        indiceVisible = siguiente
+        panelAbierto = true
+        cartelVisible = false
+        tickDelPanel++
     }
 
-    fun abrirDialogo() {
-        dialogoAbierto = true
-        avisoVisible = false
+    fun cerrarPanel() {
+        panelAbierto = false
     }
 
-    fun cerrarDialogo() {
-        dialogoAbierto = false
+    internal fun ocultarCartel() {
+        cartelVisible = false
     }
-
-    internal fun ocultarAviso() {
-        avisoVisible = false
-    }
-
-    /** Clave del efecto que borra el aviso: cambia con cada dato nuevo y con cada apagado. */
-    internal val claveDelAviso: Pair<Int, Boolean> get() = indiceAnunciado to avisoVisible
 }
 
 @Composable
 internal fun rememberEstadoDeTrivia(): EstadoDeTrivia = remember { EstadoDeTrivia() }
 
-/** El aviso se va solo a los 5 s. Se relanza con cada dato nuevo, igual que el overlay de canal. */
+/**
+ * Los dos temporizadores: el cartel se va a los 5 s de aparecer, y el panel a los 10 s de la
+ * última pulsación (cada avance reinicia la cuenta, así que leer varios seguidos no lo cierra).
+ *
+ * [cantidad] dispara el anuncio: cambia de 0 a N cuando el gateway responde.
+ */
 @Composable
-internal fun EfectoDelAvisoDeTrivia(estado: EstadoDeTrivia) {
-    LaunchedEffect(estado.claveDelAviso) {
-        if (!estado.avisoVisible) return@LaunchedEffect
-        delay(AVISO_VISIBLE_MS)
-        estado.ocultarAviso()
+internal fun EfectosDeTrivia(estado: EstadoDeTrivia, cantidad: Int, episodeId: String) {
+    LaunchedEffect(episodeId) { estado.reiniciar() }
+    LaunchedEffect(cantidad) { estado.anunciarLlegada(cantidad) }
+    LaunchedEffect(estado.cartelVisible) {
+        if (!estado.cartelVisible) return@LaunchedEffect
+        delay(CARTEL_VISIBLE_MS)
+        estado.ocultarCartel()
+    }
+    LaunchedEffect(estado.tickDelPanel, estado.panelAbierto) {
+        if (!estado.panelAbierto) return@LaunchedEffect
+        delay(PANEL_VISIBLE_MS)
+        estado.cerrarPanel()
     }
 }
 
 /**
- * Aviso de dato curioso nuevo: chiquito, arriba a la derecha. Va suelto en el Box y no colgado del
- * botón porque los controles arrancan ocultos y se auto-ocultan: en la barra no lo vería nadie.
+ * Cartel "Dato curioso": centrado y pegado al borde superior, fondo rojo y letra blanca. Anuncia
+ * que hay datos para leer y se va solo.
  *
- * [bajarParaNoTapar] lo corre hacia abajo cuando el chip de "reproduciendo desde la NUC" ocupa ese
- * mismo rincón.
+ * En el teléfono es tocable —es el acceso rápido mientras está en pantalla—; en TV no, ahí se abre
+ * con la flecha arriba. [onTocar] es null cuando no debe responder al toque.
  */
 @Composable
-internal fun BoxScope.AvisoDeTrivia(estado: EstadoDeTrivia, bajarParaNoTapar: Boolean) {
+internal fun BoxScope.CartelDeTrivia(estado: EstadoDeTrivia, onTocar: (() -> Unit)? = null) {
     AnimatedVisibility(
-        visible = estado.avisoVisible && !estado.dialogoAbierto,
+        visible = estado.cartelVisible && !estado.panelAbierto,
         enter = fadeIn(),
         exit = fadeOut(),
-        modifier = Modifier
-            .align(Alignment.TopEnd)
-            .systemBarsPadding()
-            .padding(top = if (bajarParaNoTapar) 108.dp else 64.dp, end = 12.dp),
+        modifier = Modifier.align(Alignment.TopCenter),
     ) {
         Box(
-            modifier = Modifier.size(22.dp).clip(CircleShape).background(ArkivRed.copy(alpha = 0.85f)),
+            modifier = Modifier
+                .clip(RoundedCornerShape(bottomStart = 10.dp, bottomEnd = 10.dp))
+                .background(ArkivRed)
+                .then(if (onTocar != null) Modifier.clickable { onTocar() } else Modifier)
+                .padding(horizontal = 18.dp, vertical = 8.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text("!", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Text(
+                "Dato curioso",
+                color = Color.White,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+            )
         }
     }
 }
 
+/**
+ * Panel del dato, desplegado desde el borde superior. Muestra [textos] en la posición que diga
+ * [EstadoDeTrivia.indiceVisible], con el contador para saber cuántos quedan.
+ *
+ * Baja desde arriba en vez de ser un diálogo centrado para no tapar el video: el dato se lee
+ * mientras la película sigue.
+ */
 @Composable
-internal fun DialogoDeTrivia(estado: EstadoDeTrivia, texto: String) {
-    if (!estado.dialogoAbierto) return
-    AlertDialog(
-        onDismissRequest = { estado.cerrarDialogo() },
-        title = { Text("Dato curioso") },
-        text = { Text(texto) },
-        confirmButton = { TextButton(onClick = { estado.cerrarDialogo() }) { Text("Cerrar") } },
-    )
+internal fun BoxScope.PanelDeTrivia(estado: EstadoDeTrivia, textos: List<String>) {
+    val texto = textos.getOrNull(estado.indiceVisible)
+    AnimatedVisibility(
+        visible = estado.panelAbierto && texto != null,
+        enter = slideInVertically { -it } + fadeIn(),
+        exit = slideOutVertically { -it } + fadeOut(),
+        modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color.Black.copy(alpha = 0.92f))
+                .systemBarsPadding()
+                .padding(horizontal = 32.dp, vertical = 20.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(ArkivRed)
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                ) {
+                    Text("Dato curioso", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.weight(1f))
+                if (textos.size > 1) {
+                    Text(
+                        "${estado.indiceVisible + 1} de ${textos.size}",
+                        color = Color.White.copy(alpha = 0.55f),
+                        fontSize = 13.sp,
+                    )
+                }
+            }
+            Text(
+                texto.orEmpty(),
+                color = Color.White,
+                fontSize = 19.sp,
+                lineHeight = 26.sp,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+        }
+    }
 }

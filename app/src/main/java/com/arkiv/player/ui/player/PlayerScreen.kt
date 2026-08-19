@@ -454,14 +454,11 @@ private fun PlayerContent(
     val espejo = rememberEspejoDelPlayer()
 
     // --- Datos curiosos ---
-    // El índice sale de la posición, no de un temporizador: adelantar o retroceder mueve el dato
-    // igual que mueve el video, y no hay un reloj propio que se desincronice al pausar.
-    val indiceTrivia = TriviaDelPlayer.indiceEn(espejo.posicionMs, trivia.size)
-    // Estado y piezas de UI del dato curioso: en `TriviaDelPlayer.kt`, junto a la regla que
-    // decide cual toca.
+    // El dato avanza a PULSACIÓN, no con el reloj: cada `arriba` (o el botón "i", o tocar el
+    // cartel en el teléfono) muestra el siguiente, y al pasar el último vuelve el primero. El
+    // estado y las dos piezas de interfaz viven en `TriviaDelPlayer.kt`.
     val estadoTrivia = rememberEstadoDeTrivia()
-    estadoTrivia.anunciarSiEsNuevo(indiceTrivia)
-    EfectoDelAvisoDeTrivia(estadoTrivia)
+    EfectosDeTrivia(estadoTrivia, trivia.size, episodeId)
     var loaded by remember { mutableStateOf(false) }
     // Episodio que esta pantalla ya mandó al receptor. Coordina los dos caminos que castean (la
     // carga de playlist y el salto local→cast de LaunchedEffect(casting)): si el usuario conecta
@@ -1245,6 +1242,10 @@ private fun PlayerContent(
     // mirara controles.visible, en modo marcado o con un error en pantalla la variable puede seguir
     // en true sin que se vea nada, y BACK quedaría muerto (ni cierra ni sale). Mantener ambas
     // iguales si se toca una.
+    // BACK cierra el panel del dato curioso antes que nada. Va ANTES del handler de los controles
+    // para quedar más adentro en la pila: con el panel abierto, BACK lo cierra y no sale del video.
+    BackHandler(enabled = estadoTrivia.panelAbierto) { estadoTrivia.cerrarPanel() }
+
     BackHandler(enabled = !enVivo && controles.visible && loadError == null && estadoDlna.activo == null && !marcadores.marcando) {
         controles.ocultar()
     }
@@ -1647,6 +1648,13 @@ private fun PlayerContent(
                             // listener ni siquiera debería recibir el evento; el fallback existe
                             // solo por si el foco no llegó a moverse a tiempo.
                             if (controles.visible) return@setOnKeyListener false
+                            // ARRIBA con los controles ocultos y datos cargados: en vez de abrir el
+                            // overlay, despliega el dato curioso que sigue. Va ANTES que el bloque
+                            // de vivo porque ahí arriba zapea, y un canal no lleva datos igual.
+                            if (!enVivo && keyCode == KeyEvent.KEYCODE_DPAD_UP && TriviaDelPlayer.hayBoton(trivia)) {
+                                estadoTrivia.mostrarSiguiente(trivia.size)
+                                return@setOnKeyListener true
+                            }
                             // Vivo (Tarea 14): Arriba/Abajo zapean en vez de mostrar el overlay de
                             // VOD (que en vivo no existe, ver `visible = !enVivo && ...`), e
                             // Izquierda/Derecha no hacen seek (no hay duración/posición en vivo).
@@ -1956,9 +1964,14 @@ private fun PlayerContent(
         // Vive AFUERA del AnimatedVisibility de los controles (como el cartel de Chromecast y el
         // indicador de descarga de torrent de arriba) a propósito: es informativo, no un control,
         // así que se mantiene visible aunque los controles se hayan desvanecido por inactividad.
-        // Aviso de dato curioso nuevo (ver su KDoc en `TriviaDelPlayer.kt`). Si el chip de
-        // "reproducir en vivo" está puesto, este baja para no taparlo.
-        AvisoDeTrivia(estadoTrivia, bajarParaNoTapar = showLiveOverride)
+        // Cartel "Dato curioso" arriba y centrado, y el panel que despliega el texto (ver sus KDoc
+        // en `TriviaDelPlayer.kt`). En el teléfono el cartel es tocable; en TV se abre con la
+        // flecha arriba, ver el listener del video.
+        CartelDeTrivia(
+            estado = estadoTrivia,
+            onTocar = if (isTv) null else ({ estadoTrivia.mostrarSiguiente(trivia.size) }),
+        )
+        PanelDeTrivia(estadoTrivia, trivia)
 
         // TopEnd + top=64dp para no pisar el back/título de la barra superior (que ocupa la franja
         // 0–56dp) ni, en TV en pausa, el título/nombre de episodio de cabecera.info (TopStart).
@@ -2496,7 +2509,7 @@ private fun PlayerContent(
                                     TvTransportButton(
                                         icon = Icons.Default.Info,
                                         contentDescription = "Dato curioso",
-                                        onClick = { estadoTrivia.abrirDialogo() },
+                                        onClick = { estadoTrivia.mostrarSiguiente(trivia.size) },
                                         iconSize = 24.dp,
                                         tint = Color.White,
                                         // Último de la fila: su `right` apunta a sí mismo (tope derecho).
@@ -2552,7 +2565,7 @@ private fun PlayerContent(
                                 }
                                 // El mismo botón de dato curioso que en TV, al final de la fila.
                                 if (TriviaDelPlayer.hayBoton(trivia)) {
-                                    IconButton(onClick = { estadoTrivia.abrirDialogo() }) {
+                                    IconButton(onClick = { estadoTrivia.mostrarSiguiente(trivia.size) }) {
                                         Icon(
                                             Icons.Default.Info,
                                             contentDescription = "Dato curioso",
@@ -2669,7 +2682,6 @@ private fun PlayerContent(
     // PlaybackPreferenceStore (vía vm.resolveAskPlaybackSource); acá solo se muestra el estado que
     // expone el ViewModel.
 
-    DialogoDeTrivia(estadoTrivia, trivia.getOrNull(indiceTrivia).orEmpty())
 
     if (askPlaybackSource != null) {
         AlertDialog(

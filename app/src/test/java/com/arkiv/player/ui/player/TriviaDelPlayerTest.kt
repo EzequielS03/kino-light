@@ -6,55 +6,50 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * La regla de qué dato toca según el minuto. Vive en una función pura porque este proyecto no
- * tiene tests de interfaz: escrita adentro del Composable no se podría probar de ninguna forma
+ * Las reglas puras del dato curioso: cuál sigue al que se está viendo, si hay algo que mostrar y
+ * si la obra es serie o película. Viven en funciones puras porque este proyecto no
+ * tiene tests de interfaz: escritas adentro del Composable no se podrían probar de ninguna forma
  * (mismo criterio que `DpadDelDrawer`).
  */
 class TriviaDelPlayerTest {
 
+    // ---- siguienteIndice: la rotación por pulsación ----
+
     @Test
-    fun `al arrancar toca el primero`() {
-        assertEquals(0, TriviaDelPlayer.indiceEn(0L, cantidad = 8))
+    fun `cada pulsacion avanza al siguiente`() {
+        assertEquals(1, TriviaDelPlayer.siguienteIndice(actual = 0, cantidad = 8))
+        assertEquals(2, TriviaDelPlayer.siguienteIndice(actual = 1, cantidad = 8))
+        assertEquals(7, TriviaDelPlayer.siguienteIndice(actual = 6, cantidad = 8))
+    }
+
+    /** Al pasar el último vuelve al primero: siempre hay algo que mostrar al pulsar arriba. */
+    @Test
+    fun `despues del ultimo vuelve al primero`() {
+        assertEquals(0, TriviaDelPlayer.siguienteIndice(actual = 7, cantidad = 8))
+    }
+
+    /** Con un solo dato, pulsar arriba lo deja donde está en vez de dividir por cero o salirse. */
+    @Test
+    fun `con un solo dato se queda en el`() {
+        assertEquals(0, TriviaDelPlayer.siguienteIndice(actual = 0, cantidad = 1))
     }
 
     @Test
-    fun `cambia recien al cumplirse los diez minutos`() {
-        val casi = TriviaDelPlayer.INTERVALO_MS - 1
-        assertEquals(0, TriviaDelPlayer.indiceEn(casi, cantidad = 8))
-        assertEquals(1, TriviaDelPlayer.indiceEn(TriviaDelPlayer.INTERVALO_MS, cantidad = 8))
+    fun `sin datos no hay indice al que avanzar`() {
+        assertEquals(-1, TriviaDelPlayer.siguienteIndice(actual = 0, cantidad = 0))
+        assertEquals(-1, TriviaDelPlayer.siguienteIndice(actual = -1, cantidad = 0))
     }
 
+    /** El primer arriba, partiendo de "ninguno mostrado todavía", tiene que caer en el primero. */
     @Test
-    fun `cuando se acaban se queda con el ultimo y no vuelve a empezar`() {
-        // Una película de dos horas con ocho datos llega al final antes de terminar. Repetir
-        // desde el principio haría que el aviso mienta: diría "hay algo nuevo" mostrando lo mismo.
-        val tresHoras = 3 * 60 * 60 * 1000L
-        assertEquals(7, TriviaDelPlayer.indiceEn(tresHoras, cantidad = 8))
-    }
-
-    @Test
-    fun `sin datos no hay indice`() {
-        assertEquals(-1, TriviaDelPlayer.indiceEn(0L, cantidad = 0))
-        assertEquals(-1, TriviaDelPlayer.indiceEn(TriviaDelPlayer.INTERVALO_MS * 5, cantidad = 0))
-    }
-
-    @Test
-    fun `una posicion negativa no rompe nada`() {
-        // El player reporta -1 mientras no ha empezado a medir.
-        assertEquals(0, TriviaDelPlayer.indiceEn(-1L, cantidad = 8))
+    fun `desde ninguno arranca en el primero`() {
+        assertEquals(0, TriviaDelPlayer.siguienteIndice(actual = -1, cantidad = 8))
     }
 
     @Test
     fun `el boton existe solo si hay algo que leer`() {
         assertFalse(TriviaDelPlayer.hayBoton(emptyList()))
         assertTrue(TriviaDelPlayer.hayBoton(listOf("Un dato.")))
-    }
-
-    @Test
-    fun `un capitulo corto alcanza a mostrar dos datos`() {
-        // 24 minutos: el de entrada, el de los 10 y el de los 20.
-        val veinticuatro = 24 * 60 * 1000L
-        assertEquals(2, TriviaDelPlayer.indiceEn(veinticuatro, cantidad = 8))
     }
 
     @Test
