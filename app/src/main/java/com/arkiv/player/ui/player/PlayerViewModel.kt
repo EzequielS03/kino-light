@@ -803,9 +803,24 @@ class PlayerViewModel(
             } catch (e: Exception) {
                 Log.w(PLAY, "trivia: no se pudo identificar la obra: ${e.message}")
                 null
-            } ?: return@launch
+            } ?: run {
+                // `obraDeTriviaPara` devuelve null sin excepción en tres casos —el episodio no está
+                // en la tabla, el ítem tampoco, o el ítem no tiene tmdbId— y ninguno pasa por el
+                // catch de arriba. Sin esta línea la trivia se apagaba en silencio absoluto: no hay
+                // botón, no hay aviso y no hay nada en el log que diga por qué.
+                Log.w(PLAY, "trivia: sin obra para $episodeId (¿ítem sin tmdbId?) → no se pide")
+                return@launch
+            }
             _trivia.value = try {
-                gatewayClient.trivia(obra.tmdbId, obra.tipo, obra.temporada, obra.episodio)
+                gatewayClient.trivia(obra.tmdbId, obra.tipo, obra.temporada, obra.episodio).also {
+                    // También se anota la respuesta VACÍA: es el otro silencio, y desde la app se ve
+                    // igual que el anterior (sin botón), pero se arregla en un sitio distinto.
+                    Log.w(
+                        PLAY,
+                        "trivia: ${it.size} datos para tmdb=${obra.tmdbId} tipo=${obra.tipo} " +
+                            "t=${obra.temporada} e=${obra.episodio}",
+                    )
+                }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
