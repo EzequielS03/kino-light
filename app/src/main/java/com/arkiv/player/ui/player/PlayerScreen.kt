@@ -661,7 +661,7 @@ private fun PlayerContent(
     // Estado DLNA: vive entero en `PlayerDlna.kt` (estado, acciones y sus tres piezas de UI). De
     // todo eso, esta pantalla solo consulta `activo`, porque tener un renderer andando esconde los
     // controles locales.
-    val estadoDlna = rememberEstadoDlna(dlna)
+    val estadoDlna = rememberEstadoDlna(dlna, graph.applicationScope)
 
     val d = playlist?.items?.getOrNull(currentIndex)
     val isTorrent = d?.kind == SourceKind.TORRENT
