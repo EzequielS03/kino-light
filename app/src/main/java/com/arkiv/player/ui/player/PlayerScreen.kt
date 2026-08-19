@@ -77,7 +77,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -449,22 +448,9 @@ private fun PlayerContent(
         headerInfo = graph.repository.headerInfo(episodioEnCurso)
     }
 
-    // Foco D-pad (TV) de los controles del overlay de pausa: navegación real entre botones y la
-    // barra, en vez de acciones fijas por tecla. Ver LaunchedEffect(controlsVisible) más abajo:
-    // al mostrarse el overlay el foco de Android pasa del video (que atajaba TODAS las teclas) a
-    // estos FocusRequesters; al ocultarse vuelve al video para el "cualquier tecla = mostrar".
-    val subtitleFR = remember { FocusRequester() }
-    val dimDownFR = remember { FocusRequester() }
-    val dimUpFR = remember { FocusRequester() }
-    val triviaFR = remember { FocusRequester() }
-    val rewindFR = remember { FocusRequester() }
-    val playPauseFR = remember { FocusRequester() }
-    val forwardFR = remember { FocusRequester() }
-    val prevEpisodeFR = remember { FocusRequester() }
-    val nextEpisodeFR = remember { FocusRequester() }
-    val sliderFR = remember { FocusRequester() }
-    // Botón de override "Reproducir en vivo" (Task 11, solo visible reproduciendo desde la NUC).
-    val liveOverrideFR = remember { FocusRequester() }
+    // Foco D-pad (TV) de los controles del overlay de pausa: los once puntos de aterrizaje viven
+    // juntos en `PlayerFoco.kt`, ver su KDoc.
+    val focos = rememberFocosDelOverlay()
     // Carrusel de capítulos (TV): un paso más abajo desde la fila de íconos. Aparece con todos
     // los episodios de la serie en scroll horizontal, con el actual centrado y enfocado. Todo su
     // estado y sus tres efectos viven en `PlayerCapitulos.kt`.
@@ -1331,8 +1317,8 @@ private fun PlayerContent(
     LaunchedEffect(controlsVisible, isTv) {
         if (!isTv) return@LaunchedEffect
         if (controlsVisible) {
-            runCatching { sliderFR.requestFocus() }
-                .onFailure { runCatching { playPauseFR.requestFocus() } }
+            runCatching { focos.barra.requestFocus() }
+                .onFailure { runCatching { focos.playPausa.requestFocus() } }
         } else {
             // Al ocultarse el overlay el carrusel deja de existir: si estadoCapitulos.revelado quedara en
             // true, al reaparecer se mostraría ya abierto pero con el foco en el botón de play.
@@ -1362,7 +1348,7 @@ private fun PlayerContent(
         if (controlsVisible) {
             repeat(12) {
                 if (landed) return@repeat
-                landed = runCatching { subtitleFR.requestFocus() }.isSuccess
+                landed = runCatching { focos.subtitulos.requestFocus() }.isSuccess
                 if (!landed) delay(32)
             }
         }
@@ -2406,13 +2392,13 @@ private fun PlayerContent(
                                     .padding(horizontal = 10.dp)
                                     .then(
                                         if (!isTv) Modifier else Modifier
-                                            .focusRequester(sliderFR)
+                                            .focusRequester(focos.barra)
                                             .onFocusChanged { sliderFocused = it.isFocused }
                                             // ARRIBA se queda en la barra: es el tope del overlay y
                                             // los botones están DEBAJO, así que mandar `up` ahí era
                                             // un salto al revés (poco visible antes, porque el foco
                                             // no entraba acá; ahora es el primer control enfocado).
-                                            .focusProperties { down = playPauseFR; up = sliderFR; left = sliderFR; right = sliderFR }
+                                            .focusProperties { down = focos.playPausa; up = focos.barra; left = focos.barra; right = focos.barra }
                                             .onKeyEvent { e ->
                                                 if (e.type != KeyEventType.KeyDown) return@onKeyEvent false
                                                 when (e.key) {
@@ -2477,8 +2463,8 @@ private fun PlayerContent(
                             val next = nextEpisodeId
                             val showPrev = prev != null
                             val showNext = next != null
-                            val forwardRight = if (showNext) nextEpisodeFR else if (isTv) subtitleFR else forwardFR
-                            val nextRight = if (isTv) subtitleFR else nextEpisodeFR
+                            val forwardRight = if (showNext) focos.episodioSiguiente else if (isTv) focos.subtitulos else focos.adelantar
+                            val nextRight = if (isTv) focos.subtitulos else focos.episodioSiguiente
                             // Primero de la fila cuando existe: su `left` apunta a sí mismo (tope).
                             if (showPrev) {
                                 TvTransportButton(
@@ -2486,8 +2472,8 @@ private fun PlayerContent(
                                     contentDescription = "Capítulo anterior",
                                     onClick = { onNextEpisode(prev) },
                                     modifier = if (!isTv) Modifier else Modifier
-                                        .focusRequester(prevEpisodeFR)
-                                        .focusProperties { left = prevEpisodeFR; right = rewindFR; up = sliderFR; down = prevEpisodeFR },
+                                        .focusRequester(focos.episodioAnterior)
+                                        .focusProperties { left = focos.episodioAnterior; right = focos.retroceder; up = focos.barra; down = focos.episodioAnterior },
                                 )
                             }
                             // `down` apunta al propio botón (se queda) y NO al slider: bajar desde acá
@@ -2499,12 +2485,12 @@ private fun PlayerContent(
                                 contentDescription = "Atrasar 10s",
                                 onClick = { seekBy(-seekStepMs) },
                                 modifier = if (!isTv) Modifier else Modifier
-                                    .focusRequester(rewindFR)
+                                    .focusRequester(focos.retroceder)
                                     .focusProperties {
-                                        left = if (showPrev) prevEpisodeFR else rewindFR
-                                        right = playPauseFR
-                                        up = sliderFR
-                                        down = rewindFR
+                                        left = if (showPrev) focos.episodioAnterior else focos.retroceder
+                                        right = focos.playPausa
+                                        up = focos.barra
+                                        down = focos.retroceder
                                     },
                             )
                             TvTransportButton(
@@ -2513,16 +2499,16 @@ private fun PlayerContent(
                                 onClick = { togglePlayPause() },
                                 iconSize = 34.dp,
                                 modifier = if (!isTv) Modifier else Modifier
-                                    .focusRequester(playPauseFR)
-                                    .focusProperties { left = rewindFR; right = forwardFR; up = sliderFR; down = playPauseFR },
+                                    .focusRequester(focos.playPausa)
+                                    .focusProperties { left = focos.retroceder; right = focos.adelantar; up = focos.barra; down = focos.playPausa },
                             )
                             TvTransportButton(
                                 icon = Icons.Default.Forward10,
                                 contentDescription = "Adelantar 10s",
                                 onClick = { seekBy(seekStepMs) },
                                 modifier = if (!isTv) Modifier else Modifier
-                                    .focusRequester(forwardFR)
-                                    .focusProperties { left = playPauseFR; right = forwardRight; up = sliderFR; down = forwardFR },
+                                    .focusRequester(focos.adelantar)
+                                    .focusProperties { left = focos.playPausa; right = forwardRight; up = focos.barra; down = focos.adelantar },
                             )
                             // Casteando TAMBIÉN se muestra: el capítulo nuevo ahora SIGUE al cast
                             // (la carga se bifurca por `casting` y lo manda al receptor), que es de
@@ -2534,8 +2520,8 @@ private fun PlayerContent(
                                     contentDescription = "Siguiente episodio",
                                     onClick = { onNextEpisode(next) },
                                     modifier = if (!isTv) Modifier else Modifier
-                                        .focusRequester(nextEpisodeFR)
-                                        .focusProperties { left = forwardFR; right = nextRight; up = sliderFR; down = nextEpisodeFR },
+                                        .focusRequester(focos.episodioSiguiente)
+                                        .focusProperties { left = focos.adelantar; right = nextRight; up = focos.barra; down = focos.episodioSiguiente },
                                 )
                             }
                             if (isTv) {
@@ -2556,12 +2542,12 @@ private fun PlayerContent(
                                     iconSize = 24.dp,
                                     tint = if (estadoPistas.haySubtitulo) ArkivRed else Color.White,
                                     modifier = Modifier
-                                        .focusRequester(subtitleFR)
+                                        .focusRequester(focos.subtitulos)
                                         .focusProperties {
-                                            left = if (showNext) nextEpisodeFR else forwardFR
-                                            right = if (showLiveOverride) liveOverrideFR else dimDownFR
-                                            up = sliderFR
-                                            down = subtitleFR
+                                            left = if (showNext) focos.episodioSiguiente else focos.adelantar
+                                            right = if (showLiveOverride) focos.verEnVivo else focos.bajarBrillo
+                                            up = focos.barra
+                                            down = focos.subtitulos
                                         },
                                 )
                                 // Override manual (Task 11): solo reproduciendo desde la NUC. Salta la
@@ -2575,12 +2561,12 @@ private fun PlayerContent(
                                         iconSize = 24.dp,
                                         tint = Color.White,
                                         modifier = Modifier
-                                            .focusRequester(liveOverrideFR)
+                                            .focusRequester(focos.verEnVivo)
                                             .focusProperties {
-                                                left = subtitleFR
-                                                right = dimDownFR
-                                                up = sliderFR
-                                                down = liveOverrideFR
+                                                left = focos.subtitulos
+                                                right = focos.bajarBrillo
+                                                up = focos.barra
+                                                down = focos.verEnVivo
                                             },
                                     )
                                 }
@@ -2595,12 +2581,12 @@ private fun PlayerContent(
                                     iconSize = 24.dp,
                                     tint = if (dimNivel > 0) ArkivRed else Color.White,
                                     modifier = Modifier
-                                        .focusRequester(dimDownFR)
+                                        .focusRequester(focos.bajarBrillo)
                                         .focusProperties {
-                                            left = if (showLiveOverride) liveOverrideFR else subtitleFR
-                                            right = dimUpFR
-                                            up = sliderFR
-                                            down = dimDownFR
+                                            left = if (showLiveOverride) focos.verEnVivo else focos.subtitulos
+                                            right = focos.subirBrillo
+                                            up = focos.barra
+                                            down = focos.bajarBrillo
                                         },
                                 )
                                 // Último de la fila: su `right` apunta a sí mismo (tope derecho).
@@ -2611,12 +2597,12 @@ private fun PlayerContent(
                                     iconSize = 24.dp,
                                     tint = if (dimNivel > 0) ArkivRed else Color.White,
                                     modifier = Modifier
-                                        .focusRequester(dimUpFR)
+                                        .focusRequester(focos.subirBrillo)
                                         .focusProperties {
-                                            left = dimDownFR
-                                            right = if (TriviaDelPlayer.hayBoton(trivia)) triviaFR else dimUpFR
-                                            up = sliderFR
-                                            down = dimUpFR
+                                            left = focos.bajarBrillo
+                                            right = if (TriviaDelPlayer.hayBoton(trivia)) focos.trivia else focos.subirBrillo
+                                            up = focos.barra
+                                            down = focos.subirBrillo
                                         },
                                 )
                             }
@@ -2645,12 +2631,12 @@ private fun PlayerContent(
                                         iconSize = 24.dp,
                                         tint = Color.White,
                                         modifier = Modifier
-                                            .focusRequester(triviaFR)
+                                            .focusRequester(focos.trivia)
                                             .focusProperties {
-                                                left = dimUpFR
-                                                right = triviaFR
-                                                up = sliderFR
-                                                down = triviaFR
+                                                left = focos.subirBrillo
+                                                right = focos.trivia
+                                                up = focos.barra
+                                                down = focos.trivia
                                             },
                                     )
                                 }
@@ -2689,7 +2675,7 @@ private fun PlayerContent(
                             CarruselDeCapitulos(
                                 estado = estadoCapitulos,
                                 episodioEnCurso = episodioEnCurso,
-                                focoDeArriba = playPauseFR,
+                                focoDeArriba = focos.playPausa,
                                 onElegirEpisodio = onNextEpisode,
                             )
                         }
