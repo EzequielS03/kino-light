@@ -17,7 +17,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -28,17 +27,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Brightness2
@@ -73,7 +69,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -142,7 +137,6 @@ import com.arkiv.player.cast.CastProgress
 import com.arkiv.player.data.gateway.LiveProgram
 import com.arkiv.player.data.model.Episode
 import com.arkiv.player.ui.live.enCurso
-import com.arkiv.player.ui.settings.etiqueta
 import com.arkiv.player.ui.tv.TvEpisodeChip
 import com.arkiv.player.ui.tv.library.SAFE_H
 import com.arkiv.player.ui.tv.library.SAFE_V
@@ -671,16 +665,9 @@ private fun PlayerContent(
     var markingMode by remember { mutableStateOf<MarkingMode?>(null) }
     var markersMenu by remember { mutableStateOf(false) }
 
-    // Selector de audio/subtítulos (ambas fuentes, vía la API VLC del player vivo).
-    var subPickerOpen by remember { mutableStateOf(false) }
-    var spuTracks by remember { mutableStateOf<List<Pair<Int, String>>>(emptyList()) }
-    var audioTracks by remember { mutableStateOf<List<Pair<Int, String>>>(emptyList()) }
-    var curSpu by remember { mutableIntStateOf(-1) }
-    var curAudio by remember { mutableIntStateOf(-1) }
-    var subsOn by remember { mutableStateOf(false) }
-    var subtitles by remember { mutableStateOf<List<com.arkiv.player.data.subtitles.SubtitleTrack>>(emptyList()) }
-    var selectedSub by remember { mutableStateOf<com.arkiv.player.data.subtitles.SubtitleTrack?>(null) }
-    var loadingSubs by remember { mutableStateOf(false) }
+    // Selector de audio/subtítulos (ambas fuentes, vía la API VLC del player vivo). Todo el bloque
+    // vive en `PlayerPistas.kt`; de acá solo se consulta `haySubtitulo`, para el ícono de CC.
+    val estadoPistas = rememberEstadoDePistas(vlc, graph, context)
 
     // Estado de descarga (overlay solo para torrent).
     var progress by remember { mutableStateOf<TorrentProgress?>(null) }
@@ -1321,7 +1308,7 @@ private fun PlayerContent(
                 // es lo que distingue "se recuperó" de "reabrió y se cayó de nuevo".
                 if (enVivo) vm.vivoAndando(positionMs)
             }
-            subsOn = vlc.currentSpuTrack() >= 0
+            estadoPistas.sincronizarSubsOn()
             // "Arranca negro y con sonido": mientras libVLC ya suelta el audio pero todavía no dio
             // la primera imagen, `playbackState` NO es BUFFERING y la pantalla se quedaba sin
             // spinner y sin imagen. Casteando no aplica: la imagen la pone la TV, no nosotros.
@@ -1454,11 +1441,11 @@ private fun PlayerContent(
     // las teclas mientras controlsVisible es true— y el D-pad dejaba de responder. Vuelve al botón
     // que abrió el diálogo; el video solo tiene sentido si el overlay ya se ocultó.
     // Va en un efecto y no en el onDismiss para cubrir las DOS salidas: descartar el diálogo y
-    // elegir una pista (applySubtitle también apaga subPickerOpen, y ahí no se tocaba el foco).
+    // elegir una pista (`aplicarSubtituloOnline` también cierra el picker, y ahí nadie toca el foco).
     var subPickerWasOpen by remember { mutableStateOf(false) }
-    LaunchedEffect(subPickerOpen, isTv) {
+    LaunchedEffect(estadoPistas.pickerAbierto, isTv) {
         if (!isTv) return@LaunchedEffect
-        if (subPickerOpen) {
+        if (estadoPistas.pickerAbierto) {
             subPickerWasOpen = true
             return@LaunchedEffect
         }
@@ -1811,135 +1798,9 @@ private fun PlayerContent(
         bump()
     }
 
-    // Lee las pistas embebidas (audio + subtítulos) del archivo, vía el player vivo.
-    fun refreshTracks() {
-        spuTracks = vlc.vlcSpuTracks()
-        audioTracks = vlc.vlcAudioTracks()
-        curSpu = vlc.currentSpuTrack()
-        curAudio = vlc.currentAudioTrack()
-    }
-
-    /**
-     * Elegir una pista a mano sube ese idioma al tope de la preferencia — pero solo si el archivo
-     * tenía más de un idioma (ver LangPromotion: sin alternativa, elegir no expresa preferencia).
-     */
-    fun promoteLang(pickedName: String, allNames: List<String>, esAudio: Boolean) {
-        val prefs = graph.subtitlePrefs.prefs.value
-        val nuevo = com.arkiv.player.playback.LangPromotion.promote(
-            order = if (esAudio) prefs.audioLangs else prefs.subtitleLangs,
-            pickedName = pickedName,
-            allNames = allNames,
-            classifier = if (esAudio) {
-                com.arkiv.player.playback.LangTokens::classify
-            } else {
-                com.arkiv.player.playback.LangTokens::classifyFileName
-            },
-        ) ?: return
-        val actualizado = if (esAudio) prefs.copy(audioLangs = nuevo) else prefs.copy(subtitleLangs = nuevo)
-        graph.subtitlePrefs.update(actualizado)
-        graph.applicationScope.launch {
-            runCatching { graph.remoteController.sendSubtitlePrefs(actualizado.toJson()) }
-        }
-    }
-
-    /**
-     * Nombre a mostrar de una pista de subtítulo. El MPEG-TS de magis las entrega sin idioma y libVLC
-     * las bautiza "Track 1", "Track 2"…, que no le dice nada a nadie. Cuando la fuente declaró los
-     * idiomas (mismo orden que las pistas) se antepone el idioma; si no, se deja el nombre crudo.
-     *
-     * Misma regla que usa el selector (ver VlcPlayer.clasificarSpuConFuente): cubre las primeras N
-     * pistas por id, que son las del contenedor; de ahí en adelante no se adivina.
-     */
-    fun etiquetaSpu(id: Int, nombre: String): String {
-        if (id < 0) return nombre
-        // Mismo recorte por fuente que arriba: fuera de magis esta lista no describe las pistas
-        // embebidas y etiquetarlas con ella sería mentir en el menú.
-        if (PlayerSource.kindFor(episodeId) != SourceKind.MAGIS) return nombre
-        val idiomas = webExtras?.subtitles?.map { it.lang }.orEmpty()
-        val reales = spuTracks.filter { it.first >= 0 }.sortedBy { it.first }
-        val i = reales.indexOfFirst { it.first == id }
-        if (i < 0 || i >= idiomas.size) return nombre
-        val lang = com.arkiv.player.playback.LangTokens.classifyCode(idiomas[i])
-        if (lang == com.arkiv.player.playback.TrackLang.UNKNOWN) return nombre
-        return "${lang.etiqueta()} · $nombre"
-    }
-
-    // Aplica (o quita) un subtítulo de OpenSubtitles: baja el .srt y lo carga como pista externa.
-    fun applySubtitle(sub: com.arkiv.player.data.subtitles.SubtitleTrack?) {
-        subPickerOpen = false
-        scope.launch {
-            val file = if (sub != null) {
-                withContext(Dispatchers.IO) {
-                    graph.subtitleApi.download(sub.fileId, java.io.File(context.cacheDir, "subs"), sub.language)
-                }
-            } else null
-            if (file != null) {
-                vlc.addSubtitleSlave(Uri.fromFile(file))
-                selectedSub = sub
-            } else if (sub == null) {
-                // "Ninguno": elección real del usuario, y por eso corta la selección automática.
-                vlc.setVlcSpuTrack(-1)
-                selectedSub = null
-            } else {
-                // La descarga falló (red). NO se toca la pista: apagarla acá quedaría registrado como
-                // una decisión del usuario y dejaría sin auto-selección al resto del ítem — un .srt
-                // del torrent que llegue después ya no se prendería. Y por lo mismo tampoco se limpia
-                // `selectedSub`: en pantalla sigue el subtítulo de antes, así que ponerlo en null
-                // dejaba al selector marcando "Ninguno" sobre un subtítulo que se seguía viendo. No
-                // cambió nada, así que el estado no cambia; lo único que falta es avisar.
-                android.widget.Toast.makeText(
-                    context,
-                    "No se pudo bajar el subtítulo (revisá la conexión)",
-                    android.widget.Toast.LENGTH_SHORT,
-                ).show()
-            }
-        }
-    }
-
-    // Búsqueda automática de subtítulos online para el idioma preferido.
+    // Búsqueda automática de subtítulos online para el idioma preferido (ver `EstadoDePistas`).
     LaunchedEffect(episodeId) {
-        // Un solo origen para lo que se PIDE y para cómo se ORDENA: derivarlos por separado deja que
-        // se desincronicen (se pediría un idioma que el orden no conoce, y se iría al fondo).
-        val langs = graph.subtitlePrefs.prefs.value.openSubtitlesCodes()
-        val ordenIdiomas = langs.split(",")
-        val subCtx = graph.repository.subtitleContextForEpisode(episodeId)
-        suspend fun runSearch(hash: String?) {
-            subtitles = if (subCtx == null && hash == null) emptyList() else runCatching {
-                graph.subtitleApi.search(
-                    imdbId = subCtx?.imdbId, query = subCtx?.title,
-                    season = subCtx?.season, episode = subCtx?.episode, languages = langs,
-                    moviehash = hash,
-                )
-            }.getOrDefault(emptyList())
-                // release exacto primero; dentro de cada nivel, tu idioma preferido arriba.
-                .sortedWith(
-                    compareByDescending<com.arkiv.player.data.subtitles.SubtitleTrack> { it.hashMatch }
-                        .thenBy { s ->
-                            // Por la subetiqueta base: se pide "es" pero las respuestas traen
-                            // "es-419"/"es-mx" para el latino, que comparado entero no matchearía
-                            // nunca y mandaría justo al latino al fondo de la lista.
-                            val base = s.language.lowercase().substringBefore('-')
-                            ordenIdiomas.indexOf(base).takeIf { it >= 0 } ?: Int.MAX_VALUE
-                        },
-                )
-        }
-        loadingSubs = true
-        runSearch(null) // 1) por título/imdb, rápido (no espera la descarga)
-        loadingSubs = false
-        // 2) TORRENT: el moviehash necesita la cola descargada (puede tardar tras un gate por timeout).
-        // Espero a que esté disponible y RE-busco con el hash → sube los subs del release EXACTO al tope.
-        if (sourceIsTorrent) {
-            repeat(20) {
-                val hash = withContext(Dispatchers.IO) {
-                    runCatching { graph.torrentEngine.servedMovieHash() }.getOrNull()
-                }
-                if (hash != null) { runSearch(hash); return@LaunchedEffect }
-                delay(1500)
-            }
-        }
-        // NO se auto-selecciona ninguno de estos: la selección automática (SubtitleDecision) trabaja
-        // sobre las pistas que ya trae el archivo, y bajar uno de OpenSubtitles es una acción manual.
-        // Quedan listados en el menú CC para cuando el archivo no traiga nada en tu idioma.
+        estadoPistas.buscarOnline(episodeId, sourceIsTorrent)
     }
 
     // Subtítulos EMBEBIDOS en el torrent (.srt/.ass junto al video): el engine los prioriza (son KB, bajan
@@ -2784,11 +2645,11 @@ private fun PlayerContent(
                                 // los subtítulos estén activos se sigue distinguiendo por el ícono
                                 // (ClosedCaption vs ClosedCaptionOff), no solo por el tinte rojo.
                                 TvTransportButton(
-                                    icon = if (subsOn || selectedSub != null) Icons.Default.ClosedCaption else Icons.Default.ClosedCaptionOff,
+                                    icon = if (estadoPistas.haySubtitulo) Icons.Default.ClosedCaption else Icons.Default.ClosedCaptionOff,
                                     contentDescription = "Subtítulos y audio",
-                                    onClick = { refreshTracks(); subPickerOpen = true },
+                                    onClick = { estadoPistas.abrirPicker() },
                                     iconSize = 24.dp,
-                                    tint = if (subsOn || selectedSub != null) ArkivRed else Color.White,
+                                    tint = if (estadoPistas.haySubtitulo) ArkivRed else Color.White,
                                     modifier = Modifier
                                         .focusRequester(subtitleFR)
                                         .focusProperties {
@@ -2890,11 +2751,11 @@ private fun PlayerContent(
                                 }
                                 }
                                 }
-                                IconButton(onClick = { refreshTracks(); subPickerOpen = true }) {
+                                IconButton(onClick = { estadoPistas.abrirPicker() }) {
                                     Icon(
-                                        if (subsOn || selectedSub != null) Icons.Default.ClosedCaption else Icons.Default.ClosedCaptionOff,
+                                        if (estadoPistas.haySubtitulo) Icons.Default.ClosedCaption else Icons.Default.ClosedCaptionOff,
                                         contentDescription = "Subtítulos y audio",
-                                        tint = if (subsOn || selectedSub != null) ArkivRed else Color.White,
+                                        tint = if (estadoPistas.haySubtitulo) ArkivRed else Color.White,
                                     )
                                 }
                                 // MODO NOCHE (los mismos dos botones que en TV; acá el gesto de
@@ -3243,74 +3104,13 @@ private fun PlayerContent(
         }
     }
 
-    // Diálogo de audio y subtítulos (embebidos vía VLC + OpenSubtitles).
-    if (subPickerOpen) {
-        // Solo apaga la bandera: del foco se encarga el LaunchedEffect(subPickerOpen) de arriba,
-        // que es el mismo camino que sigue elegir una pista.
-        val closeSubs = { subPickerOpen = false }
-        AlertDialog(
-            onDismissRequest = { closeSubs() },
-            title = { Text("Audio y subtítulos") },
-            text = {
-                Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
-                    // AUDIO (releases dual: latino / inglés).
-                    if (audioTracks.count { it.first >= 0 } > 1) {
-                        Text("Audio", style = MaterialTheme.typography.titleSmall, color = ArkivRed, modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
-                        audioTracks.filter { it.first >= 0 }.forEach { (id, name) ->
-                            TextButton(onClick = {
-                                vlc.setVlcAudioTrack(id); curAudio = id
-                                promoteLang(name, audioTracks.filter { it.first >= 0 }.map { it.second }, esAudio = true)
-                            }) {
-                                Text((if (id == curAudio) "✓ " else "") + name, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
-                    }
-
-                    // SUBTÍTULOS DEL ARCHIVO (embebidos).
-                    Text("Subtítulos del archivo", style = MaterialTheme.typography.titleSmall, color = ArkivRed, modifier = Modifier.padding(top = 12.dp, bottom = 2.dp))
-                    if (spuTracks.none { it.first >= 0 }) {
-                        Text("Este archivo no trae subtítulos embebidos.", color = ArkivTextSecondary, modifier = Modifier.padding(8.dp))
-                        TextButton(onClick = { vlc.setVlcSpuTrack(-1); curSpu = -1; selectedSub = null }) {
-                            Text((if (curSpu < 0) "✓ " else "") + "Desactivar", color = Color.White)
-                        }
-                    } else {
-                        (listOf(-1 to "Desactivar") + spuTracks.filter { it.first >= 0 }).forEach { (id, name) ->
-                            TextButton(onClick = {
-                                vlc.setVlcSpuTrack(id); curSpu = id; if (id < 0) selectedSub = null
-                                if (id >= 0) {
-                                    promoteLang(name, spuTracks.filter { it.first >= 0 }.map { it.second }, esAudio = false)
-                                }
-                            }) {
-                                Text((if (id == curSpu && selectedSub == null) "✓ " else "") + etiquetaSpu(id, name), color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
-                    }
-
-                    // ONLINE (OpenSubtitles): con el login obligatorio SIEMPRE hay sesión de
-                    // persona (no hay pantalla que componga sin ella), así que esta sección ya
-                    // no tiene ningún caso real de "no se puede buscar" que ocultar -- se dibuja
-                    // siempre, directo.
-                    Text("Buscar online (OpenSubtitles)", style = MaterialTheme.typography.titleSmall, color = ArkivRed, modifier = Modifier.padding(top = 12.dp, bottom = 2.dp))
-                    when {
-                        loadingSubs -> Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.padding(end = 12.dp).size(20.dp))
-                            Text("Buscando subtítulos…", color = ArkivTextSecondary)
-                        }
-                        subtitles.isEmpty() -> Text("No se encontraron subtítulos en español.", color = ArkivTextSecondary, modifier = Modifier.padding(8.dp))
-                        else -> subtitles.forEach { s ->
-                            TextButton(onClick = { applySubtitle(s) }) {
-                                Text(
-                                    (if (selectedSub?.fileId == s.fileId) "✓ " else "↓ ") + s.label,
-                                    color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { closeSubs() }) { Text("Cerrar") } },
-        )
-    }
+    // Diálogo de audio y subtítulos (embebidos vía VLC + OpenSubtitles). Los dos datos que recibe
+    // son solo para etiquetar las pistas que magis entrega sin idioma; ver `etiquetaDeSpu`.
+    DialogoDeAudioYSubtitulos(
+        estado = estadoPistas,
+        esMagis = PlayerSource.kindFor(episodeId) == SourceKind.MAGIS,
+        idiomasDeclarados = webExtras?.subtitles?.map { it.lang }.orEmpty(),
+    )
 }
 
 @Composable
