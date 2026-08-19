@@ -824,7 +824,7 @@ private fun PlayerContent(
     LaunchedEffect(controlsVisible, espejo.buffereando, casting, estadoDlna.activo, marcadores.modo, loadError) {
         android.util.Log.i(
             "ArkivCast",
-            "UI barra · controlsVisible=$controlsVisible espejo.buffereando=$espejo.buffereando casting=$casting " +
+            "UI barra · controlsVisible=$controlsVisible buffering=${espejo.buffereando} casting=$casting " +
                 "dlna=${estadoDlna.activo != null} marcando=${marcadores.marcando} error=${loadError != null} " +
                 "→ overlay=${controlsVisible && loadError == null && estadoDlna.activo == null && !marcadores.marcando}",
         )
@@ -841,7 +841,7 @@ private fun PlayerContent(
         android.util.Log.w(
             "ArkivVlc",
             "spinner=${playlist == null || espejo.buffereando || sinPrimeraImagen || (esperandoVideo && !casting)} " +
-                "· sinPlaylist=${playlist == null} buffering=$espejo.buffereando sinImagen=$sinPrimeraImagen " +
+                "· sinPlaylist=${playlist == null} buffering=${espejo.buffereando} sinImagen=$sinPrimeraImagen " +
                 "perdioVideo=$esperandoVideo",
         )
     }
@@ -1064,7 +1064,7 @@ private fun PlayerContent(
         if (finAtendido == actual) return
         // Un stream cortado avisa igual que un capítulo terminado: ver AutoAvance.
         if (!AutoAvance.esFinDeCapitulo(espejo.posicionMs, espejo.duracionMs)) {
-            android.util.Log.w("ArkivPlay", "fin en pos=$espejo.posicionMs de $espejo.duracionMs → no es el final, no avanza")
+            android.util.Log.w("ArkivPlay", "fin en pos=${espejo.posicionMs} de ${espejo.duracionMs} → no es el final, no avanza")
             return
         }
         finAtendido = actual
