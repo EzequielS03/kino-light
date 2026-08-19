@@ -67,9 +67,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -137,7 +135,6 @@ import com.arkiv.player.playback.SourceKind
 import com.arkiv.player.playback.VideoAttachPolicy
 import com.arkiv.player.playback.VlcPlayer
 import com.arkiv.player.playback.setPlayerSourceTag
-import com.arkiv.player.torrent.TorrentProgress
 import com.arkiv.player.torrent.TorrentServingService
 import com.arkiv.player.ui.formatDuration
 import com.arkiv.player.ui.rememberGraph
@@ -462,26 +459,19 @@ private fun PlayerContent(
     }
     val casting by castingFlow.collectAsStateWithLifecycle()
 
-    var isBuffering by remember { mutableStateOf(true) }
-    var positionMs by remember { mutableLongStateOf(0L) }
+    // Lo que la pantalla sabe del player activo (posicion, duracion, playing, buffering) vive
+    // junto en `PlayerEspejo.kt`: son los valores que casi toda la interfaz lee a la vez.
+    val espejo = rememberEspejoDelPlayer()
 
     // --- Datos curiosos ---
     // El índice sale de la posición, no de un temporizador: adelantar o retroceder mueve el dato
     // igual que mueve el video, y no hay un reloj propio que se desincronice al pausar.
-    val indiceTrivia = TriviaDelPlayer.indiceEn(positionMs, trivia.size)
+    val indiceTrivia = TriviaDelPlayer.indiceEn(espejo.posicionMs, trivia.size)
     // Estado y piezas de UI del dato curioso: en `TriviaDelPlayer.kt`, junto a la regla que
     // decide cual toca.
     val estadoTrivia = rememberEstadoDeTrivia()
     estadoTrivia.anunciarSiEsNuevo(indiceTrivia)
     EfectoDelAvisoDeTrivia(estadoTrivia)
-    var durationMs by remember { mutableLongStateOf(0L) }
-    var isPlaying by remember { mutableStateOf(false) }
-    /**
-     * La INTENCIÓN de reproducir (`playWhenReady`), que no es lo mismo que `isPlaying`: isPlaying
-     * también se cae en cada rebuffer. Se sigue aparte porque es lo que distingue "el usuario
-     * pausó" de "el torrent se quedó sin datos un segundo" (ver el efecto de captura al pausar).
-     */
-    var quiereReproducir by remember { mutableStateOf(false) }
     var loaded by remember { mutableStateOf(false) }
     // Episodio que esta pantalla ya mandó al receptor. Coordina los dos caminos que castean (la
     // carga de playlist y el salto local→cast de LaunchedEffect(casting)): si el usuario conecta
@@ -553,11 +543,6 @@ private fun PlayerContent(
     // vive en `PlayerPistas.kt`; de acá solo se consulta `haySubtitulo`, para el ícono de CC.
     val estadoPistas = rememberEstadoDePistas(vlc, graph, context)
 
-    // Estado de descarga (overlay solo para torrent).
-    var progress by remember { mutableStateOf<TorrentProgress?>(null) }
-    // Fracción [0..1] ya descargada/buffereada por delante (para el tramo gris claro de la barra).
-    // Torrent: % de descarga del engine; archive: % del archivo cacheado por el proxy.
-    var bufferedFraction by remember { mutableFloatStateOf(0f) }
 
     // Modo noche: nivel del velo negro sobre el video, 0..DIM_MAX_LEVEL. Persistido en
     // SettingsStore (sobrevive a cerrar la app). Se acota al leerlo por si quedó un valor viejo
@@ -838,10 +823,10 @@ private fun PlayerContent(
     }
 
 
-    LaunchedEffect(controlsVisible, isBuffering, casting, estadoDlna.activo, markingMode, loadError) {
+    LaunchedEffect(controlsVisible, espejo.buffereando, casting, estadoDlna.activo, markingMode, loadError) {
         android.util.Log.i(
             "ArkivCast",
-            "UI barra · controlsVisible=$controlsVisible isBuffering=$isBuffering casting=$casting " +
+            "UI barra · controlsVisible=$controlsVisible espejo.buffereando=$espejo.buffereando casting=$casting " +
                 "dlna=${estadoDlna.activo != null} marcando=${markingMode != null} error=${loadError != null} " +
                 "→ overlay=${controlsVisible && loadError == null && estadoDlna.activo == null && markingMode == null}",
         )
@@ -851,14 +836,14 @@ private fun PlayerContent(
     // `overlay=` y es la barra de transporte; confundirlos cuesta una ronda de medición).
     //
     // Se loguea aparte porque el fallo que interesa es invisible desde afuera: el arranque negro con
-    // sonido es exactamente el instante en que `isBuffering` ya es false y todavía no hay imagen, o
+    // sonido es exactamente el instante en que `espejo.buffereando` ya es false y todavía no hay imagen, o
     // sea que ninguna de las señales viejas lo delata. Con `sinImagen` se ve si el spinner tapó ese
     // hueco o si la pantalla se quedó en negro.
-    LaunchedEffect(playlist == null, isBuffering, sinPrimeraImagen, esperandoVideo, casting) {
+    LaunchedEffect(playlist == null, espejo.buffereando, sinPrimeraImagen, esperandoVideo, casting) {
         android.util.Log.w(
             "ArkivVlc",
-            "spinner=${playlist == null || isBuffering || sinPrimeraImagen || (esperandoVideo && !casting)} " +
-                "· sinPlaylist=${playlist == null} buffering=$isBuffering sinImagen=$sinPrimeraImagen " +
+            "spinner=${playlist == null || espejo.buffereando || sinPrimeraImagen || (esperandoVideo && !casting)} " +
+                "· sinPlaylist=${playlist == null} buffering=$espejo.buffereando sinImagen=$sinPrimeraImagen " +
                 "perdioVideo=$esperandoVideo",
         )
     }
@@ -901,8 +886,7 @@ private fun PlayerContent(
             android.util.Log.w("ArkivPlay", "playlist lista (vivo) → setMediaItems (${pl.items.firstOrNull()?.episodeId})")
             loaded = true
             currentIndex = 0
-            positionMs = 0L
-            durationMs = 0L
+            espejo.reiniciarElReloj()
             val epId = pl.items.firstOrNull()?.episodeId
             // Tarea 18: con el Chromecast YA conectado, cada zap tiene que empujarle el canal nuevo
             // al receptor -- si no, la TV se queda pegada mirando el canal viejo mientras el celu ya
@@ -971,7 +955,7 @@ private fun PlayerContent(
             return@LaunchedEffect
         }
         loaded = true
-        positionMs = pl.startPositionMs
+        espejo.saltoA(pl.startPositionMs)
         android.util.Log.w("ArkivPlay", "playlist lista → cargar. isWeb=$isWeb decision=$decision startPos=${pl.startPositionMs}")
         if (casting && castSession != null) {
             val idx = pl.items.indexOfFirst { it.episodeId == episodeId }.coerceAtLeast(0)
@@ -1081,8 +1065,8 @@ private fun PlayerContent(
             ?: episodeId
         if (finAtendido == actual) return
         // Un stream cortado avisa igual que un capítulo terminado: ver AutoAvance.
-        if (!AutoAvance.esFinDeCapitulo(positionMs, durationMs)) {
-            android.util.Log.w("ArkivPlay", "fin en pos=$positionMs de $durationMs → no es el final, no avanza")
+        if (!AutoAvance.esFinDeCapitulo(espejo.posicionMs, espejo.duracionMs)) {
+            android.util.Log.w("ArkivPlay", "fin en pos=$espejo.posicionMs de $espejo.duracionMs → no es el final, no avanza")
             return
         }
         finAtendido = actual
@@ -1094,12 +1078,13 @@ private fun PlayerContent(
     // Índice/buffering/estado del transporte. Sigue al player activo: al conectar o desconectar
     // el cast, el efecto se relanza solo y el listener se re-engancha al que corresponda.
     DisposableEffect(activePlayer) {
-        isBuffering = activePlayer.playbackState == Player.STATE_BUFFERING
-        isPlaying = activePlayer.isPlaying
-        quiereReproducir = activePlayer.playWhenReady
+        espejo.sincronizarTransporte(
+            buffereando = activePlayer.playbackState == Player.STATE_BUFFERING,
+            reproduciendo = activePlayer.isPlaying,
+            quiereReproducir = activePlayer.playWhenReady,
+        )
         if (activePlayer.playbackState == Player.STATE_READY && posicionEsDeEstaPantalla()) {
-            positionMs = contentPositionMs()
-            contentDurationMs().let { if (it > 0) durationMs = it }
+            espejo.leyoElReloj(contentPositionMs(), contentDurationMs())
         }
         currentIndex = controller.currentMediaItemIndex.coerceAtLeast(0)
         val listener = object : Player.Listener {
@@ -1112,16 +1097,16 @@ private fun PlayerContent(
             }
 
             override fun onPlaybackStateChanged(state: Int) {
-                isBuffering = state == Player.STATE_BUFFERING
+                espejo.cambioElBuffering(state == Player.STATE_BUFFERING)
                 if (state == Player.STATE_ENDED) alTerminarElCapitulo()
             }
 
             override fun onIsPlayingChanged(playing: Boolean) {
-                isPlaying = playing
+                espejo.cambioElPlaying(playing)
             }
 
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-                quiereReproducir = playWhenReady
+                espejo.cambioLaIntencion(playWhenReady)
             }
 
             // Sin esto, un fallo de reproducción no llegaba a NINGUNA parte: VlcPlayer lo publicaba
@@ -1147,29 +1132,30 @@ private fun PlayerContent(
         var tick = 0
         while (true) {
             delay(500)
-            if (isTorrent) progress = graph.torrentEngine.streamStatus()
+            if (isTorrent) espejo.leyoLaDescarga(graph.torrentEngine.streamStatus())
             // Fracción buffereada por delante para la barra: torrent = % de descarga; archive = % cacheado.
             // Casteando no aplica: lo que bufferea es el receptor, no nosotros — mostrar el buffer
             // local sería una barra que miente.
-            bufferedFraction = when {
-                casting -> 0f
-                isTorrent -> progress?.progress ?: 0f
-                else -> {
-                    val url = playlistRef.value?.items?.getOrNull(controller.currentMediaItemIndex)?.mediaUrl
-                    if (url != null) graph.archiveCacheProxy.bufferedFraction(url) else 0f
-                }
-            }
+            espejo.leyoElBuffer(
+                when {
+                    casting -> 0f
+                    isTorrent -> espejo.descarga?.progress ?: 0f
+                    else -> {
+                        val url = playlistRef.value?.items?.getOrNull(controller.currentMediaItemIndex)?.mediaUrl
+                        if (url != null) graph.archiveCacheProxy.bufferedFraction(url) else 0f
+                    }
+                },
+            )
             val ready = activePlayer.playbackState == Player.STATE_READY && posicionEsDeEstaPantalla()
             if (ready) {
-                positionMs = contentPositionMs()
-                contentDurationMs().let { if (it > 0) durationMs = it }
-                // El presupuesto de reaperturas se repone con la POSICIÓN, no con `isPlaying`.
-                // Medido en el Fire TV el 2026-08-14: `isPlaying` se pone en true apenas VLC abre,
+                espejo.leyoElReloj(contentPositionMs(), contentDurationMs())
+                // El presupuesto de reaperturas se repone con la POSICIÓN, no con `espejo.reproduciendo`.
+                // Medido en el Fire TV el 2026-08-14: `espejo.reproduciendo` se pone en true apenas VLC abre,
                 // antes del primer fotograma, así que un canal que reabría y moría en pos=0ms
                 // reponía igual las tres reaperturas — el tope no se agotaba nunca y el aviso en
                 // pantalla no podía aparecer. Reponer solo cuando de verdad se reprodujo un rato
                 // es lo que distingue "se recuperó" de "reabrió y se cayó de nuevo".
-                if (enVivo) vm.vivoAndando(positionMs)
+                if (enVivo) vm.vivoAndando(espejo.posicionMs)
             }
             estadoPistas.sincronizarSubsOn()
             // "Arranca negro y con sonido": mientras libVLC ya suelta el audio pero todavía no dio
@@ -1223,7 +1209,7 @@ private fun PlayerContent(
      * onDispose de más abajo) y hay otra periódica cada 5 min; esta es la de "pausé para irme a
      * hacer algo", que es justo cuando la miniatura tiene que quedar en lo último que se vio.
      *
-     * Va colgada de `quiereReproducir` (playWhenReady) y no de `isPlaying` a propósito: isPlaying
+     * Va colgada de `quiereReproducir` (playWhenReady) y no de `reproduciendo` a propósito: esa
      * también se cae en cada rebuffer del torrent, así que capturaría —medio millón de píxeles,
      * comprimir y escribir a disco— en cada tirón de red. playWhenReady solo cambia cuando alguien
      * pausa de verdad (el botón, el OK sobre la barra, la sesión de medios, la pérdida de foco de
@@ -1237,8 +1223,8 @@ private fun PlayerContent(
      * `!casting` (casteando la posición es la del receptor remoto y el TextureView local no está
      * pintando eso).
      */
-    LaunchedEffect(quiereReproducir) {
-        if (quiereReproducir || casting) return@LaunchedEffect
+    LaunchedEffect(espejo.quiereReproducir) {
+        if (espejo.quiereReproducir || casting) return@LaunchedEffect
         val pos = activePlayer.currentPosition
         val dur = activePlayer.duration
         val mediaId = activePlayer.currentMediaItem?.mediaId
@@ -1254,8 +1240,8 @@ private fun PlayerContent(
     // No se bloquea del todo a propósito: el auto-ocultado es la única salida cuando el video está
     // en pausa (con BACK ahí abajo cerrando el overlay, pero solo mientras se esté viendo).
     // estadoCapitulos.revelado va como key para que abrir/cerrar el carrusel arranque un timer fresco.
-    LaunchedEffect(interactionTick, isPlaying, controlsVisible, estadoCapitulos.revelado) {
-        if (controlsVisible && isPlaying && markingMode == null) {
+    LaunchedEffect(interactionTick, espejo.reproduciendo, controlsVisible, estadoCapitulos.revelado) {
+        if (controlsVisible && espejo.reproduciendo && markingMode == null) {
             delay(4500)
             controlsVisible = false
         }
@@ -1431,7 +1417,7 @@ private fun PlayerContent(
             }
             if (existing != null) {
                 controller.seekTo(existing)
-                positionMs = existing
+                espejo.saltoA(existing)
             }
         } else if (wasMarking) {
             wasMarking = false
@@ -1486,7 +1472,7 @@ private fun PlayerContent(
                 // Captura de SALIDA, y solo de salida: el `controller.pause()` de acá arriba es el
                 // que da esta misma función al irse, así que este bloque NO cubre al que aprieta
                 // pausa y se queda mirando la pantalla quieta. Esa la captura el efecto de
-                // `quiereReproducir` (más arriba), y por eso existen las dos.
+                // `espejo.quiereReproducir` (más arriba), y por eso existen las dos.
                 // !casting: mismo motivo que en el sondeo periódico — casteando, `pos` es la
                 // posición del receptor remoto, pero el TextureView local no está pintando eso.
                 if (!casting) vm.capturarFrame(epId, pos, textureViewDelVideo())
@@ -1565,7 +1551,7 @@ private fun PlayerContent(
         } else {
             activePlayer.seekTo(target)
         }
-        positionMs = target
+        espejo.saltoA(target)
         bump()
     }
 
@@ -1810,7 +1796,7 @@ private fun PlayerContent(
                                         estadoVivo.mostrarInfo()
                                     }
                                 } else if (horizontal) {
-                                    activePlayer.seekTo(seekTarget); positionMs = seekTarget; bump()
+                                    activePlayer.seekTo(seekTarget); espejo.saltoA(seekTarget); bump()
                                 } else if (!isTorrent && totalDy > 240f && totalDy > kotlin.math.abs(totalDx) * 1.5f) {
                                     onOpenEpisodesState.value()
                                 }
@@ -1867,7 +1853,7 @@ private fun PlayerContent(
         // Spinner / overlay de descarga: para torrent muestra %, velocidad y peers. En la fase de
         // pre-buffer (aún sin playlist) usa prepProgress del VM ("Buscando peers…/Cargando inicio…");
         // ya reproduciendo pero buffereando usa el streamStatus polled.
-        // Casteando TAMBIÉN se muestra: `isBuffering` sigue al player activo, así que mientras el
+        // Casteando TAMBIÉN se muestra: `espejo.buffereando` sigue al player activo, así que mientras el
         // receptor carga apaga la fila de transporte, y sin spinner la pantalla quedaba con el
         // degradado, la barra superior y el cartel de Chromecast — nada más, ni controles ni una
         // explicación. Lo que sí se sigue ocultando al castear es el detalle de descarga del
@@ -1875,10 +1861,10 @@ private fun PlayerContent(
         // `esperandoVideo` también se anula casteando: espera a que VLC recupere su salida de video
         // local (hasta 15s tras volver del fondo), que casteando no importa ni va a llegar.
         if (loadError == null && estadoDlna.activo == null &&
-            (playlist == null || isBuffering || sinPrimeraImagen || (esperandoVideo && !casting))
+            (playlist == null || espejo.buffereando || sinPrimeraImagen || (esperandoVideo && !casting))
         ) {
             val preBuffer = playlist == null && sourceIsTorrent
-            val p = if (preBuffer) prepProgress else progress
+            val p = if (preBuffer) prepProgress else espejo.descarga
             Column(
                 modifier = Modifier.align(Alignment.Center),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -1942,8 +1928,8 @@ private fun PlayerContent(
 
         // Indicador persistente de descarga (torrent; aunque reproduzca y con controles ocultos).
         run {
-            val p = progress
-            if (isTorrent && !isTv && loadError == null && !casting && estadoDlna.activo == null && !isBuffering &&
+            val p = espejo.descarga
+            if (isTorrent && !isTv && loadError == null && !casting && estadoDlna.activo == null && !espejo.buffereando &&
                 !controlsVisible && p != null && p.progress in 0f..0.999f
             ) {
                 Row(
@@ -2247,11 +2233,11 @@ private fun PlayerContent(
                         // Tiempo + slider + duración.
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                formatDuration(seek.posicionAMostrar(positionMs)),
+                                formatDuration(seek.posicionAMostrar(espejo.posicionMs)),
                                 color = Color.White, style = MaterialTheme.typography.labelMedium,
                             )
                             Slider(
-                                value = seek.valorDeLaBarra(positionMs),
+                                value = seek.valorDeLaBarra(espejo.posicionMs),
                                 // Agarrar la barra descarta cualquier salto incremental pendiente: si
                                 // no, el debounce de `seekBy` dispararía DESPUÉS de soltar y te
                                 // devolvería al destino de las flechas, pisando el arrastre.
@@ -2260,7 +2246,7 @@ private fun PlayerContent(
                                     bump()
                                 },
                                 onValueChangeFinished = { seekTo(seek.soltar()) },
-                                valueRange = 0f..(if (durationMs > 0) durationMs.toFloat() else 1f),
+                                valueRange = 0f..(if (espejo.duracionMs > 0) espejo.duracionMs.toFloat() else 1f),
                                 colors = SliderDefaults.colors(
                                     thumbColor = ArkivRed,
                                     activeTrackColor = ArkivRed,
@@ -2269,10 +2255,10 @@ private fun PlayerContent(
                                 // Track custom con 3 capas: fondo (tenue) + buffer descargado (gris
                                 // claro) + reproducido (rojo). Así se ve el buffer por delante del playhead.
                                 track = { _ ->
-                                    val dur = if (durationMs > 0) durationMs.toFloat() else 1f
-                                    val posFrac = (seek.valorDeLaBarra(positionMs) / dur)
+                                    val dur = if (espejo.duracionMs > 0) espejo.duracionMs.toFloat() else 1f
+                                    val posFrac = (seek.valorDeLaBarra(espejo.posicionMs) / dur)
                                         .coerceIn(0f, 1f)
-                                    val bufFrac = bufferedFraction.coerceIn(0f, 1f)
+                                    val bufFrac = espejo.fraccionBuffereada.coerceIn(0f, 1f)
                                     // El grosor del track ES el indicador de foco (el stroke se deriva
                                     // de la altura del Canvas, así que engrosar la altura engrosa las
                                     // tres capas de una). Animado para que el salto no se sienta brusco.
@@ -2318,7 +2304,7 @@ private fun PlayerContent(
                                             },
                                     ),
                             )
-                            Text(formatDuration(durationMs), color = Color.White, style = MaterialTheme.typography.labelMedium)
+                            Text(formatDuration(espejo.duracionMs), color = Color.White, style = MaterialTheme.typography.labelMedium)
                         }
                         Spacer(Modifier.height(8.dp))
                         // Capítulo anterior / retroceder / play-pausa / adelantar / capítulo
@@ -2352,11 +2338,11 @@ private fun PlayerContent(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             // Los saltos de capítulo dependen SOLO de que el vecino exista, nunca del
-                            // estado de transporte. Colgarlos de `isPlaying` (como estaba el de
-                            // siguiente) los hacía parpadear: isPlaying se cae a false en cada
+                            // estado de transporte. Colgarlos de `reproduciendo` (como estaba el de
+                            // siguiente) los hacía parpadear: esa se cae a false en cada
                             // rebuffer y en cada seek —VLC emite Buffering y VlcPlaybackState lo
                             // traduce a STATE_BUFFERING—, así que el botón aparecía al adelantar y
-                            // se iba solo al volver a READY. Ver el KDoc de `quiereReproducir`.
+                            // se iba solo al volver a READY. Ver el KDoc de `espejo.quiereReproducir`.
                             // Se calculan ANTES de los botones para poder armar el grafo de foco
                             // completo (cada dirección explícita; dejar alguna sin definir hace que
                             // la búsqueda espacial por defecto de Compose falle y el foco "se pierda").
@@ -2395,8 +2381,8 @@ private fun PlayerContent(
                                     },
                             )
                             TvTransportButton(
-                                icon = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = if (isPlaying) "Pausar" else "Reproducir",
+                                icon = if (espejo.reproduciendo) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = if (espejo.reproduciendo) "Pausar" else "Reproducir",
                                 onClick = { togglePlayPause() },
                                 iconSize = 34.dp,
                                 modifier = if (!isTv) Modifier else Modifier
@@ -2605,8 +2591,8 @@ private fun PlayerContent(
         // real está en el botón "Saltar outro" de abajo (ese sí depende del ítem siguiente LOCAL).
         if (d != null && !isTorrent && markingMode == null && !isTv && estadoDlna.activo == null) {
             val inOpening = d.openingEndMs != null &&
-                positionMs in (d.openingStartMs ?: 0L)..d.openingEndMs
-            val inEnding = d.endingStartMs != null && positionMs >= d.endingStartMs
+                espejo.posicionMs in (d.openingStartMs ?: 0L)..d.openingEndMs
+            val inEnding = d.endingStartMs != null && espejo.posicionMs >= d.endingStartMs
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
@@ -2625,19 +2611,19 @@ private fun PlayerContent(
         if (d != null && markingMode != null) {
             MarkerEditor(
                 mode = markingMode!!,
-                positionMs = positionMs,
-                durationMs = durationMs,
+                positionMs = espejo.posicionMs,
+                durationMs = espejo.duracionMs,
                 onSeek = { p -> seekTo(p) },
                 onCancel = { markingMode = null },
                 onSave = {
                     val label = if (markingMode == MarkingMode.INTRO) {
-                        vm.setOpeningEnd(positionMs); "Intro"
+                        vm.setOpeningEnd(espejo.posicionMs); "Intro"
                     } else {
-                        vm.setEndingStart(positionMs); "Outro"
+                        vm.setEndingStart(espejo.posicionMs); "Outro"
                     }
                     android.widget.Toast.makeText(
                         context,
-                        "$label guardado en ${formatDuration(positionMs)}",
+                        "$label guardado en ${formatDuration(espejo.posicionMs)}",
                         android.widget.Toast.LENGTH_SHORT,
                     ).show()
                     markingMode = null
