@@ -33,6 +33,7 @@ class ArkivApp : Application(), ImageLoaderFactory {
         // para dibujar: solo tiene que estar arriba antes de que otro aparato quiera sincronizar.
         graph.applicationScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             runCatching { graph.syncManager.start() }
+                .onFailure { reportar(it, "arranque: syncManager.start") }
         }
 
         // ADOPCION DE LA BASE LOCAL. Quien ya venia usando la app tiene datos que SI son suyos y
@@ -47,7 +48,7 @@ class ArkivApp : Application(), ImageLoaderFactory {
                     graph.deviceStore.saveDuenoDeLaBase(cuenta!!)
                     android.util.Log.w("ArkivCuenta", "base local adoptada por la cuenta de la sesion")
                 }
-            }
+            }.onFailure { reportar(it, "arranque: adoptar la base local") }
         }
 
         // Purga única del 2026-08-14: canales de adultos que quedaron anotados en "Recientes"
@@ -64,7 +65,7 @@ class ArkivApp : Application(), ImageLoaderFactory {
                     graph.deviceStore.setRecientesPurgados(true)
                     android.util.Log.w("ArkivCuenta", "recientes purgados (fuga de canales de adultos)")
                 }
-            }
+            }.onFailure { reportar(it, "arranque: purgar recientes") }
         }
 
         graph.iniciarMonitorDeRed()
@@ -79,18 +80,26 @@ class ArkivApp : Application(), ImageLoaderFactory {
                 androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build()
             ).build(),
         )
-        graph.applicationScope.launch { graph.checkForUpdate() }
+        graph.applicationScope.launch {
+            runCatching { graph.checkForUpdate() }.onFailure { reportar(it, "arranque: buscar actualización") }
+        }
 
         // Reintenta borrar de la NUC los items que ya se transfirieron al dispositivo pero cuyo
         // DELETE falló en su momento (blog caído, red cortada) — si no, el disco de la NUC se llena
         // de archivos que ya nadie va a reproducir. Best-effort: un fallo acá no debe tumbar el arranque.
-        graph.applicationScope.launch { runCatching { graph.localDownloads.sweepNucOrphans() } }
+        graph.applicationScope.launch {
+            runCatching { graph.localDownloads.sweepNucOrphans() }
+                .onFailure { reportar(it, "arranque: barrer descargas huérfanas") }
+        }
 
         // Capítulos nuevos de las series que estás viendo. Va en background y sin bloquear nada:
         // es una mejora oportunista, no un camino crítico. La cota de "una vez cada N horas" está
         // adentro porque el arranque de la app pasa muchas veces por día (basta con salir y volver
         // a entrar), y revisar en cada una sería gastar red para nada.
-        graph.applicationScope.launch { runCatching { graph.buscarCapitulosNuevos() } }
+        graph.applicationScope.launch {
+            runCatching { graph.buscarCapitulosNuevos() }
+                .onFailure { reportar(it, "arranque: buscar capítulos nuevos") }
+        }
     }
 
     /**
@@ -105,6 +114,16 @@ class ArkivApp : Application(), ImageLoaderFactory {
      * En teléfono se deja un 20% (holgado, pero por debajo del default) y color completo, que es
      * donde sí se nota en una pantalla a 30 cm.
      */
+    /**
+     * Cada tarea de arranque corre en su propio `runCatching` para que un fallo no tumbe a las
+     * otras — pero eso también las volvía mudas: si el sync nunca arrancaba, no quedaba rastro de
+     * por qué. Reportar no cambia el aislamiento, solo deja constancia.
+     */
+    private fun reportar(error: Throwable, etiqueta: String) {
+        android.util.Log.w("ArkivArranque", "$etiqueta: ${error.message}", error)
+        com.arkiv.player.crash.Crash.reportar(error, etiqueta)
+    }
+
     override fun newImageLoader(): ImageLoader {
         val tv = DeviceType.isTelevision(this)
         return ImageLoader.Builder(this)

@@ -105,6 +105,7 @@ class CloudSyncManager(
                     throw e
                 } catch (e: Exception) {
                     Log.w(TAG, "cloudsync reconcile/subscribe falló, reintenta: ${e.message}")
+                    reportarUnaVez(e, "sync de fondo: reconcile/subscribe")
                     delay(5000)
                 }
             }
@@ -117,6 +118,7 @@ class CloudSyncManager(
                     throw e
                 } catch (e: Exception) {
                     Log.w(TAG, "pushAll falló (se reintenta en 5s): ${e.message}", e)
+                    reportarUnaVez(e, "sync de fondo: push")
                 }
                 delay(5000)
             }
@@ -140,8 +142,23 @@ class CloudSyncManager(
                 COL_LIVE_FAVORITES, COL_LIVE_RECENTS, COL_FRAMES, COL_RECOMENDACIONES,
             ),
         )
-        runCatching { pushAll() }
-        runCatching { reconcileAll() }
+        runCatching { pushAll() }.onFailure { reportar(it, "sync manual: push") }
+        runCatching { reconcileAll() }.onFailure { reportar(it, "sync manual: reconcile") }
+    }
+
+    /**
+     * Los bucles de sync reintentan cada 5 s: reportar cada vuelta inundaría la colección con el
+     * mismo error cientos de veces por noche. Se reporta el PRIMERO de cada bucle y nada más — que
+     * es todo lo que hace falta para saber que el sync está caído y por qué.
+     */
+    private val yaReportado = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+    private fun reportarUnaVez(error: Throwable, etiqueta: String) {
+        if (yaReportado.add(etiqueta)) reportar(error, etiqueta)
+    }
+
+    private fun reportar(error: Throwable, etiqueta: String) {
+        com.arkiv.player.crash.Crash.reportar(error, etiqueta)
     }
 
     // ---- push: local -> PocketBase ----

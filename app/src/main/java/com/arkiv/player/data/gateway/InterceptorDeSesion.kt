@@ -53,6 +53,8 @@ class InterceptorDeSesion(
      *  de la KDoc de la clase. En producción es `{ settings.gatewayUrl.value }`. */
     private val gatewayUrl: () -> String,
     private val sesion: SesionDePersona,
+    /** Ver [SesionDePersona.reportar]: en producción es `Crash::reportar`. */
+    private val reportar: (Throwable, String) -> Unit = com.arkiv.player.crash.Crash::reportar,
 ) : Interceptor {
 
     override fun intercept(chain: Interceptor.Chain): Response {
@@ -67,7 +69,18 @@ class InterceptorDeSesion(
         when (ErrorDeCuenta.parsear(cuerpo, response.code)) {
             is ErrorDeCuenta.SesionInvalida,
             is ErrorDeCuenta.LicenciaNoVigente,
-            is ErrorDeCuenta.IdentidadInvalida -> sesion.cerrar()
+            is ErrorDeCuenta.IdentidadInvalida -> {
+                // El motivo exacto viene en el cuerpo, y es lo único que después distingue
+                // "licencia vencida" de "el aparato ya no existe". Sin esto, las dos se ven igual.
+                reportar(
+                    IllegalStateException(
+                        "sesión cerrada por el gateway (${response.code}) en " +
+                            "${request.url.encodedPath}: ${cuerpo.take(300)}",
+                    ),
+                    "expulsión: interceptor",
+                )
+                sesion.cerrar()
+            }
             else -> Unit
         }
         return response

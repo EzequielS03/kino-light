@@ -23,6 +23,11 @@ sealed interface EstadoDeSesion {
 class SesionDePersona(
     private val client: PocketBaseClient,
     private val store: DeviceStore,
+    /**
+     * Adónde va a parar una expulsión. Se inyecta para poder probarla; en producción es
+     * `Crash::reportar`, que la manda al servidor.
+     */
+    private val reportar: (Throwable, String) -> Unit = com.arkiv.player.crash.Crash::reportar,
 ) {
     private val users = PocketBaseConfig.COLLECTION_USERS
 
@@ -78,7 +83,15 @@ class SesionDePersona(
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: PocketBaseException) {
-            if (e.code == 401 || e.code == 403) cerrar()
+            if (e.code == 401 || e.code == 403) {
+                // La app se está echando a sí misma. Desde afuera esto se ve como "dejó de
+                // funcionar", sin más; en una TV es terminal, porque ahí solo se entra por pareo.
+                reportar(
+                    IllegalStateException("sesión cerrada: PocketBase rechazó el auth-refresh con ${e.code}"),
+                    "expulsión: refrescar token",
+                )
+                cerrar()
+            }
             false
         } catch (e: Exception) {
             // Fallo de transporte (sin red, timeout, host caído): NO es un rechazo de identidad.
