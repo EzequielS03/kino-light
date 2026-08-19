@@ -122,7 +122,6 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
-import androidx.compose.ui.text.font.FontWeight
 import com.arkiv.player.cast.CastProgress
 import com.arkiv.player.ui.tv.library.SAFE_H
 import com.arkiv.player.ui.tv.library.SAFE_V
@@ -470,21 +469,11 @@ private fun PlayerContent(
     // El índice sale de la posición, no de un temporizador: adelantar o retroceder mueve el dato
     // igual que mueve el video, y no hay un reloj propio que se desincronice al pausar.
     val indiceTrivia = TriviaDelPlayer.indiceEn(positionMs, trivia.size)
-    var triviaAbierta by remember { mutableStateOf(false) }
-    // El aviso ("!") es un overlay PROPIO, como el de en vivo: los controles arrancan ocultos y se
-    // auto-ocultan, así que un aviso colgado de la barra no lo vería nadie.
-    var avisoTriviaVisible by remember { mutableStateOf(false) }
-    var indiceAnunciado by remember { mutableIntStateOf(-1) }
-    if (indiceTrivia >= 0 && indiceTrivia != indiceAnunciado) {
-        indiceAnunciado = indiceTrivia
-        avisoTriviaVisible = true
-    }
-    // Se va solo a los 5 s. Se relanza con cada dato nuevo, igual que el overlay de canal.
-    LaunchedEffect(indiceAnunciado, avisoTriviaVisible) {
-        if (!avisoTriviaVisible) return@LaunchedEffect
-        delay(5000)
-        avisoTriviaVisible = false
-    }
+    // Estado y piezas de UI del dato curioso: en `TriviaDelPlayer.kt`, junto a la regla que
+    // decide cual toca.
+    val estadoTrivia = rememberEstadoDeTrivia()
+    estadoTrivia.anunciarSiEsNuevo(indiceTrivia)
+    EfectoDelAvisoDeTrivia(estadoTrivia)
     var durationMs by remember { mutableLongStateOf(0L) }
     var isPlaying by remember { mutableStateOf(false) }
     /**
@@ -1985,29 +1974,9 @@ private fun PlayerContent(
         // Vive AFUERA del AnimatedVisibility de los controles (como el cartel de Chromecast y el
         // indicador de descarga de torrent de arriba) a propósito: es informativo, no un control,
         // así que se mantiene visible aunque los controles se hayan desvanecido por inactividad.
-        // Aviso de dato curioso nuevo: chiquito, arriba a la derecha, y se va solo a los 5 s (ver
-        // el LaunchedEffect de `avisoTriviaVisible`). Va acá y no colgado del botón porque los
-        // controles arrancan ocultos y se auto-ocultan: en la barra no lo vería nadie. Si el aviso
-        // de "reproducir en vivo" está puesto, este baja para no taparlo.
-        AnimatedVisibility(
-            visible = avisoTriviaVisible && !triviaAbierta,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .systemBarsPadding()
-                .padding(top = if (showLiveOverride) 108.dp else 64.dp, end = 12.dp),
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(22.dp)
-                    .clip(CircleShape)
-                    .background(ArkivRed.copy(alpha = 0.85f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("!", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-            }
-        }
+        // Aviso de dato curioso nuevo (ver su KDoc en `TriviaDelPlayer.kt`). Si el chip de
+        // "reproducir en vivo" está puesto, este baja para no taparlo.
+        AvisoDeTrivia(estadoTrivia, bajarParaNoTapar = showLiveOverride)
 
         // TopEnd + top=64dp para no pisar el back/título de la barra superior (que ocupa la franja
         // 0–56dp) ni, en TV en pausa, el título/nombre de episodio de headerInfo (TopStart).
@@ -2559,7 +2528,7 @@ private fun PlayerContent(
                                     TvTransportButton(
                                         icon = Icons.Default.Info,
                                         contentDescription = "Dato curioso",
-                                        onClick = { triviaAbierta = true; avisoTriviaVisible = false },
+                                        onClick = { estadoTrivia.abrirDialogo() },
                                         iconSize = 24.dp,
                                         tint = Color.White,
                                         modifier = Modifier
@@ -2707,16 +2676,7 @@ private fun PlayerContent(
     // PlaybackPreferenceStore (vía vm.resolveAskPlaybackSource); acá solo se muestra el estado que
     // expone el ViewModel.
 
-    if (triviaAbierta) {
-        AlertDialog(
-            onDismissRequest = { triviaAbierta = false },
-            title = { Text("Dato curioso") },
-            text = { Text(trivia.getOrNull(indiceTrivia).orEmpty()) },
-            confirmButton = {
-                TextButton(onClick = { triviaAbierta = false }) { Text("Cerrar") }
-            },
-        )
-    }
+    DialogoDeTrivia(estadoTrivia, trivia.getOrNull(indiceTrivia).orEmpty())
 
     if (askPlaybackSource != null) {
         AlertDialog(
