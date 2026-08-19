@@ -186,7 +186,6 @@ private const val RECHEQUEO_INTENTOS = 40
  */
 private const val SEEK_INCREMENTAL_DEBOUNCE_MS = 350L
 
-private enum class MarkingMode { INTRO, OUTRO }
 
 /** Construye los MediaItem locales para el controller, propagando el tag de fuente/marcadores. */
 private fun localMediaItems(items: List<PlayerData>): List<MediaItem> = items.map { d ->
@@ -536,8 +535,7 @@ private fun PlayerContent(
     }
 
     // Marcadores intro/outro (solo archive).
-    var markingMode by remember { mutableStateOf<MarkingMode?>(null) }
-    var markersMenu by remember { mutableStateOf(false) }
+    val marcadores = rememberEstadoDeMarcadores()
 
     // Selector de audio/subtítulos (ambas fuentes, vía la API VLC del player vivo). Todo el bloque
     // vive en `PlayerPistas.kt`; de acá solo se consulta `haySubtitulo`, para el ícono de CC.
@@ -823,12 +821,12 @@ private fun PlayerContent(
     }
 
 
-    LaunchedEffect(controlsVisible, espejo.buffereando, casting, estadoDlna.activo, markingMode, loadError) {
+    LaunchedEffect(controlsVisible, espejo.buffereando, casting, estadoDlna.activo, marcadores.modo, loadError) {
         android.util.Log.i(
             "ArkivCast",
             "UI barra · controlsVisible=$controlsVisible espejo.buffereando=$espejo.buffereando casting=$casting " +
-                "dlna=${estadoDlna.activo != null} marcando=${markingMode != null} error=${loadError != null} " +
-                "→ overlay=${controlsVisible && loadError == null && estadoDlna.activo == null && markingMode == null}",
+                "dlna=${estadoDlna.activo != null} marcando=${marcadores.marcando} error=${loadError != null} " +
+                "→ overlay=${controlsVisible && loadError == null && estadoDlna.activo == null && !marcadores.marcando}",
         )
     }
 
@@ -1241,7 +1239,7 @@ private fun PlayerContent(
     // en pausa (con BACK ahí abajo cerrando el overlay, pero solo mientras se esté viendo).
     // estadoCapitulos.revelado va como key para que abrir/cerrar el carrusel arranque un timer fresco.
     LaunchedEffect(interactionTick, espejo.reproduciendo, controlsVisible, estadoCapitulos.revelado) {
-        if (controlsVisible && espejo.reproduciendo && markingMode == null) {
+        if (controlsVisible && espejo.reproduciendo && !marcadores.marcando) {
             delay(4500)
             controlsVisible = false
         }
@@ -1255,7 +1253,7 @@ private fun PlayerContent(
     // mirara controlsVisible, en modo marcado o con un error en pantalla la variable puede seguir
     // en true sin que se vea nada, y BACK quedaría muerto (ni cierra ni sale). Mantener ambas
     // iguales si se toca una.
-    BackHandler(enabled = !enVivo && controlsVisible && loadError == null && estadoDlna.activo == null && markingMode == null) {
+    BackHandler(enabled = !enVivo && controlsVisible && loadError == null && estadoDlna.activo == null && !marcadores.marcando) {
         controlsVisible = false
     }
 
@@ -1405,23 +1403,22 @@ private fun PlayerContent(
     // El reanudar (play) SOLO aplica al SALIR del modo marcado — no en la composición inicial:
     // si no, al abrir una fuente web nueva este play() reviviría el video anterior (que sigue
     // cargado en el service) por detrás del overlay "Resolviendo…" mientras se resuelve la nueva.
-    var wasMarking by remember { mutableStateOf(false) }
-    LaunchedEffect(markingMode) {
-        if (markingMode != null) {
-            wasMarking = true
-            controller.pause()
-            val existing = when (markingMode) {
-                MarkingMode.INTRO -> d?.openingEndMs
-                MarkingMode.OUTRO -> d?.endingStartMs
-                else -> null
+    LaunchedEffect(marcadores.modo) {
+        when (marcadores.transicion()) {
+            true -> {
+                controller.pause()
+                val yaGuardado = when (marcadores.modo) {
+                    ModoDeMarcado.INTRO -> d?.openingEndMs
+                    ModoDeMarcado.OUTRO -> d?.endingStartMs
+                    else -> null
+                }
+                if (yaGuardado != null) {
+                    controller.seekTo(yaGuardado)
+                    espejo.saltoA(yaGuardado)
+                }
             }
-            if (existing != null) {
-                controller.seekTo(existing)
-                espejo.saltoA(existing)
-            }
-        } else if (wasMarking) {
-            wasMarking = false
-            controller.play()
+            false -> controller.play()
+            null -> Unit
         }
     }
 
@@ -1652,7 +1649,7 @@ private fun PlayerContent(
                         layout.isFocusableInTouchMode = true
                         layout.setOnKeyListener { _, keyCode, event ->
                             if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
-                            if (markingMode != null) return@setOnKeyListener false
+                            if (marcadores.marcando) return@setOnKeyListener false
                             // Con el overlay de controles visible, el foco de Android ya está en
                             // los botones de Compose (ver LaunchedEffect(controlsVisible)) y este
                             // listener ni siquiera debería recibir el evento; el fallback existe
@@ -2016,7 +2013,7 @@ private fun PlayerContent(
             // adentro con una guarda propia, se corta UNA vez acá arriba (la bandera que aísla el
             // modo vivo, ver KDoc de `enVivo`) y más abajo hay un overlay chico y propio para vivo
             // (badge "EN VIVO" + ficha de canal por 3s).
-            visible = !enVivo && controlsVisible && loadError == null && estadoDlna.activo == null && markingMode == null,
+            visible = !enVivo && controlsVisible && loadError == null && estadoDlna.activo == null && !marcadores.marcando,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.fillMaxSize(),
@@ -2088,21 +2085,21 @@ private fun PlayerContent(
                     // setear intro/outro, así que se conserva detrás de la bandera.
                     if (MOSTRAR_MARCADORES_EN_TELEFONO && !isTv && !isTorrent && d != null) {
                         Box {
-                            IconButton(onClick = { markersMenu = true }) {
+                            IconButton(onClick = { marcadores.abrirMenu() }) {
                                 Icon(Icons.Default.Tune, contentDescription = "Marcadores", tint = Color.White)
                             }
-                            DropdownMenu(expanded = markersMenu, onDismissRequest = { markersMenu = false }) {
+                            DropdownMenu(expanded = marcadores.menuAbierto, onDismissRequest = { marcadores.cerrarMenu() }) {
                                 DropdownMenuItem(
                                     text = { Text("Setear intro (fin del opening)") },
-                                    onClick = { markersMenu = false; markingMode = MarkingMode.INTRO },
+                                    onClick = { marcadores.marcar(ModoDeMarcado.INTRO) },
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Setear outro (inicio del ending)") },
-                                    onClick = { markersMenu = false; markingMode = MarkingMode.OUTRO },
+                                    onClick = { marcadores.marcar(ModoDeMarcado.OUTRO) },
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Borrar marcadores") },
-                                    onClick = { markersMenu = false; vm.clearMarkers() },
+                                    onClick = { marcadores.cerrarMenu(); vm.clearMarkers() },
                                 )
                             }
                         }
@@ -2589,7 +2586,7 @@ private fun PlayerContent(
         // Botones flotantes de saltar intro/outro (solo archive, teléfono). Casteando SÍ se
         // muestran: "Saltar intro" es un seekTo simple que el CastPlayer soporta igual; la guarda
         // real está en el botón "Saltar outro" de abajo (ese sí depende del ítem siguiente LOCAL).
-        if (d != null && !isTorrent && markingMode == null && !isTv && estadoDlna.activo == null) {
+        if (d != null && !isTorrent && !marcadores.marcando && !isTv && estadoDlna.activo == null) {
             val inOpening = d.openingEndMs != null &&
                 espejo.posicionMs in (d.openingStartMs ?: 0L)..d.openingEndMs
             val inEnding = d.endingStartMs != null && espejo.posicionMs >= d.endingStartMs
@@ -2608,15 +2605,15 @@ private fun PlayerContent(
         }
 
         // Panel-editor de marcado con slider (solo archive).
-        if (d != null && markingMode != null) {
+        if (d != null && marcadores.marcando) {
             MarkerEditor(
-                mode = markingMode!!,
+                mode = marcadores.modo!!,
                 positionMs = espejo.posicionMs,
                 durationMs = espejo.duracionMs,
                 onSeek = { p -> seekTo(p) },
-                onCancel = { markingMode = null },
+                onCancel = { marcadores.terminar() },
                 onSave = {
-                    val label = if (markingMode == MarkingMode.INTRO) {
+                    val label = if (marcadores.modo == ModoDeMarcado.INTRO) {
                         vm.setOpeningEnd(espejo.posicionMs); "Intro"
                     } else {
                         vm.setEndingStart(espejo.posicionMs); "Outro"
@@ -2626,7 +2623,7 @@ private fun PlayerContent(
                         "$label guardado en ${formatDuration(espejo.posicionMs)}",
                         android.widget.Toast.LENGTH_SHORT,
                     ).show()
-                    markingMode = null
+                    marcadores.terminar()
                 },
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
@@ -2712,7 +2709,7 @@ private fun PlayerContent(
 
 @Composable
 private fun MarkerEditor(
-    mode: MarkingMode,
+    mode: ModoDeMarcado,
     positionMs: Long,
     durationMs: Long,
     onSeek: (Long) -> Unit,
@@ -2727,11 +2724,11 @@ private fun MarkerEditor(
     ) {
         Column(Modifier.padding(16.dp)) {
             Text(
-                if (mode == MarkingMode.INTRO) "Marcá el FIN del intro" else "Marcá el INICIO del outro",
+                if (mode == ModoDeMarcado.INTRO) "Marca el FIN del intro" else "Marca el INICIO del outro",
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
-                "Movete con el slider hasta la posición exacta y guardá.",
+                "Muévete con el slider hasta la posición exacta y guarda.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = ArkivTextSecondary,
                 modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
