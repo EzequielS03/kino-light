@@ -34,6 +34,9 @@ sealed interface EpisodeTorrent {
 /** Datos para buscar subtítulos de lo que se está reproduciendo. */
 data class SubtitleContext(val imdbId: String?, val title: String, val season: Int?, val episode: Int?)
 
+/** Lo que el gateway necesita para dar trivia de lo que se está viendo. */
+data class ObraDeTrivia(val tmdbId: Int, val tipo: String, val temporada: Int?, val episodio: Int?)
+
 /**
  * Mínimo de reproducción para entrar en "Continuar viendo". Por debajo de esto fue abrir y
  * cerrar (o una pasada rápida por el capítulo equivocado), no algo que estés viendo de verdad.
@@ -1328,6 +1331,28 @@ class ArkivRepository(
     }
 
     /** Contexto para buscar subtítulos de un episodio (imdb del ítem serie, título, temporada/ep). */
+    /**
+     * La obra a la que pertenece este episodio, para pedirle trivia al gateway. Null si no se
+     * puede identificar: sin `tmdbId` no hay de qué tener trivia, y preguntar igual sería gastar
+     * una llamada al modelo para que invente sobre nada.
+     *
+     * El `tmdbId` y el `tipo` los escribe el gateway al canonizar el título (verificado contra
+     * TMDB) y bajan por el sync; la temporada y el episodio salen del mismo sitio que ya usa
+     * [subtitleContextForEpisode].
+     */
+    suspend fun obraDeTriviaPara(episodeId: String): ObraDeTrivia? {
+        val ep = itemDao.getEpisode(episodeId) ?: return null
+        val item = itemDao.getItem(ep.itemId) ?: return null
+        val tmdbId = item.tmdbId?.takeIf { it > 0 } ?: return null
+        val episodio = com.arkiv.player.data.model.EpisodeNumbering.episodeOf(ep.displayName)
+        return ObraDeTrivia(
+            tmdbId = tmdbId,
+            tipo = com.arkiv.player.ui.player.TriviaDelPlayer.tipoDe(item.tipo, episodio),
+            temporada = com.arkiv.player.data.model.EpisodeNumbering.seasonOf(ep.section),
+            episodio = episodio,
+        )
+    }
+
     suspend fun subtitleContextForEpisode(episodeId: String): SubtitleContext? {
         val ep = itemDao.getEpisode(episodeId) ?: return null
         val item = itemDao.getItem(ep.itemId) ?: return null

@@ -50,6 +50,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.SkipNext
@@ -373,6 +374,7 @@ private fun PlayerContent(
     val webExtras by vm.webExtras.collectAsStateWithLifecycle()
     // Task 11: serie con capítulo bajado a la NUC sin preferencia todavía preguntada -> diálogo.
     val askPlaybackSource by vm.askPlaybackSource.collectAsStateWithLifecycle()
+    val trivia by vm.trivia.collectAsStateWithLifecycle()
     // Adjunta como pistas externas los subtítulos que sniffeó el resolver (cuando ya hay media).
     LaunchedEffect(playlist, webExtras) {
         // Los idiomas que declara la fuente. Va PRIMERO, antes de cualquier return y antes del delay
@@ -478,6 +480,7 @@ private fun PlayerContent(
     val subtitleFR = remember { FocusRequester() }
     val dimDownFR = remember { FocusRequester() }
     val dimUpFR = remember { FocusRequester() }
+    val triviaFR = remember { FocusRequester() }
     val rewindFR = remember { FocusRequester() }
     val playPauseFR = remember { FocusRequester() }
     val forwardFR = remember { FocusRequester() }
@@ -557,6 +560,26 @@ private fun PlayerContent(
 
     var isBuffering by remember { mutableStateOf(true) }
     var positionMs by remember { mutableLongStateOf(0L) }
+
+    // --- Datos curiosos ---
+    // El índice sale de la posición, no de un temporizador: adelantar o retroceder mueve el dato
+    // igual que mueve el video, y no hay un reloj propio que se desincronice al pausar.
+    val indiceTrivia = TriviaDelPlayer.indiceEn(positionMs, trivia.size)
+    var triviaAbierta by remember { mutableStateOf(false) }
+    // El aviso ("!") es un overlay PROPIO, como el de en vivo: los controles arrancan ocultos y se
+    // auto-ocultan, así que un aviso colgado de la barra no lo vería nadie.
+    var avisoTriviaVisible by remember { mutableStateOf(false) }
+    var indiceAnunciado by remember { mutableIntStateOf(-1) }
+    if (indiceTrivia >= 0 && indiceTrivia != indiceAnunciado) {
+        indiceAnunciado = indiceTrivia
+        avisoTriviaVisible = true
+    }
+    // Se va solo a los 5 s. Se relanza con cada dato nuevo, igual que el overlay de canal.
+    LaunchedEffect(indiceAnunciado, avisoTriviaVisible) {
+        if (!avisoTriviaVisible) return@LaunchedEffect
+        delay(5000)
+        avisoTriviaVisible = false
+    }
     var durationMs by remember { mutableLongStateOf(0L) }
     var isPlaying by remember { mutableStateOf(false) }
     /**
@@ -2294,6 +2317,30 @@ private fun PlayerContent(
         // Vive AFUERA del AnimatedVisibility de los controles (como el cartel de Chromecast y el
         // indicador de descarga de torrent de arriba) a propósito: es informativo, no un control,
         // así que se mantiene visible aunque los controles se hayan desvanecido por inactividad.
+        // Aviso de dato curioso nuevo: chiquito, arriba a la derecha, y se va solo a los 5 s (ver
+        // el LaunchedEffect de `avisoTriviaVisible`). Va acá y no colgado del botón porque los
+        // controles arrancan ocultos y se auto-ocultan: en la barra no lo vería nadie. Si el aviso
+        // de "reproducir en vivo" está puesto, este baja para no taparlo.
+        AnimatedVisibility(
+            visible = avisoTriviaVisible && !triviaAbierta,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .systemBarsPadding()
+                .padding(top = if (showLiveOverride) 108.dp else 64.dp, end = 12.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(22.dp)
+                    .clip(CircleShape)
+                    .background(ArkivRed.copy(alpha = 0.85f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("!", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+
         // TopEnd + top=64dp para no pisar el back/título de la barra superior (que ocupa la franja
         // 0–56dp) ni, en TV en pausa, el título/nombre de episodio de headerInfo (TopStart).
         if (showLiveOverride) {
@@ -2822,7 +2869,7 @@ private fun PlayerContent(
                                         .focusRequester(dimUpFR)
                                         .focusProperties {
                                             left = dimDownFR
-                                            right = dimUpFR
+                                            right = if (TriviaDelPlayer.hayBoton(trivia)) triviaFR else dimUpFR
                                             up = sliderFR
                                             down = dimUpFR
                                         },
@@ -2841,7 +2888,28 @@ private fun PlayerContent(
                                 if (showLiveOverride) {
                                     IconButton(onClick = { vm.forcePlayLive(episodeId) }) {
                                         Icon(Icons.Default.LiveTv, contentDescription = "Reproducir en vivo", tint = Color.White)
-                                    }
+                                    // Datos curiosos: solo existe si el gateway devolvió algo. Va al
+                                // FINAL de la fila a propósito -- insertarlo en el medio obligaría
+                                // a reescribir varios eslabones de esta cadena de foco, y una
+                                // equivocación ahí se siente como un control remoto roto.
+                                if (TriviaDelPlayer.hayBoton(trivia)) {
+                                    TvTransportButton(
+                                        icon = Icons.Default.Info,
+                                        contentDescription = "Dato curioso",
+                                        onClick = { triviaAbierta = true; avisoTriviaVisible = false },
+                                        iconSize = 24.dp,
+                                        tint = Color.White,
+                                        modifier = Modifier
+                                            .focusRequester(triviaFR)
+                                            .focusProperties {
+                                                left = dimUpFR
+                                                right = triviaFR
+                                                up = sliderFR
+                                                down = triviaFR
+                                            },
+                                    )
+                                }
+                                }
                                 }
                                 IconButton(onClick = { refreshTracks(); subPickerOpen = true }) {
                                     Icon(
@@ -3179,6 +3247,18 @@ private fun PlayerContent(
     // abre un capítulo cuya serie tiene algo bajado a la NUC. La respuesta la recuerda
     // PlaybackPreferenceStore (vía vm.resolveAskPlaybackSource); acá solo se muestra el estado que
     // expone el ViewModel.
+
+    if (triviaAbierta) {
+        AlertDialog(
+            onDismissRequest = { triviaAbierta = false },
+            title = { Text("Dato curioso") },
+            text = { Text(trivia.getOrNull(indiceTrivia).orEmpty()) },
+            confirmButton = {
+                TextButton(onClick = { triviaAbierta = false }) { Text("Cerrar") }
+            },
+        )
+    }
+
     if (askPlaybackSource != null) {
         AlertDialog(
             onDismissRequest = { vm.resolveAskPlaybackSource(com.arkiv.player.data.offline.PlaybackChoice.LIVE) },

@@ -230,6 +230,17 @@ class PlayerViewModel(
 
     // Task 11: hay un capítulo bajado a la NUC para esta serie y todavía no se preguntó la
     // preferencia (NUC vs en vivo) -> PlayerScreen muestra el diálogo de confirmación.
+    /**
+     * Datos curiosos de lo que se está viendo, o vacío. Se piden TODOS DE UNA al arrancar y la
+     * pantalla rota entre ellos (ver [TriviaDelPlayer]): cambiar de dato no puede costar los 3 a
+     * 20 s que tarda el modelo, ni fallar a mitad de una película.
+     */
+    private val _trivia = MutableStateFlow<List<String>>(emptyList())
+    val trivia: StateFlow<List<String>> = _trivia.asStateFlow()
+
+    /** Cancelable: al saltar de capítulo, la tanda del anterior ya no sirve. */
+    private var triviaJob: kotlinx.coroutines.Job? = null
+
     private val _askPlaybackSource = MutableStateFlow<AskPlaybackSourceState?>(null)
     val askPlaybackSource: StateFlow<AskPlaybackSourceState?> = _askPlaybackSource.asStateFlow()
 
@@ -248,6 +259,9 @@ class PlayerViewModel(
             loadLive(episodeId.removePrefix(PlayerSource.LIVE_PREFIX))
             return
         }
+        // En vivo NO lleva trivia y por eso va después del corte: un canal no es una obra, no
+        // tiene tmdbId, y lo que está pasando ahora cambia cada media hora.
+        cargarTrivia(episodeId)
         viewModelScope.launch {
             // Antes que nada: que el detalle sepa por qué capítulo vas aunque salgas enseguida.
             //
@@ -767,6 +781,37 @@ class PlayerViewModel(
             }
             is PlaybackDecision.AskFirst ->
                 _askPlaybackSource.value = AskPlaybackSourceState(episodeId, seriesId, decision.itemId)
+        }
+    }
+
+    /**
+     * Pide la tanda de datos curiosos, best-effort.
+     *
+     * Se traga cualquier fallo: sin datos no se dibuja el botón, que es el fallo bueno para algo
+     * accesorio. Mismo criterio que [com.arkiv.player.data.gateway.AvisadorDeRecomendaciones] --
+     * lo que importa es reproducir, y esto no puede estorbar. `CancellationException` no se traga:
+     * dejaría corriendo una corrutina que su scope ya dio por muerta.
+     */
+    private fun cargarTrivia(episodeId: String) {
+        triviaJob?.cancel()
+        _trivia.value = emptyList()
+        triviaJob = viewModelScope.launch {
+            val obra = try {
+                repo.obraDeTriviaPara(episodeId)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(PLAY, "trivia: no se pudo identificar la obra: ${e.message}")
+                null
+            } ?: return@launch
+            _trivia.value = try {
+                gatewayClient.trivia(obra.tmdbId, obra.tipo, obra.temporada, obra.episodio)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(PLAY, "trivia: ${e.javaClass.simpleName}: ${e.message}")
+                emptyList()
+            }
         }
     }
 

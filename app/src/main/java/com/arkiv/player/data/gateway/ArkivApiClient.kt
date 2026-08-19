@@ -215,6 +215,26 @@ class ArkivApiClient(
         }
     }
 
+    /**
+     * Datos curiosos sobre lo que se está reproduciendo, o lista vacía.
+     *
+     * El gateway NUNCA responde error acá: sin llave de modelo, sin tmdbId o con el modelo caído
+     * devuelve `{"textos": []}`. Sin datos no se dibuja el botón, que es el fallo bueno para una
+     * función accesoria: nadie ve un error encima del video.
+     */
+    suspend fun trivia(
+        tmdbId: Int,
+        tipo: String,
+        temporada: Int?,
+        episodio: Int?,
+    ): List<String> = withContext(Dispatchers.IO) {
+        val url = "${baseUrl()}/v1/trivia?tmdbId=$tmdbId&tipo=$tipo" +
+            "&temporada=${temporada ?: 0}&episodio=${episodio ?: 0}"
+        val arr = JSONObject(ejecutar(pedido(url).get().build())).optJSONArray("textos")
+            ?: return@withContext emptyList()
+        (0 until arr.length()).mapNotNull { arr.optString(it).takeIf { t -> t.isNotBlank() } }
+    }
+
     suspend fun sources(): List<GatewaySource> = withContext(Dispatchers.IO) {
         val arr = JSONObject(ejecutar(pedido("${baseUrl()}/v1/sources").get().build()))
             .optJSONArray("sources") ?: return@withContext emptyList()
