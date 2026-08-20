@@ -171,6 +171,14 @@ sin error ni hueco. Y el marcador manual sigue existiendo para quien quiera pone
 **Un tiempo equivocado se ve y molesta.** Por eso el botón **nunca salta solo**: sigue siendo un
 botón que se toca, como hoy. Saltar automático es otra decisión y no entra acá.
 
+**Medido (2026-08-19, Tarea 1, Fire TV + fuente Magis, contra la posición real del player por
+logcat):** Dragon Ball T1·E1 — AniSkip dice `op.endTime=92.489s`, en pantalla el opening termina
+entre 90.0s y 93.1s → desfase de 0-3s, calza. Evangelion T1·E1 y T1·E2 — AniSkip dice `op: 0-90/91s`,
+pero en pantalla esa ventana (y hasta el segundo 200) es contenido del capítulo, nunca el opening:
+no es un corrimiento corregible con offset, es que el opening no está donde AniSkip lo marca (visto
+igual en los dos episodios). Veredicto: GO para el caso general (Dragon Ball); Evangelion queda
+como excepción conocida, sin bloquear — detalle en `task-1-report.md` del mismo directorio de specs.
+
 ## Fuera de alcance
 
 - **Crunchyroll como segunda fuente.** Cubriría el 23 % que falta y lo que no es anime, pero su
