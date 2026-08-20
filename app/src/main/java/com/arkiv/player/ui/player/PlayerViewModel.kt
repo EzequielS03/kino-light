@@ -852,8 +852,17 @@ class PlayerViewModel(
      * corta temprano si falta algún dato. El try/catch de acá es solo por las dos consultas a la
      * base de arriba (`obraDeTriviaPara`/`getEpisode`): en la práctica no deberían fallar, pero
      * tampoco pueden tirar el reproductor si lo hicieran.
+     *
+     * `internal` (y no `private`) porque `load()` solo cubre la PRIMERA carga del capítulo con el
+     * que se abrió la pantalla. Archive.org reproduce la sección entera como una sola playlist y
+     * avanza de capítulo en capítulo POR DENTRO del `MediaController` (ver
+     * `PlayerScreen.onMediaItemTransition`), sin volver a llamar a `load()` -- sin ese segundo
+     * llamador, un capítulo alcanzado SOLO por auto-avance se quedaba sin fila (ni de capítulo ni
+     * de serie) y el botón de saltar no aparecía nunca para él. Llamarlo de más no cuesta: el
+     * `marcadoresJob?.cancel()` de acá abajo descarta cualquier pedido anterior en vuelo y
+     * `asegurar()` corta temprano si la fila ya existe.
      */
-    private fun cargarMarcadores(episodeId: String) {
+    internal fun cargarMarcadores(episodeId: String) {
         marcadoresJob?.cancel()
         marcadoresJob = viewModelScope.launch {
             val obra = try {
