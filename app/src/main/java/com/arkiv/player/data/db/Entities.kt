@@ -36,6 +36,19 @@ data class ItemEntity(
      */
     val tmdbId: Int? = null,
     /**
+     * El nombre con el que TMDB conoce esta obra, cuando se pudo identificar. Es lo que la
+     * biblioteca MUESTRA; [title] queda con lo que dijo la fuente.
+     *
+     * Al lado y no encima: [title] guarda el nombre del portal ("Shin seiki evangerion Temp.1") o
+     * el renombre manual de la persona, y los dos se perderían si el canónico los pisara — el día
+     * que TMDB se equivoque no habría con qué volver atrás, y un renombre manual no podría ganarle
+     * a la identificación automática. Renombrar a mano lo pone en null, para que lo que escribió
+     * la persona sea lo que se vea.
+     *
+     * Null = no se identificó (o no se preguntó todavía). Ver `MagisEntities.buildSeason`.
+     */
+    val tituloCanonico: String? = null,
+    /**
      * "movie" | "tv" (mismo vocabulario que [com.arkiv.player.data.catalog.TmdbItem.type]), cuando
      * se sabe con certeza al agregar. Distinto de [categoryOverride] -que es un override MANUAL y
      * usa "series", no "tv"-: esto es el tipo que trajo la fuente, no una corrección de la persona.

@@ -188,12 +188,20 @@ interface ItemDao {
     @Query("UPDATE items SET categoryOverride = :value WHERE identifier = :itemId")
     suspend fun updateCategoryOverride(itemId: String, value: String?)
 
-    @Query("UPDATE items SET title = :title, updatedAt = :updatedAt WHERE identifier = :itemId")
+    /**
+     * Renombrar a mano. Limpia `tituloCanonico` a propósito: lo que escribió la persona es lo que
+     * se muestra, y si quedara el canónico puesto la consulta de la biblioteca (que lo prefiere)
+     * seguiría mostrando el nombre de TMDB — el renombre no se vería por ningún lado.
+     */
+    @Query(
+        "UPDATE items SET title = :title, tituloCanonico = NULL, updatedAt = :updatedAt " +
+            "WHERE identifier = :itemId",
+    )
     suspend fun updateTitle(itemId: String, title: String, updatedAt: Long)
 
     @Query(
         """
-        SELECT i.identifier, i.title, i.description, i.thumbnailUrl,
+        SELECT i.identifier, COALESCE(NULLIF(TRIM(i.tituloCanonico), ''), i.title) AS title, i.description, i.thumbnailUrl,
                (SELECT COUNT(*) FROM episodes e WHERE e.itemId = i.identifier AND e.deleted = 0) AS episodeCount,
                (SELECT COALESCE(SUM(e.durationSeconds), 0) FROM episodes e WHERE e.itemId = i.identifier AND e.deleted = 0) AS durationSeconds,
                i.addedAt, i.categoryOverride, i.source, i.episodiosVistosEnLista, i.tmdbId, i.tipo
@@ -331,7 +339,7 @@ interface PlaybackDao {
      */
     @Query(
         """
-        SELECT e.id AS episodeId, e.itemId AS itemId, i.title AS itemTitle,
+        SELECT e.id AS episodeId, e.itemId AS itemId, COALESCE(NULLIF(TRIM(i.tituloCanonico), ''), i.title) AS itemTitle,
                e.displayName AS displayName, e.thumbPath AS thumbPath,
                i.thumbnailUrl AS itemThumbnailUrl, i.description AS itemDescription,
                COALESCE(p.positionMs, 0) AS positionMs, COALESCE(p.durationMs, 0) AS durationMs,
@@ -633,7 +641,7 @@ interface DownloadDao {
 
     @Query(
         """
-        SELECT d.episodeId AS episodeId, e.itemId AS itemId, i.title AS itemTitle,
+        SELECT d.episodeId AS episodeId, e.itemId AS itemId, COALESCE(NULLIF(TRIM(i.tituloCanonico), ''), i.title) AS itemTitle,
                e.displayName AS displayName, e.thumbPath AS thumbPath,
                d.state AS state, d.progress AS progress, d.localUri AS localUri, d.bytes AS bytes,
                d.source AS source, d.error AS error, d.bytesDone AS bytesDone

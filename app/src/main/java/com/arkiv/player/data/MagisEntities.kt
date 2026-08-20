@@ -173,6 +173,9 @@ object MagisEntities {
         // de aplanar desde la temporada 1 (ver el KDoc de [capituloDe]). Null cuando el gateway no
         // resolvió la serie: el episodio queda con `season = null`, igual que hoy.
         seasonNumber: Int? = null,
+        // El nombre con el que TMDB conoce la serie (`GatewaySerie.titulo`). Mismo `?:` que
+        // [tmdbId]: uno ausente no borra el que ya estaba guardado. Ver [nombreCanonico].
+        tituloCanonico: String? = null,
     ): Pair<ItemEntity, List<EpisodeEntity>> {
         val itemId = itemIdDe(contentId)
         val item = ItemEntity(
@@ -192,6 +195,7 @@ object MagisEntities {
             // Es SIEMPRE una temporada -no hace falta el `?:` de tmdbId: acá no hay ambigüedad que
             // preservar, cada llamada a buildSeason es de una serie.
             tipo = "tv",
+            tituloCanonico = nombreCanonico(tituloCanonico, existente),
         )
         return item to capitulos.map { capituloDe(itemId, it.number, it.title, it.ref, seasonNumber) }
     }
@@ -266,6 +270,7 @@ object MagisEntities {
         existente: ItemEntity?,
         season: Int? = null,
         tmdbId: Int? = null,
+        tituloCanonico: String? = null,
     ): Pair<ItemEntity, EpisodeEntity> {
         val itemId = itemIdDe(contentId)
         val esCapitulo = episode > 0
@@ -287,6 +292,7 @@ object MagisEntities {
             // `episode` dice con certeza si esto es un capítulo de serie o una película: no hace
             // falta el `?:` de tmdbId, cada llamada sabe cuál de las dos es.
             tipo = if (esCapitulo) "tv" else "movie",
+            tituloCanonico = nombreCanonico(tituloCanonico, existente),
         )
         val ep = if (esCapitulo) {
             capituloDe(itemId, episode, episodeTitle, ref, season = season)
@@ -311,4 +317,15 @@ object MagisEntities {
         }
         return item to ep
     }
+
+    /**
+     * El nombre canónico que queda tras guardar: el que llega, o el que ya estaba.
+     *
+     * En blanco cuenta como ausente, no como nombre: `GatewaySerie.titulo` viene vacío cuando el
+     * gateway es viejo o TMDB no resolvió, y adoptar esa cadena dejaría la tarjeta SIN TEXTO. Y
+     * ausente no borra: [build] y [buildSeason] corren en cada guardado, así que sin este `?:` una
+     * sola pasada con el gateway caído devolvería la tarjeta al nombre del portal.
+     */
+    private fun nombreCanonico(nuevo: String?, existente: ItemEntity?): String? =
+        nuevo?.trim()?.takeIf { it.isNotEmpty() } ?: existente?.tituloCanonico
 }

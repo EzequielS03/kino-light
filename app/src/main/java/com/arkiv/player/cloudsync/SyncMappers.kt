@@ -48,6 +48,9 @@ fun itemToFields(entity: ItemEntity, accountId: String): Map<String, Any?> = map
     // livianos, no hay motivo para aligerar el tombstone quitándolos.
     "tmdbId" to entity.tmdbId,
     "tipo" to entity.tipo,
+    // El nombre de TMDB viaja igual que el tmdbId: identificar la serie en el celu tiene que
+    // arreglar la tarjeta en el TV también, sin que nadie abra ese ítem allá.
+    "tituloCanonico" to entity.tituloCanonico,
 )
 
 fun recordToItem(json: JSONObject): ItemEntity = ItemEntity(
@@ -67,6 +70,9 @@ fun recordToItem(json: JSONObject): ItemEntity = ItemEntity(
     // después se lee como "sí tiene", solo que apuntando a nada.
     tmdbId = json.optIntOrNull("tmdbId")?.takeIf { it > 0 },
     tipo = json.optStringOrNull("tipo"),
+    // Vacío cuenta como ausente, igual que el 0 de tmdbId: el campo de texto de PocketBase nace
+    // en "" en las filas que no lo tienen, y adoptar esa cadena dejaría la tarjeta sin texto.
+    tituloCanonico = json.optStringOrNull("tituloCanonico")?.takeIf { it.isNotBlank() },
 )
 
 // ---- episodes <-> EpisodeEntity ----

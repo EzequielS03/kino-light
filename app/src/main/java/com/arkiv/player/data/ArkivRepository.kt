@@ -1103,6 +1103,7 @@ class ArkivRepository(
         still: String? = null,
         tmdbTitle: String? = null,
         overview: String? = null,
+        tituloCanonico: String? = null,
     ): String? {
         if (ref.isBlank() || contentId.isBlank()) return null
         val id = MagisEntities.itemIdDe(contentId)
@@ -1111,6 +1112,7 @@ class ArkivRepository(
             contentId = contentId, ref = ref, title = title, episode = episode,
             episodeTitle = episodeTitle, posterUrl = posterUrl, ahora = clock(),
             seriesRef = seriesRef, existente = existing, season = season, tmdbId = tmdbId,
+            tituloCanonico = tituloCanonico,
         )
         if (episode > 0) {
             // upsert y NO replaceItem: los capítulos que ya estaban guardados de esta temporada no
@@ -1156,10 +1158,23 @@ class ArkivRepository(
         itemId: String,
         tmdbId: Int?,
         capitulos: List<CapituloDeTemporada>,
+        tituloCanonico: String? = null,
     ) {
         val fila = itemDao.getItem(itemId) ?: return
-        if (tmdbId != null && tmdbId > 0 && fila.tmdbId != tmdbId) {
-            itemDao.upsertItem(fila.copy(tmdbId = tmdbId, updatedAt = clock()))
+        // Una sola escritura para las dos cosas: son la misma respuesta del gateway, y dos
+        // `upsertItem` sobre la misma fila en el mismo segundo es justo lo que hace recursar el
+        // trigger del sync (ver `SyncTriggers`, y el mismo cuidado en `MagisEntities.buildSeason`).
+        val nombre = tituloCanonico?.trim()?.takeIf { it.isNotEmpty() }
+        val identidadNueva = tmdbId != null && tmdbId > 0 && fila.tmdbId != tmdbId
+        val nombreNuevo = nombre != null && nombre != fila.tituloCanonico
+        if (identidadNueva || nombreNuevo) {
+            itemDao.upsertItem(
+                fila.copy(
+                    tmdbId = if (identidadNueva) tmdbId else fila.tmdbId,
+                    tituloCanonico = nombre ?: fila.tituloCanonico,
+                    updatedAt = clock(),
+                ),
+            )
         }
         if (capitulos.isNotEmpty()) {
             guardarStillsDeMagis(itemId, MagisEntities.stillsDeTemporada(itemId, capitulos, clock()))
@@ -1246,6 +1261,9 @@ class ArkivRepository(
         // El `season_number` de `GatewaySerie`: `buildSeason` lo necesita para que los episodios
         // guarden la temporada real, sin la cual `ensureEpisodeStills` aplana mal (ver su KDoc).
         seasonNumber: Int? = null,
+        // El nombre con el que TMDB conoce la serie (`GatewaySerie.titulo`), para que la tarjeta
+        // deje de mostrar el del portal. Ver `MagisEntities.buildSeason`.
+        tituloCanonico: String? = null,
     ): Map<Int, String> {
         if (contentId.isBlank() || capitulos.isEmpty()) return emptyMap()
         val id = MagisEntities.itemIdDe(contentId)
@@ -1274,6 +1292,7 @@ class ArkivRepository(
             contentId = contentId, title = title, capitulos = capitulos, posterUrl = posterUrl,
             ahora = clock(), seriesRef = seriesRef, existente = existente,
             episodiosVistosEnLista = episodiosVistosEnLista, tmdbId = tmdbId, seasonNumber = seasonNumber,
+            tituloCanonico = tituloCanonico,
         )
         itemDao.upsertItem(item)
         itemDao.upsertEpisodes(episodios)

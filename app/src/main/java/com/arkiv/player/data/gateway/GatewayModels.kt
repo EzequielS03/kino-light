@@ -76,8 +76,20 @@ data class GatewayEpisode(
     val overview: String? = null,
 )
 
-/** La serie a la que pertenece una temporada, cuando el gateway la pudo identificar. */
-data class GatewaySerie(val imdbId: String, val tmdbId: Int, val seasonNumber: Int)
+/**
+ * La serie a la que pertenece una temporada, cuando el gateway la pudo identificar.
+ *
+ * [titulo] es el nombre con el que TMDB la conoce ("Neon Genesis Evangelion"), no el del portal
+ * ("Shin seiki evangerion Temp.1"): es lo que la biblioteca adopta como `tituloCanonico`. Viene
+ * **vacío** cuando el gateway es viejo o TMDB no resolvió — no null, para que "no hay nombre" sea
+ * una sola pregunta y no dos.
+ */
+data class GatewaySerie(
+    val imdbId: String,
+    val tmdbId: Int,
+    val seasonNumber: Int,
+    val titulo: String = "",
+)
 
 /**
  * Parsea el JSON crudo de `/v1/episodes`: la lista de capítulos y, si el gateway pudo cruzar el
@@ -108,6 +120,7 @@ fun parseEpisodesResponse(json: String): Pair<List<GatewayEpisode>, GatewaySerie
             imdbId = s.optString("imdb_id"),
             tmdbId = s.optInt("tmdb_id"),
             seasonNumber = s.optInt("season_number"),
+            titulo = s.optString("title"),
         )
     }
     return episodios to serie

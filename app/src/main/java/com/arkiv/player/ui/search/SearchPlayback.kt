@@ -136,6 +136,8 @@ class SearchPlayback(private val graph: AppGraph) {
         // Mismo blindaje que en [playMagisSeason]: `tmdbId` sale de un `optInt`, así que un campo
         // ausente daría 0 y ese 0 le ganaría al `?:` que preserva el tmdbId ya guardado.
         tmdbId = serie?.tmdbId?.takeIf { it > 0 },
+        // El nombre de TMDB, para que la tarjeta no se quede con el del portal.
+        tituloCanonico = serie?.titulo,
         still = capitulo.still,
         tmdbTitle = capitulo.tmdbTitle,
         overview = capitulo.overview,
@@ -190,6 +192,8 @@ class SearchPlayback(private val graph: AppGraph) {
             // ya estuviera guardado. Hoy el gateway solo manda `series` cuando SÍ resolvió, así que no
             // es alcanzable, pero blindarlo acá no cuesta nada.
             tmdbId = serie?.tmdbId?.takeIf { it > 0 },
+        // El nombre de TMDB, para que la tarjeta no se quede con el del portal.
+        tituloCanonico = serie?.titulo,
             seasonNumber = serie?.seasonNumber,
         )
         val epId = guardados[elegido.number] ?: return playMagisEpisode(temporada, elegido, serie)

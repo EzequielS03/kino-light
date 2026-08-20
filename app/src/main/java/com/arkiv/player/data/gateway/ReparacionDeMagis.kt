@@ -37,7 +37,11 @@ suspend fun repararIdentidadDeMagis(
     repository.aplicarIdentidadDeMagis(
         itemId,
         tmdbId,
-        capitulos.map {
+        // El nombre con el que TMDB conoce la serie: es la mitad que faltaba. Reparar solo el
+        // `tmdbId` arreglaba las miniaturas y los nombres de capítulo, pero la tarjeta seguía
+        // diciendo "Shin seiki evangerion Temp.1" para siempre.
+        tituloCanonico = serie?.titulo,
+        capitulos = capitulos.map {
             CapituloDeTemporada(
                 number = it.number, title = it.title, ref = it.ref,
                 still = it.still, tmdbTitle = it.tmdbTitle, overview = it.overview,

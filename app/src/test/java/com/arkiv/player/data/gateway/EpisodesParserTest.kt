@@ -79,4 +79,30 @@ class EpisodesParserTest {
         assertNull(caps[0].still)
         assertNull(caps[0].tmdbTitle)
     }
+
+    /**
+     * El nombre con el que TMDB conoce la serie. Es lo que la biblioteca adopta para dejar de
+     * mostrar el del portal: hoy un ítem puede tener el `tmdbId` resuelto y aun así verse como
+     * "Shin seiki evangerion Temp.1" para siempre, porque nadie le mandaba el nombre bueno.
+     */
+    @Test fun el_bloque_series_trae_el_nombre_canonico() {
+        val (_, serie) = parsear(
+            """{"episodes":[{"number":1,"title":"cap","ref":"r1"}],
+                "series":{"imdb_id":"tt0088509","tmdb_id":890,"season_number":1,
+                          "title":"Neon Genesis Evangelion"}}"""
+        )
+        assertEquals("Neon Genesis Evangelion", serie!!.titulo)
+    }
+
+    /**
+     * Un gateway viejo no manda `title`, y TMDB tampoco lo resuelve siempre. Vacío y no null para
+     * que quien lo consuma no tenga que preguntar dos cosas distintas: "no hay nombre" es una sola.
+     */
+    @Test fun sin_title_el_nombre_canonico_queda_vacio() {
+        val (_, serie) = parsear(
+            """{"episodes":[{"number":1,"title":"cap","ref":"r1"}],
+                "series":{"imdb_id":"tt0088509","tmdb_id":890,"season_number":1}}"""
+        )
+        assertEquals("", serie!!.titulo)
+    }
 }

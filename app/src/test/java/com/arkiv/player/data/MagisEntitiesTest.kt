@@ -164,10 +164,12 @@ class MagisEntitiesTest {
         episodiosVistosEnLista: Int? = null,
         tmdbId: Int? = null,
         seasonNumber: Int? = null,
+        tituloCanonico: String? = null,
     ) = MagisEntities.buildSeason(
         contentId = contentId, title = title, capitulos = capitulos,
         posterUrl = "poster.jpg", ahora = 1_000L, seriesRef = seriesRef, existente = existente,
         episodiosVistosEnLista = episodiosVistosEnLista, tmdbId = tmdbId, seasonNumber = seasonNumber,
+        tituloCanonico = tituloCanonico,
     )
 
     @Test fun la_temporada_entra_como_UN_item_con_todos_sus_capitulos() {
@@ -320,6 +322,41 @@ class MagisEntitiesTest {
         assertEquals(MagisEntities.episodioIdDePelicula(MagisEntities.itemIdDe("ABC")), ep.id)
     }
 
+
+    // --- el nombre con el que TMDB conoce la serie ---
+
+    /**
+     * El título del portal NO se pisa: se guarda al lado. "Shin seiki evangerion Temp.1" es como la
+     * llama magis y así queda en `title`; "Neon Genesis Evangelion" es lo que muestra la biblioteca.
+     * Pisarlo sería perder de qué venía el ítem el día que TMDB se equivoque — y además `title` es
+     * donde vive el renombre manual de la persona.
+     */
+    @Test fun el_nombre_canonico_se_guarda_al_lado_sin_pisar_el_del_portal() {
+        val (item, _) = temporada(
+            title = "Shin seiki evangerion Temp.1",
+            tituloCanonico = "Neon Genesis Evangelion",
+        )
+        assertEquals("Shin seiki evangerion Temp.1", item.title)
+        assertEquals("Neon Genesis Evangelion", item.tituloCanonico)
+    }
+
+    /**
+     * Mismo `?:` que [tmdbId]: que TMDB no resuelva HOY no puede borrar el nombre que ya se había
+     * resuelto ayer. `buildSeason` corre en cada guardado de la temporada, así que sin esto un solo
+     * guardado con el gateway caído dejaría la tarjeta con el nombre del portal otra vez.
+     */
+    @Test fun un_nombre_canonico_ausente_no_borra_el_que_ya_estaba() {
+        val previo = temporada(tituloCanonico = "Neon Genesis Evangelion").first
+        val (item, _) = temporada(tituloCanonico = null, existente = previo)
+        assertEquals("Neon Genesis Evangelion", item.tituloCanonico)
+    }
+
+    /** Un nombre en blanco es "no vino", no un nombre: dejaría la tarjeta sin texto. */
+    @Test fun un_nombre_canonico_en_blanco_tampoco_borra_el_que_ya_estaba() {
+        val previo = temporada(tituloCanonico = "Neon Genesis Evangelion").first
+        val (item, _) = temporada(tituloCanonico = "   ", existente = previo)
+        assertEquals("Neon Genesis Evangelion", item.tituloCanonico)
+    }
 }
 
 /**
