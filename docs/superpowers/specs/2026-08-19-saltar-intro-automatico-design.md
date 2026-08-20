@@ -172,12 +172,15 @@ sin error ni hueco. Y el marcador manual sigue existiendo para quien quiera pone
 botón que se toca, como hoy. Saltar automático es otra decisión y no entra acá.
 
 **Medido (2026-08-19, Tarea 1, Fire TV + fuente Magis, contra la posición real del player por
-logcat):** Dragon Ball T1·E1 — AniSkip dice `op.endTime=92.489s`, en pantalla el opening termina
-entre 90.0s y 93.1s → desfase de 0-3s, calza. Evangelion T1·E1 y T1·E2 — AniSkip dice `op: 0-90/91s`,
-pero en pantalla esa ventana (y hasta el segundo 200) es contenido del capítulo, nunca el opening:
-no es un corrimiento corregible con offset, es que el opening no está donde AniSkip lo marca (visto
-igual en los dos episodios). Veredicto: GO para el caso general (Dragon Ball); Evangelion queda
-como excepción conocida, sin bloquear — detalle en `task-1-report.md` del mismo directorio de specs.
+logcat):** Dragon Ball T1·E1 — AniSkip dice `op.endTime=92.489s`; medido en dos instantes (90.0s
+el opening seguía en curso, 93.1s ya había terminado), ese valor cae DENTRO de la ventana muestreada
+→ desfase real de ±1.5s como mucho (no "hasta 3s": eso era la resolución del muestreo, no el
+desfase), calza. Evangelion T1·E1 y T1·E2 — AniSkip dice `op: 0-90/91s`, pero en pantalla esa
+ventana (y hasta el segundo 200) es contenido del capítulo, nunca el opening: no es un corrimiento
+corregible con offset, es que el opening no está donde AniSkip lo marca (visto igual en los dos
+episodios). Veredicto: GO para el caso general (Dragon Ball); Evangelion queda como excepción
+conocida, sin bloquear — medición completa en
+[`2026-08-19-saltar-intro-desfase-medido.md`](./2026-08-19-saltar-intro-desfase-medido.md).
 
 ## Fuera de alcance
 
