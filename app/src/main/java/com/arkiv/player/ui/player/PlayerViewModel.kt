@@ -241,6 +241,15 @@ class PlayerViewModel(
     /** Cancelable: al saltar de capítulo, la tanda del anterior ya no sirve. */
     private var triviaJob: kotlinx.coroutines.Job? = null
 
+    /**
+     * Cancelable, igual que [triviaJob]: sin esto, dos `load()` seguidos para el mismo capítulo
+     * (p. ej. una recomposición que dispara la carga dos veces) arrancan dos corrutinas que pasan
+     * el chequeo de "¿ya hay fila?" de [BuscadorDeMarcadores.asegurar] ANTES de que la primera
+     * llegue a escribir -- ese chequeo es lectura-luego-escritura sin lock, así que las dos le
+     * pegan al gateway. No corrompe nada (la fila final es la correcta), pero pide de más.
+     */
+    private var marcadoresJob: kotlinx.coroutines.Job? = null
+
     private val _askPlaybackSource = MutableStateFlow<AskPlaybackSourceState?>(null)
     val askPlaybackSource: StateFlow<AskPlaybackSourceState?> = _askPlaybackSource.asStateFlow()
 
@@ -845,7 +854,8 @@ class PlayerViewModel(
      * tampoco pueden tirar el reproductor si lo hicieran.
      */
     private fun cargarMarcadores(episodeId: String) {
-        viewModelScope.launch {
+        marcadoresJob?.cancel()
+        marcadoresJob = viewModelScope.launch {
             val obra = try {
                 repo.obraDeTriviaPara(episodeId)
             } catch (e: kotlinx.coroutines.CancellationException) {

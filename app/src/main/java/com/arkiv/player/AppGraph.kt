@@ -481,19 +481,6 @@ class AppGraph(context: Context) {
         )
     }
 
-    /**
-     * Pide al gateway los tiempos de intro/outro de un capítulo y los guarda (ver su propio KDoc).
-     * `PlayerViewModel` arma el suyo propio en vez de usar esta instancia -- no recibe `AppGraph`
-     * por constructor-- pero queda acá igual: es el punto natural para cualquier otro llamador que
-     * sí tenga el graph a mano (p. ej. un barrido de fondo futuro).
-     */
-    val buscadorDeMarcadores by lazy {
-        com.arkiv.player.data.marcadores.BuscadorDeMarcadores(
-            dao = database.skipMarkerDao(),
-            gateway = arkivApiClient,
-        )
-    }
-
     private val buscadorDeCapitulos by lazy {
         com.arkiv.player.data.nuevos.BuscadorDeCapitulos(
             repo = repository,
