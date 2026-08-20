@@ -1410,6 +1410,11 @@ class PlayerViewModel(
         )
     }
 
+    /** La corrección a mano de los tiempos, del capítulo en curso o de la serie. Ver su KDoc. */
+    private val editorDeMarcadores by lazy {
+        com.arkiv.player.data.marcadores.EditorDeMarcadores(dao = repo.skipMarkerDao())
+    }
+
     private val prefetchHttp by lazy {
         okhttp3.OkHttpClient.Builder()
             .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
@@ -1431,22 +1436,48 @@ class PlayerViewModel(
         super.onCleared()
     }
 
-    fun setOpeningEnd(ms: Long) = updateMarker { m -> Triple(m?.openingStartMs ?: 0L, ms, m?.endingStartMs) }
+    /**
+     * Marca a mano el fin del opening en [ms].
+     *
+     * [episodeId] dice a QUÉ se le pone: un capítulo, o `""` = la serie entera (lo que hacía
+     * siempre este camino). Poder marcar UN capítulo es lo que hace usable la corrección: con
+     * marcadores automáticos por capítulo, un manual de serie le pisa el automático correcto a
+     * todos los demás (ver [EditorDeMarcadores]).
+     */
+    fun setOpeningEnd(ms: Long, episodeId: String = "") = editarMarcador(episodeId) { itemId ->
+        editorDeMarcadores.finDelOpening(itemId, episodeId, ms)
+    }
 
-    fun setEndingStart(ms: Long) = updateMarker { m -> Triple(m?.openingStartMs, m?.openingEndMs, ms) }
+    /** Marca a mano el inicio del ending en [ms]. Ver [setOpeningEnd] para [episodeId]. */
+    fun setEndingStart(ms: Long, episodeId: String = "") = editarMarcador(episodeId) { itemId ->
+        editorDeMarcadores.inicioDelEnding(itemId, episodeId, ms)
+    }
 
-    fun clearMarkers() = updateMarker { Triple(null, null, null) }
+    /** "Esto no tiene intro ni outro". Ver [setOpeningEnd] para [episodeId]. */
+    fun clearMarkers(episodeId: String = "") = editarMarcador(episodeId) { itemId ->
+        editorDeMarcadores.quitar(itemId, episodeId)
+    }
 
-    private fun updateMarker(transform: (SkipMarkerEntity?) -> Triple<Long?, Long?, Long?>) {
-        val current = _playlist.value ?: return
-        val itemId = current.items.firstOrNull()?.itemId ?: return
+    private fun editarMarcador(episodeId: String, bloque: suspend (String) -> Unit) {
+        val itemId = _playlist.value?.items?.firstOrNull()?.itemId ?: return
         viewModelScope.launch {
-            val existing = repo.getSkipMarker(itemId)
-            val (openStart, openEnd, endStart) = transform(existing)
-            repo.saveSkipMarker(itemId, openStart, openEnd, endStart)
-            _playlist.value = current.copy(
-                items = current.items.map {
-                    it.copy(openingStartMs = openStart, openingEndMs = openEnd, endingStartMs = endStart)
+            bloque(itemId)
+            // La copia horneada en la playlist: la pantalla lee los marcadores de Room (por eso
+            // salen sin recargar nada), pero estos campos siguen alimentando el panel-editor y lo
+            // que se le manda al receptor, así que se dejan al día con lo que quedó guardado.
+            val guardado = repo.getSkipMarker(itemId, episodeId)
+            val actual = _playlist.value ?: return@launch
+            _playlist.value = actual.copy(
+                items = actual.items.map {
+                    if (episodeId.isNotEmpty() && it.episodeId != episodeId) {
+                        it
+                    } else {
+                        it.copy(
+                            openingStartMs = guardado?.openingStartMs,
+                            openingEndMs = guardado?.openingEndMs,
+                            endingStartMs = guardado?.endingStartMs,
+                        )
+                    }
                 },
             )
         }

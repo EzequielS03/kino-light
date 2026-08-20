@@ -1484,7 +1484,13 @@ class ArkivRepository(
 
     fun observeSkipMarker(itemId: String) = skipMarkerDao.observe(itemId)
 
-    suspend fun getSkipMarker(itemId: String) = skipMarkerDao.get(itemId)
+    /**
+     * El marcador de un ámbito EXACTO: el del capítulo [episodeId], o el de la serie entera
+     * (`""`, el default). No cae de uno al otro a propósito -- quien quiera la precedencia
+     * completa usa `MarcadorDeCapitulo.elegir` sobre `observeDeCapitulo`.
+     */
+    suspend fun getSkipMarker(itemId: String, episodeId: String = "") =
+        skipMarkerDao.getById(com.arkiv.player.data.MarcadorDeCapitulo.idDe(itemId, episodeId))
 
     suspend fun saveSkipMarker(
         itemId: String,

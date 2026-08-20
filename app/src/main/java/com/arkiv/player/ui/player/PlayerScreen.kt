@@ -1068,6 +1068,49 @@ private fun PlayerContent(
         if (siguiente != null) onNextEpisode(siguiente)
     }
 
+    /**
+     * Si tiene sentido ofrecer "corregir los tiempos de este capítulo".
+     *
+     * Es la respuesta al agujero que dejaba la feature: el editor viejo es de teléfono, está
+     * apagado por bandera y edita la SERIE, así que en el Fire TV un tiempo automático malo NO se
+     * podía corregir en el aparato. Y la fuente automática se equivoca de verdad (para un capítulo
+     * devolvió los créditos etiquetados como opening), sin forma fiable de detectarlo desde acá.
+     *
+     * Pide capítulo identificable y duración conocida: sin duración, la posición que se marcaría
+     * todavía no significa nada.
+     */
+    val hayMarcadoresQueCorregir = !enVivo && d != null && episodioEnCurso.isNotBlank() && espejo.duracionMs > 0
+
+    /**
+     * Guarda la posición actual como fin del opening / inicio del ending **de este capítulo**.
+     *
+     * Marca por posición y no con un slider a propósito: en el televisor la barra de progreso ya
+     * es D-pad (izquierda/derecha hacen seek), así que "poner el capítulo donde termina el opening
+     * y confirmar" se hace con los mismos controles de siempre y sin un panel nuevo que navegar.
+     */
+    fun marcarTiempo(modo: ModoDeMarcado) {
+        val posicion = espejo.posicionMs
+        marcadores.cerrarMenuDeCapitulo()
+        if (modo == ModoDeMarcado.INTRO) vm.setOpeningEnd(posicion, episodioEnCurso)
+        else vm.setEndingStart(posicion, episodioEnCurso)
+        val que = if (modo == ModoDeMarcado.INTRO) "Intro" else "Outro"
+        android.widget.Toast.makeText(
+            context,
+            "$que de este capítulo guardado en ${formatDuration(posicion)}",
+            android.widget.Toast.LENGTH_SHORT,
+        ).show()
+    }
+
+    fun quitarLosMarcadoresDelCapitulo() {
+        marcadores.cerrarMenuDeCapitulo()
+        vm.clearMarkers(episodioEnCurso)
+        android.widget.Toast.makeText(
+            context,
+            "Este capítulo queda sin intro ni outro",
+            android.widget.Toast.LENGTH_SHORT,
+        ).show()
+    }
+
     // Índice/buffering/estado del transporte. Sigue al player activo: al conectar o desconectar
     // el cast, el efecto se relanza solo y el listener se re-engancha al que corresponda.
     DisposableEffect(activePlayer) {
@@ -2503,7 +2546,11 @@ private fun PlayerContent(
                                         .focusRequester(focos.subirBrillo)
                                         .focusProperties {
                                             left = focos.bajarBrillo
-                                            right = if (TriviaDelPlayer.hayBoton(trivia)) focos.trivia else focos.subirBrillo
+                                            right = when {
+                                                TriviaDelPlayer.hayBoton(trivia) -> focos.trivia
+                                                hayMarcadoresQueCorregir -> focos.marcadores
+                                                else -> focos.subirBrillo
+                                            }
                                             up = focos.barra
                                             down = focos.subirBrillo
                                         },
@@ -2525,9 +2572,29 @@ private fun PlayerContent(
                                             .focusRequester(focos.trivia)
                                             .focusProperties {
                                                 left = focos.subirBrillo
-                                                right = focos.trivia
+                                                right = if (hayMarcadoresQueCorregir) focos.marcadores else focos.trivia
                                                 up = focos.barra
                                                 down = focos.trivia
+                                            },
+                                    )
+                                }
+                                // Corregir los tiempos del capítulo en curso. Va al final de la
+                                // fila por lo mismo que el de datos curiosos: meterlo en el medio
+                                // obliga a reescribir eslabones de la cadena de foco.
+                                if (hayMarcadoresQueCorregir) {
+                                    MenuDeMarcadoresDelCapitulo(
+                                        estado = marcadores,
+                                        isTv = true,
+                                        onFinDelOpening = { marcarTiempo(ModoDeMarcado.INTRO) },
+                                        onInicioDelEnding = { marcarTiempo(ModoDeMarcado.OUTRO) },
+                                        onQuitar = { quitarLosMarcadoresDelCapitulo() },
+                                        modifier = Modifier
+                                            .focusRequester(focos.marcadores)
+                                            .focusProperties {
+                                                left = if (TriviaDelPlayer.hayBoton(trivia)) focos.trivia else focos.subirBrillo
+                                                right = focos.marcadores
+                                                up = focos.barra
+                                                down = focos.marcadores
                                             },
                                     )
                                 }
@@ -2546,6 +2613,15 @@ private fun PlayerContent(
                                     IconButton(onClick = { vm.forcePlayLive(episodeId) }) {
                                         Icon(Icons.Default.LiveTv, contentDescription = "Reproducir en vivo", tint = Color.White)
                                     }
+                                }
+                                if (hayMarcadoresQueCorregir) {
+                                    MenuDeMarcadoresDelCapitulo(
+                                        estado = marcadores,
+                                        isTv = false,
+                                        onFinDelOpening = { marcarTiempo(ModoDeMarcado.INTRO) },
+                                        onInicioDelEnding = { marcarTiempo(ModoDeMarcado.OUTRO) },
+                                        onQuitar = { quitarLosMarcadoresDelCapitulo() },
+                                    )
                                 }
                                 IconButton(onClick = { estadoPistas.abrirPicker() }) {
                                     Icon(
@@ -2861,6 +2937,48 @@ private fun TvTransportButton(
             tint = if (focused) Color.Black else tint,
             modifier = Modifier.size(iconSize),
         )
+    }
+}
+
+/**
+ * Botón + menú para corregir a mano los tiempos del capítulo en curso.
+ *
+ * Es la ÚNICA entrada alcanzable en el televisor: vive en la fila de íconos del overlay, o sea
+ * dentro del sistema de foco de la pantalla (`PlayerFoco.kt`), y se usa con el D-pad sin salir de
+ * la reproducción. En el teléfono va en la misma fila de abajo, al lado de subtítulos.
+ */
+@Composable
+private fun MenuDeMarcadoresDelCapitulo(
+    estado: EstadoDeMarcadores,
+    isTv: Boolean,
+    onFinDelOpening: () -> Unit,
+    onInicioDelEnding: () -> Unit,
+    onQuitar: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box {
+        if (isTv) {
+            TvTransportButton(
+                icon = Icons.Default.Tune,
+                contentDescription = "Corregir intro y outro",
+                onClick = { estado.abrirMenuDeCapitulo() },
+                iconSize = 24.dp,
+                tint = Color.White,
+                modifier = modifier,
+            )
+        } else {
+            IconButton(onClick = { estado.abrirMenuDeCapitulo() }, modifier = modifier) {
+                Icon(Icons.Default.Tune, contentDescription = "Corregir intro y outro", tint = Color.White)
+            }
+        }
+        DropdownMenu(
+            expanded = estado.menuDeCapituloAbierto,
+            onDismissRequest = { estado.cerrarMenuDeCapitulo() },
+        ) {
+            DropdownMenuItem(text = { Text("El opening termina aquí") }, onClick = onFinDelOpening)
+            DropdownMenuItem(text = { Text("El ending empieza aquí") }, onClick = onInicioDelEnding)
+            DropdownMenuItem(text = { Text("Este capítulo no tiene") }, onClick = onQuitar)
+        }
     }
 }
 

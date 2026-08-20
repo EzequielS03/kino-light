@@ -29,6 +29,15 @@ internal class EstadoDeMarcadores {
         private set
 
     /**
+     * El menú de "corregir los tiempos de ESTE capítulo", que es el único alcanzable en el Fire TV.
+     * Es un estado aparte del de [menuAbierto] (el editor viejo, de la SERIE, que sigue detrás de
+     * su bandera en el teléfono): compartirlo abriría los dos menús a la vez el día que esa
+     * bandera se encienda.
+     */
+    var menuDeCapituloAbierto by mutableStateOf(false)
+        private set
+
+    /**
      * Ya estuvimos marcando en esta pantalla. Existe solo para que el `play()` de salida NO corra
      * en la composición inicial: sin esta marca, al abrir una fuente web nueva ese play reviviría
      * el video anterior —que sigue cargado en el service— por detrás del overlay "Resolviendo…"
@@ -45,6 +54,14 @@ internal class EstadoDeMarcadores {
 
     fun cerrarMenu() {
         menuAbierto = false
+    }
+
+    fun abrirMenuDeCapitulo() {
+        menuDeCapituloAbierto = true
+    }
+
+    fun cerrarMenuDeCapitulo() {
+        menuDeCapituloAbierto = false
     }
 
     /** Elegir qué marcar cierra el menú y entra al modo. */
