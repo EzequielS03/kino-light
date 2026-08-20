@@ -1,6 +1,9 @@
 package com.arkiv.player.ui.player
 
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -172,5 +175,57 @@ class FocoDelSaltoTest {
             FocoDelSalto.Accion.NADA,
             foco.alCambiar(null, teniaElFoco = false, controlesVisibles = false),
         )
+    }
+}
+
+class InsistirConElFocoTest {
+
+    private var pedidos = 0
+    private var esperas = 0
+    private var enfocado = false
+
+    private fun insistir(intentos: Int = 10, pedir: () -> Unit) = runBlocking {
+        insistirConElFoco(
+            intentos = intentos,
+            yaEstaEnfocado = { enfocado },
+            esperar = { esperas++ },
+            pedir = { pedidos++; pedir() },
+        )
+    }
+
+    @Test fun corta_de_verdad_en_cuanto_consigue_el_foco() {
+        // El bug: `return@repeat` retorna del lambda, o sea que es un `continue`. Las diez
+        // vueltas ocurrían igual (y encima salteándose la espera).
+        insistir { if (pedidos >= 2) enfocado = true }
+        assertEquals(2, pedidos)
+    }
+
+    @Test fun si_ya_lo_tiene_no_lo_vuelve_a_pedir() {
+        enfocado = true
+        assertTrue(insistir { })
+        assertEquals(0, pedidos)
+        assertEquals(0, esperas)
+    }
+
+    @Test fun espera_entre_intento_e_intento() {
+        // Lo único que le da sentido a reintentar. Antes la espera estaba DESPUÉS del `return`
+        // que se ejecutaba casi siempre, así que los diez intentos pasaban en microsegundos.
+        insistir(intentos = 3) { }
+        assertEquals(3, pedidos)
+        assertEquals(3, esperas)
+    }
+
+    @Test fun si_no_lo_consigue_lo_dice() {
+        assertFalse(insistir(intentos = 3) { })
+    }
+
+    @Test fun una_excepcion_no_cuenta_como_haber_conseguido_el_foco() {
+        // El corazón del bug: se miraba `runCatching { requestFocus() }.isSuccess`, y en Compose
+        // 1.7.6 `requestFocus()` devuelve void (llama a `focus()` y descarta su booleano —
+        // verificado con javap sobre el AAR), así que solo es "fallo" si LANZA, cosa que hace
+        // únicamente cuando el FocusRequester no está asociado a ningún nodo. La señal buena es
+        // el `onFocusChanged` del botón, no la excepción.
+        assertFalse(insistir(intentos = 3) { throw IllegalStateException("no asociado a un nodo") })
+        assertEquals("una excepción no corta el reintento", 3, pedidos)
     }
 }

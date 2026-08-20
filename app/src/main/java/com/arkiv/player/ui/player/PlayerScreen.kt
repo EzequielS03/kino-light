@@ -2748,18 +2748,25 @@ private fun PlayerContent(
         // muerto. Se baja a mano en los dos sitios donde el foco sale del botón de verdad: al
         // devolverlo acá abajo, y cuando la persona se va con una flecha.
         var saltoTeniaElFoco by remember { mutableStateOf(false) }
+        // Y si lo tiene AHORA. Es la señal con la que el reintento sabe si el foco llegó: pedirlo
+        // no informa de nada (ver `insistirConElFoco`), así que lo único fiable es que el propio
+        // botón avise por `onFocusChanged`.
+        var saltoEnfocado by remember { mutableStateOf(false) }
         val focoDelSalto = remember { FocoDelSalto() }
         LaunchedEffect(botonDeSalto, isTv) {
             if (!isTv) return@LaunchedEffect
             when (focoDelSalto.alCambiar(botonDeSalto, saltoTeniaElFoco, controles.visible)) {
                 // El botón acaba de aparecer y se lleva el foco: con el capítulo sonando, un solo
                 // OK salta el opening. Sin esto, OK caía en el transporte y PAUSABA el video.
-                // Se reintenta un rato corto porque el nodo puede no estar colocado todavía en el
-                // frame en que aparece (mismo patrón que el picker de subtítulos).
-                FocoDelSalto.Accion.PEDIR -> repeat(10) {
-                    if (runCatching { focos.salto.requestFocus() }.isSuccess) return@repeat
-                    delay(32)
-                }
+                // Se insiste un rato corto (~320 ms) porque el nodo puede no estar colocado
+                // todavía en el frame en que aparece, y porque el foco hay que quitárselo al
+                // `videoView` por la interop de Compose. Ver `insistirConElFoco`: la señal de
+                // éxito es que el botón avise que lo tiene, NO que pedirlo no haya lanzado.
+                FocoDelSalto.Accion.PEDIR -> insistirConElFoco(
+                    yaEstaEnfocado = { saltoEnfocado },
+                    esperar = { delay(ESPERA_ENTRE_INTENTOS_DE_FOCO_MS) },
+                    pedir = { focos.salto.requestFocus() },
+                )
                 FocoDelSalto.Accion.DEVOLVER_A_LOS_CONTROLES -> {
                     saltoTeniaElFoco = false
                     runCatching { focos.barra.requestFocus() }
@@ -2796,7 +2803,10 @@ private fun PlayerContent(
                     icon = botonDeSalto == BotonDeSalto.OUTRO,
                     modifier = Modifier
                         .focusRequester(focos.salto)
-                        .onFocusChanged { if (it.isFocused) saltoTeniaElFoco = true }
+                        .onFocusChanged {
+                            saltoEnfocado = it.isFocused
+                            if (it.isFocused) saltoTeniaElFoco = true
+                        }
                         .then(
                             if (!isTv) Modifier else Modifier.onKeyEvent { e ->
                                 if (e.type != KeyEventType.KeyDown) return@onKeyEvent false

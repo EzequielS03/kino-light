@@ -104,3 +104,41 @@ internal class FocoDelSalto {
         }
     }
 }
+
+/** Cuántas veces se insiste con el foco del botón de saltar, y cuánto se espera entre intentos. */
+internal const val INTENTOS_DE_FOCO_DEL_SALTO = 10
+internal const val ESPERA_ENTRE_INTENTOS_DE_FOCO_MS = 32L
+
+/**
+ * Pide el foco hasta conseguirlo, esperando de verdad entre intento e intento. `true` si lo logró.
+ *
+ * Reintentar hace falta porque el nodo puede no estar colocado en el frame en que aparece, y
+ * porque el foco lo tiene una `View` de Android (el `videoView`, con el "cualquier tecla = mostrar
+ * los controles") que Compose tiene que quitárselo por la interop.
+ *
+ * **Por qué la señal es [yaEstaEnfocado] y no lo que devuelve pedir el foco:** no devuelve nada.
+ * En Compose UI 1.7.6 —verificado con `javap` sobre el AAR— `FocusRequester.requestFocus()` es
+ * `void`: llama a `focus()` y descarta su booleano. Lo único que lanza es el caso de que el
+ * `FocusRequester` no esté asociado a ningún nodo. O sea que `runCatching { … }.isSuccess`, que es
+ * como estaba escrito esto, daba verdadero casi siempre —también cuando el foco NO se conseguía— y
+ * el reintento no reintentaba nada. La única señal real de que el foco llegó es el
+ * `onFocusChanged` del propio botón, que es lo que se consulta acá.
+ *
+ * El `runCatching` queda, pero solo para lo que de verdad lanza, y **sin usarlo como criterio de
+ * éxito**: una excepción no corta el bucle, se sigue intentando.
+ */
+internal suspend fun insistirConElFoco(
+    intentos: Int = INTENTOS_DE_FOCO_DEL_SALTO,
+    yaEstaEnfocado: () -> Boolean,
+    esperar: suspend () -> Unit,
+    pedir: () -> Unit,
+): Boolean {
+    repeat(intentos) {
+        // `return` de la función entera, no `return@repeat`: eso último retorna del lambda de la
+        // vuelta, o sea que es un `continue` y el bucle no corta nunca. Era la otra mitad del bug.
+        if (yaEstaEnfocado()) return true
+        runCatching { pedir() }
+        esperar()
+    }
+    return yaEstaEnfocado()
+}
