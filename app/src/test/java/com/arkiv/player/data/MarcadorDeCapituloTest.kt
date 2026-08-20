@@ -2,8 +2,10 @@ package com.arkiv.player.data
 
 import com.arkiv.player.data.db.SkipMarkerEntity
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -130,5 +132,65 @@ class MarcadorDeCapituloTest {
             ),
         )
         assertEquals(147_000L, elegido!!.openingEndMs)
+    }
+
+    // --- enOpening/enEnding: la cuenta que decide si sale el botón, extraída de PlayerScreen ---
+
+    private fun conAmbosTramos(openStart: Long?, openEnd: Long?, endingStart: Long?) = SkipMarkerEntity(
+        id = "x", itemId = "magis:ABC", episodeId = "magis:ABC::e1",
+        openingStartMs = openStart, openingEndMs = openEnd, endingStartMs = endingStart,
+    )
+
+    @Test fun en_opening_dentro_del_rango() {
+        val m = conAmbosTramos(openStart = 10_000, openEnd = 90_000, endingStart = null)
+        assertTrue(MarcadorDeCapitulo.enOpening(m, posicionMs = 50_000))
+    }
+
+    @Test fun en_opening_en_los_bordes_del_rango_cuenta() {
+        val m = conAmbosTramos(openStart = 10_000, openEnd = 90_000, endingStart = null)
+        assertTrue(MarcadorDeCapitulo.enOpening(m, posicionMs = 10_000))
+        assertTrue(MarcadorDeCapitulo.enOpening(m, posicionMs = 90_000))
+    }
+
+    @Test fun en_opening_falso_antes_o_despues_del_rango() {
+        val m = conAmbosTramos(openStart = 10_000, openEnd = 90_000, endingStart = null)
+        assertFalse(MarcadorDeCapitulo.enOpening(m, posicionMs = 9_999))
+        assertFalse(MarcadorDeCapitulo.enOpening(m, posicionMs = 90_001))
+    }
+
+    /** Sin `openingStartMs` el rango arranca en 0: el opening manual viejo no lo guardaba. */
+    @Test fun en_opening_sin_inicio_arranca_en_cero() {
+        val m = conAmbosTramos(openStart = null, openEnd = 90_000, endingStart = null)
+        assertTrue(MarcadorDeCapitulo.enOpening(m, posicionMs = 0))
+        assertFalse(MarcadorDeCapitulo.enOpening(m, posicionMs = 90_001))
+    }
+
+    @Test fun en_opening_falso_sin_openingEndMs() {
+        val m = conAmbosTramos(openStart = 10_000, openEnd = null, endingStart = null)
+        assertFalse(MarcadorDeCapitulo.enOpening(m, posicionMs = 50_000))
+    }
+
+    @Test fun en_opening_falso_sin_marcador() {
+        assertFalse(MarcadorDeCapitulo.enOpening(null, posicionMs = 50_000))
+    }
+
+    @Test fun en_ending_verdadero_desde_que_arranca() {
+        val m = conAmbosTramos(openStart = null, openEnd = null, endingStart = 1_400_000)
+        assertTrue(MarcadorDeCapitulo.enEnding(m, posicionMs = 1_400_000))
+        assertTrue(MarcadorDeCapitulo.enEnding(m, posicionMs = 1_500_000))
+    }
+
+    @Test fun en_ending_falso_antes_de_que_arranque() {
+        val m = conAmbosTramos(openStart = null, openEnd = null, endingStart = 1_400_000)
+        assertFalse(MarcadorDeCapitulo.enEnding(m, posicionMs = 1_399_999))
+    }
+
+    @Test fun en_ending_falso_sin_endingStartMs() {
+        val m = conAmbosTramos(openStart = 10_000, openEnd = 90_000, endingStart = null)
+        assertFalse(MarcadorDeCapitulo.enEnding(m, posicionMs = 999_999_999))
+    }
+
+    @Test fun en_ending_falso_sin_marcador() {
+        assertFalse(MarcadorDeCapitulo.enEnding(null, posicionMs = 999_999_999))
     }
 }

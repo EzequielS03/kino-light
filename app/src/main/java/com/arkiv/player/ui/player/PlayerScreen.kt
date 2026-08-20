@@ -121,6 +121,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.arkiv.player.cast.CastProgress
+import com.arkiv.player.data.MarcadorDeCapitulo
 import com.arkiv.player.ui.tv.library.SAFE_H
 import com.arkiv.player.ui.tv.library.SAFE_V
 import com.arkiv.player.playback.AutoAvance
@@ -2606,13 +2607,32 @@ private fun PlayerContent(
             FichaDelCanal(estado = estadoVivo, canal = liveCanal, liveApi = graph.liveApi)
         }
 
-        // Botones flotantes de saltar intro/outro (solo archive, teléfono). Casteando SÍ se
-        // muestran: "Saltar intro" es un seekTo simple que el CastPlayer soporta igual; la guarda
-        // real está en el botón "Saltar outro" de abajo (ese sí depende del ítem siguiente LOCAL).
-        if (d != null && !isTorrent && !marcadores.marcando && !isTv && estadoDlna.activo == null) {
-            val inOpening = d.openingEndMs != null &&
-                espejo.posicionMs in (d.openingStartMs ?: 0L)..d.openingEndMs
-            val inEnding = d.endingStartMs != null && espejo.posicionMs >= d.endingStartMs
+        // Marcador vigente del capítulo que suena: capítulo o serie, según la precedencia de
+        // MarcadorDeCapitulo.elegir (manual-capítulo > manual-serie > auto-capítulo >
+        // auto-serie). Reactivo y NO el que quedó horneado en `d` al armar la playlist (Tarea 6
+        // pide el automático al gateway en segundo plano y lo guarda DESPUÉS de que este overlay
+        // ya se dibujó -- con una lectura estática el botón nunca aparecería para ese capítulo).
+        // `remember` lo mantiene con la MISMA identidad de Flow mientras itemId/episodio no
+        // cambien: sin esto, cada recomposición (la barra de progreso recompone con cada tick)
+        // pediría un Flow nuevo y reiniciaría la consulta a Room todo el tiempo.
+        val marcadoresDelCapitulo by remember(d?.itemId, episodioEnCurso) {
+            graph.repository.skipMarkerDao().observeDeCapitulo(d?.itemId ?: "", episodioEnCurso)
+        }.collectAsStateWithLifecycle(initialValue = emptyList())
+        val marcadorVigente = MarcadorDeCapitulo.elegir(
+            delCapitulo = marcadoresDelCapitulo.firstOrNull { it.episodeId == episodioEnCurso },
+            deLaSerie = marcadoresDelCapitulo.firstOrNull { it.episodeId.isEmpty() },
+        )
+
+        // Botones flotantes de saltar intro/outro. Antes solo salían en el teléfono y fuera de
+        // torrents: los marcadores se ponían a mano por serie y solo para archive. Ahora salen de
+        // la identidad de la obra (tmdbId + capítulo), así que valen igual en el Fire TV -- que es
+        // donde se ve el anime, el caso que motivó todo esto -- y en un capítulo bajado por
+        // torrent. Casteando SÍ se muestran: "Saltar intro" es un seekTo simple que el CastPlayer
+        // soporta igual; la guarda real está en el botón "Saltar outro" de abajo (ese sí depende
+        // del ítem siguiente LOCAL).
+        if (marcadorVigente != null && !marcadores.marcando && estadoDlna.activo == null) {
+            val inOpening = MarcadorDeCapitulo.enOpening(marcadorVigente, espejo.posicionMs)
+            val inEnding = MarcadorDeCapitulo.enEnding(marcadorVigente, espejo.posicionMs)
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
@@ -2620,7 +2640,7 @@ private fun PlayerContent(
                     .padding(end = 20.dp, bottom = 88.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (inOpening) SkipButton("Saltar intro") { activePlayer.seekTo(d.openingEndMs!!) }
+                if (inOpening) SkipButton("Saltar intro") { activePlayer.seekTo(marcadorVigente.openingEndMs!!) }
                 // "Saltar intro" hace seekTo y funciona casteando; "saltar outro" salta al ítem
                 // siguiente, y el cast tiene uno solo cargado — se oculta.
                 if (inEnding && !casting) SkipButton("Saltar outro", icon = true) { controller.seekToNextMediaItem() }

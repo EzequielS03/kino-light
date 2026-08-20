@@ -47,6 +47,25 @@ object MarcadorDeCapitulo {
         return manualCapitulo ?: manualSerie ?: capitulo ?: serie
     }
 
+    /**
+     * ¿[posicionMs] cae dentro del opening de [marcador]? Sin `openingEndMs` no hay opening que
+     * marcar (un marcador puede traer solo el ending). Extraída de PlayerScreen para poder
+     * probarla sin Compose -- es la cuenta que decide si sale el botón "Saltar intro".
+     */
+    fun enOpening(marcador: SkipMarkerEntity?, posicionMs: Long): Boolean {
+        val fin = marcador?.openingEndMs ?: return false
+        return posicionMs in (marcador.openingStartMs ?: 0L)..fin
+    }
+
+    /**
+     * ¿[posicionMs] ya entró al ending de [marcador]? Sin `endingStartMs` no hay ending que
+     * marcar. Mismo motivo que [enOpening]: la cuenta que decide "Saltar outro".
+     */
+    fun enEnding(marcador: SkipMarkerEntity?, posicionMs: Long): Boolean {
+        val inicio = marcador?.endingStartMs ?: return false
+        return posicionMs >= inicio
+    }
+
     private val SkipMarkerEntity.tieneTiempos: Boolean
         get() = openingEndMs != null || endingStartMs != null
 }
