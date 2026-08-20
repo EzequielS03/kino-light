@@ -260,8 +260,10 @@ class PlayerViewModel(
             return
         }
         // En vivo NO lleva trivia y por eso va después del corte: un canal no es una obra, no
-        // tiene tmdbId, y lo que está pasando ahora cambia cada media hora.
+        // tiene tmdbId, y lo que está pasando ahora cambia cada media hora. Mismo motivo para los
+        // marcadores automáticos: un canal no tiene intro/outro que saltar.
         cargarTrivia(episodeId)
+        cargarMarcadores(episodeId)
         viewModelScope.launch {
             // Antes que nada: que el detalle sepa por qué capítulo vas aunque salgas enseguida.
             //
@@ -830,6 +832,45 @@ class PlayerViewModel(
         }
     }
 
+    /**
+     * Pide al gateway los tiempos de intro/outro de este capítulo y los guarda, best-effort.
+     *
+     * No pinta nada: quien va a dibujar el botón de saltar (tarea siguiente) lee `skip_markers`,
+     * que ya sincroniza -- acá solo hace falta dejar la fila puesta. Mismo criterio que
+     * [cargarTrivia]: se dispara al cargar el capítulo y no puede estorbar la reproducción.
+     *
+     * [BuscadorDeMarcadores.asegurar] ya se traga sus propios fallos de red (salvo cancelación) y
+     * corta temprano si falta algún dato. El try/catch de acá es solo por las dos consultas a la
+     * base de arriba (`obraDeTriviaPara`/`getEpisode`): en la práctica no deberían fallar, pero
+     * tampoco pueden tirar el reproductor si lo hicieran.
+     */
+    private fun cargarMarcadores(episodeId: String) {
+        viewModelScope.launch {
+            val obra = try {
+                repo.obraDeTriviaPara(episodeId)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(PLAY, "marcadores: no se pudo identificar la obra: ${e.message}")
+                null
+            } ?: return@launch
+            val itemId = try {
+                repo.getEpisode(episodeId)?.itemId
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            } ?: return@launch
+            buscadorDeMarcadores.asegurar(
+                itemId = itemId,
+                episodeId = episodeId,
+                tmdbId = obra.tmdbId,
+                temporada = obra.temporada ?: 0,
+                episodio = obra.episodio ?: 0,
+            )
+        }
+    }
+
     /** El usuario respondió el diálogo de "¿NUC o en vivo?" (una vez por serie). */
     fun resolveAskPlaybackSource(choice: PlaybackChoice) {
         val ask = _askPlaybackSource.value ?: return
@@ -1333,6 +1374,20 @@ class PlayerViewModel(
             http = httpGateway,
             personToken = personToken,
             deviceToken = { deviceAuth.session.value?.token },
+        )
+    }
+
+    /**
+     * Igual que [gatewayClient]: se arma acá y no se recibe de `AppGraph.buscadorDeMarcadores` por
+     * constructor porque este ViewModel no recibe el graph entero (son ~15 dependencias sueltas,
+     * ver el KDoc de la clase) y el callsite en `PlayerScreen.kt` es de la tarea siguiente. Usa el
+     * mismo [gatewayClient] de arriba -- no tiene sentido un segundo `ArkivApiClient` con su propio
+     * `OkHttpClient` para esto.
+     */
+    private val buscadorDeMarcadores by lazy {
+        com.arkiv.player.data.marcadores.BuscadorDeMarcadores(
+            dao = repo.skipMarkerDao(),
+            gateway = gatewayClient,
         )
     }
 

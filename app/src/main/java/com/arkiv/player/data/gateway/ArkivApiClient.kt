@@ -174,6 +174,15 @@ class ArkivApiClient(
     /** Capítulos de una temporada. Solo Magis los expone; el resto responde 422. */
     suspend fun episodes(ref: String): List<GatewayEpisode> = episodesConSerie(ref).first
 
+    /** Tiempos de intro/outro del capítulo, o null. Nunca lanza: es un extra sobre la reproducción. */
+    suspend fun marcadores(tmdbId: Int, temporada: Int, episodio: Int): GatewayMarcadores? =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val url = "${baseUrl()}/v1/marcadores?tmdbId=$tmdbId&temporada=$temporada&episodio=$episodio"
+                parseMarcadores(ejecutar(pedido(url).get().build()))
+            }.getOrNull()
+        }
+
     /**
      * Metadata de un anime (títulos, temporada TVDB, offset absoluto y tmdb_id).
      *

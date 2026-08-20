@@ -187,3 +187,25 @@ data class GatewayAnimeMeta(
     val offset: Int,
     val tmdbId: Int?,
 )
+
+/** Tiempos de intro/outro de un capítulo, en ms. Null en los que el gateway no supo. */
+data class GatewayMarcadores(
+    val openingStartMs: Long?,
+    val openingEndMs: Long?,
+    val endingStartMs: Long?,
+)
+
+/**
+ * `{}` -> null: el gateway contesta un objeto vacío cuando no sabe, y eso no es un error sino
+ * "este capítulo no tiene marcadores". Un JSON roto también da null: esto cuelga de una
+ * reproducción y no puede tirar el player.
+ */
+fun parseMarcadores(json: String): GatewayMarcadores? = runCatching {
+    val o = JSONObject(json)
+    val m = GatewayMarcadores(
+        openingStartMs = if (o.has("openingStartMs")) o.getLong("openingStartMs") else null,
+        openingEndMs = if (o.has("openingEndMs")) o.getLong("openingEndMs") else null,
+        endingStartMs = if (o.has("endingStartMs")) o.getLong("endingStartMs") else null,
+    )
+    if (m.openingEndMs == null && m.endingStartMs == null) null else m
+}.getOrNull()

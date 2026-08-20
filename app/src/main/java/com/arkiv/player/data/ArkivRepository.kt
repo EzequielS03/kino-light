@@ -1470,6 +1470,18 @@ class ArkivRepository(
 
     // --- Marcadores de opening/ending (por serie/ítem) ---
 
+    /**
+     * El DAO crudo de `skip_markers`, sin pasar por las vistas ya armadas de acá abajo
+     * (`getSkipMarker`, que solo ve el marcador de TODA la serie: `episodeId` vacío).
+     *
+     * Lo necesita [com.arkiv.player.data.marcadores.BuscadorDeMarcadores]: hace `getById`/`upsert`
+     * puntuales POR CAPÍTULO. `PlayerViewModel` no recibe `AppGraph` por constructor (son ~15
+     * dependencias sueltas, ver su propio KDoc), así que arma su propio `BuscadorDeMarcadores` --
+     * igual que ya hace con `gatewayClient`-- y esto es lo que le falta para poder hacerlo sin
+     * agregar un parámetro nuevo que obligara a tocar el callsite en `PlayerScreen.kt`.
+     */
+    fun skipMarkerDao(): com.arkiv.player.data.db.SkipMarkerDao = skipMarkerDao
+
     fun observeSkipMarker(itemId: String) = skipMarkerDao.observe(itemId)
 
     suspend fun getSkipMarker(itemId: String) = skipMarkerDao.get(itemId)
