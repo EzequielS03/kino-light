@@ -70,11 +70,13 @@ episodio.**
 
 ### 1. `skip_markers` gana el episodio (app, migración de Room)
 
-Hoy la clave primaria es `itemId`. Pasa a ser compuesta `(itemId, episodeId)`:
+Hoy la clave primaria es `itemId`. Pasa a ser una llave DERIVADA de los dos:
 
 ```kotlin
-@Entity(tableName = "skip_markers", primaryKeys = ["itemId", "episodeId"])
+@Entity(tableName = "skip_markers")
 data class SkipMarkerEntity(
+    /** `"<itemId>|<episodeId>"`. Ver [markerIdDe]. */
+    @PrimaryKey val id: String,
     val itemId: String,
     /** "" = vale para toda la serie (el marcador que se pone a mano). */
     val episodeId: String = "",
@@ -86,6 +88,11 @@ data class SkipMarkerEntity(
 )
 ```
 
+**Derivada y no compuesta (`primaryKeys = [...]`), por el sync.** `CloudSyncManager.pushRows` busca
+la fila remota por UN campo natural por colección (`items=identifier`, `progress=episodeId`,
+`markers=itemId`). Una clave compuesta obligaría a cambiar ese mecanismo para todas las colecciones;
+una llave derivada encaja en el que ya existe — igual que `episodes`, que sincroniza por `epId`.
+
 **`episodeId = ""` conserva el marcador manual tal como funciona hoy**, y la búsqueda del player es:
 el del episodio exacto si existe, y si no el de la serie. Así lo automático y lo manual conviven sin
 pisarse, y quien marcó algo a mano no lo pierde.
@@ -93,8 +100,8 @@ pisarse, y quien marcó algo a mano no lo pierde.
 La migración es barata **porque la tabla está vacía en producción**: se recrea con la clave nueva.
 No hay dato que preservar, y eso hay que aprovecharlo ahora — dentro de un mes ya no será verdad.
 
-En PocketBase, la colección `markers` gana el campo `episodeId` y su índice único pasa a
-`(accountId, itemId, episodeId)`.
+En PocketBase, la colección `markers` gana `markerId` (la llave derivada, que pasa a ser su
+campo natural en el sync) y `episodeId`; el índice único pasa a `(accountId, markerId)`.
 
 ### 2. El gateway resuelve los tiempos (`GET /v1/marcadores`)
 
