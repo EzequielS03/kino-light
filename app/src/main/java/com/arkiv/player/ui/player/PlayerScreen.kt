@@ -2640,6 +2640,11 @@ private fun PlayerContent(
         if (marcadorVigente != null && !marcadores.marcando && estadoDlna.activo == null) {
             val inOpening = MarcadorDeCapitulo.enOpening(marcadorVigente, espejo.posicionMs)
             val inEnding = MarcadorDeCapitulo.enEnding(marcadorVigente, espejo.posicionMs)
+            val accionOutro = SaltoDeOutro.decidir(
+                indiceActual = currentIndex,
+                itemsEnLaPlaylist = playlist?.items?.size ?: 0,
+                siguienteCapitulo = cabecera.siguiente,
+            )
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
@@ -2648,9 +2653,23 @@ private fun PlayerContent(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (inOpening) SkipButton("Saltar intro") { activePlayer.seekTo(marcadorVigente.openingEndMs!!) }
-                // "Saltar intro" hace seekTo y funciona casteando; "saltar outro" salta al ítem
-                // siguiente, y el cast tiene uno solo cargado — se oculta.
-                if (inEnding && !casting) SkipButton("Saltar outro", icon = true) { controller.seekToNextMediaItem() }
+                // "Saltar intro" hace seekTo y funciona casteando; "saltar outro" cambia de
+                // capítulo, y el cast tiene uno solo cargado — se oculta.
+                //
+                // A dónde salta lo decide `SaltoDeOutro` (ver su KDoc): `seekToNextMediaItem()` a
+                // secas solo funciona en archive, la única fuente multi-ítem, y en magis/web/
+                // torrent/local/NUC —que publican UN ítem— el botón salía igual y no hacía NADA.
+                // NINGUNA (película, o último capítulo) directamente no dibuja el botón.
+                if (inEnding && !casting && accionOutro != SaltoDeOutro.Accion.NINGUNA) {
+                    SkipButton("Saltar outro", icon = true) {
+                        when (accionOutro) {
+                            SaltoDeOutro.Accion.AVANZAR_EN_LA_PLAYLIST -> controller.seekToNextMediaItem()
+                            // El mismo camino que `alTerminarElCapitulo()`: navegar a la ruta del
+                            // capítulo nuevo es lo que re-arranca la resolución de la fuente.
+                            else -> cabecera.siguiente?.let(onNextEpisode)
+                        }
+                    }
+                }
             }
         }
 
