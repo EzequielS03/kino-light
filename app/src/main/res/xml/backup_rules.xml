@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Respaldo en Android <= 11 (API 30). El par de este archivo para API 31+ es
+  data_extraction_rules.xml: los DOS tienen que decir lo mismo, si no el aparato viejo restaura lo
+  que el nuevo excluye.
+
+  Las prefs cifradas NO pueden viajar en un respaldo. Se cifran con una llave del Android Keystore
+  que nunca sale del aparato, asi que al restaurarlas en otro telefono llega el archivo pero no la
+  llave: indescifrable para siempre. Eso es exactamente lo que dejo un Galaxy A54 abriendo y
+  cerrandose sola la app en bucle el 2026-08-20. Ver PrefsCifradas.
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="arkiv_pb_secure.xml" />
+    <exclude domain="sharedpref" path="arkiv_pb_plano.xml" />
+</full-backup-content>

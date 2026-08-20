@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Respaldo en Android 12+ (API 31). Tiene que decir lo mismo que backup_rules.xml (ver el porque
+  alli). `device-transfer` tambien excluye: el traspaso directo entre telefonos (Smart Switch y
+  companía) tampoco puede mover llaves del Keystore.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="arkiv_pb_secure.xml" />
+        <exclude domain="sharedpref" path="arkiv_pb_plano.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="arkiv_pb_secure.xml" />
+        <exclude domain="sharedpref" path="arkiv_pb_plano.xml" />
+    </device-transfer>
+</data-extraction-rules>

@@ -2,22 +2,22 @@ package com.arkiv.player.pocketbase
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import java.security.KeyStore
 
 /** Guarda identidad + token del dispositivo en prefs cifradas. */
 class SecureDeviceStore(context: Context) : DeviceStore {
     private val prefs: SharedPreferences = run {
         val app = context.applicationContext
-        val masterKey = MasterKey.Builder(app)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
-        EncryptedSharedPreferences.create(
-            app,
-            "arkiv_pb_secure",
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+        PrefsCifradas.abrirOReparar(
+            crear = { cifradas(app) },
+            tirarLoIndescifrable = { tirarLoIndescifrable(app) },
+            sinCifrar = {
+                Log.e(TAG, "el Keystore no da ni recien tirado: prefs SIN cifrar")
+                app.getSharedPreferences(PREFS_PLANAS, Context.MODE_PRIVATE)
+            },
         )
     }
 
@@ -73,6 +73,37 @@ class SecureDeviceStore(context: Context) : DeviceStore {
     override fun clearPersonToken() { prefs.edit().remove(K_PERSON_TOKEN).apply() }
 
     private companion object {
+        const val TAG = "ArkivPrefs"
+        const val PREFS = "arkiv_pb_secure"
+
+        /** Solo si el Keystore esta roto de raiz. Ver [PrefsCifradas]. */
+        const val PREFS_PLANAS = "arkiv_pb_plano"
+
+        fun cifradas(app: Context): SharedPreferences = EncryptedSharedPreferences.create(
+            app,
+            PREFS,
+            MasterKey.Builder(app).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+        )
+
+        /**
+         * El archivo Y la llave, en ese orden. Borrar solo uno de los dos no arregla nada: si
+         * queda el archivo viejo lo sigue sin poder descifrar, y si queda la llave vieja el
+         * `create` la reusa para el archivo nuevo. Los keysets de Tink viven DENTRO del mismo
+         * archivo de prefs, asi que se van con el.
+         */
+        fun tirarLoIndescifrable(app: Context) {
+            Log.w(TAG, "prefs cifradas indescifrables (llave del Keystore perdida): de cero")
+            runCatching { app.deleteSharedPreferences(PREFS) }
+                .onFailure { Log.e(TAG, "no se pudo borrar $PREFS", it) }
+            runCatching {
+                KeyStore.getInstance("AndroidKeyStore")
+                    .apply { load(null) }
+                    .deleteEntry(MasterKey.DEFAULT_MASTER_KEY_ALIAS)
+            }.onFailure { Log.e(TAG, "no se pudo borrar la llave maestra", it) }
+        }
+
         const val K_ACCOUNT = "accountId"
         const val K_DEVICE = "deviceId"
         const val K_EMAIL = "email"
