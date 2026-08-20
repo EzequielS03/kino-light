@@ -203,8 +203,32 @@ class LiveApi(
         return b
     }
 
-    private suspend fun cuerpo(req: Request): JSONObject = withContext(Dispatchers.IO) {
-        http.newCall(req).execute().use { r ->
+    /**
+     * El cliente de [http] con MÁS PACIENCIA, solo para `resolver`.
+     *
+     * `httpGateway` no fija timeouts, así que rige el de OkHttp por defecto: **10 s de lectura**.
+     * Ese número nunca se eligió para el vivo, y resolver un canal lo pasa: medido en producción
+     * el 2026-08-20, RCN HD tarda 10,8-11,1 s de forma consistente (cuatro intentos seguidos:
+     * 10918, 11071, 10784, 10805 ms) y TELECARIBE 10867 ms, mientras los canales rápidos tardan
+     * ~2 s. O sea que el gateway resolvía BIEN --`live resolve OK` en su log-- y la app cortaba
+     * 800 ms antes, dando "timeout" en la cara de la persona por una carrera perdida por menos de
+     * un segundo.
+     *
+     * Va solo acá y no en todo `LiveApi` a propósito: el catálogo (categorías, canales, EPG)
+     * responde rápido, y darle 25 s a esas llamadas convertiría un gateway caído en 25 s de
+     * pantalla congelada en vez de un error rápido.
+     *
+     * `newBuilder()` y no un cliente nuevo: comparte el pool de conexiones y el interceptor de
+     * sesión del compartido, que es justo lo que se buscaba al unificarlos.
+     */
+    private val httpConPaciencia: OkHttpClient by lazy {
+        http.newBuilder()
+            .readTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+    }
+
+    private suspend fun cuerpo(req: Request, cliente: OkHttpClient = http): JSONObject = withContext(Dispatchers.IO) {
+        cliente.newCall(req).execute().use { r ->
             val texto = r.body?.string().orEmpty()
             if (!r.isSuccessful) {
                 // El cuerpo YA está leído en `texto` y se descartaba. Ahí viaja el motivo real -- el
@@ -316,7 +340,9 @@ class LiveApi(
     suspend fun resolver(code: String): LiveSession {
         val req = pedido("${baseUrl()}/v1/live/resolve")
             .post(JSONObject(mapOf("channel" to code)).toString().toRequestBody(json)).build()
-        val o = cuerpo(req)
+        // Con el cliente paciente: hay canales que el portal tarda ~11 s en resolver y el default
+        // de 10 s los mataba justo antes de llegar. Ver [httpConPaciencia].
+        val o = cuerpo(req, httpConPaciencia)
         val sesion = LiveSession(
             cflHost = o.optString("cflHost"),
             authBase = o.optString("authBase"),
