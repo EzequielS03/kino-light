@@ -184,10 +184,26 @@ conocida, sin bloquear — medición completa en
 
 ## Fuera de alcance
 
-- **Crunchyroll como segunda fuente.** Cubriría el 23 % que falta y lo que no es anime, pero su
-  contenedor (`crunch-app-1`) tiene el login roto desde el 7 de agosto (`SSO login falló: no se
-  capturó el authorization code`) y no se pudo verificar que sus *skip events* sean accesibles. El
-  diseño deja el hueco listo —el gateway decide la fuente— pero revivir ese login es otro trabajo.
+- **Crunchyroll como fuente preferente.** Fuera de alcance por SECUENCIA, no por viabilidad: se
+  verificó el 2026-08-19, después de escribir este diseño, y **funciona**. El contenedor
+  `crunch-app-1` no tenía el login roto — tenía el token muerto; su `refresh_token` seguía vivo en
+  el Mac y con eso revivió (`/search` → 200). Con ids reales de capítulo, sus *skip events* salen
+  sin auth:
+
+  ```
+  Demon Slayer ep2 → intro 57-144s · credits 1288-1378s
+  Demon Slayer ep3 → intro 34-122s
+  Demon Slayer ep1 → SIN intro, credits 1269-1418s
+  ```
+
+  Dos cosas que esto deja probadas. **Coincide con AniSkip** (ep2: AniSkip 57-147, Crunchyroll
+  57-144 — el mismo segundo de arranque), o sea corroboración independiente de todo el enfoque. Y
+  **AniSkip se equivoca de forma detectable**: para el ep1 dice "op 1270-1360s", que son los
+  CRÉDITOS que Crunchyroll marca en 1269-1418 — el mismo tipo de dato malo que se vio en Evangelion.
+
+  Sumarla es un trabajo posterior que entra por la costura que este diseño ya deja puesta (la app
+  pide "marcadores", no pide "AniSkip"), y debería entrar como fuente **preferente** sobre AniSkip:
+  es dato oficial, trae el outro, y no confunde créditos con opening.
 - **Saltar automático sin tocar nada.**
 - **Detección por audio** (huella entre capítulos, como el Intro Skipper de Jellyfin): es la única
   vía que cubriría el 100 %, y no cabe en blog (Celeron N3050) ni tiene acceso al archivo.
