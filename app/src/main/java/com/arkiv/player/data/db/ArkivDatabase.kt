@@ -27,7 +27,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         LiveChannelCacheEntity::class,
         RecomendacionEntity::class,
     ],
-    version = 27,
+    version = 28,
     exportSchema = false,
 )
 abstract class ArkivDatabase : RoomDatabase() {
@@ -484,6 +484,27 @@ abstract class ArkivDatabase : RoomDatabase() {
         }
 
         /**
+         * v27 -> v28: los marcadores pasan a ser por capítulo. La tabla se RECREA en vez de
+         * migrarse: en producción tiene 0 filas (verificado contra PocketBase el 2026-08-19), así
+         * que no hay nada que preservar — y recrearla evita inventar un `id` para filas viejas.
+         */
+        private val MIGRATION_27_28 = object : Migration(27, 28) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS skip_markers")
+                db.execSQL(
+                    "CREATE TABLE skip_markers (" +
+                        "id TEXT NOT NULL PRIMARY KEY, " +
+                        "itemId TEXT NOT NULL, " +
+                        "episodeId TEXT NOT NULL DEFAULT '', " +
+                        "openingStartMs INTEGER, openingEndMs INTEGER, endingStartMs INTEGER, " +
+                        "updatedAt INTEGER NOT NULL DEFAULT 0, " +
+                        "deleted INTEGER NOT NULL DEFAULT 0, " +
+                        "origen TEXT NOT NULL DEFAULT 'manual')",
+                )
+            }
+        }
+
+        /**
          * Deja los triggers de `updatedAt` puestos en CADA apertura, y sella lo que haya quedado
          * sin reloj.
          *
@@ -508,7 +529,7 @@ abstract class ArkivDatabase : RoomDatabase() {
                     context.applicationContext,
                     ArkivDatabase::class.java,
                     "arkiv.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28)
                     .addCallback(SELLAR_UPDATED_AT)
                     .fallbackToDestructiveMigration()
                     .build().also { instance = it }

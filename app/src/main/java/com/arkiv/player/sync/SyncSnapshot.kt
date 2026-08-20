@@ -1,5 +1,6 @@
 package com.arkiv.player.sync
 
+import com.arkiv.player.data.MarcadorDeCapitulo
 import com.arkiv.player.data.db.EpisodeEntity
 import com.arkiv.player.data.db.ItemEntity
 import com.arkiv.player.data.db.LiveFavoriteEntity
@@ -87,11 +88,14 @@ data class SyncSnapshot(
             markers.forEach {
                 put(
                     JSONObject()
+                        .put("id", it.id)
                         .put("itemId", it.itemId)
+                        .put("episodeId", it.episodeId)
                         .put("openingStartMs", it.openingStartMs ?: JSONObject.NULL)
                         .put("openingEndMs", it.openingEndMs ?: JSONObject.NULL)
                         .put("endingStartMs", it.endingStartMs ?: JSONObject.NULL)
-                        .put("updatedAt", it.updatedAt),
+                        .put("updatedAt", it.updatedAt)
+                        .put("origen", it.origen),
                 )
             }
         })
@@ -178,12 +182,20 @@ data class SyncSnapshot(
                 )
             }
             val markers = root.getJSONArray("markers").mapObjects {
+                val itemId = it.getString("itemId")
+                // Compatibilidad: un snapshot de la versión anterior no manda `id`/`episodeId`
+                // (los marcadores eran uno por serie) -- se recalcula la llave igual, para que no
+                // entre en blanco.
+                val episodeId = it.optStringOrNull("episodeId") ?: ""
                 SkipMarkerEntity(
-                    itemId = it.getString("itemId"),
+                    id = it.optStringOrNull("id") ?: MarcadorDeCapitulo.idDe(itemId, episodeId),
+                    itemId = itemId,
+                    episodeId = episodeId,
                     openingStartMs = it.optLongOrNull("openingStartMs"),
                     openingEndMs = it.optLongOrNull("openingEndMs"),
                     endingStartMs = it.optLongOrNull("endingStartMs"),
                     updatedAt = it.optLong("updatedAt", 0),
+                    origen = it.optStringOrNull("origen") ?: MarcadorDeCapitulo.ORIGEN_MANUAL,
                 )
             }
             // Compatibilidad: un snapshot de la versión anterior no manda estas claves.

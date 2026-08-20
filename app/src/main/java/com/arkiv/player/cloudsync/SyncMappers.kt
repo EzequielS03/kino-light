@@ -1,5 +1,6 @@
 package com.arkiv.player.cloudsync
 
+import com.arkiv.player.data.MarcadorDeCapitulo
 import com.arkiv.player.data.db.EpisodeEntity
 import com.arkiv.player.data.db.EpisodeFrameEntity
 import com.arkiv.player.data.db.ItemEntity
@@ -13,7 +14,7 @@ import org.json.JSONObject
 /**
  * Mapeo record (PocketBase, org.json) <-> entity (Room). Android-side (usa org.json), no puro.
  * Claves naturales por colección: items=identifier, episodes=epId(=EpisodeEntity.id),
- * playback=episodeId, markers=itemId, live_favorites/live_recents=code.
+ * playback=episodeId, markers=markerId(=SkipMarkerEntity.id), live_favorites/live_recents=code.
  */
 
 private fun JSONObject.optStringOrNull(name: String): String? =
@@ -145,22 +146,39 @@ fun recordToPlayback(json: JSONObject): PlaybackEntity = PlaybackEntity(
 
 fun markerToFields(entity: SkipMarkerEntity, accountId: String): Map<String, Any?> = mapOf(
     "accountId" to accountId,
+    // `markerId` es el campo natural con el que el sync busca la fila remota: tiene que ser el
+    // mismo que la PK local, o cada aparato crearía una fila nueva en cada empuje.
+    "markerId" to entity.id,
     "itemId" to entity.itemId,
+    "episodeId" to entity.episodeId,
     "openingStartMs" to entity.openingStartMs,
     "openingEndMs" to entity.openingEndMs,
     "endingStartMs" to entity.endingStartMs,
     "updatedAt" to entity.updatedAt,
     "deleted" to entity.deleted,
+    "origen" to entity.origen,
 )
 
-fun recordToMarker(json: JSONObject): SkipMarkerEntity = SkipMarkerEntity(
-    itemId = json.optString("itemId"),
-    openingStartMs = json.optLongOrNull("openingStartMs"),
-    openingEndMs = json.optLongOrNull("openingEndMs"),
-    endingStartMs = json.optLongOrNull("endingStartMs"),
-    updatedAt = json.optLong("updatedAt"),
-    deleted = json.optBoolean("deleted"),
-)
+fun recordToMarker(json: JSONObject): SkipMarkerEntity {
+    val itemId = json.optString("itemId")
+    val episodeId = json.optString("episodeId")
+    return SkipMarkerEntity(
+        // Un gateway/registro viejo no manda `markerId`: se recalcula igual, para que una fila
+        // creada antes de este cambio no entre con la llave en blanco.
+        id = json.optStringOrNull("markerId") ?: MarcadorDeCapitulo.idDe(itemId, episodeId),
+        itemId = itemId,
+        episodeId = episodeId,
+        openingStartMs = json.optLongOrNull("openingStartMs"),
+        openingEndMs = json.optLongOrNull("openingEndMs"),
+        endingStartMs = json.optLongOrNull("endingStartMs"),
+        updatedAt = json.optLong("updatedAt"),
+        deleted = json.optBoolean("deleted"),
+        // Un registro viejo (o el gateway antes de esta tarea) no manda `origen`: entra como
+        // manual, el mismo default que la entidad -- no hay forma de saber si fue AniSkip o una
+        // persona, y tratarlo como manual es el lado seguro (no lo pisa un auto futuro).
+        origen = json.optStringOrNull("origen") ?: MarcadorDeCapitulo.ORIGEN_MANUAL,
+    )
+}
 
 // ---- live_favorites <-> LiveFavoriteEntity ----
 // Mismo esquema que markers: LWW por updatedAt + tombstone (deleted).

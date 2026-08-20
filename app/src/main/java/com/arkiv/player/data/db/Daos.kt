@@ -441,13 +441,26 @@ interface SkipMarkerDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(marker: SkipMarkerEntity)
 
-    @Query("SELECT * FROM skip_markers WHERE itemId = :itemId")
+    /** El marcador de TODA la serie (el que se pone a mano en el diálogo): `episodeId` vacío. */
+    @Query("SELECT * FROM skip_markers WHERE itemId = :itemId AND episodeId = ''")
     suspend fun get(itemId: String): SkipMarkerEntity?
 
-    @Query("SELECT * FROM skip_markers WHERE itemId = :itemId")
+    @Query("SELECT * FROM skip_markers WHERE itemId = :itemId AND episodeId = ''")
     fun observe(itemId: String): Flow<SkipMarkerEntity?>
 
-    @Query("DELETE FROM skip_markers WHERE itemId = :itemId")
+    /** El del capítulo y el de la serie, en una sola consulta. `MarcadorDeCapitulo.elegir` decide cuál manda. */
+    @Query("SELECT * FROM skip_markers WHERE itemId = :itemId AND episodeId IN (:episodeId, '') AND deleted = 0")
+    fun observeDeCapitulo(itemId: String, episodeId: String): Flow<List<SkipMarkerEntity>>
+
+    @Query("SELECT * FROM skip_markers WHERE itemId = :itemId AND episodeId IN (:episodeId, '') AND deleted = 0")
+    suspend fun getDeCapitulo(itemId: String, episodeId: String): List<SkipMarkerEntity>
+
+    /** Una fila por su propia llave (PK). La usa el sync por nube para el LWW puntual de un registro remoto. */
+    @Query("SELECT * FROM skip_markers WHERE id = :id")
+    suspend fun getById(id: String): SkipMarkerEntity?
+
+    /** Borra el marcador puesto a mano de la SERIE (`episodeId` vacío); los de capítulo no se tocan. */
+    @Query("DELETE FROM skip_markers WHERE itemId = :itemId AND episodeId = ''")
     suspend fun delete(itemId: String)
 
     @Query("SELECT * FROM skip_markers")
@@ -457,6 +470,7 @@ interface SkipMarkerDao {
     @Query("SELECT * FROM skip_markers WHERE updatedAt > :cursor")
     suspend fun getMarkersSince(cursor: Long): List<SkipMarkerEntity>
 
+    /** Borra TODOS los marcadores del ítem (serie + cada capítulo): lo que hace hoy al quitar un ítem. */
     @Query("UPDATE skip_markers SET deleted = 1 WHERE itemId = :itemId")
     suspend fun softDeleteMarker(itemId: String)
 

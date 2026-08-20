@@ -172,7 +172,7 @@ class CloudSyncManager(
         pushRows(COL_PROGRESS, playbackDao.getPlaybackSince(cursors.lastPushed(COL_PROGRESS)),
             { it.episodeId }, { playbackToFields(it, acct) }, { it.updatedAt })
         pushRows(COL_MARKERS, skipMarkerDao.getMarkersSince(cursors.lastPushed(COL_MARKERS)),
-            { it.itemId }, { markerToFields(it, acct) }, { it.updatedAt })
+            { it.id }, { markerToFields(it, acct) }, { it.updatedAt })
         // live_favorites/live_recents no tienen un `getXSince(cursor)` propio en el DAO (haría
         // falta agregarlo a LiveFavoriteDao/LiveRecentDao, que hoy está tocando otra tarea en este
         // mismo worktree) -- se filtra acá en memoria sobre `getAll()`, aceptable porque son tablas
@@ -196,7 +196,7 @@ class CloudSyncManager(
      * colección. El cursor avanza al máximo `updatedAt` de TODAS las filas procesadas (para
      * garantizar progreso: una fila permanentemente inválida no atasca el sync para siempre).
      * Las cancelaciones se re-lanzan (no se tragan). El campo natural-key va por el nombre PB:
-     * items=identifier, episodes=epId (=id de la entidad), progress=episodeId, markers=itemId,
+     * items=identifier, episodes=epId (=id de la entidad), progress=episodeId, markers=markerId,
      * live_favorites/live_recents=code.
      * Frames no pasa por acá: tiene su propio camino, ver [pushFrames].
      */
@@ -212,6 +212,7 @@ class CloudSyncManager(
             COL_ITEMS -> "identifier"
             COL_EPISODES -> "epId"
             COL_PROGRESS -> "episodeId"
+            COL_MARKERS -> "markerId"
             COL_LIVE_FAVORITES, COL_LIVE_RECENTS -> "code"
             else -> "itemId"
         }
@@ -435,7 +436,11 @@ class CloudSyncManager(
 
     private suspend fun mergeMarker(json: JSONObject, remoteUpdatedAt: Long): Boolean {
         val remote = recordToMarker(json)
-        val local = skipMarkerDao.get(remote.itemId)
+        // Por `remote.id` (la PK) y no por `remote.itemId`: `skipMarkerDao.get(itemId)` está
+        // acotado al marcador de la SERIE (episodeId vacío) desde que los marcadores pasaron a ser
+        // por capítulo -- comparar un registro remoto de capítulo contra ese `local` habría sido
+        // un LWW contra la fila equivocada.
+        val local = skipMarkerDao.getById(remote.id)
         if (!LwwMerge.pickWinner(local?.updatedAt ?: 0, remoteUpdatedAt)) return false
         skipMarkerDao.upsert(remote)
         return true

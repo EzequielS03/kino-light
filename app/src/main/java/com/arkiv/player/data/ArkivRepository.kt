@@ -1485,7 +1485,11 @@ class ArkivRepository(
         } else {
             skipMarkerDao.upsert(
                 com.arkiv.player.data.db.SkipMarkerEntity(
+                    // El diálogo de marcadores edita el de la SERIE (episodeId vacío): `origen`
+                    // queda en su default MANUAL, que es justamente lo que es esto.
+                    id = com.arkiv.player.data.MarcadorDeCapitulo.idDe(itemId, ""),
                     itemId = itemId,
+                    episodeId = "",
                     openingStartMs = openingStartMs,
                     openingEndMs = openingEndMs,
                     endingStartMs = endingStartMs,
@@ -1560,13 +1564,16 @@ class ArkivRepository(
                 }
             }
         }
-        for (m in snapshot.markers) {
-            val local = skipMarkerDao.get(m.itemId)
-            if (local == null || m.updatedAt > local.updatedAt) {
-                skipMarkerDao.upsert(m)
-                changes++
-            }
-        }
+        // Por `it.id` (la PK derivada de itemId+episodeId) y no por itemId: desde que los
+        // marcadores pasan a ser por capítulo, un mismo itemId tiene una fila por episodio más la
+        // de la serie, así que comparar por itemId mezclaría el reloj de filas distintas. Mismo
+        // `aAplicar` que items/episodes/liveFavorites/liveRecents.
+        val markers = com.arkiv.player.sync.SyncMerge.aAplicar(
+            locales = skipMarkerDao.getAll(), remotas = snapshot.markers,
+            llave = { it.id }, updatedAt = { it.updatedAt },
+        )
+        markers.forEach { skipMarkerDao.upsert(it) }
+        changes += markers.size
 
         // Favoritos y recientes de TV en vivo (Task 10): mismo `aAplicar` que items/episodes.
         // `live_channels_cache` NO entra acá -- no viaja por el sync, ver [LiveChannelCacheEntity].

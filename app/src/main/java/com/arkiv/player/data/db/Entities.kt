@@ -3,6 +3,7 @@ package com.arkiv.player.data.db
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.arkiv.player.data.MarcadorDeCapitulo
 
 @Entity(tableName = "items")
 data class ItemEntity(
@@ -110,14 +111,28 @@ data class PlaybackEntity(
     val deleted: Boolean = false,
 )
 
+/**
+ * Tiempos de intro/outro. La llave es derivada (`"<itemId>|<episodeId>"`, ver
+ * [com.arkiv.player.data.MarcadorDeCapitulo.idDe]) porque el sync empuja cada colección por UN
+ * campo natural y una clave compuesta rompería ese mecanismo.
+ *
+ * [episodeId] vacío = vale para toda la serie: es el marcador que se pone a mano en el diálogo.
+ *
+ * [origen] distingue lo puesto A MANO de lo que trajo AniSkip solo: ver
+ * [com.arkiv.player.data.MarcadorDeCapitulo.elegir]. El default es MANUAL a propósito -- lo que ya
+ * existe y lo que escriba una persona vale como manual sin tener que acordarse de ponerlo.
+ */
 @Entity(tableName = "skip_markers")
 data class SkipMarkerEntity(
-    @PrimaryKey val itemId: String,
+    @PrimaryKey val id: String,
+    val itemId: String,
+    val episodeId: String = "",
     val openingStartMs: Long?,
     val openingEndMs: Long?,
     val endingStartMs: Long?,
     val updatedAt: Long = 0,
     val deleted: Boolean = false,
+    val origen: String = MarcadorDeCapitulo.ORIGEN_MANUAL,
 )
 
 /**
