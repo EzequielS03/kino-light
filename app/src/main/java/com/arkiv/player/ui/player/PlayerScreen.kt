@@ -13,6 +13,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -2064,6 +2065,47 @@ private fun PlayerContent(
             }
         }
 
+        // Marcador vigente del capítulo que suena: capítulo o serie, según la precedencia de
+        // MarcadorDeCapitulo.elegir (manual-capítulo > manual-serie > auto-capítulo >
+        // auto-serie). Reactivo y NO el que quedó horneado en `d` al armar la playlist (Tarea 6
+        // pide el automático al gateway en segundo plano y lo guarda DESPUÉS de que este overlay
+        // ya se dibujó -- con una lectura estática el botón nunca aparecería para ese capítulo).
+        // `remember` lo mantiene con la MISMA identidad de Flow mientras itemId/episodio no
+        // cambien: sin esto, cada recomposición (la barra de progreso recompone con cada tick)
+        // pediría un Flow nuevo y reiniciaría la consulta a Room todo el tiempo.
+        val marcadoresDelCapitulo by remember(d?.itemId, episodioEnCurso) {
+            graph.repository.skipMarkerDao().observeDeCapitulo(d?.itemId ?: "", episodioEnCurso)
+        }.collectAsStateWithLifecycle(initialValue = emptyList())
+        val marcadorVigente = MarcadorDeCapitulo.elegir(
+            delCapitulo = marcadoresDelCapitulo.firstOrNull { it.episodeId == episodioEnCurso },
+            deLaSerie = marcadoresDelCapitulo.firstOrNull { it.episodeId.isEmpty() },
+        )
+
+        // Botones flotantes de saltar intro/outro. Antes solo salían en el teléfono y fuera de
+        // torrents: los marcadores se ponían a mano por serie y solo para archive. Ahora salen de
+        // la identidad de la obra (tmdbId + capítulo), así que valen igual en el Fire TV -- que es
+        // donde se ve el anime, el caso que motivó todo esto -- y en un capítulo bajado por
+        // torrent.
+        val accionDelOutro = SaltoDeOutro.decidir(
+            indiceActual = currentIndex,
+            itemsEnLaPlaylist = playlist?.items?.size ?: 0,
+            siguienteCapitulo = cabecera.siguiente,
+        )
+        // Cuál de los dos botones va, si va alguno. Se calcula acá arriba, lejos de donde se
+        // dibuja, por dos motivos: el efecto de foco tiene que ver también el instante en que
+        // deja de haber botón (dentro del `if` que lo dibuja se iría de la composición justo
+        // entonces y nadie devolvería el foco), y la barra de progreso —que se compone antes—
+        // necesita saber si hay botón para mandar su ARRIBA ahí.
+        val botonDeSalto = when {
+            marcadorVigente == null || marcadores.marcando || estadoDlna.activo != null -> null
+            else -> BotonDeSalto.cual(
+                enOpening = MarcadorDeCapitulo.enOpening(marcadorVigente, espejo.posicionMs),
+                enEnding = MarcadorDeCapitulo.enEnding(marcadorVigente, espejo.posicionMs),
+                accionDelOutro = accionDelOutro,
+                casting = casting,
+            )
+        }
+
         // ---- Controles custom (fade in/out) ----
         AnimatedVisibility(
             // Casteando SÍ se muestran: el transporte maneja el Chromecast (ver activePlayer).
@@ -2345,7 +2387,17 @@ private fun PlayerContent(
                                             // los botones están DEBAJO, así que mandar `up` ahí era
                                             // un salto al revés (poco visible antes, porque el foco
                                             // no entraba acá; ahora es el primer control enfocado).
-                                            .focusProperties { down = focos.playPausa; up = focos.barra; left = focos.barra; right = focos.barra }
+                                            // ARRIBA se queda en la barra cuando no hay nada
+                                            // arriba, pero si el botón de saltar está en pantalla
+                                            // sí hay: queda justo encima de la barra (ver su
+                                            // padding), así que ese es el camino de vuelta para
+                                            // quien se fue del botón y se arrepintió.
+                                            .focusProperties {
+                                                down = focos.playPausa
+                                                up = if (botonDeSalto != null) focos.salto else focos.barra
+                                                left = focos.barra
+                                                right = focos.barra
+                                            }
                                             .onKeyEvent { e ->
                                                 if (e.type != KeyEventType.KeyDown) return@onKeyEvent false
                                                 when (e.key) {
@@ -2690,55 +2742,97 @@ private fun PlayerContent(
             FichaDelCanal(estado = estadoVivo, canal = liveCanal, liveApi = graph.liveApi)
         }
 
-        // Marcador vigente del capítulo que suena: capítulo o serie, según la precedencia de
-        // MarcadorDeCapitulo.elegir (manual-capítulo > manual-serie > auto-capítulo >
-        // auto-serie). Reactivo y NO el que quedó horneado en `d` al armar la playlist (Tarea 6
-        // pide el automático al gateway en segundo plano y lo guarda DESPUÉS de que este overlay
-        // ya se dibujó -- con una lectura estática el botón nunca aparecería para ese capítulo).
-        // `remember` lo mantiene con la MISMA identidad de Flow mientras itemId/episodio no
-        // cambien: sin esto, cada recomposición (la barra de progreso recompone con cada tick)
-        // pediría un Flow nuevo y reiniciaría la consulta a Room todo el tiempo.
-        val marcadoresDelCapitulo by remember(d?.itemId, episodioEnCurso) {
-            graph.repository.skipMarkerDao().observeDeCapitulo(d?.itemId ?: "", episodioEnCurso)
-        }.collectAsStateWithLifecycle(initialValue = emptyList())
-        val marcadorVigente = MarcadorDeCapitulo.elegir(
-            delCapitulo = marcadoresDelCapitulo.firstOrNull { it.episodeId == episodioEnCurso },
-            deLaSerie = marcadoresDelCapitulo.firstOrNull { it.episodeId.isEmpty() },
-        )
+        // Que el botón TENÍA el foco. Es un pestillo y no la lectura viva de `isFocused`: cuando
+        // el botón se va de la composición, Compose ya avisó `isFocused = false` antes de que
+        // corra el efecto de abajo, y entonces nadie devolvería el foco y el mando quedaría
+        // muerto. Se baja a mano en los dos sitios donde el foco sale del botón de verdad: al
+        // devolverlo acá abajo, y cuando la persona se va con una flecha.
+        var saltoTeniaElFoco by remember { mutableStateOf(false) }
+        val focoDelSalto = remember { FocoDelSalto() }
+        LaunchedEffect(botonDeSalto, isTv) {
+            if (!isTv) return@LaunchedEffect
+            when (focoDelSalto.alCambiar(botonDeSalto, saltoTeniaElFoco, controles.visible)) {
+                // El botón acaba de aparecer y se lleva el foco: con el capítulo sonando, un solo
+                // OK salta el opening. Sin esto, OK caía en el transporte y PAUSABA el video.
+                // Se reintenta un rato corto porque el nodo puede no estar colocado todavía en el
+                // frame en que aparece (mismo patrón que el picker de subtítulos).
+                FocoDelSalto.Accion.PEDIR -> repeat(10) {
+                    if (runCatching { focos.salto.requestFocus() }.isSuccess) return@repeat
+                    delay(32)
+                }
+                FocoDelSalto.Accion.DEVOLVER_A_LOS_CONTROLES -> {
+                    saltoTeniaElFoco = false
+                    runCatching { focos.barra.requestFocus() }
+                }
+                FocoDelSalto.Accion.DEVOLVER_AL_VIDEO -> {
+                    saltoTeniaElFoco = false
+                    runCatching { videoView?.requestFocus() }
+                }
+                FocoDelSalto.Accion.NADA -> Unit
+            }
+        }
 
-        // Botones flotantes de saltar intro/outro. Antes solo salían en el teléfono y fuera de
-        // torrents: los marcadores se ponían a mano por serie y solo para archive. Ahora salen de
-        // la identidad de la obra (tmdbId + capítulo), así que valen igual en el Fire TV -- que es
-        // donde se ve el anime, el caso que motivó todo esto -- y en un capítulo bajado por
-        // torrent. Casteando SÍ se muestran: "Saltar intro" es un seekTo simple que el CastPlayer
-        // soporta igual; la guarda real está en el botón "Saltar outro" de abajo (ese sí depende
-        // del ítem siguiente LOCAL).
-        if (marcadorVigente != null && !marcadores.marcando && estadoDlna.activo == null) {
-            val inOpening = MarcadorDeCapitulo.enOpening(marcadorVigente, espejo.posicionMs)
-            val inEnding = MarcadorDeCapitulo.enEnding(marcadorVigente, espejo.posicionMs)
-            val accionOutro = SaltoDeOutro.decidir(
-                indiceActual = currentIndex,
-                itemsEnLaPlaylist = playlist?.items?.size ?: 0,
-                siguienteCapitulo = cabecera.siguiente,
-            )
+        if (botonDeSalto != null && marcadorVigente != null) {
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .systemBarsPadding()
-                    .padding(end = 20.dp, bottom = 88.dp),
+                    // Los 88 dp de siempre son del TELÉFONO. En el Fire TV el overlay es mucho más
+                    // alto y el botón quedaba montado sobre la barra de progreso: medido en el
+                    // aparato (1920x1080 a 320 dpi = 960x540 dp), el botón ocupaba 404-452 dp de
+                    // alto y la barra 384-428 dp -- se pisaban, y con el foco encima no se
+                    // entendía a cuál de los dos le llegaba el OK. Con 180 dp el botón termina en
+                    // 360 dp, o sea 24 dp de aire por encima de la barra. El `end` también sube al
+                    // margen de zona segura de la TV: 20 dp del canto derecho es justo lo que se
+                    // come el overscan (el resto del overlay ya usa SAFE_H por lo mismo).
+                    .padding(
+                        end = if (isTv) SAFE_H else 20.dp,
+                        bottom = if (isTv) 180.dp else 88.dp,
+                    ),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (inOpening) SkipButton("Saltar intro") { activePlayer.seekTo(marcadorVigente.openingEndMs!!) }
-                // "Saltar intro" hace seekTo y funciona casteando; "saltar outro" cambia de
-                // capítulo, y el cast tiene uno solo cargado — se oculta.
-                //
-                // A dónde salta lo decide `SaltoDeOutro` (ver su KDoc): `seekToNextMediaItem()` a
-                // secas solo funciona en archive, la única fuente multi-ítem, y en magis/web/
-                // torrent/local/NUC —que publican UN ítem— el botón salía igual y no hacía NADA.
-                // NINGUNA (película, o último capítulo) directamente no dibuja el botón.
-                if (inEnding && !casting && accionOutro != SaltoDeOutro.Accion.NINGUNA) {
-                    SkipButton("Saltar outro", icon = true) {
-                        when (accionOutro) {
+                SkipButton(
+                    text = if (botonDeSalto == BotonDeSalto.INTRO) "Saltar intro" else "Saltar outro",
+                    icon = botonDeSalto == BotonDeSalto.OUTRO,
+                    modifier = Modifier
+                        .focusRequester(focos.salto)
+                        .onFocusChanged { if (it.isFocused) saltoTeniaElFoco = true }
+                        .then(
+                            if (!isTv) Modifier else Modifier.onKeyEvent { e ->
+                                if (e.type != KeyEventType.KeyDown) return@onKeyEvent false
+                                when (e.key) {
+                                    // Ignorar el botón: cualquier flecha lleva el foco a los
+                                    // controles y el botón NO se lo vuelve a robar mientras siga
+                                    // en pantalla (`FocoDelSalto` solo actúa cuando cambia cuál
+                                    // botón hay). Hay que interceptarlas: con el foco en Compose,
+                                    // el listener del video —el que abre el overlay con cualquier
+                                    // tecla— ya no recibe nada, así que sin esto las flechas no
+                                    // harían absolutamente nada y el botón sería una trampa.
+                                    Key.DirectionUp, Key.DirectionDown,
+                                    Key.DirectionLeft, Key.DirectionRight,
+                                    -> {
+                                        saltoTeniaElFoco = false
+                                        if (controles.visible) runCatching { focos.barra.requestFocus() } else bump()
+                                        true
+                                    }
+                                    // Por lo mismo: los mandos con botón de play propio dejarían
+                                    // de pausar mientras el botón tiene el foco.
+                                    Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause -> {
+                                        togglePlayPause()
+                                        true
+                                    }
+                                    else -> false
+                                }
+                            },
+                        ),
+                ) {
+                    when (botonDeSalto) {
+                        BotonDeSalto.INTRO -> marcadorVigente.openingEndMs?.let { activePlayer.seekTo(it) }
+                        // A dónde salta lo decide `SaltoDeOutro` (ver su KDoc):
+                        // `seekToNextMediaItem()` a secas solo funciona en archive, la única
+                        // fuente multi-ítem, y en magis/web/torrent/local/NUC —que publican UN
+                        // ítem— el botón salía igual y no hacía NADA.
+                        BotonDeSalto.OUTRO -> when (accionDelOutro) {
                             SaltoDeOutro.Accion.AVANZAR_EN_LA_PLAYLIST -> controller.seekToNextMediaItem()
                             // El mismo camino que `alTerminarElCapitulo()`: navegar a la ruta del
                             // capítulo nuevo es lo que re-arranca la resolución de la fuente.
@@ -2983,11 +3077,22 @@ private fun MenuDeMarcadoresDelCapitulo(
 }
 
 @Composable
-private fun SkipButton(text: String, icon: Boolean = false, onClick: () -> Unit) {
+private fun SkipButton(
+    text: String,
+    icon: Boolean = false,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    // En TV este botón nace enfocado (ver FocoDelSalto), así que tiene que VERSE enfocado: si no,
+    // el borde rojo del resto de los controles desaparece de la pantalla y no se entiende a quién
+    // le va a llegar el OK.
+    var enfocado by remember { mutableStateOf(false) }
     Button(
         onClick = onClick,
+        modifier = modifier.onFocusChanged { enfocado = it.isFocused },
+        border = if (enfocado) BorderStroke(2.dp, ArkivRed) else null,
         colors = ButtonDefaults.buttonColors(
-            containerColor = Color.White.copy(alpha = 0.92f),
+            containerColor = if (enfocado) Color.White else Color.White.copy(alpha = 0.92f),
             contentColor = Color.Black,
         ),
     ) {

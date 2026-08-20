@@ -45,6 +45,13 @@ internal class FocosDelOverlay {
 
     /** Corregir a mano los tiempos de intro/outro del capítulo en curso. Último de la fila. */
     val marcadores = FocusRequester()
+
+    /**
+     * El botón flotante de "Saltar intro"/"Saltar outro". Es el único de esta lista que vive
+     * FUERA del overlay de pausa —se ve con los controles ocultos, que es cuando hace falta— y el
+     * único que se lleva el foco solo al aparecer (ver [FocoDelSalto]).
+     */
+    val salto = FocusRequester()
 }
 
 @Composable
