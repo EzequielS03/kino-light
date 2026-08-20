@@ -23,7 +23,14 @@ package com.arkiv.player.data.db
 object SyncTriggers {
 
     /**
-     * Tabla → su clave primaria. Son las seis que viajan por el sync. `live_channels_cache`
+     * Tabla → su clave primaria. **La de verdad**: es la que va en el `WHERE` del trigger, así que
+     * si acá dice una columna que no es la PK, sellar UNA fila sella todas las que compartan ese
+     * valor. Le pasó a `skip_markers`, que decía `itemId` cuando su PK ya era `id`
+     * (`"<itemId>|<episodeId>"`, una fila por capítulo): un marcador nuevo le ponía reloj nuevo a
+     * los de todos los demás capítulos de la serie. Al cambiar la PK de una entidad, este mapa se
+     * cambia con ella.
+     *
+     * Son las seis que viajan por el sync. `live_channels_cache`
      * queda afuera a propósito: es caché reconstruible del catálogo, no datos del usuario, y
      * ponerle triggers de sync mandaría ~1000 filas entre dispositivos para nada.
      */
@@ -31,7 +38,7 @@ object SyncTriggers {
         "items" to "identifier",
         "episodes" to "id",
         "playback" to "episodeId",
-        "skip_markers" to "itemId",
+        "skip_markers" to "id",
         "live_favorites" to "code",
         "live_recents" to "code",
     )

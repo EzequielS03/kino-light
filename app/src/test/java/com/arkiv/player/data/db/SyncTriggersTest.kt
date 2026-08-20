@@ -33,7 +33,12 @@ class SyncTriggersTest {
             it.executeUpdate("CREATE TABLE items (identifier TEXT PRIMARY KEY, title TEXT, updatedAt INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0)")
             it.executeUpdate("CREATE TABLE episodes (id TEXT PRIMARY KEY, updatedAt INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0)")
             it.executeUpdate("CREATE TABLE playback (episodeId TEXT PRIMARY KEY, updatedAt INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0)")
-            it.executeUpdate("CREATE TABLE skip_markers (itemId TEXT PRIMARY KEY, updatedAt INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0)")
+            // El mismo esquema que genera Room: la PK es `id` ("<itemId>|<episodeId>"), no `itemId`
+            // -- una serie tiene una fila por capítulo más la de la serie entera.
+            it.executeUpdate(
+                "CREATE TABLE skip_markers (id TEXT PRIMARY KEY, itemId TEXT NOT NULL, episodeId TEXT NOT NULL DEFAULT '', " +
+                    "updatedAt INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0)",
+            )
             // Task 10: favoritos y recientes de TV en vivo, las dos tablas que se sumaron a
             // SyncTriggers.TABLAS. `live_recents` no lleva `deleted` a propósito -- ver
             // LiveRecentEntity -- así que acá tampoco, para que el esquema de este test siga
@@ -96,14 +101,27 @@ class SyncTriggersTest {
         aplicar(SyncTriggers.ddl())
         ejecutar("INSERT INTO episodes (id) VALUES ('e1')")
         ejecutar("INSERT INTO playback (episodeId) VALUES ('e1')")
-        ejecutar("INSERT INTO skip_markers (itemId) VALUES ('i1')")
+        ejecutar("INSERT INTO skip_markers (id, itemId, episodeId) VALUES ('i1|', 'i1', '')")
         ejecutar("INSERT INTO live_favorites (code) VALUES ('c1')")
         ejecutar("INSERT INTO live_recents (code) VALUES ('c1')")
         assertTrue(relojDe("episodes", "id", "e1") > 0)
         assertTrue(relojDe("playback", "episodeId", "e1") > 0)
-        assertTrue(relojDe("skip_markers", "itemId", "i1") > 0)
+        assertTrue(relojDe("skip_markers", "id", "i1|") > 0)
         assertTrue(relojDe("live_favorites", "code", "c1") > 0)
         assertTrue(relojDe("live_recents", "code", "c1") > 0)
+    }
+
+    @Test fun sellar_un_marcador_no_le_mueve_el_reloj_a_los_otros_capitulos_de_la_serie() {
+        // El mapa de tablas declaraba `skip_markers to "itemId"`, que ya no es la PK: el trigger
+        // sellaba con `WHERE itemId = NEW.itemId`, o sea TODOS los marcadores de la serie de una.
+        // Un solo marcador nuevo sin reloj le ponía hora nueva a los de todos los demás capítulos
+        // y los mandaba a subir como si se acabaran de editar (y en el merge LWW, a ganarle a lo
+        // que hubiera del otro lado).
+        aplicar(SyncTriggers.ddl())
+        ejecutar("INSERT INTO skip_markers (id, itemId, episodeId, updatedAt) VALUES ('daima|e1', 'daima', 'e1', 42)")
+        ejecutar("INSERT INTO skip_markers (id, itemId, episodeId) VALUES ('daima|e2', 'daima', 'e2')")
+        assertEquals("el marcador del otro capítulo no se tocó", 42L, relojDe("skip_markers", "id", "daima|e1"))
+        assertTrue("el que nació sin reloj sí se sella", relojDe("skip_markers", "id", "daima|e2") > 0)
     }
 
     @Test fun aplicarlo_dos_veces_no_falla() {
