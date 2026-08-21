@@ -340,8 +340,13 @@ fun DetailScreen(
             tmdbStills = tmdbStills,
             tmdbFrames = tmdbFrames,
             tmdbOverviews = tmdbOverviews,
-            // Solo el inferior: el superior ya lo cubre el TopAppBar (agregarlo acá lo duplicaría).
+            // El inferior se usa siempre. El superior casi nunca hace falta -- en un panel, lo que
+            // hay debajo del TopAppBar es el póster a sangre (decorativo, se puede tapar) -- pero en
+            // dos paneles el panel derecho arranca con contenido tocable (chips o el primer
+            // capítulo), así que ahí sí hace falta para no dejarlo tapado e inalcanzable. Ver
+            // DetailContent.
             bottomInset = padding.calculateBottomPadding(),
+            topInset = padding.calculateTopPadding(),
         )
     }
 }
@@ -364,6 +369,9 @@ private fun DetailContent(
     tmdbFrames: Map<String, String>,
     tmdbOverviews: Map<String, String>,
     bottomInset: androidx.compose.ui.unit.Dp,
+    /** Alto del TopAppBar. Solo se usa en dos paneles, para que el panel derecho no arranque tapado
+     *  por la barra; en un panel el contenido sigue empezando en y=0, sin padding, como siempre. */
+    topInset: androidx.compose.ui.unit.Dp,
 ) {
     // Capítulo + acción que el usuario pidió deshacer y que todavía no confirmó. Ver
     // [ConfirmacionDeDescarga]: las tres acciones se preguntan porque el control es chiquito y todas
@@ -436,7 +444,14 @@ private fun DetailContent(
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 32.dp + bottomInset),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                // En dos paneles este LazyColumn queda DEBAJO del TopAppBar (que acá cubre contenido
+                // tocable, no un póster a sangre), y un LazyColumn no puede scrollear por encima del
+                // offset 0 -- sin este padding la primera fila (chips o el primer capítulo) queda
+                // tapada para siempre. En un panel se queda en 0.dp, igual que hoy.
+                top = if (dosPaneles) topInset else 0.dp,
+                bottom = 32.dp + bottomInset,
+            ),
         ) {
             // En un panel la ficha va acá adentro, como siempre. En dos paneles ya se dibujó aparte
             // (más abajo, en el panel izquierdo) y no se duplica -- por eso resumeIndex también la
@@ -519,7 +534,10 @@ private fun DetailContent(
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .verticalScroll(rememberScrollState()),
+                    .verticalScroll(rememberScrollState())
+                    // Mismo motivo que el bottom del LazyColumn de al lado: sin esto, si la
+                    // sinopsis llena el panel, la última línea queda debajo de la barra de gestos.
+                    .padding(bottom = bottomInset),
             ) {
                 FichaDelItem(data = data, onPlayEpisode = onPlayEpisode)
             }
