@@ -51,6 +51,8 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import coil.compose.AsyncImage
 import com.arkiv.player.data.catalog.CatalogItem
+import com.arkiv.player.ui.columnasDeGrilla
+import com.arkiv.player.ui.esTabletHorizontal
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
@@ -152,7 +154,7 @@ fun CatalogScreen(
         }
 
         LazyVerticalGrid(
-            columns = GridCells.Fixed(3),
+            columns = GridCells.Fixed(columnasDeGrilla(3, esTabletHorizontal())),
             state = gridState,
             contentPadding = PaddingValues(
                 start = 16.dp, end = 16.dp, top = 8.dp,

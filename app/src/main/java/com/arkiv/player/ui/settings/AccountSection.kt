@@ -219,7 +219,7 @@ private fun VincularMagisSection(account: AccountManager, accountEmail: String) 
                 singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
             Text(
-                "Te enviamos un código a tu email. Si no aparece, revisá la carpeta de spam.",
+                "Te enviamos un código a tu email. Si no aparece, revisa la carpeta de spam.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp),

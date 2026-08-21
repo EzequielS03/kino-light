@@ -47,6 +47,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -65,6 +66,7 @@ import com.arkiv.player.ui.live.LiveZappingSource
 import com.arkiv.player.ui.live.canalesDelPaisParaHome
 import com.arkiv.player.ui.live.canalesRecientesParaHome
 import com.arkiv.player.ui.live.filaDeCanalesDelHome
+import com.arkiv.player.ui.esTabletHorizontal
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.search.TitleCard
 import com.arkiv.player.ui.theme.ArkivBlack
@@ -72,6 +74,32 @@ import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 import kotlinx.coroutines.launch
+
+/** Medidas del home según la forma de la pantalla. Ver [esTabletHorizontal]. */
+private data class MedidasDelHome(
+    val altoDelHero: Dp,
+    val anchoDePoster: Dp,
+    val anchoDeContinuar: Dp,
+    val anchoDeCanal: Dp,
+)
+
+@Composable
+private fun medidasDelHome(): MedidasDelHome =
+    if (esTabletHorizontal()) {
+        MedidasDelHome(
+            altoDelHero = 420.dp,
+            anchoDePoster = 180.dp,
+            anchoDeContinuar = 320.dp,
+            anchoDeCanal = 200.dp,
+        )
+    } else {
+        MedidasDelHome(
+            altoDelHero = 220.dp,
+            anchoDePoster = 120.dp,
+            anchoDeContinuar = 220.dp,
+            anchoDeCanal = 140.dp,
+        )
+    }
 
 /**
  * Home de descubrimiento (estilo Amazon/Netflix): hero de lo último visto, biblioteca y
@@ -92,6 +120,7 @@ fun HomeScreen(
     contentPadding: PaddingValues,
 ) {
     val graph = rememberGraph()
+    val medidas = medidasDelHome()
     val vm: HomeViewModel = viewModel(
         factory = viewModelFactory { initializer { HomeViewModel(graph.repository, graph.tmdbApi, graph.aniListApi, graph.settings) } },
     )
@@ -215,6 +244,7 @@ fun HomeScreen(
                     heroContinue.itemThumbnailUrl,
                 )
                 Hero(
+                    medidas = medidas,
                     backdropUrl = backdrop,
                     title = heroContinue.itemTitle,
                     // Los datos del capítulo, la MISMA línea que arma el héroe del TV: número,
@@ -240,8 +270,17 @@ fun HomeScreen(
             } else {
                 val trending = rowItems["tendencias"]?.firstOrNull()
                 if (trending != null) {
+                    // En ancho preferimos el backdrop apaisado (16:9) del TitleCard: un póster 2:3
+                    // estirado a 1280dp se ve mal. Si la fuente no trajo backdrop, seguimos con el
+                    // póster -- el hero nunca puede quedar vacío.
+                    val heroImage = if (esTabletHorizontal() && trending.backdropUrl.isNotBlank()) {
+                        trending.backdropUrl
+                    } else {
+                        trending.posterUrl
+                    }
                     Hero(
-                        backdropUrl = trending.posterUrl,
+                        medidas = medidas,
+                        backdropUrl = heroImage,
                         title = trending.title,
                         subtitle = "Tendencia de la semana",
                         actionLabel = null,
@@ -276,7 +315,7 @@ fun HomeScreen(
                                 subtitle = row.episodeTitle ?: row.displayName,
                                 imageUrl = thumb,
                                 progress = progress,
-                                modifier = Modifier.width(220.dp),
+                                modifier = Modifier.width(medidas.anchoDeContinuar),
                                 onClick = { onPlayEpisode(row.episodeId) },
                             )
                         }
@@ -298,12 +337,12 @@ fun HomeScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         items(canalesFila, key = { it.code }) { canal ->
-                            LiveChannelCard(canal = canal, onClick = { reproducirCanal(canal) })
+                            LiveChannelCard(canal = canal, ancho = medidas.anchoDeCanal, onClick = { reproducirCanal(canal) })
                         }
                         // Al final de la fila, la salida hacia la parrilla completa: los recientes
                         // son un atajo, no el catálogo.
                         item(key = "live_ver_mas") {
-                            VerMasCanalesCard(onClick = onOpenLive)
+                            VerMasCanalesCard(ancho = medidas.anchoDeCanal, onClick = onOpenLive)
                         }
                     }
                 }
@@ -329,7 +368,7 @@ fun HomeScreen(
                             com.arkiv.player.ui.components.PosterCard(
                                 title = row.title,
                                 imageUrl = row.thumbnailUrl,
-                                modifier = Modifier.width(120.dp),
+                                modifier = Modifier.width(medidas.anchoDePoster),
                                 onClick = { open(row) },
                             )
                         }
@@ -345,6 +384,7 @@ fun HomeScreen(
                     spec = spec,
                     items = rowItems[spec.id].orEmpty(),
                     loaded = spec.id in rowsLoaded,
+                    medidas = medidas,
                     onLoad = { vm.loadRow(spec.id) },
                     onOpenCard = { card -> onOpenSearchRoute(searchShortcutRoute(card)) },
                     onVerMas = { onBrowseRow(spec.id, spec.title) },
@@ -357,6 +397,7 @@ fun HomeScreen(
 /** Destacado a ancho completo: backdrop, degradado inferior, título/subtítulo y acción opcional. */
 @Composable
 private fun Hero(
+    medidas: MedidasDelHome,
     backdropUrl: String?,
     title: String,
     subtitle: String,
@@ -367,7 +408,7 @@ private fun Hero(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(220.dp)
+            .height(medidas.altoDelHero)
             .clickable(onClick = onClick),
     ) {
         AsyncImage(
@@ -419,8 +460,8 @@ private fun Hero(
  * altura al llegar al final.
  */
 @Composable
-private fun VerMasCanalesCard(onClick: () -> Unit) {
-    Column(modifier = Modifier.width(140.dp).clickable(onClick = onClick)) {
+private fun VerMasCanalesCard(ancho: Dp = 140.dp, onClick: () -> Unit) {
+    Column(modifier = Modifier.width(ancho).clickable(onClick = onClick)) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -454,8 +495,8 @@ private fun VerMasCanalesCard(onClick: () -> Unit) {
  * abajo todavía: las iniciales del nombre, para no mostrar un "0" que no significa nada.
  */
 @Composable
-private fun LiveChannelCard(canal: LiveChannel, onClick: () -> Unit) {
-    Column(modifier = Modifier.width(140.dp).clickable(onClick = onClick)) {
+private fun LiveChannelCard(canal: LiveChannel, ancho: Dp = 140.dp, onClick: () -> Unit) {
+    Column(modifier = Modifier.width(ancho).clickable(onClick = onClick)) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -501,6 +542,7 @@ private fun RemoteRow(
     spec: HomeRowSpec,
     items: List<TitleCard>,
     loaded: Boolean,
+    medidas: MedidasDelHome,
     onLoad: () -> Unit,
     onOpenCard: (TitleCard) -> Unit,
     onVerMas: () -> Unit,
@@ -524,10 +566,10 @@ private fun RemoteRow(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 items(items, key = { "${spec.id}-${it.kind}-${it.tmdbId}-${it.anilistId}" }) { card ->
-                    PosterCard(card) { onOpenCard(card) }
+                    PosterCard(card, ancho = medidas.anchoDePoster) { onOpenCard(card) }
                 }
                 item(key = "${spec.id}-ver-mas") {
-                    VerMasPosterCard(onClick = onVerMas)
+                    VerMasPosterCard(ancho = medidas.anchoDePoster, onClick = onVerMas)
                 }
             }
         }
@@ -536,19 +578,19 @@ private fun RemoteRow(
 
 /** Carátula 2:3 de una fila remota (título del buscador/catálogo). */
 @Composable
-private fun PosterCard(card: TitleCard, onClick: () -> Unit) {
+private fun PosterCard(card: TitleCard, ancho: Dp = 120.dp, onClick: () -> Unit) {
     com.arkiv.player.ui.components.PosterCard(
         title = card.title,
         imageUrl = card.posterUrl,
-        modifier = Modifier.width(120.dp),
+        modifier = Modifier.width(ancho),
         onClick = onClick,
     )
 }
 
 @Composable
-private fun VerMasPosterCard(onClick: () -> Unit) {
+private fun VerMasPosterCard(ancho: Dp = 120.dp, onClick: () -> Unit) {
     Column(
-        modifier = Modifier.width(120.dp).clickable(onClick = onClick),
+        modifier = Modifier.width(ancho).clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(

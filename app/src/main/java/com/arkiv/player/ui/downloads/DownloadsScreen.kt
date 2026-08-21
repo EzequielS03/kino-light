@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -38,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -53,6 +55,7 @@ import com.arkiv.player.data.local.LocalDownloadState
 import com.arkiv.player.data.local.TorrentSizeGate
 import com.arkiv.player.data.model.Episode
 import com.arkiv.player.ui.components.EmptyState
+import com.arkiv.player.ui.anchoDeLectura
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
@@ -84,39 +87,43 @@ fun DownloadsScreen(
     if (groups.isEmpty()) {
         EmptyState(
             title = "Descargas",
-            subtitle = "Todavía no descargaste ningún episodio. Usá el ícono de descarga en un episodio.",
+            subtitle = "Todavía no has descargado ningún episodio. Usa el ícono de descarga en un episodio.",
             modifier = Modifier.padding(contentPadding),
         )
         return
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-            top = contentPadding.calculateTopPadding() + 8.dp,
-            bottom = contentPadding.calculateBottomPadding() + 16.dp,
-        ),
-    ) {
-        item {
-            Text(
-                "Descargas",
-                style = MaterialTheme.typography.headlineMedium,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            )
-        }
-        items(groups, key = { it.itemId }) { group ->
-            DownloadGroupSection(
-                group = group,
-                onPlay = onPlayEpisode,
-                onConfirm = vm::confirm,
-                onRetry = vm::retry,
-                onCancel = vm::cancel,
-                onRemove = vm::remove,
-                onDownload = { episodeId -> vm.download(episodeId, group.source) },
-                onCancelAll = { vm.cancelGroup(group) },
-                onRemoveAll = { vm.removeGroup(group) },
-                onRetryFailed = { vm.retryFailedGroup(group) },
-            )
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        LazyColumn(
+            modifier = Modifier
+                .anchoDeLectura()
+                .fillMaxSize(),
+            contentPadding = PaddingValues(
+                top = contentPadding.calculateTopPadding() + 8.dp,
+                bottom = contentPadding.calculateBottomPadding() + 16.dp,
+            ),
+        ) {
+            item {
+                Text(
+                    "Descargas",
+                    style = MaterialTheme.typography.headlineMedium,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                )
+            }
+            items(groups, key = { it.itemId }) { group ->
+                DownloadGroupSection(
+                    group = group,
+                    onPlay = onPlayEpisode,
+                    onConfirm = vm::confirm,
+                    onRetry = vm::retry,
+                    onCancel = vm::cancel,
+                    onRemove = vm::remove,
+                    onDownload = { episodeId -> vm.download(episodeId, group.source) },
+                    onCancelAll = { vm.cancelGroup(group) },
+                    onRemoveAll = { vm.removeGroup(group) },
+                    onRetryFailed = { vm.retryFailedGroup(group) },
+                )
+            }
         }
     }
 }
