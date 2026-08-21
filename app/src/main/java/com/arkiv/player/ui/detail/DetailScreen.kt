@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MoreVert
@@ -84,6 +85,7 @@ import com.arkiv.player.data.local.AccionDeDescarga
 import com.arkiv.player.data.local.ConfirmacionDeDescarga
 import com.arkiv.player.data.local.EstadoDeDescarga
 import com.arkiv.player.data.local.EstadoDeDescargaDeCapitulo
+import com.arkiv.player.data.local.EtiquetaDeDescarga
 import com.arkiv.player.data.local.FuenteDeDescarga
 import com.arkiv.player.data.local.LocalDownloadState
 import com.arkiv.player.miniaturas.EleccionDeMiniatura
@@ -836,6 +838,22 @@ private fun EpisodeRow(
                         color = ArkivTextSecondary,
                     )
                 }
+                // En qué va la descarga, EN PALABRAS. La barra y el ícono ya lo dicen en colores y
+                // formas, pero eso solo se entiende sabiendo de antemano qué significan: "Bajando 42%"
+                // o el motivo real del fallo se leen sin traducir nada.
+                EtiquetaDeDescarga.para(estado)?.let { etiqueta ->
+                    Text(
+                        etiqueta,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = when (estado) {
+                            is EstadoDeDescarga.Fallida, EstadoDeDescarga.PideConfirmacion -> ArkivRed
+                            EstadoDeDescarga.Lista -> NucDownloadedGreen
+                            else -> ArkivTextPrimary
+                        },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 // Sinopsis del capítulo (TMDB): solo si se pudo resolver. Recortada a 2 líneas -- la
                 // fila ya compite por espacio con la miniatura y los botones, no puede crecer sin límite.
                 if (!tmdbOverview.isNullOrBlank()) {
@@ -874,31 +892,18 @@ private fun EpisodeRow(
                         tint = NucDownloadedGreen,
                     )
                 }
-                // El porcentaje ocupa el mismo slot de 48dp que ocuparía el botón, para que la fila no
-                // salte de tamaño. El spinner queda solo para cuando de verdad no se sabe cuánto falta:
-                // girar sin decir nada era justo lo que no alcanzaba.
-                //
-                // Y se toca para arrepentirse: sin esto, una descarga arrancada por error solo se
-                // podía frenar desde la pantalla de Descargas, que es donde nadie va a buscarla justo
-                // después de tocar el capítulo.
+                // Anillo de progreso con una X ADENTRO. Antes acá iba solo el porcentaje, y la única
+                // forma de cancelar era tocarlo: nada en pantalla decía que ese número fuera un botón.
+                // La X es el control; el anillo (y la línea de texto de la izquierda) son el estado.
                 is EstadoDeDescarga.Bajando -> IconButton(
                     onClick = { onPedirAccion(AccionDeDescarga.CANCELAR) },
                 ) {
-                    val fraccion = estado.fraccion
-                    if (fraccion == null) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = ArkivRed)
-                    } else {
-                        Text(
-                            "${(fraccion * 100).toInt()}%",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = ArkivTextPrimary,
-                        )
-                    }
+                    AnilloConEquis(estado.fraccion, ArkivRed, "Bajando. Tocar para cancelar la descarga")
                 }
                 EstadoDeDescarga.EnCola -> IconButton(
                     onClick = { onPedirAccion(AccionDeDescarga.SACAR_DE_LA_COLA) },
                 ) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = ArkivTextSecondary)
+                    AnilloConEquis(null, ArkivTextSecondary, "En cola. Tocar para sacarla de la cola")
                 }
                 // Un fallo tiene que verse Y poder deshacerse acá mismo. Antes volvía a mostrar el
                 // botón de bajar, idéntico a no haberlo intentado nunca: el usuario tocaba de nuevo,
@@ -944,6 +949,34 @@ private fun EpisodeRow(
         // donde no compite con la miniatura ni con los dos botones, y se lee de un vistazo
         // recorriendo la lista.
         BarraDeDescarga(estado)
+    }
+}
+
+/**
+ * Anillo de progreso con una X encima: el estado y el control de cancelar, en el mismo slot de 48dp.
+ *
+ * [fraccion] null = indeterminado (en cola, o bajando sin tamaño total conocido).
+ */
+@Composable
+private fun AnilloConEquis(fraccion: Float?, color: Color, descripcion: String) {
+    Box(contentAlignment = Alignment.Center) {
+        if (fraccion == null) {
+            CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp, color = color)
+        } else {
+            CircularProgressIndicator(
+                progress = { fraccion },
+                modifier = Modifier.size(28.dp),
+                strokeWidth = 2.dp,
+                color = color,
+                trackColor = Color(0x33FFFFFF),
+            )
+        }
+        Icon(
+            Icons.Default.Close,
+            contentDescription = descripcion,
+            tint = color,
+            modifier = Modifier.size(14.dp),
+        )
     }
 }
 
