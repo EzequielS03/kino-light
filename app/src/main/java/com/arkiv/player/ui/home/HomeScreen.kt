@@ -76,12 +76,30 @@ import com.arkiv.player.ui.theme.ArkivTextSecondary
 import kotlinx.coroutines.launch
 
 /** Medidas del home según la forma de la pantalla. Ver [esTabletHorizontal]. */
-private data class MedidasDelHome(val altoDelHero: Dp, val anchoDePoster: Dp)
+private data class MedidasDelHome(
+    val altoDelHero: Dp,
+    val anchoDePoster: Dp,
+    val anchoDeContinuar: Dp,
+    val anchoDeCanal: Dp,
+)
 
 @Composable
 private fun medidasDelHome(): MedidasDelHome =
-    if (esTabletHorizontal()) MedidasDelHome(altoDelHero = 420.dp, anchoDePoster = 180.dp)
-    else MedidasDelHome(altoDelHero = 220.dp, anchoDePoster = 120.dp)
+    if (esTabletHorizontal()) {
+        MedidasDelHome(
+            altoDelHero = 420.dp,
+            anchoDePoster = 180.dp,
+            anchoDeContinuar = 320.dp,
+            anchoDeCanal = 200.dp,
+        )
+    } else {
+        MedidasDelHome(
+            altoDelHero = 220.dp,
+            anchoDePoster = 120.dp,
+            anchoDeContinuar = 220.dp,
+            anchoDeCanal = 140.dp,
+        )
+    }
 
 /**
  * Home de descubrimiento (estilo Amazon/Netflix): hero de lo último visto, biblioteca y
@@ -297,7 +315,7 @@ fun HomeScreen(
                                 subtitle = row.episodeTitle ?: row.displayName,
                                 imageUrl = thumb,
                                 progress = progress,
-                                modifier = Modifier.width(220.dp),
+                                modifier = Modifier.width(medidas.anchoDeContinuar),
                                 onClick = { onPlayEpisode(row.episodeId) },
                             )
                         }
@@ -319,12 +337,12 @@ fun HomeScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         items(canalesFila, key = { it.code }) { canal ->
-                            LiveChannelCard(canal = canal, onClick = { reproducirCanal(canal) })
+                            LiveChannelCard(canal = canal, ancho = medidas.anchoDeCanal, onClick = { reproducirCanal(canal) })
                         }
                         // Al final de la fila, la salida hacia la parrilla completa: los recientes
                         // son un atajo, no el catálogo.
                         item(key = "live_ver_mas") {
-                            VerMasCanalesCard(onClick = onOpenLive)
+                            VerMasCanalesCard(ancho = medidas.anchoDeCanal, onClick = onOpenLive)
                         }
                     }
                 }
@@ -442,8 +460,8 @@ private fun Hero(
  * altura al llegar al final.
  */
 @Composable
-private fun VerMasCanalesCard(onClick: () -> Unit) {
-    Column(modifier = Modifier.width(140.dp).clickable(onClick = onClick)) {
+private fun VerMasCanalesCard(ancho: Dp = 140.dp, onClick: () -> Unit) {
+    Column(modifier = Modifier.width(ancho).clickable(onClick = onClick)) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -477,8 +495,8 @@ private fun VerMasCanalesCard(onClick: () -> Unit) {
  * abajo todavía: las iniciales del nombre, para no mostrar un "0" que no significa nada.
  */
 @Composable
-private fun LiveChannelCard(canal: LiveChannel, onClick: () -> Unit) {
-    Column(modifier = Modifier.width(140.dp).clickable(onClick = onClick)) {
+private fun LiveChannelCard(canal: LiveChannel, ancho: Dp = 140.dp, onClick: () -> Unit) {
+    Column(modifier = Modifier.width(ancho).clickable(onClick = onClick)) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
