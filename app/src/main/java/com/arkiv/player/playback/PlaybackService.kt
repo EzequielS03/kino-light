@@ -59,6 +59,13 @@ object PlaybackEngine {
 const val ACTION_OPEN_PLAYER = "com.arkiv.player.OPEN_PLAYER"
 
 /**
+ * Qué capítulo abrir con [ACTION_OPEN_PLAYER]. Opcional: sin él se abre el que esté sonando
+ * ([NowPlaying]), que es lo que quiere la notificación del reproductor. Lo usa el aviso de "descarga
+ * completa", que apunta a un capítulo concreto y no al que sonaba.
+ */
+const val EXTRA_EPISODE_ID = "episodeId"
+
+/**
  * Servicio que aloja el VlcPlayer (libVLC sobre SimpleBasePlayer) y expone una
  * MediaSession. Media3 genera automáticamente la notificación de reproducción
  * con carátula y controles (pantalla de bloqueo / barra de notificaciones),

@@ -10,13 +10,24 @@ package com.arkiv.player.data.local
 object AvisoDeDescarga {
 
     /**
-     * Título: la serie y el capítulo, lo que se sepa de los dos. Nunca el id crudo
-     * (`magis:2AD2591D…::e1`), que es lo que mostraba antes y no le dice nada a nadie.
+     * La serie y el capítulo, lo que se sepa de los dos, o null si no se sabe ninguno. Nunca el id
+     * crudo (`magis:2AD2591D…::e1`), que es lo que mostraba antes y no le dice nada a nadie.
      */
-    fun titulo(serie: String?, capitulo: String?): String {
-        val nombre = listOf(serie, capitulo).filterNot { it.isNullOrBlank() }.joinToString(" · ")
-        return if (nombre.isBlank()) "Bajando un capítulo" else "Bajando $nombre"
-    }
+    fun nombre(serie: String?, capitulo: String?): String? =
+        listOf(serie, capitulo).filterNot { it.isNullOrBlank() }
+            .joinToString(" · ")
+            .ifBlank { null }
+
+    /** Título de la notificación mientras baja. */
+    fun titulo(serie: String?, capitulo: String?): String =
+        nombre(serie, capitulo)?.let { "Bajando $it" } ?: "Bajando un capítulo"
+
+    /**
+     * Subtítulo del aviso de "Descarga completa": QUÉ capítulo terminó. El título ya dice que
+     * terminó; sin esto, con varias descargas seguidas, no había forma de saber cuál era cuál.
+     */
+    fun listo(serie: String?, capitulo: String?): String =
+        nombre(serie, capitulo) ?: "Ya lo puedes ver sin conexión"
 
     /**
      * Subtítulo: el porcentaje, y cuántos quedan esperando turno (la cola es de una a la vez, así

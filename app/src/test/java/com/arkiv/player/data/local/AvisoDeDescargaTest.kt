@@ -40,4 +40,14 @@ class AvisoDeDescargaTest {
     fun `sin nombre no muestra el id crudo`() {
         assertEquals("Bajando un capítulo", AvisoDeDescarga.titulo(null, null))
     }
+
+    @Test
+    fun `el aviso de terminado dice que capitulo fue`() {
+        assertEquals("Daima · E1", AvisoDeDescarga.listo("Daima", "E1"))
+    }
+
+    @Test
+    fun `si no se sabe el capitulo el aviso de terminado sigue diciendo algo util`() {
+        assertEquals("Ya lo puedes ver sin conexión", AvisoDeDescarga.listo(null, null))
+    }
 }

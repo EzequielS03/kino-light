@@ -2,7 +2,9 @@ package com.arkiv.player.data.local
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -13,6 +15,9 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.arkiv.player.AppGraph
+import com.arkiv.player.MainActivity
+import com.arkiv.player.playback.ACTION_OPEN_PLAYER
+import com.arkiv.player.playback.EXTRA_EPISODE_ID
 import com.arkiv.player.data.db.DownloadEntity
 import kotlinx.coroutines.runBlocking
 
@@ -37,6 +42,16 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
         val next = DownloadQueuePolicy.nextToProcess(rows) ?: return Result.success()
         val entity = dao.get(next.episodeId) ?: return Result.success()
 
+        // Nombre de verdad para los avisos (antes mostraban el id crudo del episodio) y cuántos
+        // esperan turno: como la cola es de UNA a la vez, sin ese dato los demás capítulos parecen
+        // haberse perdido. Se calcula ACÁ, antes de la compuerta de gemelos, para que todos los
+        // avisos de esta pasada —incluido el de "ya lo tenías"— puedan decir de qué capítulo hablan.
+        val episodio = graph.database.itemDao().getEpisode(entity.episodeId)
+        val serie = episodio?.let { graph.database.itemDao().getItem(it.itemId)?.title }
+        nombreDelCapitulo = AvisoDeDescarga.nombre(serie, episodio?.displayName)
+        tituloDeLaNotificacion = AvisoDeDescarga.titulo(serie, episodio?.displayName)
+        enCola = rows.count { it.state == LocalDownloadState.QUEUED && it.episodeId != entity.episodeId }
+
         // La compuerta de duplicados corre TAMBIÉN acá, no solo en `LocalDownloadManager.enqueue`.
         // Dos motivos, los dos reales:
         //  1. Las filas que YA estaban en la cola nunca vuelven a pasar por `enqueue`. En el
@@ -56,17 +71,10 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
         // en API 31+, o cualquier otra excepción de notificación/binder). Si eso pasa NO puede tumbar la
         // descarga: preferimos bajar el archivo sin notificación visible a no bajarlo. Por eso va con
         // runCatching en vez de dejar que la excepción se propague fuera de doWork().
-        // Nombre de verdad para la notificación (antes mostraba el id crudo del episodio) y cuántos
-        // esperan turno: como la cola es de UNA a la vez, sin ese dato los demás capítulos parecen
-        // haberse perdido. Se calcula una vez por pasada; cada fila que arranca REEMPLAZA la
-        // notificación anterior (mismo NOTIF_ID), así que al pasar al siguiente capítulo la
-        // notificación se convierte en la de ese capítulo, con su propio progreso.
-        val episodio = graph.database.itemDao().getEpisode(entity.episodeId)
-        val serie = episodio?.let { graph.database.itemDao().getItem(it.itemId)?.title }
-        tituloDeLaNotificacion = AvisoDeDescarga.titulo(serie, episodio?.displayName)
-        enCola = rows.count { it.state == LocalDownloadState.QUEUED && it.episodeId != entity.episodeId }
-
-        runCatching { setForeground(foregroundInfo(tituloDeLaNotificacion, null)) }
+        // Cada fila que arranca REEMPLAZA la notificación anterior (mismo NOTIF_ID), así que al
+        // pasar al siguiente capítulo de la cola la notificación se convierte en la de ese capítulo,
+        // con su propio progreso.
+        runCatching { setForeground(foregroundInfo(tituloDeLaNotificacion, null, entity.episodeId)) }
             .onFailure { Log.w(TAG, "no se pudo mostrar la notificación de foreground: ${it.message}") }
 
         val strategy = graph.downloadStrategies[entity.source]
@@ -235,7 +243,8 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
      */
     private var lastPersistMs = 0L
 
-    /** Título y cola de la fila que esta pasada está bajando; los usa la notificación de progreso. */
+    /** Nombre, título y cola de la fila que esta pasada baja; los usan los avisos. */
+    private var nombreDelCapitulo: String? = null
     private var tituloDeLaNotificacion = "Bajando un capítulo"
     private var enCola = 0
     private fun persistProgress(
@@ -254,7 +263,7 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
         runBlocking { dao.updateProgress(entity.episodeId, progress, done, total) }
         // Con el mismo throttle: la notificación se queda en el 0% inicial toda la descarga si nadie
         // la vuelve a emitir. `total <= 0` es tamaño desconocido -> barra indeterminada.
-        actualizarNotificacion(if (total > 0) progress else null)
+        actualizarNotificacion(entity.episodeId, if (total > 0) progress else null)
     }
 
     /**
@@ -283,7 +292,7 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
      * `setOnlyAlertOnce` porque esta notificación se re-emite cada segundo con el progreso nuevo: sin
      * eso, cada actualización volvería a "avisar".
      */
-    private fun notificacionDeProgreso(title: String, fraccion: Float?) =
+    private fun notificacionDeProgreso(title: String, fraccion: Float?, episodeId: String) =
         NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(AvisoDeDescarga.subtitulo(fraccion, enCola))
@@ -291,23 +300,52 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
             .setProgress(100, ((fraccion ?: 0f) * 100).toInt(), fraccion == null)
             .setOnlyAlertOnce(true)
             .setOngoing(true)
+            // Frenar una descarga sin tener que abrir la app y buscar el capítulo.
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                "Cancelar descarga",
+                intentDeCancelar(episodeId),
+            )
             .build()
+
+    /** Dispara [AccionesDeDescargaReceiver], que cancela sin abrir nada. */
+    private fun intentDeCancelar(episodeId: String): PendingIntent = PendingIntent.getBroadcast(
+        applicationContext,
+        episodeId.hashCode(),
+        Intent(applicationContext, AccionesDeDescargaReceiver::class.java).apply {
+            action = AccionesDeDescargaReceiver.ACTION_CANCELAR
+            putExtra(AccionesDeDescargaReceiver.EXTRA_EPISODE_ID, episodeId)
+        },
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+
+    /** Abre el reproductor en ESE capítulo (no en el que estuviera sonando). */
+    private fun intentDeVer(episodeId: String): PendingIntent = PendingIntent.getActivity(
+        applicationContext,
+        episodeId.hashCode(),
+        Intent(applicationContext, MainActivity::class.java).apply {
+            action = ACTION_OPEN_PLAYER
+            putExtra(EXTRA_EPISODE_ID, episodeId)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        },
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
 
     /**
      * Re-emite la notificación de foreground con el progreso nuevo. Va por `NotificationManager` y no
      * por `setForeground`: es la MISMA notificación (mismo id) y actualizarla no pasa por el servicio,
      * así que no puede tumbar la descarga si el sistema restringe el arranque de foreground services.
      */
-    private fun actualizarNotificacion(fraccion: Float?) {
+    private fun actualizarNotificacion(episodeId: String, fraccion: Float?) {
         runCatching {
             val nm = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            nm.notify(NOTIF_ID, notificacionDeProgreso(tituloDeLaNotificacion, fraccion))
+            nm.notify(NOTIF_ID, notificacionDeProgreso(tituloDeLaNotificacion, fraccion, episodeId))
         }
     }
 
-    private fun foregroundInfo(title: String, fraccion: Float?): ForegroundInfo {
+    private fun foregroundInfo(title: String, fraccion: Float?, episodeId: String): ForegroundInfo {
         ensureChannel()
-        val notif = notificacionDeProgreso(title, fraccion)
+        val notif = notificacionDeProgreso(title, fraccion, episodeId)
         return if (android.os.Build.VERSION.SDK_INT >= 29) {
             ForegroundInfo(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
@@ -315,8 +353,17 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
         }
     }
 
-    private fun notifyDone(episodeId: String) =
-        notify(episodeId.hashCode(), "Descarga completa", "Ya lo puedes ver sin conexión")
+    /**
+     * "Descarga completa" + QUÉ capítulo terminó + un botón para verlo ahí mismo. Antes decía solo
+     * "Descarga completa": con varias descargas seguidas no había forma de saber cuál era cuál, y
+     * para verlo había que abrir la app y volver a buscar el capítulo a mano.
+     */
+    private fun notifyDone(episodeId: String) = notify(
+        episodeId.hashCode(),
+        "Descarga completa",
+        AvisoDeDescarga.listo(null, nombreDelCapitulo),
+        verEpisodeId = episodeId,
+    )
 
     private fun notifyAlreadyDownloaded(episodeId: String) = notify(
         episodeId.hashCode(),
@@ -330,17 +377,20 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
         "Pesa ${TorrentSizeGate.formatSize(bytes)}. Confírmala en Descargas para bajarla.",
     )
 
-    private fun notify(id: Int, title: String, text: String) {
+    private fun notify(id: Int, title: String, text: String, verEpisodeId: String? = null) {
         ensureChannel()
         val nm = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        nm.notify(
-            id,
-            NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-                .setContentTitle(title).setContentText(text)
-                .setSmallIcon(android.R.drawable.stat_sys_download_done)
-                .setAutoCancel(true)
-                .build(),
-        )
+        val builder = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
+            .setContentTitle(title).setContentText(text)
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setAutoCancel(true)
+        if (verEpisodeId != null) {
+            // Tocar el aviso y tocar el botón hacen lo mismo: abrir ESE capítulo.
+            val ver = intentDeVer(verEpisodeId)
+            builder.setContentIntent(ver)
+                .addAction(android.R.drawable.ic_media_play, "Ver capítulo", ver)
+        }
+        nm.notify(id, builder.build())
     }
 
     private fun ensureChannel() {

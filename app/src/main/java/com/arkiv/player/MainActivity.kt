@@ -19,6 +19,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.arkiv.player.playback.ACTION_OPEN_PLAYER
+import com.arkiv.player.playback.EXTRA_EPISODE_ID
 import com.arkiv.player.playback.NowPlaying
 import com.arkiv.player.seguridad.DeteccionDeRoot
 import com.arkiv.player.seguridad.FirmaDelApk
@@ -183,7 +184,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleIntent(intent: Intent?) {
         if (intent?.action == ACTION_OPEN_PLAYER) {
-            pendingEpisode = NowPlaying.episodeId
+            // El extra manda cuando viene (aviso de "descarga completa", que apunta a un capítulo
+            // concreto); sin él se abre el que está sonando, que es lo que pide la notificación del
+            // reproductor.
+            pendingEpisode = intent.getStringExtra(EXTRA_EPISODE_ID) ?: NowPlaying.episodeId
         }
     }
 
