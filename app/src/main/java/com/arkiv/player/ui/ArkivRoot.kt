@@ -5,6 +5,7 @@ import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -35,6 +36,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -186,7 +189,35 @@ fun ArkivRoot(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    // Una sola definición de "ir a una pestaña", para que el rail y la barra no puedan
+    // divergir en el comportamiento (reset del catálogo, popUpTo, restoreState).
+    fun irA(tab: Tab) {
+        if (tab.route == "catalog") graph.catalogResetSignal.tryEmit(Unit)
+        navController.navigate(tab.route) {
+            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
+
+    val ancho = esTabletHorizontal()
+
+    Row(Modifier.fillMaxSize()) {
+    if (ancho && isTab) {
+        NavigationRail(containerColor = ArkivBlack) {
+            TABS.forEach { tab ->
+                val selected = backStackEntry?.destination?.hierarchy?.any { it.route == tab.route } == true
+                NavigationRailItem(
+                    selected = selected,
+                    onClick = { irA(tab) },
+                    icon = tab.icon,
+                    label = { Text(tab.label) },
+                )
+            }
+        }
+    }
     Scaffold(
+        modifier = Modifier.weight(1f),
         containerColor = ArkivBlack,
         topBar = {
             if (currentRoute == "home") {
@@ -274,23 +305,13 @@ fun ArkivRoot(
                         onExpand = { navController.navigate("nowplaying") },
                     )
                 }
-                if (isTab) {
+                if (isTab && !ancho) {
                     NavigationBar(containerColor = ArkivBlack) {
                         TABS.forEach { tab ->
                             val selected = backStackEntry?.destination?.hierarchy?.any { it.route == tab.route } == true
                             NavigationBarItem(
                                 selected = selected,
-                                onClick = {
-                                    // Entrar al Catálogo desde otra pestaña resetea su búsqueda (el VM
-                                    // sobrevive al cambio de pestaña y si no, quedaría mostrando resultados
-                                    // viejos con el campo de texto vacío).
-                                    if (tab.route == "catalog") graph.catalogResetSignal.tryEmit(Unit)
-                                    navController.navigate(tab.route) {
-                                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                },
+                                onClick = { irA(tab) },
                                 icon = tab.icon,
                                 label = { Text(tab.label) },
                             )
@@ -617,6 +638,7 @@ fun ArkivRoot(
                 onDismiss = { showConnection = false },
             )
         }
+    }
     }
 }
 
