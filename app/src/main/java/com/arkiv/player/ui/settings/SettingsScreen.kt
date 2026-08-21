@@ -3,6 +3,7 @@ package com.arkiv.player.ui.settings
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -20,8 +22,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.arkiv.player.ui.esTabletHorizontal
 import com.arkiv.player.ui.rememberGraph
 
 /**
@@ -52,44 +57,47 @@ fun SettingsScreen(contentPadding: PaddingValues, onOpenDownloads: () -> Unit = 
     // dejaba la pantalla arrancada a mitad de camino.
     val scroll = rememberSaveable(tab, saver = ScrollState.Saver) { ScrollState(0) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(top = contentPadding.calculateTopPadding()),
-    ) {
-        Text(
-            "Ajustes",
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
-        )
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            TabDeAjustes.entries.forEach { t ->
-                Chip(t.etiqueta, t == tab) { tab = t }
-            }
-        }
-
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         Column(
             modifier = Modifier
+                .widthIn(max = if (esTabletHorizontal()) 720.dp else Dp.Unspecified)
                 .fillMaxSize()
-                .verticalScroll(scroll)
-                .padding(horizontal = 20.dp),
+                .padding(top = contentPadding.calculateTopPadding()),
         ) {
-            when (tab) {
-                TabDeAjustes.REPRODUCCION -> ReproduccionTab()
-                TabDeAjustes.SUBTITULOS -> SubtitulosTab()
-                TabDeAjustes.CUENTA -> AccountSection(graph.accountManager)
-                TabDeAjustes.APARATOS -> MisAparatosSection(graph.misAparatosViewModel)
-                TabDeAjustes.APP -> AppTab(onOpenDownloads = onOpenDownloads)
+            Text(
+                "Ajustes",
+                style = MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                TabDeAjustes.entries.forEach { t ->
+                    Chip(t.etiqueta, t == tab) { tab = t }
+                }
             }
-            // El aire de abajo lo pone la cáscara: los tabs no tienen por qué saber que debajo hay
-            // una barra de navegación.
-            Spacer(Modifier.height(contentPadding.calculateBottomPadding() + 32.dp))
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(scroll)
+                    .padding(horizontal = 20.dp),
+            ) {
+                when (tab) {
+                    TabDeAjustes.REPRODUCCION -> ReproduccionTab()
+                    TabDeAjustes.SUBTITULOS -> SubtitulosTab()
+                    TabDeAjustes.CUENTA -> AccountSection(graph.accountManager)
+                    TabDeAjustes.APARATOS -> MisAparatosSection(graph.misAparatosViewModel)
+                    TabDeAjustes.APP -> AppTab(onOpenDownloads = onOpenDownloads)
+                }
+                // El aire de abajo lo pone la cáscara: los tabs no tienen por qué saber que debajo hay
+                // una barra de navegación.
+                Spacer(Modifier.height(contentPadding.calculateBottomPadding() + 32.dp))
+            }
         }
     }
 }
