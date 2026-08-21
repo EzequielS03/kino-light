@@ -26,7 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.arkiv.player.ui.esTabletHorizontal
+import com.arkiv.player.ui.anchoDeLectura
 import com.arkiv.player.ui.rememberGraph
 
 /**
@@ -60,7 +60,7 @@ fun SettingsScreen(contentPadding: PaddingValues, onOpenDownloads: () -> Unit = 
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         Column(
             modifier = Modifier
-                .widthIn(max = if (esTabletHorizontal()) 720.dp else Dp.Unspecified)
+                .anchoDeLectura()
                 .fillMaxSize()
                 .padding(top = contentPadding.calculateTopPadding()),
         ) {

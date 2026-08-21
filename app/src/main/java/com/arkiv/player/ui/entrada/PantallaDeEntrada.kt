@@ -23,7 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.arkiv.player.ui.esTabletHorizontal
+import com.arkiv.player.ui.anchoDeLectura
 import com.arkiv.player.ui.settings.AnonimoSection
 import com.arkiv.player.ui.theme.ArkivBlack
 import com.arkiv.player.ui.theme.ArkivRed
@@ -43,7 +43,7 @@ fun PantallaDeEntrada(vm: EntradaViewModel) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
             Column(
                 modifier = Modifier
-                    .widthIn(max = if (esTabletHorizontal()) 720.dp else Dp.Unspecified)
+                    .anchoDeLectura()
                     .fillMaxSize()
                     .padding(padding)
                     .verticalScroll(rememberScrollState())

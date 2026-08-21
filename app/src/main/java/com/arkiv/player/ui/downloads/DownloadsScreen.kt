@@ -55,7 +55,7 @@ import com.arkiv.player.data.local.LocalDownloadState
 import com.arkiv.player.data.local.TorrentSizeGate
 import com.arkiv.player.data.model.Episode
 import com.arkiv.player.ui.components.EmptyState
-import com.arkiv.player.ui.esTabletHorizontal
+import com.arkiv.player.ui.anchoDeLectura
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
@@ -87,7 +87,7 @@ fun DownloadsScreen(
     if (groups.isEmpty()) {
         EmptyState(
             title = "Descargas",
-            subtitle = "Todavía no descargaste ningún episodio. Usá el ícono de descarga en un episodio.",
+            subtitle = "Todavía no has descargado ningún episodio. Usa el ícono de descarga en un episodio.",
             modifier = Modifier.padding(contentPadding),
         )
         return
@@ -96,7 +96,7 @@ fun DownloadsScreen(
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         LazyColumn(
             modifier = Modifier
-                .widthIn(max = if (esTabletHorizontal()) 720.dp else Dp.Unspecified)
+                .anchoDeLectura()
                 .fillMaxSize(),
             contentPadding = PaddingValues(
                 top = contentPadding.calculateTopPadding() + 8.dp,
