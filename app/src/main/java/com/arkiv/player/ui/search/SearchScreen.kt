@@ -70,6 +70,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import coil.compose.AsyncImage
+import com.arkiv.player.data.db.DownloadRow
+import com.arkiv.player.data.local.AccionDeDescarga
+import com.arkiv.player.data.local.DescargasPorFuente
+import com.arkiv.player.data.local.EstadoDeDescargaDeCapitulo
+import com.arkiv.player.ui.components.DescargaDeFila
+import com.arkiv.player.ui.components.DialogoDeDescarga
 import com.arkiv.player.data.ArchiveSearchResult
 import com.arkiv.player.data.RecentTitle
 import com.arkiv.player.data.catalog.PackDetector
@@ -336,6 +342,32 @@ fun SearchScreen(
     }
 
     // Fase QUERY ("resultados directos": torrent/archive sin card elegida todavía).
+    // Las descargas al dispositivo, para que el buscador muestre lo MISMO que la biblioteca. Acá una
+    // fila es una FUENTE y todavía no tiene `episodeId`, así que el emparejamiento lo hace
+    // [DescargasPorFuente] con lo que la fila sí sabe (url web, infohash, identifier de archive).
+    val downloadRows by graph.repository.observeDownloadRows().collectAsStateWithLifecycle(emptyList())
+    var porConfirmar by remember { mutableStateOf<Pair<DownloadRow, AccionDeDescarga>?>(null) }
+
+    /**
+     * El control de descarga de una fuente. Los packs web no lo llevan (cubren varios capítulos: un
+     * solo estado mentiría) y Magis tampoco (no se descarga, su CDN vence a las ~48 h).
+     */
+    fun descargaDe(s: PlaySource, onDownload: () -> Unit): DescargaDeFila? {
+        val fila = when (s) {
+            is PlaySource.Torrent -> DescargasPorFuente.deTorrent(downloadRows, s.result.infoHash)
+            is PlaySource.Web -> DescargasPorFuente.deWeb(downloadRows, s.result.pageUrl)
+            is PlaySource.Archive -> DescargasPorFuente.deArchive(downloadRows, s.item.identifier)
+            is PlaySource.WebPack -> null
+            is PlaySource.Magis -> return null
+        }
+        return DescargaDeFila(
+            estado = EstadoDeDescargaDeCapitulo.de(fila),
+            onDownload = onDownload,
+            onRetry = { fila?.let { f -> scope.launch { graph.localDownloads.retry(f.episodeId) } } },
+            onPedirAccion = { accion -> fila?.let { f -> porConfirmar = f to accion } },
+        )
+    }
+
     fun saveDirect(source: PlaySource) {
         playError = null
         val size = (source as? PlaySource.Torrent)?.result?.sizeBytes ?: 0L
@@ -475,7 +507,7 @@ fun SearchScreen(
                     loadingArchive = loadingArchive,
                     enabled = !preparing,
                     onPlay = { playResult(it) },
-                    onDownload = { saveResult(it) },
+                    descargaDe = { s -> descargaDe(s) { saveResult(s) } },
                 )
                 else -> QueryContent(
                     titleResults = titleResults,
@@ -491,7 +523,7 @@ fun SearchScreen(
                     },
                     onPickTitle = { card -> vm.pickTitle(card) },
                     onPlayDirect = { playDirect(it) },
-                    onDownloadDirect = { saveDirect(it) },
+                    descargaDirectaDe = { s -> descargaDe(s) { saveDirect(s) } },
                     onForgetQuery = { vm.forgetQuery(it) },
                     onForgetTitle = { vm.forgetTitle(it) },
                     onClearHistory = { vm.clearHistory() },
@@ -618,6 +650,25 @@ fun SearchScreen(
             dismissButton = { TextButton(onClick = { pendingBig = null }) { Text("Cancelar") } },
         )
     }
+
+    // Misma pregunta y mismas palabras que en la biblioteca: es la misma acción sobre la misma cola.
+    DialogoDeDescarga(
+        accion = porConfirmar?.second,
+        nombreDelCapitulo = porConfirmar?.first?.displayName,
+        onConfirmar = {
+            porConfirmar?.let { (fila, accion) ->
+                scope.launch {
+                    when (accion) {
+                        AccionDeDescarga.CANCELAR -> graph.localDownloads.cancel(fila.episodeId)
+                        AccionDeDescarga.SACAR_DE_LA_COLA, AccionDeDescarga.BORRAR ->
+                            graph.localDownloads.remove(fila.episodeId)
+                    }
+                }
+            }
+            porConfirmar = null
+        },
+        onCerrar = { porConfirmar = null },
+    )
 }
 
 /**
@@ -636,7 +687,7 @@ private fun QueryContent(
     onPickTitle: (TitleCard) -> Unit,
     onPlayDirect: (PlaySource) -> Unit,
     /** Guarda el resultado directo en el dispositivo (botón de descarga de cada fila). */
-    onDownloadDirect: (PlaySource) -> Unit,
+    descargaDirectaDe: (PlaySource) -> DescargaDeFila?,
     onForgetQuery: (String) -> Unit,
     onForgetTitle: (RecentTitle) -> Unit,
     onClearHistory: () -> Unit,
@@ -755,7 +806,7 @@ private fun QueryContent(
                     directOrdenados.forEach { source ->
                         SourceRow(
                             source, enabled = true,
-                            onDownload = { onDownloadDirect(source) },
+                            descarga = descargaDirectaDe(source),
                         ) { onPlayDirect(source) }
                     }
                 }
@@ -993,8 +1044,8 @@ private fun ResultsContent(
     loadingArchive: Boolean,
     enabled: Boolean,
     onPlay: (PlaySource) -> Unit,
-    /** Guarda la fuente en el dispositivo (botón de descarga de cada fila). */
-    onDownload: (PlaySource) -> Unit,
+    /** En qué va la descarga de cada fuente, y qué se puede hacer con eso. Null = no se descarga. */
+    descargaDe: (PlaySource) -> DescargaDeFila?,
 ) {
     // MAGIS entra en las abiertas por defecto: es la primera sección, y arrancar colapsada la haría
     // parecer vacía justo arriba de todo.
@@ -1043,10 +1094,10 @@ private fun ResultsContent(
         } else if (tab == SourceTab.TODO) {
             // "Todo" mantiene las secciones colapsables: son la única forma de ver los tres orígenes
             // a la vez sin que uno con 60 resultados entierre a los otros.
-            sourceSection(this, "MAGIS", ArkivMagisBlue, magis, loadingMagis, "MAGIS" in expandedSections, { toggle("MAGIS") }, enabled, onPlay, onDownload)
-            sourceSection(this, "TORRENT", ArkivRed, torrents, loadingTorrent, "TORRENT" in expandedSections, { toggle("TORRENT") }, enabled, onPlay, onDownload)
-            sourceSection(this, "WEB", ArkivWebViolet, webs, loadingWeb, "WEB" in expandedSections, { toggle("WEB") }, enabled, onPlay, onDownload)
-            sourceSection(this, "ARCHIVE", ArkivArchiveTeal, archives, loadingArchive, "ARCHIVE" in expandedSections, { toggle("ARCHIVE") }, enabled, onPlay, onDownload)
+            sourceSection(this, "MAGIS", ArkivMagisBlue, magis, loadingMagis, "MAGIS" in expandedSections, { toggle("MAGIS") }, enabled, onPlay, descargaDe)
+            sourceSection(this, "TORRENT", ArkivRed, torrents, loadingTorrent, "TORRENT" in expandedSections, { toggle("TORRENT") }, enabled, onPlay, descargaDe)
+            sourceSection(this, "WEB", ArkivWebViolet, webs, loadingWeb, "WEB" in expandedSections, { toggle("WEB") }, enabled, onPlay, descargaDe)
+            sourceSection(this, "ARCHIVE", ArkivArchiveTeal, archives, loadingArchive, "ARCHIVE" in expandedSections, { toggle("ARCHIVE") }, enabled, onPlay, descargaDe)
         } else {
             // Con un origen elegido la cabecera de sección sobra: la lista va plana.
             val shown = when (tab) {
@@ -1065,11 +1116,11 @@ private fun ResultsContent(
                 }
             }
             if (shown.any { posterDe(it).isNotBlank() }) {
-                tarjetasEnDosColumnas("tab", shown, enabled, onPlay, onDownload)
+                tarjetasEnDosColumnas("tab", shown, enabled, onPlay, descargaDe)
             } else {
                 items(shown, key = { sourceKey(it) }) { s ->
                     Box(Modifier.padding(horizontal = HPAD)) {
-                        SourceRow(s, enabled = enabled, onDownload = { onDownload(s) }) { onPlay(s) }
+                        SourceRow(s, enabled = enabled, descarga = descargaDe(s)) { onPlay(s) }
                     }
                 }
             }
@@ -1193,7 +1244,7 @@ private fun LazyListScope.tarjetasEnDosColumnas(
     items: List<PlaySource>,
     enabled: Boolean,
     onPlay: (PlaySource) -> Unit,
-    onDownload: (PlaySource) -> Unit,
+    descargaDe: (PlaySource) -> DescargaDeFila?,
 ) {
     items(items.chunked(2), key = { par -> "$tag-grid-${sourceKey(par.first())}" }) { par ->
         Row(
@@ -1202,7 +1253,7 @@ private fun LazyListScope.tarjetasEnDosColumnas(
         ) {
             par.forEach { s ->
                 Box(Modifier.weight(1f)) {
-                    SourceCard(s, enabled = enabled, onDownload = { onDownload(s) }) { onPlay(s) }
+                    SourceCard(s, enabled = enabled, onDownload = descargaDe(s)?.let { d -> d.onDownload }) { onPlay(s) }
                 }
             }
             // Impar: el hueco lo ocupa un espaciador para que la última tarjeta no se estire al ancho.
@@ -1221,7 +1272,7 @@ private fun sourceSection(
     onToggle: () -> Unit,
     enabled: Boolean,
     onPlay: (PlaySource) -> Unit,
-    onDownload: (PlaySource) -> Unit,
+    descargaDe: (PlaySource) -> DescargaDeFila?,
 ) {
     scope.item(key = "sec-$tag") {
         Box(Modifier.padding(horizontal = HPAD)) {
@@ -1230,11 +1281,11 @@ private fun sourceSection(
     }
     if (expanded) {
         if (items.any { posterDe(it).isNotBlank() }) {
-            scope.tarjetasEnDosColumnas(tag, items, enabled, onPlay, onDownload)
+            scope.tarjetasEnDosColumnas(tag, items, enabled, onPlay, descargaDe)
         } else {
             scope.items(items, key = { "$tag-${sourceKey(it)}" }) { s ->
                 Box(Modifier.padding(horizontal = HPAD)) {
-                    SourceRow(s, enabled = enabled, onDownload = { onDownload(s) }) { onPlay(s) }
+                    SourceRow(s, enabled = enabled, descarga = descargaDe(s)) { onPlay(s) }
                 }
             }
         }

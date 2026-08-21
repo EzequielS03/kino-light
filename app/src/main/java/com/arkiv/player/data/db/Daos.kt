@@ -434,6 +434,12 @@ data class DownloadRow(
     val source: String,
     val error: String?,
     val bytesDone: Long,
+    /**
+     * De dónde salió el capítulo (`episodes.torrentData`): la URL de la página para web, los datos
+     * del torrent para torrent, null para archive.org. Lo usa el buscador de fuentes, donde una fila
+     * es UNA FUENTE y todavía no sabe qué `episodeId` le va a tocar. Ver `DescargasPorFuente`.
+     */
+    val sourceRef: String? = null,
 )
 
 @Dao
@@ -666,7 +672,8 @@ interface DownloadDao {
         SELECT d.episodeId AS episodeId, e.itemId AS itemId, COALESCE(NULLIF(TRIM(i.tituloCanonico), ''), i.title) AS itemTitle,
                e.displayName AS displayName, e.thumbPath AS thumbPath,
                d.state AS state, d.progress AS progress, d.localUri AS localUri, d.bytes AS bytes,
-               d.source AS source, d.error AS error, d.bytesDone AS bytesDone
+               d.source AS source, d.error AS error, d.bytesDone AS bytesDone,
+               e.torrentData AS sourceRef
         FROM downloads d
         JOIN episodes e ON e.id = d.episodeId
         JOIN items i ON i.identifier = e.itemId

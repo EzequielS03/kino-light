@@ -47,6 +47,13 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.arkiv.player.data.db.DownloadRow
+import com.arkiv.player.data.local.AccionDeDescarga
+import com.arkiv.player.data.local.DescargasPorFuente
+import com.arkiv.player.data.local.EstadoDeDescargaDeCapitulo
+import com.arkiv.player.ui.components.DescargaDeFila
+import com.arkiv.player.ui.components.DialogoDeDescarga
 import com.arkiv.player.data.ArchiveSearchResult
 import com.arkiv.player.data.catalog.TmdbDetail
 import com.arkiv.player.data.catalog.TmdbEpisode
@@ -88,6 +95,12 @@ fun CineDetailScreen(
     // Avisa "eso ya lo tenés bajado" cuando la cola saltea una descarga duplicada (ver
     // DuplicateDownloadPolicy): si no, el botón parecería no hacer nada.
     val notifyDuplicates = com.arkiv.player.ui.offline.rememberDuplicateDownloadNotice()
+    // Las descargas al dispositivo, para que el buscador de fuentes muestre lo MISMO que la
+    // biblioteca: en qué va cada una y qué se puede hacer con eso. Acá una fila es una FUENTE y
+    // todavía no tiene `episodeId`, así que el emparejamiento lo hace [DescargasPorFuente].
+    val downloadRows by graph.repository.observeDownloadRows().collectAsStateWithLifecycle(emptyList())
+    var porConfirmar by remember { mutableStateOf<Pair<DownloadRow, AccionDeDescarga>?>(null) }
+
     // El aviso inline es un ATAJO de UX: evita encolar algo que vas a descartar cuando el tamaño ya
     // se conoce. La compuerta que garantiza el comportamiento es la del worker, que es la única que
     // ve el tamaño del ARCHIVO (TorrentResult.sizeBytes es el del pack entero cuando la fila es un pack).
@@ -472,6 +485,26 @@ fun CineDetailScreen(
         is PlaySource.Magis -> Unit
     }
 
+    /**
+     * El control de descarga de una fuente. Los packs web no lo llevan: cubren varios capítulos y un
+     * solo estado mentiría sobre el conjunto. Magis tampoco: no se descarga (su CDN vence).
+     */
+    fun descargaDe(s: PlaySource, ep: TmdbEpisode?): DescargaDeFila? {
+        val fila = when (s) {
+            is PlaySource.Torrent -> DescargasPorFuente.deTorrent(downloadRows, s.result.infoHash)
+            is PlaySource.Web -> DescargasPorFuente.deWeb(downloadRows, s.result.pageUrl)
+            is PlaySource.Archive -> DescargasPorFuente.deArchive(downloadRows, s.item.identifier)
+            is PlaySource.WebPack -> null
+            is PlaySource.Magis -> return null
+        }
+        return DescargaDeFila(
+            estado = EstadoDeDescargaDeCapitulo.de(fila),
+            onDownload = { downloadSource(s, ep) },
+            onRetry = { fila?.let { f -> scope.launch { graph.localDownloads.retry(f.episodeId) } } },
+            onPedirAccion = { accion -> fila?.let { f -> porConfirmar = f to accion } },
+        )
+    }
+
     fun playSource(s: PlaySource) = when (s) {
         is PlaySource.Torrent ->
             if (com.arkiv.player.data.catalog.PackDetector.isPack(s.result.name)) packFor = s.result
@@ -617,15 +650,15 @@ fun CineDetailScreen(
                     Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
                         SourceSection("TORRENT", ArkivRed, torrents, loadingTorrent,
                             "TORRENT" in expandedSections, { toggle("TORRENT") }, !preparing,
-                            onDownload = { s -> downloadSource(s, ep) },
+                            descargaDe = { s -> descargaDe(s, ep) },
                         ) { playSource(it) }
                         SourceSection("WEB", Color(0xFFB39DDB), webs, loadingWeb,
                             "WEB" in expandedSections, { toggle("WEB") }, !preparing,
-                            onDownload = { s -> downloadSource(s, ep) },
+                            descargaDe = { s -> descargaDe(s, ep) },
                         ) { playSource(it) }
                         SourceSection("ARCHIVE", Color(0xFF80CBC4), archives, loadingArchive,
                             "ARCHIVE" in expandedSections, { toggle("ARCHIVE") }, !preparing,
-                            onDownload = { s -> downloadSource(s, ep) },
+                            descargaDe = { s -> descargaDe(s, ep) },
                         ) { playSource(it) }
                     }
                 }
@@ -704,4 +737,23 @@ fun CineDetailScreen(
             dismissButton = { TextButton(onClick = { pendingBig = null }) { Text("Cancelar") } },
         )
     }
+
+    // Misma pregunta y mismas palabras que en la biblioteca: es la misma acción sobre la misma cola.
+    DialogoDeDescarga(
+        accion = porConfirmar?.second,
+        nombreDelCapitulo = porConfirmar?.first?.displayName,
+        onConfirmar = {
+            porConfirmar?.let { (fila, accion) ->
+                scope.launch {
+                    when (accion) {
+                        AccionDeDescarga.CANCELAR -> graph.localDownloads.cancel(fila.episodeId)
+                        AccionDeDescarga.SACAR_DE_LA_COLA, AccionDeDescarga.BORRAR ->
+                            graph.localDownloads.remove(fila.episodeId)
+                    }
+                }
+            }
+            porConfirmar = null
+        },
+        onCerrar = { porConfirmar = null },
+    )
 }

@@ -41,6 +41,9 @@ import coil.compose.AsyncImage
 import com.arkiv.player.data.ArchiveSearchResult
 import com.arkiv.player.data.catalog.TorrentLang
 import com.arkiv.player.data.catalog.TorrentResult
+import com.arkiv.player.ui.components.ControlDeDescarga
+import com.arkiv.player.ui.components.DescargaDeFila
+import com.arkiv.player.ui.components.LineaDeEstadoDeDescarga
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
@@ -91,8 +94,8 @@ fun MetaChip(text: String, color: Color = ArkivTextSecondary, strong: Boolean = 
 
 /**
  * Sección colapsable por tipo de fuente (TORRENT/WEB/ARCHIVE) con contador y spinner propio.
- * [onDownload], si no es null, agrega un botón de "Guardar en el dispositivo" a cada fila. Lo reciben
- * las tres secciones: el archivo final queda en el celular, no en la NUC.
+ * [descargaDe], si no es null, le da a cada fila su control de descarga: el mismo de la biblioteca,
+ * con cola, progreso, cancelar y borrar. El archivo final queda en el celular, no en la NUC.
  */
 @Composable
 fun SourceSection(
@@ -103,14 +106,14 @@ fun SourceSection(
     expanded: Boolean,
     onToggle: () -> Unit,
     enabled: Boolean,
-    onDownload: ((PlaySource) -> Unit)? = null,
+    descargaDe: ((PlaySource) -> DescargaDeFila?)? = null,
     onPlay: (PlaySource) -> Unit,
 ) {
     Column(Modifier.padding(top = 4.dp)) {
         SourceSectionHeader(tag, tagColor, items.size, loading, expanded, onToggle)
         if (expanded) {
             items.forEach { s ->
-                SourceRow(s, enabled = enabled, onDownload = onDownload?.let { cb -> { cb(s) } }) { onPlay(s) }
+                SourceRow(s, enabled = enabled, descarga = descargaDe?.invoke(s)) { onPlay(s) }
             }
             if (items.isEmpty() && !loading) {
                 Text(
@@ -158,7 +161,7 @@ fun SourceSectionHeader(
  */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-fun SourceRow(source: PlaySource, enabled: Boolean, onDownload: (() -> Unit)? = null, onClick: () -> Unit) {
+fun SourceRow(source: PlaySource, enabled: Boolean, descarga: DescargaDeFila? = null, onClick: () -> Unit) {
     val accent = accentOf(source)
     Row(
         // height(IntrinsicSize.Min) para que la barra de color de la izquierda pueda medirse
@@ -290,12 +293,9 @@ fun SourceRow(source: PlaySource, enabled: Boolean, onDownload: (() -> Unit)? = 
                     }
                 }
             }
+            if (descarga != null) LineaDeEstadoDeDescarga(descarga.estado)
         }
-        if (onDownload != null) {
-            IconButton(onClick = onDownload, enabled = enabled) {
-                Icon(Icons.Default.Download, contentDescription = "Descargar offline", tint = accent)
-            }
-        }
+        if (descarga != null) ControlDeDescarga(descarga, enabled = enabled)
         Spacer(Modifier.width(8.dp))
     }
 }

@@ -55,6 +55,16 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.arkiv.player.data.db.DownloadRow
+import com.arkiv.player.data.local.AccionDeDescarga
+import com.arkiv.player.data.local.DescargasPorFuente
+import com.arkiv.player.data.local.EstadoDeDescarga
+import com.arkiv.player.data.local.EstadoDeDescargaDeCapitulo
+import com.arkiv.player.ui.components.ControlDeDescarga
+import com.arkiv.player.ui.components.DescargaDeFila
+import com.arkiv.player.ui.components.DialogoDeDescarga
+import com.arkiv.player.ui.components.LineaDeEstadoDeDescarga
 import com.arkiv.player.data.ArchiveSearchResult
 import com.arkiv.player.data.catalog.AnimeShow
 import com.arkiv.player.data.catalog.AnimeSourceResult
@@ -105,6 +115,13 @@ fun AnimeShowDetailScreen(
     var packFor by remember { mutableStateOf<TorrentResult?>(null) }
     // Aviso inline de torrent pesado (ATAJO de UX, ver saveLocally): episodeId ya guardado + tamaño.
     var pendingBig by remember { mutableStateOf<Pair<String, Long>?>(null) }
+    // Las descargas al dispositivo, para que el buscador muestre lo MISMO que la biblioteca: en qué
+    // va cada fuente y qué se puede hacer con eso. Acá una fila es una FUENTE y todavía no tiene
+    // `episodeId` (el de torrent sale del infohash que solo se sabe tras resolver el magnet), así
+    // que el emparejamiento lo hace [DescargasPorFuente] con lo que la fila sí sabe.
+    val downloadRows by graph.repository.observeDownloadRows().collectAsStateWithLifecycle(emptyList())
+    var porConfirmar by remember { mutableStateOf<Pair<DownloadRow, AccionDeDescarga>?>(null) }
+
     // Idiomas a priorizar en la búsqueda (no excluye: TorrentSearchApi solo reordena/prioriza).
     var langs by remember { mutableStateOf<Set<TorrentLang>>(emptySet()) }
     // Episodios expandidos por modo (clave = nº de episodio; -1 = packs/otros). Mapas separados
@@ -324,6 +341,16 @@ fun AnimeShowDetailScreen(
             scope.launch { notifyDuplicates(listOf(graph.localDownloads.enqueue(episodeId, source))) }
         }
     }
+
+    // Arma el control de descarga de UNA fila: el estado sale de la fila de `downloads` que le
+    // corresponde (null = nadie la encoló) y de ahí salen también el episodeId que necesitan
+    // reintentar, cancelar y borrar.
+    fun descargaDe(fila: DownloadRow?, onDownload: () -> Unit) = DescargaDeFila(
+        estado = EstadoDeDescargaDeCapitulo.de(fila),
+        onDownload = onDownload,
+        onRetry = { fila?.let { f -> scope.launch { graph.localDownloads.retry(f.episodeId) } } },
+        onPedirAccion = { accion -> fila?.let { f -> porConfirmar = f to accion } },
+    )
 
     // Guarda un torrent en el dispositivo: mismo resolve que play(), sin reproducir. El anime se
     // consume mayoritariamente por torrent y hasta ahora esta pantalla solo dejaba guardar WEB.
@@ -594,7 +621,9 @@ fun AnimeShowDetailScreen(
                             else -> browse!!.forEach { src ->
                                 ReleaseRow(
                                     result = src.result, enabled = !preparing,
-                                    onDownload = { saveTorrentLocally(src.result, null) },
+                                    descarga = descargaDe(
+                                        DescargasPorFuente.deTorrent(downloadRows, src.result.infoHash),
+                                    ) { saveTorrentLocally(src.result, null) },
                                 ) { playOrPack(src.result, null) }
                             }
                         }
@@ -697,7 +726,9 @@ fun AnimeShowDetailScreen(
                                     torrents.forEach { src ->
                                         ReleaseRow(
                                             result = src.result, enabled = !preparing,
-                                            onDownload = { saveTorrentLocally(src.result, src.episode ?: ep) },
+                                            descarga = descargaDe(
+                                                DescargasPorFuente.deTorrent(downloadRows, src.result.infoHash),
+                                            ) { saveTorrentLocally(src.result, src.episode ?: ep) },
                                         ) { playOrPack(src.result, src.episode ?: ep) }
                                     }
                                 }
@@ -707,7 +738,12 @@ fun AnimeShowDetailScreen(
                                     expandedSub["$ep-w"] ?: false, { expandedSub["$ep-w"] = !(expandedSub["$ep-w"] ?: false) },
                                 ) {
                                     webs.forEach { r ->
-                                        WebEpRow(r, enabled = !preparing, onClick = { playWebEp(r, ep) }, onDownload = { saveWebEpisodeLocally(r, ep) })
+                                        WebEpRow(
+                                            r, enabled = !preparing, onClick = { playWebEp(r, ep) },
+                                            descarga = descargaDe(
+                                                DescargasPorFuente.deWeb(downloadRows, r.pageUrl),
+                                            ) { saveWebEpisodeLocally(r, ep) },
+                                        )
                                     }
                                     epPacks.forEach { p ->
                                         WebPackRow(p, enabled = !preparing, onClick = { webPackFor = p }, onDownload = { saveWebPackLocally(p) })
@@ -720,7 +756,9 @@ fun AnimeShowDetailScreen(
                                     archives.forEach { item ->
                                         ArchiveEpRow(
                                             item, enabled = !preparing,
-                                            onDownload = { saveArchiveLocally(item) },
+                                            descarga = descargaDe(
+                                                DescargasPorFuente.deArchive(downloadRows, item.identifier),
+                                            ) { saveArchiveLocally(item) },
                                         ) { playArchive(item) }
                                     }
                                 }
@@ -788,7 +826,9 @@ fun AnimeShowDetailScreen(
                                     if (open) items.forEach { src ->
                                         ReleaseRow(
                                             result = src.result, enabled = !preparing,
-                                            onDownload = { saveTorrentLocally(src.result, src.episode ?: ep) },
+                                            descarga = descargaDe(
+                                                DescargasPorFuente.deTorrent(downloadRows, src.result.infoHash),
+                                            ) { saveTorrentLocally(src.result, src.episode ?: ep) },
                                         ) { playOrPack(src.result, src.episode ?: ep) }
                                     }
                                 }
@@ -902,14 +942,34 @@ fun AnimeShowDetailScreen(
             dismissButton = { TextButton(onClick = { pendingBig = null }) { Text("Cancelar") } },
         )
     }
+
+    // Confirmación de cancelar / sacar de la cola / borrar. Misma pregunta y mismas palabras que en
+    // la biblioteca: es la misma acción sobre la misma cola.
+    DialogoDeDescarga(
+        accion = porConfirmar?.second,
+        nombreDelCapitulo = porConfirmar?.first?.displayName,
+        onConfirmar = {
+            porConfirmar?.let { (fila, accion) ->
+                scope.launch {
+                    when (accion) {
+                        AccionDeDescarga.CANCELAR -> graph.localDownloads.cancel(fila.episodeId)
+                        AccionDeDescarga.SACAR_DE_LA_COLA, AccionDeDescarga.BORRAR ->
+                            graph.localDownloads.remove(fila.episodeId)
+                    }
+                }
+            }
+            porConfirmar = null
+        },
+        onCerrar = { porConfirmar = null },
+    )
 }
 
 @Composable
 private fun ReleaseRow(
     result: TorrentResult,
     enabled: Boolean,
-    /** Guarda ESTE release en el dispositivo. Mismo patrón que [WebEpRow]. */
-    onDownload: () -> Unit,
+    /** En qué va su descarga al dispositivo, y qué se puede hacer con eso. Igual que [WebEpRow]. */
+    descarga: DescargaDeFila,
     onClick: () -> Unit,
 ) {
     Row(
@@ -944,10 +1004,9 @@ private fun ReleaseRow(
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
+            LineaDeEstadoDeDescarga(descarga.estado)
         }
-        IconButton(onClick = onDownload, enabled = enabled) {
-            Icon(Icons.Default.Download, contentDescription = "Guardar en el dispositivo", tint = ArkivTextSecondary)
-        }
+        ControlDeDescarga(descarga, enabled = enabled)
     }
 }
 
@@ -989,7 +1048,7 @@ private fun AnimeSourceSection(
 }
 
 @Composable
-private fun WebEpRow(r: WebResult, enabled: Boolean, onClick: () -> Unit, onDownload: () -> Unit) {
+private fun WebEpRow(r: WebResult, enabled: Boolean, onClick: () -> Unit, descarga: DescargaDeFila) {
     Row(
         modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick)
             .padding(start = 8.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
@@ -1002,10 +1061,9 @@ private fun WebEpRow(r: WebResult, enabled: Boolean, onClick: () -> Unit, onDown
                 r.siteName + listOfNotNull(r.language.ifBlank { null }, r.quality.ifBlank { null }).joinToString("") { "  ·  $it" },
                 color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall,
             )
+            LineaDeEstadoDeDescarga(descarga.estado)
         }
-        IconButton(onClick = onDownload, enabled = enabled) {
-            Icon(Icons.Default.Download, contentDescription = "Descargar offline", tint = Color(0xFFB39DDB))
-        }
+        ControlDeDescarga(descarga, enabled = enabled)
     }
 }
 
@@ -1036,8 +1094,8 @@ private fun WebPackRow(pack: MirrorWebPack, enabled: Boolean, onClick: () -> Uni
 private fun ArchiveEpRow(
     item: ArchiveSearchResult,
     enabled: Boolean,
-    /** Guarda ESTE ítem en el dispositivo. Mismo patrón que [WebEpRow]. */
-    onDownload: () -> Unit,
+    /** En qué va su descarga al dispositivo, y qué se puede hacer con eso. Igual que [WebEpRow]. */
+    descarga: DescargaDeFila,
     onClick: () -> Unit,
 ) {
     Row(
@@ -1049,9 +1107,8 @@ private fun ArchiveEpRow(
         Column(Modifier.weight(1f)) {
             Text(item.title, color = Color.White, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
             if (item.year.isNotBlank()) Text(item.year, color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall)
+            LineaDeEstadoDeDescarga(descarga.estado)
         }
-        IconButton(onClick = onDownload, enabled = enabled) {
-            Icon(Icons.Default.Download, contentDescription = "Guardar en el dispositivo", tint = ArkivTextSecondary)
-        }
+        ControlDeDescarga(descarga, enabled = enabled)
     }
 }
