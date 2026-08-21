@@ -7,11 +7,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -28,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -67,6 +71,7 @@ import com.arkiv.player.data.local.TorrentSizeGate
 import com.arkiv.player.torrent.EpisodeFilePicker
 import kotlinx.coroutines.async
 import kotlinx.coroutines.Job
+import com.arkiv.player.ui.esTabletHorizontal
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivBlack
 import com.arkiv.player.ui.theme.ArkivRed
@@ -612,56 +617,47 @@ fun CineDetailScreen(
     }
 
     if (sheetOpen) {
-        ModalBottomSheet(onDismissRequest = { sheetOpen = false }, sheetState = sheetState, containerColor = ArkivSurfaceHigh) {
-            Column(Modifier.fillMaxWidth().heightIn(max = 520.dp).padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
-                val ep = sheetEpisode
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                    Text(
-                        if (ep != null) "T${ep.season} · E${ep.episode} — ${ep.name}" else (detail?.title ?: "Fuentes"),
-                        color = Color.White, style = MaterialTheme.typography.titleMedium,
-                        maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
-                    )
-                    IconButton(onClick = { sheetOpen = false }) {
-                        Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = Color.White)
-                    }
-                }
-                val torrents = sources.filterIsInstance<PlaySource.Torrent>()
-                // Packs derivados de `webPacks` (estado leído en composición) en vez de inyectados una
-                // sola vez en runSearch: así se recomponen solos si el fetch de packs (LaunchedEffect
-                // aparte, hasta ~6s) llega DESPUÉS de que el sheet ya abrió (p.ej. deep-link), sin
-                // perder la fila del pack ni necesitar cerrar/reabrir el sheet.
-                val epPacks = ep?.let { e -> webPacks.filter { it.coversEpisode(e.season, e.episode, seasonStrict = true) } } ?: emptyList()
-                val webs = sources.filterIsInstance<PlaySource.Web>() + epPacks.map { PlaySource.WebPack(it) }
-                val archives = sources.filterIsInstance<PlaySource.Archive>()
-                val anyLoading = loadingTorrent || loadingWeb || loadingArchive
-                fun toggle(k: String) { expandedSections = if (k in expandedSections) expandedSections - k else expandedSections + k }
+        val ep = sheetEpisode
+        val torrents = sources.filterIsInstance<PlaySource.Torrent>()
+        // Packs derivados de `webPacks` (estado leído en composición) en vez de inyectados una
+        // sola vez en runSearch: así se recomponen solos si el fetch de packs (LaunchedEffect
+        // aparte, hasta ~6s) llega DESPUÉS de que el sheet ya abrió (p.ej. deep-link), sin
+        // perder la fila del pack ni necesitar cerrar/reabrir el sheet.
+        val epPacks = ep?.let { e -> webPacks.filter { it.coversEpisode(e.season, e.episode, seasonStrict = true) } } ?: emptyList()
+        val webs = sources.filterIsInstance<PlaySource.Web>() + epPacks.map { PlaySource.WebPack(it) }
+        val archives = sources.filterIsInstance<PlaySource.Archive>()
+        fun toggle(k: String) { expandedSections = if (k in expandedSections) expandedSections - k else expandedSections + k }
 
-                if (!anyLoading && sources.isEmpty()) {
-                    Text(
-                        "No se encontraron fuentes para los idiomas elegidos. Probá activar más idiomas.",
-                        color = ArkivTextSecondary, modifier = Modifier.padding(vertical = 12.dp),
+        // El MISMO contenido (PanelDeFuentes) según la forma de la pantalla: hoja modal en
+        // vertical/celular (como siempre), panel a la derecha en tablet horizontal (Task 6).
+        if (esTabletHorizontal()) {
+            // Panel lateral: no tapa la ficha, deja el botón de Volver y el resto a la vista.
+            // Ojo: acá NO se toca `sheetState` (es del ModalBottomSheet, que ni se compone en este
+            // camino). Si el usuario gira a vertical con el panel abierto, ModalBottomSheet entra
+            // de cero a la composición y se anima solo (su propio efecto interno hace el show());
+            // si cierra el panel con sheetOpen = false, sheetState queda tal como estaba (sin tocar),
+            // así que no hay estado "a medio animar" esperando a la próxima vez que se muestre.
+            Row(Modifier.fillMaxSize()) {
+                Spacer(Modifier.weight(1f))
+                Surface(Modifier.width(420.dp).fillMaxHeight(), color = ArkivSurfaceHigh) {
+                    PanelDeFuentes(
+                        detail = detail, sheetEpisode = ep, torrents = torrents, webs = webs, archives = archives,
+                        loadingTorrent = loadingTorrent, loadingWeb = loadingWeb, loadingArchive = loadingArchive,
+                        expandedSections = expandedSections, toggle = { k -> toggle(k) }, preparing = preparing,
+                        descargaDe = { s, e -> descargaDe(s, e) }, playSource = { s -> playSource(s) },
+                        onCerrar = { sheetOpen = false },
                     )
-                } else {
-                    // Tres secciones colapsables: cada resultado cae en la suya (no se mezclan).
-                    // Orden: Web → Torrent → Archive.
-                    // weight(fill=false) acota la altura del scroll interno al espacio disponible del
-                    // sheet: así es un viewport REAL que scrollea, y el nested-scroll consume el gesto
-                    // en vez de pasárselo al ModalBottomSheet (que se arrastraba/"intentaba cerrar").
-                    Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
-                        SourceSection("TORRENT", ArkivRed, torrents, loadingTorrent,
-                            "TORRENT" in expandedSections, { toggle("TORRENT") }, !preparing,
-                            descargaDe = { s -> descargaDe(s, ep) },
-                        ) { playSource(it) }
-                        SourceSection("WEB", Color(0xFFB39DDB), webs, loadingWeb,
-                            "WEB" in expandedSections, { toggle("WEB") }, !preparing,
-                            descargaDe = { s -> descargaDe(s, ep) },
-                        ) { playSource(it) }
-                        SourceSection("ARCHIVE", Color(0xFF80CBC4), archives, loadingArchive,
-                            "ARCHIVE" in expandedSections, { toggle("ARCHIVE") }, !preparing,
-                            descargaDe = { s -> descargaDe(s, ep) },
-                        ) { playSource(it) }
-                    }
                 }
+            }
+        } else {
+            ModalBottomSheet(onDismissRequest = { sheetOpen = false }, sheetState = sheetState, containerColor = ArkivSurfaceHigh) {
+                PanelDeFuentes(
+                    detail = detail, sheetEpisode = ep, torrents = torrents, webs = webs, archives = archives,
+                    loadingTorrent = loadingTorrent, loadingWeb = loadingWeb, loadingArchive = loadingArchive,
+                    expandedSections = expandedSections, toggle = { k -> toggle(k) }, preparing = preparing,
+                    descargaDe = { s, e -> descargaDe(s, e) }, playSource = { s -> playSource(s) },
+                    onCerrar = { sheetOpen = false },
+                )
             }
         }
     }
@@ -756,4 +752,71 @@ fun CineDetailScreen(
         },
         onCerrar = { porConfirmar = null },
     )
+}
+
+/**
+ * El contenido del buscador de fuentes: cabecera con el título/episodio + las tres secciones
+ * colapsables (Torrent/Web/Archive), cada una con su [SourceRow] y su [ControlDeDescarga] (cola,
+ * progreso, cancelar, borrar). Es el MISMO contenido para los dos contenedores posibles —
+ * `ModalBottomSheet` en vertical/celular, panel lateral en tablet horizontal (Task 6)—: quien
+ * llama decide el contenedor, acá no se sabe cuál es.
+ */
+@Composable
+private fun PanelDeFuentes(
+    detail: TmdbDetail?,
+    sheetEpisode: TmdbEpisode?,
+    torrents: List<PlaySource.Torrent>,
+    webs: List<PlaySource>,
+    archives: List<PlaySource.Archive>,
+    loadingTorrent: Boolean,
+    loadingWeb: Boolean,
+    loadingArchive: Boolean,
+    expandedSections: Set<String>,
+    toggle: (String) -> Unit,
+    preparing: Boolean,
+    descargaDe: (PlaySource, TmdbEpisode?) -> DescargaDeFila?,
+    playSource: (PlaySource) -> Unit,
+    onCerrar: () -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().heightIn(max = 520.dp).padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
+        val ep = sheetEpisode
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+            Text(
+                if (ep != null) "T${ep.season} · E${ep.episode} — ${ep.name}" else (detail?.title ?: "Fuentes"),
+                color = Color.White, style = MaterialTheme.typography.titleMedium,
+                maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = onCerrar) {
+                Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = Color.White)
+            }
+        }
+        val anyLoading = loadingTorrent || loadingWeb || loadingArchive
+
+        if (!anyLoading && torrents.isEmpty() && webs.isEmpty() && archives.isEmpty()) {
+            Text(
+                "No se encontraron fuentes para los idiomas elegidos. Probá activar más idiomas.",
+                color = ArkivTextSecondary, modifier = Modifier.padding(vertical = 12.dp),
+            )
+        } else {
+            // Tres secciones colapsables: cada resultado cae en la suya (no se mezclan).
+            // Orden: Web → Torrent → Archive.
+            // weight(fill=false) acota la altura del scroll interno al espacio disponible del
+            // contenedor (hoja o panel): así es un viewport REAL que scrollea, y el nested-scroll
+            // consume el gesto en vez de pasárselo al ModalBottomSheet (que se arrastraba/"intentaba cerrar").
+            Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+                SourceSection("TORRENT", ArkivRed, torrents, loadingTorrent,
+                    "TORRENT" in expandedSections, { toggle("TORRENT") }, !preparing,
+                    descargaDe = { s -> descargaDe(s, ep) },
+                ) { playSource(it) }
+                SourceSection("WEB", Color(0xFFB39DDB), webs, loadingWeb,
+                    "WEB" in expandedSections, { toggle("WEB") }, !preparing,
+                    descargaDe = { s -> descargaDe(s, ep) },
+                ) { playSource(it) }
+                SourceSection("ARCHIVE", Color(0xFF80CBC4), archives, loadingArchive,
+                    "ARCHIVE" in expandedSections, { toggle("ARCHIVE") }, !preparing,
+                    descargaDe = { s -> descargaDe(s, ep) },
+                ) { playSource(it) }
+            }
+        }
+    }
 }
