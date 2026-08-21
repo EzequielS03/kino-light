@@ -592,6 +592,14 @@ interface DownloadDao {
     suspend fun setError(episodeId: String, error: String?)
 
     /**
+     * Corrige la `source` (o sea la estrategia) de una fila ya guardada. Hace falta para las filas
+     * que se encolaron con la estrategia equivocada: "Reintentar" conserva la fila tal cual, así que
+     * sin esto volverían a fallar igual para siempre. Ver `FuenteDeDescarga`.
+     */
+    @Query("UPDATE downloads SET source = :source WHERE episodeId = :episodeId")
+    suspend fun updateSource(episodeId: String, source: String)
+
+    /**
      * Escribe la ruta DESNUDA en `filePath` (no un `file://` en `localUri`): `localUri` es el formato
      * histórico que dejaba el `DownloadManager` del sistema y queda solo para las filas viejas. Quien
      * resuelve "¿dónde está el archivo?" para las dos columnas —y verifica que exista— es

@@ -27,6 +27,8 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -77,11 +79,11 @@ import coil.compose.AsyncImage
 import com.arkiv.player.data.ArchiveUrls
 import com.arkiv.player.data.ItemDetail
 import com.arkiv.player.data.model.Episode
-import com.arkiv.player.data.local.DownloadQueuePolicy
+import com.arkiv.player.data.local.EstadoDeDescarga
+import com.arkiv.player.data.local.EstadoDeDescargaDeCapitulo
+import com.arkiv.player.data.local.FuenteDeDescarga
 import com.arkiv.player.data.local.LocalDownloadState
 import com.arkiv.player.miniaturas.EleccionDeMiniatura
-import com.arkiv.player.playback.PlayerSource
-import com.arkiv.player.playback.SourceKind
 import com.arkiv.player.ui.formatDuration
 import com.arkiv.player.ui.EtiquetaDeCapitulo
 import com.arkiv.player.ui.offline.rememberDuplicateDownloadNotice
@@ -91,6 +93,7 @@ import com.arkiv.player.ui.theme.ArkivBlack
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurface
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
+import com.arkiv.player.ui.theme.ArkivTextPrimary
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 import com.arkiv.player.ui.theme.NucDownloadedGreen
 import kotlinx.coroutines.launch
@@ -150,8 +153,11 @@ fun DetailScreen(
     val savedEpisodeIds = remember(downloadRows) {
         downloadRows.filter { it.state == LocalDownloadState.COMPLETED }.map { it.episodeId }.toSet()
     }
-    val savingEpisodeIds = remember(downloadRows) {
-        downloadRows.filterNot { DownloadQueuePolicy.isTerminal(it.state) }.map { it.episodeId }.toSet()
+    // Estado de descarga POR capítulo, no un simple "hace algo / no hace nada": la fila necesita
+    // saber si está esperando turno, en qué porcentaje va, o por qué falló. Ver
+    // [EstadoDeDescargaDeCapitulo].
+    val estadosDeDescarga = remember(downloadRows) {
+        downloadRows.associate { it.episodeId to EstadoDeDescargaDeCapitulo.de(it) }
     }
 
     // Guarda capítulos en el DISPOSITIVO. El permiso de notificaciones se pide UNA vez por acción
@@ -162,11 +168,15 @@ fun DetailScreen(
         askNotifications()
         scope.launch {
             // Un solo aviso para todo el lote, no uno por capítulo.
-            notifyDuplicates(episodes.map { graph.localDownloads.enqueue(it.id, localSourceFor(it.id)) })
+            notifyDuplicates(episodes.map { graph.localDownloads.enqueue(it.id, FuenteDeDescarga.para(it.id)) })
         }
     }
 
     val onDownloadEpisode: (Episode) -> Unit = { ep -> saveEpisodesLocally(listOf(ep)) }
+
+    // Reintentar lo que falló, sin salir a la pantalla de Descargas: el fallo se ve en la misma fila
+    // donde se pidió la descarga, así que la acción también vive ahí.
+    val onRetryEpisode: (Episode) -> Unit = { ep -> scope.launch { graph.localDownloads.retry(ep.id) } }
 
     var menuExpanded by remember { mutableStateOf(false) }
     var showMarkersDialog by remember { mutableStateOf(false) }
@@ -304,10 +314,10 @@ fun DetailScreen(
         }
         DetailContent(
             data = data,
-            savedEpisodeIds = savedEpisodeIds,
-            savingEpisodeIds = savingEpisodeIds,
+            estadosDeDescarga = estadosDeDescarga,
             onPlayEpisode = onPlayEpisode,
             onDownloadEpisode = onDownloadEpisode,
+            onRetryEpisode = onRetryEpisode,
             onToggleWatched = vm::toggleWatched,
             tmdbTitles = tmdbTitles,
             tmdbStills = tmdbStills,
@@ -322,12 +332,11 @@ fun DetailScreen(
 @Composable
 private fun DetailContent(
     data: ItemDetail,
-    /** Episodios ya guardados en el dispositivo (fila `completed`). Ver [DetailScreen]. */
-    savedEpisodeIds: Set<String>,
-    /** Episodios en cola o bajando -- la fila muestra spinner. Ver [DetailScreen]. */
-    savingEpisodeIds: Set<String>,
+    /** episodeId -> en qué va su descarga al dispositivo. Ver [DetailScreen]. */
+    estadosDeDescarga: Map<String, EstadoDeDescarga>,
     onPlayEpisode: (String) -> Unit,
     onDownloadEpisode: (Episode) -> Unit,
+    onRetryEpisode: (Episode) -> Unit,
     onToggleWatched: (String, Boolean) -> Unit,
     /** episodeId -> título / imagen / sinopsis del capítulo según TMDB. Vacíos si no se sabe la serie. Ver [DetailScreen]. */
     tmdbTitles: Map<String, String>,
@@ -507,10 +516,10 @@ private fun DetailContent(
                     // (addWebSeriesEpisode guarda thumbPath = null a propósito, el pack solo da un
                     // póster de la serie), y sin esto la fila quedaba con un recuadro vacío.
                     fallbackThumb = data.thumbnailUrl,
-                    isSaved = ep.id in savedEpisodeIds,
-                    isSaving = ep.id in savingEpisodeIds,
+                    estado = estadosDeDescarga[ep.id] ?: EstadoDeDescarga.SinDescargar,
                     onPlay = { onPlayEpisode(ep.id) },
                     onDownload = { onDownloadEpisode(ep) },
+                    onRetry = { onRetryEpisode(ep) },
                     onToggleWatched = onToggleWatched,
                 )
             }
@@ -671,21 +680,6 @@ private fun SaveEpisodesDialog(
     )
 }
 
-/**
- * La `source` de la tabla `downloads` que le corresponde a un episodio, o sea qué estrategia lo sabe
- * bajar. Se deriva del prefijo del id con el MISMO [PlayerSource.kindFor] que usa el reproductor,
- * para no inventar una segunda forma de decidir de dónde vino un episodio.
- *
- * Antes esta pantalla encolaba todo como "archive" fijo, así que un capítulo web o de torrent
- * guardado desde acá caía en la estrategia equivocada y fallaba con "no tiene un archivo
- * descargable".
- */
-private fun localSourceFor(episodeId: String): String = when (PlayerSource.kindFor(episodeId)) {
-    SourceKind.TORRENT -> "torrent"
-    SourceKind.WEB -> "web"
-    else -> "archive"
-}
-
 @Composable
 private fun EpisodeRow(
     episode: Episode,
@@ -699,17 +693,16 @@ private fun EpisodeRow(
     tmdbFrame: String?,
     /** Sinopsis del capítulo (TMDB). Null si no se pudo resolver; la fila simplemente no la muestra. */
     tmdbOverview: String?,
-    /** Ya guardado en el dispositivo. */
-    isSaved: Boolean,
-    /** En cola o bajando: muestra spinner en vez del botón. */
-    isSaving: Boolean,
+    /** En qué va su descarga al dispositivo: manda el ícono de la derecha y la barra de abajo. */
+    estado: EstadoDeDescarga,
     onPlay: () -> Unit,
     onDownload: () -> Unit,
+    onRetry: () -> Unit,
     onToggleWatched: (String, Boolean) -> Unit,
 ) {
     val watched = progress?.watched == true
     val cardShape = RoundedCornerShape(10.dp)
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 4.dp)
@@ -719,132 +712,223 @@ private fun EpisodeRow(
             .then(
                 if (isCurrent) Modifier.border(1.5.dp, Color.White, cardShape) else Modifier,
             )
-            .clickable(onClick = onPlay)
-            .padding(horizontal = 8.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .clickable(onClick = onPlay),
     ) {
-        Box(
+        // El padding interno vive acá y no en la tarjeta: la barra de descarga tiene que llegar a
+        // los bordes de la tarjeta, no quedar flotando a 8dp de cada lado.
+        Row(
             modifier = Modifier
-                .size(width = 112.dp, height = 63.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(ArkivSurfaceHigh),
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            // El frame capturado primero (la escena real de donde vas), después el still de TMDB
-            // (la foto del capítulo), después el fotograma de archive.org (suele salir negro o a
-            // mitad de una transición) y por último el respaldo de la serie. Cadena armada con
-            // EleccionDeMiniatura -- no a mano -- para no desalinearse del resto de las pantallas.
-            val thumb = EleccionDeMiniatura.elegir(
-                tmdbFrame,
-                tmdbStill,
-                episode.thumbPath?.let { ArchiveUrls.download(episode.itemId, it) },
-                fallbackThumb,
-            )
-            AsyncImage(
-                model = thumb,
-                contentDescription = tmdbTitle ?: episode.displayName,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-            Icon(
-                Icons.Default.PlayArrow,
-                contentDescription = null,
-                tint = Color.White.copy(alpha = 0.85f),
-                modifier = Modifier.align(Alignment.Center),
-            )
-            if (progress != null && progress.durationMs > 0 && !watched) {
-                LinearProgressIndicator(
-                    progress = { progress.positionMs.toFloat() / progress.durationMs },
-                    color = ArkivRed,
-                    trackColor = Color(0x66000000),
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .height(3.dp),
+            Box(
+                modifier = Modifier
+                    .size(width = 112.dp, height = 63.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(ArkivSurfaceHigh),
+            ) {
+                // El frame capturado primero (la escena real de donde vas), después el still de TMDB
+                // (la foto del capítulo), después el fotograma de archive.org (suele salir negro o a
+                // mitad de una transición) y por último el respaldo de la serie. Cadena armada con
+                // EleccionDeMiniatura -- no a mano -- para no desalinearse del resto de las pantallas.
+                val thumb = EleccionDeMiniatura.elegir(
+                    tmdbFrame,
+                    tmdbStill,
+                    episode.thumbPath?.let { ArchiveUrls.download(episode.itemId, it) },
+                    fallbackThumb,
                 )
-            }
-        }
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(horizontal = 12.dp),
-        ) {
-            Text(
-                // El nombre del archivo es el respaldo, no la primera opción: para nuestras
-                // subidas es "s01e03", que no dice nada de qué capítulo es.
-                //
-                // Pero el NÚMERO manda y no puede desaparecer: con `tmdbTitle` a secas, un capítulo
-                // de Magis pasaba de "E5  Daima T1_5" (el displayName ya trae el número) a solo
-                // "Panzy", y la lista se quedaba sin forma de saber cuál era cuál. La regla vive en
-                // [EtiquetaDeCapitulo.conNombre], compartida con el detalle del TV.
-                EtiquetaDeCapitulo.conNombre(episode, tmdbTitle),
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                color = if (watched) ArkivTextSecondary else MaterialTheme.colorScheme.onBackground,
-            )
-            // Los capítulos guardados desde web/torrent nunca traen duración real (queda en 0.0 a
-            // propósito al guardar, ver ArkivRepository.kt) -- mostrar "0:00" ahí parecía un error
-            // en vez de un dato que simplemente no se conoce, así que la fila la omite.
-            if (episode.durationSeconds > 0) {
-                Text(
-                    formatDuration((episode.durationSeconds * 1000).toLong()),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = ArkivTextSecondary,
+                AsyncImage(
+                    model = thumb,
+                    contentDescription = tmdbTitle ?: episode.displayName,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
                 )
+                Icon(
+                    Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier.align(Alignment.Center),
+                )
+                if (progress != null && progress.durationMs > 0 && !watched) {
+                    LinearProgressIndicator(
+                        progress = { progress.positionMs.toFloat() / progress.durationMs },
+                        color = ArkivRed,
+                        trackColor = Color(0x66000000),
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .height(3.dp),
+                    )
+                }
             }
-            // Sinopsis del capítulo (TMDB): solo si se pudo resolver. Recortada a 2 líneas -- la
-            // fila ya compite por espacio con la miniatura y los botones, no puede crecer sin límite.
-            if (!tmdbOverview.isNullOrBlank()) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 12.dp),
+            ) {
                 Text(
-                    tmdbOverview,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = ArkivTextSecondary,
+                    // El nombre del archivo es el respaldo, no la primera opción: para nuestras
+                    // subidas es "s01e03", que no dice nada de qué capítulo es.
+                    //
+                    // Pero el NÚMERO manda y no puede desaparecer: con `tmdbTitle` a secas, un capítulo
+                    // de Magis pasaba de "E5  Daima T1_5" (el displayName ya trae el número) a solo
+                    // "Panzy", y la lista se quedaba sin forma de saber cuál era cuál. La regla vive en
+                    // [EtiquetaDeCapitulo.conNombre], compartida con el detalle del TV.
+                    EtiquetaDeCapitulo.conNombre(episode, tmdbTitle),
+                    style = MaterialTheme.typography.bodyLarge,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 2.dp),
+                    color = if (watched) ArkivTextSecondary else MaterialTheme.colorScheme.onBackground,
                 )
+                // Los capítulos guardados desde web/torrent nunca traen duración real (queda en 0.0 a
+                // propósito al guardar, ver ArkivRepository.kt) -- mostrar "0:00" ahí parecía un error
+                // en vez de un dato que simplemente no se conoce, así que la fila la omite.
+                if (episode.durationSeconds > 0) {
+                    Text(
+                        formatDuration((episode.durationSeconds * 1000).toLong()),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = ArkivTextSecondary,
+                    )
+                }
+                // Sinopsis del capítulo (TMDB): solo si se pudo resolver. Recortada a 2 líneas -- la
+                // fila ya compite por espacio con la miniatura y los botones, no puede crecer sin límite.
+                if (!tmdbOverview.isNullOrBlank()) {
+                    Text(
+                        tmdbOverview,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = ArkivTextSecondary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
             }
-        }
-        // Un solo slot para "guardar en el dispositivo", nunca dos cosas a la vez: el tilde de que
-        // ya está guardado, el spinner de que está en cola/bajando, o el botón para guardarlo.
-        // Ofrecer descargar lo que ya está no aporta nada, y la fila tampoco tiene ancho para un
-        // ícono más (miniatura de 112dp + 2 IconButton ya la dejan justa en un teléfono angosto).
-        //
-        // El tilde es informativo, no una acción -- por eso no es un IconButton (no se toca, no ocupa
-        // un slot de 48dp) y no comparte el rojo de "visto" que tiene al lado. Mismo ícono, color y
-        // tamaño que en WebPackDialog: es el mismo indicador y tiene que reconocerse igual.
-        //
-        // Antes había DOS slots: este (Download, al teléfono) y otro con CloudDownload que mandaba a
-        // bajar a la NUC. El de la NUC se quitó porque producía algo que ya nadie puede ver ni
-        // reproducir desde que se desconectó la reproducción remota.
-        if (isSaved) {
-            Icon(
-                Icons.Default.CheckCircle,
-                contentDescription = "Guardado en el dispositivo",
-                tint = NucDownloadedGreen,
-                modifier = Modifier.size(18.dp),
-            )
-        } else if (isSaving) {
-            // Mismo slot de 48dp que el IconButton, para que la fila no salte de tamaño al pasar de
-            // ícono a spinner y viceversa.
-            Box(modifier = Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = ArkivTextSecondary)
+            // Un solo slot para "guardar en el dispositivo", nunca dos cosas a la vez: el tilde de que
+            // ya está guardado, en qué va la descarga, o el botón para guardarlo. Ofrecer descargar lo
+            // que ya está no aporta nada, y la fila tampoco tiene ancho para un ícono más (miniatura de
+            // 112dp + 2 IconButton ya la dejan justa en un teléfono angosto).
+            //
+            // El tilde es informativo, no una acción -- por eso no es un IconButton (no se toca, no ocupa
+            // un slot de 48dp) y no comparte el rojo de "visto" que tiene al lado. Mismo ícono, color y
+            // tamaño que en WebPackDialog: es el mismo indicador y tiene que reconocerse igual.
+            //
+            // Antes había DOS slots: este (Download, al teléfono) y otro con CloudDownload que mandaba a
+            // bajar a la NUC. El de la NUC se quitó porque producía algo que ya nadie puede ver ni
+            // reproducir desde que se desconectó la reproducción remota.
+            when (estado) {
+                EstadoDeDescarga.Lista -> Icon(
+                    Icons.Default.CheckCircle,
+                    contentDescription = "Guardado en el dispositivo",
+                    tint = NucDownloadedGreen,
+                    modifier = Modifier.size(18.dp),
+                )
+                // El porcentaje ocupa el mismo slot de 48dp que ocuparía el botón, para que la fila no
+                // salte de tamaño. El spinner queda solo para cuando de verdad no se sabe cuánto falta:
+                // girar sin decir nada era justo lo que no alcanzaba.
+                is EstadoDeDescarga.Bajando -> Box(
+                    modifier = Modifier.size(48.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    val fraccion = estado.fraccion
+                    if (fraccion == null) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = ArkivRed)
+                    } else {
+                        Text(
+                            "${(fraccion * 100).toInt()}%",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = ArkivTextPrimary,
+                        )
+                    }
+                }
+                EstadoDeDescarga.EnCola -> Box(
+                    modifier = Modifier.size(48.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = ArkivTextSecondary)
+                }
+                // Un fallo tiene que verse Y poder deshacerse acá mismo. Antes volvía a mostrar el
+                // botón de bajar, idéntico a no haberlo intentado nunca: el usuario tocaba de nuevo,
+                // volvía a fallar por lo mismo, y nada en pantalla lo decía.
+                is EstadoDeDescarga.Fallida -> IconButton(onClick = onRetry) {
+                    Icon(
+                        Icons.Default.Refresh,
+                        contentDescription = estado.motivo?.let { "Falló: $it. Tocar para reintentar" }
+                            ?: "Falló la descarga. Tocar para reintentar",
+                        tint = ArkivRed,
+                    )
+                }
+                // No es un fallo ni está bajando: espera que el usuario acepte el tamaño en Descargas,
+                // que es donde vive esa confirmación.
+                EstadoDeDescarga.PideConfirmacion -> Box(
+                    modifier = Modifier.size(48.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Default.Warning,
+                        contentDescription = "Pesa mucho: confírmala en Descargas",
+                        tint = ArkivRed,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                EstadoDeDescarga.SinDescargar -> IconButton(onClick = onDownload) {
+                    Icon(
+                        Icons.Default.Download,
+                        contentDescription = "Guardar en el dispositivo",
+                        tint = ArkivTextSecondary,
+                    )
+                }
             }
-        } else {
-            IconButton(onClick = onDownload) {
+            IconButton(onClick = { onToggleWatched(episode.id, !watched) }) {
                 Icon(
-                    Icons.Default.Download,
-                    contentDescription = "Guardar en el dispositivo",
-                    tint = ArkivTextSecondary,
+                    if (watched) Icons.Default.CheckCircle else Icons.Outlined.Circle,
+                    contentDescription = if (watched) "Marcar no visto" else "Marcar visto",
+                    tint = if (watched) ArkivRed else ArkivTextSecondary,
                 )
             }
         }
-        IconButton(onClick = { onToggleWatched(episode.id, !watched) }) {
-            Icon(
-                if (watched) Icons.Default.CheckCircle else Icons.Outlined.Circle,
-                contentDescription = if (watched) "Marcar no visto" else "Marcar visto",
-                tint = if (watched) ArkivRed else ArkivTextSecondary,
-            )
+        // La barra va pegada al borde inferior de la tarjeta y a todo su ancho: es el único lugar
+        // donde no compite con la miniatura ni con los dos botones, y se lee de un vistazo
+        // recorriendo la lista.
+        BarraDeDescarga(estado)
+    }
+}
+
+/**
+ * Barra de descarga de una fila de capítulo: 3dp pegados al borde inferior de la tarjeta.
+ *
+ * Indeterminada mientras no se pueda decir cuánto falta (en cola, o bajando sin tamaño total
+ * conocido) y determinada cuando sí: una barra clavada en 0% durante minutos parece trabada, y era
+ * el mismo problema del spinner. Gris para lo que espera turno, rojo para lo que está bajando ahora
+ * mismo, verde lleno para lo que ya está en el dispositivo y rojo lleno para lo que falló --
+ * los mismos colores que ya usa la pantalla de Descargas para esos estados.
+ */
+@Composable
+private fun BarraDeDescarga(estado: EstadoDeDescarga) {
+    val forma = Modifier.fillMaxWidth().height(3.dp)
+    val fondo = Color(0x33FFFFFF)
+    when (estado) {
+        EstadoDeDescarga.SinDescargar -> Unit
+        EstadoDeDescarga.EnCola ->
+            LinearProgressIndicator(color = ArkivTextSecondary, trackColor = fondo, modifier = forma)
+        is EstadoDeDescarga.Bajando -> {
+            val fraccion = estado.fraccion
+            if (fraccion == null) {
+                LinearProgressIndicator(color = ArkivRed, trackColor = fondo, modifier = forma)
+            } else {
+                LinearProgressIndicator(
+                    progress = { fraccion },
+                    color = ArkivRed,
+                    trackColor = fondo,
+                    modifier = forma,
+                )
+            }
         }
+        EstadoDeDescarga.Lista ->
+            LinearProgressIndicator(progress = { 1f }, color = NucDownloadedGreen, trackColor = fondo, modifier = forma)
+        is EstadoDeDescarga.Fallida ->
+            LinearProgressIndicator(progress = { 1f }, color = ArkivRed, trackColor = fondo, modifier = forma)
+        EstadoDeDescarga.PideConfirmacion ->
+            LinearProgressIndicator(progress = { 1f }, color = ArkivRed.copy(alpha = 0.45f), trackColor = fondo, modifier = forma)
     }
 }

@@ -120,6 +120,10 @@ class LocalDownloadManager(
     suspend fun retry(episodeId: String) = withContext(Dispatchers.IO) {
         val row = downloadDao.get(episodeId) ?: return@withContext
         if (!DownloadQueuePolicy.isRetryable(row.state)) return@withContext
+        // Una fila vieja pudo quedar apuntando a la estrategia equivocada (ver [FuenteDeDescarga]);
+        // reencolarla tal cual la haría fallar con el mismo mensaje para siempre.
+        val fuente = FuenteDeDescarga.para(episodeId)
+        if (row.source != fuente) downloadDao.updateSource(episodeId, fuente)
         downloadDao.updateState(episodeId, LocalDownloadState.QUEUED, null)
         wakeWorker(appContext)
     }

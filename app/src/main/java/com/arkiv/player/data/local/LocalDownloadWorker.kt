@@ -56,7 +56,17 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
         // en API 31+, o cualquier otra excepción de notificación/binder). Si eso pasa NO puede tumbar la
         // descarga: preferimos bajar el archivo sin notificación visible a no bajarlo. Por eso va con
         // runCatching en vez de dejar que la excepción se propague fuera de doWork().
-        runCatching { setForeground(foregroundInfo("Descargando", entity.episodeId)) }
+        // Nombre de verdad para la notificación (antes mostraba el id crudo del episodio) y cuántos
+        // esperan turno: como la cola es de UNA a la vez, sin ese dato los demás capítulos parecen
+        // haberse perdido. Se calcula una vez por pasada; cada fila que arranca REEMPLAZA la
+        // notificación anterior (mismo NOTIF_ID), así que al pasar al siguiente capítulo la
+        // notificación se convierte en la de ese capítulo, con su propio progreso.
+        val episodio = graph.database.itemDao().getEpisode(entity.episodeId)
+        val serie = episodio?.let { graph.database.itemDao().getItem(it.itemId)?.title }
+        tituloDeLaNotificacion = AvisoDeDescarga.titulo(serie, episodio?.displayName)
+        enCola = rows.count { it.state == LocalDownloadState.QUEUED && it.episodeId != entity.episodeId }
+
+        runCatching { setForeground(foregroundInfo(tituloDeLaNotificacion, null)) }
             .onFailure { Log.w(TAG, "no se pudo mostrar la notificación de foreground: ${it.message}") }
 
         val strategy = graph.downloadStrategies[entity.source]
@@ -224,6 +234,10 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
      * más arriba lo reduce a como mucho una escritura por segundo, no una por cada chunk de 64 KB.
      */
     private var lastPersistMs = 0L
+
+    /** Título y cola de la fila que esta pasada está bajando; los usa la notificación de progreso. */
+    private var tituloDeLaNotificacion = "Bajando un capítulo"
+    private var enCola = 0
     private fun persistProgress(
         dao: com.arkiv.player.data.db.DownloadDao,
         entity: DownloadEntity,
@@ -238,6 +252,9 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
         // fase de staging (web) fuera inalcanzable — el primer tick de progreso devolvía la fila de
         // `staging` a `downloading`. El estado lo escribe quien conoce la fase.
         runBlocking { dao.updateProgress(entity.episodeId, progress, done, total) }
+        // Con el mismo throttle: la notificación se queda en el 0% inicial toda la descarga si nadie
+        // la vuelve a emitir. `total <= 0` es tamaño desconocido -> barra indeterminada.
+        actualizarNotificacion(if (total > 0) progress else null)
     }
 
     /**
@@ -259,13 +276,38 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
         )
     }
 
-    private fun foregroundInfo(title: String, text: String): ForegroundInfo {
-        ensureChannel()
-        val notif = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-            .setContentTitle(title).setContentText(text)
+    /**
+     * La notificación de la descarga en curso. [fraccion] null = todavía no se sabe cuánto falta, y
+     * entonces la barra va indeterminada en vez de mentir con un 0% clavado.
+     *
+     * `setOnlyAlertOnce` porque esta notificación se re-emite cada segundo con el progreso nuevo: sin
+     * eso, cada actualización volvería a "avisar".
+     */
+    private fun notificacionDeProgreso(title: String, fraccion: Float?) =
+        NotificationCompat.Builder(applicationContext, CHANNEL_ID)
+            .setContentTitle(title)
+            .setContentText(AvisoDeDescarga.subtitulo(fraccion, enCola))
             .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setProgress(100, ((fraccion ?: 0f) * 100).toInt(), fraccion == null)
+            .setOnlyAlertOnce(true)
             .setOngoing(true)
             .build()
+
+    /**
+     * Re-emite la notificación de foreground con el progreso nuevo. Va por `NotificationManager` y no
+     * por `setForeground`: es la MISMA notificación (mismo id) y actualizarla no pasa por el servicio,
+     * así que no puede tumbar la descarga si el sistema restringe el arranque de foreground services.
+     */
+    private fun actualizarNotificacion(fraccion: Float?) {
+        runCatching {
+            val nm = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.notify(NOTIF_ID, notificacionDeProgreso(tituloDeLaNotificacion, fraccion))
+        }
+    }
+
+    private fun foregroundInfo(title: String, fraccion: Float?): ForegroundInfo {
+        ensureChannel()
+        val notif = notificacionDeProgreso(title, fraccion)
         return if (android.os.Build.VERSION.SDK_INT >= 29) {
             ForegroundInfo(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
@@ -274,7 +316,7 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
     }
 
     private fun notifyDone(episodeId: String) =
-        notify(episodeId.hashCode(), "Descarga completa", "Ya podés verlo sin conexión")
+        notify(episodeId.hashCode(), "Descarga completa", "Ya lo puedes ver sin conexión")
 
     private fun notifyAlreadyDownloaded(episodeId: String) = notify(
         episodeId.hashCode(),
@@ -285,7 +327,7 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
     private fun notifyNeedsConfirmation(episodeId: String, bytes: Long) = notify(
         episodeId.hashCode(),
         "Descarga pesada",
-        "Pesa ${TorrentSizeGate.formatSize(bytes)}. Confirmá en Descargas para bajarla.",
+        "Pesa ${TorrentSizeGate.formatSize(bytes)}. Confírmala en Descargas para bajarla.",
     )
 
     private fun notify(id: Int, title: String, text: String) {
