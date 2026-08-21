@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
@@ -79,6 +80,8 @@ import coil.compose.AsyncImage
 import com.arkiv.player.data.ArchiveUrls
 import com.arkiv.player.data.ItemDetail
 import com.arkiv.player.data.model.Episode
+import com.arkiv.player.data.local.AccionDeDescarga
+import com.arkiv.player.data.local.ConfirmacionDeDescarga
 import com.arkiv.player.data.local.EstadoDeDescarga
 import com.arkiv.player.data.local.EstadoDeDescargaDeCapitulo
 import com.arkiv.player.data.local.FuenteDeDescarga
@@ -177,6 +180,19 @@ fun DetailScreen(
     // Reintentar lo que falló, sin salir a la pantalla de Descargas: el fallo se ve en la misma fila
     // donde se pidió la descarga, así que la acción también vive ahí.
     val onRetryEpisode: (Episode) -> Unit = { ep -> scope.launch { graph.localDownloads.retry(ep.id) } }
+
+    // Arrepentirse también vive en la fila, por el mismo motivo. `cancel` conserva el parcial (la
+    // descarga reanuda desde ahí); `remove` borra fila y archivo, que es lo que corresponde tanto a
+    // lo que nunca empezó como a lo que ya no se quiere tener guardado.
+    val onAccionDeDescarga: (Episode, AccionDeDescarga) -> Unit = { ep, accion ->
+        scope.launch {
+            when (accion) {
+                AccionDeDescarga.CANCELAR -> graph.localDownloads.cancel(ep.id)
+                AccionDeDescarga.SACAR_DE_LA_COLA, AccionDeDescarga.BORRAR ->
+                    graph.localDownloads.remove(ep.id)
+            }
+        }
+    }
 
     var menuExpanded by remember { mutableStateOf(false) }
     var showMarkersDialog by remember { mutableStateOf(false) }
@@ -318,6 +334,7 @@ fun DetailScreen(
             onPlayEpisode = onPlayEpisode,
             onDownloadEpisode = onDownloadEpisode,
             onRetryEpisode = onRetryEpisode,
+            onAccionDeDescarga = onAccionDeDescarga,
             onToggleWatched = vm::toggleWatched,
             tmdbTitles = tmdbTitles,
             tmdbStills = tmdbStills,
@@ -337,6 +354,8 @@ private fun DetailContent(
     onPlayEpisode: (String) -> Unit,
     onDownloadEpisode: (Episode) -> Unit,
     onRetryEpisode: (Episode) -> Unit,
+    /** Sacar de la cola / cancelar / borrar. Ya viene confirmada por el usuario. */
+    onAccionDeDescarga: (Episode, AccionDeDescarga) -> Unit,
     onToggleWatched: (String, Boolean) -> Unit,
     /** episodeId -> título / imagen / sinopsis del capítulo según TMDB. Vacíos si no se sabe la serie. Ver [DetailScreen]. */
     tmdbTitles: Map<String, String>,
@@ -346,6 +365,11 @@ private fun DetailContent(
     tmdbOverviews: Map<String, String>,
     bottomInset: androidx.compose.ui.unit.Dp,
 ) {
+    // Capítulo + acción que el usuario pidió deshacer y que todavía no confirmó. Ver
+    // [ConfirmacionDeDescarga]: las tres acciones se preguntan porque el control es chiquito y todas
+    // cuestan caro si se tocan sin querer.
+    var porConfirmar by remember { mutableStateOf<Pair<Episode, AccionDeDescarga>?>(null) }
+
     // Sitios detectados entre TODOS los episodios de la serie (no de la lista ya filtrada): el
     // set de chips no puede encogerse cuando el usuario elige un filtro, o desaparecería la forma
     // de volver a "Todos". Ver [siteLabelOf].
@@ -520,10 +544,29 @@ private fun DetailContent(
                     onPlay = { onPlayEpisode(ep.id) },
                     onDownload = { onDownloadEpisode(ep) },
                     onRetry = { onRetryEpisode(ep) },
+                    onPedirAccion = { accion -> porConfirmar = ep to accion },
                     onToggleWatched = onToggleWatched,
                 )
             }
         }
+    }
+
+    porConfirmar?.let { (episodio, accion) ->
+        val texto = ConfirmacionDeDescarga.texto(accion, tmdbTitles[episodio.id] ?: episodio.displayName)
+        AlertDialog(
+            onDismissRequest = { porConfirmar = null },
+            title = { Text(texto.titulo) },
+            text = { Text(texto.cuerpo) },
+            confirmButton = {
+                TextButton(onClick = {
+                    onAccionDeDescarga(episodio, accion)
+                    porConfirmar = null
+                }) { Text(texto.confirmar) }
+            },
+            dismissButton = {
+                TextButton(onClick = { porConfirmar = null }) { Text(texto.descartar) }
+            },
+        )
     }
 }
 
@@ -698,6 +741,8 @@ private fun EpisodeRow(
     onPlay: () -> Unit,
     onDownload: () -> Unit,
     onRetry: () -> Unit,
+    /** El usuario pidió deshacer algo de la descarga; quien recibe esto se encarga de confirmarlo. */
+    onPedirAccion: (AccionDeDescarga) -> Unit,
     onToggleWatched: (String, Boolean) -> Unit,
 ) {
     val watched = progress?.watched == true
@@ -817,18 +862,27 @@ private fun EpisodeRow(
             // bajar a la NUC. El de la NUC se quitó porque producía algo que ya nadie puede ver ni
             // reproducir desde que se desconectó la reproducción remota.
             when (estado) {
-                EstadoDeDescarga.Lista -> Icon(
-                    Icons.Default.CheckCircle,
-                    contentDescription = "Guardado en el dispositivo",
-                    tint = NucDownloadedGreen,
-                    modifier = Modifier.size(18.dp),
-                )
+                // Papelera VERDE, no un tilde: el verde sigue diciendo "ya lo tienes" (junto con la
+                // barra llena de abajo) y el ícono dice qué se puede hacer con eso. Un tilde ocupaba
+                // el slot sin ofrecer nada, y borrar una descarga obligaba a irse a otra pantalla.
+                EstadoDeDescarga.Lista -> IconButton(
+                    onClick = { onPedirAccion(AccionDeDescarga.BORRAR) },
+                ) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = "Descargado. Tocar para borrarlo del dispositivo",
+                        tint = NucDownloadedGreen,
+                    )
+                }
                 // El porcentaje ocupa el mismo slot de 48dp que ocuparía el botón, para que la fila no
                 // salte de tamaño. El spinner queda solo para cuando de verdad no se sabe cuánto falta:
                 // girar sin decir nada era justo lo que no alcanzaba.
-                is EstadoDeDescarga.Bajando -> Box(
-                    modifier = Modifier.size(48.dp),
-                    contentAlignment = Alignment.Center,
+                //
+                // Y se toca para arrepentirse: sin esto, una descarga arrancada por error solo se
+                // podía frenar desde la pantalla de Descargas, que es donde nadie va a buscarla justo
+                // después de tocar el capítulo.
+                is EstadoDeDescarga.Bajando -> IconButton(
+                    onClick = { onPedirAccion(AccionDeDescarga.CANCELAR) },
                 ) {
                     val fraccion = estado.fraccion
                     if (fraccion == null) {
@@ -841,9 +895,8 @@ private fun EpisodeRow(
                         )
                     }
                 }
-                EstadoDeDescarga.EnCola -> Box(
-                    modifier = Modifier.size(48.dp),
-                    contentAlignment = Alignment.Center,
+                EstadoDeDescarga.EnCola -> IconButton(
+                    onClick = { onPedirAccion(AccionDeDescarga.SACAR_DE_LA_COLA) },
                 ) {
                     CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = ArkivTextSecondary)
                 }
