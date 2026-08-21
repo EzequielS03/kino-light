@@ -792,6 +792,11 @@ private fun PanelDeFuentes(
         }
         val anyLoading = loadingTorrent || loadingWeb || loadingArchive
 
+        // Mira las tres listas ya derivadas y no la lista cruda de `sources`, que es lo que miraba
+        // antes. No es lo mismo: `webs` incluye además los packs web del episodio, que salen de otro
+        // estado. Con la condición vieja, un episodio cuya única fuente era un pack mostraba "No se
+        // encontraron fuentes" TAPANDO la fila del pack que sí estaba ahí. La nueva condición es un
+        // subconjunto estricto de la vieja: nunca calla el mensaje cuando de verdad no hay nada.
         if (!anyLoading && torrents.isEmpty() && webs.isEmpty() && archives.isEmpty()) {
             Text(
                 "No se encontraron fuentes para los idiomas elegidos. Probá activar más idiomas.",
