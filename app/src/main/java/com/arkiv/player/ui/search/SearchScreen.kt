@@ -32,6 +32,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -43,6 +44,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -104,6 +106,7 @@ import com.arkiv.player.ui.home.matchCategoryRow
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivBlack
 import com.arkiv.player.ui.theme.ArkivRed
+import com.arkiv.player.ui.theme.ArkivSurface
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 import kotlinx.coroutines.launch
@@ -158,6 +161,8 @@ fun SearchScreen(
     val processNowMessage by vm.processNowMessage.collectAsStateWithLifecycle()
     val recentQueries by vm.recentQueries.collectAsStateWithLifecycle()
     val recentTitles by vm.recentTitles.collectAsStateWithLifecycle()
+    val frase by vm.frase.collectAsStateWithLifecycle()
+    val loadingFrase by vm.loadingFrase.collectAsStateWithLifecycle()
 
     val scope = rememberCoroutineScope()
     // Permiso de notificaciones (API 33+): se pide al disparar una descarga (el worker de descargas
@@ -516,6 +521,9 @@ fun SearchScreen(
                     directResults = directResults,
                     loadingTitles = loadingTitles,
                     loadingDirect = loadingDirect,
+                    frase = frase,
+                    loadingFrase = loadingFrase,
+                    onBuscarPorFrase = { q -> vm.buscarPorFrase(q) },
                     recentQueries = recentQueries,
                     recentTitles = recentTitles,
                     onSearch = { q ->
@@ -683,6 +691,9 @@ private fun QueryContent(
     directResults: List<PlaySource>,
     loadingTitles: Boolean,
     loadingDirect: Boolean,
+    frase: ResultadoDeFrase?,
+    loadingFrase: Boolean,
+    onBuscarPorFrase: (String) -> Unit,
     recentQueries: List<String>,
     recentTitles: List<RecentTitle>,
     onSearch: (String) -> Unit,
@@ -714,9 +725,14 @@ private fun QueryContent(
         if (!grillaTocada) gridState.scrollToItem(0)
     }
 
+    // La búsqueda por descripción es un MODO, no una sección más: mezclar sus cards con las de la
+    // búsqueda por título debajo de la misma caja sería responder dos preguntas distintas a la vez.
+    var modoFrase by remember { mutableStateOf(false) }
+
     val buscar: (String) -> Unit = { q ->
         text = q
         haBuscado = true
+        modoFrase = false
         busquedaNro++
         onSearch(q)
     }
@@ -739,7 +755,7 @@ private fun QueryContent(
                 // historial no vuelve hasta salir y entrar de nuevo a la pantalla.
                 trailingIcon = {
                     if (text.isNotEmpty()) {
-                        IconButton(onClick = { text = ""; haBuscado = false; onSearch("") }) {
+                        IconButton(onClick = { text = ""; haBuscado = false; modoFrase = false; onSearch("") }) {
                             Icon(Icons.Default.Close, contentDescription = "Limpiar")
                         }
                     }
@@ -749,6 +765,70 @@ private fun QueryContent(
                 keyboardActions = KeyboardActions(onSearch = { buscar(text) }),
                 modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
             )
+        }
+
+        if (text.isNotBlank()) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                OutlinedButton(
+                    onClick = {
+                        haBuscado = true
+                        modoFrase = true
+                        busquedaNro++
+                        onBuscarPorFrase(text)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.size(8.dp))
+                    Text("Buscar por descripción")
+                }
+            }
+        }
+
+        if (modoFrase) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
+                    Text("Por descripción", style = MaterialTheme.typography.titleMedium, color = Color.White)
+                    if (loadingFrase) {
+                        Spacer(Modifier.size(8.dp))
+                        CircularProgressIndicator(color = ArkivRed, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+            frase?.interpretado?.let { interpretado ->
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    // Chips con lo ENTENDIDO: si "una de miedo" salió comedia, se ve acá
+                    // antes de culpar al catálogo.
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    ) {
+                        etiquetasDeInterpretacion(interpretado).forEach { etiqueta ->
+                            Text(
+                                etiqueta,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = ArkivRed,
+                                modifier = Modifier
+                                    .background(ArkivSurface, RoundedCornerShape(50))
+                                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                            )
+                        }
+                    }
+                }
+            }
+            if (frase != null && frase.cards.isEmpty() && !loadingFrase) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Text(
+                        "Nada con esa descripción. Prueba con otras palabras.",
+                        color = ArkivTextSecondary,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+            }
+            items(frase?.cards ?: emptyList(), key = { "frase-${it.kind}-${it.tmdbId}" }) { card ->
+                TitleCardItem(card, onClick = { onPickTitle(card) })
+            }
+            return@LazyVerticalGrid
         }
 
         if (!haBuscado) {

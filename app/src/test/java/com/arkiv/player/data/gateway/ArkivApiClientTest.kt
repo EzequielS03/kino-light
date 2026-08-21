@@ -264,4 +264,54 @@ class ArkivApiClientTest {
         assertEquals(listOf("movie", "tv"), s[0].capabilities)
         assertEquals("closed", s[0].state)
     }
+
+    // --- Búsqueda por frase ("una de miedo de los 80 en español") ------------------------------
+
+    @Test
+    fun `buscarPorFrase parsea la interpretacion y las obras`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"interpretado":{"tipo":"movie","generos":["terror"],"anio_desde":1980,"anio_hasta":1989,"idioma":"es"},""" +
+                    """"items":[{"tmdb_id":103,"titulo":"Angustia","anio":"1987","poster_url":"https://img/a.jpg","tipo":"movie"}]}""",
+            ),
+        )
+        val r = client.buscarPorFrase("una de miedo de los 80 en español")
+
+        assertEquals("movie", r.interpretado?.tipo)
+        assertEquals(listOf("terror"), r.interpretado?.generos)
+        assertEquals(1980, r.interpretado?.anioDesde)
+        assertEquals(1989, r.interpretado?.anioHasta)
+        assertEquals("es", r.interpretado?.idioma)
+        assertEquals(1, r.items.size)
+        assertEquals(GatewayObraDeFrase(103, "Angustia", "1987", "https://img/a.jpg", "movie"), r.items[0])
+        // La frase viaja URL-encodeada: espacios y tildes no pueden romper la URL.
+        assertTrue(server.takeRequest().path!!.startsWith("/v1/search/frase?q=una%20de%20miedo"))
+    }
+
+    @Test
+    fun `buscarPorFrase con el interprete apagado devuelve vacio sin interpretacion`() = runBlocking {
+        // El gateway responde así sin llave de modelo o con el gateway de LLMs caído:
+        // no es un error, es "no hay nada que dibujar".
+        server.enqueue(MockResponse().setBody("""{"interpretado":null,"items":[]}"""))
+        val r = client.buscarPorFrase("una de risa")
+
+        assertNull(r.interpretado)
+        assertTrue(r.items.isEmpty())
+    }
+
+    @Test
+    fun `buscarPorFrase ignora obras sin tmdb_id o sin titulo`() = runBlocking {
+        // Una fila coja del gateway no puede pintar una card que no se puede abrir.
+        server.enqueue(
+            MockResponse().setBody(
+                """{"interpretado":{"tipo":"movie","generos":[]},"items":[""" +
+                    """{"tmdb_id":0,"titulo":"Sin id","anio":"","poster_url":"","tipo":"movie"},""" +
+                    """{"tmdb_id":9,"titulo":"","anio":"","poster_url":"","tipo":"movie"},""" +
+                    """{"tmdb_id":103,"titulo":"Angustia","anio":"1987","poster_url":"","tipo":"movie"}]}""",
+            ),
+        )
+        val r = client.buscarPorFrase("terror")
+
+        assertEquals(listOf(103), r.items.map { it.tmdbId })
+    }
 }

@@ -19,6 +19,45 @@ data class TitleCard(
     val backdropUrl: String = "",
 )
 
+/** Lo que volvió de la búsqueda por descripción: cómo se entendió la frase + las cards. */
+data class ResultadoDeFrase(
+    val interpretado: com.arkiv.player.data.gateway.FraseInterpretada?,
+    val cards: List<TitleCard>,
+)
+
+/** Obra de la búsqueda por frase → card. El gateway ya garantiza tmdbId y título, así que la card
+ *  se abre por el flujo normal de pickTitle. `tipo` habla el idioma de TMDB ("movie"|"tv"). */
+fun com.arkiv.player.data.gateway.GatewayObraDeFrase.toTitleCard(): TitleCard = TitleCard(
+    kind = if (tipo == "tv") "series" else "movie",
+    tmdbId = tmdbId,
+    anilistId = null,
+    title = titulo,
+    posterUrl = posterUrl,
+    year = anio,
+    overview = null,
+)
+
+private val NOMBRES_DE_IDIOMA = mapOf(
+    "es" to "español", "en" to "inglés", "ja" to "japonés", "ko" to "coreano",
+    "fr" to "francés", "it" to "italiano", "de" to "alemán", "pt" to "portugués",
+)
+
+/**
+ * Chips con lo que el gateway ENTENDIÓ de la frase. Existen para que un filtro raro se vea venir:
+ * si "una de miedo" salió interpretada como comedia, la persona lo ve antes de culpar al catálogo.
+ */
+fun etiquetasDeInterpretacion(i: com.arkiv.player.data.gateway.FraseInterpretada): List<String> {
+    val etiquetas = mutableListOf(if (i.tipo == "tv") "serie" else "película")
+    etiquetas += i.generos
+    when {
+        i.anioDesde != null && i.anioHasta != null -> etiquetas += "${i.anioDesde}–${i.anioHasta}"
+        i.anioDesde != null -> etiquetas += "desde ${i.anioDesde}"
+        i.anioHasta != null -> etiquetas += "hasta ${i.anioHasta}"
+    }
+    if (i.idioma.isNotBlank()) etiquetas += "en ${NOMBRES_DE_IDIOMA[i.idioma] ?: i.idioma}"
+    return etiquetas
+}
+
 /** TMDB → card del home/buscador. `type` de TMDB es "movie"|"tv"; en la UI usamos "movie"|"series". */
 fun TmdbItem.toTitleCard(): TitleCard = TitleCard(
     kind = if (type == "tv") "series" else "movie",
