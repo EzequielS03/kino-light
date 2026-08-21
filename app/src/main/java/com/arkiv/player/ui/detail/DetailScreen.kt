@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
@@ -82,6 +83,7 @@ import com.arkiv.player.data.local.EtiquetaDeDescarga
 import com.arkiv.player.data.local.FuenteDeDescarga
 import com.arkiv.player.data.local.LocalDownloadState
 import com.arkiv.player.miniaturas.EleccionDeMiniatura
+import com.arkiv.player.ui.esTabletHorizontal
 import com.arkiv.player.ui.formatDuration
 import com.arkiv.player.ui.EtiquetaDeCapitulo
 import com.arkiv.player.ui.offline.rememberDuplicateDownloadNotice
@@ -391,17 +393,24 @@ private fun DetailContent(
         }
     }
     val bySection = filteredEpisodes.groupBy { it.section }
-    val resume = data.resumeEpisode
+
+    // Misma condición para decidir el layout (más abajo, dónde va la ficha) y para el offset de
+    // resumeIndex: si se calculan por separado, el día que uno cambie sin el otro el auto-scroll
+    // se desincroniza en silencio. Ver FichaDelItem.
+    val dosPaneles = esTabletHorizontal()
 
     // Índice (aplanado) del episodio en el que voy, para hacer scroll automático al abrir.
-    // Los 2 primeros items del LazyColumn son la imagen y el bloque de título; después, SI hay
-    // 2+ sitios, viene 1 item más con la fila de chips de filtro (ver más abajo); y después cada
-    // sección con nombre añade 1 item de cabecera antes de sus episodios.
+    // En un panel, el primer item del LazyColumn es FichaDelItem (imagen + bloque de título); en
+    // dos paneles la ficha vive aparte, en el panel izquierdo, y no cuenta -- por eso itemsDeCabecera
+    // sale de dosPaneles y no de un número fijo. Después, SI hay 2+ sitios, viene 1 item más con la
+    // fila de chips de filtro (ver más abajo); y después cada sección con nombre añade 1 item de
+    // cabecera antes de sus episodios.
     val listState = rememberLazyListState()
     val currentEpisodeId = data.inProgressEpisode?.id
-    val resumeIndex = remember(filteredEpisodes, data.progress, siteLabels) {
+    val resumeIndex = remember(filteredEpisodes, data.progress, siteLabels, dosPaneles) {
         val target = data.inProgressEpisode ?: return@remember null
-        var idx = if (siteLabels.size >= 2) 3 else 2
+        val itemsDeCabecera = if (dosPaneles) 0 else 1
+        var idx = itemsDeCabecera + if (siteLabels.size >= 2) 1 else 0
         bySection.forEach { (section, episodes) ->
             if (section.isNotBlank()) idx += 1
             val pos = episodes.indexOfFirst { it.id == target.id }
@@ -421,132 +430,103 @@ private fun DetailContent(
         }
     }
 
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 32.dp + bottomInset),
-    ) {
-        item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
-                    .background(ArkivSurfaceHigh),
-            ) {
-                AsyncImage(
-                    model = data.thumbnailUrl,
-                    contentDescription = data.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .height(80.dp)
-                        .background(
-                            androidx.compose.ui.graphics.Brush.verticalGradient(
-                                listOf(Color.Transparent, ArkivBlack),
-                            ),
-                        ),
-                )
+    // El listado de capítulos es EL MISMO en un panel o en dos: acá vive una sola vez (chips +
+    // secciones + filas) y ambas ramas del if de abajo lo llaman tal cual, nunca lo copian.
+    val listaDeCapitulos: @Composable () -> Unit = {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 32.dp + bottomInset),
+        ) {
+            // En un panel la ficha va acá adentro, como siempre. En dos paneles ya se dibujó aparte
+            // (más abajo, en el panel izquierdo) y no se duplica -- por eso resumeIndex también la
+            // cuenta o no según este mismo `dosPaneles`.
+            if (!dosPaneles) {
+                item { FichaDelItem(data = data, onPlayEpisode = onPlayEpisode) }
             }
-        }
-        item {
-            Column(Modifier.padding(horizontal = 16.dp)) {
-                Text(data.title, style = MaterialTheme.typography.headlineMedium)
-                Text(
-                    EtiquetaDeCapitulo.avance(data, "videos"),
-                    color = ArkivTextSecondary,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-                if (resume != null) {
-                    Button(
-                        onClick = { onPlayEpisode(resume.id) },
-                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+
+            // Solo tiene sentido filtrar si hay 2+ sitios distintos guardados para esta serie — con 0
+            // o 1 sitio, la fila de chips no filtraría nada y sería puro ruido visual.
+            if (siteLabels.size >= 2) {
+                item {
+                    Row(
+                        modifier = Modifier
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = null)
-                        Text("  ${EtiquetaDeCapitulo.botonReproducir(data)}", fontWeight = FontWeight.Bold)
+                        FilterChip(
+                            selected = selectedSite == null,
+                            onClick = { selectedSite = null },
+                            label = { Text("Todos") },
+                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = ArkivRed, selectedLabelColor = Color.White),
+                        )
+                        siteLabels.forEach { site ->
+                            FilterChip(
+                                selected = selectedSite == site,
+                                onClick = { selectedSite = site },
+                                label = { Text(site) },
+                                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = ArkivRed, selectedLabelColor = Color.White),
+                            )
+                        }
                     }
                 }
-                if (!data.description.isNullOrBlank()) {
-                    Text(
-                        data.description,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = ArkivTextSecondary,
-                        maxLines = 5,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 12.dp),
-                    )
-                }
             }
-        }
 
-        // Solo tiene sentido filtrar si hay 2+ sitios distintos guardados para esta serie — con 0
-        // o 1 sitio, la fila de chips no filtraría nada y sería puro ruido visual.
-        if (siteLabels.size >= 2) {
-            item {
-                Row(
-                    modifier = Modifier
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    FilterChip(
-                        selected = selectedSite == null,
-                        onClick = { selectedSite = null },
-                        label = { Text("Todos") },
-                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = ArkivRed, selectedLabelColor = Color.White),
-                    )
-                    siteLabels.forEach { site ->
-                        FilterChip(
-                            selected = selectedSite == site,
-                            onClick = { selectedSite = site },
-                            label = { Text(site) },
-                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = ArkivRed, selectedLabelColor = Color.White),
+            bySection.forEach { (section, episodes) ->
+                if (section.isNotBlank()) {
+                    item {
+                        Text(
+                            section,
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.padding(start = 16.dp, top = 20.dp, bottom = 4.dp),
                         )
                     }
                 }
-            }
-        }
+                items(episodes, key = { it.id }) { ep ->
+                    EpisodeRow(
+                        episode = ep,
+                        progress = data.progress[ep.id],
+                        isCurrent = ep.id == currentEpisodeId,
 
-        bySection.forEach { (section, episodes) ->
-            if (section.isNotBlank()) {
-                item {
-                    Text(
-                        section,
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(start = 16.dp, top = 20.dp, bottom = 4.dp),
+                        // Título e imagen reales del capítulo (TMDB). Solo aparecen si se pudo saber a
+                        // qué serie y a qué número corresponde la fila; si no, la fila cae al nombre
+                        // del archivo y al fotograma que genera archive.org, como antes.
+                        tmdbTitle = tmdbTitles[ep.id],
+                        tmdbStill = tmdbStills[ep.id],
+                        tmdbFrame = tmdbFrames[ep.id],
+                        tmdbOverview = tmdbOverviews[ep.id],
+                        // Fallback de miniatura: los capítulos web nunca traen un still propio
+                        // (addWebSeriesEpisode guarda thumbPath = null a propósito, el pack solo da un
+                        // póster de la serie), y sin esto la fila quedaba con un recuadro vacío.
+                        fallbackThumb = data.thumbnailUrl,
+                        estado = estadosDeDescarga[ep.id] ?: EstadoDeDescarga.SinDescargar,
+                        onPlay = { onPlayEpisode(ep.id) },
+                        onDownload = { onDownloadEpisode(ep) },
+                        onRetry = { onRetryEpisode(ep) },
+                        onPedirAccion = { accion -> porConfirmar = ep to accion },
+                        onToggleWatched = onToggleWatched,
                     )
                 }
             }
-            items(episodes, key = { it.id }) { ep ->
-                EpisodeRow(
-                    episode = ep,
-                    progress = data.progress[ep.id],
-                    isCurrent = ep.id == currentEpisodeId,
-
-                    // Título e imagen reales del capítulo (TMDB). Solo aparecen si se pudo saber a
-                    // qué serie y a qué número corresponde la fila; si no, la fila cae al nombre
-                    // del archivo y al fotograma que genera archive.org, como antes.
-                    tmdbTitle = tmdbTitles[ep.id],
-                    tmdbStill = tmdbStills[ep.id],
-                    tmdbFrame = tmdbFrames[ep.id],
-                    tmdbOverview = tmdbOverviews[ep.id],
-                    // Fallback de miniatura: los capítulos web nunca traen un still propio
-                    // (addWebSeriesEpisode guarda thumbPath = null a propósito, el pack solo da un
-                    // póster de la serie), y sin esto la fila quedaba con un recuadro vacío.
-                    fallbackThumb = data.thumbnailUrl,
-                    estado = estadosDeDescarga[ep.id] ?: EstadoDeDescarga.SinDescargar,
-                    onPlay = { onPlayEpisode(ep.id) },
-                    onDownload = { onDownloadEpisode(ep) },
-                    onRetry = { onRetryEpisode(ep) },
-                    onPedirAccion = { accion -> porConfirmar = ep to accion },
-                    onToggleWatched = onToggleWatched,
-                )
-            }
         }
+    }
+
+    // Tablet en horizontal: ficha a la izquierda, capítulos a la derecha, los dos a la vista al
+    // mismo tiempo. En celular y en vertical no cambia nada -- es la misma lista de siempre.
+    if (dosPaneles) {
+        Row(Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                FichaDelItem(data = data, onPlayEpisode = onPlayEpisode)
+            }
+            Box(Modifier.weight(1.4f)) { listaDeCapitulos() }
+        }
+    } else {
+        listaDeCapitulos()
     }
 
     DialogoDeDescarga(
@@ -558,6 +538,69 @@ private fun DetailContent(
         },
         onCerrar = { porConfirmar = null },
     )
+}
+
+/**
+ * La ficha del ítem: imagen 16:9 con degradé, título, avance, botón de reproducir/continuar y
+ * sinopsis. En celular/vertical es el primer item del [LazyColumn] de [DetailContent]; en tablet
+ * horizontal se dibuja aparte, en el panel izquierdo -- mismo contenido en los dos casos, nunca
+ * dos copias.
+ */
+@Composable
+private fun FichaDelItem(data: ItemDetail, onPlayEpisode: (String) -> Unit) {
+    val resume = data.resumeEpisode
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(16f / 9f)
+            .background(ArkivSurfaceHigh),
+    ) {
+        AsyncImage(
+            model = data.thumbnailUrl,
+            contentDescription = data.title,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(80.dp)
+                .background(
+                    androidx.compose.ui.graphics.Brush.verticalGradient(
+                        listOf(Color.Transparent, ArkivBlack),
+                    ),
+                ),
+        )
+    }
+    Column(Modifier.padding(horizontal = 16.dp)) {
+        Text(data.title, style = MaterialTheme.typography.headlineMedium)
+        Text(
+            EtiquetaDeCapitulo.avance(data, "videos"),
+            color = ArkivTextSecondary,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        if (resume != null) {
+            Button(
+                onClick = { onPlayEpisode(resume.id) },
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            ) {
+                Icon(Icons.Default.PlayArrow, contentDescription = null)
+                Text("  ${EtiquetaDeCapitulo.botonReproducir(data)}", fontWeight = FontWeight.Bold)
+            }
+        }
+        if (!data.description.isNullOrBlank()) {
+            Text(
+                data.description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = ArkivTextSecondary,
+                maxLines = 5,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+        }
+    }
 }
 
 /**
