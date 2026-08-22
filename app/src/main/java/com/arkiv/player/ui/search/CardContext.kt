@@ -47,7 +47,11 @@ private val NOMBRES_DE_IDIOMA = mapOf(
  * si "una de miedo" salió interpretada como comedia, la persona lo ve antes de culpar al catálogo.
  */
 fun etiquetasDeInterpretacion(i: com.arkiv.player.data.gateway.FraseInterpretada): List<String> {
-    val etiquetas = mutableListOf(if (i.tipo == "tv") "serie" else "película")
+    val etiquetas = mutableListOf<String>()
+    // La obra nombrada es el chip que más informa ("anime de goku" → "Dragon Ball"):
+    // va de primera, antes que el tipo y los géneros.
+    if (i.nombre.isNotBlank()) etiquetas += i.nombre
+    etiquetas += if (i.tipo == "tv") "serie" else "película"
     etiquetas += i.generos
     when {
         i.anioDesde != null && i.anioHasta != null -> etiquetas += "${i.anioDesde}–${i.anioHasta}"

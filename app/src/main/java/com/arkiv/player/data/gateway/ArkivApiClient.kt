@@ -43,6 +43,8 @@ data class FraseInterpretada(
     val anioDesde: Int?,
     val anioHasta: Int?,
     val idioma: String,
+    /** La obra/saga que el gateway entendió que se nombró ("anime de goku" → "Dragon Ball"), o "". */
+    val nombre: String = "",
 )
 
 /** Una obra del discover de TMDB. Siempre trae tmdbId y título: sin eso la card no se puede abrir. */
@@ -290,6 +292,7 @@ class ArkivApiClient(
                 anioDesde = if (it.isNull("anio_desde")) null else it.optInt("anio_desde"),
                 anioHasta = if (it.isNull("anio_hasta")) null else it.optInt("anio_hasta"),
                 idioma = it.optString("idioma"),
+                nombre = it.optString("nombre"),
             )
         }
         val arr = o.optJSONArray("items")

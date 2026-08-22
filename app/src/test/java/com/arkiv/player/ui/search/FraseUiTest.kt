@@ -28,9 +28,20 @@ class FraseUiTest {
     fun `las etiquetas cuentan lo que el gateway entendio`() {
         val i = FraseInterpretada(
             tipo = "movie", generos = listOf("terror"),
-            anioDesde = 1980, anioHasta = 1989, idioma = "es",
+            anioDesde = 1980, anioHasta = 1989, idioma = "es", nombre = "",
         )
         assertEquals(listOf("película", "terror", "1980–1989", "en español"), etiquetasDeInterpretacion(i))
+    }
+
+    @Test
+    fun `la obra nombrada va de primera en las etiquetas`() {
+        // "anime de goku" → el gateway entiende "Dragon Ball"; ese chip es el que
+        // más informa, así que va antes que el tipo y los géneros.
+        val i = FraseInterpretada(
+            tipo = "tv", generos = listOf("animación"),
+            anioDesde = null, anioHasta = null, idioma = "", nombre = "Dragon Ball",
+        )
+        assertEquals(listOf("Dragon Ball", "serie", "animación"), etiquetasDeInterpretacion(i))
     }
 
     @Test

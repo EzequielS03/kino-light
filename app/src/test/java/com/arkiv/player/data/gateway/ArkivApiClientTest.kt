@@ -271,7 +271,7 @@ class ArkivApiClientTest {
     fun `buscarPorFrase parsea la interpretacion y las obras`() = runBlocking {
         server.enqueue(
             MockResponse().setBody(
-                """{"interpretado":{"tipo":"movie","generos":["terror"],"anio_desde":1980,"anio_hasta":1989,"idioma":"es"},""" +
+                """{"interpretado":{"tipo":"movie","generos":["terror"],"anio_desde":1980,"anio_hasta":1989,"idioma":"es","nombre":"Batman"},""" +
                     """"items":[{"tmdb_id":103,"titulo":"Angustia","anio":"1987","poster_url":"https://img/a.jpg","tipo":"movie"}]}""",
             ),
         )
@@ -282,6 +282,7 @@ class ArkivApiClientTest {
         assertEquals(1980, r.interpretado?.anioDesde)
         assertEquals(1989, r.interpretado?.anioHasta)
         assertEquals("es", r.interpretado?.idioma)
+        assertEquals("Batman", r.interpretado?.nombre)
         assertEquals(1, r.items.size)
         assertEquals(GatewayObraDeFrase(103, "Angustia", "1987", "https://img/a.jpg", "movie"), r.items[0])
         // La frase viaja URL-encodeada: espacios y tildes no pueden romper la URL.
