@@ -81,6 +81,8 @@ data class PlayerData(
     val drmLicenseUrl: String = "",
     /** Headers adicionales para la petición de licencia DRM (p.ej. Cookie: playback_token=…). */
     val drmLicenseHeaders: Map<String, String> = emptyMap(),
+    /** Posición de arranque para reanudar (DRM/ExoPlayer). VLC usa PlaylistData.startPositionMs. */
+    val startPositionMs: Long = 0L,
 )
 
 /**
@@ -1150,6 +1152,7 @@ class PlayerViewModel(
         }
 
         val cabecera = repo.headerInfo(episodeId)
+        val startPos = safeStartPosition(episodeId, SourceKind.DITU)
         val item = PlayerData(
             episodeId = episodeId,
             itemId = episodeId.substringBefore("::"),
@@ -1162,13 +1165,13 @@ class PlayerViewModel(
             kind = SourceKind.DITU,
             drmLicenseUrl = play.drmLicenseUrl,
             drmLicenseHeaders = play.drmLicenseHeaders,
+            startPositionMs = startPos,
         )
-        Log.w(PLAY, "loadDitu() ⏱ TOTAL=${System.currentTimeMillis() - t0}ms drm=${play.drmLicenseUrl.isNotBlank()} headers=${play.drmLicenseHeaders.keys} url=${play.url.take(60)}")
+        Log.w(PLAY, "loadDitu() ⏱ TOTAL=${System.currentTimeMillis() - t0}ms drm=${play.drmLicenseUrl.isNotBlank()} headers=${play.drmLicenseHeaders.keys} url=${play.url.take(60)} startPos=${startPos}ms")
         if (play.drmLicenseUrl.isNotBlank()) {
             // Contenido Widevine: lo reproduce ExoPlayer en PlayerScreen, VLC no toca nada.
             _dituDrmItem.value = item
         } else {
-            val startPos = safeStartPosition(episodeId, SourceKind.DITU)
             _playlist.value = PlaylistData(listOf(item), 0, startPos, pedido = episodeId)
         }
     }
