@@ -1,6 +1,7 @@
 package com.arkiv.player.data
 
 import android.content.Context
+import com.arkiv.player.BuildConfig
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -59,7 +60,7 @@ class SettingsStore(context: Context) {
     private val _nucTunnelBaseUrl = MutableStateFlow(prefs.getString(KEY_NUC_TUNNEL_URL, DEFAULT_NUC_TUNNEL_URL)!!)
     val nucTunnelBaseUrl: StateFlow<String> = _nucTunnelBaseUrl
 
-    private val _nucApiKey = MutableStateFlow(prefs.getString(KEY_NUC_API_KEY, "")!!)
+    private val _nucApiKey = MutableStateFlow(prefs.getString(KEY_NUC_API_KEY, BuildConfig.NUC_API_KEY)!!)
     val nucApiKey: StateFlow<String> = _nucApiKey
 
     private val _cloudflareSolverEnabled = MutableStateFlow(prefs.getBoolean(KEY_CF_ENABLED, true))

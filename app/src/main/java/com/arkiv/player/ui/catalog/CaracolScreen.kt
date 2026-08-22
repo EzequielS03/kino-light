@@ -10,15 +10,24 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -27,6 +36,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -48,17 +59,24 @@ fun CaracolScreen(
     val scope = rememberCoroutineScope()
     val playback = remember { SearchPlayback(graph) }
     val columnas = columnasDeGrilla(3, esTabletHorizontal())
+    val focusManager = LocalFocusManager.current
 
     var series by remember { mutableStateOf<List<DituSerieItem>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var serieAbierta by remember { mutableStateOf<DituSerieItem?>(null) }
+    var query by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
         try {
-            series = graph.arkivApiClient.dituCatalog()
+            series = graph.arkivApiClient.dituCatalog().sortedBy { it.title.lowercase() }
         } catch (e: Throwable) {
             error = "No se pudo cargar el catálogo: ${e.message}"
         }
+    }
+
+    val seriesFiltradas = remember(series, query) {
+        val q = query.trim()
+        if (q.isEmpty()) series else series?.filter { it.title.contains(q, ignoreCase = true) }
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -84,8 +102,38 @@ fun CaracolScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
                 ) {
-                    items(series!!, key = { it.contentId }) { serie ->
-                        CaracolSerieCard(serie = serie, onClick = { serieAbierta = serie })
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        OutlinedTextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            placeholder = { Text("Buscar serie…") },
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                            trailingIcon = {
+                                if (query.isNotEmpty()) {
+                                    IconButton(onClick = { query = "" }) {
+                                        Icon(Icons.Default.Close, contentDescription = "Limpiar")
+                                    }
+                                }
+                            },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        )
+                    }
+
+                    if (seriesFiltradas.isNullOrEmpty()) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            Text(
+                                "Sin resultados para \"$query\"",
+                                color = ArkivTextSecondary,
+                                modifier = Modifier.padding(vertical = 24.dp),
+                            )
+                        }
+                    } else {
+                        items(seriesFiltradas, key = { it.contentId }) { serie ->
+                            CaracolSerieCard(serie = serie, onClick = { serieAbierta = serie })
+                        }
                     }
                 }
             }
