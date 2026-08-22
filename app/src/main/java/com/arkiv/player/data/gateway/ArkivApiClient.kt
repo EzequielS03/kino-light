@@ -320,10 +320,11 @@ class ArkivApiClient(
         BusquedaPorFrase(interpretado, items)
     }
 
-    suspend fun dituCatalog(): List<DituSerieItem> = withContext(Dispatchers.IO) {
-        val arr = JSONObject(ejecutar(pedido("${baseUrl()}/v1/ditu/catalog").get().build()))
-            .optJSONArray("series") ?: return@withContext emptyList()
-        (0 until arr.length()).mapNotNull { i ->
+    suspend fun dituCatalog(): DituCatalogResponse = withContext(Dispatchers.IO) {
+        val root = JSONObject(ejecutar(pedido("${baseUrl()}/v1/ditu/catalog").get().build()))
+        val premiumRequired = root.optBoolean("premium_required", false)
+        val arr = root.optJSONArray("series")
+        val series = if (arr == null) emptyList() else (0 until arr.length()).mapNotNull { i ->
             arr.optJSONObject(i)?.let { o ->
                 val ref = o.optString("ref")
                 val cid = o.optString("content_id")
@@ -336,6 +337,7 @@ class ArkivApiClient(
                 )
             }
         }
+        DituCatalogResponse(series = series, premiumRequired = premiumRequired)
     }
 
     suspend fun sources(): List<GatewaySource> = withContext(Dispatchers.IO) {

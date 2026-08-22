@@ -136,6 +136,13 @@ fun parseEpisodesResponse(json: String): Pair<List<GatewayEpisode>, GatewaySerie
     return episodios to serie
 }
 
+/** Respuesta completa de `/v1/ditu/catalog`. */
+data class DituCatalogResponse(
+    val series: List<DituSerieItem>,
+    /** true cuando `isAllVodPremiumActive` está activo en el portal Ditu. */
+    val premiumRequired: Boolean,
+)
+
 /** Una serie del catálogo de Caracol Streaming (Ditu). Viene de `/v1/ditu/catalog`. */
 data class DituSerieItem(
     val contentId: String,

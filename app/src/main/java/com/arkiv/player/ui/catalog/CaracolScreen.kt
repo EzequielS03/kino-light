@@ -41,6 +41,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.arkiv.player.data.gateway.DituCatalogResponse
 import com.arkiv.player.data.gateway.DituSerieItem
 import com.arkiv.player.ui.columnasDeGrilla
 import com.arkiv.player.ui.esTabletHorizontal
@@ -61,22 +62,24 @@ fun CaracolScreen(
     val columnas = columnasDeGrilla(3, esTabletHorizontal())
     val focusManager = LocalFocusManager.current
 
-    var series by remember { mutableStateOf<List<DituSerieItem>?>(null) }
+    var catalogo by remember { mutableStateOf<DituCatalogResponse?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var serieAbierta by remember { mutableStateOf<DituSerieItem?>(null) }
     var query by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
         try {
-            series = graph.arkivApiClient.dituCatalog().sortedBy { it.title.lowercase() }
+            val resp = graph.arkivApiClient.dituCatalog()
+            catalogo = resp.copy(series = resp.series.sortedBy { it.title.lowercase() })
         } catch (e: Throwable) {
             error = "No se pudo cargar el catálogo: ${e.message}"
         }
     }
 
-    val seriesFiltradas = remember(series, query) {
+    val seriesFiltradas = remember(catalogo, query) {
         val q = query.trim()
-        if (q.isEmpty()) series else series?.filter { it.title.contains(q, ignoreCase = true) }
+        if (q.isEmpty()) catalogo?.series
+        else catalogo?.series?.filter { it.title.contains(q, ignoreCase = true) }
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -88,7 +91,7 @@ fun CaracolScreen(
                     modifier = Modifier.align(Alignment.Center).padding(24.dp),
                 )
             }
-            series == null -> {
+            catalogo == null -> {
                 CircularProgressIndicator(
                     color = Color.White,
                     modifier = Modifier.align(Alignment.Center),
@@ -125,7 +128,8 @@ fun CaracolScreen(
                     if (seriesFiltradas.isNullOrEmpty()) {
                         item(span = { GridItemSpan(maxLineSpan) }) {
                             Text(
-                                "Sin resultados para \"$query\"",
+                                if (query.isBlank()) "Sin series disponibles"
+                                else "Sin resultados para \"$query\"",
                                 color = ArkivTextSecondary,
                                 modifier = Modifier.padding(vertical = 24.dp),
                             )
