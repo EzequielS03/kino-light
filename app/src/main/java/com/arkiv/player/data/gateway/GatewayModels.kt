@@ -149,6 +149,12 @@ data class DituSerieItem(
     val title: String,
     val posterUrl: String,
     val ref: String,
+    /** true para GROUP_OF_BUNDLES (franquicias con varias temporadas). */
+    val isGroup: Boolean = false,
+    /** true para películas VOD (se reproducen directo, sin dialog de episodios). */
+    val isMovie: Boolean = false,
+    /** tagValue del extendedMetadata de Ditu ("Telenovela", "Deportes", "Periodístico", …). */
+    val tag: String = "",
 ) {
     /** Convierte el ítem del catálogo en un GatewayResult compatible con MagisSeasonDialog. */
     fun toGatewayResult() = GatewayResult(

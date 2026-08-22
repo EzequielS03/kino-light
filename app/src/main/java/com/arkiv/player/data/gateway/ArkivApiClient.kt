@@ -334,6 +334,9 @@ class ArkivApiClient(
                     title = o.optString("title"),
                     posterUrl = o.optString("poster_url"),
                     ref = ref,
+                    isGroup = o.optString("content_type") == "GROUP_OF_BUNDLES",
+                    isMovie = o.optBoolean("is_movie", false),
+                    tag = o.optString("tag"),
                 )
             }
         }
