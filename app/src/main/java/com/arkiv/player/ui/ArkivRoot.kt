@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.VideoLibrary
@@ -30,12 +31,15 @@ import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.TextButton
@@ -44,6 +48,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -201,6 +206,45 @@ fun ArkivRoot(
     }
 
     val ancho = esTabletHorizontal()
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        gesturesEnabled = isTab && !ancho,
+        drawerContent = {
+            ModalDrawerSheet(drawerContainerColor = ArkivBlack) {
+                Spacer(Modifier.height(24.dp))
+                Text(
+                    "KINO",
+                    color = ArkivRed,
+                    fontWeight = FontWeight.Black,
+                    style = MaterialTheme.typography.headlineMedium,
+                    modifier = Modifier.padding(horizontal = 28.dp, vertical = 8.dp),
+                )
+                Spacer(Modifier.height(8.dp))
+                TABS.forEach { tab ->
+                    val selected = backStackEntry?.destination?.hierarchy?.any { it.route == tab.route } == true
+                    NavigationDrawerItem(
+                        icon = tab.icon,
+                        label = { Text(tab.label) },
+                        selected = selected,
+                        colors = NavigationDrawerItemDefaults.colors(
+                            selectedContainerColor = ArkivRed.copy(alpha = 0.15f),
+                            selectedIconColor = ArkivRed,
+                            selectedTextColor = ArkivRed,
+                            unselectedIconColor = Color.White,
+                            unselectedTextColor = Color.White,
+                        ),
+                        onClick = {
+                            scope.launch { drawerState.close() }
+                            irA(tab)
+                        },
+                        modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+                    )
+                }
+            }
+        },
+    ) {
 
     Row(Modifier.fillMaxSize()) {
     if (ancho && isTab) {
@@ -220,50 +264,51 @@ fun ArkivRoot(
         modifier = Modifier.weight(1f),
         containerColor = ArkivBlack,
         topBar = {
-            if (currentRoute == "home") {
+            if (isTab) {
                 TopAppBar(
+                    navigationIcon = {
+                        if (!ancho) {
+                            IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                Icon(Icons.Default.Menu, contentDescription = "Menú", tint = Color.White)
+                            }
+                        }
+                    },
                     title = {
                         Text("KINO", color = ArkivRed, fontWeight = FontWeight.Black)
                     },
                     actions = {
-                        IconButton(onClick = { navController.navigate("torrent") }) {
-                            Icon(Icons.Default.Downloading, contentDescription = "Reproducir torrent", tint = Color.White)
-                        }
-                        // Parear con el TV. Va acá, con el resto de los íconos, y no dentro de la
-                        // lista del home: ahí se mezclaba con el contenido. Antes su único acceso
-                        // era el ícono de la pantalla Biblioteca, que no se encuentra si uno no lo
-                        // sabe de antes -- y sin pareo la TV no puede entrar a la app.
-                        IconButton(onClick = { showConnection = true }) {
-                            Icon(Icons.Default.QrCodeScanner, contentDescription = "Conectar con el TV", tint = Color.White)
-                        }
-                        // El control remoto solo tiene sentido si hay una TV Arkiv en la red.
-                        if (tvAvailable) {
-                            IconButton(onClick = { navController.navigate("remote") }) {
-                                Icon(Icons.Default.SettingsRemote, contentDescription = "Control remoto de la TV", tint = Color.White)
+                        if (currentRoute == "home") {
+                            IconButton(onClick = { navController.navigate("torrent") }) {
+                                Icon(Icons.Default.Downloading, contentDescription = "Reproducir torrent", tint = Color.White)
                             }
-                        }
-                        if (syncStatus is SyncStatus.Syncing) {
-                            CircularProgressIndicator(
-                                color = Color.White,
-                                strokeWidth = 2.dp,
-                                modifier = Modifier.padding(end = 16.dp).size(22.dp),
-                            )
-                        } else {
-                            IconButton(onClick = {
-                                scope.launch {
-                                    // LAN es best-effort y silencioso: en un setup por nube no hay
-                                    // TV en la red WiFi, y eso no debe verse como un fallo.
-                                    runCatching { graph.syncManager.syncNow() }
-                                    graph.cloudSync.syncNow()
-                                    Toast.makeText(context, "Sincronizado", Toast.LENGTH_LONG).show()
+                            IconButton(onClick = { showConnection = true }) {
+                                Icon(Icons.Default.QrCodeScanner, contentDescription = "Conectar con el TV", tint = Color.White)
+                            }
+                            if (tvAvailable) {
+                                IconButton(onClick = { navController.navigate("remote") }) {
+                                    Icon(Icons.Default.SettingsRemote, contentDescription = "Control remoto de la TV", tint = Color.White)
                                 }
-                            }) {
-                                Icon(Icons.Default.Sync, contentDescription = "Sincronizar", tint = Color.White)
                             }
-                        }
-                        // Buscar: el primer icono desde la derecha (la acción más usada del home).
-                        IconButton(onClick = { navController.navigate("search") }) {
-                            Icon(Icons.Default.Search, contentDescription = "Buscar", tint = Color.White)
+                            if (syncStatus is SyncStatus.Syncing) {
+                                CircularProgressIndicator(
+                                    color = Color.White,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.padding(end = 16.dp).size(22.dp),
+                                )
+                            } else {
+                                IconButton(onClick = {
+                                    scope.launch {
+                                        runCatching { graph.syncManager.syncNow() }
+                                        graph.cloudSync.syncNow()
+                                        Toast.makeText(context, "Sincronizado", Toast.LENGTH_LONG).show()
+                                    }
+                                }) {
+                                    Icon(Icons.Default.Sync, contentDescription = "Sincronizar", tint = Color.White)
+                                }
+                            }
+                            IconButton(onClick = { navController.navigate("search") }) {
+                                Icon(Icons.Default.Search, contentDescription = "Buscar", tint = Color.White)
+                            }
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = ArkivBlack),
@@ -276,48 +321,28 @@ fun ArkivRoot(
         // mismo criterio que la pestaña Catálogo de más arriba: para volver a mostrarlo alcanza
         // con devolver este bloque.
         bottomBar = {
-            Column {
-                val render = com.arkiv.player.ui.remote.rememberMiniPlayerRender(
-                    bar = barState,
-                    overlay = overlay,
-                    scrubbing = false,
-                )
-                if (isTab && render != null && !render.hidden) {
-                    // El stream transcodificado hacia el Chromecast sale en vivo (sin duración ni
-                    // Range): reposicionarlo exige rearmar la petición de cast, algo que solo sabe
-                    // hacer el reproductor (ver Resolución A). `activeUrl` es un `var` plano, no
-                    // estado de Compose, pero acá alcanza: mientras se castea la barra recompone
-                    // cada 500ms con un BarState fresco, así que el valor se refresca solo con eso.
-                    val puedeBuscar = barState?.fuente != com.arkiv.player.remote.BarFuente.CAST ||
-                        graph.castTranscoder.activeUrl == null
-                    com.arkiv.player.ui.remote.MiniPlayerBar(
-                        nowPlaying = render.nowPlaying,
-                        positionMs = render.positionMs,
-                        stale = render.stale,
-                        fuente = barState?.fuente ?: com.arkiv.player.remote.BarFuente.TV,
-                        puedeBuscar = puedeBuscar,
-                        onCommand = { cmd ->
-                            aplicarOptimista(overlay, barState?.fuente, cmd)
-                            scope.launch {
-                                com.arkiv.player.ui.remote.enviarComandoDeBarra(graph, barState, cmd, context, ::goToPlayer)
-                            }
-                        },
-                        onExpand = { navController.navigate("nowplaying") },
-                    )
-                }
-                if (isTab && !ancho) {
-                    NavigationBar(containerColor = ArkivBlack) {
-                        TABS.forEach { tab ->
-                            val selected = backStackEntry?.destination?.hierarchy?.any { it.route == tab.route } == true
-                            NavigationBarItem(
-                                selected = selected,
-                                onClick = { irA(tab) },
-                                icon = tab.icon,
-                                label = { Text(tab.label) },
-                            )
+            val render = com.arkiv.player.ui.remote.rememberMiniPlayerRender(
+                bar = barState,
+                overlay = overlay,
+                scrubbing = false,
+            )
+            if (isTab && render != null && !render.hidden) {
+                val puedeBuscar = barState?.fuente != com.arkiv.player.remote.BarFuente.CAST ||
+                    graph.castTranscoder.activeUrl == null
+                com.arkiv.player.ui.remote.MiniPlayerBar(
+                    nowPlaying = render.nowPlaying,
+                    positionMs = render.positionMs,
+                    stale = render.stale,
+                    fuente = barState?.fuente ?: com.arkiv.player.remote.BarFuente.TV,
+                    puedeBuscar = puedeBuscar,
+                    onCommand = { cmd ->
+                        aplicarOptimista(overlay, barState?.fuente, cmd)
+                        scope.launch {
+                            com.arkiv.player.ui.remote.enviarComandoDeBarra(graph, barState, cmd, context, ::goToPlayer)
                         }
-                    }
-                }
+                    },
+                    onExpand = { navController.navigate("nowplaying") },
+                )
             }
         },
     ) { padding ->
@@ -639,7 +664,8 @@ fun ArkivRoot(
             )
         }
     }
-    }
+    } // end Row
+    } // end ModalNavigationDrawer
 }
 
 /**
