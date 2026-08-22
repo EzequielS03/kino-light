@@ -10,8 +10,14 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
-/** Un episodio a descargar, tal como lo entiende arkiv-offline (fuente = pageUrl de la capa web). */
-data class NucDownloadItem(val season: Int, val episode: Int, val pageUrl: String)
+/**
+ * Un episodio a descargar, tal como lo entiende arkiv-offline.
+ *
+ * [pageUrl] es la referencia de origen (página web, o el episodeId para Ditu).
+ * [streamUrl] es la URL directa del stream (p.ej. el .mpd de Ditu ya resuelto): si está
+ * presente, el backend la pasa directo a yt-dlp sin llamar al web resolver.
+ */
+data class NucDownloadItem(val season: Int, val episode: Int, val pageUrl: String, val streamUrl: String? = null)
 
 data class NucJobItem(val itemId: Long, val season: Int, val episode: Int, val status: String, val error: String?)
 data class NucJob(val jobId: Long, val status: String, val progress: Float?, val items: List<NucJobItem>)
@@ -80,6 +86,7 @@ class ArkivOfflineApi(
                         put("season", i.season)
                         put("episode", i.episode)
                         put("source_ref", i.pageUrl)
+                        if (i.streamUrl != null) put("stream_url", i.streamUrl)
                     },
                 )
             }

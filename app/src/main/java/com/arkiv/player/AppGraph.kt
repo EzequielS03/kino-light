@@ -294,6 +294,9 @@ class AppGraph(context: Context) {
             "web" to com.arkiv.player.data.local.NucStagedStrategy(
                 repository, arkivOfflineApi, httpRangeDownloader, database.downloadDao(),
             ),
+            "ditu" to com.arkiv.player.data.local.DituDownloadStrategy(
+                repository, arkivApiClient, arkivOfflineApi, httpRangeDownloader, database.downloadDao(),
+            ),
         )
     }
 
