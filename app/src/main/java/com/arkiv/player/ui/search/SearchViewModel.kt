@@ -462,7 +462,7 @@ class SearchViewModel(
                             anilistId = card.anilistId ?: 0,
                             maxBytes = maxBytes,
                             budgetMs = if (card.kind == "anime") GATEWAY_BUDGET_ANIME_MS else GATEWAY_BUDGET_MS,
-                            sources = if (gatewayCubreTodo) "torrent,web,archive,magis" else "magis",
+                            sources = if (gatewayCubreTodo) "torrent,web,archive,magis,ditu" else "magis,ditu",
                         )
                         // Los resultados se acumulan y se publican EN LOTE. Publicar de a uno
                         // dispara una recomposición por resultado: con 20 de magis sobre 50+

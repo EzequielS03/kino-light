@@ -90,9 +90,9 @@ class GatewayMapperTest {
     }
 
     @Test
-    fun `las cuatro fuentes del gateway se mapean- ninguna cae en null`() {
-        // Guarda contra el bug real: el gateway sirve cuatro fuentes y el mapper conocia tres.
-        for (fuente in listOf("torrent", "archive", "web", "magis")) {
+    fun `las cinco fuentes del gateway se mapean- ninguna cae en null`() {
+        // Guarda contra el bug real: el gateway sirve fuentes y el mapper debe conocerlas todas.
+        for (fuente in listOf("torrent", "archive", "web", "magis", "ditu")) {
             val r = GatewayResult(source = fuente, title = "x", ref = "r")
             assertTrue("la fuente '$fuente' no se mapea", r.toPlaySource() != null)
         }

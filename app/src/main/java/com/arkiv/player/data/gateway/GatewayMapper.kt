@@ -61,5 +61,7 @@ fun GatewayResult.toPlaySource(): PlaySource? = when (source) {
     // hay un tipo previo de la app al que mapearlo.
     "magis" -> PlaySource.Magis(this)
 
+    "ditu" -> PlaySource.Ditu(this)
+
     else -> null
 }
