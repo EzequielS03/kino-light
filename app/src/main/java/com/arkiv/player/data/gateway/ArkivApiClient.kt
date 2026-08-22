@@ -343,6 +343,20 @@ class ArkivApiClient(
         DituCatalogResponse(series = series, premiumRequired = premiumRequired)
     }
 
+    suspend fun dituResolveLive(channelId: Int, assetId: Int): GatewayPlayable = withContext(Dispatchers.IO) {
+        val root = JSONObject(ejecutar(pedido("${baseUrl()}/v1/ditu/live/$channelId/resolve?asset_id=$assetId").get().build()))
+        val drmHeaders = root.optJSONObject("drm_license_headers")?.let { obj ->
+            obj.keys().asSequence().associateWith { obj.optString(it) }
+        } ?: emptyMap()
+        GatewayPlayable(
+            kind = "ditu",
+            url = root.optString("url"),
+            mime = root.optString("mime", "application/dash+xml"),
+            drmLicenseUrl = root.optString("drm_license_url"),
+            drmLicenseHeaders = drmHeaders,
+        )
+    }
+
     suspend fun dituChannels(): List<DituChannel> = withContext(Dispatchers.IO) {
         val root = JSONObject(ejecutar(pedido("${baseUrl()}/v1/ditu/channels").get().build()))
         val arr = root.optJSONArray("channels") ?: return@withContext emptyList()
@@ -357,6 +371,7 @@ class ArkivApiClient(
                     logoUrl = o.optString("logo_url"),
                     channelType = o.optString("channel_type"),
                     orderId = o.optInt("order_id"),
+                    assetId = o.optInt("asset_id"),
                 )
             }
         }

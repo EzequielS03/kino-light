@@ -292,6 +292,27 @@ fun ArkivTvRoot(
             com.arkiv.player.ui.catalog.CaracolScreen(
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
                 onPlay = { goToPlayer(it) },
+                onPlayLive = { channelId, assetId, channelName ->
+                    navController.navigate("ditu_live/$channelId/$assetId/${Uri.encode(channelName)}")
+                },
+            )
+        }
+        composable(
+            "ditu_live/{channelId}/{assetId}/{channelName}",
+            arguments = listOf(
+                navArgument("channelId") { type = NavType.IntType },
+                navArgument("assetId") { type = NavType.IntType },
+                navArgument("channelName") { type = NavType.StringType },
+            ),
+        ) { back ->
+            val channelId = back.arguments!!.getInt("channelId")
+            val assetId = back.arguments!!.getInt("assetId")
+            val channelName = back.arguments!!.getString("channelName", "")
+            com.arkiv.player.ui.live.DituLivePlayerScreen(
+                channelId = channelId,
+                assetId = assetId,
+                channelName = channelName,
+                onBack = { navController.popBackStack() },
             )
         }
         composable("live") {

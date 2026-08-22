@@ -1,5 +1,7 @@
 package com.arkiv.player.remote
 
+import android.content.Context
+import android.content.SharedPreferences
 import com.arkiv.player.pocketbase.DeviceAuthManager
 import com.arkiv.player.pocketbase.PocketBaseClient
 import com.arkiv.player.pocketbase.PocketBaseConfig
@@ -24,15 +26,21 @@ class TvNowPlayingRepository(
     private val deviceAuth: DeviceAuthManager,
     private val tvPaired: () -> Boolean,
     private val scope: CoroutineScope,
+    context: Context,
 ) {
+    private val prefs: SharedPreferences =
+        context.getSharedPreferences("tv_now_playing", Context.MODE_PRIVATE)
     private val _state = MutableStateFlow<TvSnapshot?>(null)
     val state: StateFlow<TvSnapshot?> = _state.asStateFlow()
 
     private val active = MutableStateFlow(false)
 
-    // episodeId+startedAtMs de la foto que el usuario descartó explícitamente con Stop.
-    // El poll la ignora hasta que el TV arranque algo diferente.
-    private var dismissedKey: Pair<String, Long>? = null
+    // Flag + episodeId del episodio que se descartó con Stop. Se limpia cuando:
+    //   (a) el TV publica null (playerOpen = false), o
+    //   (b) el TV arranca un episodio DIFERENTE al que se paró (el usuario eligió algo nuevo).
+    // @Volatile porque clearState() corre en Main y refreshNow() en el pool de coroutines.
+    @Volatile private var userStopped: Boolean = prefs.getBoolean(PREF_USER_STOPPED, false)
+    @Volatile private var stoppedEpisodeId: String? = prefs.getString(PREF_STOPPED_EP, null)
 
     fun setActive(value: Boolean) {
         active.value = value
@@ -40,8 +48,10 @@ class TvNowPlayingRepository(
     }
 
     fun clearState() {
-        val foto = _state.value?.nowPlaying
-        if (foto != null) dismissedKey = Pair(foto.episodeId, foto.startedAtMs)
+        val epId = _state.value?.nowPlaying?.episodeId
+        userStopped = true
+        stoppedEpisodeId = epId
+        prefs.edit().putBoolean(PREF_USER_STOPPED, true).putString(PREF_STOPPED_EP, epId).apply()
         _state.value = null
     }
 
@@ -82,13 +92,24 @@ class TvNowPlayingRepository(
             _state.value = null
             return
         }
-        // Si el usuario descartó esta sesión explícitamente (Stop), ignorar la misma foto hasta que el
-        // TV arranque algo nuevo. Una clave distinta (episodio o startedAtMs diferente) limpia el
-        // descarte y vuelve a mostrar la barra.
-        if (foto != null) {
-            val key = Pair(foto.episodeId, foto.startedAtMs)
-            if (key == dismissedKey) return
-            dismissedKey = null
+        // Si el usuario paró con Stop, ignorar el episodio que paró. La supresión se levanta cuando:
+        //   (a) el TV publica null → playerOpen=false, el player se cerró de verdad
+        //   (b) el TV arranca un episodio DIFERENTE → el usuario eligió algo nuevo desde el TV
+        if (userStopped) {
+            val differentEpisode = foto != null && foto.episodeId != stoppedEpisodeId
+            if (foto == null || differentEpisode) {
+                userStopped = false
+                stoppedEpisodeId = null
+                prefs.edit().putBoolean(PREF_USER_STOPPED, false).remove(PREF_STOPPED_EP).apply()
+                if (!differentEpisode) {
+                    _state.value = null
+                    return
+                }
+                // differentEpisode=true: caer al flujo normal para mostrar el nuevo episodio
+            } else {
+                _state.value = null
+                return
+            }
         }
         // Solo re-sellar receivedAtMs si la foto decodificada cambió de verdad. Si es la MISMA que ya
         // teníamos, el TV dejó de publicar (crasheó, se apagó, perdió red) y NO hay que refrescar el
@@ -101,6 +122,9 @@ class TvNowPlayingRepository(
 
     internal companion object {
         const val POLL_MS = 3_000L
+
+        private const val PREF_USER_STOPPED = "user_stopped"
+        private const val PREF_STOPPED_EP = "stopped_ep"
 
         /** Antigüedad máxima del `at` del TV para seguir creyendo que hay algo reproduciéndose. */
         const val MAX_AGE_MS = 2 * 60_000L
