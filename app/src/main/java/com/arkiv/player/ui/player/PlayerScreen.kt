@@ -339,6 +339,16 @@ private fun PlayerContent(
     val magisItem by vm.magisItem.collectAsStateWithLifecycle()
     var magisPlayer by remember { mutableStateOf<Player?>(null) }
     var magisTextureView by remember { mutableStateOf<android.view.TextureView?>(null) }
+    /**
+     * Si el reproductor de ExoPlayer ya puso un fotograma en pantalla.
+     *
+     * Lo necesita el spinner: `espejo.buffereando` dice si FALTAN DATOS, que no es lo mismo que si
+     * HAY IMAGEN. ExoPlayer se declara READY en cuanto tiene el búfer lleno, pero el primer frame
+     * puede tardar bastante más —se midieron 6,5 s en ditu, esperando la superficie— y en ese hueco
+     * el spinner ya se había ido: pantalla negra sin nada que explicara la espera. libVLC sí lo
+     * distinguía con `esperandoPrimeraImagen`, y al pasar a ExoPlayer esa distinción se perdió.
+     */
+    var exoYaPintoAlgo by remember { mutableStateOf(false) }
     val generacionVivo by vm.generacionVivo.collectAsStateWithLifecycle()
     val cortesEnVivo by vlc.cortesEnVivo.collectAsStateWithLifecycle()
     val loadError by vm.error.collectAsStateWithLifecycle()
@@ -1255,7 +1265,7 @@ private fun PlayerContent(
             // "Arranca negro y con sonido": mientras libVLC ya suelta el audio pero todavía no dio
             // la primera imagen, `playbackState` NO es BUFFERING y la pantalla se quedaba sin
             // spinner y sin imagen. Casteando no aplica: la imagen la pone la TV, no nosotros.
-            sinPrimeraImagen = !casting && if (isExo) espejo.buffereando else vlc.esperandoPrimeraImagen()
+            sinPrimeraImagen = !casting && if (isExo) !exoYaPintoAlgo else vlc.esperandoPrimeraImagen()
             // Si el video está sonando, un fallo de reproducción anterior ya no describe nada (y
             // encima estaría tapando estos mismos controles). No-op salvo justo después de uno.
             if (ready && activePlayer.isPlaying) vm.onReproduccionViva()
@@ -1849,6 +1859,7 @@ private fun PlayerContent(
                 },
                 onTextureViewReady = { tv -> dituTextureView = tv },
                 onError = { msg -> vm.onDituExoError(msg) },
+                onPrimeraImagen = { hay -> exoYaPintoAlgo = hay },
             )
         }
 
@@ -1869,6 +1880,7 @@ private fun PlayerContent(
                 onTextureViewReady = { tv -> magisTextureView = tv },
                 onError = { msg -> vm.onMagisExoError(msg) },
                 onTracksChanged = { tracks -> estadoPistas.actualizarPistasExo(tracks) },
+                onPrimeraImagen = { hay -> exoYaPintoAlgo = hay },
                 zoom = gestos.zoomParaExo,
             )
         }
@@ -2025,8 +2037,15 @@ private fun PlayerContent(
         // torrent (abajo): es del motor local, que está pausado, y no describe lo que carga la TV.
         // `esperandoVideo` también se anula casteando: espera a que VLC recupere su salida de video
         // local (hasta 15s tras volver del fondo), que casteando no importa ni va a llegar.
+        //
+        // MAGIS Y DITU TAMBIÉN, y antes no: la condición los excluía (`magisItem == null &&
+        // dituDrmItem == null`) sin explicar por qué, y el efecto era que en cuanto una película de
+        // magis cargaba, el spinner dejaba de dibujarse pasara lo que pasara. Como el primer
+        // fotograma tarda —medidos 8 s en el Fire Stick— quedaba una pantalla negra muda, que es lo
+        // que hacía pensar que la app se había colgado. Ninguno de los dos dibuja spinner propio,
+        // así que no había nada que duplicar.
         if (
-            loadError == null && estadoDlna.activo == null && dituDrmItem == null && magisItem == null &&
+            loadError == null && estadoDlna.activo == null &&
             hayQueMostrarElSpinner(
                 sinPlaylist = playlist == null && magisItem == null,
                 buffereando = espejo.buffereando,

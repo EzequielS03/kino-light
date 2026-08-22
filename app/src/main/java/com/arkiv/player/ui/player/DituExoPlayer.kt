@@ -65,6 +65,7 @@ internal fun DituExoPlayer(
     onPlayerReady: (Player?) -> Unit = {},
     onTextureViewReady: (TextureView?) -> Unit = {},
     onError: (String) -> Unit = {},
+    onPrimeraImagen: (Boolean) -> Unit = {},
 ) {
     val context = LocalContext.current
 
@@ -152,6 +153,7 @@ internal fun DituExoPlayer(
 
             override fun onRenderedFirstFrame() {
                 android.util.Log.i("DituExo", "onRenderedFirstFrame · pos=${exoPlayer.currentPosition}ms")
+                onPrimeraImagen(true)
             }
 
             override fun onVideoSizeChanged(videoSize: VideoSize) {
@@ -187,6 +189,7 @@ internal fun DituExoPlayer(
             espejo.sincronizarTransporte(buffereando = false, reproduciendo = false, quiereReproducir = false)
             onPlayerReady(null)
             onTextureViewReady(null)
+            onPrimeraImagen(false)
         }
     }
 

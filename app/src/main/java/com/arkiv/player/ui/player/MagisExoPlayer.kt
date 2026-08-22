@@ -77,6 +77,7 @@ internal fun MagisExoPlayer(
     onTextureViewReady: (TextureView?) -> Unit = {},
     onError: (String) -> Unit = {},
     onTracksChanged: ((Tracks) -> Unit)? = null,
+    onPrimeraImagen: (Boolean) -> Unit = {},
     zoom: Float = 1f,
 ) {
     val context = LocalContext.current
@@ -223,6 +224,7 @@ internal fun MagisExoPlayer(
 
             override fun onRenderedFirstFrame() {
                 Log.i(TAG, "onRenderedFirstFrame · pos=${exoPlayer.currentPosition}ms")
+                onPrimeraImagen(true)
             }
 
             override fun onPlayerError(error: PlaybackException) {
@@ -242,6 +244,7 @@ internal fun MagisExoPlayer(
             espejo.sincronizarTransporte(buffereando = false, reproduciendo = false, quiereReproducir = false)
             onPlayerReady(null)
             onTextureViewReady(null)
+            onPrimeraImagen(false)
         }
     }
 
