@@ -1843,7 +1843,10 @@ private fun PlayerContent(
                 licenseHeaders = drmItem.drmLicenseHeaders,
                 espejo = espejo,
                 startPositionMs = drmItem.startPositionMs,
-                onPlayerReady = { player -> dituPlayer = player },
+                onPlayerReady = { player ->
+                    dituPlayer = player
+                    gestos.setExoPlayer(player)
+                },
                 onTextureViewReady = { tv -> dituTextureView = tv },
                 onError = { msg -> vm.onDituExoError(msg) },
             )
@@ -1857,6 +1860,7 @@ private fun PlayerContent(
                 espejo = espejo,
                 startPositionMs = mItem.startPositionMs,
                 subtitleConfigs = (webExtras?.subtitles ?: emptyList()).toExoSubtitleConfigs(),
+                subtitulosExtra = estadoPistas.subsExternosExo,
                 onPlayerReady = { player ->
                     magisPlayer = player
                     estadoPistas.setExoPlayer(player)
@@ -1865,6 +1869,7 @@ private fun PlayerContent(
                 onTextureViewReady = { tv -> magisTextureView = tv },
                 onError = { msg -> vm.onMagisExoError(msg) },
                 onTracksChanged = { tracks -> estadoPistas.actualizarPistasExo(tracks) },
+                zoom = gestos.zoomParaExo,
             )
         }
 
@@ -1973,11 +1978,12 @@ private fun PlayerContent(
                                     seekTarget = (seekTarget + (drag.x / size.width * 90_000f).toLong()).coerceIn(0L, dur)
                                     gestos.mostrarHud("⏱ ${formatDuration(seekTarget)}")
                                 } else if (startX > size.width / 2) {
-                                    // Casteando no: el volumen se lee/ajusta sobre el VlcPlayer local,
-                                    // que no es lo que suena en el receptor Chromecast — gesto inerte.
+                                    // Casteando no: el volumen se lee/ajusta sobre el reproductor
+                                    // local, que no es lo que suena en el receptor Chromecast —
+                                    // gesto inerte.
                                     if (!casting) {
-                                        val v = (vlc.vlcVolume() - (drag.y / size.height * 150f).toInt()).coerceIn(0, 100)
-                                        vlc.setVlcVolume(v); gestos.mostrarHud("🔊 $v%")
+                                        val v = (gestos.volumenActual() - (drag.y / size.height * 150f).toInt()).coerceIn(0, 100)
+                                        gestos.ponerVolumen(v); gestos.mostrarHud("🔊 $v%")
                                     }
                                 } else {
                                     activity?.window?.let { w ->

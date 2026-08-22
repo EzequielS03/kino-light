@@ -76,6 +76,23 @@ internal class EstadoDeGestos(
 
     private fun velocidadActual(): Float = exoRef?.playbackParameters?.speed ?: vlc.currentRate()
 
+    /**
+     * Volumen 0..100 del que esté sonando. En ExoPlayer es un factor 0..1, así que se convierte —y
+     * se redondea, para que subir y bajar un paso vuelva al mismo número en vez de derivar.
+     *
+     * Sin esto el gesto le movía el volumen a un VlcPlayer que en magis y ditu está callado: el HUD
+     * se movía en pantalla y no cambiaba nada.
+     */
+    fun volumenActual(): Int {
+        val exo = exoRef ?: return vlc.vlcVolume()
+        return Math.round(exo.volume * 100f).coerceIn(0, 100)
+    }
+
+    fun ponerVolumen(v: Int) {
+        val exo = exoRef
+        if (exo != null) exo.volume = (v / 100f).coerceIn(0f, 1f) else vlc.setVlcVolume(v)
+    }
+
     /** Cartel central del gesto en curso (velocidad, seek, volumen, brillo), o null. */
     var hud by mutableStateOf<String?>(null)
         private set
@@ -100,6 +117,16 @@ internal class EstadoDeGestos(
     val etiquetaDeZoom: String get() = ETIQUETAS_DE_ZOOM[indiceZoom]
     val zoomEsAjustar: Boolean get() = indiceZoom == 0
 
+    /**
+     * El zoom que tiene que aplicar quien dibuja el video, o 1 si no hay que tocar nada.
+     *
+     * Solo lo mira ExoPlayer: libVLC escala por su cuenta con `setScale` —es una operación del
+     * propio motor de video— y ahí esto no se usa. ExoPlayer no tiene equivalente, así que su
+     * superficie se agranda con un `scale` de Compose, que da el mismo recorte: el contenedor no
+     * cambia de tamaño y lo que se sale queda fuera.
+     */
+    val zoomParaExo: Float get() = if (exoRef != null) PASOS_DE_ZOOM[indiceZoom].let { if (it <= 0f) 1f else it } else 1f
+
     /** Velocidad y zoom son cíclicos: cada toque pasa al siguiente paso y vuelve al principio. */
     fun siguienteVelocidad() {
         indiceVelocidad = (indiceVelocidad + 1) % PASOS_DE_VELOCIDAD.size
@@ -109,7 +136,8 @@ internal class EstadoDeGestos(
 
     fun siguienteZoom() {
         indiceZoom = (indiceZoom + 1) % PASOS_DE_ZOOM.size
-        vlc.setScale(PASOS_DE_ZOOM[indiceZoom])
+        // Con ExoPlayer no hay a quién decírselo: lo lee [zoomParaExo] quien dibuja el video.
+        if (exoRef == null) vlc.setScale(PASOS_DE_ZOOM[indiceZoom])
         alInteractuar()
     }
 

@@ -13,11 +13,13 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
@@ -64,10 +66,12 @@ internal fun MagisExoPlayer(
     espejo: EspejoDelPlayer,
     startPositionMs: Long = 0L,
     subtitleConfigs: List<MediaItem.SubtitleConfiguration> = emptyList(),
+    subtitulosExtra: List<Uri> = emptyList(),
     onPlayerReady: (Player?) -> Unit = {},
     onTextureViewReady: (TextureView?) -> Unit = {},
     onError: (String) -> Unit = {},
     onTracksChanged: ((Tracks) -> Unit)? = null,
+    zoom: Float = 1f,
 ) {
     val context = LocalContext.current
 
@@ -222,6 +226,38 @@ internal fun MagisExoPlayer(
         }
     }
 
+    // Subtítulo bajado a mitad de reproducción. ExoPlayer no tiene `addSubtitleSlave`: los externos
+    // son parte del MediaItem, así que hay que rehacerlo. `setMediaItem(item, posición)` es lo que
+    // permite hacerlo sin que se note — recrear el player perdería el punto y volvería a bufferear
+    // desde cero contra un CDN que ya cuesta. Se salta la primera composición: ahí el ítem que creó
+    // el player ya trae los subtítulos del portal y recargar sería un rebuffer regalado.
+    var subsAplicados by remember(exoPlayer) { mutableStateOf(emptyList<Uri>()) }
+    LaunchedEffect(exoPlayer, subtitulosExtra) {
+        if (subtitulosExtra == subsAplicados) return@LaunchedEffect
+        subsAplicados = subtitulosExtra
+        if (subtitulosExtra.isEmpty()) return@LaunchedEffect
+
+        val extras = subtitulosExtra.map { uri ->
+            MediaItem.SubtitleConfiguration.Builder(uri)
+                .setMimeType(mimeDeSubtitulo(uri.toString()))
+                // SELECTION_FLAG_DEFAULT: quien se toma el trabajo de bajar un subtítulo lo quiere
+                // puesto, no disponible en un menú.
+                .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+                .build()
+        }
+        val pos = exoPlayer.currentPosition
+        Log.i(TAG, "subtítulo externo: recargando con ${extras.size} extra(s) sin soltar pos=${pos}ms")
+        exoPlayer.setMediaItem(
+            MediaItem.Builder()
+                .setUri(Uri.parse(mediaUrl))
+                .setSubtitleConfigurations(subtitleConfigs + extras)
+                .build(),
+            pos,
+        )
+        exoPlayer.prepare()
+        exoPlayer.playWhenReady = true
+    }
+
     // Sondeo de posición. Además vigila dos patologías que el reloj solo no delata:
     //  · la posición avanza mientras !isPlaying (bug de transporte);
     //  · el reloj avanza pero el renderer no saca ni un frame — la imagen se queda congelada con la
@@ -324,10 +360,13 @@ internal fun MagisExoPlayer(
     // Con un Box wrapper el TextureView siempre tiene fillMaxSize() → superficie estable.
     Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
         Box(
-            modifier = if (videoAspectRatio > 0f)
-                Modifier.aspectRatio(videoAspectRatio)
-            else
-                Modifier.fillMaxSize(),
+            modifier = (
+                if (videoAspectRatio > 0f) Modifier.aspectRatio(videoAspectRatio)
+                else Modifier.fillMaxSize()
+                )
+                // El zoom escala el contenedor del video y no el AndroidView: cambiarle el modifier
+                // al AndroidView es lo que destruye su SurfaceTexture y deja la imagen en negro.
+                .graphicsLayer(scaleX = zoom, scaleY = zoom),
         ) {
             AndroidView(modifier = Modifier.fillMaxSize(), factory = { textureView })
         }
@@ -336,16 +375,20 @@ internal fun MagisExoPlayer(
     }
 }
 
+/**
+ * Tipo de un subtítulo a partir de su ruta. VTT por defecto: es lo que sirve el portal de magis, y
+ * los .srt vienen de OpenSubtitles, que sí los nombra con su extensión.
+ */
+private fun mimeDeSubtitulo(ruta: String): String = when {
+    ruta.contains(".srt", ignoreCase = true) -> MimeTypes.APPLICATION_SUBRIP
+    else -> MimeTypes.TEXT_VTT
+}
+
 /** Convierte la lista de subtítulos del portal a SubtitleConfiguration de ExoPlayer. */
 internal fun List<ResolvedSub>.toExoSubtitleConfigs(): List<MediaItem.SubtitleConfiguration> =
     map { sub ->
-        val mime = when {
-            sub.url.contains(".vtt", ignoreCase = true) -> MimeTypes.TEXT_VTT
-            sub.url.contains(".srt", ignoreCase = true) -> MimeTypes.APPLICATION_SUBRIP
-            else -> MimeTypes.TEXT_VTT
-        }
         MediaItem.SubtitleConfiguration.Builder(Uri.parse(sub.url))
-            .setMimeType(mime)
+            .setMimeType(mimeDeSubtitulo(sub.url))
             .setLanguage(sub.lang)
             .build()
     }
