@@ -1363,6 +1363,29 @@ class ArkivRepository(
         return ep.id
     }
 
+    suspend fun addDituEpisode(
+        bundleId: String,
+        serieTitle: String,
+        posterUrl: String,
+        epRef: String,
+        epTitle: String,
+        epNumber: Int,
+        epSeason: Int,
+        orderIndex: Int,
+    ): String? {
+        if (epRef.isBlank()) return null
+        val itemId = DituEntities.itemIdDeSerie(bundleId)
+        val existing = itemDao.getItem(itemId)
+        val (item, ep) = DituEntities.buildEpisodio(
+            bundleId = bundleId, serieTitle = serieTitle, posterUrl = posterUrl,
+            epRef = epRef, epTitle = epTitle, epNumber = epNumber, epSeason = epSeason,
+            orderIndex = orderIndex, ahora = clock(), existente = existing,
+        )
+        itemDao.upsertEpisodes(listOf(ep))
+        if (existing == null) itemDao.upsertItem(item)
+        return ep.id
+    }
+
     /**
      * Encabezado del player: título del ítem + rótulo de temporada/capítulo (solo si es serie).
      * El rótulo se PARSEA, no es el displayName crudo: en la base real esos nombres traen desde

@@ -188,6 +188,8 @@ fun SearchScreen(
     // Temporada de Magis abierta: un resultado de serie del portal ES una temporada entera,
     // así que en vez de reproducir se abre su lista de capítulos.
     var magisSeason by remember { mutableStateOf<com.arkiv.player.data.gateway.GatewayResult?>(null) }
+    // Serie de Ditu (BUNDLE) abierta: igual que magisSeason, muestra episodios antes de reproducir.
+    var dituSeason by remember { mutableStateOf<com.arkiv.player.data.gateway.GatewayResult?>(null) }
     // Aviso inline de torrent pesado (ATAJO de UX, ver saveLocally): episodeId ya guardado + tamaño.
     var pendingBig by remember { mutableStateOf<Pair<String, Long>?>(null) }
 
@@ -436,6 +438,8 @@ fun SearchScreen(
     // Los packs (torrent y web) NO reproducen directo: abren su diálogo para elegir nombre y
     // capítulos. Sin esto un pack agregaba cientos de episodios en silencio.
     fun playDituResult(r: com.arkiv.player.data.gateway.GatewayResult) {
+        // Serie (BUNDLE) → mostrar episodios. Película (VOD) → reproducir directo.
+        if (r.kind == "series") { dituSeason = r; return }
         preparing = true; playError = null
         scope.launch { applyResult(playback.playDitu(r)) }
     }
@@ -589,6 +593,24 @@ fun SearchScreen(
                         else -> "Se encolaron $encolados de ${elegidos.size} (el resto ya estaba)."
                     }
                 }
+            },
+        )
+    }
+
+    dituSeason?.let { serie ->
+        com.arkiv.player.ui.catalog.MagisSeasonDialog(
+            season = serie,
+            client = graph.arkivApiClient,
+            onDismiss = { dituSeason = null },
+            onPlay = { capitulos, capitulo, _ ->
+                dituSeason = null
+                preparing = true; playError = null
+                scope.launch {
+                    applyResult(playback.playDituEpisode(serie, capitulo, capitulos.indexOf(capitulo)))
+                }
+            },
+            onSave = { _, _ ->
+                playError = "Caracol no se puede guardar: el enlace vence."
             },
         )
     }

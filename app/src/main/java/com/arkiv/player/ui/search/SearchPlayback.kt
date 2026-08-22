@@ -225,6 +225,27 @@ class SearchPlayback(private val graph: AppGraph) {
         else PlaybackResult.Failed("No se pudo preparar la reproducción de Caracol.")
     }
 
+    /** Reproduce un episodio suelto de una serie de Ditu elegido desde el diálogo. */
+    suspend fun playDituEpisode(
+        serie: com.arkiv.player.data.gateway.GatewayResult,
+        ep: com.arkiv.player.data.gateway.GatewayEpisode,
+        epIndex: Int,
+    ): PlaybackResult {
+        val bundleId = serie.extra["content_id"].orEmpty()
+        val epId = graph.repository.addDituEpisode(
+            bundleId = bundleId,
+            serieTitle = serie.title,
+            posterUrl = serie.extra["poster"].orEmpty(),
+            epRef = ep.ref,
+            epTitle = ep.title,
+            epNumber = ep.number,
+            epSeason = 1,
+            orderIndex = epIndex,
+        )
+        return if (epId != null) PlaybackResult.Ready(epId)
+        else PlaybackResult.Failed("No se pudo preparar el episodio de Caracol.")
+    }
+
     /**
      * Reproduce un resultado de la fase RESULTS: mismo patrón que CineDetailScreen.play, salvo para
      * anime, que usa SU PROPIO agrupador (torrent:anime:<anilistId>, numeración absoluta con
