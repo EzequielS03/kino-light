@@ -1055,6 +1055,7 @@ private fun TvSourceTabRow(
                 SourceTab.TORRENT -> ArkivRed
                 SourceTab.WEB -> ArkivWebViolet
                 SourceTab.MAGIS -> com.arkiv.player.ui.catalog.ArkivMagisBlue
+                SourceTab.DITU -> com.arkiv.player.ui.catalog.ArkivDituOrange
                 SourceTab.ARCHIVE -> ArkivArchiveTeal
             }
             val on = t == selected

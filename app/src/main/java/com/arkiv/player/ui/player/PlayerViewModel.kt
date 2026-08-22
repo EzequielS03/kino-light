@@ -1431,6 +1431,8 @@ class PlayerViewModel(
             // vivo (ver su guard), así que ni currentId llega acá con ese kind. El "siguiente" de
             // un canal en vivo es el zapping (LiveZapping), no esta precarga de series.
             SourceKind.LIVE -> Unit
+            // Ditu: el enlace DASH vence pronto; no tiene sentido preresolver con antelación.
+            SourceKind.DITU -> Unit
         }
     }.onFailure { Log.w(PLAY, "prefetchNext falló: $it") }
 

@@ -1164,7 +1164,7 @@ private fun ResultsContent(
 ) {
     // MAGIS entra en las abiertas por defecto: es la primera sección, y arrancar colapsada la haría
     // parecer vacía justo arriba de todo.
-    var expandedSections by remember { mutableStateOf(setOf("MAGIS", "TORRENT", "WEB", "ARCHIVE")) }
+    var expandedSections by remember { mutableStateOf(setOf("MAGIS", "DITU", "TORRENT", "WEB", "ARCHIVE")) }
     fun toggle(k: String) { expandedSections = if (k in expandedSections) expandedSections - k else expandedSections + k }
     // `rememberSaveable` y no `remember`: al abrir el reproductor esta pantalla se destruye, y con
     // `remember` el origen elegido se perdía — volvías de ver algo por Torrent y la lista estaba
@@ -1179,12 +1179,13 @@ private fun ResultsContent(
     val webs = sources.filter { it is PlaySource.Web || it is PlaySource.WebPack }
     val archives = sources.filterIsInstance<PlaySource.Archive>()
     val magis = sources.filterIsInstance<PlaySource.Magis>()
+    val ditus = sources.filterIsInstance<PlaySource.Ditu>()
     val anyLoading = loadingTorrent || loadingWeb || loadingArchive || loadingMagis
     val counts = countsByTab(sources)
     val loadingOf = mapOf(
         SourceTab.TODO to anyLoading, SourceTab.TORRENT to loadingTorrent,
         SourceTab.WEB to loadingWeb, SourceTab.MAGIS to loadingMagis,
-        SourceTab.ARCHIVE to loadingArchive,
+        SourceTab.DITU to false, SourceTab.ARCHIVE to loadingArchive,
     )
 
     // El hero va a sangre (sin margen lateral) para que el backdrop llegue a los bordes; por eso el
@@ -1210,6 +1211,7 @@ private fun ResultsContent(
             // "Todo" mantiene las secciones colapsables: son la única forma de ver los tres orígenes
             // a la vez sin que uno con 60 resultados entierre a los otros.
             sourceSection(this, "MAGIS", ArkivMagisBlue, magis, loadingMagis, "MAGIS" in expandedSections, { toggle("MAGIS") }, enabled, onPlay, descargaDe)
+            sourceSection(this, "CARACOL", com.arkiv.player.ui.catalog.ArkivDituOrange, ditus, false, "DITU" in expandedSections, { toggle("DITU") }, enabled, onPlay, descargaDe)
             sourceSection(this, "TORRENT", ArkivRed, torrents, loadingTorrent, "TORRENT" in expandedSections, { toggle("TORRENT") }, enabled, onPlay, descargaDe)
             sourceSection(this, "WEB", ArkivWebViolet, webs, loadingWeb, "WEB" in expandedSections, { toggle("WEB") }, enabled, onPlay, descargaDe)
             sourceSection(this, "ARCHIVE", ArkivArchiveTeal, archives, loadingArchive, "ARCHIVE" in expandedSections, { toggle("ARCHIVE") }, enabled, onPlay, descargaDe)
@@ -1219,6 +1221,7 @@ private fun ResultsContent(
                 SourceTab.TORRENT -> torrents
                 SourceTab.WEB -> webs
                 SourceTab.MAGIS -> magis
+                SourceTab.DITU -> ditus
                 else -> archives
             }
             if (shown.isEmpty()) {
@@ -1451,6 +1454,7 @@ private fun SourceTabRow(
                 SourceTab.TORRENT -> ArkivRed
                 SourceTab.WEB -> ArkivWebViolet
                 SourceTab.MAGIS -> ArkivMagisBlue
+                SourceTab.DITU -> com.arkiv.player.ui.catalog.ArkivDituOrange
                 SourceTab.ARCHIVE -> ArkivArchiveTeal
             }
             val on = t == selected
