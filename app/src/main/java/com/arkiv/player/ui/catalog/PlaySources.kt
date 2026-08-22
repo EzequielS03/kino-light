@@ -313,6 +313,7 @@ fun SourceRow(source: PlaySource, enabled: Boolean, descarga: DescargaDeFila? = 
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         MetaChip("Caracol", ArkivDituOrange)
+                        if (r.kind == "series") MetaChip("Serie")
                         if (r.year.isNotBlank()) MetaChip(r.year)
                     }
                 }
