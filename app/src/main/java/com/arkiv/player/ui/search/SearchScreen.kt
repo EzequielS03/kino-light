@@ -971,7 +971,7 @@ private fun LazyGridScope.historialItems(
     if (titles.isNotEmpty()) {
         item(span = { GridItemSpan(maxLineSpan) }) {
             Text(
-                "Seguí buscando",
+                "Títulos recientes",
                 style = MaterialTheme.typography.titleMedium,
                 color = Color.White,
                 modifier = Modifier.padding(top = 16.dp),
