@@ -35,10 +35,12 @@ class TvNowPlayingRepository(
 
     private val active = MutableStateFlow(false)
 
-    // Flag persistente: el usuario paró explícitamente con Stop. Se borra solo cuando el TV
-    // publica null en PocketBase (playerOpen = false), lo que confirma que de verdad paró.
+    // Flag + episodeId del episodio que se descartó con Stop. Se limpia cuando:
+    //   (a) el TV publica null (playerOpen = false), o
+    //   (b) el TV arranca un episodio DIFERENTE al que se paró (el usuario eligió algo nuevo).
     // @Volatile porque clearState() corre en Main y refreshNow() en el pool de coroutines.
     @Volatile private var userStopped: Boolean = prefs.getBoolean(PREF_USER_STOPPED, false)
+    @Volatile private var stoppedEpisodeId: String? = prefs.getString(PREF_STOPPED_EP, null)
 
     fun setActive(value: Boolean) {
         active.value = value
@@ -46,9 +48,10 @@ class TvNowPlayingRepository(
     }
 
     fun clearState() {
-        android.util.Log.d("ArkivRemote", "clearState: stateWas=${_state.value?.nowPlaying?.episodeId}")
+        val epId = _state.value?.nowPlaying?.episodeId
         userStopped = true
-        prefs.edit().putBoolean(PREF_USER_STOPPED, true).apply()
+        stoppedEpisodeId = epId
+        prefs.edit().putBoolean(PREF_USER_STOPPED, true).putString(PREF_STOPPED_EP, epId).apply()
         _state.value = null
     }
 
@@ -89,17 +92,24 @@ class TvNowPlayingRepository(
             _state.value = null
             return
         }
-        // Si el usuario paró explícitamente con Stop, ignorar cualquier actualización del TV hasta
-        // que el TV publique null (playerOpen = false). Cuando vemos null, el TV confirmó que paró
-        // de verdad → limpiar la supresión para que un nuevo episodio futuro vuelva a mostrarse.
-        android.util.Log.d("ArkivRemote", "refreshNow: foto.at=${foto?.at} userStopped=$userStopped state=${_state.value?.nowPlaying?.episodeId}")
+        // Si el usuario paró con Stop, ignorar el episodio que paró. La supresión se levanta cuando:
+        //   (a) el TV publica null → playerOpen=false, el player se cerró de verdad
+        //   (b) el TV arranca un episodio DIFERENTE → el usuario eligió algo nuevo desde el TV
         if (userStopped) {
-            if (foto == null) {
+            val differentEpisode = foto != null && foto.episodeId != stoppedEpisodeId
+            if (foto == null || differentEpisode) {
                 userStopped = false
-                prefs.edit().putBoolean(PREF_USER_STOPPED, false).apply()
+                stoppedEpisodeId = null
+                prefs.edit().putBoolean(PREF_USER_STOPPED, false).remove(PREF_STOPPED_EP).apply()
+                if (!differentEpisode) {
+                    _state.value = null
+                    return
+                }
+                // differentEpisode=true: caer al flujo normal para mostrar el nuevo episodio
+            } else {
+                _state.value = null
+                return
             }
-            _state.value = null
-            return
         }
         // Solo re-sellar receivedAtMs si la foto decodificada cambió de verdad. Si es la MISMA que ya
         // teníamos, el TV dejó de publicar (crasheó, se apagó, perdió red) y NO hay que refrescar el
@@ -114,6 +124,7 @@ class TvNowPlayingRepository(
         const val POLL_MS = 3_000L
 
         private const val PREF_USER_STOPPED = "user_stopped"
+        private const val PREF_STOPPED_EP = "stopped_ep"
 
         /** Antigüedad máxima del `at` del TV para seguir creyendo que hay algo reproduciéndose. */
         const val MAX_AGE_MS = 2 * 60_000L
