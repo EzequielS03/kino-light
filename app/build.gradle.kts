@@ -28,8 +28,8 @@ android {
         // dejarla abierta.
         buildConfigField("String", "ADULT_CODE", "\"${readEnv("ARKIV_ADULT_CODE")}\"")
         buildConfigField("String", "NUC_API_KEY", "\"${readEnv("NUC_API_KEY")}\"")
-        versionCode = 46
-        versionName = "0.9.15"
+        versionCode = 47
+        versionName = "0.9.16"
         // Task 8 (Paso 3): acá vivía `ARKIV_API_KEY`, la última credencial de build que quedaba
         // en el APK -- una constante compilada, igual para todos los aparatos, que cualquiera que
         // abriera el APK podía extraer. Salió del todo: la app se autentica con la credencial POR
