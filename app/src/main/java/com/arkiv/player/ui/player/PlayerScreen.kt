@@ -2055,6 +2055,18 @@ private fun PlayerContent(
                 if (esperandoVideo && !casting) {
                     Text("Reanudando video…", color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.labelMedium)
                 }
+                // El resto de fuentes —magis, ditu, archive, web— no decía NADA mientras cargaba:
+                // solo el círculo girando, que es indistinguible de un cuelgue. Se midió una espera
+                // de 18 s en el Fire Stick (el CDN rechazó dos rangos y el proxy los reintentó) sin
+                // una palabra en pantalla. El texto va solo cuando ningún otro lo cubre, para no
+                // amontonar dos renglones diciendo lo mismo.
+                if (!resolving && !enVivo && !esperandoVideo && !sourceIsTorrent) {
+                    Text(
+                        if (casting) "Cargando en el receptor…" else "Cargando video…",
+                        color = Color.White.copy(alpha = 0.9f),
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
                 if (sourceIsTorrent && !casting) {
                     Text(
                         when {
