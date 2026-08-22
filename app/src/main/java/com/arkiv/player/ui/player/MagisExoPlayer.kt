@@ -104,12 +104,17 @@ internal fun MagisExoPlayer(
         // peor que el mal original: a 236 KB/s de bitrate eso son ~70 MB retenidos, el heap se fue
         // de 107 MB a 142 MB, el GC entró en bucle y la imagen se congelaba cada 15 s como un
         // reloj. 60 s de techo son unos 14 MB, que cubren de sobra el salto más lento medido.
+        // Lo que se acumula ANTES de reanudar tras un corte son 4 s y no 8: con este CDN esos
+        // segundos de más se pagan carísimos. Medido en el Fire Stick con el origen a 36 KB/s —una
+        // sexta parte de lo que pide el video— un rebuffer costó 85 s de espera, porque juntar 8 s
+        // de contenido a ese caudal son casi 2 MB. Con 4 s la espera se parte por la mitad y sigue
+        // habiendo colchón para un bache normal.
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
                 /* minBufferMs = */ 30_000,
                 /* maxBufferMs = */ 60_000,
                 /* bufferForPlaybackMs = */ 3_000,
-                /* bufferForPlaybackAfterRebufferMs = */ 8_000,
+                /* bufferForPlaybackAfterRebufferMs = */ 4_000,
             )
             .setTargetBufferBytes(24 * 1024 * 1024)
             // Manda la duración y no el tamaño: con 8 pistas de audio el techo en bytes se alcanza
