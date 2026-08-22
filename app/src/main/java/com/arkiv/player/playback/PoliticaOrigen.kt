@@ -66,23 +66,38 @@ object PoliticaOrigen {
         ARCHIVE(15_000, intArrayOf(20_000, 45_000, 90_000), 90_000, 400L, true),
 
         /**
-         * 3 s por intento, y el presupuesto ENTERO (respuestas + esperas = 9,65 s) cabe adentro de
-         * los 10 s que tarda el rescate "sin imagen → software" de VlcPlayer en dispararse. Esa es
-         * la invariante que importa: si el reintento llega después del rescate, quien salva la
-         * reproducción es una recarga completa del media —cara, y encima deja el decodificador en
-         * software— en vez de un reintento de 101 ms. Ver PoliticaOrigenTest.
+         * 4 s → 10 s → 20 s. El primer plazo sigue corto a propósito —acá la gracia es volver a
+         * tirar los dados ya, no esperar— pero los siguientes le dan al CDN el tiempo que de verdad
+         * llega a tardar: se ha medido contestando desde 0,2 s hasta 20 s el mismo rango.
          *
-         * El primer plazo arrancó en 2 s, calibrado contra el CDN medido desde el Mac (0,11-0,30 s).
-         * En device resultó CORTO: verificando en el Fire TV, tres cortes seguidos a 2,002 s /
-         * 2,503 s resultaron ser este temporizador, no el CDN — los mismos offsets contestaron 24 de
-         * 24 veces desde el Mac. El camino real (WiFi del Fire Stick) a veces se pasa de 2 s.
+         * Fueron 3 s planos, calibrados para que el presupuesto entero (9,65 s) cupiera dentro de
+         * los 10 s que tarda el rescate "sin imagen → software" de VlcPlayer. Esa invariante MURIÓ
+         * cuando magis pasó a ExoPlayer: ya no hay recarga del media que ganarle por la mano, y lo
+         * que quedaba era un plazo apretado estrangulando peticiones sanas. Medido en el Fire Stick
+         * el 2026-08-22: dos rangos "rechazados por el origen" a los 3,002 s y 3,004 s —o sea este
+         * temporizador, clavado, no el CDN— que costaron 18 s de espera antes de la primera imagen.
+         * Es la tercera vez que este número se queda corto (2 s → 3 s → acá).
          *
-         * Las esperas entre intentos son cortas (50 ms → 150 ms → 450 ms) y eso es a propósito: acá
-         * la gracia es volver a tirar los dados ya. El escalón largo de archive existe para no
-         * castigar a un nodo saturado que contesta 503; este CDN no nos frena, el que limita es el
-         * portal y eso lo maneja el gateway.
+         * Las esperas ENTRE intentos siguen cortas (50 ms → 150 ms → 450 ms): el escalón largo de
+         * archive existe para no castigar a un nodo saturado que contesta 503, y este CDN no nos
+         * frena — el que limita es el portal, y de eso se encarga el gateway.
          */
-        MAGIS(5_000, intArrayOf(3_000, 3_000, 3_000), 30_000, 50L, false),
+        MAGIS(5_000, intArrayOf(4_000, 10_000, 20_000), 30_000, 50L, false),
+
+        /**
+         * El mismo CDN, pero para la SONDA DE DURACIÓN, que juega otro juego.
+         *
+         * Compartían perfil —"una sola fuente de verdad"— y tenía sentido mientras los dos querían
+         * lo mismo. Ya no: el proxy está sirviendo la reproducción y le conviene insistir, mientras
+         * que la sonda BLOQUEA EL ARRANQUE (cada segundo suyo es un segundo de spinner) y lo que
+         * busca es una duración que, si no llega, solo cuesta una barra sin total. Al alargar los
+         * plazos de [MAGIS] su peor caso pasó de 12,1 s a 28,1 s, o sea se salía del presupuesto y
+         * se cancelaba: la barra se quedaba sin duración justo en el caso que sí tenía arreglo.
+         *
+         * Así que se queda con los 3 s planos de siempre, que es lo que cabe en su presupuesto (ver
+         * TsDurationProbeTest). Contra este CDN abandonar rápido y volver a tirar los dados gana.
+         */
+        MAGIS_SONDA(5_000, intArrayOf(3_000, 3_000, 3_000), 30_000, 50L, false),
     }
 
     /** Intentos contra el origen antes de rendirse. */

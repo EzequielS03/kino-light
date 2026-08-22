@@ -27,11 +27,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.media3.common.C
+import androidx.media3.common.Format
+import androidx.media3.common.Player
+import androidx.media3.common.TrackGroup
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
 import com.arkiv.player.AppGraph
 import com.arkiv.player.data.subtitles.SubtitleTrack
 import com.arkiv.player.playback.LangPromotion
 import com.arkiv.player.playback.LangTokens
+import com.arkiv.player.playback.SubtitleDecision
 import com.arkiv.player.playback.TrackLang
+import com.arkiv.player.playback.TrackSelector
 import com.arkiv.player.playback.VlcPlayer
 import com.arkiv.player.ui.settings.etiqueta
 import com.arkiv.player.ui.theme.ArkivRed
@@ -77,6 +85,27 @@ internal class EstadoDePistas(
     var curAudio by mutableIntStateOf(-1)
         private set
 
+    // Referencia al ExoPlayer activo (null → modo VLC). Se actualiza desde PlayerScreen.
+    private var exoRef: Player? = null
+    // TrackGroups detectados por ExoPlayer para poder seleccionar con setOverrideForType.
+    private var exoAudioGroups: List<TrackGroup> = emptyList()
+    private var exoSubGroups: List<TrackGroup> = emptyList()
+
+    /**
+     * Los .srt que se bajaron de OpenSubtitles a mitad de reproducción, en modo ExoPlayer.
+     *
+     * VLC los engancha en caliente con `addSubtitleSlave` y no hay más que hacer; ExoPlayer no
+     * tiene equivalente —sus subtítulos externos son parte del MediaItem— así que hay que rehacer
+     * el ítem con la lista nueva. Eso NO se hace acá: acá solo se acumula el archivo y quien
+     * reproduce (ver MagisExoPlayer) reacciona al cambio recargando por su cuenta, que es el único
+     * sitio que sabe en qué posición estaba para no perderla.
+     */
+    var subsExternosExo by mutableStateOf<List<Uri>>(emptyList())
+        private set
+
+    /** Ya se aplicó el idioma preferido en esta reproducción. Ver [autoElegirIdiomaExo]. */
+    private var yaAutoElegiExo = false
+
     /** Hay un subtítulo embebido puesto. Lo consulta el ícono de CC de los controles. */
     var subsOn by mutableStateOf(false)
         private set
@@ -104,8 +133,152 @@ internal class EstadoDePistas(
         pickerAbierto = false
     }
 
+    /** Vincula el ExoPlayer activo para poder hacer track selection. Null = de vuelta a VLC. */
+    fun setExoPlayer(player: Player?) {
+        exoRef = player
+        // Cada reproducción vuelve a decidir el idioma: lo que se eligió a mano en la anterior no
+        // se arrastra a la siguiente (ver [autoElegirIdiomaExo]).
+        yaAutoElegiExo = false
+        if (player == null) {
+            exoAudioGroups = emptyList()
+            exoSubGroups = emptyList()
+            subsExternosExo = emptyList()
+        }
+    }
+
+    /**
+     * Popula audio y subtítulo desde las pistas que reporta ExoPlayer vía onTracksChanged.
+     * Llama a esto desde el callback onTracksChanged de MagisExoPlayer.
+     */
+    fun actualizarPistasExo(tracks: Tracks) {
+        val audioGrupos = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+        val subGrupos   = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+        exoAudioGroups = audioGrupos.map { it.mediaTrackGroup }
+        exoSubGroups   = subGrupos.map { it.mediaTrackGroup }
+
+        // Usar el índice como id (para setOverrideForType).
+        audioTracks = audioGrupos.mapIndexed { i, group ->
+            i to etiquetaDePistaExo(group.getTrackFormat(0), "A${i + 1}")
+        }
+        spuTracks = subGrupos.mapIndexed { i, group ->
+            i to etiquetaDePistaExo(group.getTrackFormat(0), "S${i + 1}")
+        }
+        curAudio = audioGrupos.indexOfFirst { it.isSelected }.coerceAtLeast(-1)
+        curSpu   = subGrupos.indexOfFirst   { it.isSelected }.coerceAtLeast(-1)
+        android.util.Log.i("PistasExo", "pistas actualizadas: audio=${audioTracks.size} subs=${spuTracks.size} curAudio=$curAudio curSpu=$curSpu")
+        autoElegirIdiomaExo()
+    }
+
+    /**
+     * Aplica tu idioma preferido de audio y subtítulo, una sola vez por reproducción.
+     *
+     * Es la misma decisión que toma VlcPlayer —[TrackSelector] para el audio, [SubtitleDecision]
+     * para el subtítulo, que los apaga si el audio ya se entiende— pero ExoPlayer no pasaba por
+     * ahí: elegía por su cuenta y la preferencia quedaba sin aplicar. Con magis se nota porque sus
+     * ficheros traen ocho audios.
+     *
+     * Solo la primera vez: `onTracksChanged` se dispara también al cambiar de pista, y volver a
+     * decidir ahí pisaría lo que acabas de elegir a mano. El flag se limpia en [setExoPlayer], que
+     * es por donde entra cada reproducción nueva.
+     */
+    private fun autoElegirIdiomaExo() {
+        if (yaAutoElegiExo) return
+        if (audioTracks.isEmpty() && spuTracks.isEmpty()) return
+        yaAutoElegiExo = true
+
+        val prefs = graph.subtitlePrefs.prefs.value
+        // NO se usan elegirAudio/elegirSpu: esos promueven el idioma elegido en tus preferencias, y
+        // eso solo lo puede hacer una elección TUYA. Que el automático se auto-confirmara dejaría
+        // la preferencia clavada en lo que hubiera elegido la primera vez.
+        //
+        // Los nombres ya vienen traducidos ("Español (genérico)", "Japonés"), así que se clasifican
+        // como texto libre y no como código ISO.
+        TrackSelector.select(audioTracks, prefs.audioLangs, requireChoice = true)
+            ?.takeIf { it != curAudio }
+            ?.let { elegido ->
+                android.util.Log.i("PistasExo", "auto-audio: ${nombreDe(audioTracks, elegido)} (era ${nombreDe(audioTracks, curAudio)})")
+                aplicarAudioExo(elegido)
+            }
+
+        val spu = SubtitleDecision.decide(
+            audioTrackName = nombreDe(audioTracks, curAudio),
+            spuTracks = spuTracks,
+            prefs = prefs,
+            spuClassifier = LangTokens::classify,
+        )
+        if (spu != curSpu) {
+            android.util.Log.i("PistasExo", "auto-subtítulo: ${if (spu < 0) "apagados" else nombreDe(spuTracks, spu)}")
+            aplicarSpuExo(spu)
+        }
+    }
+
+    /** Pone la pista en ExoPlayer y actualiza el estado, sin tocar tus preferencias de idioma. */
+    private fun aplicarAudioExo(id: Int) {
+        val exo = exoRef ?: return
+        exoAudioGroups.getOrNull(id)?.let { group ->
+            exo.trackSelectionParameters = exo.trackSelectionParameters
+                .buildUpon()
+                .setOverrideForType(TrackSelectionOverride(group, 0))
+                .build()
+            curAudio = id
+        }
+    }
+
+    private fun aplicarSpuExo(id: Int) {
+        val exo = exoRef ?: return
+        if (id < 0) {
+            exo.trackSelectionParameters = exo.trackSelectionParameters
+                .buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                .build()
+            curSpu = -1
+            return
+        }
+        exoSubGroups.getOrNull(id)?.let { group ->
+            exo.trackSelectionParameters = exo.trackSelectionParameters
+                .buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                .setOverrideForType(TrackSelectionOverride(group, 0))
+                .build()
+            curSpu = id
+        }
+    }
+
+    /**
+     * Cómo se llama una pista de ExoPlayer en el menú.
+     *
+     * Se prueba en tres pasos porque ninguno solo alcanza:
+     *  1. La etiqueta que trae el propio archivo, si la trae — nadie describe la pista mejor.
+     *  2. [LangTokens], que es el que sabe distinguir latino de castellano. Esa distinción importa
+     *     y `Locale` no la hace: para él todo es "español".
+     *  3. [java.util.Locale], para lo que a [TrackLang] se le sale del mapa. Ese enum se escribió
+     *     para torrents en español —solo contempla latino, castellano, inglés y japonés— y magis
+     *     sirve ocho idiomas: sin este paso, portugués, alemán, francés e italiano salían todos
+     *     como "Desconocido" en la misma lista.
+     *
+     * Ojo con el código que manda ExoPlayer: es ISO 639-1, así que el japonés viene como `ja` y la
+     * tabla de [LangTokens] solo tiene `jp` y `jpn`. Lo cubre el paso 3.
+     */
+    private fun etiquetaDePistaExo(fmt: Format, respaldo: String): String {
+        fmt.label?.takeIf { it.isNotBlank() }?.let { return it }
+        val codigo = fmt.language?.trim()?.takeIf { it.isNotEmpty() } ?: return respaldo
+        LangTokens.classifyCode(codigo)
+            .takeIf { it != TrackLang.UNKNOWN }
+            ?.etiqueta()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { return it }
+        // `forLanguageTag` se traga cualquier cosa y devuelve vacío si no la entiende, así que el
+        // respaldo sigue haciendo falta.
+        val nombre = java.util.Locale.forLanguageTag(codigo)
+            .getDisplayLanguage(java.util.Locale("es"))
+        return nombre.takeIf { it.isNotBlank() && !it.equals(codigo, ignoreCase = true) }
+            ?.replaceFirstChar { it.uppercase() }
+            ?: codigo.uppercase()
+    }
+
     /** Lee las pistas embebidas (audio + subtítulos) del archivo, vía el player vivo. */
     fun refrescar() {
+        if (exoRef != null) return  // ExoPlayer: las pistas llegan por actualizarPistasExo, no hay que sondear.
         spuTracks = vlc.vlcSpuTracks()
         audioTracks = vlc.vlcAudioTracks()
         curSpu = vlc.currentSpuTrack()
@@ -113,20 +286,56 @@ internal class EstadoDePistas(
     }
 
     /**
-     * Sincroniza [subsOn] con lo que tiene puesto libVLC. Lo llama el sondeo de reproducción de la
+     * Sincroniza [subsOn] con lo que tiene puesto. Lo llama el sondeo de reproducción de la
      * pantalla, que es quien sabe cada cuánto conviene mirar.
      */
     fun sincronizarSubsOn() {
-        subsOn = vlc.currentSpuTrack() >= 0
+        subsOn = if (exoRef != null) curSpu >= 0 else vlc.currentSpuTrack() >= 0
     }
 
     fun elegirAudio(id: Int) {
+        val exo = exoRef
+        if (exo != null) {
+            val group = exoAudioGroups.getOrNull(id)
+            if (group != null) {
+                exo.trackSelectionParameters = exo.trackSelectionParameters
+                    .buildUpon()
+                    .setOverrideForType(TrackSelectionOverride(group, 0))
+                    .build()
+            }
+            curAudio = id
+            promoverIdioma(nombreDe(audioTracks, id) ?: return, audioTracks.nombresReales(), esAudio = true)
+            return
+        }
         vlc.setVlcAudioTrack(id)
         curAudio = id
         promoverIdioma(nombreDe(audioTracks, id) ?: return, audioTracks.nombresReales(), esAudio = true)
     }
 
     fun elegirSpu(id: Int) {
+        val exo = exoRef
+        if (exo != null) {
+            if (id < 0) {
+                exo.trackSelectionParameters = exo.trackSelectionParameters
+                    .buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                    .build()
+                curSpu = -1
+                subtituloElegido = null
+            } else {
+                val group = exoSubGroups.getOrNull(id)
+                if (group != null) {
+                    exo.trackSelectionParameters = exo.trackSelectionParameters
+                        .buildUpon()
+                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                        .setOverrideForType(TrackSelectionOverride(group, 0))
+                        .build()
+                }
+                curSpu = id
+                promoverIdioma(nombreDe(spuTracks, id) ?: return, spuTracks.nombresReales(), esAudio = false)
+            }
+            return
+        }
         vlc.setVlcSpuTrack(id)
         curSpu = id
         if (id < 0) {
@@ -167,11 +376,18 @@ internal class EstadoDePistas(
                 null
             }
             if (file != null) {
-                vlc.addSubtitleSlave(Uri.fromFile(file))
+                val uri = Uri.fromFile(file)
+                // En ExoPlayer el subtítulo externo va dentro del MediaItem: se acumula acá y quien
+                // reproduce recarga conservando la posición (ver [subsExternosExo]).
+                if (exoRef != null) {
+                    if (uri !in subsExternosExo) subsExternosExo = subsExternosExo + uri
+                } else {
+                    vlc.addSubtitleSlave(uri)
+                }
                 subtituloElegido = sub
             } else if (sub == null) {
                 // "Ninguno": elección real del usuario, y por eso corta la selección automática.
-                vlc.setVlcSpuTrack(-1)
+                elegirSpu(-1)
                 subtituloElegido = null
             } else {
                 // La descarga falló (red). NO se toca la pista: apagarla acá quedaría registrado como

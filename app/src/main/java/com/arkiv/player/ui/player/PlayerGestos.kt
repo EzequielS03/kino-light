@@ -11,6 +11,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import com.arkiv.player.data.SettingsStore
+import androidx.media3.common.Player
 import com.arkiv.player.playback.VlcPlayer
 import kotlinx.coroutines.delay
 
@@ -40,7 +41,7 @@ private const val VELOCIDAD_ACELERADA = 2f
  * ENCIMA de la reproducción sin cambiar qué se reproduce.
  *
  * Los tres ajustes comparten [hud] —el cartelito del centro— y por eso viajan juntos; cada uno por
- * su lado no tendría dónde poner ese estado. Velocidad y zoom van contra el VlcPlayer local y no
+ * su lado no tendría dónde poner ese estado. Velocidad y zoom van contra el reproductor local y no
  * se persisten (son de esta sesión); el modo noche sí, en [SettingsStore], porque sobrevive a
  * cerrar la app.
  *
@@ -55,6 +56,42 @@ internal class EstadoDeGestos(
 ) {
     private var indiceVelocidad by mutableIntStateOf(1) // arranca en 1×
     private var indiceZoom by mutableIntStateOf(0) // arranca en "Ajustar"
+
+    /**
+     * El ExoPlayer al mando, o null cuando reproduce VLC. Mismo trato que en [EstadoDePistas]: la
+     * pantalla lo enchufa al crear el player y la velocidad va a uno o a otro según quién esté
+     * sonando. Sin esto los gestos le hablaban siempre a VLC y en magis no hacían nada.
+     */
+    private var exoRef: Player? = null
+
+    fun setExoPlayer(player: Player?) {
+        exoRef = player
+    }
+
+    /** La velocidad va al que esté reproduciendo. */
+    private fun aplicarVelocidad(rate: Float) {
+        val exo = exoRef
+        if (exo != null) exo.setPlaybackSpeed(rate) else vlc.setRate(rate)
+    }
+
+    private fun velocidadActual(): Float = exoRef?.playbackParameters?.speed ?: vlc.currentRate()
+
+    /**
+     * Volumen 0..100 del que esté sonando. En ExoPlayer es un factor 0..1, así que se convierte —y
+     * se redondea, para que subir y bajar un paso vuelva al mismo número en vez de derivar.
+     *
+     * Sin esto el gesto le movía el volumen a un VlcPlayer que en magis y ditu está callado: el HUD
+     * se movía en pantalla y no cambiaba nada.
+     */
+    fun volumenActual(): Int {
+        val exo = exoRef ?: return vlc.vlcVolume()
+        return Math.round(exo.volume * 100f).coerceIn(0, 100)
+    }
+
+    fun ponerVolumen(v: Int) {
+        val exo = exoRef
+        if (exo != null) exo.volume = (v / 100f).coerceIn(0f, 1f) else vlc.setVlcVolume(v)
+    }
 
     /** Cartel central del gesto en curso (velocidad, seek, volumen, brillo), o null. */
     var hud by mutableStateOf<String?>(null)
@@ -80,16 +117,27 @@ internal class EstadoDeGestos(
     val etiquetaDeZoom: String get() = ETIQUETAS_DE_ZOOM[indiceZoom]
     val zoomEsAjustar: Boolean get() = indiceZoom == 0
 
+    /**
+     * El zoom que tiene que aplicar quien dibuja el video, o 1 si no hay que tocar nada.
+     *
+     * Solo lo mira ExoPlayer: libVLC escala por su cuenta con `setScale` —es una operación del
+     * propio motor de video— y ahí esto no se usa. ExoPlayer no tiene equivalente, así que su
+     * superficie se agranda con un `scale` de Compose, que da el mismo recorte: el contenedor no
+     * cambia de tamaño y lo que se sale queda fuera.
+     */
+    val zoomParaExo: Float get() = if (exoRef != null) PASOS_DE_ZOOM[indiceZoom].let { if (it <= 0f) 1f else it } else 1f
+
     /** Velocidad y zoom son cíclicos: cada toque pasa al siguiente paso y vuelve al principio. */
     fun siguienteVelocidad() {
         indiceVelocidad = (indiceVelocidad + 1) % PASOS_DE_VELOCIDAD.size
-        vlc.setRate(PASOS_DE_VELOCIDAD[indiceVelocidad])
+        aplicarVelocidad(PASOS_DE_VELOCIDAD[indiceVelocidad])
         alInteractuar()
     }
 
     fun siguienteZoom() {
         indiceZoom = (indiceZoom + 1) % PASOS_DE_ZOOM.size
-        vlc.setScale(PASOS_DE_ZOOM[indiceZoom])
+        // Con ExoPlayer no hay a quién decírselo: lo lee [zoomParaExo] quien dibuja el video.
+        if (exoRef == null) vlc.setScale(PASOS_DE_ZOOM[indiceZoom])
         alInteractuar()
     }
 
@@ -117,8 +165,8 @@ internal class EstadoDeGestos(
 
     /** Long-press: guarda la velocidad de antes para poder devolverla al soltar. */
     fun empezarAAcelerar() {
-        velocidadAntesDeAcelerar = vlc.currentRate()
-        vlc.setRate(VELOCIDAD_ACELERADA)
+        velocidadAntesDeAcelerar = velocidadActual()
+        aplicarVelocidad(VELOCIDAD_ACELERADA)
         acelerando = true
         hud = "⏩ ${VELOCIDAD_ACELERADA.toInt()}×"
     }
@@ -127,7 +175,7 @@ internal class EstadoDeGestos(
     fun terminarDeAcelerar(): Boolean {
         if (!acelerando) return false
         acelerando = false
-        vlc.setRate(velocidadAntesDeAcelerar)
+        aplicarVelocidad(velocidadAntesDeAcelerar)
         hud = null
         return true
     }

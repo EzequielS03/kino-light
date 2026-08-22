@@ -55,7 +55,9 @@ object TsDurationProbe {
      * muerta, y las dos de más (el reintento contestaba en ~1 s). Fuente única:
      * [PoliticaOrigen.Perfil.MAGIS].
      */
-    private val PERFIL = PoliticaOrigen.Perfil.MAGIS
+    // Perfil propio y no el de la reproducción: ver [PoliticaOrigen.Perfil.MAGIS_SONDA]. Acá lo que
+    // se juega es un spinner, no que la película se corte, así que se abandona antes.
+    private val PERFIL = PoliticaOrigen.Perfil.MAGIS_SONDA
     private val INTENTOS = PoliticaOrigen.intentos(PERFIL)
 
     fun timeoutLecturaMs(intento: Int): Int = PoliticaOrigen.respuestaMs(intento, PERFIL)

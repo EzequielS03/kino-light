@@ -50,6 +50,24 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
     }
 
     /**
+     * Qué rango pidió cada conexión abierta AHORA, y desde cuándo. Es puro diagnóstico y existe por
+     * una pregunta concreta: cuando el origen rechaza, ¿es porque le estamos pidiendo varias cosas
+     * a la vez? Contar conexiones no alcanza para responderla — hace falta ver QUÉ se está pidiendo
+     * en paralelo y desde hace cuánto, que es lo que distingue "el CDN nos limita por concurrencia"
+     * de "esta petición concreta salió mal".
+     */
+    private val rangosEnVuelo = ConcurrentHashMap<String, Long>()
+
+    /** Los rangos abiertos ahora mismo, con su antigüedad, para meterlos en una línea de log. */
+    private fun fotoDeRangosEnVuelo(): String {
+        val ahora = System.currentTimeMillis()
+        if (rangosEnVuelo.isEmpty()) return "ninguno"
+        return rangosEnVuelo.entries
+            .sortedBy { it.value }
+            .joinToString(" | ") { (r, t) -> "$r hace ${ahora - t}ms" }
+    }
+
+    /**
      * Las conexiones al origen abiertas AHORA, para poder abandonarlas cuando la red cambia debajo.
      * A diferencia de [vivasPorClave] —que solo cuenta, para diagnóstico— esto guarda con qué
      * cerrarlas. Ver [abandonarConexiones] y [CambioDeRed].
@@ -924,19 +942,43 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                 // resuelto por el `disconnect()` del finally de passthrough, que corre también
                 // cuando el reproductor corta de golpe ("broken pipe").
                 val vivas = claveUnica?.let { vivasPorClave.merge(it, 1) { a, b -> a + b } } ?: 1
+                val etiquetaRango = "${rango ?: "(todo)"}#${intento + 1}"
                 android.util.Log.w(
                     "ArchiveCacheProxy",
-                    "abro ${rango ?: "(todo)"} → conexiones vivas de este archivo: $vivas",
+                    "abro ${rango ?: "(todo)"} → conexiones vivas de este archivo: $vivas · " +
+                        "en paralelo: ${fotoDeRangosEnVuelo()}",
                 )
-                val code = codigoConFechaLimite(conn, PoliticaOrigen.respuestaMs(intento, perfil))
+                rangosEnVuelo[etiquetaRango] = System.currentTimeMillis()
+                val plazoMs = PoliticaOrigen.respuestaMs(intento, perfil)
+                val t0Respuesta = System.currentTimeMillis()
+                val code = codigoConFechaLimite(conn, plazoMs)
+                val tardoMs = System.currentTimeMillis() - t0Respuesta
                 anotarCodigo(origin, code)
                 ultimoCodigo = code
                 if (code == HttpURLConnection.HTTP_OK || code == HttpURLConnection.HTTP_PARTIAL) {
+                    // El tiempo hasta la CABECERA, que es lo que decide si el plazo alcanza. Sin
+                    // esto solo se veía el total del cuerpo, que mezcla la espera del CDN con lo
+                    // que se tarda en bajar los bytes: dos cosas distintas.
+                    rangosEnVuelo.remove(etiquetaRango)
+                    android.util.Log.w(
+                        "ArchiveCacheProxy",
+                        "origen contestó ${rango ?: "(todo)"} con $code en ${tardoMs}ms " +
+                            "(plazo ${plazoMs}ms, intento ${intento + 1}, $vivas conexión(es) a la vez)",
+                    )
                     return conn to cerrable
                 }
+                // `code=-1` + un tiempo pegado al plazo = venció NUESTRO temporizador, no el CDN.
+                // La distinción importa y no se veía: se leía "origen rechazó" y parecía culpa del
+                // origen cuando era el plazo estrangulando una petición que iba a contestar.
+                val vencioElPlazo = code == -1 && tardoMs >= plazoMs - 150
+                rangosEnVuelo.remove(etiquetaRango)
                 android.util.Log.w(
                     "ArchiveCacheProxy",
-                    "origen rechazó ${rango ?: "(todo)"} con $code (intento ${intento + 1}/$intentos)",
+                    "origen rechazó ${rango ?: "(todo)"} con $code en ${tardoMs}ms " +
+                        "(plazo ${plazoMs}ms, intento ${intento + 1}/$intentos, " +
+                        "$vivas conexión(es) a la vez)" +
+                        (if (vencioElPlazo) " ← VENCIÓ EL PLAZO, no el CDN" else "") +
+                        " · en paralelo: ${fotoDeRangosEnVuelo()}",
                 )
                 claveUnica?.let { soltarViva(it) }
                 conexionesVivas.soltar(cerrable)
@@ -1393,6 +1435,15 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
      * reproductor esperando bytes que no van a llegar, sin error visible — el mismo cuidado que ya
      * documenta [ColaCaliente]. Si el reproductor quiere más, lo pide con otro rango, que es
      * exactamente lo que hace al bisecar.
+     *
+     * OJO con quién pregunta. Eso último vale para libVLC, que bisecta y vuelve a pedir; ExoPlayer
+     * NO: pide `bytes=N-` —de ahí al final— y un cuerpo más corto se lo come como fin de los datos.
+     * Su ProgressiveMediaPeriod da la carga por terminada y deja de pedir, se acaba lo que tenía en
+     * cola —se midieron 512000 frames de audio, 10,7 s exactos, justo el tramo servido—, para el
+     * AudioTrack y detiene los renderers sin declarar BUFFERING: la imagen se congela y el reloj
+     * sigue corriendo solo. Por eso un rango abierto se sirve de memoria y SE SIGUE con la red en la
+     * misma respuesta, en vez de cortar. Medido: los tramos servidos de red nunca colgaron; los de
+     * memoria colgaban siempre.
      */
     private fun servirDeVentana(
         v: VentanaDeSalto,
@@ -1400,33 +1451,83 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
         total: Long,
         out: java.io.OutputStream,
         rangeHeader: String?,
+        origin: String,
+        extraHeaders: Map<String, String>,
+        claveUnica: String?,
+        perfil: PoliticaOrigen.Perfil,
     ): Boolean {
         val desde = (pedido - v.inicio).toInt()
         val trozo = runCatching { v.buffer.porcion(desde) }.getOrNull() ?: return false
         if (trozo.isEmpty()) return false
-        val fin = pedido + trozo.size - 1
+
+        // Rango abierto (`bytes=N-`): hay que cubrir hasta el final del archivo. Se anuncia ese
+        // largo y después de la memoria se sigue con la red, para no cortarle el cuerpo a un
+        // cliente que no va a volver a pedir.
+        val abierto = RangeHeader.parse(rangeHeader)?.let { it.end == null } ?: false
+        val hasta = if (abierto) total - 1 else pedido + trozo.size - 1
+        val largo = hasta - pedido + 1
+
         // DESDE ACÁ NO SE PUEDE VOLVER. En cuanto la cabecera sale por el socket, la respuesta está
         // comprometida: devolver false haría que el passthrough escribiera OTRA respuesta HTTP
         // encima de esta, por la misma conexión. Se descubrió por test —un sondeo servía bien y el
         // de al lado no, sin patrón— y el motivo era justo ese: el reproductor corta a mitad del
         // cuerpo (lee lo que quiere y se va), el `write` fallaba y esto caía al origen habiendo ya
         // contestado. Que el cliente se vaya no es un fallo: es lo normal cuando bisecta.
-        runCatching {
+        val salioLaCabecera = runCatching {
             out.write(
                 (
                     "HTTP/1.1 206 Partial Content\r\nAccept-Ranges: bytes\r\n" +
-                        "Content-Length: ${trozo.size}\r\n" +
-                        "Content-Range: bytes $pedido-$fin/$total\r\n" +
+                        "Content-Length: $largo\r\n" +
+                        "Content-Range: bytes $pedido-$hasta/$total\r\n" +
                         "Content-Type: application/octet-stream\r\n\r\n"
                     ).toByteArray(),
             )
             out.write(trozo)
             out.flush()
-        }
+        }.isSuccess
         android.util.Log.w(
             "ArchiveCacheProxy",
-            "ventana de salto: $rangeHeader servido de memoria (${trozo.size / 1024}KB, sin red)",
+            "ventana de salto: $rangeHeader servido de memoria (${trozo.size / 1024}KB, sin red)" +
+                if (abierto) " · sigo con la red desde ${pedido + trozo.size}" else "",
         )
+        if (!abierto || !salioLaCabecera) return true
+
+        // El resto del cuerpo, desde donde se acabó la memoria. Si esto falla no se puede hacer
+        // nada más: la cabecera ya salió y el cliente verá un cuerpo corto, igual que antes de este
+        // cambio. Se devuelve true siempre para que nadie escriba otra respuesta encima.
+        val restante = largo - trozo.size
+        if (restante <= 0L) return true
+        val (conn, cerrable) = abrirEnOrigen(
+            origin,
+            "bytes=${pedido + trozo.size}-$hasta",
+            extraHeaders,
+            claveUnica,
+            perfil,
+        ) ?: return true
+        var escritos = 0L
+        val t0 = System.currentTimeMillis()
+        try {
+            conn.inputStream.use { ins ->
+                val buf = ByteArray(64 * 1024)
+                while (true) {
+                    val n = ins.read(buf); if (n < 0) break
+                    if (runCatching { out.write(buf, 0, n) }.isFailure) break
+                    escritos += n
+                }
+            }
+            runCatching { out.flush() }
+        } catch (_: Throwable) {
+            // El cliente cortó o el origen se cayó: lo dice el log de abajo y no hay más que hacer.
+        } finally {
+            claveUnica?.let { soltarViva(it) }
+            conexionesVivas.soltar(cerrable)
+            runCatching { conn.disconnect() }
+            android.util.Log.w(
+                "ArchiveCacheProxy",
+                "ventana de salto: cola desde la red ${escritos / 1024}KB de ${restante / 1024}KB " +
+                    "en ${System.currentTimeMillis() - t0}ms",
+            )
+        }
         return true
     }
 
@@ -1589,7 +1690,11 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                 // exactamente la carrera que hace que un salto se sirva bien y el de al lado no.
                 val lista = saltos[claveUnica]
                 val v = if (lista != null) synchronized(lista) { lista.firstOrNull { it.cubre(pedido) } } else null
-                if (v != null && servirDeVentana(v, pedido, totalConocido, out, rangeHeader)) return true
+                if (v != null && servirDeVentana(
+                        v, pedido, totalConocido, out, rangeHeader,
+                        origin, extraHeaders, claveUnica, perfil,
+                    )
+                ) return true
             }
             val guardada = colas[claveUnica]
             val total = totales[origin] ?: 0L

@@ -117,16 +117,32 @@ class PoliticaOrigenTest {
         )
     }
 
-    @Test fun magis_agota_sus_intentos_antes_de_que_el_rescate_de_video_se_dispare() {
-        // ESTA es la invariante que faltaba. El rescate "sin imagen → paso a software" de VlcPlayer
-        // salta a los 10 s (SIN_VIDEO_MS) y recarga el media ENTERO. Si el reintento del proxy llega
-        // después, quien rescata la reproducción es la recarga —cara: 10 s de espera, todo de nuevo
-        // y encima en decodificación por software— en vez del reintento, que cuesta 101 ms.
+    @Test fun magis_escala_sus_plazos_porque_el_CDN_es_erratico() {
+        // Esto ANTES exigía que el presupuesto entero cupiera en 10 s, para ganarle por la mano al
+        // rescate "sin imagen → software" de VlcPlayer. Esa invariante MURIÓ cuando magis pasó a
+        // ExoPlayer: ya no hay recarga del media a la que adelantarse, y el plazo apretado solo
+        // servía para estrangular peticiones sanas. Medido en el Fire Stick el 2026-08-22: dos
+        // rangos dados por "rechazados por el origen" a los 3,002 s y 3,004 s —el temporizador,
+        // clavado, no el CDN— y 18 s de espera antes de la primera imagen.
+        //
+        // Lo que se exige ahora es lo contrario: que los plazos CREZCAN, porque el mismo rango que
+        // contesta en 164 ms a veces se pasa de 4 s sin nada más en juego.
         val perfil = PoliticaOrigen.Perfil.MAGIS
-        val total = (0 until PoliticaOrigen.intentos(perfil)).sumOf {
-            PoliticaOrigen.respuestaMs(it, perfil).toLong() + PoliticaOrigen.esperaMs(it, perfil)
-        }
-        assertTrue("presupuesto de magis = ${total}ms, tiene que caber en los 10 s", total < 10_000)
+        val plazos = (0 until PoliticaOrigen.intentos(perfil)).map { PoliticaOrigen.respuestaMs(it, perfil) }
+        assertTrue(
+            "los plazos de magis tienen que ir a más, y son $plazos",
+            plazos.zipWithNext().all { (a, b) -> b > a },
+        )
+    }
+
+    @Test fun la_sonda_de_duracion_se_rinde_antes_que_la_reproduccion() {
+        // Son el mismo CDN pero no el mismo juego: la sonda bloquea el arranque —cada segundo suyo
+        // es spinner— y lo peor que pasa si falla es una barra sin duración. La reproducción, en
+        // cambio, se corta. Por eso la sonda abandona antes; si algún día vuelven a igualarse, el
+        // presupuesto de TsDurationProbe se desborda (ver su test).
+        val reproduccion = PoliticaOrigen.respuestaMs(1, PoliticaOrigen.Perfil.MAGIS)
+        val sonda = PoliticaOrigen.respuestaMs(1, PoliticaOrigen.Perfil.MAGIS_SONDA)
+        assertTrue("sonda=${sonda}ms tiene que ser menor que reproducción=${reproduccion}ms", sonda < reproduccion)
     }
 
     // Esperar la RESPUESTA y aguantar un hueco leyendo el CUERPO son dos cosas distintas, y meterlas
