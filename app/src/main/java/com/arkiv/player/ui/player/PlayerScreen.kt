@@ -515,6 +515,7 @@ private fun PlayerContent(
      */
     fun posicionEsDeEstaPantalla(): Boolean =
         dituDrmItem != null ||
+        magisItem != null ||
         loaded || runCatching { controller.currentMediaItem?.mediaId }.getOrNull() == episodeId
 
     fun contentDurationMs(): Long = CastProgress.contentDuration(
@@ -1083,6 +1084,7 @@ private fun PlayerContent(
      * navegar a la ruta del capítulo nuevo, que es lo que re-arranca la resolución de la fuente.
      */
     fun alTerminarElCapitulo() {
+        android.util.Log.w("ArkivPlay", "alTerminarElCapitulo · pos=${espejo.posicionMs} dur=${espejo.duracionMs} enVivo=$enVivo finAtendido=$finAtendido ep=$episodeId")
         // Un directo no termina: su EndReached es el stream que se cortó, y ahí no hay "siguiente
         // capítulo" que valga (el único siguiente del modo vivo es el zapping). Reabrirlo NO se
         // engancha acá: este camino depende de que el STATE_ENDED cruce el MediaController, y se
@@ -1152,6 +1154,11 @@ private fun PlayerContent(
     val isMagis = magisItem != null   // MagisExoPlayer maneja sus propios errores.
     val isExo = isDitu || isMagis     // Cualquier ExoPlayer activo (vs VLC).
     DisposableEffect(activePlayer) {
+        // Snapshot del estado ExoPlayer en el momento en que se monta el listener.
+        // Si isExo=true cuando el controller toma el control, STATE_ENDED del VLC no debe
+        // disparar alTerminarElCapitulo (el ExoPlayer gestiona su propio fin).
+        val exoActivoAlMontar = isExo
+        android.util.Log.w("ArkivPlay", "DisposableEffect montado · activePlayer=${activePlayer::class.simpleName} isExo=$exoActivoAlMontar ep=$episodeId")
         espejo.sincronizarTransporte(
             buffereando = activePlayer.playbackState == Player.STATE_BUFFERING,
             reproduciendo = activePlayer.isPlaying,
@@ -1179,7 +1186,12 @@ private fun PlayerContent(
 
             override fun onPlaybackStateChanged(state: Int) {
                 espejo.cambioElBuffering(state == Player.STATE_BUFFERING)
-                if (state == Player.STATE_ENDED) alTerminarElCapitulo()
+                if (state == Player.STATE_ENDED) {
+                    android.util.Log.w("ArkivPlay", "STATE_ENDED · activePlayer=${activePlayer::class.simpleName} exoActivoAlMontar=$exoActivoAlMontar pos=${espejo.posicionMs} dur=${espejo.duracionMs} ep=$episodeId")
+                    // No disparar auto-avance si había un ExoPlayer activo cuando se montó este
+                    // listener: el STATE_ENDED pertenece al VLC que no tenía media, no al fin real.
+                    if (!exoActivoAlMontar) alTerminarElCapitulo()
+                }
             }
 
             override fun onIsPlayingChanged(playing: Boolean) {
@@ -1844,9 +1856,14 @@ private fun PlayerContent(
                 mediaUrl = mItem.mediaUrl,
                 espejo = espejo,
                 startPositionMs = mItem.startPositionMs,
-                onPlayerReady = { player -> magisPlayer = player },
+                subtitleConfigs = (webExtras?.subtitles ?: emptyList()).toExoSubtitleConfigs(),
+                onPlayerReady = { player ->
+                    magisPlayer = player
+                    estadoPistas.setExoPlayer(player)
+                },
                 onTextureViewReady = { tv -> magisTextureView = tv },
                 onError = { msg -> vm.onMagisExoError(msg) },
+                onTracksChanged = { tracks -> estadoPistas.actualizarPistasExo(tracks) },
             )
         }
 

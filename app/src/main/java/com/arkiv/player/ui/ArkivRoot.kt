@@ -144,7 +144,8 @@ fun ArkivRoot(
     // Reproductor unificado: archive y torrent van a la misma ruta; la pantalla resuelve la fuente
     // por el prefijo "torrent:" del id.
     fun goToPlayer(id: String) {
-        navController.navigate("player/${Uri.encode(id)}")
+        android.util.Log.w("ArkivNav", "goToPlayer id=$id ruta=${navController.currentBackStackEntry?.destination?.route}")
+        navController.navigate("player/${Uri.encode(id)}") { launchSingleTop = true }
     }
     fun playEpisode(id: String) {
         if (tvAvailable) playChoice = id else goToPlayer(id)

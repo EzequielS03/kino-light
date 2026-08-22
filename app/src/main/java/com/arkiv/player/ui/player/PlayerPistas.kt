@@ -27,6 +27,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.media3.common.C
+import androidx.media3.common.Player
+import androidx.media3.common.TrackGroup
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
 import com.arkiv.player.AppGraph
 import com.arkiv.player.data.subtitles.SubtitleTrack
 import com.arkiv.player.playback.LangPromotion
@@ -77,6 +82,12 @@ internal class EstadoDePistas(
     var curAudio by mutableIntStateOf(-1)
         private set
 
+    // Referencia al ExoPlayer activo (null → modo VLC). Se actualiza desde PlayerScreen.
+    private var exoRef: Player? = null
+    // TrackGroups detectados por ExoPlayer para poder seleccionar con setOverrideForType.
+    private var exoAudioGroups: List<TrackGroup> = emptyList()
+    private var exoSubGroups: List<TrackGroup> = emptyList()
+
     /** Hay un subtítulo embebido puesto. Lo consulta el ícono de CC de los controles. */
     var subsOn by mutableStateOf(false)
         private set
@@ -104,8 +115,52 @@ internal class EstadoDePistas(
         pickerAbierto = false
     }
 
+    /** Vincula el ExoPlayer activo para poder hacer track selection. Null = de vuelta a VLC. */
+    fun setExoPlayer(player: Player?) {
+        exoRef = player
+        if (player == null) {
+            exoAudioGroups = emptyList()
+            exoSubGroups = emptyList()
+        }
+    }
+
+    /**
+     * Popula audio y subtítulo desde las pistas que reporta ExoPlayer vía onTracksChanged.
+     * Llama a esto desde el callback onTracksChanged de MagisExoPlayer.
+     */
+    fun actualizarPistasExo(tracks: Tracks) {
+        val audioGrupos = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+        val subGrupos   = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+        exoAudioGroups = audioGrupos.map { it.mediaTrackGroup }
+        exoSubGroups   = subGrupos.map { it.mediaTrackGroup }
+
+        // Usar el índice como id (para setOverrideForType).
+        audioTracks = audioGrupos.mapIndexed { i, group ->
+            val fmt = group.getTrackFormat(0)
+            val lang = fmt.language?.uppercase() ?: "A${i + 1}"
+            val etiqueta = when {
+                !fmt.label.isNullOrBlank() -> fmt.label!!
+                else -> LangTokens.classify(lang).etiqueta().ifBlank { lang }
+            }
+            i to etiqueta
+        }
+        spuTracks = subGrupos.mapIndexed { i, group ->
+            val fmt = group.getTrackFormat(0)
+            val lang = fmt.language?.uppercase() ?: "S${i + 1}"
+            val etiqueta = when {
+                !fmt.label.isNullOrBlank() -> fmt.label!!
+                else -> LangTokens.classifyCode(lang).etiqueta().ifBlank { lang }
+            }
+            i to etiqueta
+        }
+        curAudio = audioGrupos.indexOfFirst { it.isSelected }.coerceAtLeast(-1)
+        curSpu   = subGrupos.indexOfFirst   { it.isSelected }.coerceAtLeast(-1)
+        android.util.Log.i("PistasExo", "pistas actualizadas: audio=${audioTracks.size} subs=${spuTracks.size} curAudio=$curAudio curSpu=$curSpu")
+    }
+
     /** Lee las pistas embebidas (audio + subtítulos) del archivo, vía el player vivo. */
     fun refrescar() {
+        if (exoRef != null) return  // ExoPlayer: las pistas llegan por actualizarPistasExo, no hay que sondear.
         spuTracks = vlc.vlcSpuTracks()
         audioTracks = vlc.vlcAudioTracks()
         curSpu = vlc.currentSpuTrack()
@@ -113,20 +168,56 @@ internal class EstadoDePistas(
     }
 
     /**
-     * Sincroniza [subsOn] con lo que tiene puesto libVLC. Lo llama el sondeo de reproducción de la
+     * Sincroniza [subsOn] con lo que tiene puesto. Lo llama el sondeo de reproducción de la
      * pantalla, que es quien sabe cada cuánto conviene mirar.
      */
     fun sincronizarSubsOn() {
-        subsOn = vlc.currentSpuTrack() >= 0
+        subsOn = if (exoRef != null) curSpu >= 0 else vlc.currentSpuTrack() >= 0
     }
 
     fun elegirAudio(id: Int) {
+        val exo = exoRef
+        if (exo != null) {
+            val group = exoAudioGroups.getOrNull(id)
+            if (group != null) {
+                exo.trackSelectionParameters = exo.trackSelectionParameters
+                    .buildUpon()
+                    .setOverrideForType(TrackSelectionOverride(group, 0))
+                    .build()
+            }
+            curAudio = id
+            promoverIdioma(nombreDe(audioTracks, id) ?: return, audioTracks.nombresReales(), esAudio = true)
+            return
+        }
         vlc.setVlcAudioTrack(id)
         curAudio = id
         promoverIdioma(nombreDe(audioTracks, id) ?: return, audioTracks.nombresReales(), esAudio = true)
     }
 
     fun elegirSpu(id: Int) {
+        val exo = exoRef
+        if (exo != null) {
+            if (id < 0) {
+                exo.trackSelectionParameters = exo.trackSelectionParameters
+                    .buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                    .build()
+                curSpu = -1
+                subtituloElegido = null
+            } else {
+                val group = exoSubGroups.getOrNull(id)
+                if (group != null) {
+                    exo.trackSelectionParameters = exo.trackSelectionParameters
+                        .buildUpon()
+                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                        .setOverrideForType(TrackSelectionOverride(group, 0))
+                        .build()
+                }
+                curSpu = id
+                promoverIdioma(nombreDe(spuTracks, id) ?: return, spuTracks.nombresReales(), esAudio = false)
+            }
+            return
+        }
         vlc.setVlcSpuTrack(id)
         curSpu = id
         if (id < 0) {

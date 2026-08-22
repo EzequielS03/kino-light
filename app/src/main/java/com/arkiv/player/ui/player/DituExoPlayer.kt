@@ -5,10 +5,16 @@ import android.view.TextureView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -17,6 +23,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -34,9 +41,8 @@ import kotlinx.coroutines.delay
  * Arkiv funcionen igual que con VLC. Expone el [ExoPlayer] vía [onPlayerReady]
  * para que PlayerScreen lo use como `activePlayer` (play/pause/seek).
  *
- * Usa [TextureView] directamente (sin pasar por PlayerView) para que
- * [onTextureViewReady] exponga la superficie y `capturarFrame` funcione igual
- * que con VLC — la misma ruta que usará la migración futura de Magis.
+ * Usa [TextureView] directamente para que [onTextureViewReady] exponga la superficie y
+ * `capturarFrame` funcione igual que con VLC.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
@@ -53,12 +59,10 @@ internal fun DituExoPlayer(
     val context = LocalContext.current
 
     val exoPlayer = remember(mediaUrl, licenseUrl) {
-        // Ditu/Mediastream exige User-Agent de okhttp y el header "restful: yes".
         val httpFactory = DefaultHttpDataSource.Factory()
             .setUserAgent("okhttp/4.12.0")
             .setDefaultRequestProperties(mapOf("restful" to "yes"))
 
-        // La cookie playback_token autoriza la petición de licencia Widevine.
         val drmCallback = HttpMediaDrmCallback(licenseUrl, httpFactory).also { cb ->
             licenseHeaders.forEach { (k, v) -> cb.setKeyRequestProperty(k, v) }
         }
@@ -80,8 +84,9 @@ internal fun DituExoPlayer(
             }
     }
 
-    // TextureView para captura de frames, creado una sola vez por instancia de ExoPlayer.
     val textureView = remember(exoPlayer) { TextureView(context) }
+    // Relación de aspecto del video: 0 = desconocida todavía (spinner / inicio).
+    var videoAspectRatio by remember(exoPlayer) { mutableFloatStateOf(0f) }
 
     DisposableEffect(exoPlayer) {
         exoPlayer.setVideoTextureView(textureView)
@@ -94,18 +99,21 @@ internal fun DituExoPlayer(
         )
 
         val listener = object : Player.Listener {
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                if (videoSize.height > 0) {
+                    videoAspectRatio = videoSize.width.toFloat() *
+                        videoSize.pixelWidthHeightRatio / videoSize.height.toFloat()
+                }
+            }
             override fun onPlaybackStateChanged(state: Int) {
                 espejo.cambioElBuffering(state == Player.STATE_BUFFERING)
             }
-
             override fun onIsPlayingChanged(playing: Boolean) {
                 espejo.cambioElPlaying(playing)
             }
-
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                 espejo.cambioLaIntencion(playWhenReady)
             }
-
             override fun onPlayerError(error: PlaybackException) {
                 val msg = error.message ?: "Error de reproducción (${error.errorCode})"
                 android.util.Log.e("DituExo", "ExoPlayer error: $msg", error)
@@ -125,7 +133,6 @@ internal fun DituExoPlayer(
         }
     }
 
-    // Alimenta posición/duración cada 500 ms al mismo ritmo que el sondeo de VLC.
     LaunchedEffect(exoPlayer) {
         while (true) {
             delay(500)
@@ -137,9 +144,12 @@ internal fun DituExoPlayer(
         }
     }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
         AndroidView(
-            modifier = Modifier.fillMaxSize(),
+            modifier = if (videoAspectRatio > 0f)
+                Modifier.aspectRatio(videoAspectRatio)
+            else
+                Modifier.fillMaxSize(),
             factory = { textureView },
         )
     }
