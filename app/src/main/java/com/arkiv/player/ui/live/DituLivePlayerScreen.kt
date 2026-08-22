@@ -90,6 +90,7 @@ fun DituLivePlayerScreen(
                 licenseUrl = p.drmLicenseUrl,
                 licenseHeaders = p.drmLicenseHeaders,
                 espejo = espejo,
+                onError = { msg -> errorMsg = msg },
             )
         }
 

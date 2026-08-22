@@ -69,10 +69,16 @@ internal fun DituExoPlayer(
 ) {
     val context = LocalContext.current
 
-    val exoPlayer = remember(mediaUrl, licenseUrl) {
+    val exoPlayer = remember(mediaUrl, licenseUrl, licenseHeaders) {
+        // licenseHeaders (ej. Cookie: playback_token=…) van a TODAS las solicitudes:
+        // manifiesto DASH, segmentos y licencia DRM.  Sin esto el CDN devuelve HTML.
+        val streamHeaders = buildMap {
+            put("restful", "yes")
+            putAll(licenseHeaders)
+        }
         val httpFactory = DefaultHttpDataSource.Factory()
             .setUserAgent("okhttp/4.12.0")
-            .setDefaultRequestProperties(mapOf("restful" to "yes"))
+            .setDefaultRequestProperties(streamHeaders)
 
         val drmCallback = HttpMediaDrmCallback(licenseUrl, httpFactory).also { cb ->
             licenseHeaders.forEach { (k, v) -> cb.setKeyRequestProperty(k, v) }
