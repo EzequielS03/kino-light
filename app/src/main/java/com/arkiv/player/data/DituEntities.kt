@@ -32,7 +32,7 @@ object DituEntities {
             identifier = itemId,
             title = title.ifBlank { "Caracol" },
             description = null,
-            thumbnailUrl = posterUrl,
+            thumbnailUrl = posterUrl.ifBlank { existente?.thumbnailUrl.orEmpty() },
             addedAt = existente?.addedAt ?: ahora,
             source = "ditu",
             torrentData = ref,
@@ -72,20 +72,22 @@ object DituEntities {
         orderIndex: Int,
         ahora: Long,
         existente: ItemEntity?,
+        tmdbId: Int? = null,
+        tituloCanonico: String? = null,
     ): Pair<ItemEntity, EpisodeEntity> {
         val itemId = itemIdDeSerie(bundleId)
         val item = ItemEntity(
             identifier = itemId,
             title = serieTitle.ifBlank { "Caracol" },
             description = null,
-            thumbnailUrl = posterUrl,
+            thumbnailUrl = posterUrl.ifBlank { existente?.thumbnailUrl.orEmpty() },
             addedAt = existente?.addedAt ?: ahora,
             source = "ditu",
             torrentData = null,
             episodiosVistosEnLista = existente?.episodiosVistosEnLista,
-            tmdbId = existente?.tmdbId,
-            tipo = "series",
-            tituloCanonico = existente?.tituloCanonico,
+            tmdbId = tmdbId?.takeIf { it > 0 } ?: existente?.tmdbId,
+            tipo = "tv",
+            tituloCanonico = tituloCanonico?.takeIf { it.isNotBlank() } ?: existente?.tituloCanonico,
         )
         val section = "T${epSeason.toString().padStart(2, '0')}"
         val ep = EpisodeEntity(

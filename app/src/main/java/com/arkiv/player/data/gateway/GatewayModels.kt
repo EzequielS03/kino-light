@@ -59,6 +59,8 @@ data class GatewayPlayable(
      *  Existe por Ditu (Caracol Streaming): su stream es MPEG-DASH con Widevine y ExoPlayer
      *  la negocia automáticamente vía MediaItem.DrmConfiguration. */
     val drmLicenseUrl: String = "",
+    /** Headers adicionales para la petición de licencia DRM (p.ej. Cookie: playback_token=…). */
+    val drmLicenseHeaders: Map<String, String> = emptyMap(),
 )
 
 data class GatewaySubtitle(val lang: String, val url: String, val format: String = "")
@@ -93,6 +95,8 @@ data class GatewaySerie(
     val tmdbId: Int,
     val seasonNumber: Int,
     val titulo: String = "",
+    val posterUrl: String = "",
+    val backdropUrl: String = "",
 )
 
 /**
@@ -125,9 +129,28 @@ fun parseEpisodesResponse(json: String): Pair<List<GatewayEpisode>, GatewaySerie
             tmdbId = s.optInt("tmdb_id"),
             seasonNumber = s.optInt("season_number"),
             titulo = s.optString("title"),
+            posterUrl = s.optString("poster_url"),
+            backdropUrl = s.optString("backdrop_url"),
         )
     }
     return episodios to serie
+}
+
+/** Una serie del catálogo de Caracol Streaming (Ditu). Viene de `/v1/ditu/catalog`. */
+data class DituSerieItem(
+    val contentId: String,
+    val title: String,
+    val posterUrl: String,
+    val ref: String,
+) {
+    /** Convierte el ítem del catálogo en un GatewayResult compatible con MagisSeasonDialog. */
+    fun toGatewayResult() = GatewayResult(
+        source = "ditu",
+        title = title,
+        ref = ref,
+        kind = "series",
+        extra = mapOf("content_id" to contentId, "poster" to posterUrl),
+    )
 }
 
 sealed interface SearchEvent {

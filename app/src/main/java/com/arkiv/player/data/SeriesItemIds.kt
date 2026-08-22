@@ -35,6 +35,9 @@ object SeriesItemIds {
     /** Prefijo del identifier local de un anime torrent (ver [ArkivRepository.addAnimeEpisode]). */
     const val TORRENT_ANIME_PREFIX = "torrent:anime:"
 
+    /** Prefijo del identifier local de una serie de Ditu (ver [ArkivRepository.saveDituSeriesEpisode]). */
+    const val DITU_SERIE_PREFIX = "ditu:serie:"
+
     /** Un id de IMDb bien formado: es lo único que se acepta como primera preferencia. */
     private val IMDB_SHAPE = Regex("""^tt\d+$""")
 
@@ -47,6 +50,7 @@ object SeriesItemIds {
     fun seriesIdOrNull(identifier: String): String? = when {
         identifier.startsWith(WEB_SERIES_PREFIX) -> identifier.removePrefix(WEB_SERIES_PREFIX)
         identifier.startsWith(TORRENT_SERIES_PREFIX) -> identifier.removePrefix(TORRENT_SERIES_PREFIX)
+        identifier.startsWith(DITU_SERIE_PREFIX) -> identifier.removePrefix(DITU_SERIE_PREFIX)
         else -> null
     }
 

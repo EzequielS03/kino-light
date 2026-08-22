@@ -146,6 +146,9 @@ class ArkivApiClient(
             videoCodec = o.optString("video_codec"),
             container = o.optString("container"),
             drmLicenseUrl = o.optString("drm_license_url"),
+            drmLicenseHeaders = o.optJSONObject("drm_license_headers")?.let { h ->
+                h.keys().asSequence().associateWith { h.optString(it) }
+            } ?: emptyMap(),
             fallbackUrl = o.optJSONObject("fallback")?.optString("url"),
             subtitles = o.optJSONArray("subtitles")?.let { arr ->
                 (0 until arr.length()).mapNotNull { i ->
@@ -168,8 +171,11 @@ class ArkivApiClient(
         withContext(Dispatchers.IO) {
             val cuerpo = JSONObject().put("ref", ref).toString()
                 .toRequestBody("application/json".toMediaType())
+            android.util.Log.w("ArkivGw", "episodes: enviando peticion url=${baseUrl()}/v1/episodes")
             val body = ejecutar(pedido("${baseUrl()}/v1/episodes").post(cuerpo).build())
+            android.util.Log.w("ArkivGw", "episodes: body recibido ${body.length} bytes preview=${body.take(80)}")
             val crudos = JSONObject(body).optJSONArray("episodes")
+            android.util.Log.w("ArkivGw", "episodes: crudos=${crudos?.length() ?: "NULL"}")
             if (crudos == null) {
                 // Respondió 200 pero sin `episodes`. La UI lo mostraría como una lista vacía, que se
                 // ve igual que "esta temporada no tiene capítulos" — y no es lo mismo.
@@ -312,6 +318,24 @@ class ArkivApiClient(
             )
         }
         BusquedaPorFrase(interpretado, items)
+    }
+
+    suspend fun dituCatalog(): List<DituSerieItem> = withContext(Dispatchers.IO) {
+        val arr = JSONObject(ejecutar(pedido("${baseUrl()}/v1/ditu/catalog").get().build()))
+            .optJSONArray("series") ?: return@withContext emptyList()
+        (0 until arr.length()).mapNotNull { i ->
+            arr.optJSONObject(i)?.let { o ->
+                val ref = o.optString("ref")
+                val cid = o.optString("content_id")
+                if (ref.isBlank() || cid.isBlank()) null
+                else DituSerieItem(
+                    contentId = cid,
+                    title = o.optString("title"),
+                    posterUrl = o.optString("poster_url"),
+                    ref = ref,
+                )
+            }
+        }
     }
 
     suspend fun sources(): List<GatewaySource> = withContext(Dispatchers.IO) {

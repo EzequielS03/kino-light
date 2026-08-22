@@ -230,20 +230,58 @@ class SearchPlayback(private val graph: AppGraph) {
         serie: com.arkiv.player.data.gateway.GatewayResult,
         ep: com.arkiv.player.data.gateway.GatewayEpisode,
         epIndex: Int,
+        serieInfo: com.arkiv.player.data.gateway.GatewaySerie? = null,
+        posterOverride: String = "",
+        backdropOverride: String = "",
     ): PlaybackResult {
         val bundleId = serie.extra["content_id"].orEmpty()
         val epId = graph.repository.addDituEpisode(
             bundleId = bundleId,
             serieTitle = serie.title,
-            posterUrl = serie.extra["poster"].orEmpty(),
+            posterUrl = serie.extra["poster"].orEmpty().ifBlank { serieInfo?.posterUrl.orEmpty().ifBlank { posterOverride } },
+            backdropUrl = serie.extra["backdrop"].orEmpty().ifBlank { serieInfo?.backdropUrl.orEmpty().ifBlank { backdropOverride } },
             epRef = ep.ref,
             epTitle = ep.title,
             epNumber = ep.number,
-            epSeason = 1,
+            epSeason = serieInfo?.seasonNumber ?: 1,
             orderIndex = epIndex,
+            tmdbId = serieInfo?.tmdbId?.takeIf { it > 0 },
+            tituloCanonico = serieInfo?.titulo?.takeIf { it.isNotBlank() },
         )
         return if (epId != null) PlaybackResult.Ready(epId)
         else PlaybackResult.Failed("No se pudo preparar el episodio de Caracol.")
+    }
+
+    /**
+     * Guarda en biblioteca la selección de capítulos de una serie de Ditu.
+     * Los refs son estables (IDs de Caracol), así que se pueden persistir sin problema
+     * y el gateway re-resuelve una URL fresca en cada reproducción.
+     */
+    suspend fun saveDituSeason(
+        serieResult: com.arkiv.player.data.gateway.GatewayResult,
+        elegidos: List<com.arkiv.player.data.gateway.GatewayEpisode>,
+        serieInfo: com.arkiv.player.data.gateway.GatewaySerie?,
+        posterOverride: String = "",
+        backdropOverride: String = "",
+    ) {
+        val bundleId = serieResult.extra["content_id"].orEmpty()
+        if (bundleId.isBlank()) return
+        graph.repository.addDituSeason(
+            bundleId = bundleId,
+            serieTitle = serieResult.title,
+            posterUrl = serieResult.extra["poster"].orEmpty().ifBlank { serieInfo?.posterUrl.orEmpty().ifBlank { posterOverride } },
+            backdropUrl = serieResult.extra["backdrop"].orEmpty().ifBlank { serieInfo?.backdropUrl.orEmpty().ifBlank { backdropOverride } },
+            seriesRef = serieResult.ref,
+            capitulos = elegidos.map {
+                com.arkiv.player.data.CapituloDeTemporada(
+                    number = it.number, title = it.title, ref = it.ref,
+                    still = it.still, tmdbTitle = it.tmdbTitle, overview = it.overview,
+                )
+            },
+            tmdbId = serieInfo?.tmdbId?.takeIf { it > 0 },
+            tituloCanonico = serieInfo?.titulo?.takeIf { it.isNotBlank() },
+            seasonNumber = serieInfo?.seasonNumber ?: 1,
+        )
     }
 
     /**

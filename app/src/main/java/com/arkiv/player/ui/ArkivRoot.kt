@@ -75,6 +75,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.arkiv.player.ui.add.AddScreen
 import com.arkiv.player.ui.catalog.AnimeShowDetailScreen
+import com.arkiv.player.ui.catalog.CaracolScreen
 import com.arkiv.player.ui.catalog.CatalogDetailScreen
 import com.arkiv.player.ui.catalog.CineCatalogScreen
 import com.arkiv.player.ui.catalog.CineDetailScreen
@@ -112,6 +113,7 @@ private val TABS = listOf(
     Tab("library", "Biblioteca") { Icon(Icons.Default.VideoLibrary, contentDescription = "Biblioteca") },
     Tab("live", "En vivo") { Icon(Icons.Default.LiveTv, contentDescription = "En vivo") },
     Tab("catalog", "Magis") { Icon(Icons.Default.PlayCircle, contentDescription = "Magis") },
+    Tab("caracol", "Caracol") { Icon(Icons.Default.LiveTv, contentDescription = "Caracol") },
     Tab("settings", "Ajustes") { Icon(Icons.Default.Settings, contentDescription = "Ajustes") },
 )
 
@@ -420,6 +422,12 @@ fun ArkivRoot(
                     onOpen = { navController.navigate("cine/${it.type}/${it.id}") },
                     onOpenAnime = { navController.navigate("catalog_anime/$it") },
                     contentPadding = padding,
+                )
+            }
+            composable("caracol") {
+                CaracolScreen(
+                    contentPadding = padding,
+                    onPlay = { playEpisode(it) },
                 )
             }
             composable(

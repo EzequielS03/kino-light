@@ -92,13 +92,18 @@ fun MagisSeasonDialog(
             "temporada: pido capitulos titulo=${season.title} tipo=${season.extra["program_type"]} " +
                 "esperados=${season.extra["episode_count"]} kind=${season.kind} ref=${season.ref.take(24)}…",
         )
-        runCatching { client.episodesConSerie(season.ref) }
-            .onSuccess { (caps, s) -> capitulos = caps; serie = s }
-            .onFailure {
-                // El motivo REAL, que hasta ahora se tragaba el runCatching y no llegaba a ningún lado.
-                android.util.Log.w("ArkivGw", "temporada: fallo ${it.javaClass.simpleName}: ${it.message}", it)
-                error = "No se pudieron cargar los capítulos."
-            }
+        try {
+            val (caps, s) = client.episodesConSerie(season.ref)
+            android.util.Log.w("ArkivGw", "temporada: ok caps=${caps.size}")
+            capitulos = caps
+            serie = s
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            android.util.Log.w("ArkivGw", "temporada: cancelada (CancellationException) ${e.message}")
+            throw e
+        } catch (e: Throwable) {
+            android.util.Log.w("ArkivGw", "temporada: fallo ${e.javaClass.simpleName}: ${e.message}", e)
+            error = "No se pudieron cargar los capítulos."
+        }
     }
 
     val esperados = season.extra["episode_count"]?.toIntOrNull() ?: 0

@@ -1372,6 +1372,9 @@ class ArkivRepository(
         epNumber: Int,
         epSeason: Int,
         orderIndex: Int,
+        tmdbId: Int? = null,
+        tituloCanonico: String? = null,
+        backdropUrl: String = "",
     ): String? {
         if (epRef.isBlank()) return null
         val itemId = DituEntities.itemIdDeSerie(bundleId)
@@ -1380,10 +1383,54 @@ class ArkivRepository(
             bundleId = bundleId, serieTitle = serieTitle, posterUrl = posterUrl,
             epRef = epRef, epTitle = epTitle, epNumber = epNumber, epSeason = epSeason,
             orderIndex = orderIndex, ahora = clock(), existente = existing,
+            tmdbId = tmdbId, tituloCanonico = tituloCanonico,
         )
         itemDao.upsertEpisodes(listOf(ep))
-        if (existing == null) itemDao.upsertItem(item)
+        if (existing == null || (tmdbId != null && tmdbId > 0 && existing.tmdbId == null)) {
+            itemDao.upsertItem(item)
+        }
+        if (backdropUrl.isNotBlank()) guardarBackdropDeMagis(itemId, backdropUrl)
         return ep.id
+    }
+
+    /**
+     * Guarda una temporada completa de Ditu en la biblioteca.
+     * Devuelve un mapa de número de episodio → episodeId, igual que [addMagisSeason].
+     */
+    suspend fun addDituSeason(
+        bundleId: String,
+        serieTitle: String,
+        posterUrl: String,
+        backdropUrl: String = "",
+        seriesRef: String,
+        capitulos: List<CapituloDeTemporada>,
+        tmdbId: Int? = null,
+        tituloCanonico: String? = null,
+        seasonNumber: Int = 1,
+    ): Map<Int, String> {
+        if (bundleId.isBlank() || capitulos.isEmpty()) return emptyMap()
+        val itemId = DituEntities.itemIdDeSerie(bundleId)
+        val existing = itemDao.getItem(itemId)
+        val ahora = clock()
+        val episodios = capitulos.map { cap ->
+            DituEntities.buildEpisodio(
+                bundleId = bundleId, serieTitle = serieTitle, posterUrl = posterUrl,
+                epRef = cap.ref, epTitle = cap.title.ifBlank { "Episodio ${cap.number}" },
+                epNumber = cap.number, epSeason = seasonNumber,
+                orderIndex = cap.number - 1, ahora = ahora, existente = existing,
+                tmdbId = tmdbId, tituloCanonico = tituloCanonico,
+            ).second
+        }
+        val item = DituEntities.buildEpisodio(
+            bundleId = bundleId, serieTitle = serieTitle, posterUrl = posterUrl,
+            epRef = seriesRef, epTitle = "", epNumber = 1, epSeason = seasonNumber,
+            orderIndex = 0, ahora = ahora, existente = existing,
+            tmdbId = tmdbId, tituloCanonico = tituloCanonico,
+        ).first
+        itemDao.upsertItem(item)
+        itemDao.upsertEpisodes(episodios)
+        if (backdropUrl.isNotBlank()) guardarBackdropDeMagis(itemId, backdropUrl)
+        return episodios.mapNotNull { ep -> ep.episode?.let { it to ep.id } }.toMap()
     }
 
     /**

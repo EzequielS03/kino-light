@@ -331,6 +331,9 @@ private fun PlayerContent(
         },
     )
     val playlist by vm.playlist.collectAsStateWithLifecycle()
+    val dituDrmItem by vm.dituDrmItem.collectAsStateWithLifecycle()
+    // ExoPlayer hoisted para que `activePlayer` lo incluya y los controles de Arkiv lo comanden.
+    var dituPlayer by remember { mutableStateOf<Player?>(null) }
     val generacionVivo by vm.generacionVivo.collectAsStateWithLifecycle()
     val cortesEnVivo by vlc.cortesEnVivo.collectAsStateWithLifecycle()
     val loadError by vm.error.collectAsStateWithLifecycle()
@@ -475,7 +478,11 @@ private fun PlayerContent(
     // El player que estamos manejando ahora mismo: el del Chromecast mientras haya sesión, el
     // local si no. Ambos implementan Player, así que los controles no necesitan saber cuál es.
     // El `?: controller` cubre el caso sin Google Play Services (castContext y castPlayer nulos).
-    val activePlayer: Player = if (casting) castPlayer ?: controller else controller
+    val activePlayer: Player = when {
+        casting -> castPlayer ?: controller
+        dituDrmItem != null && dituPlayer != null -> dituPlayer!!
+        else -> controller
+    }
 
     /**
      * Posición y duración DEL CONTENIDO, que casteando no son las que reporta el receptor.
@@ -501,6 +508,7 @@ private fun PlayerContent(
      * posición es correcta desde el primer frame y esconderla sería el parpadeo contrario).
      */
     fun posicionEsDeEstaPantalla(): Boolean =
+        dituDrmItem != null ||
         loaded || runCatching { controller.currentMediaItem?.mediaId }.getOrNull() == episodeId
 
     fun contentDurationMs(): Long = CastProgress.contentDuration(
@@ -1118,6 +1126,7 @@ private fun PlayerContent(
 
     // Índice/buffering/estado del transporte. Sigue al player activo: al conectar o desconectar
     // el cast, el efecto se relanza solo y el listener se re-engancha al que corresponda.
+    val isDitu = dituDrmItem != null  // DituExoPlayer maneja sus propios errores; evitar doble-disparo.
     DisposableEffect(activePlayer) {
         espejo.sincronizarTransporte(
             buffereando = activePlayer.playbackState == Player.STATE_BUFFERING,
@@ -1164,6 +1173,7 @@ private fun PlayerContent(
             // El ViewModel decide qué hacer con esto: hay fallos que se reparan solos (el 404 de un
             // archivo renombrado en archive.org) y otros que solo se pueden contar.
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                if (isDitu) return  // DituExoPlayer.onError ya llamó a vm.onDituExoError
                 val id = playlistRef.value?.items
                     ?.getOrNull(controller.currentMediaItemIndex)?.episodeId ?: episodeId
                 android.util.Log.w("ArkivPlay", "onPlayerError episodeId=$id → ${error.message}")
@@ -1762,6 +1772,21 @@ private fun PlayerContent(
             onRelease = { vlc.detachVideo("onRelease#$pantallaId") },
         )
 
+        // Contenido Widevine de Ditu: ExoPlayer cubre la pantalla de VLC (que queda en negro debajo).
+        // El espejo y onPlayerReady conectan ExoPlayer a los controles de Arkiv sin modificarlos.
+        val drmItem = dituDrmItem
+        if (drmItem != null) {
+            DituExoPlayer(
+                mediaUrl = drmItem.mediaUrl,
+                licenseUrl = drmItem.drmLicenseUrl,
+                licenseHeaders = drmItem.drmLicenseHeaders,
+                espejo = espejo,
+                startPositionMs = 0L,
+                onPlayerReady = { player -> dituPlayer = player },
+                onError = { msg -> vm.onDituExoError(msg) },
+            )
+        }
+
         // MODO NOCHE: velo negro ENCIMA del video y DEBAJO de los controles, a propósito — así los
         // controles se siguen leyendo a brillo normal, que es justo cuando hacen falta de noche.
         // Sin modificadores de gesto: sin ellos no es blanco de hit-testing, así que la capa de
@@ -1914,7 +1939,7 @@ private fun PlayerContent(
         // `esperandoVideo` también se anula casteando: espera a que VLC recupere su salida de video
         // local (hasta 15s tras volver del fondo), que casteando no importa ni va a llegar.
         if (
-            loadError == null && estadoDlna.activo == null &&
+            loadError == null && estadoDlna.activo == null && dituDrmItem == null &&
             hayQueMostrarElSpinner(
                 sinPlaylist = playlist == null,
                 buffereando = espejo.buffereando,

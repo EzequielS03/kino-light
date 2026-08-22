@@ -79,6 +79,8 @@ data class PlayerData(
     /** URL del servidor de licencias Widevine; "" = sin DRM. Solo Ditu lo usa por ahora.
      *  ExoPlayer la recibe vía MediaItem.DrmConfiguration y negocia Widevine automáticamente. */
     val drmLicenseUrl: String = "",
+    /** Headers adicionales para la petición de licencia DRM (p.ej. Cookie: playback_token=…). */
+    val drmLicenseHeaders: Map<String, String> = emptyMap(),
 )
 
 /**
@@ -196,6 +198,10 @@ class PlayerViewModel(
     private val _playlist = MutableStateFlow<PlaylistData?>(null)
     val playlist: StateFlow<PlaylistData?> = _playlist.asStateFlow()
 
+    /** Ítem de Ditu con Widevine DRM — lo reproduce ExoPlayer directamente, sin pasar por VLC. */
+    private val _dituDrmItem = MutableStateFlow<PlayerData?>(null)
+    val dituDrmItem: StateFlow<PlayerData?> = _dituDrmItem.asStateFlow()
+
     /** Error de resolución (torrent sin peers, .torrent ilegible, etc.) para que la pantalla lo muestre. */
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
@@ -294,6 +300,7 @@ class PlayerViewModel(
                 runCatching { repo.marcarEnCurso(episodeId) }
             }
             _error.value = null
+            _dituDrmItem.value = null
             errorDeReproduccion = false
             // Si está guardado en el dispositivo, gana sobre cualquier streaming. Va ANTES de
             // ramificar por fuente: da igual de dónde vino el archivo, ya está acá.
@@ -644,6 +651,10 @@ class PlayerViewModel(
      * guardado apunta a la nada para siempre. Refrescar la metadata y volver a ubicar el capítulo
      * lo devuelve a la vida sin que nadie tenga que reimportar el ítem a mano.
      */
+    fun onDituExoError(message: String) {
+        _error.value = "Caracol: $message"
+    }
+
     fun onPlaybackFailed(episodeId: String) {
         viewModelScope.launch {
             // Todo lo que se escriba de acá para abajo describe un tropiezo del player, no una
@@ -1139,24 +1150,27 @@ class PlayerViewModel(
         }
 
         val cabecera = repo.headerInfo(episodeId)
-        // El MPD lo puede abrir libVLC directamente si el contenido es clear (sin DRM). Si tiene
-        // Widevine, PlayerScreen detecta drmLicenseUrl != "" y lo pasa a ExoPlayer.
-        val urlParaReproducir = play.url
         val item = PlayerData(
             episodeId = episodeId,
             itemId = episodeId.substringBefore("::"),
             title = cabecera?.itemTitle ?: "Caracol",
             subtitle = cabecera?.episodeLabel.orEmpty(),
-            mediaUrl = urlParaReproducir,
+            mediaUrl = play.url,
             castUrl = play.url,
             artworkUrl = "",
             openingStartMs = null, openingEndMs = null, endingStartMs = null,
             kind = SourceKind.DITU,
             drmLicenseUrl = play.drmLicenseUrl,
+            drmLicenseHeaders = play.drmLicenseHeaders,
         )
-        val startPos = safeStartPosition(episodeId, SourceKind.DITU)
-        _playlist.value = PlaylistData(listOf(item), 0, startPos, pedido = episodeId)
-        Log.w(PLAY, "loadDitu() ⏱ TOTAL=${System.currentTimeMillis() - t0}ms url=${play.url.take(60)}")
+        Log.w(PLAY, "loadDitu() ⏱ TOTAL=${System.currentTimeMillis() - t0}ms drm=${play.drmLicenseUrl.isNotBlank()} headers=${play.drmLicenseHeaders.keys} url=${play.url.take(60)}")
+        if (play.drmLicenseUrl.isNotBlank()) {
+            // Contenido Widevine: lo reproduce ExoPlayer en PlayerScreen, VLC no toca nada.
+            _dituDrmItem.value = item
+        } else {
+            val startPos = safeStartPosition(episodeId, SourceKind.DITU)
+            _playlist.value = PlaylistData(listOf(item), 0, startPos, pedido = episodeId)
+        }
     }
 
     private suspend fun loadWeb(episodeId: String) {

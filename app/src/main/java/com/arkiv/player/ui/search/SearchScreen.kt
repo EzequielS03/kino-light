@@ -430,8 +430,12 @@ fun SearchScreen(
             // Magis no se guarda en el dispositivo: el CDN sirve con un token que vence a las ~48 h,
             // así que el archivo bajado dejaría de reproducirse.
             is PlaySource.Magis -> playError = "Magis no se puede guardar: el enlace vence."
-            // Ditu tampoco: el stream MPEG-DASH usa tokens CDN de vida corta.
-            is PlaySource.Ditu -> playError = "Caracol no se puede guardar: el enlace vence."
+            // Ditu: los refs son estables (IDs de Caracol, no la URL del CDN). El gateway re-resuelve
+            // una URL fresca en cada reproducción, así que se puede guardar sin problema.
+            is PlaySource.Ditu -> scope.launch {
+                playback.saveDituSeason(source.result, listOf(), null,
+                    posterOverride = resultPoster, backdropOverride = detail?.backdropUrl.orEmpty())
+            }
         }
     }
 
@@ -602,15 +606,20 @@ fun SearchScreen(
             season = serie,
             client = graph.arkivApiClient,
             onDismiss = { dituSeason = null },
-            onPlay = { capitulos, capitulo, _ ->
+            onPlay = { capitulos, capitulo, serieInfo ->
                 dituSeason = null
                 preparing = true; playError = null
                 scope.launch {
-                    applyResult(playback.playDituEpisode(serie, capitulo, capitulos.indexOf(capitulo)))
+                    applyResult(playback.playDituEpisode(serie, capitulo, capitulos.indexOf(capitulo), serieInfo,
+                        posterOverride = resultPoster, backdropOverride = detail?.backdropUrl.orEmpty()))
                 }
             },
-            onSave = { _, _ ->
-                playError = "Caracol no se puede guardar: el enlace vence."
+            onSave = { elegidos, serieInfo ->
+                dituSeason = null
+                scope.launch {
+                    playback.saveDituSeason(serie, elegidos, serieInfo,
+                        posterOverride = resultPoster, backdropOverride = detail?.backdropUrl.orEmpty())
+                }
             },
         )
     }
@@ -805,6 +814,22 @@ private fun QueryContent(
 
         if (text.isNotBlank()) {
             item(span = { GridItemSpan(maxLineSpan) }) {
+                // La paridad con el TV: buscar en las fuentes con el texto tal cual, sin
+                // atarse al título exacto del catálogo de arriba.
+                OutlinedButton(
+                    onClick = { onBuscarFuentesTexto(text.trim()) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.size(8.dp))
+                    Text(
+                        "Buscar \"$text\" en las fuentes",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 OutlinedButton(
                     onClick = {
                         haBuscado = true
@@ -896,25 +921,6 @@ private fun QueryContent(
         }
         items(titleResults, key = { "${it.kind}-${it.tmdbId}-${it.anilistId}-${it.title}" }) { card ->
             TitleCardItem(card, onClick = { onPickTitle(card) })
-        }
-
-        if (text.isNotBlank()) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                // La paridad con el TV: buscar en las fuentes con el texto tal cual, sin
-                // atarse al título exacto del catálogo de arriba.
-                OutlinedButton(
-                    onClick = { onBuscarFuentesTexto(text.trim()) },
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                ) {
-                    Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.size(8.dp))
-                    Text(
-                        "Buscar \"$text\" en las fuentes",
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
         }
 
         item(span = { GridItemSpan(maxLineSpan) }) {
