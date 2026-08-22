@@ -8,9 +8,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -24,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -405,14 +408,26 @@ internal fun MagisExoPlayer(
         //
         // Así que se pinta negro encima de las dos bandas. No arregla el búfer, pero el hueco de una
         // panorámica tiene que ser negro y así lo es.
+        // Las bandas van donde toque: arriba y abajo si el video es más ANCHO que la pantalla (una
+        // panorámica en la tele), a los lados si es más ESTRECHO (un 4:3 en la tele, o cualquier
+        // cosa en el móvil de pie). Solo una de las dos ramas puede darse a la vez, y con el video
+        // justo del mismo formato no se pinta ninguna.
         val alto = maxHeight
         val ancho = maxWidth
-        if (videoAspectRatio > 0f) {
-            val altoDelVideo = ancho / videoAspectRatio
-            if (altoDelVideo < alto) {
-                val banda = (alto - altoDelVideo) / 2
-                Box(Modifier.align(Alignment.TopCenter).fillMaxWidth().height(banda).background(Color.Black))
-                Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(banda).background(Color.Black))
+        if (videoAspectRatio > 0f && alto > 0.dp && ancho > 0.dp) {
+            val aspectoDeLaPantalla = ancho / alto
+            if (videoAspectRatio > aspectoDeLaPantalla) {
+                val banda = (alto - ancho / videoAspectRatio) / 2
+                if (banda > 0.dp) {
+                    Box(Modifier.align(Alignment.TopCenter).fillMaxWidth().height(banda).background(Color.Black))
+                    Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(banda).background(Color.Black))
+                }
+            } else if (videoAspectRatio < aspectoDeLaPantalla) {
+                val banda = (ancho - alto * videoAspectRatio) / 2
+                if (banda > 0.dp) {
+                    Box(Modifier.align(Alignment.CenterStart).fillMaxHeight().width(banda).background(Color.Black))
+                    Box(Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(banda).background(Color.Black))
+                }
             }
         }
 
