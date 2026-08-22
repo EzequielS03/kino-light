@@ -204,6 +204,10 @@ class PlayerViewModel(
     private val _dituDrmItem = MutableStateFlow<PlayerData?>(null)
     val dituDrmItem: StateFlow<PlayerData?> = _dituDrmItem.asStateFlow()
 
+    /** Ítem de Magis — lo reproduce ExoPlayer a través del proxy local, sin pasar por VLC. */
+    private val _magisItem = MutableStateFlow<PlayerData?>(null)
+    val magisItem: StateFlow<PlayerData?> = _magisItem.asStateFlow()
+
     /** Error de resolución (torrent sin peers, .torrent ilegible, etc.) para que la pantalla lo muestre. */
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
@@ -303,6 +307,7 @@ class PlayerViewModel(
             }
             _error.value = null
             _dituDrmItem.value = null
+            _magisItem.value = null
             errorDeReproduccion = false
             // Si está guardado en el dispositivo, gana sobre cualquier streaming. Va ANTES de
             // ramificar por fuente: da igual de dónde vino el archivo, ya está acá.
@@ -655,6 +660,10 @@ class PlayerViewModel(
      */
     fun onDituExoError(message: String) {
         _error.value = "Caracol: $message"
+    }
+
+    fun onMagisExoError(message: String) {
+        _error.value = "Magis: $message"
     }
 
     fun onPlaybackFailed(episodeId: String) {
@@ -1111,7 +1120,7 @@ class PlayerViewModel(
         // El arranque caliente ya está en la mano (se pidió arriba, en paralelo con la sonda): la
         // espera del CDN ocurrió ANTES de abrir el video, donde el usuario ve el spinner de
         // siempre, en vez de convertirse en un fallo del que no se vuelve.
-        _playlist.value = PlaylistData(listOf(item), 0, startPos, pedido = episodeId)
+        _magisItem.value = item.copy(startPositionMs = startPos)
         // RESUMEN, en una línea y en el orden en que se paga. Lo que falta para el primer frame es
         // lo que tarde VLC en abrir, que se mide aparte (ver el "abrió en Xms" de VlcPlayer): la
         // suma de las dos es lo que el usuario ve como spinner.
@@ -1568,7 +1577,13 @@ class PlayerViewModel(
         // ahí sale "seguir viendo", que se pinta en el inicio del televisor, en el del celular y en
         // la biblioteca: una fila acá no se queda quieta en este aparato. Ver
         // [hayQueAnotarHistorial], que es donde está la decisión y sus bordes.
-        if (!_playlist.value.hayQueAnotarHistorial(episodeId)) return
+        // Magis ExoPlayer: el ítem está en _magisItem, no en _playlist.
+        val magisIt = _magisItem.value?.takeIf { it.episodeId == episodeId }
+        if (magisIt != null) {
+            if (!ContenidoDeAdultos.hayQueAnotar(magisIt.adulto)) return
+        } else {
+            if (!_playlist.value.hayQueAnotarHistorial(episodeId)) return
+        }
         viewModelScope.launch { repo.savePlayback(episodeId, positionMs, durationMs) }
     }
 
@@ -1585,7 +1600,12 @@ class PlayerViewModel(
         // lo que se estaba viendo — y `FrameCapturer.publicar` escribe el JPEG en disco Y una fila
         // en `episode_frame`, que se sube a PocketBase y se propaga a los demás aparatos. Es la
         // fuga del 2026-08-14 otra vez, pero con foto.
-        if (!_playlist.value.hayQueAnotarHistorial(episodeId)) return
+        val magisIt = _magisItem.value?.takeIf { it.episodeId == episodeId }
+        if (magisIt != null) {
+            if (!ContenidoDeAdultos.hayQueAnotar(magisIt.adulto)) return
+        } else {
+            if (!_playlist.value.hayQueAnotarHistorial(episodeId)) return
+        }
         viewModelScope.launch { frameCapturer.capturar(episodeId, positionMs, textureView) }
     }
 

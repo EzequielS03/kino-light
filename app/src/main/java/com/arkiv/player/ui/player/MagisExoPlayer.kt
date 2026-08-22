@@ -13,37 +13,31 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.dash.DashMediaSource
-import androidx.media3.exoplayer.drm.DefaultDrmSessionManager
-import androidx.media3.exoplayer.drm.FrameworkMediaDrm
-import androidx.media3.exoplayer.drm.HttpMediaDrmCallback
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import kotlinx.coroutines.delay
 
 /**
- * Reproduce un stream MPEG-DASH con Widevine DRM usando ExoPlayer.
- * Solo para Ditu (Caracol Streaming): VLC no soporta Widevine.
+ * Reproduce un stream de Magis usando ExoPlayer.
  *
- * Alimenta [espejo] con posición/duración/buffering para que los controles de
- * Arkiv funcionen igual que con VLC. Expone el [ExoPlayer] vía [onPlayerReady]
- * para que PlayerScreen lo use como `activePlayer` (play/pause/seek).
+ * La URL ya llega proxificada por [archiveCacheProxy] (http://127.0.0.1:…), que inyecta los
+ * headers de autenticación del CDN transparentemente. ExoPlayer la descarga como HTTP plano.
  *
- * Usa [TextureView] directamente (sin pasar por PlayerView) para que
- * [onTextureViewReady] exponga la superficie y `capturarFrame` funcione igual
- * que con VLC — la misma ruta que usará la migración futura de Magis.
+ * [DefaultMediaSourceFactory] auto-detecta HLS, DASH o progresivo (MP4/TS) según el tipo de
+ * contenido. Para la barra de progreso y los controles usa el mismo [EspejoDelPlayer] que VLC.
+ *
+ * Usa [TextureView] directamente para que [onTextureViewReady] exponga la superficie y
+ * `capturarFrame` funcione igual que con VLC.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
-internal fun DituExoPlayer(
+internal fun MagisExoPlayer(
     mediaUrl: String,
-    licenseUrl: String,
-    licenseHeaders: Map<String, String> = emptyMap(),
     espejo: EspejoDelPlayer,
     startPositionMs: Long = 0L,
     onPlayerReady: (Player?) -> Unit = {},
@@ -52,35 +46,21 @@ internal fun DituExoPlayer(
 ) {
     val context = LocalContext.current
 
-    val exoPlayer = remember(mediaUrl, licenseUrl) {
-        // Ditu/Mediastream exige User-Agent de okhttp y el header "restful: yes".
+    val exoPlayer = remember(mediaUrl) {
         val httpFactory = DefaultHttpDataSource.Factory()
             .setUserAgent("okhttp/4.12.0")
-            .setDefaultRequestProperties(mapOf("restful" to "yes"))
-
-        // La cookie playback_token autoriza la petición de licencia Widevine.
-        val drmCallback = HttpMediaDrmCallback(licenseUrl, httpFactory).also { cb ->
-            licenseHeaders.forEach { (k, v) -> cb.setKeyRequestProperty(k, v) }
-        }
-        val drmManager = DefaultDrmSessionManager.Builder()
-            .setUuidAndExoMediaDrmProvider(C.WIDEVINE_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
-            .build(drmCallback)
-
-        val mediaSource = DashMediaSource.Factory(httpFactory)
-            .setDrmSessionManagerProvider { drmManager }
-            .createMediaSource(MediaItem.fromUri(Uri.parse(mediaUrl)))
 
         ExoPlayer.Builder(context)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(httpFactory))
             .build()
             .also { player ->
-                player.setMediaSource(mediaSource)
+                player.setMediaItem(MediaItem.fromUri(Uri.parse(mediaUrl)))
                 player.prepare()
                 if (startPositionMs > 0L) player.seekTo(startPositionMs)
                 player.playWhenReady = true
             }
     }
 
-    // TextureView para captura de frames, creado una sola vez por instancia de ExoPlayer.
     val textureView = remember(exoPlayer) { TextureView(context) }
 
     DisposableEffect(exoPlayer) {
@@ -108,7 +88,7 @@ internal fun DituExoPlayer(
 
             override fun onPlayerError(error: PlaybackException) {
                 val msg = error.message ?: "Error de reproducción (${error.errorCode})"
-                android.util.Log.e("DituExo", "ExoPlayer error: $msg", error)
+                android.util.Log.e("MagisExo", "ExoPlayer error: $msg", error)
                 onError(msg)
             }
         }
@@ -125,7 +105,6 @@ internal fun DituExoPlayer(
         }
     }
 
-    // Alimenta posición/duración cada 500 ms al mismo ritmo que el sondeo de VLC.
     LaunchedEffect(exoPlayer) {
         while (true) {
             delay(500)

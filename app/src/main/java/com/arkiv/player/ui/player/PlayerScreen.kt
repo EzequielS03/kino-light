@@ -334,6 +334,11 @@ private fun PlayerContent(
     val dituDrmItem by vm.dituDrmItem.collectAsStateWithLifecycle()
     // ExoPlayer hoisted para que `activePlayer` lo incluya y los controles de Arkiv lo comanden.
     var dituPlayer by remember { mutableStateOf<Player?>(null) }
+    // TextureView de ExoPlayer para capturar frames igual que con VLC (ver DituExoPlayer).
+    var dituTextureView by remember { mutableStateOf<android.view.TextureView?>(null) }
+    val magisItem by vm.magisItem.collectAsStateWithLifecycle()
+    var magisPlayer by remember { mutableStateOf<Player?>(null) }
+    var magisTextureView by remember { mutableStateOf<android.view.TextureView?>(null) }
     val generacionVivo by vm.generacionVivo.collectAsStateWithLifecycle()
     val cortesEnVivo by vlc.cortesEnVivo.collectAsStateWithLifecycle()
     val loadError by vm.error.collectAsStateWithLifecycle()
@@ -481,6 +486,7 @@ private fun PlayerContent(
     val activePlayer: Player = when {
         casting -> castPlayer ?: controller
         dituDrmItem != null && dituPlayer != null -> dituPlayer!!
+        magisItem != null && magisPlayer != null -> magisPlayer!!
         else -> controller
     }
 
@@ -535,9 +541,13 @@ private fun PlayerContent(
         com.arkiv.player.playback.NowPlaying.liveChannelName = liveCanal?.nombre
     }
 
-    // Ditu (DRM): NowPlaying no se actualiza por onMediaItemTransition (VLC no toca nada).
+    // ExoPlayer (Ditu/Magis): NowPlaying no se actualiza por onMediaItemTransition (VLC no toca nada).
     LaunchedEffect(dituDrmItem?.episodeId) {
         val epId = dituDrmItem?.episodeId ?: return@LaunchedEffect
+        NowPlaying.episodeId = epId
+    }
+    LaunchedEffect(magisItem?.episodeId) {
+        val epId = magisItem?.episodeId ?: return@LaunchedEffect
         NowPlaying.episodeId = epId
     }
 
@@ -565,14 +575,20 @@ private fun PlayerContent(
     /**
      * El TextureView donde se está pintando el video, para las capturas de frame.
      *
-     * Primero se le pregunta al player y recién después se cae al layout de ESTA pantalla: al
+     * Ditu (ExoPlayer): DituExoPlayer configura SURFACE_TYPE_TEXTURE_VIEW y nos lo pasa vía
+     * `onTextureViewReady` → `dituTextureView`. Se prefiere sobre la ruta VLC cuando está activo.
+     *
+     * VLC: primero se le pregunta al player y recién después se cae al layout de ESTA pantalla: al
      * salir, el `onRelease` del AndroidView le suelta el layout al player (`detachVideo`, que lo
      * pone en null para no retener la Activity) y no hay garantía de que corra después del
      * `onDispose` que captura el frame de salida. El layout sigue vivo acá, así que el respaldo es
      * lo que hace que salir del reproductor capture de verdad.
      */
-    fun textureViewDelVideo(): android.view.TextureView? =
-        vlc.textureViewActual() ?: vlc.textureViewDe(videoView)
+    fun textureViewDelVideo(): android.view.TextureView? = when {
+        dituDrmItem != null -> dituTextureView
+        magisItem != null -> magisTextureView
+        else -> vlc.textureViewActual() ?: vlc.textureViewDe(videoView)
+    }
 
     // Re-enganchar el video al volver de otra app: al irse al fondo Android destruye la Surface y
     // libVLC tumba su salida de video (evento `Vout 0`); sin un attachViews nuevo la salida no se
@@ -844,9 +860,9 @@ private fun PlayerContent(
     // sonido es exactamente el instante en que `espejo.buffereando` ya es false y todavía no hay imagen, o
     // sea que ninguna de las señales viejas lo delata. Con `sinImagen` se ve si el spinner tapó ese
     // hueco o si la pantalla se quedó en negro.
-    LaunchedEffect(playlist == null, espejo.buffereando, sinPrimeraImagen, esperandoVideo, casting) {
+    LaunchedEffect(playlist == null, magisItem == null, espejo.buffereando, sinPrimeraImagen, esperandoVideo, casting) {
         val spinner = hayQueMostrarElSpinner(
-            sinPlaylist = playlist == null,
+            sinPlaylist = playlist == null && magisItem == null,
             buffereando = espejo.buffereando,
             sinPrimeraImagen = sinPrimeraImagen,
             perdioLaSalidaDeVideo = esperandoVideo,
@@ -855,7 +871,7 @@ private fun PlayerContent(
         android.util.Log.w(
             "ArkivVlc",
             "spinner=$spinner " +
-                "· sinPlaylist=${playlist == null} buffering=${espejo.buffereando} sinImagen=$sinPrimeraImagen " +
+                "· sinPlaylist=${playlist == null && magisItem == null} buffering=${espejo.buffereando} sinImagen=$sinPrimeraImagen " +
                 "perdioVideo=$esperandoVideo",
         )
     }
@@ -1133,6 +1149,8 @@ private fun PlayerContent(
     // Índice/buffering/estado del transporte. Sigue al player activo: al conectar o desconectar
     // el cast, el efecto se relanza solo y el listener se re-engancha al que corresponda.
     val isDitu = dituDrmItem != null  // DituExoPlayer maneja sus propios errores; evitar doble-disparo.
+    val isMagis = magisItem != null   // MagisExoPlayer maneja sus propios errores.
+    val isExo = isDitu || isMagis     // Cualquier ExoPlayer activo (vs VLC).
     DisposableEffect(activePlayer) {
         espejo.sincronizarTransporte(
             buffereando = activePlayer.playbackState == Player.STATE_BUFFERING,
@@ -1179,7 +1197,7 @@ private fun PlayerContent(
             // El ViewModel decide qué hacer con esto: hay fallos que se reparan solos (el 404 de un
             // archivo renombrado en archive.org) y otros que solo se pueden contar.
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                if (isDitu) return  // DituExoPlayer.onError ya llamó a vm.onDituExoError
+                if (isExo) return  // DituExoPlayer / MagisExoPlayer ya llamaron su onError
                 val id = playlistRef.value?.items
                     ?.getOrNull(controller.currentMediaItemIndex)?.episodeId ?: episodeId
                 android.util.Log.w("ArkivPlay", "onPlayerError episodeId=$id → ${error.message}")
@@ -1225,7 +1243,7 @@ private fun PlayerContent(
             // "Arranca negro y con sonido": mientras libVLC ya suelta el audio pero todavía no dio
             // la primera imagen, `playbackState` NO es BUFFERING y la pantalla se quedaba sin
             // spinner y sin imagen. Casteando no aplica: la imagen la pone la TV, no nosotros.
-            sinPrimeraImagen = !casting && if (isDitu) espejo.buffereando else vlc.esperandoPrimeraImagen()
+            sinPrimeraImagen = !casting && if (isExo) espejo.buffereando else vlc.esperandoPrimeraImagen()
             // Si el video está sonando, un fallo de reproducción anterior ya no describe nada (y
             // encima estaría tapando estos mismos controles). No-op salvo justo después de uno.
             if (ready && activePlayer.isPlaying) vm.onReproduccionViva()
@@ -1239,26 +1257,28 @@ private fun PlayerContent(
             // reproduciendo). Sin esta comprobación, tocar "siguiente episodio" cerca del final del
             // capítulo N marcaba como VISTO el N+1 antes de que arrancara.
             val mediaId = activePlayer.currentMediaItem?.mediaId
-            // Ditu (DRM): la playlist VLC está vacía; el episodio lo trae dituDrmItem directamente.
+            // ExoPlayer (Ditu/Magis): playlist VLC vacía; el episodio lo trae el ítem directamente.
             // Para las demás fuentes lo identifica la playlist LOCAL, no el player activo.
-            val epId = if (isDitu) dituDrmItem?.episodeId
-                       else playlistRef.value?.items?.getOrNull(controller.currentMediaItemIndex)?.episodeId
+            val epId = when {
+                isDitu -> dituDrmItem?.episodeId
+                isMagis -> magisItem?.episodeId
+                else -> playlistRef.value?.items?.getOrNull(controller.currentMediaItemIndex)?.episodeId
+            }
             // !enVivo (Tarea 14): en vivo no hay "dónde ibas" que guardar -- ni "continuar viendo"
             // ni barra de progreso que reanudar. Sondear/guardar posición en un directo fue justo
             // lo que rompió el VOD de Magis (ver KDoc de LiveController).
-            // Ditu: ExoPlayer no expone mediaId con el episodeId, se omite la comparación para DRM.
+            // ExoPlayer no expone mediaId con el episodeId → se omite la comparación para isExo.
             if (!enVivo && tick % 10 == 0 && epId != null &&
-                (isDitu || mediaId == epId) && ready && activePlayer.isPlaying &&
+                (isExo || mediaId == epId) && ready && activePlayer.isPlaying &&
                 dur > 0 && pos in 0 until dur
             ) {
                 vm.saveProgress(epId, pos, dur)
-                // Cada 600 ticks = 5 min. Ditu usa ExoPlayer (SurfaceView, no TextureView): no hay
-                // captura de frame disponible vía el mismo mecanismo VLC. Se omite para DRM.
+                // Cada 600 ticks = 5 min. Ambos ExoPlayers usan TextureView → captura habilitada.
                 // !casting: casteando, `pos` es la posición del receptor REMOTO, pero el
                 // TextureView sigue siendo el LOCAL, que en ese momento no pinta lo que se ve en la
                 // tele. Capturarlo guardaría una imagen que no corresponde a esa posición (y se
                 // repetiría en cada disparo mientras dure el casteo).
-                if (tick % 600 == 0 && !casting && !isDitu) vm.capturarFrame(epId, pos, textureViewDelVideo())
+                if (tick % 600 == 0 && !casting) vm.capturarFrame(epId, pos, textureViewDelVideo())
             }
             // Latido mientras se castea: dice si el receptor AVANZA de verdad. Una posición
             // clavada con estado=listo significa que aceptó el medio pero no lo está decodificando.
@@ -1292,13 +1312,15 @@ private fun PlayerContent(
      */
     LaunchedEffect(espejo.quiereReproducir) {
         if (espejo.quiereReproducir || casting) return@LaunchedEffect
-        // Ditu usa ExoPlayer (SurfaceView): no hay TextureView disponible para capturar.
-        if (isDitu) return@LaunchedEffect
         val pos = activePlayer.currentPosition
         val dur = activePlayer.duration
         val mediaId = activePlayer.currentMediaItem?.mediaId
-        val epId = playlistRef.value?.items?.getOrNull(controller.currentMediaItemIndex)?.episodeId
-        if (epId != null && mediaId == epId && dur > 0 && pos in 0 until dur) {
+        val epId = when {
+            isDitu -> dituDrmItem?.episodeId
+            isMagis -> magisItem?.episodeId
+            else -> playlistRef.value?.items?.getOrNull(controller.currentMediaItemIndex)?.episodeId
+        }
+        if (epId != null && (isExo || mediaId == epId) && dur > 0 && pos in 0 until dur) {
             vm.capturarFrame(epId, pos, textureViewDelVideo())
         }
     }
@@ -1511,9 +1533,10 @@ private fun PlayerContent(
     // cada conexión/desconexión de cast, ejecutando su onDispose —y su controller.pause()— a mitad
     // de la sesión. rememberUpdatedState da el valor fresco sin tocar el ciclo de vida del efecto.
     val currentPlayer by rememberUpdatedState(activePlayer)
-    // Igual que currentPlayer: el ítem DRM vigente al salir / ir al fondo, para que onDispose y
-    // el observador de ciclo de vida lean el episodeId correcto aunque la pantalla ya esté saliendo.
+    // Igual que currentPlayer: el ítem ExoPlayer vigente al salir / ir al fondo, para que onDispose
+    // y el observador de ciclo de vida lean el episodeId correcto aunque la pantalla ya esté saliendo.
     val currentDituItem by rememberUpdatedState(dituDrmItem)
+    val currentMagisItem by rememberUpdatedState(magisItem)
 
     DisposableEffect(Unit) {
         onDispose {
@@ -1535,21 +1558,20 @@ private fun PlayerContent(
             // "visto" con eso. `pos in 0 until dur` también faltaba acá.
             val mediaId = currentPlayer.currentMediaItem?.mediaId
             controller.pause()
-            val isDituOnDispose = currentDituItem != null
-            // Ditu (DRM): playlist VLC vacía; el episodeId lo trae currentDituItem directamente.
-            val epId = if (isDituOnDispose) currentDituItem?.episodeId
-                       else playlistRef.value?.items?.getOrNull(currentIndex)?.episodeId
+            val isExoOnDispose = currentDituItem != null || currentMagisItem != null
+            // ExoPlayer: playlist VLC vacía; el episodeId lo trae el ítem directamente.
+            val epId = when {
+                currentDituItem != null -> currentDituItem?.episodeId
+                currentMagisItem != null -> currentMagisItem?.episodeId
+                else -> playlistRef.value?.items?.getOrNull(currentIndex)?.episodeId
+            }
             // !enVivo (Tarea 14): salir de un canal en vivo no tiene "posición" que guardar.
-            if (!enVivo && epId != null && (isDituOnDispose || mediaId == epId) && dur > 0 && pos in 0 until dur) {
+            if (!enVivo && epId != null && (isExoOnDispose || mediaId == epId) && dur > 0 && pos in 0 until dur) {
                 vm.saveProgress(epId, pos, dur)
-                // Captura de SALIDA, y solo de salida: el `controller.pause()` de acá arriba es el
-                // que da esta misma función al irse, así que este bloque NO cubre al que aprieta
-                // pausa y se queda mirando la pantalla quieta. Esa la captura el efecto de
-                // `espejo.quiereReproducir` (más arriba), y por eso existen las dos.
-                // Ditu usa ExoPlayer (SurfaceView, no TextureView): capturarFrame recibe null → no-op.
+                // Captura de SALIDA. Ambos ExoPlayers usan TextureView → captura habilitada.
                 // !casting: mismo motivo que en el sondeo periódico — casteando, `pos` es la
                 // posición del receptor remoto, pero el TextureView local no está pintando eso.
-                if (!casting && !isDituOnDispose) vm.capturarFrame(epId, pos, textureViewDelVideo())
+                if (!casting) vm.capturarFrame(epId, pos, textureViewDelVideo())
             }
             activity?.let {
                 it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
@@ -1572,15 +1594,18 @@ private fun PlayerContent(
     DisposableEffect(lifecycleOwner) {
         val obs = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
-                val isDituStop = currentDituItem != null
-                val epId = if (isDituStop) currentDituItem?.episodeId
-                           else playlistRef.value?.items?.getOrNull(currentPlayer.currentMediaItemIndex)?.episodeId
+                val isExoStop = currentDituItem != null || currentMagisItem != null
+                val epId = when {
+                    currentDituItem != null -> currentDituItem?.episodeId
+                    currentMagisItem != null -> currentMagisItem?.episodeId
+                    else -> playlistRef.value?.items?.getOrNull(currentPlayer.currentMediaItemIndex)?.episodeId
+                }
                 val pos = currentPlayer.currentPosition
                 val dur = currentPlayer.duration
                 val mediaId = currentPlayer.currentMediaItem?.mediaId
-                if (!enVivo && epId != null && (isDituStop || mediaId == epId) && dur > 0 && pos in 0 until dur) {
+                if (!enVivo && epId != null && (isExoStop || mediaId == epId) && dur > 0 && pos in 0 until dur) {
                     vm.saveProgress(epId, pos, dur)
-                    if (!casting && !isDituStop) vm.capturarFrame(epId, pos, textureViewDelVideo())
+                    if (!casting) vm.capturarFrame(epId, pos, textureViewDelVideo())
                 }
             }
         }
@@ -1664,15 +1689,17 @@ private fun PlayerContent(
             activePlayer.pause()
             // Guarda posición al pausar: si la app se cierra mientras está en pausa (crash, Fire
             // Stick reinicia), la posición está guardada y no se pierde.
-            val isDituPause = isDitu
-            val epId = if (isDituPause) dituDrmItem?.episodeId
-                       else playlistRef.value?.items?.getOrNull(currentIndex)?.episodeId
+            val epId = when {
+                isDitu -> dituDrmItem?.episodeId
+                isMagis -> magisItem?.episodeId
+                else -> playlistRef.value?.items?.getOrNull(currentIndex)?.episodeId
+            }
             val pos = activePlayer.currentPosition
             val dur = activePlayer.duration
             val mediaId = activePlayer.currentMediaItem?.mediaId
-            if (!enVivo && epId != null && (isDituPause || mediaId == epId) && dur > 0 && pos in 0 until dur) {
+            if (!enVivo && epId != null && (isExo || mediaId == epId) && dur > 0 && pos in 0 until dur) {
                 vm.saveProgress(epId, pos, dur)
-                if (!casting && !isDituPause) vm.capturarFrame(epId, pos, textureViewDelVideo())
+                if (!casting) vm.capturarFrame(epId, pos, textureViewDelVideo())
             }
         } else {
             activePlayer.play()
@@ -1805,7 +1832,21 @@ private fun PlayerContent(
                 espejo = espejo,
                 startPositionMs = drmItem.startPositionMs,
                 onPlayerReady = { player -> dituPlayer = player },
+                onTextureViewReady = { tv -> dituTextureView = tv },
                 onError = { msg -> vm.onDituExoError(msg) },
+            )
+        }
+
+        // Magis: ExoPlayer reproduce el stream del proxy local (headers ya inyectados), sin VLC.
+        val mItem = magisItem
+        if (mItem != null) {
+            MagisExoPlayer(
+                mediaUrl = mItem.mediaUrl,
+                espejo = espejo,
+                startPositionMs = mItem.startPositionMs,
+                onPlayerReady = { player -> magisPlayer = player },
+                onTextureViewReady = { tv -> magisTextureView = tv },
+                onError = { msg -> vm.onMagisExoError(msg) },
             )
         }
 
@@ -1961,9 +2002,9 @@ private fun PlayerContent(
         // `esperandoVideo` también se anula casteando: espera a que VLC recupere su salida de video
         // local (hasta 15s tras volver del fondo), que casteando no importa ni va a llegar.
         if (
-            loadError == null && estadoDlna.activo == null && dituDrmItem == null &&
+            loadError == null && estadoDlna.activo == null && dituDrmItem == null && magisItem == null &&
             hayQueMostrarElSpinner(
-                sinPlaylist = playlist == null,
+                sinPlaylist = playlist == null && magisItem == null,
                 buffereando = espejo.buffereando,
                 sinPrimeraImagen = sinPrimeraImagen,
                 perdioLaSalidaDeVideo = esperandoVideo,
