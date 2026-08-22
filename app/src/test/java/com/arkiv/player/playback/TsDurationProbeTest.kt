@@ -112,10 +112,17 @@ class TsDurationProbeTest {
     // era el CDN, era cuánto se le esperaba a una conexión que ya estaba muerta.
 
     @Test fun la_sonda_no_le_aguanta_mas_que_el_proxy_a_la_misma_conexion_muerta() {
-        // Le pega al MISMO CDN que ArchiveCacheProxy, así que tener su propia calibración solo
-        // servía para que las dos se fueran separando. Una sola fuente de verdad: PoliticaOrigen.
+        // Le pega al MISMO CDN que ArchiveCacheProxy y los plazos salen del mismo sitio
+        // —PoliticaOrigen—, pero por un perfil propio: la sonda bloquea el arranque y lo que se
+        // juega es una barra sin duración, mientras que el proxy se juega que la película se corte.
+        // Lo que se exige es que NUNCA espere más que la reproducción.
+        assertTrue(
+            "la sonda no puede aguantar más que el proxy",
+            TsDurationProbe.timeoutLecturaMs(0) <=
+                PoliticaOrigen.respuestaMs(0, PoliticaOrigen.Perfil.MAGIS),
+        )
         assertEquals(
-            PoliticaOrigen.respuestaMs(0, PoliticaOrigen.Perfil.MAGIS),
+            PoliticaOrigen.respuestaMs(0, PoliticaOrigen.Perfil.MAGIS_SONDA),
             TsDurationProbe.timeoutLecturaMs(0),
         )
     }

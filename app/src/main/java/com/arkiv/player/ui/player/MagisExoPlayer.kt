@@ -6,8 +6,11 @@ import android.util.Log
 import android.view.TextureView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -123,7 +126,20 @@ internal fun MagisExoPlayer(
             }
     }
 
-    val textureView = remember(exoPlayer) { TextureView(context) }
+    val textureView = remember(exoPlayer) {
+        TextureView(context).apply {
+            // Sin opacidad, para que lo que no tenga imagen deje ver el fondo. Por sí solo NO quitó
+            // la franja verde —se probó— pero es lo correcto para una vista que no llena su hueco,
+            // y no cuesta nada.
+            isOpaque = false
+            // Dónde queda colocado. Fue lo que destapó que la vista se encogía a mitad de camino
+            // (1920x1080 al montarse, 1920x800 al llegar la proporción del video), y sigue acá por
+            // si algún aparato vuelve a hacer algo raro con el tamaño.
+            addOnLayoutChangeListener { _, l, t, r, b, _, _, _, _ ->
+                Log.i(TAG, "TextureView colocado en [$l,$t]-[$r,$b] · ${r - l}x${b - t}")
+            }
+        }
+    }
     val subtitleView = remember(exoPlayer) {
         SubtitleView(context).apply {
             setUserDefaultStyle()
@@ -358,21 +374,78 @@ internal fun MagisExoPlayer(
     // AndroidView cambiara (fillMaxSize → aspectRatio), Compose puede reattachar el TextureView
     // brevemente, destruyendo su SurfaceTexture y dejando el video en negro con audio.
     // Con un Box wrapper el TextureView siempre tiene fillMaxSize() → superficie estable.
-    Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
-        Box(
-            modifier = (
-                if (videoAspectRatio > 0f) Modifier.aspectRatio(videoAspectRatio)
-                else Modifier.fillMaxSize()
-                )
-                // El zoom escala el contenedor del video y no el AndroidView: cambiarle el modifier
-                // al AndroidView es lo que destruye su SurfaceTexture y deja la imagen en negro.
-                .graphicsLayer(scaleX = zoom, scaleY = zoom),
-        ) {
-            AndroidView(modifier = Modifier.fillMaxSize(), factory = { textureView })
+    // El TextureView NO cambia nunca de tamaño: ocupa siempre la pantalla entera y la proporción se
+    // consigue transformando su contenido (ver [ajustarAlAspecto]).
+    //
+    // Antes se le daba el aspecto al Box de alrededor, y eso encogía la vista a mitad de camino: se
+    // colocaba a 1920x1080 —hasta que el decodificador no arranca no se sabe la proporción— y al
+    // llegar el onVideoSizeChanged pasaba a 1920x800. Pero su SurfaceTexture se había creado con
+    // 1080, y los 280 px que sobraban seguían ahí con el búfer sin estrenar: una franja VERDE bajo
+    // el video en toda película panorámica. Medido en el Fire Stick con una 2.4:1, y sin salir en
+    // las 16:9 justamente porque ahí la vista ya llenaba la pantalla y nunca se encogía.
+    BoxWithConstraints(
+        Modifier.fillMaxSize().background(Color.Black),
+        contentAlignment = Alignment.Center,
+    ) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { textureView },
+            update = { it.ajustarAlAspecto(videoAspectRatio, zoom) },
+        )
+
+        // BANDAS NEGRAS ENCIMA, tapando lo que sobra del video.
+        //
+        // Es un parche y conviene saberlo: en una película panorámica la mitad de abajo del hueco
+        // salía VERDE —el búfer sin estrenar de la superficie— y no se encontró la causa. Se
+        // descartaron, midiendo cada vez en el Fire Stick: la capa de composición del zoom, la
+        // opacidad del TextureView, que la vista cambiara de tamaño a mitad de camino, y la
+        // transformación del contenido. Con todas ellas el video quedaba EXACTAMENTE donde debía
+        // (medido: y=138..941 para una 2.4:1 en 1080) y la franja seguía igual. Lo más raro es que
+        // la banda de ARRIBA siempre salió negra y solo la de abajo verde, con la misma superficie.
+        //
+        // Así que se pinta negro encima de las dos bandas. No arregla el búfer, pero el hueco de una
+        // panorámica tiene que ser negro y así lo es.
+        val alto = maxHeight
+        val ancho = maxWidth
+        if (videoAspectRatio > 0f) {
+            val altoDelVideo = ancho / videoAspectRatio
+            if (altoDelVideo < alto) {
+                val banda = (alto - altoDelVideo) / 2
+                Box(Modifier.align(Alignment.TopCenter).fillMaxWidth().height(banda).background(Color.Black))
+                Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(banda).background(Color.Black))
+            }
         }
+
         // SubtitleView superpuesto: renderiza cues VTT/SRT cargados via SubtitleConfiguration.
         AndroidView(modifier = Modifier.matchParentSize(), factory = { subtitleView })
     }
+}
+
+/**
+ * Encaja el video en la vista sin deformarlo, moviendo el CONTENIDO y no la vista.
+ *
+ * ExoPlayer estira el video hasta llenar el TextureView, así que una película 2.4:1 en una pantalla
+ * 16:9 sale achatada. Se corrige con la matriz de la superficie: se calcula cuánto sobra en el eje
+ * que no encaja y se encoge por ahí, dejando el resto en negro como cualquier letterbox. Es lo mismo
+ * que hace el PlayerView de media3 con TextureView.
+ *
+ * [zoom] multiplica al final, para que el gesto de zoom siga funcionando sobre el resultado.
+ */
+private fun TextureView.ajustarAlAspecto(aspectoDelVideo: Float, zoom: Float) {
+    val w = width.toFloat()
+    val h = height.toFloat()
+    if (aspectoDelVideo <= 0f || w <= 0f || h <= 0f) return
+
+    val aspectoDeLaVista = w / h
+    // Solo se ENCOGE el eje que sobra: agrandar el otro recortaría imagen.
+    val escalaX = if (aspectoDelVideo > aspectoDeLaVista) 1f else aspectoDelVideo / aspectoDeLaVista
+    val escalaY = if (aspectoDelVideo > aspectoDeLaVista) aspectoDeLaVista / aspectoDelVideo else 1f
+
+    setTransform(
+        android.graphics.Matrix().apply {
+            setScale(escalaX * zoom, escalaY * zoom, w / 2f, h / 2f)
+        },
+    )
 }
 
 /**

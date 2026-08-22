@@ -50,6 +50,24 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
     }
 
     /**
+     * Qué rango pidió cada conexión abierta AHORA, y desde cuándo. Es puro diagnóstico y existe por
+     * una pregunta concreta: cuando el origen rechaza, ¿es porque le estamos pidiendo varias cosas
+     * a la vez? Contar conexiones no alcanza para responderla — hace falta ver QUÉ se está pidiendo
+     * en paralelo y desde hace cuánto, que es lo que distingue "el CDN nos limita por concurrencia"
+     * de "esta petición concreta salió mal".
+     */
+    private val rangosEnVuelo = ConcurrentHashMap<String, Long>()
+
+    /** Los rangos abiertos ahora mismo, con su antigüedad, para meterlos en una línea de log. */
+    private fun fotoDeRangosEnVuelo(): String {
+        val ahora = System.currentTimeMillis()
+        if (rangosEnVuelo.isEmpty()) return "ninguno"
+        return rangosEnVuelo.entries
+            .sortedBy { it.value }
+            .joinToString(" | ") { (r, t) -> "$r hace ${ahora - t}ms" }
+    }
+
+    /**
      * Las conexiones al origen abiertas AHORA, para poder abandonarlas cuando la red cambia debajo.
      * A diferencia de [vivasPorClave] —que solo cuenta, para diagnóstico— esto guarda con qué
      * cerrarlas. Ver [abandonarConexiones] y [CambioDeRed].
@@ -924,19 +942,43 @@ class ArchiveCacheProxy(private val cacheDir: File, maxBytes: Long = 512L * 1024
                 // resuelto por el `disconnect()` del finally de passthrough, que corre también
                 // cuando el reproductor corta de golpe ("broken pipe").
                 val vivas = claveUnica?.let { vivasPorClave.merge(it, 1) { a, b -> a + b } } ?: 1
+                val etiquetaRango = "${rango ?: "(todo)"}#${intento + 1}"
                 android.util.Log.w(
                     "ArchiveCacheProxy",
-                    "abro ${rango ?: "(todo)"} → conexiones vivas de este archivo: $vivas",
+                    "abro ${rango ?: "(todo)"} → conexiones vivas de este archivo: $vivas · " +
+                        "en paralelo: ${fotoDeRangosEnVuelo()}",
                 )
-                val code = codigoConFechaLimite(conn, PoliticaOrigen.respuestaMs(intento, perfil))
+                rangosEnVuelo[etiquetaRango] = System.currentTimeMillis()
+                val plazoMs = PoliticaOrigen.respuestaMs(intento, perfil)
+                val t0Respuesta = System.currentTimeMillis()
+                val code = codigoConFechaLimite(conn, plazoMs)
+                val tardoMs = System.currentTimeMillis() - t0Respuesta
                 anotarCodigo(origin, code)
                 ultimoCodigo = code
                 if (code == HttpURLConnection.HTTP_OK || code == HttpURLConnection.HTTP_PARTIAL) {
+                    // El tiempo hasta la CABECERA, que es lo que decide si el plazo alcanza. Sin
+                    // esto solo se veía el total del cuerpo, que mezcla la espera del CDN con lo
+                    // que se tarda en bajar los bytes: dos cosas distintas.
+                    rangosEnVuelo.remove(etiquetaRango)
+                    android.util.Log.w(
+                        "ArchiveCacheProxy",
+                        "origen contestó ${rango ?: "(todo)"} con $code en ${tardoMs}ms " +
+                            "(plazo ${plazoMs}ms, intento ${intento + 1}, $vivas conexión(es) a la vez)",
+                    )
                     return conn to cerrable
                 }
+                // `code=-1` + un tiempo pegado al plazo = venció NUESTRO temporizador, no el CDN.
+                // La distinción importa y no se veía: se leía "origen rechazó" y parecía culpa del
+                // origen cuando era el plazo estrangulando una petición que iba a contestar.
+                val vencioElPlazo = code == -1 && tardoMs >= plazoMs - 150
+                rangosEnVuelo.remove(etiquetaRango)
                 android.util.Log.w(
                     "ArchiveCacheProxy",
-                    "origen rechazó ${rango ?: "(todo)"} con $code (intento ${intento + 1}/$intentos)",
+                    "origen rechazó ${rango ?: "(todo)"} con $code en ${tardoMs}ms " +
+                        "(plazo ${plazoMs}ms, intento ${intento + 1}/$intentos, " +
+                        "$vivas conexión(es) a la vez)" +
+                        (if (vencioElPlazo) " ← VENCIÓ EL PLAZO, no el CDN" else "") +
+                        " · en paralelo: ${fotoDeRangosEnVuelo()}",
                 )
                 claveUnica?.let { soltarViva(it) }
                 conexionesVivas.soltar(cerrable)
