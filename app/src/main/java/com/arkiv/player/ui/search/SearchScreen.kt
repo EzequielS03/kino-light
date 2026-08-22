@@ -524,6 +524,7 @@ fun SearchScreen(
                     frase = frase,
                     loadingFrase = loadingFrase,
                     onBuscarPorFrase = { q -> vm.buscarPorFrase(q) },
+                    onBuscarFuentesTexto = { q -> vm.buscarFuentesPorTexto(q) },
                     recentQueries = recentQueries,
                     recentTitles = recentTitles,
                     onSearch = { q ->
@@ -694,6 +695,10 @@ private fun QueryContent(
     frase: ResultadoDeFrase?,
     loadingFrase: Boolean,
     onBuscarPorFrase: (String) -> Unit,
+    /** Manda el texto TAL CUAL al wizard de fuentes, sin pasar por el catálogo (mismo camino
+     *  que el botón "Buscar" del TV): para cuando uno se acuerda de un pedazo del nombre y no
+     *  del título exacto con el que TMDB lo tiene. */
+    onBuscarFuentesTexto: (String) -> Unit,
     recentQueries: List<String>,
     recentTitles: List<RecentTitle>,
     onSearch: (String) -> Unit,
@@ -860,6 +865,25 @@ private fun QueryContent(
         }
         items(titleResults, key = { "${it.kind}-${it.tmdbId}-${it.anilistId}-${it.title}" }) { card ->
             TitleCardItem(card, onClick = { onPickTitle(card) })
+        }
+
+        if (text.isNotBlank()) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                // La paridad con el TV: buscar en las fuentes con el texto tal cual, sin
+                // atarse al título exacto del catálogo de arriba.
+                OutlinedButton(
+                    onClick = { onBuscarFuentesTexto(text.trim()) },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                ) {
+                    Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.size(8.dp))
+                    Text(
+                        "Buscar \"$text\" en las fuentes",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
         }
 
         item(span = { GridItemSpan(maxLineSpan) }) {
