@@ -1,5 +1,6 @@
 package com.arkiv.player.ui.catalog
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,6 +10,8 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -39,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -54,6 +58,8 @@ import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.search.PlaybackResult
 import com.arkiv.player.ui.search.SearchPlayback
 import com.arkiv.player.ui.theme.ArkivTextSecondary
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 private data class Categoria(val label: String, val tags: Set<String>?, val soloMovies: Boolean = false)
@@ -73,6 +79,7 @@ private val CATEGORIAS = listOf(
 fun CaracolScreen(
     contentPadding: PaddingValues,
     onPlay: (String) -> Unit,
+    onPlayLive: (channelId: Int, assetId: Int, channelName: String) -> Unit = { _, _, _ -> },
 ) {
     val graph = rememberGraph()
     val scope = rememberCoroutineScope()
@@ -81,6 +88,7 @@ fun CaracolScreen(
     val focusManager = LocalFocusManager.current
 
     var catalogo by remember { mutableStateOf<DituCatalogResponse?>(null) }
+    var channels by remember { mutableStateOf<List<DituChannel>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
     var serieAbierta by remember { mutableStateOf<DituSerieItem?>(null) }
     var query by remember { mutableStateOf("") }
@@ -88,8 +96,13 @@ fun CaracolScreen(
 
     LaunchedEffect(Unit) {
         try {
-            val resp = graph.arkivApiClient.dituCatalog()
+            val (resp, chs) = coroutineScope {
+                val catalogDeferred = async { graph.arkivApiClient.dituCatalog() }
+                val channelsDeferred = async { graph.arkivApiClient.dituChannels() }
+                catalogDeferred.await() to channelsDeferred.await()
+            }
             catalogo = resp.copy(series = resp.series.sortedBy { it.title.lowercase() })
+            channels = chs
         } catch (e: Throwable) {
             error = "No se pudo cargar el catálogo: ${e.message}"
         }
@@ -131,6 +144,33 @@ fun CaracolScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
                 ) {
+                    // Carrusel de canales en vivo
+                    if (channels.isNotEmpty()) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            Column {
+                                Text(
+                                    "En vivo",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = Color.White,
+                                    modifier = Modifier.padding(top = 12.dp, bottom = 8.dp),
+                                )
+                                LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    items(channels, key = { it.channelId }) { canal ->
+                                        CanalEnVivoCard(
+                                            canal = canal,
+                                            onClick = {
+                                                onPlayLive(canal.channelId, canal.assetId, canal.name)
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Buscador + filtros
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Column {
                             OutlinedTextField(
@@ -223,6 +263,56 @@ fun CaracolScreen(
                     if (result is PlaybackResult.Ready) onPlay(result.episodeId)
                 }
             },
+            onSave = { elegidos, serieInfo ->
+                serieAbierta = null
+                scope.launch {
+                    playback.saveDituSeason(
+                        serieResult = serie.toGatewayResult(),
+                        elegidos = elegidos,
+                        serieInfo = serieInfo,
+                        posterOverride = serie.posterUrl,
+                        backdropOverride = "",
+                    )
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun CanalEnVivoCard(
+    canal: DituChannel,
+    onClick: () -> Unit = {},
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .width(88.dp)
+            .clickable(onClick = onClick),
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(80.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xFF1A1A2E)),
+        ) {
+            AsyncImage(
+                model = canal.logoUrl,
+                contentDescription = canal.name,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .size(64.dp)
+                    .padding(4.dp),
+            )
+        }
+        Text(
+            text = canal.name,
+            style = MaterialTheme.typography.labelSmall,
+            color = ArkivTextSecondary,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 4.dp),
         )
     }
 }

@@ -143,6 +143,8 @@ data class DituChannel(
     val logoUrl: String,
     val channelType: String,
     val orderId: Int,
+    /** assetId MASTER que viene directo de TRAY/LIVECHANNELS (el EPG devuelve assets vacíos). */
+    val assetId: Int,
 )
 
 /** Respuesta completa de `/v1/ditu/catalog`. */

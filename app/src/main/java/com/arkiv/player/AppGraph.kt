@@ -700,7 +700,7 @@ class AppGraph(context: Context) {
     /** Solo tiene sentido en el celu: es quien mira lo que reproduce el TV. */
     val tvNowPlaying: com.arkiv.player.remote.TvNowPlayingRepository by lazy {
         com.arkiv.player.remote.TvNowPlayingRepository(
-            pbClient, deviceAuth, { remoteController.tvPaired.value }, applicationScope,
+            pbClient, deviceAuth, { remoteController.tvPaired.value }, applicationScope, appContext,
         )
     }
 

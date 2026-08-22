@@ -76,6 +76,7 @@ import androidx.navigation.compose.rememberNavController
 import com.arkiv.player.ui.add.AddScreen
 import com.arkiv.player.ui.catalog.AnimeShowDetailScreen
 import com.arkiv.player.ui.catalog.CaracolScreen
+import com.arkiv.player.ui.live.DituLivePlayerScreen
 import com.arkiv.player.ui.catalog.CatalogDetailScreen
 import com.arkiv.player.ui.catalog.CineCatalogScreen
 import com.arkiv.player.ui.catalog.CineDetailScreen
@@ -428,6 +429,27 @@ fun ArkivRoot(
                 CaracolScreen(
                     contentPadding = padding,
                     onPlay = { playEpisode(it) },
+                    onPlayLive = { channelId, assetId, channelName ->
+                        navController.navigate("ditu_live/$channelId/$assetId/${Uri.encode(channelName)}")
+                    },
+                )
+            }
+            composable(
+                "ditu_live/{channelId}/{assetId}/{channelName}",
+                arguments = listOf(
+                    navArgument("channelId") { type = NavType.IntType },
+                    navArgument("assetId") { type = NavType.IntType },
+                    navArgument("channelName") { type = NavType.StringType },
+                ),
+            ) { back ->
+                val channelId = back.arguments!!.getInt("channelId")
+                val assetId = back.arguments!!.getInt("assetId")
+                val channelName = back.arguments!!.getString("channelName", "")
+                DituLivePlayerScreen(
+                    channelId = channelId,
+                    assetId = assetId,
+                    channelName = channelName,
+                    onBack = { navController.popBackStack() },
                 )
             }
             composable(
