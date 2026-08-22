@@ -366,6 +366,7 @@ fun SearchScreen(
             is PlaySource.Archive -> DescargasPorFuente.deArchive(downloadRows, s.item.identifier)
             is PlaySource.WebPack -> null
             is PlaySource.Magis -> return null
+            is PlaySource.Ditu -> return null
         }
         return DescargaDeFila(
             estado = EstadoDeDescargaDeCapitulo.de(fila),
@@ -427,17 +428,25 @@ fun SearchScreen(
             // Magis no se guarda en el dispositivo: el CDN sirve con un token que vence a las ~48 h,
             // así que el archivo bajado dejaría de reproducirse.
             is PlaySource.Magis -> playError = "Magis no se puede guardar: el enlace vence."
+            // Ditu tampoco: el stream MPEG-DASH usa tokens CDN de vida corta.
+            is PlaySource.Ditu -> playError = "Caracol no se puede guardar: el enlace vence."
         }
     }
 
     // Los packs (torrent y web) NO reproducen directo: abren su diálogo para elegir nombre y
     // capítulos. Sin esto un pack agregaba cientos de episodios en silencio.
+    fun playDituResult(r: com.arkiv.player.data.gateway.GatewayResult) {
+        preparing = true; playError = null
+        scope.launch { applyResult(playback.playDitu(r)) }
+    }
+
     fun playResult(source: PlaySource) = when (source) {
         is PlaySource.Torrent -> if (PackDetector.isPack(source.result.name)) packFor = source.result else playTorrent(source.result)
         is PlaySource.Archive -> playArchiveResult(source.item)
         is PlaySource.Web -> playWebResult(source.result)
         is PlaySource.WebPack -> webPackFor = source.pack
         is PlaySource.Magis -> playMagisResult(source.result)
+        is PlaySource.Ditu -> playDituResult(source.result)
     }
 
     Box(Modifier.fillMaxSize().background(ArkivBlack)) {
@@ -1414,6 +1423,7 @@ private fun sourceKey(s: PlaySource): String = when (s) {
     is PlaySource.Web -> "w-${s.result.identity}"
     is PlaySource.WebPack -> "wp-${s.pack.siteId}-${s.pack.showTitle}"
     is PlaySource.Magis -> "m-${s.result.extra["content_id"] ?: s.result.ref}"
+    is PlaySource.Ditu -> "d-${s.result.extra["content_id"] ?: s.result.ref}"
 }
 
 /**

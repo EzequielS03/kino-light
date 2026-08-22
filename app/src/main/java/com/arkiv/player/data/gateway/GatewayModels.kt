@@ -55,6 +55,10 @@ data class GatewayPlayable(
      * [com.arkiv.player.playback.formatoAvformatDe]. "" = sondear, nunca suponer.
      */
     val container: String = "",
+    /** URL del servidor de licencias Widevine; "" = sin DRM (reproducir directo).
+     *  Existe por Ditu (Caracol Streaming): su stream es MPEG-DASH con Widevine y ExoPlayer
+     *  la negocia automáticamente vía MediaItem.DrmConfiguration. */
+    val drmLicenseUrl: String = "",
 )
 
 data class GatewaySubtitle(val lang: String, val url: String, val format: String = "")

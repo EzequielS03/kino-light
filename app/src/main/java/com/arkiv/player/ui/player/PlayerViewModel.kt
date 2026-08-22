@@ -76,6 +76,9 @@ data class PlayerData(
      * de Magis (archive, torrent, web, local), donde no existe la noción.
      */
     val adulto: Boolean = false,
+    /** URL del servidor de licencias Widevine; "" = sin DRM. Solo Ditu lo usa por ahora.
+     *  ExoPlayer la recibe vía MediaItem.DrmConfiguration y negocia Widevine automáticamente. */
+    val drmLicenseUrl: String = "",
 )
 
 /**
@@ -309,6 +312,7 @@ class PlayerViewModel(
                 SourceKind.ARCHIVE -> loadArchive(episodeId)
                 SourceKind.WEB -> loadWeb(episodeId)
                 SourceKind.MAGIS -> loadMagis(episodeId)
+                SourceKind.DITU -> loadDitu(episodeId)
                 // PlayerSource.kindFor() nunca devuelve NUC ni LOCAL (ver su propio KDoc): esta rama
                 // es inalcanzable por diseño, pero el `when` exhaustivo la exige. Apunta a loadWeb()
                 // -no a la loadWebRespectingPreference() desconectada- para que la afirmación del
@@ -1103,6 +1107,56 @@ class PlayerViewModel(
             "loadMagis() ⏱ TOTAL=${System.currentTimeMillis() - t0}ms " +
                 "[resolve=${msResolve}ms | arranque=${msArranque}ms] startPos=$startPos",
         )
+    }
+
+    /**
+     * Reproduce un ítem de Ditu (Caracol Streaming).
+     *
+     * El stream es MPEG-DASH (.mpd) desde el CDN de Mediastream. No requiere headers de auth:
+     * la URL del manifest es pública. Si el contenido tiene Widevine DRM, [PlayerData.drmLicenseUrl]
+     * lo lleva hasta PlayerScreen, que construye un ExoPlayer con DrmConfiguration.
+     * Sin DRM (contenido gratuito libre), libVLC puede reproducir el MPD directamente.
+     */
+    private suspend fun loadDitu(episodeId: String) {
+        val ref = repo.dituRefForEpisode(episodeId)
+        Log.w(PLAY, "loadDitu() episodeId=$episodeId ref=${ref?.take(12)}…")
+        if (ref.isNullOrBlank()) { _error.value = "No se encontró la fuente de Caracol"; return }
+
+        _playlist.value = null
+        _webExtras.value = null
+        _resolving.value = true
+        val t0 = System.currentTimeMillis()
+        val resuelto = withContext(Dispatchers.IO) { runCatching { gatewayClient.resolve(ref) } }
+        val msResolve = System.currentTimeMillis() - t0
+        _resolving.value = false
+        Log.w(PLAY, "loadDitu() resolve=${msResolve}ms")
+
+        val play = resuelto.getOrNull()
+        if (play == null) {
+            Log.w(PLAY, "loadDitu() falló: ${resuelto.exceptionOrNull()?.message}")
+            _error.value = "No se pudo resolver esta fuente de Caracol"
+            return
+        }
+
+        val cabecera = repo.headerInfo(episodeId)
+        // El MPD lo puede abrir libVLC directamente si el contenido es clear (sin DRM). Si tiene
+        // Widevine, PlayerScreen detecta drmLicenseUrl != "" y lo pasa a ExoPlayer.
+        val urlParaReproducir = play.url
+        val item = PlayerData(
+            episodeId = episodeId,
+            itemId = episodeId.substringBefore("::"),
+            title = cabecera?.itemTitle ?: "Caracol",
+            subtitle = cabecera?.episodeLabel.orEmpty(),
+            mediaUrl = urlParaReproducir,
+            castUrl = play.url,
+            artworkUrl = "",
+            openingStartMs = null, openingEndMs = null, endingStartMs = null,
+            kind = SourceKind.DITU,
+            drmLicenseUrl = play.drmLicenseUrl,
+        )
+        val startPos = safeStartPosition(episodeId, SourceKind.DITU)
+        _playlist.value = PlaylistData(listOf(item), 0, startPos, pedido = episodeId)
+        Log.w(PLAY, "loadDitu() ⏱ TOTAL=${System.currentTimeMillis() - t0}ms url=${play.url.take(60)}")
     }
 
     private suspend fun loadWeb(episodeId: String) {

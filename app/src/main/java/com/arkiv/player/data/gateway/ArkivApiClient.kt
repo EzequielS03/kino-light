@@ -145,6 +145,7 @@ class ArkivApiClient(
             durationMs = o.optLong("duration_ms", 0L).coerceAtLeast(0L),
             videoCodec = o.optString("video_codec"),
             container = o.optString("container"),
+            drmLicenseUrl = o.optString("drm_license_url"),
             fallbackUrl = o.optJSONObject("fallback")?.optString("url"),
             subtitles = o.optJSONArray("subtitles")?.let { arr ->
                 (0 until arr.length()).mapNotNull { i ->

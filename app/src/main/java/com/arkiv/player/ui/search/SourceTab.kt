@@ -9,10 +9,11 @@ import com.arkiv.player.ui.catalog.PlaySource
  */
 /** El orden acá manda: es el de los chips y el de las secciones de "Todo". Magis primero porque es
  *  la fuente que arranca al toque (sin seeds ni resolver); archive última, que es la de último
- *  recurso. */
+ *  recurso. Ditu va justo después de Magis: mismo perfil (streaming directo, sin descarga). */
 enum class SourceTab(val label: String) {
     TODO("Todo"),
     MAGIS("Magis"),
+    DITU("Caracol"),
     TORRENT("Torrent"),
     WEB("Web"),
     ARCHIVE("Archive"),
@@ -24,6 +25,7 @@ fun tabOf(source: PlaySource): SourceTab = when (source) {
     is PlaySource.Torrent -> SourceTab.TORRENT
     is PlaySource.Web, is PlaySource.WebPack -> SourceTab.WEB
     is PlaySource.Magis -> SourceTab.MAGIS
+    is PlaySource.Ditu -> SourceTab.DITU
     is PlaySource.Archive -> SourceTab.ARCHIVE
 }
 

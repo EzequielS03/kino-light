@@ -58,6 +58,10 @@ sealed interface PlaySource {
     /** Resultado del portal Magis (solo VOD). El `ref` es opaco: se manda tal cual a
      *  `/v1/resolve` y la app nunca lo interpreta. */
     data class Magis(val result: com.arkiv.player.data.gateway.GatewayResult) : PlaySource
+
+    /** Resultado de Ditu (Caracol Streaming). El `ref` se manda tal cual a `/v1/resolve`
+     *  y el stream resultante es MPEG-DASH; el `drm_license_url` lo maneja ExoPlayer. */
+    data class Ditu(val result: com.arkiv.player.data.gateway.GatewayResult) : PlaySource
 }
 
 /** Color de acento por origen — el mismo en la fila, la sección y los chips de filtro. */
@@ -68,12 +72,15 @@ val ArkivLibraryGreen = Color(0xFF81C784)
 val ArkivPackAmber = Color(0xFFFFB74D)
 /** Azul de Magis: el portal IPTV, distinto de web (violeta) y archive (turquesa). */
 val ArkivMagisBlue = Color(0xFF64B5F6)
+/** Naranja de Ditu (Caracol Streaming). */
+val ArkivDituOrange = Color(0xFFFF6B00)
 
 fun accentOf(source: PlaySource): Color = when (source) {
     is PlaySource.Torrent -> ArkivRed
     is PlaySource.Archive -> ArkivArchiveTeal
     is PlaySource.Web, is PlaySource.WebPack -> ArkivWebViolet
     is PlaySource.Magis -> ArkivMagisBlue
+    is PlaySource.Ditu -> ArkivDituOrange
 }
 
 /** Dato suelto de una fuente (calidad, idioma, seeds, tamaño) como pastilla. Leer una línea corrida
@@ -174,10 +181,12 @@ fun SourceRow(source: PlaySource, enabled: Boolean, descarga: DescargaDeFila? = 
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.width(3.dp).fillMaxHeight().background(accent))
-        // Solo Magis trae imagen por resultado. Sin póster no se dibuja nada: un hueco gris en
-        // cada fila sería peor que la fila de hoy. Los 38×56 son el 2:3 que entra en el alto
-        // que la fila ya tenía, así que la lista no cambia de ritmo entre una fuente y otra.
-        val miniatura = (source as? PlaySource.Magis)?.result?.extra?.get("poster").orEmpty()
+        // Solo Magis y Ditu traen imagen por resultado. Sin póster no se dibuja nada.
+        val miniatura = when (source) {
+            is PlaySource.Magis -> source.result.extra["poster"].orEmpty()
+            is PlaySource.Ditu -> source.result.extra["poster"].orEmpty()
+            else -> ""
+        }
         if (miniatura.isNotBlank()) {
             AsyncImage(
                 model = miniatura,
@@ -292,6 +301,21 @@ fun SourceRow(source: PlaySource, enabled: Boolean, descarga: DescargaDeFila? = 
                         if (r.lang.isNotBlank()) MetaChip(r.lang)
                     }
                 }
+                is PlaySource.Ditu -> {
+                    val r = source.result
+                    Text(
+                        r.title, color = Color.White, style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        MetaChip("Caracol", ArkivDituOrange)
+                        if (r.year.isNotBlank()) MetaChip(r.year)
+                    }
+                }
             }
             if (descarga != null) LineaDeEstadoDeDescarga(descarga.estado)
         }
@@ -300,9 +324,12 @@ fun SourceRow(source: PlaySource, enabled: Boolean, descarga: DescargaDeFila? = 
     }
 }
 
-/** La carátula de una fuente, o "" si esa fuente no tiene. Hoy solo Magis trae imagen propia. */
-fun posterDe(source: PlaySource): String =
-    (source as? PlaySource.Magis)?.result?.extra?.get("poster").orEmpty()
+/** La carátula de una fuente, o "" si esa fuente no tiene. Magis y Ditu traen imagen propia. */
+fun posterDe(source: PlaySource): String = when (source) {
+    is PlaySource.Magis -> source.result.extra["poster"].orEmpty()
+    is PlaySource.Ditu -> source.result.extra["poster"].orEmpty()
+    else -> ""
+}
 
 /**
  * Una fuente como TARJETA de carátula, para pintar en dos columnas.
@@ -360,17 +387,25 @@ fun SourceCard(source: PlaySource, enabled: Boolean, onDownload: (() -> Unit)? =
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 4.dp),
         ) {
-            val r = (source as? PlaySource.Magis)?.result
-            val anio = r?.year.orEmpty()
-            MetaChip("Magis", ArkivMagisBlue)
-            if (r?.extra?.get("program_type") == "teleplay") MetaChip("Serie")
-            if (anio.isNotBlank()) MetaChip(anio)
+            when (source) {
+                is PlaySource.Magis -> {
+                    MetaChip("Magis", ArkivMagisBlue)
+                    if (source.result.extra["program_type"] == "teleplay") MetaChip("Serie")
+                    if (source.result.year.isNotBlank()) MetaChip(source.result.year)
+                }
+                is PlaySource.Ditu -> {
+                    MetaChip("Caracol", ArkivDituOrange)
+                    if (source.result.year.isNotBlank()) MetaChip(source.result.year)
+                }
+                else -> Unit
+            }
         }
     }
 }
 
 private fun tituloDe(source: PlaySource): String = when (source) {
     is PlaySource.Magis -> source.result.title
+    is PlaySource.Ditu -> source.result.title
     is PlaySource.Torrent -> source.result.name
     is PlaySource.Archive -> source.item.title
     is PlaySource.Web -> source.result.title

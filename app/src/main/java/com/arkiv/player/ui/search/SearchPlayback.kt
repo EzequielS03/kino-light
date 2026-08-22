@@ -66,6 +66,12 @@ class SearchPlayback(private val graph: AppGraph) {
             is PlaySource.Web -> null // no aplica en directos de Fase 1
             is PlaySource.WebPack -> null // no aplica en directos de Fase 1 (igual que Web)
             is PlaySource.Magis -> magisEpisodeId(source.result)
+            is PlaySource.Ditu -> graph.repository.addDituSource(
+                ref = source.result.ref,
+                contentId = source.result.extra["content_id"].orEmpty(),
+                title = source.result.title,
+                posterUrl = source.result.extra["poster"].orEmpty(),
+            )
         }
         return if (epId != null) PlaybackResult.Ready(epId) else PlaybackResult.Failed("No se pudo preparar la reproducción.")
     }
@@ -205,6 +211,18 @@ class SearchPlayback(private val graph: AppGraph) {
         val epId = magisEpisodeId(r)
         return if (epId != null) PlaybackResult.Ready(epId)
         else PlaybackResult.Failed("No se pudo preparar la reproducción de Magis.")
+    }
+
+    /** Reproduce un resultado de Ditu (Caracol Streaming): lo guarda y devuelve a dónde navegar. */
+    suspend fun playDitu(r: com.arkiv.player.data.gateway.GatewayResult): PlaybackResult {
+        val epId = graph.repository.addDituSource(
+            ref = r.ref,
+            contentId = r.extra["content_id"].orEmpty(),
+            title = r.title,
+            posterUrl = r.extra["poster"].orEmpty(),
+        )
+        return if (epId != null) PlaybackResult.Ready(epId)
+        else PlaybackResult.Failed("No se pudo preparar la reproducción de Caracol.")
     }
 
     /**

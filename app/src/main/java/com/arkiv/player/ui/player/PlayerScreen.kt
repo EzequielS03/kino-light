@@ -398,7 +398,11 @@ private fun PlayerContent(
     // que era web: darle play a un capítulo de Magis anunciaba una fuente web que en ese camino no
     // existe. Ninguna otra fuente prende esa bandera (archive y torrent tienen sus propios carteles).
     val fuenteQueResuelve = remember(episodeId) {
-        if (PlayerSource.kindFor(episodeId) == SourceKind.MAGIS) "de Magis" else "web"
+        when (PlayerSource.kindFor(episodeId)) {
+            SourceKind.MAGIS -> "de Magis"
+            SourceKind.DITU -> "de Caracol"
+            else -> "web"
+        }
     }
     // Modo vivo (Tarea 14): aísla TODO el comportamiento distinto de VOD (sin barra de progreso ni
     // seek, overlay propio, zapping) detrás de esta bandera calculada UNA vez del episodeId con el

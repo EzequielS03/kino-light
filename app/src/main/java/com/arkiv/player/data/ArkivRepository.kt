@@ -1339,6 +1339,30 @@ class ArkivRepository(
         return ep.torrentData ?: itemDao.getItem(ep.itemId)?.torrentData
     }
 
+    /** Ref de un episodio de Ditu (para que loadDitu lo mande al gateway). */
+    suspend fun dituRefForEpisode(episodeId: String): String? {
+        val ep = itemDao.getEpisode(episodeId) ?: return null
+        return ep.torrentData ?: itemDao.getItem(ep.itemId)?.torrentData
+    }
+
+    /** Guarda una película de Ditu y devuelve su episodeId (o null si los datos están vacíos). */
+    suspend fun addDituSource(
+        ref: String,
+        contentId: String,
+        title: String,
+        posterUrl: String = "",
+    ): String? {
+        if (ref.isBlank() || contentId.isBlank()) return null
+        val itemId = DituEntities.itemIdDe(contentId)
+        val existing = itemDao.getItem(itemId)
+        val (item, ep) = DituEntities.build(
+            contentId = contentId, ref = ref, title = title,
+            posterUrl = posterUrl, ahora = clock(), existente = existing,
+        )
+        itemDao.replaceItem(item, listOf(ep))
+        return ep.id
+    }
+
     /**
      * Encabezado del player: título del ítem + rótulo de temporada/capítulo (solo si es serie).
      * El rótulo se PARSEA, no es el displayName crudo: en la base real esos nombres traen desde

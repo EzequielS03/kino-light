@@ -281,6 +281,10 @@ fun TvSearchScreen(
             } else {
                 playMagisResult(source.result)
             }
+        is PlaySource.Ditu -> {
+            preparing = true; playError = null
+            scope.launch { applyResult(playback.playDitu(source.result)) }
+        }
     }
 
     // Guarda los capítulos del pack web y reproduce uno: [playEpisode] si el usuario eligió uno
@@ -1375,6 +1379,7 @@ internal fun sourceKey(s: PlaySource): String = when (s) {
     is PlaySource.Web -> "web-${s.result.identity}"
     is PlaySource.WebPack -> "webpack-${s.pack.siteId}-${s.pack.showTitle}"
     is PlaySource.Magis -> "magis-${s.result.extra["content_id"] ?: s.result.ref}"
+    is PlaySource.Ditu -> "ditu-${s.result.extra["content_id"] ?: s.result.ref}"
 }
 
 /**

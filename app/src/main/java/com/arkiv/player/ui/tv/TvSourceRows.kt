@@ -79,6 +79,7 @@ private fun etiquetaDe(source: PlaySource): Pair<String, Color> = when (source) 
     is PlaySource.Web -> "WEB" to Color(0xFFB39DDB)
     is PlaySource.WebPack -> "WEB" to Color(0xFFB39DDB)
     is PlaySource.Magis -> "MAGIS" to Color(0xFF64B5F6)
+    is PlaySource.Ditu -> "CARACOL" to Color(0xFFFF6B00)
 }
 
 /**
@@ -176,6 +177,7 @@ private fun TvMetaChip(texto: String, color: Color, fuerte: Boolean = false) {
 private fun tituloDe(source: PlaySource): String = when (source) {
     is PlaySource.Torrent -> source.result.name
     is PlaySource.Magis -> source.result.title
+    is PlaySource.Ditu -> source.result.title
     is PlaySource.Archive -> source.item.title
     is PlaySource.Web -> source.result.title
     is PlaySource.WebPack -> source.pack.showTitle
@@ -201,6 +203,13 @@ private fun datosDe(source: PlaySource): List<Pair<String, Color>> = when (sourc
         val r = source.result
         buildList {
             add((if (r.extra["program_type"] == "teleplay") "Serie" else "Película") to Color(0xFF64B5F6))
+            r.year.takeIf { it.isNotBlank() }?.let { add(it to ArkivTextSecondary) }
+        }
+    }
+    is PlaySource.Ditu -> {
+        val r = source.result
+        buildList {
+            add("Caracol" to Color(0xFFFF6B00))
             r.year.takeIf { it.isNotBlank() }?.let { add(it to ArkivTextSecondary) }
         }
     }
@@ -269,10 +278,15 @@ fun LazyListScope.tvFilaDeFuente(
                 } else {
                     Modifier
                 }
-                if (s is PlaySource.Magis) {
+                if (s is PlaySource.Magis || s is PlaySource.Ditu) {
+                    val (titulo, poster) = when (s) {
+                        is PlaySource.Magis -> s.result.title to s.result.extra["poster"]
+                        is PlaySource.Ditu -> s.result.title to s.result.extra["poster"]
+                        else -> "" to null
+                    }
                     TvPosterCard(
-                        title = s.result.title,
-                        posterUrl = s.result.extra["poster"],
+                        title = titulo,
+                        posterUrl = poster,
                         cardHeight = ALTO_TARJETA,
                         modifier = mod,
                     ) { onPlay(s) }

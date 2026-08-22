@@ -319,6 +319,20 @@ fun CineDetailScreen(
         }
     }
 
+    fun playDitu(r: com.arkiv.player.data.gateway.GatewayResult) {
+        preparing = true; error = null; sheetOpen = false
+        scope.launch {
+            val epId = graph.repository.addDituSource(
+                ref = r.ref,
+                contentId = r.extra["content_id"].orEmpty(),
+                title = r.title,
+                posterUrl = r.extra["poster"].orEmpty(),
+            )
+            preparing = false
+            if (epId != null) onPlay(epId) else error = "No se pudo preparar Caracol."
+        }
+    }
+
     // Reproduce una fuente de Magis: guarda el ítem (id estable por contentId, ref al lado) y usa
     // el player unificado, que resuelve el ref → stream al cargar (loadMagis). Molde: playArchive.
     fun playMagis(r: com.arkiv.player.data.gateway.GatewayResult) {
@@ -488,6 +502,8 @@ fun CineDetailScreen(
         // Magis no se descarga: el CDN sirve con un token que vence a las ~48 h, así que el
         // archivo bajado dejaría de reproducirse. Es fuente de streaming, no de biblioteca.
         is PlaySource.Magis -> Unit
+        // Ditu tampoco: el stream MPEG-DASH se sirve con tokens CDN de vida corta.
+        is PlaySource.Ditu -> Unit
     }
 
     /**
@@ -501,6 +517,7 @@ fun CineDetailScreen(
             is PlaySource.Archive -> DescargasPorFuente.deArchive(downloadRows, s.item.identifier)
             is PlaySource.WebPack -> null
             is PlaySource.Magis -> return null
+            is PlaySource.Ditu -> return null
         }
         return DescargaDeFila(
             estado = EstadoDeDescargaDeCapitulo.de(fila),
@@ -518,6 +535,7 @@ fun CineDetailScreen(
         is PlaySource.Web -> playWeb(s.result)
         is PlaySource.WebPack -> webPackFor = s.pack
         is PlaySource.Magis -> playMagis(s.result)
+        is PlaySource.Ditu -> playDitu(s.result)
     }
 
     Box(Modifier.fillMaxSize().background(ArkivBlack)) {
