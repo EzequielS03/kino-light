@@ -29,6 +29,7 @@ internal suspend fun enviarComandoDeBarra(
 ) {
     if (bar?.fuente != BarFuente.CAST) {
         graph.remoteController.sendTransport(cmd)
+        if (cmd == TransportCommand.Stop) graph.tvNowPlaying.clearState()
         return
     }
     when (cmd) {

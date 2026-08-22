@@ -17,7 +17,13 @@ import java.util.concurrent.TimeUnit
  * [streamUrl] es la URL directa del stream (p.ej. el .mpd de Ditu ya resuelto): si está
  * presente, el backend la pasa directo a yt-dlp sin llamar al web resolver.
  */
-data class NucDownloadItem(val season: Int, val episode: Int, val pageUrl: String, val streamUrl: String? = null)
+data class NucDownloadItem(
+    val season: Int,
+    val episode: Int,
+    val pageUrl: String,
+    val streamUrl: String? = null,
+    val extraHeaders: Map<String, String> = emptyMap(),
+)
 
 data class NucJobItem(val itemId: Long, val season: Int, val episode: Int, val status: String, val error: String?)
 data class NucJob(val jobId: Long, val status: String, val progress: Float?, val items: List<NucJobItem>)
@@ -87,6 +93,7 @@ class ArkivOfflineApi(
                         put("episode", i.episode)
                         put("source_ref", i.pageUrl)
                         if (i.streamUrl != null) put("stream_url", i.streamUrl)
+                        if (i.extraHeaders.isNotEmpty()) put("extra_headers", JSONObject(i.extraHeaders))
                     },
                 )
             }

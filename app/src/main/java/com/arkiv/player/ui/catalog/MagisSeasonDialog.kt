@@ -71,7 +71,8 @@ fun MagisSeasonDialog(
     // La [GatewaySerie] viaja también en el guardado, no solo en el play: guardar escribe la fila
     // del episodio entera (REPLACE), así que sin ella los capítulos marcados perderían la temporada
     // que el play ya había guardado bien. Ver `SearchPlayback.magisEpisodeIdDe`.
-    onSave: (List<GatewayEpisode>, GatewaySerie?) -> Unit,
+    // Null = descarga deshabilitada (p.ej. Ditu tiene DRM y no se puede bajar con yt-dlp).
+    onSave: ((List<GatewayEpisode>, GatewaySerie?) -> Unit)? = null,
 ) {
     var capitulos by remember(season.ref) { mutableStateOf<List<GatewayEpisode>?>(null) }
     // El bloque `series` de la misma respuesta: de ahí sale el `tmdbId` que necesita
@@ -82,6 +83,7 @@ fun MagisSeasonDialog(
     // Selección para guardar. Arranca vacía: el gesto principal de esta ventana es reproducir, y
     // marcar los 16 capítulos por defecto invitaría a bajar una temporada entera sin querer.
     val marcados = remember(season.ref) { mutableStateListOf<Int>() }
+    val puedeGuardar = onSave != null
 
     LaunchedEffect(season.ref) {
         // Con qué se abrió la ventana. `program_type` es lo que decide que esto sea una serie (ver
@@ -112,9 +114,9 @@ fun MagisSeasonDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (marcados.isNotEmpty()) {
+                if (puedeGuardar && marcados.isNotEmpty()) {
                     val elegidos = capitulos.orEmpty().filter { it.number in marcados }
-                    TextButton(onClick = { onSave(elegidos, serie); onDismiss() }) {
+                    TextButton(onClick = { onSave!!(elegidos, serie); onDismiss() }) {
                         Icon(Icons.Default.Download, contentDescription = null, tint = ArkivMagisBlue)
                         Spacer(Modifier.size(6.dp))
                         Text("Guardar ${elegidos.size}", color = ArkivMagisBlue)
@@ -125,7 +127,7 @@ fun MagisSeasonDialog(
         },
         dismissButton = {
             val caps = capitulos.orEmpty()
-            if (caps.isNotEmpty()) {
+            if (puedeGuardar && caps.isNotEmpty()) {
                 TextButton(onClick = {
                     // Alterna entre "toda la temporada" y "ninguno": el caso frecuente es querer
                     // la temporada completa, y marcar 16 casillas a mano sería absurdo.
@@ -178,6 +180,7 @@ fun MagisSeasonDialog(
                         EpisodeRow(
                             cap = cap,
                             marcado = cap.number in marcados,
+                            mostrarCasilla = puedeGuardar,
                             onMarcar = {
                                 if (cap.number in marcados) marcados.remove(cap.number)
                                 else marcados.add(cap.number)
@@ -196,6 +199,7 @@ fun MagisSeasonDialog(
 private fun EpisodeRow(
     cap: GatewayEpisode,
     marcado: Boolean,
+    mostrarCasilla: Boolean = true,
     onMarcar: () -> Unit,
     onPlay: () -> Unit,
 ) {
@@ -210,15 +214,17 @@ private fun EpisodeRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Box(
-            Modifier.size(28.dp).clickable(onClick = onMarcar),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                if (marcado) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
-                contentDescription = if (marcado) "Quitar de la descarga" else "Guardar este capítulo",
-                tint = if (marcado) ArkivMagisBlue else ArkivTextSecondary,
-            )
+        if (mostrarCasilla) {
+            Box(
+                Modifier.size(28.dp).clickable(onClick = onMarcar),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    if (marcado) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                    contentDescription = if (marcado) "Quitar de la descarga" else "Guardar este capítulo",
+                    tint = if (marcado) ArkivMagisBlue else ArkivTextSecondary,
+                )
+            }
         }
         Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
             Text(

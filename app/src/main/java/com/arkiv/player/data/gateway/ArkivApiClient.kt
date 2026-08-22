@@ -343,6 +343,25 @@ class ArkivApiClient(
         DituCatalogResponse(series = series, premiumRequired = premiumRequired)
     }
 
+    suspend fun dituChannels(): List<DituChannel> = withContext(Dispatchers.IO) {
+        val root = JSONObject(ejecutar(pedido("${baseUrl()}/v1/ditu/channels").get().build()))
+        val arr = root.optJSONArray("channels") ?: return@withContext emptyList()
+        (0 until arr.length()).mapNotNull { i ->
+            arr.optJSONObject(i)?.let { o ->
+                val id = o.optInt("channel_id")
+                val name = o.optString("name")
+                if (id == 0 || name.isBlank()) null
+                else DituChannel(
+                    channelId = id,
+                    name = name,
+                    logoUrl = o.optString("logo_url"),
+                    channelType = o.optString("channel_type"),
+                    orderId = o.optInt("order_id"),
+                )
+            }
+        }
+    }
+
     suspend fun sources(): List<GatewaySource> = withContext(Dispatchers.IO) {
         val arr = JSONObject(ejecutar(pedido("${baseUrl()}/v1/sources").get().build()))
             .optJSONArray("sources") ?: return@withContext emptyList()

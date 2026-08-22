@@ -45,6 +45,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.arkiv.player.data.gateway.DituCatalogResponse
+import com.arkiv.player.data.gateway.DituChannel
 import com.arkiv.player.data.gateway.DituSerieItem
 import com.arkiv.player.data.gateway.GatewayEpisode
 import com.arkiv.player.ui.columnasDeGrilla
@@ -220,18 +221,6 @@ fun CaracolScreen(
                         backdropOverride = "",
                     )
                     if (result is PlaybackResult.Ready) onPlay(result.episodeId)
-                }
-            },
-            onSave = { elegidos, serieInfo ->
-                serieAbierta = null
-                scope.launch {
-                    playback.saveDituSeason(
-                        serieResult = serie.toGatewayResult(),
-                        elegidos = elegidos,
-                        serieInfo = serieInfo,
-                        posterOverride = serie.posterUrl,
-                        backdropOverride = "",
-                    )
                 }
             },
         )

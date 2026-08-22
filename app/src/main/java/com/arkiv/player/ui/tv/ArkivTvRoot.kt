@@ -10,6 +10,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -211,6 +212,7 @@ fun ArkivTvRoot(
                 onOpenSearchRoute = { route -> navController.navigate(route) },
                 onOpenCategorias = { navController.navigate("categorias") },
                 onOpenCategoriasHome = { navController.navigate("categorias_home") },
+                onOpenCaracol = { navController.navigate("caracol") },
                 onBrowseRow = { rowId, title ->
                     navController.navigate("row_browse/$rowId?title=${android.net.Uri.encode(title)}")
                 },
@@ -284,6 +286,12 @@ fun ArkivTvRoot(
                 onOpenItem = { navController.navigate("detail/${Uri.encode(it)}") },
                 onPlayEpisode = { goToPlayer(it) },
                 onBack = { navController.popBackStack() },
+            )
+        }
+        composable("caracol") {
+            com.arkiv.player.ui.catalog.CaracolScreen(
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+                onPlay = { goToPlayer(it) },
             )
         }
         composable("live") {

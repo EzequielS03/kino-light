@@ -65,6 +65,7 @@ class DituDownloadStrategy(
                         episode = episode,
                         pageUrl = episodeId,
                         streamUrl = reproducible.url,
+                        extraHeaders = reproducible.headers,
                     ),
                 ),
             ) ?: return DownloadOutcome.Failed("El backend no aceptó el trabajo (¿sin espacio o caído?)")

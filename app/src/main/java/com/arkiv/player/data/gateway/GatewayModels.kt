@@ -136,6 +136,15 @@ fun parseEpisodesResponse(json: String): Pair<List<GatewayEpisode>, GatewaySerie
     return episodios to serie
 }
 
+/** Un canal en vivo de Caracol Streaming (Ditu). Viene de `/v1/ditu/channels`. */
+data class DituChannel(
+    val channelId: Int,
+    val name: String,
+    val logoUrl: String,
+    val channelType: String,
+    val orderId: Int,
+)
+
 /** Respuesta completa de `/v1/ditu/catalog`. */
 data class DituCatalogResponse(
     val series: List<DituSerieItem>,

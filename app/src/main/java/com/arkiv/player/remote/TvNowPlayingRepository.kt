@@ -30,9 +30,19 @@ class TvNowPlayingRepository(
 
     private val active = MutableStateFlow(false)
 
+    // episodeId+startedAtMs de la foto que el usuario descartó explícitamente con Stop.
+    // El poll la ignora hasta que el TV arranque algo diferente.
+    private var dismissedKey: Pair<String, Long>? = null
+
     fun setActive(value: Boolean) {
         active.value = value
         if (value) scope.launch { refreshNow() }
+    }
+
+    fun clearState() {
+        val foto = _state.value?.nowPlaying
+        if (foto != null) dismissedKey = Pair(foto.episodeId, foto.startedAtMs)
+        _state.value = null
     }
 
     fun start() {
@@ -71,6 +81,14 @@ class TvNowPlayingRepository(
         if (!tvPaired()) {
             _state.value = null
             return
+        }
+        // Si el usuario descartó esta sesión explícitamente (Stop), ignorar la misma foto hasta que el
+        // TV arranque algo nuevo. Una clave distinta (episodio o startedAtMs diferente) limpia el
+        // descarte y vuelve a mostrar la barra.
+        if (foto != null) {
+            val key = Pair(foto.episodeId, foto.startedAtMs)
+            if (key == dismissedKey) return
+            dismissedKey = null
         }
         // Solo re-sellar receivedAtMs si la foto decodificada cambió de verdad. Si es la MISMA que ya
         // teníamos, el TV dejó de publicar (crasheó, se apagó, perdió red) y NO hay que refrescar el

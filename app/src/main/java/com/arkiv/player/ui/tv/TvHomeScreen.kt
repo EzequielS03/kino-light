@@ -264,6 +264,7 @@ fun TvHomeScreen(
     onOpenCategorias: () -> Unit,
     /** Listado de todas las filas del home como accesos directos por categoría. */
     onOpenCategoriasHome: () -> Unit,
+    onOpenCaracol: () -> Unit,
     onBrowseRow: (rowId: String, title: String) -> Unit,
 ) {
     val graph = rememberGraph()
@@ -585,6 +586,11 @@ fun TvHomeScreen(
                         icon = Icons.Default.PlayCircle,
                         label = "Magis",
                         onClick = onOpenCategorias,
+                    )
+                    TvNavButton(
+                        icon = Icons.Default.LiveTv,
+                        label = "Caracol",
+                        onClick = onOpenCaracol,
                     )
                     TvNavButton(
                         icon = Icons.Default.VideoLibrary,
