@@ -1,6 +1,7 @@
 package com.arkiv.player.ui.player
 
 import android.net.Uri
+import android.view.SurfaceView
 import android.view.TextureView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -41,8 +42,16 @@ import kotlinx.coroutines.delay
  * Arkiv funcionen igual que con VLC. Expone el [ExoPlayer] vía [onPlayerReady]
  * para que PlayerScreen lo use como `activePlayer` (play/pause/seek).
  *
- * Usa [TextureView] directamente para que [onTextureViewReady] exponga la superficie y
- * `capturarFrame` funcione igual que con VLC.
+ * Usa [SurfaceView] y NO TextureView, a diferencia del resto de reproductores. Widevine entrega
+ * los buffers marcados como protegidos, y un buffer protegido no se puede convertir en textura:
+ * hwui lo rechaza al validarlo y ABORTA el proceso entero desde el RenderThread —la app se cierra
+ * de golpe, sin excepción de Kotlin que capturar (`Invalid GrBackendTexture … protected==1`).
+ * SurfaceView sí admite la ruta segura.
+ *
+ * El precio es que Ditu se queda sin miniaturas de frame: [onTextureViewReady] recibe null a
+ * propósito. No es una limitación que se pueda sortear —capturar la imagen es exactamente lo que
+ * el DRM existe para impedir— y el reproductor de VLC ya se comporta así con lo que no puede
+ * capturar. Ver `capturarFrame`, que trata el null como "esta fuente no da imagen".
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
@@ -84,14 +93,14 @@ internal fun DituExoPlayer(
             }
     }
 
-    val textureView = remember(exoPlayer) { TextureView(context) }
+    val surfaceView = remember(exoPlayer) { SurfaceView(context) }
     // Relación de aspecto del video: 0 = desconocida todavía (spinner / inicio).
     var videoAspectRatio by remember(exoPlayer) { mutableFloatStateOf(0f) }
 
     DisposableEffect(exoPlayer) {
-        exoPlayer.setVideoTextureView(textureView)
+        exoPlayer.setVideoSurfaceView(surfaceView)
         onPlayerReady(exoPlayer)
-        onTextureViewReady(textureView)
+        onTextureViewReady(null)
         espejo.sincronizarTransporte(
             buffereando = exoPlayer.playbackState == Player.STATE_BUFFERING,
             reproduciendo = exoPlayer.isPlaying,
@@ -124,7 +133,7 @@ internal fun DituExoPlayer(
 
         onDispose {
             exoPlayer.removeListener(listener)
-            exoPlayer.clearVideoTextureView(textureView)
+            exoPlayer.clearVideoSurfaceView(surfaceView)
             exoPlayer.release()
             espejo.reiniciarElReloj()
             espejo.sincronizarTransporte(buffereando = false, reproduciendo = false, quiereReproducir = false)
@@ -150,7 +159,7 @@ internal fun DituExoPlayer(
                 Modifier.aspectRatio(videoAspectRatio)
             else
                 Modifier.fillMaxSize(),
-            factory = { textureView },
+            factory = { surfaceView },
         )
     }
 }
