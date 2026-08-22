@@ -87,16 +87,20 @@ internal fun MagisExoPlayer(
         // intercaladas: el video vive en una zona y el audio a 13 MB de distancia, así que el
         // player salta entre las dos y cada salto le cuesta entre 1,6 s y 3,9 s de espera. Con el
         // buffer de fábrica —50 s de techo y 2,5 s para arrancar— se queda seco cada dos o tres
-        // segundos y la imagen tartamudea. Se le da un buffer muy holgado para que cada zona se lea
-        // de a tramos grandes y la latencia del CDN quede absorbida por delante.
+        // segundos y la imagen tartamudea, así que se le da margen de sobra por delante.
+        //
+        // Pero solo hasta donde entra en un teléfono. Se probó con 300 s y 96 MB de techo y fue
+        // peor que el mal original: a 236 KB/s de bitrate eso son ~70 MB retenidos, el heap se fue
+        // de 107 MB a 142 MB, el GC entró en bucle y la imagen se congelaba cada 15 s como un
+        // reloj. 60 s de techo son unos 14 MB, que cubren de sobra el salto más lento medido.
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                /* minBufferMs = */ 120_000,
-                /* maxBufferMs = */ 300_000,
-                /* bufferForPlaybackMs = */ 5_000,
-                /* bufferForPlaybackAfterRebufferMs = */ 15_000,
+                /* minBufferMs = */ 30_000,
+                /* maxBufferMs = */ 60_000,
+                /* bufferForPlaybackMs = */ 3_000,
+                /* bufferForPlaybackAfterRebufferMs = */ 8_000,
             )
-            .setTargetBufferBytes(96 * 1024 * 1024)
+            .setTargetBufferBytes(24 * 1024 * 1024)
             // Manda la duración y no el tamaño: con 8 pistas de audio el techo en bytes se alcanza
             // mucho antes que los segundos de video que hacen falta para cubrir un salto.
             .setPrioritizeTimeOverSizeThresholds(true)
@@ -262,21 +266,33 @@ internal fun MagisExoPlayer(
                     Log.w(TAG, "VIDEO SIN FRAMES · empieza · pos=${pos}ms frames=$frames")
                 }
                 val congeladoMs = ahora - congeladoDesdeMs
-                // 8 s: el punto medio medido. Con 4 s el rescate entraba encima de los tirones
-                // normales del CDN —que llegan a durar 4 s y se recuperan solos— y cada seek de
-                // más obliga a reabrir conexiones contra el mismo CDN lento que ya venía ahogado.
-                // Con 20 s la imagen se queda muerta demasiado tiempo: se midió un cuelgue en el
-                // que el player pasó 20 s sin pedirle un solo byte al proxy y volvió 2,3 s después
-                // del seek, así que esperar es puro castigo. El atasco no se cura solo.
-                if (congeladoMs >= 8_000 && ahora - ultimoRescateMs >= 15_000) {
+                // 5 s de margen: por debajo se confunde con los tirones normales del CDN, que
+                // llegan a durar 4 s y se recuperan solos.
+                //
+                // El rescate ataca los tres puntos donde se midió el atasco, del más barato al más
+                // caro, porque cada uno cura un caso que el anterior no:
+                //  1. seekTo — destraba un decodificador atascado. A veces basta (se midió una
+                //     recuperación en 190 ms), pero en el atasco duro el contador de frames se
+                //     queda clavado en el mismo número tras un seek perfectamente exitoso.
+                //  2. prepare() — reconstruye la fuente y reabre el HTTP. Cura cuando el player
+                //     leyó el corte del proxy como fin de stream y dejó de pedir datos.
+                //  3. reenganchar el TextureView — la superficie dejó de drenar y el decodificador
+                //     se quedó sin buffers de salida. Se midió una tanda en la que ni el prepare()
+                //     movía el contador: ahí no falta ni fuente ni decodificador, falta a dónde
+                //     pintar, y solo soltar y volver a poner la superficie lo arregla.
+                if (congeladoMs >= 5_000 && ahora - ultimoRescateMs >= 8_000) {
                     ultimoRescateMs = ahora
                     congeladoDesdeMs = 0L
                     rescatesSeguidos++
-                    if (rescatesSeguidos == 1) {
-                        Log.w(TAG, "VIDEO CONGELADO ${congeladoMs}ms · rescate 1: seekTo($pos)")
+                    if (rescatesSeguidos <= 1) {
+                        Log.w(TAG, "VIDEO CONGELADO ${congeladoMs}ms · rescate 1: prepare() en $pos")
                         exoPlayer.seekTo(pos)
+                        exoPlayer.prepare()
+                        exoPlayer.playWhenReady = true
                     } else {
-                        Log.w(TAG, "VIDEO CONGELADO ${congeladoMs}ms · rescate $rescatesSeguidos: prepare() para reabrir la fuente en $pos")
+                        Log.w(TAG, "VIDEO CONGELADO ${congeladoMs}ms · rescate $rescatesSeguidos: reenganchando la superficie en $pos")
+                        exoPlayer.clearVideoTextureView(textureView)
+                        exoPlayer.setVideoTextureView(textureView)
                         exoPlayer.seekTo(pos)
                         exoPlayer.prepare()
                         exoPlayer.playWhenReady = true

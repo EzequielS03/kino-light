@@ -1860,6 +1860,7 @@ private fun PlayerContent(
                 onPlayerReady = { player ->
                     magisPlayer = player
                     estadoPistas.setExoPlayer(player)
+                    gestos.setExoPlayer(player)
                 },
                 onTextureViewReady = { tv -> magisTextureView = tv },
                 onError = { msg -> vm.onMagisExoError(msg) },

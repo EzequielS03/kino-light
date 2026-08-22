@@ -11,6 +11,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import com.arkiv.player.data.SettingsStore
+import androidx.media3.common.Player
 import com.arkiv.player.playback.VlcPlayer
 import kotlinx.coroutines.delay
 
@@ -40,7 +41,7 @@ private const val VELOCIDAD_ACELERADA = 2f
  * ENCIMA de la reproducción sin cambiar qué se reproduce.
  *
  * Los tres ajustes comparten [hud] —el cartelito del centro— y por eso viajan juntos; cada uno por
- * su lado no tendría dónde poner ese estado. Velocidad y zoom van contra el VlcPlayer local y no
+ * su lado no tendría dónde poner ese estado. Velocidad y zoom van contra el reproductor local y no
  * se persisten (son de esta sesión); el modo noche sí, en [SettingsStore], porque sobrevive a
  * cerrar la app.
  *
@@ -55,6 +56,25 @@ internal class EstadoDeGestos(
 ) {
     private var indiceVelocidad by mutableIntStateOf(1) // arranca en 1×
     private var indiceZoom by mutableIntStateOf(0) // arranca en "Ajustar"
+
+    /**
+     * El ExoPlayer al mando, o null cuando reproduce VLC. Mismo trato que en [EstadoDePistas]: la
+     * pantalla lo enchufa al crear el player y la velocidad va a uno o a otro según quién esté
+     * sonando. Sin esto los gestos le hablaban siempre a VLC y en magis no hacían nada.
+     */
+    private var exoRef: Player? = null
+
+    fun setExoPlayer(player: Player?) {
+        exoRef = player
+    }
+
+    /** La velocidad va al que esté reproduciendo. */
+    private fun aplicarVelocidad(rate: Float) {
+        val exo = exoRef
+        if (exo != null) exo.setPlaybackSpeed(rate) else vlc.setRate(rate)
+    }
+
+    private fun velocidadActual(): Float = exoRef?.playbackParameters?.speed ?: vlc.currentRate()
 
     /** Cartel central del gesto en curso (velocidad, seek, volumen, brillo), o null. */
     var hud by mutableStateOf<String?>(null)
@@ -83,7 +103,7 @@ internal class EstadoDeGestos(
     /** Velocidad y zoom son cíclicos: cada toque pasa al siguiente paso y vuelve al principio. */
     fun siguienteVelocidad() {
         indiceVelocidad = (indiceVelocidad + 1) % PASOS_DE_VELOCIDAD.size
-        vlc.setRate(PASOS_DE_VELOCIDAD[indiceVelocidad])
+        aplicarVelocidad(PASOS_DE_VELOCIDAD[indiceVelocidad])
         alInteractuar()
     }
 
@@ -117,8 +137,8 @@ internal class EstadoDeGestos(
 
     /** Long-press: guarda la velocidad de antes para poder devolverla al soltar. */
     fun empezarAAcelerar() {
-        velocidadAntesDeAcelerar = vlc.currentRate()
-        vlc.setRate(VELOCIDAD_ACELERADA)
+        velocidadAntesDeAcelerar = velocidadActual()
+        aplicarVelocidad(VELOCIDAD_ACELERADA)
         acelerando = true
         hud = "⏩ ${VELOCIDAD_ACELERADA.toInt()}×"
     }
@@ -127,7 +147,7 @@ internal class EstadoDeGestos(
     fun terminarDeAcelerar(): Boolean {
         if (!acelerando) return false
         acelerando = false
-        vlc.setRate(velocidadAntesDeAcelerar)
+        aplicarVelocidad(velocidadAntesDeAcelerar)
         hud = null
         return true
     }
