@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Downloading
 import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.SettingsRemote
@@ -114,7 +115,7 @@ private val TABS = listOf(
     Tab("library", "Biblioteca") { Icon(Icons.Default.VideoLibrary, contentDescription = "Biblioteca") },
     Tab("live", "En vivo") { Icon(Icons.Default.LiveTv, contentDescription = "En vivo") },
     Tab("catalog", "Magis") { Icon(Icons.Default.PlayCircle, contentDescription = "Magis") },
-    Tab("caracol", "Caracol") { Icon(Icons.Default.LiveTv, contentDescription = "Caracol") },
+    Tab("caracol", "Caracol") { Icon(Icons.Default.Tv, contentDescription = "Caracol") },
     Tab("settings", "Ajustes") { Icon(Icons.Default.Settings, contentDescription = "Ajustes") },
 )
 
