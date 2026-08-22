@@ -111,6 +111,15 @@ class AppGraph(context: Context) {
                     sesion = sesionDePersona,
                 ),
             )
+            // TOPE A LA LLAMADA ENTERA. Los timeouts sueltos de OkHttp se reinician con cada byte,
+            // así que una respuesta que llega a cuentagotas —o que se queda a medias detrás del
+            // túnel de Cloudflare -- no vence NUNCA. Se midió abriendo una película: el gateway
+            // contestó su 200 y la app se quedó dos minutos con el spinner, sin error y sin nada
+            // que reintentar, porque la corrutina del resolve nunca volvió.
+            //
+            // 45 s y no menos: `/v1/search` se gasta sus 15 s de presupuesto y todavía tiene que
+            // devolver el cuerpo. Lo que importa no es cortar rápido, es que corte.
+            .callTimeout(45, java.util.concurrent.TimeUnit.SECONDS)
             .build()
     }
 
