@@ -57,7 +57,6 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
-import com.arkiv.player.data.ArchiveSearchResult
 import com.arkiv.player.data.catalog.AniListApi
 import com.arkiv.player.data.catalog.AnimeShow
 import com.arkiv.player.data.catalog.TmdbApi
@@ -117,7 +116,7 @@ fun TvSearchScreen(
         factory = viewModelFactory {
             initializer {
                 SearchViewModel(
-                    graph.tmdbApi, graph.aniListApi, graph.api,
+                    graph.tmdbApi, graph.aniListApi,
                     graph.settings, graph.arkivApiClient,
                     graph.searchHistory,
                 )
@@ -164,11 +163,6 @@ fun TvSearchScreen(
         }
     }
 
-    fun playArchiveResult(item: ArchiveSearchResult) {
-        preparing = true; playError = null
-        scope.launch { applyResult(playback.playArchive(item)) }
-    }
-
     fun playMagisResult(r: com.arkiv.player.data.gateway.GatewayResult) {
         preparing = true; playError = null
         scope.launch { applyResult(playback.playMagis(r)) }
@@ -203,7 +197,6 @@ fun TvSearchScreen(
     }
 
     fun playResult(source: PlaySource) = when (source) {
-        is PlaySource.Archive -> playArchiveResult(source.item)
         is PlaySource.Magis ->
             if (source.result.extra["program_type"] in com.arkiv.player.data.gateway.MAGIS_SERIES) {
                 magisSeasonFor = source.result
@@ -1208,10 +1201,8 @@ private fun TvResultsContent(
 
 /** Key estable y ÚNICA para la lista de fuentes (evita "saltos" de foco al llegar resultados
  *  nuevos, y evita el crash de Compose por keys duplicadas en un lazy list).
- *  - Archive: `identifier` — id único de archive.org por definición.
- *  - Magis/Ditu: `content_id` del portal, o el `ref` si no lo trae. */
+ *  Magis/Ditu: `content_id` del portal, o el `ref` si no lo trae. */
 internal fun sourceKey(s: PlaySource): String = when (s) {
-    is PlaySource.Archive -> "archive-${s.item.identifier}"
     is PlaySource.Magis -> "magis-${s.result.extra["content_id"] ?: s.result.ref}"
     is PlaySource.Ditu -> "ditu-${s.result.extra["content_id"] ?: s.result.ref}"
 }

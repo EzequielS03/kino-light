@@ -38,17 +38,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.arkiv.player.data.ArchiveSearchResult
 import com.arkiv.player.ui.components.ControlDeDescarga
 import com.arkiv.player.ui.components.DescargaDeFila
 import com.arkiv.player.ui.components.LineaDeEstadoDeDescarga
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 
-/** Una fuente reproducible: un ítem de archive.org (player normal), Magis o Ditu. */
+/**
+ * Una fuente reproducible: Magis o Ditu.
+ *
+ * Hasta la poda de archive.org de esta rama (light-magis) había una tercera variante, `Archive`,
+ * borrada junto con el resto de esa fuente (`ArchiveSearchResult`/`ArchiveApi` no existen más).
+ */
 sealed interface PlaySource {
-    data class Archive(val item: ArchiveSearchResult) : PlaySource
-
     /** Resultado del portal Magis (solo VOD). El `ref` es opaco: se manda tal cual a
      *  `/v1/resolve` y la app nunca lo interpreta. */
     data class Magis(val result: com.arkiv.player.data.gateway.GatewayResult) : PlaySource
@@ -58,17 +60,16 @@ sealed interface PlaySource {
     data class Ditu(val result: com.arkiv.player.data.gateway.GatewayResult) : PlaySource
 }
 
-/** Color de acento por origen — el mismo en la fila, la sección y los chips de filtro. */
+/** Color de acento por origen — el mismo en la fila, la sección y los chips de filtro. Se
+ *  mantiene por su etiqueta de tab (ver [com.arkiv.player.ui.search.SourceTab.ARCHIVE]), que
+ *  queda visible pero siempre vacía tras la poda de archive.org. */
 val ArkivArchiveTeal = Color(0xFF80CBC4)
-/** Verde de "mi biblioteca": los capítulos que subimos nosotros, servidos por el mirror. */
-val ArkivLibraryGreen = Color(0xFF81C784)
 /** Azul de Magis: el portal IPTV, distinto de archive (turquesa). */
 val ArkivMagisBlue = Color(0xFF64B5F6)
 /** Naranja de Ditu (Caracol Streaming). */
 val ArkivDituOrange = Color(0xFFFF6B00)
 
 fun accentOf(source: PlaySource): Color = when (source) {
-    is PlaySource.Archive -> ArkivArchiveTeal
     is PlaySource.Magis -> ArkivMagisBlue
     is PlaySource.Ditu -> ArkivDituOrange
 }
@@ -192,32 +193,6 @@ fun SourceRow(source: PlaySource, enabled: Boolean, descarga: DescargaDeFila? = 
         )
         Column(Modifier.weight(1f).padding(vertical = 10.dp, horizontal = 2.dp)) {
             when (source) {
-                is PlaySource.Archive -> {
-                    val item = source.item
-                    Text(
-                        item.title, color = Color.White, style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 2, overflow = TextOverflow.Ellipsis,
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        // Nuestras propias subidas no salen del buscador de archive.org (van con
-                        // identificador/título hasheados y no matchean por título): las trae el
-                        // mirror por tmdb_id. Se marcan distinto porque son las nuestras — de acá
-                        // en adelante se reproducen igual que cualquier ítem público.
-                        if (item.fromLibrary) {
-                            MetaChip("Mi biblioteca", ArkivLibraryGreen, strong = true)
-                        } else {
-                            MetaChip("Archive.org", ArkivArchiveTeal)
-                        }
-                        // El # de episodios distingue una serie completa de un fragmento de 1 capítulo
-                        // que se llama igual (p. ej. "Get Backers": completa = 49 eps vs "Capítulo # 01" = 1).
-                        if (item.episodeCount > 1) MetaChip("${item.episodeCount} episodios")
-                        if (item.year.isNotBlank()) MetaChip(item.year)
-                    }
-                }
                 is PlaySource.Magis -> {
                     val r = source.result
                     Text(
@@ -341,5 +316,4 @@ fun SourceCard(source: PlaySource, enabled: Boolean, onDownload: (() -> Unit)? =
 private fun tituloDe(source: PlaySource): String = when (source) {
     is PlaySource.Magis -> source.result.title
     is PlaySource.Ditu -> source.result.title
-    is PlaySource.Archive -> source.item.title
 }

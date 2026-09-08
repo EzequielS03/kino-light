@@ -40,7 +40,6 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
-import com.arkiv.player.data.ArchiveUrls
 import com.arkiv.player.data.model.Episode
 import com.arkiv.player.miniaturas.EleccionDeMiniatura
 import com.arkiv.player.ui.detail.DetailViewModel
@@ -169,12 +168,12 @@ fun TvDetailScreen(
         // como capítulo perdería la sinopsis y la etiqueta de "Película".
         val focused = focusedEpisode ?: data.resumeEpisode?.takeIf { data.episodes.size > 1 }
         val heroImage = focused?.let { ep ->
-            // El frame capturado manda sobre el still de TMDB y sobre el thumb de archive.org,
-            // en ese orden — los dos respaldos de siempre, intactos, con el frame agregado adelante.
+            // El frame capturado manda sobre el still de TMDB. El thumb de archive.org que iba
+            // después se borró en la poda de esta rama junto con esa fuente.
             EleccionDeMiniatura.elegir(
                 frames[ep.id],
                 stills[ep.id],
-                ep.thumbPath?.let { ArchiveUrls.download(ep.itemId, it) },
+                null,
             )
         } ?: data.thumbnailUrl
         // Crossfade: sin esto, recorrer el carrusel con el D-pad hace parpadear el fondo entero en

@@ -74,11 +74,8 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import coil.compose.AsyncImage
 import com.arkiv.player.data.db.DownloadRow
 import com.arkiv.player.data.local.AccionDeDescarga
-import com.arkiv.player.data.local.DescargasPorFuente
-import com.arkiv.player.data.local.EstadoDeDescargaDeCapitulo
 import com.arkiv.player.ui.components.DescargaDeFila
 import com.arkiv.player.ui.components.DialogoDeDescarga
-import com.arkiv.player.data.ArchiveSearchResult
 import com.arkiv.player.data.RecentTitle
 import com.arkiv.player.ui.catalog.PlaySource
 import com.arkiv.player.ui.catalog.SourceRow
@@ -122,7 +119,7 @@ fun SearchScreen(
         factory = viewModelFactory {
             initializer {
                 SearchViewModel(
-                    graph.tmdbApi, graph.aniListApi, graph.api,
+                    graph.tmdbApi, graph.aniListApi,
                     graph.settings, graph.arkivApiClient,
                     graph.searchHistory,
                 )
@@ -193,11 +190,6 @@ fun SearchScreen(
         scope.launch { applyResult(playback.playDirect(source)) }
     }
 
-    fun playArchiveResult(item: ArchiveSearchResult) {
-        preparing = true; playError = null
-        scope.launch { applyResult(playback.playArchive(item)) }
-    }
-
     fun playMagisResult(r: com.arkiv.player.data.gateway.GatewayResult) {
         // Serie → abrir la temporada para elegir capítulo. Película → reproducir directo.
         if (r.extra["program_type"] in MAGIS_SERIES) { magisSeason = r; return }
@@ -223,30 +215,17 @@ fun SearchScreen(
         }
     }
 
-    // Fase QUERY ("resultados directos": archive sin card elegida todavía).
-    // Las descargas al dispositivo, para que el buscador muestre lo MISMO que la biblioteca. Acá una
-    // fila es una FUENTE y todavía no tiene `episodeId`, así que el emparejamiento lo hace
-    // [DescargasPorFuente] con lo que la fila sí sabe (identifier de archive).
-    val downloadRows by graph.repository.observeDownloadRows().collectAsStateWithLifecycle(emptyList())
+    // El control de descarga por fila era de archive.org ([DescargasPorFuente], borrado en la poda
+    // de esta rama); `porConfirmar` queda cableado al diálogo de abajo pero ya nadie lo llena.
     var porConfirmar by remember { mutableStateOf<Pair<DownloadRow, AccionDeDescarga>?>(null) }
 
     /**
-     * El control de descarga de una fuente. Magis no lo lleva (no se descarga, su CDN vence a
-     * las ~48 h).
+     * El control de descarga de una fuente. SIEMPRE null: la única fuente que se guardaba al
+     * dispositivo desde el buscador era archive.org (`DescargasPorFuente.deArchive`), borrada en
+     * la poda de esta rama. Magis tampoco lo lleva (no se descarga, su CDN vence a las ~48 h) y
+     * Ditu (streaming DASH con token de vida corta) tampoco.
      */
-    fun descargaDe(s: PlaySource, onDownload: () -> Unit): DescargaDeFila? {
-        val fila = when (s) {
-            is PlaySource.Archive -> DescargasPorFuente.deArchive(downloadRows, s.item.identifier)
-            is PlaySource.Magis -> return null
-            is PlaySource.Ditu -> return null
-        }
-        return DescargaDeFila(
-            estado = EstadoDeDescargaDeCapitulo.de(fila),
-            onDownload = onDownload,
-            onRetry = { fila?.let { f -> scope.launch { graph.localDownloads.retry(f.episodeId) } } },
-            onPedirAccion = { accion -> fila?.let { f -> porConfirmar = f to accion } },
-        )
-    }
+    fun descargaDe(s: PlaySource, onDownload: () -> Unit): DescargaDeFila? = null
 
     fun saveDirect(source: PlaySource) {
         playError = null
@@ -258,10 +237,6 @@ fun SearchScreen(
     fun saveResult(source: PlaySource) {
         playError = null
         when (source) {
-            is PlaySource.Archive -> {
-                askNotifications()
-                scope.launch { enqueueResolved(playback.playArchive(source.item), "archive") }
-            }
             // Magis no se guarda en el dispositivo: el CDN sirve con un token que vence a las ~48 h,
             // así que el archivo bajado dejaría de reproducirse.
             is PlaySource.Magis -> playError = "Magis no se puede guardar: el enlace vence."
@@ -282,7 +257,6 @@ fun SearchScreen(
     }
 
     fun playResult(source: PlaySource) = when (source) {
-        is PlaySource.Archive -> playArchiveResult(source.item)
         is PlaySource.Magis -> playMagisResult(source.result)
         is PlaySource.Ditu -> playDituResult(source.result)
     }
@@ -900,7 +874,9 @@ private fun ResultsContent(
     // otra vez en "Todo", con el ítem que acababas de tocar enterrado entre decenas de resultados.
     var tab by rememberSaveable { mutableStateOf(SourceTab.TODO) }
 
-    val archives = sources.filterIsInstance<PlaySource.Archive>()
+    // archive.org se borró en la poda de esta rama: la sección queda siempre vacía (el tab de
+    // filtro, SourceTab.ARCHIVE, se deja para no restructurar el buscador -- ver SourceTab.kt).
+    val archives = emptyList<PlaySource>()
     val magis = sources.filterIsInstance<PlaySource.Magis>()
     val ditus = sources.filterIsInstance<PlaySource.Ditu>()
     val anyLoading = loadingArchive || loadingMagis
@@ -1139,7 +1115,6 @@ private fun sourceSection(
 /** Identidad estable de una fuente, para las keys del LazyColumn (dos resultados distintos con el
  *  mismo nombre romperían la lista si compartieran key). Mismo criterio que usa el buscador del TV. */
 private fun sourceKey(s: PlaySource): String = when (s) {
-    is PlaySource.Archive -> "a-${s.item.identifier}"
     is PlaySource.Magis -> "m-${s.result.extra["content_id"] ?: s.result.ref}"
     is PlaySource.Ditu -> "d-${s.result.extra["content_id"] ?: s.result.ref}"
 }

@@ -3,7 +3,6 @@ package com.arkiv.player.ui.search
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.arkiv.player.data.ArchiveApi
 import com.arkiv.player.data.SettingsStore
 import com.arkiv.player.data.catalog.AniListApi
 import com.arkiv.player.data.catalog.AnimeShow
@@ -55,7 +54,6 @@ private const val GW = "ArkivGateway"
 class SearchViewModel(
     private val tmdbApi: TmdbApi,
     private val aniListApi: AniListApi,
-    private val archiveApi: ArchiveApi,
     private val settings: SettingsStore,
     private val arkivApiClient: com.arkiv.player.data.gateway.ArkivApiClient,
     private val searchHistory: com.arkiv.player.data.SearchHistoryRepo,
@@ -206,17 +204,13 @@ class SearchViewModel(
                 if (tmdbDone) _loadingTitles.value = false
             }
 
-            val archiveJob = launch {
-                val archiveResults = runCatching { archiveApi.search(q, enrichEpisodes = true) }
-                    .getOrDefault(emptyList())
-                    .map { PlaySource.Archive(it) }
-                _directResults.value = archiveResults
-                _loadingDirect.value = false
-            }
+            // archive.org (búsqueda "directa") se borró en la poda de esta rama: no hay resultados
+            // directos que ofrecer, así que la sección queda vacía de una.
+            _directResults.value = emptyList()
+            _loadingDirect.value = false
 
             tmdbJob.join()
             animeJob.join()
-            archiveJob.join()
         }
     }
 
@@ -357,14 +351,8 @@ class SearchViewModel(
                 }
             }
 
-            launch {
-                // archive.org público. El S/E NO se pega al texto (arriba).
-                val titles = d?.searchTitles?.takeIf { it.isNotEmpty() } ?: listOf(card.title)
-                val a = runCatching { archiveApi.search(titles.first()) }.getOrDefault(emptyList())
-                    .map { PlaySource.Archive(it) }
-                append(a)
-                _loadingArchive.value = false
-            }
+            // archive.org se borró en la poda de esta rama: nada que agregar, la sección queda vacía.
+            _loadingArchive.value = false
         }
     }
 

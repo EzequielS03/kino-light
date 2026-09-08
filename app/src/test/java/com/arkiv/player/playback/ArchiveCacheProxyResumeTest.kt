@@ -14,18 +14,19 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * El camino DIRECTO del proxy, que es el que usa magis.
+ * El camino DIRECTO del proxy, que es el que usa magis (y, desde la poda de archive.org de la rama
+ * light-magis, el ÚNICO camino real: ver el KDoc de [ArchiveCacheProxy]).
  *
- * El camino de siempre (archive.org) baja el archivo entero al caché y sirve de ahí mientras crece.
- * Con magis eso es veneno: son VOD de ~1 GB detrás de un CDN con token, la descarga se corta, y al
- * cortarse el proxy BORRA el archivo y la siguiente petición vuelve a empezar en el byte 0 — mientras
- * el que le sirve a VLC sigue leyendo por el offset viejo, donde ahora hay otra parte de la película.
- * VLC lo ve como un MPEG-TS con huecos ("TS discontinuity"), el tiempo salta de a minutos y el video
- * se muere.
+ * Hasta esa poda había un segundo camino ("de siempre", archive.org) que bajaba el archivo entero
+ * al caché y servía de ahí mientras crecía. Con magis eso era veneno: son VOD de ~1 GB detrás de un
+ * CDN con token, la descarga se corta, y al cortarse el proxy BORRABA el archivo y la siguiente
+ * petición volvía a empezar en el byte 0 — mientras el que le servía a VLC seguía leyendo por el
+ * offset viejo, donde ahora había otra parte de la película. VLC lo veía como un MPEG-TS con
+ * huecos ("TS discontinuity"), el tiempo saltaba de a minutos y el video se moría.
  *
  * El directo hace lo mismo que la réplica en Python con la que se reprodujo bien el TS: reenviar cada
  * Range al origen tal cual y devolver el cuerpo. Sin caché, sin archivo creciendo, sin nada que
- * truncar. Archive queda intacto.
+ * truncar.
  */
 class ArchiveCacheProxyResumeTest {
 
@@ -121,23 +122,24 @@ class ArchiveCacheProxyResumeTest {
     }
 
     @Test
-    fun `archive sigue cacheando como siempre`() {
+    fun `sin d=1 el proxy cae al passthrough simple, sin dejar nada en el cache`() {
+        // El camino "de siempre" (disk-cache de archive.org, que sí dejaba un archivo en `cacheDir`)
+        // se borró en la poda de esta rama: sin `d=1` lo único que queda es el mismo passthrough
+        // simple del directo, y por lo tanto tampoco cachea nada en disco.
         val datos = cuerpo(50_000)
         origen.enqueue(
             MockResponse().setBody(okio.Buffer().write(datos))
                 .setHeader("Content-Length", datos.size.toString()),
         )
 
-        pedir(proxy.proxyUrl(origen.url("/v.ts").toString()))
+        val (code, recibido) = pedir(proxy.proxyUrl(origen.url("/v.ts").toString()))
 
-        // La descarga corre en su propio hilo; se espera a que aparezca el archivo de caché.
-        val t0 = System.currentTimeMillis()
-        while (System.currentTimeMillis() - t0 < 4000 && (cacheDir.listFiles()?.size ?: 0) == 0) {
-            Thread.sleep(50)
-        }
-        assertTrue(
-            "el camino de archive debe seguir dejando el archivo en cache",
-            (cacheDir.listFiles()?.size ?: 0) > 0,
+        assertEquals(200, code)
+        assertArrayEquals(datos, recibido)
+        assertEquals(
+            "sin caché en disco, no queda ningún archivo en cacheDir",
+            0,
+            cacheDir.listFiles()?.size ?: 0,
         )
     }
 

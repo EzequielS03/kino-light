@@ -70,7 +70,6 @@ private val ANCHO_MOSAICO = 380.dp
 private val MARGEN = 48.dp
 
 private fun etiquetaDe(source: PlaySource): Pair<String, Color> = when (source) {
-    is PlaySource.Archive -> "ARCHIVE" to Color(0xFF80CBC4)
     is PlaySource.Magis -> "MAGIS" to Color(0xFF64B5F6)
     is PlaySource.Ditu -> "CARACOL" to Color(0xFFFF6B00)
 }
@@ -164,7 +163,6 @@ private fun TvMetaChip(texto: String, color: Color, fuerte: Boolean = false) {
 private fun tituloDe(source: PlaySource): String = when (source) {
     is PlaySource.Magis -> source.result.title
     is PlaySource.Ditu -> source.result.title
-    is PlaySource.Archive -> source.item.title
 }
 
 /**
@@ -187,10 +185,6 @@ private fun datosDe(source: PlaySource): List<Pair<String, Color>> = when (sourc
             add("Caracol" to Color(0xFFFF6B00))
             r.year.takeIf { it.isNotBlank() }?.let { add(it to ArkivTextSecondary) }
         }
-    }
-    is PlaySource.Archive -> buildList {
-        add("Archive.org" to Color(0xFF80CBC4))
-        source.item.year.takeIf { it.isNotBlank() }?.let { add(it to ArkivTextSecondary) }
     }
 }
 

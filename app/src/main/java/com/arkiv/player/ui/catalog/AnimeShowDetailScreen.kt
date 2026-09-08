@@ -51,24 +51,18 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.arkiv.player.data.db.DownloadRow
 import com.arkiv.player.data.local.AccionDeDescarga
-import com.arkiv.player.data.local.DescargasPorFuente
 import com.arkiv.player.data.local.EstadoDeDescarga
 import com.arkiv.player.data.local.EstadoDeDescargaDeCapitulo
-import com.arkiv.player.ui.components.ControlDeDescarga
 import com.arkiv.player.ui.components.DescargaDeFila
 import com.arkiv.player.ui.components.DialogoDeDescarga
-import com.arkiv.player.ui.components.LineaDeEstadoDeDescarga
-import com.arkiv.player.data.ArchiveSearchResult
 import com.arkiv.player.data.catalog.AnimeShow
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivBlack
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -82,28 +76,16 @@ fun AnimeShowDetailScreen(
 ) {
     val graph = rememberGraph()
     val scope = rememberCoroutineScope()
-    // Permiso de notificaciones (API 33+): se pide al disparar una descarga (el worker de descargas
-    // locales también notifica). Ver rememberPostNotificationsRequest.
-    val askNotifications = com.arkiv.player.ui.offline.rememberPostNotificationsRequest()
-    // Avisa "eso ya lo tenés bajado" cuando la cola saltea una descarga duplicada (ver
-    // DuplicateDownloadPolicy): si no, el botón parecería no hacer nada.
-    val notifyDuplicates = com.arkiv.player.ui.offline.rememberDuplicateDownloadNotice()
     var show by remember { mutableStateOf<AnimeShow?>(null) }
     var loading by remember { mutableStateOf(true) }
     var preparing by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    // Las descargas al dispositivo, para que el buscador muestre lo MISMO que la biblioteca: en qué
-    // va cada fuente y qué se puede hacer con eso. Acá una fila es una FUENTE y todavía no tiene
-    // `episodeId`, así que el emparejamiento lo hace [DescargasPorFuente] con lo que la fila sí sabe.
-    val downloadRows by graph.repository.observeDownloadRows().collectAsStateWithLifecycle(emptyList())
+    // El control de descarga por fuente era de archive.org ([DescargasPorFuente], borrado en la
+    // poda de esta rama); `porConfirmar` queda cableado al diálogo de abajo pero ya nadie lo llena.
     var porConfirmar by remember { mutableStateOf<Pair<DownloadRow, AccionDeDescarga>?>(null) }
 
     // Episodios expandidos (clave = nº de episodio).
     val expanded = remember { mutableStateMapOf<Int, Boolean>() }
-    val archiveByEp = remember { mutableStateMapOf<Int, List<ArchiveSearchResult>>() }
-    val loadingArchiveEp = remember { mutableStateMapOf<Int, Boolean>() }
-    // Job en vuelo por episodio, para cancelarlo si el episodio se colapsa antes de responder.
-    val episodeJobs = remember { mutableStateMapOf<Int, Job>() }
     // Episodios pedidos a mano (fuera del rango 1..total), p.ej. numeración absoluta de long-runners.
     val manualEpisodes = remember { mutableStateListOf<Int>() }
     var manualEpText by remember { mutableStateOf("") }
@@ -135,21 +117,13 @@ fun AnimeShowDetailScreen(
         }
     }
 
-    fun loadEpisode(ep: Int) {
-        if (loadingArchiveEp[ep] == true || archiveByEp.containsKey(ep)) return
-        val s = show ?: return
-        episodeJobs[ep]?.cancel()
-        loadingArchiveEp[ep] = true
-        episodeJobs[ep] = scope.launch {
-            val a = runCatching { graph.api.search("${s.title} $ep") }.getOrDefault(emptyList())
-            archiveByEp[ep] = a
-            loadingArchiveEp[ep] = false
-        }
-    }
+    // La búsqueda de fuentes por episodio era archive.org ([graph.api], borrado en la poda de esta
+    // rama: ver CLAUDE.md "Cero servidor propio"); magis no tiene wiring acá todavía (ver Task 6
+    // del plan de poda, "Simplificar búsqueda a solo-Magis").
 
-    // Deep-link opcional (handoff desde la búsqueda por fases): apenas cargue el show, expandir y
-    // cargar fuentes del episodio pedido una sola vez. Se agrega a manualEpisodes (como el botón "Ir
-    // al episodio") para que se renderice también si cae fuera del rango 1..total (numeración absoluta).
+    // Deep-link opcional (handoff desde la búsqueda por fases): apenas cargue el show, expandir el
+    // episodio pedido una sola vez. Se agrega a manualEpisodes (como el botón "Ir al episodio")
+    // para que se renderice también si cae fuera del rango 1..total (numeración absoluta).
     var animeDeepLinkHandled by remember { mutableStateOf(false) }
     LaunchedEffect(show, deepLinkEpisode) {
         if (animeDeepLinkHandled) return@LaunchedEffect
@@ -158,47 +132,6 @@ fun AnimeShowDetailScreen(
         animeDeepLinkHandled = true
         if (ep !in manualEpisodes) manualEpisodes.add(ep)
         expanded[ep] = true
-        loadEpisode(ep)
-    }
-
-    // Encola una descarga al dispositivo.
-    fun saveLocally(episodeId: String, source: String) {
-        scope.launch { notifyDuplicates(listOf(graph.localDownloads.enqueue(episodeId, source))) }
-    }
-
-    // Arma el control de descarga de UNA fila: el estado sale de la fila de `downloads` que le
-    // corresponde (null = nadie la encoló) y de ahí salen también el episodeId que necesitan
-    // reintentar, cancelar y borrar.
-    fun descargaDe(fila: DownloadRow?, onDownload: () -> Unit) = DescargaDeFila(
-        estado = EstadoDeDescargaDeCapitulo.de(fila),
-        onDownload = onDownload,
-        onRetry = { fila?.let { f -> scope.launch { graph.localDownloads.retry(f.episodeId) } } },
-        onPedirAccion = { accion -> fila?.let { f -> porConfirmar = f to accion } },
-    )
-
-    // Guarda un ítem de archive.org en el dispositivo: mismo camino que playArchive (addItem +
-    // firstEpisodeId), sin reproducir.
-    fun saveArchiveLocally(item: ArchiveSearchResult) {
-        error = null
-        askNotifications()
-        scope.launch {
-            val added = graph.repository.addItem(item.identifier).getOrNull()
-            if (added == null) { error = "No se pudo abrir el ítem de archive.org"; return@launch }
-            val epId = graph.repository.firstEpisodeId(added.identifier) ?: return@launch
-            saveLocally(epId, "archive")
-        }
-    }
-
-    // Reproduce un ítem de archive.org: lo agrega a la biblioteca y usa el player normal.
-    fun playArchive(item: ArchiveSearchResult) {
-        preparing = true; error = null
-        scope.launch {
-            val added = graph.repository.addItem(item.identifier).getOrNull()
-            if (added == null) { preparing = false; error = "No se pudo abrir el ítem de archive.org"; return@launch }
-            val epId = graph.repository.firstEpisodeId(added.identifier)
-            preparing = false
-            if (epId != null) onPlay(epId)
-        }
     }
 
     Box(Modifier.fillMaxSize().background(ArkivBlack)) {
@@ -256,37 +189,19 @@ fun AnimeShowDetailScreen(
                     val singlePlay = s.format == "MOVIE" || s.format == "MUSIC" || s.episodes == 1
 
                     if (singlePlay) {
-                        LaunchedEffect(s.id) { loadEpisode(0) }
                         Text(
                             "Reproducir",
                             color = Color.White,
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.padding(top = 20.dp, bottom = 6.dp),
                         )
-                        val singleArchive = archiveByEp[0]
-                        when {
-                            loadingArchiveEp[0] == true && singleArchive == null -> Row(
-                                modifier = Modifier.padding(vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            ) {
-                                CircularProgressIndicator(strokeWidth = 2.dp, color = ArkivRed)
-                                Text("Buscando fuentes…", color = ArkivTextSecondary)
-                            }
-                            singleArchive.isNullOrEmpty() -> Text(
-                                "No se encontraron fuentes para este título.",
-                                color = ArkivTextSecondary,
-                                modifier = Modifier.padding(vertical = 8.dp),
-                            )
-                            else -> singleArchive.forEach { item ->
-                                ArchiveEpRow(
-                                    item, enabled = !preparing,
-                                    descarga = descargaDe(
-                                        DescargasPorFuente.deArchive(downloadRows, item.identifier),
-                                    ) { saveArchiveLocally(item) },
-                                ) { playArchive(item) }
-                            }
-                        }
+                        // La fuente de este título era archive.org, borrada en la poda de esta rama
+                        // (ver CLAUDE.md "Cero servidor propio"); magis no tiene wiring acá todavía.
+                        Text(
+                            "No se encontraron fuentes para este título.",
+                            color = ArkivTextSecondary,
+                            modifier = Modifier.padding(vertical = 8.dp),
+                        )
                     } else {
                         val total = if (s.episodes > 0) s.episodes else 0
                         Row(
@@ -308,7 +223,6 @@ fun AnimeShowDetailScreen(
                                     if (n != null && n > 0) {
                                         if (n !in manualEpisodes) manualEpisodes.add(n)
                                         expanded[n] = true
-                                        loadEpisode(n)
                                         manualEpText = ""
                                     }
                                 },
@@ -323,11 +237,7 @@ fun AnimeShowDetailScreen(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable {
-                                        val now = !open
-                                        expanded[ep] = now
-                                        if (now) loadEpisode(ep)
-                                    }
+                                    .clickable { expanded[ep] = !open }
                                     .padding(vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -342,39 +252,14 @@ fun AnimeShowDetailScreen(
                                     style = MaterialTheme.typography.titleSmall,
                                     modifier = Modifier.weight(1f),
                                 )
-                                val count = archiveByEp[ep]?.size ?: 0
-                                if (count > 0) Text(
-                                    "$count",
-                                    color = ArkivTextSecondary,
-                                    style = MaterialTheme.typography.labelMedium,
-                                )
                             }
                             if (open) {
-                                val archives = archiveByEp[ep] ?: emptyList()
-                                if (loadingArchiveEp[ep] == true && archives.isEmpty()) {
-                                    Row(
-                                        modifier = Modifier.padding(start = 32.dp, top = 8.dp, bottom = 8.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    ) {
-                                        CircularProgressIndicator(strokeWidth = 2.dp, color = ArkivRed, modifier = Modifier.size(16.dp))
-                                        Text("Buscando…", color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall)
-                                    }
-                                } else if (archives.isEmpty()) {
-                                    Text(
-                                        "Sin resultados", color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall,
-                                        modifier = Modifier.padding(start = 32.dp, top = 4.dp, bottom = 4.dp),
-                                    )
-                                } else {
-                                    archives.forEach { item ->
-                                        ArchiveEpRow(
-                                            item, enabled = !preparing,
-                                            descarga = descargaDe(
-                                                DescargasPorFuente.deArchive(downloadRows, item.identifier),
-                                            ) { saveArchiveLocally(item) },
-                                        ) { playArchive(item) }
-                                    }
-                                }
+                                // La fuente de este episodio era archive.org, borrada en la poda de
+                                // esta rama; magis no tiene wiring acá todavía.
+                                Text(
+                                    "Sin resultados", color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall,
+                                    modifier = Modifier.padding(start = 32.dp, top = 4.dp, bottom = 4.dp),
+                                )
                             }
                         }
                     }
@@ -422,27 +307,4 @@ fun AnimeShowDetailScreen(
         },
         onCerrar = { porConfirmar = null },
     )
-}
-
-@Composable
-private fun ArchiveEpRow(
-    item: ArchiveSearchResult,
-    enabled: Boolean,
-    /** En qué va su descarga al dispositivo, y qué se puede hacer con eso. */
-    descarga: DescargaDeFila,
-    onClick: () -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick)
-            .padding(start = 8.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFF80CBC4))
-        Column(Modifier.weight(1f)) {
-            Text(item.title, color = Color.White, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            if (item.year.isNotBlank()) Text(item.year, color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall)
-            LineaDeEstadoDeDescarga(descarga.estado)
-        }
-        ControlDeDescarga(descarga, enabled = enabled)
-    }
 }

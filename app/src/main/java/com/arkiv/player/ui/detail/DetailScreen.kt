@@ -73,7 +73,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import coil.compose.AsyncImage
-import com.arkiv.player.data.ArchiveUrls
 import com.arkiv.player.data.ItemDetail
 import com.arkiv.player.data.model.Episode
 import com.arkiv.player.data.local.AccionDeDescarga
@@ -823,13 +822,14 @@ private fun EpisodeRow(
                     .background(ArkivSurfaceHigh),
             ) {
                 // El frame capturado primero (la escena real de donde vas), después el still de TMDB
-                // (la foto del capítulo), después el fotograma de archive.org (suele salir negro o a
-                // mitad de una transición) y por último el respaldo de la serie. Cadena armada con
-                // EleccionDeMiniatura -- no a mano -- para no desalinearse del resto de las pantallas.
+                // (la foto del capítulo) y por último el respaldo de la serie. El fotograma de
+                // archive.org que iba acá se borró en la poda de esta rama junto con esa fuente.
+                // Cadena armada con EleccionDeMiniatura -- no a mano -- para no desalinearse del
+                // resto de las pantallas.
                 val thumb = EleccionDeMiniatura.elegir(
                     tmdbFrame,
                     tmdbStill,
-                    episode.thumbPath?.let { ArchiveUrls.download(episode.itemId, it) },
+                    null,
                     fallbackThumb,
                 )
                 AsyncImage(

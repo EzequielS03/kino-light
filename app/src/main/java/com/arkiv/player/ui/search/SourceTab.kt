@@ -16,11 +16,11 @@ enum class SourceTab(val label: String) {
     ARCHIVE("Archive"),
 }
 
-/** La pestaña a la que pertenece una fuente. */
+/** La pestaña a la que pertenece una fuente. `ARCHIVE` no la produce ninguna: era la de
+ *  archive.org, borrada en la poda de esta rama; el tab queda pero siempre en cero. */
 fun tabOf(source: PlaySource): SourceTab = when (source) {
     is PlaySource.Magis -> SourceTab.MAGIS
     is PlaySource.Ditu -> SourceTab.DITU
-    is PlaySource.Archive -> SourceTab.ARCHIVE
 }
 
 /** Cuántas fuentes hay por pestaña (incluida TODO), para pintarlo en el chip. Siempre devuelve las

@@ -3,18 +3,14 @@ package com.arkiv.player.ui.player
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.arkiv.player.data.ArchiveUrls
 import com.arkiv.player.data.ArkivRepository
-import com.arkiv.player.data.CoincidenciaDeArchivo
 import com.arkiv.player.data.GatewayConfigSource
-import com.arkiv.player.data.Quality
 import com.arkiv.player.data.SettingsStore
 import com.arkiv.player.data.db.LiveRecentDao
 import com.arkiv.player.data.db.LiveRecentEntity
 import com.arkiv.player.data.db.SkipMarkerEntity
 import com.arkiv.player.data.gateway.LiveChannel
 import com.arkiv.player.data.model.Episode
-import com.arkiv.player.data.model.VideoVariant
 import com.arkiv.player.data.offline.ArkivOfflineApi
 import com.arkiv.player.data.offline.PlaybackChoice
 import com.arkiv.player.data.offline.PlaybackDecision
@@ -23,10 +19,7 @@ import com.arkiv.player.playback.ArchiveCacheProxy
 import com.arkiv.player.playback.ContenidoDeAdultos
 import com.arkiv.player.playback.MagisEfimero
 import com.arkiv.player.playback.PlayerSource
-import com.arkiv.player.playback.PoliticaOrigen
 import com.arkiv.player.playback.SourceKind
-import com.arkiv.player.playback.VentanaDeDescarga
-import com.arkiv.player.playback.VentanaDeArchivo
 import com.arkiv.player.ui.live.LiveController
 import com.arkiv.player.ui.live.LiveZapping
 import com.arkiv.player.ui.live.LiveZappingSource
@@ -649,42 +642,24 @@ class PlayerViewModel(
     private suspend fun localArchiveUri(episodeId: String): String? =
         localLibrary.fileFor(episodeId)?.let { "file://$it" }
 
-    /** archive.org: sección completa como playlist (next/prev y autoplay nativos). */
-    private suspend fun loadArchive(episodeId: String) {
-        val start = repo.getEpisode(episodeId) ?: return
-        val marker = repo.getSkipMarker(start.itemId)
-        val episodes = repo.episodesOf(start.itemId).filter { it.section == start.section }
-        // La posición se calcula ANTES de armar los ítems: el que se va a reanudar necesita que su
-        // URL lleve el punto de arranque, para que el proxy baje desde ahí en vez de desde el
-        // principio (ver VentanaDeDescarga). Los demás van como siempre.
-        val startPos = safeStartPosition(episodeId, SourceKind.ARCHIVE)
-        val items = episodes.mapNotNull { ep ->
-            buildData(ep, localArchiveUri(ep.id), marker, if (ep.id == episodeId) startPos else 0L)
-        }
-        if (items.isEmpty()) return
-        val startIndex = items.indexOfFirst { it.episodeId == episodeId }.coerceAtLeast(0)
-        _playlist.value = PlaylistData(items, startIndex, startPos, pedido = episodeId)
+    /**
+     * ELIMINADA en la poda de esta rama (borrado de archive.org, ver CLAUDE.md "Cero servidor
+     * propio"): armaba la sección completa de un ítem de archive.org como playlist, resolviendo
+     * cada episodio con [buildData] (local, o vía el proxy de caché en disco -hoy borrado-).
+     *
+     * Se conserva la función -no se borra del todo- porque todavía la llama [load] para
+     * SourceKind.ARCHIVE (filas viejas de la biblioteca, de antes de esta rama, siguen marcadas
+     * así), así que hace falta algo que siga compilando en su lugar. Reporta el error limpio en vez
+     * de intentar reproducir.
+     */
+    private fun loadArchive(episodeId: String) {
+        Log.w(PLAY, "loadArchive() episodeId=$episodeId → fuente archive.org eliminada de esta rama")
+        _playlist.value = null
+        _webExtras.value = null
+        _resolving.value = false
+        _error.value = "Esta fuente ya no está disponible en esta versión"
     }
 
-    /**
-     * Episodios a los que ya se les intentó el sanado. Sin esto, un ítem que quedó realmente roto
-     * entra en bucle: falla → refresca → vuelve a fallar → refresca…
-     */
-    private val sanadoIntentado = mutableSetOf<String>()
-
-    /**
-     * El reproductor no pudo con este episodio. Acá se decide si es algo que la app puede arreglar
-     * sola o algo que hay que contarle al usuario.
-     *
-     * Antes esto no existía: un fallo de reproducción no llegaba nunca a [_error] —que es lo único
-     * que la pantalla pinta— así que la película simplemente no arrancaba y no aparecía ningún
-     * mensaje. Medido el 2026-08-10: `EncounteredError` en el log y `error=false` en la UI.
-     *
-     * El caso que sí se repara es el 404. La app **cachea el nombre del archivo** en la base local
-     * (ver [CoincidenciaDeArchivo]), así que si archive.org renombra o vuelve a derivar, el path
-     * guardado apunta a la nada para siempre. Refrescar la metadata y volver a ubicar el capítulo
-     * lo devuelve a la vida sin que nadie tenga que reimportar el ítem a mano.
-     */
     fun onDituExoError(message: String) {
         _error.value = "Caracol: $message"
     }
@@ -708,31 +683,24 @@ class PlayerViewModel(
         reabrirVivoPorCorte()
     }
 
+    /**
+     * El reproductor no pudo con este episodio.
+     *
+     * Antes esto no existía: un fallo de reproducción no llegaba nunca a [_error] —que es lo único
+     * que la pantalla pinta— así que la película simplemente no arrancaba y no aparecía ningún
+     * mensaje. Medido el 2026-08-10: `EncounteredError` en el log y `error=false` en la UI.
+     *
+     * Hasta la poda de archive.org de esta rama había acá un camino de auto-reparación para el 404
+     * (la app cacheaba el nombre del archivo y, si archive.org lo renombraba, refrescaba la
+     * metadata y volvía a ubicar el capítulo — ver [sanarRenombre] en el historial). Borrado junto
+     * con el resto de esa fuente: ya no hay archive.org al que preguntarle nada.
+     */
     fun onPlaybackFailed(episodeId: String) {
-        viewModelScope.launch {
-            // Todo lo que se escriba de acá para abajo describe un tropiezo del player, no una
-            // fuente que no se pudo abrir: si el video remonta, deja de ser cierto. Ver
-            // [errorDeReproduccion].
-            errorDeReproduccion = true
-            val episode = repo.getEpisode(episodeId)
-            if (episode == null || PlayerSource.kindFor(episodeId) != SourceKind.ARCHIVE) {
-                _error.value = "No se pudo reproducir este capítulo"
-                return@launch
-            }
-            val origen = streamingVariant(episode)?.let { ArchiveUrls.download(episode.itemId, it.path) }
-            when (val code = origen?.let { archiveCacheProxy.ultimoCodigoDe(it) }) {
-                404 -> sanarRenombre(episode)
-                // Distinguirlos vale la pena: son las dos formas en que archive.org falla y piden
-                // cosas opuestas del usuario (esperar vs. buscar otra copia). Visto los dos el
-                // mismo día: 503 en un ítem con la metadata corrupta, timeouts en uno sano pero
-                // servido por un nodo que tardaba 72 s.
-                503 -> _error.value = "archive.org no está sirviendo este ítem ahora (503). " +
-                    "Suele ser del lado de ellos: probá más tarde o buscá otra copia."
-                PoliticaOrigen.SIN_RESPUESTA, null -> _error.value =
-                    "archive.org no respondió a tiempo. Probá de nuevo."
-                else -> _error.value = "archive.org devolvió $code y no se pudo reproducir"
-            }
-        }
+        // Todo lo que se escriba de acá para abajo describe un tropiezo del player, no una
+        // fuente que no se pudo abrir: si el video remonta, deja de ser cierto. Ver
+        // [errorDeReproduccion].
+        errorDeReproduccion = true
+        _error.value = "No se pudo reproducir este capítulo"
     }
 
     /**
@@ -752,41 +720,6 @@ class PlayerViewModel(
         if (!errorDeReproduccion) return
         errorDeReproduccion = false
         _error.value = null
-    }
-
-    /**
-     * Vuelve a pedir la metadata del ítem y busca dónde quedó el capítulo.
-     *
-     * Solo se sigue adelante si la coincidencia es inequívoca: [CoincidenciaDeArchivo] devuelve
-     * null antes que arriesgarse, porque reproducir OTRO capítulo sin avisar es peor que el error.
-     */
-    private suspend fun sanarRenombre(episode: Episode) {
-        if (!sanadoIntentado.add(episode.id)) {
-            _error.value = "El archivo ya no está en archive.org y no se encontró su reemplazo"
-            return
-        }
-        val pathViejo = streamingVariant(episode)?.path
-        if (pathViejo == null) { _error.value = "No se pudo reproducir este capítulo"; return }
-        Log.w("ArkivPlay", "404 en archive → refresco la metadata de ${episode.itemId}")
-        val refresco = repo.refreshItem(episode.itemId)
-        if (refresco.isFailure) {
-            _error.value = "El archivo ya no está en archive.org y no se pudo refrescar el ítem"
-            return
-        }
-        val nuevos = repo.episodesOf(episode.itemId)
-        val elegido = CoincidenciaDeArchivo.mejor(
-            pathViejo,
-            nuevos.mapNotNull { streamingVariant(it)?.path },
-        )
-        val reemplazo = elegido?.let { path -> nuevos.firstOrNull { streamingVariant(it)?.path == path } }
-        if (reemplazo == null) {
-            Log.w("ArkivPlay", "sanado: no hay reemplazo claro para $pathViejo")
-            _error.value = "archive.org ya no tiene este archivo. Se actualizó la biblioteca del ítem."
-            return
-        }
-        Log.w("ArkivPlay", "sanado: $pathViejo → ${streamingVariant(reemplazo)?.path}")
-        _error.value = null
-        load(reemplazo.id)
     }
 
     /**
@@ -1228,53 +1161,21 @@ class PlayerViewModel(
             .also { Log.i(PLAY, "reanudar $episodeId ($kind): guardado=${saved.positionMs}ms → arranca en ${it}ms") }
     }
 
+    /**
+     * ELIMINADA en la poda de esta rama (borrado de archive.org, ver CLAUDE.md "Cero servidor
+     * propio"): armaba el [PlayerData] de un episodio de archive.org, local o vía el proxy de
+     * caché en disco de [ArchiveCacheProxy] (ese modo del proxy se borró junto con esta función;
+     * ver su KDoc). Se conserva -no se borra del todo- porque todavía la llaman [loadArchive] y
+     * [prefetchNext] -maquinaria de la sección archive de la biblioteca que esta tarea no arranca
+     * de raíz-, así que hace falta algo que siga compilando en su lugar. SIEMPRE null: no hay nada
+     * que reproducir.
+     */
     private fun buildData(
         episode: Episode,
         localUri: String?,
         marker: SkipMarkerEntity?,
         startPosMs: Long = 0L,
-    ): PlayerData? {
-        // URL http directa de archive (o null si no hay variante de streaming).
-        val rawHttp = streamingVariant(episode)?.let { ArchiveUrls.download(episode.itemId, it.path) }
-        // Archivo local completo (descarga terminada) -> se reproduce directo, sin proxy.
-        // Streaming http de archive -> se envuelve con el proxy de caché en disco (VLC no puede
-        // usar el CacheDataSource de media3), arrancándolo la primera vez.
-        val mediaUrl = when {
-            localUri != null -> localUri
-            rawHttp != null -> {
-                archiveCacheProxy.start()
-                // Reanudando lejos del principio, el proxy tiene que bajar desde cerca de ese punto:
-                // si baja desde 0, la lectura queda tan por delante de la caché que cada tramo va
-                // directo al origen y la reproducción depende por completo de archive.org. Medido:
-                // reanudando en 10:59 aguantaba 2:15 y se secaba; desde cero, continuo.
-                val desde = VentanaDeDescarga.byteDeArranque(
-                    startMs = startPosMs,
-                    duracionMs = (episode.durationSeconds * 1000).toLong(),
-                    total = streamingVariant(episode)?.sizeBytes ?: 0L,
-                )
-                ArchiveCacheProxy.conVentanaDesde(archiveCacheProxy.proxyUrl(rawHttp), desde)
-            }
-            else -> return null
-        }
-        // Para castear/DLNA se necesita una URL alcanzable por la TV (no el proxy 127.0.0.1):
-        // el mp4 compatible si existe, o la URL directa de archive como fallback.
-        val castUrl = episode.castVariant?.let { ArchiveUrls.download(episode.itemId, it.path) } ?: rawHttp
-        val artworkUrl = episode.thumbPath?.let { ArchiveUrls.download(episode.itemId, it) }
-            ?: ArchiveUrls.thumbnail(episode.itemId)
-        return PlayerData(
-            episodeId = episode.id,
-            itemId = episode.itemId,
-            title = episode.displayName,
-            subtitle = episode.section,
-            mediaUrl = mediaUrl,
-            castUrl = castUrl,
-            artworkUrl = artworkUrl,
-            openingStartMs = marker?.openingStartMs,
-            openingEndMs = marker?.openingEndMs,
-            endingStartMs = marker?.endingStartMs,
-            kind = SourceKind.ARCHIVE,
-        )
-    }
+    ): PlayerData? = null
 
     /** Precarga el SIGUIENTE episodio de la serie en segundo plano (archive). Best-effort. */
     private suspend fun prefetchNext(currentId: String) = runCatching {
@@ -1414,12 +1315,6 @@ class PlayerViewModel(
             )
         }
     }
-
-    private fun streamingVariant(episode: Episode): VideoVariant? =
-        when (settings.streamQuality.value) {
-            Quality.ORIGINAL -> episode.playbackVariant
-            Quality.DERIVATIVE -> episode.derivative ?: episode.original
-        }
 
     fun saveProgress(episodeId: String, positionMs: Long, durationMs: Long) {
         if (durationMs <= 0) return

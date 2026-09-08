@@ -1,7 +1,6 @@
 package com.arkiv.player
 
 import android.content.Context
-import com.arkiv.player.data.ArchiveApi
 import com.arkiv.player.data.ArkivRepository
 import com.arkiv.player.data.catalog.AniListApi
 import com.arkiv.player.data.catalog.AnimeMappingRepository
@@ -30,7 +29,6 @@ class AppGraph(context: Context) {
     private val appContext = context.applicationContext
 
     val database: ArkivDatabase by lazy { ArkivDatabase.get(appContext) }
-    val api: ArchiveApi by lazy { ArchiveApi() }
     val settings: SettingsStore by lazy { SettingsStore(appContext) }
     val searchHistory: SearchHistoryRepo by lazy {
         SearchHistoryRepo(database.searchHistoryDao(), database.recentTitleDao())
@@ -287,12 +285,14 @@ class AppGraph(context: Context) {
      * `LocalDownloadWorker.doWork()`, que ya trata una entrada ausente como "Fuente no soportada").
      * `NucStagedStrategy.kt` queda sin caller real; se deja intacto porque su borrado (y el de NUC en
      * general) es alcance de otra tarea, no de esta.
+     *
+     * Tampoco hay entrada para "archive": `ArchiveDownloadStrategy` se borró junto con el resto de
+     * archive.org en esta poda (llamaba a `ArchiveUrls.download`, red directa a archive.org — contra
+     * la regla del branch). Una fila vieja con `source="archive"` cae al mismo camino de gracia que
+     * "web".
      */
     val downloadStrategies: Map<String, com.arkiv.player.data.local.DownloadStrategy> by lazy {
         mapOf(
-            "archive" to com.arkiv.player.data.local.ArchiveDownloadStrategy(
-                repository, settings, httpRangeDownloader, localDownloads::hasFreeSpaceFor,
-            ),
             "magis" to com.arkiv.player.data.local.MagisDownloadStrategy(
                 repository, arkivApiClient, httpRangeDownloader,
             ),
@@ -308,7 +308,7 @@ class AppGraph(context: Context) {
 
     val repository: ArkivRepository by lazy {
         ArkivRepository(
-            database, api, tmdbApi,
+            database, tmdbApi,
             almacenDeFrames = almacenDeFrames,
             destructorDeFrames = destructorDeFrames,
             bajadorDeFrames = bajadorDeFrames,

@@ -46,7 +46,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import coil.compose.AsyncImage
-import com.arkiv.player.data.ArchiveUrls
 import com.arkiv.player.data.db.DownloadRow
 import com.arkiv.player.data.local.DownloadGroup
 import com.arkiv.player.data.local.DownloadGroupPolicy
@@ -291,7 +290,8 @@ private fun NotDownloadedRow(
                 .clip(RoundedCornerShape(6.dp))
                 .background(ArkivSurfaceHigh),
         ) {
-            val thumb = episode.thumbPath?.let { ArchiveUrls.download(itemId, it) }
+            // El thumb de archive.org (itemId/thumbPath) se borró en la poda de esta rama.
+            val thumb: String? = null
             AsyncImage(
                 model = thumb,
                 contentDescription = episode.displayName,
@@ -342,7 +342,8 @@ private fun DownloadItem(
                     .clip(RoundedCornerShape(6.dp))
                     .background(ArkivSurfaceHigh),
             ) {
-                val thumb = row.thumbPath?.let { ArchiveUrls.download(row.itemId, it) }
+                // El thumb de archive.org (itemId/thumbPath) se borró en la poda de esta rama.
+                val thumb: String? = null
                 AsyncImage(
                     model = thumb,
                     contentDescription = row.displayName,

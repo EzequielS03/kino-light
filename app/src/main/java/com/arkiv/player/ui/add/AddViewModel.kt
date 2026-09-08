@@ -3,7 +3,6 @@ package com.arkiv.player.ui.add
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.arkiv.player.data.ArkivRepository
-import com.arkiv.player.data.ItemNotFoundException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -43,9 +42,13 @@ class AddViewModel(private val repo: ArkivRepository) : ViewModel() {
         _state.value = _state.value.copy(addedIdentifier = null)
     }
 
+    // archive.org (y con él, esta pantalla de "pegar una URL") se borró en la poda de esta rama;
+    // `repo.addItem` siempre devuelve UnsupportedOperationException ahora. La pantalla se conserva
+    // -no se borra del todo- porque sacarla implica tocar la navegación, que es alcance de otra
+    // tarea (ver el KDoc de ArkivRepository.addItem).
     private fun messageFor(e: Throwable): String = when (e) {
-        is ItemNotFoundException -> e.message ?: "No se encontró el ítem"
-        is IOException -> "Sin conexión o archive.org no responde. Reintentá."
+        is UnsupportedOperationException -> e.message ?: "Esta función ya no está disponible"
+        is IOException -> "Sin conexión. Reintentá."
         is IllegalArgumentException -> e.message ?: "Entrada inválida"
         else -> "Error inesperado: ${e.message}"
     }

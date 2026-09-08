@@ -54,7 +54,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import coil.compose.AsyncImage
-import com.arkiv.player.data.ArchiveUrls
 import com.arkiv.player.data.db.LibraryRow
 import com.arkiv.player.data.db.LiveChannelCacheEntity
 import com.arkiv.player.data.gateway.LiveChannel
@@ -302,12 +301,13 @@ fun HomeScreen(
                     ) {
                         items(continueWatching.drop(1), key = { it.episodeId }) { row ->
                             val progress = if (row.durationMs > 0) row.positionMs.toFloat() / row.durationMs else 0f
-                            // El frame capturado manda si existe; si no, el still de TMDB, luego el
-                            // thumb de siempre (extraído del archivo) y por último la carátula del ítem.
+                            // El frame capturado manda si existe; si no, el still de TMDB y por
+                            // último la carátula del ítem. El thumb de archive.org que iba en medio
+                            // se borró en la poda de esta rama junto con esa fuente.
                             val thumb = EleccionDeMiniatura.elegir(
                                 row.framePath,
                                 row.stillUrl,
-                                row.thumbPath?.let { ArchiveUrls.download(row.itemId, it) },
+                                null,
                                 row.itemThumbnailUrl,
                             )
                             ContinueCard(

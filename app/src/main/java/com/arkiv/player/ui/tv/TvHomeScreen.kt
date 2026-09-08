@@ -84,7 +84,6 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
-import com.arkiv.player.data.ArchiveUrls
 import com.arkiv.player.data.db.ContinueRow
 import com.arkiv.player.data.db.LibraryRow
 import com.arkiv.player.data.db.LiveChannelCacheEntity
@@ -355,9 +354,9 @@ fun TvHomeScreen(
     // (los que se agregaron por web o magnet suelto) cae al dato de siempre. Nunca repite el
     // título, que ya está arriba en grande.
     fun continueFeatured(row: ContinueRow): Featured {
-        // El still de TMDB manda si `episode_still` lo tiene; si no, el thumb de siempre.
+        // El still de TMDB manda si `episode_still` lo tiene; si no, la carátula del ítem. El
+        // thumb de archive.org que iba en medio se borró en la poda de esta rama.
         val thumb = row.stillUrl
-            ?: row.thumbPath?.let { ArchiveUrls.download(row.itemId, it) }
             ?: row.itemThumbnailUrl
         // Los datos del capítulo enfocado, que es lo que cambia al moverse entre tarjetas (la
         // sinopsis de arriba es de la SERIE y no cambia). La regla de qué se muestra y qué se
@@ -684,8 +683,8 @@ fun TvHomeScreen(
                                     items(continueWatching, key = { it.episodeId }) { row ->
                                         val progress = if (row.durationMs > 0) row.positionMs.toFloat() / row.durationMs else 0f
                                         // El respaldo de siempre, para cuando no hay ni still ni backdrop.
-                                        val thumb = row.thumbPath?.let { ArchiveUrls.download(row.itemId, it) }
-                                            ?: row.itemThumbnailUrl
+                                        // El thumb de archive.org que iba antes se borró en la poda de esta rama.
+                                        val thumb = row.itemThumbnailUrl
                                         val isFirst = row.episodeId == continueWatching.first().episodeId
                                         TvWideCard(
                                             title = row.itemTitle,

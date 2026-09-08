@@ -28,7 +28,6 @@ import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
-import com.arkiv.player.data.ArchiveUrls
 import com.arkiv.player.data.db.PlaybackEntity
 import com.arkiv.player.data.model.Episode
 import com.arkiv.player.ui.EtiquetaDeCapitulo
@@ -103,10 +102,9 @@ fun TvEpisodeChip(
                 .clip(RoundedCornerShape(6.dp))
                 .background(Color.Black),
         ) {
-            // Preferencia: still real del capítulo (TMDB) -> miniatura de archive.org. Los packs
-            // de torrent sin match en TMDB no tienen ninguna de las dos y quedan con el fondo negro.
+            // Preferencia: still real del capítulo (TMDB). La miniatura de archive.org que iba
+            // después se borró en la poda de esta rama; sin ninguna de las dos queda fondo negro.
             val thumb = stillUrl
-                ?: episode.thumbPath?.let { ArchiveUrls.download(episode.itemId, it) }
             AsyncImage(
                 model = thumb,
                 contentDescription = episode.displayName,

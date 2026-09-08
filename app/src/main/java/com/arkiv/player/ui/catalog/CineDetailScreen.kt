@@ -49,14 +49,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.arkiv.player.data.db.DownloadRow
 import com.arkiv.player.data.local.AccionDeDescarga
-import com.arkiv.player.data.local.DescargasPorFuente
-import com.arkiv.player.data.local.EstadoDeDescargaDeCapitulo
 import com.arkiv.player.ui.components.DescargaDeFila
 import com.arkiv.player.ui.components.DialogoDeDescarga
-import com.arkiv.player.data.ArchiveSearchResult
 import com.arkiv.player.data.catalog.TmdbDetail
 import com.arkiv.player.data.catalog.TmdbEpisode
 import kotlinx.coroutines.Job
@@ -87,10 +83,8 @@ fun CineDetailScreen(
     // Avisa "eso ya lo tenés bajado" cuando la cola saltea una descarga duplicada (ver
     // DuplicateDownloadPolicy): si no, el botón parecería no hacer nada.
     val notifyDuplicates = com.arkiv.player.ui.offline.rememberDuplicateDownloadNotice()
-    // Las descargas al dispositivo, para que el buscador de fuentes muestre lo MISMO que la
-    // biblioteca: en qué va cada una y qué se puede hacer con eso. Acá una fila es una FUENTE y
-    // todavía no tiene `episodeId`, así que el emparejamiento lo hace [DescargasPorFuente].
-    val downloadRows by graph.repository.observeDownloadRows().collectAsStateWithLifecycle(emptyList())
+    // El control de descarga por fuente era de archive.org ([DescargasPorFuente], borrado en la
+    // poda de esta rama); `porConfirmar` queda cableado al diálogo de abajo pero ya nadie lo llena.
     var porConfirmar by remember { mutableStateOf<Pair<DownloadRow, AccionDeDescarga>?>(null) }
 
     var detail by remember { mutableStateOf<TmdbDetail?>(null) }
@@ -157,17 +151,13 @@ fun CineDetailScreen(
         loadingEps = false
     }
 
+    // La búsqueda de fuentes era archive.org ([graph.api], borrado en la poda de esta rama: ver
+    // CLAUDE.md "Cero servidor propio"); magis no tiene wiring acá todavía (ver Task 6 del plan de
+    // poda, "Simplificar búsqueda a solo-Magis"), así que el panel de fuentes queda siempre vacío.
     fun runSearch(ep: TmdbEpisode?) {
-        val d = detail ?: return
         searchJob?.cancel()
-        loadingArchive = true
+        loadingArchive = false
         sources = emptyList()
-        searchJob = scope.launch {
-            fun append(new: List<PlaySource>) { if (sheetEpisode == ep) sources = sources + new }
-            val q = if (ep != null) "${d.originalTitle} ${ep.season}x${"%02d".format(ep.episode)}" else d.originalTitle
-            val a = runCatching { graph.api.search(q) }.getOrDefault(emptyList()).map { PlaySource.Archive(it) }
-            append(a); if (sheetEpisode == ep) loadingArchive = false
-        }
     }
 
     fun openSources(ep: TmdbEpisode?) { sheetEpisode = ep; sheetOpen = true; runSearch(ep) }
@@ -184,18 +174,6 @@ fun CineDetailScreen(
         val ep = episodes.firstOrNull { it.episode == epNo } ?: return@LaunchedEffect
         deepLinkHandled = true
         openSources(ep)
-    }
-
-    // Reproduce un ítem de archive.org: lo agrega a la biblioteca y usa el player normal.
-    fun playArchive(item: ArchiveSearchResult) {
-        preparing = true; error = null; sheetOpen = false
-        scope.launch {
-            val added = graph.repository.addItem(item.identifier).getOrNull()
-            if (added == null) { preparing = false; error = "No se pudo abrir el ítem de archive.org"; return@launch }
-            val epId = graph.repository.firstEpisodeId(added.identifier)
-            preparing = false
-            if (epId != null) onPlay(epId)
-        }
     }
 
     fun playDitu(r: com.arkiv.player.data.gateway.GatewayResult) {
@@ -240,22 +218,10 @@ fun CineDetailScreen(
         scope.launch { notifyDuplicates(listOf(graph.localDownloads.enqueue(episodeId, source))) }
     }
 
-    // Guarda un ítem de archive.org en el dispositivo: mismo camino que playArchive (addItem +
-    // firstEpisodeId), sin reproducir.
-    fun saveArchiveLocally(item: ArchiveSearchResult) {
-        error = null
-        askNotifications()
-        scope.launch {
-            val added = graph.repository.addItem(item.identifier).getOrNull()
-            if (added == null) { error = "No se pudo abrir el ítem de archive.org"; return@launch }
-            val epId = graph.repository.firstEpisodeId(added.identifier) ?: return@launch
-            saveLocally(epId, "archive")
-        }
-    }
-
     // Despacha el botón de "Guardar en el dispositivo" de una fila según el tipo de fuente.
+    // Archive.org (la única que de verdad se guardaba, vía saveArchiveLocally/addItem) se borró en
+    // la poda de esta rama.
     fun downloadSource(s: PlaySource, ep: TmdbEpisode?) = when (s) {
-        is PlaySource.Archive -> saveArchiveLocally(s.item)
         // Magis no se descarga: el CDN sirve con un token que vence a las ~48 h, así que el
         // archivo bajado dejaría de reproducirse. Es fuente de streaming, no de biblioteca.
         is PlaySource.Magis -> Unit
@@ -264,25 +230,13 @@ fun CineDetailScreen(
     }
 
     /**
-     * El control de descarga de una fuente. Los packs web no lo llevan: cubren varios capítulos y un
-     * solo estado mentiría sobre el conjunto. Magis tampoco: no se descarga (su CDN vence).
+     * El control de descarga de una fuente. SIEMPRE null: la única que lo llevaba era archive.org
+     * (`DescargasPorFuente.deArchive`), borrada en la poda de esta rama. Magis tampoco: no se
+     * descarga (su CDN vence).
      */
-    fun descargaDe(s: PlaySource, ep: TmdbEpisode?): DescargaDeFila? {
-        val fila = when (s) {
-            is PlaySource.Archive -> DescargasPorFuente.deArchive(downloadRows, s.item.identifier)
-            is PlaySource.Magis -> return null
-            is PlaySource.Ditu -> return null
-        }
-        return DescargaDeFila(
-            estado = EstadoDeDescargaDeCapitulo.de(fila),
-            onDownload = { downloadSource(s, ep) },
-            onRetry = { fila?.let { f -> scope.launch { graph.localDownloads.retry(f.episodeId) } } },
-            onPedirAccion = { accion -> fila?.let { f -> porConfirmar = f to accion } },
-        )
-    }
+    fun descargaDe(s: PlaySource, ep: TmdbEpisode?): DescargaDeFila? = null
 
     fun playSource(s: PlaySource) = when (s) {
-        is PlaySource.Archive -> playArchive(s.item)
         is PlaySource.Magis -> playMagis(s.result)
         is PlaySource.Ditu -> playDitu(s.result)
     }
@@ -373,7 +327,9 @@ fun CineDetailScreen(
 
     if (sheetOpen) {
         val ep = sheetEpisode
-        val archives = sources.filterIsInstance<PlaySource.Archive>()
+        // archive.org se borró en la poda de esta rama: no hay de dónde sacar `sources`, así que
+        // esta lista queda siempre vacía (ver `runSearch`).
+        val archives: List<PlaySource> = sources
         fun toggle(k: String) { expandedSections = if (k in expandedSections) expandedSections - k else expandedSections + k }
 
         // El MISMO contenido (PanelDeFuentes) según la forma de la pantalla: hoja modal en
@@ -440,7 +396,7 @@ fun CineDetailScreen(
 private fun PanelDeFuentes(
     detail: TmdbDetail?,
     sheetEpisode: TmdbEpisode?,
-    archives: List<PlaySource.Archive>,
+    archives: List<PlaySource>,
     loadingArchive: Boolean,
     expandedSections: Set<String>,
     toggle: (String) -> Unit,

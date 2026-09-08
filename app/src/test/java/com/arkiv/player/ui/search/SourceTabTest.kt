@@ -1,6 +1,5 @@
 package com.arkiv.player.ui.search
 
-import com.arkiv.player.data.ArchiveSearchResult
 import com.arkiv.player.data.gateway.GatewayResult
 import com.arkiv.player.ui.catalog.PlaySource
 import org.junit.Assert.assertEquals
@@ -10,17 +9,17 @@ import org.junit.Test
 /** Qué filas se dibujan en los resultados del TV, en qué orden y cuáles se saltean. */
 class SourceTabTest {
 
-    private fun archive(nombre: String) = PlaySource.Archive(
-        ArchiveSearchResult(identifier = nombre, title = nombre, year = ""),
-    )
-
     private fun magis(titulo: String) = PlaySource.Magis(
         GatewayResult(source = "magis", title = titulo, ref = "r-$titulo"),
     )
 
+    private fun ditu(titulo: String) = PlaySource.Ditu(
+        GatewayResult(source = "ditu", title = titulo, ref = "r-$titulo"),
+    )
+
     @Test fun las_filas_van_en_el_orden_del_enum() {
-        val r = filasVisibles(listOf(archive("a"), magis("m")), SourceTab.TODO)
-        assertEquals(listOf(SourceTab.MAGIS, SourceTab.ARCHIVE), r.map { it.first })
+        val r = filasVisibles(listOf(ditu("d"), magis("m")), SourceTab.TODO)
+        assertEquals(listOf(SourceTab.MAGIS, SourceTab.DITU), r.map { it.first })
     }
 
     @Test fun una_fuente_sin_resultados_no_deja_fila() {
@@ -33,18 +32,27 @@ class SourceTabTest {
     }
 
     @Test fun con_un_filtro_puesto_queda_una_sola_fila() {
-        val r = filasVisibles(listOf(archive("a"), magis("m")), SourceTab.ARCHIVE)
-        assertEquals(listOf(SourceTab.ARCHIVE), r.map { it.first })
+        val r = filasVisibles(listOf(ditu("d"), magis("m")), SourceTab.DITU)
+        assertEquals(listOf(SourceTab.DITU), r.map { it.first })
         assertEquals(1, r.first().second.size)
     }
 
     @Test fun un_filtro_sobre_una_fuente_vacia_no_deja_filas() {
-        assertTrue(filasVisibles(listOf(magis("m")), SourceTab.ARCHIVE).isEmpty())
+        assertTrue(filasVisibles(listOf(magis("m")), SourceTab.DITU).isEmpty())
     }
 
     @Test fun cada_fila_conserva_el_orden_de_llegada_de_su_fuente() {
-        val fuentes = listOf(archive("a"), magis("m"), archive("b"))
-        val fila = filasVisibles(fuentes, SourceTab.TODO).first { it.first == SourceTab.ARCHIVE }
-        assertEquals(listOf("a", "b"), fila.second.map { (it as PlaySource.Archive).item.identifier })
+        val fuentes = listOf(ditu("a"), magis("m"), ditu("b"))
+        val fila = filasVisibles(fuentes, SourceTab.TODO).first { it.first == SourceTab.DITU }
+        assertEquals(listOf("a", "b"), fila.second.map { (it as PlaySource.Ditu).result.title })
+    }
+
+    /**
+     * archive.org se borró en la poda de light-magis (`PlaySource.Archive` ya no existe, ver
+     * PlaySources.kt): nada produce nunca una fuente de ese tab, aunque el enum (y su chip de
+     * filtro) se dejen para no restructurar el buscador -- ver SourceTab.kt.
+     */
+    @Test fun archive_queda_siempre_vacio() {
+        assertTrue(filasVisibles(listOf(magis("m"), ditu("d")), SourceTab.ARCHIVE).isEmpty())
     }
 }

@@ -124,10 +124,9 @@ data class ItemDetail(
             ?: episodes.firstOrNull()
 }
 
-/** Punto único de acceso a los datos: red (archive.org) + persistencia (Room). */
+/** Punto único de acceso a los datos: gateway (magis/TMDB) + persistencia (Room). */
 class ArkivRepository(
     private val db: ArkivDatabase,
-    private val api: ArchiveApi,
     private val tmdbApi: TmdbApi? = null,
     private val clock: () -> Long = System::currentTimeMillis,
     /**
@@ -662,45 +661,24 @@ class ArkivRepository(
     // limpia la fila si el archivo se fue.
 
     /**
-     * Descarga metadata, arma los episodios y guarda el ítem en la biblioteca.
+     * ELIMINADA en la poda de esta rama (borrado de archive.org, ver CLAUDE.md "Cero servidor
+     * propio"): pedía metadata a `ArchiveApi.fetchItem` (borrada) y armaba los episodios de un
+     * ítem de archive.org.
      *
-     * [titleOverride] pisa el título que trae archive.org. Lo necesitan nuestras propias subidas:
-     * ahí el ítem se llama como el hash con el que se subió (`f75163…_s01e01`), así que sin esto
-     * la biblioteca mostraría ese hash en vez del nombre de la serie. El nombre bueno lo tiene el
-     * mirror (ver `MirrorApiClient.libraryItem`).
+     * Se conserva la función -no se borra del todo- porque todavía la llaman [refreshItem] (que a
+     * su vez llaman `DetailViewModel`/`PlayerViewModel.sanarRenombre`), `AddViewModel` (la pantalla
+     * de "pegar una URL de archive.org"), `SearchPlayback`/`AnimeShowDetailScreen`/
+     * `CineDetailScreen` (guardar-y-reproducir un resultado de búsqueda) -maquinaria de la búsqueda
+     * multi-fuente que esta tarea no toca de raíz-, así que hace falta algo que siga compilando en
+     * su lugar. Devuelve el error limpio en vez de intentar pedirle nada a archive.org.
      */
     suspend fun addItem(
         input: String,
         titleOverride: String? = null,
         tmdbId: Int? = null,
         descriptionOverride: String? = null,
-    ): Result<ArchiveItem> {
-        val identifier = IdentifierParser.extract(input)
-            ?: return Result.failure(IllegalArgumentException("Pegá una URL o identificador de archive.org"))
-        return try {
-            val item = api.fetchItem(identifier).let { fetched ->
-                fetched.copy(
-                    title = titleOverride?.takeIf { it.isNotBlank() } ?: fetched.title,
-                    description = descriptionOverride?.takeIf { it.isNotBlank() } ?: fetched.description,
-                )
-            }
-            // Al re-agregar/refrescar, preservar el override manual y la fecha original.
-            val existing = itemDao.getItem(identifier)
-            itemDao.replaceItem(
-                item = item.toItemEntity(
-                    addedAt = existing?.addedAt ?: clock(),
-                    categoryOverride = existing?.categoryOverride,
-                    // Un refresh sin tmdbId no debe borrar el que ya estaba: se agregó desde la
-                    // búsqueda una vez y ese vínculo es lo que permite titular los capítulos.
-                    tmdbId = tmdbId ?: existing?.tmdbId,
-                ),
-                episodes = item.episodes.map { it.toEntity() },
-            )
-            Result.success(item)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
+    ): Result<ArchiveItem> =
+        Result.failure(UnsupportedOperationException("archive.org ya no está disponible en esta versión"))
 
     /** Fija el tipo a mano: true = película, false = serie, null = detección automática. */
     suspend fun setCategory(itemId: String, isMovie: Boolean?) {
