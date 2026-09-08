@@ -74,14 +74,6 @@ class ArkivApp : Application(), ImageLoaderFactory {
             runCatching { graph.checkForUpdate() }.onFailure { reportar(it, "arranque: buscar actualización") }
         }
 
-        // Reintenta borrar de la NUC los items que ya se transfirieron al dispositivo pero cuyo
-        // DELETE falló en su momento (blog caído, red cortada) — si no, el disco de la NUC se llena
-        // de archivos que ya nadie va a reproducir. Best-effort: un fallo acá no debe tumbar el arranque.
-        graph.applicationScope.launch {
-            runCatching { graph.localDownloads.sweepNucOrphans() }
-                .onFailure { reportar(it, "arranque: barrer descargas huérfanas") }
-        }
-
         // Capítulos nuevos de las series que estás viendo. Va en background y sin bloquear nada:
         // es una mejora oportunista, no un camino crítico. La cota de "una vez cada N horas" está
         // adentro porque el arranque de la app pasa muchas veces por día (basta con salir y volver

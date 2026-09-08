@@ -1,7 +1,6 @@
 package com.arkiv.player.data
 
 import android.content.Context
-import com.arkiv.player.BuildConfig
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -53,15 +52,6 @@ class SettingsStore(context: Context) {
 
     private val _torrentApiUrl = MutableStateFlow(prefs.getString(KEY_TORRENT_API_URL, DEFAULT_TORRENT_API_URL)!!)
     val torrentApiUrl: StateFlow<String> = _torrentApiUrl
-
-    private val _nucLanBaseUrl = MutableStateFlow(prefs.getString(KEY_NUC_LAN_URL, DEFAULT_NUC_LAN_URL)!!)
-    val nucLanBaseUrl: StateFlow<String> = _nucLanBaseUrl
-
-    private val _nucTunnelBaseUrl = MutableStateFlow(prefs.getString(KEY_NUC_TUNNEL_URL, DEFAULT_NUC_TUNNEL_URL)!!)
-    val nucTunnelBaseUrl: StateFlow<String> = _nucTunnelBaseUrl
-
-    private val _nucApiKey = MutableStateFlow(prefs.getString(KEY_NUC_API_KEY, BuildConfig.NUC_API_KEY)!!)
-    val nucApiKey: StateFlow<String> = _nucApiKey
 
     private val _cloudflareSolverEnabled = MutableStateFlow(prefs.getBoolean(KEY_CF_ENABLED, true))
     val cloudflareSolverEnabled: StateFlow<Boolean> = _cloudflareSolverEnabled
@@ -146,9 +136,6 @@ class SettingsStore(context: Context) {
     fun setWebResolverUrl(v: String) { prefs.edit().putString(KEY_WEB_RESOLVER_URL, v).apply(); _webResolverUrl.value = v }
     fun setCloudflareSolverEnabled(v: Boolean) { prefs.edit().putBoolean(KEY_CF_ENABLED, v).apply(); _cloudflareSolverEnabled.value = v }
     fun setTorrentApiUrl(v: String) { prefs.edit().putString(KEY_TORRENT_API_URL, v).apply(); _torrentApiUrl.value = v }
-    fun setNucLanBaseUrl(v: String) { prefs.edit().putString(KEY_NUC_LAN_URL, v).apply(); _nucLanBaseUrl.value = v }
-    fun setNucTunnelBaseUrl(v: String) { prefs.edit().putString(KEY_NUC_TUNNEL_URL, v).apply(); _nucTunnelBaseUrl.value = v }
-    fun setNucApiKey(v: String) { prefs.edit().putString(KEY_NUC_API_KEY, v).apply(); _nucApiKey.value = v }
 
     fun setWebQuality(q: WebQuality) { prefs.edit().putString(KEY_WEB_QUALITY, q.name).apply(); _webQuality.value = q }
 
@@ -198,16 +185,11 @@ class SettingsStore(context: Context) {
         private const val KEY_ARTWORK_REMATCH = "artwork_rematch_done"
         private const val KEY_LIVE_SIGN_REMOTE = "live_sign_remote"
         private const val KEY_MAGIS_OFERTA_DESCARTADA = "magis_oferta_descartada"
-        private const val KEY_NUC_LAN_URL = "nuc_lan_base_url"
-        private const val KEY_NUC_TUNNEL_URL = "nuc_tunnel_base_url"
-        private const val KEY_NUC_API_KEY = "nuc_api_key"
         const val DEFAULT_PROVIDERS_URL = "https://raw.githubusercontent.com/lordmacu/arkiv-providers/main/providers.json"
         const val DEFAULT_WEB_SOURCES_URL = "https://jackett.comparadorinternet.co/web_sources.json"
         const val DEFAULT_WEB_RESOLVER_URL = "https://jackett.comparadorinternet.co/resolve"
         const val DEFAULT_TORRENT_API_URL = "https://torrents.comparadorinternet.co"
         const val DEFAULT_GATEWAY_URL = "https://api.comparadorinternet.co"
-        const val DEFAULT_NUC_LAN_URL = "http://192.168.1.100:8099"
-        const val DEFAULT_NUC_TUNNEL_URL = "https://arkiv-offline.comparadorinternet.co"
         // La key del `POST /api/refresh` del mirror ya no existe acá: ese endpoint pasó a pedirse
         // por el gateway (`/v1/catalog/refresh`), que es quien pone la credencial. Con eso el APK
         // dejó de llevarla — que era lo que decía el comentario que estaba en este lugar: sacarla de

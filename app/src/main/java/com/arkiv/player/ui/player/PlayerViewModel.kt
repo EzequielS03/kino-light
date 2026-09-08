@@ -11,10 +11,6 @@ import com.arkiv.player.data.db.LiveRecentEntity
 import com.arkiv.player.data.db.SkipMarkerEntity
 import com.arkiv.player.data.gateway.LiveChannel
 import com.arkiv.player.data.model.Episode
-import com.arkiv.player.data.offline.ArkivOfflineApi
-import com.arkiv.player.data.offline.PlaybackChoice
-import com.arkiv.player.data.offline.PlaybackDecision
-import com.arkiv.player.data.offline.PlaybackPreferenceStore
 import com.arkiv.player.playback.ArchiveCacheProxy
 import com.arkiv.player.playback.ContenidoDeAdultos
 import com.arkiv.player.playback.MagisEfimero
@@ -124,13 +120,6 @@ data class WebExtras(
 )
 
 /**
- * Pendiente de confirmación del usuario (Task 11): esta serie tiene un capítulo bajado a la NUC y
- * todavía no se le preguntó su preferencia (NUC vs en vivo). [PlayerScreen] observa este estado
- * para mostrar el diálogo; la respuesta se resuelve con [PlayerViewModel.resolveAskPlaybackSource].
- */
-data class AskPlaybackSourceState(val episodeId: String, val seriesId: String, val nucItemId: Long)
-
-/**
  * Mensaje de error para un canal en vivo que no abrió. Función pura (nada de red/estado) para
  * poder testearla sin construir todo [PlayerViewModel] -- tiene ~15 dependencias, la mayoría de
  * red/disco.
@@ -159,8 +148,6 @@ class PlayerViewModel(
     private val repo: ArkivRepository,
     private val settings: SettingsStore,
     private val archiveCacheProxy: ArchiveCacheProxy,
-    private val arkivOfflineApi: ArkivOfflineApi,
-    private val playbackPreferenceStore: PlaybackPreferenceStore,
     private val localLibrary: com.arkiv.player.data.local.LocalLibrary,
     private val localFileServer: com.arkiv.player.playback.LocalFileServer,
     private val deviceAuth: com.arkiv.player.pocketbase.DeviceAuthManager,
@@ -235,8 +222,6 @@ class PlayerViewModel(
     private val _webExtras = MutableStateFlow<WebExtras?>(null)
     val webExtras: StateFlow<WebExtras?> = _webExtras.asStateFlow()
 
-    // Task 11: hay un capítulo bajado a la NUC para esta serie y todavía no se preguntó la
-    // preferencia (NUC vs en vivo) -> PlayerScreen muestra el diálogo de confirmación.
     /**
      * Datos curiosos de lo que se está viendo, o vacío. Se piden TODOS DE UNA al arrancar y la
      * pantalla rota entre ellos (ver [TriviaDelPlayer]): cambiar de dato no puede costar los 3 a
@@ -256,9 +241,6 @@ class PlayerViewModel(
      * pegan al gateway. No corrompe nada (la fila final es la correcta), pero pide de más.
      */
     private var marcadoresJob: kotlinx.coroutines.Job? = null
-
-    private val _askPlaybackSource = MutableStateFlow<AskPlaybackSourceState?>(null)
-    val askPlaybackSource: StateFlow<AskPlaybackSourceState?> = _askPlaybackSource.asStateFlow()
 
     /** Job cancelable de la precarga del siguiente capítulo (torrent pack / web / archive). */
     private var prefetchJob: kotlinx.coroutines.Job? = null
@@ -321,9 +303,8 @@ class PlayerViewModel(
                 SourceKind.MAGIS -> loadMagis(episodeId)
                 // PlayerSource.kindFor() nunca devuelve NUC ni LOCAL (ver su propio KDoc): esta rama
                 // es inalcanzable por diseño, pero el `when` exhaustivo la exige. Apunta a loadWeb()
-                // -no a la loadWebRespectingPreference() desconectada- para que la afirmación del
-                // KDoc de esa función ("load() llama a loadWeb directo") sea cierta para TODAS las
-                // ramas, no solo la de WEB.
+                // porque es el único filler que sigue existiendo (NUC/PlaybackPreferenceStore se
+                // borraron en la poda de Task 8).
                 SourceKind.NUC, SourceKind.LOCAL -> loadWeb(episodeId)
                 // Inalcanzable: se corta arriba del todo, antes de este launch (ver el guard de
                 // más arriba). La rama existe porque el `when` sobre SourceKind es exhaustivo.
@@ -707,55 +688,6 @@ class PlayerViewModel(
     }
 
     /**
-     * DESCONECTADA desde que las descargas van al dispositivo: `load()` llama a [loadWeb] directo.
-     * Se conserva porque la maquinaria de reproducción remota desde la NUC sigue completa y
-     * volver a cablearla es cambiar esta única línea.
-     *
-     * Fuente web: consulta primero [PlaybackPreferenceStore] para saber si esta serie tiene un
-     * capítulo ya bajado a la NUC y, de ser así, si hay que reproducirlo de ahí, en vivo, o
-     * preguntarle al usuario (una sola vez por serie). Solo aplica a episodios de series web
-     * guardadas con `addWebSeriesEpisode` (identifier `"web:series:$seriesId"` — ver
-     * `ArkivRepository.addWebSeriesEpisode`); cualquier otra fuente web (películas sueltas,
-     * `addWebSource`) no tiene seriesId/season/episode reales y se reproduce en vivo directo, igual
-     * que siempre.
-     *
-     * OJO seriesId: NO es `episodeId.substringBefore("::")` a secas (eso da el identifier del ítem
-     * LOCAL, `"web:series:$seriesId"`) — hay que pelarle el prefijo `"web:series:"` para que calce
-     * con el `seriesId` desnudo que Task 8 guardó en `nuc_library_items` (`"anilist$anilistId"` /
-     * `d.imdbId.ifBlank{"tmdb${d.id}"}`). Confirmado leyendo `addWebSeriesEpisode` en
-     * `ArkivRepository.kt` y `downloadPack`/`createJob` en `AnimeShowDetailScreen`/`CineDetailScreen`.
-     */
-    @Suppress("unused")
-    private suspend fun loadWebRespectingPreference(episodeId: String) {
-        val itemIdentifier = episodeId.substringBefore("::")
-        val seriesId = itemIdentifier.takeIf { it.startsWith(SERIES_ITEM_PREFIX) }
-            ?.removePrefix(SERIES_ITEM_PREFIX)
-        if (seriesId == null) { loadWeb(episodeId); return }
-        // season/episode reales: mismo camino que ya usa resolveTorrentUrl() para el hint de pack
-        // (regex sobre ep.section/displayName). Requiere que el episodio local guarde el season real
-        // en `section` -- ver el fix de `addWebPack` en AnimeShowDetailScreen.kt (Task 11).
-        val ctx = runCatching { repo.subtitleContextForEpisode(episodeId) }.getOrNull()
-        val season = ctx?.season
-        val episode = ctx?.episode
-        if (season == null || episode == null) {
-            Log.w(PLAY, "loadWebRespectingPreference: sin season/episode para $episodeId → en vivo directo")
-            loadWeb(episodeId)
-            return
-        }
-        when (val decision = playbackPreferenceStore.decide(seriesId, season, episode)) {
-            is PlaybackDecision.Play -> when (decision.choice) {
-                PlaybackChoice.NUC -> {
-                    val itemId = decision.itemId
-                    if (itemId != null) loadFromNuc(episodeId, itemId) else loadWeb(episodeId)
-                }
-                PlaybackChoice.LIVE -> loadWeb(episodeId)
-            }
-            is PlaybackDecision.AskFirst ->
-                _askPlaybackSource.value = AskPlaybackSourceState(episodeId, seriesId, decision.itemId)
-        }
-    }
-
-    /**
      * Pide la tanda de datos curiosos, best-effort.
      *
      * Se traga cualquier fallo: sin datos no se dibuja el botón, que es el fallo bueno para algo
@@ -850,52 +782,6 @@ class PlayerViewModel(
         }
     }
 
-    /** El usuario respondió el diálogo de "¿NUC o en vivo?" (una vez por serie). */
-    fun resolveAskPlaybackSource(choice: PlaybackChoice) {
-        val ask = _askPlaybackSource.value ?: return
-        _askPlaybackSource.value = null
-        viewModelScope.launch {
-            playbackPreferenceStore.remember(ask.seriesId, choice)
-            when (choice) {
-                PlaybackChoice.NUC -> loadFromNuc(ask.episodeId, ask.nucItemId)
-                PlaybackChoice.LIVE -> loadWeb(ask.episodeId)
-            }
-        }
-    }
-
-    /**
-     * Override manual puntual (botón del reproductor): fuerza la reproducción en vivo para ESTE
-     * capítulo sin tocar la preferencia guardada de la serie (no llama a `remember`).
-     */
-    fun forcePlayLive(episodeId: String) {
-        viewModelScope.launch { loadWeb(episodeId) }
-    }
-
-    /** NUC (arkiv-offline): arma el PlayerData con la URL de streaming directo del ítem ya bajado. */
-    private suspend fun loadFromNuc(episodeId: String, itemId: Long) {
-        val ep = repo.getEpisode(episodeId)
-        val base = withContext(Dispatchers.IO) { arkivOfflineApi.baseUrlResolved() }
-        val url = arkivOfflineApi.streamUrl(itemId, base)
-        val item = PlayerData(
-            episodeId = episodeId,
-            itemId = episodeId.substringBefore("::"),
-            title = ep?.displayName ?: "NUC",
-            subtitle = ep?.section ?: "",
-            mediaUrl = url,
-            castUrl = url,   // /stream soporta Range directo, no necesita el rewrite de proxy que si necesita HLS
-            artworkUrl = "",
-            openingStartMs = null, openingEndMs = null, endingStartMs = null,
-            kind = SourceKind.NUC,
-        )
-        val startPos = safeStartPosition(episodeId, SourceKind.NUC)
-        _playlist.value = PlaylistData(listOf(item), 0, startPos, pedido = episodeId)
-    }
-
-    /**
-     * Fuente web: resuelve la pageUrl → stream directo vía el resolver headless de blog, y arma el
-     * PlayerData con esa URL. El player unificado hereda controles/seek/cast/dlna/subs/audio. Los
-     * subtítulos+headers sniffeados viajan por [webExtras] para que PlayerScreen los adjunte.
-     */
     /**
      * Reproduce un ítem de Magis.
      *
@@ -1067,9 +953,9 @@ class PlayerViewModel(
      * ELIMINADA en la poda de esta rama (borrado de torrent+web+mirror, ver CLAUDE.md "Cero servidor
      * propio"): resolvía una `pageUrl` scrapeada on-device contra `WebResolverApi` (el resolver
      * headless de blog), que ya no existe. Se conserva la función -no se borra del todo- porque
-     * todavía la llaman [forcePlayLive], [resolveAskPlaybackSource] y el filler NUC/LOCAL de [load]
-     * -maquinaria de `PlaybackPreferenceStore`/NUC que esta tarea no toca-, así que hace falta algo
-     * que siga compilando en su lugar. Reporta el error limpio en vez de intentar reproducir.
+     * el filler NUC/LOCAL de [load] todavía la llama (esa rama es inalcanzable por diseño, ver el
+     * KDoc de [load], pero el `when` exhaustivo la exige), así que hace falta algo que siga
+     * compilando en su lugar. Reporta el error limpio en vez de intentar reproducir.
      */
     private fun loadWeb(episodeId: String) {
         Log.w(PLAY, "loadWeb() episodeId=$episodeId → fuente web eliminada de esta rama")
@@ -1283,12 +1169,6 @@ class PlayerViewModel(
     }
 
     private companion object {
-        /** Identifier del ítem local para un capítulo de serie web (ver `addWebSeriesEpisode`). El
-         * `seriesId` real (el que guarda Task 8 en `nuc_library_items`) es lo que queda DESPUÉS de
-         * este prefijo. Se toma de [com.arkiv.player.data.SeriesItemIds] para no tener el literal
-         * repetido en dos lugares que TIENEN que coincidir. */
-        const val SERIES_ITEM_PREFIX = com.arkiv.player.data.SeriesItemIds.WEB_SERIES_PREFIX
-
         /** Cuántas veces se reabre un directo cortado antes de avisar. Ver [reabrirVivoPorCorte]. */
         const val MAX_REAPERTURAS_VIVO = 3
 

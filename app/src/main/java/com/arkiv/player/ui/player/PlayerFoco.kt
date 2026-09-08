@@ -40,9 +40,6 @@ internal class FocosDelOverlay {
     /** La barra de progreso: es el punto al que entra el foco al abrirse el overlay. */
     val barra = FocusRequester()
 
-    /** Botón de override "Reproducir en vivo" (Task 11, solo reproduciendo desde la NUC). */
-    val verEnVivo = FocusRequester()
-
     /** Corregir a mano los tiempos de intro/outro del capítulo en curso. Último de la fila. */
     val marcadores = FocusRequester()
 

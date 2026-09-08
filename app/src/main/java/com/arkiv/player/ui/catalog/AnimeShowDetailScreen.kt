@@ -90,31 +90,10 @@ fun AnimeShowDetailScreen(
     val manualEpisodes = remember { mutableStateListOf<Int>() }
     var manualEpText by remember { mutableStateOf("") }
 
-    // seriesId canónico del show: el del MAPEO cruzado (imdb, si no tmdb) y "anilist<id>" solo si no
-    // hay mapeo. Sin esto la misma serie entraba a la biblioteca bajo "anilist171018" acá y bajo
-    // "tt30217403" desde la pantalla de series, o sea dos ítems y los mismos GB bajados dos veces.
-    // Ver SeriesItemIds.animeSeriesId, que es el único lugar donde vive el criterio.
-    suspend fun resolveSeriesId(): String =
-        com.arkiv.player.data.SeriesItemIds.animeSeriesId(graph.animeMappingRepository, anilistId)
-
     LaunchedEffect(anilistId) {
         loading = true
         show = runCatching { graph.aniListApi.details(anilistId) }.getOrNull()
         loading = false
-    }
-
-    // Refresca la caché local de "qué episodios ya están en la NUC" al abrir el detalle: así
-    // PlaybackPreferenceStore (Task 10) tiene datos frescos aunque la descarga se haya disparado
-    // desde otro dispositivo o el usuario nunca haya visitado la pantalla de Descargas.
-    // `replace = true`: la respuesta es la verdad completa de la serie (refleja también borrados).
-    // Si la consulta falla, NucDownloads.refreshLibraryCache no toca nada (ver ahí el porqué).
-    LaunchedEffect(anilistId) {
-        scope.launch {
-            com.arkiv.player.data.offline.NucDownloads.refreshLibraryCache(
-                graph.arkivOfflineApi, graph.database.nucLibraryItemDao(),
-                seriesId = resolveSeriesId(), replace = true,
-            )
-        }
     }
 
     // La búsqueda de fuentes por episodio era archive.org ([graph.api], borrado en la poda de esta

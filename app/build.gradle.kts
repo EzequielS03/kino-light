@@ -27,7 +27,6 @@ android {
         // codigo vacio, asi que un build sin .env simplemente no ofrece la seccion en vez de
         // dejarla abierta.
         buildConfigField("String", "ADULT_CODE", "\"${readEnv("ARKIV_ADULT_CODE")}\"")
-        buildConfigField("String", "NUC_API_KEY", "\"${readEnv("NUC_API_KEY")}\"")
         versionCode = 48
         versionName = "0.9.17"
         // Task 8 (Paso 3): acá vivía `ARKIV_API_KEY`, la última credencial de build que quedaba

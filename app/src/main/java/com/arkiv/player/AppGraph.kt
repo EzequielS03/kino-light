@@ -210,7 +210,6 @@ class AppGraph(context: Context) {
             appContext, database,
             wakeWorker = { com.arkiv.player.data.local.LocalDownloadWorker.schedule(it) },
             restartWorker = { com.arkiv.player.data.local.LocalDownloadWorker.restart(it) },
-            deleteNucItem = { itemId -> arkivOfflineApi.deleteLibraryItem(itemId) },
         )
     }
 
@@ -260,12 +259,10 @@ class AppGraph(context: Context) {
     /**
      * Una estrategia por `source` de la tabla `downloads`. Sin entrada para "web" a propósito: la
      * fuente web se borró en esta rama (regla del branch, "cero servidor propio") y
-     * [com.arkiv.player.data.local.NucStagedStrategy] existía solo para servirla, hablando con el
-     * servidor NUC/arkiv-offline ya eliminado del árbol — una fila vieja con `source="web"` (de
-     * antes de este branch) ahora falla con gracia en vez de disparar esa llamada de red (ver
+     * `NucStagedStrategy` (que existía solo para servirla, hablando con el servidor NUC/arkiv-offline)
+     * se borró en la poda de NUC (Task 8) — una fila vieja con `source="web"` (de antes de este
+     * branch) ahora falla con gracia en vez de disparar esa llamada de red (ver
      * `LocalDownloadWorker.doWork()`, que ya trata una entrada ausente como "Fuente no soportada").
-     * `NucStagedStrategy.kt` queda sin caller real; se deja intacto porque su borrado (y el de NUC en
-     * general) es alcance de otra tarea, no de esta.
      *
      * Tampoco hay entrada para "archive": `ArchiveDownloadStrategy` se borró junto con el resto de
      * archive.org en esta poda (llamaba a `ArchiveUrls.download`, red directa a archive.org — contra
@@ -351,25 +348,6 @@ class AppGraph(context: Context) {
                 }.apply { empezar() }
             }
     }
-    /** Cliente de arkiv-offline (NUC de casa): jobs de descarga + biblioteca ya bajada. */
-    val arkivOfflineApi: com.arkiv.player.data.offline.ArkivOfflineApi by lazy {
-        com.arkiv.player.data.offline.ArkivOfflineApi(
-            lanBaseUrl = { settings.nucLanBaseUrl.value },
-            tunnelBaseUrl = { settings.nucTunnelBaseUrl.value },
-            apiKey = { settings.nucApiKey.value },
-        )
-    }
-
-    /** Progreso casi en tiempo real (SSE+poll) de un job de arkiv-offline. Usado por la pantalla
-     * de Descargas del NUC (Task 9). */
-    val nucJobEvents: com.arkiv.player.data.offline.NucJobEvents by lazy {
-        com.arkiv.player.data.offline.NucJobEvents(arkivOfflineApi, apiKey = { settings.nucApiKey.value })
-    }
-
-    val playbackPreferenceStore: com.arkiv.player.data.offline.PlaybackPreferenceStore by lazy {
-        com.arkiv.player.data.offline.PlaybackPreferenceStore(database.seriesPlaybackPrefDao(), database.nucLibraryItemDao())
-    }
-
     val applicationScope: CoroutineScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
 
     /**

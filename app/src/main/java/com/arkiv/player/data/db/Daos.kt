@@ -620,20 +620,6 @@ interface DownloadDao {
     @Query("UPDATE downloads SET sizeConfirmed = 1, state = 'queued', error = NULL WHERE episodeId = :episodeId")
     suspend fun markConfirmed(episodeId: String)
 
-    @Query("UPDATE downloads SET stagingItemId = :stagingItemId WHERE episodeId = :episodeId")
-    suspend fun setStagingItem(episodeId: String, stagingItemId: Long?)
-
-    /**
-     * Items de la NUC que quedaron colgados: la fila ya terminó de bajar al dispositivo pero el
-     * DELETE /library falló. El barrido de arranque los reintenta.
-     */
-    @Query("SELECT stagingItemId FROM downloads WHERE stagingItemId IS NOT NULL AND state = 'completed'")
-    suspend fun orphanStagingItems(): List<Long>
-
-    /** El barrido de arranque limpia la marca tras borrar el item de la NUC con éxito. */
-    @Query("UPDATE downloads SET stagingItemId = NULL WHERE stagingItemId = :stagingItemId")
-    suspend fun clearStagingItem(stagingItemId: Long)
-
     @Query("DELETE FROM downloads WHERE episodeId = :episodeId")
     suspend fun delete(episodeId: String)
 

@@ -121,24 +121,6 @@ fun CineDetailScreen(
         loading = false
     }
 
-    // Refresca la caché local de "qué episodios ya están en la NUC" al abrir el detalle (solo
-    // series: las películas no tienen season/episode ni se descargan vía este flujo web). Así
-    // PlaybackPreferenceStore (Task 10) tiene datos frescos aunque la descarga se haya disparado
-    // desde otro dispositivo o el usuario nunca haya visitado la pantalla de Descargas.
-    // `replace = true`: la respuesta es la verdad completa de la serie (refleja también borrados).
-    // Si la consulta falla, NucDownloads.refreshLibraryCache no toca nada (ver ahí el porqué).
-    LaunchedEffect(detail) {
-        val d = detail
-        if (d == null || !d.isSeries) return@LaunchedEffect
-        val seriesId = com.arkiv.player.data.SeriesItemIds.canonicalSeriesId(d.imdbId, d.id)
-        scope.launch {
-            com.arkiv.player.data.offline.NucDownloads.refreshLibraryCache(
-                graph.arkivOfflineApi, graph.database.nucLibraryItemDao(),
-                seriesId = seriesId, replace = true,
-            )
-        }
-    }
-
     // Cargar los capítulos de la temporada elegida (bajo demanda).
     LaunchedEffect(selectedSeason, detail) {
         val s = selectedSeason

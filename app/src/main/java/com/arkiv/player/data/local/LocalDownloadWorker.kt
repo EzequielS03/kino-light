@@ -28,9 +28,8 @@ import kotlinx.coroutines.runBlocking
  * vez, el disco de blog no aguanta varios staging simultáneos (fase 2), y en el Fire TV Stick el
  * ancho de banda no sobra.
  *
- * Mismo patrón de auto-relanzamiento que `NucDownloadCheckWorker`: al terminar una fila se re-encola
- * para tomar la siguiente, en vez de iterar dentro de un solo `doWork()` — WorkManager no garantiza
- * un trabajo largo indefinido en background.
+ * Auto-relanzamiento: al terminar una fila se re-encola para tomar la siguiente, en vez de iterar
+ * dentro de un solo `doWork()` — WorkManager no garantiza un trabajo largo indefinido en background.
  */
 class LocalDownloadWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
@@ -274,8 +273,7 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
      * con `KEEP` acá sería un no-op silencioso en el 100% de las pasadas: la cola procesaría una fila
      * por cada `enqueue()` externo y nunca se auto-relanzaría, rompiendo el propósito central de este
      * worker. `REPLACE` sí fuerza la inserción de la siguiente pasada aunque esta instancia siga
-     * "viva" un instante más — mismo patrón que ya usa `NucDownloadCheckWorker.schedule` para su
-     * propio auto-relanzamiento.
+     * "viva" un instante más.
      */
     private fun reschedule() {
         WorkManager.getInstance(applicationContext).enqueueUniqueWork(

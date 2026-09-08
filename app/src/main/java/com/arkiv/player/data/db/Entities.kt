@@ -211,11 +211,13 @@ data class DownloadEntity(
 )
 
 /**
- * Caché local de qué episodios ya están descargados en la NUC (arkiv-offline). Se alimenta de
- * GET /library -- ver ArkivOfflineApi -- tanto al abrir el detalle de una serie como por el canal
- * SSE+poll de la pantalla de Descargas. NO confundir con [DownloadEntity]: esa tabla es para
- * descargas al almacenamiento del propio dispositivo (archive.org vía DownloadManager); esta es
- * para contenido que vive en la NUC y se reproduce por streaming remoto.
+ * Caché local de qué episodios ya estaban descargados en la NUC (arkiv-offline).
+ *
+ * HUÉRFANA desde la poda de NUC (Task 8, "cero servidor propio"): nada la escribe ni la lee más
+ * (el único escritor era `NucDownloads.refreshLibraryCache`, y el único lector
+ * `PlaybackPreferenceStore`, ambos borrados). Se deja la tabla tal cual -sin migración que la
+ * elimine- porque tocar el esquema de Room queda fuera del alcance de la poda de esta rama (ver
+ * el resto de tareas de la poda: ninguna tocó `ArkivDatabase.kt`).
  */
 @Entity(tableName = "nuc_library_items")
 data class NucLibraryItemEntity(
@@ -223,11 +225,9 @@ data class NucLibraryItemEntity(
     val seriesId: String,
     val season: Int,
     val episode: Int,
-    val status: String,                 // "done" (unico status que GET /library devuelve)
+    val status: String,
     val sizeBytes: Long,
     val syncedAt: Long,
-    // pageUrl exacta desde la que se bajó este capítulo (job_items.source_ref en arkiv-offline).
-    // Nullable: filas viejas de la caché (y de la NUC) pueden no tenerla. Ver [NucLibraryEntry].
     val sourceRef: String? = null,
 )
 
@@ -236,6 +236,10 @@ data class NucLibraryItemEntity(
  * puntual esté descargado) o LIVE (siempre en vivo). [asked] distingue "todavia no se preguntó"
  * de "el usuario eligió LIVE explícitamente" -- ambos casos empiezan sin fila, así que sin este
  * flag no se podría diferenciar "preguntar" de "ya preguntado y dijo que no".
+ *
+ * HUÉRFANA desde la poda de NUC (Task 8): [com.arkiv.player.data.offline.PlaybackPreferenceStore],
+ * su único lector/escritor, se borró. Se deja la tabla tal cual, ver el porqué en el KDoc de
+ * [NucLibraryItemEntity].
  */
 @Entity(tableName = "series_playback_prefs")
 data class SeriesPlaybackPrefEntity(
@@ -245,11 +249,14 @@ data class SeriesPlaybackPrefEntity(
 )
 
 /**
- * Registro local de qué `job_id` de arkiv-offline disparó ESTE dispositivo (Task 9). arkiv-offline
- * no tiene un endpoint "listame todos los jobs" -- solo `GET /jobs/<id>` por id puntual -- así que
- * la app necesita su propio índice de qué ids consultar/observar en la pantalla de Descargas. Se
- * llena cuando `downloadPack`/`downloadEpisode` (Task 8, en AnimeShowDetailScreen/CineDetailScreen)
- * crean un job con éxito, y se limpia cuando ese job llega a un estado terminal (done/failed).
+ * Registro local de qué `job_id` de arkiv-offline disparó ESTE dispositivo. arkiv-offline no tiene
+ * un endpoint "listame todos los jobs" -- solo `GET /jobs/<id>` por id puntual -- así que la
+ * pantalla de Descargas del NUC necesitaba su propio índice de qué ids consultar/observar.
+ *
+ * HUÉRFANA desde la poda de NUC (Task 8): esa pantalla (`NucDownloadsScreen`/`NucDownloadsViewModel`)
+ * y quien creaba estas filas (`downloadPack`/`downloadEpisode` en
+ * AnimeShowDetailScreen/CineDetailScreen) se borraron. Se deja la tabla tal cual, ver el porqué en
+ * el KDoc de [NucLibraryItemEntity].
  */
 @Entity(tableName = "local_active_jobs")
 data class LocalActiveJobEntity(

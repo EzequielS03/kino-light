@@ -10,13 +10,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 
 /**
- * Pide POST_NOTIFICATIONS **en el momento en que hace falta** (justo al disparar una descarga a la
- * NUC), no al abrir la app: mismo criterio contextual que el permiso de cámara en
+ * Pide POST_NOTIFICATIONS **en el momento en que hace falta** (justo al disparar una descarga al
+ * dispositivo), no al abrir la app: mismo criterio contextual que el permiso de cámara en
  * `QrScannerScreen` -- el usuario entiende para qué se le está pidiendo.
  *
  * El permiso está declarado en el manifiesto, pero desde Android 13 (API 33) además hay que
- * pedirlo en runtime; sin esto la notificación de "descarga completa" del
- * [com.arkiv.player.data.offline.NucDownloadCheckWorker] se descartaba en silencio. Por debajo de
+ * pedirlo en runtime; sin esto la notificación de "descarga completa" de
+ * [com.arkiv.player.data.local.LocalDownloadWorker] se descartaba en silencio. Por debajo de
  * API 33 el permiso no existe y las notificaciones funcionan sin pedir nada.
  *
  * Devuelve una lambda para invocar al iniciar la descarga. No bloquea nada: si el usuario dice que

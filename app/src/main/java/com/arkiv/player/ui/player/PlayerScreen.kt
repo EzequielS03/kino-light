@@ -319,7 +319,6 @@ private fun PlayerContent(
             initializer {
                 PlayerViewModel(
                     graph.repository, graph.settings, graph.archiveCacheProxy,
-                    graph.arkivOfflineApi, graph.playbackPreferenceStore,
                     graph.localLibrary, graph.localFileServer, graph.deviceAuth, graph.frameCapturer,
                     graph.liveController, graph.database.liveRecentDao(),
                     esTelevision = isTv,
@@ -352,8 +351,6 @@ private fun PlayerContent(
     // Fuente web: mientras el resolver de blog snifea el stream, y los subtítulos sniffeados a adjuntar.
     val resolving by vm.resolving.collectAsStateWithLifecycle()
     val webExtras by vm.webExtras.collectAsStateWithLifecycle()
-    // Task 11: serie con capítulo bajado a la NUC sin preferencia todavía preguntada -> diálogo.
-    val askPlaybackSource by vm.askPlaybackSource.collectAsStateWithLifecycle()
     val trivia by vm.trivia.collectAsStateWithLifecycle()
     // Adjunta como pistas externas los subtítulos que sniffeó el resolver (cuando ya hay media).
     LaunchedEffect(playlist, webExtras) {
@@ -672,9 +669,6 @@ private fun PlayerContent(
     val estadoDlna = rememberEstadoDlna(dlna, graph.applicationScope)
 
     val d = playlist?.items?.getOrNull(currentIndex)
-    // Task 11: solo tiene sentido ofrecer "volver a en vivo" cuando lo que suena vino de la NUC —
-    // no hay a qué otra fuente "volver" desde ARCHIVE en esta iteración.
-    val showLiveOverride = d?.kind == SourceKind.NUC
     val playlistRef = rememberUpdatedState(playlist)
 
     /**
@@ -2070,25 +2064,6 @@ private fun PlayerContent(
         )
         PanelDeTrivia(estadoTrivia, trivia)
 
-        // TopEnd + top=64dp para no pisar el back/título de la barra superior (que ocupa la franja
-        // 0–56dp) ni, en TV en pausa, el título/nombre de episodio de cabecera.info (TopStart).
-        if (showLiveOverride) {
-            Row(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .systemBarsPadding()
-                    .padding(top = 64.dp, end = 12.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0x99000000))
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Icon(Icons.Default.LiveTv, contentDescription = null, tint = ArkivRed, modifier = Modifier.size(16.dp))
-                Text("Desde tu NUC", color = Color.White, style = MaterialTheme.typography.labelMedium)
-            }
-        }
-
         // Casteando a Chromecast.
         if (casting) {
             Row(
@@ -2589,31 +2564,11 @@ private fun PlayerContent(
                                         .focusRequester(focos.subtitulos)
                                         .focusProperties {
                                             left = if (showNext) focos.episodioSiguiente else focos.adelantar
-                                            right = if (showLiveOverride) focos.verEnVivo else focos.bajarBrillo
+                                            right = focos.bajarBrillo
                                             up = focos.barra
                                             down = focos.subtitulos
                                         },
                                 )
-                                // Override manual (Task 11): solo reproduciendo desde la NUC. Salta la
-                                // preferencia guardada de la serie SOLO para este capítulo (no llama a
-                                // PlaybackPreferenceStore.remember -- ver PlayerViewModel.forcePlayLive).
-                                if (showLiveOverride) {
-                                    TvTransportButton(
-                                        icon = Icons.Default.LiveTv,
-                                        contentDescription = "Reproducir en vivo",
-                                        onClick = { vm.forcePlayLive(episodeId) },
-                                        iconSize = 24.dp,
-                                        tint = Color.White,
-                                        modifier = Modifier
-                                            .focusRequester(focos.verEnVivo)
-                                            .focusProperties {
-                                                left = focos.subtitulos
-                                                right = focos.bajarBrillo
-                                                up = focos.barra
-                                                down = focos.verEnVivo
-                                            },
-                                    )
-                                }
                                 // MODO NOCHE, dos botones: bajar (luna) a la izquierda y subir (sol)
                                 // a la derecha, o sea menos → más como se lee. Nunca se deshabilitan
                                 // en los topes: en TV un botón deshabilitado no recibe foco y
@@ -2627,7 +2582,7 @@ private fun PlayerContent(
                                     modifier = Modifier
                                         .focusRequester(focos.bajarBrillo)
                                         .focusProperties {
-                                            left = if (showLiveOverride) focos.verEnVivo else focos.subtitulos
+                                            left = focos.subtitulos
                                             right = focos.subirBrillo
                                             up = focos.barra
                                             down = focos.bajarBrillo
@@ -2696,21 +2651,14 @@ private fun PlayerContent(
                                     )
                                 }
                             }
-                            // TELÉFONO: subtítulos + override "en vivo" contra el borde derecho. El
-                            // Spacer se come el ancho sobrante, así que los controles de transporte
-                            // quedan a la izquierda y estos solo en la esquina — antes competía por
-                            // espacio arriba con otros siete elementos.
+                            // TELÉFONO: subtítulos contra el borde derecho. El Spacer se come el
+                            // ancho sobrante, así que los controles de transporte quedan a la
+                            // izquierda y estos solo en la esquina — antes competía por espacio
+                            // arriba con otros siete elementos.
                             // Casteando no: las pistas se eligen sobre PlaybackEngine.vlc, el
                             // reproductor local. El receptor de Chromecast maneja las suyas.
                             if (!isTv && !casting) {
                                 Spacer(Modifier.weight(1f))
-                                // Override manual (Task 11): solo reproduciendo desde la NUC (ver el
-                                // mismo botón de TV arriba para el porqué).
-                                if (showLiveOverride) {
-                                    IconButton(onClick = { vm.forcePlayLive(episodeId) }) {
-                                        Icon(Icons.Default.LiveTv, contentDescription = "Reproducir en vivo", tint = Color.White)
-                                    }
-                                }
                                 if (hayMarcadoresQueCorregir) {
                                     MenuDeMarcadoresDelCapitulo(
                                         estado = marcadores,
@@ -2946,30 +2894,6 @@ private fun PlayerContent(
                 delay(50)
             }
         }
-    }
-
-    // Diálogo "¿NUC o en vivo?" (Task 11): se pregunta una sola vez por serie, la primera vez que se
-    // abre un capítulo cuya serie tiene algo bajado a la NUC. La respuesta la recuerda
-    // PlaybackPreferenceStore (vía vm.resolveAskPlaybackSource); acá solo se muestra el estado que
-    // expone el ViewModel.
-
-
-    if (askPlaybackSource != null) {
-        AlertDialog(
-            onDismissRequest = { vm.resolveAskPlaybackSource(com.arkiv.player.data.offline.PlaybackChoice.LIVE) },
-            title = { Text("¿Reproducir desde tu NUC?") },
-            text = { Text("Este capítulo ya está descargado en tu NUC de casa. ¿Reproducir esta serie desde ahí cuando esté disponible, en vez de en vivo?") },
-            confirmButton = {
-                TextButton(onClick = { vm.resolveAskPlaybackSource(com.arkiv.player.data.offline.PlaybackChoice.NUC) }) {
-                    Text("Usar la NUC")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { vm.resolveAskPlaybackSource(com.arkiv.player.data.offline.PlaybackChoice.LIVE) }) {
-                    Text("En vivo")
-                }
-            },
-        )
     }
 
     // Diálogo de dispositivos DLNA. El armado de la URL que se le manda al renderer vive en
