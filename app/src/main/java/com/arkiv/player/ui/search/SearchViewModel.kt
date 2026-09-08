@@ -33,7 +33,7 @@ fun handoffRouteFor(card: TitleCard, season: Int?, episode: Int?): String = when
     }
 }
 
-/** Presupuesto del fan-out del gateway para magis/ditu. */
+/** Presupuesto del fan-out del gateway para magis. */
 private const val GATEWAY_BUDGET_MS = 15000
 
 /** El anime necesita más tiempo para expandir títulos (AniList/Fribb/Simkl) del lado del
@@ -48,7 +48,7 @@ private const val GW = "ArkivGateway"
 
 /**
  * ViewModel del wizard de búsqueda unificada: Fase QUERY (TMDB + AniList + directos archive),
- * paso REFINE (S/E opcional) y fase RESULTS (búsqueda multi-fuente magis/ditu/archive con S/E
+ * paso REFINE (S/E opcional) y fase RESULTS (búsqueda multi-fuente magis/archive con S/E
  * inyectado si se dio, o solo por nombre).
  */
 class SearchViewModel(
@@ -87,7 +87,7 @@ class SearchViewModel(
     private val _busquedaPorTexto = MutableStateFlow(false)
     val busquedaPorTexto: StateFlow<Boolean> = _busquedaPorTexto.asStateFlow()
 
-    // --- Fase RESULTS: resultados multi-fuente (magis/ditu/archive) de la card elegida ---
+    // --- Fase RESULTS: resultados multi-fuente (magis/archive) de la card elegida ---
     private val _sources = MutableStateFlow<List<PlaySource>>(emptyList())
     val sources: StateFlow<List<PlaySource>> = _sources.asStateFlow()
 
@@ -270,7 +270,7 @@ class SearchViewModel(
     }
 
     /**
-     * Búsqueda multi-fuente (magis/ditu/archive) de la card elegida: si viene season/episode se
+     * Búsqueda multi-fuente (magis/archive) de la card elegida: si viene season/episode se
      * inyectan en la búsqueda (capítulo concreto); si no, se busca solo por nombre. Progresiva:
      * cada fuente agrega resultados apenas los tiene.
      */
@@ -298,7 +298,7 @@ class SearchViewModel(
 
             fun append(new: List<PlaySource>) { _sources.value = _sources.value + new }
 
-            // Magis y Ditu, por el gateway. Detrás del flag para poder apagarlo sin publicar APK.
+            // Magis, por el gateway. Detrás del flag para poder apagarlo sin publicar APK.
             if (settings.useGateway.value) {
                 launch {
                     runCatching {
@@ -315,7 +315,7 @@ class SearchViewModel(
                             anilistId = card.anilistId ?: 0,
                             maxBytes = 0L,
                             budgetMs = if (card.kind == "anime") GATEWAY_BUDGET_ANIME_MS else GATEWAY_BUDGET_MS,
-                            sources = "magis,ditu",
+                            sources = "magis",
                         )
                         // Los resultados se acumulan y se publican EN LOTE. Publicar de a uno
                         // dispara una recomposición por resultado: con 20 de magis sobre 50+

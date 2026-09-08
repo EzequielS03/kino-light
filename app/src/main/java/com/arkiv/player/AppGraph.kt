@@ -290,6 +290,10 @@ class AppGraph(context: Context) {
      * archive.org en esta poda (llamaba a `ArchiveUrls.download`, red directa a archive.org — contra
      * la regla del branch). Una fila vieja con `source="archive"` cae al mismo camino de gracia que
      * "web".
+     *
+     * Ni para "ditu": `DituDownloadStrategy` se borró junto con el resto de Ditu/Caracol Play en
+     * esta poda (Ditu vuelve en el sub-proyecto 3 con un cliente directo). Una fila vieja con
+     * `source="ditu"` cae al mismo camino de gracia.
      */
     val downloadStrategies: Map<String, com.arkiv.player.data.local.DownloadStrategy> by lazy {
         mapOf(

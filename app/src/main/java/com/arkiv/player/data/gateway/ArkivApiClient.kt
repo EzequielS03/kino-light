@@ -320,63 +320,6 @@ class ArkivApiClient(
         BusquedaPorFrase(interpretado, items)
     }
 
-    suspend fun dituCatalog(): DituCatalogResponse = withContext(Dispatchers.IO) {
-        val root = JSONObject(ejecutar(pedido("${baseUrl()}/v1/ditu/catalog").get().build()))
-        val premiumRequired = root.optBoolean("premium_required", false)
-        val arr = root.optJSONArray("series")
-        val series = if (arr == null) emptyList() else (0 until arr.length()).mapNotNull { i ->
-            arr.optJSONObject(i)?.let { o ->
-                val ref = o.optString("ref")
-                val cid = o.optString("content_id")
-                if (ref.isBlank() || cid.isBlank()) null
-                else DituSerieItem(
-                    contentId = cid,
-                    title = o.optString("title"),
-                    posterUrl = o.optString("poster_url"),
-                    ref = ref,
-                    isGroup = o.optString("content_type") == "GROUP_OF_BUNDLES",
-                    isMovie = o.optBoolean("is_movie", false),
-                    tag = o.optString("tag"),
-                )
-            }
-        }
-        DituCatalogResponse(series = series, premiumRequired = premiumRequired)
-    }
-
-    suspend fun dituResolveLive(channelId: Int, assetId: Int): GatewayPlayable = withContext(Dispatchers.IO) {
-        val root = JSONObject(ejecutar(pedido("${baseUrl()}/v1/ditu/live/$channelId/resolve?asset_id=$assetId").get().build()))
-        val drmHeaders = root.optJSONObject("drm_license_headers")?.let { obj ->
-            obj.keys().asSequence().associateWith { obj.optString(it) }
-        } ?: emptyMap()
-        GatewayPlayable(
-            kind = "ditu",
-            url = root.optString("url"),
-            mime = root.optString("mime", "application/dash+xml"),
-            drmLicenseUrl = root.optString("drm_license_url"),
-            drmLicenseHeaders = drmHeaders,
-        )
-    }
-
-    suspend fun dituChannels(): List<DituChannel> = withContext(Dispatchers.IO) {
-        val root = JSONObject(ejecutar(pedido("${baseUrl()}/v1/ditu/channels").get().build()))
-        val arr = root.optJSONArray("channels") ?: return@withContext emptyList()
-        (0 until arr.length()).mapNotNull { i ->
-            arr.optJSONObject(i)?.let { o ->
-                val id = o.optInt("channel_id")
-                val name = o.optString("name")
-                if (id == 0 || name.isBlank()) null
-                else DituChannel(
-                    channelId = id,
-                    name = name,
-                    logoUrl = o.optString("logo_url"),
-                    channelType = o.optString("channel_type"),
-                    orderId = o.optInt("order_id"),
-                    assetId = o.optInt("asset_id"),
-                )
-            }
-        }
-    }
-
     suspend fun sources(): List<GatewaySource> = withContext(Dispatchers.IO) {
         val arr = JSONObject(ejecutar(pedido("${baseUrl()}/v1/sources").get().build()))
             .optJSONArray("sources") ?: return@withContext emptyList()

@@ -203,10 +203,6 @@ fun TvSearchScreen(
             } else {
                 playMagisResult(source.result)
             }
-        is PlaySource.Ditu -> {
-            preparing = true; playError = null
-            scope.launch { applyResult(playback.playDitu(source.result)) }
-        }
     }
 
     // La búsqueda NO se dispara al teclear: con el control cada letra costaba una vuelta completa
@@ -901,7 +897,6 @@ private fun TvSourceTabRow(
             val accent = when (t) {
                 SourceTab.TODO -> androidx.compose.ui.graphics.Color.White
                 SourceTab.MAGIS -> com.arkiv.player.ui.catalog.ArkivMagisBlue
-                SourceTab.DITU -> com.arkiv.player.ui.catalog.ArkivDituOrange
                 SourceTab.ARCHIVE -> ArkivArchiveTeal
             }
             val on = t == selected
@@ -1007,7 +1002,7 @@ private fun TvRefineRow(label: String, onClick: () -> Unit) {
 }
 
 /**
- * Fase RESULTS del TV: lista vertical ÚNICA de fuentes (magis/ditu/archive) — a diferencia del
+ * Fase RESULTS del TV: lista vertical ÚNICA de fuentes (magis/archive) — a diferencia del
  * teléfono, que las agrupa en secciones colapsables por tipo, acá van todas juntas porque el
  * D-pad navega mejor una sola lista que saltar entre secciones. Elegir una fuente reproduce YA
  * (SearchPlayback vía onSelect, sin diálogo de "dónde ver"); una temporada de Magis la maneja el
@@ -1201,10 +1196,9 @@ private fun TvResultsContent(
 
 /** Key estable y ÚNICA para la lista de fuentes (evita "saltos" de foco al llegar resultados
  *  nuevos, y evita el crash de Compose por keys duplicadas en un lazy list).
- *  Magis/Ditu: `content_id` del portal, o el `ref` si no lo trae. */
+ *  Magis: `content_id` del portal, o el `ref` si no lo trae. */
 internal fun sourceKey(s: PlaySource): String = when (s) {
     is PlaySource.Magis -> "magis-${s.result.extra["content_id"] ?: s.result.ref}"
-    is PlaySource.Ditu -> "ditu-${s.result.extra["content_id"] ?: s.result.ref}"
 }
 
 /**

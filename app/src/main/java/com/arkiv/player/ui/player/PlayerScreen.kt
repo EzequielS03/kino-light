@@ -330,11 +330,6 @@ private fun PlayerContent(
         },
     )
     val playlist by vm.playlist.collectAsStateWithLifecycle()
-    val dituDrmItem by vm.dituDrmItem.collectAsStateWithLifecycle()
-    // ExoPlayer hoisted para que `activePlayer` lo incluya y los controles de Arkiv lo comanden.
-    var dituPlayer by remember { mutableStateOf<Player?>(null) }
-    // TextureView de ExoPlayer para capturar frames igual que con VLC (ver DituExoPlayer).
-    var dituTextureView by remember { mutableStateOf<android.view.TextureView?>(null) }
     val magisItem by vm.magisItem.collectAsStateWithLifecycle()
     var magisPlayer by remember { mutableStateOf<Player?>(null) }
     var magisTextureView by remember { mutableStateOf<android.view.TextureView?>(null) }
@@ -416,7 +411,6 @@ private fun PlayerContent(
     val fuenteQueResuelve = remember(episodeId) {
         when (PlayerSource.kindFor(episodeId)) {
             SourceKind.MAGIS -> "de Magis"
-            SourceKind.DITU -> "de Caracol"
             else -> "web"
         }
     }
@@ -493,7 +487,6 @@ private fun PlayerContent(
     // El `?: controller` cubre el caso sin Google Play Services (castContext y castPlayer nulos).
     val activePlayer: Player = when {
         casting -> castPlayer ?: controller
-        dituDrmItem != null && dituPlayer != null -> dituPlayer!!
         magisItem != null && magisPlayer != null -> magisPlayer!!
         liveItem != null && livePlayer != null -> livePlayer!!
         else -> controller
@@ -523,7 +516,6 @@ private fun PlayerContent(
      * posición es correcta desde el primer frame y esconderla sería el parpadeo contrario).
      */
     fun posicionEsDeEstaPantalla(): Boolean =
-        dituDrmItem != null ||
         magisItem != null ||
         liveItem != null ||
         loaded || runCatching { controller.currentMediaItem?.mediaId }.getOrNull() == episodeId
@@ -552,11 +544,7 @@ private fun PlayerContent(
         com.arkiv.player.playback.NowPlaying.liveChannelName = liveCanal?.nombre
     }
 
-    // ExoPlayer (Ditu/Magis): NowPlaying no se actualiza por onMediaItemTransition (VLC no toca nada).
-    LaunchedEffect(dituDrmItem?.episodeId) {
-        val epId = dituDrmItem?.episodeId ?: return@LaunchedEffect
-        NowPlaying.episodeId = epId
-    }
+    // ExoPlayer (Magis): NowPlaying no se actualiza por onMediaItemTransition (VLC no toca nada).
     LaunchedEffect(magisItem?.episodeId) {
         val epId = magisItem?.episodeId ?: return@LaunchedEffect
         NowPlaying.episodeId = epId
@@ -590,8 +578,8 @@ private fun PlayerContent(
     /**
      * El TextureView donde se está pintando el video, para las capturas de frame.
      *
-     * Ditu (ExoPlayer): DituExoPlayer configura SURFACE_TYPE_TEXTURE_VIEW y nos lo pasa vía
-     * `onTextureViewReady` → `dituTextureView`. Se prefiere sobre la ruta VLC cuando está activo.
+     * Magis (ExoPlayer): MagisExoPlayer configura SURFACE_TYPE_TEXTURE_VIEW y nos lo pasa vía
+     * `onTextureViewReady` → `magisTextureView`. Se prefiere sobre la ruta VLC cuando está activo.
      *
      * VLC: primero se le pregunta al player y recién después se cae al layout de ESTA pantalla: al
      * salir, el `onRelease` del AndroidView le suelta el layout al player (`detachVideo`, que lo
@@ -600,7 +588,6 @@ private fun PlayerContent(
      * lo que hace que salir del reproductor capture de verdad.
      */
     fun textureViewDelVideo(): android.view.TextureView? = when {
-        dituDrmItem != null -> dituTextureView
         magisItem != null -> magisTextureView
         else -> vlc.textureViewActual() ?: vlc.textureViewDe(videoView)
     }
@@ -810,7 +797,7 @@ private fun PlayerContent(
         val pl = PlaylistData(listOf(item), 0, 0L, pedido = item.episodeId)
         val req = castRequestFor(pl, 0, 0L)
         if (req == null) {
-            // Mismo aviso que ya dan VOD/Ditu cuando castRequestFor no encuentra una URL alcanzable
+            // Mismo aviso que ya da VOD cuando castRequestFor no encuentra una URL alcanzable
             // por la TV (ver el Toast idéntico más abajo en este archivo) -- antes de esta migración
             // el vivo-vía-VLC lo mostraba también; se había perdido al portar el bloque a ExoPlayer.
             android.util.Log.w("ArkivCast", "vivo (exo): sin URL que el receptor pueda alcanzar")
@@ -960,7 +947,7 @@ private fun PlayerContent(
         // pero este efecto es puramente VOD desde ahora.
         // Antes, WEB (URL efímera: token que expira en cada resolve) forzaba NUNCA reusar el media
         // viejo. Esa fuente se borró en la poda de esta rama -- ninguna fuente que sobrevive necesita
-        // este forzado (archive/magis/ditu tienen URL estable por reproducción), pero se deja el
+        // este forzado (archive/magis tienen URL estable por reproducción), pero se deja el
         // parámetro de [MediaReusePolicy.decide] en vez de tocar su firma/tests.
         val isWeb = false
         // ¿Esto es lo que pidió ESTA pantalla, o todavía es la playlist del capítulo anterior? El
@@ -1162,10 +1149,9 @@ private fun PlayerContent(
 
     // Índice/buffering/estado del transporte. Sigue al player activo: al conectar o desconectar
     // el cast, el efecto se relanza solo y el listener se re-engancha al que corresponda.
-    val isDitu = dituDrmItem != null  // DituExoPlayer maneja sus propios errores; evitar doble-disparo.
     val isMagis = magisItem != null   // MagisExoPlayer maneja sus propios errores.
     val isLiveExo = liveItem != null  // LiveExoPlayer maneja sus propios errores (→ reabrirVivoPorCorte).
-    val isExo = isDitu || isMagis || isLiveExo     // Cualquier ExoPlayer activo (vs VLC).
+    val isExo = isMagis || isLiveExo     // Cualquier ExoPlayer activo (vs VLC).
     DisposableEffect(activePlayer) {
         // Snapshot del estado ExoPlayer en el momento en que se monta el listener.
         // Si isExo=true cuando el controller toma el control, STATE_ENDED del VLC no debe
@@ -1222,7 +1208,7 @@ private fun PlayerContent(
             // El ViewModel decide qué hacer con esto: hay fallos que se reparan solos (el 404 de un
             // archivo renombrado en archive.org) y otros que solo se pueden contar.
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                if (isExo) return  // DituExoPlayer / MagisExoPlayer ya llamaron su onError
+                if (isExo) return  // MagisExoPlayer / LiveExoPlayer ya llamaron su onError
                 val id = playlistRef.value?.items
                     ?.getOrNull(controller.currentMediaItemIndex)?.episodeId ?: episodeId
                 android.util.Log.w("ArkivPlay", "onPlayerError episodeId=$id → ${error.message}")
@@ -1280,10 +1266,9 @@ private fun PlayerContent(
             // reproduciendo). Sin esta comprobación, tocar "siguiente episodio" cerca del final del
             // capítulo N marcaba como VISTO el N+1 antes de que arrancara.
             val mediaId = activePlayer.currentMediaItem?.mediaId
-            // ExoPlayer (Ditu/Magis): playlist VLC vacía; el episodio lo trae el ítem directamente.
+            // ExoPlayer (Magis): playlist VLC vacía; el episodio lo trae el ítem directamente.
             // Para las demás fuentes lo identifica la playlist LOCAL, no el player activo.
             val epId = when {
-                isDitu -> dituDrmItem?.episodeId
                 isMagis -> magisItem?.episodeId
                 else -> playlistRef.value?.items?.getOrNull(controller.currentMediaItemIndex)?.episodeId
             }
@@ -1339,7 +1324,6 @@ private fun PlayerContent(
         val dur = activePlayer.duration
         val mediaId = activePlayer.currentMediaItem?.mediaId
         val epId = when {
-            isDitu -> dituDrmItem?.episodeId
             isMagis -> magisItem?.episodeId
             else -> playlistRef.value?.items?.getOrNull(controller.currentMediaItemIndex)?.episodeId
         }
@@ -1561,7 +1545,6 @@ private fun PlayerContent(
     val currentPlayer by rememberUpdatedState(activePlayer)
     // Igual que currentPlayer: el ítem ExoPlayer vigente al salir / ir al fondo, para que onDispose
     // y el observador de ciclo de vida lean el episodeId correcto aunque la pantalla ya esté saliendo.
-    val currentDituItem by rememberUpdatedState(dituDrmItem)
     val currentMagisItem by rememberUpdatedState(magisItem)
 
     DisposableEffect(Unit) {
@@ -1584,10 +1567,9 @@ private fun PlayerContent(
             // "visto" con eso. `pos in 0 until dur` también faltaba acá.
             val mediaId = currentPlayer.currentMediaItem?.mediaId
             controller.pause()
-            val isExoOnDispose = currentDituItem != null || currentMagisItem != null
+            val isExoOnDispose = currentMagisItem != null
             // ExoPlayer: playlist VLC vacía; el episodeId lo trae el ítem directamente.
             val epId = when {
-                currentDituItem != null -> currentDituItem?.episodeId
                 currentMagisItem != null -> currentMagisItem?.episodeId
                 else -> playlistRef.value?.items?.getOrNull(currentIndex)?.episodeId
             }
@@ -1620,9 +1602,8 @@ private fun PlayerContent(
     DisposableEffect(lifecycleOwner) {
         val obs = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
-                val isExoStop = currentDituItem != null || currentMagisItem != null
+                val isExoStop = currentMagisItem != null
                 val epId = when {
-                    currentDituItem != null -> currentDituItem?.episodeId
                     currentMagisItem != null -> currentMagisItem?.episodeId
                     else -> playlistRef.value?.items?.getOrNull(currentPlayer.currentMediaItemIndex)?.episodeId
                 }
@@ -1701,7 +1682,6 @@ private fun PlayerContent(
             // Guarda posición al pausar: si la app se cierra mientras está en pausa (crash, Fire
             // Stick reinicia), la posición está guardada y no se pierde.
             val epId = when {
-                isDitu -> dituDrmItem?.episodeId
                 isMagis -> magisItem?.episodeId
                 else -> playlistRef.value?.items?.getOrNull(currentIndex)?.episodeId
             }
@@ -1817,26 +1797,6 @@ private fun PlayerContent(
             // de engancharlo y quedás en Vout 0 con el audio sonando.
             onRelease = { vlc.detachVideo("onRelease#$pantallaId") },
         )
-
-        // Contenido Widevine de Ditu: ExoPlayer cubre la pantalla de VLC (que queda en negro debajo).
-        // El espejo y onPlayerReady conectan ExoPlayer a los controles de Arkiv sin modificarlos.
-        val drmItem = dituDrmItem
-        if (drmItem != null) {
-            DituExoPlayer(
-                mediaUrl = drmItem.mediaUrl,
-                licenseUrl = drmItem.drmLicenseUrl,
-                licenseHeaders = drmItem.drmLicenseHeaders,
-                espejo = espejo,
-                startPositionMs = drmItem.startPositionMs,
-                onPlayerReady = { player ->
-                    dituPlayer = player
-                    gestos.setExoPlayer(player)
-                },
-                onTextureViewReady = { tv -> dituTextureView = tv },
-                onError = { msg -> vm.onDituExoError(msg) },
-                onPrimeraImagen = { hay -> exoYaPintoAlgo = hay },
-            )
-        }
 
         // Magis: ExoPlayer reproduce el stream del proxy local (headers ya inyectados), sin VLC.
         val mItem = magisItem
@@ -2032,12 +1992,11 @@ private fun PlayerContent(
         // salida de video local (hasta 15s tras volver del fondo), que casteando no importa ni va a
         // llegar.
         //
-        // MAGIS Y DITU TAMBIÉN, y antes no: la condición los excluía (`magisItem == null &&
-        // dituDrmItem == null`) sin explicar por qué, y el efecto era que en cuanto una película de
-        // magis cargaba, el spinner dejaba de dibujarse pasara lo que pasara. Como el primer
-        // fotograma tarda —medidos 8 s en el Fire Stick— quedaba una pantalla negra muda, que es lo
-        // que hacía pensar que la app se había colgado. Ninguno de los dos dibuja spinner propio,
-        // así que no había nada que duplicar.
+        // MAGIS TAMBIÉN, y antes no: la condición lo excluía (`magisItem == null`) sin explicar
+        // por qué, y el efecto era que en cuanto una película de magis cargaba, el spinner dejaba
+        // de dibujarse pasara lo que pasara. Como el primer fotograma tarda —medidos 8 s en el Fire
+        // Stick— quedaba una pantalla negra muda, que es lo que hacía pensar que la app se había
+        // colgado. MagisExoPlayer no dibuja spinner propio, así que no había nada que duplicar.
         if (
             loadError == null && estadoDlna.activo == null &&
             hayQueMostrarElSpinner(
@@ -2066,7 +2025,7 @@ private fun PlayerContent(
                 if (esperandoVideo && !casting) {
                     Text("Reanudando video…", color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.labelMedium)
                 }
-                // El resto de fuentes —magis, ditu, archive— no decía NADA mientras cargaba: solo el
+                // El resto de fuentes —magis, archive— no decía NADA mientras cargaba: solo el
                 // círculo girando, que es indistinguible de un cuelgue. Se midió una espera de 18 s en
                 // el Fire Stick (el CDN rechazó dos rangos y el proxy los reintentó) sin una palabra
                 // en pantalla. El texto va solo cuando ningún otro lo cubre, para no amontonar dos

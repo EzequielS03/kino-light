@@ -157,8 +157,6 @@ fun SearchScreen(
     // Temporada de Magis abierta: un resultado de serie del portal ES una temporada entera,
     // así que en vez de reproducir se abre su lista de capítulos.
     var magisSeason by remember { mutableStateOf<com.arkiv.player.data.gateway.GatewayResult?>(null) }
-    // Serie de Ditu (BUNDLE) abierta: igual que magisSeason, muestra episodios antes de reproducir.
-    var dituSeason by remember { mutableStateOf<com.arkiv.player.data.gateway.GatewayResult?>(null) }
 
     // Atajo desde el home: entra ya posicionado en un título. Se dispara una sola vez por
     // combinación de args (LaunchedEffect no re-ejecuta en recomposiciones sin cambios), y
@@ -222,8 +220,7 @@ fun SearchScreen(
     /**
      * El control de descarga de una fuente. SIEMPRE null: la única fuente que se guardaba al
      * dispositivo desde el buscador era archive.org (`DescargasPorFuente.deArchive`), borrada en
-     * la poda de esta rama. Magis tampoco lo lleva (no se descarga, su CDN vence a las ~48 h) y
-     * Ditu (streaming DASH con token de vida corta) tampoco.
+     * la poda de esta rama. Magis tampoco lo lleva (no se descarga, su CDN vence a las ~48 h).
      */
     fun descargaDe(s: PlaySource, onDownload: () -> Unit): DescargaDeFila? = null
 
@@ -240,25 +237,11 @@ fun SearchScreen(
             // Magis no se guarda en el dispositivo: el CDN sirve con un token que vence a las ~48 h,
             // así que el archivo bajado dejaría de reproducirse.
             is PlaySource.Magis -> playError = "Magis no se puede guardar: el enlace vence."
-            // Ditu: los refs son estables (IDs de Caracol, no la URL del CDN). El gateway re-resuelve
-            // una URL fresca en cada reproducción, así que se puede guardar sin problema.
-            is PlaySource.Ditu -> scope.launch {
-                playback.saveDituSeason(source.result, listOf(), null,
-                    posterOverride = resultPoster, backdropOverride = detail?.backdropUrl.orEmpty())
-            }
         }
-    }
-
-    fun playDituResult(r: com.arkiv.player.data.gateway.GatewayResult) {
-        // Serie (BUNDLE) → mostrar episodios. Película (VOD) → reproducir directo.
-        if (r.kind == "series") { dituSeason = r; return }
-        preparing = true; playError = null
-        scope.launch { applyResult(playback.playDitu(r)) }
     }
 
     fun playResult(source: PlaySource) = when (source) {
         is PlaySource.Magis -> playMagisResult(source.result)
-        is PlaySource.Ditu -> playDituResult(source.result)
     }
 
     Box(Modifier.fillMaxSize().background(ArkivBlack)) {
@@ -385,28 +368,6 @@ fun SearchScreen(
         )
     }
 
-    dituSeason?.let { serie ->
-        com.arkiv.player.ui.catalog.MagisSeasonDialog(
-            season = serie,
-            client = graph.arkivApiClient,
-            onDismiss = { dituSeason = null },
-            onPlay = { capitulos, capitulo, serieInfo ->
-                dituSeason = null
-                preparing = true; playError = null
-                scope.launch {
-                    applyResult(playback.playDituEpisode(serie, capitulo, capitulos.indexOf(capitulo), serieInfo,
-                        posterOverride = resultPoster, backdropOverride = detail?.backdropUrl.orEmpty()))
-                }
-            },
-            onSave = { elegidos, serieInfo ->
-                dituSeason = null
-                scope.launch {
-                    playback.saveDituSeason(serie, elegidos, serieInfo,
-                        posterOverride = resultPoster, backdropOverride = detail?.backdropUrl.orEmpty())
-                }
-            },
-        )
-    }
 
     // Misma pregunta y mismas palabras que en la biblioteca: es la misma acción sobre la misma cola.
     DialogoDeDescarga(
@@ -845,7 +806,7 @@ private fun RefineContent(card: TitleCard, onContinue: (season: Int?, episode: I
 }
 
 /**
- * Fase RESULTS: búsqueda multi-fuente (magis/ditu/archive) de la card elegida, con S/E inyectado
+ * Fase RESULTS: búsqueda multi-fuente (magis/archive) de la card elegida, con S/E inyectado
  * si vino del REFINE o solo por nombre si no. Reutiliza SourceSectionHeader (mismo patrón
  * colapsable que el bottom sheet de CineDetailScreen).
  */
@@ -867,7 +828,7 @@ private fun ResultsContent(
 ) {
     // MAGIS entra en las abiertas por defecto: es la primera sección, y arrancar colapsada la haría
     // parecer vacía justo arriba de todo.
-    var expandedSections by remember { mutableStateOf(setOf("MAGIS", "DITU", "ARCHIVE")) }
+    var expandedSections by remember { mutableStateOf(setOf("MAGIS", "ARCHIVE")) }
     fun toggle(k: String) { expandedSections = if (k in expandedSections) expandedSections - k else expandedSections + k }
     // `rememberSaveable` y no `remember`: al abrir el reproductor esta pantalla se destruye, y con
     // `remember` el origen elegido se perdía — volvías de ver algo por Magis y la lista estaba
@@ -878,12 +839,11 @@ private fun ResultsContent(
     // filtro, SourceTab.ARCHIVE, se deja para no restructurar el buscador -- ver SourceTab.kt).
     val archives = emptyList<PlaySource>()
     val magis = sources.filterIsInstance<PlaySource.Magis>()
-    val ditus = sources.filterIsInstance<PlaySource.Ditu>()
     val anyLoading = loadingArchive || loadingMagis
     val counts = countsByTab(sources)
     val loadingOf = mapOf(
         SourceTab.TODO to anyLoading, SourceTab.MAGIS to loadingMagis,
-        SourceTab.DITU to false, SourceTab.ARCHIVE to loadingArchive,
+        SourceTab.ARCHIVE to loadingArchive,
     )
 
     // El hero va a sangre (sin margen lateral) para que el backdrop llegue a los bordes; por eso el
@@ -909,13 +869,11 @@ private fun ResultsContent(
             // "Todo" mantiene las secciones colapsables: son la única forma de ver los tres orígenes
             // a la vez sin que uno con 60 resultados entierre a los otros.
             sourceSection(this, "MAGIS", ArkivMagisBlue, magis, loadingMagis, "MAGIS" in expandedSections, { toggle("MAGIS") }, enabled, onPlay, descargaDe)
-            sourceSection(this, "CARACOL", com.arkiv.player.ui.catalog.ArkivDituOrange, ditus, false, "DITU" in expandedSections, { toggle("DITU") }, enabled, onPlay, descargaDe)
             sourceSection(this, "ARCHIVE", ArkivArchiveTeal, archives, loadingArchive, "ARCHIVE" in expandedSections, { toggle("ARCHIVE") }, enabled, onPlay, descargaDe)
         } else {
             // Con un origen elegido la cabecera de sección sobra: la lista va plana.
             val shown = when (tab) {
                 SourceTab.MAGIS -> magis
-                SourceTab.DITU -> ditus
                 else -> archives
             }
             if (shown.isEmpty()) {
@@ -1116,7 +1074,6 @@ private fun sourceSection(
  *  mismo nombre romperían la lista si compartieran key). Mismo criterio que usa el buscador del TV. */
 private fun sourceKey(s: PlaySource): String = when (s) {
     is PlaySource.Magis -> "m-${s.result.extra["content_id"] ?: s.result.ref}"
-    is PlaySource.Ditu -> "d-${s.result.extra["content_id"] ?: s.result.ref}"
 }
 
 /**
@@ -1142,7 +1099,6 @@ private fun SourceTabRow(
             val accent = when (t) {
                 SourceTab.TODO -> Color.White
                 SourceTab.MAGIS -> ArkivMagisBlue
-                SourceTab.DITU -> com.arkiv.player.ui.catalog.ArkivDituOrange
                 SourceTab.ARCHIVE -> ArkivArchiveTeal
             }
             val on = t == selected

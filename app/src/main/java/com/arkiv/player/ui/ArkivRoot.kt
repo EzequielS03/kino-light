@@ -23,7 +23,6 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.LiveTv
-import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.SettingsRemote
@@ -75,8 +74,6 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.arkiv.player.ui.add.AddScreen
 import com.arkiv.player.ui.catalog.AnimeShowDetailScreen
-import com.arkiv.player.ui.catalog.CaracolScreen
-import com.arkiv.player.ui.live.DituLivePlayerScreen
 import com.arkiv.player.ui.catalog.CineCatalogScreen
 import com.arkiv.player.ui.catalog.CineDetailScreen
 import com.arkiv.player.ui.detail.DetailScreen
@@ -110,7 +107,6 @@ private val TABS = listOf(
     Tab("library", "Biblioteca") { Icon(Icons.Default.VideoLibrary, contentDescription = "Biblioteca") },
     Tab("live", "En vivo") { Icon(Icons.Default.LiveTv, contentDescription = "En vivo") },
     Tab("catalog", "Magis") { Icon(Icons.Default.PlayCircle, contentDescription = "Magis") },
-    Tab("caracol", "Caracol") { Icon(Icons.Default.Tv, contentDescription = "Caracol") },
     Tab("settings", "Ajustes") { Icon(Icons.Default.Settings, contentDescription = "Ajustes") },
 )
 
@@ -417,33 +413,6 @@ fun ArkivRoot(
                     onOpen = { navController.navigate("cine/${it.type}/${it.id}") },
                     onOpenAnime = { navController.navigate("catalog_anime/$it") },
                     contentPadding = padding,
-                )
-            }
-            composable("caracol") {
-                CaracolScreen(
-                    contentPadding = padding,
-                    onPlay = { playEpisode(it) },
-                    onPlayLive = { channelId, assetId, channelName ->
-                        navController.navigate("ditu_live/$channelId/$assetId/${Uri.encode(channelName)}")
-                    },
-                )
-            }
-            composable(
-                "ditu_live/{channelId}/{assetId}/{channelName}",
-                arguments = listOf(
-                    navArgument("channelId") { type = NavType.IntType },
-                    navArgument("assetId") { type = NavType.IntType },
-                    navArgument("channelName") { type = NavType.StringType },
-                ),
-            ) { back ->
-                val channelId = back.arguments!!.getInt("channelId")
-                val assetId = back.arguments!!.getInt("assetId")
-                val channelName = back.arguments!!.getString("channelName", "")
-                DituLivePlayerScreen(
-                    channelId = channelId,
-                    assetId = assetId,
-                    channelName = channelName,
-                    onBack = { navController.popBackStack() },
                 )
             }
             composable(

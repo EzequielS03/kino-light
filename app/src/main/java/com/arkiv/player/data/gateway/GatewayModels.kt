@@ -136,47 +136,6 @@ fun parseEpisodesResponse(json: String): Pair<List<GatewayEpisode>, GatewaySerie
     return episodios to serie
 }
 
-/** Un canal en vivo de Caracol Streaming (Ditu). Viene de `/v1/ditu/channels`. */
-data class DituChannel(
-    val channelId: Int,
-    val name: String,
-    val logoUrl: String,
-    val channelType: String,
-    val orderId: Int,
-    /** assetId MASTER que viene directo de TRAY/LIVECHANNELS (el EPG devuelve assets vacíos). */
-    val assetId: Int,
-)
-
-/** Respuesta completa de `/v1/ditu/catalog`. */
-data class DituCatalogResponse(
-    val series: List<DituSerieItem>,
-    /** true cuando `isAllVodPremiumActive` está activo en el portal Ditu. */
-    val premiumRequired: Boolean,
-)
-
-/** Una serie del catálogo de Caracol Streaming (Ditu). Viene de `/v1/ditu/catalog`. */
-data class DituSerieItem(
-    val contentId: String,
-    val title: String,
-    val posterUrl: String,
-    val ref: String,
-    /** true para GROUP_OF_BUNDLES (franquicias con varias temporadas). */
-    val isGroup: Boolean = false,
-    /** true para películas VOD (se reproducen directo, sin dialog de episodios). */
-    val isMovie: Boolean = false,
-    /** tagValue del extendedMetadata de Ditu ("Telenovela", "Deportes", "Periodístico", …). */
-    val tag: String = "",
-) {
-    /** Convierte el ítem del catálogo en un GatewayResult compatible con MagisSeasonDialog. */
-    fun toGatewayResult() = GatewayResult(
-        source = "ditu",
-        title = title,
-        ref = ref,
-        kind = "series",
-        extra = mapOf("content_id" to contentId, "poster" to posterUrl),
-    )
-}
-
 sealed interface SearchEvent {
     data class SourceStart(val source: String) : SearchEvent
     data class ResultEvent(val source: String, val item: GatewayResult) : SearchEvent

@@ -85,7 +85,7 @@ fun ArkivTvRoot(
         return
     }
 
-    // Reproductor unificado: archive/Magis/Ditu van todos a la misma ruta; PlayerScreen resuelve
+    // Reproductor unificado: archive/Magis van todos a la misma ruta; PlayerScreen resuelve
     // la fuente a partir del episodeId (ver PlayerSource.kindFor).
     fun goToPlayer(id: String) {
         navController.navigate("player/${Uri.encode(id)}") { launchSingleTop = true }
@@ -212,7 +212,6 @@ fun ArkivTvRoot(
                 onOpenSearchRoute = { route -> navController.navigate(route) },
                 onOpenCategorias = { navController.navigate("categorias") },
                 onOpenCategoriasHome = { navController.navigate("categorias_home") },
-                onOpenCaracol = { navController.navigate("caracol") },
                 onBrowseRow = { rowId, title ->
                     navController.navigate("row_browse/$rowId?title=${android.net.Uri.encode(title)}")
                 },
@@ -285,33 +284,6 @@ fun ArkivTvRoot(
             com.arkiv.player.ui.tv.library.TvLibraryScreen(
                 onOpenItem = { navController.navigate("detail/${Uri.encode(it)}") },
                 onPlayEpisode = { goToPlayer(it) },
-                onBack = { navController.popBackStack() },
-            )
-        }
-        composable("caracol") {
-            com.arkiv.player.ui.catalog.CaracolScreen(
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-                onPlay = { goToPlayer(it) },
-                onPlayLive = { channelId, assetId, channelName ->
-                    navController.navigate("ditu_live/$channelId/$assetId/${Uri.encode(channelName)}")
-                },
-            )
-        }
-        composable(
-            "ditu_live/{channelId}/{assetId}/{channelName}",
-            arguments = listOf(
-                navArgument("channelId") { type = NavType.IntType },
-                navArgument("assetId") { type = NavType.IntType },
-                navArgument("channelName") { type = NavType.StringType },
-            ),
-        ) { back ->
-            val channelId = back.arguments!!.getInt("channelId")
-            val assetId = back.arguments!!.getInt("assetId")
-            val channelName = back.arguments!!.getString("channelName", "")
-            com.arkiv.player.ui.live.DituLivePlayerScreen(
-                channelId = channelId,
-                assetId = assetId,
-                channelName = channelName,
                 onBack = { navController.popBackStack() },
             )
         }

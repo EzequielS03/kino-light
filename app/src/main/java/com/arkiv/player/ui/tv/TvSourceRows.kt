@@ -59,7 +59,7 @@ private val ALTO_TARJETA = 220.dp
 /**
  * El mosaico de texto va más grande que la carátula, y a propósito.
  *
- * En magis y ditu la imagen hace el trabajo; en archive lo único que hay para decidir es el
+ * En magis la imagen hace el trabajo; en archive lo único que hay para decidir es el
  * texto, y esto se lee a dos metros de distancia. Que las filas no midan exactamente igual no
  * molesta: cada fila es de una sola fuente.
  */
@@ -71,7 +71,6 @@ private val MARGEN = 48.dp
 
 private fun etiquetaDe(source: PlaySource): Pair<String, Color> = when (source) {
     is PlaySource.Magis -> "MAGIS" to Color(0xFF64B5F6)
-    is PlaySource.Ditu -> "CARACOL" to Color(0xFFFF6B00)
 }
 
 /**
@@ -162,7 +161,6 @@ private fun TvMetaChip(texto: String, color: Color, fuerte: Boolean = false) {
 
 private fun tituloDe(source: PlaySource): String = when (source) {
     is PlaySource.Magis -> source.result.title
-    is PlaySource.Ditu -> source.result.title
 }
 
 /**
@@ -176,13 +174,6 @@ private fun datosDe(source: PlaySource): List<Pair<String, Color>> = when (sourc
         val r = source.result
         buildList {
             add((if (r.extra["program_type"] == "teleplay") "Serie" else "Película") to Color(0xFF64B5F6))
-            r.year.takeIf { it.isNotBlank() }?.let { add(it to ArkivTextSecondary) }
-        }
-    }
-    is PlaySource.Ditu -> {
-        val r = source.result
-        buildList {
-            add("Caracol" to Color(0xFFFF6B00))
             r.year.takeIf { it.isNotBlank() }?.let { add(it to ArkivTextSecondary) }
         }
     }
@@ -231,11 +222,9 @@ fun LazyListScope.tvFilaDeFuente(
                 } else {
                     Modifier
                 }
-                if (s is PlaySource.Magis || s is PlaySource.Ditu) {
+                if (s is PlaySource.Magis) {
                     val (titulo, poster) = when (s) {
                         is PlaySource.Magis -> s.result.title to s.result.extra["poster"]
-                        is PlaySource.Ditu -> s.result.title to s.result.extra["poster"]
-                        else -> "" to null
                     }
                     TvPosterCard(
                         title = titulo,

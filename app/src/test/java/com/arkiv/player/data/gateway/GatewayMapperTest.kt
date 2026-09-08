@@ -23,32 +23,27 @@ class GatewayMapperTest {
     }
 
     @Test
-    fun `ditu se mapea a su propio tipo`() {
-        val ps = GatewayResult(source = "ditu", title = "Loki", ref = "r").toPlaySource()
-        assertTrue(ps is PlaySource.Ditu)
-        assertEquals("Loki", (ps as PlaySource.Ditu).result.title)
-    }
-
-    @Test
     fun `las fuentes conocidas se mapean- ninguna cae en null`() {
         // Guarda contra el bug real: el gateway sirve fuentes y el mapper debe conocerlas todas.
-        // "archive" NO está en esta lista a propósito: se borró en la poda de light-magis (ver el
-        // test de abajo).
-        for (fuente in listOf("magis", "ditu")) {
+        // "archive"/"ditu" NO están en esta lista a propósito: se borraron en la poda de
+        // light-magis (ver el test de abajo).
+        for (fuente in listOf("magis")) {
             val r = GatewayResult(source = fuente, title = "x", ref = "r")
             assertTrue("la fuente '$fuente' no se mapea", r.toPlaySource() != null)
         }
     }
 
     @Test
-    fun `archive torrent y web se ignoran a proposito- se borraron de esta rama`() {
+    fun `archive torrent web y ditu se ignoran a proposito- se borraron de esta rama`() {
         // El gateway (server viejo) todavia puede mandarlas; este APK ya no sabe que hacer con
-        // ellas y las descarta igual que cualquier fuente futura desconocida. archive.org se borró
-        // en esta tarea (poda de light-magis); torrent/web ya se habían borrado en la Tarea 2 (ver
-        // TODO en GatewayMapper.toPlaySource, task 6 hace la limpieza completa del lado del fan-out).
+        // ellas y las descarta igual que cualquier fuente futura desconocida. archive.org y ditu se
+        // borraron en la poda de light-magis (ditu vuelve en el sub-proyecto 3 con un cliente
+        // directo); torrent/web ya se habían borrado en la Tarea 2 (ver TODO en
+        // GatewayMapper.toPlaySource, task 6 hace la limpieza completa del lado del fan-out).
         assertNull(GatewayResult(source = "archive", title = "x", ref = "r").toPlaySource())
         assertNull(GatewayResult(source = "torrent", title = "x", ref = "r").toPlaySource())
         assertNull(GatewayResult(source = "web", title = "x", ref = "r").toPlaySource())
+        assertNull(GatewayResult(source = "ditu", title = "x", ref = "r").toPlaySource())
     }
 
     @Test

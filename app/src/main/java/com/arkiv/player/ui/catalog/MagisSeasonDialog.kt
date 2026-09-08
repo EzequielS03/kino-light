@@ -71,7 +71,7 @@ fun MagisSeasonDialog(
     // La [GatewaySerie] viaja también en el guardado, no solo en el play: guardar escribe la fila
     // del episodio entera (REPLACE), así que sin ella los capítulos marcados perderían la temporada
     // que el play ya había guardado bien. Ver `SearchPlayback.magisEpisodeIdDe`.
-    // Null = descarga deshabilitada (p.ej. Ditu tiene DRM y no se puede bajar con yt-dlp).
+    // Null = descarga deshabilitada.
     onSave: ((List<GatewayEpisode>, GatewaySerie?) -> Unit)? = null,
 ) {
     var capitulos by remember(season.ref) { mutableStateOf<List<GatewayEpisode>?>(null) }

@@ -16,11 +16,9 @@ fun GatewayResult.toPlaySource(): PlaySource? = when (source) {
     // hay un tipo previo de la app al que mapearlo.
     "magis" -> PlaySource.Magis(this)
 
-    "ditu" -> PlaySource.Ditu(this)
-
-    // "archive"/"torrent"/"web": el gateway todavía puede mandarlos (server viejo), pero esta
-    // rama del APK ya no sabe qué hacer con ellos (las tres se borraron; archive.org en esta
-    // tarea, torrent/web en la Tarea 2, TODO(task 6)). Se ignoran, igual que cualquier fuente
-    // futura desconocida.
+    // "archive"/"torrent"/"web"/"ditu": el gateway todavía puede mandarlos (server viejo), pero
+    // esta rama del APK ya no sabe qué hacer con ellos (todas se borraron; archive.org y ditu en
+    // la poda de esta rama, torrent/web en la Tarea 2 — ditu vuelve en el sub-proyecto 3 con un
+    // cliente directo). Se ignoran, igual que cualquier fuente futura desconocida.
     else -> null
 }

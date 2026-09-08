@@ -45,19 +45,16 @@ import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 
 /**
- * Una fuente reproducible: Magis o Ditu.
+ * Una fuente reproducible: Magis.
  *
- * Hasta la poda de archive.org de esta rama (light-magis) había una tercera variante, `Archive`,
- * borrada junto con el resto de esa fuente (`ArchiveSearchResult`/`ArchiveApi` no existen más).
+ * Hasta la poda de esta rama (light-magis) había otras dos variantes, `Archive` y `Ditu`, borradas
+ * junto con el resto de esas fuentes (`ArchiveSearchResult`/`ArchiveApi` y todo lo de Caracol
+ * Streaming no existen más — Ditu vuelve en el sub-proyecto 3 con un cliente directo).
  */
 sealed interface PlaySource {
     /** Resultado del portal Magis (solo VOD). El `ref` es opaco: se manda tal cual a
      *  `/v1/resolve` y la app nunca lo interpreta. */
     data class Magis(val result: com.arkiv.player.data.gateway.GatewayResult) : PlaySource
-
-    /** Resultado de Ditu (Caracol Streaming). El `ref` se manda tal cual a `/v1/resolve`
-     *  y el stream resultante es MPEG-DASH; el `drm_license_url` lo maneja ExoPlayer. */
-    data class Ditu(val result: com.arkiv.player.data.gateway.GatewayResult) : PlaySource
 }
 
 /** Color de acento por origen — el mismo en la fila, la sección y los chips de filtro. Se
@@ -66,12 +63,9 @@ sealed interface PlaySource {
 val ArkivArchiveTeal = Color(0xFF80CBC4)
 /** Azul de Magis: el portal IPTV, distinto de archive (turquesa). */
 val ArkivMagisBlue = Color(0xFF64B5F6)
-/** Naranja de Ditu (Caracol Streaming). */
-val ArkivDituOrange = Color(0xFFFF6B00)
 
 fun accentOf(source: PlaySource): Color = when (source) {
     is PlaySource.Magis -> ArkivMagisBlue
-    is PlaySource.Ditu -> ArkivDituOrange
 }
 
 /** Dato suelto de una fuente (calidad, idioma, seeds, tamaño) como pastilla. Leer una línea corrida
@@ -91,7 +85,7 @@ fun MetaChip(text: String, color: Color = ArkivTextSecondary, strong: Boolean = 
 }
 
 /**
- * Sección colapsable por tipo de fuente (MAGIS/DITU/ARCHIVE) con contador y spinner propio.
+ * Sección colapsable por tipo de fuente (MAGIS/ARCHIVE) con contador y spinner propio.
  * [descargaDe], si no es null, le da a cada fila su control de descarga: el mismo de la biblioteca,
  * con cola, progreso, cancelar y borrar. El archivo final queda en el celular, no en la NUC.
  */
@@ -172,11 +166,9 @@ fun SourceRow(source: PlaySource, enabled: Boolean, descarga: DescargaDeFila? = 
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.width(3.dp).fillMaxHeight().background(accent))
-        // Solo Magis y Ditu traen imagen por resultado. Sin póster no se dibuja nada.
+        // Solo Magis trae imagen por resultado. Sin póster no se dibuja nada.
         val miniatura = when (source) {
             is PlaySource.Magis -> source.result.extra["poster"].orEmpty()
-            is PlaySource.Ditu -> source.result.extra["poster"].orEmpty()
-            else -> ""
         }
         if (miniatura.isNotBlank()) {
             AsyncImage(
@@ -210,22 +202,6 @@ fun SourceRow(source: PlaySource, enabled: Boolean, descarga: DescargaDeFila? = 
                         if (r.lang.isNotBlank()) MetaChip(r.lang)
                     }
                 }
-                is PlaySource.Ditu -> {
-                    val r = source.result
-                    Text(
-                        r.title, color = Color.White, style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 2, overflow = TextOverflow.Ellipsis,
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        MetaChip("Caracol", ArkivDituOrange)
-                        if (r.kind == "series") MetaChip("Serie")
-                        if (r.year.isNotBlank()) MetaChip(r.year)
-                    }
-                }
             }
             if (descarga != null) LineaDeEstadoDeDescarga(descarga.estado)
         }
@@ -234,11 +210,9 @@ fun SourceRow(source: PlaySource, enabled: Boolean, descarga: DescargaDeFila? = 
     }
 }
 
-/** La carátula de una fuente, o "" si esa fuente no tiene. Magis y Ditu traen imagen propia. */
+/** La carátula de una fuente, o "" si esa fuente no tiene. Magis trae imagen propia. */
 fun posterDe(source: PlaySource): String = when (source) {
     is PlaySource.Magis -> source.result.extra["poster"].orEmpty()
-    is PlaySource.Ditu -> source.result.extra["poster"].orEmpty()
-    else -> ""
 }
 
 /**
@@ -303,11 +277,6 @@ fun SourceCard(source: PlaySource, enabled: Boolean, onDownload: (() -> Unit)? =
                     if (source.result.extra["program_type"] == "teleplay") MetaChip("Serie")
                     if (source.result.year.isNotBlank()) MetaChip(source.result.year)
                 }
-                is PlaySource.Ditu -> {
-                    MetaChip("Caracol", ArkivDituOrange)
-                    if (source.result.year.isNotBlank()) MetaChip(source.result.year)
-                }
-                else -> Unit
             }
         }
     }
@@ -315,5 +284,4 @@ fun SourceCard(source: PlaySource, enabled: Boolean, onDownload: (() -> Unit)? =
 
 private fun tituloDe(source: PlaySource): String = when (source) {
     is PlaySource.Magis -> source.result.title
-    is PlaySource.Ditu -> source.result.title
 }

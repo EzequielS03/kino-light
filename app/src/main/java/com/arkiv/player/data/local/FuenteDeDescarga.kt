@@ -20,7 +20,6 @@ object FuenteDeDescarga {
         SourceKind.MAGIS -> "magis"
         // NUC/LOCAL/LIVE no salen de `kindFor`, y un canal en vivo no se baja; archive.org es el
         // caso restante (un identifier pelado, sin prefijo).
-        SourceKind.DITU -> "ditu"
         SourceKind.ARCHIVE, SourceKind.NUC, SourceKind.LOCAL, SourceKind.LIVE -> "archive"
     }
 }

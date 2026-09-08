@@ -65,12 +65,7 @@ data class PlayerData(
      * de Magis (archive, torrent, web, local), donde no existe la noción.
      */
     val adulto: Boolean = false,
-    /** URL del servidor de licencias Widevine; "" = sin DRM. Solo Ditu lo usa por ahora.
-     *  ExoPlayer la recibe vía MediaItem.DrmConfiguration y negocia Widevine automáticamente. */
-    val drmLicenseUrl: String = "",
-    /** Headers adicionales para la petición de licencia DRM (p.ej. Cookie: playback_token=…). */
-    val drmLicenseHeaders: Map<String, String> = emptyMap(),
-    /** Posición de arranque para reanudar (DRM/ExoPlayer). VLC usa PlaylistData.startPositionMs. */
+    /** Posición de arranque para reanudar (ExoPlayer, p.ej. magisItem). VLC usa PlaylistData.startPositionMs. */
     val startPositionMs: Long = 0L,
 )
 
@@ -115,7 +110,7 @@ data class PlaylistData(
  * Un subtítulo resuelto (idioma + URL), para adjuntar como pista externa.
  *
  * Antes vivía en `com.arkiv.player.data.catalog.web.ResolvedSub` (torrent/web se borró en la poda de
- * esta rama); [WebExtras] la sigue necesitando porque también la usan magis/ditu, que reciben sus
+ * esta rama); [WebExtras] la sigue necesitando porque también la usa magis, que recibe sus
  * subtítulos del gateway y no de ningún resolver web.
  */
 data class ResolvedSub(val lang: String, val url: String)
@@ -196,10 +191,6 @@ class PlayerViewModel(
 
     private val _playlist = MutableStateFlow<PlaylistData?>(null)
     val playlist: StateFlow<PlaylistData?> = _playlist.asStateFlow()
-
-    /** Ítem de Ditu con Widevine DRM — lo reproduce ExoPlayer directamente, sin pasar por VLC. */
-    private val _dituDrmItem = MutableStateFlow<PlayerData?>(null)
-    val dituDrmItem: StateFlow<PlayerData?> = _dituDrmItem.asStateFlow()
 
     /** Ítem de Magis — lo reproduce ExoPlayer a través del proxy local, sin pasar por VLC. */
     private val _magisItem = MutableStateFlow<PlayerData?>(null)
@@ -307,7 +298,6 @@ class PlayerViewModel(
                 runCatching { repo.marcarEnCurso(episodeId) }
             }
             _error.value = null
-            _dituDrmItem.value = null
             _magisItem.value = null
             // Navegar de un canal en vivo a un episodio VOD sin pasar por otra pantalla (el mismo
             // ViewModel sobrevive, ver el guard de más arriba): sin este reset, `liveItem` seguía
@@ -329,7 +319,6 @@ class PlayerViewModel(
             when (kind) {
                 SourceKind.ARCHIVE -> loadArchive(episodeId)
                 SourceKind.MAGIS -> loadMagis(episodeId)
-                SourceKind.DITU -> loadDitu(episodeId)
                 // PlayerSource.kindFor() nunca devuelve NUC ni LOCAL (ver su propio KDoc): esta rama
                 // es inalcanzable por diseño, pero el `when` exhaustivo la exige. Apunta a loadWeb()
                 // -no a la loadWebRespectingPreference() desconectada- para que la afirmación del
@@ -405,17 +394,16 @@ class PlayerViewModel(
         viewModelScope.launch {
             _error.value = null
             errorDeReproduccion = false
-            // Fix de revisión (Task 1): igual que loadMagis()/loadDitu()/loadWeb() descartan la
+            // Fix de revisión (Task 1): igual que loadMagis()/loadWeb() descartan la
             // fuente VOD rival ANTES de publicar la propia, acá hay que descartar TODAS las fuentes
             // VOD antes de publicar `_liveItem`. Sin esto, entrar en vivo sin recomponer la pantalla
             // (irACanal()/zapSiguiente()/zapAnterior() llaman a abrirCanalActual() directo, sin pasar
-            // por el reset de load()) dejaba `_dituDrmItem`/`_magisItem`/`_playlist` con el valor
-            // viejo. PlayerScreen.activePlayer mira dituDrmItem/magisItem ANTES que liveItem, así que
+            // por el reset de load()) dejaba `_magisItem`/`_playlist` con el valor
+            // viejo. PlayerScreen.activePlayer mira magisItem ANTES que liveItem, así que
             // un `_magisItem` viejo ganaría esa decisión y el canal en vivo nunca se vería -- y un
             // `_playlist` viejo podía reactivar el `LaunchedEffect(playlist, generacionVivo)` de VOD
             // contra contenido ya abandonado.
             _playlist.value = null
-            _dituDrmItem.value = null
             _magisItem.value = null
             val url = runCatching { liveController.abrir(canal.code) }.getOrElse {
                 Log.w(PLAY, "abrirCanalActual() falló para ${canal.code}: ${it.message}")
@@ -660,10 +648,6 @@ class PlayerViewModel(
         _error.value = "Esta fuente ya no está disponible en esta versión"
     }
 
-    fun onDituExoError(message: String) {
-        _error.value = "Caracol: $message"
-    }
-
     fun onMagisExoError(message: String) {
         _error.value = "Magis: $message"
     }
@@ -672,7 +656,7 @@ class PlayerViewModel(
      * Un directo se cayó del lado de ExoPlayer (segmento/playlist en 502 tras agotar los
      * reintentos del proxy, o cualquier otro `PlaybackException`).
      *
-     * A diferencia de [onMagisExoError]/[onDituExoError], NO pone `_error` directo: un canal en
+     * A diferencia de [onMagisExoError], NO pone `_error` directo: un canal en
      * vivo se recupera solo casi siempre (ver KDoc de [reabrirVivoPorCorte]), así que mostrar un
      * cartel de error en el primer tropiezo sería alarmar por algo que en 2-8s ya se resolvió.
      * [reabrirVivoPorCorte] es quien decide, tras [MAX_REAPERTURAS_VIVO] intentos, si hay que
@@ -1080,60 +1064,6 @@ class PlayerViewModel(
     }
 
     /**
-     * Reproduce un ítem de Ditu (Caracol Streaming).
-     *
-     * El stream es MPEG-DASH (.mpd) desde el CDN de Mediastream. No requiere headers de auth:
-     * la URL del manifest es pública. Si el contenido tiene Widevine DRM, [PlayerData.drmLicenseUrl]
-     * lo lleva hasta PlayerScreen, que construye un ExoPlayer con DrmConfiguration.
-     * Sin DRM (contenido gratuito libre), libVLC puede reproducir el MPD directamente.
-     */
-    private suspend fun loadDitu(episodeId: String) {
-        val ref = repo.dituRefForEpisode(episodeId)
-        Log.w(PLAY, "loadDitu() episodeId=$episodeId ref=${ref?.take(12)}…")
-        if (ref.isNullOrBlank()) { _error.value = "No se encontró la fuente de Caracol"; return }
-
-        _playlist.value = null
-        _webExtras.value = null
-        _resolving.value = true
-        val t0 = System.currentTimeMillis()
-        val resuelto = withContext(Dispatchers.IO) { runCatching { gatewayClient.resolve(ref) } }
-        val msResolve = System.currentTimeMillis() - t0
-        _resolving.value = false
-        Log.w(PLAY, "loadDitu() resolve=${msResolve}ms")
-
-        val play = resuelto.getOrNull()
-        if (play == null) {
-            Log.w(PLAY, "loadDitu() falló: ${resuelto.exceptionOrNull()?.message}")
-            _error.value = "No se pudo resolver esta fuente de Caracol"
-            return
-        }
-
-        val cabecera = repo.headerInfo(episodeId)
-        val startPos = safeStartPosition(episodeId, SourceKind.DITU)
-        val item = PlayerData(
-            episodeId = episodeId,
-            itemId = episodeId.substringBefore("::"),
-            title = cabecera?.itemTitle ?: "Caracol",
-            subtitle = cabecera?.episodeLabel.orEmpty(),
-            mediaUrl = play.url,
-            castUrl = play.url,
-            artworkUrl = "",
-            openingStartMs = null, openingEndMs = null, endingStartMs = null,
-            kind = SourceKind.DITU,
-            drmLicenseUrl = play.drmLicenseUrl,
-            drmLicenseHeaders = play.drmLicenseHeaders,
-            startPositionMs = startPos,
-        )
-        Log.w(PLAY, "loadDitu() ⏱ TOTAL=${System.currentTimeMillis() - t0}ms drm=${play.drmLicenseUrl.isNotBlank()} headers=${play.drmLicenseHeaders.keys} url=${play.url.take(60)} startPos=${startPos}ms")
-        if (play.drmLicenseUrl.isNotBlank()) {
-            // Contenido Widevine: lo reproduce ExoPlayer en PlayerScreen, VLC no toca nada.
-            _dituDrmItem.value = item
-        } else {
-            _playlist.value = PlaylistData(listOf(item), 0, startPos, pedido = episodeId)
-        }
-    }
-
-    /**
      * ELIMINADA en la poda de esta rama (borrado de torrent+web+mirror, ver CLAUDE.md "Cero servidor
      * propio"): resolvía una `pageUrl` scrapeada on-device contra `WebResolverApi` (el resolver
      * headless de blog), que ya no existe. Se conserva la función -no se borra del todo- porque
@@ -1208,8 +1138,6 @@ class PlayerViewModel(
             // vivo (ver su guard), así que ni currentId llega acá con ese kind. El "siguiente" de
             // un canal en vivo es el zapping (LiveZapping), no esta precarga de series.
             SourceKind.LIVE -> Unit
-            // Ditu: el enlace DASH vence pronto; no tiene sentido preresolver con antelación.
-            SourceKind.DITU -> Unit
         }
     }.onFailure { Log.w(PLAY, "prefetchNext falló: $it") }
 
