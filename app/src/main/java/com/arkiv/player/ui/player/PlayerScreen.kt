@@ -819,7 +819,15 @@ private fun PlayerContent(
         val pl = PlaylistData(listOf(item), 0, 0L, pedido = item.episodeId)
         val req = castRequestFor(pl, 0, 0L)
         if (req == null) {
+            // Mismo aviso que ya dan VOD/Ditu cuando castRequestFor no encuentra una URL alcanzable
+            // por la TV (ver el Toast idéntico más abajo en este archivo) -- antes de esta migración
+            // el vivo-vía-VLC lo mostraba también; se había perdido al portar el bloque a ExoPlayer.
             android.util.Log.w("ArkivCast", "vivo (exo): sin URL que el receptor pueda alcanzar")
+            android.widget.Toast.makeText(
+                context,
+                "No se pudo castear: la TV no puede alcanzar este stream (revisa el WiFi)",
+                android.widget.Toast.LENGTH_SHORT,
+            ).show()
             return@LaunchedEffect
         }
         castSession.setMedia(req)

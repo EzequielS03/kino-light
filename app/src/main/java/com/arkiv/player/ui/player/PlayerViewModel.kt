@@ -418,6 +418,18 @@ class PlayerViewModel(
         viewModelScope.launch {
             _error.value = null
             errorDeReproduccion = false
+            // Fix de revisión (Task 1): igual que loadMagis()/loadDitu()/loadWeb() descartan la
+            // fuente VOD rival ANTES de publicar la propia, acá hay que descartar TODAS las fuentes
+            // VOD antes de publicar `_liveItem`. Sin esto, entrar en vivo sin recomponer la pantalla
+            // (irACanal()/zapSiguiente()/zapAnterior() llaman a abrirCanalActual() directo, sin pasar
+            // por el reset de load()) dejaba `_dituDrmItem`/`_magisItem`/`_playlist` con el valor
+            // viejo. PlayerScreen.activePlayer mira dituDrmItem/magisItem ANTES que liveItem, así que
+            // un `_magisItem` viejo ganaría esa decisión y el canal en vivo nunca se vería -- y un
+            // `_playlist` viejo podía reactivar el `LaunchedEffect(playlist, generacionVivo)` de VOD
+            // contra contenido ya abandonado.
+            _playlist.value = null
+            _dituDrmItem.value = null
+            _magisItem.value = null
             val url = runCatching { liveController.abrir(canal.code) }.getOrElse {
                 Log.w(PLAY, "abrirCanalActual() falló para ${canal.code}: ${it.message}")
                 if (zapping?.actual?.code == canal.code) {
