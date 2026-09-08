@@ -15,6 +15,9 @@ siendo la app completa (torrent+web+archive+Magis+Ditu+RCN, con login PocketBase
   1. Directo al **portal de Magis** (protocolo ya crackeado, ver `/Users/cristian/mago/reverse/`).
   2. Directo a **TMDB** (`api.themoviedb.org`) con una API key propia embebida en el build de esta rama.
   3. Al **CDN de Magis** para bajar los bytes de video (como ya es hoy).
+  4. Al gateway `arkiv-api`, temporalmente, para: Magis (hasta sub-proyecto 2), TMDB-proxy (hasta
+     sub-proyecto 2), y **"dato curioso"/trivia** (`ArkivApiClient.trivia()`, `/v1/trivia` — se deja
+     tal cual está, llamando al gateway, indefinidamente; no tiene fecha de reemplazo por ahora).
 - Se borra código muerto de verdad (login/cuentas, torrent, web-resolver, archive.org, VLC,
   cloud-sync, control remoto TV↔celu). No se comenta, no se deja detrás de un flag — si no se usa,
   se elimina del árbol.

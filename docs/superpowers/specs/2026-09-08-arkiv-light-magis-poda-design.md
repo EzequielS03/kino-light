@@ -104,6 +104,11 @@ en el sub-proyecto 2, en el mismo movimiento en que se lo reemplaza por el clien
   resolviéndose vía gateway, sin tocar el protocolo.
 - `TmdbApi.kt` vía gateway (`/v1/catalog/tmdb`) — sin cambios; pasa a llamada directa en el
   sub-proyecto 2.
+- **"Dato curioso" / trivia** (`ArkivApiClient.trivia()`, `/v1/trivia`, `TriviaDelPlayer.kt`) — se
+  deja tal cual está, llamando al gateway, **sin fecha de reemplazo**. A diferencia de Magis/TMDB
+  (que sí van a moverse a llamada directa en el sub-proyecto 2), esta feature queda como excepción
+  permanente a la regla "cero servidor" del branch — decisión explícita del usuario, le gusta la
+  feature tal como funciona hoy.
 - Login/PocketBase mínimo: `SesionDePersona`, `DeviceAuthManager`, `MainActivity` gate — se
   mantienen para que Magis siga autenticando contra el gateway. Se cae el flujo de **registro**
   (licencias) pero el de **login** (email/password) queda.

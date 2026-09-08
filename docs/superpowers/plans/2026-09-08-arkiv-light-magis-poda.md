@@ -251,7 +251,7 @@ command git commit -m "chore(light): borrar cloud-sync, pareo QR, control remoto
 ### Task 6: Simplificar búsqueda a solo-Magis
 
 **Files — Modify:**
-- `app/src/main/java/com/arkiv/player/data/gateway/ArkivApiClient.kt`: borrar `buscarPorFrase()` (líneas 287-321) y las data classes `FraseInterpretada` (40-48), `GatewayObraDeFrase` (51-57), `BusquedaPorFrase` (59-62). Mantener `search()` (103-131) tal cual — sigue sirviendo para Magis.
+- `app/src/main/java/com/arkiv/player/data/gateway/ArkivApiClient.kt`: borrar `buscarPorFrase()` (líneas 287-321) y las data classes `FraseInterpretada` (40-48), `GatewayObraDeFrase` (51-57), `BusquedaPorFrase` (59-62). Mantener `search()` (103-131) tal cual — sigue sirviendo para Magis. **NO TOCAR `trivia()` (~línea 266, justo antes de `buscarPorFrase`)** — es la feature de "dato curioso" del reproductor; se mantiene llamando al gateway indefinidamente, es una excepción permanente a la regla "cero servidor" del branch (decisión explícita del usuario). Confirmar con `grep -n "fun trivia"` antes de borrar el bloque de frase para no arrastrarla por estar físicamente cerca.
 - `app/src/main/java/com/arkiv/player/ui/search/SearchViewModel.kt`:
   - Borrar `buscarPorFrase()` (213-226) y el estado `_frase/frase/_loadingFrase/fraseJob` (196, 199-203).
   - En `search()` (248-317): mantener `tmdbJob`/`animeJob` (277-288); borrar `torrentJob`/`archiveJob` (290-315) y el estado `_directResults`/`directResults`/`_loadingDirect`/`loadingDirect` si quedaron sin otro uso.
