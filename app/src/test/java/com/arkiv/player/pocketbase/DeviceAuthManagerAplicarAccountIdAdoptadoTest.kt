@@ -8,11 +8,10 @@ import org.junit.Assert.assertNotNull
 import org.junit.Test
 
 /**
- * `aplicarAccountIdAdoptado` (Task 5): a diferencia de `switchAccount` (`DeviceAuthManagerSwitchTest`,
+ * `aplicarAccountIdAdoptado`: a diferencia de `switchAccount` (`DeviceAuthManagerSwitchTest`,
  * pensado para el login de una PERSONA que se autentica con su propia contraseña), este camino NO
- * debe volver a escribir en PocketBase -- el gateway (`CuentaApi.adoptarAparato`) ya movió el
- * `accountId` del lado del servidor, con el candado que cuenta contra el tope de TVs. Repetirlo acá
- * sería una escritura redundante.
+ * debe volver a escribir en PocketBase -- el gateway (el login normal, `CuentaApi.entrar()`) ya
+ * movió el `accountId` del lado del servidor. Repetirlo acá sería una escritura redundante.
  */
 class DeviceAuthManagerAplicarAccountIdAdoptadoTest {
     @Test

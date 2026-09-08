@@ -65,21 +65,6 @@ class DestructorDeFrames(
     }
 
     /**
-     * Borra SOLO el archivo, sin tocar la fila de Room.
-     *
-     * Único uso pensado: `CloudSyncManager.mergeFrame` cuando un tombstone remoto gana el LWW. Ahí
-     * la fila YA quedó escrita por el `upsert` de la fila remota, con el `updatedAt` que trajo el
-     * servidor — llamar a [destruir] encima la volvería a pisar con el reloj LOCAL, inflando el
-     * timestamp del borrado muy por encima del real (con el riesgo de perder, contra ese
-     * timestamp inflado, una actualización legítima de un tercer dispositivo que todavía no
-     * llegó) y generando un push de eco extra. Lo único que falta hacer ahí es lo que ese `upsert`
-     * no hace: borrar el JPEG viejo del disco.
-     */
-    suspend fun borrarArchivo(episodeId: String) {
-        almacen?.borrar(episodeId)
-    }
-
-    /**
      * El mismo borrado pero de TODO, para el wipe de logout
      * ([com.arkiv.player.data.LibraryWiper]): sin esto, la identidad nueva se queda con los JPEG de
      * las escenas que miró la persona anterior (además del disco, es un tema de privacidad).

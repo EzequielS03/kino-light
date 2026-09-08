@@ -465,15 +465,12 @@ class AppGraph(context: Context) {
     val deviceStore: SecureDeviceStore by lazy { SecureDeviceStore(appContext) }
     // `cuentaApi` referencia a `deviceAuth` solo dentro de una lambda (`deviceToken`, más abajo),
     // así que forzar `cuentaApi` acá (Task 7: el alta anónima pasa por `CuentaApi.altaAparato`)
-    // no dispara una inicialización recursiva -- mismo patrón que ya usa `pbRealtime`
-    // para resolver esta dependencia circular con `by lazy`.
+    // no dispara una inicialización recursiva -- se resuelve esta dependencia circular con
+    // `by lazy` igual que el resto de este grafo.
     val deviceAuth: DeviceAuthManager by lazy {
         // `esTv` es una lambda y no un booleano fijo: `AppGraph` se arma temprano y
         // consultarlo en el momento del alta evita depender del orden de inicializacion.
         DeviceAuthManager(pbClient, deviceStore, cuentaApi, esTv = { DeviceType.isTelevision(appContext) })
-    }
-    val pbRealtime: com.arkiv.player.pocketbase.PocketBaseRealtime by lazy {
-        com.arkiv.player.pocketbase.PocketBaseRealtime(token = { deviceAuth.session.value?.token })
     }
     val libraryWiper: com.arkiv.player.data.LibraryWiper by lazy {
         com.arkiv.player.data.LibraryWiper(
@@ -495,7 +492,7 @@ class AppGraph(context: Context) {
      * Cliente de `/v1/cuenta` (Task 2): alta con licencia + ciclo de vida de los aparatos de la
      * cuenta. [registrar] identifica al APARATO (todavía sin cuenta de persona) con el mismo token
      * que ya usa [deviceAuth]/[deviceStore] — de ahí `deviceToken` leyendo la sesión viva del
-     * device en vez de `deviceStore.token()` directo, igual que [pbRealtime]. Task 7:
+     * device en vez de `deviceStore.token()` directo. Task 7:
      * también lo usa [deviceAuth] mismo (`altaAparato`, alta anónima del aparato) — se referencian
      * mutuamente pero sin ciclo real: acá `deviceAuth` solo aparece dentro de la lambda
      * `deviceToken`, nunca evaluado en la construcción de este objeto.

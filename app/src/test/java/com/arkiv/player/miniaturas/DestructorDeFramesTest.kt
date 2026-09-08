@@ -104,24 +104,6 @@ class DestructorDeFramesTest {
     }
 
     @Test
-    fun `borrarArchivo borra el archivo sin tocar la fila`() = runBlocking {
-        val almacen = almacen()
-        val dao = FakeEpisodeFrameDao()
-        almacen.guardar("ep-1", byteArrayOf(1, 2, 3))
-        dao.filas["ep-1"] = EpisodeFrameEntity(
-            episodeId = "ep-1", positionMs = 5000, capturedAt = 7, updatedAt = 42, deleted = 1,
-        )
-        val destructor = DestructorDeFrames(almacen, dao) { 999L }
-
-        destructor.borrarArchivo("ep-1")
-
-        assertNull(almacen.rutaSiExiste("ep-1"))
-        val fila = dao.getIncluyendoBorradas("ep-1")
-        assertEquals("la fila queda igual, con el updatedAt REMOTO intacto (no el reloj local)", 42L, fila?.updatedAt)
-        assertEquals(5000L, fila?.positionMs)
-    }
-
-    @Test
     fun `get normal no ve el tombstone que dejo destruir`() = runBlocking {
         val dao = FakeEpisodeFrameDao()
         val destructor = DestructorDeFrames(dao = dao, ahora = { 1L })

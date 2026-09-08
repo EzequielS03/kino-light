@@ -92,12 +92,6 @@ class SettingsStore(context: Context) {
     private val _webQuality = MutableStateFlow(readWebQuality())
     val webQuality: StateFlow<WebQuality> = _webQuality
 
-    // ¿Este teléfono pareó una TV alguna vez? Persistido porque el descubrimiento LAN es anónimo
-    // (cualquier Arkiv de la red responde) y no sirve para decidir si mostrar el "enviar a la TV".
-    // Ver tvTargetAvailable().
-    private val _tvLinked = MutableStateFlow(prefs.getBoolean(KEY_TV_LINKED, false))
-    val tvLinked: StateFlow<Boolean> = _tvLinked
-
     // ¿Ya se reparó el arte que se resolvió antes del match exacto de TMDB? Ver
     // ArkivRepository.repairArtworkMatches. Se marca SOLO cuando la pasada termina entera, para que
     // un arranque sin internet no la dé por hecha y deje los títulos mal apuntados para siempre.
@@ -113,7 +107,7 @@ class SettingsStore(context: Context) {
 
     // "Ahora no" a la oferta de vincular Magis apenas se entra a la TV (Task 10, ver
     // `debeOfrecerVincularMagis` en ui/tv/TvOfertaVincularMagis.kt). Es una decisión del DISPOSITIVO,
-    // no de la cuenta -mismo criterio que [tvLinked]/[artworkRematchDone] acá arriba-: este es un TV
+    // no de la cuenta -mismo criterio que [artworkRematchDone] acá arriba-: este es un TV
     // de uso personal, no un kiosco compartido entre cuentas. Se resetea en `AccountManager.logout()`
     // (ver `onLocalWipe` en AppGraph): la sesión que se está yendo ya no importa, y si otra persona
     // entra después en este mismo aparato tiene sentido que la oferta le aparezca de nuevo.
@@ -138,37 +132,13 @@ class SettingsStore(context: Context) {
     fun setDimLevel(v: Int) { prefs.edit().putInt(KEY_DIM_LEVEL, v).apply(); _dimLevel.value = v }
 
     // Fija la config a mano en ESTE dispositivo (p.ej. un ajuste de debug): marca la fuente como
-    // MANUAL para que el pareo nunca la pise en silencio (ver [applySyncedGatewayConfig]).
+    // MANUAL.
     fun setGatewayUrl(v: String) { prefs.edit().putString(KEY_GATEWAY_URL, v).apply(); _gatewayUrl.value = v; marcarGatewayManual() }
     fun setUseGateway(v: Boolean) { prefs.edit().putBoolean(KEY_USE_GATEWAY, v).apply(); _useGateway.value = v }
 
     private fun marcarGatewayManual() {
         prefs.edit().putString(KEY_GATEWAY_CONFIG_SOURCE, GatewayConfigSource.MANUAL.name).apply()
         _gatewayConfigSource.value = GatewayConfigSource.MANUAL
-    }
-
-    /**
-     * Aplica una config de gateway que llegó por el vínculo de cuenta (pareo TV↔celu, ver
-     * `PairingManager.aplicarRespuesta`): el TV adopta la URL EFECTIVA del celu en ese momento,
-     * para no depender de que alguien la tipee a mano en cada aparato -- ese es justo el fallo de
-     * diseño que esto resuelve. Task 8 (Paso 3): antes también propagaba `arkivApiKey`; esa llave
-     * salió del todo -- la TV ya recibe la sesión de la persona en el mismo pareo (ver
-     * `PairingManager.aplicarRespuesta`), así que no hace falta ninguna credencial extra acá.
-     *
-     * Respeta [GatewayConfigSource.MANUAL] (ver [SettingsStore.shouldApplySyncedGateway] para la
-     * regla exacta, extraída aparte porque es pura y así se puede testear sin Context).
-     *
-     * Devuelve si se aplicó, para que el llamador pueda loguear el RESULTADO.
-     */
-    fun applySyncedGatewayConfig(gatewayUrl: String): Boolean {
-        if (!shouldApplySyncedGateway(_gatewayConfigSource.value, gatewayUrl)) return false
-        prefs.edit()
-            .putString(KEY_GATEWAY_URL, gatewayUrl)
-            .putString(KEY_GATEWAY_CONFIG_SOURCE, GatewayConfigSource.SYNCED.name)
-            .apply()
-        _gatewayUrl.value = gatewayUrl
-        _gatewayConfigSource.value = GatewayConfigSource.SYNCED
-        return true
     }
 
     fun setProvidersUrl(v: String) { prefs.edit().putString(KEY_PROVIDERS_URL, v).apply(); _providersUrl.value = v }
@@ -181,12 +151,6 @@ class SettingsStore(context: Context) {
     fun setNucApiKey(v: String) { prefs.edit().putString(KEY_NUC_API_KEY, v).apply(); _nucApiKey.value = v }
 
     fun setWebQuality(q: WebQuality) { prefs.edit().putString(KEY_WEB_QUALITY, q.name).apply(); _webQuality.value = q }
-
-    fun setTvLinked(v: Boolean) {
-        if (_tvLinked.value == v) return
-        prefs.edit().putBoolean(KEY_TV_LINKED, v).apply()
-        _tvLinked.value = v
-    }
 
     fun setArtworkRematchDone(v: Boolean) {
         if (_artworkRematchDone.value == v) return
@@ -217,27 +181,6 @@ class SettingsStore(context: Context) {
         }.getOrDefault(GatewayConfigSource.DEFAULT)
 
     companion object {
-        /**
-         * Regla de precedencia para [applySyncedGatewayConfig], pura a propósito -- sin
-         * SharedPreferences ni Context de por medio -- para poder testearla en un unit test JVM
-         * plano (SettingsStore no se puede instanciar en ese entorno: pide un Context real).
-         *
-         * NUNCA pisa [GatewayConfigSource.MANUAL]: si el dispositivo tiene una config fijada a
-         * mano (p.ej. un TV de pruebas apuntando a un gateway de staging), un pareo no debe
-         * pisarla en silencio -- el usuario la puso ahí a propósito.
-         *
-         * Tampoco aplica una config a medio llenar: una URL en blanco es peor que el default (que
-         * al menos apunta al gateway real), así que tiene que venir con contenido para que valga
-         * la pena reemplazar lo que ya hay.
-         */
-        fun shouldApplySyncedGateway(
-            currentSource: GatewayConfigSource,
-            gatewayUrl: String,
-        ): Boolean {
-            if (currentSource == GatewayConfigSource.MANUAL) return false
-            return gatewayUrl.isNotBlank()
-        }
-
         const val PREFS_NAME = "arkiv_settings"
         const val KEY_WEB_QUALITY = "web_quality"
         private const val KEY_STREAM = "stream_quality"
@@ -252,7 +195,6 @@ class SettingsStore(context: Context) {
         private const val KEY_GATEWAY_CONFIG_SOURCE = "gateway_config_source"
         private const val KEY_USE_GATEWAY = "use_gateway"
         private const val KEY_TORRENT_API_URL = "torrent_api_url"
-        private const val KEY_TV_LINKED = "tv_linked"
         private const val KEY_ARTWORK_REMATCH = "artwork_rematch_done"
         private const val KEY_LIVE_SIGN_REMOTE = "live_sign_remote"
         private const val KEY_MAGIS_OFERTA_DESCARTADA = "magis_oferta_descartada"

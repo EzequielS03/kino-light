@@ -164,13 +164,13 @@ class DeviceAuthManager(
     }
 
     /**
-     * Refleja en la sesión viva + el store un `accountId` que el GATEWAY ya escribió en el
-     * servidor (Task 5: `CuentaApi.adoptarAparato`, con el candado de Redis que cuenta contra el
-     * tope de TVs de la licencia). A diferencia de [switchAccount] -pensado para el login de una
+     * Refleja en la sesión viva + el store un `accountId` que el GATEWAY ya movió del lado del
+     * servidor -- hoy, el login normal de una persona (`CuentaApi.entrar()`, ver
+     * `AccountManager.login()`). A diferencia de [switchAccount] -pensado para el login de una
      * PERSONA, que se autentica con su propia contraseña y por eso puede autoescribir su
      * `accountId`- acá NO hay ningún PATCH a PocketBase: repetirlo con el token del propio
-     * device sería una escritura redundante (el valor ya quedó en el record por el camino que
-     * cuenta contra el tope), y si `devices.updateRule` se cierra más adelante (Task 7) además
+     * device sería una escritura redundante (el valor ya quedó en el record por el camino que el
+     * gateway usó para moverlo), y si `devices.updateRule` se cierra más adelante (Task 7) además
      * fallaría, sin necesidad -- el único control real ya lo aplicó el gateway.
      */
     suspend fun aplicarAccountIdAdoptado(accountId: String): DeviceSession = mutex.withLock {

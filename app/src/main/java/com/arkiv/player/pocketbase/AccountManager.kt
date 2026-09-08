@@ -26,11 +26,13 @@ class AccountException(message: String) : Exception(message)
  * opcional: se vincula después de que la cuenta Arkiv ya existe, nunca antes ([registrar] no la
  * toca; ver [vincularMagis]/[vincularMagisEnviarCodigo]/[vincularMagisConfirmar]).
  *
- * Login = el device ADOPTA el accountId de la persona (switchAccount) y se fusiona el historial
- * anónimo vía [onAccountSwitched] (= syncNow). Registro = se crea la cuenta con una licencia y el
- * accountId del device NO cambia (la biblioteca ya anónima queda atribuida a esa persona sin
- * migrar nada). Logout limpia lo local ([onLocalWipe]); YA NO re-bootstrapea una identidad anónima
- * (spec: sin sesión no hay app, así que no tiene sentido fabricar una). La clave nunca se persiste.
+ * Login = el device ADOPTA el accountId de la persona (switchAccount); [onAccountSwitched] se
+ * sigue llamando en ese momento pero, sin cloud sync (poda Arkiv Light), es un no-op -- no hay
+ * historial anónimo remoto que fusionar al loguearse. Registro = se crea la cuenta con una
+ * licencia y el accountId del device NO cambia (la biblioteca ya anónima queda atribuida a esa
+ * persona sin migrar nada). Logout limpia lo local ([onLocalWipe]); YA NO re-bootstrapea una
+ * identidad anónima (spec: sin sesión no hay app, así que no tiene sentido fabricar una). La clave
+ * nunca se persiste.
  */
 class AccountManager(
     private val client: PocketBaseClient,
@@ -137,7 +139,7 @@ class AccountManager(
         // como `sync -> Error(The coroutine scope left the composition)`, y Ajustes le mostraba
         // "no tenés cuenta" a alguien que estaba adentro.
         withContext(NonCancellable) {
-            onAccountSwitched()   // cloudSync.syncNow() = reset cursores + push local + pull => MERGE
+            onAccountSwitched()   // no-op (poda Arkiv Light): sin cloud sync no hay nada que fusionar
             _state.value = AccountState.Conectado(email, magisVinculadoSeguro())
         }
     }
