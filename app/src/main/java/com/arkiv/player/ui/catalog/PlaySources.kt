@@ -59,12 +59,10 @@ sealed interface PlaySource {
 }
 
 /** Color de acento por origen — el mismo en la fila, la sección y los chips de filtro. */
-val ArkivWebViolet = Color(0xFFB39DDB)
 val ArkivArchiveTeal = Color(0xFF80CBC4)
 /** Verde de "mi biblioteca": los capítulos que subimos nosotros, servidos por el mirror. */
 val ArkivLibraryGreen = Color(0xFF81C784)
-val ArkivPackAmber = Color(0xFFFFB74D)
-/** Azul de Magis: el portal IPTV, distinto de web (violeta) y archive (turquesa). */
+/** Azul de Magis: el portal IPTV, distinto de archive (turquesa). */
 val ArkivMagisBlue = Color(0xFF64B5F6)
 /** Naranja de Ditu (Caracol Streaming). */
 val ArkivDituOrange = Color(0xFFFF6B00)
@@ -92,7 +90,7 @@ fun MetaChip(text: String, color: Color = ArkivTextSecondary, strong: Boolean = 
 }
 
 /**
- * Sección colapsable por tipo de fuente (TORRENT/WEB/ARCHIVE) con contador y spinner propio.
+ * Sección colapsable por tipo de fuente (MAGIS/DITU/ARCHIVE) con contador y spinner propio.
  * [descargaDe], si no es null, le da a cada fila su control de descarga: el mismo de la biblioteca,
  * con cola, progreso, cancelar y borrar. El archivo final queda en el celular, no en la NUC.
  */

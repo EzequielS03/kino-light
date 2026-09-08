@@ -231,8 +231,11 @@ fun LibraryScreen(
                         val episodes = graph.repository.episodesOf(row.identifier)
                         val single = episodes.singleOrNull()
                         if (single != null) {
-                            // `row.source` viene directo de `items.source` ("archive" | "torrent" |
-                            // "web"): es el dato real, no una heurística a partir de `isTorrent`.
+                            // `row.source` viene directo de `items.source` ("archive" | "magis" |
+                            // "ditu", o el legacy "torrent"/"web" de ítems guardados antes de esta
+                            // rama, que ya no tienen estrategia de descarga — ver
+                            // `AppGraph.downloadStrategies`): es el dato real, no una heurística a
+                            // partir de `isTorrent`.
                             notifyDuplicates(listOf(graph.localDownloads.enqueue(single.id, row.source)))
                         } else {
                             onOpenItem(row.identifier)

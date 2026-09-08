@@ -85,8 +85,8 @@ fun ArkivTvRoot(
         return
     }
 
-    // Reproductor unificado: archive y torrent van a la misma ruta; la pantalla resuelve la fuente
-    // por el prefijo "torrent:" del id.
+    // Reproductor unificado: archive/Magis/Ditu van todos a la misma ruta; PlayerScreen resuelve
+    // la fuente a partir del episodeId (ver PlayerSource.kindFor).
     fun goToPlayer(id: String) {
         navController.navigate("player/${Uri.encode(id)}") { launchSingleTop = true }
     }

@@ -278,7 +278,16 @@ class AppGraph(context: Context) {
      *  canal en vivo y el cast transcodificado para que un renderer en la LAN pueda alcanzarlos. */
     fun lanIp(): String? = com.arkiv.player.playback.LanIp.current(appContext)
 
-    /** Una estrategia por `source` de la tabla `downloads`. */
+    /**
+     * Una estrategia por `source` de la tabla `downloads`. Sin entrada para "web" a propósito: la
+     * fuente web se borró en esta rama (regla del branch, "cero servidor propio") y
+     * [com.arkiv.player.data.local.NucStagedStrategy] existía solo para servirla, hablando con el
+     * servidor NUC/arkiv-offline ya eliminado del árbol — una fila vieja con `source="web"` (de
+     * antes de este branch) ahora falla con gracia en vez de disparar esa llamada de red (ver
+     * `LocalDownloadWorker.doWork()`, que ya trata una entrada ausente como "Fuente no soportada").
+     * `NucStagedStrategy.kt` queda sin caller real; se deja intacto porque su borrado (y el de NUC en
+     * general) es alcance de otra tarea, no de esta.
+     */
     val downloadStrategies: Map<String, com.arkiv.player.data.local.DownloadStrategy> by lazy {
         mapOf(
             "archive" to com.arkiv.player.data.local.ArchiveDownloadStrategy(
@@ -286,9 +295,6 @@ class AppGraph(context: Context) {
             ),
             "magis" to com.arkiv.player.data.local.MagisDownloadStrategy(
                 repository, arkivApiClient, httpRangeDownloader,
-            ),
-            "web" to com.arkiv.player.data.local.NucStagedStrategy(
-                repository, arkivOfflineApi, httpRangeDownloader, database.downloadDao(),
             ),
         )
     }
