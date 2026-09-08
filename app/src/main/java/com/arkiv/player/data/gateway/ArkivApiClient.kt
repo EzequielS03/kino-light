@@ -36,31 +36,6 @@ data class GatewaySource(
     val state: String,
 )
 
-/** Cómo entendió el gateway la frase; la UI lo dibuja en chips para que un filtro raro se vea venir. */
-data class FraseInterpretada(
-    val tipo: String,
-    val generos: List<String>,
-    val anioDesde: Int?,
-    val anioHasta: Int?,
-    val idioma: String,
-    /** La obra/saga que el gateway entendió que se nombró ("anime de goku" → "Dragon Ball"), o "". */
-    val nombre: String = "",
-)
-
-/** Una obra del discover de TMDB. Siempre trae tmdbId y título: sin eso la card no se puede abrir. */
-data class GatewayObraDeFrase(
-    val tmdbId: Int,
-    val titulo: String,
-    val anio: String,
-    val posterUrl: String,
-    val tipo: String,
-)
-
-data class BusquedaPorFrase(
-    val interpretado: FraseInterpretada?,
-    val items: List<GatewayObraDeFrase>,
-)
-
 /**
  * Cliente del gateway unificado.
  *
@@ -274,50 +249,6 @@ class ArkivApiClient(
         val arr = JSONObject(ejecutar(pedido(url).get().build())).optJSONArray("textos")
             ?: return@withContext emptyList()
         (0 until arr.length()).mapNotNull { arr.optString(it).takeIf { t -> t.isNotBlank() } }
-    }
-
-    /**
-     * Búsqueda por descripción ("una de miedo de los 80 en español").
-     *
-     * El gateway interpreta la frase con el modelo y las obras salen del discover de TMDB, así
-     * que acá nunca llega un título inventado. Con el intérprete apagado o el gateway de LLMs
-     * caído responde `{"interpretado": null, "items": []}` -- no es error, es "nada que dibujar",
-     * mismo criterio que [trivia].
-     */
-    suspend fun buscarPorFrase(q: String): BusquedaPorFrase = withContext(Dispatchers.IO) {
-        val url = "${baseUrl()}/v1/search/frase".toHttpUrl().newBuilder()
-            .addQueryParameter("q", q)
-            .build()
-        val o = JSONObject(ejecutar(pedido(url.toString()).get().build()))
-
-        val io = o.optJSONObject("interpretado")
-        val interpretado = io?.let {
-            val generos = it.optJSONArray("generos")
-            FraseInterpretada(
-                tipo = it.optString("tipo"),
-                generos = (0 until (generos?.length() ?: 0)).map { i -> generos!!.getString(i) },
-                anioDesde = if (it.isNull("anio_desde")) null else it.optInt("anio_desde"),
-                anioHasta = if (it.isNull("anio_hasta")) null else it.optInt("anio_hasta"),
-                idioma = it.optString("idioma"),
-                nombre = it.optString("nombre"),
-            )
-        }
-        val arr = o.optJSONArray("items")
-        val items = (0 until (arr?.length() ?: 0)).mapNotNull { i ->
-            val x = arr!!.getJSONObject(i)
-            val tmdbId = x.optInt("tmdb_id")
-            val titulo = x.optString("titulo")
-            // Una fila coja no puede pintar una card que después no se puede abrir.
-            if (tmdbId <= 0 || titulo.isBlank()) return@mapNotNull null
-            GatewayObraDeFrase(
-                tmdbId = tmdbId,
-                titulo = titulo,
-                anio = x.optString("anio"),
-                posterUrl = x.optString("poster_url"),
-                tipo = x.optString("tipo"),
-            )
-        }
-        BusquedaPorFrase(interpretado, items)
     }
 
     suspend fun sources(): List<GatewaySource> = withContext(Dispatchers.IO) {

@@ -110,37 +110,6 @@ class SearchViewModel(
     val animeShow: StateFlow<AnimeShow?> = _animeShow.asStateFlow()
 
     private var searchJob: Job? = null
-    private var fraseJob: Job? = null
-
-    /** Resultado de la búsqueda por descripción, o null si no se ha pedido en esta consulta. */
-    private val _frase = MutableStateFlow<ResultadoDeFrase?>(null)
-    val frase: StateFlow<ResultadoDeFrase?> = _frase.asStateFlow()
-
-    private val _loadingFrase = MutableStateFlow(false)
-    val loadingFrase: StateFlow<Boolean> = _loadingFrase.asStateFlow()
-
-    /**
-     * Búsqueda por descripción ("una de miedo de los 80 en español"), contra el gateway.
-     *
-     * Las cards que vuelven son de TMDB con id y título reales, así que [pickTitle] las abre por
-     * el flujo de siempre. Un fallo del gateway deja el resultado en vacío SIN interpretación:
-     * la pantalla muestra "nada con esa descripción" y nadie ve un error — mismo criterio que la
-     * trivia, porque esto también es accesorio.
-     */
-    fun buscarPorFrase(q: String) {
-        if (q.isBlank()) return
-        enHistorial { searchHistory.addQuery(q) }
-        fraseJob?.cancel()
-        fraseJob = viewModelScope.launch {
-            _loadingFrase.value = true
-            val r = runCatching { arkivApiClient.buscarPorFrase(q) }.getOrNull()
-            _frase.value = ResultadoDeFrase(
-                interpretado = r?.interpretado,
-                cards = (r?.items ?: emptyList()).map { it.toTitleCard() },
-            )
-            _loadingFrase.value = false
-        }
-    }
     private var sourceJob: Job? = null
 
     // --- historial del buscador -------------------------------------------
@@ -164,11 +133,6 @@ class SearchViewModel(
     /** Lanza la búsqueda unificada de Fase 1: TMDB + anime (títulos) y archive (directos). */
     fun search(q: String) {
         searchJob?.cancel()
-        // Una consulta nueva (o limpiar) invalida la búsqueda por descripción anterior: dejarla
-        // pintada debajo de otra consulta sería mezclar respuestas de dos preguntas distintas.
-        fraseJob?.cancel()
-        _frase.value = null
-        _loadingFrase.value = false
         if (q.isBlank()) {
             _titleResults.value = emptyList()
             _directResults.value = emptyList()
