@@ -64,8 +64,9 @@ private enum class TabDeEntrada { DESCARGA, LOGIN }
  *
  * La pestaña "Descargar" resuelve el caso de "tengo un Android pero todavía no instalé nada": deja
  * un QR para bajar el APK sin tener que tipear una URL con el control remoto. "Entrar en esta TV"
- * es el camino para cualquier otro caso -con o sin Android a mano-: login/registro con el teclado
- * en pantalla.
+ * es el camino para cualquier otro caso -con o sin Android a mano-: login con el teclado en
+ * pantalla (el alta de cuentas nuevas con licencia se sacó de la app en Task 7, poda "Arkiv
+ * Light").
  *
  * Son **pestañas y no pasos** para que se pueda ir y volver sin perder el lugar.
  */
@@ -232,49 +233,26 @@ private fun qrImageBitmap(content: String, sizePx: Int = 512): ImageBitmap {
 }
 
 /**
- * Normaliza un código de licencia tipeado con el control remoto: lo arma en la forma EXACTA que
- * espera el backend (`XXXX-XXXX-XXXX`, tres grupos de 4 -ver `ALFABETO`/`generar()` en
- * `licencias/codigo.py` del backend-). El servidor no normaliza nada de su lado: `_licencia_libre`
- * en `identidad/cuentas.py` compara el código tal cual llega (`filter: codigo="..."`), así que un
- * "GS9WSH8CYC6Y" sin guiones simplemente no matchea contra "GS9W-SH8C-YC6Y" en la base. Obligar a
- * tipear los guiones con un D-pad es pedir un error de tipeo -por eso el alfabeto de la licencia ya
- * evita 0/O/1/I/L, para poder dictarlo sin ambigüedad-, así que acá se reconstruye la forma canónica
- * sea como sea que la persona la haya tipeado: con guiones, sin guiones, en minúsculas, con espacios
- * de más.
+ * Arma el pedido de entrada desde la TV: llama a `login`. Separada de la Composable a propósito
+ * -este proyecto no tiene infraestructura de tests de UI de Compose, así que la única forma de
+ * probar "esto llama al método que corresponde" es que sea una función de afuera, mismo criterio
+ * que `estadoDeEntrada` en `EntradaViewModel`-. No reimplementa nada de `AccountManager`: éste ya
+ * resuelve cupo/backend caído (ver su KDoc), acá solo se arman los argumentos.
+ *
+ * Hasta Task 7 (poda "Arkiv Light") también podía armar un `registrar` con licencia; se sacó junto
+ * con el resto del alta de cuentas nuevas -esta app ya no crea cuentas, solo entra a una existente-.
  */
-fun normalizarLicencia(input: String): String =
-    com.arkiv.player.pocketbase.normalizarCodigoDeLicencia(input)
-
-/**
- * Arma el pedido de entrada desde la TV: normaliza la licencia (arriba) y elige `login` o
- * `registrar` según [registrando]. Separada de la Composable a propósito -este proyecto no tiene
- * infraestructura de tests de UI de Compose, así que la única forma de probar "esto llama al método
- * que corresponde, y no otro" es que sea una función de afuera, mismo criterio que `estadoDeEntrada`
- * en `EntradaViewModel`-. No reimplementa nada de `AccountManager`: éste ya resuelve
- * licencia/cupo/backend caído (ver su KDoc), acá solo se arman los argumentos y se elige el camino.
- */
-suspend fun entrarDesdeTv(
-    account: AccountManager,
-    email: String,
-    password: String,
-    licencia: String,
-    registrando: Boolean,
-) {
-    if (registrando) {
-        account.registrar(email.trim(), password, normalizarLicencia(licencia))
-    } else {
-        account.login(email.trim(), password)
-    }
+suspend fun entrarDesdeTv(account: AccountManager, email: String, password: String) {
+    account.login(email.trim(), password)
 }
 
 /** Qué campo recibe las teclas del teclado en pantalla de [PanelDeLogin]. */
-private enum class CampoTv { EMAIL, PASSWORD, LICENCIA }
+private enum class CampoTv { EMAIL, PASSWORD }
 
 /**
- * "Entrar en esta TV" (Task 9): login/registro con el teclado en pantalla, sin depender de ningún
- * otro aparato. Reusa [AccountManager.login]/[AccountManager.registrar] a través de
- * [entrarDesdeTv] -no reimplementa el manejo de errores de licencia/cupo/backend caído que esos
- * métodos ya resuelven-.
+ * "Entrar en esta TV" (Task 9): login con el teclado en pantalla, sin depender de ningún otro
+ * aparato. Reusa [AccountManager.login] a través de [entrarDesdeTv] -no reimplementa el manejo de
+ * errores de cupo/backend caído que ese método ya resuelve-.
  *
  * El layout (teclado a la izquierda, campos a la derecha, foco inicial reintentado) sale de
  * [TvTecladoYCampos] -Task 10 lo extrajo de acá para compartirlo con [TvOfertaVincularMagis]-.
@@ -289,31 +267,14 @@ private fun PanelDeLogin(account: AccountManager, onVolver: () -> Unit) {
     // "Volvé con el botón Atrás del control", así que prometía justo lo que no hacía.
     BackHandler(onBack = onVolver)
     val scope = rememberCoroutineScope()
-    // La licencia se formatea MIENTRAS se escribe: guiones automáticos y ambiguos corregidos en el
-    // acto. Ver MascaraDeLicencia — y `normalizarLicencia`, que usa la misma regla al enviar.
-    val campos = rememberTvCamposConFoco(CampoTv.EMAIL) { campo, valor ->
-        if (campo == CampoTv.LICENCIA) {
-            com.arkiv.player.ui.entrada.MascaraDeLicencia.formatear(valor)
-        } else {
-            valor
-        }
-    }
-    var registrando by remember { mutableStateOf(false) }
+    val campos = rememberTvCamposConFoco(CampoTv.EMAIL)
     var passwordVisible by remember { mutableStateOf(false) }
-    // Arranca en MINUSCULAS: lo que se escribe aca son emails, contrasenas y un codigo de
-    // licencia. Los dos primeros casi siempre van en minuscula, y el codigo tiene su propia tecla
-    // de mayusculas a un paso. Empezar en MAYUS obligaba a cambiar de capa antes de la primera
-    // letra, en el 100% de los logins.
+    // Arranca en MINUSCULAS: lo que se escribe aca son email y contrasena, casi siempre en
+    // minuscula. Empezar en MAYUS obligaba a cambiar de capa antes de la primera letra, en el
+    // 100% de los logins.
     var modoTeclado by remember { mutableStateOf(TvKeyboardMode.MINUS) }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
-
-    // Si el campo activo era la licencia y se vuelve a "Entrar" (deja de registrar), ese campo
-    // desaparece de la pantalla -sin este fallback el teclado seguiría escribiendo en un campo que
-    // ya no se ve, sin ningún efecto visible, y parecería roto.
-    LaunchedEffect(registrando) {
-        if (!registrando && campos.activo == CampoTv.LICENCIA) campos.enfocar(CampoTv.EMAIL)
-    }
 
     fun enviar() {
         if (busy) return
@@ -321,13 +282,7 @@ private fun PanelDeLogin(account: AccountManager, onVolver: () -> Unit) {
         error = null
         scope.launch {
             try {
-                entrarDesdeTv(
-                    account,
-                    campos.valor(CampoTv.EMAIL),
-                    campos.valor(CampoTv.PASSWORD),
-                    campos.valor(CampoTv.LICENCIA),
-                    registrando,
-                )
+                entrarDesdeTv(account, campos.valor(CampoTv.EMAIL), campos.valor(CampoTv.PASSWORD))
             } catch (e: AccountException) {
                 error = e.message
             } finally {
@@ -337,11 +292,10 @@ private fun PanelDeLogin(account: AccountManager, onVolver: () -> Unit) {
     }
 
     val puedeEnviar = !busy && campos.valor(CampoTv.EMAIL).isNotBlank() &&
-        campos.valor(CampoTv.PASSWORD).isNotBlank() &&
-        (!registrando || campos.valor(CampoTv.LICENCIA).isNotBlank())
+        campos.valor(CampoTv.PASSWORD).isNotBlank()
 
     TvTecladoYCampos(
-        titulo = if (registrando) "Crear cuenta en esta TV" else "Entrar en esta TV",
+        titulo = "Entrar en esta TV",
         subtitulo = "Volvé con el botón Atrás del control.",
         modoTeclado = modoTeclado,
         onModo = { modoTeclado = it },
@@ -371,22 +325,6 @@ private fun PanelDeLogin(account: AccountManager, onVolver: () -> Unit) {
             onFocus = { campos.enfocar(CampoTv.PASSWORD) },
         )
         TvBotonMostrarPassword(visible = passwordVisible, onToggle = { passwordVisible = !passwordVisible })
-        if (registrando) {
-            CampoTvChip(
-                etiqueta = "Código de licencia",
-                // Se muestra tal cual se tipeó (guiones incluidos si los puso) para que la
-                // persona vea qué escribió; la normalización (con o sin guiones, mayúsculas) pasa
-                // recién al mandar, en `entrarDesdeTv` -ver `normalizarLicencia`-.
-                valor = campos.valor(CampoTv.LICENCIA),
-                activo = campos.activo == CampoTv.LICENCIA,
-                onFocus = { campos.enfocar(CampoTv.LICENCIA) },
-            )
-            Text(
-                "Con guiones o sin guiones da igual: se acomoda solo.",
-                style = MaterialTheme.typography.labelSmall,
-                color = ArkivTextSecondary,
-            )
-        }
 
         error?.let {
             Text(
@@ -397,50 +335,20 @@ private fun PanelDeLogin(account: AccountManager, onVolver: () -> Unit) {
             )
         }
 
-        // Los dos botones REPARTEN el ancho, no lo pelean. Sin el `weight`, "Entrar" se estiraba
-        // hasta ocupar la columna entera -los chips de campo de arriba son `fillMaxWidth`, y esta
-        // fila hereda ese ancho- y "Crear cuenta" quedaba dibujado FUERA de la pantalla: desde el
-        // sillón parecía que la opción de registrarse no existía. Verificado en el Fire TV.
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        Surface(
+            onClick = { enviar() },
+            enabled = puedeEnviar,
+            modifier = Modifier.fillMaxWidth().height(48.dp).padding(top = 8.dp),
+            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+            colors = arkivTvSurfaceColors(),
+            border = arkivTvSurfaceBorder(),
         ) {
-            Surface(
-                onClick = { enviar() },
-                enabled = puedeEnviar,
-                modifier = Modifier.weight(1f).height(48.dp),
-                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
-                colors = arkivTvSurfaceColors(),
-                border = arkivTvSurfaceBorder(),
-            ) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        when {
-                            busy && registrando -> "Creando…"
-                            busy -> "Entrando…"
-                            registrando -> "Crear cuenta"
-                            else -> "Entrar"
-                        },
-                        style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.padding(horizontal = 18.dp),
-                    )
-                }
-            }
-            Surface(
-                onClick = { registrando = !registrando; error = null },
-                enabled = !busy,
-                modifier = Modifier.weight(1f).height(48.dp),
-                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
-                colors = arkivTvSurfaceColors(),
-                border = arkivTvSurfaceBorder(),
-            ) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        if (registrando) "Ya tengo cuenta" else "Crear cuenta",
-                        style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.padding(horizontal = 18.dp),
-                    )
-                }
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    if (busy) "Entrando…" else "Entrar",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.padding(horizontal = 18.dp),
+                )
             }
         }
     }

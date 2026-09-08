@@ -22,34 +22,14 @@ import org.junit.Test
 /**
  * Task 9: entrar desde la propia TV, sin pareo con un celular.
  *
- * [normalizarLicencia] es pura, se prueba directo. [entrarDesdeTv] se prueba igual que
- * `EntradaViewModelTest`/`AccountManagerTest` -con `MockWebServer`, sin mocks-: el objetivo no es
- * reprobar lo que `AccountManager` ya prueba de sobra, sino confirmar que el camino nuevo (la
- * pantalla de la TV) llama al método que corresponde y no reimplementa nada por su cuenta.
+ * [entrarDesdeTv] se prueba igual que `EntradaViewModelTest`/`AccountManagerTest` -con
+ * `MockWebServer`, sin mocks-: el objetivo no es reprobar lo que `AccountManager` ya prueba de
+ * sobra, sino confirmar que el camino nuevo (la pantalla de la TV) llama al método que corresponde
+ * y no reimplementa nada por su cuenta. Hasta Task 7 esta clase también probaba `normalizarLicencia`
+ * (pura) y el camino de registro de [entrarDesdeTv]; se sacaron junto con el alta de cuentas nuevas
+ * con licencia (poda "Arkiv Light").
  */
 class TvPantallaDeEntradaTest {
-
-    // --- normalizarLicencia ---
-
-    @Test fun `normalizarLicencia deja igual un codigo que ya tiene guiones`() {
-        assertEquals("GS9W-SH8C-YC6Y", normalizarLicencia("GS9W-SH8C-YC6Y"))
-    }
-
-    @Test fun `normalizarLicencia agrega los guiones cuando no los tipearon`() {
-        assertEquals("GS9W-SH8C-YC6Y", normalizarLicencia("GS9WSH8CYC6Y"))
-    }
-
-    @Test fun `normalizarLicencia sube a mayusculas`() {
-        assertEquals("GS9W-SH8C-YC6Y", normalizarLicencia("gs9w-sh8c-yc6y"))
-    }
-
-    @Test fun `normalizarLicencia saca espacios sueltos`() {
-        assertEquals("GS9W-SH8C-YC6Y", normalizarLicencia("gs9w sh8c yc6y"))
-    }
-
-    @Test fun `normalizarLicencia con vacio da vacio, no rompe`() {
-        assertEquals("", normalizarLicencia(""))
-    }
 
     // --- entrarDesdeTv ---
 
@@ -80,7 +60,7 @@ class TvPantallaDeEntradaTest {
     }
 
     @Test
-    fun `entrarDesdeTv con registrando=false llama a login, no a registrar`() = runBlocking {
+    fun `entrarDesdeTv llama a login`() = runBlocking {
         val pb = MockWebServer().also { it.start() }
         val gw = MockWebServer().also { it.start() }
         pb.enqueue(MockResponse().setBody("""{"token":"dtok","record":{"id":"devrec"}}""")) // bootstrap
@@ -92,34 +72,13 @@ class TvPantallaDeEntradaTest {
         gw.enqueue(MockResponse().setBody("""{"linked":false}""")) // magisVinculadoSeguro
         val (account, _) = armarCuenta(pb, gw)
 
-        entrarDesdeTv(account, "a@b.co", "secret12", licencia = "", registrando = false)
+        entrarDesdeTv(account, "a@b.co", "secret12")
 
         assertEquals(AccountState.Conectado("a@b.co", false), account.state.value)
         assertEquals(
-            "el gateway tiene que ver la adopcion de aparato del login, no /v1/cuenta/registrar",
+            "el gateway tiene que ver la adopcion de aparato del login",
             "/v1/cuenta/entrar",
             gw.takeRequest().path,
-        )
-        pb.shutdown(); gw.shutdown()
-    }
-
-    @Test
-    fun `entrarDesdeTv con registrando=true llama a registrar, no a login, y normaliza la licencia`() = runBlocking {
-        val pb = MockWebServer().also { it.start() }
-        val gw = MockWebServer().also { it.start() }
-        pb.enqueue(MockResponse().setBody("""{"token":"dtok","record":{"id":"devrec"}}""")) // bootstrap
-        gw.enqueue(MockResponse().setResponseCode(201).setBody("""{"userId":"u1","accountId":"A_anon"}""")) // /v1/cuenta/registrar
-        pb.enqueue(MockResponse().setBody("""{"token":"ptok","record":{"id":"usr-1"}}""")) // sesion.iniciar
-        val (account, _) = armarCuenta(pb, gw)
-
-        entrarDesdeTv(account, "a@b.co", "secret12", licencia = "gs9w-sh8c-yc6y", registrando = true)
-
-        assertEquals(AccountState.Conectado("a@b.co", false), account.state.value)
-        val pedido = gw.takeRequest()
-        assertEquals("/v1/cuenta/registrar", pedido.path)
-        assertTrue(
-            "el cuerpo debe llevar la licencia YA normalizada, no la que tipeo la persona",
-            pedido.body.readUtf8().contains("GS9W-SH8C-YC6Y"),
         )
         pb.shutdown(); gw.shutdown()
     }
@@ -139,7 +98,7 @@ class TvPantallaDeEntradaTest {
 
         var msg: String? = null
         try {
-            entrarDesdeTv(account, "a@b.co", "secret12", licencia = "", registrando = false)
+            entrarDesdeTv(account, "a@b.co", "secret12")
         } catch (e: AccountException) {
             msg = e.message
         }

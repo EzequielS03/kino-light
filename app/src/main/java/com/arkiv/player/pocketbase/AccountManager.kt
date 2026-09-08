@@ -1,6 +1,5 @@
 package com.arkiv.player.pocketbase
 
-import com.arkiv.player.ui.entrada.MascaraDeLicencia
 import com.arkiv.player.data.gateway.CuentaApi
 import com.arkiv.player.data.gateway.ErrorDeCuenta
 import kotlinx.coroutines.CancellationException
@@ -21,18 +20,18 @@ class AccountException(message: String) : Exception(message)
 
 /**
  * Cuentas de persona: PocketBase (colección `users`) es la fuente de verdad local del device;
- * el gateway (`/v1/cuenta`, [CuentaApi]) es quien decide si una persona puede TENER cuenta (exige
- * licencia); Magis es la fuente de verdad de identidad "real" (créditos/plan), y es enteramente
- * opcional: se vincula después de que la cuenta Arkiv ya existe, nunca antes ([registrar] no la
- * toca; ver [vincularMagis]/[vincularMagisEnviarCodigo]/[vincularMagisConfirmar]).
+ * el gateway (`/v1/cuenta`, [CuentaApi]) es quien decide si el aparato puede entrar a esa cuenta
+ * (cupo de aparatos, licencia vigente); Magis es la fuente de verdad de identidad "real"
+ * (créditos/plan), y es enteramente opcional: se vincula después de que la cuenta Arkiv ya existe
+ * (ver [vincularMagis]/[vincularMagisEnviarCodigo]/[vincularMagisConfirmar]).
  *
  * Login = el device ADOPTA el accountId de la persona (switchAccount); [onAccountSwitched] se
  * sigue llamando en ese momento pero, sin cloud sync (poda Arkiv Light), es un no-op -- no hay
- * historial anónimo remoto que fusionar al loguearse. Registro = se crea la cuenta con una
- * licencia y el accountId del device NO cambia (la biblioteca ya anónima queda atribuida a esa
- * persona sin migrar nada). Logout limpia lo local ([onLocalWipe]); YA NO re-bootstrapea una
- * identidad anónima (spec: sin sesión no hay app, así que no tiene sentido fabricar una). La clave
- * nunca se persiste.
+ * historial anónimo remoto que fusionar al loguearse. El alta de cuentas nuevas con licencia
+ * (`registrar()`) se sacó en Task 7 (poda "Arkiv Light"): ya no se crean cuentas desde la app,
+ * solo se entra a una que ya existe. Logout limpia lo local ([onLocalWipe]); YA NO re-bootstrapea
+ * una identidad anónima (spec: sin sesión no hay app, así que no tiene sentido fabricar una). La
+ * clave nunca se persiste.
  */
 class AccountManager(
     private val client: PocketBaseClient,
@@ -53,11 +52,11 @@ class AccountManager(
 
     /**
      * Login: valida contra PocketBase, que es la única fuente de identidad de una persona que YA
-     * tiene cuenta. Si PocketBase no la conoce, la respuesta es "no tenés cuenta, registrate con tu
-     * código" — a propósito NO cae a validar contra Magis y crear la cuenta si Magis la acepta:
-     * ese camino (que existía acá) permitía fabricarse una cuenta de Arkiv SIN licencia con
-     * cualquier credencial de Magis válida, que es justo el agujero que este login cierra. Crear
-     * cuenta tiene un solo camino, y pide licencia: [registrar].
+     * tiene cuenta. Si PocketBase no la conoce, la respuesta es "no tenés cuenta" — a propósito NO
+     * cae a validar contra Magis y crear la cuenta si Magis la acepta: ese camino (que existía acá)
+     * permitía fabricarse una cuenta de Arkiv con cualquier credencial de Magis válida, que es
+     * justo el agujero que este login cierra. Task 7 (poda "Arkiv Light") sacó el alta de cuentas
+     * nuevas de la app por completo: esta app ya no crea cuentas, solo entra a una que ya existe.
      */
     suspend fun login(email: String, password: String) = mutex.withLock {
         deviceAuth.ensureBootstrapped()
@@ -145,43 +144,6 @@ class AccountManager(
     }
 
     /**
-     * Registro: crea la cuenta de Arkiv con una licencia, vía el gateway ([CuentaApi.registrar]).
-     *
-     * El orden es lo que importa acá, no el CRUD: la licencia es lo único de este método que puede
-     * fallar por una razón de negocio (inválida, ya usada, revocada), así que va PRIMERO. Recién con
-     * la cuenta creada se persiste la sesión de la persona ([SesionDePersona.iniciar], Task 1). Antes,
-     * el registro le pedía un código de verificación a Magis ANTES de tocar nada de Arkiv: si la
-     * licencia resultaba inválida, quedaba una cuenta de Magis creada al pedo, y esa no se puede
-     * deshacer desde acá. Magis, si la persona lo quiere, se vincula DESPUÉS y aparte —
-     * [vincularMagisEnviarCodigo] / [vincularMagisConfirmar] — nunca como parte de este método.
-     */
-    suspend fun registrar(email: String, password: String, licencia: String) = mutex.withLock {
-        deviceAuth.ensureBootstrapped()
-            ?: throw AccountException("sin conexión: intentá de nuevo")
-
-        // La licencia se normaliza ACA y no en cada pantalla: el gateway la compara literal, y
-        // tenerlo resuelto solo en la TV hacía que el MISMO código anduviera ahí y fallara en el
-        // celular -donde solo se le hacía `trim()`-. Quien tipea no tiene por qué saber que los
-        // guiones son obligatorios, ni pelear con las mayúsculas: el alfabeto de los códigos se
-        // eligió sin caracteres ambiguos justamente para poder dictarlos por teléfono.
-        try {
-            cuentaApi.registrar(email, password, normalizarCodigoDeLicencia(licencia))
-        } catch (e: ErrorDeCuenta) {
-            throw AccountException(e.mensaje)
-        }
-
-        // La cuenta ya existe en el gateway; si esto falla (poco probable justo después de crearla,
-        // pero posible: un corte de red entre los dos pedidos) NO se marca Conectado — la cuenta
-        // quedó creada de verdad y la persona puede entrar con `login()` en cuanto vuelva la red.
-        // `persistirSesion` ya guarda el email en `store` (SesionDePersona.iniciar).
-        persistirSesion(email, password)
-        // Mismo guardia que en login, y por el mismo motivo: registrarse en un aparato que ya tenia
-        // biblioteca de otra persona la heredaba entera. Ver [DuenoDeLaBase].
-        borrarSiEsDeOtro(deviceAuth.session.value?.accountId.orEmpty())
-        _state.value = AccountState.Conectado(email, magisLinked = false)
-    }
-
-    /**
      * Deja la base local lista para [cuenta]: si era de otra persona -o no se sabe de quien es- la
      * borra, y en cualquier caso la marca como suya de ahi en mas.
      *
@@ -266,15 +228,3 @@ class AccountManager(
         (_state.value as? AccountState.Conectado)?.let { _state.value = it.copy(magisLinked = false) }
     }
 }
-
-/**
- * Deja un código de licencia en la forma exacta que el gateway compara: `XXXX-XXXX-XXXX`.
- *
- * Delega en [MascaraDeLicencia], que es la MISMA regla que da forma al campo mientras se escribe.
- * Tener dos versiones era el problema: esta aceptaba cualquier letra o dígito, así que una `O` o un
- * `1` —los que el alfabeto de la licencia excluyó justamente por confundirse al leer— viajaban tal
- * cual al gateway, que no los tiene en su alfabeto y devolvía "licencia inválida" a alguien que
- * había tipeado exactamente lo que veía en el papel.
- */
-fun normalizarCodigoDeLicencia(input: String): String =
-    MascaraDeLicencia.formatear(input)

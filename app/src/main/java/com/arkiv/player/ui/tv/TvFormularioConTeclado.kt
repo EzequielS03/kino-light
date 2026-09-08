@@ -48,7 +48,7 @@ import kotlinx.coroutines.delay
 
 /**
  * Qué campo tiene el foco del teclado en pantalla, y el valor de cada uno. Genérico sobre el enum de
- * campos de cada pantalla ([PanelDeLogin] tiene tres -email/contraseña/licencia-, la oferta de Magis
+ * campos de cada pantalla ([PanelDeLogin] tiene dos -email/contraseña-, la oferta de Magis también
  * tiene dos -email/contraseña de Magis-) porque el MECANISMO es idéntico en las dos: el teclado
  * escribe sobre "el campo que tiene el foco ahora", sin un click aparte para "entrar" al campo (mismo
  * gesto que `TvSeasonChip` en `TvSearchScreen`).
@@ -58,14 +58,9 @@ class TvCamposConFoco<C>(
     /**
      * Da forma a lo que se escribe, por campo. Por defecto no toca nada.
      *
-     * Existe para el código de licencia: son catorce caracteres con el D-pad, dos de ellos guiones
-     * que hay que acordarse de poner, y sobre un alfabeto que a propósito no tiene `I`, `L`, `O`,
-     * `0` ni `1`. Formatear al ESCRIBIR (y no solo al enviar, que es lo que se hacía) pone los
-     * guiones solo y corrige los ambiguos en el momento, en vez de dejar que el gateway conteste
-     * "licencia inválida" a alguien que tipeó exactamente lo que leía. Ver `MascaraDeLicencia`.
-     *
      * Va acá y no en cada pantalla porque este es el ÚNICO punto por el que entra texto desde el
      * teclado de la TV: puesto en un solo lugar, ningún campo nuevo se puede olvidar de aplicarlo.
+     * (Hasta Task 7 lo usaba también el código de licencia del registro, que se sacó de la app.)
      */
     private val formato: (C, String) -> String = { _, valor -> valor },
 ) {

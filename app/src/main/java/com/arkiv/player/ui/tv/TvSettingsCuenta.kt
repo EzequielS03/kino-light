@@ -38,8 +38,9 @@ import com.arkiv.player.ui.theme.ArkivTextSecondary
  * texto siguiendo el patrón de `TvAddScreen` (M3 `OutlinedTextField` estándar — tv.material3 no
  * trae un campo de texto propio), y un toggle de texto en vez de un ícono de ojo (más previsible
  * con mando/D-pad que un IconButton dentro de un campo). Misma funcionalidad que `AccountSection`
- * (móvil, `ui/settings/AccountSection.kt`): `Iniciar sesión` valida contra PocketBase, `Crear
- * cuenta` exige código de licencia y pasa por el gateway ([AccountManager.registrar]).
+ * (móvil, `ui/settings/AccountSection.kt`): `Iniciar sesión` valida contra PocketBase, única
+ * fuente de identidad de una cuenta que ya existe -el alta de cuentas nuevas con licencia se sacó
+ * de la app en Task 7 (poda "Arkiv Light")-.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -86,12 +87,8 @@ private fun TvAnonimoSection(account: AccountManager) {
     val focusManager = LocalFocusManager.current
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var licencia by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
-    // Alterna entre "Iniciar sesión" (cuenta ya existente) y "Crear cuenta" (exige código de
-    // licencia): son dos flujos distintos del gateway, no dos pasos del mismo.
-    var registrando by remember { mutableStateOf(false) }
 
     OutlinedTextField(
         value = email,
@@ -104,64 +101,27 @@ private fun TvAnonimoSection(account: AccountManager) {
     )
     TvPasswordField(password, { password = it; error = null }, "Contraseña", modifier = Modifier.fillMaxWidth(0.6f).padding(top = 8.dp))
 
-    if (registrando) {
-        OutlinedTextField(
-            value = licencia,
-            onValueChange = { licencia = it; error = null },
-            label = { androidx.compose.material3.Text("Código de licencia") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(onDone = { focusManager.moveFocus(FocusDirection.Down) }),
-            modifier = Modifier.fillMaxWidth(0.6f).padding(top = 8.dp).dpadFocusEscape(),
-        )
-    }
-
     error?.let {
         Text(it, color = ArkivRed, modifier = Modifier.padding(top = 6.dp))
     }
 
-    if (registrando) {
-        TvActionOption(
-            label = if (busy) "Creando…" else "Crear cuenta",
-            onClick = {
-                if (!busy && email.isNotBlank() && password.isNotBlank() && licencia.isNotBlank()) {
-                    scope.launch {
-                        busy = true
-                        try {
-                            account.registrar(email.trim(), password, licencia.trim())
-                        } catch (e: AccountException) {
-                            error = e.message
-                        } finally {
-                            busy = false
-                        }
+    TvActionOption(
+        label = if (busy) "Espere…" else "Iniciar sesión",
+        onClick = {
+            if (!busy && email.isNotBlank() && password.isNotBlank()) {
+                scope.launch {
+                    busy = true
+                    try {
+                        account.login(email.trim(), password)
+                    } catch (e: AccountException) {
+                        error = e.message
+                    } finally {
+                        busy = false
                     }
                 }
-            },
-        )
-        TvActionOption(label = "Ya tengo cuenta", onClick = { registrando = false; error = null })
-    } else {
-        TvActionOption(
-            label = if (busy) "Espere…" else "Iniciar sesión",
-            onClick = {
-                if (!busy && email.isNotBlank() && password.isNotBlank()) {
-                    scope.launch {
-                        busy = true
-                        try {
-                            account.login(email.trim(), password)
-                        } catch (e: AccountException) {
-                            error = e.message
-                        } finally {
-                            busy = false
-                        }
-                    }
-                }
-            },
-        )
-        TvActionOption(
-            label = "Crear cuenta",
-            onClick = { registrando = true; error = null },
-        )
-    }
+            }
+        },
+    )
     if (busy) {
         Text("Procesando…", color = ArkivTextSecondary, modifier = Modifier.padding(top = 4.dp))
     }

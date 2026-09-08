@@ -48,7 +48,7 @@ fun estadoDeEntrada(sesion: EstadoDeSesion, aviso: String?): EstadoDeEntrada = w
 class EntradaViewModel(
     private val sesion: SesionDePersona,
     /** Expuesto para que la pantalla reuse `AnonimoSection` (ui/settings/AccountSection.kt) tal
-     *  cual en vez de reimplementar login/registro acá: si el formulario tiene un bug, se arregla
+     *  cual en vez de reimplementar el login acá: si el formulario tiene un bug, se arregla
      *  en un solo lugar. */
     val account: AccountManager,
 ) : ViewModel() {
@@ -71,8 +71,8 @@ class EntradaViewModel(
      *   Y sin la sesión que tenía, frente a una pantalla de entrada que tampoco funciona sin
      *   backend -el callejón sin salida que describe el spec-.
      *
-     * El resto de los códigos (`licencia_invalida`, `email_en_uso`, ...) son errores puntuales de
-     * un intento de login/registro: los maneja `AnonimoSection` inline, no el gate.
+     * El resto de los códigos (`credenciales_invalidas`, `tope_alcanzado`, ...) son errores
+     * puntuales de un intento de login: los maneja `AnonimoSection` inline, no el gate.
      */
     fun manejarErrorDeCuenta(error: ErrorDeCuenta) {
         when (error) {

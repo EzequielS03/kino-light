@@ -4,19 +4,16 @@ import com.arkiv.player.data.gateway.CuentaApi
 import com.arkiv.player.data.gateway.ErrorDeCuenta
 import com.arkiv.player.pocketbase.AccountManager
 import com.arkiv.player.pocketbase.DeviceAuthManager
-import com.arkiv.player.pocketbase.DeviceIdentity
 import com.arkiv.player.pocketbase.EstadoDeSesion
 import com.arkiv.player.pocketbase.FakeDeviceStore
 import com.arkiv.player.pocketbase.MagisLinkClient
 import com.arkiv.player.pocketbase.PocketBaseClient
 import com.arkiv.player.pocketbase.SesionDePersona
 import com.arkiv.player.pocketbase.cuentaApiSinUsarParaBootstrap
-import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -27,8 +24,8 @@ import org.junit.Test
  */
 class EntradaViewModelTest {
 
-    /** Ninguno de los tests de acá que no sean el de registro necesita hablarle a nadie: si algo
-     *  intentara, esta URL inalcanzable lo delata. */
+    /** Ninguno de los tests de acá necesita hablarle a nadie: si algo intentara, esta URL
+     *  inalcanzable lo delata. */
     private fun sesionSinRed(store: FakeDeviceStore) =
         SesionDePersona(PocketBaseClient(baseUrl = "http://unused.invalid"), store)
 
@@ -171,85 +168,4 @@ class EntradaViewModelTest {
         assertEquals(EstadoDeSesion.Con("a@b.co"), vm.sesionEstado.value)
     }
 
-    @Test
-    fun `registro exitoso desde la entrada termina Adentro`() = runBlocking {
-        val pb = MockWebServer().also { it.start() }
-        val gw = MockWebServer().also { it.start() }
-        pb.enqueue(MockResponse().setBody("""{"token":"dtok","record":{"id":"devrec"}}""")) // bootstrap
-        gw.enqueue(MockResponse().setResponseCode(201).setBody("""{"userId":"u1","accountId":"A_anon"}""")) // /v1/cuenta/registrar
-        pb.enqueue(MockResponse().setBody("""{"token":"ptok","record":{"id":"usr-1"}}""")) // sesion.iniciar
-
-        val client = PocketBaseClient(baseUrl = pb.url("/").toString().trimEnd('/'))
-        val store = FakeDeviceStore(DeviceIdentity("A_anon", "dev-1", "dev-1@arkiv.local", "pw12345678", "phone"))
-        val deviceAuth = DeviceAuthManager(client, store, cuentaApiSinUsarParaBootstrap(client, store))
-        val sesion = SesionDePersona(client, store)
-        val cuentaApi = CuentaApi(
-            baseUrl = { gw.url("/").toString().trimEnd('/') },
-            deviceToken = { deviceAuth.session.value?.token },
-            sesion = sesion,
-            http = OkHttpClient(),
-        )
-        val account = AccountManager(
-            client = client,
-            deviceAuth = deviceAuth,
-            store = store,
-            magisLink = MagisLinkClient(baseUrl = { "http://unused.invalid" }),
-            cuentaApi = cuentaApi,
-            sesion = sesion,
-            onAccountSwitched = {},
-            onLocalWipe = {},
-        )
-        val vm = EntradaViewModel(sesion, account)
-        assertEquals(EstadoDeEntrada.Entrada(null), estadoDeEntrada(vm.sesionEstado.value, vm.aviso.value))
-
-        vm.account.registrar("a@b.co", "secret12", "LIC-1")
-
-        assertEquals(EstadoDeSesion.Con("a@b.co"), vm.sesionEstado.value)
-        assertEquals(EstadoDeEntrada.Adentro, estadoDeEntrada(vm.sesionEstado.value, vm.aviso.value))
-        pb.shutdown(); gw.shutdown()
-    }
-
-    @Test
-    fun `licencia invalida durante el registro deja el estado en Entrada`() = runBlocking {
-        val pb = MockWebServer().also { it.start() }
-        val gw = MockWebServer().also { it.start() }
-        pb.enqueue(MockResponse().setBody("""{"token":"dtok","record":{"id":"devrec"}}""")) // bootstrap
-        gw.enqueue(
-            MockResponse().setResponseCode(400)
-                .setBody("""{"detail":{"codigo":"licencia_invalida","mensaje":"el codigo no existe"}}"""),
-        )
-
-        val client = PocketBaseClient(baseUrl = pb.url("/").toString().trimEnd('/'))
-        val store = FakeDeviceStore(DeviceIdentity("A_anon", "dev-1", "dev-1@arkiv.local", "pw12345678", "phone"))
-        val deviceAuth = DeviceAuthManager(client, store, cuentaApiSinUsarParaBootstrap(client, store))
-        val sesion = SesionDePersona(client, store)
-        val cuentaApi = CuentaApi(
-            baseUrl = { gw.url("/").toString().trimEnd('/') },
-            deviceToken = { deviceAuth.session.value?.token },
-            sesion = sesion,
-            http = OkHttpClient(),
-        )
-        val account = AccountManager(
-            client = client,
-            deviceAuth = deviceAuth,
-            store = store,
-            magisLink = MagisLinkClient(baseUrl = { "http://unused.invalid" }),
-            cuentaApi = cuentaApi,
-            sesion = sesion,
-            onAccountSwitched = {},
-            onLocalWipe = {},
-        )
-        val vm = EntradaViewModel(sesion, account)
-
-        var threw = false
-        try {
-            vm.account.registrar("a@b.co", "secret12", "LIC-MALA")
-        } catch (e: com.arkiv.player.pocketbase.AccountException) {
-            threw = true
-        }
-
-        assertTrue("una licencia invalida debe rechazar el registro", threw)
-        assertEquals(EstadoDeEntrada.Entrada(null), estadoDeEntrada(vm.sesionEstado.value, vm.aviso.value))
-        pb.shutdown(); gw.shutdown()
-    }
 }

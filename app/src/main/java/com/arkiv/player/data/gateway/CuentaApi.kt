@@ -11,9 +11,6 @@ import okhttp3.Response
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
-/** Alta con licencia: lo que el gateway devuelve al crear la cuenta. */
-data class Registro(val userId: String, val accountId: String)
-
 /** Alta anónima de un aparato (Task 7): lo que el gateway devuelve al crearlo con
  *  credenciales de admin -- el `id` real que le quedó en PocketBase. */
 data class AltaDeAparato(val id: String, val accountId: String)
@@ -55,7 +52,14 @@ sealed class ErrorDeCuenta(val codigo: String, val mensaje: String) : Exception(
     /** El token no vale (expiró, la cuenta se borró): hay que volver a la pantalla de entrada. */
     class SesionInvalida(mensaje: String) : ErrorDeCuenta("sesion_invalida", mensaje)
 
-    /** La licencia fue revocada: volver a la entrada. */
+    /**
+     * La licencia de la cuenta fue revocada DESPUÉS de existir (Cristian la dio de baja a mano):
+     * volver a la entrada. NO es parte del registro -ver [Desconocido]/`desde()`, este código lo
+     * puede devolver cualquier pedido autenticado del gateway, no solo `/v1/cuenta/registrar`- así
+     * que sobrevivió a la poda de licencias/registro (Task 7): [InterceptorDeSesion] y
+     * `EntradaViewModel.manejarErrorDeCuenta`/`MisAparatosViewModel.manejarErrorDeSesion` siguen
+     * cerrando la sesión con esta rama para una cuenta YA logueada.
+     */
     class LicenciaNoVigente(mensaje: String) : ErrorDeCuenta("licencia_no_vigente", mensaje)
 
     /** Datos de identidad corruptos del lado del servidor: volver a la entrada, con mensaje de soporte. */
@@ -63,12 +67,6 @@ sealed class ErrorDeCuenta(val codigo: String, val mensaje: String) : Exception(
 
     /** El gateway no pudo responder (503). NO es un rechazo de identidad: no tocar la sesión, avisar y reintentar. */
     class BackendNoDisponible(mensaje: String) : ErrorDeCuenta("backend_no_disponible", mensaje)
-
-    /** El código de licencia no existe, ya se usó o fue revocado. Error inline en el formulario. */
-    class LicenciaInvalida(mensaje: String) : ErrorDeCuenta("licencia_invalida", mensaje)
-
-    /** Ese email ya tiene cuenta. Error inline. */
-    class EmailEnUso(mensaje: String) : ErrorDeCuenta("email_en_uso", mensaje)
 
     /** Email o contraseña con formato inválido. Error inline. */
     class DatosInvalidos(mensaje: String) : ErrorDeCuenta("datos_invalidos", mensaje)
@@ -84,9 +82,6 @@ sealed class ErrorDeCuenta(val codigo: String, val mensaje: String) : Exception(
      * pasa esto. Confundirlas convierte un typo en un rebote inexplicable.
      */
     class CredencialesInvalidas(mensaje: String) : ErrorDeCuenta("credenciales_invalidas", mensaje)
-
-    /** Este aparato ya tiene una cuenta asociada (no puede registrarse de nuevo). */
-    class DeviceYaRegistrado(mensaje: String) : ErrorDeCuenta("device_ya_registrado", mensaje)
 
     /** Sin cupo de ese tipo de aparato: mandar a la pantalla de "Mis aparatos". */
     class TopeAlcanzado(mensaje: String) : ErrorDeCuenta("tope_alcanzado", mensaje)
@@ -118,12 +113,9 @@ sealed class ErrorDeCuenta(val codigo: String, val mensaje: String) : Exception(
             "licencia_no_vigente" -> LicenciaNoVigente(mensaje)
             "identidad_invalida" -> IdentidadInvalida(mensaje)
             "backend_no_disponible" -> BackendNoDisponible(mensaje)
-            "licencia_invalida" -> LicenciaInvalida(mensaje)
-            "email_en_uso" -> EmailEnUso(mensaje)
             "datos_invalidos" -> DatosInvalidos(mensaje)
             "sin_device" -> SinDevice(mensaje)
             "credenciales_invalidas" -> CredencialesInvalidas(mensaje)
-            "device_ya_registrado" -> DeviceYaRegistrado(mensaje)
             "tope_alcanzado" -> TopeAlcanzado(mensaje)
             "aparato_de_otra_cuenta" -> AparatoDeOtraCuenta(mensaje)
             "aparato_no_encontrado" -> AparatoNoEncontrado(mensaje)
@@ -149,7 +141,10 @@ sealed class ErrorDeCuenta(val codigo: String, val mensaje: String) : Exception(
 }
 
 /**
- * Cliente de `/v1/cuenta`: registro con licencia y el ciclo de vida de los aparatos de la cuenta.
+ * Cliente de `/v1/cuenta`: login de un aparato nuevo y el ciclo de vida de los aparatos de la
+ * cuenta. El registro con licencia (`registrar()`, la `data class Registro`, los errores
+ * `licencia_invalida`/`email_en_uso`/`device_ya_registrado`) se sacó en Task 7 -poda de "Arkiv
+ * Light": ya no se dan de alta cuentas nuevas desde la app, solo se entra a una que ya existe-.
  *
  * Sigue la forma de [ArkivApiClient] para `baseUrl` (proveedor en vez de valor fijo, para que un
  * cambio de gateway -[com.arkiv.player.data.SettingsStore]- se refleje sin reconstruir el
@@ -157,25 +152,25 @@ sealed class ErrorDeCuenta(val codigo: String, val mensaje: String) : Exception(
  * timeouts son finitos en lectura (no `0`).
  *
  * El `Authorization` es la parte que importa: [altaAparato] no manda ninguno -el aparato todavía
- * no existe, ver su KDoc-, [registrar] identifica al APARATO que todavía no tiene cuenta (por eso
- * usa [deviceToken], no la sesión), y los otros tres identifican a la PERSONA ya autenticada (por
- * eso usan [sesion]). Mezclarlos es un agujero de suplantación -del lado del servidor ya se
+ * no existe, ver su KDoc-, [entrar] identifica al APARATO que todavía no es de ninguna cuenta (por
+ * eso usa [deviceToken], no la sesión), y los otros dos identifican a la PERSONA ya autenticada
+ * (por eso usan [sesion]). Mezclarlos es un agujero de suplantación -del lado del servidor ya se
  * corrigió una vez exactamente eso-, así que cada método usa una sola de las tres fuentes, nunca
  * otra. Task 8 (Paso 3): `X-Arkiv-Key` salió del todo -- este cliente ya no manda ninguna llave de
  * build, solo las credenciales de sesión/aparato de arriba.
  *
- * Desde que sacar un aparato tiene que desconectarlo de verdad (spec de "Mis aparatos"), los tres
+ * Desde que sacar un aparato tiene que desconectarlo de verdad (spec de "Mis aparatos"), los dos
  * métodos que identifican a la PERSONA mandan ADEMÁS `X-Arkiv-Device` con [deviceToken]: el
  * gateway valida las dos credenciales -quién sos y desde qué fierro- y exige que el aparato siga
- * siendo de esa cuenta. [registrar] no cambia: ahí el aparato ya viaja en `Authorization`, porque
- * todavía no hay ninguna persona a la que atarlo.
+ * siendo de esa cuenta. [entrar] no manda esa cabecera: ahí el aparato ya viaja en `Authorization`,
+ * porque todavía no hay ninguna persona a la que atarlo.
  */
 class CuentaApi(
     private val baseUrl: () -> String,
     /** Token del APARATO (el que ya usa `DeviceAuthManager`/`DeviceStore.token()`). Solo lo usa
-     *  [registrar]: antes de tener cuenta, la única identidad que existe es la del fierro. */
+     *  [entrar]: antes de tener cuenta, la única identidad que existe es la del fierro. */
     private val deviceToken: () -> String?,
-    /** Sesión de la PERSONA (Task 1). La usan los tres métodos de aparatos, nunca [registrar]. */
+    /** Sesión de la PERSONA (Task 1). La usan [listarAparatos]/[sacarAparato], nunca [entrar]. */
     private val sesion: SesionDePersona,
     http: OkHttpClient,
 ) {
@@ -190,7 +185,7 @@ class CuentaApi(
         val b = Request.Builder().url(url)
         token?.let { b.header("Authorization", it) }
         // conDevice: solo lo mandan los métodos que identifican a la PERSONA
-        // ([listarAparatos], [sacarAparato]) -- [registrar] ya manda el
+        // ([listarAparatos], [sacarAparato]) -- [entrar] ya manda el
         // token del aparato en `Authorization` (arriba), así que no le hace falta esta
         // cabecera aparte. Si [deviceToken] todavía no está disponible (null), se omite la
         // cabecera en vez de fallar acá: el gateway la va a rechazar con `sin_device`
@@ -226,15 +221,6 @@ class CuentaApi(
         AltaDeAparato(id = o.getString("id"), accountId = o.getString("accountId"))
     }
 
-    suspend fun registrar(email: String, password: String, licencia: String): Registro =
-        withContext(Dispatchers.IO) {
-            val body = JSONObject(mapOf("email" to email, "password" to password, "licencia" to licencia))
-                .toString().toRequestBody(jsonType)
-            val req = pedido("${baseUrl()}/v1/cuenta/registrar", deviceToken()).post(body).build()
-            val o = JSONObject(ejecutar(req))
-            Registro(userId = o.getString("userId"), accountId = o.getString("accountId"))
-        }
-
     /**
      * Login de un aparato que TODAVÍA no es de ninguna cuenta.
      *
@@ -245,9 +231,9 @@ class CuentaApi(
      * Google TV: `alta -> 201`, `aparatos -> 401`, en bucle, y el login rebotando a la pantalla de
      * login para siempre.
      *
-     * Por eso las credenciales van en el cuerpo y el token del APARATO en `Authorization`, igual
-     * que [registrar] y por el mismo motivo: la única identidad que existe antes de entrar es la
-     * del fierro, y la de la persona es su contraseña. NO usa [sesion] — puede no haber ninguna.
+     * Por eso las credenciales van en el cuerpo y el token del APARATO en `Authorization`: la única
+     * identidad que existe antes de entrar es la del fierro, y la de la persona es su contraseña.
+     * NO usa [sesion] — puede no haber ninguna.
      */
     suspend fun entrar(email: String, password: String): Entrada = withContext(Dispatchers.IO) {
         val body = JSONObject(mapOf("email" to email, "password" to password))

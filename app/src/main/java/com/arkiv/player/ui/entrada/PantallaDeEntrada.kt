@@ -32,8 +32,8 @@ import com.arkiv.player.ui.theme.ArkivTextSecondary
 
 /**
  * Se compone en vez de `ArkivRoot`/`ArkivTvRoot` cuando [EntradaViewModel] dice que no hay sesión
- * -`MainActivity` no arma Room, el sync ni las filas del home sin ella-. El formulario de login y
- * registro es [AnonimoSection] (ui/settings/AccountSection.kt) reusado tal cual, no reimplementado.
+ * -`MainActivity` no arma Room, el sync ni las filas del home sin ella-. El formulario de login es
+ * [AnonimoSection] (ui/settings/AccountSection.kt) reusado tal cual, no reimplementado.
  */
 @Composable
 fun PantallaDeEntrada(vm: EntradaViewModel) {

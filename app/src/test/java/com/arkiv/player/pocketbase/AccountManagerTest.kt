@@ -34,9 +34,8 @@ class AccountManagerTest {
             baseUrl = { server.url("/").toString().trimEnd('/') },
         )
 
-    /** `registrar` lo cubre AccountManagerRegistroTest. Pero `login` SI llama al gateway desde que
-     *  el aparato se adopta por ahi (unico camino que cuenta contra el cupo de la licencia), asi
-     *  que quien lo necesite le pasa un baseUrl de verdad. */
+    /** `login` llama al gateway desde que el aparato se adopta por ahi (unico camino que cuenta
+     *  contra el cupo de la licencia), asi que quien lo necesite le pasa un baseUrl de verdad. */
     private fun cuentaApiSinUsar(sesion: SesionDePersona) = CuentaApi(
         baseUrl = { "http://unused.invalid" },
         deviceToken = { null },

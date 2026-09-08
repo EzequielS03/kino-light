@@ -99,16 +99,8 @@ class CuentaApiTest {
     }
 
     // --- no mezclar el token del aparato con el de la persona (el agujero de suplantacion) -----
-
-    @Test
-    fun `registrar manda el token del APARATO en Authorization, no el de la persona`() = runBlocking {
-        deviceStore.savePersonToken("person-tok")
-        server.enqueue(MockResponse().setResponseCode(201).setBody("""{"userId":"u1","accountId":"a1"}"""))
-
-        cuentaApi(deviceTok = "device-tok").registrar("a@b.co", "secret12", "LIC-1")
-
-        assertEquals("device-tok", server.takeRequest().getHeader("Authorization"))
-    }
+    // Ver mas abajo "entrar manda el token del APARATO en Authorization, nunca el de la persona":
+    // el registro (que hacia el mismo contraste) se saco de la app en Task 7.
 
     @Test
     fun `listarAparatos manda el token de la persona`() = runBlocking {
@@ -136,9 +128,9 @@ class CuentaApiTest {
     // Task 8 (Paso 3): `X-Arkiv-Key` salió del todo -- confirma que el corte fue real.
     @Test
     fun `ningun pedido manda X-Arkiv-Key`() = runBlocking {
-        server.enqueue(MockResponse().setResponseCode(201).setBody("""{"userId":"u1","accountId":"a1"}"""))
+        server.enqueue(MockResponse().setBody("""{"userId":"u1","accountId":"a1","kind":"phone","usados":1,"tope":1,"yaEra":false,"desvinculado":null}"""))
 
-        cuentaApi().registrar("a@b.co", "secret12", "LIC-1")
+        cuentaApi().entrar("a@b.co", "secret12")
 
         assertEquals(null, server.takeRequest().getHeader("X-Arkiv-Key"))
     }
@@ -166,33 +158,10 @@ class CuentaApiTest {
         assertEquals("device-que-llama", server.takeRequest().getHeader("X-Arkiv-Device"))
     }
 
-    @Test
-    fun `registrar NO manda X-Arkiv-Device -- ahi el aparato ya viaja en Authorization`() = runBlocking {
-        // Antes de tener cuenta, la única identidad que existe es la del aparato mismo (en
-        // Authorization, ver el test de arriba): mandar además X-Arkiv-Device sería repetir la
-        // misma credencial en dos cabeceras distintas, sin ninguna persona a la que atarla.
-        server.enqueue(MockResponse().setResponseCode(201).setBody("""{"userId":"u1","accountId":"a1"}"""))
-
-        cuentaApi(deviceTok = "device-tok").registrar("a@b.co", "secret12", "LIC-1")
-
-        assertEquals(null, server.takeRequest().getHeader("X-Arkiv-Device"))
-    }
+    // `entrar` NO manda X-Arkiv-Device -- ahi el aparato ya viaja en Authorization -- ver mas abajo
+    // "entrar manda el token del APARATO en Authorization, nunca el de la persona".
 
     // --- caminos felices: parseo de cada respuesta -----------------------------------------
-
-    @Test
-    fun `registrar parsea userId y accountId, y manda email password licencia en el body`() = runBlocking {
-        server.enqueue(MockResponse().setResponseCode(201).setBody("""{"userId":"u1","accountId":"a1"}"""))
-
-        val r = cuentaApi().registrar("a@b.co", "secret12", "LIC-1")
-
-        assertEquals("u1", r.userId)
-        assertEquals("a1", r.accountId)
-        val body = JSONObject(server.takeRequest().body.readUtf8())
-        assertEquals("a@b.co", body.getString("email"))
-        assertEquals("secret12", body.getString("password"))
-        assertEquals("LIC-1", body.getString("licencia"))
-    }
 
     @Test
     fun `listarAparatos parsea la lista de aparatos`() = runBlocking {
@@ -226,11 +195,8 @@ class CuentaApiTest {
             Triple(403, "licencia_no_vigente", ErrorDeCuenta.LicenciaNoVigente::class),
             Triple(403, "identidad_invalida", ErrorDeCuenta.IdentidadInvalida::class),
             Triple(503, "backend_no_disponible", ErrorDeCuenta.BackendNoDisponible::class),
-            Triple(400, "licencia_invalida", ErrorDeCuenta.LicenciaInvalida::class),
-            Triple(409, "email_en_uso", ErrorDeCuenta.EmailEnUso::class),
             Triple(400, "datos_invalidos", ErrorDeCuenta.DatosInvalidos::class),
             Triple(401, "sin_device", ErrorDeCuenta.SinDevice::class),
-            Triple(409, "device_ya_registrado", ErrorDeCuenta.DeviceYaRegistrado::class),
             Triple(403, "tope_alcanzado", ErrorDeCuenta.TopeAlcanzado::class),
             Triple(403, "aparato_de_otra_cuenta", ErrorDeCuenta.AparatoDeOtraCuenta::class),
             Triple(404, "aparato_no_encontrado", ErrorDeCuenta.AparatoNoEncontrado::class),
@@ -343,7 +309,7 @@ class CuentaApiTest {
     // de login. `POST /v1/cuenta/aparatos` -adoptar- pide sesion de persona Y que el aparato que
     // llama YA sea de la cuenta; meterlo en la cuenta es lo que adoptar viene a hacer. En un
     // aparato recien instalado eso no se cumple nunca. `/entrar` corre sin sesion previa: el token
-    // del APARATO en Authorization (igual que [registrar]) y la contrasena como prueba de identidad.
+    // del APARATO en Authorization y la contrasena como prueba de identidad.
 
     @Test
     fun `entrar manda el token del APARATO en Authorization, nunca el de la persona`() = runBlocking {
@@ -357,7 +323,7 @@ class CuentaApiTest {
         val req = server.takeRequest()
         assertEquals("/v1/cuenta/entrar", req.path)
         assertEquals("device-tok", req.getHeader("Authorization"))
-        // Sin X-Arkiv-Device: el aparato ya viaja en Authorization, como en registrar.
+        // Sin X-Arkiv-Device: el aparato ya viaja en Authorization.
         assertEquals(null, req.getHeader("X-Arkiv-Device"))
         val body = JSONObject(req.body.readUtf8())
         assertEquals("a@b.co", body.getString("email"))
