@@ -22,7 +22,6 @@ import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Downloading
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.Settings
@@ -78,11 +77,8 @@ import com.arkiv.player.ui.add.AddScreen
 import com.arkiv.player.ui.catalog.AnimeShowDetailScreen
 import com.arkiv.player.ui.catalog.CaracolScreen
 import com.arkiv.player.ui.live.DituLivePlayerScreen
-import com.arkiv.player.ui.catalog.CatalogDetailScreen
 import com.arkiv.player.ui.catalog.CineCatalogScreen
 import com.arkiv.player.ui.catalog.CineDetailScreen
-import com.arkiv.player.ui.catalog.CatalogScreen
-import com.arkiv.player.ui.catalog.ShowDetailScreen
 import com.arkiv.player.ui.detail.DetailScreen
 import com.arkiv.player.ui.downloads.DownloadsScreen
 import com.arkiv.player.ui.home.HomeScreen
@@ -93,7 +89,6 @@ import com.arkiv.player.ui.player.PlayerScreen
 import com.arkiv.player.ui.remote.RemoteScreen
 import com.arkiv.player.ui.search.SearchScreen
 import com.arkiv.player.ui.settings.SettingsScreen
-import com.arkiv.player.ui.torrent.TorrentScreen
 import com.arkiv.player.ui.theme.ArkivBlack
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurface
@@ -283,9 +278,6 @@ fun ArkivRoot(
                     },
                     actions = {
                         if (currentRoute == "home") {
-                            IconButton(onClick = { navController.navigate("torrent") }) {
-                                Icon(Icons.Default.Downloading, contentDescription = "Reproducir torrent", tint = Color.White)
-                            }
                             IconButton(onClick = { showConnection = true }) {
                                 Icon(Icons.Default.QrCodeScanner, contentDescription = "Conectar con el TV", tint = Color.White)
                             }
@@ -499,27 +491,6 @@ fun ArkivRoot(
                     )
                 }
             }
-            composable("catalog/{imdbId}") { entry ->
-                val imdbId = Uri.decode(entry.arguments?.getString("imdbId").orEmpty())
-                Box(Modifier.fillMaxSize().padding(padding)) {
-                    CatalogDetailScreen(
-                        imdbId = imdbId,
-                        onPlay = { playEpisode(it) },
-                        onBack = { navController.popBackStack() },
-                    )
-                }
-            }
-            composable("catalog_show/{imdbId}") { entry ->
-                val imdbId = Uri.decode(entry.arguments?.getString("imdbId").orEmpty())
-                Box(Modifier.fillMaxSize().padding(padding)) {
-                    ShowDetailScreen(
-                        imdbId = imdbId,
-                        onPlay = { playEpisode(it) },
-                        onBack = { navController.popBackStack() },
-                        onOpenItem = { navController.navigate("detail/${Uri.encode(it)}") },
-                    )
-                }
-            }
             composable(
                 "catalog_anime/{anilistId}?episode={episode}",
                 arguments = listOf(
@@ -560,18 +531,6 @@ fun ArkivRoot(
                     QrScannerScreen(
                         pairing = com.arkiv.player.AppGraph.from(context).pairing,
                         onResult = { navController.popBackStack() },
-                    )
-                }
-            }
-            composable("torrent") {
-                Box(Modifier.fillMaxSize().padding(padding)) {
-                    TorrentScreen(
-                        onBack = { navController.popBackStack() },
-                        onAdded = { itemId ->
-                            navController.navigate("detail/${Uri.encode(itemId)}") {
-                                popUpTo("torrent") { inclusive = true }
-                            }
-                        },
                     )
                 }
             }

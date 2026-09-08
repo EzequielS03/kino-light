@@ -648,11 +648,9 @@ private fun siteLabelOf(sourceRef: String?): String? {
 /**
  * Elegir qué capítulos de la serie guardar en el dispositivo (todos, algunos, o uno).
  *
- * Gemelo del selector de [com.arkiv.player.ui.catalog.WebPackDialog] pero sobre los [Episode] ya
- * guardados de esta pantalla en vez de un `MirrorWebPack` (otra forma de datos, misma interacción):
- * cabecera de "seleccionar todo" tri-estado, cabecera por temporada con su propio marcar/desmarcar
- * (una serie larga tiene cientos de filas y marcarlas de a una es inviable) y el mismo tilde verde
- * informativo para lo que ya está guardado.
+ * Sobre los [Episode] ya guardados de esta pantalla: cabecera de "seleccionar todo" tri-estado,
+ * cabecera por temporada con su propio marcar/desmarcar (una serie larga tiene cientos de filas y
+ * marcarlas de a una es inviable) y el mismo tilde verde informativo para lo que ya está guardado.
  */
 @Composable
 private fun SaveEpisodesDialog(
@@ -922,8 +920,7 @@ private fun EpisodeRow(
             // 112dp + 2 IconButton ya la dejan justa en un teléfono angosto).
             //
             // El tilde es informativo, no una acción -- por eso no es un IconButton (no se toca, no ocupa
-            // un slot de 48dp) y no comparte el rojo de "visto" que tiene al lado. Mismo ícono, color y
-            // tamaño que en WebPackDialog: es el mismo indicador y tiene que reconocerse igual.
+            // un slot de 48dp) y no comparte el rojo de "visto" que tiene al lado.
             //
             // Antes había DOS slots: este (Download, al teléfono) y otro con CloudDownload que mandaba a
             // bajar a la NUC. El de la NUC se quitó porque producía algo que ya nadie puede ver ni

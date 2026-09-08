@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import com.arkiv.player.data.ArchiveUrls
 import com.arkiv.player.data.ArkivRepository
 import com.arkiv.player.data.CoincidenciaDeArchivo
-import com.arkiv.player.data.EpisodeTorrent
 import com.arkiv.player.data.GatewayConfigSource
 import com.arkiv.player.data.Quality
 import com.arkiv.player.data.SettingsStore
@@ -28,9 +27,6 @@ import com.arkiv.player.playback.PoliticaOrigen
 import com.arkiv.player.playback.SourceKind
 import com.arkiv.player.playback.VentanaDeDescarga
 import com.arkiv.player.playback.VentanaDeArchivo
-import com.arkiv.player.torrent.EpisodeHint
-import com.arkiv.player.torrent.TorrentEngine
-import com.arkiv.player.torrent.TorrentProgress
 import com.arkiv.player.ui.live.LiveController
 import com.arkiv.player.ui.live.LiveZapping
 import com.arkiv.player.ui.live.LiveZappingSource
@@ -122,11 +118,21 @@ data class PlaylistData(
     val pedido: String,
 )
 
-/** Extras de una fuente web resuelta (subtítulos + headers sniffeados) para adjuntar en la UI. */
+/**
+ * Un subtítulo resuelto (idioma + URL), para adjuntar como pista externa.
+ *
+ * Antes vivía en `com.arkiv.player.data.catalog.web.ResolvedSub` (torrent/web se borró en la poda de
+ * esta rama); [WebExtras] la sigue necesitando porque también la usan magis/ditu, que reciben sus
+ * subtítulos del gateway y no de ningún resolver web.
+ */
+data class ResolvedSub(val lang: String, val url: String)
+
+/** Extras de una fuente resuelta (subtítulos + headers sniffeados) para adjuntar en la UI. Pese al
+ *  nombre "web", también los usa [PlayerViewModel.loadMagis] para los subtítulos que trae el portal. */
 data class WebExtras(
     val episodeId: String,
     val headers: Map<String, String>,
-    val subtitles: List<com.arkiv.player.data.catalog.web.ResolvedSub>,
+    val subtitles: List<ResolvedSub>,
 )
 
 /**
@@ -164,9 +170,7 @@ fun mensajeErrorVivo(
 class PlayerViewModel(
     private val repo: ArkivRepository,
     private val settings: SettingsStore,
-    private val torrentEngine: TorrentEngine,
     private val archiveCacheProxy: ArchiveCacheProxy,
-    private val webResolverApi: com.arkiv.player.data.catalog.web.WebResolverApi,
     private val arkivOfflineApi: ArkivOfflineApi,
     private val playbackPreferenceStore: PlaybackPreferenceStore,
     private val localLibrary: com.arkiv.player.data.local.LocalLibrary,
@@ -238,14 +242,6 @@ class PlayerViewModel(
      * Ver [onReproduccionViva], que es quien lo apaga.
      */
     private var errorDeReproduccion = false
-
-    /**
-     * Progreso durante la fase de PRE-BUFFER (torrent): antes de emitir la playlist "lista" esperamos
-     * a que la cabeza del archivo esté descargada, publicando peers/velocidad/% para que el Paso B
-     * muestre un overlay "Cargando inicio…" en vez de una espera a ciegas. null = no estamos pre-buffeando.
-     */
-    private val _prepProgress = MutableStateFlow<TorrentProgress?>(null)
-    val prepProgress: StateFlow<TorrentProgress?> = _prepProgress.asStateFlow()
 
     // Feedback mientras el resolver de blog snifea el stream de una fuente web (puede tardar).
     private val _resolving = MutableStateFlow(false)
@@ -338,9 +334,7 @@ class PlayerViewModel(
             }
             Log.w(PLAY, "load() episodeId=$episodeId kind=$kind")
             when (kind) {
-                SourceKind.TORRENT -> loadTorrent(episodeId)
                 SourceKind.ARCHIVE -> loadArchive(episodeId)
-                SourceKind.WEB -> loadWeb(episodeId)
                 SourceKind.MAGIS -> loadMagis(episodeId)
                 SourceKind.DITU -> loadDitu(episodeId)
                 // PlayerSource.kindFor() nunca devuelve NUC ni LOCAL (ver su propio KDoc): esta rama
@@ -795,31 +789,6 @@ class PlayerViewModel(
         load(reemplazo.id)
     }
 
-    /** Torrent: resuelve el .torrent/magnet, arranca el stream y emite un único ítem con la URL local. */
-    private suspend fun loadTorrent(episodeId: String) {
-        val src = repo.torrentSourceForEpisode(episodeId)
-        val (title, url) = resolveTorrentUrl(episodeId, src) ?: return
-        // Pre-buffer gate: no emitimos la playlist "lista" (que abre VLC) hasta tener la primera pieza
-        // descargada. Así VLC arranca limpio (sin el broken-pipe/pantalla negra de esperar datos que
-        // aún no llegan) y la espera del arranque en frío se ve con feedback (peers/%) vía prepProgress.
-        preBufferHead()
-        val item = PlayerData(
-            episodeId = episodeId,
-            itemId = episodeId.substringBefore("::"),
-            title = title,
-            subtitle = "",
-            mediaUrl = url,
-            castUrl = null,
-            artworkUrl = "",
-            openingStartMs = null,
-            openingEndMs = null,
-            endingStartMs = null,
-            kind = SourceKind.TORRENT,
-        )
-        val startPos = safeStartPosition(episodeId, SourceKind.TORRENT)
-        _playlist.value = PlaylistData(listOf(item), 0, startPos, pedido = episodeId)
-    }
-
     /**
      * DESCONECTADA desde que las descargas van al dispositivo: `load()` llama a [loadWeb] directo.
      * Se conserva porque la maquinaria de reproducción remota desde la NUC sigue completa y
@@ -1139,9 +1108,7 @@ class PlayerViewModel(
         _webExtras.value = WebExtras(
             episodeId,
             play.headers,
-            play.subtitles.map {
-                com.arkiv.player.data.catalog.web.ResolvedSub(lang = it.lang, url = it.url)
-            },
+            play.subtitles.map { ResolvedSub(lang = it.lang, url = it.url) },
         )
         // Lo efímero SIEMPRE arranca en cero, y no por olvido: no se guardó progreso, así que no hay
         // dónde reanudar. Es la consecuencia directa de la regla — no se puede retomar lo que
@@ -1233,115 +1200,20 @@ class PlayerViewModel(
         }
     }
 
-    private suspend fun loadWeb(episodeId: String) {
-        val pageUrl = repo.webSourceForEpisode(episodeId)
-        Log.w(PLAY, "loadWeb() episodeId=$episodeId pageUrl=$pageUrl")
-        if (pageUrl.isNullOrBlank()) { _error.value = "No se encontró la fuente web"; return }
-        // Descartar la fuente anterior YA: el resolver tarda ~10s y, sin esto, la UI seguía mostrando
-        // (y reproduciendo detrás del overlay) el video previo mientras se resuelve el nuevo.
+    /**
+     * ELIMINADA en la poda de esta rama (borrado de torrent+web+mirror, ver CLAUDE.md "Cero servidor
+     * propio"): resolvía una `pageUrl` scrapeada on-device contra `WebResolverApi` (el resolver
+     * headless de blog), que ya no existe. Se conserva la función -no se borra del todo- porque
+     * todavía la llaman [forcePlayLive], [resolveAskPlaybackSource] y el filler NUC/LOCAL de [load]
+     * -maquinaria de `PlaybackPreferenceStore`/NUC que esta tarea no toca-, así que hace falta algo
+     * que siga compilando en su lugar. Reporta el error limpio en vez de intentar reproducir.
+     */
+    private fun loadWeb(episodeId: String) {
+        Log.w(PLAY, "loadWeb() episodeId=$episodeId → fuente web eliminada de esta rama")
         _playlist.value = null
         _webExtras.value = null
-        _resolving.value = true
-
-        // Resultados web que vienen del gateway guardan el ref (no una URL HTTP): se resuelven
-        // llamando al gateway igual que Magis, sin pasar por el web resolver de blog.
-        if (!pageUrl.startsWith("http://") && !pageUrl.startsWith("https://")) {
-            val resuelto = withContext(Dispatchers.IO) { runCatching { gatewayClient.resolve(pageUrl) } }
-            _resolving.value = false
-            val play = resuelto.getOrNull()
-            Log.w(PLAY, "loadWeb() gateway ref=«$pageUrl» → ${if (play == null) "FALLO: ${resuelto.exceptionOrNull()}" else "ok"}")
-            if (play == null) { _error.value = "No se pudo resolver esta fuente web"; return }
-            Log.w(PLAY, "loadWeb() gateway.url=${play.url}")
-            Log.w(PLAY, "loadWeb() gateway.fallbackUrl=${play.fallbackUrl}")
-            Log.w(PLAY, "loadWeb() gateway.mime=${play.mime} container=${play.container} durationMs=${play.durationMs}")
-            Log.w(PLAY, "loadWeb() gateway.headers=${play.headers}")
-            Log.w(PLAY, "loadWeb() gateway.subtitles=${play.subtitles.size}")
-            // El web resolver de blog devuelve una URL de proxy local (127.0.0.1:8123). El proxy está
-            // expuesto públicamente vía Cloudflare en jackett.comparadorinternet.co/(proxy|resolve).
-            // Reescribir la URL para que el Fire TV la alcance por ese host; así el CDN ve la IP de
-            // blog (donde se generó el token) en lugar de la IP del TV, y el Referer lo pone el proxy.
-            val streamUrl = if (play.url.contains("127.0.0.1:8123")) {
-                val publicUrl = play.url.replace("http://127.0.0.1:8123", "https://jackett.comparadorinternet.co")
-                Log.w(PLAY, "loadWeb() proxy local → público: $publicUrl")
-                publicUrl
-            } else {
-                Log.w(PLAY, "loadWeb() URL directa (no proxy): ${play.url}")
-                play.url
-            }
-            Log.w(PLAY, "loadWeb() streamUrl final: $streamUrl  referer=${play.headers["Referer"]}")
-            val ep = repo.getEpisode(episodeId)
-            val item = PlayerData(
-                episodeId = episodeId,
-                itemId = episodeId.substringBefore("::"),
-                title = ep?.displayName ?: "Web",
-                subtitle = ep?.section ?: "",
-                mediaUrl = streamUrl,
-                castUrl = play.fallbackUrl ?: streamUrl,
-                artworkUrl = "",
-                openingStartMs = null, openingEndMs = null, endingStartMs = null,
-                kind = SourceKind.WEB,
-                referer = play.headers["Referer"],
-                userAgent = play.headers["User-Agent"],
-            )
-            _webExtras.value = WebExtras(
-                episodeId, play.headers,
-                play.subtitles.map { com.arkiv.player.data.catalog.web.ResolvedSub(lang = it.lang, url = it.url) },
-            )
-            val startPos = safeStartPosition(episodeId, SourceKind.WEB)
-            _playlist.value = PlaylistData(listOf(item), 0, startPos, pedido = episodeId)
-            Log.w(PLAY, "loadWeb() gateway resuelto → playlist publicada startPos=$startPos ep=${ep?.displayName}")
-            return
-        }
-
-        val resolved = withContext(Dispatchers.IO) { webResolverApi.resolve(pageUrl) }
         _resolving.value = false
-        Log.w(PLAY, "loadWeb() resuelto: ${if (resolved == null) "NULL (falló)" else "ok streamUrl=${resolved.streamUrl}"}")
-        if (resolved == null) { _error.value = "No se pudo resolver esta fuente web"; return }
-        val ep = repo.getEpisode(episodeId)
-        val item = PlayerData(
-            episodeId = episodeId,
-            itemId = episodeId.substringBefore("::"),
-            title = ep?.displayName ?: "Web",
-            subtitle = ep?.section ?: "",
-            mediaUrl = resolved.streamUrl,          // local: URL directa del CDN (VLC manda el Referer, rápido)
-            // Casting/DLNA: el Chromecast/TV hace SU propio GET y los headers (Referer) NO viajan → usar
-            // la URL PROXEADA (blog hornea el Referer server-side). Si no hay proxy, cae a la directa.
-            castUrl = resolved.proxyUrl ?: resolved.streamUrl,
-            artworkUrl = "",
-            openingStartMs = null, openingEndMs = null, endingStartMs = null,
-            kind = SourceKind.WEB,
-            referer = resolved.headers["Referer"],
-            userAgent = resolved.headers["User-Agent"],
-            proxyUrl = resolved.proxyUrl,
-        )
-        _webExtras.value = WebExtras(episodeId, resolved.headers, resolved.subtitles)
-        val startPos = safeStartPosition(episodeId, SourceKind.WEB)
-        _playlist.value = PlaylistData(listOf(item), 0, startPos, pedido = episodeId)
-        Log.w(PLAY, "loadWeb() playlist publicada (1 item, startPos=$startPos) → PlayerScreen debe cargar en el controller")
-    }
-
-    /**
-     * Espera a que la cabeza del archivo servido esté descargada (colchón de arranque), publicando el
-     * progreso real (peers/velocidad/%) en [prepProgress]. Tope [PREBUFFER_CAP_MS] para no colgarse si
-     * el torrent es muy lento; sondeo cada 250ms. Portado de `preBufferThenPlay` del TorrentPlayerScreen.
-     */
-    private suspend fun preBufferHead() {
-        var waited = 0
-        // Gate estilo Elementum/Torrest: esperar CABEZA + COLA (índice) completas, no sólo la primera pieza,
-        // para que VLC no estanque leyendo el índice al abrir. Tope PREBUFFER_CAP_MS por si el torrent es lento.
-        Log.i(GATE, "GATE start (esperando cabeza+cola, cap=${PREBUFFER_CAP_MS}ms)")
-        while (waited < PREBUFFER_CAP_MS && !withContext(Dispatchers.IO) { torrentEngine.bufferReady() }) {
-            val st = withContext(Dispatchers.IO) { torrentEngine.streamStatus() }
-            _prepProgress.value = st
-            if (waited % 1000 == 0) { // log 1×/s (el _prepProgress de la UI sí se refresca cada 250ms)
-                val pct = withContext(Dispatchers.IO) { torrentEngine.bufferProgress() }
-                Log.i(GATE, "GATE buffer=$pct% peers=${st?.peers ?: 0} dl=${st?.downloadKbps ?: 0}KB/s waited=${waited}ms")
-            }
-            delay(250); waited += 250
-        }
-        val ready = withContext(Dispatchers.IO) { torrentEngine.bufferReady() }
-        Log.i(GATE, if (ready) "GATE PASSED tras ${waited}ms → abriendo VLC" else "GATE TIMEOUT tras ${waited}ms → abriendo VLC igual (buffer=${withContext(Dispatchers.IO) { torrentEngine.bufferProgress() }}%)")
-        _prepProgress.value = null
+        _error.value = "Esta fuente ya no está disponible en esta versión"
     }
 
     /**
@@ -1355,53 +1227,6 @@ class PlayerViewModel(
         return com.arkiv.player.playback.ResumePolicy.startPosition(saved.positionMs, saved.durationMs)
             .also { Log.i(PLAY, "reanudar $episodeId ($kind): guardado=${saved.positionMs}ms → arranca en ${it}ms") }
     }
-
-    /**
-     * Traslada la resolución de torrent que antes vivía en `TorrentPlayerScreen`: elige el archivo
-     * (Bytes con índice, o Magnet con hint de episodio) y espera a que el server local tenga URL.
-     * Devuelve (título, url) o null (dejando el motivo en `_error`).
-     */
-    private suspend fun resolveTorrentUrl(episodeId: String, src: EpisodeTorrent?): Pair<String, String>? =
-        when (src) {
-            null -> { _error.value = "No se encontró el torrent guardado"; null }
-            is EpisodeTorrent.Bytes -> {
-                val meta = torrentEngine.resolveTorrent(src.data)
-                if (meta == null) {
-                    _error.value = "No se pudo leer el torrent"; null
-                } else {
-                    val title = meta.files.firstOrNull { it.index == src.fileIndex }?.name ?: meta.name
-                    val url = withContext(Dispatchers.IO) {
-                        runCatching { torrentEngine.startStream(meta, src.fileIndex) }.getOrNull()
-                    }
-                    if (url == null) { _error.value = "No se pudo iniciar el streaming"; null } else title to url
-                }
-            }
-            is EpisodeTorrent.Magnet -> {
-                // No bloqueante: arranca la descarga y espera a que llegue la metadata para levantar
-                // el server. Si el episodio tiene season/episode conocidos, se pasa como hint para
-                // elegir el archivo correcto dentro de un pack (en vez del más grande).
-                val ctx = runCatching { repo.subtitleContextForEpisode(episodeId) }.getOrNull()
-                // season=0 es válido (especiales/OVAs); solo exigimos un episodio > 0.
-                val hint = ctx?.season?.let { s ->
-                    ctx.episode?.let { e -> if (e > 0) EpisodeHint(s, e) else null }
-                }
-                withContext(Dispatchers.IO) { torrentEngine.startMagnetStream(src.uri, hint) }
-                var url: String? = null
-                var waited = 0
-                while (url == null && waited < 180_000) {
-                    url = torrentEngine.streamReadyUrl()
-                    if (url == null) { delay(500); waited += 500 }
-                }
-                if (url == null) {
-                    _error.value = "No se encontró ningún peer para este torrent"; null
-                } else {
-                    // El nombre del archivo que quedó servido. Sin esto el título era el literal
-                    // "Torrent", que además es lo que se le muestra al Chromecast: en la TV aparecía
-                    // "Torrent" en vez del nombre de lo que estás viendo.
-                    (torrentEngine.servedFileName() ?: "Torrent") to url
-                }
-            }
-        }
 
     private fun buildData(
         episode: Episode,
@@ -1451,37 +1276,14 @@ class PlayerViewModel(
         )
     }
 
-    /** Precarga el SIGUIENTE episodio de la serie en segundo plano (torrent pack / web / archive). Best-effort. */
+    /** Precarga el SIGUIENTE episodio de la serie en segundo plano (archive). Best-effort. */
     private suspend fun prefetchNext(currentId: String) = runCatching {
-        // Colchón: dejar que el actual arranque primero (torrent va en baja prioridad, no compite igual).
         kotlinx.coroutines.delay(PREFETCH_DELAY_MS)
         val next = repo.nextEpisode(currentId) ?: return@runCatching
         when (PlayerSource.kindFor(next.id)) {
-            // Torrent PACK: si el actual es torrent (mismo pack) y el próximo tiene fileIndex → pre-buffer.
-            // Ojo: una serie guardada vía addSeriesEpisode tiene un .torrent DISTINTO (otro infohash) por
-            // episodio bajo el mismo ítem → el fileIndex del próximo indexaría un torrent DIFERENTE al que
-            // está en curso. Solo pre-bufferear si es el MISMO torrent (mismos bytes → mismo handle).
-            SourceKind.TORRENT -> {
-                if (PlayerSource.kindFor(currentId) != SourceKind.TORRENT) return@runCatching
-                val src = repo.torrentSourceForEpisode(next.id)
-                val curSrc = repo.torrentSourceForEpisode(currentId)
-                if (src is EpisodeTorrent.Bytes && curSrc is EpisodeTorrent.Bytes && src.data.contentEquals(curSrc.data)) {
-                    Log.w(PLAY, "prefetch torrent: próximo file=${src.fileIndex} (mismo pack)")
-                    torrentEngine.preBufferNextFile(src.fileIndex)
-                }
-            }
             // Magis NO se precarga: cada resolución es una llamada al portal, que corta a 1 cada
             // 1.5 s. Gastarla en un capítulo que quizá no se vea retrasaría el que sí se está viendo.
             SourceKind.MAGIS -> Unit
-            // Web: pre-resolver (calienta la caché del resolver). No si el actual sigue resolviendo.
-            SourceKind.WEB -> {
-                if (_resolving.value) return@runCatching
-                val pageUrl = repo.webSourceForEpisode(next.id)
-                if (!pageUrl.isNullOrBlank()) {
-                    Log.w(PLAY, "prefetch web: pre-resolviendo próximo")
-                    webResolverApi.resolve(pageUrl)   // ignora el resultado; queda en caché del resolver
-                }
-            }
             // Archive: calentar la cabeza (Range-GET de los primeros MB de la URL del próximo).
             SourceKind.ARCHIVE -> {
                 val ep = repo.getEpisode(next.id) ?: return@runCatching
@@ -1664,9 +1466,6 @@ class PlayerViewModel(
          * repetido en dos lugares que TIENEN que coincidir. */
         const val SERIES_ITEM_PREFIX = com.arkiv.player.data.SeriesItemIds.WEB_SERIES_PREFIX
 
-        /** Tope de la espera de pre-buffer (ms): si el torrent es muy lento, se abre igual a los 30s. */
-        const val PREBUFFER_CAP_MS = 30_000
-
         /** Cuántas veces se reabre un directo cortado antes de avisar. Ver [reabrirVivoPorCorte]. */
         const val MAX_REAPERTURAS_VIVO = 3
 
@@ -1678,9 +1477,6 @@ class PlayerViewModel(
          * el presupuesto entero de reaperturas. Ver [vivoAndando].
          */
         const val MINIMO_VIVO_SANO_MS = 5_000L
-
-        /** Tag del gate de arranque torrent (filtrar con `adb logcat -s ArkivGate`). */
-        const val GATE = "ArkivGate"
 
         /** Tag del flujo de carga/replay del player (filtrar con `adb logcat -s ArkivPlay`). */
         const val PLAY = "ArkivPlay"

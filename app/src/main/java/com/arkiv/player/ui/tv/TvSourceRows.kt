@@ -38,12 +38,8 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
-import com.arkiv.player.data.catalog.PackDetector
-import com.arkiv.player.data.catalog.QualityLabel
 import com.arkiv.player.ui.catalog.PlaySource
-import com.arkiv.player.ui.catalog.langColor
 import com.arkiv.player.ui.search.SourceTab
-import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextPrimary
 import com.arkiv.player.ui.theme.ArkivTextSecondary
@@ -63,7 +59,7 @@ private val ALTO_TARJETA = 220.dp
 /**
  * El mosaico de texto va más grande que la carátula, y a propósito.
  *
- * En magis la imagen hace el trabajo; en torrent/web/archive lo único que hay para decidir es el
+ * En magis y ditu la imagen hace el trabajo; en archive lo único que hay para decidir es el
  * texto, y esto se lee a dos metros de distancia. Que las filas no midan exactamente igual no
  * molesta: cada fila es de una sola fuente.
  */
@@ -74,10 +70,7 @@ private val ANCHO_MOSAICO = 380.dp
 private val MARGEN = 48.dp
 
 private fun etiquetaDe(source: PlaySource): Pair<String, Color> = when (source) {
-    is PlaySource.Torrent -> "TORRENT" to ArkivRed
     is PlaySource.Archive -> "ARCHIVE" to Color(0xFF80CBC4)
-    is PlaySource.Web -> "WEB" to Color(0xFFB39DDB)
-    is PlaySource.WebPack -> "WEB" to Color(0xFFB39DDB)
     is PlaySource.Magis -> "MAGIS" to Color(0xFF64B5F6)
     is PlaySource.Ditu -> "CARACOL" to Color(0xFFFF6B00)
 }
@@ -99,8 +92,6 @@ fun TvSourceCard(
     onClick: () -> Unit,
 ) {
     val tagColor = etiquetaDe(source).second
-    val isPack = source is PlaySource.WebPack ||
-        (source is PlaySource.Torrent && PackDetector.isPack(source.result.name))
 
     Surface(
         onClick = onClick,
@@ -132,13 +123,9 @@ fun TvSourceCard(
         ) {
             Box(Modifier.width(4.dp).fillMaxHeight().background(tagColor))
             Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 14.dp)) {
-                // El badge de la fuente NO va: la etiqueta de la fila ya dice "Torrent", y la barra
+                // El badge de la fuente NO va: la etiqueta de la fila ya dice la fuente, y la barra
                 // de color lo repite. Sacarlo le devuelve una línea entera al título, que es lo
                 // único que de verdad distingue un resultado de otro.
-                if (isPack) {
-                    TvMetaChip("PACK", Color(0xFFFFB74D), fuerte = true)
-                    Spacer(Modifier.height(8.dp))
-                }
                 // El título toma el espacio libre en vez de dejar media tarjeta vacía.
                 Text(
                     tituloDe(source),
@@ -175,12 +162,9 @@ private fun TvMetaChip(texto: String, color: Color, fuerte: Boolean = false) {
 }
 
 private fun tituloDe(source: PlaySource): String = when (source) {
-    is PlaySource.Torrent -> source.result.name
     is PlaySource.Magis -> source.result.title
     is PlaySource.Ditu -> source.result.title
     is PlaySource.Archive -> source.item.title
-    is PlaySource.Web -> source.result.title
-    is PlaySource.WebPack -> source.pack.showTitle
 }
 
 /**
@@ -190,15 +174,6 @@ private fun tituloDe(source: PlaySource): String = when (source) {
  * lo que hace falta cuando la pantalla está a dos metros y lo que decide es "cuántos seeds tiene".
  */
 private fun datosDe(source: PlaySource): List<Pair<String, Color>> = when (source) {
-    is PlaySource.Torrent -> {
-        val r = source.result
-        buildList {
-            add(r.lang.label to langColor(r.lang))
-            QualityLabel.extract(r.name).takeIf { it.isNotBlank() }?.let { add(it to ArkivTextSecondary) }
-            add("${r.seeders} seeds" to if (r.seeders > 0) Color(0xFF81C784) else ArkivTextSecondary)
-            r.sizeLabel.takeIf { it.isNotBlank() }?.let { add(it to ArkivTextSecondary) }
-        }
-    }
     is PlaySource.Magis -> {
         val r = source.result
         buildList {
@@ -216,22 +191,6 @@ private fun datosDe(source: PlaySource): List<Pair<String, Color>> = when (sourc
     is PlaySource.Archive -> buildList {
         add("Archive.org" to Color(0xFF80CBC4))
         source.item.year.takeIf { it.isNotBlank() }?.let { add(it to ArkivTextSecondary) }
-    }
-    is PlaySource.Web -> {
-        val r = source.result
-        buildList {
-            add(r.siteName to Color(0xFFB39DDB))
-            r.language.takeIf { it.isNotBlank() }?.let { add(it to ArkivTextSecondary) }
-            r.quality.takeIf { it.isNotBlank() }?.let { add(it to ArkivTextSecondary) }
-        }
-    }
-    is PlaySource.WebPack -> {
-        val p = source.pack
-        buildList {
-            add(p.siteId to Color(0xFFB39DDB))
-            add("${p.episodeCount} capítulos" to ArkivTextSecondary)
-            if (p.seasons.size > 1) add("${p.seasons.size} temporadas" to ArkivTextSecondary)
-        }
     }
 }
 

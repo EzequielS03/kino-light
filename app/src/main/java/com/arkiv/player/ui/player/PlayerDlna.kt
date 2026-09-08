@@ -37,7 +37,6 @@ import com.arkiv.player.dlna.DlnaController
 import com.arkiv.player.dlna.DlnaDevice
 import com.arkiv.player.playback.LiveHlsProxy
 import com.arkiv.player.playback.SourceKind
-import com.arkiv.player.torrent.TorrentEngine
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurface
 import com.arkiv.player.ui.theme.ArkivTextSecondary
@@ -155,29 +154,22 @@ internal fun rememberEstadoDlna(dlna: DlnaController, scopeDeApp: CoroutineScope
 /**
  * Le entrega [device] la URL que corresponda a lo que estamos reproduciendo y devuelve si aceptó.
  *
- * Torrent y vivo NO pueden mandar `mediaUrl`: esa es loopback (el server propio escuchando en
- * 127.0.0.1), que desde la TV no resuelve a nada. Los dos tienen que salir por la IP de LAN del
- * server que ya está corriendo acá — el de [TorrentEngine] para torrent, el de [LiveHlsProxy] para
- * vivo. Y `castUrl` tampoco sirve en vivo: nunca hay un mp4 de respaldo para un canal (ver el KDoc
- * de CastRequestBuilder).
+ * Vivo NO puede mandar `mediaUrl`: esa es loopback (el server propio escuchando en 127.0.0.1), que
+ * desde la TV no resuelve a nada. Tiene que salir por la IP de LAN del server que ya está corriendo
+ * acá — el de [LiveHlsProxy]. Y `castUrl` tampoco sirve en vivo: nunca hay un mp4 de respaldo para
+ * un canal (ver el KDoc de CastRequestBuilder).
  */
 internal suspend fun mandarAlRenderer(
     dlna: DlnaController,
     device: DlnaDevice,
     ep: PlayerData?,
-    torrentEngine: TorrentEngine,
+    lanIp: () -> String?,
     liveHlsProxy: LiveHlsProxy,
 ): Boolean = when (ep?.kind) {
     null -> false
 
-    SourceKind.TORRENT -> {
-        val lan = torrentEngine.lanStreamUrl()
-        val mime = torrentEngine.streamMime() ?: "video/mp4"
-        if (lan != null) withContext(Dispatchers.IO) { dlna.playRawUrl(device, lan, ep.title, mime) } else false
-    }
-
     SourceKind.LIVE -> {
-        val lan = torrentEngine.lanIp()?.let { liveHlsProxy.lanUrl(it) }
+        val lan = lanIp()?.let { liveHlsProxy.lanUrl(it) }
         if (lan != null) {
             withContext(Dispatchers.IO) {
                 dlna.playRawUrl(device, lan, ep.title, "application/vnd.apple.mpegurl")

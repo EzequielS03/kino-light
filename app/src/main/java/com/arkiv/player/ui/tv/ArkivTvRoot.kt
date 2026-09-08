@@ -345,16 +345,6 @@ fun ArkivTvRoot(
                 onDone = { navController.popBackStack() },
             )
         }
-        composable("torrent") {
-            com.arkiv.player.ui.torrent.TorrentScreen(
-                onBack = { navController.popBackStack() },
-                onAdded = { itemId ->
-                    navController.navigate("detail/${Uri.encode(itemId)}") {
-                        popUpTo("torrent") { inclusive = true }
-                    }
-                },
-            )
-        }
         composable("player/{episodeId}") { entry ->
             val episodeId = Uri.decode(entry.arguments?.getString("episodeId").orEmpty())
             // El publisher usa esto para saber si de verdad hay algo reproduciéndose acá. Sin esta

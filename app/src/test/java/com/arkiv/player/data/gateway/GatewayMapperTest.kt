@@ -1,7 +1,5 @@
 package com.arkiv.player.data.gateway
 
-import com.arkiv.player.data.catalog.TorrentLang
-import com.arkiv.player.data.catalog.TorrentResult
 import com.arkiv.player.ui.catalog.PlaySource
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -9,46 +7,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayMapperTest {
-
-    private fun torrent(lang: String = "LATINO", extra: Map<String, String> = mapOf("infohash" to "aa")) =
-        GatewayResult(
-            source = "torrent", title = "Duna (2021) 4k", ref = "r",
-            lang = lang, seeders = 42, sizeBytes = 123, extra = extra,
-        )
-
-    @Test
-    fun `torrent conserva idioma seeds tamano e infohash`() {
-        val ps = torrent().toPlaySource() as PlaySource.Torrent
-        assertEquals(TorrentLang.LATINO, ps.result.lang)
-        assertEquals(42, ps.result.seeders)
-        assertEquals(123L, ps.result.sizeBytes)
-        assertEquals("aa", ps.result.infoHash)
-        assertEquals("Duna (2021) 4k", ps.result.name)
-    }
-
-    @Test
-    fun `castellano y jap_sub se mapean a su enum`() {
-        assertEquals(
-            TorrentLang.CASTELLANO,
-            (torrent(lang = "CASTELLANO").toPlaySource() as PlaySource.Torrent).result.lang,
-        )
-        assertEquals(
-            TorrentLang.JAP_SUB,
-            (torrent(lang = "JAP_SUB").toPlaySource() as PlaySource.Torrent).result.lang,
-        )
-    }
-
-    @Test
-    fun `un idioma que la app no conoce no rompe el mapeo`() {
-        assertTrue(torrent(lang = "KLINGON").toPlaySource() is PlaySource.Torrent)
-    }
-
-    @Test
-    fun `un torrent sin infohash igual se mapea`() {
-        // Los resultados solo-Link de Jackett no traen infohash: se resuelven al reproducir.
-        val ps = torrent(extra = emptyMap()).toPlaySource() as PlaySource.Torrent
-        assertNull(ps.result.infoHash)
-    }
 
     @Test
     fun `archive conserva identificador titulo y anio`() {
@@ -59,20 +17,6 @@ class GatewayMapperTest {
         assertEquals("mi-item", ps.item.identifier)
         assertEquals("Duna", ps.item.title)
         assertEquals("2021", ps.item.year)
-    }
-
-    @Test
-    fun `web conserva sitio idioma y temporada-capitulo`() {
-        val ps = GatewayResult(
-            source = "web", title = "Piloto", ref = "r", lang = "LATINO", quality = "1080p",
-            season = 1, episode = 1, kind = "tv", extra = mapOf("site_id" to "serieskao"),
-        ).toPlaySource() as PlaySource.Web
-        assertEquals("serieskao", ps.result.siteId)
-        assertEquals("LATINO", ps.result.language)
-        assertEquals("1080p", ps.result.quality)
-        assertEquals(1, ps.result.season)
-        assertEquals(1, ps.result.episode)
-        assertEquals("tv", ps.result.kind)
     }
 
     @Test
@@ -90,12 +34,28 @@ class GatewayMapperTest {
     }
 
     @Test
-    fun `las cinco fuentes del gateway se mapean- ninguna cae en null`() {
+    fun `ditu se mapea a su propio tipo`() {
+        val ps = GatewayResult(source = "ditu", title = "Loki", ref = "r").toPlaySource()
+        assertTrue(ps is PlaySource.Ditu)
+        assertEquals("Loki", (ps as PlaySource.Ditu).result.title)
+    }
+
+    @Test
+    fun `las fuentes conocidas se mapean- ninguna cae en null`() {
         // Guarda contra el bug real: el gateway sirve fuentes y el mapper debe conocerlas todas.
-        for (fuente in listOf("torrent", "archive", "web", "magis", "ditu")) {
+        for (fuente in listOf("archive", "magis", "ditu")) {
             val r = GatewayResult(source = fuente, title = "x", ref = "r")
             assertTrue("la fuente '$fuente' no se mapea", r.toPlaySource() != null)
         }
+    }
+
+    @Test
+    fun `torrent y web se ignoran a proposito- torrent+web se borraron en esta rama`() {
+        // El gateway (server viejo) todavia puede mandarlas; este APK ya no sabe que hacer con
+        // ellas y las descarta igual que cualquier fuente futura desconocida (ver TODO en
+        // GatewayMapper.toPlaySource, task 6 hace la limpieza completa del lado del fan-out).
+        assertNull(GatewayResult(source = "torrent", title = "x", ref = "r").toPlaySource())
+        assertNull(GatewayResult(source = "web", title = "x", ref = "r").toPlaySource())
     }
 
     @Test
@@ -105,59 +65,12 @@ class GatewayMapperTest {
     }
 
     @Test
-    fun `el ref sobrevive al mapeo en las tres fuentes`() {
+    fun `el ref sobrevive al mapeo`() {
         // Sin esto no se puede resolver despues: /v1/resolve solo entiende el ref.
-        assertEquals("r", (torrent().toPlaySource() as PlaySource.Torrent).result.gatewayRef)
         assertEquals(
             "r",
             (GatewayResult(source = "archive", title = "x", ref = "r").toPlaySource()
                 as PlaySource.Archive).item.gatewayRef,
         )
-        assertEquals(
-            "r",
-            (GatewayResult(source = "web", title = "x", ref = "r").toPlaySource()
-                as PlaySource.Web).result.gatewayRef,
-        )
-    }
-
-    // ─── Identidad de los resultados web ────────────────────────────────────
-    // La lista de fuentes deduplica por la identidad del resultado. Los web del gateway no traen
-    // `pageUrl` (la página se resuelve al reproducir), así que si la identidad dependiera solo de
-    // esa URL los 36 resultados de un título colapsarían en UNO y la pestaña Web mostraría 1.
-
-    private fun web(ref: String) = GatewayResult(
-        source = "web", title = "Loki 1x1", ref = ref, extra = mapOf("site_id" to "cuevana"),
-    )
-
-    @Test
-    fun `dos web del gateway no comparten identidad`() {
-        val a = (web("ref-a").toPlaySource() as PlaySource.Web).result
-        val b = (web("ref-b").toPlaySource() as PlaySource.Web).result
-        assertTrue(a.identity != b.identity)
-    }
-
-    @Test
-    fun `un web del scraping local sigue identificandose por su pagina`() {
-        val local = com.arkiv.player.data.catalog.web.WebResult(
-            siteId = "cuevana", siteName = "Cuevana", title = "Loki 1x1",
-            year = "2021", pageUrl = "https://cuevana/loki-1x1", posterUrl = "",
-            language = "", quality = "", kind = "tv",
-        )
-        assertEquals("https://cuevana/loki-1x1", local.identity)
-    }
-
-    @Test
-    fun `dos torrents del gateway sin infohash no comparten identidad`() {
-        // Jackett devuelve resultados solo-link (sin infohash) y dos indexers publican el MISMO
-        // nombre. Si la identidad cae al nombre, la lista de Compose crashea por key duplicada.
-        val a = (torrent(extra = emptyMap()).copy(ref = "ref-a").toPlaySource() as PlaySource.Torrent).result
-        val b = (torrent(extra = emptyMap()).copy(ref = "ref-b").toPlaySource() as PlaySource.Torrent).result
-        assertTrue(a.identity != b.identity)
-    }
-
-    @Test
-    fun `un torrent local se sigue identificando por su dedupKey`() {
-        val local = TorrentResult(name = "Duna 2021", seeders = 1, sizeBytes = 1, lang = TorrentLang.LATINO, infoHash = "abc")
-        assertEquals(local.dedupKey, local.identity)
     }
 }

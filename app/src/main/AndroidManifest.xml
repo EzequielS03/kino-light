@@ -53,11 +53,6 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
-        <service
-            android:name=".torrent.TorrentServingService"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
-
         <!--
             El servicio de foreground de WorkManager viene de la librería SIN
             `foregroundServiceType`, y desde API 34 Android exige que el tipo que pide

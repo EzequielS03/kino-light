@@ -28,23 +28,6 @@ object CachingDeRed {
     private const val ORIGEN_ESTABLE_MS = 1_500
 
     /**
-     * Torrent: el origen es VARIABLE por definición (piezas llegando de peers distintos). Medido en
-     * device: con 2,5 s VLC se quedaba sin datos y estancaba; con 6 s el arranque sale limpio. Subir
-     * más no arregla el bache del arranque, que es de CPU (el decoder por hardware de la TV) y no de
-     * datos — solo agrega latencia.
-     */
-    private const val TORRENT_MS = 6_000
-
-    /**
-     * Dos saltos hasta los bytes: libVLC → un proxy nuestro → un CDN por internet. La latencia por
-     * segmento es variable y con 1,5 s el colchón se drena y la reproducción alcanza al buffer
-     * ("se va pasando", medido contra el proxy de blog, que corre en 2 CPU detrás de Cloudflare).
-     *
-     * El proxy de blog corre en 2 CPU detrás de Cloudflare, y esa es la parte lenta.
-     */
-    private const val PROXY_MAS_CDN_MS = 8_000
-
-    /**
      * VIVO: su CDN es OTRO, y mucho mejor. Medido en el Fire TV el 2026-08-14 sobre 15 minutos de
      * canal: playlist en 141 ms de mediana (p95 283, max 355) y segmento en 206 ms (p95 360, max
      * 596), con cero 403 de firma, cero 502 y cero segmentos cortados.
@@ -60,8 +43,6 @@ object CachingDeRed {
     private const val VIVO_MS = 3_000
 
     fun msPara(kind: SourceKind?): Int = when (kind) {
-        SourceKind.TORRENT -> TORRENT_MS
-        SourceKind.WEB -> PROXY_MAS_CDN_MS
         SourceKind.LIVE -> VIVO_MS
         else -> ORIGEN_ESTABLE_MS
     }

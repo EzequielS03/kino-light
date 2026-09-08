@@ -17,8 +17,6 @@ import com.arkiv.player.playback.SourceKind
  */
 object FuenteDeDescarga {
     fun para(episodeId: String): String = when (PlayerSource.kindFor(episodeId)) {
-        SourceKind.TORRENT -> "torrent"
-        SourceKind.WEB -> "web"
         SourceKind.MAGIS -> "magis"
         // NUC/LOCAL/LIVE no salen de `kindFor`, y un canal en vivo no se baja; archive.org es el
         // caso restante (un identifier pelado, sin prefijo).

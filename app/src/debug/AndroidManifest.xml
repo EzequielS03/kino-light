@@ -1,13 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application>
-        <!-- DEBUG-only: diagnóstico de fuentes web disparable por adb (com.arkiv.player.WEB_DIAG). -->
-        <receiver
-            android:name=".WebDiagReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="com.arkiv.player.WEB_DIAG" />
-            </intent-filter>
-        </receiver>
-    </application>
+    <application />
 </manifest>

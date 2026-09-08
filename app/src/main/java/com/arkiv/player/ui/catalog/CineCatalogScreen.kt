@@ -61,8 +61,6 @@ import com.arkiv.player.data.catalog.TmdbApi
 import com.arkiv.player.data.catalog.TmdbCategory
 import com.arkiv.player.data.catalog.TmdbGenre
 import com.arkiv.player.data.catalog.TmdbItem
-import com.arkiv.player.data.catalog.web.WebSourceEngine
-import com.arkiv.player.data.catalog.web.WebTmdbMatcher
 import com.arkiv.player.data.db.SearchHistoryEntity
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivRed
@@ -73,14 +71,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-/** Tarjeta del grid: item de TMDB + si tiene una fuente web disponible (badge "WEB"). */
-data class GridCard(val item: TmdbItem, val hasWeb: Boolean)
+/** Tarjeta del grid: item de TMDB. */
+data class GridCard(val item: TmdbItem)
 
 class CineCatalogViewModel(
     private val api: TmdbApi,
     resetSignal: kotlinx.coroutines.flow.Flow<Unit>,
-    private val webSourceEngine: WebSourceEngine,
-    private val webTmdbMatcher: WebTmdbMatcher,
 ) : ViewModel() {
     private val _items = MutableStateFlow<List<GridCard>>(emptyList())
     val items: StateFlow<List<GridCard>> = _items.asStateFlow()
@@ -100,9 +96,6 @@ class CineCatalogViewModel(
     private var page = 1
     private var query: String? = null
     private var endReached = false
-    // Se incrementa en cada load(); permite descartar resultados web de una carga vieja
-    // si mientras tanto llegó un reset/nueva carga (evita pisar la lista con datos obsoletos).
-    private var loadEpoch = 0
 
     init {
         reload()
@@ -129,13 +122,10 @@ class CineCatalogViewModel(
     private fun reload() { page = 1; endReached = false; _items.value = emptyList(); load(true) }
 
     private fun load(reset: Boolean) {
-        val epoch = ++loadEpoch
         viewModelScope.launch {
             _loading.value = true
             _error.value = null
             val q = query
-            // Guardamos la página usada para el fetch de TMDB ANTES de incrementarla, así el merge
-            // con fuentes web usa la misma página (si no, quedaban desalineadas: TMDB pág. 1 con web pág. 2).
             val fetchedPage = page
             val result = runCatching {
                 when {
@@ -148,46 +138,10 @@ class CineCatalogViewModel(
                 endReached = true
                 if (fetchedPage == 1) _error.value = "Sin resultados. Probá otra búsqueda."
             } else page++
-            // Pintamos TMDB de una, sin esperar el browse web (que puede tardar hasta ~12s).
-            val tmdbCards = result.map { GridCard(it, hasWeb = false) }
+            val tmdbCards = result.map { GridCard(it) }
             _items.value = if (reset) tmdbCards else _items.value + tmdbCards
             _loading.value = false
-            // El parche con fuentes web corre en segundo plano y no bloquea el pintado.
-            viewModelScope.launch { applyWeb(result, _type.value, fetchedPage, epoch) }
         }
-    }
-
-    /**
-     * Busca fuentes web para la página recién cargada y parchea la lista ya pintada:
-     * marca "hasWeb" en las tarjetas TMDB existentes y agrega tarjetas web-only al final.
-     * Deduplica CONTRA la lista acumulada (no solo dentro de esta llamada), así evitamos
-     * keys repetidas al paginar con loadMore(). Degrada limpio: si el browse web falla o
-     * viene vacío, la lista queda tal cual (solo TMDB, sin badge).
-     */
-    private suspend fun applyWeb(tmdb: List<TmdbItem>, kind: String, page: Int, epoch: Int) {
-        val webRaw = runCatching { webSourceEngine.browse(kind, page) }.getOrDefault(emptyList())
-        if (webRaw.isEmpty()) return
-        val web = runCatching { webTmdbMatcher.enrichAll(webRaw) }.getOrDefault(webRaw)
-        if (epoch != loadEpoch) return // una carga/reset más nueva ya reemplazó la lista
-        val webTmdbIds = web.mapNotNull { it.tmdbId }.toSet()
-        val current = _items.value
-        val existingKeys = current.map { it.item.type to it.item.id }.toSet()
-        // Marca hasWeb en las tarjetas TMDB ya presentes que tienen fuente web.
-        val patched = current.map {
-            if (!it.hasWeb && it.item.id in webTmdbIds) it.copy(hasWeb = true) else it
-        }
-        // Agrega tarjetas web-only (tmdbId no presente aún), deduplicando por (type,id).
-        val newCards = web
-            .filter { it.tmdbId != null && (it.kind to it.tmdbId!!) !in existingKeys }
-            .distinctBy { it.tmdbId }
-            .map { w ->
-                GridCard(
-                    TmdbItem(id = w.tmdbId!!, type = w.kind, title = w.title,
-                             originalTitle = w.title, posterUrl = w.posterUrl, year = w.year),
-                    hasWeb = true,
-                )
-            }
-        _items.value = patched + newCards
     }
 }
 
@@ -200,7 +154,7 @@ fun CineCatalogScreen(
     val graph = rememberGraph()
     val vm: CineCatalogViewModel = viewModel(
         factory = viewModelFactory {
-            initializer { CineCatalogViewModel(graph.tmdbApi, graph.catalogResetSignal, graph.webSourceEngine, graph.webTmdbMatcher) }
+            initializer { CineCatalogViewModel(graph.tmdbApi, graph.catalogResetSignal) }
         },
     )
     val items by vm.items.collectAsStateWithLifecycle()
@@ -386,12 +340,6 @@ private fun CinePoster(card: GridCard, onClick: () -> Unit) {
                 .clip(RoundedCornerShape(8.dp)).background(ArkivSurfaceHigh),
         ) {
             AsyncImage(model = item.posterUrl, contentDescription = item.title, modifier = Modifier.fillMaxSize())
-            if (card.hasWeb) {
-                Box(
-                    Modifier.padding(4.dp).clip(RoundedCornerShape(4.dp))
-                        .background(Color(0xFFB39DDB)).padding(horizontal = 4.dp, vertical = 1.dp),
-                ) { Text("WEB", color = Color.Black, style = MaterialTheme.typography.labelSmall) }
-            }
         }
         Text(
             item.title,

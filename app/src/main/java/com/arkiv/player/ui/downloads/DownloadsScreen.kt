@@ -52,7 +52,7 @@ import com.arkiv.player.data.local.DownloadGroup
 import com.arkiv.player.data.local.DownloadGroupPolicy
 import com.arkiv.player.data.local.EpisodeDownloadStatus
 import com.arkiv.player.data.local.LocalDownloadState
-import com.arkiv.player.data.local.TorrentSizeGate
+import com.arkiv.player.data.local.FileSizeFormat
 import com.arkiv.player.data.model.Episode
 import com.arkiv.player.ui.components.EmptyState
 import com.arkiv.player.ui.anchoDeLectura
@@ -445,7 +445,7 @@ private fun stateLabel(row: DownloadRow): String = when (row.state) {
     // reintentar solo (ver DownloadRetryPolicy): decirlo evita que parezca colgada.
     LocalDownloadState.DOWNLOADING ->
         row.error?.let { "Reintentando · $it" } ?: "Bajando ${(row.progress * 100).toInt()}%"
-    LocalDownloadState.NEEDS_CONFIRMATION -> "Necesita confirmación · ${TorrentSizeGate.formatSize(row.bytes)}"
+    LocalDownloadState.NEEDS_CONFIRMATION -> "Necesita confirmación · ${FileSizeFormat.formatSize(row.bytes)}"
     // El "error" de una fila completada no es un fallo: es el motivo por el que no hubo que bajar
     // nada (ver DuplicateDownloadPolicy.ADOPTED_REASON, "Ya estaba descargado"). Decirlo evita que
     // parezca que se bajaron 461 MB que en realidad ya estaban en disco bajo otro ítem.

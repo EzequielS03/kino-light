@@ -39,21 +39,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.arkiv.player.data.ArchiveSearchResult
-import com.arkiv.player.data.catalog.TorrentLang
-import com.arkiv.player.data.catalog.TorrentResult
 import com.arkiv.player.ui.components.ControlDeDescarga
 import com.arkiv.player.ui.components.DescargaDeFila
 import com.arkiv.player.ui.components.LineaDeEstadoDeDescarga
-import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 
-/** Una fuente reproducible: un torrent (va al player de torrent) o un ítem de archive.org (player normal). */
+/** Una fuente reproducible: un ítem de archive.org (player normal), Magis o Ditu. */
 sealed interface PlaySource {
-    data class Torrent(val result: TorrentResult) : PlaySource
     data class Archive(val item: ArchiveSearchResult) : PlaySource
-    data class Web(val result: com.arkiv.player.data.catalog.web.WebResult) : PlaySource
-    data class WebPack(val pack: com.arkiv.player.data.catalog.mirror.MirrorWebPack) : PlaySource
 
     /** Resultado del portal Magis (solo VOD). El `ref` es opaco: se manda tal cual a
      *  `/v1/resolve` y la app nunca lo interpreta. */
@@ -76,9 +70,7 @@ val ArkivMagisBlue = Color(0xFF64B5F6)
 val ArkivDituOrange = Color(0xFFFF6B00)
 
 fun accentOf(source: PlaySource): Color = when (source) {
-    is PlaySource.Torrent -> ArkivRed
     is PlaySource.Archive -> ArkivArchiveTeal
-    is PlaySource.Web, is PlaySource.WebPack -> ArkivWebViolet
     is PlaySource.Magis -> ArkivMagisBlue
     is PlaySource.Ditu -> ArkivDituOrange
 }
@@ -202,29 +194,6 @@ fun SourceRow(source: PlaySource, enabled: Boolean, descarga: DescargaDeFila? = 
         )
         Column(Modifier.weight(1f).padding(vertical = 10.dp, horizontal = 2.dp)) {
             when (source) {
-                is PlaySource.Torrent -> {
-                    val r = source.result
-                    Text(
-                        r.name, color = Color.White, style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 2, overflow = TextOverflow.Ellipsis,
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        // Aviso de PACK: sin esto, al buscar un capítulo puedes elegir sin saberlo un
-                        // pack de temporada de decenas de GB del que solo verás un episodio.
-                        if (com.arkiv.player.data.catalog.PackDetector.isPack(r.name)) {
-                            MetaChip("PACK", ArkivPackAmber, strong = true)
-                        }
-                        MetaChip(r.lang.label, langColor(r.lang))
-                        val q = com.arkiv.player.data.catalog.QualityLabel.extract(r.name)
-                        if (q.isNotBlank()) MetaChip(q)
-                        MetaChip("${r.seeders} seeds")
-                        if (r.sizeLabel.isNotBlank()) MetaChip(r.sizeLabel)
-                    }
-                }
                 is PlaySource.Archive -> {
                     val item = source.item
                     Text(
@@ -249,39 +218,6 @@ fun SourceRow(source: PlaySource, enabled: Boolean, descarga: DescargaDeFila? = 
                         // que se llama igual (p. ej. "Get Backers": completa = 49 eps vs "Capítulo # 01" = 1).
                         if (item.episodeCount > 1) MetaChip("${item.episodeCount} episodios")
                         if (item.year.isNotBlank()) MetaChip(item.year)
-                    }
-                }
-                is PlaySource.Web -> {
-                    val r = source.result
-                    Text(
-                        r.title, color = Color.White, style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 2, overflow = TextOverflow.Ellipsis,
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        MetaChip(r.siteName, ArkivWebViolet)
-                        if (r.language.isNotBlank()) MetaChip(r.language)
-                        if (r.quality.isNotBlank()) MetaChip(r.quality)
-                    }
-                }
-                is PlaySource.WebPack -> {
-                    val p = source.pack
-                    Text(
-                        p.showTitle, color = Color.White, style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 2, overflow = TextOverflow.Ellipsis,
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        MetaChip("PACK", ArkivPackAmber, strong = true)
-                        MetaChip("${p.episodeCount} capítulos")
-                        if (p.seasons.size > 1) MetaChip("${p.seasons.size} temporadas")
-                        MetaChip(p.siteId, ArkivWebViolet)
                     }
                 }
                 is PlaySource.Magis -> {
@@ -407,17 +343,5 @@ fun SourceCard(source: PlaySource, enabled: Boolean, onDownload: (() -> Unit)? =
 private fun tituloDe(source: PlaySource): String = when (source) {
     is PlaySource.Magis -> source.result.title
     is PlaySource.Ditu -> source.result.title
-    is PlaySource.Torrent -> source.result.name
     is PlaySource.Archive -> source.item.title
-    is PlaySource.Web -> source.result.title
-    is PlaySource.WebPack -> source.pack.showTitle
-}
-
-fun langColor(l: TorrentLang): Color = when (l) {
-    TorrentLang.LATINO -> Color(0xFF4CAF50)
-    TorrentLang.DUAL -> Color(0xFF26A69A)
-    TorrentLang.CASTELLANO -> Color(0xFFFFC107)
-    TorrentLang.ENGLISH -> Color(0xFF64B5F6)
-    TorrentLang.JAP_SUB -> Color(0xFFBA68C8)
-    TorrentLang.OTHER -> ArkivTextSecondary
 }

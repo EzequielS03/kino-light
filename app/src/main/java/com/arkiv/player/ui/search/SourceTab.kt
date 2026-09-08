@@ -3,9 +3,8 @@ package com.arkiv.player.ui.search
 import com.arkiv.player.ui.catalog.PlaySource
 
 /**
- * Filtro por origen de la lista de resultados. Con tres secciones abiertas a la vez la pantalla se
- * vuelve un muro: esto deja ver un solo origen cuando ya sabés cuál querés (p. ej. solo torrent
- * porque vas a descargar, o solo web porque no querés esperar seeds).
+ * Filtro por origen de la lista de resultados. Con varias secciones abiertas a la vez la pantalla se
+ * vuelve un muro: esto deja ver un solo origen cuando ya sabés cuál querés.
  */
 /** El orden acá manda: es el de los chips y el de las secciones de "Todo". Magis primero porque es
  *  la fuente que arranca al toque (sin seeds ni resolver); archive última, que es la de último
@@ -14,16 +13,11 @@ enum class SourceTab(val label: String) {
     TODO("Todo"),
     MAGIS("Magis"),
     DITU("Caracol"),
-    TORRENT("Torrent"),
-    WEB("Web"),
     ARCHIVE("Archive"),
 }
 
-/** La pestaña a la que pertenece una fuente. Los packs web cuentan como WEB: para el usuario son
- *  el mismo origen, solo que la serie entera en vez de un capítulo. */
+/** La pestaña a la que pertenece una fuente. */
 fun tabOf(source: PlaySource): SourceTab = when (source) {
-    is PlaySource.Torrent -> SourceTab.TORRENT
-    is PlaySource.Web, is PlaySource.WebPack -> SourceTab.WEB
     is PlaySource.Magis -> SourceTab.MAGIS
     is PlaySource.Ditu -> SourceTab.DITU
     is PlaySource.Archive -> SourceTab.ARCHIVE

@@ -2,7 +2,7 @@ package com.arkiv.player.data.biblioteca
 
 import com.arkiv.player.data.local.DownloadGroup
 import com.arkiv.player.data.local.EpisodeDownloadStatus
-import com.arkiv.player.data.local.TorrentSizeGate
+import com.arkiv.player.data.local.FileSizeFormat
 
 /**
  * Lo que la sección "Descargas" del TV muestra arriba de todo.
@@ -32,12 +32,12 @@ object EspacioEnDisco {
      * "12.0 GB libres  ·  3.0 GB en descargas". Sin nada bajado, omite la segunda cláusula en vez de
      * mostrar un "0 MB" que no le dice nada a nadie.
      *
-     * Usa el formateador que ya existe (`TorrentSizeGate.formatSize`) en vez de uno propio: dos
+     * Usa el formateador que ya existe (`FileSizeFormat.formatSize`) en vez de uno propio: dos
      * formatos de tamaño distintos en la misma app se notan.
      */
     fun resumen(libresBytes: Long, ocupadoBytes: Long): String {
-        val libres = "${TorrentSizeGate.formatSize(libresBytes)} libres"
+        val libres = "${FileSizeFormat.formatSize(libresBytes)} libres"
         return if (ocupadoBytes <= 0) libres
-        else "$libres  ·  ${TorrentSizeGate.formatSize(ocupadoBytes)} en descargas"
+        else "$libres  ·  ${FileSizeFormat.formatSize(ocupadoBytes)} en descargas"
     }
 }

@@ -52,11 +52,6 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
             ?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
     }.getOrDefault(false)
 
-    // Preferencia de calidad web (Ajustes). Se lee FRESCA en cada loadMedia (SharedPreferences refleja el
-    // cambio al toque), para que aplicar una calidad nueva valga en la próxima reproducción.
-    private val settingsPrefs = context.applicationContext
-        .getSharedPreferences(com.arkiv.player.data.SettingsStore.PREFS_NAME, Context.MODE_PRIVATE)
-
     private val libVlc = LibVLC(
         context,
         arrayListOf(
@@ -86,9 +81,6 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
     // nada más: ir y venir entre decodificadores sería peor que cualquiera de los dos.
     private var softwareDesdeWallMs = 0L
     private var volvioAHardware = false
-    // Web: si la reproducción DIRECTA del CDN falla (403/geo/anti-leech), se reintenta UNA vez con la
-    // URL proxeada de respaldo (proxyUrl del tag). Se resetea al cargar otro ítem.
-    private var triedProxy = false
     private var currentStartMs = 0L
     // Duración real del ítem cuando libVLC no puede deducirla (TS servido por HTTP: magis). Viaja en
     // el tag del MediaItem y la sondea TsDurationProbe. Ver UnknownLengthPolicy.
@@ -284,13 +276,7 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
                     // El reload NO se hace aquí (corremos en el thread de eventos de VLC: tocar el media
                     // player ahí crashea), sino en el looper.
                     val tag = items.getOrNull(currentIndex)?.localConfiguration?.tag as? PlayerSourceTag
-                    // Web: si la directa del CDN falló (403/geo/anti-leech), reintentar UNA vez con el proxy.
-                    if (tag?.kind == SourceKind.WEB && !triedProxy && !tag.proxyUrl.isNullOrBlank()) {
-                        triedProxy = true
-                        handler.post { retryWithProxy(tag.proxyUrl) }
-                        return@setEventListener
-                    }
-                    // Primer error (o web sin proxy): reintentar en software.
+                    // Primer error: reintentar en software.
                     if (!triedSoftware) {
                         triedSoftware = true
                         handler.post { retryInSoftware() }
@@ -750,9 +736,8 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         }
     }
 
-    /** Carga el ítem actual en HW (camino nuevo): resetea los flags de reintento (software y proxy). */
+    /** Carga el ítem actual en HW (camino nuevo): resetea los flags de reintento por software. */
     private fun loadCurrent(startPositionMs: Long) {
-        triedProxy = false
         softwareDesdeWallMs = 0L
         volvioAHardware = false
         // La fuente puede pedir software de entrada (HEVC de magis; ver PlayerSourceTag). Se marca
@@ -829,25 +814,6 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
             setHWDecoderEnabled(hardware, false)
             addOption(":network-caching=$networkCaching")
             if (startPositionMs > 0) addOption(":start-time=${startPositionMs / 1000}")
-            // WEB: calidad HLS según la preferencia de Ajustes (AUTO por defecto). AUTO decide por CAMINO:
-            // por PROXY (túnel ~1 Mbps) fuerza 480p para no cortarse; en DIRECTO (CDN ~6+ Mbps) usa 'rate'
-            // y sube a 720p/1080p si tu conexión aguanta. SD/HD/MÁX = fijo, la elección del usuario manda.
-            // (Ignorado si no es HLS adaptativo.)
-            if (tag?.kind == SourceKind.WEB) {
-                val viaProxy = uri.toString().contains("/proxy?url=")
-                val webQ = runCatching {
-                    com.arkiv.player.data.WebQuality.valueOf(
-                        settingsPrefs.getString(com.arkiv.player.data.SettingsStore.KEY_WEB_QUALITY, "AUTO")!!,
-                    )
-                }.getOrDefault(com.arkiv.player.data.WebQuality.AUTO)
-                when (webQ) {
-                    com.arkiv.player.data.WebQuality.AUTO ->
-                        addOption(if (viaProxy) ":adaptive-logic=lowest" else ":adaptive-logic=rate")
-                    com.arkiv.player.data.WebQuality.SD -> addOption(":adaptive-logic=lowest")
-                    com.arkiv.player.data.WebQuality.HD -> addOption(":adaptive-maxheight=720")
-                    com.arkiv.player.data.WebQuality.MAX -> addOption(":adaptive-logic=highest")
-                }
-            }
             // MAGIS (MPEG-TS): se fuerza el demuxer de ffmpeg en vez del `ts` nativo. Con el nativo,
             // adjuntar un subtítulo externo hace que libVLC cambie el programa activo y se lleve
             // puestas TODAS las pistas del stream (ver PlayerScreen). avformat no expone programas,
@@ -1095,15 +1061,6 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         return if (t > 0) t else currentStartMs
     }
 
-    /** Web: la directa del CDN falló → recargar el MISMO ítem por la URL proxeada de respaldo (en HW),
-     * retomando donde iba. El /proxy hornea el Referer server-side, así que sirve para casting/geo/anti-leech. */
-    private fun retryWithProxy(proxyUrl: String) {
-        runCatching { android.util.Log.w("ArkivVlc", "directa falló → reintento por proxy: $proxyUrl") }
-        val resumeAt = runCatching { mediaPlayer.time }.getOrDefault(0L).coerceAtLeast(0L)
-        runCatching { mediaPlayer.stop() }
-        loadMedia(hardware = true, startPositionMs = if (resumeAt > 0) resumeAt else currentStartMs, uriOverride = Uri.parse(proxyUrl))
-    }
-
     private val _cortesEnVivo = MutableStateFlow(0)
 
     /**
@@ -1122,18 +1079,8 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
     val cortesEnVivo: StateFlow<Int> = _cortesEnVivo.asStateFlow()
 
     private fun onEndReached() {
-        // Web: un EndReached casi inmediato (posición ~0) NO es fin real — el stream directo no entregó
-        // datos (roto/geo/anti-leech) y VLC lo dio por "terminado". Reintentar UNA vez con el proxy antes
-        // de pasar de largo. (VLC en estos casos emite EndReached, no EncounteredError, así que el fallback
-        // del listener de error no alcanza.)
         val tag = items.getOrNull(currentIndex)?.localConfiguration?.tag as? PlayerSourceTag
         val playedMs = runCatching { mediaPlayer.time }.getOrDefault(0L)
-        if (tag?.kind == SourceKind.WEB && !triedProxy && !tag.proxyUrl.isNullOrBlank() && playedMs < 5000L) {
-            triedProxy = true
-            runCatching { android.util.Log.w("ArkivVlc", "EndReached en pos=${playedMs}ms (stream directo roto) → fallback a proxy") }
-            handler.post { retryWithProxy(tag.proxyUrl) }
-            return
-        }
         // Autoplay: pasar al siguiente ítem de la playlist, o terminar.
         if (currentIndex < items.size - 1) {
             currentIndex++

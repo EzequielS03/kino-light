@@ -8,7 +8,6 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import com.arkiv.player.torrent.TorrentProgress
 
 /**
  * El espejo del reproductor: lo que la pantalla sabe de lo que está sonando —posición, duración, si
@@ -53,10 +52,6 @@ internal class EspejoDelPlayer {
     var fraccionBuffereada by mutableFloatStateOf(0f)
         private set
 
-    /** Estado de descarga del torrent, para el overlay de progreso. Null en el resto de fuentes. */
-    var descarga by mutableStateOf<TorrentProgress?>(null)
-        private set
-
     /** Los tres valores que el listener del player publica de una. */
     fun sincronizarTransporte(buffereando: Boolean, reproduciendo: Boolean, quiereReproducir: Boolean) {
         this.buffereando = buffereando
@@ -98,10 +93,6 @@ internal class EspejoDelPlayer {
 
     fun leyoElBuffer(fraccion: Float) {
         fraccionBuffereada = fraccion
-    }
-
-    fun leyoLaDescarga(progreso: TorrentProgress?) {
-        descarga = progreso
     }
 }
 

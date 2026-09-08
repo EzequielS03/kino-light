@@ -22,7 +22,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -33,7 +32,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -61,15 +59,6 @@ import com.arkiv.player.ui.components.DialogoDeDescarga
 import com.arkiv.player.data.ArchiveSearchResult
 import com.arkiv.player.data.catalog.TmdbDetail
 import com.arkiv.player.data.catalog.TmdbEpisode
-import com.arkiv.player.data.catalog.TorrentLang
-import com.arkiv.player.data.catalog.TorrentResult
-import com.arkiv.player.data.catalog.TorrentSource
-import com.arkiv.player.data.catalog.mirror.MirrorWebPack
-import com.arkiv.player.data.catalog.mirror.MirrorWebSource
-import com.arkiv.player.data.catalog.providers.ContentType
-import com.arkiv.player.data.local.TorrentSizeGate
-import com.arkiv.player.torrent.EpisodeFilePicker
-import kotlinx.coroutines.async
 import kotlinx.coroutines.Job
 import com.arkiv.player.ui.esTabletHorizontal
 import com.arkiv.player.ui.rememberGraph
@@ -78,8 +67,6 @@ import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 import kotlinx.coroutines.launch
-
-private val ALL_LANGS = listOf(TorrentLang.LATINO, TorrentLang.DUAL, TorrentLang.CASTELLANO, TorrentLang.ENGLISH, TorrentLang.JAP_SUB)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -106,40 +93,27 @@ fun CineDetailScreen(
     val downloadRows by graph.repository.observeDownloadRows().collectAsStateWithLifecycle(emptyList())
     var porConfirmar by remember { mutableStateOf<Pair<DownloadRow, AccionDeDescarga>?>(null) }
 
-    // El aviso inline es un ATAJO de UX: evita encolar algo que vas a descartar cuando el tamaño ya
-    // se conoce. La compuerta que garantiza el comportamiento es la del worker, que es la única que
-    // ve el tamaño del ARCHIVO (TorrentResult.sizeBytes es el del pack entero cuando la fila es un pack).
-    var pendingBig by remember { mutableStateOf<Pair<String, Long>?>(null) }
     var detail by remember { mutableStateOf<TmdbDetail?>(null) }
-    var packFor by remember { mutableStateOf<TorrentResult?>(null) }
     var loading by remember { mutableStateOf(true) }
     var selectedSeason by remember { mutableStateOf<Int?>(null) }
     var episodes by remember { mutableStateOf<List<TmdbEpisode>>(emptyList()) }
     var loadingEps by remember { mutableStateOf(false) }
-    var langs by remember { mutableStateOf(ALL_LANGS.toSet()) }
     var preparing by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
     var sheetEpisode by remember { mutableStateOf<TmdbEpisode?>(null) }
     var sheetOpen by remember { mutableStateOf(false) }
     var sources by remember { mutableStateOf<List<PlaySource>>(emptyList()) }
-    var webPacks by remember { mutableStateOf<List<MirrorWebPack>>(emptyList()) }
-    var webPackFor by remember { mutableStateOf<MirrorWebPack?>(null) }
-    // Estado de carga por tipo (para el spinner de cada sección colapsable).
-    var loadingTorrent by remember { mutableStateOf(false) }
+    // Estado de carga (para el spinner de la sección colapsable).
     var loadingArchive by remember { mutableStateOf(false) }
-    var loadingWeb by remember { mutableStateOf(false) }
-    // Secciones expandidas (por defecto las tres abiertas para ver caer los resultados).
-    var expandedSections by remember { mutableStateOf(setOf("TORRENT", "WEB", "ARCHIVE")) }
+    // Secciones expandidas (por defecto abierta para ver caer los resultados).
+    var expandedSections by remember { mutableStateOf(setOf("ARCHIVE")) }
     var searchJob by remember { mutableStateOf<Job?>(null) }
     // confirmValueChange bloquea el swipe-to-close (que se disparaba al scrollear); se cierra con la X.
     val sheetState = rememberModalBottomSheetState(
         skipPartiallyExpanded = true,
         confirmValueChange = { it != androidx.compose.material3.SheetValue.Hidden },
     )
-
-    // Calienta la sesión + DHT del torrent mientras el usuario navega (arranque más rápido al reproducir).
-    LaunchedEffect(Unit) { graph.torrentEngine.warmUp() }
 
     LaunchedEffect(tmdbId, type) {
         loading = true
@@ -171,17 +145,6 @@ fun CineDetailScreen(
         }
     }
 
-    // Packs web (serie completa por sitio): un solo fetch por título, cacheado y reusado por todos
-    // los episodios del sheet. Películas no tienen concepto de pack (queda vacío).
-    LaunchedEffect(detail) {
-        val d = detail
-        webPacks = if (d != null && d.isSeries) {
-            runCatching {
-                graph.torrentSearchApi.seriesWebPacks(d.searchTitles, ContentType.TV, tmdbId = d.id, showTitle = d.title)
-            }.getOrDefault(emptyList())
-        } else emptyList()
-    }
-
     // Cargar los capítulos de la temporada elegida (bajo demanda).
     LaunchedEffect(selectedSeason, detail) {
         val s = selectedSeason
@@ -197,52 +160,13 @@ fun CineDetailScreen(
     fun runSearch(ep: TmdbEpisode?) {
         val d = detail ?: return
         searchJob?.cancel()
-        loadingTorrent = true; loadingArchive = true; loadingWeb = true
+        loadingArchive = true
         sources = emptyList()
-        val maxBytes = graph.settings.maxTorrentSizeGb.value.toLong().let { if (it <= 0) 0L else it shl 30 }
         searchJob = scope.launch {
-            // Búsqueda PROGRESIVA e INDEPENDIENTE: torrent/archive/web corren en paralelo y cada uno
-            // agrega sus resultados a su sección apenas los tiene (ninguno espera a los otros).
             fun append(new: List<PlaySource>) { if (sheetEpisode == ep) sources = sources + new }
-
-            launch {
-                // Torrents progresivos (2 fases): apibay/knaben rápido, luego el tier on-device.
-                val flow = if (ep != null) graph.torrentSearchApi.searchEpisodeFlow(d.searchTitles, ep.season, ep.episode, langs, maxBytes, tmdbId = d.id)
-                           else graph.torrentSearchApi.searchMovieFlow(d.searchTitles, d.year, langs, maxBytes, tmdbId = d.id)
-                runCatching { flow.collect { chunk -> append(chunk.map { PlaySource.Torrent(it) }) } }
-                if (sheetEpisode == ep) loadingTorrent = false
-            }
-            launch {
-                val q = if (ep != null) "${d.originalTitle} ${ep.season}x${"%02d".format(ep.episode)}" else d.originalTitle
-                val a = runCatching { graph.api.search(q) }.getOrDefault(emptyList()).map { PlaySource.Archive(it) }
-                append(a); if (sheetEpisode == ep) loadingArchive = false
-            }
-            launch {
-                // Mirror primero (rapido, sin Cloudflare on-device): si el backend ya tiene fuentes
-                // web para este episodio, las usamos. Si no (o es pelicula, fuera de alcance del
-                // mirror web), caemos al scraping en vivo de siempre.
-                val mirrorWeb = if (ep != null) {
-                    runCatching {
-                        graph.torrentSearchApi.searchEpisodeWeb(d.searchTitles, ep.season, ep.episode, tmdbId = d.id)
-                    }.getOrDefault(emptyList())
-                } else emptyList()
-                if (mirrorWeb.isNotEmpty()) {
-                    append(mirrorWeb.map { PlaySource.Web(it) })
-                    if (sheetEpisode == ep) loadingWeb = false
-                } else {
-                    val ctx = com.arkiv.player.data.catalog.providers.SearchContext(
-                        titles = d.searchTitles,
-                        type = if (ep != null) com.arkiv.player.data.catalog.providers.ContentType.TV
-                               else com.arkiv.player.data.catalog.providers.ContentType.MOVIE,
-                        season = ep?.season ?: 0,
-                        episode = ep?.episode ?: 0,
-                        year = d.year,
-                    )
-                    // Streaming por-canal: cada web agrega sus resultados apenas termina (no espera a todas).
-                    runCatching { graph.webSourceEngine.searchFlow(ctx).collect { chunk -> append(chunk.map { PlaySource.Web(it) }) } }
-                    if (sheetEpisode == ep) loadingWeb = false
-                }
-            }
+            val q = if (ep != null) "${d.originalTitle} ${ep.season}x${"%02d".format(ep.episode)}" else d.originalTitle
+            val a = runCatching { graph.api.search(q) }.getOrDefault(emptyList()).map { PlaySource.Archive(it) }
+            append(a); if (sheetEpisode == ep) loadingArchive = false
         }
     }
 
@@ -260,51 +184,6 @@ fun CineDetailScreen(
         val ep = episodes.firstOrNull { it.episode == epNo } ?: return@LaunchedEffect
         deepLinkHandled = true
         openSources(ep)
-    }
-
-    // Resuelve un TorrentResult a un episodeId local (magnet o .torrent ya resuelto), sin reproducir
-    // ni tocar `preparing`/`error`/`sheetOpen`. Extraído de play() para que también lo use
-    // saveTorrentLocally() -- guardar para descarga local necesita el mismo episodio que reproducir,
-    // solo que sin navegar al player.
-    suspend fun resolveTorrentEpisodeId(result: TorrentResult, ep: TmdbEpisode?): String? {
-        val d = detail ?: return null
-        val seriesId = com.arkiv.player.data.SeriesItemIds.canonicalSeriesId(d.imdbId, d.id)
-        return when (val src = graph.torrentSearchApi.resolveSource(result)) {
-            // Magnet → guardamos el magnet (streaming NO bloqueante en el player, sin fetchMagnet).
-            is TorrentSource.Magnet ->
-                if (ep != null) graph.repository.addSeriesEpisodeMagnet(seriesId, d.title, d.posterUrl, ep.season, ep.episode, ep.name, src.uri, description = d.overview)
-                else graph.repository.addTorrentMagnet(d.title, src.uri, d.posterUrl, description = d.overview)
-            // .torrent (bytes) → ya tenemos la metadata, elegimos el archivo e indexamos.
-            is TorrentSource.TorrentFile -> {
-                val meta = graph.torrentEngine.resolveTorrent(src.bytes)
-                if (meta == null) { error = "No se pudo leer el .torrent"; return null }
-                val videos = graph.torrentEngine.videoFiles(meta)
-                    .ifEmpty { graph.torrentEngine.pickVideo(meta)?.let { listOf(it) } ?: emptyList() }
-                val video = ep?.let { e ->
-                    EpisodeFilePicker.pick(videos.map { it.name }, e.season, e.episode)?.let { videos[it] }
-                } ?: videos.maxByOrNull { it.sizeBytes } ?: videos.firstOrNull()
-                if (video == null) { error = "El torrent no tiene video reproducible"; return null }
-                if (ep != null) graph.repository.addSeriesEpisode(
-                    seriesId = seriesId, showTitle = d.title, posterUrl = d.posterUrl,
-                    season = ep.season, episode = ep.episode, episodeName = ep.name,
-                    infoHashHex = meta.infoHashHex, infoBytes = meta.infoBytes,
-                    fileIndex = video.index, fileSizeBytes = video.sizeBytes,
-                    description = d.overview,
-                ) else graph.repository.addTorrent(d.title, meta.infoHashHex, meta.infoBytes, videos, d.posterUrl, description = d.overview)
-                    .let { graph.repository.firstEpisodeId(it) }
-            }
-            null -> null
-        }
-    }
-
-    fun play(result: TorrentResult) {
-        val ep = sheetEpisode
-        preparing = true; error = null; sheetOpen = false
-        scope.launch {
-            val epId = resolveTorrentEpisodeId(result, ep)
-            preparing = false
-            if (epId != null) onPlay(epId) else if (error == null) error = "No se pudo obtener el torrent"
-        }
     }
 
     // Reproduce un ítem de archive.org: lo agrega a la biblioteca y usa el player normal.
@@ -356,82 +235,13 @@ fun CineDetailScreen(
         }
     }
 
-    fun playWeb(r: com.arkiv.player.data.catalog.web.WebResult) {
-        val d = detail ?: return
-        preparing = true; error = null; sheetOpen = false
-        scope.launch {
-            val ep = sheetEpisode
-            val epId = if (ep != null) {
-                val seriesId = com.arkiv.player.data.SeriesItemIds.canonicalSeriesId(d.imdbId, d.id)
-                graph.repository.addWebSeriesEpisode(seriesId, d.title, d.posterUrl, ep.season, ep.episode, ep.name, r.pageUrl)
-            } else {
-                graph.repository.addWebSource(r.pageUrl, r.title.ifBlank { d.title }, d.posterUrl)
-            }
-            preparing = false
-            if (epId != null) onPlay(epId) else error = "No se pudo abrir la fuente web"
-        }
-    }
-
-    // Agrega los capítulos elegidos de un pack web (serie completa de un sitio) a la biblioteca, uno
-    // por episodio real (season/episode tal cual los trae el sitio) — mismo molde que playWeb pero
-    // en loop. Devuelve al reproducir el episodio pedido si se tocó uno puntual, si no el primero.
-    fun addWebPack(pack: MirrorWebPack, title: String, episodes: List<MirrorWebSource>, playEpisode: MirrorWebSource? = null) {
-        val d = detail ?: return
-        val seriesId = com.arkiv.player.data.SeriesItemIds.canonicalSeriesId(d.imdbId, d.id)
-        preparing = true; error = null; sheetOpen = false
-        scope.launch {
-            var first: String? = null
-            var wanted: String? = null
-            for (ep in episodes) {
-                val id = graph.repository.addWebSeriesEpisode(
-                    seriesId, title, d.posterUrl, ep.season, ep.episode,
-                    ep.name.ifBlank { "Ep ${ep.episode}" }, ep.pageUrl,
-                )
-                if (first == null) first = id
-                if (playEpisode != null && ep.pageUrl == playEpisode.pageUrl) wanted = id
-            }
-            preparing = false
-            val target = wanted ?: first
-            if (target != null) onPlay(target) else error = "No se pudo agregar la serie"
-        }
-    }
-
-    // Encola una descarga al dispositivo. Atajo de UX: si ya se conoce un tamaño fiable (torrent de
-    // un solo archivo) y supera el umbral, pide confirmación antes de encolar; la compuerta real que
-    // garantiza el comportamiento sigue viviendo en el worker (TorrentSizeGate tras resolver la
-    // metadata), que es la única instancia que ve el tamaño del ARCHIVO y no el del pack/torrent.
-    // NO pide el permiso de notificaciones acá adentro: los llamadores que pueden invocar esto varias
-    // veces seguidas (saveWebPackLocally, un loop por capítulo) piden el permiso UNA vez antes del
-    // loop, no una vez por episodio -- si no, un pack de N capítulos dispara N veces seguidas
-    // `launcher.launch(...)` sobre el mismo ActivityResultLauncher antes de que el usuario responda
-    // al primer diálogo del sistema.
-    fun saveLocally(episodeId: String, source: String, knownSizeBytes: Long) {
-        if (TorrentSizeGate.needsConfirmation(knownSizeBytes, alreadyConfirmed = false)) {
-            pendingBig = episodeId to knownSizeBytes
-        } else {
-            scope.launch { notifyDuplicates(listOf(graph.localDownloads.enqueue(episodeId, source))) }
-        }
-    }
-
-    // Guarda un torrent en el dispositivo: mismo resolve que play() (resolveTorrentEpisodeId), pero
-    // sin reproducir. El tamaño conocido es el del propio TorrentResult -- para un pack es el del
-    // pack entero, no el del archivo elegido, así que el aviso inline puede no disparar en ese caso;
-    // la compuerta de verdad (por archivo) es la del worker.
-    fun saveTorrentLocally(result: TorrentResult, ep: TmdbEpisode?) {
-        error = null
-        scope.launch {
-            val epId = resolveTorrentEpisodeId(result, ep) ?: return@launch
-            // El permiso se pide solo si esto encola de una: si el tamaño dispara el diálogo de
-            // "Descarga pesada", quien lo pide es el botón "Descargar" de ESE diálogo (más abajo,
-            // pendingBig) -- pedirlo acá también sería una segunda invocación, y encima antes de que
-            // el usuario haya visto el aviso de tamaño o decidido si quiere bajarlo.
-            if (!TorrentSizeGate.needsConfirmation(result.sizeBytes, alreadyConfirmed = false)) askNotifications()
-            saveLocally(epId, "torrent", result.sizeBytes)
-        }
+    // Encola una descarga al dispositivo.
+    fun saveLocally(episodeId: String, source: String) {
+        scope.launch { notifyDuplicates(listOf(graph.localDownloads.enqueue(episodeId, source))) }
     }
 
     // Guarda un ítem de archive.org en el dispositivo: mismo camino que playArchive (addItem +
-    // firstEpisodeId), sin reproducir. Tamaño desconocido -> no dispara el aviso inline.
+    // firstEpisodeId), sin reproducir.
     fun saveArchiveLocally(item: ArchiveSearchResult) {
         error = null
         askNotifications()
@@ -439,66 +249,13 @@ fun CineDetailScreen(
             val added = graph.repository.addItem(item.identifier).getOrNull()
             if (added == null) { error = "No se pudo abrir el ítem de archive.org"; return@launch }
             val epId = graph.repository.firstEpisodeId(added.identifier) ?: return@launch
-            saveLocally(epId, "archive", 0)
+            saveLocally(epId, "archive")
         }
     }
 
-    // Guarda una fuente web suelta (fuera de un pack) en el dispositivo: mismo camino que playWeb
-    // (addWebSeriesEpisode si hay episodio del sheet, si no addWebSource para películas), sin
-    // reproducir. Tamaño desconocido -> no dispara el aviso inline.
-    fun saveWebLocally(r: com.arkiv.player.data.catalog.web.WebResult, ep: TmdbEpisode?) {
-        val d = detail ?: return
-        error = null
-        askNotifications()
-        scope.launch {
-            val epId = if (ep != null) {
-                val seriesId = com.arkiv.player.data.SeriesItemIds.canonicalSeriesId(d.imdbId, d.id)
-                graph.repository.addWebSeriesEpisode(seriesId, d.title, d.posterUrl, ep.season, ep.episode, ep.name, r.pageUrl)
-            } else {
-                graph.repository.addWebSource(r.pageUrl, r.title.ifBlank { d.title }, d.posterUrl)
-            }
-            if (epId != null) saveLocally(epId, "web", 0) else error = "No se pudo guardar la fuente web"
-        }
-    }
-
-    // Guarda en el dispositivo los episodios elegidos de un pack web (serie completa de un sitio),
-    // uno por episodio -- mismo camino que addWebPack (el "Guardar" del diálogo), sin reproducir.
-    // `episodes` default = pack.episodes completo y `title` default = el título TMDB: mantiene el
-    // llamado directo desde la fila del sheet (sin abrir el diálogo) igual que antes; WebPackDialog
-    // pasa la selección real del usuario y el título editado (mismo que ya usa onSave/addWebPack --
-    // si no, "Guardar" y "Guardar en el dispositivo" quedan mostrando nombres distintos para el
-    // mismo pack). Tamaño desconocido (WEB) -> ninguno dispara el aviso inline. askNotifications()
-    // va UNA sola vez acá, antes del loop -- no dentro de saveLocally, que se invoca una vez por
-    // episodio del pack (mismo patrón que AnimeShowDetailScreen.saveWebPackLocally y
-    // SearchScreen.downloadWholeSeries).
-    fun saveWebPackLocally(pack: MirrorWebPack, episodes: List<MirrorWebSource> = pack.episodes, title: String = detail?.title.orEmpty()) {
-        val d = detail ?: return
-        val seriesId = com.arkiv.player.data.SeriesItemIds.canonicalSeriesId(d.imdbId, d.id)
-        error = null
-        askNotifications()
-        scope.launch {
-            val outcomes = mutableListOf<com.arkiv.player.data.local.EnqueueOutcome>()
-            for (ep in episodes) {
-                val id = graph.repository.addWebSeriesEpisode(
-                    seriesId, title.ifBlank { d.title }, d.posterUrl, ep.season, ep.episode,
-                    ep.name.ifBlank { "Ep ${ep.episode}" }, ep.pageUrl,
-                )
-                // WEB nunca tiene tamaño conocido, así que jamás pasa por el aviso de torrent pesado
-                // de saveLocally: se encola derecho para poder juntar los resultados y avisar UNA vez
-                // por pack en vez de una por capítulo.
-                if (id != null) outcomes += graph.localDownloads.enqueue(id, "web")
-            }
-            notifyDuplicates(outcomes)
-        }
-    }
-
-    // Despacha el botón de "Guardar en el dispositivo" de una fila según el tipo de fuente. `ep` es
-    // null para películas (torrent/archive no lo necesitan; WEB de película cae a addWebSource).
+    // Despacha el botón de "Guardar en el dispositivo" de una fila según el tipo de fuente.
     fun downloadSource(s: PlaySource, ep: TmdbEpisode?) = when (s) {
-        is PlaySource.Torrent -> saveTorrentLocally(s.result, ep)
         is PlaySource.Archive -> saveArchiveLocally(s.item)
-        is PlaySource.Web -> saveWebLocally(s.result, ep)
-        is PlaySource.WebPack -> saveWebPackLocally(s.pack)
         // Magis no se descarga: el CDN sirve con un token que vence a las ~48 h, así que el
         // archivo bajado dejaría de reproducirse. Es fuente de streaming, no de biblioteca.
         is PlaySource.Magis -> Unit
@@ -512,10 +269,7 @@ fun CineDetailScreen(
      */
     fun descargaDe(s: PlaySource, ep: TmdbEpisode?): DescargaDeFila? {
         val fila = when (s) {
-            is PlaySource.Torrent -> DescargasPorFuente.deTorrent(downloadRows, s.result.infoHash)
-            is PlaySource.Web -> DescargasPorFuente.deWeb(downloadRows, s.result.pageUrl)
             is PlaySource.Archive -> DescargasPorFuente.deArchive(downloadRows, s.item.identifier)
-            is PlaySource.WebPack -> null
             is PlaySource.Magis -> return null
             is PlaySource.Ditu -> return null
         }
@@ -528,12 +282,7 @@ fun CineDetailScreen(
     }
 
     fun playSource(s: PlaySource) = when (s) {
-        is PlaySource.Torrent ->
-            if (com.arkiv.player.data.catalog.PackDetector.isPack(s.result.name)) packFor = s.result
-            else play(s.result)
         is PlaySource.Archive -> playArchive(s.item)
-        is PlaySource.Web -> playWeb(s.result)
-        is PlaySource.WebPack -> webPackFor = s.pack
         is PlaySource.Magis -> playMagis(s.result)
         is PlaySource.Ditu -> playDitu(s.result)
     }
@@ -559,18 +308,6 @@ fun CineDetailScreen(
                     }
                     if (d.overview.isNotBlank()) {
                         Text(d.overview, color = ArkivTextSecondary, style = MaterialTheme.typography.bodyMedium, maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
-                    }
-
-                    Text("Idiomas a buscar", color = Color.White, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 16.dp, bottom = 4.dp))
-                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ALL_LANGS.forEach { l ->
-                            FilterChip(
-                                selected = l in langs,
-                                onClick = { langs = if (l in langs) langs - l else langs + l },
-                                label = { Text(l.label) },
-                                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = ArkivRed, selectedLabelColor = Color.White),
-                            )
-                        }
                     }
 
                     if (!d.isSeries) {
@@ -628,7 +365,7 @@ fun CineDetailScreen(
             Box(Modifier.fillMaxSize().background(Color(0xAA000000)), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(color = ArkivRed)
-                    Text("Abriendo el torrent…", color = Color.White, modifier = Modifier.padding(top = 16.dp))
+                    Text("Preparando…", color = Color.White, modifier = Modifier.padding(top = 16.dp))
                 }
             }
         }
@@ -636,18 +373,11 @@ fun CineDetailScreen(
 
     if (sheetOpen) {
         val ep = sheetEpisode
-        val torrents = sources.filterIsInstance<PlaySource.Torrent>()
-        // Packs derivados de `webPacks` (estado leído en composición) en vez de inyectados una
-        // sola vez en runSearch: así se recomponen solos si el fetch de packs (LaunchedEffect
-        // aparte, hasta ~6s) llega DESPUÉS de que el sheet ya abrió (p.ej. deep-link), sin
-        // perder la fila del pack ni necesitar cerrar/reabrir el sheet.
-        val epPacks = ep?.let { e -> webPacks.filter { it.coversEpisode(e.season, e.episode, seasonStrict = true) } } ?: emptyList()
-        val webs = sources.filterIsInstance<PlaySource.Web>() + epPacks.map { PlaySource.WebPack(it) }
         val archives = sources.filterIsInstance<PlaySource.Archive>()
         fun toggle(k: String) { expandedSections = if (k in expandedSections) expandedSections - k else expandedSections + k }
 
         // El MISMO contenido (PanelDeFuentes) según la forma de la pantalla: hoja modal en
-        // vertical/celular (como siempre), panel a la derecha en tablet horizontal (Task 6).
+        // vertical/celular (como siempre), panel a la derecha en tablet horizontal.
         if (esTabletHorizontal()) {
             // Panel lateral: no tapa la ficha, deja el botón de Volver y el resto a la vista.
             // Ojo: acá NO se toca `sheetState` (es del ModalBottomSheet, que ni se compone en este
@@ -659,8 +389,8 @@ fun CineDetailScreen(
                 Spacer(Modifier.weight(1f))
                 Surface(Modifier.width(420.dp).fillMaxHeight(), color = ArkivSurfaceHigh) {
                     PanelDeFuentes(
-                        detail = detail, sheetEpisode = ep, torrents = torrents, webs = webs, archives = archives,
-                        loadingTorrent = loadingTorrent, loadingWeb = loadingWeb, loadingArchive = loadingArchive,
+                        detail = detail, sheetEpisode = ep, archives = archives,
+                        loadingArchive = loadingArchive,
                         expandedSections = expandedSections, toggle = { k -> toggle(k) }, preparing = preparing,
                         descargaDe = { s, e -> descargaDe(s, e) }, playSource = { s -> playSource(s) },
                         onCerrar = { sheetOpen = false },
@@ -670,86 +400,14 @@ fun CineDetailScreen(
         } else {
             ModalBottomSheet(onDismissRequest = { sheetOpen = false }, sheetState = sheetState, containerColor = ArkivSurfaceHigh) {
                 PanelDeFuentes(
-                    detail = detail, sheetEpisode = ep, torrents = torrents, webs = webs, archives = archives,
-                    loadingTorrent = loadingTorrent, loadingWeb = loadingWeb, loadingArchive = loadingArchive,
+                    detail = detail, sheetEpisode = ep, archives = archives,
+                    loadingArchive = loadingArchive,
                     expandedSections = expandedSections, toggle = { k -> toggle(k) }, preparing = preparing,
                     descargaDe = { s, e -> descargaDe(s, e) }, playSource = { s -> playSource(s) },
                     onCerrar = { sheetOpen = false },
                 )
             }
         }
-    }
-
-    packFor?.let { r ->
-        val d = detail
-        if (d != null) PackDialog(
-            result = r,
-            packResolver = graph.packResolver,
-            defaultTitle = "${d.title} — Pack",
-            posterUrl = d.posterUrl,
-            onDismiss = { packFor = null },
-            onSave = { title, contents, rows ->
-                scope.launch {
-                    val id = graph.repository.savePackAsSeries(title, d.posterUrl, d.overview, contents.infoHashHex, contents.infoBytes, rows)
-                    packFor = null
-                    onOpenItem(id)
-                }
-            },
-            onPlayOne = { title, contents, row ->
-                scope.launch {
-                    val id = graph.repository.savePackAsSeries(title, d.posterUrl, d.overview, contents.infoHashHex, contents.infoBytes, contents.rows)
-                    packFor = null
-                    onPlay("$id::${row.index}")
-                }
-            },
-        )
-    }
-
-    webPackFor?.let { p ->
-        val d = detail
-        if (d != null) WebPackDialog(
-            pack = p,
-            seriesId = com.arkiv.player.data.SeriesItemIds.canonicalSeriesId(d.imdbId, d.id),
-            defaultTitle = d.title,
-            posterUrl = d.posterUrl,
-            onDismiss = { webPackFor = null },
-            onSave = { title, episodes ->
-                webPackFor = null
-                addWebPack(p, title, episodes)
-            },
-            onPlayOne = { title, ep ->
-                webPackFor = null
-                addWebPack(p, title, p.episodes, ep)
-            },
-            onDownload = { title, episodes ->
-                webPackFor = null
-                saveWebPackLocally(p, episodes, title)
-            },
-        )
-    }
-
-    pendingBig?.let { (episodeId, bytes) ->
-        AlertDialog(
-            onDismissRequest = { pendingBig = null },
-            title = { Text("Descarga pesada") },
-            text = { Text("Este torrent pesa ${TorrentSizeGate.formatSize(bytes)}. ¿Lo bajás igual?") },
-            confirmButton = {
-                TextButton(onClick = {
-                    askNotifications()
-                    scope.launch {
-                        val outcome = graph.localDownloads.enqueue(episodeId, "torrent")
-                        // Si la cola lo salteó por duplicado NO se confirma: markConfirmed devuelve
-                        // la fila a `queued` y volvería a bajar lo que ya está en disco.
-                        if (outcome != com.arkiv.player.data.local.EnqueueOutcome.ALREADY_DOWNLOADED) {
-                            graph.localDownloads.confirmSize(episodeId)
-                        }
-                        notifyDuplicates(listOf(outcome))
-                    }
-                    pendingBig = null
-                }) { Text("Descargar") }
-            },
-            dismissButton = { TextButton(onClick = { pendingBig = null }) { Text("Cancelar") } },
-        )
     }
 
     // Misma pregunta y mismas palabras que en la biblioteca: es la misma acción sobre la misma cola.
@@ -773,21 +431,16 @@ fun CineDetailScreen(
 }
 
 /**
- * El contenido del buscador de fuentes: cabecera con el título/episodio + las tres secciones
- * colapsables (Torrent/Web/Archive), cada una con su [SourceRow] y su [ControlDeDescarga] (cola,
- * progreso, cancelar, borrar). Es el MISMO contenido para los dos contenedores posibles —
- * `ModalBottomSheet` en vertical/celular, panel lateral en tablet horizontal (Task 6)—: quien
- * llama decide el contenedor, acá no se sabe cuál es.
+ * El contenido del buscador de fuentes: cabecera con el título/episodio + la sección colapsable de
+ * Archive, con su [SourceRow] y su [ControlDeDescarga] (cola, progreso, cancelar, borrar). Es el
+ * MISMO contenido para los dos contenedores posibles — `ModalBottomSheet` en vertical/celular,
+ * panel lateral en tablet horizontal—: quien llama decide el contenedor, acá no se sabe cuál es.
  */
 @Composable
 private fun PanelDeFuentes(
     detail: TmdbDetail?,
     sheetEpisode: TmdbEpisode?,
-    torrents: List<PlaySource.Torrent>,
-    webs: List<PlaySource>,
     archives: List<PlaySource.Archive>,
-    loadingTorrent: Boolean,
-    loadingWeb: Boolean,
     loadingArchive: Boolean,
     expandedSections: Set<String>,
     toggle: (String) -> Unit,
@@ -808,33 +461,17 @@ private fun PanelDeFuentes(
                 Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = Color.White)
             }
         }
-        val anyLoading = loadingTorrent || loadingWeb || loadingArchive
 
-        // Mira las tres listas ya derivadas y no la lista cruda de `sources`, que es lo que miraba
-        // antes. No es lo mismo: `webs` incluye además los packs web del episodio, que salen de otro
-        // estado. Con la condición vieja, un episodio cuya única fuente era un pack mostraba "No se
-        // encontraron fuentes" TAPANDO la fila del pack que sí estaba ahí. La nueva condición es un
-        // subconjunto estricto de la vieja: nunca calla el mensaje cuando de verdad no hay nada.
-        if (!anyLoading && torrents.isEmpty() && webs.isEmpty() && archives.isEmpty()) {
+        if (!loadingArchive && archives.isEmpty()) {
             Text(
-                "No se encontraron fuentes para los idiomas elegidos. Probá activar más idiomas.",
+                "No se encontraron fuentes.",
                 color = ArkivTextSecondary, modifier = Modifier.padding(vertical = 12.dp),
             )
         } else {
-            // Tres secciones colapsables: cada resultado cae en la suya (no se mezclan).
-            // Orden: Web → Torrent → Archive.
             // weight(fill=false) acota la altura del scroll interno al espacio disponible del
             // contenedor (hoja o panel): así es un viewport REAL que scrollea, y el nested-scroll
             // consume el gesto en vez de pasárselo al ModalBottomSheet (que se arrastraba/"intentaba cerrar").
             Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
-                SourceSection("TORRENT", ArkivRed, torrents, loadingTorrent,
-                    "TORRENT" in expandedSections, { toggle("TORRENT") }, !preparing,
-                    descargaDe = { s -> descargaDe(s, ep) },
-                ) { playSource(it) }
-                SourceSection("WEB", Color(0xFFB39DDB), webs, loadingWeb,
-                    "WEB" in expandedSections, { toggle("WEB") }, !preparing,
-                    descargaDe = { s -> descargaDe(s, ep) },
-                ) { playSource(it) }
                 SourceSection("ARCHIVE", Color(0xFF80CBC4), archives, loadingArchive,
                     "ARCHIVE" in expandedSections, { toggle("ARCHIVE") }, !preparing,
                     descargaDe = { s -> descargaDe(s, ep) },

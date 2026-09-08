@@ -2,7 +2,6 @@ package com.arkiv.player.data
 
 import com.arkiv.player.data.catalog.TmdbApi
 import com.arkiv.player.data.catalog.TmdbItem
-import com.arkiv.player.data.catalog.web.WebTmdbMatcher
 import com.arkiv.player.data.db.ArkivDatabase
 import com.arkiv.player.data.db.ArtworkEntity
 import com.arkiv.player.data.db.ContinueRow
@@ -764,68 +763,6 @@ class ArkivRepository(
         )
     }
 
-    /**
-     * Guarda un torrent en la biblioteca (solo metadata; el video se streamea al ver).
-     * identifier = "torrent:<infohash>"; cada video de [videoFiles] es un episodio con su índice.
-     */
-    suspend fun addTorrent(
-        name: String,
-        infoHashHex: String,
-        infoBytes: ByteArray,
-        videoFiles: List<com.arkiv.player.torrent.TorrentFile>,
-        thumbnailUrl: String = "",
-        description: String? = null,
-    ): String {
-        val id = "torrent:$infoHashHex"
-        val item = com.arkiv.player.data.db.ItemEntity(
-            identifier = id,
-            title = name.ifBlank { "Torrent" },
-            description = description,
-            thumbnailUrl = thumbnailUrl,
-            addedAt = clock(),
-            source = "torrent",
-            torrentData = android.util.Base64.encodeToString(infoBytes, android.util.Base64.NO_WRAP),
-        )
-        val episodes = videoFiles.mapIndexed { order, f ->
-            com.arkiv.player.data.db.EpisodeEntity(
-                id = "$id::${f.index}",
-                itemId = id,
-                section = "",
-                displayName = MetadataParser.cleanName(f.name),
-                orderIndex = order,
-                durationSeconds = 0.0,
-                thumbPath = null,
-                originalPath = null,
-                originalFormat = null,
-                originalSize = f.sizeBytes,
-                derivativePath = null,
-                derivativeFormat = null,
-                derivativeSize = 0,
-                torrentFileIndex = f.index,
-            )
-        }
-        itemDao.replaceItem(item, episodes)
-        return id
-    }
-
-    /**
-     * Guarda un pack (temporada/serie completa) como UNA entrada propia de biblioteca con N episodios
-     * (uno por archivo de video, cada uno con su torrentFileIndex). El título llega ya final (renombrable
-     * por el usuario). Un solo .torrent para todo el pack (guardado en el ítem). Devuelve el itemId.
-     */
-    suspend fun savePackAsSeries(
-        title: String,
-        posterUrl: String,
-        description: String?,
-        infoHashHex: String,
-        infoBytes: ByteArray,
-        files: List<com.arkiv.player.data.catalog.PackFileRow>,
-    ): String {
-        val b64 = android.util.Base64.encodeToString(infoBytes, android.util.Base64.NO_WRAP)
-        val (item, episodes) = PackEntities.build(title, posterUrl, description, infoHashHex, b64, files, clock())
-        itemDao.replaceItem(item, episodes)
-        return item.identifier
-    }
 
     /**
      * Agrega un capítulo de anime como episodio de UNA serie (id estable por show de AniList),
@@ -1861,11 +1798,21 @@ internal data class TmdbMatch(
     val exacto: Boolean,
 )
 
+/** minúsculas, sin tildes, sin puntuación, sin "(2024)", espacios colapsados. Antes vivía en el
+ *  `WebTmdbMatcher` de la capa web (borrada); [pickTmdbMatch] la sigue necesitando para matchear
+ *  títulos de CUALQUIER fuente contra TMDB, no solo web. */
+internal fun normalizeTitle(title: String): String {
+    var s = title.lowercase().replace(Regex("\\(\\d{4}\\)"), " ")
+    s = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replace(Regex("\\p{Mn}+"), "")
+    s = s.replace(Regex("[^a-z0-9 ]"), " ")
+    return s.replace(Regex("\\s+"), " ").trim()
+}
+
 internal fun pickTmdbMatch(query: String, results: List<TmdbItem>): TmdbMatch? {
-    val q = WebTmdbMatcher.normalize(query)
+    val q = normalizeTitle(query)
     if (q.isBlank()) return results.firstOrNull()?.let { TmdbMatch(it, exacto = false) }
     results.firstOrNull {
-        WebTmdbMatcher.normalize(it.title) == q || WebTmdbMatcher.normalize(it.originalTitle) == q
+        normalizeTitle(it.title) == q || normalizeTitle(it.originalTitle) == q
     }?.let { return TmdbMatch(it, exacto = true) }
     return results.firstOrNull()?.let { TmdbMatch(it, exacto = false) }
 }

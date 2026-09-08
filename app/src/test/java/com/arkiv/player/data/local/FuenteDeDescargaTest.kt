@@ -11,16 +11,6 @@ class FuenteDeDescargaTest {
     }
 
     @Test
-    fun `un capitulo de torrent se baja con la estrategia de torrent`() {
-        assertEquals("torrent", FuenteDeDescarga.para("torrent:abc123::e1"))
-    }
-
-    @Test
-    fun `un capitulo web se baja con la estrategia web`() {
-        assertEquals("web", FuenteDeDescarga.para("web:allcalidad-algo::e1"))
-    }
-
-    @Test
     fun `un capitulo de archive se baja con la estrategia de archive`() {
         assertEquals("archive", FuenteDeDescarga.para("dragon-ball-gt_s01e01"))
     }

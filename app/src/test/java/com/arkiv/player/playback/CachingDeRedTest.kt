@@ -21,16 +21,6 @@ import org.junit.Test
  */
 class CachingDeRedTest {
 
-    /** Medido en device: con 2,5 s VLC se quedaba sin datos y estancaba; 6 s da el arranque limpio. */
-    @Test fun `torrent lleva el colchon medido para bajar y reproducir a la vez`() {
-        assertEquals(6_000, CachingDeRed.msPara(SourceKind.TORRENT))
-    }
-
-    /** El HLS web va proxeado por blog (2 CPU) + Cloudflare: con 1,5 s se drenaba y se alcanzaba. */
-    @Test fun `web lleva el colchon medido contra el proxy`() {
-        assertEquals(8_000, CachingDeRed.msPara(SourceKind.WEB))
-    }
-
     /**
      * El vivo ya NO hereda el colchón de web: se midió su CDN y no se parece.
      *

@@ -413,7 +413,7 @@ internal class EstadoDePistas(
      * pistas que ya trae el archivo, y bajar uno de OpenSubtitles es una acción manual. Quedan
      * listados en el menú CC para cuando el archivo no traiga nada en tu idioma.
      */
-    suspend fun buscarOnline(episodeId: String, esTorrent: Boolean) {
+    suspend fun buscarOnline(episodeId: String) {
         // Un solo origen para lo que se PIDE y para cómo se ORDENA: derivarlos por separado deja que
         // se desincronicen (se pediría un idioma que el orden no conoce, y se iría al fondo).
         val langs = graph.subtitlePrefs.prefs.value.openSubtitlesCodes()
@@ -436,22 +436,8 @@ internal class EstadoDePistas(
         }
 
         buscandoOnline = true
-        buscar(null) // 1) por título/imdb, rápido (no espera la descarga)
+        buscar(null) // por título/imdb
         buscandoOnline = false
-
-        // 2) TORRENT: el moviehash necesita la cola descargada (puede tardar tras un gate por timeout).
-        // Espero a que esté disponible y RE-busco con el hash → sube los subs del release EXACTO al tope.
-        if (!esTorrent) return
-        repeat(20) {
-            val hash = withContext(Dispatchers.IO) {
-                runCatching { graph.torrentEngine.servedMovieHash() }.getOrNull()
-            }
-            if (hash != null) {
-                buscar(hash)
-                return
-            }
-            delay(1500)
-        }
     }
 
     private fun nombreDe(tracks: List<Pair<Int, String>>, id: Int): String? =

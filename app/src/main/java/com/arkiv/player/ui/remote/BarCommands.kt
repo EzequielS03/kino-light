@@ -51,23 +51,16 @@ internal suspend fun enviarComandoDeBarra(
         TransportCommand.Resume -> withContext(Dispatchers.Main) { graph.castSession?.player?.play() }
         // Parar de verdad: termina la sesión de cast (no solo pausa) — ver CastSessionManager.
         // También suelta los recursos de red de ESTE proceso, porque el receptor les estaba sacando
-        // los bytes. Ojo con la diferencia entre las dos cosas que se apagan acá: parar el
-        // TorrentServingService solo baja la notificación y la promoción a primer plano —no tiene
-        // onDestroy—, mientras que quien de verdad corta el server LAN, quita el handle de
-        // libtorrent, borra lo descargado y suelta los locks es `torrentEngine.stopStream()`. Sin
-        // esa segunda llamada el usuario pide silencio, ve desaparecer la notificación y el torrent
-        // sigue corriendo invisible hasta que muera el proceso. Es el mismo par que suelta
-        // PlaybackService.releaseNetworkResources(), que en este camino NO corre: está gateado por
-        // `isCasting()` justo para no cortarle el video a la TV al salir del reproductor.
+        // los bytes. Es el mismo par que suelta PlaybackService.releaseNetworkResources(), que en
+        // este camino NO corre: está gateado por `isCasting()` justo para no cortarle el video a la
+        // TV al salir del reproductor.
         //
         // A diferencia del onDispose de PlayerScreen (que deja el servicio vivo a propósito mientras
         // se castea, porque la TV sigue jalando bytes), este botón solo es alcanzable desde
         // pantallas donde el reproductor NO está compuesto, así que nada más en la app está usando
-        // el stream en este instante. Las tres llamadas son idempotentes y a prueba de nulls.
+        // el stream en este instante. Las llamadas son idempotentes y a prueba de nulls.
         TransportCommand.Stop -> withContext(Dispatchers.Main) {
             graph.castSession?.stopIntentionally()
-            com.arkiv.player.torrent.TorrentServingService.stop(context)
-            runCatching { graph.torrentEngine.stopStream() }
             runCatching { graph.archiveCacheProxy.stop() }
         }
         // La barra maneja la posición del CONTENIDO; el receptor cuenta desde su propio cero cuando

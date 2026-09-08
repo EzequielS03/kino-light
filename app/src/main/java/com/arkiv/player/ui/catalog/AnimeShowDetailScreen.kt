@@ -23,19 +23,15 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
@@ -67,18 +63,6 @@ import com.arkiv.player.ui.components.DialogoDeDescarga
 import com.arkiv.player.ui.components.LineaDeEstadoDeDescarga
 import com.arkiv.player.data.ArchiveSearchResult
 import com.arkiv.player.data.catalog.AnimeShow
-import com.arkiv.player.data.catalog.AnimeSourceResult
-import com.arkiv.player.data.catalog.TorrentLang
-import com.arkiv.player.data.catalog.TorrentResult
-import com.arkiv.player.data.catalog.TorrentSource
-import com.arkiv.player.data.catalog.providers.ContentType
-import com.arkiv.player.data.catalog.providers.SearchContext
-import com.arkiv.player.data.catalog.web.WebResult
-import com.arkiv.player.data.local.TorrentSizeGate
-import com.arkiv.player.data.catalog.mirror.MirrorWebPack
-import com.arkiv.player.data.catalog.mirror.MirrorWebSource
-import com.arkiv.player.torrent.EpisodeFilePicker
-import kotlinx.coroutines.async
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivBlack
 import com.arkiv.player.ui.theme.ArkivRed
@@ -86,10 +70,6 @@ import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-
-private val ANIME_LANGS = listOf(
-    TorrentLang.LATINO, TorrentLang.DUAL, TorrentLang.CASTELLANO, TorrentLang.ENGLISH, TorrentLang.JAP_SUB,
-)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -112,63 +92,28 @@ fun AnimeShowDetailScreen(
     var loading by remember { mutableStateOf(true) }
     var preparing by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var packFor by remember { mutableStateOf<TorrentResult?>(null) }
-    // Aviso inline de torrent pesado (ATAJO de UX, ver saveLocally): episodeId ya guardado + tamaño.
-    var pendingBig by remember { mutableStateOf<Pair<String, Long>?>(null) }
     // Las descargas al dispositivo, para que el buscador muestre lo MISMO que la biblioteca: en qué
     // va cada fuente y qué se puede hacer con eso. Acá una fila es una FUENTE y todavía no tiene
-    // `episodeId` (el de torrent sale del infohash que solo se sabe tras resolver el magnet), así
-    // que el emparejamiento lo hace [DescargasPorFuente] con lo que la fila sí sabe.
+    // `episodeId`, así que el emparejamiento lo hace [DescargasPorFuente] con lo que la fila sí sabe.
     val downloadRows by graph.repository.observeDownloadRows().collectAsStateWithLifecycle(emptyList())
     var porConfirmar by remember { mutableStateOf<Pair<DownloadRow, AccionDeDescarga>?>(null) }
 
-    // Idiomas a priorizar en la búsqueda (no excluye: TorrentSearchApi solo reordena/prioriza).
-    var langs by remember { mutableStateOf<Set<TorrentLang>>(emptySet()) }
-    // Episodios expandidos por modo (clave = nº de episodio; -1 = packs/otros). Mapas separados
-    // para que la expansión de un modo no "sangre" al otro (los nº de episodio pueden coincidir).
+    // Episodios expandidos (clave = nº de episodio).
     val expanded = remember { mutableStateMapOf<Int, Boolean>() }
-    val expandedAll = remember { mutableStateMapOf<Int, Boolean>() }
-    // Ruta B: fuentes por episodio (clave = nº de episodio), en 3 secciones (torrent/web/archive).
-    val sourcesByEp = remember { mutableStateMapOf<Int, List<AnimeSourceResult>>() }
-    val webByEp = remember { mutableStateMapOf<Int, List<WebResult>>() }
     val archiveByEp = remember { mutableStateMapOf<Int, List<ArchiveSearchResult>>() }
-    val loadingEp = remember { mutableStateMapOf<Int, Boolean>() }
-    val loadingWebEp = remember { mutableStateMapOf<Int, Boolean>() }
     val loadingArchiveEp = remember { mutableStateMapOf<Int, Boolean>() }
-    // Expandido de cada sub-sección por episodio (clave "ep:TIPO"). Torrent abierta por defecto.
-    val expandedSub = remember { mutableStateMapOf<String, Boolean>() }
-    // Job en vuelo por episodio (padre de las 3 búsquedas), para cancelarlo si cambian los idiomas.
+    // Job en vuelo por episodio, para cancelarlo si el episodio se colapsa antes de responder.
     val episodeJobs = remember { mutableStateMapOf<Int, Job>() }
-    // Ruta A: browse "todos los releases".
-    var mode by remember { mutableStateOf("episodes") } // "episodes" (B) | "all" (A)
-    var browse by remember { mutableStateOf<List<AnimeSourceResult>?>(null) }
-    var loadingBrowse by remember { mutableStateOf(false) }
-    var browseJob by remember { mutableStateOf<Job?>(null) }
     // Episodios pedidos a mano (fuera del rango 1..total), p.ej. numeración absoluta de long-runners.
     val manualEpisodes = remember { mutableStateListOf<Int>() }
     var manualEpText by remember { mutableStateOf("") }
-    var webPacks by remember { mutableStateOf<List<MirrorWebPack>>(emptyList()) }
-    var webPackFor by remember { mutableStateOf<MirrorWebPack?>(null) }
 
     // seriesId canónico del show: el del MAPEO cruzado (imdb, si no tmdb) y "anilist<id>" solo si no
     // hay mapeo. Sin esto la misma serie entraba a la biblioteca bajo "anilist171018" acá y bajo
     // "tt30217403" desde la pantalla de series, o sea dos ítems y los mismos GB bajados dos veces.
     // Ver SeriesItemIds.animeSeriesId, que es el único lugar donde vive el criterio.
-    //
-    // Resolverlo es `suspend` (el mapeo puede tocar disco o red), así que cada camino que GUARDA lo
-    // pide dentro de su propia corrutina; este estado existe solo para lo que necesita el id en
-    // COMPOSICIÓN (el badge de "ya descargado" del diálogo de packs) y arranca en el fallback de
-    // anilist hasta que el mapeo resuelve.
     suspend fun resolveSeriesId(): String =
         com.arkiv.player.data.SeriesItemIds.animeSeriesId(graph.animeMappingRepository, anilistId)
-
-    var canonicalSeriesId by remember(anilistId) {
-        mutableStateOf(com.arkiv.player.data.SeriesItemIds.anilistSeriesId(anilistId))
-    }
-    LaunchedEffect(anilistId) { canonicalSeriesId = resolveSeriesId() }
-
-    // Calienta la sesión + DHT del torrent mientras el usuario ve los capítulos (arranque más rápido).
-    LaunchedEffect(Unit) { graph.torrentEngine.warmUp() }
 
     LaunchedEffect(anilistId) {
         loading = true
@@ -190,63 +135,15 @@ fun AnimeShowDetailScreen(
         }
     }
 
-    // Packs web (serie completa por sitio): un solo fetch por show, cacheado y reusado por los 2
-    // modos — "Por episodio" inyecta los que cubren el episodio abierto, "Todos" los lista enteros.
-    LaunchedEffect(show) {
-        val s = show ?: return@LaunchedEffect
-        webPacks = runCatching { graph.animeSourceProvider.seriesWebPacks(s) }.getOrDefault(emptyList())
-    }
-
     fun loadEpisode(ep: Int) {
-        if (loadingEp[ep] == true || archiveByEp.containsKey(ep)) return
+        if (loadingArchiveEp[ep] == true || archiveByEp.containsKey(ep)) return
         val s = show ?: return
         episodeJobs[ep]?.cancel()
-        loadingEp[ep] = true; loadingWebEp[ep] = true; loadingArchiveEp[ep] = true
-        val reqLangs = langs
-        val maxBytes = graph.settings.maxTorrentSizeGb.value.toLong().let { if (it <= 0) 0L else it shl 30 }
+        loadingArchiveEp[ep] = true
         episodeJobs[ep] = scope.launch {
-            // 3 búsquedas independientes y PROGRESIVAS (molde de películas): cada sección se llena
-            // apenas su fuente responde; ninguna espera a las otras. Si los idiomas cambiaron mientras
-            // una consulta estaba en vuelo (langs != reqLangs), se descarta para no pisar la vigente.
-            val titlesDeferred = async { runCatching { graph.animeSourceProvider.browseTitles(s) }.getOrDefault(emptyList()) }
-            launch { // TORRENT
-                runCatching {
-                    graph.animeSourceProvider.episodeSourcesFlow(s, ep, langs = reqLangs, maxSizeBytes = maxBytes).collect { chunk ->
-                        if (langs == reqLangs) sourcesByEp[ep] = (sourcesByEp[ep] ?: emptyList()) + chunk
-                    }
-                }
-                if (langs == reqLangs) loadingEp[ep] = false
-            }
-            launch { // WEB
-                // Mirror primero y, si responde, NO se scrapea en vivo (mismo patron que
-                // CineDetailScreen). El mirror devuelve fuentes A NIVEL DE EPISODIO (url del
-                // capitulo + su titulo), mientras que el scraping en vivo es a nivel de SHOW
-                // (WebResult no tiene season/episode y la query solo usa {title}/{year}), asi que
-                // no aporta precision de episodio: si el mirror ya tiene el capitulo, correr ambos
-                // solo suma latencia y ruido. El backend normaliza la numeracion al insertar y
-                // guarda el titulo del episodio, asi que cuando quedan varios candidatos el
-                // usuario los distingue por titulo, no por un numero ambiguo.
-                val mirrorWeb = runCatching { graph.animeSourceProvider.episodeSourcesWeb(s, ep) }.getOrDefault(emptyList())
-                if (mirrorWeb.isNotEmpty()) {
-                    if (langs == reqLangs) webByEp[ep] = (webByEp[ep] ?: emptyList()) + mirrorWeb
-                } else {
-                    val titles = titlesDeferred.await()
-                    if (titles.isNotEmpty()) {
-                        val ctx = SearchContext(titles = titles, type = ContentType.ANIME, episode = ep)
-                        runCatching {
-                            graph.webSourceEngine.searchFlow(ctx).collect { chunk ->
-                                if (langs == reqLangs) webByEp[ep] = (webByEp[ep] ?: emptyList()) + chunk
-                            }
-                        }
-                    }
-                }
-                if (langs == reqLangs) loadingWebEp[ep] = false
-            }
-            launch { // ARCHIVE (una sola consulta)
-                val titles = titlesDeferred.await()
-                val a = runCatching { graph.api.search("${titles.firstOrNull() ?: s.title} $ep") }.getOrDefault(emptyList())
-                if (langs == reqLangs) { archiveByEp[ep] = a; loadingArchiveEp[ep] = false }
-            }
+            val a = runCatching { graph.api.search("${s.title} $ep") }.getOrDefault(emptyList())
+            archiveByEp[ep] = a
+            loadingArchiveEp[ep] = false
         }
     }
 
@@ -264,82 +161,9 @@ fun AnimeShowDetailScreen(
         loadEpisode(ep)
     }
 
-    fun loadBrowse() {
-        if (browse != null || loadingBrowse) return
-        val s = show ?: return
-        browseJob?.cancel()
-        loadingBrowse = true
-        val reqLangs = langs
-        val maxBytes = graph.settings.maxTorrentSizeGb.value.toLong().let { if (it <= 0) 0L else it shl 30 }
-        browseJob = scope.launch {
-            runCatching {
-                graph.animeSourceProvider.browseSourcesFlow(s, langs = reqLangs, maxSizeBytes = maxBytes).collect { chunk ->
-                    if (langs == reqLangs) browse = (browse ?: emptyList()) + chunk
-                }
-            }
-            if (langs == reqLangs) loadingBrowse = false
-        }
-    }
-
-    // Resuelve un TorrentResult al episodeId local (misma numeración absoluta de anime que usa el
-    // resto de la pantalla), sin reproducir ni tocar `preparing`. Extraído de play() para que
-    // saveTorrentLocally() use EXACTAMENTE el mismo camino de guardado (addAnimeEpisode) y no uno
-    // paralelo: si divergieran, la descarga quedaría bajo un episodeId que el player nunca pide.
-    suspend fun resolveTorrentEpisodeId(r: TorrentResult, epNumber: Int?): String? {
-        val s = show ?: return null
-        val source = graph.torrentSearchApi.resolveSource(r)
-        val meta = when (source) {
-            is TorrentSource.Magnet -> graph.torrentEngine.resolveMagnet(source.uri)
-            is TorrentSource.TorrentFile -> graph.torrentEngine.resolveTorrent(source.bytes)
-            null -> null
-        }
-        if (meta == null) {
-            error = "No se pudo abrir el torrent (puede no tener seeds ahora)"
-            return null
-        }
-        val videos = graph.torrentEngine.videoFiles(meta)
-            .ifEmpty { graph.torrentEngine.pickVideo(meta)?.let { listOf(it) } ?: emptyList() }
-        val video = epNumber?.let { epNo ->
-            EpisodeFilePicker.pick(videos.map { it.name }, season = 1, episode = epNo, absoluteEpisode = epNo)
-                ?.let { videos[it] }
-        } ?: videos.maxByOrNull { it.sizeBytes } ?: videos.firstOrNull()
-        if (video == null) {
-            error = "El torrent no tiene video reproducible"
-            return null
-        }
-        return graph.repository.addAnimeEpisode(
-            anilistId = anilistId,
-            showTitle = s.title,
-            posterUrl = s.posterUrl,
-            episodeName = r.name,
-            infoHashHex = meta.infoHashHex,
-            infoBytes = meta.infoBytes,
-            fileIndex = video.index,
-            fileSizeBytes = video.sizeBytes,
-        )
-    }
-
-    fun play(r: TorrentResult, epNumber: Int? = null) {
-        preparing = true
-        error = null
-        scope.launch {
-            val epId = resolveTorrentEpisodeId(r, epNumber)
-            preparing = false
-            if (epId != null) onPlay(epId)
-        }
-    }
-
-    // Encola una descarga al dispositivo. Atajo de UX igual que en CineDetailScreen: si el tamaño ya
-    // se conoce y supera el umbral, pide confirmación antes de encolar. La compuerta que garantiza
-    // el comportamiento sigue siendo la del worker, la única que ve el tamaño del ARCHIVO elegido y
-    // no el del pack. NO pide el permiso de notificaciones acá adentro: los llamadores que invocan
-    // esto en loop lo piden UNA vez antes del loop.
-    fun saveLocally(episodeId: String, source: String, knownSizeBytes: Long) {
-        if (TorrentSizeGate.needsConfirmation(knownSizeBytes, alreadyConfirmed = false)) {
-            pendingBig = episodeId to knownSizeBytes
-        } else {
-            scope.launch { notifyDuplicates(listOf(graph.localDownloads.enqueue(episodeId, source))) }
-        }
+    // Encola una descarga al dispositivo.
+    fun saveLocally(episodeId: String, source: String) {
+        scope.launch { notifyDuplicates(listOf(graph.localDownloads.enqueue(episodeId, source))) }
     }
 
     // Arma el control de descarga de UNA fila: el estado sale de la fila de `downloads` que le
@@ -352,21 +176,8 @@ fun AnimeShowDetailScreen(
         onPedirAccion = { accion -> fila?.let { f -> porConfirmar = f to accion } },
     )
 
-    // Guarda un torrent en el dispositivo: mismo resolve que play(), sin reproducir. El anime se
-    // consume mayoritariamente por torrent y hasta ahora esta pantalla solo dejaba guardar WEB.
-    fun saveTorrentLocally(r: TorrentResult, epNumber: Int?) {
-        error = null
-        scope.launch {
-            val epId = resolveTorrentEpisodeId(r, epNumber) ?: return@launch
-            // El permiso se pide solo si esto encola de una: si el tamaño dispara el diálogo de
-            // "Descarga pesada", lo pide el botón "Descargar" de ESE diálogo.
-            if (!TorrentSizeGate.needsConfirmation(r.sizeBytes, alreadyConfirmed = false)) askNotifications()
-            saveLocally(epId, "torrent", r.sizeBytes)
-        }
-    }
-
     // Guarda un ítem de archive.org en el dispositivo: mismo camino que playArchive (addItem +
-    // firstEpisodeId), sin reproducir. Tamaño desconocido -> no dispara el aviso inline.
+    // firstEpisodeId), sin reproducir.
     fun saveArchiveLocally(item: ArchiveSearchResult) {
         error = null
         askNotifications()
@@ -374,18 +185,11 @@ fun AnimeShowDetailScreen(
             val added = graph.repository.addItem(item.identifier).getOrNull()
             if (added == null) { error = "No se pudo abrir el ítem de archive.org"; return@launch }
             val epId = graph.repository.firstEpisodeId(added.identifier) ?: return@launch
-            saveLocally(epId, "archive", 0)
+            saveLocally(epId, "archive")
         }
     }
 
-    // Intercepta el tap sobre una fuente torrent: si es un PACK (varios episodios), abre el
-    // diálogo de pack en vez de reproducir directo. Cubre las 3 listas de ReleaseRow (single-play,
-    // por episodio y "Todos"), ya que las 3 pueden mostrar packs (p.ej. la sección "Packs / otros").
-    fun playOrPack(r: TorrentResult, epNumber: Int?) {
-        if (com.arkiv.player.data.catalog.PackDetector.isPack(r.name)) packFor = r else play(r, epNumber)
-    }
-
-    // Reproduce un ítem de archive.org: lo agrega a la biblioteca y usa el player normal. Molde: CineDetailScreen.
+    // Reproduce un ítem de archive.org: lo agrega a la biblioteca y usa el player normal.
     fun playArchive(item: ArchiveSearchResult) {
         preparing = true; error = null
         scope.launch {
@@ -394,134 +198,6 @@ fun AnimeShowDetailScreen(
             val epId = graph.repository.firstEpisodeId(added.identifier)
             preparing = false
             if (epId != null) onPlay(epId)
-        }
-    }
-
-    // Reproduce una fuente web de un episodio de anime: crea el episodio web (guarda la pageUrl) y
-    // usa el player unificado, que resuelve pageUrl → stream al cargar. Molde: CineDetailScreen.playWeb.
-    //
-    // Season: la fila local se guarda por hash de pageUrl -- la misma que escriben
-    // addWebPack/downloadPack con la temporada REAL del mirror. Inventar 1 acá le revertía la
-    // temporada a esa fila y rompía la búsqueda en nuc_library_items (ver WebSourceSeason). El
-    // WebResult del mirror ya la trae; `webPacks` queda como respaldo por si la fuente es en vivo.
-    //
-    // Episode: mismo problema pero de número de episodio -- el mirror puede numerar absoluto y
-    // distinto al episodio de AniList que el usuario tocó (`ep`). Igual que la temporada, el propio
-    // WebResult ya lo trae cuando vino del mirror; `webPacks` es el respaldo (ver WebSourceEpisode).
-    fun playWebEp(r: WebResult, ep: Int) {
-        val s = show ?: return
-        preparing = true; error = null
-        val season = com.arkiv.player.data.catalog.mirror.WebSourceSeason.forResult(r, webPacks)
-        val episode = com.arkiv.player.data.catalog.mirror.WebSourceEpisode.forResult(r, webPacks, fallback = ep)
-        scope.launch {
-            val epId = graph.repository.addWebSeriesEpisode(
-                resolveSeriesId(), s.title, s.posterUrl, season, episode, "${s.title} - Ep $episode", r.pageUrl,
-            )
-            preparing = false
-            if (epId != null) onPlay(epId) else error = "No se pudo abrir la fuente web"
-        }
-    }
-
-    // Agrega los capítulos elegidos de un pack web (serie completa de un sitio) a la biblioteca, uno
-    // por episodio — mismo molde que playWebEp pero en loop. Devuelve al reproducir el episodio
-    // pedido si se tocó uno puntual (onPlayOne del diálogo), si no el primero agregado (onSave).
-    //
-    // Task 11: antes guardaba season=1 fijo. Acá SÍ hay temporada real -- MirrorWebSource.season es
-    // la del episodio en el mirror, la misma que downloadPack manda en el job de la NUC -- así que
-    // guardar 1 fijo desalineaba el season local del guardado en nuc_library_items y
-    // PlaybackPreferenceStore.decide() nunca encontraba el capítulo bajado en series con más de una
-    // temporada. Se usa ep.season, igual que ya hace CineDetailScreen.addWebPack.
-    //
-    // Los caminos de "un episodio suelto" (playWebEp/downloadEpisode) escriben ESTA MISMA fila
-    // (clave = hash de pageUrl) y ya no inventan 1 ni el número de AniList: resuelven season/episode
-    // del propio WebResult del mirror, con `webPacks` como respaldo (WebSourceSeason/WebSourceEpisode),
-    // así que las dos rutas coinciden escriba la que escriba último.
-    fun addWebPack(pack: MirrorWebPack, title: String, episodes: List<MirrorWebSource>, playEpisode: MirrorWebSource? = null) {
-        val s = show ?: return
-        preparing = true; error = null
-        scope.launch {
-            var first: String? = null
-            var wanted: String? = null
-            val seriesId = resolveSeriesId()
-            for (ep in episodes) {
-                val id = graph.repository.addWebSeriesEpisode(
-                    seriesId, title, s.posterUrl, ep.season, ep.episode,
-                    ep.name.ifBlank { "Ep ${ep.episode}" }, ep.pageUrl,
-                )
-                if (first == null) first = id
-                if (playEpisode != null && ep.pageUrl == playEpisode.pageUrl) wanted = id
-            }
-            preparing = false
-            val target = wanted ?: first
-            if (target != null) onPlay(target) else error = "No se pudo agregar la serie"
-        }
-    }
-
-    // Guarda en el dispositivo los episodios elegidos de un pack web: mismo camino que addWebPack (el
-    // "Guardar" del diálogo) -- addWebSeriesEpisode por capítulo, sin reproducir. MirrorWebSource ya
-    // trae la temporada real por episodio (ver WebMirrorModels.kt), así que se usa tal cual en vez de
-    // asumir season=1 (esa normalización es solo para la reproducción/guardado local del anime).
-    // `episodes` default = pack.episodes completo y `title` default = el título del show: mantiene el
-    // llamado directo desde WebPackRow (botón de descarga rápida sin abrir el diálogo) igual que
-    // antes; WebPackDialog pasa la selección real del usuario y el título editado en el diálogo
-    // (mismo que ya usa onSave/addWebPack -- si no, "Guardar" y "Guardar en el dispositivo" quedan
-    // mostrando nombres distintos para el mismo pack). Antes esto mandaba un job a la NUC; ahora
-    // encola la descarga al propio dispositivo (tamaño WEB siempre desconocido, no hay aviso de
-    // torrent pesado que mostrar acá -- ver TorrentSizeGate en CineDetailScreen).
-    fun saveWebPackLocally(pack: MirrorWebPack, episodes: List<MirrorWebSource> = pack.episodes, title: String = show?.title.orEmpty()) {
-        val s = show ?: return
-        askNotifications()
-        scope.launch {
-            val seriesId = resolveSeriesId()
-            val outcomes = mutableListOf<com.arkiv.player.data.local.EnqueueOutcome>()
-            for (ep in episodes) {
-                val id = graph.repository.addWebSeriesEpisode(
-                    seriesId, title.ifBlank { s.title }, s.posterUrl, ep.season, ep.episode,
-                    ep.name.ifBlank { "Ep ${ep.episode}" }, ep.pageUrl,
-                )
-                if (id != null) outcomes += graph.localDownloads.enqueue(id, "web")
-            }
-            // Un solo aviso para todo el pack, no uno por capítulo.
-            notifyDuplicates(outcomes)
-        }
-    }
-
-    // Guarda localmente un único episodio web suelto (fuera de un pack): mismo camino que playWebEp
-    // (addWebSeriesEpisode con season/episode resueltos del propio WebResult del mirror, o de los
-    // packs si la fuente fuera en vivo), sin reproducir. Antes esto mandaba un job a la NUC; ahora
-    // encola la descarga al propio dispositivo.
-    fun saveWebEpisodeLocally(r: WebResult, ep: Int) {
-        val s = show ?: return
-        askNotifications()
-        val season = com.arkiv.player.data.catalog.mirror.WebSourceSeason.forResult(r, webPacks)
-        val episode = com.arkiv.player.data.catalog.mirror.WebSourceEpisode.forResult(r, webPacks, fallback = ep)
-        scope.launch {
-            val epId = graph.repository.addWebSeriesEpisode(
-                resolveSeriesId(), s.title, s.posterUrl, season, episode, "${s.title} - Ep $episode", r.pageUrl,
-            )
-            if (epId != null) notifyDuplicates(listOf(graph.localDownloads.enqueue(epId, "web")))
-        }
-    }
-
-    // Al cambiar los idiomas priorizados, invalida lo ya cargado y re-consulta (episodios abiertos +
-    // browse si estaba cargado). En la primera composición no hay nada cacheado, así que es no-op.
-    LaunchedEffect(langs) {
-        // Cancela cualquier consulta por episodio en vuelo (aunque su episodio ya no esté
-        // expandido) para que una respuesta con el idioma anterior no llegue a pisar nada.
-        episodeJobs.values.forEach { it.cancel() }
-        episodeJobs.clear()
-        val openEpisodes = expanded.filterValues { it }.keys.toList()
-        sourcesByEp.clear(); webByEp.clear(); archiveByEp.clear()
-        loadingEp.clear(); loadingWebEp.clear(); loadingArchiveEp.clear()
-        openEpisodes.forEach { loadEpisode(it) }
-        // Re-consulta browse si ya había datos O si la primera carga seguía en vuelo (browse ==
-        // null pero loadingBrowse == true): en ese caso también hay que cancelar y relanzar, si
-        // no la re-consulta nunca se dispara y el resultado queda con el idioma viejo.
-        if (browse != null || loadingBrowse) {
-            browseJob?.cancel()
-            browse = null
-            loadingBrowse = false
-            loadBrowse()
         }
     }
 
@@ -579,33 +255,17 @@ fun AnimeShowDetailScreen(
                     // tienen lista "1..N" real: es reproducción única por título.
                     val singlePlay = s.format == "MOVIE" || s.format == "MUSIC" || s.episodes == 1
 
-                    Text(
-                        "Idiomas a buscar",
-                        color = Color.White,
-                        style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
-                    )
-                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ANIME_LANGS.forEach { l ->
-                            FilterChip(
-                                selected = l in langs,
-                                onClick = { langs = if (l in langs) langs - l else langs + l },
-                                label = { Text(l.label) },
-                                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = ArkivRed, selectedLabelColor = Color.White),
-                            )
-                        }
-                    }
-
                     if (singlePlay) {
-                        LaunchedEffect(s.id) { loadBrowse() }
+                        LaunchedEffect(s.id) { loadEpisode(0) }
                         Text(
                             "Reproducir",
                             color = Color.White,
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.padding(top = 20.dp, bottom = 6.dp),
                         )
+                        val singleArchive = archiveByEp[0]
                         when {
-                            loadingBrowse -> Row(
+                            loadingArchiveEp[0] == true && singleArchive == null -> Row(
                                 modifier = Modifier.padding(vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -613,44 +273,24 @@ fun AnimeShowDetailScreen(
                                 CircularProgressIndicator(strokeWidth = 2.dp, color = ArkivRed)
                                 Text("Buscando fuentes…", color = ArkivTextSecondary)
                             }
-                            browse.isNullOrEmpty() -> Text(
-                                "No se encontraron torrents para este título.",
+                            singleArchive.isNullOrEmpty() -> Text(
+                                "No se encontraron fuentes para este título.",
                                 color = ArkivTextSecondary,
                                 modifier = Modifier.padding(vertical = 8.dp),
                             )
-                            else -> browse!!.forEach { src ->
-                                ReleaseRow(
-                                    result = src.result, enabled = !preparing,
+                            else -> singleArchive.forEach { item ->
+                                ArchiveEpRow(
+                                    item, enabled = !preparing,
                                     descarga = descargaDe(
-                                        DescargasPorFuente.deTorrent(downloadRows, src.result.infoHash),
-                                    ) { saveTorrentLocally(src.result, null) },
-                                ) { playOrPack(src.result, null) }
+                                        DescargasPorFuente.deArchive(downloadRows, item.identifier),
+                                    ) { saveArchiveLocally(item) },
+                                ) { playArchive(item) }
                             }
                         }
                     } else {
-                    // Selector de modo: Por episodio (B) | Todos (A).
-                    Row(
-                        modifier = Modifier.padding(top = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        listOf("episodes" to "Por episodio", "all" to "Todos").forEach { (m, label) ->
-                            Text(
-                                label,
-                                color = if (mode == m) Color.White else ArkivTextSecondary,
-                                style = MaterialTheme.typography.labelLarge,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(50))
-                                    .background(if (mode == m) ArkivRed else ArkivSurfaceHigh)
-                                    .clickable { mode = m; if (m == "all") loadBrowse() }
-                                    .padding(horizontal = 14.dp, vertical = 6.dp),
-                            )
-                        }
-                    }
-
-                    if (mode == "episodes") {
                         val total = if (s.episodes > 0) s.episodes else 0
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp),
+                            modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
@@ -702,11 +342,7 @@ fun AnimeShowDetailScreen(
                                     style = MaterialTheme.typography.titleSmall,
                                     modifier = Modifier.weight(1f),
                                 )
-                                // Contador total = las 3 fuentes (torrent + web + archive) del episodio, más
-                                // los packs web que lo cubren (mismo criterio que la sub-sección WEB de abajo,
-                                // así el número de la fila colapsada coincide con el de adentro).
-                                val count = (sourcesByEp[ep]?.size ?: 0) + (webByEp[ep]?.size ?: 0) + (archiveByEp[ep]?.size ?: 0) +
-                                    webPacks.count { it.coversEpisode(season = 0, episode = ep, seasonStrict = false) }
+                                val count = archiveByEp[ep]?.size ?: 0
                                 if (count > 0) Text(
                                     "$count",
                                     color = ArkivTextSecondary,
@@ -714,45 +350,22 @@ fun AnimeShowDetailScreen(
                                 )
                             }
                             if (open) {
-                                // 3 sub-secciones colapsables por episodio (igual que películas): cada una
-                                // progresiva e independiente. TORRENT abierta por defecto; WEB/ARCHIVE colapsadas.
-                                val torrents = sourcesByEp[ep] ?: emptyList()
-                                val webs = webByEp[ep] ?: emptyList()
                                 val archives = archiveByEp[ep] ?: emptyList()
-                                AnimeSourceSection(
-                                    "TORRENT", ArkivRed, torrents.size, loadingEp[ep] == true,
-                                    expandedSub["$ep-t"] ?: true, { expandedSub["$ep-t"] = !(expandedSub["$ep-t"] ?: true) },
-                                ) {
-                                    torrents.forEach { src ->
-                                        ReleaseRow(
-                                            result = src.result, enabled = !preparing,
-                                            descarga = descargaDe(
-                                                DescargasPorFuente.deTorrent(downloadRows, src.result.infoHash),
-                                            ) { saveTorrentLocally(src.result, src.episode ?: ep) },
-                                        ) { playOrPack(src.result, src.episode ?: ep) }
+                                if (loadingArchiveEp[ep] == true && archives.isEmpty()) {
+                                    Row(
+                                        modifier = Modifier.padding(start = 32.dp, top = 8.dp, bottom = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    ) {
+                                        CircularProgressIndicator(strokeWidth = 2.dp, color = ArkivRed, modifier = Modifier.size(16.dp))
+                                        Text("Buscando…", color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall)
                                     }
-                                }
-                                val epPacks = webPacks.filter { it.coversEpisode(season = 0, episode = ep, seasonStrict = false) }
-                                AnimeSourceSection(
-                                    "WEB", Color(0xFFB39DDB), webs.size + epPacks.size, loadingWebEp[ep] == true,
-                                    expandedSub["$ep-w"] ?: false, { expandedSub["$ep-w"] = !(expandedSub["$ep-w"] ?: false) },
-                                ) {
-                                    webs.forEach { r ->
-                                        WebEpRow(
-                                            r, enabled = !preparing, onClick = { playWebEp(r, ep) },
-                                            descarga = descargaDe(
-                                                DescargasPorFuente.deWeb(downloadRows, r.pageUrl),
-                                            ) { saveWebEpisodeLocally(r, ep) },
-                                        )
-                                    }
-                                    epPacks.forEach { p ->
-                                        WebPackRow(p, enabled = !preparing, onClick = { webPackFor = p }, onDownload = { saveWebPackLocally(p) })
-                                    }
-                                }
-                                AnimeSourceSection(
-                                    "ARCHIVE", Color(0xFF80CBC4), archives.size, loadingArchiveEp[ep] == true,
-                                    expandedSub["$ep-a"] ?: false, { expandedSub["$ep-a"] = !(expandedSub["$ep-a"] ?: false) },
-                                ) {
+                                } else if (archives.isEmpty()) {
+                                    Text(
+                                        "Sin resultados", color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall,
+                                        modifier = Modifier.padding(start = 32.dp, top = 4.dp, bottom = 4.dp),
+                                    )
+                                } else {
                                     archives.forEach { item ->
                                         ArchiveEpRow(
                                             item, enabled = !preparing,
@@ -764,85 +377,6 @@ fun AnimeShowDetailScreen(
                                 }
                             }
                         }
-                    }
-
-                    if (mode == "all") {
-                        if (webPacks.isNotEmpty()) {
-                            AnimeSourceSection(
-                                "WEB", Color(0xFFB39DDB), webPacks.size, false,
-                                expandedSub["all-w"] ?: true, { expandedSub["all-w"] = !(expandedSub["all-w"] ?: true) },
-                            ) {
-                                webPacks.forEach { p ->
-                                    WebPackRow(p, enabled = !preparing, onClick = { webPackFor = p }, onDownload = { saveWebPackLocally(p) })
-                                }
-                            }
-                        }
-                        when {
-                            // PROGRESIVO: spinner grande solo mientras no haya NADA aún.
-                            loadingBrowse && browse.isNullOrEmpty() -> Row(
-                                modifier = Modifier.padding(vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            ) {
-                                CircularProgressIndicator(strokeWidth = 2.dp, color = ArkivRed)
-                                Text("Buscando releases…", color = ArkivTextSecondary)
-                            }
-                            browse.isNullOrEmpty() -> Text(
-                                "No se encontraron torrents para este anime.",
-                                color = ArkivTextSecondary,
-                                modifier = Modifier.padding(vertical = 8.dp),
-                            )
-                            else -> {
-                                val groups = remember(browse) {
-                                    browse!!.groupBy { it.episode }
-                                        .toSortedMap(compareBy { it ?: Int.MAX_VALUE })
-                                }
-                                groups.forEach { (ep, items) ->
-                                    val key = ep ?: -1
-                                    val open = expandedAll[key] ?: (ep == groups.keys.firstOrNull())
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth()
-                                            .clickable { expandedAll[key] = !open }
-                                            .padding(vertical = 12.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    ) {
-                                        Icon(
-                                            if (open) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                            contentDescription = null, tint = Color.White,
-                                        )
-                                        Text(
-                                            if (ep != null) "Episodio $ep" else "Packs / otros",
-                                            color = Color.White,
-                                            style = MaterialTheme.typography.titleSmall,
-                                            modifier = Modifier.weight(1f),
-                                        )
-                                        Text(
-                                            "${items.size}",
-                                            color = ArkivTextSecondary,
-                                            style = MaterialTheme.typography.labelMedium,
-                                        )
-                                    }
-                                    if (open) items.forEach { src ->
-                                        ReleaseRow(
-                                            result = src.result, enabled = !preparing,
-                                            descarga = descargaDe(
-                                                DescargasPorFuente.deTorrent(downloadRows, src.result.infoHash),
-                                            ) { saveTorrentLocally(src.result, src.episode ?: ep) },
-                                        ) { playOrPack(src.result, src.episode ?: ep) }
-                                    }
-                                }
-                                if (loadingBrowse) Row(
-                                    modifier = Modifier.padding(vertical = 12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                ) {
-                                    CircularProgressIndicator(strokeWidth = 2.dp, color = ArkivRed)
-                                    Text("Buscando más…", color = ArkivTextSecondary)
-                                }
-                            }
-                        }
-                    }
                     }
 
                     if (error != null) {
@@ -863,84 +397,10 @@ fun AnimeShowDetailScreen(
             Box(Modifier.fillMaxSize().background(Color(0xAA000000)), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(color = ArkivRed)
-                    Text("Abriendo el torrent…", color = Color.White, modifier = Modifier.padding(top = 16.dp))
+                    Text("Preparando…", color = Color.White, modifier = Modifier.padding(top = 16.dp))
                 }
             }
         }
-    }
-
-    packFor?.let { r ->
-        val s = show
-        if (s != null) PackDialog(
-            result = r,
-            packResolver = graph.packResolver,
-            defaultTitle = "${s.title} — Pack",
-            posterUrl = s.posterUrl,
-            onDismiss = { packFor = null },
-            onSave = { title, contents, rows ->
-                scope.launch {
-                    val id = graph.repository.savePackAsSeries(title, s.posterUrl, s.description, contents.infoHashHex, contents.infoBytes, rows)
-                    packFor = null
-                    onOpenItem(id)
-                }
-            },
-            onPlayOne = { title, contents, row ->
-                scope.launch {
-                    val id = graph.repository.savePackAsSeries(title, s.posterUrl, s.description, contents.infoHashHex, contents.infoBytes, contents.rows)
-                    packFor = null
-                    onPlay("$id::${row.index}")
-                }
-            },
-        )
-    }
-
-    webPackFor?.let { p ->
-        val s = show
-        if (s != null) WebPackDialog(
-            pack = p,
-            seriesId = canonicalSeriesId,
-            defaultTitle = s.title,
-            posterUrl = s.posterUrl,
-            onDismiss = { webPackFor = null },
-            onSave = { title, episodes ->
-                webPackFor = null
-                addWebPack(p, title, episodes)
-            },
-            onPlayOne = { title, ep ->
-                webPackFor = null
-                addWebPack(p, title, p.episodes, ep)
-            },
-            onDownload = { title, episodes ->
-                webPackFor = null
-                saveWebPackLocally(p, episodes, title)
-            },
-        )
-    }
-
-    // Aviso inline de torrent pesado. Igual que en CineDetailScreen: es un ATAJO para no encolar
-    // algo que vas a descartar; la compuerta real (por archivo, no por pack) vive en el worker.
-    pendingBig?.let { (episodeId, bytes) ->
-        AlertDialog(
-            onDismissRequest = { pendingBig = null },
-            title = { Text("Descarga pesada") },
-            text = { Text("Este torrent pesa ${TorrentSizeGate.formatSize(bytes)}. ¿Lo bajás igual?") },
-            confirmButton = {
-                TextButton(onClick = {
-                    askNotifications()
-                    scope.launch {
-                        val outcome = graph.localDownloads.enqueue(episodeId, "torrent")
-                        // Si la cola lo salteó por duplicado NO se confirma: markConfirmed devuelve
-                        // la fila a `queued` y volvería a bajar lo que ya está en disco.
-                        if (outcome != com.arkiv.player.data.local.EnqueueOutcome.ALREADY_DOWNLOADED) {
-                            graph.localDownloads.confirmSize(episodeId)
-                        }
-                        notifyDuplicates(listOf(outcome))
-                    }
-                    pendingBig = null
-                }) { Text("Descargar") }
-            },
-            dismissButton = { TextButton(onClick = { pendingBig = null }) { Text("Cancelar") } },
-        )
     }
 
     // Confirmación de cancelar / sacar de la cola / borrar. Misma pregunta y mismas palabras que en
@@ -965,136 +425,10 @@ fun AnimeShowDetailScreen(
 }
 
 @Composable
-private fun ReleaseRow(
-    result: TorrentResult,
-    enabled: Boolean,
-    /** En qué va su descarga al dispositivo, y qué se puede hacer con eso. Igual que [WebEpRow]. */
-    descarga: DescargaDeFila,
-    onClick: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(start = 32.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Icon(Icons.Default.PlayArrow, contentDescription = null, tint = ArkivRed)
-        Column(Modifier.weight(1f)) {
-            Text(
-                result.name,
-                color = Color.White,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            val q = com.arkiv.player.data.catalog.QualityLabel.extract(result.name)
-            Text(
-                "${result.lang.label}${if (q.isNotBlank()) "  ·  $q" else ""}  ·  ${result.seeders} seeds" +
-                    if (result.sizeLabel.isNotBlank()) "  ·  ${result.sizeLabel}" else "",
-                color = ArkivTextSecondary,
-                style = MaterialTheme.typography.labelSmall,
-            )
-            // Aviso de PACK (batch de varios episodios): avisa antes de bajar decenas de GB.
-            if (com.arkiv.player.data.catalog.PackDetector.isPack(result.name)) {
-                Text(
-                    "PACK · varios episodios",
-                    color = androidx.compose.ui.graphics.Color(0xFFFFB74D),
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            }
-            LineaDeEstadoDeDescarga(descarga.estado)
-        }
-        ControlDeDescarga(descarga, enabled = enabled)
-    }
-}
-
-/** Sub-sección colapsable por tipo (TORRENT/WEB/ARCHIVE) dentro de un episodio. Molde: CineDetailScreen.SourceSection. */
-@Composable
-private fun AnimeSourceSection(
-    tag: String,
-    tagColor: Color,
-    count: Int,
-    loading: Boolean,
-    expanded: Boolean,
-    onToggle: () -> Unit,
-    content: @Composable () -> Unit,
-) {
-    Column(Modifier.padding(start = 32.dp, top = 4.dp)) {
-        Row(
-            Modifier.fillMaxWidth().clickable { onToggle() }.padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Box(
-                Modifier.clip(RoundedCornerShape(4.dp)).background(tagColor.copy(alpha = 0.20f))
-                    .padding(horizontal = 8.dp, vertical = 3.dp),
-            ) { Text("$tag  $count", color = tagColor, style = MaterialTheme.typography.labelMedium) }
-            if (loading) CircularProgressIndicator(color = tagColor, strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
-            Spacer(Modifier.weight(1f))
-            Icon(
-                if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                contentDescription = if (expanded) "Colapsar" else "Expandir", tint = ArkivTextSecondary,
-            )
-        }
-        if (expanded) {
-            content()
-            if (count == 0 && !loading) Text(
-                "Sin resultados", color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.padding(start = 8.dp, bottom = 8.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun WebEpRow(r: WebResult, enabled: Boolean, onClick: () -> Unit, descarga: DescargaDeFila) {
-    Row(
-        modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick)
-            .padding(start = 8.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFFB39DDB))
-        Column(Modifier.weight(1f)) {
-            Text(r.title.ifBlank { r.siteName }, color = Color.White, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(
-                r.siteName + listOfNotNull(r.language.ifBlank { null }, r.quality.ifBlank { null }).joinToString("") { "  ·  $it" },
-                color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall,
-            )
-            LineaDeEstadoDeDescarga(descarga.estado)
-        }
-        ControlDeDescarga(descarga, enabled = enabled)
-    }
-}
-
-@Composable
-private fun WebPackRow(pack: MirrorWebPack, enabled: Boolean, onClick: () -> Unit, onDownload: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick)
-            .padding(start = 8.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFFFFB74D))
-        Column(Modifier.weight(1f)) {
-            Text(pack.showTitle, color = Color.White, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(
-                "PACK · ${pack.episodeCount} capítulos" +
-                    (if (pack.seasons.size > 1) "  ·  ${pack.seasons.size} temporadas" else "") +
-                    "  ·  ${pack.siteId}",
-                color = Color(0xFFFFB74D), style = MaterialTheme.typography.labelSmall,
-            )
-        }
-        IconButton(onClick = onDownload, enabled = enabled) {
-            Icon(Icons.Default.Download, contentDescription = "Descargar offline", tint = Color(0xFFFFB74D))
-        }
-    }
-}
-
-@Composable
 private fun ArchiveEpRow(
     item: ArchiveSearchResult,
     enabled: Boolean,
-    /** En qué va su descarga al dispositivo, y qué se puede hacer con eso. Igual que [WebEpRow]. */
+    /** En qué va su descarga al dispositivo, y qué se puede hacer con eso. */
     descarga: DescargaDeFila,
     onClick: () -> Unit,
 ) {

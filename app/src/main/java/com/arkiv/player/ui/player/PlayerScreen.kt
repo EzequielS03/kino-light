@@ -137,7 +137,6 @@ import com.arkiv.player.playback.SourceKind
 import com.arkiv.player.playback.VideoAttachPolicy
 import com.arkiv.player.playback.VlcPlayer
 import com.arkiv.player.playback.setPlayerSourceTag
-import com.arkiv.player.torrent.TorrentServingService
 import com.arkiv.player.ui.formatDuration
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivRed
@@ -319,8 +318,8 @@ private fun PlayerContent(
         factory = viewModelFactory {
             initializer {
                 PlayerViewModel(
-                    graph.repository, graph.settings, graph.torrentEngine, graph.archiveCacheProxy,
-                    graph.webResolverApi, graph.arkivOfflineApi, graph.playbackPreferenceStore,
+                    graph.repository, graph.settings, graph.archiveCacheProxy,
+                    graph.arkivOfflineApi, graph.playbackPreferenceStore,
                     graph.localLibrary, graph.localFileServer, graph.deviceAuth, graph.frameCapturer,
                     graph.liveController, graph.database.liveRecentDao(),
                     esTelevision = isTv,
@@ -355,8 +354,6 @@ private fun PlayerContent(
     val generacionVivo by vm.generacionVivo.collectAsStateWithLifecycle()
     val cortesEnVivo by vlc.cortesEnVivo.collectAsStateWithLifecycle()
     val loadError by vm.error.collectAsStateWithLifecycle()
-    // Progreso de la fase de pre-buffer (antes de tener playlist; solo torrent). null al terminar.
-    val prepProgress by vm.prepProgress.collectAsStateWithLifecycle()
     // Fuente web: mientras el resolver de blog snifea el stream, y los subtítulos sniffeados a adjuntar.
     val resolving by vm.resolving.collectAsStateWithLifecycle()
     val webExtras by vm.webExtras.collectAsStateWithLifecycle()
@@ -412,12 +409,10 @@ private fun PlayerContent(
         }
     }
 
-    // La fuente se conoce por el episodeId aunque todavía no haya playlist (para el overlay/servicio).
-    val sourceIsTorrent = remember(episodeId) { PlayerSource.kindFor(episodeId) == SourceKind.TORRENT }
     // Cómo se nombra la fuente en el cartel de "Resolviendo…". `vm.resolving` lo prenden LAS DOS
     // cargas que resuelven contra la red —`loadWeb` y `loadMagis`—, pero el texto daba por sentado
     // que era web: darle play a un capítulo de Magis anunciaba una fuente web que en ese camino no
-    // existe. Ninguna otra fuente prende esa bandera (archive y torrent tienen sus propios carteles).
+    // existe. Ninguna otra fuente prende esa bandera (archive tiene su propio cartel).
     val fuenteQueResuelve = remember(episodeId) {
         when (PlayerSource.kindFor(episodeId)) {
             SourceKind.MAGIS -> "de Magis"
@@ -690,9 +685,8 @@ private fun PlayerContent(
     val estadoDlna = rememberEstadoDlna(dlna, graph.applicationScope)
 
     val d = playlist?.items?.getOrNull(currentIndex)
-    val isTorrent = d?.kind == SourceKind.TORRENT
     // Task 11: solo tiene sentido ofrecer "volver a en vivo" cuando lo que suena vino de la NUC —
-    // no hay a qué otra fuente "volver" desde WEB/ARCHIVE/TORRENT en esta iteración.
+    // no hay a qué otra fuente "volver" desde ARCHIVE en esta iteración.
     val showLiveOverride = d?.kind == SourceKind.NUC
     val playlistRef = rememberUpdatedState(playlist)
 
@@ -722,13 +716,11 @@ private fun PlayerContent(
                 "canales=${audio?.channels ?: 0} → ${if (decodable) "va directo" else "hay que transcodificar"}",
         )
 
-        // La URL alcanzable por el receptor: la del server HTTP propio, LAN, sea el del torrent o
-        // la del proxy de vivo (LiveHlsProxy) -- mismo motivo en los dos casos, ver el KDoc de
-        // CastRequestBuilder. `lanIp()` es un helper genérico de TorrentEngine (IP del celu en la
-        // LAN), no algo específico de torrent -- el resto de este método ya lo usa así más abajo.
+        // La URL alcanzable por el receptor: la del proxy de vivo (LiveHlsProxy) LAN -- mismo motivo
+        // que el resto de este método, ver el KDoc de CastRequestBuilder. `graph.lanIp()` es un
+        // helper genérico (IP del celu en la LAN), no algo específico de ninguna fuente.
         val lanUrl = when (item.kind) {
-            SourceKind.TORRENT -> graph.torrentEngine.lanStreamUrl()
-            SourceKind.LIVE -> graph.torrentEngine.lanIp()?.let { graph.liveHlsProxy.lanUrl(it) }
+            SourceKind.LIVE -> graph.lanIp()?.let { graph.liveHlsProxy.lanUrl(it) }
             else -> null
         }
 
@@ -739,9 +731,9 @@ private fun PlayerContent(
             artworkUrl = item.artworkUrl,
             mediaUrl = item.mediaUrl,
             castUrl = item.castUrl,
-            isTorrent = item.kind == SourceKind.TORRENT,
+            isTorrent = false,
             lanUrl = lanUrl,
-            lanMime = graph.torrentEngine.streamMime(),
+            lanMime = null,
             startPositionMs = startPositionMs,
             isLive = esVivo,
         )
@@ -752,14 +744,13 @@ private fun PlayerContent(
         }
 
         // Hay que convertirle el audio. El origen es el loopback cuando hay un servidor propio
-        // (torrent, o el proxy de vivo) -no sale a la red- y la misma URL que se hubiera casteado
-        // en el resto de los casos.
+        // (el proxy de vivo) -no sale a la red- y la misma URL que se hubiera casteado en el resto
+        // de los casos.
         val origen = when (item.kind) {
-            SourceKind.TORRENT -> graph.torrentEngine.localStreamUrl() ?: directo.uri
             SourceKind.LIVE -> item.mediaUrl // http://127.0.0.1:.../live.m3u8, ver abrirCanalActual
             else -> directo.uri
         }
-        val lanIp = graph.torrentEngine.lanIp()
+        val lanIp = graph.lanIp()
         // Vivo no tiene "dónde ibas": start-time busca una posición DENTRO del archivo, y un HLS en
         // vivo no tiene ese eje (ver KDoc de CastSoutChain.mediaOptions) -- forzar 0 sea cual sea la
         // posición local (el tiempo que lleva ABIERTO el canal, no un punto para retomar).
@@ -946,13 +937,10 @@ private fun PlayerContent(
         val loadedIds = (0 until controller.mediaItemCount).mapNotNull { controller.getMediaItemAt(it).mediaId }
         val yaCargado = episodeId in loadedIds
         android.util.Log.w("ArkivPlay", "PlayerScreen enter episodeId=$episodeId kind=$kind yaEnController=$yaCargado loaded=$loaded loadedIds=$loadedIds")
-        // WEB: el stream resuelto es EFÍMERO (el token del proxy/host expira y cambia en cada resolve),
-        // así que reproducir el mismo episodio web = re-resolver + recargar SIEMPRE, aunque el item viejo
-        // siga en el controller. Para torrent/archive la URL es estable → conservar el reuso de buffer.
-        if (!yaCargado || kind == SourceKind.WEB) {
+        if (!yaCargado) {
             // stop() corta el video viejo; el setMediaItems de abajo reemplaza la playlist cuando la
             // fuente nueva termina de resolver.
-            android.util.Log.w("ArkivPlay", "stop() + loaded=false (${if (kind == SourceKind.WEB) "WEB efímero" else "episodeId nuevo"})")
+            android.util.Log.w("ArkivPlay", "stop() + loaded=false (episodeId nuevo)")
             controller.stop()
             loaded = false
         }
@@ -970,10 +958,11 @@ private fun PlayerContent(
         // el LaunchedEffect(casting, liveItem, generacionVivo) que reemplaza el cast-to-TV que antes
         // vivía acá. `enVivo` sigue existiendo para el resto de la pantalla (overlay/gestos/D-pad),
         // pero este efecto es puramente VOD desde ahora.
-        // WEB: URL efímera (token que expira en cada resolve) → NUNCA reusar el media viejo; siempre
-        // recargar con la URL fresca. El guard "una sola vez" y el reuso de buffer (play()/seekTo) solo
-        // valen para fuentes de URL estable (archive/torrent).
-        val isWeb = pl.items.getOrNull(pl.startIndex)?.kind == SourceKind.WEB
+        // Antes, WEB (URL efímera: token que expira en cada resolve) forzaba NUNCA reusar el media
+        // viejo. Esa fuente se borró en la poda de esta rama -- ninguna fuente que sobrevive necesita
+        // este forzado (archive/magis/ditu tienen URL estable por reproducción), pero se deja el
+        // parámetro de [MediaReusePolicy.decide] en vez de tocar su firma/tests.
+        val isWeb = false
         // ¿Esto es lo que pidió ESTA pantalla, o todavía es la playlist del capítulo anterior? El
         // ViewModel sobrevive a la navegación entre capítulos, así que al entrar al siguiente lo
         // publicado sigue siendo lo de antes durante todo el resolve (~4 s en magis). Se pregunta
@@ -1244,20 +1233,18 @@ private fun PlayerContent(
         onDispose { activePlayer.removeListener(listener) }
     }
 
-    // Sondeo: posición/duración (0,5 s), estado de descarga (torrent) y progreso persistido (5 s).
+    // Sondeo: posición/duración (0,5 s) y progreso persistido (5 s).
     // Clave = activePlayer: al conectar/desconectar el cast hay que volver a sondear al que suena.
     LaunchedEffect(activePlayer) {
         var tick = 0
         while (true) {
             delay(500)
-            if (isTorrent) espejo.leyoLaDescarga(graph.torrentEngine.streamStatus())
-            // Fracción buffereada por delante para la barra: torrent = % de descarga; archive = % cacheado.
+            // Fracción buffereada por delante para la barra: % del archivo cacheado por el proxy.
             // Casteando no aplica: lo que bufferea es el receptor, no nosotros — mostrar el buffer
             // local sería una barra que miente.
             espejo.leyoElBuffer(
                 when {
                     casting -> 0f
-                    isTorrent -> espejo.descarga?.progress ?: 0f
                     else -> {
                         val url = playlistRef.value?.items?.getOrNull(controller.currentMediaItemIndex)?.mediaUrl
                         if (url != null) graph.archiveCacheProxy.bufferedFraction(url) else 0f
@@ -1652,21 +1639,6 @@ private fun PlayerContent(
         onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
     }
 
-    // Servicio en primer plano (solo torrent): mantiene vivo el proceso (sesión + server local)
-    // mientras el reproductor está abierto, para que backgroundear/castear no lo mate.
-    DisposableEffect(sourceIsTorrent) {
-        if (sourceIsTorrent) TorrentServingService.start(context)
-        onDispose {
-            // Casteando NO se para: es el único servicio en primer plano de la app y el receptor
-            // está jalando bytes justamente del server LAN de este proceso. Pararlo al salir de la
-            // pantalla congelaba la TV, que es lo contrario de lo que este servicio existe para
-            // evitar. Se lee el flujo directo (no el `casting` de Compose): el colector del estado
-            // ya se soltó cuando corre este onDispose.
-            val casteando = castSession?.casting?.value == true
-            if (sourceIsTorrent && !casteando) TorrentServingService.stop(context)
-        }
-    }
-
     // Transporte por el player activo (Chromecast si hay sesión, si no el local).
     val seekStepMs = 10_000L
 
@@ -1753,21 +1725,7 @@ private fun PlayerContent(
 
     // Búsqueda automática de subtítulos online para el idioma preferido (ver `EstadoDePistas`).
     LaunchedEffect(episodeId) {
-        estadoPistas.buscarOnline(episodeId, sourceIsTorrent)
-    }
-
-    // Subtítulos EMBEBIDOS en el torrent (.srt/.ass junto al video): el engine los prioriza (son KB, bajan
-    // al instante); acá los cargamos como pista externa apenas existan en disco. Aparecen en el menú CC
-    // junto a los del contenedor. Sondeo unos segundos porque bajan en paralelo con el arranque.
-    LaunchedEffect(episodeId) {
-        if (!sourceIsTorrent) return@LaunchedEffect
-        val loaded = mutableSetOf<String>()
-        repeat(20) {
-            withContext(Dispatchers.IO) { graph.torrentEngine.embeddedSubtitleFiles() }.forEach { f ->
-                if (loaded.add(f.absolutePath)) runCatching { vlc.addSubtitleSlave(Uri.fromFile(f), byUser = false) }
-            }
-            delay(1000)
-        }
+        estadoPistas.buscarOnline(episodeId)
     }
 
     val onOpenEpisodesState = rememberUpdatedState(onOpenEpisodes)
@@ -1985,7 +1943,7 @@ private fun PlayerContent(
                     // `casting` también va como clave acá: el swipe de seek lee `activePlayer` en
                     // onDragStart/onDrag/onDragEnd, y sin reiniciar el detector esas lambdas se
                     // quedan con el player local aunque la sesión de cast ya esté viva.
-                    .pointerInput(isTorrent, casting) {
+                    .pointerInput(casting) {
                         var horizontal = false
                         var decided = false
                         var startX = 0f
@@ -2013,7 +1971,7 @@ private fun PlayerContent(
                                     }
                                 } else if (horizontal) {
                                     activePlayer.seekTo(seekTarget); espejo.saltoA(seekTarget); bump()
-                                } else if (!isTorrent && totalDy > 240f && totalDy > kotlin.math.abs(totalDx) * 1.5f) {
+                                } else if (totalDy > 240f && totalDy > kotlin.math.abs(totalDx) * 1.5f) {
                                     onOpenEpisodesState.value()
                                 }
                                 gestos.limpiarHud()
@@ -2067,16 +2025,12 @@ private fun PlayerContent(
             }
         }
 
-        // Spinner / overlay de descarga: para torrent muestra %, velocidad y peers. En la fase de
-        // pre-buffer (aún sin playlist) usa prepProgress del VM ("Buscando peers…/Cargando inicio…");
-        // ya reproduciendo pero buffereando usa el streamStatus polled.
-        // Casteando TAMBIÉN se muestra: `espejo.buffereando` sigue al player activo, así que mientras el
-        // receptor carga apaga la fila de transporte, y sin spinner la pantalla quedaba con el
-        // degradado, la barra superior y el cartel de Chromecast — nada más, ni controles ni una
-        // explicación. Lo que sí se sigue ocultando al castear es el detalle de descarga del
-        // torrent (abajo): es del motor local, que está pausado, y no describe lo que carga la TV.
-        // `esperandoVideo` también se anula casteando: espera a que VLC recupere su salida de video
-        // local (hasta 15s tras volver del fondo), que casteando no importa ni va a llegar.
+        // Spinner. Casteando TAMBIÉN se muestra: `espejo.buffereando` sigue al player activo, así que
+        // mientras el receptor carga apaga la fila de transporte, y sin spinner la pantalla quedaba
+        // con el degradado, la barra superior y el cartel de Chromecast — nada más, ni controles ni
+        // una explicación. `esperandoVideo` también se anula casteando: espera a que VLC recupere su
+        // salida de video local (hasta 15s tras volver del fondo), que casteando no importa ni va a
+        // llegar.
         //
         // MAGIS Y DITU TAMBIÉN, y antes no: la condición los excluía (`magisItem == null &&
         // dituDrmItem == null`) sin explicar por qué, y el efecto era que en cuanto una película de
@@ -2094,14 +2048,12 @@ private fun PlayerContent(
                 casting = casting,
             )
         ) {
-            val preBuffer = playlist == null && sourceIsTorrent
-            val p = if (preBuffer) prepProgress else espejo.descarga
             Column(
                 modifier = Modifier.align(Alignment.Center),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                CircularProgressIndicator(color = if (sourceIsTorrent) ArkivRed else Color.White, strokeWidth = 3.dp)
+                CircularProgressIndicator(color = Color.White, strokeWidth = 3.dp)
                 if (resolving) {
                     Text("Resolviendo fuente $fuenteQueResuelve…", color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.labelMedium)
                 }
@@ -2114,48 +2066,22 @@ private fun PlayerContent(
                 if (esperandoVideo && !casting) {
                     Text("Reanudando video…", color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.labelMedium)
                 }
-                // El resto de fuentes —magis, ditu, archive, web— no decía NADA mientras cargaba:
-                // solo el círculo girando, que es indistinguible de un cuelgue. Se midió una espera
-                // de 18 s en el Fire Stick (el CDN rechazó dos rangos y el proxy los reintentó) sin
-                // una palabra en pantalla. El texto va solo cuando ningún otro lo cubre, para no
-                // amontonar dos renglones diciendo lo mismo.
-                if (!resolving && !enVivo && !esperandoVideo && !sourceIsTorrent) {
+                // El resto de fuentes —magis, ditu, archive— no decía NADA mientras cargaba: solo el
+                // círculo girando, que es indistinguible de un cuelgue. Se midió una espera de 18 s en
+                // el Fire Stick (el CDN rechazó dos rangos y el proxy los reintentó) sin una palabra
+                // en pantalla. El texto va solo cuando ningún otro lo cubre, para no amontonar dos
+                // renglones diciendo lo mismo.
+                if (!resolving && !enVivo && !esperandoVideo) {
                     Text(
                         if (casting) "Cargando en el receptor…" else "Cargando video…",
                         color = Color.White.copy(alpha = 0.9f),
                         style = MaterialTheme.typography.labelMedium,
                     )
                 }
-                if (sourceIsTorrent && !casting) {
-                    Text(
-                        when {
-                            p == null -> if (preBuffer) "Preparando el torrent…" else "Preparando…"
-                            p.peers == 0 -> "Buscando peers…"
-                            preBuffer -> "Cargando inicio · ${(p.progress * 100).toInt()}% · ${p.peers} peers · ${fmtRate(p.downloadKbps)}"
-                            else -> "Descargando · ${(p.progress * 100).toInt()}% · ${fmtRate(p.downloadKbps)} · ${p.peers} peers"
-                        },
-                        color = Color.White.copy(alpha = 0.9f),
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                    if (p != null && p.peers > 0) {
-                        LinearProgressIndicator(
-                            progress = { p.progress },
-                            color = ArkivRed,
-                            trackColor = Color.White.copy(alpha = 0.25f),
-                            modifier = Modifier.width(220.dp),
-                        )
-                    }
-                    // Sin peers: reanunciar YA (además del reannounce automático del engine).
-                    if (p != null && p.peers == 0) {
-                        TextButton(onClick = { graph.torrentEngine.retryPeers() }) {
-                            Text("Reintentar", color = ArkivRed)
-                        }
-                    }
-                }
             }
         }
 
-        // Error de resolución (torrent sin peers, .torrent ilegible, etc.).
+        // Error de resolución.
         loadError?.let { err ->
             Text(
                 err,
@@ -2167,33 +2093,6 @@ private fun PlayerContent(
                     .padding(horizontal = 20.dp, vertical = 14.dp),
                 textAlign = TextAlign.Center,
             )
-        }
-
-        // Indicador persistente de descarga (torrent; aunque reproduzca y con controles ocultos).
-        run {
-            val p = espejo.descarga
-            if (isTorrent && !isTv && loadError == null && !casting && estadoDlna.activo == null && !espejo.buffereando &&
-                !controles.visible && p != null && p.progress in 0f..0.999f
-            ) {
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .systemBarsPadding()
-                        .padding(12.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0x99000000))
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Icon(Icons.Default.Download, contentDescription = null, tint = ArkivRed, modifier = Modifier.size(16.dp))
-                    Text(
-                        "${(p.progress * 100).toInt()}% · ${fmtRate(p.downloadKbps)}",
-                        color = Color.White,
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                }
-            }
         }
 
         // Indicador "reproduciendo desde la NUC" (Task 11, sub-tarea de seguimiento). Antes la
@@ -2375,7 +2274,7 @@ private fun PlayerContent(
                     }
                     // Editor de marcadores (solo archive, teléfono). Oculto: es el único acceso a
                     // setear intro/outro, así que se conserva detrás de la bandera.
-                    if (MOSTRAR_MARCADORES_EN_TELEFONO && !isTv && !isTorrent && d != null) {
+                    if (MOSTRAR_MARCADORES_EN_TELEFONO && !isTv && d != null) {
                         Box {
                             IconButton(onClick = { marcadores.abrirMenu() }) {
                                 Icon(Icons.Default.Tune, contentDescription = "Marcadores", tint = Color.White)
@@ -3123,7 +3022,7 @@ private fun PlayerContent(
         val ep = playlistRef.value?.items?.getOrNull(currentIndex) ?: liveItem
         controller.pause()
         scope.launch {
-            val ok = mandarAlRenderer(dlna, device, ep, graph.torrentEngine, graph.liveHlsProxy)
+            val ok = mandarAlRenderer(dlna, device, ep, { graph.lanIp() }, graph.liveHlsProxy)
             if (ok) {
                 estadoDlna.marcarActivo(device)
             } else {
@@ -3300,6 +3199,3 @@ private fun SkipButton(
         if (icon) Icon(Icons.Default.SkipNext, contentDescription = null)
     }
 }
-
-private fun fmtRate(kbps: Int): String =
-    if (kbps >= 1024) "%.1f MB/s".format(kbps / 1024.0) else "$kbps KB/s"

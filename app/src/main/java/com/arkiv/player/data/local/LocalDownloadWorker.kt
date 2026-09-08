@@ -139,7 +139,7 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
                     dao.updateProgress(entity.episodeId, 0f, 0, outcome.fileSizeBytes)
                     dao.updateState(
                         entity.episodeId, LocalDownloadState.NEEDS_CONFIRMATION,
-                        "Pesa ${TorrentSizeGate.formatSize(outcome.fileSizeBytes)}",
+                        "Pesa ${FileSizeFormat.formatSize(outcome.fileSizeBytes)}",
                     )
                     notifyNeedsConfirmation(entity.episodeId, outcome.fileSizeBytes)
                 }
@@ -374,7 +374,7 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
     private fun notifyNeedsConfirmation(episodeId: String, bytes: Long) = notify(
         episodeId.hashCode(),
         "Descarga pesada",
-        "Pesa ${TorrentSizeGate.formatSize(bytes)}. Confírmala en Descargas para bajarla.",
+        "Pesa ${FileSizeFormat.formatSize(bytes)}. Confírmala en Descargas para bajarla.",
     )
 
     private fun notify(id: Int, title: String, text: String, verEpisodeId: String? = null) {

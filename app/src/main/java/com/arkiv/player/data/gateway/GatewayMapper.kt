@@ -1,14 +1,7 @@
 package com.arkiv.player.data.gateway
 
 import com.arkiv.player.data.ArchiveSearchResult
-import com.arkiv.player.data.catalog.TorrentLang
-import com.arkiv.player.data.catalog.TorrentResult
-import com.arkiv.player.data.catalog.web.WebResult
 import com.arkiv.player.ui.catalog.PlaySource
-
-/** Idioma del gateway → el enum de la app. Uno desconocido no rompe el mapeo. */
-private fun langDe(texto: String): TorrentLang =
-    runCatching { TorrentLang.valueOf(texto.uppercase()) }.getOrDefault(TorrentLang.ENGLISH)
 
 /**
  * Traduce un resultado del gateway al modelo que ya usa la pantalla.
@@ -20,39 +13,11 @@ private fun langDe(texto: String): TorrentLang =
  * mandando el [GatewayResult.ref] a `/v1/resolve`.
  */
 fun GatewayResult.toPlaySource(): PlaySource? = when (source) {
-    "torrent" -> PlaySource.Torrent(
-        TorrentResult(
-            name = title,
-            seeders = seeders,
-            sizeBytes = sizeBytes,
-            lang = langDe(lang),
-            infoHash = extra["infohash"]?.takeIf { it.isNotBlank() },
-            gatewayRef = ref,
-        ),
-    )
-
     "archive" -> PlaySource.Archive(
         ArchiveSearchResult(
             identifier = extra["identifier"].orEmpty(),
             title = title,
             year = year,
-            gatewayRef = ref,
-        ),
-    )
-
-    "web" -> PlaySource.Web(
-        WebResult(
-            siteId = extra["site_id"].orEmpty(),
-            siteName = extra["site_id"].orEmpty(),
-            title = title,
-            year = year,
-            pageUrl = "",
-            posterUrl = "",
-            language = lang,
-            quality = quality,
-            kind = kind,
-            season = season.takeIf { it > 0 },
-            episode = episode.takeIf { it > 0 },
             gatewayRef = ref,
         ),
     )
@@ -63,5 +28,8 @@ fun GatewayResult.toPlaySource(): PlaySource? = when (source) {
 
     "ditu" -> PlaySource.Ditu(this)
 
+    // "torrent"/"web": el gateway todavía puede mandarlos (server viejo), pero esta rama del APK
+    // ya no sabe qué hacer con ellos (torrent/web se borraron, TODO(task 6)). Se ignoran, igual
+    // que cualquier fuente futura desconocida.
     else -> null
 }

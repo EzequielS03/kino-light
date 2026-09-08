@@ -60,27 +60,16 @@ import coil.compose.AsyncImage
 import com.arkiv.player.data.ArchiveSearchResult
 import com.arkiv.player.data.catalog.AniListApi
 import com.arkiv.player.data.catalog.AnimeShow
-import com.arkiv.player.data.catalog.PackDetector
-import com.arkiv.player.data.catalog.PackFileRow
-import com.arkiv.player.data.catalog.PackResolver
-import com.arkiv.player.data.catalog.QualityLabel
-import com.arkiv.player.data.catalog.mirror.MirrorWebPack
-import com.arkiv.player.data.catalog.mirror.MirrorWebSource
 import com.arkiv.player.data.catalog.TmdbApi
 import com.arkiv.player.data.catalog.TmdbDetail
 import com.arkiv.player.data.catalog.TmdbEpisode
 import com.arkiv.player.data.catalog.TmdbSeason
-import com.arkiv.player.data.catalog.TorrentResult
-import com.arkiv.player.data.catalog.web.WebResult
 import com.arkiv.player.data.db.SearchHistoryEntity
 import com.arkiv.player.ui.catalog.ArkivArchiveTeal
-import com.arkiv.player.ui.catalog.ArkivWebViolet
 import com.arkiv.player.ui.catalog.PlaySource
-import com.arkiv.player.ui.catalog.langColor
 import com.arkiv.player.ui.home.buildRowSpecs
 import com.arkiv.player.ui.home.matchCategoryRow
 import com.arkiv.player.ui.rememberGraph
-import com.arkiv.player.ui.search.ordenarTorrents
 import com.arkiv.player.ui.search.PlaybackResult
 import com.arkiv.player.ui.search.SearchPhase
 import com.arkiv.player.ui.search.SearchPlayback
@@ -128,9 +117,8 @@ fun TvSearchScreen(
         factory = viewModelFactory {
             initializer {
                 SearchViewModel(
-                    graph.tmdbApi, graph.aniListApi, graph.torrentSearchApi, graph.api,
-                    graph.mirrorApiClient, graph.animeSourceProvider, graph.webSourceEngine,
-                    graph.settings, graph.torrentEngine, graph.arkivApiClient,
+                    graph.tmdbApi, graph.aniListApi, graph.api,
+                    graph.settings, graph.arkivApiClient,
                     graph.searchHistory,
                 )
             }
@@ -143,8 +131,6 @@ fun TvSearchScreen(
     val vmDetail by vm.detail.collectAsStateWithLifecycle()
     val vmAnimeShow by vm.animeShow.collectAsStateWithLifecycle()
     val sources by vm.sources.collectAsStateWithLifecycle()
-    val loadingTorrent by vm.loadingTorrent.collectAsStateWithLifecycle()
-    val loadingWeb by vm.loadingWeb.collectAsStateWithLifecycle()
     val loadingArchive by vm.loadingArchive.collectAsStateWithLifecycle()
     val loadingMagis by vm.loadingMagis.collectAsStateWithLifecycle()
     val refineSeason by vm.refineSeason.collectAsStateWithLifecycle()
@@ -161,53 +147,20 @@ fun TvSearchScreen(
     var preguntarModo by remember { mutableStateOf<TitleCard?>(null) }
     var preparing by remember { mutableStateOf(false) }
     var playError by remember { mutableStateOf<String?>(null) }
-    var packFor by remember { mutableStateOf<TorrentResult?>(null) }
-    var webPackFor by remember { mutableStateOf<MirrorWebPack?>(null) }
-    // Temporada de Magis elegida. Mismo sub-estado que los packs: un resultado de serie del portal
-    // ES una temporada entera, así que abre la lista de capítulos en vez de reproducir el primero.
+    // Temporada de Magis elegida: un resultado de serie del portal ES una temporada entera, así
+    // que abre la lista de capítulos en vez de reproducir el primero.
     var magisSeasonFor by remember { mutableStateOf<com.arkiv.player.data.gateway.GatewayResult?>(null) }
 
-    // Metadata "enriquecida" de la card elegida, para guardar título/póster/descripción reales
-    // (no el nombre crudo del torrent) — mismo criterio que SearchScreen (teléfono).
+    // Metadata "enriquecida" de la card elegida, para guardar título/póster reales — mismo
+    // criterio que SearchScreen (teléfono).
     val resultTitle = vmDetail?.title ?: vmAnimeShow?.title ?: selected?.title ?: ""
     val resultPoster = vmDetail?.posterUrl ?: vmAnimeShow?.posterUrl ?: selected?.posterUrl ?: ""
-    val resultDescription = vmDetail?.overview ?: vmAnimeShow?.description
-
-    /**
-     * El título con el que se GUARDA, que no es el mismo que el que se muestra.
-     *
-     * En una búsqueda por texto, la consulta sirve de encabezado de la pantalla pero no es metadata:
-     * "dragon ball 137" no es el nombre de nada. Vacío acá deja que gane el nombre propio de cada
-     * fuente —el release del torrent, el `showTitle` del pack, el título del resultado web— que es
-     * lo que corresponde que quede en la biblioteca. Con una ficha real del catálogo no cambia nada.
-     */
-    val busquedaPorTexto by vm.busquedaPorTexto.collectAsStateWithLifecycle()
-    val tituloGuardado = if (busquedaPorTexto) "" else resultTitle
 
     fun applyResult(result: PlaybackResult) {
         preparing = false
         when (result) {
             is PlaybackResult.Ready -> onPlay(result.episodeId)
             is PlaybackResult.Failed -> playError = result.message
-        }
-    }
-
-    // Elegir una fuente que NO es pack reproduce de una: sin diálogo de "dónde ver" (eso es
-    // solo del teléfono, que puede ir a detalle o reproducir).
-    fun playTorrent(result: TorrentResult) {
-        val card = selected ?: return
-        val season = refineSeason
-        val episode = refineEpisode
-        preparing = true; playError = null
-        scope.launch {
-            // Sin ficha, el nombre del release ES el título: guardarlo con la consulta cruda dejaba
-            // "dragon ball 137" en la biblioteca en vez de lo que de verdad se bajó.
-            applyResult(
-                playback.playTorrent(
-                    result, card, vmDetail, tituloGuardado.ifBlank { result.name },
-                    resultPoster, resultDescription, season, episode,
-                ),
-            )
         }
     }
 
@@ -249,32 +202,8 @@ fun TvSearchScreen(
         }
     }
 
-    fun playWebResult(r: WebResult) {
-        val card = selected ?: return
-        val season = refineSeason
-        val episode = refineEpisode
-        // Misma resolución de temporada/episodio que SearchScreen.playWebResult (los trae el propio
-        // WebResult del mirror): sin esto, tocar play sobre un capítulo ya guardado desde un pack le
-        // revierte la temporada o el episodio a los de AniList en la fila local y
-        // PlaybackPreferenceStore.decide() deja de encontrar el capítulo bajado a la NUC. Buscarlos
-        // en los packs de `sources` no funciona en este camino: esa lista siempre está vacía cuando
-        // hay episodios sueltos (ver WebSourceSeason/WebSourceEpisode).
-        val mirrorSeason = com.arkiv.player.data.catalog.mirror.WebSourceSeason.forResult(r)
-        val animeEpisode = com.arkiv.player.data.catalog.mirror.WebSourceEpisode.forResult(r, fallback = episode ?: 1)
-        preparing = true; playError = null
-        scope.launch {
-            applyResult(
-                playback.playWeb(r, card, vmDetail, vmAnimeShow, tituloGuardado, resultPoster, season, episode, mirrorSeason, animeEpisode),
-            )
-        }
-    }
-
-    // Packs no reproducen directo: abren la lista de capítulos (TvPackContent) en vez de resolver.
     fun playResult(source: PlaySource) = when (source) {
-        is PlaySource.Torrent -> if (PackDetector.isPack(source.result.name)) packFor = source.result else playTorrent(source.result)
         is PlaySource.Archive -> playArchiveResult(source.item)
-        is PlaySource.Web -> playWebResult(source.result)
-        is PlaySource.WebPack -> webPackFor = source.pack
         is PlaySource.Magis ->
             if (source.result.extra["program_type"] in com.arkiv.player.data.gateway.MAGIS_SERIES) {
                 magisSeasonFor = source.result
@@ -285,51 +214,6 @@ fun TvSearchScreen(
             preparing = true; playError = null
             scope.launch { applyResult(playback.playDitu(source.result)) }
         }
-    }
-
-    // Guarda los capítulos del pack web y reproduce uno: [playEpisode] si el usuario eligió uno
-    // puntual, si no el primero. Gemelo de playPackRow/saveAllPack, pero sin resolver nada por red.
-    fun saveWebPack(pack: MirrorWebPack, playEpisode: MirrorWebSource? = null) {
-        val card = selected ?: return
-        preparing = true; playError = null
-        scope.launch {
-            val title = tituloGuardado.ifBlank { pack.showTitle }
-            val result = playback.addWholeWebSeries(
-                pack, card, vmDetail, vmAnimeShow, resultPoster, title, pack.episodes, playEpisode,
-            )
-            preparing = false
-            webPackFor = null
-            applyResult(result)
-        }
-    }
-
-    // Elegir un capítulo del pack: lo guarda TODO como serie (savePackAsSeries, mismo patrón que
-    // onPlayOne del celu) y reproduce ESE capítulo puntual ("$itemId::${row.index}").
-    fun playPackRow(pTitle: String, contents: PackResolver.PackContents, row: PackFileRow) {
-        preparing = true; playError = null
-        scope.launch {
-            val id = playback.savePack(pTitle, resultPoster, resultDescription, contents, contents.rows)
-            preparing = false
-            packFor = null
-            onPlay("$id::${row.index}")
-        }
-    }
-
-    // "Guardar toda la serie": mismo guardado, pero reproduce el primer episodio.
-    fun saveAllPack(pTitle: String, contents: PackResolver.PackContents) {
-        preparing = true; playError = null
-        scope.launch {
-            val id = playback.savePack(pTitle, resultPoster, resultDescription, contents, contents.rows)
-            preparing = false
-            packFor = null
-            val epId = graph.repository.firstEpisodeId(id)
-            if (epId != null) onPlay(epId) else playError = "No se pudo preparar la reproducción."
-        }
-    }
-
-    fun packFailed() {
-        packFor = null
-        playError = "No se pudo leer el pack (sin seeds ahora)."
     }
 
     // La búsqueda NO se dispara al teclear: con el control cada letra costaba una vuelta completa
@@ -425,8 +309,6 @@ fun TvSearchScreen(
         vm.startFromShortcut(k, shortcutTmdbId, shortcutAnilistId)
     }
 
-    LaunchedEffect(Unit) { graph.torrentEngine.warmUp() }
-
     // Foco inicial en la primera tecla del teclado. Clave en `phase` (no `Unit`): REFINE/RESULTS/
     // PACK reenfocan solos al entrar, pero volver a QUERY con vm.back() destruye el nodo que
     // tenía el foco y, si esto corriera una sola vez al entrar a la pantalla, nada lo devolvería
@@ -439,14 +321,12 @@ fun TvSearchScreen(
         }
     }
 
-    // Si estamos en REFINE/RESULTS (Tasks 5/6), atrás retrocede una fase dentro del wizard;
-    // en la fase de títulos, atrás sale de la pantalla. Con un pack abierto dentro de RESULTS,
-    // atrás vuelve primero a la lista de fuentes (no sale de la fase).
+    // En REFINE/RESULTS atrás retrocede una fase dentro del wizard; en la fase de títulos, atrás
+    // sale de la pantalla. Con una temporada de Magis abierta dentro de RESULTS, atrás vuelve
+    // primero a la lista de fuentes (no sale de la fase).
     BackHandler {
         when {
             phase == SearchPhase.RESULTS && magisSeasonFor != null -> magisSeasonFor = null
-            phase == SearchPhase.RESULTS && webPackFor != null -> webPackFor = null
-            phase == SearchPhase.RESULTS && packFor != null -> packFor = null
             phase != SearchPhase.QUERY -> vm.back()
             else -> onBack()
         }
@@ -618,11 +498,9 @@ fun TvSearchScreen(
                     onPickEpisode = { season, episode -> vm.runSourceSearch(season, episode) },
                 )
             }
-            // Task 6: lista de fuentes (packs primero) con reproducción inmediata al elegir una
-            // suelta; un pack abre TvPackContent (lista de capítulos) en vez de reproducir directo.
+            // Lista de fuentes con reproducción inmediata al elegir una; una temporada de Magis
+            // abre TvMagisSeasonContent (lista de capítulos) en vez de reproducir directo.
             SearchPhase.RESULTS -> {
-                val currentPack = packFor
-                val currentWebPack = webPackFor
                 val currentMagis = magisSeasonFor
                 if (currentMagis != null) {
                     TvMagisSeasonContent(
@@ -639,27 +517,6 @@ fun TvSearchScreen(
                         },
                         onSaveAll = { capitulos, serie -> saveMagisSeason(currentMagis, capitulos, serie) },
                     )
-                } else if (currentWebPack != null) {
-                    TvWebPackContent(
-                        pack = currentWebPack,
-                        title = tituloGuardado.ifBlank { currentWebPack.showTitle },
-                        posterUrl = resultPoster,
-                        preparing = preparing,
-                        onSaveAll = { saveWebPack(currentWebPack) },
-                        onPlayOne = { ep -> saveWebPack(currentWebPack, ep) },
-                    )
-                } else if (currentPack != null) {
-                    TvPackContent(
-                        result = currentPack,
-                        packResolver = graph.packResolver,
-                        // Sin ficha, "— Pack" solo no nombra nada: se propone el release del torrent.
-                        defaultTitle = if (tituloGuardado.isBlank()) currentPack.name else "$tituloGuardado — Pack",
-                        posterUrl = resultPoster,
-                        preparing = preparing,
-                        onSaveAll = { title, contents -> saveAllPack(title, contents) },
-                        onPlayOne = { title, contents, row -> playPackRow(title, contents, row) },
-                        onFailed = { packFailed() },
-                    )
                 } else {
                     TvResultsContent(
                         title = resultTitle,
@@ -667,8 +524,6 @@ fun TvSearchScreen(
                         season = refineSeason,
                         episode = refineEpisode,
                         sources = sources,
-                        loadingTorrent = loadingTorrent,
-                        loadingWeb = loadingWeb,
                         loadingArchive = loadingArchive,
                         loadingMagis = loadingMagis,
                         preparing = preparing,
@@ -1052,8 +907,6 @@ private fun TvSourceTabRow(
         SourceTab.entries.forEach { t ->
             val accent = when (t) {
                 SourceTab.TODO -> androidx.compose.ui.graphics.Color.White
-                SourceTab.TORRENT -> ArkivRed
-                SourceTab.WEB -> ArkivWebViolet
                 SourceTab.MAGIS -> com.arkiv.player.ui.catalog.ArkivMagisBlue
                 SourceTab.DITU -> com.arkiv.player.ui.catalog.ArkivDituOrange
                 SourceTab.ARCHIVE -> ArkivArchiveTeal
@@ -1161,13 +1014,11 @@ private fun TvRefineRow(label: String, onClick: () -> Unit) {
 }
 
 /**
- * Fase RESULTS del TV: lista vertical ÚNICA de fuentes (torrent/web/archive) — a diferencia del
+ * Fase RESULTS del TV: lista vertical ÚNICA de fuentes (magis/ditu/archive) — a diferencia del
  * teléfono, que las agrupa en secciones colapsables por tipo, acá van todas juntas porque el
- * D-pad navega mejor una sola lista que saltar entre secciones. El orden lo pone
- * ordenarTorrents() — la misma del celu: temporada ascendente y packs primero dentro de cada una,
- * con sort estable, así que la relevancia recibida manda dentro de cada grupo. Elegir una fuente
- * suelta reproduce YA (SearchPlayback vía onSelect, sin diálogo de "dónde ver"); un pack lo maneja el padre
- * (TvSearchScreen) mostrando TvPackContent en su lugar.
+ * D-pad navega mejor una sola lista que saltar entre secciones. Elegir una fuente reproduce YA
+ * (SearchPlayback vía onSelect, sin diálogo de "dónde ver"); una temporada de Magis la maneja el
+ * padre (TvSearchScreen) mostrando TvMagisSeasonContent en su lugar.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -1177,8 +1028,6 @@ private fun TvResultsContent(
     season: Int?,
     episode: Int?,
     sources: List<PlaySource>,
-    loadingTorrent: Boolean,
-    loadingWeb: Boolean,
     loadingArchive: Boolean,
     loadingMagis: Boolean,
     preparing: Boolean,
@@ -1186,15 +1035,9 @@ private fun TvResultsContent(
     onSelect: (PlaySource) -> Unit,
 ) {
     // distinctBy(sourceKey) es belt-and-braces: el pipeline de arriba ya debería llegar sin
-    // duplicados, pero WebSourceEngine no dedupea y el pack/anime tampoco pasa por finalize(),
-    // así que esto es lo que evita el crash de Compose por keys repetidas si algo se cuela.
-    val ordered = remember(sources) {
-        // Temporada ascendente (T1, T2…), packs primero dentro de cada temporada; el resto va al final.
-        val torrents = ordenarTorrents(sources.filterIsInstance<PlaySource.Torrent>())
-        val rest = sources.filter { it !is PlaySource.Torrent }
-        (torrents + rest).distinctBy { sourceKey(it) }
-    }
-    val anyLoading = loadingTorrent || loadingWeb || loadingArchive || loadingMagis
+    // duplicados, pero esto evita el crash de Compose por keys repetidas si algo se cuela.
+    val ordered = remember(sources) { sources.distinctBy { sourceKey(it) } }
+    val anyLoading = loadingArchive || loadingMagis
 
     // Filtro por origen. Los contadores salen de `ordered` (ya deduplicado), no de `sources`, para
     // que el número del chip sea exactamente el de filas que se van a ver al elegirlo.
@@ -1202,8 +1045,6 @@ private fun TvResultsContent(
     val counts = countsByTab(ordered)
     val loadingOf = mapOf(
         SourceTab.TODO to anyLoading,
-        SourceTab.TORRENT to loadingTorrent,
-        SourceTab.WEB to loadingWeb,
         SourceTab.MAGIS to loadingMagis,
         SourceTab.ARCHIVE to loadingArchive,
     )
@@ -1367,311 +1208,16 @@ private fun TvResultsContent(
 
 /** Key estable y ÚNICA para la lista de fuentes (evita "saltos" de foco al llegar resultados
  *  nuevos, y evita el crash de Compose por keys duplicadas en un lazy list).
- *  - Torrent: `dedupKey` (infoHash normalizado, o magnet/downloadUrl/name como fallback) — es la
- *    misma identidad que ya usa el pipeline de arriba para deduplicar (`distinctBy { it.dedupKey }`
- *    en TorrentSearchApi), así que dos torrents con el mismo release name pero infoHash distinto
- *    siguen teniendo keys distintas.
  *  - Archive: `identifier` — id único de archive.org por definición.
- *  - Web: `identity` — el ref del gateway si vino de ahí, si no la URL de la página. Los del
- *    gateway llegan sin `pageUrl`, así que usar la URL a secas los colapsaba en un solo item. */
+ *  - Magis/Ditu: `content_id` del portal, o el `ref` si no lo trae. */
 internal fun sourceKey(s: PlaySource): String = when (s) {
-    is PlaySource.Torrent -> "torrent-${s.result.identity}"
     is PlaySource.Archive -> "archive-${s.item.identifier}"
-    is PlaySource.Web -> "web-${s.result.identity}"
-    is PlaySource.WebPack -> "webpack-${s.pack.siteId}-${s.pack.showTitle}"
     is PlaySource.Magis -> "magis-${s.result.extra["content_id"] ?: s.result.ref}"
     is PlaySource.Ditu -> "ditu-${s.result.extra["content_id"] ?: s.result.ref}"
 }
 
 /**
- * Fase RESULTS · pack elegido: resuelve el pack (torrent/magnet, puede tardar ~45s buscando peers)
- * y muestra sus capítulos navegables con el D-pad — SIN checkboxes (eso es solo del teléfono).
- * Elegir un capítulo guarda el pack COMPLETO como serie (savePackAsSeries) y reproduce ESE
- * capítulo puntual; "Guardar toda la serie" hace el mismo guardado y reproduce el primero. Si no
- * se puede leer el pack, [onFailed] avisa al padre para que muestre el mensaje y vuelva a la lista
- * de fuentes.
- */
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun TvPackContent(
-    result: TorrentResult,
-    packResolver: PackResolver,
-    defaultTitle: String,
-    posterUrl: String,
-    preparing: Boolean,
-    onSaveAll: (title: String, contents: PackResolver.PackContents) -> Unit,
-    onPlayOne: (title: String, contents: PackResolver.PackContents, row: PackFileRow) -> Unit,
-    onFailed: () -> Unit,
-) {
-    var contents by remember(result) { mutableStateOf<PackResolver.PackContents?>(null) }
-    var failed by remember(result) { mutableStateOf(false) }
-
-    LaunchedEffect(result) {
-        val c = try {
-            packResolver.resolve(result)
-        } catch (cancel: kotlinx.coroutines.CancellationException) {
-            throw cancel
-        } catch (e: Exception) {
-            null
-        }
-        if (c == null) failed = true else contents = c
-    }
-    LaunchedEffect(failed) { if (failed) onFailed() }
-
-    val c = contents
-
-    // Foco inicial en "Guardar toda la serie" apenas se resuelve el pack (mismo patrón que el
-    // foco en "Toda la serie" de TvRefineContent).
-    val saveAllFocus = remember { FocusRequester() }
-    var focusedOnce by remember { mutableStateOf(false) }
-    LaunchedEffect(c != null) {
-        if (c != null && !focusedOnce) {
-            focusedOnce = true
-            delay(150)
-            runCatching { saveAllFocus.requestFocus() }
-        }
-    }
-
-    Box(Modifier.fillMaxSize()) {
-        LazyColumn(
-            // El margen va DENTRO de la lista (contentPadding), no como padding externo: al enfocar,
-            // las filas hacen zoom (1.1x) y con el margen por fuera la lista las recortaba contra su
-            // propio borde. Así el zoom se dibuja sobre ese margen en vez de cortarse.
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 48.dp, vertical = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            item {
-                Row {
-                    Box(
-                        modifier = Modifier.height(140.dp).width(140.dp * 2f / 3f)
-                            .clip(RoundedCornerShape(8.dp)).background(ArkivSurfaceHigh),
-                    ) {
-                        if (posterUrl.isNotBlank()) {
-                            AsyncImage(
-                                model = posterUrl,
-                                contentDescription = defaultTitle,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                        }
-                    }
-                    Column(modifier = Modifier.padding(start = 20.dp).align(Alignment.CenterVertically)) {
-                        Text(
-                            defaultTitle,
-                            style = MaterialTheme.typography.headlineMedium,
-                            color = ArkivTextPrimary,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-            }
-
-            if (c == null) {
-                item {
-                    Text(
-                        "Leyendo el pack…",
-                        color = ArkivTextSecondary,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(top = 24.dp),
-                    )
-                }
-            } else {
-                item {
-                    Button(
-                        onClick = { onSaveAll(defaultTitle, c) },
-                        enabled = !preparing,
-                        colors = arkivTvButtonColors(),
-                        border = arkivTvButtonBorder(),
-                        modifier = Modifier.padding(top = 24.dp, bottom = 8.dp).focusRequester(saveAllFocus),
-                    ) { Text("Guardar toda la serie") }
-                }
-                item {
-                    Text(
-                        "Capítulos",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = ArkivTextPrimary,
-                        modifier = Modifier.padding(top = 12.dp, bottom = 8.dp),
-                    )
-                }
-                items(c.rows, key = { it.index }) { row ->
-                    TvPackRow(row = row, enabled = !preparing, onClick = { onPlayOne(defaultTitle, c, row) })
-                }
-            }
-        }
-
-        if (preparing) {
-            Box(Modifier.fillMaxSize().background(Color(0xAA000000)), contentAlignment = Alignment.Center) {
-                Text("Preparando…", color = Color.White, style = MaterialTheme.typography.titleMedium)
-            }
-        }
-    }
-}
-
-/**
- * Fase RESULTS · pack WEB elegido: gemelo de [TvPackContent] para la serie completa que ya tiene
- * nuestro backend. No resuelve nada (los capítulos vienen en el propio pack), así que abre al
- * instante y no puede fallar — de ahí que no tenga `onFailed` ni estado de carga. Sin checkboxes,
- * igual que el de torrent: elegir un capítulo guarda la serie COMPLETA y reproduce ESE capítulo;
- * "Guardar toda la serie" hace el mismo guardado y reproduce el primero.
- */
-@Composable
-private fun TvWebPackContent(
-    pack: MirrorWebPack,
-    title: String,
-    posterUrl: String,
-    preparing: Boolean,
-    onSaveAll: () -> Unit,
-    onPlayOne: (MirrorWebSource) -> Unit,
-) {
-    val saveAllFocus = remember { FocusRequester() }
-    var focusedOnce by remember { mutableStateOf(false) }
-    LaunchedEffect(pack) {
-        if (!focusedOnce) {
-            focusedOnce = true
-            delay(150)
-            runCatching { saveAllFocus.requestFocus() }
-        }
-    }
-
-    Box(Modifier.fillMaxSize()) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 48.dp, vertical = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            item {
-                Row {
-                    Box(
-                        modifier = Modifier.height(140.dp).width(140.dp * 2f / 3f)
-                            .clip(RoundedCornerShape(8.dp)).background(ArkivSurfaceHigh),
-                    ) {
-                        if (posterUrl.isNotBlank()) {
-                            AsyncImage(
-                                model = posterUrl,
-                                contentDescription = title,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                        }
-                    }
-                    Column(modifier = Modifier.padding(start = 20.dp).align(Alignment.CenterVertically)) {
-                        Text(
-                            title,
-                            style = MaterialTheme.typography.headlineMedium,
-                            color = ArkivTextPrimary,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            "${pack.episodeCount} capítulos" +
-                                (if (pack.seasons.size > 1) "  ·  ${pack.seasons.size} temporadas" else "") +
-                                "  ·  ${pack.siteId}",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = ArkivTextSecondary,
-                        )
-                    }
-                }
-            }
-            item {
-                Button(
-                    onClick = onSaveAll,
-                    enabled = !preparing,
-                    colors = arkivTvButtonColors(),
-                    border = arkivTvButtonBorder(),
-                    modifier = Modifier.padding(top = 24.dp, bottom = 8.dp).focusRequester(saveAllFocus),
-                ) { Text("Guardar toda la serie") }
-            }
-            pack.bySeason.forEach { (season, eps) ->
-                item(key = "season-$season") {
-                    Text(
-                        if (pack.seasons.size > 1) "Temporada $season" else "Capítulos",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = ArkivTextPrimary,
-                        modifier = Modifier.padding(top = 12.dp, bottom = 8.dp),
-                    )
-                }
-                items(eps, key = { it.pageUrl }) { ep ->
-                    TvWebPackRow(episode = ep, enabled = !preparing, onClick = { onPlayOne(ep) })
-                }
-            }
-        }
-
-        if (preparing) {
-            Box(Modifier.fillMaxSize().background(Color(0xAA000000)), contentAlignment = Alignment.Center) {
-                Text("Preparando…", color = Color.White, style = MaterialTheme.typography.titleMedium)
-            }
-        }
-    }
-}
-
-/** Fila navegable de un capítulo del pack web ("E12 · Título", calidad e idioma). */
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun TvWebPackRow(episode: MirrorWebSource, enabled: Boolean, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = ArkivSurfaceHigh,
-            focusedContainerColor = ArkivRed,
-        ),
-        border = ClickableSurfaceDefaults.border(
-            focusedBorder = Border(BorderStroke(2.dp, Color.White)),
-        ),
-    ) {
-        Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Text(
-                "E${episode.episode}  ${episode.name.ifBlank { "Capítulo ${episode.episode}" }}",
-                color = Color.White, style = MaterialTheme.typography.bodyMedium,
-                maxLines = 2, overflow = TextOverflow.Ellipsis,
-            )
-            val meta = listOfNotNull(
-                episode.quality.ifBlank { null },
-                episode.langNorm.ifBlank { null },
-            ).joinToString("  ·  ")
-            if (meta.isNotBlank()) {
-                Text(meta, color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
-            }
-        }
-    }
-}
-
-/** Fila navegable de un capítulo del pack ("T1 · E2" | "Ep 1085", calidad y tamaño). */
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun TvPackRow(row: PackFileRow, enabled: Boolean, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = ArkivSurfaceHigh,
-            focusedContainerColor = ArkivRed,
-        ),
-        border = ClickableSurfaceDefaults.border(
-            focusedBorder = Border(BorderStroke(2.dp, Color.White)),
-        ),
-    ) {
-        Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Text(row.label, color = Color.White, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            val meta = listOfNotNull(
-                row.quality.ifBlank { null },
-                if (row.sizeBytes > 0) "%.0f MB".format(row.sizeBytes / 1_048_576.0) else null,
-            ).joinToString("  ·  ")
-            if (meta.isNotBlank()) {
-                Text(meta, color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
-            }
-        }
-    }
-}
-
-/**
- * Fase RESULTS · temporada de Magis elegida: gemelo de [TvWebPackContent] para el portal.
+ * Fase RESULTS · temporada de Magis elegida.
  *
  * Los capítulos NO vienen en el resultado de búsqueda —el portal los entrega en otra llamada—, así
  * que se piden al abrir. Mientras cargan se muestra el conteo que sí trae el resultado, para dar

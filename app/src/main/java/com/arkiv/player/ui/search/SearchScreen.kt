@@ -34,9 +34,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -82,25 +80,15 @@ import com.arkiv.player.ui.components.DescargaDeFila
 import com.arkiv.player.ui.components.DialogoDeDescarga
 import com.arkiv.player.data.ArchiveSearchResult
 import com.arkiv.player.data.RecentTitle
-import com.arkiv.player.data.catalog.PackDetector
-import com.arkiv.player.data.catalog.TorrentResult
-import com.arkiv.player.data.catalog.mirror.MirrorWebPack
-import com.arkiv.player.data.catalog.mirror.MirrorWebSource
-import com.arkiv.player.data.catalog.web.WebResult
-import com.arkiv.player.data.local.TorrentSizeGate
-import com.arkiv.player.ui.catalog.PackDialog
 import com.arkiv.player.ui.catalog.PlaySource
 import com.arkiv.player.ui.catalog.SourceRow
 import com.arkiv.player.ui.catalog.posterDe
 import com.arkiv.player.ui.catalog.SourceCard
-import com.arkiv.player.ui.catalog.SourceSection
 import com.arkiv.player.ui.catalog.SourceSectionHeader
 import com.arkiv.player.data.gateway.MAGIS_SERIES
 import com.arkiv.player.ui.catalog.ArkivMagisBlue
-import com.arkiv.player.ui.catalog.ArkivWebViolet
 import com.arkiv.player.ui.catalog.ArkivArchiveTeal
 import com.arkiv.player.ui.catalog.MetaChip
-import com.arkiv.player.ui.catalog.WebPackDialog
 import com.arkiv.player.ui.home.buildRowSpecs
 import com.arkiv.player.ui.home.matchCategoryRow
 import com.arkiv.player.ui.rememberGraph
@@ -134,9 +122,8 @@ fun SearchScreen(
         factory = viewModelFactory {
             initializer {
                 SearchViewModel(
-                    graph.tmdbApi, graph.aniListApi, graph.torrentSearchApi, graph.api,
-                    graph.mirrorApiClient, graph.animeSourceProvider, graph.webSourceEngine,
-                    graph.settings, graph.torrentEngine, graph.arkivApiClient,
+                    graph.tmdbApi, graph.aniListApi, graph.api,
+                    graph.settings, graph.arkivApiClient,
                     graph.searchHistory,
                 )
             }
@@ -149,16 +136,12 @@ fun SearchScreen(
     val loadingDirect by vm.loadingDirect.collectAsStateWithLifecycle()
     val selected by vm.selected.collectAsStateWithLifecycle()
     val sources by vm.sources.collectAsStateWithLifecycle()
-    val loadingTorrent by vm.loadingTorrent.collectAsStateWithLifecycle()
-    val loadingWeb by vm.loadingWeb.collectAsStateWithLifecycle()
     val loadingMagis by vm.loadingMagis.collectAsStateWithLifecycle()
     val loadingArchive by vm.loadingArchive.collectAsStateWithLifecycle()
     val refineSeason by vm.refineSeason.collectAsStateWithLifecycle()
     val refineEpisode by vm.refineEpisode.collectAsStateWithLifecycle()
     val detail by vm.detail.collectAsStateWithLifecycle()
     val animeShow by vm.animeShow.collectAsStateWithLifecycle()
-    val processingNow by vm.processingNow.collectAsStateWithLifecycle()
-    val processNowMessage by vm.processNowMessage.collectAsStateWithLifecycle()
     val recentQueries by vm.recentQueries.collectAsStateWithLifecycle()
     val recentTitles by vm.recentTitles.collectAsStateWithLifecycle()
     val frase by vm.frase.collectAsStateWithLifecycle()
@@ -172,28 +155,13 @@ fun SearchScreen(
     // DuplicateDownloadPolicy): si no, el botón parecería no hacer nada.
     val notifyDuplicates = com.arkiv.player.ui.offline.rememberDuplicateDownloadNotice()
     val playback = remember { SearchPlayback(graph) }
-    // seriesId canónico de la card elegida, para lo que lo necesita en COMPOSICIÓN (el badge de "ya
-    // descargado" del diálogo de packs). Resolverlo es suspend cuando es anime (mapeo cruzado), así
-    // que los caminos que GUARDAN lo piden ellos mismos dentro de su corrutina; acá se muestra "" —
-    // el badge no encuentra nada, sin romper el diálogo — hasta que resuelve.
-    var canonicalSeriesId by remember { mutableStateOf("") }
-    LaunchedEffect(selected, detail, animeShow) {
-        val card = selected
-        canonicalSeriesId = if (card == null) "" else seriesIdOf(graph, card, detail, animeShow)
-    }
     var preparing by remember { mutableStateOf(false) }
     var playError by remember { mutableStateOf<String?>(null) }
-    var packFor by remember { mutableStateOf<TorrentResult?>(null) }
-    var webPackFor by remember { mutableStateOf<MirrorWebPack?>(null) }
     // Temporada de Magis abierta: un resultado de serie del portal ES una temporada entera,
     // así que en vez de reproducir se abre su lista de capítulos.
     var magisSeason by remember { mutableStateOf<com.arkiv.player.data.gateway.GatewayResult?>(null) }
     // Serie de Ditu (BUNDLE) abierta: igual que magisSeason, muestra episodios antes de reproducir.
     var dituSeason by remember { mutableStateOf<com.arkiv.player.data.gateway.GatewayResult?>(null) }
-    // Aviso inline de torrent pesado (ATAJO de UX, ver saveLocally): episodeId ya guardado + tamaño.
-    var pendingBig by remember { mutableStateOf<Pair<String, Long>?>(null) }
-
-    LaunchedEffect(Unit) { graph.torrentEngine.warmUp() }
 
     // Atajo desde el home: entra ya posicionado en un título. Se dispara una sola vez por
     // combinación de args (LaunchedEffect no re-ejecuta en recomposiciones sin cambios), y
@@ -225,101 +193,16 @@ fun SearchScreen(
         scope.launch { applyResult(playback.playDirect(source)) }
     }
 
-    // Reproduce un resultado de la fase RESULTS: mismo patrón que CineDetailScreen.play, salvo para
-    // anime, que usa SU PROPIO agrupador (torrent:anime:<anilistId>, numeración absoluta con
-    // season=1) — el mismo que AnimeShowDetailScreen.play, para no romper el agrupado por show.
-    fun playTorrent(result: TorrentResult) {
-        val card = selected ?: return
-        val season = refineSeason
-        val episode = refineEpisode
-        preparing = true; playError = null
-        scope.launch {
-            applyResult(playback.playTorrent(result, card, detail, resultTitle, resultPoster, resultDescription, season, episode))
-        }
-    }
-
     fun playArchiveResult(item: ArchiveSearchResult) {
         preparing = true; playError = null
         scope.launch { applyResult(playback.playArchive(item)) }
     }
 
-    // Reproduce una fuente web: el anime usa la numeración absoluta (igual que
-    // AnimeShowDetailScreen.playWebEp) y las series TMDB la season real, pero el seriesId sale del
-    // mismo lugar para los dos (seriesIdOf). Molde: CineDetailScreen.playWeb.
-    //
-    // mirrorSeason/animeEpisode: la fila local se guarda por hash de pageUrl -- la misma que escribe
-    // addWholeWebSeries con la temporada/episodio REAL del mirror. Un WebResult del mirror YA los
-    // trae (WebResult.season/episode), así que se usan esos; 1 o el episodio de AniList solo cuando
-    // no los trae (scraping en vivo), o sea cuando tampoco hay pack que los contradiga. Ojo: acá NO
-    // sirve buscarlos en los packs de `sources` -- runSourceSearch emite WebPack solo sin capítulo
-    // elegido y Web solo con capítulo, nunca ambos, así que esa lista siempre está vacía en este
-    // camino (ver WebSourceSeason/WebSourceEpisode).
     fun playMagisResult(r: com.arkiv.player.data.gateway.GatewayResult) {
         // Serie → abrir la temporada para elegir capítulo. Película → reproducir directo.
         if (r.extra["program_type"] in MAGIS_SERIES) { magisSeason = r; return }
         preparing = true; playError = null
         scope.launch { applyResult(playback.playMagis(r)) }
-    }
-
-    fun playWebResult(r: WebResult) {
-        val card = selected ?: return
-        val season = refineSeason
-        val episode = refineEpisode
-        val mirrorSeason = com.arkiv.player.data.catalog.mirror.WebSourceSeason.forResult(r)
-        val animeEpisode = com.arkiv.player.data.catalog.mirror.WebSourceEpisode.forResult(r, fallback = episode ?: 1)
-        preparing = true; playError = null
-        scope.launch {
-            applyResult(
-                playback.playWeb(r, card, detail, animeShow, resultTitle, resultPoster, season, episode, mirrorSeason, animeEpisode),
-            )
-        }
-    }
-
-    // Agrega los capítulos elegidos del pack web a la biblioteca y reproduce uno, igual que
-    // onSave/onPlayOne de PackDialog para packs de torrent. Molde: playWebResult.
-    fun addWholeSeries(
-        pack: MirrorWebPack,
-        title: String,
-        episodes: List<MirrorWebSource>,
-        playEpisode: MirrorWebSource? = null,
-    ) {
-        val card = selected ?: return
-        preparing = true; playError = null
-        scope.launch {
-            applyResult(
-                playback.addWholeWebSeries(pack, card, detail, animeShow, resultPoster, title, episodes, playEpisode),
-            )
-        }
-    }
-
-    // Guarda en el dispositivo los capítulos elegidos del pack web: mismo camino que addWholeSeries
-    // (playback.addWholeWebSeries, el "Guardar" del diálogo) -- addWebSeriesEpisode por capítulo, sin
-    // reproducir. Mismo seriesId que ese camino -- los dos lo piden a `seriesIdOf` (Task 11: NUNCA
-    // season=1 fijo) -- si el seriesId de acá divergiera del que ya usa el guardado local
-    // (onSave/onPlayOne, arriba), la descarga quedaría bajo un id distinto y
-    // PlaybackPreferenceStore.decide() nunca encontraría el capítulo bajado. Antes esto
-    // mandaba un job a la NUC (arkiv-offline); ahora encola la descarga al propio dispositivo (tamaño
-    // WEB siempre desconocido, no hay aviso de torrent pesado que mostrar acá -- ver TorrentSizeGate
-    // en CineDetailScreen). Molde: saveWebPackLocally en AnimeShowDetailScreen/CineDetailScreen.
-    fun downloadWholeSeries(pack: MirrorWebPack, title: String, episodes: List<MirrorWebSource>) {
-        val card = selected ?: return
-        playError = null
-        askNotifications()
-        scope.launch {
-            // Adentro de la corrutina: resolver el seriesId de un anime es suspend (consulta el
-            // mapeo cruzado, que puede tocar disco o red). Ver SeriesItemIds.animeSeriesId.
-            val seriesId = seriesIdOf(graph, card, detail, animeShow)
-            val outcomes = mutableListOf<com.arkiv.player.data.local.EnqueueOutcome>()
-            for (ep in episodes) {
-                val id = graph.repository.addWebSeriesEpisode(
-                    seriesId, title, resultPoster, ep.season, ep.episode,
-                    ep.name.ifBlank { "Ep ${ep.episode}" }, ep.pageUrl,
-                )
-                if (id != null) outcomes += graph.localDownloads.enqueue(id, "web")
-            }
-            // Un solo aviso para todo el pack, no uno por capítulo.
-            notifyDuplicates(outcomes)
-        }
     }
 
     // --- Guardar en el dispositivo desde la búsqueda -------------------------------------------
@@ -328,45 +211,32 @@ fun SearchScreen(
     // (resuelve la fuente y la agrega a la biblioteca devolviendo el episodeId): guardar la descarga
     // bajo un episodeId sacado de un camino paralelo la dejaría apuntando a un episodio que el
     // player nunca pide. La única diferencia con reproducir es que acá no se llama a `onPlay`.
-
-    // Encola una descarga al dispositivo. Atajo de UX igual que en CineDetailScreen: si el tamaño ya
-    // se conoce (torrent) y supera el umbral, pide confirmación antes de encolar; la compuerta que
-    // garantiza el comportamiento sigue viviendo en el worker, que es la única que ve el tamaño del
-    // ARCHIVO elegido y no el del pack. NO pide el permiso de notificaciones acá adentro: el
-    // llamador que encola en loop (downloadWholeSeries) lo pide UNA vez antes del loop.
-    fun saveLocally(episodeId: String, source: String, knownSizeBytes: Long) {
-        if (TorrentSizeGate.needsConfirmation(knownSizeBytes, alreadyConfirmed = false)) {
-            pendingBig = episodeId to knownSizeBytes
-        } else {
-            scope.launch { notifyDuplicates(listOf(graph.localDownloads.enqueue(episodeId, source))) }
-        }
+    fun saveLocally(episodeId: String, source: String) {
+        scope.launch { notifyDuplicates(listOf(graph.localDownloads.enqueue(episodeId, source))) }
     }
 
     /** Encola el resultado de un `playback.*` (o muestra su error), sin navegar al reproductor. */
-    fun enqueueResolved(result: PlaybackResult, source: String, knownSizeBytes: Long) {
+    fun enqueueResolved(result: PlaybackResult, source: String) {
         when (result) {
-            is PlaybackResult.Ready -> saveLocally(result.episodeId, source, knownSizeBytes)
+            is PlaybackResult.Ready -> saveLocally(result.episodeId, source)
             is PlaybackResult.Failed -> playError = result.message
         }
     }
 
-    // Fase QUERY ("resultados directos": torrent/archive sin card elegida todavía).
+    // Fase QUERY ("resultados directos": archive sin card elegida todavía).
     // Las descargas al dispositivo, para que el buscador muestre lo MISMO que la biblioteca. Acá una
     // fila es una FUENTE y todavía no tiene `episodeId`, así que el emparejamiento lo hace
-    // [DescargasPorFuente] con lo que la fila sí sabe (url web, infohash, identifier de archive).
+    // [DescargasPorFuente] con lo que la fila sí sabe (identifier de archive).
     val downloadRows by graph.repository.observeDownloadRows().collectAsStateWithLifecycle(emptyList())
     var porConfirmar by remember { mutableStateOf<Pair<DownloadRow, AccionDeDescarga>?>(null) }
 
     /**
-     * El control de descarga de una fuente. Los packs web no lo llevan (cubren varios capítulos: un
-     * solo estado mentiría) y Magis tampoco (no se descarga, su CDN vence a las ~48 h).
+     * El control de descarga de una fuente. Magis no lo lleva (no se descarga, su CDN vence a
+     * las ~48 h).
      */
     fun descargaDe(s: PlaySource, onDownload: () -> Unit): DescargaDeFila? {
         val fila = when (s) {
-            is PlaySource.Torrent -> DescargasPorFuente.deTorrent(downloadRows, s.result.infoHash)
-            is PlaySource.Web -> DescargasPorFuente.deWeb(downloadRows, s.result.pageUrl)
             is PlaySource.Archive -> DescargasPorFuente.deArchive(downloadRows, s.item.identifier)
-            is PlaySource.WebPack -> null
             is PlaySource.Magis -> return null
             is PlaySource.Ditu -> return null
         }
@@ -380,53 +250,18 @@ fun SearchScreen(
 
     fun saveDirect(source: PlaySource) {
         playError = null
-        val size = (source as? PlaySource.Torrent)?.result?.sizeBytes ?: 0L
-        val tag = if (source is PlaySource.Torrent) "torrent" else "archive"
-        // El permiso se pide UNA vez por acción del usuario y solo si esto encola de una: si el
-        // tamaño va a disparar el diálogo de "Descarga pesada", lo pide el botón de ESE diálogo.
-        if (!TorrentSizeGate.needsConfirmation(size, alreadyConfirmed = false)) askNotifications()
-        scope.launch { enqueueResolved(playback.playDirect(source), tag, size) }
+        askNotifications()
+        scope.launch { enqueueResolved(playback.playDirect(source), "archive") }
     }
 
     // Fase RESULTS. Cada rama usa el mismo helper de `playback` que su equivalente de reproducir.
     fun saveResult(source: PlaySource) {
-        val card = selected ?: return
-        val season = refineSeason
-        val episode = refineEpisode
         playError = null
         when (source) {
-            is PlaySource.Torrent -> {
-                val size = source.result.sizeBytes
-                if (!TorrentSizeGate.needsConfirmation(size, alreadyConfirmed = false)) askNotifications()
-                scope.launch {
-                    enqueueResolved(
-                        playback.playTorrent(source.result, card, detail, resultTitle, resultPoster, resultDescription, season, episode),
-                        "torrent", size,
-                    )
-                }
-            }
             is PlaySource.Archive -> {
                 askNotifications()
-                scope.launch { enqueueResolved(playback.playArchive(source.item), "archive", 0) }
+                scope.launch { enqueueResolved(playback.playArchive(source.item), "archive") }
             }
-            is PlaySource.Web -> {
-                askNotifications()
-                // Mismos mirrorSeason/animeEpisode que playWebResult: la fila local se guarda por
-                // hash de pageUrl y las dos rutas tienen que escribir la MISMA fila.
-                val r = source.result
-                val mirrorSeason = com.arkiv.player.data.catalog.mirror.WebSourceSeason.forResult(r)
-                val animeEpisode = com.arkiv.player.data.catalog.mirror.WebSourceEpisode.forResult(r, fallback = episode ?: 1)
-                scope.launch {
-                    enqueueResolved(
-                        playback.playWeb(r, card, detail, animeShow, resultTitle, resultPoster, season, episode, mirrorSeason, animeEpisode),
-                        "web", 0,
-                    )
-                }
-            }
-            // El pack completo: mismo camino (y mismo permiso pedido una sola vez) que el botón
-            // "Guardar en el dispositivo" del diálogo del pack.
-            is PlaySource.WebPack ->
-                downloadWholeSeries(source.pack, resultTitle.ifBlank { source.pack.showTitle }, source.pack.episodes)
             // Magis no se guarda en el dispositivo: el CDN sirve con un token que vence a las ~48 h,
             // así que el archivo bajado dejaría de reproducirse.
             is PlaySource.Magis -> playError = "Magis no se puede guardar: el enlace vence."
@@ -439,8 +274,6 @@ fun SearchScreen(
         }
     }
 
-    // Los packs (torrent y web) NO reproducen directo: abren su diálogo para elegir nombre y
-    // capítulos. Sin esto un pack agregaba cientos de episodios en silencio.
     fun playDituResult(r: com.arkiv.player.data.gateway.GatewayResult) {
         // Serie (BUNDLE) → mostrar episodios. Película (VOD) → reproducir directo.
         if (r.kind == "series") { dituSeason = r; return }
@@ -449,10 +282,7 @@ fun SearchScreen(
     }
 
     fun playResult(source: PlaySource) = when (source) {
-        is PlaySource.Torrent -> if (PackDetector.isPack(source.result.name)) packFor = source.result else playTorrent(source.result)
         is PlaySource.Archive -> playArchiveResult(source.item)
-        is PlaySource.Web -> playWebResult(source.result)
-        is PlaySource.WebPack -> webPackFor = source.pack
         is PlaySource.Magis -> playMagisResult(source.result)
         is PlaySource.Ditu -> playDituResult(source.result)
     }
@@ -475,24 +305,6 @@ fun SearchScreen(
                     modifier = Modifier.padding(start = 4.dp),
                 )
                 Spacer(Modifier.weight(1f))
-                if (phase == SearchPhase.RESULTS && selected?.tmdbId != null) {
-                    IconButton(onClick = { vm.processNow() }, enabled = !processingNow) {
-                        if (processingNow) {
-                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
-                        } else {
-                            Icon(Icons.Filled.Refresh, contentDescription = "Procesar ahora", tint = Color.White)
-                        }
-                    }
-                }
-            }
-            processNowMessage?.let { msg ->
-                Text(
-                    msg,
-                    color = Color.White,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                        .clickable { vm.dismissProcessNowMessage() },
-                )
             }
 
             if (playError != null) {
@@ -525,9 +337,7 @@ fun SearchScreen(
                     season = refineSeason,
                     episode = refineEpisode,
                     sources = sources,
-                    loadingTorrent = loadingTorrent,
-                    loadingWeb = loadingWeb,
-                loadingMagis = loadingMagis,
+                    loadingMagis = loadingMagis,
                     loadingArchive = loadingArchive,
                     enabled = !preparing,
                     onPlay = { playResult(it) },
@@ -621,84 +431,6 @@ fun SearchScreen(
                         posterOverride = resultPoster, backdropOverride = detail?.backdropUrl.orEmpty())
                 }
             },
-        )
-    }
-
-    webPackFor?.let { p ->
-        WebPackDialog(
-            pack = p,
-            // Mismo cálculo que downloadWholeSeries (más abajo): los dos salen de `seriesIdOf`. Si
-            // `selected` fuera null (no debería pasar -- webPackFor solo se llena a partir de un
-            // resultado de una card elegida), o si el mapeo del anime todavía no resolvió, queda ""
-            // y el badge simplemente no encuentra nada descargado, sin romper el diálogo.
-            seriesId = canonicalSeriesId,
-            // El nombre del show manda sobre el del pack: el título scrapeado del sitio suele traer
-            // ruido (sinopsis concatenada en sololatino), el de TMDB/AniList está limpio.
-            defaultTitle = resultTitle.ifBlank { p.showTitle },
-            posterUrl = resultPoster,
-            onDismiss = { webPackFor = null },
-            onSave = { title, episodes ->
-                webPackFor = null
-                addWholeSeries(p, title, episodes)
-            },
-            onPlayOne = { title, ep ->
-                webPackFor = null
-                addWholeSeries(p, title, p.episodes, ep)
-            },
-            onDownload = { title, episodes ->
-                webPackFor = null
-                downloadWholeSeries(p, title, episodes)
-            },
-        )
-    }
-
-    packFor?.let { r ->
-        PackDialog(
-            result = r,
-            packResolver = graph.packResolver,
-            defaultTitle = "$resultTitle — Pack",
-            posterUrl = resultPoster,
-            onDismiss = { packFor = null },
-            onSave = { title, contents, rows ->
-                scope.launch {
-                    val id = playback.savePack(title, resultPoster, resultDescription, contents, rows)
-                    packFor = null
-                    graph.repository.firstEpisodeId(id)?.let { onPlay(it) }
-                }
-            },
-            onPlayOne = { title, contents, row ->
-                scope.launch {
-                    val id = playback.savePack(title, resultPoster, resultDescription, contents, contents.rows)
-                    packFor = null
-                    onPlay("$id::${row.index}")
-                }
-            },
-        )
-    }
-
-    // Aviso inline de torrent pesado. Igual que en CineDetailScreen: es un ATAJO para no encolar
-    // algo que vas a descartar; la compuerta real (por archivo, no por pack) vive en el worker.
-    pendingBig?.let { (episodeId, bytes) ->
-        AlertDialog(
-            onDismissRequest = { pendingBig = null },
-            title = { Text("Descarga pesada") },
-            text = { Text("Este torrent pesa ${TorrentSizeGate.formatSize(bytes)}. ¿Lo bajás igual?") },
-            confirmButton = {
-                TextButton(onClick = {
-                    askNotifications()
-                    scope.launch {
-                        val outcome = graph.localDownloads.enqueue(episodeId, "torrent")
-                        // Si la cola lo salteó por duplicado NO se confirma: markConfirmed devuelve
-                        // la fila a `queued` y volvería a bajar lo que ya está en disco.
-                        if (outcome != com.arkiv.player.data.local.EnqueueOutcome.ALREADY_DOWNLOADED) {
-                            graph.localDownloads.confirmSize(episodeId)
-                        }
-                        notifyDuplicates(listOf(outcome))
-                    }
-                    pendingBig = null
-                }) { Text("Descargar") }
-            },
-            dismissButton = { TextButton(onClick = { pendingBig = null }) { Text("Cancelar") } },
         )
     }
 
@@ -939,14 +671,8 @@ private fun QueryContent(
         }
         if (directResults.isNotEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) {
-                // Torrents ordenados por temporada (T1, T2, T3…); el resto (archive) va al final.
-                val directOrdenados = remember(directResults) {
-                    val torrents = ordenarTorrents(directResults.filterIsInstance<PlaySource.Torrent>())
-                    val rest = directResults.filter { it !is PlaySource.Torrent }
-                    torrents + rest
-                }
                 Column {
-                    directOrdenados.forEach { source ->
+                    directResults.forEach { source ->
                         SourceRow(
                             source, enabled = true,
                             descarga = descargaDirectaDe(source),
@@ -1145,32 +871,9 @@ private fun RefineContent(card: TitleCard, onContinue: (season: Int?, episode: I
 }
 
 /**
- * Extrae el número de temporada del nombre de un torrent.
- * Detecta: "T6", "T06", "S06", "S06E03", "Temporada 4".
- * Devuelve [Int.MAX_VALUE] si no encuentra temporada (así esos ítems van al final).
- */
-internal fun seasonOf(name: String): Int {
-    Regex("""(?:^|[ .\-_\[(])(?i:[ts])0*(\d{1,2})(?:[ .\-_\]Ee]|$)""").find(name)
-        ?.groupValues?.get(1)?.toIntOrNull()?.let { return it }
-    Regex("""(?i)temporada\s*0*(\d{1,2})""").find(name)
-        ?.groupValues?.get(1)?.toIntOrNull()?.let { return it }
-    return Int.MAX_VALUE
-}
-
-/**
- * Ordena por temporada ascendente y, dentro de cada temporada, packs primero.
- * Ítems sin temporada detectable van al final.
- */
-internal fun ordenarTorrents(items: List<PlaySource.Torrent>): List<PlaySource.Torrent> =
-    items.sortedWith(
-        compareBy<PlaySource.Torrent> { seasonOf(it.result.name) }
-            .thenByDescending { PackDetector.isPack(it.result.name) },
-    )
-
-/**
- * Fase RESULTS: búsqueda multi-fuente (torrent/web/archive) de la card elegida, con S/E inyectado
- * si vino del REFINE o solo por nombre si no (esto último surfacea packs). Reutiliza SourceSection
- * (mismo patrón colapsable que el bottom sheet de CineDetailScreen).
+ * Fase RESULTS: búsqueda multi-fuente (magis/ditu/archive) de la card elegida, con S/E inyectado
+ * si vino del REFINE o solo por nombre si no. Reutiliza SourceSectionHeader (mismo patrón
+ * colapsable que el bottom sheet de CineDetailScreen).
  */
 @Composable
 private fun ResultsContent(
@@ -1181,8 +884,6 @@ private fun ResultsContent(
     season: Int?,
     episode: Int?,
     sources: List<PlaySource>,
-    loadingTorrent: Boolean,
-    loadingWeb: Boolean,
     loadingMagis: Boolean,
     loadingArchive: Boolean,
     enabled: Boolean,
@@ -1192,27 +893,20 @@ private fun ResultsContent(
 ) {
     // MAGIS entra en las abiertas por defecto: es la primera sección, y arrancar colapsada la haría
     // parecer vacía justo arriba de todo.
-    var expandedSections by remember { mutableStateOf(setOf("MAGIS", "DITU", "TORRENT", "WEB", "ARCHIVE")) }
+    var expandedSections by remember { mutableStateOf(setOf("MAGIS", "DITU", "ARCHIVE")) }
     fun toggle(k: String) { expandedSections = if (k in expandedSections) expandedSections - k else expandedSections + k }
     // `rememberSaveable` y no `remember`: al abrir el reproductor esta pantalla se destruye, y con
-    // `remember` el origen elegido se perdía — volvías de ver algo por Torrent y la lista estaba
-    // otra vez en "Todo", con el ítem que acababas de tocar enterrado entre 210 resultados.
+    // `remember` el origen elegido se perdía — volvías de ver algo por Magis y la lista estaba
+    // otra vez en "Todo", con el ítem que acababas de tocar enterrado entre decenas de resultados.
     var tab by rememberSaveable { mutableStateOf(SourceTab.TODO) }
 
-    // Temporada ascendente primero (T1, T2, T3…) y packs antes que capítulos en cada temporada.
-    val torrents = ordenarTorrents(sources.filterIsInstance<PlaySource.Torrent>())
-    // WEB incluye tanto capítulos sueltos (Web) como packs de serie completa (WebPack): son
-    // mutuamente excluyentes por búsqueda (el mirror devuelve uno u otro, ver SearchViewModel), pero
-    // ambos se listan en la misma sección — sin esto un WebPack nunca aparece en pantalla.
-    val webs = sources.filter { it is PlaySource.Web || it is PlaySource.WebPack }
     val archives = sources.filterIsInstance<PlaySource.Archive>()
     val magis = sources.filterIsInstance<PlaySource.Magis>()
     val ditus = sources.filterIsInstance<PlaySource.Ditu>()
-    val anyLoading = loadingTorrent || loadingWeb || loadingArchive || loadingMagis
+    val anyLoading = loadingArchive || loadingMagis
     val counts = countsByTab(sources)
     val loadingOf = mapOf(
-        SourceTab.TODO to anyLoading, SourceTab.TORRENT to loadingTorrent,
-        SourceTab.WEB to loadingWeb, SourceTab.MAGIS to loadingMagis,
+        SourceTab.TODO to anyLoading, SourceTab.MAGIS to loadingMagis,
         SourceTab.DITU to false, SourceTab.ARCHIVE to loadingArchive,
     )
 
@@ -1240,14 +934,10 @@ private fun ResultsContent(
             // a la vez sin que uno con 60 resultados entierre a los otros.
             sourceSection(this, "MAGIS", ArkivMagisBlue, magis, loadingMagis, "MAGIS" in expandedSections, { toggle("MAGIS") }, enabled, onPlay, descargaDe)
             sourceSection(this, "CARACOL", com.arkiv.player.ui.catalog.ArkivDituOrange, ditus, false, "DITU" in expandedSections, { toggle("DITU") }, enabled, onPlay, descargaDe)
-            sourceSection(this, "TORRENT", ArkivRed, torrents, loadingTorrent, "TORRENT" in expandedSections, { toggle("TORRENT") }, enabled, onPlay, descargaDe)
-            sourceSection(this, "WEB", ArkivWebViolet, webs, loadingWeb, "WEB" in expandedSections, { toggle("WEB") }, enabled, onPlay, descargaDe)
             sourceSection(this, "ARCHIVE", ArkivArchiveTeal, archives, loadingArchive, "ARCHIVE" in expandedSections, { toggle("ARCHIVE") }, enabled, onPlay, descargaDe)
         } else {
             // Con un origen elegido la cabecera de sección sobra: la lista va plana.
             val shown = when (tab) {
-                SourceTab.TORRENT -> torrents
-                SourceTab.WEB -> webs
                 SourceTab.MAGIS -> magis
                 SourceTab.DITU -> ditus
                 else -> archives
@@ -1449,10 +1139,7 @@ private fun sourceSection(
 /** Identidad estable de una fuente, para las keys del LazyColumn (dos resultados distintos con el
  *  mismo nombre romperían la lista si compartieran key). Mismo criterio que usa el buscador del TV. */
 private fun sourceKey(s: PlaySource): String = when (s) {
-    is PlaySource.Torrent -> "t-${s.result.identity}"
     is PlaySource.Archive -> "a-${s.item.identifier}"
-    is PlaySource.Web -> "w-${s.result.identity}"
-    is PlaySource.WebPack -> "wp-${s.pack.siteId}-${s.pack.showTitle}"
     is PlaySource.Magis -> "m-${s.result.extra["content_id"] ?: s.result.ref}"
     is PlaySource.Ditu -> "d-${s.result.extra["content_id"] ?: s.result.ref}"
 }
@@ -1479,8 +1166,6 @@ private fun SourceTabRow(
         SourceTab.entries.forEach { t ->
             val accent = when (t) {
                 SourceTab.TODO -> Color.White
-                SourceTab.TORRENT -> ArkivRed
-                SourceTab.WEB -> ArkivWebViolet
                 SourceTab.MAGIS -> ArkivMagisBlue
                 SourceTab.DITU -> com.arkiv.player.ui.catalog.ArkivDituOrange
                 SourceTab.ARCHIVE -> ArkivArchiveTeal

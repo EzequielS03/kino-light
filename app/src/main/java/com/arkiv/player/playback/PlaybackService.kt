@@ -215,21 +215,19 @@ class PlaybackService : MediaSessionService() {
         super.onDestroy()
     }
 
-    /** Detiene el stream de torrent y cierra el proxy de archive (idempotente y a prueba de nulls). */
+    /** Cierra el proxy de archive y el de vivo (idempotente y a prueba de nulls). */
     private fun releaseNetworkResources() {
         // Con una sesión de Chromecast viva NO se sueltan: el receptor está jalando bytes del server
-        // LAN de este proceso, así que stopStream() le corta el video a la TV. Pasa de verdad en el
-        // camino "abrir la app casteando y mandar el capítulo directo a la TV": ahí nunca hubo
-        // reproducción local, el service quedó solo BINDEADO, y al soltar el MediaController (salir
-        // de la pantalla) el service se destruye y llega acá. El proceso sigue vivo por el
-        // TorrentServingService, y el motor de torrent vive en el grafo, no en el service.
+        // LAN de este proceso. Pasa de verdad en el camino "abrir la app casteando y mandar el
+        // capítulo directo a la TV": ahí nunca hubo reproducción local, el service quedó solo
+        // BINDEADO, y al soltar el MediaController (salir de la pantalla) el service se destruye y
+        // llega acá.
         if (isCasting()) {
             android.util.Log.i("ArkivCast", "no suelto los recursos de red: hay sesión de Chromecast viva")
             return
         }
         runCatching {
             val graph = (application as com.arkiv.player.ArkivApp).graph
-            runCatching { graph.torrentEngine.stopStream() }
             runCatching { graph.archiveCacheProxy.stop() }
             // Tarea 14 (canal en vivo) creaba liveHlsProxy/liveController en el grafo pero nunca los
             // cerraba: el ServerSocket en 127.0.0.1 y su hilo accept() quedaban vivos el resto del

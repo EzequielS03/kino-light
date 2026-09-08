@@ -2,7 +2,7 @@ package com.arkiv.player.playback
 
 import androidx.media3.common.MediaItem
 
-enum class SourceKind { ARCHIVE, TORRENT, WEB, MAGIS, DITU, NUC, LOCAL, LIVE }
+enum class SourceKind { ARCHIVE, MAGIS, DITU, NUC, LOCAL, LIVE }
 
 data class PlayerSourceTag(
     val kind: SourceKind,
@@ -71,8 +71,6 @@ object PlayerSource {
     const val LIVE_PREFIX = "live:"
 
     fun kindFor(episodeId: String): SourceKind = when {
-        episodeId.startsWith("torrent:") -> SourceKind.TORRENT
-        episodeId.startsWith("web:") -> SourceKind.WEB
         episodeId.startsWith("magis:") -> SourceKind.MAGIS
         episodeId.startsWith("ditu:") -> SourceKind.DITU
         episodeId.startsWith(LIVE_PREFIX) -> SourceKind.LIVE

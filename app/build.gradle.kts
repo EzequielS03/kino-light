@@ -59,8 +59,8 @@ android {
 
     buildTypes {
         release {
-            // R8 apagado a propósito: libtorrent4j y libVLC llaman por JNI a clases/campos que el
-            // shrinker no ve referenciados y borraría. El APK pesa más, pero funciona.
+            // R8 apagado a propósito: libVLC llama por JNI a clases/campos que el shrinker no ve
+            // referenciados y borraría. El APK pesa más, pero funciona.
             isMinifyEnabled = false
             if (hayFirma) signingConfig = signingConfigs.getByName("release")
         }
@@ -155,16 +155,8 @@ dependencies {
     // (.avi/XviD, Dolby Vision P7, TrueHD/DTS-HD). Trae libs nativas arm64 + armeabi-v7a.
     implementation("org.videolan.android:libvlc-all:3.6.0")
 
-    // Torrents (libtorrent nativo) — arm64 (celular) + arm (Fire Stick)
-    implementation("org.libtorrent4j:libtorrent4j:2.1.0-31")
-    implementation("org.libtorrent4j:libtorrent4j-android-arm64:2.1.0-31")
-    implementation("org.libtorrent4j:libtorrent4j-android-arm:2.1.0-31")
-
     // Image loading
     implementation("io.coil-kt:coil-compose:2.7.0")
-
-    // Parsing HTML declarativo para proveedores de torrents on-device (capa estilo Burst).
-    implementation("org.jsoup:jsoup:1.17.2")
 
     testImplementation("junit:junit:4.13.2")
     // org.json real para unit tests JVM: el de Android (android.jar) es un stub que lanza en runtime,
