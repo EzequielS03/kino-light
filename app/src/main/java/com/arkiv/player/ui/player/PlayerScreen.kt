@@ -339,6 +339,9 @@ private fun PlayerContent(
     val magisItem by vm.magisItem.collectAsStateWithLifecycle()
     var magisPlayer by remember { mutableStateOf<Player?>(null) }
     var magisTextureView by remember { mutableStateOf<android.view.TextureView?>(null) }
+    // Task 1 (poda de light-magis): canal en vivo, mismo patrón que magisItem/magisPlayer.
+    val liveItem by vm.liveItem.collectAsStateWithLifecycle()
+    var livePlayer by remember { mutableStateOf<Player?>(null) }
     /**
      * Si el reproductor de ExoPlayer ya puso un fotograma en pantalla.
      *
@@ -497,6 +500,7 @@ private fun PlayerContent(
         casting -> castPlayer ?: controller
         dituDrmItem != null && dituPlayer != null -> dituPlayer!!
         magisItem != null && magisPlayer != null -> magisPlayer!!
+        liveItem != null && livePlayer != null -> livePlayer!!
         else -> controller
     }
 
@@ -526,6 +530,7 @@ private fun PlayerContent(
     fun posicionEsDeEstaPantalla(): Boolean =
         dituDrmItem != null ||
         magisItem != null ||
+        liveItem != null ||
         loaded || runCatching { controller.currentMediaItem?.mediaId }.getOrNull() == episodeId
 
     fun contentDurationMs(): Long = CastProgress.contentDuration(
@@ -559,6 +564,10 @@ private fun PlayerContent(
     }
     LaunchedEffect(magisItem?.episodeId) {
         val epId = magisItem?.episodeId ?: return@LaunchedEffect
+        NowPlaying.episodeId = epId
+    }
+    LaunchedEffect(liveItem?.episodeId) {
+        val epId = liveItem?.episodeId ?: return@LaunchedEffect
         NowPlaying.episodeId = epId
     }
 
@@ -787,6 +796,38 @@ private fun PlayerContent(
     }
 
     /**
+     * Cast-to-TV del canal en vivo cuando lo reproduce ExoPlayer (Task 1, poda de light-magis).
+     *
+     * Antes esto lo disparaba `LaunchedEffect(playlist, generacionVivo)` (más abajo) porque el
+     * canal viajaba en `_playlist`; ahora viaja en `liveItem` (ver PlayerViewModel.abrirCanalActual)
+     * y ese efecto solo corre para VOD. Se arma un `PlaylistData` sintético de un solo ítem para
+     * reusar [castRequestFor] tal cual -- esa función no lee de `PlaylistData` nada más que
+     * `items`/el índice, así que no hace falta duplicar la lógica de lanUrl/lector de audio/transcode.
+     *
+     * `generacionVivo` en la clave: reabrir el MISMO canal tras un corte produce un `PlayerData`
+     * igual al anterior (mismo motivo que `_generacionVivo` en el ViewModel, ver su KDoc), así que
+     * sin esta clave un re-zap al canal que ya estaba en pantalla no volvería a empujar el receptor.
+     *
+     * No se lee `vlc.currentAudioFormat()` con sentido acá (VLC no reproduce el vivo-vía-Exo, así
+     * que devuelve null/una lectura vieja): `castRequestFor` cae a su default conservador
+     * ("no sé → mandalo directo", ver su propio KDoc), igual que ya acepta Magis VOD. Un canal con
+     * audio AC-3/DTS puede castear mudo -- limitación conocida, misma categoría que la de Magis.
+     */
+    LaunchedEffect(casting, liveItem, generacionVivo) {
+        if (!casting || castSession == null) return@LaunchedEffect
+        val item = liveItem ?: return@LaunchedEffect
+        val pl = PlaylistData(listOf(item), 0, 0L, pedido = item.episodeId)
+        val req = castRequestFor(pl, 0, 0L)
+        if (req == null) {
+            android.util.Log.w("ArkivCast", "vivo (exo): sin URL que el receptor pueda alcanzar")
+            return@LaunchedEffect
+        }
+        castSession.setMedia(req)
+        casteadoAlReceptor = item.episodeId
+        NowPlaying.episodeId = item.episodeId
+    }
+
+    /**
      * Reevaluar el códec si al conectar todavía no se conocía.
      *
      * El portero decide con las pistas que el player local ya parseó; si conectás apenas se abre el
@@ -871,9 +912,9 @@ private fun PlayerContent(
     // sonido es exactamente el instante en que `espejo.buffereando` ya es false y todavía no hay imagen, o
     // sea que ninguna de las señales viejas lo delata. Con `sinImagen` se ve si el spinner tapó ese
     // hueco o si la pantalla se quedó en negro.
-    LaunchedEffect(playlist == null, magisItem == null, espejo.buffereando, sinPrimeraImagen, esperandoVideo, casting) {
+    LaunchedEffect(playlist == null, magisItem == null, liveItem == null, espejo.buffereando, sinPrimeraImagen, esperandoVideo, casting) {
         val spinner = hayQueMostrarElSpinner(
-            sinPlaylist = playlist == null && magisItem == null,
+            sinPlaylist = playlist == null && magisItem == null && liveItem == null,
             buffereando = espejo.buffereando,
             sinPrimeraImagen = sinPrimeraImagen,
             perdioLaSalidaDeVideo = esperandoVideo,
@@ -882,7 +923,7 @@ private fun PlayerContent(
         android.util.Log.w(
             "ArkivVlc",
             "spinner=$spinner " +
-                "· sinPlaylist=${playlist == null && magisItem == null} buffering=${espejo.buffereando} sinImagen=$sinPrimeraImagen " +
+                "· sinPlaylist=${playlist == null && magisItem == null && liveItem == null} buffering=${espejo.buffereando} sinImagen=$sinPrimeraImagen " +
                 "perdioVideo=$esperandoVideo",
         )
     }
@@ -916,47 +957,11 @@ private fun PlayerContent(
     // correr y la reapertura no cargaba nada. Ver su KDoc en PlayerViewModel.
     LaunchedEffect(playlist, generacionVivo) {
         val pl = playlist ?: run { android.util.Log.w("ArkivPlay", "playlist=null (aún resolviendo o descartada)"); return@LaunchedEffect }
-        if (enVivo) {
-            // Vivo (Tarea 14): SIEMPRE reemplaza el media -- no hay "mismo episodio" que reusar,
-            // cada zap es un canal distinto -- sin recrear el reproductor: el controller/vlc siguen
-            // siendo los mismos de siempre (los del PlaybackService), solo se les cambia el ítem.
-            // No pasa por MediaReusePolicy (pensada para reusar buffer entre capítulos de la MISMA
-            // serie/torrent, un concepto que en vivo no existe).
-            android.util.Log.w("ArkivPlay", "playlist lista (vivo) → setMediaItems (${pl.items.firstOrNull()?.episodeId})")
-            loaded = true
-            currentIndex = 0
-            espejo.reiniciarElReloj()
-            val epId = pl.items.firstOrNull()?.episodeId
-            // Tarea 18: con el Chromecast YA conectado, cada zap tiene que empujarle el canal nuevo
-            // al receptor -- si no, la TV se queda pegada mirando el canal viejo mientras el celu ya
-            // cambió. Mismo patrón que el salto de capítulo de VOD más abajo (rama `casting &&
-            // castSession != null`), solo que sin startPositionMs: un directo no tiene "dónde ibas".
-            if (casting && castSession != null) {
-                val req = castRequestFor(pl, 0, 0L)
-                if (req != null) {
-                    controller.setMediaItems(localMediaItems(pl.items), 0, 0L)
-                    // El local NO arranca: mientras el Chromecast reproduce el canal, competir por
-                    // el mismo stream en el celu es puro gasto de batería/red (mismo criterio que
-                    // el salto de capítulo de VOD).
-                    controller.playWhenReady = false
-                    castSession.setMedia(req)
-                    casteadoAlReceptor = epId
-                    NowPlaying.episodeId = epId
-                    return@LaunchedEffect
-                }
-                android.util.Log.w("ArkivCast", "zap con Chromecast conectado: sin URL que el receptor pueda alcanzar → se reproduce en el celu")
-                android.widget.Toast.makeText(
-                    context,
-                    "No se pudo castear: la TV no puede alcanzar este stream (revisa el WiFi)",
-                    android.widget.Toast.LENGTH_SHORT,
-                ).show()
-            }
-            controller.setMediaItems(localMediaItems(pl.items), 0, 0L)
-            controller.playWhenReady = true
-            controller.prepare()
-            NowPlaying.episodeId = epId
-            return@LaunchedEffect
-        }
+        // Vivo (Tarea 14) YA NO pasa por acá (Task 1, poda de light-magis): `abrirCanalActual` deja
+        // de publicar `_playlist` y publica `liveItem` -- ver LiveExoPlayer/isLiveExo más arriba y
+        // el LaunchedEffect(casting, liveItem, generacionVivo) que reemplaza el cast-to-TV que antes
+        // vivía acá. `enVivo` sigue existiendo para el resto de la pantalla (overlay/gestos/D-pad),
+        // pero este efecto es puramente VOD desde ahora.
         // WEB: URL efímera (token que expira en cada resolve) → NUNCA reusar el media viejo; siempre
         // recargar con la URL fresca. El guard "una sola vez" y el reuso de buffer (play()/seekTo) solo
         // valen para fuentes de URL estable (archive/torrent).
@@ -1162,7 +1167,8 @@ private fun PlayerContent(
     // el cast, el efecto se relanza solo y el listener se re-engancha al que corresponda.
     val isDitu = dituDrmItem != null  // DituExoPlayer maneja sus propios errores; evitar doble-disparo.
     val isMagis = magisItem != null   // MagisExoPlayer maneja sus propios errores.
-    val isExo = isDitu || isMagis     // Cualquier ExoPlayer activo (vs VLC).
+    val isLiveExo = liveItem != null  // LiveExoPlayer maneja sus propios errores (→ reabrirVivoPorCorte).
+    val isExo = isDitu || isMagis || isLiveExo     // Cualquier ExoPlayer activo (vs VLC).
     DisposableEffect(activePlayer) {
         // Snapshot del estado ExoPlayer en el momento en que se monta el listener.
         // Si isExo=true cuando el controller toma el control, STATE_ENDED del VLC no debe
@@ -1461,10 +1467,13 @@ private fun PlayerContent(
                 if (enVivo) {
                     // Vivo (Tarea 18): sin "dónde ibas" que reanudar -- sería la posición que
                     // reporta el receptor sobre un HLS en vivo, que no significa nada como offset
-                    // dentro del proxy local (ver el KDoc de castRequestFor/CastRequestBuilder). El
-                    // controller ya quedó cebado con el canal vigente (LaunchedEffect(playlist), sea
-                    // por la conexión inicial o por el último zap), solo hay que prepararlo y
-                    // arrancarlo desde el vivo actual.
+                    // dentro del proxy local (ver el KDoc de castRequestFor/CastRequestBuilder).
+                    // Vivo vía ExoPlayer (Task 1, poda de light-magis): `livePlayer` nunca se pausó
+                    // al empezar a castear (mismo gap ya aceptado para `magisPlayer`, ver el
+                    // `controller.pause()` de la rama `if (casting)` de arriba), así que acá no hay
+                    // nada que reanudar -- sigue sonando local igual que durante el casteo. Este
+                    // `controller.prepare()/play()` queda como no-op sobre el VLC vacío para el caso
+                    // (si alguno queda) en que `enVivo` sea true sin `liveItem`.
                     runCatching { controller.prepare() }
                     runCatching { controller.play() }
                     casteabaAntes = casting
@@ -1885,6 +1894,29 @@ private fun PlayerContent(
             )
         }
 
+        // Canal en vivo (Task 1, poda de light-magis): ExoPlayer reproduce el HLS del proxy local
+        // (LiveHlsProxy, headers ya inyectados contra el CDN), sin VLC -- mismo patrón que Magis.
+        // Sin subtítulos ni reanudación: un directo no los tiene. El error se manda a
+        // `reabrirVivoPorCorte()` -- ver el KDoc de `onLiveExoError` -- en vez de a un cartel, para
+        // que un tropiezo pasajero del CDN/proxy no interrumpa la reproducción con un error visible.
+        val lItem = liveItem
+        if (lItem != null) {
+            LiveExoPlayer(
+                mediaUrl = lItem.mediaUrl,
+                // Ver el KDoc de `key` en LiveExoPlayer: `mediaUrl` NO cambia entre canales (la
+                // URL del proxy es fija), así que sin esto zapear no recrearía el player.
+                key = lItem.episodeId to generacionVivo,
+                espejo = espejo,
+                onPlayerReady = { player ->
+                    livePlayer = player
+                    gestos.setExoPlayer(player)
+                },
+                onError = { msg -> vm.onLiveExoError(msg) },
+                onPrimeraImagen = { hay -> exoYaPintoAlgo = hay },
+                zoom = gestos.zoomParaExo,
+            )
+        }
+
         // MODO NOCHE: velo negro ENCIMA del video y DEBAJO de los controles, a propósito — así los
         // controles se siguen leyendo a brillo normal, que es justo cuando hacen falta de noche.
         // Sin modificadores de gesto: sin ellos no es blanco de hit-testing, así que la capa de
@@ -2047,7 +2079,7 @@ private fun PlayerContent(
         if (
             loadError == null && estadoDlna.activo == null &&
             hayQueMostrarElSpinner(
-                sinPlaylist = playlist == null && magisItem == null,
+                sinPlaylist = playlist == null && magisItem == null && liveItem == null,
                 buffereando = espejo.buffereando,
                 sinPrimeraImagen = sinPrimeraImagen,
                 perdioLaSalidaDeVideo = esperandoVideo,
@@ -3077,7 +3109,10 @@ private fun PlayerContent(
     // Diálogo de dispositivos DLNA. El armado de la URL que se le manda al renderer vive en
     // `mandarAlRenderer`; acá solo queda de qué ítem sale y qué hacer si el renderer la rechaza.
     DialogoDispositivosDlna(estadoDlna) { device ->
-        val ep = playlistRef.value?.items?.getOrNull(currentIndex)
+        // Vivo vía ExoPlayer (Task 1, poda de light-magis) ya no está en `playlist`: cae a
+        // `liveItem`, que trae el mismo `kind = SourceKind.LIVE` que `mandarAlRenderer` necesita
+        // para resolver la URL de LAN del proxy (no usa `ep.mediaUrl`/`castUrl` para vivo).
+        val ep = playlistRef.value?.items?.getOrNull(currentIndex) ?: liveItem
         controller.pause()
         scope.launch {
             val ok = mandarAlRenderer(dlna, device, ep, graph.torrentEngine, graph.liveHlsProxy)

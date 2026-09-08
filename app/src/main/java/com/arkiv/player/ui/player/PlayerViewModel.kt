@@ -208,6 +208,18 @@ class PlayerViewModel(
     private val _magisItem = MutableStateFlow<PlayerData?>(null)
     val magisItem: StateFlow<PlayerData?> = _magisItem.asStateFlow()
 
+    /**
+     * Canal en vivo (Task 1, poda de light-magis) — lo reproduce ExoPlayer a través de
+     * [LiveHlsProxy], sin pasar por VLC. Reemplaza a [_playlist] para [SourceKind.LIVE]: antes de
+     * esta tarea [abrirCanalActual] publicaba un `PlaylistData` de un solo ítem para que VLC lo
+     * reprodujera, igual que hacía Magis VOD antes de su propia migración (ver [_magisItem]).
+     *
+     * `startPositionMs` siempre es 0 -- un directo no tiene "dónde ibas" (ver el KDoc de
+     * [abrirCanalActual]), así que a diferencia de [_magisItem] este ítem no necesita reanudación.
+     */
+    private val _liveItem = MutableStateFlow<PlayerData?>(null)
+    val liveItem: StateFlow<PlayerData?> = _liveItem.asStateFlow()
+
     /** Error de resolución (torrent sin peers, .torrent ilegible, etc.) para que la pantalla lo muestre. */
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
@@ -308,6 +320,10 @@ class PlayerViewModel(
             _error.value = null
             _dituDrmItem.value = null
             _magisItem.value = null
+            // Navegar de un canal en vivo a un episodio VOD sin pasar por otra pantalla (el mismo
+            // ViewModel sobrevive, ver el guard de más arriba): sin este reset, `liveItem` seguía
+            // publicando el último canal y PlayerScreen (isLive/isLiveExo) lo creía vigente.
+            _liveItem.value = null
             errorDeReproduccion = false
             // Si está guardado en el dispositivo, gana sobre cualquier streaming. Va ANTES de
             // ramificar por fuente: da igual de dónde vino el archivo, ya está acá.
@@ -384,11 +400,17 @@ class PlayerViewModel(
     }
 
     /**
-     * Abre el canal actual del zapping: resuelve contra [liveController] y publica un playlist de
-     * UN solo ítem que arranca siempre en 0 -- en vivo no hay "dónde ibas" que reanudar. NO sondea
-     * duración (no la hay) y NO guarda progreso (ver [saveProgress], que PlayerScreen ya no llama
-     * en modo vivo). Anota el canal en [liveRecentDao] -- es lo único que llena el chip
+     * Abre el canal actual del zapping: resuelve contra [liveController] y publica un [PlayerData]
+     * de UN solo ítem que arranca siempre en 0 -- en vivo no hay "dónde ibas" que reanudar. NO
+     * sondea duración (no la hay) y NO guarda progreso (ver [saveProgress], que PlayerScreen ya no
+     * llama en modo vivo). Anota el canal en [liveRecentDao] -- es lo único que llena el chip
      * "Recientes" de la grilla, que hasta esta tarea nadie escribía.
+     *
+     * Task 1 (poda de light-magis): publica [_liveItem], no [_playlist] -- el canal en vivo lo
+     * reproduce ExoPlayer a través de [LiveHlsProxy] (mismo patrón que [_magisItem] para VOD), sin
+     * pasar por VLC. `url` ya sale de [liveController] con el host/puerto/token del proxy local
+     * inyectados; ExoPlayer no necesita headers propios porque el proxy los pone él mismo contra el
+     * CDN -- es la razón de ser de [LiveHlsProxy] (ver su KDoc).
      */
     private fun abrirCanalActual() {
         val canal = zapping?.actual ?: return
@@ -424,15 +446,14 @@ class PlayerViewModel(
                 openingStartMs = null, openingEndMs = null, endingStartMs = null,
                 kind = SourceKind.LIVE,
             )
-            // `pedido` = el canal que se acaba de abrir, no el que se pidió al entrar: zapear cambia
-            // el canal DENTRO de esta pantalla sin navegar (ver KDoc de loadLive), así que la
-            // pantalla lo trata aparte -- en vivo nunca pasa por MediaReusePolicy.
-            _playlist.value = PlaylistData(listOf(item), 0, 0L, pedido = item.episodeId)
+            // Sin `pedido` (a diferencia del viejo PlaylistData): en vivo nunca pasa por
+            // MediaReusePolicy, que era el único consumidor de esa marca.
+            _liveItem.value = item
             // Y el aviso de que ACÁ HUBO UNA CARGA, aunque el valor de arriba sea idéntico al que
-            // ya estaba. Reabrir un canal cortado produce un `PlaylistData` **igual** al anterior
+            // ya estaba. Reabrir un canal cortado produce un [PlayerData] **igual** al anterior
             // -mismo canal, y `mediaUrl` es la url del proxy local, cuyo puerto y token viven
             // tanto como el socket-, y un `StateFlow` descarta los valores iguales: la pantalla no
-            // se enteraba, no volvía a llamar a `setMediaItems`, y la reapertura quedaba en el log
+            // se enteraba, no volvía a recargar el MediaItem, y la reapertura quedaba en el log
             // sin que se reprodujera nada. Medido en el Fire TV el 2026-08-14: `canal →` a las
             // 22:19:20 y después silencio, con la sesión de medios congelada en pos=99631ms.
             _generacionVivo.value++
@@ -664,6 +685,21 @@ class PlayerViewModel(
 
     fun onMagisExoError(message: String) {
         _error.value = "Magis: $message"
+    }
+
+    /**
+     * Un directo se cayó del lado de ExoPlayer (segmento/playlist en 502 tras agotar los
+     * reintentos del proxy, o cualquier otro `PlaybackException`).
+     *
+     * A diferencia de [onMagisExoError]/[onDituExoError], NO pone `_error` directo: un canal en
+     * vivo se recupera solo casi siempre (ver KDoc de [reabrirVivoPorCorte]), así que mostrar un
+     * cartel de error en el primer tropiezo sería alarmar por algo que en 2-8s ya se resolvió.
+     * [reabrirVivoPorCorte] es quien decide, tras [MAX_REAPERTURAS_VIVO] intentos, si hay que
+     * avisarle a la persona.
+     */
+    fun onLiveExoError(message: String) {
+        Log.w(PLAY, "vivo (exo) error para ${zapping?.actual?.code}: $message")
+        reabrirVivoPorCorte()
     }
 
     fun onPlaybackFailed(episodeId: String) {

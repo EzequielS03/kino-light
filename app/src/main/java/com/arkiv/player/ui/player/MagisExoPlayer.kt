@@ -453,8 +453,10 @@ internal fun MagisExoPlayer(
  * que hace el PlayerView de media3 con TextureView.
  *
  * [zoom] multiplica al final, para que el gesto de zoom siga funcionando sobre el resultado.
+ *
+ * `internal` (no `private`): [LiveExoPlayer] la reusa tal cual para el mismo letterbox del vivo.
  */
-private fun TextureView.ajustarAlAspecto(aspectoDelVideo: Float, zoom: Float) {
+internal fun TextureView.ajustarAlAspecto(aspectoDelVideo: Float, zoom: Float) {
     val w = width.toFloat()
     val h = height.toFloat()
     if (aspectoDelVideo <= 0f || w <= 0f || h <= 0f) return
