@@ -111,16 +111,6 @@ class CuentaApiTest {
     }
 
     @Test
-    fun `adoptarAparato manda el token de la PERSONA en Authorization, no el del aparato`() = runBlocking {
-        deviceStore.savePersonToken("person-tok")
-        server.enqueue(MockResponse().setBody("""{"kind":"phone","usados":1,"tope":2,"yaEra":false}"""))
-
-        cuentaApi(deviceTok = "device-tok-que-no-deberia-viajar").adoptarAparato("otro-device-tok")
-
-        assertEquals("person-tok", server.takeRequest().getHeader("Authorization"))
-    }
-
-    @Test
     fun `listarAparatos manda el token de la persona`() = runBlocking {
         deviceStore.savePersonToken("person-tok")
         server.enqueue(MockResponse().setBody("""{"aparatos":[]}"""))
@@ -155,16 +145,6 @@ class CuentaApiTest {
 
     // --- Task 5b: el aparato que llama viaja en X-Arkiv-Device, para que el gateway pueda -----
     // --- desconectarlo de verdad cuando se lo saca de la cuenta (spec de "Mis aparatos") ------
-
-    @Test
-    fun `adoptarAparato manda el token del aparato que llama en X-Arkiv-Device`() = runBlocking {
-        deviceStore.savePersonToken("person-tok")
-        server.enqueue(MockResponse().setBody("""{"kind":"phone","usados":1,"tope":2,"yaEra":false}"""))
-
-        cuentaApi(deviceTok = "device-que-llama").adoptarAparato("otro-device-tok")
-
-        assertEquals("device-que-llama", server.takeRequest().getHeader("X-Arkiv-Device"))
-    }
 
     @Test
     fun `listarAparatos manda el token del aparato que llama en X-Arkiv-Device`() = runBlocking {
@@ -212,20 +192,6 @@ class CuentaApiTest {
         assertEquals("a@b.co", body.getString("email"))
         assertEquals("secret12", body.getString("password"))
         assertEquals("LIC-1", body.getString("licencia"))
-    }
-
-    @Test
-    fun `adoptarAparato parsea kind usados tope y yaEra, y manda deviceToken en el body`() = runBlocking {
-        server.enqueue(MockResponse().setBody("""{"kind":"phone","usados":1,"tope":2,"yaEra":true}"""))
-
-        val a = cuentaApi().adoptarAparato("dev-1")
-
-        assertEquals("phone", a.kind)
-        assertEquals(1, a.usados)
-        assertEquals(2, a.tope)
-        assertEquals(true, a.yaEra)
-        val body = JSONObject(server.takeRequest().body.readUtf8())
-        assertEquals("dev-1", body.getString("deviceToken"))
     }
 
     @Test

@@ -84,8 +84,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         val isTv = isTelevision() || intent.getBooleanExtra("force_tv", false)
-        if (isTv) com.arkiv.player.tvservice.TvConnectionService.start(this)
-        if (isTv) com.arkiv.player.tvservice.TvKeepAliveWorker.schedule(this)
         setContent {
             ArkivTheme {
                 val graph = (application as ArkivApp).graph
@@ -136,13 +134,12 @@ class MainActivity : AppCompatActivity() {
                                 }
                             }
                             is EstadoDeEntrada.Entrada -> {
-                                // En la TV la puerta principal sigue siendo parear con el celular
-                                // (QR, Task 5) -más rápido y no expone la contraseña en el living-,
-                                // pero desde la Task 9 hay una tercera pestaña para entrar/registrarse
-                                // con el teclado en pantalla, para quien no tiene un Android a mano.
-                                // El celular sigue usando el formulario de siempre.
+                                // En la TV se entra con el teclado en pantalla (Task 9) o bajando la
+                                // app al teléfono para instalar Kino ahí -sin cloud sync (poda "Arkiv
+                                // Light") ya no hay pareo QR entre los dos-. El celular sigue usando
+                                // el formulario de siempre.
                                 if (isTv) {
-                                    com.arkiv.player.ui.tv.TvPantallaDeEntrada(graph.pairing, entradaVm.account)
+                                    com.arkiv.player.ui.tv.TvPantallaDeEntrada(entradaVm.account)
                                 } else {
                                     PantallaDeEntrada(entradaVm)
                                 }

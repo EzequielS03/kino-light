@@ -25,16 +25,6 @@ class ArkivApp : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         graph = AppGraph.from(this)
-        // Servidor de sincronización LAN (expone/recibe la DB entre dispositivos).
-        //
-        // En background y NO acá derecho: medido en emulador (2026-08-13) costaba ~100 ms de hilo
-        // principal —abrir el ServerSocket y tomar el multicast lock—, y eso son 100 ms en los que
-        // la pantalla todavía muestra el ícono congelado del splash del sistema. Nadie lo necesita
-        // para dibujar: solo tiene que estar arriba antes de que otro aparato quiera sincronizar.
-        graph.applicationScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            runCatching { graph.syncManager.start() }
-                .onFailure { reportar(it, "arranque: syncManager.start") }
-        }
 
         // ADOPCION DE LA BASE LOCAL. Quien ya venia usando la app tiene datos que SI son suyos y
         // todavia no hay dueño anotado; sin esto, el primer login despues de actualizar los tomaria

@@ -52,7 +52,7 @@ private enum class TabDeAjustesTv(val etiqueta: String) {
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun TvSettingsScreen(onConnectPhone: () -> Unit = {}) {
+fun TvSettingsScreen() {
     val graph = rememberGraph()
     val account = graph.accountManager
 
@@ -136,7 +136,7 @@ fun TvSettingsScreen(onConnectPhone: () -> Unit = {}) {
                 TabDeAjustesTv.REPRODUCCION -> TvSettingsReproduccion()
                 TabDeAjustesTv.SUBTITULOS -> TvSettingsSubtitulos()
                 TabDeAjustesTv.CUENTA -> TvSettingsCuenta(account, onVincularMagis = { vinculandoMagis = true })
-                TabDeAjustesTv.APARATOS -> TvSettingsAparatos(onConnectPhone)
+                TabDeAjustesTv.APARATOS -> TvSettingsAparatos()
                 TabDeAjustesTv.APP -> TvSettingsApp()
             }
         }

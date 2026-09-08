@@ -1,5 +1,7 @@
 package com.arkiv.player.ui.tv
 
+import android.graphics.Bitmap
+import android.graphics.Color as AndroidColor
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -28,6 +30,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Border
@@ -36,55 +40,45 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
-import com.arkiv.player.pairing.PairingManager
-import com.arkiv.player.pairing.qrImageBitmap
 import com.arkiv.player.pocketbase.AccountException
 import com.arkiv.player.pocketbase.AccountManager
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.qrcode.QRCodeWriter
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** Las tres puertas de entrada del TV (Task 9 agrega la tercera). */
-private enum class TabDeEntrada { DESCARGA, PAREO, LOGIN }
+/** Las dos puertas de entrada del TV. Hasta Task 5 había una tercera (parear con el teléfono por
+ *  QR); se borró junto con el resto del pareo/control remoto en la poda de "Arkiv Light" -- sin
+ *  servidor propio no hay con qué parear. */
+private enum class TabDeEntrada { DESCARGA, LOGIN }
 
 /**
  * Se compone en vez de `ArkivTvRoot` cuando `EntradaViewModel` (Task 4) dice que no hay sesión de
  * persona.
  *
- * ### Por qué tres pestañas y no un solo QR
+ * ### Por qué dos pestañas y no un solo formulario
  *
- * El pareo (pestaña 2) asume un teléfono que ya tiene Arkiv instalado. Quien estrena el TV sin eso
- * quedaba en un callejón: la única pantalla que ve le pide escanear con una app que no tiene, y
- * desde el TV no hay salida. La pestaña "Descargar" resuelve el caso de "tengo un Android pero
- * todavía no instalé nada". La pestaña "Entrar en esta TV" (Task 9) resuelve el otro caso, el que
- * quedaba sin salida: quien tiene un iPhone -o ningún otro Android a mano- y jamás va a poder parear
- * porque nunca va a tener la app en un celular. El pareo sigue siendo el camino recomendado cuando
- * hay un Android a mano -es más rápido y no expone la contraseña en la pantalla del living-; esta
- * pestaña es la salida para cuando no lo hay.
+ * La pestaña "Descargar" resuelve el caso de "tengo un Android pero todavía no instalé nada": deja
+ * un QR para bajar el APK sin tener que tipear una URL con el control remoto. "Entrar en esta TV"
+ * es el camino para cualquier otro caso -con o sin Android a mano-: login/registro con el teclado
+ * en pantalla.
  *
- * Son **pestañas y no pasos** para que se pueda ir y volver: con un asistente de pasos, quien pasa
- * al pareo y después se da cuenta de que el teléfono no tenía la app queda otra vez sin camino de
- * vuelta. Las tres están siempre a la vista y a un movimiento del control remoto.
+ * Son **pestañas y no pasos** para que se pueda ir y volver sin perder el lugar.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun TvPantallaDeEntrada(pairing: PairingManager, account: AccountManager) {
+fun TvPantallaDeEntrada(account: AccountManager) {
     var tab by remember { mutableStateOf(TabDeEntrada.DESCARGA) }
     var enLogin by remember { mutableStateOf(false) }
 
-    // El login de la TV es una PANTALLA APARTE, no una pestaña mas.
-    //
-    // Numerar las tres como "1 2 3" se leia como un asistente de tres pasos, y no lo es: bajar la
-    // app y parear SI son dos pasos en orden (por eso conservan su numero), pero entrar aca es la
-    // alternativa a todo eso -de ahi el "o" adelante, que es lo que separa las dos rutas de un
-    // vistazo desde el sofa-.
-    //
-    // Y aparte: el teclado en pantalla no entra a lo alto si ademas hay que dejarle lugar a la fila
-    // de opciones. Sus teclas de modo quedaban cortadas contra el borde inferior, que en un
-    // televisor cae justo en la zona de overscan.
+    // El login de la TV es una PANTALLA APARTE, no una pestaña mas: el teclado en pantalla no
+    // entra a lo alto si ademas hay que dejarle lugar a la fila de opciones. Sus teclas de modo
+    // quedaban cortadas contra el borde inferior, que en un televisor cae justo en la zona de
+    // overscan.
     if (enLogin) {
         PanelDeLogin(account, onVolver = { enLogin = false })
         return
@@ -115,22 +109,17 @@ fun TvPantallaDeEntrada(pairing: PairingManager, account: AccountManager) {
                 fontWeight = FontWeight.Black,
             )
             Text(
-                "Este TV todavía no está emparejado. Podés entrar desde el teléfono, o acá mismo.",
+                "Todavía no iniciaste sesión en este TV. Bajá la app en tu teléfono, o entrá acá mismo.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = ArkivTextSecondary,
             )
             Spacer(Modifier.height(16.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 PestanaDeEntrada(
-                    texto = "1 · Descargar la app",
+                    texto = "Descargar la app",
                     seleccionada = tab == TabDeEntrada.DESCARGA,
                     onSelect = { tab = TabDeEntrada.DESCARGA },
                     modifier = Modifier.focusRequester(focoDescarga),
-                )
-                PestanaDeEntrada(
-                    texto = "2 · Parear con el teléfono",
-                    seleccionada = tab == TabDeEntrada.PAREO,
-                    onSelect = { tab = TabDeEntrada.PAREO },
                 )
                 // No es una pestaña mas: abre su propia pantalla. Queda en la misma fila porque es
                 // donde la persona esta mirando, pero se comporta como un boton.
@@ -144,11 +133,6 @@ fun TvPantallaDeEntrada(pairing: PairingManager, account: AccountManager) {
         Box(Modifier.fillMaxWidth().weight(1f)) {
             when (tab) {
                 TabDeEntrada.DESCARGA -> PanelDeDescarga()
-                TabDeEntrada.PAREO ->
-                    // Column y no Box superpuesto: `TvPairingScreen` es un `fillMaxSize()` centrado
-                    // que dibuja su propio título, y encimarlo al encabezado los hacía caer en la
-                    // misma línea, ilegibles uno sobre el otro.
-                    TvPairingScreen(pairing = pairing, deviceName = android.os.Build.MODEL, onDone = {})
                 TabDeEntrada.LOGIN -> PanelDeLogin(account, onVolver = { enLogin = false })
             }
         }
@@ -222,16 +206,29 @@ private fun PanelDeDescarga() {
                     Image(bitmap = it, contentDescription = "QR de descarga", modifier = Modifier.size(280.dp))
                 }
             }
-            // Sin red no se puede armar el QR, pero el pareo sí funciona en la LAN: no hay que
-            // dejar trabado acá a quien ya tiene la app.
+            // Sin red no se puede armar el QR (necesita `latest.json`); si ya tenés la app
+            // instalada, no hace falta este paso -- pasá a "entrar en esta TV".
             fallo -> Text(
-                "No se pudo obtener el enlace de descarga. Si ya tenés la app, pasá a \"Parear este TV\".",
+                "No se pudo obtener el enlace de descarga. Si ya tenés la app, pasá a \"entrar en esta TV\".",
                 style = MaterialTheme.typography.bodyMedium,
                 color = ArkivTextSecondary,
             )
             else -> Text("Generando código…", style = MaterialTheme.typography.bodyMedium, color = Color.White)
         }
     }
+}
+
+/** Renderiza un QR con el contenido dado a un ImageBitmap para Compose. Único consumidor: el QR
+ *  de descarga del APK de arriba (el de pareo, que también usaba esto, se borró en Task 5). */
+private fun qrImageBitmap(content: String, sizePx: Int = 512): ImageBitmap {
+    val matrix = QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, sizePx, sizePx)
+    val bmp = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+    for (x in 0 until sizePx) {
+        for (y in 0 until sizePx) {
+            bmp.setPixel(x, y, if (matrix[x, y]) AndroidColor.BLACK else AndroidColor.WHITE)
+        }
+    }
+    return bmp.asImageBitmap()
 }
 
 /**
@@ -274,10 +271,10 @@ suspend fun entrarDesdeTv(
 private enum class CampoTv { EMAIL, PASSWORD, LICENCIA }
 
 /**
- * Pestaña "3 · Entrar en esta TV" (Task 9): login/registro con el teclado en pantalla, para quien no
- * tiene un Android a mano para parear (celular con iOS, o directamente sin otro celu). Reusa
- * [AccountManager.login]/[AccountManager.registrar] a través de [entrarDesdeTv] -no reimplementa el
- * manejo de errores de licencia/cupo/backend caído que esos métodos ya resuelven-.
+ * "Entrar en esta TV" (Task 9): login/registro con el teclado en pantalla, sin depender de ningún
+ * otro aparato. Reusa [AccountManager.login]/[AccountManager.registrar] a través de
+ * [entrarDesdeTv] -no reimplementa el manejo de errores de licencia/cupo/backend caído que esos
+ * métodos ya resuelven-.
  *
  * El layout (teclado a la izquierda, campos a la derecha, foco inicial reintentado) sale de
  * [TvTecladoYCampos] -Task 10 lo extrajo de acá para compartirlo con [TvOfertaVincularMagis]-.
@@ -285,7 +282,7 @@ private enum class CampoTv { EMAIL, PASSWORD, LICENCIA }
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun PanelDeLogin(account: AccountManager, onVolver: () -> Unit) {
-    // El Atrás vuelve a los pasos de entrada (QR / parear / entrar acá), NO cierra la app.
+    // El Atrás vuelve a la pantalla de entrada (descargar / entrar acá), NO cierra la app.
     //
     // `onVolver` llegaba como parámetro y no lo usaba nadie: sin BackHandler, el Atrás se escapaba
     // a la Activity y se salía de Kino de una. Y encima el subtítulo de esta misma pantalla dice

@@ -1,6 +1,5 @@
 package com.arkiv.player.ui.live
 
-import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -37,15 +36,12 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -55,13 +51,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import com.arkiv.player.ui.columnasDeGrilla
 import com.arkiv.player.ui.esTabletHorizontal
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -69,14 +63,9 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import coil.compose.AsyncImage
 import com.arkiv.player.data.gateway.LiveChannel
 import com.arkiv.player.data.gateway.LiveProgram
-import com.arkiv.player.playback.PlayerSource
-import com.arkiv.player.remote.PlayKind
-import com.arkiv.player.remote.PlayPayload
-import com.arkiv.player.remote.tvTargetAvailable
 import com.arkiv.player.ui.components.EmptyState
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivRed
-import com.arkiv.player.ui.theme.ArkivSurface
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 import kotlinx.coroutines.launch
@@ -102,13 +91,9 @@ private enum class VistaLocal { NINGUNA, RECIENTES }
  * fija en [LiveZappingSource] la lista con la que se entró (para que el zapping del reproductor la
  * recorra), así que esta pantalla no necesita saber nada del reproductor.
  *
- * Tarea 15: si hay un TV pareado, tocar un canal abre el diálogo de destino (mismo patrón que
- * `playEpisode`/`playChoice` de VOD en `ArkivRoot`) en vez de reproducir directo -- "Este teléfono"
- * sigue llamando a [onAbrirCanal] igual que siempre. "En la TV" manda el comando remoto
- * `live:<code>`: el TV lo recibe y **resuelve el canal por su cuenta** contra su propio
- * [LiveController] (ver `ArkivTvRoot.incomingPlay`), así que nunca se le manda la URL del proxy
- * de este teléfono -- esa URL apunta a `127.0.0.1` DE ESTE aparato y no significa nada en el TV.
- * Sin TV pareada, tocar sigue abriendo directo (mismo camino rápido de siempre).
+ * Hasta Task 5 tocar un canal con un TV pareado abría un diálogo de destino ("Este teléfono" / "En
+ * la TV", mismo patrón que `playChoice` de VOD en `ArkivRoot`) -- se borró junto con el resto del
+ * pareo/control remoto en la poda de "Arkiv Light". Tocar abre siempre acá.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -117,8 +102,6 @@ fun LiveScreen(
     contentPadding: PaddingValues,
 ) {
     val graph = rememberGraph()
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val vm: LiveViewModel = viewModel(
         factory = viewModelFactory {
             initializer {
@@ -137,16 +120,6 @@ fun LiveScreen(
     // rememberSaveable: el brief pide que el modo sobreviva a la rotación (cambio de configuración
     // recompone toda la pantalla desde cero, y con `remember` volvería siempre a la grilla).
     var modoGuia by rememberSaveable { mutableStateOf(false) }
-
-    // Mismo cálculo que ArkivRoot.tvAvailable (ver su comentario): solo tiene sentido el diálogo de
-    // destino si ESTE teléfono pareó una TV -- sin pareo no hay a quién mandarle el comando remoto.
-    val tvLinked by graph.settings.tvLinked.collectAsStateWithLifecycle()
-    val lanTvAvailable by graph.syncManager.tvAvailable.collectAsStateWithLifecycle()
-    val pairedTvAvailable by graph.remoteController.tvPaired.collectAsStateWithLifecycle()
-    val tvAvailable = tvTargetAvailable(tvLinked, lanTvAvailable, pairedTvAvailable)
-
-    // Canal en espera de que el usuario elija destino -- null = sin diálogo abierto.
-    var destino by remember { mutableStateOf<LiveChannel?>(null) }
 
     // Recientes: no pasa por LiveViewModel.elegirCategoria (no es una categoría del portal), se lee
     // directo de Room. Sin numero/logo propios (Tarea 10 no los guarda para "recientes"), así que se
@@ -175,28 +148,11 @@ fun LiveScreen(
     // de abrir: una lista de LiveChannel no cruza bien la ruta de navegación (un String), ver el
     // KDoc de LiveZappingSource (LiveZapping.kt).
     val listaActiva = if (vista == VistaLocal.RECIENTES) filtrar(recientes, estado.busqueda) else estado.visibles
-    fun abrirAca(canal: LiveChannel) {
+    fun abrir(canal: LiveChannel) {
         LiveZappingSource.lista = listaActiva
         onAbrirCanal(canal.code)
     }
-    fun abrir(canal: LiveChannel) {
-        if (tvAvailable) destino = canal else abrirAca(canal)
-    }
     fun favorito(canal: LiveChannel) = vm.alternarFavorito(canal)
-
-    /** "En la TV": manda `live:<code>` por el control remoto -- el TV resuelve por su cuenta. */
-    fun enviarATv(canal: LiveChannel) {
-        scope.launch {
-            val id = "${PlayerSource.LIVE_PREFIX}${canal.code}"
-            val ok = graph.remoteController.sendPlay(PlayPayload(PlayKind.LIVE, id, id))
-            if (ok) {
-                Toast.makeText(context, "Enviado a la TV", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(context, "No se pudo conectar con la TV, lo abro acá", Toast.LENGTH_LONG).show()
-                onAbrirCanal(canal.code)
-            }
-        }
-    }
 
     Column(modifier = Modifier.fillMaxSize().padding(top = contentPadding.calculateTopPadding())) {
         Row(
@@ -300,63 +256,6 @@ fun LiveScreen(
             }
             modoGuia -> LiveGuideList(estado.visibles, estado.programacion, ::abrir, vm::pedirEpgDe, gridPadding)
             else -> ChannelGrid(estado.visibles, estado.ahora, estado.favoritos, gridPadding, ::abrir, ::favorito)
-        }
-    }
-
-    destino?.let { canal ->
-        DestinoDialog(
-            canal = canal,
-            onEsteTelefono = { destino = null; abrirAca(canal) },
-            onEnLaTv = { destino = null; enviarATv(canal) },
-            onDismiss = { destino = null },
-        )
-    }
-}
-
-/**
- * "¿Dónde querés ver <canal>?" -- mismo patrón que el diálogo de destino de VOD (`playChoice` en
- * `ArkivRoot`), pero con una tercera opción propia del vivo.
- *
- * Este diálogo NO ofrece Chromecast (ni VOD lo ofrece en el suyo, por el mismo motivo -- ver el
- * comentario en `ArkivRoot`: "Chromecast/DLNA siguen disponibles dentro del player"): acá todavía
- * no hay reproductor local abierto -el usuario está eligiendo destino ANTES de reproducir nada-
- * así que no hay de dónde leer el códec del canal (`vlc.currentAudioFormat()`) para decidir si
- * hace falta transcodificar (ver `CastAudioSupport`/`CastTranscoder`, y el KDoc de
- * `castRequestFor` en `PlayerScreen`). El camino real es reproducir el canal ("Este teléfono") y
- * castear DESDE AHÍ con el botón de Chromecast del reproductor (Tarea 18), donde el canal ya está
- * sonando y esa lectura sí existe -- el reproductor ya trae Chromecast y DLNA una vez adentro, no
- * hace falta duplicarlos acá.
- */
-@Composable
-private fun DestinoDialog(
-    canal: LiveChannel,
-    onEsteTelefono: () -> Unit,
-    onEnLaTv: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(shape = RoundedCornerShape(20.dp), color = ArkivSurface) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text(
-                    "¿Dónde querés ver ${canal.nombre}?",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = Color.White,
-                )
-                Button(
-                    onClick = onEnLaTv,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = ArkivRed, contentColor = Color.White),
-                ) { Text("En la TV") }
-                Button(
-                    onClick = onEsteTelefono,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = ArkivRed, contentColor = Color.White),
-                ) { Text("Este teléfono") }
-                TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Cancelar") }
-            }
         }
     }
 }

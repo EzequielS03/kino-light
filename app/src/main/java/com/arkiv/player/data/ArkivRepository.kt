@@ -12,7 +12,6 @@ import com.arkiv.player.data.model.ArchiveItem
 import com.arkiv.player.data.model.Episode
 import com.arkiv.player.data.model.EpisodeNumbering
 import com.arkiv.player.miniaturas.AlmacenDeFrames
-import com.arkiv.player.miniaturas.BajadorDeFrames
 import com.arkiv.player.miniaturas.DestructorDeFrames
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -145,27 +144,18 @@ class ArkivRepository(
     private val destructorDeFrames: DestructorDeFrames =
         DestructorDeFrames(almacenDeFrames, db.episodeFrameDao()),
     /**
-     * Bajador best-effort del JPEG remoto (fase 2 de sync entre dispositivos): lo dispara
-     * [observeContinueWatching] y [observeEpisodeFrames], que son los dos lugares donde el
-     * repositorio ya sabe que un frame hace falta pintarlo (ver el doc de cada uno). Nullable con
-     * default null por el mismo motivo que [almacenDeFrames]: sin bajador, esos dos Flow siguen
-     * funcionando igual que hoy —simplemente no disparan ninguna bajada— para no romper los call
-     * sites que arman un repositorio suelto (pruebas, herramientas).
-     */
-    private val bajadorDeFrames: BajadorDeFrames? = null,
-    /**
      * Avisa al gateway cuando un capítulo pasa a visto, para que reconsidere la fila "Para ti"
      * (spec `2026-08-16-recomendaciones-por-historial`). Nullable con default null por el mismo
-     * motivo que [bajadorDeFrames]: sin avisador, los call sites de test/herramientas siguen
+     * motivo que [almacenDeFrames]: sin avisador, los call sites de test/herramientas siguen
      * guardando progreso igual, solo que sin avisarle a nadie.
      */
     private val avisadorDeRecomendaciones: com.arkiv.player.data.gateway.AvisadorDeRecomendaciones? = null,
     /**
-     * Dónde correr `bajadorDeFrames.bajarPendientes()` sin bloquear la emisión del Flow que la
-     * dispara. Un scope propio (no el de la UI) a propósito: la bajada tiene que sobrevivir a que
-     * la pantalla que la disparó se cierre a mitad de camino, igual que el push/pull de
-     * `CloudSyncManager`. El default es un scope nuevo por si algún call site no inyecta uno; en la
-     * app real `AppGraph` pasa el mismo `applicationScope` que usa para todo lo demás.
+     * Dónde correr trabajo en segundo plano sin bloquear la emisión del Flow que lo dispara (hoy,
+     * [dispararRefrescoDeRecomendaciones]). Un scope propio (no el de la UI) a propósito: tiene que
+     * sobrevivir a que la pantalla que lo disparó se cierre a mitad de camino. El default es un
+     * scope nuevo por si algún call site no inyecta uno; en la app real `AppGraph` pasa el mismo
+     * `applicationScope` que usa para todo lo demás.
      */
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) {
@@ -178,34 +168,6 @@ class ArkivRepository(
     private val episodeFrameDao = db.episodeFrameDao()
     private val liveFavoriteDao = db.liveFavoriteDao()
     private val liveRecentDao = db.liveRecentDao()
-
-    /**
-     * Lanza `bajadorDeFrames.bajarPendientes([episodeIds])` en [scope], sin esperar el resultado: a
-     * quien llama (una `map` de Flow) le urge devolver la fila YA, con lo que haya en disco en ESTE
-     * instante -el respaldo de TMDB si el archivo todavía no bajó.
-     *
-     * Se le pasan SOLO los capítulos que se están por pintar: la bajada es perezosa por diseño (los
-     * bytes se traen cuando hay que pintar esa tarjeta), no "vaciar la cola de la cuenta". Sin ese
-     * filtro, abrir el home en un aparato desincronizado disparaba ~97 descargas para pintar 6.
-     *
-     * CÓMO REAPARECE EL FRAME SOLO: `bajarPendientes` escribe el archivo y toca la fila en
-     * `episode_frame`; Room invalida esa TABLA y con eso reemite los Flow que la consultan. Eso
-     * incluye a los dos llamadores de acá, pero por caminos distintos: [observeEpisodeFrames]
-     * consulta `episode_frame` de por sí, y [observeContinueWatching] NO —su query toca `playback`,
-     * `episodes`, `items` y `episode_still`— así que se le combina a propósito
-     * `episodeFrameDao.observeTodos()`, que es lo que la vuelve sensible a la tabla del frame. Sin
-     * ese combine la tarjeta del home se quedaba con el still de TMDB aunque el JPEG ya estuviera
-     * en disco.
-     *
-     * Sin costo si no hay bajador (call sites de test/herramientas, ver el doc del constructor), si
-     * no hay nada que pintar, ni si ya hay una pasada en curso (`BajadorDeFrames` se protege solo,
-     * ver su doc).
-     */
-    private fun dispararBajadaDeFrames(episodeIds: Collection<String>) {
-        val bajador = bajadorDeFrames ?: return
-        if (episodeIds.isEmpty()) return
-        scope.launch { bajador.bajarPendientes(episodeIds) }
-    }
 
     /**
      * Lanza [AvisadorDeRecomendaciones.avisar] en [scope], sin esperar el resultado.
@@ -308,10 +270,8 @@ class ArkivRepository(
      *
      * El `combine` con `episodeFrameDao.observeTodos()` NO aporta datos —se descarta el segundo
      * valor— sino INVALIDACIÓN: la consulta de `playback` no toca `episode_frame`, así que sin esto
-     * Room no reemitía nada cuando el bajador publicaba un JPEG y la tarjeta se quedaba con el still
-     * de TMDB. También es lo que hace que la bajada se dispare cuando la fila del frame llega por
-     * sync DESPUÉS del progreso, que es el orden real del push (`progress` antes que
-     * `episode_frames`). Ver [dispararBajadaDeFrames].
+     * Room no reemitía nada cuando [com.arkiv.player.miniaturas.FrameCapturer] publicaba un JPEG y
+     * la tarjeta se quedaba con el still de TMDB.
      */
     fun observeContinueWatching(): Flow<List<ContinueRow>> =
         combine(
@@ -351,13 +311,6 @@ class ArkivRepository(
             // El framePath NO sale de la query (ver el doc del campo en ContinueRow): se resuelve
             // acá, del disco, después del dedup/take(20) de arriba para no gastar File.exists()
             // de más en filas que ni se van a mostrar. Son ~6 filas por emisión: despreciable.
-            //
-            // Justo acá es donde se sabe que a un capítulo le falta el frame en disco (framePath
-            // sale null): es el punto natural para disparar la bajada pendiente, y con la lista
-            // EXACTA de lo que se va a pintar. Ver el doc de dispararBajadaDeFrames() para el
-            // mecanismo completo (por qué no bloquea, y cómo la tarjeta termina pintando el frame
-            // real sin que nadie la recargue a mano).
-            dispararBajadaDeFrames(filas.map { it.episodeId })
             filas.map { it.copy(framePath = almacenDeFrames?.rutaSiExiste(it.episodeId)) }
         }
 
@@ -510,11 +463,6 @@ class ArkivRepository(
      */
     fun observeEpisodeFrames(itemId: String): Flow<Map<String, String>> =
         episodeFrameDao.observeForItem(itemId).map { rows ->
-            // Mismo punto de disparo que observeContinueWatching y mismo motivo: acá es donde se
-            // resuelve, fila por fila, si el frame de cada capítulo ya está en disco -así que acá
-            // es donde se nota cuál todavía no bajó. Se piden solo los capítulos de ESTA serie, que
-            // son los que la pantalla va a pintar.
-            dispararBajadaDeFrames(rows.map { it.episodeId })
             rows.mapNotNull { r -> almacenDeFrames?.rutaSiExiste(r.episodeId)?.let { r.episodeId to it } }.toMap()
         }
 
@@ -1210,101 +1158,6 @@ class ArkivRepository(
                 ),
             )
         }
-    }
-
-    // --- Sincronización LAN (last-write-wins) ---
-
-    suspend fun exportForSync() = com.arkiv.player.sync.SyncSnapshot(
-        items = itemDao.getAllItems(),
-        episodes = itemDao.getAllEpisodes(),
-        playback = playbackDao.getAllPlayback(),
-        markers = skipMarkerDao.getAll(),
-        liveFavorites = liveFavoriteDao.getAll(),
-        liveRecents = liveRecentDao.getAll(),
-    )
-
-    /**
-     * Mergea datos remotos en la DB local. Devuelve cuántas filas cambiaron.
-     *
-     * **Las dos puntas corren esto igual.** Antes la biblioteca era un espejo one-way: el TV
-     * adoptaba la del teléfono y borraba en duro todo ítem que el teléfono no tuviera, así que lo
-     * agregado EN EL TV desaparecía solo en el sync siguiente. Ahora es last-write-wins por
-     * `updatedAt` con tombstones, la misma regla del sync por nube: la ausencia de una fila en el
-     * snapshot del otro ya no significa "borrala", significa que todavía no se enteró. Ver
-     * [com.arkiv.player.sync.SyncMerge].
-     *
-     * Un episodio que la otra punta borró EN DURO (no con tombstone, como hace `replaceItem` al
-     * refrescar un ítem de archive.org) se queda acá: sin tombstone no hay nada que propagar. Es
-     * un capítulo de más colgando, y es a propósito preferible a la alternativa de antes —borrar
-     * por ausencia— que se llevaba puesta la biblioteca entera del otro lado.
-     */
-    suspend fun mergeFromSync(snapshot: com.arkiv.player.sync.SyncSnapshot): Int {
-        var changes = 0
-        val items = com.arkiv.player.sync.SyncMerge.aAplicar(
-            locales = itemDao.getAllItems(), remotas = snapshot.items,
-            llave = { it.identifier }, updatedAt = { it.updatedAt },
-        )
-        // upsert y no replaceItem: los episodios se mergean uno por uno abajo, así que borrar los
-        // de este ítem para reponer los del snapshot sería justamente perder los que el otro no
-        // tiene todavía.
-        items.forEach { itemDao.upsertItem(it) }
-        changes += items.size
-
-        val episodes = com.arkiv.player.sync.SyncMerge.aAplicar(
-            locales = itemDao.getAllEpisodes(), remotas = snapshot.episodes,
-            llave = { it.id }, updatedAt = { it.updatedAt },
-        )
-        if (episodes.isNotEmpty()) itemDao.upsertEpisodes(episodes)
-        changes += episodes.size
-
-        // Progreso: siempre bidireccional, last-write-wins por lastPlayedAt.
-        for (pb in snapshot.playback) {
-            val local = playbackDao.get(pb.episodeId)
-            if (local == null || pb.lastPlayedAt > local.lastPlayedAt) {
-                playbackDao.upsert(pb)
-                changes++
-                // El progreso sincroniza HOY (esto no es la fase 2 de frames, que sincroniza el
-                // JPEG en sí): si el remoto que gana el merge trae el capítulo visto —p. ej. se
-                // vio en el TV y llega acá por LAN—, el frame de ESTE dispositivo tiene que morir
-                // también. Si no, la tarjeta seguiría mostrando la escena de algo ya terminado en
-                // el aparato que nunca lo reprodujo hasta el final.
-                if (pb.watched) {
-                    borrarFrameDe(pb.episodeId)
-                    // El TV y el celular sincronizando por LAN avisando lo mismo no es un
-                    // problema: el gateway dedupea por cuenta con su ventana de 24 h (ver el
-                    // spec), así que dos avisos del mismo capítulo visto producen un solo cálculo.
-                    dispararRefrescoDeRecomendaciones()
-                }
-            }
-        }
-        // Por `it.id` (la PK derivada de itemId+episodeId) y no por itemId: desde que los
-        // marcadores pasan a ser por capítulo, un mismo itemId tiene una fila por episodio más la
-        // de la serie, así que comparar por itemId mezclaría el reloj de filas distintas. Mismo
-        // `aAplicar` que items/episodes/liveFavorites/liveRecents.
-        val markers = com.arkiv.player.sync.SyncMerge.aAplicar(
-            locales = skipMarkerDao.getAll(), remotas = snapshot.markers,
-            llave = { it.id }, updatedAt = { it.updatedAt },
-        )
-        markers.forEach { skipMarkerDao.upsert(it) }
-        changes += markers.size
-
-        // Favoritos y recientes de TV en vivo (Task 10): mismo `aAplicar` que items/episodes.
-        // `live_channels_cache` NO entra acá -- no viaja por el sync, ver [LiveChannelCacheEntity].
-        val liveFavorites = com.arkiv.player.sync.SyncMerge.aAplicar(
-            locales = liveFavoriteDao.getAll(), remotas = snapshot.liveFavorites,
-            llave = { it.code }, updatedAt = { it.updatedAt },
-        )
-        liveFavorites.forEach { liveFavoriteDao.guardar(it) }
-        changes += liveFavorites.size
-
-        val liveRecents = com.arkiv.player.sync.SyncMerge.aAplicar(
-            locales = liveRecentDao.getAll(), remotas = snapshot.liveRecents,
-            llave = { it.code }, updatedAt = { it.updatedAt },
-        )
-        liveRecents.forEach { liveRecentDao.anotar(it) }
-        changes += liveRecents.size
-
-        return changes
     }
 
     /**

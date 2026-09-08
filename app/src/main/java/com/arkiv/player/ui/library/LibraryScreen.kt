@@ -15,21 +15,16 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -68,7 +63,6 @@ private val TorrentBadgeColor = Color(0xE60288A7)
 fun LibraryScreen(
     onOpenItem: (String) -> Unit,
     onPlayEpisode: (String) -> Unit,
-    onOpenConnect: () -> Unit = {},
     contentPadding: PaddingValues,
 ) {
     val graph = rememberGraph()
@@ -104,9 +98,6 @@ fun LibraryScreen(
             onOpenItem(row.identifier)
         }
     }
-
-    // Sincronización LAN automática al abrir el inicio (además del botón manual).
-    LaunchedEffect(Unit) { runCatching { graph.syncManager.syncNow() } }
 
     if (library.isEmpty() && continueWatching.isEmpty()) {
         EmptyState(
@@ -167,12 +158,7 @@ fun LibraryScreen(
         }
 
         item(span = { GridItemSpan(maxLineSpan) }) {
-            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                SectionHeader("Mi biblioteca", modifier = Modifier.weight(1f))
-                IconButton(onClick = onOpenConnect) {
-                    Icon(Icons.Default.QrCodeScanner, contentDescription = "Conexión")
-                }
-            }
+            SectionHeader("Mi biblioteca")
         }
         // Chips de filtro (solo si hay de ambos tipos, para no estorbar).
         if (hasMovies && hasSeries) {

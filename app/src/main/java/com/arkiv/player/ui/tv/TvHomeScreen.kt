@@ -42,7 +42,6 @@ import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.SignalWifiOff
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.runtime.Composable
@@ -90,7 +89,6 @@ import com.arkiv.player.data.db.LiveChannelCacheEntity
 import com.arkiv.player.data.db.RecomendacionEntity
 import com.arkiv.player.data.gateway.LiveChannel
 import com.arkiv.player.miniaturas.EleccionDeMiniatura
-import com.arkiv.player.sync.SyncStatus
 import com.arkiv.player.ui.home.HomeViewModel
 import com.arkiv.player.ui.home.searchShortcutRoute
 import com.arkiv.player.ui.heroFallback
@@ -281,9 +279,10 @@ fun TvHomeScreen(
 
     // Recomendaciones del gateway ("Para ti"): se lee directo de Room, igual que los canales en
     // vivo recientes de acá abajo -- es una fila de solo lectura que no necesita su propio
-    // ViewModel. Llegan por el sync existente (ver CloudSyncManager), así que pueden aparecer
-    // TARDE, con el home ya dibujado; de ahí que la fila viva DESPUÉS del ancla del foco inicial
-    // ("Continuar viendo") y no antes -- ver el comentario de más abajo, junto al LazyColumn.
+    // ViewModel. Hasta Task 5 llegaban por cloud sync (CloudSyncManager, borrado en esa poda junto
+    // con el resto del pareo/sync); sin ese pull la tabla `recomendaciones` ya no se puebla, así
+    // que esta fila queda vacía en la práctica -- se deja la lectura intacta (no rompe nada, y no
+    // es alcance de esta tarea decidir el reemplazo) en vez de borrar la fila a mitad de poda.
     val recomendacionDao = remember { graph.database.recomendacionDao() }
     val agregador = remember { graph.agregadorDeRecomendaciones }
     val recomendaciones by recomendacionDao.observeVigentes().collectAsStateWithLifecycle(initialValue = emptyList())
@@ -395,10 +394,7 @@ fun TvHomeScreen(
         heroArt(row.identifier, row.thumbnailUrl),
     )
 
-    LaunchedEffect(Unit) { runCatching { graph.syncManager.syncNow() } }
-
     val scope = rememberCoroutineScope()
-    val syncStatus by graph.syncManager.status.collectAsStateWithLifecycle()
 
     val navSound = rememberNavSound()
     var featured by remember { mutableStateOf<Featured?>(null) }
@@ -596,19 +592,6 @@ fun TvHomeScreen(
                     // los torrents entran por el buscador. La ruta "torrent" sigue registrada en
                     // ArkivTvRoot y la pantalla funciona; solo perdió su entrada desde el home.
                     TvNavButton(icon = Icons.Default.Settings, label = "Ajustes", onClick = onOpenSettings)
-                    TvNavButton(
-                        icon = Icons.Default.Sync,
-                        label = if (syncStatus is SyncStatus.Syncing) "Sincronizando…" else "Sincronizar",
-                        onClick = {
-                            scope.launch {
-                                // LAN es best-effort y silencioso: en un setup por nube no hay TV en
-                                // la red WiFi, y eso no debe verse como un fallo.
-                                runCatching { graph.syncManager.syncNow() }
-                                graph.cloudSync.syncNow()
-                                android.widget.Toast.makeText(context, "Sincronizado", android.widget.Toast.LENGTH_LONG).show()
-                            }
-                        },
-                    )
                 }
 
                 Spacer(Modifier.weight(1f))

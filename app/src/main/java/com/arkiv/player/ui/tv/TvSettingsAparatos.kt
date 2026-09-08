@@ -37,14 +37,11 @@ import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurface
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 
-/** Los aparatos de la cuenta, y el emparejado con el celular. Ver [TvSettingsScreen]. */
+/** Los aparatos de la cuenta. Ver [TvSettingsScreen]. */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-internal fun TvSettingsAparatos(onConnectPhone: () -> Unit) {
+internal fun TvSettingsAparatos() {
     val graph = rememberGraph()
-
-    Text("Teléfono", style = MaterialTheme.typography.titleMedium, color = Color.White)
-    TvActionOption("Conectar teléfono", onConnectPhone)
 
     Text(
         "Mis aparatos",

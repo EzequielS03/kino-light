@@ -143,13 +143,9 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp-sse:4.12.0")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
-    // QR: generar (TV) y escanear (celu)
+    // QR: solo GENERAR (el de "Descargar la app" en la TV, `TvPantallaDeEntrada`). Escanear
+    // (camera-*/mlkit) se borró en Task 5 junto con el pareo QR, que era su único consumidor.
     implementation("com.google.zxing:core:3.5.3")
-    implementation("androidx.camera:camera-core:1.4.1")
-    implementation("androidx.camera:camera-camera2:1.4.1")
-    implementation("androidx.camera:camera-lifecycle:1.4.1")
-    implementation("androidx.camera:camera-view:1.4.1")
-    implementation("com.google.mlkit:barcode-scanning:17.3.0")
 
     // Reproductor VLC (libVLC): decodifica por software lo que ExoPlayer no maneja
     // (.avi/XviD, Dolby Vision P7, TrueHD/DTS-HD). Trae libs nativas arm64 + armeabi-v7a.

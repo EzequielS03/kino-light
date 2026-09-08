@@ -359,9 +359,6 @@ internal class EstadoDePistas(
         ) ?: return
         val actualizado = if (esAudio) prefs.copy(audioLangs = nuevo) else prefs.copy(subtitleLangs = nuevo)
         graph.subtitlePrefs.update(actualizado)
-        graph.applicationScope.launch {
-            runCatching { graph.remoteController.sendSubtitlePrefs(actualizado.toJson()) }
-        }
     }
 
     /** Aplica (o quita) un subtítulo de OpenSubtitles: baja el .srt y lo carga como pista externa. */

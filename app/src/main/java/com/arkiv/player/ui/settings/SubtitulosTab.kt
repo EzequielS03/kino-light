@@ -21,7 +21,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.coroutines.launch
 import com.arkiv.player.data.subtitles.PlaybackPrefs
 import com.arkiv.player.data.subtitles.SubtitleMode
 import com.arkiv.player.ui.rememberGraph
@@ -37,18 +36,10 @@ internal fun SubtitulosTab() {
     val graph = rememberGraph()
     val style by graph.subtitlePrefs.prefs.collectAsStateWithLifecycle()
 
-    // Cambiar estilo: persiste local + sincroniza a los otros dispositivos (TV).
+    // Cambiar estilo: persiste local.
     fun onChange(s: PlaybackPrefs) {
         graph.subtitlePrefs.update(s)
-        graph.applicationScope.launch { runCatching { graph.remoteController.sendSubtitlePrefs(s.toJson()) } }
     }
-
-    Text(
-        "Se sincroniza con la TV.",
-        style = MaterialTheme.typography.bodySmall,
-        color = ArkivTextSecondary,
-        modifier = Modifier.padding(top = 16.dp, bottom = 8.dp),
-    )
 
     // Vista previa.
     Box(

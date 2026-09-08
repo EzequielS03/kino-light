@@ -17,7 +17,6 @@ import com.arkiv.player.dlna.DlnaController
 import com.arkiv.player.pocketbase.DeviceAuthManager
 import com.arkiv.player.pocketbase.PocketBaseClient
 import com.arkiv.player.pocketbase.SecureDeviceStore
-import com.arkiv.player.sync.SyncManager
 import com.google.android.gms.cast.framework.CastContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -242,29 +241,11 @@ class AppGraph(context: Context) {
     /**
      * Único punto que sabe borrar un frame (archivo + fila), y una sola instancia para todos: se la
      * pasa por constructor a [repository] (toggle manual, progreso al 60%, y sacar un ítem de la
-     * biblioteca), a [cloudSync] (progreso que llega ya visto desde otro dispositivo) y a
-     * [libraryWiper] (logout) — mismo [almacenDeFrames], mismo `episodeFrameDao` que
-     * [frameCapturer].
+     * biblioteca) y a [libraryWiper] (logout) — mismo [almacenDeFrames], mismo `episodeFrameDao`
+     * que [frameCapturer].
      */
     val destructorDeFrames: com.arkiv.player.miniaturas.DestructorDeFrames by lazy {
         com.arkiv.player.miniaturas.DestructorDeFrames(almacenDeFrames, database.episodeFrameDao())
-    }
-
-    /**
-     * Baja best-effort el JPEG de los frames que llegaron por sync desde otro dispositivo, gemelo
-     * de lectura de [frameCapturer] (mismo [almacenDeFrames], mismo `episodeFrameDao`). Necesita
-     * [pbClient] y [deviceAuth] -declarados más abajo en este archivo- para el file-token de dos
-     * pasos que exige el campo `img` protegido; referenciarlos acá arriba funciona igual que en
-     * `arkivApiClient`/`cloudSync`: son `by lazy`, así que se resuelven recién cuando alguien pide
-     * `.value`, sin importar el orden textual de las declaraciones.
-     */
-    val bajadorDeFrames: com.arkiv.player.miniaturas.BajadorDeFrames by lazy {
-        com.arkiv.player.miniaturas.BajadorDeFrames(
-            almacen = almacenDeFrames,
-            dao = database.episodeFrameDao(),
-            client = pbClient,
-            deviceAuth = deviceAuth,
-        )
     }
 
     /** Sirve el archivo local por HTTP para poder castearlo (un file:// no le llega al Chromecast). */
@@ -315,14 +296,12 @@ class AppGraph(context: Context) {
             database, tmdbApi,
             almacenDeFrames = almacenDeFrames,
             destructorDeFrames = destructorDeFrames,
-            bajadorDeFrames = bajadorDeFrames,
             avisadorDeRecomendaciones = avisadorDeRecomendaciones,
-            // El mismo scope de vida-de-app que usa todo lo demás (cloudSync, presence, ...): la
-            // bajada no puede depender de que la pantalla que la disparó siga viva.
+            // El mismo scope de vida-de-app que usa todo lo demás: el aviso de recomendaciones no
+            // puede depender de que la pantalla que lo disparó siga viva.
             scope = applicationScope,
         )
     }
-    val syncManager: SyncManager by lazy { SyncManager(appContext, repository) }
     val aniListApi: AniListApi by lazy { AniListApi() }
     val simklApi: SimklApi by lazy {
         SimklApi(
@@ -486,7 +465,7 @@ class AppGraph(context: Context) {
     val deviceStore: SecureDeviceStore by lazy { SecureDeviceStore(appContext) }
     // `cuentaApi` referencia a `deviceAuth` solo dentro de una lambda (`deviceToken`, más abajo),
     // así que forzar `cuentaApi` acá (Task 7: el alta anónima pasa por `CuentaApi.altaAparato`)
-    // no dispara una inicialización recursiva -- mismo patrón que ya usan `pbRealtime`/`pairing`
+    // no dispara una inicialización recursiva -- mismo patrón que ya usa `pbRealtime`
     // para resolver esta dependencia circular con `by lazy`.
     val deviceAuth: DeviceAuthManager by lazy {
         // `esTv` es una lambda y no un booleano fijo: `AppGraph` se arma temprano y
@@ -496,45 +475,9 @@ class AppGraph(context: Context) {
     val pbRealtime: com.arkiv.player.pocketbase.PocketBaseRealtime by lazy {
         com.arkiv.player.pocketbase.PocketBaseRealtime(token = { deviceAuth.session.value?.token })
     }
-    val pairing: com.arkiv.player.pairing.PairingManager by lazy {
-        com.arkiv.player.pairing.PairingManager(
-            client = pbClient,
-            realtime = pbRealtime,
-            deviceAuth = deviceAuth,
-            cuentaApi = cuentaApi,
-            sesion = sesionDePersona,
-            gatewayUrl = { settings.gatewayUrl.value },
-            applySyncedGatewayConfig = { url -> settings.applySyncedGatewayConfig(url) },
-            setTvLinked = { settings.setTvLinked(it) },
-            scope = applicationScope,
-        )
-    }
-    val remoteController: com.arkiv.player.remote.RemoteController by lazy {
-        com.arkiv.player.remote.RemoteController(syncManager, pbClient, pbRealtime, deviceAuth, settings, applicationScope)
-    }
-    val syncCursors: com.arkiv.player.cloudsync.SyncCursors by lazy {
-        com.arkiv.player.cloudsync.SyncCursors(appContext)
-    }
-    val pbSyncClient: com.arkiv.player.cloudsync.PbSyncClient by lazy {
-        com.arkiv.player.cloudsync.PbSyncClient(pbClient, deviceAuth)
-    }
-    val cloudSync: com.arkiv.player.cloudsync.CloudSyncManager by lazy {
-        com.arkiv.player.cloudsync.CloudSyncManager(
-            database.itemDao(), database.playbackDao(), database.skipMarkerDao(),
-            // Recomendaciones del gateway (fila "Para ti"): solo lectura, ver RecomendacionEntity.
-            database.recomendacionDao(),
-            // Favoritos y recientes de TV en vivo viajaban solo por el sync LAN; ahora también
-            // por PocketBase, igual que el resto de la biblioteca (ver CloudSyncManager).
-            database.liveFavoriteDao(), database.liveRecentDao(),
-            database.episodeFrameDao(), almacenDeFrames,
-            pbSyncClient, pbRealtime, deviceAuth, syncCursors, applicationScope,
-            com.arkiv.player.cloudsync.SyncQuarantine(context),
-            destructorDeFrames,
-        )
-    }
     val libraryWiper: com.arkiv.player.data.LibraryWiper by lazy {
         com.arkiv.player.data.LibraryWiper(
-            database.itemDao(), database.playbackDao(), database.skipMarkerDao(), syncCursors,
+            database.itemDao(), database.playbackDao(), database.skipMarkerDao(),
             destructorDeFrames,
         )
     }
@@ -552,7 +495,7 @@ class AppGraph(context: Context) {
      * Cliente de `/v1/cuenta` (Task 2): alta con licencia + ciclo de vida de los aparatos de la
      * cuenta. [registrar] identifica al APARATO (todavía sin cuenta de persona) con el mismo token
      * que ya usa [deviceAuth]/[deviceStore] — de ahí `deviceToken` leyendo la sesión viva del
-     * device en vez de `deviceStore.token()` directo, igual que [pbRealtime]/[pairing]. Task 7:
+     * device en vez de `deviceStore.token()` directo, igual que [pbRealtime]. Task 7:
      * también lo usa [deviceAuth] mismo (`altaAparato`, alta anónima del aparato) — se referencian
      * mutuamente pero sin ciclo real: acá `deviceAuth` solo aparece dentro de la lambda
      * `deviceToken`, nunca evaluado en la construcción de este objeto.
@@ -579,7 +522,11 @@ class AppGraph(context: Context) {
             magisLink = magisLinkClient,
             cuentaApi = cuentaApi,
             sesion = sesionDePersona,
-            onAccountSwitched = { cloudSync.syncNow() },
+            // Sin cloud sync (Task 5 de esta poda) la biblioteca es 100% local: no hay ningún
+            // historial anónimo remoto que fusionar al loguearse, así que este callback queda en
+            // no-op. Se mantiene el parámetro (en vez de sacarlo de `AccountManager`) porque el
+            // login todavía depende del ORDEN en que se llama -- ver el KDoc de `login()`.
+            onAccountSwitched = {},
             // Task 10: junto con vaciar la biblioteca local, se olvida el "Ahora no" a la oferta de
             // vincular Magis -ver el KDoc de SettingsStore.magisOfertaDescartada sobre por qué acá y
             // no en LibraryWiper (ese vive en la capa de datos y no conoce SettingsStore, que es UI).
@@ -612,50 +559,15 @@ class AppGraph(context: Context) {
         )
     }
 
-    val presence: com.arkiv.player.presence.PresenceManager by lazy {
-        com.arkiv.player.presence.PresenceManager(pbClient, deviceAuth, applicationScope)
-    }
-
-    /** Solo tiene sentido en el TV: es quien reproduce y publica su estado. */
-    val nowPlayingPublisher: com.arkiv.player.remote.NowPlayingPublisher by lazy {
-        com.arkiv.player.remote.NowPlayingPublisher(pbClient, deviceAuth, repository, applicationScope)
-    }
-
-    /** Solo tiene sentido en el celu: es quien mira lo que reproduce el TV. */
-    val tvNowPlaying: com.arkiv.player.remote.TvNowPlayingRepository by lazy {
-        com.arkiv.player.remote.TvNowPlayingRepository(
-            pbClient, deviceAuth, { remoteController.tvPaired.value }, applicationScope, appContext,
-        )
-    }
-
-    /** Única fuente de verdad de la barra del miniplayer (TV o Chromecast). */
-    val nowPlayingCoordinator: com.arkiv.player.remote.NowPlayingCoordinator by lazy {
-        com.arkiv.player.remote.NowPlayingCoordinator(tvNowPlaying, castSession, repository, applicationScope)
-    }
-
     init {
         applicationScope.launch {
             deviceAuth.ensureBootstrapped()
-            // Arrancar el sync de biblioteca + presencia tras el bootstrap (reintentan si no hay sesión aún).
-            cloudSync.start()
-            presence.start()
-            if (com.arkiv.player.DeviceType.isTelevision(appContext)) {
-                nowPlayingPublisher.start()
-            } else {
-                tvNowPlaying.start()
-            }
         }
         // CastPlayer/CastContext exigen el hilo principal. Forzamos su construcción ahí para que el
         // manager exista desde el arranque (y adopte una sesión ya viva) sin depender de quién lo
         // toque primero.
         android.os.Handler(android.os.Looper.getMainLooper()).post {
             castSession
-            // El coordinador de la barra toca castSession, así que se arranca ACÁ y no en el launch
-            // de arriba: ése corre en IO y construir el CastSessionManager fuera del hilo principal
-            // revienta el check explícito de su init.
-            if (!com.arkiv.player.DeviceType.isTelevision(appContext)) {
-                nowPlayingCoordinator.start()
-            }
         }
     }
 

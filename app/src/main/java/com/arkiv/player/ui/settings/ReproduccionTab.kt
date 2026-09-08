@@ -16,7 +16,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.coroutines.launch
 import com.arkiv.player.data.Quality
 import com.arkiv.player.data.WebQuality
 import com.arkiv.player.ui.rememberGraph
@@ -36,10 +35,9 @@ internal fun ReproduccionTab() {
     val webQuality by settings.webQuality.collectAsStateWithLifecycle()
     val liveSignRemote by settings.liveSignRemote.collectAsStateWithLifecycle()
 
-    // Calidad web: persiste local + sincroniza al otro dispositivo.
+    // Calidad web: persiste local.
     fun setWebQuality(q: WebQuality) {
         settings.setWebQuality(q)
-        graph.applicationScope.launch { runCatching { graph.remoteController.sendWebQuality(q.name) } }
     }
 
     QualitySection(

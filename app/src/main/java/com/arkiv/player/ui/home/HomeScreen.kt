@@ -112,7 +112,6 @@ fun HomeScreen(
     onPlayLive: (String) -> Unit,
     /** Abre la pestaña "En vivo" con la parrilla completa (última tarjeta de la fila de canales). */
     onOpenLive: () -> Unit,
-    onOpenConnect: () -> Unit = {},
     onOpenSearchRoute: (String) -> Unit,
     onOpenLibrary: () -> Unit,
     onBrowseRow: (rowId: String, title: String) -> Unit,
@@ -134,9 +133,6 @@ fun HomeScreen(
     val rowItems by vm.rowItems.collectAsStateWithLifecycle()
     val rowsLoaded by vm.rowsLoaded.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
-
-    // Sincronización LAN automática al abrir el inicio (igual que antes en la biblioteca).
-    LaunchedEffect(Unit) { runCatching { graph.syncManager.syncNow() } }
 
     // Sin nada en curso, adelantamos "tendencias" para tener un destacado apenas esté lista.
     LaunchedEffect(continueWatching.isEmpty()) {

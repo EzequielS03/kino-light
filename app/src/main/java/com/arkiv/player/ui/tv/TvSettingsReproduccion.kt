@@ -7,7 +7,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import kotlinx.coroutines.launch
 import com.arkiv.player.data.Quality
 import com.arkiv.player.data.WebQuality
 import com.arkiv.player.ui.rememberGraph
@@ -21,10 +20,9 @@ internal fun TvSettingsReproduccion() {
     val streamQuality by settings.streamQuality.collectAsStateWithLifecycle()
     val webQuality by settings.webQuality.collectAsStateWithLifecycle()
 
-    // Calidad web: persiste local + sincroniza al otro dispositivo (celular/TV).
+    // Calidad web: persiste local.
     fun setWebQuality(q: WebQuality) {
         settings.setWebQuality(q)
-        graph.applicationScope.launch { runCatching { graph.remoteController.sendWebQuality(q.name) } }
     }
 
     Text("Calidad al reproducir", style = MaterialTheme.typography.titleMedium, color = Color.White)
