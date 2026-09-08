@@ -250,26 +250,31 @@ command git commit -m "chore(light): borrar cloud-sync, pareo QR, control remoto
 
 ### Task 6: Simplificar búsqueda a solo-Magis
 
+**Actualizado tras Task 2 (2026-09-08):** el implementador de Task 2 ya tuvo que reescribir
+`runSourceSearch()`/`search()` por completo (las dependencias `TorrentSearchApi`/`WebSourceEngine`/
+`MirrorApiClient` que usaban se borraron en esa misma tarea) — el controller lo adjudicó como
+necesario, no como invasión de alcance. Verificado en el árbol actual: `runSourceSearch()` ya fija
+`sources = "magis"` (sin `gatewayCubreTodo`), `processNow()`/`torrentJob`/`archiveJob`/
+`_loadingTorrent`/`_loadingWeb` ya no existen, `PlaySources.kt` ya solo tiene `Magis`, y
+`OrdenarTorrentsTest.kt` ya se borró. **Lo único que queda pendiente de esta tarea es la búsqueda
+por frase (LLM)**, que Task 2 dejó intacta a propósito (fuera de su alcance).
+
 **Files — Modify:**
-- `app/src/main/java/com/arkiv/player/data/gateway/ArkivApiClient.kt`: borrar `buscarPorFrase()` (líneas 287-321) y las data classes `FraseInterpretada` (40-48), `GatewayObraDeFrase` (51-57), `BusquedaPorFrase` (59-62). Mantener `search()` (103-131) tal cual — sigue sirviendo para Magis. **NO TOCAR `trivia()` (~línea 266, justo antes de `buscarPorFrase`)** — es la feature de "dato curioso" del reproductor; se mantiene llamando al gateway indefinidamente, es una excepción permanente a la regla "cero servidor" del branch (decisión explícita del usuario). Confirmar con `grep -n "fun trivia"` antes de borrar el bloque de frase para no arrastrarla por estar físicamente cerca.
-- `app/src/main/java/com/arkiv/player/ui/search/SearchViewModel.kt`:
-  - Borrar `buscarPorFrase()` (213-226) y el estado `_frase/frase/_loadingFrase/fraseJob` (196, 199-203).
-  - En `search()` (248-317): mantener `tmdbJob`/`animeJob` (277-288); borrar `torrentJob`/`archiveJob` (290-315) y el estado `_directResults`/`directResults`/`_loadingDirect`/`loadingDirect` si quedaron sin otro uso.
-  - En `runSourceSearch()` (380-636): dejar solo el bloque gateway-Magis (449-508), cambiando la línea 465 de `sources = if (gatewayCubreTodo) "torrent,web,archive,magis,ditu" else "magis,ditu"` a `sources = "magis"` fijo, y borrando toda la rama `gatewayCubreTodo`/`apagarSpinner` para fuentes que ya no existen. Borrar el bloque torrent (510-535), el bloque web/mirror (536-605), el bloque archive/biblioteca (606-634).
-  - Borrar `processNow()` (642-662) y su estado `_processingNow`/`_processNowMessage` (177-181) — es 100% torrent/web (`torrentSearchApi.refreshTitle`), sin equivalente en Magis.
-- `app/src/main/java/com/arkiv/player/ui/catalog/PlaySources.kt`: confirmar que la sealed class `PlaySource` quedó solo con `Magis` (las demás variantes ya se borraron en tasks 2-4; si alguna sigue por un descuido, borrarla ahora).
+- `app/src/main/java/com/arkiv/player/data/gateway/ArkivApiClient.kt`: borrar `buscarPorFrase()` (~línea 287) y las data classes `FraseInterpretada`, `GatewayObraDeFrase`, `BusquedaPorFrase` (~líneas 40-62 — re-localizar con grep, no confiar en el número). Mantener `search()` tal cual — sigue sirviendo para Magis. **NO TOCAR `trivia()` (~línea 266, justo antes de `buscarPorFrase`)** — es la feature de "dato curioso" del reproductor; se mantiene llamando al gateway indefinidamente, es una excepción permanente a la regla "cero servidor" del branch (decisión explícita del usuario). Confirmar con `grep -n "fun trivia"` antes de borrar el bloque de frase para no arrastrarla por estar físicamente cerca.
+- `app/src/main/java/com/arkiv/player/ui/search/SearchViewModel.kt`: borrar `buscarPorFrase()` y el estado `_frase/frase/fraseJob` (verificado presentes: líneas ~113-137, 165-170 del archivo actual — re-localizar con grep). El resto de la limpieza (torrent/web/archive/processNow) ya la hizo Task 2 — no hace falta tocarlo de nuevo.
+- `app/src/main/java/com/arkiv/player/ui/catalog/PlaySources.kt`: ya confirmado solo-`Magis` por la revisión de Task 4 — solo verificar, no debería hacer falta editar.
 
 **Files — Delete:**
-- Test: `app/src/test/java/com/arkiv/player/ui/search/FraseUiTest.kt`, `OrdenarTorrentsTest.kt`
+- Test: `app/src/test/java/com/arkiv/player/ui/search/FraseUiTest.kt` (`OrdenarTorrentsTest.kt` ya no existe, lo borró Task 2).
 
-**Files — Modify (tests):**
-- `app/src/test/java/com/arkiv/player/ui/search/SourceTabTest.kt`, `CardContextTest.kt`, `SinRepetidosTest.kt`, `HandoffRouteTest.kt`, `CardDeTextoLibreTest.kt` — adaptar los casos que asumían múltiples fuentes a que solo exista Magis.
+**Files — Modify (tests, verificar si Tasks 2/4 ya los dejaron bien):**
+- `app/src/test/java/com/arkiv/player/ui/search/SourceTabTest.kt`, `CardContextTest.kt`, `SinRepetidosTest.kt`, `HandoffRouteTest.kt`, `CardDeTextoLibreTest.kt` — Task 2 y Task 4 ya adaptaron `SourceTabTest.kt` a solo-fuentes-supervivientes; revisar los demás y adaptar solo si todavía asumen la búsqueda por frase o fuentes ya borradas.
 
-- [ ] **Step 1: Borrar el código de `ArkivApiClient.kt`** listado arriba.
+- [ ] **Step 1: Borrar `buscarPorFrase()`/tipos de frase de `ArkivApiClient.kt`**, re-localizando con grep, sin tocar `trivia()`.
 
-- [ ] **Step 2: Reescribir `SearchViewModel.kt`** siguiendo las líneas de arriba, dejando `runSourceSearch()` con `sources = "magis"` fijo.
+- [ ] **Step 2: Borrar `buscarPorFrase()`/estado de frase de `SearchViewModel.kt`.**
 
-- [ ] **Step 3: Borrar `FraseUiTest.kt` y `OrdenarTorrentsTest.kt`; adaptar el resto de tests de `ui/search/`.**
+- [ ] **Step 3: Borrar `FraseUiTest.kt`; revisar los demás tests de `ui/search/` y adaptar solo lo que siga roto por la búsqueda de frase.**
 
 - [ ] **Step 4: Compilar** — `./gradlew :app:compileDebugKotlin`.
 
