@@ -54,13 +54,24 @@ command git commit -m "feat(live): migrar canal en vivo de Magis a ExoPlayer"
 
 ---
 
-### Task 2: Borrar VLC (solo si Task 1 tuvo éxito) + torrent + web + mirror
+### Task 2: Borrar torrent + web + mirror (VLC se mantiene)
 
-**Precondición:** Task 1 completado con decisión "VLC se borra".
+**Resuelto tras Task 1 (2026-09-08):** el canal en vivo de Magis se migró a ExoPlayer
+(`LiveExoPlayer.kt`, commits `537dadbb`..`4c3b846a`), pero **no hubo dispositivo disponible para
+verificarlo en la práctica** (`adb devices` vacío durante toda la sesión). Decisión: **VLC NO se
+borra en esta tarea.** `VlcPlayer.kt` y la dependencia `libvlc-all` quedan, formalmente sin uso
+real desde ningún `SourceKind` conocido tras esta tarea (torrent/web/archive se borran acá; live ya
+migró a ExoPlayer) — se dejan intactos de todos modos hasta que un humano verifique en dispositivo
+real que el canal en vivo funciona bien por ExoPlayer y autorice explícitamente borrar VLC. Esa
+verificación y el borrado quedan anotados como pendientes para cuando haya dispositivo disponible
+(no es parte de este sub-proyecto de poda salvo que se retome explícitamente).
 
-**Files — Delete (VLC, solo si aplica):**
-- `app/src/main/java/com/arkiv/player/playback/VlcPlayer.kt`
-- Cualquier otro archivo de `playback/` cuyo único consumidor sea `VlcPlayer.kt` (confirmar con `grep -rl VlcPlayer app/src/main` antes de borrar cada uno — no asumir la lista sin re-chequear tras Task 1).
+**Files — NO borrar en esta tarea:** `app/src/main/java/com/arkiv/player/playback/VlcPlayer.kt`,
+dependencia `org.videolan.android:libvlc-all` en `build.gradle.kts`. Si al auditar los consumidores
+de `VlcPlayer.kt` (`grep -rl VlcPlayer app/src/main`) resulta que ya no le queda NINGÚN caller real
+(ni siquiera para torrent/web/archive) tras borrar esas fuentes, no lo borres igual — dejalo como
+código sin uso y anotalo en el reporte; el borrado requiere la verificación en dispositivo
+mencionada arriba, no solo ausencia de callers.
 
 **Files — Delete (Torrent):**
 - `app/src/main/java/com/arkiv/player/torrent/` completo: `EpisodeFilePicker.kt`, `PackFileParser.kt`, `PersistentTorrentDownload.kt`, `SampleFilter.kt`, `StreamBuffering.kt`, `SubtitleFilePicker.kt`, `TorrentEngine.kt`, `TorrentServingService.kt`, `TorrentStreamServer.kt`, `TrackerListProvider.kt`, `TrackerScraper.kt`
@@ -84,7 +95,7 @@ command git commit -m "feat(live): migrar canal en vivo de Magis a ExoPlayer"
 - Test: `app/src/test/java/com/arkiv/player/data/catalog/PackDetectorTest.kt`
 
 **Files — Modify:**
-- `app/build.gradle.kts`: quitar líneas 159-161 (`libtorrent4j`, `libtorrent4j-android-arm64`, `libtorrent4j-android-arm`), línea 167 (`jsoup:1.17.2`). Si Task 1 decidió borrar VLC: quitar línea 156 (`libvlc-all`) y el comentario que la justifica.
+- `app/build.gradle.kts`: quitar líneas 159-161 (`libtorrent4j`, `libtorrent4j-android-arm64`, `libtorrent4j-android-arm`), línea 167 (`jsoup:1.17.2`). NO tocar la línea 156 (`libvlc-all`) — VLC se mantiene (ver nota "Resuelto tras Task 1" arriba).
 - `app/src/main/java/com/arkiv/player/data/AppGraph.kt`: quitar `TorrentEngine` (línea ~330), `TrackerListProvider` (línea ~329), `MirrorApiClient` (línea ~396), `TorrentSearchApi` (línea ~412), `PackResolver(torrentSearchApi, torrentEngine)` (línea ~417), `WebSourceEngine` (línea ~430), y el import de la línea ~34. La línea ~288 (`LocalFileServer(lanIp = { torrentEngine.lanIp() })`) — reemplazar `lanIp` por una implementación que no dependa de `TorrentEngine` (ver qué otro componente ya conoce la IP LAN del dispositivo, ej. `NsdHelper`/`sync` antes de que se borre en Task 5 — si no hay otro, usar `NetworkInterface` directo).
 - `app/src/main/java/com/arkiv/player/ui/ArkivRoot.kt`: quitar imports de torrent (línea ~96) y de lo que quede de web, el botón de torrent (líneas ~286-287), la ruta `composable("torrent")` (líneas ~566-572).
 - `app/src/main/java/com/arkiv/player/ui/tv/ArkivTvRoot.kt`: quitar la ruta `composable("torrent")` (líneas ~348-353).

@@ -18,9 +18,10 @@ siendo la app completa (torrent+web+archive+Magis+Ditu+RCN, con login PocketBase
 - Se borra código muerto de verdad (login/cuentas, torrent, web-resolver, archive.org, VLC,
   cloud-sync, control remoto TV↔celu). No se comenta, no se deja detrás de un flag — si no se usa,
   se elimina del árbol.
-- Reproductor: ExoPlayer/media3 (`MagisExoPlayer`) para todo lo que se pueda. El canal en vivo de
-  Magis usa VLC hoy — el plan intenta migrarlo a ExoPlayer y sacar libVLC del todo; si eso falla,
-  VLC queda pero acotado solo al canal en vivo (nunca para torrent/web/archive).
+- Reproductor: ExoPlayer/media3 (`MagisExoPlayer`, `LiveExoPlayer`) para todo. El canal en vivo de
+  Magis ya se migró a ExoPlayer (Task 1, commits `537dadbb`..`4c3b846a`), pero sin verificación en
+  dispositivo real — VLC (`VlcPlayer.kt`, `libvlc-all`) queda sin uso real pero SIN BORRAR hasta que
+  un humano confirme en dispositivo que el canal en vivo anda bien y autorice el borrado.
 
 ## Spec
 
