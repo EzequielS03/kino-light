@@ -143,7 +143,7 @@ fun DetailScreen(
         // Mismo arreglo que en el detalle del TV: los ítems de Magis guardados sin `tmdbId` no
         // tienen con qué pedir stills, así que primero se le pregunta al gateway (una sola vez).
         com.arkiv.player.data.gateway.repararIdentidadDeMagis(
-            graph.repository, graph.arkivApiClient, identifier,
+            graph.repository, graph.fuenteDeContenido, identifier,
         )
         runCatching { graph.repository.ensureEpisodeStills(identifier) }
     }

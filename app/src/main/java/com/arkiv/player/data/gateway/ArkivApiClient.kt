@@ -1,11 +1,7 @@
 package com.arkiv.player.data.gateway
 
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
-import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -30,18 +26,13 @@ data class GatewaySearchQuery(
     val budgetMs: Int = 0,
 )
 
-data class GatewaySource(
-    val name: String,
-    val capabilities: List<String>,
-    val state: String,
-)
-
 /**
- * Cliente del gateway unificado.
+ * Cliente del gateway, para lo que en esta rama sigue siendo del servidor: la trivia ("dato
+ * curioso", excepción permanente), los marcadores de intro, la metadata de anime y el aviso para
+ * regenerar recomendaciones.
  *
- * [search] emite eventos **a medida que llegan**: el gateway responde NDJSON en
- * streaming y la pantalla ya está construida para pintar resultados de forma
- * incremental. Bufferizar la respuesta entera sería una regresión de UX.
+ * El contenido ya NO sale de acá: búsqueda, reproducción y capítulos se los pide
+ * [com.arkiv.player.data.magis.MagisFuente] al portal directo (sub-proyecto 2A).
  */
 class ArkivApiClient(
     private val baseUrl: () -> String,
@@ -59,9 +50,9 @@ class ArkivApiClient(
      *  juntas -- la sesión está atada al aparato, así que el `Authorization` solo no alcanza. */
     private val deviceToken: () -> String? = { null },
 ) {
-    // Sin timeout de lectura: la respuesta es un stream largo, no un cuerpo corto.
+    // Lo que queda son cuerpos cortos: el stream largo era `/v1/search`, que ya no pasa por acá.
     private val http = http.newBuilder()
-        .readTimeout(0, TimeUnit.MILLISECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
         .connectTimeout(15, TimeUnit.SECONDS)
         .build()
 
@@ -74,114 +65,6 @@ class ArkivApiClient(
         deviceToken()?.takeIf { it.isNotBlank() }?.let { b.header("X-Arkiv-Device", it) }
         return b
     }
-
-    fun search(ctx: GatewaySearchQuery): Flow<SearchEvent> = flow {
-        val url = "${baseUrl()}/v1/search".toHttpUrl().newBuilder().apply {
-            addQueryParameter("q", ctx.q)
-            addQueryParameter("type", ctx.type)
-            if (ctx.season > 0) addQueryParameter("season", ctx.season.toString())
-            if (ctx.episode > 0) addQueryParameter("episode", ctx.episode.toString())
-            if (ctx.year.isNotBlank()) addQueryParameter("year", ctx.year)
-            if (ctx.tmdbId > 0) addQueryParameter("tmdb_id", ctx.tmdbId.toString())
-            if (ctx.anilistId > 0) addQueryParameter("anilist_id", ctx.anilistId.toString())
-            if (ctx.lang.isNotBlank()) addQueryParameter("lang", ctx.lang)
-            if (ctx.sources.isNotBlank()) addQueryParameter("sources", ctx.sources)
-            if (ctx.maxBytes > 0) addQueryParameter("max_bytes", ctx.maxBytes.toString())
-            if (ctx.budgetMs > 0) addQueryParameter("budget_ms", ctx.budgetMs.toString())
-        }.build().toString()
-
-        val respuesta = runCatching { http.newCall(pedido(url).get().build()).execute() }
-            .getOrElse { throw GatewayException("no se pudo llamar al gateway", it) }
-
-        respuesta.use { r ->
-            if (!r.isSuccessful) throw GatewayException("gateway respondio ${r.code}")
-            val cuerpo = r.body ?: throw GatewayException("gateway respondio sin cuerpo")
-            val fuente = cuerpo.source()
-            while (true) {
-                val linea = fuente.readUtf8Line() ?: break
-                if (linea.isBlank()) continue
-                emit(parseSearchEvent(linea))
-            }
-        }
-    }.flowOn(Dispatchers.IO)
-
-    suspend fun resolve(ref: String): GatewayPlayable = withContext(Dispatchers.IO) {
-        val cuerpo = JSONObject().put("ref", ref).toString()
-            .toRequestBody("application/json".toMediaType())
-        val o = JSONObject(ejecutar(pedido("${baseUrl()}/v1/resolve").post(cuerpo).build()))
-        GatewayPlayable(
-            kind = o.optString("kind"),
-            url = o.optString("url"),
-            headers = o.optJSONObject("headers")?.let { h ->
-                h.keys().asSequence().associateWith { h.optString(it) }
-            } ?: emptyMap(),
-            mime = o.optString("mime"),
-            expiresAt = o.optString("expires_at"),
-            durationMs = o.optLong("duration_ms", 0L).coerceAtLeast(0L),
-            videoCodec = o.optString("video_codec"),
-            container = o.optString("container"),
-            drmLicenseUrl = o.optString("drm_license_url"),
-            drmLicenseHeaders = o.optJSONObject("drm_license_headers")?.let { h ->
-                h.keys().asSequence().associateWith { h.optString(it) }
-            } ?: emptyMap(),
-            fallbackUrl = o.optJSONObject("fallback")?.optString("url"),
-            subtitles = o.optJSONArray("subtitles")?.let { arr ->
-                (0 until arr.length()).mapNotNull { i ->
-                    arr.optJSONObject(i)?.let { sub ->
-                        val u = sub.optString("url")
-                        if (u.isBlank()) null
-                        else GatewaySubtitle(sub.optString("lang"), u, sub.optString("format"))
-                    }
-                }
-            } ?: emptyList(),
-        )
-    }
-
-    /**
-     * Capítulos de una temporada, junto con la serie que el gateway pudo identificar contra TMDB
-     * cruzando el imdb_id del portal ([GatewaySerie] es null si no la pudo resolver, o si el
-     * gateway todavía no manda el bloque `series`).
-     */
-    suspend fun episodesConSerie(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?> =
-        withContext(Dispatchers.IO) {
-            val cuerpo = JSONObject().put("ref", ref).toString()
-                .toRequestBody("application/json".toMediaType())
-            android.util.Log.w("ArkivGw", "episodes: enviando peticion url=${baseUrl()}/v1/episodes")
-            val body = ejecutar(pedido("${baseUrl()}/v1/episodes").post(cuerpo).build())
-            android.util.Log.w("ArkivGw", "episodes: body recibido ${body.length} bytes preview=${body.take(80)}")
-            val crudos = JSONObject(body).optJSONArray("episodes")
-            android.util.Log.w("ArkivGw", "episodes: crudos=${crudos?.length() ?: "NULL"}")
-            if (crudos == null) {
-                // Respondió 200 pero sin `episodes`. La UI lo mostraría como una lista vacía, que se
-                // ve igual que "esta temporada no tiene capítulos" — y no es lo mismo.
-                android.util.Log.w("ArkivGw", "/v1/episodes 200 SIN campo `episodes` ref=${ref.take(24)}…")
-                return@withContext emptyList<GatewayEpisode>() to null
-            }
-            val (caps, serie) = parseEpisodesResponse(body)
-            // Los dos números, no solo el final: `parseEpisodesResponse` descarta los capítulos que
-            // vienen con `ref` vacío (sin ref no hay nada que reproducir). Con un solo número, una
-            // temporada de 16 que llega con 4 refs rotos se ve igual que una de 12 — y son problemas
-            // distintos, uno del portal y otro nuestro.
-            // También se loguea la IDENTIFICACIÓN de la serie, porque de ella cuelga TODO lo que la
-            // biblioteca muestra de los capítulos: nombre, miniatura y sinopsis salen de TMDB, no del
-            // portal. Sin esto, "los capítulos salen en negro y numerados" es indistinguible de sus
-            // tres causas posibles —el portal no dio imdb_id, TMDB no lo encontró, o el guard de
-            // numeración del gateway apagó el enriquecimiento— y no hay forma de saber cuál fue.
-            val identidad = serie
-                ?.let { "imdb=${it.imdbId.ifBlank { "(vacio)" }} tmdb=${it.tmdbId} temporada=${it.seasonNumber}" }
-                ?: "(el gateway no mandó bloque `series`)"
-            android.util.Log.w(
-                "ArkivGw",
-                "/v1/episodes → ${caps.size} capitulos (de ${crudos.length()} crudos) " +
-                    "serie: $identidad · con miniatura=${caps.count { it.still != null }}",
-            )
-            caps to serie
-        }
-
-    /** Capítulos de una temporada. Solo Magis los expone; el resto responde 422. */
-    suspend fun episodes(ref: String): List<GatewayEpisode> = episodesConSerie(ref).first
-
-    /** Tiempos de intro/outro del capítulo, o null. Nunca lanza: es un extra sobre la reproducción. */
     suspend fun marcadores(tmdbId: Int, temporada: Int, episodio: Int): GatewayMarcadores? =
         withContext(Dispatchers.IO) {
             runCatching {
@@ -218,8 +101,7 @@ class ArkivApiClient(
      *
      * Lanza [GatewayException] igual que el resto de los métodos de esta clase si el pedido falla:
      * acá NO se traga el error -eso es responsabilidad de quien llama (ver
-     * [com.arkiv.player.data.gateway.AvisadorDeRecomendaciones]), mismo criterio que [resolve] o
-     * [episodes].
+     * [com.arkiv.player.data.gateway.AvisadorDeRecomendaciones]).
      */
     suspend fun refrescarRecomendaciones() {
         withContext(Dispatchers.IO) {
@@ -249,20 +131,6 @@ class ArkivApiClient(
         val arr = JSONObject(ejecutar(pedido(url).get().build())).optJSONArray("textos")
             ?: return@withContext emptyList()
         (0 until arr.length()).mapNotNull { arr.optString(it).takeIf { t -> t.isNotBlank() } }
-    }
-
-    suspend fun sources(): List<GatewaySource> = withContext(Dispatchers.IO) {
-        val arr = JSONObject(ejecutar(pedido("${baseUrl()}/v1/sources").get().build()))
-            .optJSONArray("sources") ?: return@withContext emptyList()
-        (0 until arr.length()).map { i ->
-            val o = arr.getJSONObject(i)
-            val caps = o.optJSONArray("capabilities")
-            GatewaySource(
-                name = o.optString("name"),
-                capabilities = (0 until (caps?.length() ?: 0)).map { caps!!.getString(it) },
-                state = o.optString("state"),
-            )
-        }
     }
 
     private fun ejecutar(request: Request): String {

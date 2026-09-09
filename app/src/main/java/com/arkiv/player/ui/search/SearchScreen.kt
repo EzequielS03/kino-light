@@ -117,7 +117,7 @@ fun SearchScreen(
             initializer {
                 SearchViewModel(
                     graph.tmdbApi, graph.aniListApi,
-                    graph.settings, graph.arkivApiClient,
+                    graph.settings, graph.fuenteDeContenido,
                     graph.searchHistory,
                 )
             }
@@ -329,7 +329,7 @@ fun SearchScreen(
     magisSeason?.let { temporada ->
         com.arkiv.player.ui.catalog.MagisSeasonDialog(
             season = temporada,
-            client = graph.arkivApiClient,
+            client = graph.fuenteDeContenido,
             onDismiss = { magisSeason = null },
             onPlay = { capitulos, capitulo, serie ->
                 magisSeason = null

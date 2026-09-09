@@ -115,9 +115,59 @@ class AppGraph(context: Context) {
             .build()
     }
 
+    // --- Magis directo (sub-proyecto 2A) ------------------------------------------------------
+    //
+    // Todo el protocolo del portal vive en `data/magis`. El `sn` del device sale del store en CADA
+    // llamada (no se captura): lo acuña `MagisSession` en caliente la primera vez, y el body de esa
+    // misma activación ya tiene que llevarlo.
+
+    internal val magisStore: com.arkiv.player.data.magis.MagisCredentialStore by lazy {
+        com.arkiv.player.data.magis.EncryptedMagisCredentialStore(appContext)
+    }
+
+    private val magisPortal: com.arkiv.player.data.magis.MagisPortalClientLike by lazy {
+        com.arkiv.player.data.magis.MagisPortalClient(
+            crypto = com.arkiv.player.data.magis.MagisCrypto(BuildConfig.IPTV_3DES_KEY),
+            hosts = BuildConfig.IPTV_HOSTS.split(",").map { it.trim() }.filter { it.isNotBlank() },
+            appId = BuildConfig.IPTV_APP_ID,
+            apkVersion = BuildConfig.IPTV_APK_VERSION,
+            snProvider = { magisStore.leerSesion()?.sn.orEmpty() },
+            http = httpGateway,
+        )
+    }
+
+    internal val magisSession: com.arkiv.player.data.magis.MagisSession by lazy {
+        com.arkiv.player.data.magis.MagisSession(magisPortal, magisStore)
+    }
+
+    private val magisCatalog: com.arkiv.player.data.magis.MagisCatalog by lazy {
+        com.arkiv.player.data.magis.MagisCatalog(magisPortal, magisSession)
+    }
+
+    /** De dónde salen los títulos que la app busca y reproduce: el portal, directo. */
+    val fuenteDeContenido: com.arkiv.player.data.gateway.FuenteDeContenido by lazy {
+        com.arkiv.player.data.magis.MagisFuente(
+            catalogo = magisCatalog,
+            resolucion = com.arkiv.player.data.magis.MagisResolve(magisPortal, magisSession),
+            tmdb = tmdbApi,
+        )
+    }
+
+    internal val magisLive: com.arkiv.player.data.magis.MagisLive by lazy {
+        com.arkiv.player.data.magis.MagisLive(magisPortal, magisSession)
+    }
+
+    val catalogoDeVivo: com.arkiv.player.data.gateway.LiveCatalogGateway by lazy {
+        com.arkiv.player.data.magis.MagisLiveCatalog(magisCatalog, magisPortal, magisSession)
+    }
+
     /**
      * Cliente del gateway unificado. La URL se lee del [settings] en CADA llamada (no se
      * captura): así cambiarla en Ajustes tiene efecto sin reiniciar la app.
+     *
+     * Ya NO sirve contenido (búsqueda, reproducción ni capítulos): eso lo da [fuenteDeContenido]
+     * hablándole al portal directo. Queda para lo que sigue siendo del servidor — la trivia
+     * (excepción permanente) y los marcadores de intro.
      */
     val arkivApiClient: com.arkiv.player.data.gateway.ArkivApiClient by lazy {
         com.arkiv.player.data.gateway.ArkivApiClient(
@@ -275,7 +325,7 @@ class AppGraph(context: Context) {
     val downloadStrategies: Map<String, com.arkiv.player.data.local.DownloadStrategy> by lazy {
         mapOf(
             "magis" to com.arkiv.player.data.local.MagisDownloadStrategy(
-                repository, arkivApiClient, httpRangeDownloader,
+                repository, fuenteDeContenido, httpRangeDownloader,
             ),
         )
     }
@@ -353,7 +403,7 @@ class AppGraph(context: Context) {
     val agregadorDeRecomendaciones by lazy {
         com.arkiv.player.data.recomendaciones.AgregadorDeRecomendaciones(
             repo = repository,
-            gateway = arkivApiClient,
+            gateway = fuenteDeContenido,
         )
     }
 
@@ -361,7 +411,7 @@ class AppGraph(context: Context) {
         com.arkiv.player.data.nuevos.BuscadorDeCapitulos(
             repo = repository,
             itemDao = database.itemDao(),
-            gateway = arkivApiClient,
+            gateway = fuenteDeContenido,
         )
     }
 

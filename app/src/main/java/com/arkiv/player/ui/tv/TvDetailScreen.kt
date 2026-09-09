@@ -119,7 +119,7 @@ fun TvDetailScreen(
         // y `ensureEpisodeStills` se iría en su primera línea. Esto le pregunta al gateway una sola
         // vez (se salta solo si ya tiene identidad). Ver [repararIdentidadDeMagis].
         com.arkiv.player.data.gateway.repararIdentidadDeMagis(
-            graph.repository, graph.arkivApiClient, identifier,
+            graph.repository, graph.fuenteDeContenido, identifier,
         )
         runCatching { graph.repository.ensureEpisodeStills(identifier) }
     }

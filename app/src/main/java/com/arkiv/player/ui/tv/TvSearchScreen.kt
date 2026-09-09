@@ -116,7 +116,7 @@ fun TvSearchScreen(
             initializer {
                 SearchViewModel(
                     graph.tmdbApi, graph.aniListApi,
-                    graph.settings, graph.arkivApiClient,
+                    graph.settings, graph.fuenteDeContenido,
                     graph.searchHistory,
                 )
             }
@@ -492,7 +492,7 @@ fun TvSearchScreen(
                 if (currentMagis != null) {
                     TvMagisSeasonContent(
                         season = currentMagis,
-                        client = graph.arkivApiClient,
+                        client = graph.fuenteDeContenido,
                         posterUrl = resultPoster,
                         preparing = preparing,
                         onPlayOne = { capitulos, capitulo, serie ->
@@ -1205,7 +1205,7 @@ internal fun sourceKey(s: PlaySource): String = when (s) {
 @Composable
 private fun TvMagisSeasonContent(
     season: com.arkiv.player.data.gateway.GatewayResult,
-    client: com.arkiv.player.data.gateway.ArkivApiClient,
+    client: com.arkiv.player.data.gateway.FuenteDeContenido,
     posterUrl: String,
     preparing: Boolean,
     onPlayOne: (List<com.arkiv.player.data.gateway.GatewayEpisode>, com.arkiv.player.data.gateway.GatewayEpisode, com.arkiv.player.data.gateway.GatewaySerie?) -> Unit,

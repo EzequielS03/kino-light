@@ -20,7 +20,7 @@ import com.arkiv.player.data.CapituloDeTemporada
  */
 suspend fun repararIdentidadDeMagis(
     repository: ArkivRepository,
-    api: ArkivApiClient,
+    api: FuenteDeContenido,
     itemId: String,
 ): Boolean {
     val ref = repository.refDeMagisParaReparar(itemId) ?: return false

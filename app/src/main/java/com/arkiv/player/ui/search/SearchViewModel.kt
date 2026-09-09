@@ -55,7 +55,7 @@ class SearchViewModel(
     private val tmdbApi: TmdbApi,
     private val aniListApi: AniListApi,
     private val settings: SettingsStore,
-    private val arkivApiClient: com.arkiv.player.data.gateway.ArkivApiClient,
+    private val arkivApiClient: com.arkiv.player.data.gateway.FuenteDeContenido,
     private val searchHistory: com.arkiv.player.data.SearchHistoryRepo,
 ) : ViewModel() {
 

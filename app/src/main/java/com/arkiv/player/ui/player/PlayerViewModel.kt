@@ -165,6 +165,10 @@ class PlayerViewModel(
     // -sin que ninguna pantalla esté mirando- no cerraba la sesión hasta el próximo pedido que sí
     // pasara por un ViewModel que supiera reaccionar.
     private val httpGateway: okhttp3.OkHttpClient,
+    // Sub-proyecto 2A: de acá sale lo reproducible. Antes lo pedía [gatewayClient] a `/v1/resolve`;
+    // ahora es el portal directo. [gatewayClient] queda solo para lo que sigue siendo del servidor
+    // (la trivia y los marcadores de intro).
+    private val fuente: com.arkiv.player.data.gateway.FuenteDeContenido,
     // Task 8: [gatewayClient] es OTRA instancia de `ArkivApiClient` además de
     // `AppGraph.arkivApiClient` -esta la usa [prefetchNext] para pre-resolver el próximo capítulo
     // de Magis-, así que también necesita las dos cabeceras de sesión: desde el Paso 3
@@ -805,10 +809,10 @@ class PlayerViewModel(
         // sonda+precalentado → gateway), y cada mudanza costó una ronda de "reproducí algo y miro
         // los logs" porque los tiempos había que deducirlos de los huecos entre líneas sueltas.
         val t0 = System.currentTimeMillis()
-        val resuelto = withContext(Dispatchers.IO) { runCatching { gatewayClient.resolve(ref) } }
+        val resuelto = withContext(Dispatchers.IO) { runCatching { fuente.resolve(ref) } }
         val msResolve = System.currentTimeMillis() - t0
         _resolving.value = false
-        Log.w(PLAY, "loadMagis() resolve del gateway=${msResolve}ms")
+        Log.w(PLAY, "loadMagis() resolve del portal=${msResolve}ms")
 
         val play = resuelto.getOrNull()
         if (play == null) {

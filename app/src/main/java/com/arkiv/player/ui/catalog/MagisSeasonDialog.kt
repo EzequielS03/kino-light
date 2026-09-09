@@ -44,7 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.arkiv.player.data.gateway.ArkivApiClient
+import com.arkiv.player.data.gateway.FuenteDeContenido
 import com.arkiv.player.data.gateway.GatewayEpisode
 import com.arkiv.player.data.gateway.GatewayResult
 import com.arkiv.player.data.gateway.GatewaySerie
@@ -65,7 +65,7 @@ import com.arkiv.player.ui.theme.ArkivTextSecondary
 @Composable
 fun MagisSeasonDialog(
     season: GatewayResult,
-    client: ArkivApiClient,
+    client: FuenteDeContenido,
     onDismiss: () -> Unit,
     onPlay: (List<GatewayEpisode>, GatewayEpisode, GatewaySerie?) -> Unit,
     // La [GatewaySerie] viaja también en el guardado, no solo en el play: guardar escribe la fila

@@ -3,7 +3,7 @@ package com.arkiv.player.data.nuevos
 import android.util.Log
 import com.arkiv.player.data.ArkivRepository
 import com.arkiv.player.data.db.ItemDao
-import com.arkiv.player.data.gateway.ArkivApiClient
+import com.arkiv.player.data.gateway.FuenteDeContenido
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -24,7 +24,7 @@ import kotlinx.coroutines.withContext
 class BuscadorDeCapitulos(
     private val repo: ArkivRepository,
     private val itemDao: ItemDao,
-    private val gateway: ArkivApiClient,
+    private val gateway: FuenteDeContenido,
     private val ahora: () -> Long = { System.currentTimeMillis() },
 ) {
 

@@ -3,7 +3,7 @@ package com.arkiv.player.data.recomendaciones
 import android.util.Log
 import com.arkiv.player.data.ArkivRepository
 import com.arkiv.player.data.db.RecomendacionEntity
-import com.arkiv.player.data.gateway.ArkivApiClient
+import com.arkiv.player.data.gateway.FuenteDeContenido
 import kotlinx.coroutines.CancellationException
 
 /**
@@ -19,7 +19,7 @@ import kotlinx.coroutines.CancellationException
  */
 class AgregadorDeRecomendaciones(
     private val repo: ArkivRepository,
-    private val gateway: ArkivApiClient,
+    private val gateway: FuenteDeContenido,
 ) {
 
     /**

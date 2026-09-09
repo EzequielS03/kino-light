@@ -1,6 +1,5 @@
 package com.arkiv.player.data.gateway
 
-import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -12,6 +11,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
+/**
+ * Lo que le queda a este cliente después del sub-proyecto 2A: la trivia, los marcadores de intro,
+ * la metadata de anime y el aviso de recomendaciones. La búsqueda, la reproducción y los capítulos
+ * se fueron al portal directo — sus tests viven en `MagisFuenteTest`.
+ */
 class ArkivApiClientTest {
 
     private lateinit var server: MockWebServer
@@ -29,239 +33,132 @@ class ArkivApiClientTest {
     @After
     fun tearDown() = server.shutdown()
 
-    // Task 8 (Paso 3): `X-Arkiv-Key` salió del todo -- este test confirma que el corte fue real,
-    // no solo que se dejó de mandar un valor no vacío.
-    @Test
-    fun `nunca manda X-Arkiv-Key`() = runBlocking {
-        server.enqueue(MockResponse().setBody("""{"type":"done","ms":1}""" + "\n"))
-        client.search(GatewaySearchQuery(q = "dune")).toList()
-        assertNull(server.takeRequest().getHeader("X-Arkiv-Key"))
-    }
+    private fun conSesion(persona: String?, aparato: String?) = ArkivApiClient(
+        baseUrl = { server.url("/").toString().trimEnd('/') },
+        http = OkHttpClient(),
+        personToken = { persona },
+        deviceToken = { aparato },
+    )
 
-    // --- Task 8 (Paso 3): Authorization + X-Arkiv-Device son la ÚNICA credencial --------------
+    // --- credenciales: Authorization + X-Arkiv-Device son la ÚNICA que manda ------------------
 
     @Test
     fun `manda Authorization y X-Arkiv-Device cuando hay sesion`() = runBlocking {
-        server.enqueue(MockResponse().setBody("""{"type":"done","ms":1}""" + "\n"))
-        val conSesion = ArkivApiClient(
-            baseUrl = { server.url("/").toString().trimEnd('/') },
-            http = OkHttpClient(),
-            personToken = { "person-tok" },
-            deviceToken = { "device-tok" },
-        )
-        conSesion.search(GatewaySearchQuery(q = "dune")).toList()
-        val req = server.takeRequest()
-        assertEquals("person-tok", req.getHeader("Authorization"))
-        assertEquals("device-tok", req.getHeader("X-Arkiv-Device"))
+        server.enqueue(MockResponse().setBody("""{"textos":[]}"""))
+
+        conSesion("person-tok", "device-tok").trivia(1, "movie", null, null)
+
+        val pedido = server.takeRequest()
+        assertEquals("person-tok", pedido.getHeader("Authorization"))
+        assertEquals("device-tok", pedido.getHeader("X-Arkiv-Device"))
+    }
+
+    /** `X-Arkiv-Key` salió del todo: el corte fue real, no solo dejar de mandar un valor. */
+    @Test
+    fun `nunca manda X-Arkiv-Key`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"textos":[]}"""))
+
+        conSesion("person-tok", "device-tok").trivia(1, "movie", null, null)
+
+        assertNull(server.takeRequest().getHeader("X-Arkiv-Key"))
     }
 
     @Test
     fun `sin sesion no manda Authorization ni X-Arkiv-Device (nunca cabeceras vacias)`() = runBlocking {
-        // `client` del setUp no pasa personToken/deviceToken -- quedan en null por default.
-        server.enqueue(MockResponse().setBody("""{"type":"done","ms":1}""" + "\n"))
-        client.search(GatewaySearchQuery(q = "dune")).toList()
-        val req = server.takeRequest()
-        assertNull(req.getHeader("Authorization"))
-        assertNull(req.getHeader("X-Arkiv-Device"))
+        server.enqueue(MockResponse().setBody("""{"textos":[]}"""))
+
+        client.trivia(1, "movie", null, null)
+
+        val pedido = server.takeRequest()
+        assertNull(pedido.getHeader("Authorization"))
+        assertNull(pedido.getHeader("X-Arkiv-Device"))
     }
 
     @Test
     fun `un token en blanco tambien se omite, no se manda vacio`() = runBlocking {
-        server.enqueue(MockResponse().setBody("""{"type":"done","ms":1}""" + "\n"))
-        val conBlancos = ArkivApiClient(
-            baseUrl = { server.url("/").toString().trimEnd('/') },
-            http = OkHttpClient(),
-            personToken = { "" },
-            deviceToken = { "  " },
-        )
-        conBlancos.search(GatewaySearchQuery(q = "dune")).toList()
-        val req = server.takeRequest()
-        assertNull(req.getHeader("Authorization"))
-        assertNull(req.getHeader("X-Arkiv-Device"))
+        server.enqueue(MockResponse().setBody("""{"textos":[]}"""))
+
+        conSesion("   ", "").trivia(1, "movie", null, null)
+
+        val pedido = server.takeRequest()
+        assertNull(pedido.getHeader("Authorization"))
+        assertNull(pedido.getHeader("X-Arkiv-Device"))
     }
 
-    @Test
-    fun `emite un evento por linea`() = runBlocking {
-        server.enqueue(
-            MockResponse().setBody(
-                """{"type":"source_start","source":"a"}""" + "\n" +
-                    """{"type":"result","source":"a","item":{"title":"T","ref":"r"}}""" + "\n" +
-                    """{"type":"source_done","source":"a","count":1,"ms":10}""" + "\n" +
-                    """{"type":"done","ms":11}""" + "\n",
-            ),
-        )
-        val evs = client.search(GatewaySearchQuery(q = "dune")).toList()
-        assertEquals(4, evs.size)
-        assertTrue(evs[1] is SearchEvent.ResultEvent)
-        assertTrue(evs.last() is SearchEvent.Done)
-    }
+    // --- trivia -------------------------------------------------------------------------------
 
     @Test
-    fun `ignora lineas vacias`() = runBlocking {
-        server.enqueue(MockResponse().setBody("\n\n" + """{"type":"done","ms":1}""" + "\n\n"))
-        assertEquals(1, client.search(GatewaySearchQuery(q = "x")).toList().size)
-    }
+    fun `la trivia devuelve los textos y descarta los vacios`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"textos":["uno","","dos"]}"""))
 
-    @Test
-    fun `arma la query con S y E cuando se piden`() = runBlocking {
-        server.enqueue(MockResponse().setBody("""{"type":"done","ms":1}""" + "\n"))
-        client.search(
-            GatewaySearchQuery(q = "breaking bad", type = "tv", season = 1, episode = 2),
-        ).toList()
+        val textos = client.trivia(42, "tv", 1, 3)
+
+        assertEquals(listOf("uno", "dos"), textos)
         val url = server.takeRequest().requestUrl!!
-        assertEquals("breaking bad", url.queryParameter("q"))
-        assertEquals("tv", url.queryParameter("type"))
-        assertEquals("1", url.queryParameter("season"))
-        assertEquals("2", url.queryParameter("episode"))
+        assertEquals("42", url.queryParameter("tmdbId"))
+        assertEquals("tv", url.queryParameter("tipo"))
+        assertEquals("1", url.queryParameter("temporada"))
+        assertEquals("3", url.queryParameter("episodio"))
     }
 
     @Test
-    fun `no manda parametros vacios`() = runBlocking {
-        server.enqueue(MockResponse().setBody("""{"type":"done","ms":1}""" + "\n"))
-        client.search(GatewaySearchQuery(q = "x")).toList()
-        val url = server.takeRequest().requestUrl!!
-        assertNull(url.queryParameter("season"))
-        assertNull(url.queryParameter("tmdb_id"))
+    fun `sin bloque de textos la trivia va vacia en vez de lanzar`() = runBlocking {
+        server.enqueue(MockResponse().setBody("{}"))
+
+        assertEquals(emptyList<String>(), client.trivia(42, "movie", null, null))
     }
 
-    @Test(expected = GatewayException::class)
-    fun `un 500 lanza para que el llamador caiga al camino viejo`() = runBlocking {
-        server.enqueue(MockResponse().setResponseCode(500))
-        client.search(GatewaySearchQuery(q = "x")).toList()
-        Unit
-    }
-
-    @Test(expected = GatewayException::class)
-    fun `un 401 lanza`() = runBlocking {
-        server.enqueue(MockResponse().setResponseCode(401))
-        client.search(GatewaySearchQuery(q = "x")).toList()
-        Unit
-    }
-
-    @Test
-    fun `resolve devuelve url y headers`() = runBlocking {
-        server.enqueue(
-            MockResponse().setBody(
-                """{"kind":"magis","url":"http://cdn/v.ts",""" +
-                    """"headers":{"Content-Auth":"A","Content-License":"L"},""" +
-                    """"mime":"video/mp2t","expires_at":"","fallback":null}""",
-            ),
-        )
-        val p = client.resolve("elref")
-        assertEquals("http://cdn/v.ts", p.url)
-        assertEquals("A", p.headers["Content-Auth"])
-        assertEquals("magis", p.kind)
-        assertNull(p.fallbackUrl)
-    }
-
-    @Test
-    fun `resolve mapea el fallback del proxy web`() = runBlocking {
-        server.enqueue(
-            MockResponse().setBody(
-                """{"kind":"web","url":"http://cdn/v.m3u8","headers":{"Referer":"http://s/"},""" +
-                    """"mime":"","expires_at":"","fallback":{"url":"http://proxy/x"}}""",
-            ),
-        )
-        assertEquals("http://proxy/x", client.resolve("r").fallbackUrl)
-    }
-
-    @Test(expected = GatewayException::class)
-    fun `resolve con 502 lanza`() = runBlocking {
-        // El gateway responde 502 cuando la fuente de arriba rechaza.
-        server.enqueue(MockResponse().setResponseCode(502))
-        client.resolve("r")
-        Unit
-    }
-
-    @Test
-    fun `resolve trae los subtitulos de la fuente`() = runBlocking {
-        server.enqueue(
-            MockResponse().setBody(
-                """{"kind":"magis","url":"http://cdn/v.ts","headers":{},"mime":"","expires_at":"",""" +
-                    """"fallback":null,"subtitles":[{"lang":"es","url":"http://s/es.srt","format":"srt"},""" +
-                    """{"lang":"en","url":"http://s/en.srt","format":"srt"}]}""",
-            ),
-        )
-        val subs = client.resolve("r").subtitles
-        assertEquals(2, subs.size)
-        assertEquals("es", subs[0].lang)
-        assertEquals("http://s/es.srt", subs[0].url)
-        assertEquals("srt", subs[0].format)
-    }
-
-    @Test
-    fun `un subtitulo sin url se descarta`() = runBlocking {
-        server.enqueue(
-            MockResponse().setBody(
-                """{"kind":"web","url":"http://cdn/v.m3u8","headers":{},""" +
-                    """"subtitles":[{"lang":"es","url":"http://s/1.vtt"},{"lang":"en"}]}""",
-            ),
-        )
-        assertEquals(1, client.resolve("r").subtitles.size)
-    }
-
-    @Test
-    fun `sin subtitulos la lista va vacia`() = runBlocking {
-        server.enqueue(MockResponse().setBody("""{"kind":"magis","url":"http://cdn/v.ts"}"""))
-        assertEquals(emptyList<GatewaySubtitle>(), client.resolve("r").subtitles)
-    }
-
-    @Test
-    fun `episodes lista los capitulos con su ref`() = runBlocking {
-        server.enqueue(
-            MockResponse().setBody(
-                """{"episodes":[{"number":1,"title":"01","ref":"r1"},""" +
-                    """{"number":2,"title":"02","ref":"r2"}]}""",
-            ),
-        )
-        val caps = client.episodes("refSerie")
-        assertEquals(2, caps.size)
-        assertEquals(1, caps[0].number)
-        assertEquals("01", caps[0].title)
-        assertEquals("r1", caps[0].ref)
-    }
-
-    @Test
-    fun `un capitulo sin ref se descarta`() = runBlocking {
-        server.enqueue(
-            MockResponse().setBody("""{"episodes":[{"number":1,"title":"01"},{"number":2,"title":"02","ref":"r"}]}"""),
-        )
-        assertEquals(1, client.episodes("r").size)
-    }
-
-    @Test(expected = GatewayException::class)
-    fun `episodes de una fuente que no los soporta lanza`() = runBlocking {
-        server.enqueue(MockResponse().setResponseCode(422))
-        client.episodes("r")
-        Unit
-    }
+    // --- recomendaciones ----------------------------------------------------------------------
 
     @Test
     fun `refrescarRecomendaciones pega al POST correcto`() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(202).setBody("{}"))
-        client.refrescarRecomendaciones()
-        val req = server.takeRequest()
-        assertEquals("POST", req.method)
-        assertEquals("/v1/recomendaciones/refrescar", req.path)
-    }
 
-    @Test(expected = GatewayException::class)
-    fun `refrescarRecomendaciones lanza si el gateway falla`() = runBlocking {
-        server.enqueue(MockResponse().setResponseCode(500))
         client.refrescarRecomendaciones()
+
+        val pedido = server.takeRequest()
+        assertEquals("POST", pedido.method)
+        assertEquals("/v1/recomendaciones/refrescar", pedido.path)
     }
 
     @Test
-    fun `sources lista las fuentes activas`() = runBlocking {
+    fun `refrescarRecomendaciones lanza si el gateway falla`() {
+        server.enqueue(MockResponse().setResponseCode(500).setBody("boom"))
+
+        val e = runCatching { runBlocking { client.refrescarRecomendaciones() } }.exceptionOrNull()
+
+        assertTrue("esperaba GatewayException y fue $e", e is GatewayException)
+    }
+
+    // --- anime --------------------------------------------------------------------------------
+
+    @Test
+    fun `animeMeta mapea titulos, temporada y offset`() = runBlocking {
         server.enqueue(
             MockResponse().setBody(
-                """{"sources":[{"name":"magis","capabilities":["movie","tv"],"state":"closed"}]}""",
+                """{"titles":["Naruto","ナルト"],"tvdb_season":2,"offset":26,"tmdb_id":31910}""",
             ),
         )
-        val s = client.sources()
-        assertEquals(1, s.size)
-        assertEquals("magis", s[0].name)
-        assertEquals(listOf("movie", "tv"), s[0].capabilities)
-        assertEquals("closed", s[0].state)
+
+        val meta = client.animeMeta(20)!!
+
+        assertEquals(listOf("Naruto", "ナルト"), meta.titles)
+        assertEquals(2, meta.tvdbSeason)
+        assertEquals(26, meta.offset)
+        assertEquals(31910, meta.tmdbId)
+    }
+
+    @Test
+    fun `animeMeta devuelve null si el gateway falla, no lanza`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(404).setBody("no"))
+
+        assertNull(client.animeMeta(20))
+    }
+
+    @Test
+    fun `los marcadores de intro devuelven null si el gateway falla`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(500).setBody("no"))
+
+        assertNull(client.marcadores(1, 1, 1))
     }
 }
