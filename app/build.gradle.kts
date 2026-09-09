@@ -19,7 +19,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.arkiv.player"
+        applicationId = "com.arkiv.player.light" // id propio: conviven Arkiv completo y Arkiv Light en el mismo device
         minSdk = 26
         targetSdk = 35
         // Codigo del candado de la seccion 18+. Sale del .env (gitignoreado) igual que la llave

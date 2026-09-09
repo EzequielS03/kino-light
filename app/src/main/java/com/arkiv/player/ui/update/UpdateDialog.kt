@@ -49,7 +49,7 @@ fun UpdateDialog(info: UpdateInfo, graph: AppGraph, onDismiss: () -> Unit) {
     }
 
     fun installApk(file: File) {
-        val uri = FileProvider.getUriForFile(context, "com.arkiv.player.fileprovider", file)
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
         val intent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
             setDataAndType(uri, "application/vnd.android.package-archive")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
