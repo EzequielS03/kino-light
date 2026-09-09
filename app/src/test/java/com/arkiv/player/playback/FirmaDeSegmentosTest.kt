@@ -1,6 +1,7 @@
 package com.arkiv.player.playback
 
 import com.arkiv.player.data.gateway.LiveSignature
+import com.arkiv.player.data.magis.TweakedMd5
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

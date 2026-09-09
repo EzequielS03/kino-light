@@ -1,4 +1,4 @@
-package com.arkiv.player.playback
+package com.arkiv.player.data.magis
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
