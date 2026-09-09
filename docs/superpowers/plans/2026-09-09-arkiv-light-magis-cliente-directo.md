@@ -10,6 +10,42 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-09-arkiv-light-magis-cliente-directo-design.md`
 
+## Estado (actualizado al ejecutar)
+
+Tasks 1-7 **hechas** (commits `d80ca3b1`, `621faa3e`, `9d573537`, `85185f27`, `3e394d12`,
+`359f6578`, `c11f7c5b`, `f70d6769`, `baecdae6`). Suite completa en verde (1636 tests) y cada pieza
+con mutaciones verificadas. Lo que el plan decía y la ejecución tuvo que corregir:
+
+- **Task 1 era redundante**: la app YA firmaba segmentos de vivo en el aparato
+  (`playback/TweakedMd5.kt`, usado por `FirmaLocal`), con el mismo salt, el mismo mensaje y los
+  mismos 5 vectores. Quedó una sola implementación, la que tenía el test más fuerte, mudada a
+  `data/magis/`. `Sign2` no existe: su `signO3` ya estaba en `TweakedMd5`.
+- **Task 2**: `MagisResult.Ok` genérico no se puede castear sin argumento de tipo; se agregaron
+  `dato()`, `map()` y `comoError()`. `MagisPortalClient` recibe además un `snProvider` (el `sn` es
+  estado mutable del device, igual que en el puerto de Python).
+- **Task 3**: `conSesionValida` reautentica ante CUALQUIER `PortalError`, no solo ante
+  `aaa100027/28` (el portal mata la sesión con códigos no documentados; lo aprendió el gateway a la
+  fuerza, ver `adapter.py:_llamar`). Se agregó el re-acuñado de device ante `aaa100080/aaa100082`,
+  que el plan no mencionaba y sin el cual toda la rama anónima muere en silencio. Se agregó
+  `ensureSession()` (con cuenta vinculada no se cae a anónimo: el vivo lo rechaza).
+- **Task 4**: sin `v3/getColumnContents` — el gateway nunca lo usó para nada que la app muestre.
+- **Task 5**: `main_addr` cuelga del objeto `cdn`, NO de cada entrada de `url_list` (el fixture del
+  plan estaba mal; verificado contra las respuestas reales de `tests/test_magis_live.py`).
+  `MagisPlayable` lleva además mime/container/videoCodec/durationMs/subtítulos, que es lo que
+  `GatewayPlayable` ya le pasa al reproductor.
+- **Task 6**: no hacía falta `MagisLivePlayable` ni un firmador nuevo — se devuelve el `LiveSession`
+  que la app ya usa y la firma local ya existía. `liveCodeList` lleva el código del CANAL (no el
+  playCode), y el par playCode/license se toma de la primera entrada COMPLETA. **Faltaba en el
+  plan**: el catálogo de vivo (`/v1/live/categories` y `/v1/live/channels`), sin el cual la sección
+  seguiría pidiéndole la lista al servidor → `MagisLiveCatalog`.
+- **Task 8a hecha**: `MagisRef` reemplaza el `ref` firmado del gateway (que además vencía a las
+  24 h) por un descriptor local que no vence, y lee los refs viejos ya guardados para no perder la
+  biblioteca.
+
+**Lo que queda**: el cableado (Task 8b-8e) y la verificación en dispositivo (Task 9). Después de
+2A siguen yendo al gateway, a propósito: login/PocketBase (sub-proyecto 2B), subtítulos
+(OpenSubtitles), Simkl, subida de crashes, OTA, y la trivia (excepción permanente).
+
 ## Global Constraints
 
 - No tocar el pipeline de reproducción existente (`MagisExoPlayer.kt`, `LiveExoPlayer.kt`, `LiveHlsProxy.kt`) — solo cambia quién les entrega la URL/headers.
@@ -37,7 +73,7 @@
 **Interfaces:**
 - Produces: `MagisCrypto.encryptBody(plain: String): String`, `MagisCrypto.decryptBlob(wire: String): String` — usadas por Task 2. `TweakedMd5.digestHex(msg: ByteArray): String` — usada por `Sign2`. `Sign2.signO3(token: String, startMomentMs: Long): String` — usada por Task 6 (`MagisLive`).
 
-- [ ] **Step 1: Agregar los `buildConfigField` en `app/build.gradle.kts`**
+- [x] **Step 1: Agregar los `buildConfigField` en `app/build.gradle.kts`**
 
 Junto a `ADULT_CODE`/`NUC_API_KEY` (líneas ~25-30 del archivo actual):
 ```kotlin
@@ -48,7 +84,7 @@ buildConfigField("String", "IPTV_APK_VERSION", "\"${readEnv("IPTV_APK_VERSION")}
 buildConfigField("String", "TMDB_API_KEY", "\"${readEnv("API_KEY")}\"")
 ```
 
-- [ ] **Step 2: Escribir el test que falla — `Sign2Test.kt`**
+- [x] **Step 2: Escribir el test que falla — `Sign2Test.kt`**
 
 Estos son los 5 vectores capturados de la app real de Magis en producción (arkiv-api,
 `tests/test_magis_sign_o3.py`) — son el criterio de aceptación, no valores inventados:
@@ -84,12 +120,12 @@ aparecen en `tests/test_magis_sign_o3.py` y copiarlos literal** — no asumir 32
 Si el algoritmo portado da 32 chars en vez de 33 (o viceversa) contra estos vectores, es señal de
 un error en el port, no en el vector.
 
-- [ ] **Step 3: Correr el test para confirmar que falla**
+- [x] **Step 3: Correr el test para confirmar que falla**
 
 Run: `./gradlew :app:testDebugUnitTest --tests "com.arkiv.player.data.magis.Sign2Test"`
 Expected: FAIL (`Sign2`/`TweakedMd5` no existen todavía)
 
-- [ ] **Step 4: Implementar `TweakedMd5.kt`**
+- [x] **Step 4: Implementar `TweakedMd5.kt`**
 
 Puerto directo de `/Users/cristian/arkiv-api/src/arkiv_api/adapters/magis/tweaked_md5.py` (léelo
 para el porqué de cada constante — es MD5 estándar con 2 modificaciones: el message-schedule de la
@@ -210,7 +246,7 @@ private val G: IntArray = ROUND1_SCHEDULE +
 }
 ```
 
-- [ ] **Step 5: Implementar `Sign2.kt`**
+- [x] **Step 5: Implementar `Sign2.kt`**
 
 Puerto exacto de `sign_o3.py`:
 ```kotlin
@@ -231,14 +267,14 @@ internal object Sign2 {
 }
 ```
 
-- [ ] **Step 6: Correr el test hasta que pase**
+- [x] **Step 6: Correr el test hasta que pase**
 
 Run: `./gradlew :app:testDebugUnitTest --tests "com.arkiv.player.data.magis.Sign2Test"`
 Expected: PASS. Si falla, revisar primero la tabla `K` y el `G` schedule contra `tweaked_md5.py`
 carácter por carácter antes de sospechar de otra cosa — es la parte con más superficie de error al
 transcribir.
 
-- [ ] **Step 7: Escribir el test de `MagisCrypto` — vector real verificado independientemente**
+- [x] **Step 7: Escribir el test de `MagisCrypto` — vector real verificado independientemente**
 
 ```kotlin
 package com.arkiv.player.data.magis
@@ -268,12 +304,12 @@ class MagisCryptoTest {
 }
 ```
 
-- [ ] **Step 8: Correr el test para confirmar que falla**
+- [x] **Step 8: Correr el test para confirmar que falla**
 
 Run: `./gradlew :app:testDebugUnitTest --tests "com.arkiv.player.data.magis.MagisCryptoTest"`
 Expected: FAIL (`MagisCrypto` no existe)
 
-- [ ] **Step 9: Implementar `MagisCrypto.kt`**
+- [x] **Step 9: Implementar `MagisCrypto.kt`**
 
 ```kotlin
 package com.arkiv.player.data.magis
@@ -322,12 +358,12 @@ lo soporta) y evita el problema de testing. Confirmar cuál de los dos ya usa el
 para `Base64` (buscar con `grep -rn "util.Base64" app/src/main`) y seguir esa convención si ya hay
 una.
 
-- [ ] **Step 10: Correr los tests hasta que pasen**
+- [x] **Step 10: Correr los tests hasta que pasen**
 
 Run: `./gradlew :app:testDebugUnitTest --tests "com.arkiv.player.data.magis.*"`
 Expected: PASS (los 2 archivos de test)
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
 ```bash
 command git add app/build.gradle.kts app/src/main/java/com/arkiv/player/data/magis/MagisCrypto.kt app/src/main/java/com/arkiv/player/data/magis/TweakedMd5.kt app/src/main/java/com/arkiv/player/data/magis/Sign2.kt app/src/test/java/com/arkiv/player/data/magis/MagisCryptoTest.kt app/src/test/java/com/arkiv/player/data/magis/Sign2Test.kt
@@ -369,7 +405,7 @@ de errores) está en `/Users/cristian/arkiv-api/src/arkiv_api/adapters/magis/ven
 (clase `IPTVClient`, método `call`). Léelo antes de escribir esta tarea — está copiado casi literal
 abajo, pero el archivo real tiene el contexto completo si algo no queda claro.
 
-- [ ] **Step 1: Escribir `MagisResult.kt`**
+- [x] **Step 1: Escribir `MagisResult.kt`**
 
 ```kotlin
 package com.arkiv.player.data.magis
@@ -381,7 +417,7 @@ internal sealed class MagisResult<out T> {
 }
 ```
 
-- [ ] **Step 2: Escribir el test que falla — failover de host**
+- [x] **Step 2: Escribir el test que falla — failover de host**
 
 ```kotlin
 package com.arkiv.player.data.magis
@@ -447,12 +483,12 @@ class MagisPortalClientTest {
 si el host de test no tiene puerto explícito de HTTPS; lo más simple es agregar un parámetro
 `scheme: String = "https"` al constructor, con el test pasando `"http"`.)
 
-- [ ] **Step 3: Correr el test para confirmar que falla**
+- [x] **Step 3: Correr el test para confirmar que falla**
 
 Run: `./gradlew :app:testDebugUnitTest --tests "com.arkiv.player.data.magis.MagisPortalClientTest"`
 Expected: FAIL (`MagisPortalClient` no existe)
 
-- [ ] **Step 4: Implementar `MagisPortalClient.kt`**
+- [x] **Step 4: Implementar `MagisPortalClient.kt`**
 
 Puerto de `vendor/iptv_client.py:116-158` (dict de `device`, headers, `call()` con failover). El
 dict de `device` real (usar EXACTAMENTE estos campos y valores fijos, solo `apkVersion`/`appId`/
@@ -492,12 +528,12 @@ private fun headers(): Map<String, String> = mapOf(
 5. Aplicar el ritmo mínimo entre llamadas (~400ms) con un `Mutex` + marca de tiempo de la última
    llamada — dormir la diferencia si hace falta antes de cada request.
 
-- [ ] **Step 5: Correr los tests hasta que pasen**
+- [x] **Step 5: Correr los tests hasta que pasen**
 
 Run: `./gradlew :app:testDebugUnitTest --tests "com.arkiv.player.data.magis.MagisPortalClientTest"`
 Expected: PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 command git add app/src/main/java/com/arkiv/player/data/magis/MagisPortalClient.kt app/src/main/java/com/arkiv/player/data/magis/MagisResult.kt app/src/test/java/com/arkiv/player/data/magis/MagisPortalClientTest.kt
@@ -528,7 +564,7 @@ command git commit -m "feat(light): transporte HTTP directo al portal de Magis (
   Usado por Tasks 4, 5, 6. También produce `MagisCredentialStore` (interfaz) — usada por
   `FakeCredentialStore` en las fixtures.
 
-- [ ] **Step 1: Escribir `MagisTestFixtures.kt`** (antes que el test, porque el test lo importa)
+- [x] **Step 1: Escribir `MagisTestFixtures.kt`** (antes que el test, porque el test lo importa)
 
 ```kotlin
 package com.arkiv.player.data.magis
@@ -589,7 +625,7 @@ internal fun sesionDeTestSinCuenta(fake: FakePortalClient = FakePortalClient()):
 (`SesionGuardada` es el data class que produce `MagisCredentialStore.leerSesion()` — definirlo en
 `MagisCredentialStore.kt`, Step 3 de abajo, antes de escribir este archivo de fixtures.)
 
-- [ ] **Step 2: Escribir el test que falla — `MagisSessionTest.kt`**
+- [x] **Step 2: Escribir el test que falla — `MagisSessionTest.kt`**
 
 Vector de contraseña calculado independientemente (`md5("MiClaveMagis123" + "cloudstream")` con la
 utilidad `md5` de macOS, no con el propio código bajo test). Vector de `sn` calculado igual
@@ -637,12 +673,12 @@ class MagisSessionTest {
 }
 ```
 
-- [ ] **Step 3: Correr el test para confirmar que falla**
+- [x] **Step 3: Correr el test para confirmar que falla**
 
 Run: `./gradlew :app:testDebugUnitTest --tests "com.arkiv.player.data.magis.MagisSessionTest"`
 Expected: FAIL
 
-- [ ] **Step 4: Implementar `MagisCredentialStore.kt`**
+- [x] **Step 4: Implementar `MagisCredentialStore.kt`**
 
 ```kotlin
 package com.arkiv.player.data.magis
@@ -670,7 +706,7 @@ más `email`/`password` de la cuenta (si hay) como claves separadas del mismo
 `EncryptedSharedPreferences` (no hace falta cifrar dos veces, `EncryptedSharedPreferences` ya cifra
 todo el archivo).
 
-- [ ] **Step 5: Implementar `MagisSession.kt`**
+- [x] **Step 5: Implementar `MagisSession.kt`**
 
 Puerto de `vendor/iptv_client.py:161-234` (`activate`, `new_anonymous_device`, `login`), con la
 lógica de reintento-tras-reautenticar de `session.py` (ver spec, sección `MagisSession`):
@@ -690,12 +726,12 @@ lógica de reintento-tras-reautenticar de `session.py` (ver spec, sección `Magi
   `ensureAnonymous()` de nuevo) y reintenta `bloque()` UNA vez más. Tasks 4/5/6 envuelven sus
   llamadas con esto.
 
-- [ ] **Step 6: Correr los tests hasta que pasen**
+- [x] **Step 6: Correr los tests hasta que pasen**
 
 Run: `./gradlew :app:testDebugUnitTest --tests "com.arkiv.player.data.magis.MagisSessionTest"`
 Expected: PASS
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 command git add app/src/main/java/com/arkiv/player/data/magis/MagisSession.kt app/src/main/java/com/arkiv/player/data/magis/MagisCredentialStore.kt app/src/test/java/com/arkiv/player/data/magis/MagisTestFixtures.kt app/src/test/java/com/arkiv/player/data/magis/MagisSessionTest.kt
@@ -724,7 +760,7 @@ Endpoints exactos (`vendor/iptv_client.py:294-348`):
 - `v3/searchByName` → `{"value": query, "type": "0", "columnId": "", "filter": "", "pageNum": 1, "pageSize": 20}`
 - `v4/getItemData` → `{"contentId": contentId, "type": tipo, "sortType": "0", "language": "en", "macAddr": "02:00:00:00:00:00"}` (`tipo`: `"1"` película, `"0"` serie)
 
-- [ ] **Step 1: Escribir el test que falla**
+- [x] **Step 1: Escribir el test que falla**
 
 ```kotlin
 package com.arkiv.player.data.magis
@@ -757,20 +793,20 @@ class MagisCatalogTest {
 `MagisCatalog` para que, si algún test futuro llega a disparar `conSesionValida`'s reintento, la
 sesión reautentique contra el mismo fake cuyas llamadas se están inspeccionando.)
 
-- [ ] **Step 2: Correr el test para confirmar que falla**
+- [x] **Step 2: Correr el test para confirmar que falla**
 
 Run: `./gradlew :app:testDebugUnitTest --tests "com.arkiv.player.data.magis.MagisCatalogTest"`
 Expected: FAIL
 
-- [ ] **Step 3: Implementar `MagisCatalog.kt`** con los 4 métodos de arriba, cada uno envuelto en
+- [x] **Step 3: Implementar `MagisCatalog.kt`** con los 4 métodos de arriba, cada uno envuelto en
 `session.conSesionValida { ... }` (Task 3) para el reintento automático.
 
-- [ ] **Step 4: Correr el test hasta que pase**
+- [x] **Step 4: Correr el test hasta que pase**
 
 Run: `./gradlew :app:testDebugUnitTest --tests "com.arkiv.player.data.magis.MagisCatalogTest"`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 command git add app/src/main/java/com/arkiv/player/data/magis/MagisCatalog.kt app/src/test/java/com/arkiv/player/data/magis/MagisCatalogTest.kt
@@ -795,7 +831,7 @@ command git commit -m "feat(light): catalogo/busqueda/detalle directo de Magis"
 **Contexto exacto** (spec, sección `MagisResolve`; código fuente en `adapter.py:433-536,773-851`
 de arkiv-api si hace falta más detalle del que sigue):
 
-- [ ] **Step 1: Escribir el test que falla — construcción de URL+headers**
+- [x] **Step 1: Escribir el test que falla — construcción de URL+headers**
 
 ```kotlin
 package com.arkiv.player.data.magis
@@ -836,12 +872,12 @@ class MagisResolveTest {
 (`FakePortalClient.encolarRespuesta(path, resultado)` viene de `MagisTestFixtures.kt`, Task 3 —
 cada `path` tiene su propia cola de respuestas en orden.)
 
-- [ ] **Step 2: Correr el test para confirmar que falla**
+- [x] **Step 2: Correr el test para confirmar que falla**
 
 Run: `./gradlew :app:testDebugUnitTest --tests "com.arkiv.player.data.magis.MagisResolveTest"`
 Expected: FAIL
 
-- [ ] **Step 3: Implementar `MagisResolve.kt`**
+- [x] **Step 3: Implementar `MagisResolve.kt`**
 
 1. Si `seriesContentId != null`: llamar `getItemData` para encontrar el episodio (o recibir el
    `contentId` de episodio ya resuelto desde quien llama — definir esto al cablear en Task 8 según
@@ -860,12 +896,12 @@ Expected: FAIL
    `videoFormat == "ts"`, si no `"mp4"`), `headers = mapOf("Content-Auth" to auth, "Content-License" to license, "User-Agent" to "Ranger/4.9.4-17294ac0", "App" to BuildConfig.IPTV_APP_ID, "App-Version" to BuildConfig.IPTV_APK_VERSION)`.
 6. Envolver todo en `session.conSesionValida { ... }`.
 
-- [ ] **Step 4: Correr el test hasta que pase**
+- [x] **Step 4: Correr el test hasta que pase**
 
 Run: `./gradlew :app:testDebugUnitTest --tests "com.arkiv.player.data.magis.MagisResolveTest"`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 command git add app/src/main/java/com/arkiv/player/data/magis/MagisResolve.kt app/src/test/java/com/arkiv/player/data/magis/MagisResolveTest.kt
@@ -892,7 +928,7 @@ command git commit -m "feat(light): resolucion VOD directa de Magis (url + heade
 debe devolver un `MagisResult.PortalError` claro si `session.hasAccountLinked` es `false`, sin
 llegar a llamar al portal (mismo patrón de "guard" que documenta el spec para VOD sin token).
 
-- [ ] **Step 1: Escribir el test que falla — emparejamiento playCode↔license**
+- [x] **Step 1: Escribir el test que falla — emparejamiento playCode↔license**
 
 Este es el bug de producción documentado en el spec: nunca cruzar el `playCode` de una entrada con
 el `license` de otra.
@@ -948,12 +984,12 @@ class MagisLiveTest {
 }
 ```
 
-- [ ] **Step 2: Correr el test para confirmar que falla**
+- [x] **Step 2: Correr el test para confirmar que falla**
 
 Run: `./gradlew :app:testDebugUnitTest --tests "com.arkiv.player.data.magis.MagisLiveTest"`
 Expected: FAIL
 
-- [ ] **Step 3: Implementar `MagisLive.kt`**
+- [x] **Step 3: Implementar `MagisLive.kt`**
 
 1. Guard: si `!session.hasAccountLinked`, devolver error propio sin llamar al portal.
 2. `v4/startPlayLive` con `{"channelCode": channelCode, "columnId": 0, "type": "1"}` →
@@ -980,12 +1016,12 @@ Expected: FAIL
    `LiveHlsProxy` ya maneja reintentos hoy (puede que ya tenga su propio mecanismo y no haga falta
    duplicarlo acá — revisar antes de construir algo nuevo).
 
-- [ ] **Step 4: Correr el test hasta que pase**
+- [x] **Step 4: Correr el test hasta que pase**
 
 Run: `./gradlew :app:testDebugUnitTest --tests "com.arkiv.player.data.magis.MagisLiveTest"`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 command git add app/src/main/java/com/arkiv/player/data/magis/MagisLive.kt app/src/test/java/com/arkiv/player/data/magis/MagisLiveTest.kt
@@ -1006,24 +1042,24 @@ command git commit -m "feat(light): canal en vivo directo de Magis (playCode/lic
 `seasonEpisodes`, `images`, etc.) — solo cambia la implementación interna (base URL + key), no el
 contrato.
 
-- [ ] **Step 1: Leer el `TmdbApi.kt` actual completo** para confirmar el contrato exacto a
+- [x] **Step 1: Leer el `TmdbApi.kt` actual completo** para confirmar el contrato exacto a
 preservar (parámetros, tipos de retorno, manejo de errores).
 
-- [ ] **Step 2: Reescribir la construcción de la URL base y la autenticación**
+- [x] **Step 2: Reescribir la construcción de la URL base y la autenticación**
 
 De: `base = "${gatewayUrl()}/v1/catalog/tmdb"` con headers `Authorization`/`X-Arkiv-Device`.
 A: `base = "https://api.themoviedb.org/3"`, agregando `api_key=BuildConfig.TMDB_API_KEY` como
 query param a cada request (API v3 — no el bearer token v4, para no depender de un segundo
 secreto). Sin headers de sesión.
 
-- [ ] **Step 3: Compilar y correr los tests existentes de `TmdbApi`**
+- [x] **Step 3: Compilar y correr los tests existentes de `TmdbApi`**
 
 Run: `./gradlew :app:compileDebugKotlin && ./gradlew :app:testDebugUnitTest --tests "*Tmdb*"`
 Expected: BUILD SUCCESSFUL, tests existentes en verde (adaptar si asumían la forma del gateway en
 vez de la de TMDB directo — el *shape* de los datos que devuelve TMDB no cambia, solo cómo se
 llega a ellos).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 command git add app/src/main/java/com/arkiv/player/data/gateway/TmdbApi.kt
