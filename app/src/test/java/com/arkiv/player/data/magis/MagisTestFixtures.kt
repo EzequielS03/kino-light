@@ -5,6 +5,10 @@ import org.json.JSONObject
 /** Cola de respuestas por endpoint -- cada llamada a ese `path` consume la siguiente de su cola. */
 internal class FakePortalClient : MagisPortalClientLike {
     val llamadas = mutableListOf<Pair<String, Map<String, Any?>>>()
+
+    /** La sesión (userId, userToken) con la que viajó cada llamada, en el mismo orden que
+     *  [llamadas] -- para afirmar que un reintento usa el token NUEVO, no el que ya murió. */
+    val sesiones = mutableListOf<Pair<String, String>>()
     private val colasPorPath = mutableMapOf<String, ArrayDeque<MagisResult<JSONObject>>>()
     var respuestaPorDefecto: MagisResult<JSONObject> = MagisResult.Ok(JSONObject())
 
@@ -23,6 +27,7 @@ internal class FakePortalClient : MagisPortalClientLike {
         userToken: String,
     ): MagisResult<JSONObject> {
         llamadas.add(path to bean)
+        sesiones.add(userId to userToken)
         val cola = colasPorPath[path]
         return if (cola != null && cola.isNotEmpty()) cola.removeFirst() else respuestaPorDefecto
     }
