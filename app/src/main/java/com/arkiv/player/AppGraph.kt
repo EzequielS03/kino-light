@@ -312,11 +312,8 @@ class AppGraph(context: Context) {
     }
     val tmdbApi: TmdbApi by lazy {
         TmdbApi(
-            gatewayUrl = { settings.gatewayUrl.value },
             language = "es-MX",
             client = httpGatewayCorto,
-            personToken = { sesionDePersona.token() },
-            deviceToken = { deviceAuth.session.value?.token },
         )
     }
     val subtitleApi: com.arkiv.player.data.subtitles.SubtitleApi by lazy {

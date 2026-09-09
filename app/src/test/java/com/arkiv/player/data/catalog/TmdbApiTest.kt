@@ -11,10 +11,9 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Task 8: [TmdbApi] no tenía test propio (solo [TmdbSearchMultiTest], que ejercita el parseo de
- * `/search/multi` sin mirar cabeceras). Este archivo cubre exclusivamente lo que sumó el Paso 2
- * (Authorization + X-Arkiv-Device) y lo que sacó el Paso 3 (`X-Arkiv-Key`) -- no una suite
- * completa de [TmdbApi], que está fuera de alcance.
+ * Cubre cómo [TmdbApi] autentica ahora que habla DIRECTO con TMDB (sub-proyecto 2A): la llave va
+ * como parámetro de query y ya no viaja ninguna cabecera de sesión, porque no hay gateway del otro
+ * lado al que autenticarse. No pretende ser una suite completa de [TmdbApi].
  */
 class TmdbApiTest {
     private lateinit var server: MockWebServer
@@ -27,45 +26,51 @@ class TmdbApiTest {
     @After
     fun tearDown() = server.shutdown()
 
-    private fun api(personTok: String? = null, deviceTok: String? = null) = TmdbApi(
-        gatewayUrl = { server.url("/").toString().trimEnd('/') },
+    private fun api() = TmdbApi(
+        apiKey = "llave-de-test",
+        baseUrl = server.url("/3").toString().trimEnd('/'),
         client = OkHttpClient(),
-        personToken = { personTok },
-        deviceToken = { deviceTok },
     )
 
     @Test
-    fun `manda Authorization y X-Arkiv-Device cuando hay sesion`() = runBlocking {
+    fun `la llave y el idioma van en la query`() = runBlocking {
         server.enqueue(MockResponse().setBody("""{"results":[]}"""))
-        api(personTok = "person-tok", deviceTok = "device-tok").browse("movie", 1)
-        val req = server.takeRequest()
-        assertEquals("person-tok", req.getHeader("Authorization"))
-        assertEquals("device-tok", req.getHeader("X-Arkiv-Device"))
-    }
 
-    // Task 8 (Paso 3): `X-Arkiv-Key` salió del todo -- confirma que el corte fue real.
-    @Test
-    fun `nunca manda X-Arkiv-Key`() = runBlocking {
-        server.enqueue(MockResponse().setBody("""{"results":[]}"""))
-        api(personTok = "person-tok", deviceTok = "device-tok").browse("movie", 1)
-        assertNull(server.takeRequest().getHeader("X-Arkiv-Key"))
-    }
-
-    @Test
-    fun `sin sesion no manda Authorization ni X-Arkiv-Device (nunca cabeceras vacias)`() = runBlocking {
-        server.enqueue(MockResponse().setBody("""{"results":[]}"""))
         api().browse("movie", 1)
-        val req = server.takeRequest()
-        assertNull(req.getHeader("Authorization"))
-        assertNull(req.getHeader("X-Arkiv-Device"))
+
+        val pedido = server.takeRequest()
+        assertEquals("llave-de-test", pedido.requestUrl?.queryParameter("api_key"))
+        assertEquals("es-MX", pedido.requestUrl?.queryParameter("language"))
+        assertEquals("/3/movie/popular", pedido.requestUrl?.encodedPath)
     }
 
     @Test
-    fun `un token en blanco tambien se omite, no se manda vacio`() = runBlocking {
+    fun `no viaja ninguna cabecera de sesion del gateway`() = runBlocking {
         server.enqueue(MockResponse().setBody("""{"results":[]}"""))
-        api(personTok = "", deviceTok = "   ").browse("movie", 1)
-        val req = server.takeRequest()
-        assertNull(req.getHeader("Authorization"))
-        assertNull(req.getHeader("X-Arkiv-Device"))
+
+        api().browse("movie", 1)
+
+        val pedido = server.takeRequest()
+        assertNull(pedido.getHeader("Authorization"))
+        assertNull(pedido.getHeader("X-Arkiv-Device"))
+        assertNull(pedido.getHeader("X-Arkiv-Key"))
+    }
+
+    @Test
+    fun `la busqueda manda la llave y no pide contenido adulto`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"results":[]}"""))
+
+        api().search("movie", "batman")
+
+        val url = server.takeRequest().requestUrl!!
+        assertEquals("llave-de-test", url.queryParameter("api_key"))
+        assertEquals("batman", url.queryParameter("query"))
+        assertEquals("false", url.queryParameter("include_adult"))
+    }
+
+    @Test
+    fun `por defecto apunta a TMDB, no a ningun servidor propio`() {
+        // La base se fija en el build y no es configurable desde Ajustes, como la llave.
+        assertEquals("https://api.themoviedb.org/3", TmdbApi.BASE_TMDB)
     }
 }

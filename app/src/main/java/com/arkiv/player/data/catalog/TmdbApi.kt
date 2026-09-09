@@ -2,6 +2,7 @@ package com.arkiv.player.data.catalog
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.arkiv.player.BuildConfig
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
@@ -113,27 +114,24 @@ data class TmdbDetail(
 
 /**
  * Metadata de películas y series vía TMDB, en **español latino (es-MX)**: da títulos, sinopsis,
- * temporadas y capítulos en español, además del título original — que usamos ambos para buscar
- * torrents (los releases latino a veces conservan el nombre en inglés).
+ * temporadas y capítulos en español, además del título original.
+ *
+ * Habla DIRECTO con `api.themoviedb.org` (sub-proyecto 2A): antes era un passthrough por
+ * `/v1/catalog/tmdb` del gateway, que era quien ponía la llave.
  */
 class TmdbApi(
-    /** Base del gateway. La llave de TMDB vive en el servidor. */
-    private val gatewayUrl: () -> String,
+    /** Llave v3 de TMDB, embebida en el build de esta rama (`API_KEY` del `.env`). Se usa la v3 y
+     *  no el bearer v4 para no depender de un segundo secreto. */
+    private val apiKey: String = BuildConfig.TMDB_API_KEY,
     private val language: String = "es-MX",
+    /** Parametrizable solo para los tests: producción habla con TMDB. */
+    private val baseUrl: String = BASE_TMDB,
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build(),
-    /** Token de sesión de la PERSONA, misma fuente que ya usa `CuentaApi` para `Authorization`
-     *  (`SesionDePersona.token()`). Task 8 (Paso 3): `X-Arkiv-Key` salió del todo -- ver KDoc del
-     *  mismo parámetro en `ArkivApiClient`. */
-    private val personToken: () -> String? = { null },
-    /** Token del APARATO que llama, misma fuente que ya usa `CuentaApi` para `X-Arkiv-Device`
-     *  (`DeviceAuthManager.session.value?.token`): `require_sesion` exige las dos juntas. */
-    private val deviceToken: () -> String? = { null },
 ) {
-    // Passthrough del gateway: la ruta y los parámetros de TMDB no cambian, solo el host.
-    private val base: String get() = "${gatewayUrl()}/v1/catalog/tmdb"
+    private val base: String get() = baseUrl
 
     /** Busca títulos. type: "movie" | "tv". */
     suspend fun search(type: String, query: String, page: Int = 1): List<TmdbItem> {
@@ -325,24 +323,21 @@ class TmdbApi(
         )
     }
 
-    // Solo el idioma: la `api_key` la pone el gateway, que es donde vive.
-    private val auth get() = "language=$language"
+    /** La llave va como parámetro de query, que es como autentica la API v3 de TMDB. Antes acá
+     *  iba solo el idioma porque la llave la ponía el gateway; en esta rama no hay gateway. */
+    private val auth get() = "api_key=$apiKey&language=$language"
     // Delega en el helper de arriba: una sola definición de la base de imágenes para la clase y
     // para el parseo puro.
     private fun imgUrl(path: String?, size: String): String = tmdbImgUrl(path, size)
     private fun enc(s: String) = java.net.URLEncoder.encode(s, "UTF-8").replace("+", "%20")
 
-    private fun pedido(url: String): Request.Builder {
-        val b = Request.Builder().url(url)
-        // Sin sesión/aparato todavía (null o vacío) se omiten las cabeceras -- mandarlas vacías
-        // sería peor que no mandarlas (ver ArkivApiClient.pedido).
-        personToken()?.takeIf { it.isNotBlank() }?.let { b.header("Authorization", it) }
-        deviceToken()?.takeIf { it.isNotBlank() }?.let { b.header("X-Arkiv-Device", it) }
-        return b
+    companion object {
+        /** No es configurable desde Ajustes: la base se fija en el build, como la llave. */
+        const val BASE_TMDB = "https://api.themoviedb.org/3"
     }
 
     private fun get(url: String): String? = runCatching {
-        client.newCall(pedido(url).build()).execute().use {
+        client.newCall(Request.Builder().url(url).build()).execute().use {
             if (it.isSuccessful) it.body?.string() else null
         }
     }.getOrNull()
