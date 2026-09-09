@@ -22,6 +22,16 @@ internal sealed class MagisResult<out T> {
      */
     fun dato(): T? = if (this is Ok<T>) data else null
 
+    /**
+     * Re-tipa un resultado que NO es [Ok] para poder devolverlo desde una función que produce otra
+     * cosa. Falla a propósito si se usa sobre un [Ok]: ahí hay un dato que alguien está tirando.
+     */
+    fun <R> comoError(): MagisResult<R> = when (this) {
+        is PortalError -> this
+        is RedError -> this
+        is Ok<T> -> error("comoError() sobre un Ok: el dato se estaba descartando")
+    }
+
     /** Mapea el dato conservando el error tal cual — para que las capas de arriba (catálogo,
      *  resolución) traduzcan JSON a sus modelos sin repetir el `when` de los tres casos. */
     inline fun <R> map(transform: (T) -> R): MagisResult<R> = when (this) {
