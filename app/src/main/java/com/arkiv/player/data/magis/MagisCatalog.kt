@@ -69,7 +69,7 @@ internal class MagisCatalog(
     private suspend fun pedir(path: String, bean: Map<String, Any?>): MagisResult<JSONObject> {
         // Sin token el portal contesta un error que no se puede diagnosticar ("请求参数异常！"),
         // así que primero hay que tener sesión — con token vigente esto no toca la red.
-        val sesion = session.ensureAnonymous()
+        val sesion = session.ensureSession()
         if (sesion !is MagisResult.Ok) return sesion.comoError()
         return session.conSesionValida {
             portal.call(

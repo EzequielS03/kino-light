@@ -3,7 +3,6 @@ package com.arkiv.player.data.magis
 import com.arkiv.player.BuildConfig
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.json.JSONArray
 import org.json.JSONObject
 
 internal data class MagisSubtitulo(val lang: String, val url: String, val formato: String)
@@ -54,7 +53,7 @@ internal class MagisResolve(
         contentId: String,
         seriesContentId: String? = null,
     ): MagisResult<MagisPlayable> {
-        val sesion = session.ensureAnonymous()
+        val sesion = session.ensureSession()
         if (sesion !is MagisResult.Ok) return sesion.comoError()
 
         val play = session.conSesionValida {
@@ -121,8 +120,8 @@ internal class MagisResolve(
     private fun mejorMedia(play: JSONObject): JSONObject? {
         val episodio = play.optJSONArray("episodeList")?.optJSONObject(0) ?: return null
         val candidatos = mutableListOf<JSONObject>()
-        episodio.optJSONArray("totalMovieList")?.forEach { tm ->
-            tm.optJSONArray("movieList")?.forEach { candidatos.add(it) }
+        episodio.optJSONArray("totalMovieList")?.forEachObjeto { tm ->
+            tm.optJSONArray("movieList")?.forEachObjeto { candidatos.add(it) }
         }
         return candidatos.minByOrNull { m ->
             val codec = if (m.optString("encodeFormat").lowercase() == "h264") 0 else 2
@@ -135,9 +134,9 @@ internal class MagisResolve(
     private fun subtitulos(play: JSONObject): List<MagisSubtitulo> {
         val episodio = play.optJSONArray("episodeList")?.optJSONObject(0) ?: return emptyList()
         val salida = mutableListOf<MagisSubtitulo>()
-        episodio.optJSONArray("subtitleList")?.forEach { sub ->
-            val archivo = sub.optJSONArray("file")?.optJSONObject(0) ?: return@forEach
-            val url = archivo.optString("url").takeIf { it.isNotBlank() } ?: return@forEach
+        episodio.optJSONArray("subtitleList")?.forEachObjeto { sub ->
+            val archivo = sub.optJSONArray("file")?.optJSONObject(0) ?: return@forEachObjeto
+            val url = archivo.optString("url").takeIf { it.isNotBlank() } ?: return@forEachObjeto
             salida.add(
                 MagisSubtitulo(
                     lang = sub.optString("language"),
@@ -153,12 +152,12 @@ internal class MagisResolve(
 
     /** El CDN de VOD y el `Content-Auth` del tier libre. */
     private fun cdnDeVod(slb: JSONObject): CdnVod? {
-        slb.optJSONArray("cdn_list")?.forEach { cdn ->
-            if (cdn.optString("tag") != "vod") return@forEach
-            cdn.optJSONArray("url_list")?.forEach { u ->
+        slb.optJSONArray("cdn_list")?.forEachObjeto { cdn ->
+            if (cdn.optString("tag") != "vod") return@forEachObjeto
+            cdn.optJSONArray("url_list")?.forEachObjeto { u ->
                 val url = u.optString("url")
-                val esCfl = esCfl(url) || u.optString("sign_type") == "cfl"
-                if (esCfl && u.optString("tag") == "free") {
+                val sirve = esCfl(url) || u.optString("sign_type") == "cfl"
+                if (sirve && u.optString("tag") == "free") {
                     return CdnVod(base = conEsquema(cdn.optString("main_addr")), auth = url)
                 }
             }
@@ -179,18 +178,7 @@ internal class MagisResolve(
         val r = session.conSesionValida {
             portal.call(
                 path = "v14/getSlbInfo",
-                bean = mapOf(
-                    "hasPay" to "0",
-                    "userIdentity" to "1",
-                    "type" to "merge",
-                    "appVer" to apkVersion,
-                    "lang" to "es",
-                    "encMediaSupported" to 1,
-                    "liveCodeList" to JSONArray(listOf("masnew_live")),
-                    "appParams" to "",
-                    "reserve1" to "02:00:00:00:00:00",
-                    "pipFlag" to "0",
-                ),
+                bean = beanDeSlb(apkVersion),
                 userId = session.userId,
                 userToken = session.userToken,
             )
@@ -223,16 +211,6 @@ internal class MagisResolve(
         return minOf(declarada, expira - ahoraMs() / 1000 - MARGEN_AUTH_S)
     }
 
-    /**
-     * `main_addr` llega con esquema en producción, pero no siempre: sin esto, un host pelado arma
-     * una URL que el reproductor no abre (y el fallo aparece lejos de acá).
-     */
-    private fun conEsquema(mainAddr: String): String {
-        val limpio = mainAddr.trimEnd('/')
-        return if (limpio.startsWith("http://") || limpio.startsWith("https://")) limpio
-        else "https://$limpio"
-    }
-
     private companion object {
         const val UA_CDN = "Ranger/4.9.4-17294ac0"
 
@@ -240,16 +218,6 @@ internal class MagisResolve(
         const val TTL_SLB_S = 300L
         const val MARGEN_AUTH_S = 300L
         val EXPIRED = Regex("""expired=(\d+)""")
-
-        /**
-         * `sign_type=cfl` exacto, no un prefijo parecido como `cflx`. El campo `url` de `getSlbInfo`
-         * NO es una URL: es un querystring suelto, sin esquema ni `?` (ej.
-         * `cdn_type=1&sign_type=cfl&token=ABC`), así que parsearlo como URL no encuentra nunca el
-         * parámetro y ninguna entrada matchea.
-         */
-        fun esCfl(url: String): Boolean = url.substringAfterLast('?')
-            .split('&')
-            .any { it.trim() == "sign_type=cfl" }
 
         /** "HH:MM:SS", "MM:SS" o los segundos pelados. Cualquier otra cosa vale 0: para pintar la
          *  barra es mejor no tener duración —la app sondea los PCR— que tener una inventada. */
@@ -264,9 +232,4 @@ internal class MagisResolve(
             return segundos * 1000
         }
     }
-}
-
-/** Recorrer un `JSONArray` de objetos sin escribir el índice a mano en cada lugar. */
-private inline fun JSONArray.forEach(accion: (JSONObject) -> Unit) {
-    for (i in 0 until length()) optJSONObject(i)?.let(accion)
 }

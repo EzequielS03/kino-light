@@ -40,6 +40,26 @@ internal class MagisSession(
     /** Solo el email: la clave guardada es para relogar sola, no para mostrarla ni pasearla. */
     fun emailVinculado(): String? = store.leerCuenta()?.first
 
+    /**
+     * Deja el aparato con la MEJOR sesión que pueda tener: la de la cuenta vinculada si hay una, y
+     * si no la anónima. No-op si ya hay token.
+     *
+     * La diferencia con [ensureAnonymous] importa para el canal en vivo: el portal lo rechaza con
+     * sesión anónima, así que un aparato con cuenta vinculada que cayera a anónimo quedaría sin
+     * vivo y sin explicación. Es el mismo orden de precedencia que usa el gateway en `client()`.
+     */
+    suspend fun ensureSession(): MagisResult<Unit> = candado.withLock {
+        if (!store.leerSesion()?.userToken.isNullOrBlank()) return@withLock MagisResult.Ok(Unit)
+        val cuenta = store.leerCuenta()
+        if (cuenta != null) {
+            val r = loguearSinCandado(cuenta.first, cuenta.second)
+            // Credencial rechazada o portal caído: se sirve anónimo antes que no servir nada. Quien
+            // necesite cuenta de verdad (el vivo) lo chequea con `hasAccountLinked`.
+            if (r is MagisResult.Ok) return@withLock r
+        }
+        asegurarAnonimoSinCandado()
+    }
+
     /** Deja el aparato con una sesión usable sin pedirle cuenta a nadie. No-op si ya hay token. */
     suspend fun ensureAnonymous(): MagisResult<Unit> = candado.withLock { asegurarAnonimoSinCandado() }
 
