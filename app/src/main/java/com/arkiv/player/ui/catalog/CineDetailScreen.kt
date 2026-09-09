@@ -1,38 +1,27 @@
 package com.arkiv.player.ui.catalog
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
@@ -51,12 +40,9 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.arkiv.player.data.db.DownloadRow
 import com.arkiv.player.data.local.AccionDeDescarga
-import com.arkiv.player.ui.components.DescargaDeFila
 import com.arkiv.player.ui.components.DialogoDeDescarga
 import com.arkiv.player.data.catalog.TmdbDetail
 import com.arkiv.player.data.catalog.TmdbEpisode
-import kotlinx.coroutines.Job
-import com.arkiv.player.ui.esTabletHorizontal
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivBlack
 import com.arkiv.player.ui.theme.ArkivRed
@@ -64,7 +50,16 @@ import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Ficha de una película/serie de TMDB (browse-only): título, sinopsis, temporadas y capítulos.
+ *
+ * Ya no ofrece reproducir desde acá — "Buscar fuentes" abría un panel que solo listaba resultados
+ * de archive.org, borrado en la poda de esta rama; Magis nunca llegó a engancharse a este panel
+ * (quedaba siempre vacío, ver el hallazgo de la revisión final de
+ * `docs/superpowers/specs/2026-09-08-arkiv-light-magis-poda-design.md`). El camino real para
+ * reproducir Magis desde TMDB ya existe y sigue intacto: el buscador (`SearchScreen`/
+ * `SearchViewModel.runSourceSearch`), al que se llega desde "Categorías" → una fila → una card.
+ */
 @Composable
 fun CineDetailScreen(
     tmdbId: Int,
@@ -92,22 +87,6 @@ fun CineDetailScreen(
     var selectedSeason by remember { mutableStateOf<Int?>(null) }
     var episodes by remember { mutableStateOf<List<TmdbEpisode>>(emptyList()) }
     var loadingEps by remember { mutableStateOf(false) }
-    var preparing by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-
-    var sheetEpisode by remember { mutableStateOf<TmdbEpisode?>(null) }
-    var sheetOpen by remember { mutableStateOf(false) }
-    var sources by remember { mutableStateOf<List<PlaySource>>(emptyList()) }
-    // Estado de carga (para el spinner de la sección colapsable).
-    var loadingArchive by remember { mutableStateOf(false) }
-    // Secciones expandidas (por defecto abierta para ver caer los resultados).
-    var expandedSections by remember { mutableStateOf(setOf("ARCHIVE")) }
-    var searchJob by remember { mutableStateOf<Job?>(null) }
-    // confirmValueChange bloquea el swipe-to-close (que se disparaba al scrollear); se cierra con la X.
-    val sheetState = rememberModalBottomSheetState(
-        skipPartiallyExpanded = true,
-        confirmValueChange = { it != androidx.compose.material3.SheetValue.Hidden },
-    )
 
     LaunchedEffect(tmdbId, type) {
         loading = true
@@ -133,77 +112,8 @@ fun CineDetailScreen(
         loadingEps = false
     }
 
-    // La búsqueda de fuentes era archive.org ([graph.api], borrado en la poda de esta rama: ver
-    // CLAUDE.md "Cero servidor propio"); magis no tiene wiring acá todavía (ver Task 6 del plan de
-    // poda, "Simplificar búsqueda a solo-Magis"), así que el panel de fuentes queda siempre vacío.
-    fun runSearch(ep: TmdbEpisode?) {
-        searchJob?.cancel()
-        loadingArchive = false
-        sources = emptyList()
-    }
-
-    fun openSources(ep: TmdbEpisode?) { sheetEpisode = ep; sheetOpen = true; runSearch(ep) }
-
-    // Deep-link opcional (handoff desde la búsqueda por fases): si viene season/episode, seleccionar
-    // la temporada y, apenas aparezca ese episodio en `episodes`, abrir sus resultados una sola vez.
-    var deepLinkHandled by remember { mutableStateOf(false) }
     LaunchedEffect(deepLinkSeason) {
         if (deepLinkSeason != null && selectedSeason != deepLinkSeason) selectedSeason = deepLinkSeason
-    }
-    LaunchedEffect(episodes, deepLinkEpisode) {
-        if (deepLinkHandled) return@LaunchedEffect
-        val epNo = deepLinkEpisode ?: return@LaunchedEffect
-        val ep = episodes.firstOrNull { it.episode == epNo } ?: return@LaunchedEffect
-        deepLinkHandled = true
-        openSources(ep)
-    }
-
-    // Reproduce una fuente de Magis: guarda el ítem (id estable por contentId, ref al lado) y usa
-    // el player unificado, que resuelve el ref → stream al cargar (loadMagis). Molde: playArchive.
-    fun playMagis(r: com.arkiv.player.data.gateway.GatewayResult) {
-        preparing = true; error = null; sheetOpen = false
-        scope.launch {
-            val epId = graph.repository.addMagisSource(
-                ref = r.ref,
-                contentId = r.extra["content_id"].orEmpty(),
-                title = r.title,
-                episode = r.episode,
-                posterUrl = r.extra["poster"].orEmpty(),
-                backdropUrl = r.extra["backdrop"].orEmpty(),
-                // La temporada la trae el propio resultado del portal y NO se deja en null: un
-                // episodio sin ella, mezclado con otros que sí la tienen, hace que
-                // `ensureEpisodeStills` cruce aplanando desde la T1 y pise los stills buenos de toda
-                // la serie (ver el KDoc de `MagisEntities.build`). `0` es "no la dijo", no la T0.
-                season = r.season.takeIf { it > 0 },
-            )
-            preparing = false
-            if (epId != null) onPlay(epId) else error = "No se pudo preparar Magis."
-        }
-    }
-
-    // Encola una descarga al dispositivo.
-    fun saveLocally(episodeId: String, source: String) {
-        scope.launch { notifyDuplicates(listOf(graph.localDownloads.enqueue(episodeId, source))) }
-    }
-
-    // Despacha el botón de "Guardar en el dispositivo" de una fila según el tipo de fuente.
-    // Archive.org (la única que de verdad se guardaba, vía saveArchiveLocally/addItem) se borró en
-    // la poda de esta rama.
-    fun downloadSource(s: PlaySource, ep: TmdbEpisode?) = when (s) {
-        // Magis no se descarga: el CDN sirve con un token que vence a las ~48 h, así que el
-        // archivo bajado dejaría de reproducirse. Es fuente de streaming, no de biblioteca.
-        is PlaySource.Magis -> Unit
-    }
-
-    /**
-     * El control de descarga de una fuente. SIEMPRE null: la única que lo llevaba era archive.org
-     * (`DescargasPorFuente.deArchive`), borrada en la poda de esta rama. Magis tampoco: no se
-     * descarga (su CDN vence).
-     */
-    fun descargaDe(s: PlaySource, ep: TmdbEpisode?): DescargaDeFila? = null
-
-    fun playSource(s: PlaySource) = when (s) {
-        is PlaySource.Magis -> playMagis(s.result)
     }
 
     Box(Modifier.fillMaxSize().background(ArkivBlack)) {
@@ -229,17 +139,7 @@ fun CineDetailScreen(
                         Text(d.overview, color = ArkivTextSecondary, style = MaterialTheme.typography.bodyMedium, maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
                     }
 
-                    if (!d.isSeries) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 16.dp)
-                                .clip(RoundedCornerShape(12.dp)).background(ArkivRed)
-                                .clickable { openSources(null) }.padding(vertical = 12.dp),
-                            horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White)
-                            Text("Buscar fuentes", color = Color.White, modifier = Modifier.padding(start = 6.dp))
-                        }
-                    } else {
+                    if (d.isSeries) {
                         Text("Temporadas", color = Color.White, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 20.dp, bottom = 6.dp))
                         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             d.seasons.forEach { s ->
@@ -259,10 +159,9 @@ fun CineDetailScreen(
                         }
                         episodes.forEach { ep ->
                             Row(
-                                modifier = Modifier.fillMaxWidth().clickable { openSources(ep) }.padding(vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = ArkivRed)
                                 Column(Modifier.weight(1f)) {
                                     Text("${ep.episode}. ${ep.name}", color = Color.White, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                     if (ep.air.isNotBlank()) Text(ep.air, color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall)
@@ -270,7 +169,6 @@ fun CineDetailScreen(
                             }
                         }
                     }
-                    if (error != null) Text(error!!, color = ArkivRed, modifier = Modifier.padding(top = 12.dp))
                 }
             }
         }
@@ -279,56 +177,6 @@ fun CineDetailScreen(
             onClick = onBack,
             modifier = Modifier.padding(8.dp).clip(RoundedCornerShape(50)).background(Color(0x88000000)),
         ) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver", tint = Color.White) }
-
-        if (preparing) {
-            Box(Modifier.fillMaxSize().background(Color(0xAA000000)), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = ArkivRed)
-                    Text("Preparando…", color = Color.White, modifier = Modifier.padding(top = 16.dp))
-                }
-            }
-        }
-    }
-
-    if (sheetOpen) {
-        val ep = sheetEpisode
-        // archive.org se borró en la poda de esta rama: no hay de dónde sacar `sources`, así que
-        // esta lista queda siempre vacía (ver `runSearch`).
-        val archives: List<PlaySource> = sources
-        fun toggle(k: String) { expandedSections = if (k in expandedSections) expandedSections - k else expandedSections + k }
-
-        // El MISMO contenido (PanelDeFuentes) según la forma de la pantalla: hoja modal en
-        // vertical/celular (como siempre), panel a la derecha en tablet horizontal.
-        if (esTabletHorizontal()) {
-            // Panel lateral: no tapa la ficha, deja el botón de Volver y el resto a la vista.
-            // Ojo: acá NO se toca `sheetState` (es del ModalBottomSheet, que ni se compone en este
-            // camino). Si el usuario gira a vertical con el panel abierto, ModalBottomSheet entra
-            // de cero a la composición y se anima solo (su propio efecto interno hace el show());
-            // si cierra el panel con sheetOpen = false, sheetState queda tal como estaba (sin tocar),
-            // así que no hay estado "a medio animar" esperando a la próxima vez que se muestre.
-            Row(Modifier.fillMaxSize()) {
-                Spacer(Modifier.weight(1f))
-                Surface(Modifier.width(420.dp).fillMaxHeight(), color = ArkivSurfaceHigh) {
-                    PanelDeFuentes(
-                        detail = detail, sheetEpisode = ep, archives = archives,
-                        loadingArchive = loadingArchive,
-                        expandedSections = expandedSections, toggle = { k -> toggle(k) }, preparing = preparing,
-                        descargaDe = { s, e -> descargaDe(s, e) }, playSource = { s -> playSource(s) },
-                        onCerrar = { sheetOpen = false },
-                    )
-                }
-            }
-        } else {
-            ModalBottomSheet(onDismissRequest = { sheetOpen = false }, sheetState = sheetState, containerColor = ArkivSurfaceHigh) {
-                PanelDeFuentes(
-                    detail = detail, sheetEpisode = ep, archives = archives,
-                    loadingArchive = loadingArchive,
-                    expandedSections = expandedSections, toggle = { k -> toggle(k) }, preparing = preparing,
-                    descargaDe = { s, e -> descargaDe(s, e) }, playSource = { s -> playSource(s) },
-                    onCerrar = { sheetOpen = false },
-                )
-            }
-        }
     }
 
     // Misma pregunta y mismas palabras que en la biblioteca: es la misma acción sobre la misma cola.
@@ -349,55 +197,4 @@ fun CineDetailScreen(
         },
         onCerrar = { porConfirmar = null },
     )
-}
-
-/**
- * El contenido del buscador de fuentes: cabecera con el título/episodio + la sección colapsable de
- * Archive, con su [SourceRow] y su [ControlDeDescarga] (cola, progreso, cancelar, borrar). Es el
- * MISMO contenido para los dos contenedores posibles — `ModalBottomSheet` en vertical/celular,
- * panel lateral en tablet horizontal—: quien llama decide el contenedor, acá no se sabe cuál es.
- */
-@Composable
-private fun PanelDeFuentes(
-    detail: TmdbDetail?,
-    sheetEpisode: TmdbEpisode?,
-    archives: List<PlaySource>,
-    loadingArchive: Boolean,
-    expandedSections: Set<String>,
-    toggle: (String) -> Unit,
-    preparing: Boolean,
-    descargaDe: (PlaySource, TmdbEpisode?) -> DescargaDeFila?,
-    playSource: (PlaySource) -> Unit,
-    onCerrar: () -> Unit,
-) {
-    Column(Modifier.fillMaxWidth().heightIn(max = 520.dp).padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
-        val ep = sheetEpisode
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-            Text(
-                if (ep != null) "T${ep.season} · E${ep.episode} — ${ep.name}" else (detail?.title ?: "Fuentes"),
-                color = Color.White, style = MaterialTheme.typography.titleMedium,
-                maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
-            )
-            IconButton(onClick = onCerrar) {
-                Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = Color.White)
-            }
-        }
-
-        if (!loadingArchive && archives.isEmpty()) {
-            Text(
-                "No se encontraron fuentes.",
-                color = ArkivTextSecondary, modifier = Modifier.padding(vertical = 12.dp),
-            )
-        } else {
-            // weight(fill=false) acota la altura del scroll interno al espacio disponible del
-            // contenedor (hoja o panel): así es un viewport REAL que scrollea, y el nested-scroll
-            // consume el gesto en vez de pasárselo al ModalBottomSheet (que se arrastraba/"intentaba cerrar").
-            Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
-                SourceSection("ARCHIVE", Color(0xFF80CBC4), archives, loadingArchive,
-                    "ARCHIVE" in expandedSections, { toggle("ARCHIVE") }, !preparing,
-                    descargaDe = { s -> descargaDe(s, ep) },
-                ) { playSource(it) }
-            }
-        }
-    }
 }

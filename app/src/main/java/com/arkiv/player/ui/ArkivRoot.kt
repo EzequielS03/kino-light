@@ -13,7 +13,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.Search
@@ -73,12 +72,20 @@ import com.arkiv.player.ui.theme.ArkivRed
 
 private data class Tab(val route: String, val label: String, val icon: @Composable () -> Unit)
 
+// La pestaña "Magis" (ruta "catalog" → CineCatalogScreen/CineDetailScreen) se sacó de la barra:
+// era un catálogo de TMDB cuyo único CTA ("Buscar fuentes") abría un panel que solo listaba
+// archive.org (borrado en la poda de esta rama) — Magis nunca se enganchó ahí, así que el panel
+// quedaba siempre vacío (ver el hallazgo de la revisión final del spec de esta rama). El camino
+// real para reproducir Magis desde TMDB ya existe y no se toca: "Categorías" → una fila → una
+// card → el buscador (SearchScreen/SearchViewModel.runSourceSearch), que sí busca en Magis.
+// Mismo criterio que la ruta "add"/AddScreen de más abajo: la ruta "catalog" y sus pantallas
+// siguen vivas en el NavHost por si un sub-proyecto futuro engancha ahí una búsqueda real de
+// Magis; para volver a mostrar la pestaña alcanza con agregarla de nuevo a esta lista.
 private val TABS = listOf(
     Tab("home", "Inicio") { Icon(Icons.Default.Home, contentDescription = "Inicio") },
     Tab("categorias_home", "Categorías") { Icon(Icons.Default.GridView, contentDescription = "Categorías") },
     Tab("library", "Biblioteca") { Icon(Icons.Default.VideoLibrary, contentDescription = "Biblioteca") },
     Tab("live", "En vivo") { Icon(Icons.Default.LiveTv, contentDescription = "En vivo") },
-    Tab("catalog", "Magis") { Icon(Icons.Default.PlayCircle, contentDescription = "Magis") },
     Tab("settings", "Ajustes") { Icon(Icons.Default.Settings, contentDescription = "Ajustes") },
 )
 
