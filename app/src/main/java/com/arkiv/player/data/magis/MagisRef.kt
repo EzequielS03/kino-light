@@ -28,8 +28,9 @@ internal data class MagisRef(
     internal companion object {
         const val PREFIJO = "magis1"
 
-        /** Los tipos que el portal sirve por capítulos. Mismo conjunto que usaba el gateway. */
-        val SERIES = setOf("teleplay", "series", "variety")
+        /** Los tipos que el portal sirve por capítulos. Una sola definición: la que ya consumen
+         *  las pantallas (`MAGIS_SERIES`). */
+        val SERIES = com.arkiv.player.data.gateway.MAGIS_SERIES
 
         /**
          * Lee un ref propio o uno viejo del gateway. `null` si no es de Magis o no se entiende.

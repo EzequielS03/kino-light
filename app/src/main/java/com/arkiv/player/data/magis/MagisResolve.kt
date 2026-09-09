@@ -103,7 +103,7 @@ internal class MagisResolve(
                 mime = if (ext == "mp4") "video/mp4" else "video/mp2t",
                 container = container,
                 videoCodec = media.optString("encodeFormat").lowercase(),
-                durationMs = duracionMs(media.opt("duration")),
+                durationMs = duracionMsDelPortal(media.opt("duration")),
                 subtitulos = subtitulos(playJson),
             ),
         )
@@ -219,17 +219,21 @@ internal class MagisResolve(
         const val MARGEN_AUTH_S = 300L
         val EXPIRED = Regex("""expired=(\d+)""")
 
-        /** "HH:MM:SS", "MM:SS" o los segundos pelados. Cualquier otra cosa vale 0: para pintar la
-         *  barra es mejor no tener duración —la app sondea los PCR— que tener una inventada. */
-        fun duracionMs(crudo: Any?): Long {
-            if (crudo == null || crudo == JSONObject.NULL) return 0
-            if (crudo is Number) return (crudo.toDouble() * 1000).toLong()
-            val texto = crudo.toString().trim()
-            if (texto.isEmpty()) return 0
-            val partes = texto.split(":")
-            if (partes.size > 3 || partes.any { it.isBlank() || !it.all(Char::isDigit) }) return 0
-            val segundos = partes.fold(0L) { acc, p -> acc * 60 + p.toLong() }
-            return segundos * 1000
-        }
     }
+}
+
+/**
+ * Duración en ms de lo que manda el portal: llega como "HH:MM:SS", "MM:SS" o los segundos pelados
+ * (número o texto). Cualquier otra cosa vale 0 — para pintar la barra es mejor no tener duración
+ * (la app sondea los PCR) que tener una inventada, que además manda el seek a cualquier parte.
+ */
+internal fun duracionMsDelPortal(crudo: Any?): Long {
+    if (crudo == null || crudo == JSONObject.NULL) return 0
+    if (crudo is Number) return (crudo.toDouble() * 1000).toLong()
+    val texto = crudo.toString().trim()
+    if (texto.isEmpty()) return 0
+    val partes = texto.split(":")
+    if (partes.size > 3 || partes.any { it.isBlank() || !it.all(Char::isDigit) }) return 0
+    val segundos = partes.fold(0L) { acc, p -> acc * 60 + p.toLong() }
+    return segundos * 1000
 }

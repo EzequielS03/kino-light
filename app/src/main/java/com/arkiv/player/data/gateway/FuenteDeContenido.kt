@@ -1,0 +1,27 @@
+package com.arkiv.player.data.gateway
+
+import kotlinx.coroutines.flow.Flow
+
+/**
+ * De dónde salen los títulos que la app busca y reproduce.
+ *
+ * Existe para que el cableado del sub-proyecto 2A sea un cambio de constructor: las pantallas
+ * dependen de esta interfaz y no de [ArkivApiClient], así que pasar del gateway al cliente directo
+ * del portal no las toca. Los modelos siguen llamándose `Gateway*` porque renombrarlos sería churn
+ * sin ninguna ganancia (son el contrato, no el transporte).
+ *
+ * Los errores viajan como [GatewayException]: quien llama ya los atrapa así.
+ */
+interface FuenteDeContenido {
+    fun search(ctx: GatewaySearchQuery): Flow<SearchEvent>
+
+    suspend fun resolve(ref: String): GatewayPlayable
+
+    /**
+     * Capítulos de una temporada y, si se pudo identificar la serie contra TMDB, su bloque
+     * [GatewaySerie] (null si no).
+     */
+    suspend fun episodesConSerie(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?>
+
+    suspend fun episodes(ref: String): List<GatewayEpisode> = episodesConSerie(ref).first
+}

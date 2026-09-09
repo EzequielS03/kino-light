@@ -40,6 +40,14 @@ data class TmdbItem(
 /** Una temporada (metadata; los capítulos se cargan aparte por [TmdbApi.seasonEpisodes]). */
 data class TmdbSeason(val seasonNumber: Int, val episodeCount: Int, val name: String)
 
+/** Una serie identificada por su id de IMDb (lo único que publica el portal de Magis). */
+data class TmdbSerieDeImdb(
+    val tmdbId: Int,
+    val titulo: String,
+    val posterUrl: String,
+    val backdropUrl: String,
+)
+
 /** Un capítulo de una temporada. */
 data class TmdbEpisode(
     val season: Int,
@@ -278,8 +286,36 @@ class TmdbApi(
      * capítulos: ver [parseSeasonEpisodes] para por qué la diferencia importa. Los llamadores que
      * solo pintan una lista pueden tratarlas igual (`.orEmpty()`); el que cachea en base, no.
      */
-    suspend fun seasonEpisodes(tvId: Int, seasonNumber: Int): List<TmdbEpisode>? = withContext(Dispatchers.IO) {
+    suspend fun seasonEpisodes(
+        tvId: Int,
+        seasonNumber: Int,
+        /** Para pedir la misma temporada en otro idioma (el respaldo de sinopsis en inglés: TMDB
+         *  devuelve el `overview` vacío en es-MX muy seguido). `null` = el de la clase. */
+        idioma: String? = null,
+    ): List<TmdbEpisode>? = withContext(Dispatchers.IO) {
+        val auth = "api_key=$apiKey&language=${idioma ?: language}"
         parseSeasonEpisodes(get("$base/tv/$tvId/season/$seasonNumber?$auth"), seasonNumber)
+    }
+
+    /**
+     * La serie que TMDB conoce con ese id de IMDb. Es el único cruce EXACTO disponible para los
+     * capítulos de Magis: el portal publica el imdb de la serie en `keyWords`, y buscar por título
+     * cruzaría numeraciones que no corresponden.
+     */
+    suspend fun seriePorImdb(imdbId: String): TmdbSerieDeImdb? = withContext(Dispatchers.IO) {
+        if (!Regex("""^tt\d{7,}$""").matches(imdbId)) return@withContext null
+        val json = get("$base/find/$imdbId?$auth&external_source=imdb_id") ?: return@withContext null
+        runCatching {
+            val tv = JSONObject(json).optJSONArray("tv_results")?.optJSONObject(0)
+                ?: return@runCatching null
+            val id = tv.optInt("id").takeIf { it > 0 } ?: return@runCatching null
+            TmdbSerieDeImdb(
+                tmdbId = id,
+                titulo = tv.optString("name"),
+                posterUrl = imgUrl(tv.optString("poster_path").takeIf { it.isNotBlank() }, "w500"),
+                backdropUrl = imgUrl(tv.optString("backdrop_path").takeIf { it.isNotBlank() }, "w1280"),
+            )
+        }.getOrNull()
     }
 
     /**
