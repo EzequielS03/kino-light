@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -244,11 +245,20 @@ internal fun LiveExoPlayer(
         Modifier.fillMaxSize().background(Color.Black),
         contentAlignment = Alignment.Center,
     ) {
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { textureView },
-            update = { it.ajustarAlAspecto(videoAspectRatio, zoom) },
-        )
+        // `key(exoPlayer)`: sin esto, al zapear `textureView` cambia (está `remember(exoPlayer)`
+        // arriba) pero `AndroidView` NO vuelve a llamar a `factory` -- Compose solo lo invoca una
+        // vez por posición en el árbol, así que se queda mostrando la vista vieja (con el último
+        // frame del canal anterior) para siempre, mientras el audio sí sigue al ExoPlayer nuevo
+        // porque no depende de ninguna vista. Envolver en `key` fuerza a Compose a tratarlo como
+        // un nodo nuevo en cada zapeo, y ahí sí vuelve a llamar `factory` con el `textureView`
+        // recién creado.
+        key(exoPlayer) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { textureView },
+                update = { it.ajustarAlAspecto(videoAspectRatio, zoom) },
+            )
+        }
 
         val alto = maxHeight
         val ancho = maxWidth
