@@ -119,13 +119,41 @@ en el sub-proyecto 2, en el mismo movimiento en que se lo reemplaza por el clien
 
 ## Criterio de éxito / punto de control
 
-- La app compila en la rama `light-magis` sin las dependencias de libtorrent4j/libVLC/jsoup.
+- La app compila en la rama `light-magis` sin las dependencias de libtorrent4j/jsoup (libVLC se
+  mantiene — ver corrección más abajo).
 - Instalada en dispositivo: login funciona, vínculo de Magis funciona (vía gateway, igual que
-  hoy), catálogo/reproducción de Magis funciona igual que en `main`, biblioteca/progreso/miniaturas
-  locales funcionan sin sync.
+  hoy), catálogo/reproducción de Magis funciona igual que en `main` (VOD y canal en vivo),
+  **reproducción de un archivo ya descargado al dispositivo funciona (vía VLC)**,
+  biblioteca/progreso/miniaturas locales funcionan sin sync.
 - No quedan pantallas, botones ni rutas de navegación que apunten a torrent/web/archive/Ditu/RCN.
 - `MainActivity` y la navegación no referencian código eliminado (compila limpio, sin código muerto
   comentado).
+
+## Hallazgos de la revisión final de todo el branch (2026-09-08)
+
+Tras completar las 9 tareas, una revisión de todo el diff junto (no solo tarea por tarea) encontró
+lo que ningún grep por nombre de símbolo podía ver — código que compila y pasa tests pero quedó
+funcionalmente muerto o inconsistente. Corregido en una ronda de arreglo final (ver el plan y el
+ledger de SDD para el detalle línea por línea). Resumen para quien lea este spec después:
+
+- **Corrección de hecho (no un bug de código):** la nota de "VLC sin uso real" en varias partes de
+  este spec/plan/CLAUDE.md era **incorrecta** — VLC reproduce los archivos ya descargados al
+  dispositivo (`SourceKind.LOCAL`). Verificar el canal en vivo en dispositivo no autoriza borrar
+  VLC; haría falta además migrar la reproducción local a ExoPlayer, fuera de alcance de este
+  sub-proyecto.
+- **Superficie de servidor más ancha de lo que este spec enumeraba** — para cuando se planifique el
+  sub-proyecto 2 ("sacar PocketBase/gateway del todo"), tener en cuenta que además de
+  Magis/TMDB/trivia, el gateway sirve hoy: `SubtitleApi`, `marcadores`, `refrescarRecomendaciones`
+  ("Para ti"), `SimklApi`. Y aparte del gateway: `CrashUploader` sube crash logs a una colección
+  PocketBase (`crash_logs`) de forma incondicional desde el arranque de la app — es un uso de
+  PocketBase **fuera del login**, un bloqueador oculto para "sacar PocketBase del todo" que el
+  sub-proyecto 2 va a tener que decidir qué hacer con él. También hay un chequeo de actualizaciones
+  (`UpdateChecker`) contra `apk.comparadorinternet.co` — un servidor propio fuera de la lista de 3
+  excepciones de `CLAUDE.md`; si se quiere mantener el auto-update, hace falta documentarlo como
+  cuarta excepción permanente (como trivia) en vez de dejarlo implícito.
+- **`versionCode`/`versionName` sin diferenciar de `main`** (sigue en 48/0.9.17) — si este APK
+  llega a distribuirse por el mismo canal que `main` en algún momento, colisiona. Bump pendiente
+  antes de cualquier distribución.
 
 ## Riesgos / decisiones para el plan de implementación
 

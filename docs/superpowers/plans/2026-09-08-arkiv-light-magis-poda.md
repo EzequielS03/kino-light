@@ -59,12 +59,16 @@ command git commit -m "feat(live): migrar canal en vivo de Magis a ExoPlayer"
 **Resuelto tras Task 1 (2026-09-08):** el canal en vivo de Magis se migró a ExoPlayer
 (`LiveExoPlayer.kt`, commits `537dadbb`..`4c3b846a`), pero **no hubo dispositivo disponible para
 verificarlo en la práctica** (`adb devices` vacío durante toda la sesión). Decisión: **VLC NO se
-borra en esta tarea.** `VlcPlayer.kt` y la dependencia `libvlc-all` quedan, formalmente sin uso
-real desde ningún `SourceKind` conocido tras esta tarea (torrent/web/archive se borran acá; live ya
-migró a ExoPlayer) — se dejan intactos de todos modos hasta que un humano verifique en dispositivo
-real que el canal en vivo funciona bien por ExoPlayer y autorice explícitamente borrar VLC. Esa
-verificación y el borrado quedan anotados como pendientes para cuando haya dispositivo disponible
-(no es parte de este sub-proyecto de poda salvo que se retome explícitamente).
+borra en esta tarea.** `VlcPlayer.kt` y la dependencia `libvlc-all` quedan intactos.
+
+**Corrección tras la revisión final del sub-proyecto 1 (2026-09-08):** la frase original de esta
+nota decía que VLC quedaba "formalmente sin uso real desde ningún `SourceKind` conocido" — es
+**falso**. VLC es el reproductor activo de `SourceKind.LOCAL` (archivos ya descargados al
+dispositivo vía `PlayerViewModel.loadLocal()`; `PlayerScreen.isExo = isMagis || isLiveExo`, todo lo
+demás —incluido local— cae a VLC). Verificar el canal en vivo en dispositivo **NO alcanza** para
+autorizar el borrado de VLC: hace falta además migrar la reproducción de descargas locales a
+ExoPlayer, trabajo no planeado en este sub-proyecto. El borrado de VLC queda pendiente indefinido,
+no solo pendiente de una verificación de dispositivo.
 
 **Files — NO borrar en esta tarea:** `app/src/main/java/com/arkiv/player/playback/VlcPlayer.kt`,
 dependencia `org.videolan.android:libvlc-all` en `build.gradle.kts`. Si al auditar los consumidores
