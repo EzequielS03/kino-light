@@ -694,45 +694,6 @@ interface EpisodeStillDao {
 }
 
 @Dao
-interface NucLibraryItemDao {
-    @Query("SELECT * FROM nuc_library_items WHERE seriesId = :seriesId")
-    suspend fun forSeries(seriesId: String): List<NucLibraryItemEntity>
-
-    @Query("SELECT * FROM nuc_library_items WHERE seriesId = :seriesId AND season = :season AND episode = :episode LIMIT 1")
-    suspend fun find(seriesId: String, season: Int, episode: Int): NucLibraryItemEntity?
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertAll(items: List<NucLibraryItemEntity>)
-
-    @Query("DELETE FROM nuc_library_items WHERE seriesId = :seriesId")
-    suspend fun clearForSeries(seriesId: String)
-
-    @Query("SELECT * FROM nuc_library_items ORDER BY seriesId, season, episode")
-    suspend fun getAll(): List<NucLibraryItemEntity>
-}
-
-@Dao
-interface SeriesPlaybackPrefDao {
-    @Query("SELECT * FROM series_playback_prefs WHERE seriesId = :seriesId LIMIT 1")
-    suspend fun get(seriesId: String): SeriesPlaybackPrefEntity?
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(pref: SeriesPlaybackPrefEntity)
-}
-
-@Dao
-interface LocalActiveJobDao {
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insert(job: LocalActiveJobEntity)
-
-    @Query("DELETE FROM local_active_jobs WHERE jobId = :jobId")
-    suspend fun delete(jobId: Long)
-
-    @Query("SELECT * FROM local_active_jobs")
-    suspend fun getAll(): List<LocalActiveJobEntity>
-}
-
-@Dao
 interface SearchHistoryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entry: SearchHistoryEntity)

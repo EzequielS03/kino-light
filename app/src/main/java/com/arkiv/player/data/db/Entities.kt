@@ -186,8 +186,7 @@ data class RecentTitleEntity(
 
 /**
  * Una descarga al almacenamiento del PROPIO dispositivo. Sirve a las tres fuentes: `source`
- * distingue archive.org, torrent y web. NO confundir con [NucLibraryItemEntity], que es la caché de
- * lo que vive en la NUC.
+ * distingue archive.org, torrent y web.
  *
  * `variant` sigue siendo NOT NULL (y vale `""` para torrent y web) porque SQLite no puede cambiar la
  * nulabilidad de una columna con ALTER TABLE y reconstruir la tabla no se justifica por un campo que
@@ -204,71 +203,16 @@ data class DownloadEntity(
     val source: String = "archive",   // "archive" | "torrent" | "web"
     val filePath: String? = null,     // ruta absoluta del archivo final
     val bytesDone: Long = 0,
-    val stagingItemId: Long? = null,  // web: item de la NUC mientras es paso intermedio
+    // Huérfana desde la poda de NUC (Task 8): nada la lee ni la escribe más (era el puente
+    // web->NUC, borrado en esa misma tarea). Se deja el campo -y la columna física- tal cual,
+    // sin migración que la elimine: en SQLite eso exige recrear toda la tabla `downloads` (que sí
+    // tiene datos reales de usuario), a diferencia de las tres tablas 100% huérfanas que si se
+    // dropearon en MIGRATION_28_29. Ver el reporte de la ronda de fix de Task 8 (follow-up
+    // disclosed, no intentado por ser más riesgoso que el drop de las tres tablas).
+    val stagingItemId: Long? = null,
     val error: String? = null,
     val createdAt: Long = 0,
     val sizeConfirmed: Boolean = false, // el usuario ya aceptó la compuerta de tamaño
-)
-
-/**
- * Caché local de qué episodios ya estaban descargados en la NUC (arkiv-offline).
- *
- * HUÉRFANA desde la poda de NUC (Task 8, "cero servidor propio"): nada la escribe ni la lee más
- * (el único escritor era `NucDownloads.refreshLibraryCache`, y el único lector
- * `PlaybackPreferenceStore`, ambos borrados). Se deja la tabla tal cual -sin migración que la
- * elimine- porque tocar el esquema de Room queda fuera del alcance de la poda de esta rama (ver
- * el resto de tareas de la poda: ninguna tocó `ArkivDatabase.kt`).
- */
-@Entity(tableName = "nuc_library_items")
-data class NucLibraryItemEntity(
-    @PrimaryKey val itemId: Long,       // id del item en arkiv-offline (job_items.id)
-    val seriesId: String,
-    val season: Int,
-    val episode: Int,
-    val status: String,
-    val sizeBytes: Long,
-    val syncedAt: Long,
-    val sourceRef: String? = null,
-)
-
-/**
- * Preferencia de reproducción por serie: NUC (streamear desde arkiv-offline cuando el episodio
- * puntual esté descargado) o LIVE (siempre en vivo). [asked] distingue "todavia no se preguntó"
- * de "el usuario eligió LIVE explícitamente" -- ambos casos empiezan sin fila, así que sin este
- * flag no se podría diferenciar "preguntar" de "ya preguntado y dijo que no".
- *
- * HUÉRFANA desde la poda de NUC (Task 8): [com.arkiv.player.data.offline.PlaybackPreferenceStore],
- * su único lector/escritor, se borró. Se deja la tabla tal cual, ver el porqué en el KDoc de
- * [NucLibraryItemEntity].
- */
-@Entity(tableName = "series_playback_prefs")
-data class SeriesPlaybackPrefEntity(
-    @PrimaryKey val seriesId: String,
-    val preference: String,             // "NUC" | "LIVE"
-    val asked: Boolean,
-)
-
-/**
- * Registro local de qué `job_id` de arkiv-offline disparó ESTE dispositivo. arkiv-offline no tiene
- * un endpoint "listame todos los jobs" -- solo `GET /jobs/<id>` por id puntual -- así que la
- * pantalla de Descargas del NUC necesitaba su propio índice de qué ids consultar/observar.
- *
- * HUÉRFANA desde la poda de NUC (Task 8): esa pantalla (`NucDownloadsScreen`/`NucDownloadsViewModel`)
- * y quien creaba estas filas (`downloadPack`/`downloadEpisode` en
- * AnimeShowDetailScreen/CineDetailScreen) se borraron. Se deja la tabla tal cual, ver el porqué en
- * el KDoc de [NucLibraryItemEntity].
- */
-@Entity(tableName = "local_active_jobs")
-data class LocalActiveJobEntity(
-    @PrimaryKey val jobId: Long,
-    val createdAt: Long,
-    /**
-     * Serie del job (mismo id que en `nuc_library_items`). Se guarda acá porque `GET /jobs/<id>` no
-     * lo devuelve: cuando un job llega a "done", la pantalla de Descargas lo necesita para pedirle a
-     * la NUC la biblioteca de ESA serie y mostrar el capítulo recién terminado. Vacío en filas
-     * creadas antes de la v14 (esos jobs no refrescan la biblioteca al terminar).
-     */
-    val seriesId: String = "",
 )
 
 /**

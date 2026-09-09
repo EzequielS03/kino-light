@@ -18,16 +18,13 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SearchHistoryEntity::class,
         RecentTitleEntity::class,
         EpisodeStillEntity::class,
-        NucLibraryItemEntity::class,
-        SeriesPlaybackPrefEntity::class,
-        LocalActiveJobEntity::class,
         EpisodeFrameEntity::class,
         LiveFavoriteEntity::class,
         LiveRecentEntity::class,
         LiveChannelCacheEntity::class,
         RecomendacionEntity::class,
     ],
-    version = 28,
+    version = 29,
     exportSchema = false,
 )
 abstract class ArkivDatabase : RoomDatabase() {
@@ -39,9 +36,6 @@ abstract class ArkivDatabase : RoomDatabase() {
     abstract fun searchHistoryDao(): SearchHistoryDao
     abstract fun recentTitleDao(): RecentTitleDao
     abstract fun episodeStillDao(): EpisodeStillDao
-    abstract fun nucLibraryItemDao(): NucLibraryItemDao
-    abstract fun seriesPlaybackPrefDao(): SeriesPlaybackPrefDao
-    abstract fun localActiveJobDao(): LocalActiveJobDao
     abstract fun episodeFrameDao(): EpisodeFrameDao
     abstract fun liveFavoriteDao(): LiveFavoriteDao
     abstract fun liveRecentDao(): LiveRecentDao
@@ -212,7 +206,8 @@ abstract class ArkivDatabase : RoomDatabase() {
 
         /**
          * v12 -> v13: registro local de qué `job_id` de arkiv-offline disparó este dispositivo
-         * (Task 9, pantalla de Descargas) -- ver [LocalActiveJobEntity].
+         * (Task 9, pantalla de Descargas) -- tabla `local_active_jobs`, borrada en
+         * [MIGRATION_28_29] tras la poda de NUC (Task 8).
          */
         private val MIGRATION_12_13 = object : Migration(12, 13) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -505,6 +500,25 @@ abstract class ArkivDatabase : RoomDatabase() {
         }
 
         /**
+         * v28 -> v29: borra las tres tablas huérfanas de la poda de NUC (Task 8, "cero servidor
+         * propio"): `nuc_library_items`, `series_playback_prefs` y `local_active_jobs`. Sus
+         * entidades/DAOs (`NucLibraryItemEntity`/`SeriesPlaybackPrefEntity`/`LocalActiveJobEntity`)
+         * y quienes las leían o escribían (`NucDownloads`, `PlaybackPreferenceStore`,
+         * `NucDownloadsScreen`/`ViewModel`) ya se borraron en esa misma tarea; esta migración
+         * termina de sacar el esquema que quedó pendiente.
+         *
+         * DROP directo, sin recrear nada: son datos exclusivos de arkiv-offline (la NUC), que ya
+         * no existe para esta rama -- no hay nada que preservar ni a qué otra tabla migrarlo.
+         */
+        private val MIGRATION_28_29 = object : Migration(28, 29) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS nuc_library_items")
+                db.execSQL("DROP TABLE IF EXISTS series_playback_prefs")
+                db.execSQL("DROP TABLE IF EXISTS local_active_jobs")
+            }
+        }
+
+        /**
          * Deja los triggers de `updatedAt` puestos en CADA apertura, y sella lo que haya quedado
          * sin reloj.
          *
@@ -529,7 +543,7 @@ abstract class ArkivDatabase : RoomDatabase() {
                     context.applicationContext,
                     ArkivDatabase::class.java,
                     "arkiv.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29)
                     .addCallback(SELLAR_UPDATED_AT)
                     .fallbackToDestructiveMigration()
                     .build().also { instance = it }
