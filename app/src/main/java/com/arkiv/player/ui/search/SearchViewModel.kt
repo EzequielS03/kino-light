@@ -94,9 +94,6 @@ class SearchViewModel(
     private val _loadingMagis = MutableStateFlow(false)
     val loadingMagis: StateFlow<Boolean> = _loadingMagis.asStateFlow()
 
-    private val _loadingArchive = MutableStateFlow(false)
-    val loadingArchive: StateFlow<Boolean> = _loadingArchive.asStateFlow()
-
     private val _refineSeason = MutableStateFlow<Int?>(null)
     val refineSeason: StateFlow<Int?> = _refineSeason.asStateFlow()
 
@@ -243,7 +240,6 @@ class SearchViewModel(
         sourceJob?.cancel()
         _phase.value = SearchPhase.RESULTS
         _sources.value = emptyList()
-        _loadingArchive.value = true
         _loadingMagis.value = settings.useGateway.value
         _refineSeason.value = season
         _refineEpisode.value = episode
@@ -314,9 +310,6 @@ class SearchViewModel(
                     _loadingMagis.value = false
                 }
             }
-
-            // archive.org se borró en la poda de esta rama: nada que agregar, la sección queda vacía.
-            _loadingArchive.value = false
         }
     }
 

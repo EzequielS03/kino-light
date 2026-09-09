@@ -57,11 +57,7 @@ sealed interface PlaySource {
     data class Magis(val result: com.arkiv.player.data.gateway.GatewayResult) : PlaySource
 }
 
-/** Color de acento por origen — el mismo en la fila, la sección y los chips de filtro. Se
- *  mantiene por su etiqueta de tab (ver [com.arkiv.player.ui.search.SourceTab.ARCHIVE]), que
- *  queda visible pero siempre vacía tras la poda de archive.org. */
-val ArkivArchiveTeal = Color(0xFF80CBC4)
-/** Azul de Magis: el portal IPTV, distinto de archive (turquesa). */
+/** Azul de Magis: el color de acento de su fila, su sección y su chip de filtro. */
 val ArkivMagisBlue = Color(0xFF64B5F6)
 
 fun accentOf(source: PlaySource): Color = when (source) {

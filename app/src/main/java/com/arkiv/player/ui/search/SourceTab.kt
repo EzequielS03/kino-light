@@ -12,7 +12,6 @@ import com.arkiv.player.ui.catalog.PlaySource
 enum class SourceTab(val label: String) {
     TODO("Todo"),
     MAGIS("Magis"),
-    ARCHIVE("Archive"),
 }
 
 /** La pestaña a la que pertenece una fuente. `ARCHIVE` no la produce ninguna: era la de

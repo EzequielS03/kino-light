@@ -64,7 +64,6 @@ import com.arkiv.player.data.catalog.TmdbDetail
 import com.arkiv.player.data.catalog.TmdbEpisode
 import com.arkiv.player.data.catalog.TmdbSeason
 import com.arkiv.player.data.db.SearchHistoryEntity
-import com.arkiv.player.ui.catalog.ArkivArchiveTeal
 import com.arkiv.player.ui.catalog.PlaySource
 import com.arkiv.player.ui.home.buildRowSpecs
 import com.arkiv.player.ui.home.matchCategoryRow
@@ -130,7 +129,6 @@ fun TvSearchScreen(
     val vmDetail by vm.detail.collectAsStateWithLifecycle()
     val vmAnimeShow by vm.animeShow.collectAsStateWithLifecycle()
     val sources by vm.sources.collectAsStateWithLifecycle()
-    val loadingArchive by vm.loadingArchive.collectAsStateWithLifecycle()
     val loadingMagis by vm.loadingMagis.collectAsStateWithLifecycle()
     val refineSeason by vm.refineSeason.collectAsStateWithLifecycle()
     val refineEpisode by vm.refineEpisode.collectAsStateWithLifecycle()
@@ -513,7 +511,6 @@ fun TvSearchScreen(
                         season = refineSeason,
                         episode = refineEpisode,
                         sources = sources,
-                        loadingArchive = loadingArchive,
                         loadingMagis = loadingMagis,
                         preparing = preparing,
                         playError = playError,
@@ -866,14 +863,13 @@ private fun TvRefineContent(
 }
 
 /**
- * Fila de chips por origen ("Todo 12 · Torrent 8 · Web 3 · Archive 1"), equivalente a la de la app
- * de móvil ([com.arkiv.player.ui.search.SourceTabRow]).
+ * Fila de chips por origen ("Todo 12 · Magis 12"), equivalente a la de la app de móvil
+ * ([com.arkiv.player.ui.search.SourceTabRow]).
  *
- * En la TV es más necesaria que en el teléfono: la lista arranca con los torrents arriba (van
- * primero por el orden de `ordered`) y con el D-pad hay que bajar a ciegas por decenas de filas
- * para descubrir si además hay web o archive. El contador lo dice de entrada.
+ * Con un solo origen real (Magis) el filtro ya no separa nada, pero se mantiene por si vuelve a
+ * haber más de una fuente a la vez.
  *
- * Siempre se pintan los cuatro chips, incluso en 0: si aparecieran y desaparecieran según van
+ * Siempre se pintan los dos chips, incluso en 0: si aparecieran y desaparecieran según van
  * llegando los resultados, el foco saltaría de chip mientras el usuario navega. Por lo mismo, un
  * origen que todavía está buscando muestra un spinner en vez de "0" — un cero prematuro se lee
  * como "no hay nada acá" cuando en realidad todavía no terminó.
@@ -887,8 +883,6 @@ private fun TvSourceTabRow(
     modifier: Modifier = Modifier,
     onSelect: (SourceTab) -> Unit,
 ) {
-    // Scrollea: con cinco fuentes los chips ya no entran a lo ancho y el Row le sacaba espacio
-    // al ultimo, que salia partido letra por letra en vertical.
     Row(
         modifier.horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -897,7 +891,6 @@ private fun TvSourceTabRow(
             val accent = when (t) {
                 SourceTab.TODO -> androidx.compose.ui.graphics.Color.White
                 SourceTab.MAGIS -> com.arkiv.player.ui.catalog.ArkivMagisBlue
-                SourceTab.ARCHIVE -> ArkivArchiveTeal
             }
             val on = t == selected
             Surface(
@@ -1002,7 +995,7 @@ private fun TvRefineRow(label: String, onClick: () -> Unit) {
 }
 
 /**
- * Fase RESULTS del TV: lista vertical ÚNICA de fuentes (magis/archive) — a diferencia del
+ * Fase RESULTS del TV: lista vertical ÚNICA de fuentes de Magis — a diferencia del
  * teléfono, que las agrupa en secciones colapsables por tipo, acá van todas juntas porque el
  * D-pad navega mejor una sola lista que saltar entre secciones. Elegir una fuente reproduce YA
  * (SearchPlayback vía onSelect, sin diálogo de "dónde ver"); una temporada de Magis la maneja el
@@ -1016,7 +1009,6 @@ private fun TvResultsContent(
     season: Int?,
     episode: Int?,
     sources: List<PlaySource>,
-    loadingArchive: Boolean,
     loadingMagis: Boolean,
     preparing: Boolean,
     playError: String?,
@@ -1025,7 +1017,7 @@ private fun TvResultsContent(
     // distinctBy(sourceKey) es belt-and-braces: el pipeline de arriba ya debería llegar sin
     // duplicados, pero esto evita el crash de Compose por keys repetidas si algo se cuela.
     val ordered = remember(sources) { sources.distinctBy { sourceKey(it) } }
-    val anyLoading = loadingArchive || loadingMagis
+    val anyLoading = loadingMagis
 
     // Filtro por origen. Los contadores salen de `ordered` (ya deduplicado), no de `sources`, para
     // que el número del chip sea exactamente el de filas que se van a ver al elegirlo.
@@ -1034,7 +1026,6 @@ private fun TvResultsContent(
     val loadingOf = mapOf(
         SourceTab.TODO to anyLoading,
         SourceTab.MAGIS to loadingMagis,
-        SourceTab.ARCHIVE to loadingArchive,
     )
 
     // Foco inicial en la primera fuente apenas aparece la primera tanda (progresiva: no le vuelve

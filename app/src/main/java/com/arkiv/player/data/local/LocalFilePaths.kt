@@ -35,10 +35,14 @@ object LocalFilePaths {
      * Marca de ORIGEN del parcial: guarda de qué URL (o de qué ítem) salieron los bytes que ya están
      * en el `.part`, para no reanudar contra otra fuente.
      *
-     * Sin esto, cambiar `settings.downloadQuality` a mitad de una descarga de archive.org hacía que
-     * el reintento pidiera `Range: bytes=<40% del derivative>-` sobre el `original`: el server
-     * responde 206, se appendea la cola de un archivo al prefijo de otro, y la verificación de
-     * tamaño no lo detecta porque las cuentas cierran. El resultado se marcaba "Listo" y era basura.
+     * Sin esto, un reintento podría pedir `Range: bytes=<40%>-` contra una URL de origen distinta
+     * a la que dejó ese mismo `.part` a medio bajar (por ejemplo si el link firmado venció y se
+     * resuelve de nuevo): el server responde 206, se appendea la cola de un archivo al prefijo de
+     * otro, y la verificación de tamaño no lo detecta porque las cuentas cierran. El resultado se
+     * marcaba "Listo" y era basura. (El caso original que motivó esto era el toggle
+     * `downloadQuality` original/derivative de archive.org, borrado en la poda de esta rama; el
+     * riesgo de fondo — reanudar un `.part` contra una fuente distinta a la que lo escribió — sigue
+     * existiendo con Magis, así que la marca se queda.)
      *
      * Va como archivo hermano y no como columna de la tabla a propósito: el descargador es puro
      * HTTP + disco (no conoce Room), y así el par `.part`/marca viaja junto y lo barre la misma

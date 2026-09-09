@@ -108,7 +108,7 @@ class AccountManagerTest {
      * Reemplaza a los tres tests viejos de "PocketBase no la tiene -> validar contra Magis": ese
      * camino se sacó (era el agujero: cualquiera con credenciales de Magis válidas se fabricaba una
      * cuenta de Arkiv sin licencia). Ahora un email que PocketBase no conoce es simplemente un
-     * rechazo — "registrate con tu código" — sin tocar Magis para nada.
+     * rechazo — "no existe una cuenta con ese email" — sin tocar Magis para nada.
      */
     @Test
     fun login_pocketBaseNoConoceElEmail_lanzaAccountExceptionSinCrearNada() = runBlocking {
@@ -130,7 +130,7 @@ class AccountManagerTest {
         var msg: String? = null
         try { mgr.login("a@b.co", "secret12") } catch (e: AccountException) { msg = e.message }
 
-        assertTrue("mensaje: $msg", msg?.contains("registrate") == true)
+        assertTrue("mensaje: $msg", msg?.contains("no existe una cuenta") == true)
         assertEquals(AccountState.Anonimo, mgr.state.value)
         assertEquals(EstadoDeSesion.Sin, sesion.estado.value)
         assertEquals("solo bootstrap + el intento de auth; nada de Magis ni de crear nada", 2, server.requestCount)

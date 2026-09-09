@@ -83,7 +83,6 @@ import com.arkiv.player.ui.catalog.SourceCard
 import com.arkiv.player.ui.catalog.SourceSectionHeader
 import com.arkiv.player.data.gateway.MAGIS_SERIES
 import com.arkiv.player.ui.catalog.ArkivMagisBlue
-import com.arkiv.player.ui.catalog.ArkivArchiveTeal
 import com.arkiv.player.ui.catalog.MetaChip
 import com.arkiv.player.ui.home.buildRowSpecs
 import com.arkiv.player.ui.home.matchCategoryRow
@@ -132,7 +131,6 @@ fun SearchScreen(
     val selected by vm.selected.collectAsStateWithLifecycle()
     val sources by vm.sources.collectAsStateWithLifecycle()
     val loadingMagis by vm.loadingMagis.collectAsStateWithLifecycle()
-    val loadingArchive by vm.loadingArchive.collectAsStateWithLifecycle()
     val refineSeason by vm.refineSeason.collectAsStateWithLifecycle()
     val refineEpisode by vm.refineEpisode.collectAsStateWithLifecycle()
     val detail by vm.detail.collectAsStateWithLifecycle()
@@ -291,7 +289,6 @@ fun SearchScreen(
                     episode = refineEpisode,
                     sources = sources,
                     loadingMagis = loadingMagis,
-                    loadingArchive = loadingArchive,
                     enabled = !preparing,
                     onPlay = { playResult(it) },
                     descargaDe = { s -> descargaDe(s) { saveResult(s) } },
@@ -744,7 +741,6 @@ private fun ResultsContent(
     episode: Int?,
     sources: List<PlaySource>,
     loadingMagis: Boolean,
-    loadingArchive: Boolean,
     enabled: Boolean,
     onPlay: (PlaySource) -> Unit,
     /** En qué va la descarga de cada fuente, y qué se puede hacer con eso. Null = no se descarga. */
@@ -752,22 +748,18 @@ private fun ResultsContent(
 ) {
     // MAGIS entra en las abiertas por defecto: es la primera sección, y arrancar colapsada la haría
     // parecer vacía justo arriba de todo.
-    var expandedSections by remember { mutableStateOf(setOf("MAGIS", "ARCHIVE")) }
+    var expandedSections by remember { mutableStateOf(setOf("MAGIS")) }
     fun toggle(k: String) { expandedSections = if (k in expandedSections) expandedSections - k else expandedSections + k }
     // `rememberSaveable` y no `remember`: al abrir el reproductor esta pantalla se destruye, y con
     // `remember` el origen elegido se perdía — volvías de ver algo por Magis y la lista estaba
     // otra vez en "Todo", con el ítem que acababas de tocar enterrado entre decenas de resultados.
     var tab by rememberSaveable { mutableStateOf(SourceTab.TODO) }
 
-    // archive.org se borró en la poda de esta rama: la sección queda siempre vacía (el tab de
-    // filtro, SourceTab.ARCHIVE, se deja para no restructurar el buscador -- ver SourceTab.kt).
-    val archives = emptyList<PlaySource>()
     val magis = sources.filterIsInstance<PlaySource.Magis>()
-    val anyLoading = loadingArchive || loadingMagis
+    val anyLoading = loadingMagis
     val counts = countsByTab(sources)
     val loadingOf = mapOf(
         SourceTab.TODO to anyLoading, SourceTab.MAGIS to loadingMagis,
-        SourceTab.ARCHIVE to loadingArchive,
     )
 
     // El hero va a sangre (sin margen lateral) para que el backdrop llegue a los bordes; por eso el
@@ -790,16 +782,12 @@ private fun ResultsContent(
                 )
             }
         } else if (tab == SourceTab.TODO) {
-            // "Todo" mantiene las secciones colapsables: son la única forma de ver los tres orígenes
-            // a la vez sin que uno con 60 resultados entierre a los otros.
+            // "Todo" mantiene la sección colapsable por si en el futuro vuelve a haber más de un
+            // origen a la vez; hoy Magis es el único.
             sourceSection(this, "MAGIS", ArkivMagisBlue, magis, loadingMagis, "MAGIS" in expandedSections, { toggle("MAGIS") }, enabled, onPlay, descargaDe)
-            sourceSection(this, "ARCHIVE", ArkivArchiveTeal, archives, loadingArchive, "ARCHIVE" in expandedSections, { toggle("ARCHIVE") }, enabled, onPlay, descargaDe)
         } else {
             // Con un origen elegido la cabecera de sección sobra: la lista va plana.
-            val shown = when (tab) {
-                SourceTab.MAGIS -> magis
-                else -> archives
-            }
+            val shown = magis
             if (shown.isEmpty()) {
                 item(key = "empty-tab") {
                     Text(
@@ -1003,9 +991,9 @@ private fun sourceKey(s: PlaySource): String = when (s) {
 /**
  * Chips de filtro por origen (el orden lo fija [SourceTab]), con su contador.
  *
- * La fila SCROLLEA en horizontal. Con las cinco fuentes ya no caben en el ancho de un teléfono: el
- * Row repartía el faltante achicando el último chip y "Archive" salía partido letra por letra en
- * vertical. Scrolleando, cada chip conserva su ancho natural y se lee entero.
+ * La fila SCROLLEA en horizontal: con más fuentes de las que caben en el ancho de un teléfono, un
+ * Row sin scroll repartía el faltante achicando el último chip y el texto salía partido letra por
+ * letra en vertical. Scrolleando, cada chip conserva su ancho natural y se lee entero.
  */
 @Composable
 private fun SourceTabRow(
@@ -1023,7 +1011,6 @@ private fun SourceTabRow(
             val accent = when (t) {
                 SourceTab.TODO -> Color.White
                 SourceTab.MAGIS -> ArkivMagisBlue
-                SourceTab.ARCHIVE -> ArkivArchiveTeal
             }
             val on = t == selected
             Row(

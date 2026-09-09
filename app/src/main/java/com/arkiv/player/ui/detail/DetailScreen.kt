@@ -199,17 +199,19 @@ fun DetailScreen(
     var showSaveDialog by remember { mutableStateOf(false) }
     val snackbarHost = remember { SnackbarHostState() }
 
-    // Todos los capítulos se pueden guardar en el dispositivo: hay una estrategia por cada fuente
-    // (archive, torrent y web), así que ya no hay filtro de elegibilidad. Antes esta lista era la de
-    // los capítulos mandables a la NUC y exigía sourceRef + temporada/capítulo parseables, porque
-    // arkiv-offline solo entiende (seriesId, season, episode).
+    // Todos los capítulos se ofrecen para guardar en el dispositivo, sin filtro de elegibilidad:
+    // solo Magis (`FuenteDeDescarga.para` → "magis") tiene una estrategia real registrada en
+    // `AppGraph.downloadStrategies`. Torrent/web/archive.org se borraron en la poda de esta rama;
+    // un episodio "legacy" que caiga en `SourceKind.ARCHIVE/NUC/LOCAL` (filas viejas de biblioteca,
+    // ver `PlayerSource.kindFor`) mapea a la clave "archive", que ya no tiene estrategia: el worker
+    // (`LocalDownloadWorker`) no la encuentra y marca la descarga FAILED con "Fuente no soportada",
+    // sin romper la cola ni el resto de la app.
     val savableEpisodes = detail?.episodes.orEmpty()
 
-    // El botón de esta pantalla dejó de mandar a la NUC y ahora guarda EN EL DISPOSITIVO, igual que
-    // el resto de la app. Antes disparaba un job a blog cuyo progreso no se veía en ninguna pantalla
-    // (la Task 20 quitó la ruta a NucDownloadsScreen) y cuyo resultado no se podía reproducir (la
-    // misma tarea desconectó la reproducción remota). La maquinaria de la NUC no se borra: queda
-    // desconectada, como el resto.
+    // El botón de esta pantalla guarda EN EL DISPOSITIVO (worker local), no en ningún servidor
+    // propio: la descarga a la NUC (`ArkivOfflineApi`/`NucDownloadCheckWorker`) se borró entera en
+    // la poda de esta rama, no quedó "desconectada" — no existe una sola línea de esa maquinaria en
+    // el árbol.
     fun saveSelectedLocally(episodes: List<Episode>) {
         if (episodes.isEmpty()) return
         saveEpisodesLocally(episodes)

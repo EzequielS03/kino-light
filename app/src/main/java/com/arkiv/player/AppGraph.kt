@@ -5,7 +5,6 @@ import com.arkiv.player.data.ArkivRepository
 import com.arkiv.player.data.catalog.AniListApi
 import com.arkiv.player.data.catalog.AnimeMappingRepository
 import com.arkiv.player.data.catalog.SimklApi
-import com.arkiv.player.data.catalog.CinemetaApi
 import com.arkiv.player.data.catalog.TmdbApi
 import com.arkiv.player.data.SearchHistoryRepo
 import com.arkiv.player.data.SettingsStore
@@ -311,7 +310,6 @@ class AppGraph(context: Context) {
     val animeMappingRepository: AnimeMappingRepository by lazy {
         AnimeMappingRepository(cacheDir = appContext.filesDir)
     }
-    val cinemetaApi: CinemetaApi by lazy { CinemetaApi() }
     val tmdbApi: TmdbApi by lazy {
         TmdbApi(
             gatewayUrl = { settings.gatewayUrl.value },

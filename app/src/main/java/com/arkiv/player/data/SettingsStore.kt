@@ -4,9 +4,6 @@ import android.content.Context
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
-/** Calidad preferida para streaming/descarga. */
-enum class Quality { ORIGINAL, DERIVATIVE }
-
 /**
  * De dónde salió el `gatewayUrl` que este dispositivo tiene ahora mismo.
  *
@@ -19,42 +16,9 @@ enum class Quality { ORIGINAL, DERIVATIVE }
  */
 enum class GatewayConfigSource { DEFAULT, MANUAL, SYNCED }
 
-/**
- * Calidad de las fuentes WEB (HLS adaptativo). AUTO = decide por camino (directo del CDN → sube a HD;
- * proxy por el túnel angosto → 480p para no cortarse). SD/HD/MÁX = fijo, la elección del usuario manda.
- */
-enum class WebQuality { AUTO, SD, HD, MAX }
-
 /** Ajustes simples persistidos en SharedPreferences. */
 class SettingsStore(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("arkiv_settings", Context.MODE_PRIVATE)
-
-    private val _streamQuality = MutableStateFlow(readQuality(KEY_STREAM, Quality.ORIGINAL))
-    val streamQuality: StateFlow<Quality> = _streamQuality
-
-    private val _downloadQuality = MutableStateFlow(readQuality(KEY_DOWNLOAD, Quality.DERIVATIVE))
-    val downloadQuality: StateFlow<Quality> = _downloadQuality
-
-    // Tamaño máximo de torrent (GB) a mostrar en la búsqueda; 0 = sin límite. Los packs de
-    // temporada quedan exentos (de un pack solo se streamea un episodio). Default 21 GB: deja
-    // pasar todo el 1080p (incluso bitrate alto) y algún 4K liviano; corta los remux gigantes.
-    private val _maxTorrentSizeGb = MutableStateFlow(prefs.getInt(KEY_MAX_SIZE, 21))
-    val maxTorrentSizeGb: StateFlow<Int> = _maxTorrentSizeGb
-
-    private val _providersUrl = MutableStateFlow(prefs.getString(KEY_PROVIDERS_URL, DEFAULT_PROVIDERS_URL)!!)
-    val providersUrl: StateFlow<String> = _providersUrl
-
-    private val _webSourcesUrl = MutableStateFlow(prefs.getString(KEY_WEB_SOURCES_URL, DEFAULT_WEB_SOURCES_URL)!!)
-    val webSourcesUrl: StateFlow<String> = _webSourcesUrl
-
-    private val _webResolverUrl = MutableStateFlow(prefs.getString(KEY_WEB_RESOLVER_URL, DEFAULT_WEB_RESOLVER_URL)!!)
-    val webResolverUrl: StateFlow<String> = _webResolverUrl
-
-    private val _torrentApiUrl = MutableStateFlow(prefs.getString(KEY_TORRENT_API_URL, DEFAULT_TORRENT_API_URL)!!)
-    val torrentApiUrl: StateFlow<String> = _torrentApiUrl
-
-    private val _cloudflareSolverEnabled = MutableStateFlow(prefs.getBoolean(KEY_CF_ENABLED, true))
-    val cloudflareSolverEnabled: StateFlow<Boolean> = _cloudflareSolverEnabled
 
     // Modo noche del reproductor: nivel del velo negro que va encima del video, de 0 (normal) a
     // DIM_MAX_LEVEL (negro total). Persistido a propósito (no por sesión): quien lo baja ve casi
@@ -79,9 +43,6 @@ class SettingsStore(context: Context) {
     private val _useGateway = MutableStateFlow(prefs.getBoolean(KEY_USE_GATEWAY, true))
     val useGateway: StateFlow<Boolean> = _useGateway
 
-    private val _webQuality = MutableStateFlow(readWebQuality())
-    val webQuality: StateFlow<WebQuality> = _webQuality
-
     // ¿Ya se reparó el arte que se resolvió antes del match exacto de TMDB? Ver
     // ArkivRepository.repairArtworkMatches. Se marca SOLO cuando la pasada termina entera, para que
     // un arranque sin internet no la dé por hecha y deje los títulos mal apuntados para siempre.
@@ -104,21 +65,6 @@ class SettingsStore(context: Context) {
     private val _magisOfertaDescartada = MutableStateFlow(prefs.getBoolean(KEY_MAGIS_OFERTA_DESCARTADA, false))
     val magisOfertaDescartada: StateFlow<Boolean> = _magisOfertaDescartada
 
-    fun setStreamQuality(q: Quality) {
-        prefs.edit().putString(KEY_STREAM, q.name).apply()
-        _streamQuality.value = q
-    }
-
-    fun setDownloadQuality(q: Quality) {
-        prefs.edit().putString(KEY_DOWNLOAD, q.name).apply()
-        _downloadQuality.value = q
-    }
-
-    fun setMaxTorrentSizeGb(gb: Int) {
-        prefs.edit().putInt(KEY_MAX_SIZE, gb).apply()
-        _maxTorrentSizeGb.value = gb
-    }
-
     fun setDimLevel(v: Int) { prefs.edit().putInt(KEY_DIM_LEVEL, v).apply(); _dimLevel.value = v }
 
     // Fija la config a mano en ESTE dispositivo (p.ej. un ajuste de debug): marca la fuente como
@@ -130,14 +76,6 @@ class SettingsStore(context: Context) {
         prefs.edit().putString(KEY_GATEWAY_CONFIG_SOURCE, GatewayConfigSource.MANUAL.name).apply()
         _gatewayConfigSource.value = GatewayConfigSource.MANUAL
     }
-
-    fun setProvidersUrl(v: String) { prefs.edit().putString(KEY_PROVIDERS_URL, v).apply(); _providersUrl.value = v }
-    fun setWebSourcesUrl(v: String) { prefs.edit().putString(KEY_WEB_SOURCES_URL, v).apply(); _webSourcesUrl.value = v }
-    fun setWebResolverUrl(v: String) { prefs.edit().putString(KEY_WEB_RESOLVER_URL, v).apply(); _webResolverUrl.value = v }
-    fun setCloudflareSolverEnabled(v: Boolean) { prefs.edit().putBoolean(KEY_CF_ENABLED, v).apply(); _cloudflareSolverEnabled.value = v }
-    fun setTorrentApiUrl(v: String) { prefs.edit().putString(KEY_TORRENT_API_URL, v).apply(); _torrentApiUrl.value = v }
-
-    fun setWebQuality(q: WebQuality) { prefs.edit().putString(KEY_WEB_QUALITY, q.name).apply(); _webQuality.value = q }
 
     fun setArtworkRematchDone(v: Boolean) {
         if (_artworkRematchDone.value == v) return
@@ -156,12 +94,6 @@ class SettingsStore(context: Context) {
         _magisOfertaDescartada.value = v
     }
 
-    private fun readQuality(key: String, default: Quality): Quality =
-        runCatching { Quality.valueOf(prefs.getString(key, default.name)!!) }.getOrDefault(default)
-
-    private fun readWebQuality(): WebQuality =
-        runCatching { WebQuality.valueOf(prefs.getString(KEY_WEB_QUALITY, WebQuality.AUTO.name)!!) }.getOrDefault(WebQuality.AUTO)
-
     private fun readGatewayConfigSource(): GatewayConfigSource =
         runCatching {
             GatewayConfigSource.valueOf(prefs.getString(KEY_GATEWAY_CONFIG_SOURCE, GatewayConfigSource.DEFAULT.name)!!)
@@ -169,26 +101,13 @@ class SettingsStore(context: Context) {
 
     companion object {
         const val PREFS_NAME = "arkiv_settings"
-        const val KEY_WEB_QUALITY = "web_quality"
-        private const val KEY_STREAM = "stream_quality"
-        private const val KEY_DOWNLOAD = "download_quality"
-        private const val KEY_MAX_SIZE = "max_torrent_size_gb"
-        private const val KEY_PROVIDERS_URL = "providers_url"
-        private const val KEY_WEB_SOURCES_URL = "web_sources_url"
-        private const val KEY_WEB_RESOLVER_URL = "web_resolver_url"
-        private const val KEY_CF_ENABLED = "cloudflare_solver_enabled"
         private const val KEY_DIM_LEVEL = "dim_level"
         private const val KEY_GATEWAY_URL = "gateway_url"
         private const val KEY_GATEWAY_CONFIG_SOURCE = "gateway_config_source"
         private const val KEY_USE_GATEWAY = "use_gateway"
-        private const val KEY_TORRENT_API_URL = "torrent_api_url"
         private const val KEY_ARTWORK_REMATCH = "artwork_rematch_done"
         private const val KEY_LIVE_SIGN_REMOTE = "live_sign_remote"
         private const val KEY_MAGIS_OFERTA_DESCARTADA = "magis_oferta_descartada"
-        const val DEFAULT_PROVIDERS_URL = "https://raw.githubusercontent.com/lordmacu/arkiv-providers/main/providers.json"
-        const val DEFAULT_WEB_SOURCES_URL = "https://jackett.comparadorinternet.co/web_sources.json"
-        const val DEFAULT_WEB_RESOLVER_URL = "https://jackett.comparadorinternet.co/resolve"
-        const val DEFAULT_TORRENT_API_URL = "https://torrents.comparadorinternet.co"
         const val DEFAULT_GATEWAY_URL = "https://api.comparadorinternet.co"
         // La key del `POST /api/refresh` del mirror ya no existe acá: ese endpoint pasó a pedirse
         // por el gateway (`/v1/catalog/refresh`), que es quien pone la credencial. Con eso el APK

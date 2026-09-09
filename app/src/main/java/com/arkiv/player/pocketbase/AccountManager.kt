@@ -52,8 +52,9 @@ class AccountManager(
 
     /**
      * Login: valida contra PocketBase, que es la única fuente de identidad de una persona que YA
-     * tiene cuenta. Si PocketBase no la conoce, la respuesta es "no tenés cuenta" — a propósito NO
-     * cae a validar contra Magis y crear la cuenta si Magis la acepta: ese camino (que existía acá)
+     * tiene cuenta. Si PocketBase no la conoce, la respuesta es "no existe una cuenta con ese
+     * email" — a propósito NO cae a validar contra Magis y crear la cuenta si Magis la acepta: ese
+     * camino (que existía acá)
      * permitía fabricarse una cuenta de Arkiv con cualquier credencial de Magis válida, que es
      * justo el agujero que este login cierra. Task 7 (poda "Arkiv Light") sacó el alta de cuentas
      * nuevas de la app por completo: esta app ya no crea cuentas, solo entra a una que ya existe.
@@ -66,7 +67,7 @@ class AccountManager(
             client.authWithPasswordRecord(users, email, password)
         } catch (e: PocketBaseException) {
             throw AccountException(
-                if (e.code in 400..403) "no tenés cuenta, registrate con tu código"
+                if (e.code in 400..403) "no existe una cuenta con ese email"
                 else e.message ?: "no se pudo iniciar sesión",
             )
         }

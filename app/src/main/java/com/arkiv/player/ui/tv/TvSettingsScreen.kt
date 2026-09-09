@@ -29,9 +29,16 @@ import kotlinx.coroutines.delay
 import com.arkiv.player.pocketbase.AccountState
 import com.arkiv.player.ui.rememberGraph
 
-/** Los mismos cajones que en el celular ([com.arkiv.player.ui.settings.SettingsScreen]). */
+/**
+ * Los mismos cajones que en el celular ([com.arkiv.player.ui.settings.SettingsScreen]).
+ *
+ * No hay cajón "Reproducción" acá: sus dos únicos controles (calidad de streaming/descarga y
+ * calidad de fuentes web) eran para archive.org y torrent/web, borrados en la poda de esta rama —
+ * Magis no usa ninguno de los dos (su CDN decide el bitrate solo). El celular sí conserva un cajón
+ * "Reproducción" porque ahí vive además la firma remota del canal en vivo, un control que nunca se
+ * portó a esta pantalla.
+ */
 private enum class TabDeAjustesTv(val etiqueta: String) {
-    REPRODUCCION("Reproducción"),
     SUBTITULOS("Subtítulos"),
     CUENTA("Cuenta"),
     APARATOS("Aparatos"),
@@ -93,7 +100,7 @@ fun TvSettingsScreen() {
         }
     }
 
-    var tab by rememberSaveable { mutableStateOf(TabDeAjustesTv.REPRODUCCION) }
+    var tab by rememberSaveable { mutableStateOf(TabDeAjustesTv.SUBTITULOS) }
     // Un scroll por tab: con uno solo compartido, entrar a "Cuenta" desde el fondo de "Subtítulos"
     // dejaba la pantalla arrancada a mitad de camino.
     val scroll = rememberSaveable(tab, saver = ScrollState.Saver) { ScrollState(0) }
@@ -133,7 +140,6 @@ fun TvSettingsScreen() {
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             when (tab) {
-                TabDeAjustesTv.REPRODUCCION -> TvSettingsReproduccion()
                 TabDeAjustesTv.SUBTITULOS -> TvSettingsSubtitulos()
                 TabDeAjustesTv.CUENTA -> TvSettingsCuenta(account, onVincularMagis = { vinculandoMagis = true })
                 TabDeAjustesTv.APARATOS -> TvSettingsAparatos()

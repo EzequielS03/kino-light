@@ -139,7 +139,6 @@ dependencies {
 
     // Networking (JSON parsed with bundled org.json)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("com.squareup.okhttp3:okhttp-sse:4.12.0")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
     // QR: solo GENERAR (el de "Descargar la app" en la TV, `TvPantallaDeEntrada`). Escanear

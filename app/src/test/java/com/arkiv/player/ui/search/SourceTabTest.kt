@@ -19,8 +19,6 @@ class SourceTabTest {
     }
 
     @Test fun una_fuente_sin_resultados_no_deja_fila() {
-        // Con magis y ARCHIVE (que solo puede llegar vacío, ver archive_queda_siempre_vacio),
-        // "Todo" no debe dejar una fila para ARCHIVE.
         val r = filasVisibles(listOf(magis("m")), SourceTab.TODO)
         assertEquals(listOf(SourceTab.MAGIS), r.map { it.first })
     }
@@ -36,21 +34,12 @@ class SourceTabTest {
     }
 
     @Test fun un_filtro_sobre_una_fuente_vacia_no_deja_filas() {
-        assertTrue(filasVisibles(listOf(magis("m")), SourceTab.ARCHIVE).isEmpty())
+        assertTrue(filasVisibles(emptyList(), SourceTab.MAGIS).isEmpty())
     }
 
     @Test fun cada_fila_conserva_el_orden_de_llegada_de_su_fuente() {
         val fuentes = listOf(magis("a"), magis("b"))
         val fila = filasVisibles(fuentes, SourceTab.TODO).first { it.first == SourceTab.MAGIS }
         assertEquals(listOf("a", "b"), fila.second.map { (it as PlaySource.Magis).result.title })
-    }
-
-    /**
-     * archive.org se borró en la poda de light-magis (`PlaySource.Archive` ya no existe, ver
-     * PlaySources.kt): nada produce nunca una fuente de ese tab, aunque el enum (y su chip de
-     * filtro) se dejen para no restructurar el buscador -- ver SourceTab.kt.
-     */
-    @Test fun archive_queda_siempre_vacio() {
-        assertTrue(filasVisibles(listOf(magis("m")), SourceTab.ARCHIVE).isEmpty())
     }
 }
