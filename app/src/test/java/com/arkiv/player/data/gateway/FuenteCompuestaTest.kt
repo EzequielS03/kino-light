@@ -148,10 +148,11 @@ class FuenteCompuestaTest {
         assertTrue(eventos.last() is SearchEvent.Done)
     }
 
-    /** Transparencia de excepciones: si el recolector (pantalla) lanza, esa excepción NO es
-     *  atrapada como si fuera de la fuente. El .catch de Flow respeta esto; el try/catch común
-     *  viola la transparencia atrapando y convirtiendo a SourceError. */
-    @Test fun `una excepcion del recolector no es un SourceError`() = runTest {
+    /** Aislamiento de fuentes: si el recolector (pantalla) lanza al recibir un evento, esa
+     *  excepción llega tal cual a quien llama, sin volverse un `SourceError`. `merge()` aísla
+     *  cada fuente en su propia corrutina, así que una excepción del recolector nunca vuelve
+     *  adentro de ninguna fuente. Este test verifica esa propiedad. */
+    @Test fun `una excepcion del recolector llega sin convertirse en SourceError`() = runTest {
         val sana = FuenteDeMentira("sana", "s:", listOf("uno"))
         val compuesta = FuenteCompuesta(listOf(sana))
 
@@ -165,8 +166,8 @@ class FuenteCompuestaTest {
             }
         }.exceptionOrNull()
 
-        // Con .catch de Flow, la excepción del recolector pasa tal cual, sin ser convertida a
-        // SourceError. Con try/catch común, sería atrapada e incorrectamente convertida a SourceError.
+        // `merge()` aísla cada fuente, así que la excepción del recolector no entra en ninguna
+        // fuente y no es convertida a SourceError. La excepción llega tal cual.
         val hasSourceError = eventos.any { it is SearchEvent.SourceError }
         assertTrue("La excepcion del recolector fue convertida a SourceError indebidamente", !hasSourceError)
         assertTrue("Esperaba IllegalArgumentException, obtuve ${e?.javaClass?.simpleName}", e is IllegalArgumentException)

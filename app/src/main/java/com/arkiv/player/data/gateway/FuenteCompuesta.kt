@@ -15,9 +15,9 @@ import kotlinx.coroutines.flow.onEach
  * Dos reglas gobiernan la búsqueda:
  *
  * - **Una fuente caída no vacía la búsqueda de las otras.** Cada fuente se protege por separado
- *   con `.catch` de Flow: si lanza (una excepción de la FUENTE), se emite un `SourceError` en
- *   lugar de propagar. El `.catch` de Flow respeta la transparencia: solo atrapa excepciones de
- *   la fuente, no las del recolector (quien llama), y tampoco se traga la cancelación.
+ *   con `.catch` de Flow: si lanza una excepción, se emite un `SourceError` en lugar de propagar.
+ *   El `.catch` no atrapa `CancellationException`: si la corrutina es cancelada, la excepción se
+ *   propaga. Eso lo distingue de `try/catch` común, que sí la atraparía.
  * - **Hay un solo `Done`, al final.** Los `Done` de cada fuente se descartan y se emite uno propio
  *   cuando todas terminaron: si pasaran los de adentro, la pantalla creería que la búsqueda
  *   terminó cuando apenas terminó la primera fuente.
@@ -34,8 +34,9 @@ internal class FuenteCompuesta(private val fuentes: List<FuenteDeContenido>) : F
         // `merge` corre las fuentes en paralelo y emite lo de cada una a medida que llega, que es
         // lo que la pantalla espera: pinta resultados mientras la otra fuente sigue buscando.
         // Cada fuente se protege con `.catch` de Flow: si lanza una excepción, se emite un
-        // SourceError. El `.catch` solo atrapa excepciones de la FUENTE, no del recolector
-        // (pantalla), y respeta la cancelación (no la atrapa).
+        // SourceError. El `.catch` no atrapa CancellationException (si la corrutina es cancelada,
+        // la excepción se propaga). El `try/catch` común sí la atraparía, solo que el emit posterior
+        // fallaría silenciosamente.
         val mezclado = fuentes
             .map { fuente ->
                 flow {
