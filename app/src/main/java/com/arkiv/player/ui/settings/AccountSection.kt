@@ -155,8 +155,6 @@ private fun VincularMagisSection(account: AccountManager, accountEmail: String) 
     var password by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
-    var codigoPedido by remember { mutableStateOf(false) }
-    var codigo by remember { mutableStateOf("") }
 
     if (!expanded) {
         OutlinedButton(onClick = { expanded = true }, modifier = Modifier.padding(top = 8.dp)) {
@@ -168,77 +166,36 @@ private fun VincularMagisSection(account: AccountManager, accountEmail: String) 
     Column(Modifier.padding(top = 8.dp)) {
         OutlinedTextField(email, { email = it; error = null }, label = { Text("Email de Magis") },
             singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-            enabled = !codigoPedido,
             modifier = Modifier.fillMaxWidth())
         PasswordField(password, { password = it; error = null }, "Contraseña de Magis",
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
-
-        if (codigoPedido) {
-            OutlinedTextField(codigo, { codigo = it; error = null }, label = { Text("Código") },
-                singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
-            Text(
-                "Te enviamos un código a tu email. Si no aparece, revisa la carpeta de spam.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-        }
+        // Ya no está "Registrar en Magis": crear la cuenta necesitaba el ida y vuelta del código
+        // por email, que orquestaba el servidor. Acá se vincula una cuenta que YA existe.
+        Text(
+            "Tiene que ser una cuenta de Magis que ya exista.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
+        )
 
         error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 6.dp)) }
 
-        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (codigoPedido) {
-                Button(
-                    enabled = !busy && codigo.isNotBlank(),
-                    onClick = {
-                        scope.launch {
-                            busy = true
-                            try {
-                                account.vincularMagisConfirmar(email.trim(), password, codigo.trim())
-                                expanded = false
-                            } catch (e: AccountException) {
-                                error = e.message
-                            } finally {
-                                busy = false
-                            }
-                        }
-                    },
-                ) { Text(if (busy) "Confirmando…" else "Confirmar") }
-            } else {
-                Button(
-                    enabled = !busy && email.isNotBlank() && password.isNotBlank(),
-                    onClick = {
-                        scope.launch {
-                            busy = true
-                            try {
-                                account.vincularMagis(email.trim(), password)
-                                expanded = false
-                            } catch (e: AccountException) {
-                                error = e.message
-                            } finally {
-                                busy = false
-                            }
-                        }
-                    },
-                ) { Text(if (busy) "Vinculando…" else "Vincular") }
-                OutlinedButton(
-                    enabled = !busy && email.isNotBlank(),
-                    onClick = {
-                        scope.launch {
-                            busy = true
-                            try {
-                                account.vincularMagisEnviarCodigo(email.trim())
-                                codigoPedido = true
-                            } catch (e: AccountException) {
-                                error = e.message
-                            } finally {
-                                busy = false
-                            }
-                        }
-                    },
-                ) { Text("Registrar en Magis") }
-            }
-        }
+        Button(
+            enabled = !busy && email.isNotBlank() && password.isNotBlank(),
+            modifier = Modifier.padding(top = 8.dp),
+            onClick = {
+                scope.launch {
+                    busy = true
+                    try {
+                        account.vincularMagis(email.trim(), password)
+                        expanded = false
+                    } catch (e: AccountException) {
+                        error = e.message
+                    } finally {
+                        busy = false
+                    }
+                }
+            },
+        ) { Text(if (busy) "Vinculando…" else "Vincular") }
     }
 }

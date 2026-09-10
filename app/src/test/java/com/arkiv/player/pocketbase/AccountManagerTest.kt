@@ -27,12 +27,21 @@ class AccountManagerTest {
     private fun sesionFor(client: PocketBaseClient, store: DeviceStore) =
         SesionDePersona(client, store)
 
-    /** Mismo MockWebServer que PocketBase: el gateway Magis es otro dominio en prod, pero para el
-     *  test alcanza con apuntar ambos clientes al mismo server (más simple que fakear una interfaz). */
-    private fun magisLinkFor(server: MockWebServer) =
-        MagisLinkClient(
-            baseUrl = { server.url("/").toString().trimEnd('/') },
-        )
+    /**
+     * La sesión de Magis ya no es un cliente de red: vive en el aparato (sub-proyecto 2A), así que
+     * el doble es un store en memoria más un portal falso. [conCuenta] = ya hay cuenta vinculada.
+     */
+    private fun magisSesion(
+        conCuenta: Boolean = false,
+        portal: com.arkiv.player.data.magis.FakePortalClient =
+            com.arkiv.player.data.magis.FakePortalClient(),
+    ) = com.arkiv.player.data.magis.MagisSession(
+        portal,
+        com.arkiv.player.data.magis.FakeCredentialStore().apply {
+            guardarSesion(com.arkiv.player.data.magis.SesionGuardada("u", "t", "", "sn"))
+            if (conCuenta) guardarCuenta("magis@x.co", "magispw12")
+        },
+    )
 
     /** `login` llama al gateway desde que el aparato se adopta por ahi (unico camino que cuenta
      *  contra el cupo de la licencia), asi que quien lo necesite le pasa un baseUrl de verdad. */
@@ -60,7 +69,6 @@ class AccountManagerTest {
         // login_adoptaElAparatoPorEntrar_noPorAdoptarQueExigeSesionPrevia mas abajo.
         server.enqueue(MockResponse().setBody("""{"userId":"usr-1","accountId":"A_person","kind":"phone","usados":1,"tope":1,"yaEra":false,"desvinculado":null}"""))
         server.enqueue(MockResponse().setBody("""{"token":"ptok","record":{"id":"usr-1"}}""")) // sesion.iniciar (Task 1): persiste el token de la persona
-        server.enqueue(MockResponse().setBody("""{"linked":true}""")) // magisVinculadoSeguro -> status
         server.start()
         val client = clientFor(server)
         val store = FakeDeviceStore(DeviceIdentity("A_anon","dev-1","dev-1@arkiv.local","pw12345678","phone"))
@@ -68,7 +76,7 @@ class AccountManagerTest {
         val sesion = sesionFor(client, store)
         var merged = false
         val mgr = AccountManager(
-            client, deviceAuth, store, magisLinkFor(server), cuentaApiDe(server, sesion), sesion,
+            client, deviceAuth, store, magisSesion(conCuenta = true), cuentaApiDe(server, sesion), sesion,
             onAccountSwitched = { merged = true }, onLocalWipe = {},
         )
 
@@ -92,7 +100,7 @@ class AccountManagerTest {
         val store = FakeDeviceStore(DeviceIdentity("A_anon","dev-1","dev-1@arkiv.local","pw12345678","phone"))
         val sesion = sesionFor(client, store)
         val mgr = AccountManager(
-            client, seededAuth(client, store), store, magisLinkFor(server), cuentaApiSinUsar(sesion), sesion,
+            client, seededAuth(client, store), store, magisSesion(), cuentaApiSinUsar(sesion), sesion,
             onAccountSwitched = {}, onLocalWipe = {},
         )
 
@@ -119,11 +127,10 @@ class AccountManagerTest {
         val client = clientFor(server)
         val store = FakeDeviceStore(DeviceIdentity("A_anon","dev-1","dev-1@arkiv.local","pw12345678","phone"))
         val sesion = sesionFor(client, store)
-        // Si login() todavía cayera a Magis, esto explotaría (host inexistente) en vez de pasar en
-        // silencio: es la red de seguridad de este test, no solo el requestCount de abajo.
-        val magisLink = MagisLinkClient(baseUrl = { "http://unused.invalid" })
+        // Si login() todavía llamara al portal, el FakePortalClient lo registraría: es la red de
+        // seguridad de este test, no solo el requestCount de abajo.
         val mgr = AccountManager(
-            client, seededAuth(client, store), store, magisLink, cuentaApiSinUsar(sesion), sesion,
+            client, seededAuth(client, store), store, magisSesion(), cuentaApiSinUsar(sesion), sesion,
             onAccountSwitched = {}, onLocalWipe = {},
         )
 
@@ -137,50 +144,62 @@ class AccountManagerTest {
         server.shutdown()
     }
 
-    /** `vincularMagis` con credenciales que Magis acepta: la cuenta de Kino sigue conectada con el
-     *  mismo email y `magisLinked` pasa a true (Task 10, camino que usa la nueva oferta al entrar a
-     *  la TV además de `TvVincularMagisSection`/`VincularMagisSection` en Ajustes). */
+    /**
+     * `vincularMagis` con credenciales que el PORTAL acepta: la cuenta de Kino sigue conectada con
+     * el mismo email y `magisLinked` pasa a true. Vincular ya no le avisa a ningún servidor nuestro
+     * -es un login contra el portal de Magis y las credenciales quedan cifradas en el aparato-.
+     */
     @Test
     fun vincularMagis_ok_dejaMagisLinkedEnTrue() = runBlocking {
         val server = MockWebServer()
-        server.enqueue(MockResponse().setBody("{}")) // POST /v1/magis/link -> 200 sin cuerpo relevante
         server.start()
         val client = clientFor(server)
         val store = FakeDeviceStore(DeviceIdentity("A_person", "dev-1", "dev-1@arkiv.local", "pw12345678", "phone"))
         store.savePersonEmail("a@b.co")
         val sesion = sesionFor(client, store)
+        val portal = com.arkiv.player.data.magis.FakePortalClient()
+        portal.encolarRespuesta(
+            "v8/login",
+            com.arkiv.player.data.magis.portalOk("userId" to "u1", "userToken" to "t1"),
+        )
         val mgr = AccountManager(
-            client, seededAuth(client, store), store, magisLinkFor(server), cuentaApiSinUsar(sesion), sesion,
+            client, seededAuth(client, store), store, magisSesion(portal = portal),
+            cuentaApiSinUsar(sesion), sesion,
             onAccountSwitched = {}, onLocalWipe = {},
         )
 
         mgr.vincularMagis("magis@x.co", "magispw12")
 
         assertEquals(AccountState.Conectado("a@b.co", true), mgr.state.value)
+        assertEquals("tiene que loguear contra el portal", 1, portal.vecesLlamado("v8/login"))
+        assertEquals("y NO contra ningún servidor nuestro", 0, server.requestCount)
         server.shutdown()
     }
 
     /**
-     * El requisito central de la Task 10 (la oferta al entrar a la TV): que Magis rechace unas
-     * credenciales NO dice nada sobre la cuenta de Kino -son dos identidades distintas (ver KDoc de
-     * `AccountManager`)-. Este test fija esa garantía en el lugar de donde depende TODO llamador
-     * (la nueva pantalla, `TvVincularMagisSection` y `VincularMagisSection`): un 422 de Magis lanza
-     * `AccountException` y listo, sin tocar ni `AccountState` ni `SesionDePersona.estado` -si
-     * `vincularMagis` alguna vez llamara `sesion.cerrar()` o pisara el estado en la rama de error,
-     * este test lo agarra-.
+     * Que Magis rechace unas credenciales NO dice nada sobre la cuenta de Kino -son dos identidades
+     * distintas (ver KDoc de `AccountManager`)-. Este test fija esa garantía en el lugar del que
+     * depende TODO llamador (la oferta al entrar a la TV, `TvVincularMagisSection` y
+     * `VincularMagisSection`): el portal rechaza, se lanza `AccountException` y listo, sin tocar ni
+     * `AccountState` ni `SesionDePersona.estado`.
      */
     @Test
     fun vincularMagis_credencialesInvalidas_noTocaLaSesionDeKino() = runBlocking {
         val server = MockWebServer()
-        server.enqueue(MockResponse().setResponseCode(422).setBody("""{"detail":"credenciales invalidas"}"""))
         server.start()
         val client = clientFor(server)
         val store = FakeDeviceStore(DeviceIdentity("A_person", "dev-1", "dev-1@arkiv.local", "pw12345678", "phone"))
         store.savePersonEmail("a@b.co")
         store.savePersonToken("ptok")
         val sesion = sesionFor(client, store)
+        val portal = com.arkiv.player.data.magis.FakePortalClient()
+        portal.encolarRespuesta(
+            "v8/login",
+            com.arkiv.player.data.magis.MagisResult.PortalError("aaa100015", "clave mala"),
+        )
         val mgr = AccountManager(
-            client, seededAuth(client, store), store, magisLinkFor(server), cuentaApiSinUsar(sesion), sesion,
+            client, seededAuth(client, store), store, magisSesion(portal = portal),
+            cuentaApiSinUsar(sesion), sesion,
             onAccountSwitched = {}, onLocalWipe = {},
         )
         assertEquals(EstadoDeSesion.Con("a@b.co"), sesion.estado.value) // arranca conectada a Kino
@@ -198,101 +217,47 @@ class AccountManagerTest {
         server.shutdown()
     }
 
-    // --- vincularMagisEnviarCodigo / vincularMagisConfirmar (Task 11): el alta de una cuenta de
-    // Magis nueva desde la TV, en dos pasos. Mismo criterio que `vincularMagis_*` de arriba: un
-    // rechazo de Magis (email ya registrado, código incorrecto, portal caído) no dice nada de la
-    // cuenta de Kino, así que tiene que quedar intacta.
-
+    /** Portal caído ≠ credenciales malas: el mensaje tiene que distinguirlo, porque lo que la
+     *  persona hace después es distinto (reintentar vs. corregir la clave). */
     @Test
-    fun vincularMagisEnviarCodigo_falloDeMagis_noTocaLaSesionDeKino() = runBlocking {
+    fun vincularMagis_portalCaido_diceQueMagisNoEstaDisponible() = runBlocking {
         val server = MockWebServer()
-        server.enqueue(MockResponse().setResponseCode(422).setBody("""{"detail":"ese email ya esta registrado"}"""))
         server.start()
         val client = clientFor(server)
         val store = FakeDeviceStore(DeviceIdentity("A_person", "dev-1", "dev-1@arkiv.local", "pw12345678", "phone"))
         store.savePersonEmail("a@b.co")
-        store.savePersonToken("ptok")
         val sesion = sesionFor(client, store)
+        val portal = com.arkiv.player.data.magis.FakePortalClient()
+        portal.encolarRespuesta(
+            "v8/login",
+            com.arkiv.player.data.magis.MagisResult.RedError(java.io.IOException("sin red")),
+        )
         val mgr = AccountManager(
-            client, seededAuth(client, store), store, magisLinkFor(server), cuentaApiSinUsar(sesion), sesion,
+            client, seededAuth(client, store), store, magisSesion(portal = portal),
+            cuentaApiSinUsar(sesion), sesion,
             onAccountSwitched = {}, onLocalWipe = {},
         )
-        assertEquals(EstadoDeSesion.Con("a@b.co"), sesion.estado.value) // arranca conectada a Kino
 
         var msg: String? = null
-        try {
-            mgr.vincularMagisEnviarCodigo("magis@x.co")
-        } catch (e: AccountException) {
-            msg = e.message
-        }
+        try { mgr.vincularMagis("magis@x.co", "magispw12") } catch (e: AccountException) { msg = e.message }
 
-        assertTrue("mensaje: $msg", msg?.contains("registrado") == true)
-        assertEquals("la cuenta de Kino sigue conectada", AccountState.Conectado("a@b.co", false), mgr.state.value)
-        assertEquals("la sesion de Kino NO se cierra por un rechazo de Magis", EstadoDeSesion.Con("a@b.co"), sesion.estado.value)
+        assertTrue("mensaje: $msg", msg?.contains("no disponible") == true)
+        assertEquals(AccountState.Conectado("a@b.co", false), mgr.state.value)
         server.shutdown()
     }
 
     @Test
-    fun vincularMagisConfirmar_ok_dejaMagisLinkedEnTrue() = runBlocking {
+    fun desvincularMagis_borraLasCredencialesYQuedaConectadoSinMagis() = runBlocking {
         val server = MockWebServer()
-        server.enqueue(MockResponse().setBody("{}")) // POST /v1/magis/register/confirm -> 200
-        server.start()
-        val client = clientFor(server)
-        val store = FakeDeviceStore(DeviceIdentity("A_person", "dev-1", "dev-1@arkiv.local", "pw12345678", "phone"))
-        store.savePersonEmail("a@b.co")
-        val sesion = sesionFor(client, store)
-        val mgr = AccountManager(
-            client, seededAuth(client, store), store, magisLinkFor(server), cuentaApiSinUsar(sesion), sesion,
-            onAccountSwitched = {}, onLocalWipe = {},
-        )
-
-        mgr.vincularMagisConfirmar("magis@x.co", "clavenueva1", "123456")
-
-        assertEquals(AccountState.Conectado("a@b.co", true), mgr.state.value)
-        server.shutdown()
-    }
-
-    @Test
-    fun vincularMagisConfirmar_codigoIncorrecto_noTocaLaSesionDeKino() = runBlocking {
-        val server = MockWebServer()
-        server.enqueue(MockResponse().setResponseCode(422).setBody("""{"detail":"codigo invalido"}"""))
-        server.start()
-        val client = clientFor(server)
-        val store = FakeDeviceStore(DeviceIdentity("A_person", "dev-1", "dev-1@arkiv.local", "pw12345678", "phone"))
-        store.savePersonEmail("a@b.co")
-        store.savePersonToken("ptok")
-        val sesion = sesionFor(client, store)
-        val mgr = AccountManager(
-            client, seededAuth(client, store), store, magisLinkFor(server), cuentaApiSinUsar(sesion), sesion,
-            onAccountSwitched = {}, onLocalWipe = {},
-        )
-        assertEquals(EstadoDeSesion.Con("a@b.co"), sesion.estado.value) // arranca conectada a Kino
-
-        var msg: String? = null
-        try {
-            mgr.vincularMagisConfirmar("magis@x.co", "clavenueva1", "000000")
-        } catch (e: AccountException) {
-            msg = e.message
-        }
-
-        assertTrue("mensaje: $msg", msg?.contains("incorrecto") == true)
-        assertEquals("la cuenta de Kino sigue conectada, y sin Magis", AccountState.Conectado("a@b.co", false), mgr.state.value)
-        assertEquals("la sesion de Kino NO se cierra por un codigo incorrecto", EstadoDeSesion.Con("a@b.co"), sesion.estado.value)
-        server.shutdown()
-    }
-
-    @Test
-    fun desvincularMagis_ok_quedaConectadoSinMagis() = runBlocking {
-        val server = MockWebServer()
-        server.enqueue(MockResponse().setBody("""{"linked":true}""")) // refrescarMagis -> status
-        server.enqueue(MockResponse().setBody("{}")) // magis unlink OK
         server.start()
         val client = clientFor(server)
         val store = FakeDeviceStore(DeviceIdentity("A_person","dev-1","dev-1@arkiv.local","pw12345678","phone"))
         store.savePersonEmail("a@b.co")
         val sesion = sesionFor(client, store)
+        val portal = com.arkiv.player.data.magis.FakePortalClient()
+        val magis = magisSesion(conCuenta = true, portal = portal)
         val mgr = AccountManager(
-            client, seededAuth(client, store), store, magisLinkFor(server), cuentaApiSinUsar(sesion), sesion,
+            client, seededAuth(client, store), store, magis, cuentaApiSinUsar(sesion), sesion,
             onAccountSwitched = {}, onLocalWipe = {},
         )
         mgr.refrescarMagis()
@@ -301,26 +266,34 @@ class AccountManagerTest {
         mgr.desvincularMagis()
 
         assertEquals(AccountState.Conectado("a@b.co", false), mgr.state.value)
+        assertTrue("las credenciales guardadas se borran", !magis.hasAccountLinked)
+        assertEquals("cierra sesión en el portal", 1, portal.vecesLlamado("v5/loginOut"))
         server.shutdown()
     }
 
+    /** El portal caído no puede dejar a alguien sin poder desvincular: lo que pidió fue sacar la
+     *  cuenta de ESTE aparato, y eso es local. */
     @Test
-    fun desvincularMagis_503_lanzaAccountExceptionNoDisponible() = runBlocking {
+    fun desvincularMagis_conElPortalCaido_borraLasCredencialesIgual() = runBlocking {
         val server = MockWebServer()
-        server.enqueue(MockResponse().setResponseCode(503).setBody("""{"detail":"caido"}""")) // magis unlink caído
         server.start()
         val client = clientFor(server)
         val store = FakeDeviceStore(DeviceIdentity("A_person","dev-1","dev-1@arkiv.local","pw12345678","phone"))
         store.savePersonEmail("a@b.co")
         val sesion = sesionFor(client, store)
+        val portal = com.arkiv.player.data.magis.FakePortalClient()
+        portal.respuestaPorDefecto =
+            com.arkiv.player.data.magis.MagisResult.RedError(java.io.IOException("sin red"))
+        val magis = magisSesion(conCuenta = true, portal = portal)
         val mgr = AccountManager(
-            client, seededAuth(client, store), store, magisLinkFor(server), cuentaApiSinUsar(sesion), sesion,
+            client, seededAuth(client, store), store, magis, cuentaApiSinUsar(sesion), sesion,
             onAccountSwitched = {}, onLocalWipe = {},
         )
 
-        var msg: String? = null
-        try { mgr.desvincularMagis() } catch (e: AccountException) { msg = e.message }
-        assertTrue("mensaje: $msg", msg?.contains("no disponible") == true)
+        mgr.desvincularMagis()
+
+        assertEquals(AccountState.Conectado("a@b.co", false), mgr.state.value)
+        assertTrue(!magis.hasAccountLinked)
         server.shutdown()
     }
 
@@ -337,7 +310,7 @@ class AccountManagerTest {
         assertEquals(EstadoDeSesion.Con("a@b.co"), sesion.estado.value)   // arranca conectada
         var wiped = false
         val mgr = AccountManager(
-            client, deviceAuth, store, MagisLinkClient(baseUrl = { "http://unused.invalid" }),
+            client, deviceAuth, store, magisSesion(),
             cuentaApiSinUsar(sesion), sesion,
             onAccountSwitched = {}, onLocalWipe = { wiped = true },
         )
@@ -367,7 +340,7 @@ class AccountManagerTest {
         val deviceAuth = DeviceAuthManager(client, store, cuentaApiSinUsarParaBootstrap(client, store))
         val sesion = sesionFor(client, store)
         val mgr = AccountManager(
-            client, deviceAuth, store, MagisLinkClient(baseUrl = { "http://unused.invalid" }),
+            client, deviceAuth, store, magisSesion(),
             cuentaApiSinUsar(sesion), sesion,
             onAccountSwitched = {}, onLocalWipe = {},
         )
@@ -400,14 +373,13 @@ class AccountManagerTest {
         server.enqueue(MockResponse().setBody("""{"token":"utok","record":{"id":"usr-1","accountId":"A_person"}}""")) // users auth
         server.enqueue(MockResponse().setBody("""{"userId":"usr-1","accountId":"A_person","kind":"tv","usados":1,"tope":1,"yaEra":false,"desvinculado":"tv_vieja"}"""))
         server.enqueue(MockResponse().setBody("""{"token":"ptok","record":{"id":"usr-1"}}""")) // sesion.iniciar
-        server.enqueue(MockResponse().setBody("""{"linked":true}""")) // magisVinculadoSeguro
         server.start()
         val client = clientFor(server)
         val store = FakeDeviceStore(DeviceIdentity("A_anon","dev-1","dev-1@arkiv.local","pw12345678","tv"))
         val deviceAuth = seededAuth(client, store)
         val sesion = sesionFor(client, store)
         val mgr = AccountManager(
-            client, deviceAuth, store, magisLinkFor(server), cuentaApiDe(server, sesion), sesion,
+            client, deviceAuth, store, magisSesion(conCuenta = true), cuentaApiDe(server, sesion), sesion,
             onAccountSwitched = {}, onLocalWipe = {},
         )
 
@@ -463,7 +435,7 @@ class AccountManagerTest {
         val store = FakeDeviceStore(DeviceIdentity("A_anon","dev-1","dev-1@arkiv.local","pw12345678","tv"))
         val sesion = sesionFor(client, store)
         val mgr = AccountManager(
-            client, seededAuth(client, store), store, magisLinkFor(server), cuentaApiDe(server, sesion), sesion,
+            client, seededAuth(client, store), store, magisSesion(), cuentaApiDe(server, sesion), sesion,
             onAccountSwitched = {}, onLocalWipe = {},
         )
 
@@ -502,14 +474,13 @@ class AccountManagerTest {
         server.enqueue(MockResponse().setBody("""{"token":"utok","record":{"id":"usr-1","accountId":"A_person"}}""")) // users auth
         server.enqueue(MockResponse().setBody("""{"userId":"usr-1","accountId":"A_person","kind":"tv","usados":1,"tope":1,"yaEra":false,"desvinculado":null}""")) // /entrar
         server.enqueue(MockResponse().setBody("""{"token":"ptok","record":{"id":"usr-1"}}""")) // sesion.iniciar
-        server.enqueue(MockResponse().setBody("""{"linked":false}""")) // magisVinculadoSeguro
         server.start()
         val client = clientFor(server)
         val store = FakeDeviceStore(DeviceIdentity("A_anon","dev-1","dev-1@arkiv.local","pw12345678","tv"))
         val sesion = sesionFor(client, store)
         var merged = false
         val mgr = AccountManager(
-            client, seededAuth(client, store), store, magisLinkFor(server), cuentaApiDe(server, sesion), sesion,
+            client, seededAuth(client, store), store, magisSesion(), cuentaApiDe(server, sesion), sesion,
             // `delay` a proposito: el merge real suspende (push + pull contra la nube) y por eso
             // una cancelacion lo corta. Un lambda sin suspension no puede observarla.
             onAccountSwitched = { delay(50); merged = true }, onLocalWipe = {},

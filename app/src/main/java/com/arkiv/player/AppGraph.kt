@@ -517,7 +517,7 @@ class AppGraph(context: Context) {
             client = pbClient,
             deviceAuth = deviceAuth,
             store = deviceStore,
-            magisLink = magisLinkClient,
+            magisSession = magisSession,
             cuentaApi = cuentaApi,
             sesion = sesionDePersona,
             // Sin cloud sync (Task 5 de esta poda) la biblioteca es 100% local: no hay ningún
@@ -545,16 +545,6 @@ class AppGraph(context: Context) {
             cuentaApi = cuentaApi,
             sesion = sesionDePersona,
         ) { deviceAuth.session.value?.recordId }
-    }
-
-    /** Vincular/desvincular la cuenta de Magis con la cuenta Arkiv (misma fuente de baseUrl que [arkivApiClient]). */
-    val magisLinkClient: com.arkiv.player.pocketbase.MagisLinkClient by lazy {
-        com.arkiv.player.pocketbase.MagisLinkClient(
-            baseUrl = { settings.gatewayUrl.value },
-            client = httpGateway,
-            personToken = { sesionDePersona.token() },
-            deviceToken = { deviceAuth.session.value?.token },
-        )
     }
 
     init {

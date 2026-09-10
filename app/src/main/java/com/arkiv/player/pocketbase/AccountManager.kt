@@ -33,11 +33,13 @@ class AccountException(message: String) : Exception(message)
  * una identidad anónima (spec: sin sesión no hay app, así que no tiene sentido fabricar una). La
  * clave nunca se persiste.
  */
-class AccountManager(
+class AccountManager internal constructor(
     private val client: PocketBaseClient,
     private val deviceAuth: DeviceAuthManager,
     private val store: DeviceStore,
-    private val magisLink: MagisLinkClient,
+    /** La sesión del portal de Magis, en el aparato: vincular es loguearse contra el portal y
+     *  guardar las credenciales cifradas acá, no avisarle a ningún servidor nuestro. */
+    private val magisSession: com.arkiv.player.data.magis.MagisSession,
     private val cuentaApi: CuentaApi,
     private val sesion: SesionDePersona,
     private val onAccountSwitched: suspend () -> Unit,
@@ -171,29 +173,24 @@ class AccountManager(
         }
     }
 
-    /** Estando Conectado sin Magis: vincula Magis con credenciales de una cuenta Magis existente. */
+    /**
+     * Vincula una cuenta de Magis que YA EXISTE: se loguea contra el portal y, si el portal la
+     * acepta, guarda las credenciales cifradas en el aparato para poder relogar sola cuando el
+     * `userToken` se muera.
+     *
+     * No se porta la CREACIÓN de cuentas de Magis (antes `vincularMagisEnviarCodigo` +
+     * `vincularMagisConfirmar`, que iban contra los endpoints de registro del gateway): el código
+     * de verificación llega por email y hacía falta un servidor para orquestar ese ida y vuelta.
+     */
     suspend fun vincularMagis(email: String, password: String) = mutex.withLock {
-        try {
-            magisLink.link(email, password)
-        } catch (e: MagisLinkException) {
-            throw AccountException(if (e.code == 503) "Magis no disponible" else "credenciales de Magis inválidas")
-        }
-        (_state.value as? AccountState.Conectado)?.let { _state.value = it.copy(magisLinked = true) }
-    }
-
-    suspend fun vincularMagisEnviarCodigo(email: String) = mutex.withLock {
-        try {
-            magisLink.registerSendCode(email)
-        } catch (e: MagisLinkException) {
-            throw AccountException(if (e.code == 503) "Magis no disponible" else "ese email ya está registrado en Magis")
-        }
-    }
-
-    suspend fun vincularMagisConfirmar(email: String, password: String, code: String) = mutex.withLock {
-        try {
-            magisLink.registerConfirm(email, password, code)
-        } catch (e: MagisLinkException) {
-            throw AccountException(if (e.code == 503) "Magis no disponible" else "código incorrecto")
+        when (val r = magisSession.login(email, password)) {
+            is com.arkiv.player.data.magis.MagisResult.Ok -> Unit
+            is com.arkiv.player.data.magis.MagisResult.RedError ->
+                throw AccountException("Magis no disponible")
+            is com.arkiv.player.data.magis.MagisResult.PortalError ->
+                // El portal dice POR QUÉ rechazó (cuenta inexistente, clave mala, device bindeado):
+                // su mensaje viene en chino, así que se muestra el nuestro y el suyo queda en el log.
+                throw AccountException("credenciales de Magis inválidas")
         }
         (_state.value as? AccountState.Conectado)?.let { _state.value = it.copy(magisLinked = true) }
     }
@@ -216,16 +213,16 @@ class AccountManager(
         _state.value = AccountState.Anonimo
     }
 
-    private suspend fun magisVinculadoSeguro(): Boolean =
-        try { magisLink.status() } catch (e: Exception) { false }
+    /** Ya no hay a quién preguntarle: la respuesta está en el aparato y no puede fallar. */
+    private fun magisVinculadoSeguro(): Boolean = magisSession.hasAccountLinked
 
-    /** Desvincula Magis de la cuenta Arkiv conectada; PocketBase sigue como fuente local. */
+    /**
+     * Desvincula Magis: cierra la sesión en el portal, borra las credenciales guardadas y vuelve a
+     * la sesión anónima (con el MISMO device, que es del aparato y no de la cuenta). Si el portal no
+     * contesta, las credenciales se borran igual — lo que la persona pidió fue desvincular acá.
+     */
     suspend fun desvincularMagis() = mutex.withLock {
-        try {
-            magisLink.unlink()
-        } catch (e: MagisLinkException) {
-            throw AccountException(if (e.code == 503) "Magis no disponible" else (e.message ?: "no se pudo desvincular"))
-        }
+        magisSession.logout()
         (_state.value as? AccountState.Conectado)?.let { _state.value = it.copy(magisLinked = false) }
     }
 }

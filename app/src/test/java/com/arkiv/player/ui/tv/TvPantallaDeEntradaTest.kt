@@ -7,7 +7,6 @@ import com.arkiv.player.pocketbase.AccountState
 import com.arkiv.player.pocketbase.DeviceAuthManager
 import com.arkiv.player.pocketbase.DeviceIdentity
 import com.arkiv.player.pocketbase.FakeDeviceStore
-import com.arkiv.player.pocketbase.MagisLinkClient
 import com.arkiv.player.pocketbase.PocketBaseClient
 import com.arkiv.player.pocketbase.SesionDePersona
 import com.arkiv.player.pocketbase.cuentaApiSinUsarParaBootstrap
@@ -50,7 +49,10 @@ class TvPantallaDeEntradaTest {
             client = client,
             deviceAuth = deviceAuth,
             store = store,
-            magisLink = MagisLinkClient(baseUrl = { gw.url("/").toString().trimEnd('/') }),
+            magisSession = com.arkiv.player.data.magis.MagisSession(
+                com.arkiv.player.data.magis.FakePortalClient(),
+                com.arkiv.player.data.magis.FakeCredentialStore(),
+            ),
             cuentaApi = cuentaApi,
             sesion = sesion,
             onAccountSwitched = {},
