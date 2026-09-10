@@ -548,7 +548,7 @@ private fun PlayerContent(
 
     // Selector de audio/subtítulos (ambas fuentes, vía la API VLC del player vivo). Todo el bloque
     // vive en `PlayerPistas.kt`; de acá solo se consulta `haySubtitulo`, para el ícono de CC.
-    val estadoPistas = rememberEstadoDePistas(vlc, graph, context)
+    val estadoPistas = rememberEstadoDePistas(vlc, graph)
 
 
     // Modo noche: nivel del velo negro sobre el video, 0..DIM_MAX_LEVEL. Persistido en
@@ -1353,8 +1353,8 @@ private fun PlayerContent(
     // videoView, pero con el overlay todavía visible ese es un punto muerto —su listener descarta
     // las teclas mientras controles.visible es true— y el D-pad dejaba de responder. Vuelve al botón
     // que abrió el diálogo; el video solo tiene sentido si el overlay ya se ocultó.
-    // Va en un efecto y no en el onDismiss para cubrir las DOS salidas: descartar el diálogo y
-    // elegir una pista (`aplicarSubtituloOnline` también cierra el picker, y ahí nadie toca el foco).
+    // Va en un efecto y no en el onDismiss: cubre cualquier forma en que se cierre el picker
+    // (dismiss o el botón Cerrar), sin depender de por dónde salió.
     var subPickerWasOpen by remember { mutableStateOf(false) }
     LaunchedEffect(estadoPistas.pickerAbierto, isTv) {
         if (!isTv) return@LaunchedEffect
@@ -1678,11 +1678,6 @@ private fun PlayerContent(
         if (!enVivo) bump()
     }
 
-    // Búsqueda automática de subtítulos online para el idioma preferido (ver `EstadoDePistas`).
-    LaunchedEffect(episodeId) {
-        estadoPistas.buscarOnline(episodeId)
-    }
-
     val onOpenEpisodesState = rememberUpdatedState(onOpenEpisodes)
 
     val outerModifier = if (isLandscape) Modifier.fillMaxSize()
@@ -1774,7 +1769,6 @@ private fun PlayerContent(
                 espejo = espejo,
                 startPositionMs = mItem.startPositionMs,
                 subtitleConfigs = (webExtras?.subtitles ?: emptyList()).toExoSubtitleConfigs(),
-                subtitulosExtra = estadoPistas.subsExternosExo,
                 onPlayerReady = { player ->
                     magisPlayer = player
                     estadoPistas.setExoPlayer(player)
@@ -2846,8 +2840,9 @@ private fun PlayerContent(
         }
     }
 
-    // Diálogo de audio y subtítulos (embebidos vía VLC + OpenSubtitles). Los dos datos que recibe
-    // son solo para etiquetar las pistas que magis entrega sin idioma; ver `etiquetaDeSpu`.
+    // Diálogo de audio y subtítulos (las pistas que trae el archivo/stream, vía VLC o ExoPlayer).
+    // Los dos datos que recibe son solo para etiquetar las pistas que magis entrega sin idioma; ver
+    // `etiquetaDeSpu`.
     DialogoDeAudioYSubtitulos(
         estado = estadoPistas,
         esMagis = PlayerSource.kindFor(episodeId) == SourceKind.MAGIS,

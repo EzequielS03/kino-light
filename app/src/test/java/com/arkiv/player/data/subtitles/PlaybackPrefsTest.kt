@@ -112,8 +112,6 @@ class PlaybackPrefsTest {
         assertEquals(null, PlaybackPrefs.fromJson("no soy json"))
     }
 
-    // --- códigos para OpenSubtitles ---
-
     // --- que un cambio de estilo no cuente como cambio de idioma ---
 
     @Test fun styleOnlyChangesDoNotCountAsALanguageChange() {
@@ -138,24 +136,4 @@ class PlaybackPrefsTest {
         assertFalse(base.mismosIdiomasQue(base.copy(audioLangs = listOf(TrackLang.JAPANESE, TrackLang.LATINO))))
     }
 
-    @Test fun spanishVariantsCollapseToASingleEsCode() {
-        val p = PlaybackPrefs(subtitleLangs = listOf(TrackLang.LATINO, TrackLang.CASTELLANO, TrackLang.SPANISH))
-        assertEquals("es", p.openSubtitlesCodes())
-    }
-
-    @Test fun openSubtitlesCodesKeepTheUserOrder() {
-        val p = PlaybackPrefs(subtitleLangs = listOf(TrackLang.ENGLISH, TrackLang.LATINO))
-        assertEquals("en,es", p.openSubtitlesCodes())
-    }
-
-    @Test fun dualIsIgnoredBecauseItIsNotATextLanguage() {
-        val p = PlaybackPrefs(subtitleLangs = listOf(TrackLang.DUAL, TrackLang.JAPANESE))
-        assertEquals("ja", p.openSubtitlesCodes())
-    }
-
-    /** OFF no apaga la búsqueda online: el menú CC tiene que seguir teniendo opciones. */
-    @Test fun emptyOrOffStillSearchesInSpanish() {
-        assertEquals("es", PlaybackPrefs(subtitleLangs = emptyList()).openSubtitlesCodes())
-        assertEquals("es", PlaybackPrefs(subtitleLangs = listOf(TrackLang.DUAL)).openSubtitlesCodes())
-    }
 }

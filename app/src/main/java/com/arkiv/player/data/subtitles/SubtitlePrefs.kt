@@ -36,11 +36,6 @@ data class PlaybackPrefs(
     val edge: Int = EDGE_OUTLINE,      // 0 none, 1 outline, 2 drop shadow
 ) {
     /**
-     * Códigos para `SubtitleApi.search(languages=…)`, en el orden del usuario y sin repetir. Los tres
-     * buckets del español colapsan a `es` a propósito: es el único código español verificado contra el
-     * gateway. Nunca devuelve vacío — OFF significa "no prenderlos solos", no "no buscar".
-     */
-    /**
      * ¿Estas prefs eligen los mismos idiomas que [otro]? Ignora el estilo (tamaño, colores, borde).
      *
      * Sirve para no re-aplicar la selección de pista cuando lo único que cambió es cosmético: el
@@ -54,15 +49,6 @@ data class PlaybackPrefs(
             understoodLangs == otro.understoodLangs &&
             subtitleLangs == otro.subtitleLangs &&
             subtitleMode == otro.subtitleMode
-
-    fun openSubtitlesCodes(): String = subtitleLangs.mapNotNull {
-        when (it) {
-            TrackLang.LATINO, TrackLang.CASTELLANO, TrackLang.SPANISH -> "es"
-            TrackLang.ENGLISH -> "en"
-            TrackLang.JAPANESE -> "ja"
-            TrackLang.DUAL, TrackLang.UNKNOWN -> null
-        }
-    }.distinct().joinToString(",").ifEmpty { "es" }
 
     fun toJson(): String = JSONObject()
         // Campo legacy: una build vieja lee SOLO esto y tiene que seguir funcionando.

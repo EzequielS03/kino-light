@@ -105,7 +105,7 @@ class AppGraph(context: Context) {
             .build()
     }
 
-    /** [httpGateway] con los timeouts cortos que ya usaban `TmdbApi`/`SimklApi`/`SubtitleApi`/
+    /** [httpGateway] con los timeouts cortos que ya usaban `TmdbApi`/`SimklApi`/
      *  `MirrorApiClient` por default (pedidos JSON cortos, no streaming) -se explicita acá para no
      *  perder ese ajuste al pasar de sus `OkHttpClient` por default a este compartido. */
     val httpGatewayCorto: okhttp3.OkHttpClient by lazy {
@@ -350,14 +350,6 @@ class AppGraph(context: Context) {
         TmdbApi(
             language = "es-MX",
             client = httpGatewayCorto,
-        )
-    }
-    val subtitleApi: com.arkiv.player.data.subtitles.SubtitleApi by lazy {
-        com.arkiv.player.data.subtitles.SubtitleApi(
-            gatewayUrl = { settings.gatewayUrl.value },
-            client = httpGatewayCorto,
-            personToken = { sesionDePersona.token() },
-            deviceToken = { deviceAuth.session.value?.token },
         )
     }
     val subtitlePrefs: com.arkiv.player.data.subtitles.SubtitlePrefs by lazy {

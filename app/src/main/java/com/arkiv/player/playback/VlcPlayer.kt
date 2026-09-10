@@ -1330,8 +1330,8 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         runCatching { mediaPlayer.setSpuTrack(id) }
     }
     /**
-     * Agrega una pista de subtítulo externa. [byUser] distingue la elección del usuario (OpenSubtitles)
-     * de la carga automática (los `.srt` sueltos del torrent, los del portal de magis): la automática
+     * Agrega una pista de subtítulo externa. [byUser] distingue una elección manual del usuario de
+     * la carga automática (los `.srt` sueltos del torrent, los del portal de magis): la automática
      * no corta la selección por idioma — la pista nueva entra como candidata y `applyPreferredSpu`
      * decide, en vez de quedar forzada.
      *
@@ -1346,8 +1346,8 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
      * (ver [idiomasSpuDeLaFuente]), no los archivos.
      *
      * [lang] es el idioma que declaró la fuente, para cuando la URL no lo dice (una fuente web adjunta
-     * `…/9f8a7b.vtt` a secas). Los `.srt` del torrent y los de OpenSubtitles ya lo llevan en el nombre
-     * del archivo y no lo necesitan.
+     * `…/9f8a7b.vtt` a secas). Los `.srt` del torrent ya lo llevan en el nombre del archivo y no lo
+     * necesitan.
      *
      * OJO con el MPEG-TS: esto solo es seguro porque magis se demuxea con avformat (ver loadMedia).
      * Con el demuxer `ts` nativo, adjuntar un subtítulo externo le cambia a libVLC el programa activo

@@ -12,7 +12,7 @@ import okhttp3.Response
  * Hasta acá esa regla -distinguir "te revocaron" de "el servidor no contesta"- solo la implementaban
  * [com.arkiv.player.ui.entrada.EntradaViewModel.manejarErrorDeCuenta] y
  * `MisAparatosViewModel.manejarErrorDeSesion`, cada una a mano y solo para SU pantalla. Los clientes
- * de contenido (`ArkivApiClient`, `LiveApi`, `TmdbApi`, `SimklApi`, `MirrorApiClient`, `SubtitleApi`,
+ * de contenido (`ArkivApiClient`, `LiveApi`, `TmdbApi`, `SimklApi`, `MirrorApiClient`,
  * `MagisLinkClient`) no la tenían: un 401 en medio de una búsqueda porque la licencia se revocó
  * quedaba como un error genérico y la app seguía como si nada. Acá se reusa la MISMA regla vía
  * [ErrorDeCuenta.parsear] -no una copia-, porque un tercer lugar que la reinventara mal es
