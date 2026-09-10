@@ -65,10 +65,12 @@ siendo la app completa (torrent+web+archive+Magis+Ditu+RCN, con login PocketBase
   atrapar.)
 
   El gateway `arkiv-api` y PocketBase se sacaron ENTEROS en el sub-proyecto 2B (Tasks 1-10): ya no
-  queda una sola línea que les hable. Eso incluye la **"dato curioso"/trivia**, que en el
-  sub-proyecto 1 había quedado anotada como excepción **permanente** -esa excepción se resignó acá,
+  queda una sola línea que les hable. Eso incluyó la **"dato curioso"/trivia**, que en el
+  sub-proyecto 1 había quedado anotada como excepción **permanente** -esa excepción se resignó ahí,
   junto con marcadores de intro, metadata de anime, el aviso de recomendaciones, subtítulos
-  (OpenSubtitles), Simkl y el login/cuenta de la persona (PocketBase).
+  (OpenSubtitles), Simkl y el login/cuenta de la persona (PocketBase). La trivia volvió en el
+  sub-proyecto 4, hablándole directo a Kilo (punto 8 de la lista de arriba) en vez de al gateway:
+  sin servidor propio.
 - Se borra código muerto de verdad (login/cuentas, torrent, web-resolver, archive.org,
   cloud-sync, control remoto TV↔celu). No se comenta, no se deja detrás de un flag — si no se usa,
   se elimina del árbol. VLC es la excepción: ver más abajo, sigue vivo.

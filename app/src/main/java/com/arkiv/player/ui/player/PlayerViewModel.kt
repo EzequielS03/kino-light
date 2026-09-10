@@ -204,6 +204,8 @@ class PlayerViewModel internal constructor(
     /** Si hay una cuenta de Magis vinculada en este aparato. Solo decide qué dice el error cuando
      *  un canal en vivo no abre (ver [mensajeErrorVivo]): el vivo la exige, el VOD no. */
     private val hayCuentaDeMagis: () -> Boolean = { false },
+    /** El dato curioso (sub-proyecto 4). Null en los tests que no lo usan: sin él no hay botón. */
+    private val datosCuriosos: com.arkiv.player.data.trivia.DatosCuriosos? = null,
 ) : ViewModel() {
 
     private val _playlist = MutableStateFlow<PlaylistData?>(null)
@@ -261,6 +263,17 @@ class PlayerViewModel internal constructor(
     private val _webExtras = MutableStateFlow<WebExtras?>(null)
     val webExtras: StateFlow<WebExtras?> = _webExtras.asStateFlow()
 
+    /**
+     * Datos curiosos de lo que se está viendo, o vacío. Se piden TODOS DE UNA al arrancar y la
+     * pantalla avanza entre ellos a pulsación (ver [TriviaDelPlayer]): pasar al siguiente no puede
+     * costar los ~20 s que tarda el modelo, ni fallar a mitad de una película.
+     */
+    private val _trivia = MutableStateFlow<List<String>>(emptyList())
+    val trivia: StateFlow<List<String>> = _trivia.asStateFlow()
+
+    /** Cancelable: al saltar de capítulo, la tanda del anterior ya no sirve. */
+    private var triviaJob: kotlinx.coroutines.Job? = null
+
     /** Job cancelable de la precarga del siguiente capítulo (torrent pack / web / archive). */
     private var prefetchJob: kotlinx.coroutines.Job? = null
 
@@ -269,6 +282,7 @@ class PlayerViewModel internal constructor(
         // Antes que todo lo demás, y también para el vivo: una resolución de Caracol que siga en
         // vuelo tiene que saber que ya no es la vigente. Ver [EstadoDeDitu].
         ditu.nuevoPedido(episodeId)
+        apagarTrivia()
         // Modo vivo (Tarea 14): CORTA ACÁ, antes de tocar nada del camino VOD de abajo -- ni
         // marcarEnCurso, ni localLibrary, ni el prefetch del final (repo.nextEpisode() no sabe de
         // canales). Es la bandera que aísla TODO el comportamiento distinto: un canal en vivo no
@@ -316,6 +330,9 @@ class PlayerViewModel internal constructor(
                 val local = localLibrary.fileFor(episodeId)
                 if (local != null) { loadLocal(episodeId, local); return@launch }
             }
+            // Después del desvío a lo descargado a propósito: un archivo en el aparato no lleva
+            // dato curioso (ver [TriviaDelPlayer.pideDatos]).
+            if (TriviaDelPlayer.pideDatos(episodeId, kind)) cargarTrivia(episodeId)
             Log.w(PLAY, "load() episodeId=$episodeId kind=$kind")
             when (kind) {
                 SourceKind.ARCHIVE -> loadArchive(episodeId)
@@ -333,6 +350,46 @@ class PlayerViewModel internal constructor(
         }
         prefetchJob?.cancel()
         prefetchJob = viewModelScope.launch(Dispatchers.IO) { prefetchNext(episodeId) }
+    }
+
+    /** Lo del episodio anterior no puede quedarse en pantalla con el siguiente. */
+    private fun apagarTrivia() {
+        triviaJob?.cancel()
+        _trivia.value = emptyList()
+    }
+
+    /**
+     * Pide la tanda de datos curiosos, best-effort. Se traga cualquier fallo: sin datos no se dibuja
+     * el botón, que es el fallo bueno para algo accesorio. `CancellationException` no se traga:
+     * dejaría corriendo una corrutina que su scope ya dio por muerta.
+     */
+    private fun cargarTrivia(episodeId: String) {
+        apagarTrivia()
+        val fuenteDeDatos = datosCuriosos ?: return
+        triviaJob = viewModelScope.launch {
+            val obra = try {
+                repo.obraParaDatos(episodeId)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(PLAY, "trivia: no se pudo identificar la obra: ${e.message}")
+                null
+            } ?: run {
+                // Sin esta línea la trivia se apagaría en silencio: sin botón y sin nada en el log
+                // que diga por qué (el ítem no tiene ni tmdbId ni título canónico).
+                Log.w(PLAY, "trivia: sin obra con nombre para $episodeId → no se pide")
+                return@launch
+            }
+            _trivia.value = try {
+                fuenteDeDatos.de(obra) { repo.nombreDeObra(obra) }
+                    .also { Log.w(PLAY, "trivia: ${it.size} datos para ${obra.clave}") }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(PLAY, "trivia: ${e.javaClass.simpleName}: ${e.message}")
+                emptyList()
+            }
+        }
     }
 
     // --- Modo vivo (Tarea 14) ---------------------------------------------------------------

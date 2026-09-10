@@ -13,7 +13,7 @@ import androidx.compose.ui.focus.FocusRequester
  * Android pasa del video —que atajaba TODAS las teclas— a estos requesters; al ocultarse vuelve al
  * video, para el "cualquier tecla = mostrar los controles".
  *
- * Están juntos en un solo objeto porque son once cosas del mismo mecanismo y siempre viajan al
+ * Están juntos en un solo objeto porque son doce cosas del mismo mecanismo y siempre viajan al
  * mismo sitio. Sueltos, cualquier composable que dibuje un pedazo del overlay tiene que recibirlos
  * de a uno, y esa firma crece con cada botón nuevo.
  */
@@ -25,6 +25,8 @@ internal class FocosDelOverlay {
     /** Los dos pasos del modo noche. */
     val bajarBrillo = FocusRequester()
     val subirBrillo = FocusRequester()
+
+    val trivia = FocusRequester()
 
     /** Fila de transporte. */
     val retroceder = FocusRequester()

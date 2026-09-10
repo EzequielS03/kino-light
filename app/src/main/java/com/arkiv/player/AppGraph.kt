@@ -363,6 +363,16 @@ class AppGraph(context: Context) {
         )
     }
 
+    /** El dato curioso del reproductor (sub-proyecto 4): Kilo, desde el aparato, un mes de caché. */
+    internal val datosCuriosos: com.arkiv.player.data.trivia.DatosCuriosos by lazy {
+        com.arkiv.player.data.trivia.DatosCuriosos(
+            ia = { clienteDeIa.preguntar(it) },
+            cache = com.arkiv.player.data.trivia.CacheDeDatosEnDisco(
+                java.io.File(appContext.filesDir, "datos-curiosos"),
+            ) { System.currentTimeMillis() },
+        )
+    }
+
     /**
      * Agrega a la biblioteca lo que se elige en la fila "Para ti" del inicio. Necesita
      * `fuenteDeContenido` además del repositorio: una recomendación de serie trae el ref de la
