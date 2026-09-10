@@ -592,9 +592,8 @@ fun TvHomeScreen(
                     )
                     TvNavButton(icon = Icons.Default.LiveTv, label = "En vivo", onClick = onOpenLive)
                     TvNavButton(icon = Icons.Default.Tv, label = "Caracol", onClick = onOpenCaracol)
-                    // El botón "Torrent" (pegar un magnet a mano) se quitó de la barra: ya no se usa,
-                    // los torrents entran por el buscador. La ruta "torrent" sigue registrada en
-                    // ArkivTvRoot y la pantalla funciona; solo perdió su entrada desde el home.
+                    // Sin botón "Torrent": esta rama no tiene torrents, y ArkivTvRoot no registra
+                    // ninguna ruta "torrent".
                     TvNavButton(icon = Icons.Default.Settings, label = "Ajustes", onClick = onOpenSettings)
                 }
 

@@ -7,8 +7,10 @@ import kotlinx.coroutines.flow.Flow
  *
  * Existe para que el cableado del sub-proyecto 2A sea un cambio de constructor: las pantallas
  * dependen de esta interfaz y no de un cliente concreto del gateway, así que pasar del gateway al
- * cliente directo del portal no las toca. Hoy tiene dos implementaciones, `MagisFuente` y
- * `DituFuente`. Los modelos siguen llamándose `Gateway*` porque renombrarlos sería churn sin
+ * cliente directo del portal no las toca. Hoy hay dos fuentes que la implementan, `MagisFuente` y
+ * `DituFuente`, y una tercera implementación, `FuenteCompuesta`, que las junta detrás del único
+ * objeto que ven las pantallas (`AppGraph.fuenteDeContenido`). Los modelos siguen llamándose
+ * `Gateway*` porque renombrarlos sería churn sin
  * ninguna ganancia (son el contrato, no el transporte).
  *
  * Los errores viajan como [GatewayException]: quien llama ya los atrapa así.
