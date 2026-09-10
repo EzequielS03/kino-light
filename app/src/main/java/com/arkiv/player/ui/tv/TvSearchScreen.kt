@@ -65,6 +65,7 @@ import com.arkiv.player.data.catalog.TmdbEpisode
 import com.arkiv.player.data.catalog.TmdbSeason
 import com.arkiv.player.data.db.SearchHistoryEntity
 import com.arkiv.player.ui.catalog.PlaySource
+import com.arkiv.player.ui.catalog.esSerie
 import com.arkiv.player.ui.home.buildRowSpecs
 import com.arkiv.player.ui.home.matchCategoryRow
 import com.arkiv.player.ui.rememberGraph
@@ -147,6 +148,10 @@ fun TvSearchScreen(
     // Temporada de Magis elegida: un resultado de serie del portal ES una temporada entera, así
     // que abre la lista de capítulos en vez de reproducir el primero.
     var magisSeasonFor by remember { mutableStateOf<com.arkiv.player.data.gateway.GatewayResult?>(null) }
+    // Serie de Caracol elegida: igual que Magis, abre sus capítulos. Es un estado APARTE a
+    // propósito: su lista de capítulos solo llama a `playback.playDituEpisode`, así que un capítulo
+    // de Caracol nunca cae en el guardado de Magis.
+    var dituSeasonFor by remember { mutableStateOf<com.arkiv.player.data.gateway.GatewayResult?>(null) }
 
     // Metadata "enriquecida" de la card elegida, para guardar título/póster reales — mismo
     // criterio que SearchScreen (teléfono).
@@ -164,6 +169,11 @@ fun TvSearchScreen(
     fun playMagisResult(r: com.arkiv.player.data.gateway.GatewayResult) {
         preparing = true; playError = null
         scope.launch { applyResult(playback.playMagis(r)) }
+    }
+
+    fun playDituResult(r: com.arkiv.player.data.gateway.GatewayResult) {
+        preparing = true; playError = null
+        scope.launch { applyResult(playback.playDitu(r)) }
     }
 
     // Guarda una temporada entera de Magis. Capítulo por capítulo, igual que el celu: cada uno es
@@ -200,6 +210,12 @@ fun TvSearchScreen(
                 magisSeasonFor = source.result
             } else {
                 playMagisResult(source.result)
+            }
+        is PlaySource.Ditu ->
+            if (source.esSerie()) {
+                dituSeasonFor = source.result
+            } else {
+                playDituResult(source.result)
             }
     }
 
@@ -309,11 +325,12 @@ fun TvSearchScreen(
     }
 
     // En REFINE/RESULTS atrás retrocede una fase dentro del wizard; en la fase de títulos, atrás
-    // sale de la pantalla. Con una temporada de Magis abierta dentro de RESULTS, atrás vuelve
-    // primero a la lista de fuentes (no sale de la fase).
+    // sale de la pantalla. Con los capítulos de una serie abiertos dentro de RESULTS (de Magis o de
+    // Caracol), atrás vuelve primero a la lista de fuentes (no sale de la fase).
     BackHandler {
         when {
             phase == SearchPhase.RESULTS && magisSeasonFor != null -> magisSeasonFor = null
+            phase == SearchPhase.RESULTS && dituSeasonFor != null -> dituSeasonFor = null
             phase != SearchPhase.QUERY -> vm.back()
             else -> onBack()
         }
@@ -485,10 +502,11 @@ fun TvSearchScreen(
                     onPickEpisode = { season, episode -> vm.runSourceSearch(season, episode) },
                 )
             }
-            // Lista de fuentes con reproducción inmediata al elegir una; una temporada de Magis
-            // abre TvMagisSeasonContent (lista de capítulos) en vez de reproducir directo.
+            // Lista de fuentes con reproducción inmediata al elegir una; una temporada de Magis o una
+            // serie de Caracol abre TvMagisSeasonContent (lista de capítulos) en vez de reproducir.
             SearchPhase.RESULTS -> {
                 val currentMagis = magisSeasonFor
+                val currentDitu = dituSeasonFor
                 if (currentMagis != null) {
                     TvMagisSeasonContent(
                         season = currentMagis,
@@ -503,6 +521,27 @@ fun TvSearchScreen(
                             }
                         },
                         onSaveAll = { capitulos, serie -> saveMagisSeason(currentMagis, capitulos, serie) },
+                    )
+                } else if (currentDitu != null) {
+                    TvMagisSeasonContent(
+                        season = currentDitu,
+                        // La fuente compuesta: con un ref de Caracol, `episodesConSerie` llega a
+                        // `DituFuente`.
+                        client = graph.fuenteDeContenido,
+                        posterUrl = currentDitu.extra["poster"].orEmpty().ifBlank { resultPoster },
+                        preparing = preparing,
+                        onPlayOne = { _, capitulo, serie ->
+                            dituSeasonFor = null
+                            preparing = true; playError = null
+                            scope.launch {
+                                applyResult(playback.playDituEpisode(currentDitu, capitulo, serie))
+                            }
+                        },
+                        // Sin "Guardar toda la temporada": ahí guardar es bajar al dispositivo, y
+                        // Caracol no se baja (Widevine, ver `FuenteDeDescarga`). A la biblioteca
+                        // entra al reproducir.
+                        onSaveAll = null,
+                        etiqueta = "Caracol",
                     )
                 } else {
                     TvResultsContent(
@@ -891,6 +930,7 @@ private fun TvSourceTabRow(
             val accent = when (t) {
                 SourceTab.TODO -> androidx.compose.ui.graphics.Color.White
                 SourceTab.MAGIS -> com.arkiv.player.ui.catalog.ArkivMagisBlue
+                SourceTab.CARACOL -> com.arkiv.player.ui.catalog.ArkivCaracolVerde
             }
             val on = t == selected
             Surface(
@@ -1023,9 +1063,12 @@ private fun TvResultsContent(
     // que el número del chip sea exactamente el de filas que se van a ver al elegirlo.
     var tab by remember { mutableStateOf(SourceTab.TODO) }
     val counts = countsByTab(ordered)
+    // `loadingMagis` cubre la búsqueda ENTERA (la fuente compuesta pregunta a Magis y a Caracol a
+    // la vez; ver `SearchViewModel.runSourceSearch`), así que sirve igual para Caracol.
     val loadingOf = mapOf(
         SourceTab.TODO to anyLoading,
         SourceTab.MAGIS to loadingMagis,
+        SourceTab.CARACOL to loadingMagis,
     )
 
     // Foco inicial en la primera fuente apenas aparece la primera tanda (progresiva: no le vuelve
@@ -1144,7 +1187,7 @@ private fun TvResultsContent(
             if (ordered.isEmpty() && !anyLoading) {
                 item {
                     Text(
-                        "No se encontraron fuentes. Volvé atrás y probá con otra temporada/capítulo, o sin especificar ninguno.",
+                        "No se encontraron fuentes. Vuelve atrás y prueba con otra temporada/capítulo, o sin especificar ninguno.",
                         color = ArkivTextSecondary,
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(horizontal = 48.dp, vertical = 8.dp),
@@ -1187,9 +1230,11 @@ private fun TvResultsContent(
 
 /** Key estable y ÚNICA para la lista de fuentes (evita "saltos" de foco al llegar resultados
  *  nuevos, y evita el crash de Compose por keys duplicadas en un lazy list).
- *  Magis: `content_id` del portal, o el `ref` si no lo trae. */
+ *  Magis: `content_id` del portal, o el `ref` si no lo trae. Caracol: su `ref`, que ya es único por
+ *  contenido (`ditu1:<contentType>:<contentId>`). */
 internal fun sourceKey(s: PlaySource): String = when (s) {
     is PlaySource.Magis -> "magis-${s.result.extra["content_id"] ?: s.result.ref}"
+    is PlaySource.Ditu -> "ditu-${s.result.ref}"
 }
 
 /**
@@ -1201,6 +1246,9 @@ internal fun sourceKey(s: PlaySource): String = when (s) {
  *
  * Sin checkboxes, a diferencia del celu: en el control remoto marcar 16 casillas es un suplicio.
  * "Guardar toda la temporada" baja todo y elegir un capítulo lo reproduce.
+ *
+ * También abre las series de Caracol, sin el botón de guardar ([onSaveAll] en null) y con su
+ * [etiqueta].
  */
 @Composable
 private fun TvMagisSeasonContent(
@@ -1209,7 +1257,10 @@ private fun TvMagisSeasonContent(
     posterUrl: String,
     preparing: Boolean,
     onPlayOne: (List<com.arkiv.player.data.gateway.GatewayEpisode>, com.arkiv.player.data.gateway.GatewayEpisode, com.arkiv.player.data.gateway.GatewaySerie?) -> Unit,
-    onSaveAll: (List<com.arkiv.player.data.gateway.GatewayEpisode>, com.arkiv.player.data.gateway.GatewaySerie?) -> Unit,
+    // Null = sin botón de guardar (Caracol: no se baja al dispositivo, ver `FuenteDeDescarga`).
+    onSaveAll: ((List<com.arkiv.player.data.gateway.GatewayEpisode>, com.arkiv.player.data.gateway.GatewaySerie?) -> Unit)?,
+    // El nombre de la fuente, en la línea de datos de arriba.
+    etiqueta: String = "Magis",
 ) {
     var capitulos by remember(season.ref) { mutableStateOf<List<com.arkiv.player.data.gateway.GatewayEpisode>?>(null) }
     // El bloque `series` de la misma respuesta: de ahí sale el `tmdbId` que necesita
@@ -1274,7 +1325,7 @@ private fun TvMagisSeasonContent(
                         )
                         Text(
                             listOfNotNull(
-                                "Magis",
+                                etiqueta,
                                 season.year.ifBlank { null },
                                 (capitulos?.size ?: esperados).takeIf { it > 0 }?.let { "$it capítulos" },
                             ).joinToString("  ·  "),
@@ -1297,17 +1348,26 @@ private fun TvMagisSeasonContent(
                     Text("Esta temporada no trae capítulos.", color = ArkivTextSecondary, modifier = Modifier.padding(top = 24.dp))
                 }
                 else -> {
-                    item {
-                        Button(
-                            onClick = { onSaveAll(caps, serie) },
-                            enabled = !preparing,
-                            colors = arkivTvButtonColors(),
-                            border = arkivTvButtonBorder(),
-                            modifier = Modifier.padding(top = 24.dp, bottom = 8.dp).focusRequester(saveAllFocus),
-                        ) { Text("Guardar toda la temporada") }
+                    onSaveAll?.let { guardar ->
+                        item {
+                            Button(
+                                onClick = { guardar(caps, serie) },
+                                enabled = !preparing,
+                                colors = arkivTvButtonColors(),
+                                border = arkivTvButtonBorder(),
+                                modifier = Modifier.padding(top = 24.dp, bottom = 8.dp).focusRequester(saveAllFocus),
+                            ) { Text("Guardar toda la temporada") }
+                        }
                     }
                     items(caps, key = { it.ref }) { cap ->
-                        TvMagisEpisodeRow(cap = cap, enabled = !preparing, onClick = { onPlayOne(caps, cap, serie) })
+                        // Sin botón de guardar, el foco inicial va al primer capítulo: si nadie lo
+                        // pidiera, el control no tendría dónde arrancar.
+                        val foco = if (onSaveAll == null && cap === caps.first()) {
+                            Modifier.focusRequester(saveAllFocus)
+                        } else {
+                            Modifier
+                        }
+                        TvMagisEpisodeRow(cap = cap, enabled = !preparing, modifier = foco, onClick = { onPlayOne(caps, cap, serie) })
                     }
                 }
             }
@@ -1321,18 +1381,19 @@ private fun TvMagisSeasonContent(
     }
 }
 
-/** Fila navegable de un capítulo de Magis ("E3 · Título"). */
+/** Fila navegable de un capítulo de Magis o de Caracol ("E3 · Título"). */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TvMagisEpisodeRow(
     cap: com.arkiv.player.data.gateway.GatewayEpisode,
     enabled: Boolean,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     Surface(
         onClick = onClick,
         enabled = enabled,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        modifier = modifier.fillMaxWidth().padding(vertical = 4.dp),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = ArkivSurfaceHigh,

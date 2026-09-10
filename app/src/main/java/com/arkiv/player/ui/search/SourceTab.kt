@@ -4,24 +4,26 @@ import com.arkiv.player.ui.catalog.PlaySource
 
 /**
  * Filtro por origen de la lista de resultados. Con varias secciones abiertas a la vez la pantalla se
- * vuelve un muro: esto deja ver un solo origen cuando ya sabés cuál querés.
+ * vuelve un muro: esto deja ver un solo origen cuando ya sabes cuál quieres.
+ *
+ * El orden acá manda: es el de los chips y el de las secciones de "Todo". Magis primero y Caracol
+ * después.
  */
-/** El orden acá manda: es el de los chips y el de las secciones de "Todo". Magis primero porque es
- *  la fuente que arranca al toque (sin seeds ni resolver); archive última, que es la de último
- *  recurso. */
 enum class SourceTab(val label: String) {
     TODO("Todo"),
     MAGIS("Magis"),
+    CARACOL("Caracol"),
 }
 
-/** La pestaña a la que pertenece una fuente. `ARCHIVE` no la produce ninguna: era la de
- *  archive.org, borrada en la poda de esta rama; el tab queda pero siempre en cero. */
+/** La pestaña a la que pertenece una fuente. */
 fun tabOf(source: PlaySource): SourceTab = when (source) {
     is PlaySource.Magis -> SourceTab.MAGIS
+    is PlaySource.Ditu -> SourceTab.CARACOL
 }
 
-/** Cuántas fuentes hay por pestaña (incluida TODO), para pintarlo en el chip. Siempre devuelve las
- *  cuatro claves, así los chips no bailan mientras van llegando resultados de cada origen. */
+/** Cuántas fuentes hay por pestaña (incluida TODO), para pintarlo en el chip. Siempre devuelve una
+ *  clave por cada pestaña, aunque esté en cero, así los chips no bailan mientras van llegando
+ *  resultados de cada origen. */
 fun countsByTab(sources: List<PlaySource>): Map<SourceTab, Int> {
     val counts = sources.groupingBy { tabOf(it) }.eachCount()
     return SourceTab.entries.associateWith { tab ->

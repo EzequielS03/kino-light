@@ -743,6 +743,53 @@ class ArkivRepository(
     }
 
     /**
+     * Guarda un título de Caracol en la biblioteca y devuelve el episodeId a reproducir, o null si
+     * no es algo que se pueda guardar (ver [DituEntities.contentIdDelItem]: un ref que no es de
+     * Caracol, o una serie sin capítulo elegido).
+     *
+     * Calcado de [addMagisSource]: [episode] > 0 = capítulo, que va como episodio DENTRO del ítem de
+     * su serie (upsert: los capítulos que ya estaban no se borran); 0 = película, que reemplaza el
+     * ítem entero. La diferencia es que acá lo guardado no vence: el ref de Caracol codifica ids
+     * estables (ver `DituRef`), y queda en el `torrentData` del episodio, que es de donde lo lee
+     * [magisRefForEpisode] cuando `PlayerViewModel.loadDitu` lo va a reproducir.
+     *
+     * [seriesRef] es el ref de la SERIE (el que lista sus capítulos), distinto del [ref] del
+     * capítulo que se va a reproducir.
+     */
+    suspend fun addDituSource(
+        ref: String,
+        title: String,
+        episode: Int = 0,
+        posterUrl: String = "",
+        backdropUrl: String = "",
+        episodeTitle: String = "",
+        seriesRef: String = "",
+        season: Int? = null,
+        tmdbId: Int? = null,
+        tituloCanonico: String? = null,
+    ): String? {
+        val contentId = DituEntities.contentIdDelItem(ref, seriesRef, episode) ?: return null
+        val id = DituEntities.itemIdDe(contentId)
+        val existing = itemDao.getItem(id)
+        val (item, ep) = DituEntities.build(
+            contentId = contentId, ref = ref, title = title, episode = episode,
+            episodeTitle = episodeTitle, posterUrl = posterUrl, ahora = clock(),
+            seriesRef = seriesRef, existente = existing, season = season, tmdbId = tmdbId,
+            tituloCanonico = tituloCanonico,
+        )
+        if (episode > 0) {
+            itemDao.upsertItem(item)
+            itemDao.upsertEpisodes(listOf(ep))
+        } else {
+            itemDao.replaceItem(item, listOf(ep))
+        }
+        // El nombre dice Magis, pero lo único que hace es escribir la imagen apaisada en `artwork`
+        // si llegó una: no tiene nada propio de Magis.
+        guardarBackdropDeMagis(id, backdropUrl)
+        return ep.id
+    }
+
+    /**
      * El ref con el que pedirle al gateway la identidad de un ítem de Magis guardado sin ella, o
      * null si no hay nada que reparar. La regla vive en [MagisEntities.refParaReparar]; acá solo se
      * lee la fila.

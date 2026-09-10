@@ -3,24 +3,25 @@ package com.arkiv.player.data.gateway
 import com.arkiv.player.ui.catalog.PlaySource
 
 /**
- * Traduce un resultado de Magis al modelo que ya usa la pantalla.
+ * Traduce un resultado de búsqueda al modelo que ya usa la pantalla.
  *
- * Devuelve `null` si la fuente no la conoce este APK: `source` es un campo heredado del gateway
- * (Task 9, sub-proyecto 2B, se llevó el servidor entero) que hoy solo puebla [MagisFuente]
- * (com.arkiv.player.data.magis) con `"magis"`, pero se sigue chequeando por si algún día vuelve a
- * traer otro valor.
+ * `source` lo ponen las dos fuentes de la búsqueda: `MagisFuente` (com.arkiv.player.data.magis)
+ * con `"magis"` y `DituFuente` (com.arkiv.player.data.ditu) con `"ditu"`. Cualquier otro valor
+ * devuelve `null`: este APK no sabría qué hacer con él.
  *
- * El magnet y la URL de la página NO se rellenan: todo se resuelve al reproducir, mandando el
- * [GatewayResult.ref] directo a `MagisResolve.resolveVod`.
+ * El magnet y la URL de la página NO se rellenan: todo se resuelve al reproducir, a partir del
+ * [GatewayResult.ref].
  */
 fun GatewayResult.toPlaySource(): PlaySource? = when (source) {
     // Magis se lleva el resultado entero: su `ref` es todo lo que hace falta para resolver, y no
     // hay un tipo previo de la app al que mapearlo.
     "magis" -> PlaySource.Magis(this)
 
-    // "archive"/"torrent"/"web"/"ditu": esta rama del APK ya no sabe qué hacer con ellos (todas se
-    // borraron; archive.org y ditu en la poda de esta rama, torrent/web en la Tarea 2 — ditu vuelve
-    // en el sub-proyecto 3 con un cliente directo). Se ignoran, igual que cualquier fuente futura
-    // desconocida.
+    // Caracol, igual: su `ref` (`ditu1:<contentType>:<contentId>`, ver `DituRef`) alcanza para
+    // resolver y para listar capítulos.
+    "ditu" -> PlaySource.Ditu(this)
+
+    // "archive"/"torrent"/"web": se borraron de esta rama (archive.org en la poda de light-magis,
+    // torrent/web en la Tarea 2). Se ignoran, igual que cualquier fuente futura desconocida.
     else -> null
 }

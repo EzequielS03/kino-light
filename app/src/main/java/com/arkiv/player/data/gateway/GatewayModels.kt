@@ -83,7 +83,7 @@ data class GatewayPlayable(
 data class GatewaySubtitle(val lang: String, val url: String, val format: String = "")
 
 /**
- * Un capítulo de una temporada de Magis.
+ * Un capítulo de una temporada (de Magis o de Caracol).
  *
  * [still], [tmdbTitle] y [overview] los agrega `MagisFuente`, en el propio cliente, cruzando el
  * id de IMDb que publica el portal contra TMDB: el portal NO tiene imagen ni nombre real por
@@ -97,6 +97,16 @@ data class GatewayEpisode(
     val still: String? = null,
     val tmdbTitle: String? = null,
     val overview: String? = null,
+    /**
+     * Temporada de ESTE capítulo, cuando la fuente la sabe por capítulo; null = no la dice. Magis
+     * no la manda: cada temporada suya es un resultado aparte, y su número viaja en
+     * [GatewaySerie.seasonNumber].
+     *
+     * Existe por Caracol: un `GROUP_OF_BUNDLES` llega como UNA lista con todas sus temporadas
+     * aplanadas (`DituEpisodios`), y cada temporada puede traer su propio capítulo 1. Sin la
+     * temporada al lado, [number] no alcanza para saber cuál es cuál.
+     */
+    val season: Int? = null,
 )
 
 /**

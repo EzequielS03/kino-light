@@ -75,7 +75,8 @@ internal class DituFuente(
             .getOrElse { throw GatewayException(it.message ?: "No se pudieron leer los capítulos", it) }
 
         val eps = temporada.episodios.map {
-            GatewayEpisode(number = it.numero, title = it.titulo, ref = it.ref())
+            // La temporada va por capítulo: en un grupo, la de `serie` es una sola para todas.
+            GatewayEpisode(number = it.numero, title = it.titulo, ref = it.ref(), season = it.temporada)
         }
         if (temporada.tituloSerie.isBlank() && temporada.posterUrl.isBlank()) return eps to null
 

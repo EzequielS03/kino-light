@@ -23,27 +23,39 @@ class GatewayMapperTest {
     }
 
     @Test
+    fun `ditu se mapea a su propio tipo`() {
+        // Sin esta rama los resultados de Caracol se descartaban aquí: la fuente compuesta los
+        // entregaba y nunca llegaban a la pantalla.
+        val ps = GatewayResult(
+            source = "ditu", title = "Rigo", ref = "ditu1:BUNDLE:9", kind = "series",
+            extra = mapOf("poster" to "p.jpg", "content_type" to "BUNDLE"),
+        ).toPlaySource()
+        assertTrue(ps is PlaySource.Ditu)
+        assertEquals("Rigo", (ps as PlaySource.Ditu).result.title)
+        assertEquals("ditu1:BUNDLE:9", ps.result.ref)
+        assertEquals("series", ps.result.kind)
+        assertEquals("p.jpg", ps.result.extra["poster"])
+    }
+
+    @Test
     fun `las fuentes conocidas se mapean- ninguna cae en null`() {
-        // Guarda contra el bug real: el gateway sirve fuentes y el mapper debe conocerlas todas.
-        // "archive"/"ditu" NO están en esta lista a propósito: se borraron en la poda de
+        // Guarda contra el bug real: la fuente compuesta entrega estas dos y el mapper tiene que
+        // conocerlas todas. "archive" NO está en esta lista a propósito: se borró en la poda de
         // light-magis (ver el test de abajo).
-        for (fuente in listOf("magis")) {
+        for (fuente in listOf("magis", "ditu")) {
             val r = GatewayResult(source = fuente, title = "x", ref = "r")
             assertTrue("la fuente '$fuente' no se mapea", r.toPlaySource() != null)
         }
     }
 
     @Test
-    fun `archive torrent web y ditu se ignoran a proposito- se borraron de esta rama`() {
-        // El gateway (server viejo) todavia puede mandarlas; este APK ya no sabe que hacer con
-        // ellas y las descarta igual que cualquier fuente futura desconocida. archive.org y ditu se
-        // borraron en la poda de light-magis (ditu vuelve en el sub-proyecto 3 con un cliente
-        // directo); torrent/web ya se habían borrado en la Tarea 2 (ver TODO en
-        // GatewayMapper.toPlaySource, task 6 hace la limpieza completa del lado del fan-out).
+    fun `archive torrent y web se ignoran a proposito- se borraron de esta rama`() {
+        // Este APK ya no sabe qué hacer con ellas y las descarta igual que cualquier fuente futura
+        // desconocida. archive.org se borró en la poda de light-magis; torrent/web ya se habían
+        // borrado en la Tarea 2.
         assertNull(GatewayResult(source = "archive", title = "x", ref = "r").toPlaySource())
         assertNull(GatewayResult(source = "torrent", title = "x", ref = "r").toPlaySource())
         assertNull(GatewayResult(source = "web", title = "x", ref = "r").toPlaySource())
-        assertNull(GatewayResult(source = "ditu", title = "x", ref = "r").toPlaySource())
     }
 
     @Test

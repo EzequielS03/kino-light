@@ -45,24 +45,39 @@ import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 
 /**
- * Una fuente reproducible: Magis.
+ * Una fuente reproducible: Magis o Caracol Streaming (Ditu).
  *
- * Hasta la poda de esta rama (light-magis) había otras dos variantes, `Archive` y `Ditu`, borradas
- * junto con el resto de esas fuentes (`ArchiveSearchResult`/`ArchiveApi` y todo lo de Caracol
- * Streaming no existen más — Ditu vuelve en el sub-proyecto 3 con un cliente directo).
+ * Hasta la poda de esta rama (light-magis) había también una variante `Archive`, borrada junto con
+ * el resto de archive.org. Ditu se borró en esa misma poda y volvió con un cliente directo, sin
+ * servidor propio (`com.arkiv.player.data.ditu`).
  */
 sealed interface PlaySource {
     /** Resultado del portal Magis (solo VOD). El `ref` es opaco: se manda tal cual a
      *  `MagisResolve.resolveVod` y la app nunca lo interpreta. */
     data class Magis(val result: com.arkiv.player.data.gateway.GatewayResult) : PlaySource
+
+    /** Resultado de Caracol Streaming. A diferencia de Magis, su `ref` SÍ se puede guardar en la
+     *  biblioteca: codifica ids de Caracol, que son estables (ver `DituRef`). */
+    data class Ditu(val result: com.arkiv.player.data.gateway.GatewayResult) : PlaySource
 }
 
 /** Azul de Magis: el color de acento de su fila, su sección y su chip de filtro. */
 val ArkivMagisBlue = Color(0xFF64B5F6)
 
+/** Verde de Caracol: el color de acento de su fila, su sección y su chip de filtro. */
+val ArkivCaracolVerde = Color(0xFF66BB6A)
+
 fun accentOf(source: PlaySource): Color = when (source) {
     is PlaySource.Magis -> ArkivMagisBlue
+    is PlaySource.Ditu -> ArkivCaracolVerde
 }
+
+/**
+ * Si un resultado de Caracol es una serie —hay que elegir capítulo antes de reproducir— o una
+ * película. `DituFuente` le pone `kind = "series"` a todo lo que no es un `VOD` (un `BUNDLE` o un
+ * `GROUP_OF_BUNDLES`). Una sola regla para el celular y el televisor.
+ */
+fun PlaySource.Ditu.esSerie(): Boolean = result.kind == "series"
 
 /** Dato suelto de una fuente (calidad, idioma, seeds, tamaño) como pastilla. Leer una línea corrida
  *  de "Latino · 1080p · 12 seeds · 4.2 GB" cuesta; separados se escanean de un vistazo. */
@@ -162,10 +177,8 @@ fun SourceRow(source: PlaySource, enabled: Boolean, descarga: DescargaDeFila? = 
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.width(3.dp).fillMaxHeight().background(accent))
-        // Solo Magis trae imagen por resultado. Sin póster no se dibuja nada.
-        val miniatura = when (source) {
-            is PlaySource.Magis -> source.result.extra["poster"].orEmpty()
-        }
+        // Magis y Caracol traen carátula por resultado ([posterDe]). Sin póster no se dibuja nada.
+        val miniatura = posterDe(source)
         if (miniatura.isNotBlank()) {
             AsyncImage(
                 model = miniatura,
@@ -198,6 +211,22 @@ fun SourceRow(source: PlaySource, enabled: Boolean, descarga: DescargaDeFila? = 
                         if (r.lang.isNotBlank()) MetaChip(r.lang)
                     }
                 }
+                is PlaySource.Ditu -> {
+                    val r = source.result
+                    Text(
+                        r.title, color = Color.White, style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        MetaChip("Caracol", ArkivCaracolVerde)
+                        if (source.esSerie()) MetaChip("Serie")
+                        if (r.year.isNotBlank()) MetaChip(r.year)
+                    }
+                }
             }
             if (descarga != null) LineaDeEstadoDeDescarga(descarga.estado)
         }
@@ -206,9 +235,11 @@ fun SourceRow(source: PlaySource, enabled: Boolean, descarga: DescargaDeFila? = 
     }
 }
 
-/** La carátula de una fuente, o "" si esa fuente no tiene. Magis trae imagen propia. */
+/** La carátula de una fuente, o "" si esa fuente no tiene. Magis y Caracol la traen en
+ *  `extra["poster"]`. */
 fun posterDe(source: PlaySource): String = when (source) {
     is PlaySource.Magis -> source.result.extra["poster"].orEmpty()
+    is PlaySource.Ditu -> source.result.extra["poster"].orEmpty()
 }
 
 /**
@@ -273,6 +304,11 @@ fun SourceCard(source: PlaySource, enabled: Boolean, onDownload: (() -> Unit)? =
                     if (source.result.extra["program_type"] == "teleplay") MetaChip("Serie")
                     if (source.result.year.isNotBlank()) MetaChip(source.result.year)
                 }
+                is PlaySource.Ditu -> {
+                    MetaChip("Caracol", ArkivCaracolVerde)
+                    if (source.esSerie()) MetaChip("Serie")
+                    if (source.result.year.isNotBlank()) MetaChip(source.result.year)
+                }
             }
         }
     }
@@ -280,4 +316,5 @@ fun SourceCard(source: PlaySource, enabled: Boolean, onDownload: (() -> Unit)? =
 
 private fun tituloDe(source: PlaySource): String = when (source) {
     is PlaySource.Magis -> source.result.title
+    is PlaySource.Ditu -> source.result.title
 }

@@ -14,7 +14,7 @@ sealed class PlaybackResult {
 }
 
 /**
- * Resuelve una fuente elegida en el buscador (archive/magis), la guarda en la biblioteca vía
+ * Resuelve una fuente elegida en el buscador (Magis o Caracol), la guarda en la biblioteca vía
  * [AppGraph.repository] y devuelve el episodeId listo para reproducir. Extraído VERBATIM de las
  * funciones locales que vivían en `SearchScreen` (playDirect, playArchiveResult, seriesIdFor) para
  * que TV pueda reusar exactamente la misma lógica sin duplicarla. No-Compose a propósito: solo
@@ -32,6 +32,7 @@ class SearchPlayback(private val graph: AppGraph) {
     suspend fun playDirect(source: PlaySource): PlaybackResult {
         val epId: String? = when (source) {
             is PlaySource.Magis -> magisEpisodeId(source.result)
+            is PlaySource.Ditu -> dituEpisodeId(source.result)
         }
         return if (epId != null) PlaybackResult.Ready(epId) else PlaybackResult.Failed("No se pudo preparar la reproducción.")
     }
@@ -171,6 +172,62 @@ class SearchPlayback(private val graph: AppGraph) {
         val epId = magisEpisodeId(r)
         return if (epId != null) PlaybackResult.Ready(epId)
         else PlaybackResult.Failed("No se pudo preparar la reproducción de Magis.")
+    }
+
+    /**
+     * Guarda un resultado de Caracol (una película) y devuelve su episodeId. Calcado de
+     * [magisEpisodeId], con una diferencia que importa: lo guardado no vence (ver `DituRef`).
+     *
+     * El id sale del `contentId` que va dentro del ref (`ditu1:<contentType>:<contentId>`), y el ref
+     * queda en el `torrentData` del episodio: de ahí lo lee `PlayerViewModel.loadDitu`. A una serie
+     * le devuelve null: primero se eligen sus capítulos ([playDituEpisode]). Ver
+     * `DituEntities.contentIdDelItem`.
+     */
+    suspend fun dituEpisodeId(r: com.arkiv.player.data.gateway.GatewayResult): String? =
+        graph.repository.addDituSource(ref = r.ref, title = r.title, posterUrl = r.extra["poster"].orEmpty())
+
+    /** Reproduce una película de Caracol: la guarda y devuelve a dónde navegar. */
+    suspend fun playDitu(r: com.arkiv.player.data.gateway.GatewayResult): PlaybackResult {
+        val epId = dituEpisodeId(r)
+        return if (epId != null) PlaybackResult.Ready(epId)
+        else PlaybackResult.Failed("No se pudo preparar la reproducción de Caracol.")
+    }
+
+    /**
+     * Guarda UN capítulo de una serie de Caracol y devuelve su episodeId, para reproducirlo.
+     *
+     * Es el camino de Caracol de la ventana de capítulos: lo llama la pantalla cuando la serie
+     * abierta es de Caracol, y solo escribe por `ArkivRepository.addDituSource` —nunca por
+     * [playMagisSeason] ni [magisEpisodeIdDe], que arman ids `magis:`—. Guarda solo el capítulo
+     * tocado, no la temporada entera como hace Magis.
+     *
+     * La temporada sale del propio capítulo (`GatewayEpisode.season`, que `DituFuente` llena por
+     * capítulo) y de [serie] solo si falta: en un `GROUP_OF_BUNDLES` la de [serie] es una sola para
+     * todas las temporadas aplanadas.
+     */
+    suspend fun playDituEpisode(
+        temporada: com.arkiv.player.data.gateway.GatewayResult,
+        capitulo: com.arkiv.player.data.gateway.GatewayEpisode,
+        serie: com.arkiv.player.data.gateway.GatewaySerie?,
+    ): PlaybackResult {
+        val epId = graph.repository.addDituSource(
+            ref = capitulo.ref,
+            seriesRef = temporada.ref,
+            // El ítem es la serie; el capítulo se nombra aparte, adentro.
+            title = temporada.title,
+            episode = capitulo.number,
+            episodeTitle = capitulo.title,
+            posterUrl = temporada.extra["poster"].orEmpty().ifBlank { serie?.posterUrl.orEmpty() },
+            backdropUrl = serie?.backdropUrl.orEmpty(),
+            season = capitulo.season ?: serie?.seasonNumber,
+            // `DituFuente` deja el tmdbId en 0 cuando TMDB no la encontró: ese 0 no puede pisar un
+            // tmdbId ya guardado.
+            tmdbId = serie?.tmdbId?.takeIf { it > 0 },
+            // Sin cruce con TMDB, `GatewaySerie.titulo` es el nombre de Caracol, no el canónico.
+            tituloCanonico = serie?.takeIf { it.tmdbId > 0 }?.titulo,
+        )
+        return if (epId != null) PlaybackResult.Ready(epId)
+        else PlaybackResult.Failed("No se pudo preparar el capítulo de Caracol.")
     }
 
 }

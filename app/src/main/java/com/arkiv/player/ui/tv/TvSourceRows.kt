@@ -38,7 +38,9 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import com.arkiv.player.ui.catalog.ArkivCaracolVerde
 import com.arkiv.player.ui.catalog.PlaySource
+import com.arkiv.player.ui.catalog.esSerie
 import com.arkiv.player.ui.search.SourceTab
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextPrimary
@@ -53,7 +55,7 @@ import com.arkiv.player.ui.theme.ArkivTextSecondary
  * la siguiente. Es además el lenguaje que el Home del TV ya usa.
  */
 
-/** Alto de las carátulas de magis. */
+/** Alto de las carátulas de Magis y Caracol. */
 private val ALTO_TARJETA = 220.dp
 
 /**
@@ -71,6 +73,7 @@ private val MARGEN = 48.dp
 
 private fun etiquetaDe(source: PlaySource): Pair<String, Color> = when (source) {
     is PlaySource.Magis -> "MAGIS" to Color(0xFF64B5F6)
+    is PlaySource.Ditu -> "CARACOL" to ArkivCaracolVerde
 }
 
 /**
@@ -161,6 +164,7 @@ private fun TvMetaChip(texto: String, color: Color, fuerte: Boolean = false) {
 
 private fun tituloDe(source: PlaySource): String = when (source) {
     is PlaySource.Magis -> source.result.title
+    is PlaySource.Ditu -> source.result.title
 }
 
 /**
@@ -177,13 +181,20 @@ private fun datosDe(source: PlaySource): List<Pair<String, Color>> = when (sourc
             r.year.takeIf { it.isNotBlank() }?.let { add(it to ArkivTextSecondary) }
         }
     }
+    is PlaySource.Ditu -> {
+        val r = source.result
+        buildList {
+            add((if (source.esSerie()) "Serie" else "Película") to ArkivCaracolVerde)
+            r.year.takeIf { it.isNotBlank() }?.let { add(it to ArkivTextSecondary) }
+        }
+    }
 }
 
 /**
  * Una fila etiquetada con los resultados de UNA fuente.
  *
- * Magis va con carátula porque es la única que trae imagen propia; el resto va con mosaico de
- * texto. Que dos filas tengan tarjetas distintas es lo normal en una tele — el Home ya mezcla
+ * Magis y Caracol van con carátula porque traen imagen propia. [TvSourceCard], el mosaico de texto,
+ * queda sin llamadores: era para las fuentes sin imagen (torrent, web, archive), que ya no están. Que dos filas tengan tarjetas distintas es lo normal en una tele — el Home ya mezcla
  * apaisadas con pósters.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -222,19 +233,17 @@ fun LazyListScope.tvFilaDeFuente(
                 } else {
                     Modifier
                 }
-                if (s is PlaySource.Magis) {
-                    val (titulo, poster) = when (s) {
-                        is PlaySource.Magis -> s.result.title to s.result.extra["poster"]
-                    }
-                    TvPosterCard(
-                        title = titulo,
-                        posterUrl = poster,
-                        cardHeight = ALTO_TARJETA,
-                        modifier = mod,
-                    ) { onPlay(s) }
-                } else {
-                    TvSourceCard(s, enabled = enabled, modifier = mod) { onPlay(s) }
+                // Las dos fuentes que hay traen carátula, así que las dos van como póster.
+                val (titulo, poster) = when (s) {
+                    is PlaySource.Magis -> s.result.title to s.result.extra["poster"]
+                    is PlaySource.Ditu -> s.result.title to s.result.extra["poster"]
                 }
+                TvPosterCard(
+                    title = titulo,
+                    posterUrl = poster,
+                    cardHeight = ALTO_TARJETA,
+                    modifier = mod,
+                ) { onPlay(s) }
             }
         }
     }

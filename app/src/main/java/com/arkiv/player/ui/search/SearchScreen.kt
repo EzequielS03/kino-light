@@ -83,6 +83,8 @@ import com.arkiv.player.ui.catalog.SourceCard
 import com.arkiv.player.ui.catalog.SourceSectionHeader
 import com.arkiv.player.data.gateway.MAGIS_SERIES
 import com.arkiv.player.ui.catalog.ArkivMagisBlue
+import com.arkiv.player.ui.catalog.ArkivCaracolVerde
+import com.arkiv.player.ui.catalog.esSerie
 import com.arkiv.player.ui.catalog.MetaChip
 import com.arkiv.player.ui.home.buildRowSpecs
 import com.arkiv.player.ui.home.matchCategoryRow
@@ -151,6 +153,10 @@ fun SearchScreen(
     // Temporada de Magis abierta: un resultado de serie del portal ES una temporada entera,
     // así que en vez de reproducir se abre su lista de capítulos.
     var magisSeason by remember { mutableStateOf<com.arkiv.player.data.gateway.GatewayResult?>(null) }
+    // Serie de Caracol abierta: igual que Magis, se eligen los capítulos antes de reproducir. Es un
+    // estado APARTE del de Magis a propósito: lo que se toca en su ventana solo llega a
+    // `playback.playDituEpisode`, así que un capítulo de Caracol nunca cae en el guardado de Magis.
+    var dituSeason by remember { mutableStateOf<com.arkiv.player.data.gateway.GatewayResult?>(null) }
 
     // Atajo desde el home: entra ya posicionado en un título. Se dispara una sola vez por
     // combinación de args (LaunchedEffect no re-ejecuta en recomposiciones sin cambios), y
@@ -187,6 +193,13 @@ fun SearchScreen(
         if (r.extra["program_type"] in MAGIS_SERIES) { magisSeason = r; return }
         preparing = true; playError = null
         scope.launch { applyResult(playback.playMagis(r)) }
+    }
+
+    fun playDituResult(source: PlaySource.Ditu) {
+        // Serie → abrir sus capítulos. Película → reproducir directo (y queda en la biblioteca).
+        if (source.esSerie()) { dituSeason = source.result; return }
+        preparing = true; playError = null
+        scope.launch { applyResult(playback.playDitu(source.result)) }
     }
 
     // --- Guardar en el dispositivo desde la búsqueda -------------------------------------------
@@ -231,11 +244,29 @@ fun SearchScreen(
             // Magis no se guarda en el dispositivo: el CDN sirve con un token que vence a las ~48 h,
             // así que el archivo bajado dejaría de reproducirse.
             is PlaySource.Magis -> playError = "Magis no se puede guardar: el enlace vence."
+            // Caracol SÍ se guarda, pero en la biblioteca y no en la cola del dispositivo: sus ids no
+            // vencen (ver `DituRef`), y su video viene cifrado con Widevine, así que "ditu" no tiene
+            // estrategia de descarga (ver `FuenteDeDescarga`). Una serie abre sus capítulos, y el que
+            // se toque queda guardado. Ojo: hoy ninguna fila llama a esto, porque [descargaDe]
+            // devuelve siempre null; por eso el guardado de una película no avisa nada al terminar.
+            is PlaySource.Ditu -> {
+                if (source.esSerie()) {
+                    dituSeason = source.result
+                } else {
+                    scope.launch {
+                        when (val r = playback.playDirect(source)) {
+                            is PlaybackResult.Ready -> Unit
+                            is PlaybackResult.Failed -> playError = r.message
+                        }
+                    }
+                }
+            }
         }
     }
 
     fun playResult(source: PlaySource) = when (source) {
         is PlaySource.Magis -> playMagisResult(source.result)
+        is PlaySource.Ditu -> playDituResult(source)
     }
 
     Box(Modifier.fillMaxSize().background(ArkivBlack)) {
@@ -355,6 +386,25 @@ fun SearchScreen(
                     }
                 }
             },
+        )
+    }
+
+    dituSeason?.let { serieDeCaracol ->
+        com.arkiv.player.ui.catalog.MagisSeasonDialog(
+            season = serieDeCaracol,
+            // La fuente compuesta: con un ref de Caracol, `episodesConSerie` llega a `DituFuente`.
+            client = graph.fuenteDeContenido,
+            onDismiss = { dituSeason = null },
+            onPlay = { _, capitulo, serie ->
+                dituSeason = null
+                preparing = true; playError = null
+                scope.launch { applyResult(playback.playDituEpisode(serieDeCaracol, capitulo, serie)) }
+            },
+            // Sin casillas de "Guardar": en esta ventana guardar es bajar al dispositivo, y Caracol no
+            // se baja (Widevine, ver `FuenteDeDescarga`). A la biblioteca entra al reproducir.
+            onSave = null,
+            etiqueta = "Caracol",
+            acento = ArkivCaracolVerde,
         )
     }
 
@@ -746,9 +796,9 @@ private fun ResultsContent(
     /** En qué va la descarga de cada fuente, y qué se puede hacer con eso. Null = no se descarga. */
     descargaDe: (PlaySource) -> DescargaDeFila?,
 ) {
-    // MAGIS entra en las abiertas por defecto: es la primera sección, y arrancar colapsada la haría
-    // parecer vacía justo arriba de todo.
-    var expandedSections by remember { mutableStateOf(setOf("MAGIS")) }
+    // Las dos entran abiertas por defecto: una sección que arranca colapsada parece vacía aunque
+    // traiga resultados.
+    var expandedSections by remember { mutableStateOf(setOf("MAGIS", "CARACOL")) }
     fun toggle(k: String) { expandedSections = if (k in expandedSections) expandedSections - k else expandedSections + k }
     // `rememberSaveable` y no `remember`: al abrir el reproductor esta pantalla se destruye, y con
     // `remember` el origen elegido se perdía — volvías de ver algo por Magis y la lista estaba
@@ -756,10 +806,14 @@ private fun ResultsContent(
     var tab by rememberSaveable { mutableStateOf(SourceTab.TODO) }
 
     val magis = sources.filterIsInstance<PlaySource.Magis>()
+    val caracol = sources.filterIsInstance<PlaySource.Ditu>()
     val anyLoading = loadingMagis
     val counts = countsByTab(sources)
+    // `loadingMagis` cubre la búsqueda ENTERA: `SearchViewModel.runSourceSearch` lo apaga cuando
+    // termina de recorrer `FuenteDeContenido.search`, que es la fuente compuesta y pregunta a Magis
+    // y a Caracol a la vez. Por eso sirve igual para el chip de Caracol.
     val loadingOf = mapOf(
-        SourceTab.TODO to anyLoading, SourceTab.MAGIS to loadingMagis,
+        SourceTab.TODO to anyLoading, SourceTab.MAGIS to loadingMagis, SourceTab.CARACOL to loadingMagis,
     )
 
     // El hero va a sangre (sin margen lateral) para que el backdrop llegue a los bordes; por eso el
@@ -776,18 +830,18 @@ private fun ResultsContent(
         if (!anyLoading && sources.isEmpty()) {
             item(key = "empty") {
                 Text(
-                    "No se encontraron fuentes. Volvé atrás y probá con otra temporada/capítulo, o sin especificar ninguno.",
+                    "No se encontraron fuentes. Vuelve atrás y prueba con otra temporada/capítulo, o sin especificar ninguno.",
                     color = ArkivTextSecondary,
                     modifier = Modifier.padding(horizontal = HPAD, vertical = 12.dp),
                 )
             }
         } else if (tab == SourceTab.TODO) {
-            // "Todo" mantiene la sección colapsable por si en el futuro vuelve a haber más de un
-            // origen a la vez; hoy Magis es el único.
+            // "Todo": una sección colapsable por origen, en el orden de [SourceTab].
             sourceSection(this, "MAGIS", ArkivMagisBlue, magis, loadingMagis, "MAGIS" in expandedSections, { toggle("MAGIS") }, enabled, onPlay, descargaDe)
+            sourceSection(this, "CARACOL", ArkivCaracolVerde, caracol, loadingMagis, "CARACOL" in expandedSections, { toggle("CARACOL") }, enabled, onPlay, descargaDe)
         } else {
             // Con un origen elegido la cabecera de sección sobra: la lista va plana.
-            val shown = magis
+            val shown = filterByTab(sources, tab)
             if (shown.isEmpty()) {
                 item(key = "empty-tab") {
                     Text(
@@ -986,6 +1040,8 @@ private fun sourceSection(
  *  mismo nombre romperían la lista si compartieran key). Mismo criterio que usa el buscador del TV. */
 private fun sourceKey(s: PlaySource): String = when (s) {
     is PlaySource.Magis -> "m-${s.result.extra["content_id"] ?: s.result.ref}"
+    // El ref de Caracol ya es único por contenido: `ditu1:<contentType>:<contentId>`.
+    is PlaySource.Ditu -> "d-${s.result.ref}"
 }
 
 /**
@@ -1011,6 +1067,7 @@ private fun SourceTabRow(
             val accent = when (t) {
                 SourceTab.TODO -> Color.White
                 SourceTab.MAGIS -> ArkivMagisBlue
+                SourceTab.CARACOL -> ArkivCaracolVerde
             }
             val on = t == selected
             Row(

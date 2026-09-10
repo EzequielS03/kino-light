@@ -101,6 +101,30 @@ class DituFuenteTest {
     }
 
     /**
+     * En un GROUP_OF_BUNDLES cada temporada puede traer su propio capítulo 1. La temporada tiene que
+     * viajar en cada capítulo: `GatewaySerie.seasonNumber` es una sola para toda la lista, y sin
+     * esto quien guarde en la biblioteca no puede distinguir el 1 de la T1 del 1 de la T2.
+     */
+    @Test fun `en un grupo cada capitulo trae su temporada`() = runTest {
+        val fake = FakeDituCliente()
+        fake.responde(DituCatalogo.TRAY, """{"resultObj":{"containers":[{"id":"b1"},{"id":"b2"}]}}""")
+        for ((bundle, cap) in listOf("b1" to "e1", "b2" to "e2")) {
+            fake.responde("CONTENT/DETAIL/BUNDLE/$bundle", """
+            {"resultObj":{"containers":[{"metadata":{"title":"Rigo","pictureUrl":"pic"},"containers":[
+              {"id":"$cap","metadata":{"episodeNumber":1,"episodeTitle":"Uno","season":1},
+               "assets":[{"assetType":"MASTER","assetId":1}]}
+            ]}]}}
+            """)
+        }
+
+        val (eps, _) = fuente(fake).episodesConSerie("ditu1:GROUP_OF_BUNDLES:g9")
+
+        assertEquals(listOf(1, 1), eps.map { it.number })
+        assertEquals(listOf(1, 2), eps.map { it.season })
+        assertEquals(listOf("ditu1:VOD:e1", "ditu1:VOD:e2"), eps.map { it.ref })
+    }
+
+    /**
      * `TmdbApi` con un servidor real que se cae ANTES de la llamada (mismo patrón que
      * `MagisFuenteTest."si TMDB se cae, los capitulos salen igual"`): a diferencia de `tmdb = null`,
      * acá sí se intenta cruzar contra TMDB y la llamada falla de verdad — es la garantía central de

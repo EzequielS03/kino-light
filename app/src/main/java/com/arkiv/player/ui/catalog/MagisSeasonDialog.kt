@@ -54,6 +54,9 @@ import com.arkiv.player.ui.theme.ArkivTextSecondary
 /**
  * Ventana de una temporada de Magis.
  *
+ * También abre las series de Caracol, con su [etiqueta] y su [acento]. La ventana no guarda nada:
+ * qué pasa al tocar un capítulo lo decide quien la abre, en [onPlay] y [onSave].
+ *
  * Existe porque un resultado de serie del portal **es una temporada entera**, no un capítulo:
  * "Breaking Bad T5" son 16 capítulos bajo un solo ítem. Sin esta pantalla, tocar ese resultado
  * reproducía el capítulo 1 en silencio, sin forma de elegir.
@@ -73,6 +76,9 @@ fun MagisSeasonDialog(
     // que el play ya había guardado bien. Ver `SearchPlayback.magisEpisodeIdDe`.
     // Null = descarga deshabilitada.
     onSave: ((List<GatewayEpisode>, GatewaySerie?) -> Unit)? = null,
+    // El nombre y el color de la fuente. La ventana también abre las series de Caracol.
+    etiqueta: String = "Magis",
+    acento: Color = ArkivMagisBlue,
 ) {
     var capitulos by remember(season.ref) { mutableStateOf<List<GatewayEpisode>?>(null) }
     // El bloque `series` de la misma respuesta: de ahí sale el `tmdbId` que necesita
@@ -117,9 +123,9 @@ fun MagisSeasonDialog(
                 if (puedeGuardar && marcados.isNotEmpty()) {
                     val elegidos = capitulos.orEmpty().filter { it.number in marcados }
                     TextButton(onClick = { onSave!!(elegidos, serie); onDismiss() }) {
-                        Icon(Icons.Default.Download, contentDescription = null, tint = ArkivMagisBlue)
+                        Icon(Icons.Default.Download, contentDescription = null, tint = acento)
                         Spacer(Modifier.size(6.dp))
-                        Text("Guardar ${elegidos.size}", color = ArkivMagisBlue)
+                        Text("Guardar ${elegidos.size}", color = acento)
                     }
                 }
                 TextButton(onClick = onDismiss) { Text("Cerrar") }
@@ -145,7 +151,7 @@ fun MagisSeasonDialog(
             Column {
                 Text(season.title, color = Color.White, fontWeight = FontWeight.SemiBold)
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(top = 6.dp)) {
-                    MetaChip("Magis", ArkivMagisBlue)
+                    MetaChip(etiqueta, acento)
                     if (season.year.isNotBlank()) MetaChip(season.year)
                     // El conteo del portal se muestra aunque la lista aún no llegue: da idea del
                     // tamaño de la temporada mientras carga.
@@ -162,7 +168,7 @@ fun MagisSeasonDialog(
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    CircularProgressIndicator(Modifier.size(20.dp), color = ArkivMagisBlue)
+                    CircularProgressIndicator(Modifier.size(20.dp), color = acento)
                     Spacer(Modifier.size(12.dp))
                     Text("Cargando capítulos…", color = ArkivTextSecondary)
                 }
@@ -181,6 +187,7 @@ fun MagisSeasonDialog(
                             cap = cap,
                             marcado = cap.number in marcados,
                             mostrarCasilla = puedeGuardar,
+                            acento = acento,
                             onMarcar = {
                                 if (cap.number in marcados) marcados.remove(cap.number)
                                 else marcados.add(cap.number)
@@ -200,6 +207,7 @@ private fun EpisodeRow(
     cap: GatewayEpisode,
     marcado: Boolean,
     mostrarCasilla: Boolean = true,
+    acento: Color = ArkivMagisBlue,
     onMarcar: () -> Unit,
     onPlay: () -> Unit,
 ) {
@@ -222,14 +230,14 @@ private fun EpisodeRow(
                 Icon(
                     if (marcado) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
                     contentDescription = if (marcado) "Quitar de la descarga" else "Guardar este capítulo",
-                    tint = if (marcado) ArkivMagisBlue else ArkivTextSecondary,
+                    tint = if (marcado) acento else ArkivTextSecondary,
                 )
             }
         }
         Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
             Text(
                 cap.number.toString(),
-                color = ArkivMagisBlue,
+                color = acento,
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
             )
@@ -262,6 +270,6 @@ private fun EpisodeRow(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.height(20.dp).weight(1f).padding(start = 8.dp),
         )
-        Icon(Icons.Default.PlayArrow, contentDescription = "Reproducir", tint = ArkivMagisBlue)
+        Icon(Icons.Default.PlayArrow, contentDescription = "Reproducir", tint = acento)
     }
 }
