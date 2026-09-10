@@ -130,29 +130,4 @@ class ArkivApiClientTest {
         assertTrue("esperaba GatewayException y fue $e", e is GatewayException)
     }
 
-    // --- anime --------------------------------------------------------------------------------
-
-    @Test
-    fun `animeMeta mapea titulos, temporada y offset`() = runBlocking {
-        server.enqueue(
-            MockResponse().setBody(
-                """{"titles":["Naruto","ナルト"],"tvdb_season":2,"offset":26,"tmdb_id":31910}""",
-            ),
-        )
-
-        val meta = client.animeMeta(20)!!
-
-        assertEquals(listOf("Naruto", "ナルト"), meta.titles)
-        assertEquals(2, meta.tvdbSeason)
-        assertEquals(26, meta.offset)
-        assertEquals(31910, meta.tmdbId)
-    }
-
-    @Test
-    fun `animeMeta devuelve null si el gateway falla, no lanza`() = runBlocking {
-        server.enqueue(MockResponse().setResponseCode(404).setBody("no"))
-
-        assertNull(client.animeMeta(20))
-    }
-
 }

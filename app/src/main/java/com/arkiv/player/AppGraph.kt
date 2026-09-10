@@ -4,7 +4,6 @@ import android.content.Context
 import com.arkiv.player.data.ArkivRepository
 import com.arkiv.player.data.catalog.AniListApi
 import com.arkiv.player.data.catalog.AnimeMappingRepository
-import com.arkiv.player.data.catalog.SimklApi
 import com.arkiv.player.data.catalog.TmdbApi
 import com.arkiv.player.data.SearchHistoryRepo
 import com.arkiv.player.data.SettingsStore
@@ -335,14 +334,6 @@ class AppGraph(context: Context) {
         )
     }
     val aniListApi: AniListApi by lazy { AniListApi() }
-    val simklApi: SimklApi by lazy {
-        SimklApi(
-            gatewayUrl = { settings.gatewayUrl.value },
-            client = httpGatewayCorto,
-            personToken = { sesionDePersona.token() },
-            deviceToken = { deviceAuth.session.value?.token },
-        )
-    }
     val animeMappingRepository: AnimeMappingRepository by lazy {
         AnimeMappingRepository(cacheDir = appContext.filesDir)
     }

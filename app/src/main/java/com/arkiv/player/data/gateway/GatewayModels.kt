@@ -116,11 +116,3 @@ sealed interface SearchEvent {
 
 /** Tipos de `program_type` cuyo resultado es una temporada entera, no algo reproducible. */
 val MAGIS_SERIES = setOf("teleplay", "series", "variety")
-
-/** Metadata de anime que sirve el gateway (`/v1/anime/{id}`). */
-data class GatewayAnimeMeta(
-    val titles: List<String>,
-    val tvdbSeason: Int?,
-    val offset: Int,
-    val tmdbId: Int?,
-)

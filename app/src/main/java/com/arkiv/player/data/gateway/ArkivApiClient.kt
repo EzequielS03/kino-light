@@ -30,7 +30,7 @@ data class GatewaySearchQuery(
 
 /**
  * Cliente del gateway, para lo que en esta rama sigue siendo del servidor: la trivia ("dato
- * curioso", excepción permanente), la metadata de anime y el aviso para regenerar recomendaciones.
+ * curioso", excepción permanente) y el aviso para regenerar recomendaciones.
  *
  * El contenido ya NO sale de acá: búsqueda, reproducción y capítulos se los pide
  * [com.arkiv.player.data.magis.MagisFuente] al portal directo (sub-proyecto 2A).
@@ -65,25 +65,6 @@ class ArkivApiClient(
         personToken()?.takeIf { it.isNotBlank() }?.let { b.header("Authorization", it) }
         deviceToken()?.takeIf { it.isNotBlank() }?.let { b.header("X-Arkiv-Device", it) }
         return b
-    }
-    /**
-     * Metadata de un anime (títulos, temporada TVDB, offset absoluto y tmdb_id).
-     *
-     * La búsqueda ya no la necesita —la resuelve el gateway por dentro—, pero la biblioteca propia
-     * indexa por `tmdb_id`. Pedirla acá le evita al dispositivo bajar los ~30 MB del dataset de
-     * Fribb que antes descargaba cada teléfono por su cuenta.
-     */
-    suspend fun animeMeta(anilistId: Long): GatewayAnimeMeta? = withContext(Dispatchers.IO) {
-        runCatching {
-            val o = JSONObject(ejecutar(pedido("${baseUrl()}/v1/anime/$anilistId").get().build()))
-            val t = o.optJSONArray("titles")
-            GatewayAnimeMeta(
-                titles = (0 until (t?.length() ?: 0)).map { t!!.getString(it) },
-                tvdbSeason = o.optInt("tvdb_season", -1).takeIf { it >= 0 },
-                offset = o.optInt("offset"),
-                tmdbId = o.optInt("tmdb_id").takeIf { it > 0 },
-            )
-        }.getOrNull()
     }
 
     /**
