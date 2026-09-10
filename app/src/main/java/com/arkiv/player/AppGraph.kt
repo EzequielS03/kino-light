@@ -149,6 +149,15 @@ class AppGraph(context: Context) {
         com.arkiv.player.data.magis.MagisSession(magisPortal, magisStore)
     }
 
+    /**
+     * El vínculo con Magis visto desde "Ajustes → Cuenta" (celu y TV) y la oferta al entrar a la TV
+     * (Task 8, sub-proyecto 2B): las tres pantallas dejaron de usar [accountManager] para esto -ya
+     * no depende de ninguna sesión de Kino, ver el KDoc de [com.arkiv.player.data.magis.CuentaDeMagis]-.
+     */
+    internal val cuentaDeMagis: com.arkiv.player.data.magis.CuentaDeMagis by lazy {
+        com.arkiv.player.data.magis.CuentaDeMagis(magisSession)
+    }
+
     private val magisCatalog: com.arkiv.player.data.magis.MagisCatalog by lazy {
         com.arkiv.player.data.magis.MagisCatalog(magisPortal, magisSession)
     }

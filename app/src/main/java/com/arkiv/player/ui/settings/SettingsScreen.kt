@@ -90,7 +90,7 @@ fun SettingsScreen(contentPadding: PaddingValues, onOpenDownloads: () -> Unit = 
                 when (tab) {
                     TabDeAjustes.REPRODUCCION -> ReproduccionTab()
                     TabDeAjustes.SUBTITULOS -> SubtitulosTab()
-                    TabDeAjustes.CUENTA -> AccountSection(graph.accountManager)
+                    TabDeAjustes.CUENTA -> AccountSection(graph.cuentaDeMagis)
                     TabDeAjustes.APARATOS -> MisAparatosSection(graph.misAparatosViewModel)
                     TabDeAjustes.APP -> AppTab(onOpenDownloads = onOpenDownloads)
                 }

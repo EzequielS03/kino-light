@@ -15,26 +15,30 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.arkiv.player.data.magis.CuentaDeMagis
+import com.arkiv.player.data.magis.EstadoDeMagis
+import com.arkiv.player.data.magis.MagisException
 import com.arkiv.player.pocketbase.AccountException
 import com.arkiv.player.pocketbase.AccountManager
-import com.arkiv.player.pocketbase.AccountState
 import kotlinx.coroutines.launch
 
 /**
- * `Entrar` valida contra PocketBase, única fuente de identidad de una cuenta que ya existe -el
- * alta de cuentas nuevas con licencia se sacó de la app en Task 7 (poda "Arkiv Light")-. Vincular
- * Magis es un paso aparte y posterior, disponible una vez Conectado sin Magis
- * ([VincularMagisSection]).
+ * "Ajustes → Cuenta" del celular (Task 8, sub-proyecto 2B): el vínculo con Magis, sobre sus propios
+ * pies. Ya no hay login/logout de Kino acá -esta pantalla dejó de tomar un `AccountManager`-; lo
+ * único que queda es vincular o desvincular Magis directo contra [CuentaDeMagis], sin ninguna
+ * cuenta de Kino de por medio. [AnonimoSection] sigue abajo tal cual -esta pantalla ya no la llama,
+ * pero [com.arkiv.player.ui.entrada.PantallaDeEntrada] sí, para su propio login de Kino-.
  */
 @Composable
-fun AccountSection(account: AccountManager) {
-    val state by account.state.collectAsStateWithLifecycle()
+internal fun AccountSection(cuenta: CuentaDeMagis) {
+    val estado by cuenta.estado.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { cuenta.refrescar() }
 
     Text("Cuenta", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 16.dp, bottom = 6.dp))
 
-    when (val s = state) {
-        is AccountState.Conectado -> ConectadoSection(account, s)
-        AccountState.Anonimo -> AnonimoSection(account)
+    when (val e = estado) {
+        is EstadoDeMagis.Vinculada -> VinculadaSection(cuenta, e)
+        EstadoDeMagis.Sin -> SinVincularSection(cuenta)
     }
 }
 
@@ -105,53 +109,26 @@ internal fun AnonimoSection(account: AccountManager) {
 }
 
 @Composable
-private fun ConectadoSection(account: AccountManager, s: AccountState.Conectado) {
+private fun VinculadaSection(cuenta: CuentaDeMagis, estado: EstadoDeMagis.Vinculada) {
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(s.email) { account.refrescarMagis() }
+    Text("Magis vinculado como ${estado.email}", style = MaterialTheme.typography.bodyMedium)
 
-    Text(
-        "Conectado como ${s.email}" + if (s.magisLinked) " · Magis vinculado ✓" else "",
-        style = MaterialTheme.typography.bodyMedium,
-    )
-    Button(
+    OutlinedButton(
         enabled = !busy,
-        onClick = { scope.launch { busy = true; runCatching { account.logout() }; busy = false } },
+        onClick = { scope.launch { busy = true; cuenta.desvincular(); busy = false } },
         modifier = Modifier.padding(top = 8.dp),
-    ) { Text("Cerrar sesión") }
-
-    error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 6.dp)) }
-
-    if (s.magisLinked) {
-        OutlinedButton(
-            enabled = !busy,
-            onClick = {
-                scope.launch {
-                    busy = true
-                    try {
-                        account.desvincularMagis()
-                    } catch (e: AccountException) {
-                        error = e.message
-                    } finally {
-                        busy = false
-                    }
-                }
-            },
-            modifier = Modifier.padding(top = 8.dp),
-        ) { Text(if (busy) "Desvinculando…" else "Desvincular Magis") }
-    } else {
-        VincularMagisSection(account, s.email)
-    }
+    ) { Text(if (busy) "Desvinculando…" else "Desvincular Magis") }
 }
 
-/** Sub-bloque para vincular Magis a una cuenta Arkiv ya conectada que aún no lo tiene. */
+/** Sub-bloque para vincular una cuenta de Magis que ya exista -sin ninguna cuenta de Kino de la
+ *  que sacar el email, así que arranca en blanco (antes venía precargado con el email de Kino). */
 @Composable
-private fun VincularMagisSection(account: AccountManager, accountEmail: String) {
+private fun SinVincularSection(cuenta: CuentaDeMagis) {
     val scope = rememberCoroutineScope()
     var expanded by remember { mutableStateOf(false) }
-    var email by remember { mutableStateOf(accountEmail) }
+    var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -187,9 +164,9 @@ private fun VincularMagisSection(account: AccountManager, accountEmail: String) 
                 scope.launch {
                     busy = true
                     try {
-                        account.vincularMagis(email.trim(), password)
+                        cuenta.vincular(email.trim(), password)
                         expanded = false
-                    } catch (e: AccountException) {
+                    } catch (e: MagisException) {
                         error = e.message
                     } finally {
                         busy = false

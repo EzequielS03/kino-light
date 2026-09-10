@@ -26,7 +26,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import kotlinx.coroutines.delay
-import com.arkiv.player.pocketbase.AccountState
+import com.arkiv.player.data.magis.EstadoDeMagis
 import com.arkiv.player.ui.rememberGraph
 
 /**
@@ -61,7 +61,7 @@ private enum class TabDeAjustesTv(val etiqueta: String) {
 @Composable
 fun TvSettingsScreen() {
     val graph = rememberGraph()
-    val account = graph.accountManager
+    val cuentaMagis = graph.cuentaDeMagis
 
     // Vincular Magis abre la MISMA pantalla que la oferta al entrar ([TvOfertaVincularMagis]), no
     // un formulario desplegado adentro de la lista de Ajustes. Antes eran dos interfaces distintas
@@ -70,34 +70,25 @@ fun TvSettingsScreen() {
     // significaba arreglar cada cosa dos veces, y de hecho las mejoras del flujo de registro
     // (contraseña en el primer paso, "Crear cuenta" habilitado sólo con los campos completos)
     // habían quedado sólo en una.
-    val estadoCuenta by account.state.collectAsStateWithLifecycle()
     var vinculandoMagis by remember { mutableStateOf(false) }
     if (vinculandoMagis) {
-        val conectado = estadoCuenta as? AccountState.Conectado
-        if (conectado == null) {
-            // La sesión se cayó mientras estaba abierta: no hay a qué cuenta vincular.
-            vinculandoMagis = false
-        } else {
-            // Y se cierra sola al vincular. `TvOfertaVincularMagis` no avisa cuando sale bien: no
-            // le hacía falta, porque en su uso original (`ArkivTvRoot`, la oferta al entrar) el
-            // que la compone reevalúa si todavía hay que ofrecerla y deja de pintarla. Acá el
-            // `if` de arriba lo gobierna esta pantalla, así que si nadie mira `magisLinked` la
-            // vinculación sale bien —el gateway contesta 200— y la persona se queda mirando el
-            // mismo formulario, sin ninguna señal de que pasó algo. Medido en el Fire TV el
-            // 2026-08-14: "le di vincular y no dijo nada", con `POST /v1/magis/link → 200 OK` en
-            // el servidor.
-            LaunchedEffect(conectado.magisLinked) {
-                if (conectado.magisLinked) vinculandoMagis = false
-            }
-            TvOfertaVincularMagis(
-                account = account,
-                accountEmail = conectado.email,
-                // Cerrar es volver a Ajustes, no descartar la oferta para siempre: acá la persona
-                // ENTRÓ a vincular a propósito. Por eso no se toca `magisOfertaDescartada`.
-                onAhoraNo = { vinculandoMagis = false },
-            )
-            return
+        val estadoMagis by cuentaMagis.estado.collectAsStateWithLifecycle()
+        // Y se cierra sola al vincular. `TvOfertaVincularMagis` no avisa cuando sale bien: no le
+        // hacía falta, porque en su uso original (`ArkivTvRoot`, la oferta al entrar) el que la
+        // compone reevalúa si todavía hay que ofrecerla y deja de pintarla. Acá el `if` de arriba
+        // lo gobierna esta pantalla, así que si nadie mira el estado la vinculación sale bien —el
+        // portal la acepta— y la persona se queda mirando el mismo formulario, sin ninguna señal
+        // de que pasó algo. Medido en el Fire TV el 2026-08-14: "le di vincular y no dijo nada".
+        LaunchedEffect(estadoMagis) {
+            if (estadoMagis is EstadoDeMagis.Vinculada) vinculandoMagis = false
         }
+        TvOfertaVincularMagis(
+            cuenta = cuentaMagis,
+            // Cerrar es volver a Ajustes, no descartar la oferta para siempre: acá la persona
+            // ENTRÓ a vincular a propósito. Por eso no se toca `magisOfertaDescartada`.
+            onAhoraNo = { vinculandoMagis = false },
+        )
+        return
     }
 
     var tab by rememberSaveable { mutableStateOf(TabDeAjustesTv.SUBTITULOS) }
@@ -141,7 +132,7 @@ fun TvSettingsScreen() {
         ) {
             when (tab) {
                 TabDeAjustesTv.SUBTITULOS -> TvSettingsSubtitulos()
-                TabDeAjustesTv.CUENTA -> TvSettingsCuenta(account, onVincularMagis = { vinculandoMagis = true })
+                TabDeAjustesTv.CUENTA -> TvSettingsCuenta(cuentaMagis, onVincularMagis = { vinculandoMagis = true })
                 TabDeAjustesTv.APARATOS -> TvSettingsAparatos()
                 TabDeAjustesTv.APP -> TvSettingsApp()
             }

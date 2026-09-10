@@ -42,43 +42,35 @@ fun ArkivTvRoot(
     val graph = rememberGraph()
     val context = LocalContext.current
 
-    // Task 10: ofrecer vincular Magis apenas se entra, ANTES que nada más. `MainActivity` recompone
-    // acá en cuanto hay sesión de persona -así que TvPantallaDeEntrada ya dejó de existir, y este es
-    // el primer lugar donde una pantalla "parecida al login" todavía puede aparecer-. Sirve para las
-    // DOS rutas de entrada (login en la propia TV y pareo desde el celular) porque las dos terminan
-    // acá. Ver el KDoc de `debeOfrecerVincularMagis` para la condición exacta.
-    val accountState by graph.accountManager.state.collectAsStateWithLifecycle()
+    // Task 10 (condición actualizada en Task 8, sub-proyecto 2B): ofrecer vincular Magis apenas se
+    // entra, ANTES que nada más. Ya NO depende de ninguna sesión de Kino: `MainActivity` compone
+    // `ArkivTvRoot` sin gate de sesión (ver su comentario "Sin gate de sesión" en MainActivity.kt) y
+    // `TvPantallaDeEntrada` sigue existiendo en el árbol -compilada, pero sin llamador desde ahí-, así
+    // que esta pantalla decide solo con [com.arkiv.player.data.magis.EstadoDeMagis] (¿hay Magis
+    // vinculado en ESTE aparato?), nunca con `AccountState`/`AccountManager`. Sirve para las DOS rutas
+    // que dejan un aparato sin Magis vinculado (recién instalado, o vinculado y luego desvinculado).
+    // Ver el KDoc de `debeOfrecerVincularMagis` para la condición exacta.
+    val estadoMagis by graph.cuentaDeMagis.estado.collectAsStateWithLifecycle()
     val ofertaDescartada by graph.settings.magisOfertaDescartada.collectAsStateWithLifecycle()
 
-    // El estado en memoria de AccountManager arranca con `magisLinked = false` a secas en un
-    // arranque en frío con sesión ya guardada -no hay chequeo de red hasta que algo lo pide, ver el
-    // KDoc de AccountManager, `_state` inicial-. Sin este refresco la oferta de abajo se dispararía
-    // en CADA arranque incluso para quien YA tiene Magis vinculado, justo lo que el brief pide evitar
-    // ("no molestar"). `magisConfirmado` frena la decisión hasta tener una respuesta real; mientras
-    // tanto se sigue de largo al contenido normal -nunca al revés: un pedido de red que tarda no
-    // puede dejar a nadie mirando una pantalla en blanco antes de llegar al home-.
-    var magisConfirmado by remember {
-        mutableStateOf(
-            when (val s = accountState) {
-                is com.arkiv.player.pocketbase.AccountState.Conectado -> s.magisLinked
-                com.arkiv.player.pocketbase.AccountState.Anonimo -> true
-            },
-        )
-    }
+    // `CuentaDeMagis.estado` arranca siempre en `Sin` -no lee las prefs cifradas en el constructor,
+    // ver su KDoc-, así que sin esta espera la oferta de abajo se dispararía en CADA arranque incluso
+    // para quien YA tiene Magis vinculado, hasta que `refrescar()` conteste. `magisConfirmado` frena
+    // la decisión hasta tener esa respuesta real; mientras tanto se sigue de largo al contenido normal
+    // -nunca al revés: un pedido que tarda no puede dejar a nadie mirando una pantalla en blanco antes
+    // de llegar al home-.
+    var magisConfirmado by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        if (!magisConfirmado) {
-            graph.accountManager.refrescarMagis()
-            magisConfirmado = true
-        }
+        graph.cuentaDeMagis.refrescar()
+        magisConfirmado = true
     }
 
-    if (magisConfirmado && debeOfrecerVincularMagis(accountState, ofertaDescartada)) {
+    if (magisConfirmado && debeOfrecerVincularMagis(estadoMagis, ofertaDescartada)) {
         TvOfertaVincularMagis(
-            account = graph.accountManager,
-            accountEmail = (accountState as com.arkiv.player.pocketbase.AccountState.Conectado).email,
+            cuenta = graph.cuentaDeMagis,
             // Se guarda la decisión (Task 10, ver SettingsStore.magisOfertaDescartada): "Ahora no" no
             // vuelve a preguntar en cada arranque. El camino sigue vivo en Ajustes
-            // (TvVincularMagisSection), a propósito -esto es un atajo, no la única puerta-.
+            // (TvSettingsCuenta), a propósito -esto es un atajo, no la única puerta-.
             onAhoraNo = { graph.settings.setMagisOfertaDescartada(true) },
         )
         return

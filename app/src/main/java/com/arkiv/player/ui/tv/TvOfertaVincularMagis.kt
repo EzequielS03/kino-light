@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -25,15 +24,16 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
-import com.arkiv.player.pocketbase.AccountException
-import com.arkiv.player.pocketbase.AccountManager
-import com.arkiv.player.pocketbase.AccountState
+import com.arkiv.player.data.magis.CuentaDeMagis
+import com.arkiv.player.data.magis.EstadoDeMagis
+import com.arkiv.player.data.magis.MagisException
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 import kotlinx.coroutines.launch
 
 /**
- * Decide si corresponde ofrecer vincular Magis apenas se entra a la TV (Task 10).
+ * Decide si corresponde ofrecer vincular Magis apenas se entra a la TV (Task 10; desde Task 8,
+ * sub-proyecto 2B, ya no mira ninguna sesión de Kino, solo [EstadoDeMagis]).
  *
  * Separada de la Composable a propósito -mismo criterio que `entrarDesdeTv` en
  * `TvPantallaDeEntrada.kt`-: este proyecto no tiene infraestructura de tests de UI de Compose, así
@@ -41,31 +41,31 @@ import kotlinx.coroutines.launch
  * función pura, aparte.
  *
  * Se ofrece únicamente cuando:
- * - la cuenta de Kino YA está conectada ([AccountState.Conectado]: sin sesión no hay nada que
- *   vincular, y este gate solo se compone dentro de `ArkivTvRoot`, que ya exige sesión);
- * - todavía NO tiene Magis vinculado ([AccountState.Conectado.magisLinked]);
+ * - este aparato todavía NO tiene Magis vinculado ([EstadoDeMagis.Sin]) -no depende de si hay o no
+ *   una cuenta de Kino conectada: `MainActivity` compone `ArkivTvRoot` sin gate de sesión (ver su
+ *   comentario "Sin gate de sesión"), así que esa condición ya no aplica-;
  * - la persona no dijo "Ahora no" antes en este aparato ([descartada], persistido en
  *   `SettingsStore.magisOfertaDescartada` -ver su KDoc sobre qué lo resetea-).
  */
-fun debeOfrecerVincularMagis(state: AccountState, descartada: Boolean): Boolean =
-    state is AccountState.Conectado && !state.magisLinked && !descartada
+fun debeOfrecerVincularMagis(estado: EstadoDeMagis, descartada: Boolean): Boolean =
+    estado is EstadoDeMagis.Sin && !descartada
 
 /** Qué campo recibe las teclas del teclado en pantalla de [TvOfertaVincularMagis]. */
 private enum class CampoMagisOferta { EMAIL, PASSWORD }
 
 /**
- * Se ofrece como lo PRIMERO al entrar a la TV cuando la cuenta de Kino todavía no tiene Magis
- * vinculado (Task 10, ver [debeOfrecerVincularMagis] para la condición exacta). Desde la Task 11
- * también deja CREAR una cuenta de Magis nueva, no solo vincular una que ya existe.
+ * Se ofrece como lo PRIMERO al entrar a la TV cuando este aparato todavía no tiene Magis vinculado
+ * (Task 10, ver [debeOfrecerVincularMagis] para la condición exacta -desde Task 8, sub-proyecto 2B,
+ * ya no depende de ninguna cuenta de Kino-). Desde la Task 11 también deja CREAR una cuenta de
+ * Magis nueva, no solo vincular una que ya existe.
  *
  * ### Por qué vive acá y no en `TvPantallaDeEntrada`
  *
- * `MainActivity` recompone a `ArkivTvRoot` en cuanto `SesionDePersona.estado` pasa a tener sesión
- * (ver su gate, `estadoDeEntrada`) -la pantalla de entrada deja de existir en ese instante. Si esta
- * pantalla fuera un paso más de esa, nunca llegaría a mostrarse: para cuando hay algo que vincular
- * (una cuenta de Kino ya conectada) ya se está del otro lado del gate. Por eso se compone como lo
- * primero DENTRO de `ArkivTvRoot`, y así sirve para las dos rutas de entrada -login en la propia TV
- * (Task 9) y pareo desde el celular (Task 5)-, no solo para una.
+ * `MainActivity` compone `ArkivTvRoot` sin gate de sesión de Kino (ver su comentario "Sin gate de
+ * sesión"): `TvPantallaDeEntrada` sigue en el árbol pero ya no tiene llamador desde ahí. Esta oferta
+ * se compone como lo primero DENTRO de `ArkivTvRoot` porque ese es el único lugar por el que pasan
+ * las dos rutas que dejan un aparato sin Magis vinculado -uno recién instalado y uno al que se
+ * desvinculó-, sin que importe si hay o no una cuenta de Kino de por medio.
  *
  * ### Por qué ya no se puede crear una cuenta de Magis desde acá
  *
@@ -77,7 +77,7 @@ private enum class CampoMagisOferta { EMAIL, PASSWORD }
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun TvOfertaVincularMagis(account: AccountManager, accountEmail: String, onAhoraNo: () -> Unit) {
+internal fun TvOfertaVincularMagis(cuenta: CuentaDeMagis, onAhoraNo: () -> Unit) {
     // ATRAS SALE DE ESTA PANTALLA, no de la app. `ArkivTvRoot` compone esta oferta y hace `return`
     // antes de llegar a su propio BackHandler, asi que mientras se muestra no habia NINGUNO puesto
     // y el back se lo llevaba el sistema: cerraba Kino entero. Para quien no queria vincular Magis,
@@ -88,10 +88,8 @@ fun TvOfertaVincularMagis(account: AccountManager, accountEmail: String, onAhora
     BackHandler(onBack = onAhoraNo)
     val scope = rememberCoroutineScope()
     val campos = rememberTvCamposConFoco(CampoMagisOferta.EMAIL)
-    // Precargado con el email de la cuenta de Kino: en general es el mismo que el de Magis, y
-    // ahorra tipearlo -mismo criterio que TvVincularMagisSection en Ajustes-. Solo una vez (Unit):
-    // si la persona lo borra o lo cambia, no se lo pisamos en la próxima recomposición.
-    LaunchedEffect(Unit) { campos.escribir(CampoMagisOferta.EMAIL, accountEmail) }
+    // Ya NO se precarga con ningún email: antes salía de la cuenta de Kino conectada, y desde
+    // Task 8 (sub-proyecto 2B) esta pantalla no depende de ninguna. Arranca en blanco.
     var passwordVisible by remember { mutableStateOf(false) }
     var modoTeclado by remember { mutableStateOf(TvKeyboardMode.MINUS) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -103,13 +101,11 @@ fun TvOfertaVincularMagis(account: AccountManager, accountEmail: String, onAhora
         error = null
         scope.launch {
             try {
-                account.vincularMagis(campos.valor(CampoMagisOferta.EMAIL).trim(), campos.valor(CampoMagisOferta.PASSWORD))
-                // No hace falta "cerrar" nada acá: en cuanto vincularMagis deja magisLinked = true,
+                cuenta.vincular(campos.valor(CampoMagisOferta.EMAIL).trim(), campos.valor(CampoMagisOferta.PASSWORD))
+                // No hace falta "cerrar" nada acá: en cuanto vincular deja el estado en Vinculada,
                 // debeOfrecerVincularMagis da false y quien llama (ArkivTvRoot) deja de componer esta
-                // pantalla solo, por la recomposición normal de account.state.
-            } catch (e: AccountException) {
-                // SOLO el mensaje de Magis. Nunca account.logout() ni tocar sesion: un rechazo de
-                // Magis es un problema de Magis, no de la cuenta de Kino (ver KDoc de arriba).
+                // pantalla solo, por la recomposición normal de cuenta.estado.
+            } catch (e: MagisException) {
                 error = e.message
             } finally {
                 busy = false
