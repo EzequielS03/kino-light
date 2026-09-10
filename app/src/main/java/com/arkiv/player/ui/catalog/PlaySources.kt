@@ -19,13 +19,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -250,8 +248,7 @@ fun posterDe(source: PlaySource): String = when (source) {
  * un vistazo cuál es cuál. Las fuentes sin imagen siguen en fila — ver [SourceRow].
  */
 @Composable
-fun SourceCard(source: PlaySource, enabled: Boolean, onDownload: (() -> Unit)? = null, onClick: () -> Unit) {
-    val accent = accentOf(source)
+fun SourceCard(source: PlaySource, enabled: Boolean, onClick: () -> Unit) {
     val poster = posterDe(source)
     Column(
         Modifier.clip(RoundedCornerShape(10.dp))
@@ -267,22 +264,6 @@ fun SourceCard(source: PlaySource, enabled: Boolean, onDownload: (() -> Unit)? =
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
-            }
-            // Sobre la carátula y no debajo: abajo compite con el título, y en una grilla de dos
-            // columnas cada fila de texto que se agrega achica la imagen de todas las tarjetas.
-            if (onDownload != null) {
-                Box(
-                    Modifier.align(Alignment.TopEnd).padding(6.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(Color.Black.copy(alpha = 0.55f)),
-                ) {
-                    IconButton(onClick = onDownload, enabled = enabled, modifier = Modifier.size(32.dp)) {
-                        Icon(
-                            Icons.Default.Download, contentDescription = "Descargar offline",
-                            tint = accent, modifier = Modifier.size(18.dp),
-                        )
-                    }
-                }
             }
             Icon(
                 Icons.Default.PlayArrow, contentDescription = null, tint = Color.White,

@@ -71,10 +71,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import coil.compose.AsyncImage
-import com.arkiv.player.data.db.DownloadRow
-import com.arkiv.player.data.local.AccionDeDescarga
-import com.arkiv.player.ui.components.DescargaDeFila
-import com.arkiv.player.ui.components.DialogoDeDescarga
 import com.arkiv.player.data.RecentTitle
 import com.arkiv.player.ui.catalog.PlaySource
 import com.arkiv.player.ui.catalog.SourceRow
@@ -145,9 +141,6 @@ fun SearchScreen(
     // Permiso de notificaciones (API 33+): se pide al disparar una descarga (el worker de descargas
     // locales también notifica). Ver rememberPostNotificationsRequest.
     val askNotifications = com.arkiv.player.ui.offline.rememberPostNotificationsRequest()
-    // Avisa "eso ya lo tenés bajado" cuando la cola saltea una descarga duplicada (ver
-    // DuplicateDownloadPolicy): si no, el botón parecería no hacer nada.
-    val notifyDuplicates = com.arkiv.player.ui.offline.rememberDuplicateDownloadNotice()
     val playback = remember { SearchPlayback(graph) }
     var preparing by remember { mutableStateOf(false) }
     var playError by remember { mutableStateOf<String?>(null) }
@@ -201,68 +194,6 @@ fun SearchScreen(
         if (source.esSerie()) { dituSeason = source.result; return }
         preparing = true; playError = null
         scope.launch { applyResult(playback.playDitu(source.result)) }
-    }
-
-    // --- Guardar en el dispositivo desde la búsqueda -------------------------------------------
-    //
-    // Todo esto reusa `playback.*`, que es el MISMO camino de guardado local que usa reproducir
-    // (resuelve la fuente y la agrega a la biblioteca devolviendo el episodeId): guardar la descarga
-    // bajo un episodeId sacado de un camino paralelo la dejaría apuntando a un episodio que el
-    // player nunca pide. La única diferencia con reproducir es que acá no se llama a `onPlay`.
-    fun saveLocally(episodeId: String, source: String) {
-        scope.launch { notifyDuplicates(listOf(graph.localDownloads.enqueue(episodeId, source))) }
-    }
-
-    /** Encola el resultado de un `playback.*` (o muestra su error), sin navegar al reproductor. */
-    fun enqueueResolved(result: PlaybackResult, source: String) {
-        when (result) {
-            is PlaybackResult.Ready -> saveLocally(result.episodeId, source)
-            is PlaybackResult.Failed -> playError = result.message
-        }
-    }
-
-    // El control de descarga por fila era de archive.org ([DescargasPorFuente], borrado en la poda
-    // de esta rama); `porConfirmar` queda cableado al diálogo de abajo pero ya nadie lo llena.
-    var porConfirmar by remember { mutableStateOf<Pair<DownloadRow, AccionDeDescarga>?>(null) }
-
-    /**
-     * El control de descarga de una fuente. SIEMPRE null: la única fuente que se guardaba al
-     * dispositivo desde el buscador era archive.org (`DescargasPorFuente.deArchive`), borrada en
-     * la poda de esta rama. Magis tampoco lo lleva (no se descarga, su CDN vence a las ~48 h).
-     */
-    fun descargaDe(s: PlaySource, onDownload: () -> Unit): DescargaDeFila? = null
-
-    fun saveDirect(source: PlaySource) {
-        playError = null
-        askNotifications()
-        scope.launch { enqueueResolved(playback.playDirect(source), "archive") }
-    }
-
-    // Fase RESULTS. Cada rama usa el mismo helper de `playback` que su equivalente de reproducir.
-    fun saveResult(source: PlaySource) {
-        playError = null
-        when (source) {
-            // Magis no se guarda en el dispositivo: el CDN sirve con un token que vence a las ~48 h,
-            // así que el archivo bajado dejaría de reproducirse.
-            is PlaySource.Magis -> playError = "Magis no se puede guardar: el enlace vence."
-            // Caracol SÍ se guarda, pero en la biblioteca y no en la cola del dispositivo: sus ids no
-            // vencen (ver `DituRef`), y su video viene cifrado con Widevine, así que "ditu" no tiene
-            // estrategia de descarga (ver `FuenteDeDescarga`). Una serie abre sus capítulos, y el que
-            // se toque queda guardado. Ojo: hoy ninguna fila llama a esto, porque [descargaDe]
-            // devuelve siempre null; por eso el guardado de una película no avisa nada al terminar.
-            is PlaySource.Ditu -> {
-                if (source.esSerie()) {
-                    dituSeason = source.result
-                } else {
-                    scope.launch {
-                        when (val r = playback.playDirect(source)) {
-                            is PlaybackResult.Ready -> Unit
-                            is PlaybackResult.Failed -> playError = r.message
-                        }
-                    }
-                }
-            }
-        }
     }
 
     fun playResult(source: PlaySource) = when (source) {
@@ -324,7 +255,6 @@ fun SearchScreen(
                     estadoDeFuentes = estadoDeFuentes,
                     enabled = !preparing,
                     onPlay = { playResult(it) },
-                    descargaDe = { s -> descargaDe(s) { saveResult(s) } },
                 )
                 else -> QueryContent(
                     titleResults = titleResults,
@@ -341,7 +271,6 @@ fun SearchScreen(
                     },
                     onPickTitle = { card -> vm.pickTitle(card) },
                     onPlayDirect = { playDirect(it) },
-                    descargaDirectaDe = { s -> descargaDe(s) { saveDirect(s) } },
                     onForgetQuery = { vm.forgetQuery(it) },
                     onForgetTitle = { vm.forgetTitle(it) },
                     onClearHistory = { vm.clearHistory() },
@@ -410,25 +339,6 @@ fun SearchScreen(
         )
     }
 
-
-    // Misma pregunta y mismas palabras que en la biblioteca: es la misma acción sobre la misma cola.
-    DialogoDeDescarga(
-        accion = porConfirmar?.second,
-        nombreDelCapitulo = porConfirmar?.first?.displayName,
-        onConfirmar = {
-            porConfirmar?.let { (fila, accion) ->
-                scope.launch {
-                    when (accion) {
-                        AccionDeDescarga.CANCELAR -> graph.localDownloads.cancel(fila.episodeId)
-                        AccionDeDescarga.SACAR_DE_LA_COLA, AccionDeDescarga.BORRAR ->
-                            graph.localDownloads.remove(fila.episodeId)
-                    }
-                }
-            }
-            porConfirmar = null
-        },
-        onCerrar = { porConfirmar = null },
-    )
 }
 
 /**
@@ -450,8 +360,6 @@ private fun QueryContent(
     onSearch: (String) -> Unit,
     onPickTitle: (TitleCard) -> Unit,
     onPlayDirect: (PlaySource) -> Unit,
-    /** Guarda el resultado directo en el dispositivo (botón de descarga de cada fila). */
-    descargaDirectaDe: (PlaySource) -> DescargaDeFila?,
     onForgetQuery: (String) -> Unit,
     onForgetTitle: (RecentTitle) -> Unit,
     onClearHistory: () -> Unit,
@@ -581,10 +489,7 @@ private fun QueryContent(
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column {
                     directResults.forEach { source ->
-                        SourceRow(
-                            source, enabled = true,
-                            descarga = descargaDirectaDe(source),
-                        ) { onPlayDirect(source) }
+                        SourceRow(source, enabled = true) { onPlayDirect(source) }
                     }
                 }
             }
@@ -796,8 +701,6 @@ private fun ResultsContent(
     estadoDeFuentes: EstadoDeLasFuentes,
     enabled: Boolean,
     onPlay: (PlaySource) -> Unit,
-    /** En qué va la descarga de cada fuente, y qué se puede hacer con eso. Null = no se descarga. */
-    descargaDe: (PlaySource) -> DescargaDeFila?,
 ) {
     // Las dos entran abiertas por defecto: una sección que arranca colapsada parece vacía aunque
     // traiga resultados.
@@ -854,8 +757,8 @@ private fun ResultsContent(
             }
         } else if (tab == SourceTab.TODO) {
             // "Todo": una sección colapsable por origen, en el orden de [SourceTab].
-            sourceSection(this, "MAGIS", ArkivMagisBlue, magis, loadingMagis, "MAGIS" in expandedSections, { toggle("MAGIS") }, enabled, onPlay, descargaDe, textoSeccionVacia(SourceTab.MAGIS, estadoDeFuentes))
-            sourceSection(this, "CARACOL", ArkivCaracolVerde, caracol, loadingMagis, "CARACOL" in expandedSections, { toggle("CARACOL") }, enabled, onPlay, descargaDe, textoSeccionVacia(SourceTab.CARACOL, estadoDeFuentes))
+            sourceSection(this, "MAGIS", ArkivMagisBlue, magis, loadingMagis, "MAGIS" in expandedSections, { toggle("MAGIS") }, enabled, onPlay, textoSeccionVacia(SourceTab.MAGIS, estadoDeFuentes))
+            sourceSection(this, "CARACOL", ArkivCaracolVerde, caracol, loadingMagis, "CARACOL" in expandedSections, { toggle("CARACOL") }, enabled, onPlay, textoSeccionVacia(SourceTab.CARACOL, estadoDeFuentes))
         } else {
             // Con un origen elegido la cabecera de sección sobra: la lista va plana.
             val shown = filterByTab(sources, tab)
@@ -870,11 +773,11 @@ private fun ResultsContent(
                 }
             }
             if (shown.any { posterDe(it).isNotBlank() }) {
-                tarjetasEnDosColumnas("tab", shown, enabled, onPlay, descargaDe)
+                tarjetasEnDosColumnas("tab", shown, enabled, onPlay)
             } else {
                 items(shown, key = { sourceKey(it) }) { s ->
                     Box(Modifier.padding(horizontal = HPAD)) {
-                        SourceRow(s, enabled = enabled, descarga = descargaDe(s)) { onPlay(s) }
+                        SourceRow(s, enabled = enabled) { onPlay(s) }
                     }
                 }
             }
@@ -998,7 +901,6 @@ private fun LazyListScope.tarjetasEnDosColumnas(
     items: List<PlaySource>,
     enabled: Boolean,
     onPlay: (PlaySource) -> Unit,
-    descargaDe: (PlaySource) -> DescargaDeFila?,
 ) {
     items(items.chunked(2), key = { par -> "$tag-grid-${sourceKey(par.first())}" }) { par ->
         Row(
@@ -1007,7 +909,7 @@ private fun LazyListScope.tarjetasEnDosColumnas(
         ) {
             par.forEach { s ->
                 Box(Modifier.weight(1f)) {
-                    SourceCard(s, enabled = enabled, onDownload = descargaDe(s)?.let { d -> d.onDownload }) { onPlay(s) }
+                    SourceCard(s, enabled = enabled) { onPlay(s) }
                 }
             }
             // Impar: el hueco lo ocupa un espaciador para que la última tarjeta no se estire al ancho.
@@ -1026,7 +928,6 @@ private fun sourceSection(
     onToggle: () -> Unit,
     enabled: Boolean,
     onPlay: (PlaySource) -> Unit,
-    descargaDe: (PlaySource) -> DescargaDeFila?,
     /** Lo que se dice bajo la sección si no trajo nada ([textoSeccionVacia]). */
     vacio: String,
 ) {
@@ -1037,11 +938,11 @@ private fun sourceSection(
     }
     if (expanded) {
         if (items.any { posterDe(it).isNotBlank() }) {
-            scope.tarjetasEnDosColumnas(tag, items, enabled, onPlay, descargaDe)
+            scope.tarjetasEnDosColumnas(tag, items, enabled, onPlay)
         } else {
             scope.items(items, key = { "$tag-${sourceKey(it)}" }) { s ->
                 Box(Modifier.padding(horizontal = HPAD)) {
-                    SourceRow(s, enabled = enabled, descarga = descargaDe(s)) { onPlay(s) }
+                    SourceRow(s, enabled = enabled) { onPlay(s) }
                 }
             }
         }
