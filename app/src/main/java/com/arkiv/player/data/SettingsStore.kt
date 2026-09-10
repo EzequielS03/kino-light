@@ -134,7 +134,9 @@ class SettingsStore(context: Context) {
             // el email y la contraseña de la cuenta de Kino que seguían viviendo ahí, de un
             // subsistema que ya no existe. Va DESPUÉS de migrar, nunca antes. Si el archivo era
             // indescifrable, `tirarLoIndescifrable` (ver [abrirStoreDeCuentasViejo]) ya lo borró y
-            // acá `viejas` da `null`, así que no hay doble borrado. Esto solo toca el archivo de
+            // `PrefsCifradas` reintentó: `viejas` queda apuntando a un archivo recién creado y
+            // vacío, del que no hay nada que migrar, y este borrado lo saca de nuevo. Es un borrado
+            // de más sin consecuencia -- el estado final es el mismo. Esto solo toca el archivo de
             // shared_prefs -- JAMÁS la llave maestra del Keystore, que es la MISMA que usa
             // `EncryptedMagisCredentialStore` para la sesión de Magis.
             runCatching { app.deleteSharedPreferences(ARCHIVO_STORE_DE_CUENTAS_VIEJO) }

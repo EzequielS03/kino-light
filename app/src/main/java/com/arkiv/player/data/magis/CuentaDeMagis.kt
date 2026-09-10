@@ -32,11 +32,12 @@ internal class CuentaDeMagis(private val session: MagisSession) {
      * que se toca desde el hilo principal. En el KALLEY eso son milisegundos que se notan.
      *
      * `runCatching` a propósito: la llaman tres `LaunchedEffect` (incluido el de `ArkivTvRoot` en
-     * el arranque), y `PrefsCifradas.abrirOReparar` deja subir tal cual cualquier excepción que no
-     * reconozca como cifrado roto (ver su KDoc: "un bug nuestro no puede costarle la sesión a
-     * nadie"). Sin este `runCatching`, esa excepción sube por el `LaunchedEffect` y tumba la app
-     * justo en el arranque -lo que `PrefsCifradas` existe para evitar-; con él, degrada a
+     * el arranque), y una excepción leyendo disco no puede tumbar la app ahí. Con él, degrada a
      * [EstadoDeMagis.Sin] como si no hubiera cuenta vinculada.
+     *
+     * Cubre la LECTURA, no la apertura del store: `EncryptedMagisCredentialStore` se construye
+     * antes, al evaluar `graph.cuentaDeMagis` (`AppGraph.magisStore`, `by lazy`), y ahí quien
+     * protege es `PrefsCifradas.abrirOReparar`, que sí maneja el Keystore roto sin tirar.
      */
     suspend fun refrescar() = withContext(Dispatchers.IO) {
         val email = runCatching { session.emailVinculado() }
