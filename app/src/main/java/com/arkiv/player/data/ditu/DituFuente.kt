@@ -130,17 +130,22 @@ internal class DituFuente(
         return eps to serie
     }
 
-    private fun resultadoDe(item: DituItem) = GatewayResult(
-        source = FUENTE,
-        title = item.titulo,
-        ref = item.ref(),
-        kind = if (item.esPelicula) "movie" else "series",
-        year = item.anio,
-        extra = mapOf("poster" to item.posterUrl, "content_type" to item.contentType),
-    )
-
     internal companion object {
         const val FUENTE = "ditu"
+
+        /**
+         * Un título de Caracol como lo ve el resto de la app. Lo usan la búsqueda ([search]) y la
+         * sección de Caracol del televisor (`TvCaracolScreen`): así un título abierto desde
+         * cualquiera de las dos llega igual a `SearchPlayback` y a la lista de capítulos.
+         */
+        fun resultadoDe(item: DituItem) = GatewayResult(
+            source = FUENTE,
+            title = item.titulo,
+            ref = item.ref(),
+            kind = if (item.esPelicula) "movie" else "series",
+            year = item.anio,
+            extra = mapOf("poster" to item.posterUrl, "content_type" to item.contentType),
+        )
 
         /** Cuánto vale el catálogo guardado por [catalogoCompleto]: 6 h. */
         private const val VIGENCIA_DEL_CATALOGO_MS = 6 * 60 * 60 * 1000L

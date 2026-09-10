@@ -39,6 +39,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.SignalWifiOff
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -256,6 +257,8 @@ fun TvHomeScreen(
     onOpenSearch: () -> Unit,
     onOpenLibrary: () -> Unit,
     onOpenLive: () -> Unit,
+    /** La sección de Caracol: su catálogo y sus canales en vivo. */
+    onOpenCaracol: () -> Unit,
     onOpenSearchRoute: (String) -> Unit,
     /** Navegar el catálogo de Magis por secciones (series y, con el código puesto, 18+). */
     onOpenCategorias: () -> Unit,
@@ -588,6 +591,7 @@ fun TvHomeScreen(
                         modifier = Modifier.focusRequester(barraFocus),
                     )
                     TvNavButton(icon = Icons.Default.LiveTv, label = "En vivo", onClick = onOpenLive)
+                    TvNavButton(icon = Icons.Default.Tv, label = "Caracol", onClick = onOpenCaracol)
                     // El botón "Torrent" (pegar un magnet a mano) se quitó de la barra: ya no se usa,
                     // los torrents entran por el buscador. La ruta "torrent" sigue registrada en
                     // ArkivTvRoot y la pantalla funciona; solo perdió su entrada desde el home.

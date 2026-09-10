@@ -524,25 +524,15 @@ fun TvSearchScreen(
                         onSaveAll = { capitulos, serie -> saveMagisSeason(currentMagis, capitulos, serie) },
                     )
                 } else if (currentDitu != null) {
-                    TvMagisSeasonContent(
-                        season = currentDitu,
-                        // La fuente compuesta: con un ref de Caracol, `episodesConSerie` llega a
-                        // `DituFuente`.
-                        client = graph.fuenteDeContenido,
+                    TvCapitulosDeCaracol(
+                        serie = currentDitu,
                         posterUrl = currentDitu.extra["poster"].orEmpty().ifBlank { resultPoster },
                         preparing = preparing,
-                        onPlayOne = { _, capitulo, serie ->
+                        alElegir = { guardar ->
                             dituSeasonFor = null
                             preparing = true; playError = null
-                            scope.launch {
-                                applyResult(playback.playDituEpisode(currentDitu, capitulo, serie))
-                            }
+                            scope.launch { applyResult(guardar()) }
                         },
-                        // Sin "Guardar toda la temporada": ahí guardar es bajar al dispositivo, y
-                        // Caracol no se baja (Widevine, ver `FuenteDeDescarga`). A la biblioteca
-                        // entra al reproducir.
-                        onSaveAll = null,
-                        etiqueta = "Caracol",
                     )
                 } else {
                     TvResultsContent(
@@ -1239,6 +1229,39 @@ internal fun sourceKey(s: PlaySource): String = when (s) {
 }
 
 /**
+ * Los capítulos de una serie de Caracol, para elegir cuál ver. La abren la búsqueda y la sección de
+ * Caracol ([TvCaracolScreen]), y es una sola a propósito: el capítulo elegido se guarda siempre por
+ * [SearchPlayback.playDituEpisode] —id `ditu:`, nunca el guardado de Magis—, y sin "Guardar toda la
+ * temporada": ahí guardar es bajar al dispositivo, y Caracol no se baja (Widevine, ver
+ * `FuenteDeDescarga`). A la biblioteca entra al reproducir.
+ *
+ * [alElegir] recibe ese guardado ya armado y lo corre en el alcance de la pantalla que llama: las
+ * dos cierran esta lista al elegir, así que no puede correr en uno de acá adentro.
+ */
+@Composable
+internal fun TvCapitulosDeCaracol(
+    serie: com.arkiv.player.data.gateway.GatewayResult,
+    posterUrl: String,
+    preparing: Boolean,
+    alElegir: (guardar: suspend () -> PlaybackResult) -> Unit,
+) {
+    val graph = rememberGraph()
+    val playback = remember { SearchPlayback(graph) }
+    TvMagisSeasonContent(
+        season = serie,
+        // La fuente compuesta: con un ref de Caracol, `episodesConSerie` llega a `DituFuente`.
+        client = graph.fuenteDeContenido,
+        posterUrl = posterUrl,
+        preparing = preparing,
+        onPlayOne = { _, capitulo, datos ->
+            alElegir { playback.playDituEpisode(serie, capitulo, datos) }
+        },
+        onSaveAll = null,
+        etiqueta = "Caracol",
+    )
+}
+
+/**
  * Fase RESULTS · temporada de Magis elegida.
  *
  * Los capítulos NO vienen en el resultado de búsqueda —el portal los entrega en otra llamada—, así
@@ -1248,8 +1271,8 @@ internal fun sourceKey(s: PlaySource): String = when (s) {
  * Sin checkboxes, a diferencia del celu: en el control remoto marcar 16 casillas es un suplicio.
  * "Guardar toda la temporada" baja todo y elegir un capítulo lo reproduce.
  *
- * También abre las series de Caracol, sin el botón de guardar ([onSaveAll] en null) y con su
- * [etiqueta].
+ * También abre las series de Caracol, a través de [TvCapitulosDeCaracol]: sin el botón de guardar
+ * ([onSaveAll] en null) y con su [etiqueta].
  */
 @Composable
 private fun TvMagisSeasonContent(

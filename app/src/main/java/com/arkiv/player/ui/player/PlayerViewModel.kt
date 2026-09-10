@@ -11,6 +11,7 @@ import com.arkiv.player.data.gateway.LiveChannel
 import com.arkiv.player.data.model.Episode
 import com.arkiv.player.playback.ArchiveCacheProxy
 import com.arkiv.player.playback.ContenidoDeAdultos
+import com.arkiv.player.playback.DituVivo
 import com.arkiv.player.playback.MagisEfimero
 import com.arkiv.player.playback.PlayerSource
 import com.arkiv.player.playback.SourceKind
@@ -155,7 +156,9 @@ fun mensajeErrorVivo(
         "No se pudo abrir $nombreCanal"
     }
 
-class PlayerViewModel(
+// `internal constructor` por [dituFuente]: su tipo es interno al módulo, y un constructor público no
+// lo puede recibir.
+class PlayerViewModel internal constructor(
     private val repo: ArkivRepository,
     private val archiveCacheProxy: ArchiveCacheProxy,
     private val localLibrary: com.arkiv.player.data.local.LocalLibrary,
@@ -169,6 +172,9 @@ class PlayerViewModel(
     private val esTelevision: Boolean = false,
     // Sub-proyecto 2A: de acá sale lo reproducible, directo del portal.
     private val fuente: com.arkiv.player.data.gateway.FuenteDeContenido,
+    // Caracol aparte de [fuente]: sus canales en vivo no son parte del contrato común (ver
+    // `AppGraph.dituFuente`). [loadDitu] los resuelve con `DituFuente.resolverCanal`.
+    private val dituFuente: com.arkiv.player.data.ditu.DituFuente,
     /** Si hay una cuenta de Magis vinculada en este aparato. Solo decide qué dice el error cuando
      *  un canal en vivo no abre (ver [mensajeErrorVivo]): el vivo la exige, el VOD no. */
     private val hayCuentaDeMagis: () -> Boolean = { false },
@@ -261,7 +267,12 @@ class PlayerViewModel(
             // `_playlist` todavía es la del episodio anterior (o null), así que preguntarle daría
             // "no sé" → anotar, que es justo lo contrario de lo que hace falta. Lo que sí se sabe a
             // esta altura es el pendiente efímero, que la pantalla dejó antes de navegar.
-            if (ContenidoDeAdultos.hayQueAnotar(MagisEfimero.tomar(episodeId)?.adulto)) {
+            //
+            // Un canal en vivo de Caracol tampoco se anota: no tiene fila en la biblioteca ni nada
+            // que reanudar, y `marcarEnCurso` escribiría igual una fila en `playback` con su id.
+            if (!DituVivo.esVivo(episodeId) &&
+                ContenidoDeAdultos.hayQueAnotar(MagisEfimero.tomar(episodeId)?.adulto)
+            ) {
                 runCatching { repo.marcarEnCurso(episodeId) }
             }
             _error.value = null
@@ -866,7 +877,7 @@ class PlayerViewModel(
     }
 
     /**
-     * Reproduce un episodio de Caracol.
+     * Reproduce un episodio de Caracol, o uno de sus canales en vivo.
      *
      * A diferencia de [loadMagis], no pasa por [archiveCacheProxy]: los headers que pide Caracol los
      * pone el propio [DituExoPlayer]. Acá solo se resuelve y se publica en [dituPlayable], junto con
@@ -875,21 +886,40 @@ class PlayerViewModel(
      * El `ref` sale de [ArkivRepository.magisRefForEpisode], que pese al nombre lee el ref guardado
      * en la fila del episodio (o, si no tiene, en la de su ítem) sin mirar de qué fuente es.
      *
-     * [arrancarEnMs] es para las recargas ([onDituExoError]): se retoma donde iba y no desde la
-     * posición guardada. Sin él, la misma reanudación que Magis.
+     * Un canal en vivo ([DituVivo.esVivo]) no tiene fila en la biblioteca ni `ref`: se resuelve el
+     * canal que dejó la sección de Caracol, con `DituFuente.resolverCanal`, y pasa por las mismas
+     * guardas de [EstadoDeDitu] que el VOD. Una recarga ([onDituExoError]) vuelve a entrar por acá
+     * con el mismo `episodeId` y resuelve el canal otra vez: por eso [DituVivo.tomar] no lo vacía.
+     *
+     * [arrancarEnMs] es para las recargas: se retoma donde iba y no desde la posición guardada. Sin
+     * él, la misma reanudación que Magis. Un vivo arranca siempre en 0, y con 0 [DituExoPlayer] no
+     * hace `seekTo`: queda en la posición por defecto del directo.
      */
     private suspend fun loadDitu(episodeId: String, arrancarEnMs: Long? = null) {
-        val ref = repo.magisRefForEpisode(episodeId)
-        Log.w(PLAY, "loadDitu() episodeId=$episodeId ref=${ref?.take(16)}… recarga=${arrancarEnMs != null}")
+        val vivo = DituVivo.esVivo(episodeId)
+        val canal = if (vivo) DituVivo.tomar(episodeId) else null
+        val ref = if (vivo) null else repo.magisRefForEpisode(episodeId)
+        Log.w(
+            PLAY,
+            "loadDitu() episodeId=$episodeId ref=${ref?.take(16)}… canal=${canal?.channelId} " +
+                "recarga=${arrancarEnMs != null}",
+        )
         // Lo que sigue toca estado que comparten todas las fuentes: si mientras se leía el ref ya se
         // pidió otro episodio, esto no es de nadie. Ver [EstadoDeDitu].
         if (!ditu.esVigente(episodeId)) return
-        if (ref.isNullOrBlank()) { _error.value = "No se encontró la fuente de Caracol"; return }
+        val resolver: suspend () -> com.arkiv.player.data.gateway.GatewayPlayable = when {
+            canal != null -> suspend { dituFuente.resolverCanal(canal) }
+            !ref.isNullOrBlank() -> suspend { fuente.resolve(ref) }
+            else -> {
+                _error.value = if (vivo) "No se encontró el canal de Caracol" else "No se encontró la fuente de Caracol"
+                return
+            }
+        }
 
         _playlist.value = null
         _webExtras.value = null
         _resolving.value = true
-        val resuelto = withContext(Dispatchers.IO) { runCatching { fuente.resolve(ref) } }
+        val resuelto = withContext(Dispatchers.IO) { runCatching { resolver() } }
         // Se apaga aunque ya no sea el vigente: si lo que se pidió después es un canal en vivo,
         // ese camino no toca esta bandera y quedaría prendida.
         _resolving.value = false
@@ -903,8 +933,9 @@ class PlayerViewModel(
             _error.value = resuelto.exceptionOrNull()?.message ?: "No se pudo reproducir en Caracol"
             return
         }
-        // La misma reanudación que Magis: [safeStartPosition] sobre el progreso guardado.
-        val startPos = arrancarEnMs ?: safeStartPosition(episodeId, SourceKind.DITU)
+        // La misma reanudación que Magis: [safeStartPosition] sobre el progreso guardado. Un vivo no
+        // tiene "dónde ibas", ni siquiera en una recarga.
+        val startPos = if (vivo) 0L else arrancarEnMs ?: safeStartPosition(episodeId, SourceKind.DITU)
         Log.w(PLAY, "loadDitu() drm=${play.drmLicenseUrl.isNotBlank()} startPos=$startPos")
         // `publicar` vuelve a mirar si sigue vigente: `safeStartPosition` también suspende.
         if (!ditu.publicar(DituReproducible(episodeId, play, startPos))) {
@@ -1070,6 +1101,10 @@ class PlayerViewModel(
 
     fun saveProgress(episodeId: String, positionMs: Long, durationMs: Long) {
         if (durationMs <= 0) return
+        // Un canal en vivo de Caracol no guarda progreso. `PlayerScreen` deja afuera el vivo con
+        // `enVivo`, que es solo el de Magis (`SourceKind.LIVE`): el de Caracol es `SourceKind.DITU`,
+        // y `repo.savePlayback` escribe la fila aunque no haya episodio en la biblioteca.
+        if (DituVivo.esVivo(episodeId)) return
         // El progreso de contenido de adultos NO se escribe. `playback` es tabla sincronizada y de
         // ahí sale "seguir viendo", que se pinta en el inicio del televisor, en el del celular y en
         // la biblioteca: una fila acá no se queda quieta en este aparato. Ver

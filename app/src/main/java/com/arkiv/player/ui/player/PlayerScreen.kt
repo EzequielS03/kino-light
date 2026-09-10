@@ -321,6 +321,7 @@ private fun PlayerContent(
                     graph.liveController, graph.database.liveRecentDao(),
                     esTelevision = isTv,
                     fuente = graph.fuenteDeContenido,
+                    dituFuente = graph.dituFuente,
                     hayCuentaDeMagis = { graph.magisSession.hasAccountLinked },
                 )
             }
