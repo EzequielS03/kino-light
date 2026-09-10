@@ -25,8 +25,9 @@ data class LiveChannel(
      * marca encima, la regla de "esto no se anota en el historial" se aplica en el punto de
      * escritura y no depende de por dónde llegó.
      *
-     * Por defecto `false`: el que no sabe, no marca. Un gateway viejo que no mande el campo se
-     * comporta como antes.
+     * Por defecto `false`: el que no sabe, no marca. Los caminos que reconstruyen un `LiveChannel`
+     * sin categoría a mano (favoritos, caché de `CanalesDelPais`, recientes, el fallback de zapping
+     * de `PlayerViewModel.loadLive`) no lo pasan y se quedan con el default.
      */
     val adulto: Boolean = false,
 )
@@ -35,12 +36,11 @@ data class LiveChannel(
 data class LiveProgram(val titulo: String, val inicio: Long, val fin: Long, val sinopsis: String)
 
 /**
- * Lo que el proxy local necesita para hablarle al CDN. Es la excepción consciente al
- * patrón de `ref` opaco del gateway: acá la app sí necesita los datos en claro para
- * armar las cabeceras de cada segmento.
- */
-/**
  * Un CDN donde se puede pedir la señal, con SU propio `authBase`.
+ *
+ * Es lo que el proxy local necesita para hablarle al CDN: la excepción consciente al patrón de
+ * `ref` opaco de los modelos `Gateway*` — acá la app sí necesita los datos en claro para armar
+ * las cabeceras de cada segmento.
  *
  * El token de firma viaja dentro de esa url, así que van juntos: firmar con el token de un CDN
  * contra el host de otro es exactamente el par que el CDN rechaza con 401.

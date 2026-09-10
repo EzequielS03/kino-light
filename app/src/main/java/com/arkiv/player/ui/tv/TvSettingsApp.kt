@@ -85,9 +85,10 @@ internal fun TvSettingsApp() {
  * no a la cuenta): el televisor del living no hereda lo que se destrabó en el celular, y
  * desinstalar la app lo apaga.
  *
- * Lo que hace al destrabarse es que la app pida las categorías con `adultos=1`; el gateway las
- * filtra por defecto. O sea que `18+` aparece como una categoría más en la guía de En vivo y en
- * el cajón de canales, que es exactamente donde el portal la pone.
+ * Lo que hace al destrabarse es que la app pida las categorías con `incluirAdultos = true`; el
+ * propio cliente (`MagisLiveCatalog`) las filtra por defecto cuando no. O sea que `18+` aparece
+ * como una categoría más en la guía de En vivo y en el cajón de canales, que es exactamente donde
+ * el portal la pone.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable

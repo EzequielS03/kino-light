@@ -30,9 +30,19 @@ internal class CuentaDeMagis(private val session: MagisSession) {
      * Se llama una vez al entrar a la pantalla, NO en el constructor: leer el email sale de
      * `EncryptedSharedPreferences` (disco + descifrado) y este objeto se construye desde `AppGraph`,
      * que se toca desde el hilo principal. En el KALLEY eso son milisegundos que se notan.
+     *
+     * `runCatching` a propósito: la llaman tres `LaunchedEffect` (incluido el de `ArkivTvRoot` en
+     * el arranque), y `PrefsCifradas.abrirOReparar` deja subir tal cual cualquier excepción que no
+     * reconozca como cifrado roto (ver su KDoc: "un bug nuestro no puede costarle la sesión a
+     * nadie"). Sin este `runCatching`, esa excepción sube por el `LaunchedEffect` y tumba la app
+     * justo en el arranque -lo que `PrefsCifradas` existe para evitar-; con él, degrada a
+     * [EstadoDeMagis.Sin] como si no hubiera cuenta vinculada.
      */
     suspend fun refrescar() = withContext(Dispatchers.IO) {
-        _estado.value = session.emailVinculado()?.let { EstadoDeMagis.Vinculada(it) } ?: EstadoDeMagis.Sin
+        val email = runCatching { session.emailVinculado() }
+            .onFailure { Log.w(TAG, "no se pudo leer la cuenta vinculada: se asume sin vincular", it) }
+            .getOrNull()
+        _estado.value = email?.let { EstadoDeMagis.Vinculada(it) } ?: EstadoDeMagis.Sin
     }
 
     suspend fun vincular(email: String, clave: String) = withContext(Dispatchers.IO) {

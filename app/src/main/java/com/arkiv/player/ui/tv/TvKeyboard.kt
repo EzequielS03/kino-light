@@ -29,20 +29,9 @@ import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 /**
  * Las variantes del teclado extendido. MAYUS/MINUS/SIMBOLOS son las tres de Task 9 (login de la
  * TV), elegibles a mano con la fila de modos que arma [tvKeyboardRows]. La búsqueda (único
- * consumidor de [TV_KEYBOARD_ROWS]) no necesita ninguna de las cuatro -sigue con mayúsculas fijas-.
- *
- * NUMERICO es de la Task 11 (código de verificación al crear una cuenta de Magis desde la TV):
- * SOLO dígitos, sin fila de modos. Magis lo manda numérico -confirmado leyendo el gateway
- * (`registro_confirmar`/`validate_verify_code` en `arkiv-api`, y el sentinela de test "000000" en
- * `test_magis_session.py`), y el celu ya le pide `KeyboardType.Number` a este mismo campo
- * (`AccountSection`/`TvSettingsScreen`)-, así que no hay ninguna letra que ese código pueda tener:
- * ofrecerle a la persona la fila de MAYUS/MINUS/SIMBOLOS sería una opción que nunca sirve para
- * nada, y buscar el dígito correcto entre 26 letras con un D-pad es un paso al pedo que se evita
- * del todo mostrando solo los 10 dígitos. Se llega a esta capa SOLO por código -quien arma la
- * pantalla la fuerza mientras el campo activo es el del código, ver `TvOfertaVincularMagis`-, no
- * por la fila de modos (por eso [tvKeyboardRows] no la agrega ahí).
+ * consumidor de [TV_KEYBOARD_ROWS]) no necesita ninguna de las tres -sigue con mayúsculas fijas-.
  */
-enum class TvKeyboardMode { MAYUS, MINUS, SIMBOLOS, NUMERICO }
+enum class TvKeyboardMode { MAYUS, MINUS, SIMBOLOS }
 
 /** Una tecla del teclado en pantalla del TV. */
 sealed interface TvKey {
@@ -98,28 +87,14 @@ fun tvKeyboardRows(
      * Existe para el campo de email: `@` y `.` estan en TODAS las direcciones, y mandar a la
      * persona a la capa de simbolos y de vuelta por cada una son cuatro pulsaciones de control
      * remoto que no hacen falta. Es la misma idea que un teclado de telefono, que muestra la
-     * arroba cuando el campo es un email. Sin efecto en NUMERICO (ver más abajo): un código de
-     * verificación no necesita `@`/`.`, y esa capa ya no admite nada que no sea un dígito.
+     * arroba cuando el campo es un email.
      */
     extras: List<kotlin.Char> = emptyList(),
 ): List<List<TvKey>> = buildList {
-    // NUMERICO es autocontenida (ver el KDoc de TvKeyboardMode): sin la fila de MAYUS/MINUS/
-    // SIMBOLOS -no hay letra que un código de verificación pueda tener- y sin espacio -tampoco
-    // lleva uno-, así que se arma aparte en vez de compartir la cola común de las otras tres
-    // variantes.
-    if (modo == TvKeyboardMode.NUMERICO) {
-        ('0'..'9').map { TvKey.Char(it) }.chunked(6).forEach { add(it) }
-        add(listOf(TvKey.Backspace))
-        return@buildList
-    }
     val base: List<kotlin.Char> = when (modo) {
         TvKeyboardMode.MAYUS -> ('A'..'Z') + ('0'..'9')
         TvKeyboardMode.MINUS -> ('a'..'z') + ('0'..'9')
         TvKeyboardMode.SIMBOLOS -> SIMBOLOS_TV
-        // Inalcanzable -la rama de arriba ya devolvió-; existe solo para que este `when` sea
-        // exhaustivo sin un `else` que silenciaría por accidente una variante nueva el día de
-        // mañana.
-        TvKeyboardMode.NUMERICO -> emptyList()
     }
     // Los extras no se repiten si la capa ya los trae (la de simbolos incluye @ y .).
     val chars: List<TvKey> = (base + extras.filterNot { it in base }).map { TvKey.Char(it) }
@@ -152,9 +127,6 @@ private fun TvKey.label(): String = when (this) {
         TvKeyboardMode.MAYUS -> "ABC"
         TvKeyboardMode.MINUS -> "abc"
         TvKeyboardMode.SIMBOLOS -> "#+="
-        // Inalcanzable hoy -ninguna fila de modos incluye TvKey.Modo(NUMERICO), ver el KDoc de
-        // TvKeyboardMode-; la rama existe para el exhaustive when.
-        TvKeyboardMode.NUMERICO -> "123"
     }
 }
 
@@ -167,7 +139,6 @@ private fun TvKey.contentDescription(): String = when (this) {
         TvKeyboardMode.MAYUS -> "Mayúsculas"
         TvKeyboardMode.MINUS -> "Minúsculas"
         TvKeyboardMode.SIMBOLOS -> "Símbolos"
-        TvKeyboardMode.NUMERICO -> "Números" // inalcanzable hoy, ver comentario de label() arriba
     }
 }
 

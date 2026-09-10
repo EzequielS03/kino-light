@@ -54,24 +54,14 @@ import kotlinx.coroutines.delay
  * ahora", sin un click aparte para "entrar" al campo (mismo gesto que `TvSeasonChip` en
  * `TvSearchScreen`).
  */
-class TvCamposConFoco<C>(
-    inicial: C,
-    /**
-     * Da forma a lo que se escribe, por campo. Por defecto no toca nada.
-     *
-     * Va acá y no en cada pantalla porque este es el ÚNICO punto por el que entra texto desde el
-     * teclado de la TV: puesto en un solo lugar, ningún campo nuevo se puede olvidar de aplicarlo.
-     * (Hasta Task 7 lo usaba también el código de licencia del registro, que se sacó de la app.)
-     */
-    private val formato: (C, String) -> String = { _, valor -> valor },
-) {
+class TvCamposConFoco<C>(inicial: C) {
     var activo: C by mutableStateOf(inicial)
         private set
     private val valores = mutableStateMapOf<C, String>()
 
     fun valor(campo: C): String = valores[campo].orEmpty()
     fun valorActivo(): String = valor(activo)
-    fun escribir(campo: C, nuevo: String) { valores[campo] = formato(campo, nuevo) }
+    fun escribir(campo: C, nuevo: String) { valores[campo] = nuevo }
     fun escribirEnActivo(nuevo: String) = escribir(activo, nuevo)
     fun enfocar(campo: C) { activo = campo }
 }
@@ -80,10 +70,7 @@ class TvCamposConFoco<C>(
  *  recordado de Compose, solo que empaquetado porque son dos piezas (foco + valores) que siempre
  *  viajan juntas. */
 @Composable
-fun <C> rememberTvCamposConFoco(
-    inicial: C,
-    formato: (C, String) -> String = { _, valor -> valor },
-): TvCamposConFoco<C> = remember { TvCamposConFoco(inicial, formato) }
+fun <C> rememberTvCamposConFoco(inicial: C): TvCamposConFoco<C> = remember { TvCamposConFoco(inicial) }
 
 /**
  * Reparto de ancho entre el teclado y los campos (Task 11). Antes el teclado tenía una columna FIJA

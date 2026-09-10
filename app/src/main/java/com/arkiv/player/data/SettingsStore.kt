@@ -25,11 +25,6 @@ class SettingsStore(context: Context) {
     private val _artworkRematchDone = MutableStateFlow(prefs.getBoolean(KEY_ARTWORK_REMATCH, false))
     val artworkRematchDone: StateFlow<Boolean> = _artworkRematchDone
 
-    // Interruptor manual del respaldo de TV en vivo (Tarea 8, LiveHlsProxy): fuerza
-    // FirmaDelGateway en vez de FirmaConRespaldo. Un camino de respaldo que nunca se ejerce se
-    // pudre en silencio y falla justo el día que Magis cambia el algoritmo; con esto se puede
-    // comprobar en un minuto que el camino del gateway sigue sirviendo, sin esperar a que pase.
-
     // "Ahora no" a la oferta de vincular Magis apenas se entra a la TV (Task 10, ver
     // `debeOfrecerVincularMagis` en ui/tv/TvOfertaVincularMagis.kt). Es una decisión del DISPOSITIVO,
     // no de la cuenta -mismo criterio que [artworkRematchDone] acá arriba-: este es un TV
@@ -134,6 +129,16 @@ class SettingsStore(context: Context) {
         // más abajo): `SecureDeviceStore` las escribía tal cual.
         migrarAdultosDesbloqueado(viejas.leerBooleanoViejo(KEY_ADULTOS_DESBLOQUEADO))
         migrarRecientesPurgados(viejas.leerBooleanoViejo(KEY_RECIENTES_PURGADOS))
+        if (viejas != null) {
+            // Las dos claves de interés ya quedaron migradas arriba: borrar el archivo viejo saca
+            // el email y la contraseña de la cuenta de Kino que seguían viviendo ahí, de un
+            // subsistema que ya no existe. Va DESPUÉS de migrar, nunca antes. Si el archivo era
+            // indescifrable, `tirarLoIndescifrable` (ver [abrirStoreDeCuentasViejo]) ya lo borró y
+            // acá `viejas` da `null`, así que no hay doble borrado. Esto solo toca el archivo de
+            // shared_prefs -- JAMÁS la llave maestra del Keystore, que es la MISMA que usa
+            // `EncryptedMagisCredentialStore` para la sesión de Magis.
+            runCatching { app.deleteSharedPreferences(ARCHIVO_STORE_DE_CUENTAS_VIEJO) }
+        }
     }
 
     private fun SharedPreferences?.leerBooleanoViejo(key: String): Boolean? =

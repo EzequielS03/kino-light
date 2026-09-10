@@ -56,8 +56,7 @@ private enum class CampoMagisOferta { EMAIL, PASSWORD }
 /**
  * Se ofrece como lo PRIMERO al entrar a la TV cuando este aparato todavía no tiene Magis vinculado
  * (Task 10, ver [debeOfrecerVincularMagis] para la condición exacta -desde Task 8, sub-proyecto 2B,
- * ya no depende de ninguna cuenta de Kino-). Desde la Task 11 también deja CREAR una cuenta de
- * Magis nueva, no solo vincular una que ya existe.
+ * ya no depende de ninguna cuenta de Kino-).
  *
  * ### Por qué vive acá y no en una pantalla de login
  *

@@ -323,9 +323,9 @@ class AppGraph(context: Context) {
     val applicationScope: CoroutineScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
 
     /**
-     * Agrega a la biblioteca lo que se elige en la fila "Para ti" del inicio. Necesita el gateway
-     * además del repositorio: una recomendación de serie trae el ref de la temporada, y los
-     * capítulos hay que pedírselos al portal (`MagisCatalog.detail`).
+     * Agrega a la biblioteca lo que se elige en la fila "Para ti" del inicio. Necesita
+     * `fuenteDeContenido` además del repositorio: una recomendación de serie trae el ref de la
+     * temporada, y los capítulos hay que pedírselos al portal (`MagisCatalog.detail`).
      */
     val agregadorDeRecomendaciones by lazy {
         com.arkiv.player.data.recomendaciones.AgregadorDeRecomendaciones(

@@ -81,24 +81,4 @@ class TvKeyboardTest {
     @Test fun `escribir en minuscula agrega la letra tal cual`() {
         assertEquals("su", applyKey("s", TvKey.Char('u')))
     }
-
-    // --- Task 11: capa NUMERICO para el código de verificación de Magis al crear cuenta desde la
-    // TV. Magis lo manda numérico (ver `MagisLinkClientTest`, y el celu ya le pide
-    // `KeyboardType.Number` a este mismo campo en `AccountSection`/`TvSettingsScreen`), así que
-    // mostrar letras acá sería mandar a buscar dígitos entre ellas con un D-pad, al pedo.
-
-    @Test fun `tvKeyboardRows NUMERICO trae solo 0-9, nada mas`() {
-        val chars = tvKeyboardRows(TvKeyboardMode.NUMERICO).flatten().filterIsInstance<TvKey.Char>().map { it.c }
-        assertEquals(('0'..'9').toList(), chars)
-    }
-
-    @Test fun `tvKeyboardRows NUMERICO no trae fila de modos ni espacio`() {
-        val flat = tvKeyboardRows(TvKeyboardMode.NUMERICO).flatten()
-        assertTrue("sin teclas de Modo: no hay letra que el codigo pueda tener", flat.none { it is TvKey.Modo })
-        assertTrue("sin espacio: un codigo de verificacion no lleva ninguno", flat.none { it == TvKey.Space })
-    }
-
-    @Test fun `tvKeyboardRows NUMERICO SI trae borrar`() {
-        assertTrue(tvKeyboardRows(TvKeyboardMode.NUMERICO).flatten().contains(TvKey.Backspace))
-    }
 }

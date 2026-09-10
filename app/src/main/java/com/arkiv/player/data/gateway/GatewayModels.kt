@@ -19,7 +19,7 @@ data class GatewaySearchQuery(
     val tmdbId: Int = 0,
 )
 
-/** Un resultado de búsqueda tal como lo entrega el gateway. */
+/** Un resultado de búsqueda, armado por la fuente (hoy `MagisFuente`) contra lo que devuelve el portal. */
 data class GatewayResult(
     val source: String,
     val title: String,
@@ -68,7 +68,7 @@ data class GatewayPlayable(
      *
      * Es el dato con el que la app le declara el contenedor al demuxer antes de abrir. Antes se
      * deducía de la extensión de [url], que para magis no es un dato de la fuente sino algo que
-     * arma el gateway colapsando a `.mp4` todo lo que el portal no llame `ts`. Ver
+     * arma `MagisResolve` colapsando a `.mp4` todo lo que el portal no llame `ts`. Ver
      * [com.arkiv.player.playback.formatoAvformatDe]. "" = sondear, nunca suponer.
      */
     val container: String = "",

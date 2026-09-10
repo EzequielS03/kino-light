@@ -76,6 +76,16 @@ fun ArkivTvRoot(
         magisConfirmado = true
     }
 
+    // Mantener la pantalla encendida mientras la app de TV esté abierta (no meter el wallpaper).
+    // Va ANTES del `return` de la oferta de vincular Magis, a propósito: esa pantalla es donde
+    // alguien tipea un email letra por letra con el control remoto, y sin esto el TV se podía
+    // apagar solo a mitad de escribirlo.
+    val view = LocalView.current
+    DisposableEffect(Unit) {
+        view.keepScreenOn = true
+        onDispose { view.keepScreenOn = false }
+    }
+
     if (magisConfirmado && mostrarOferta) {
         // Reactivo adentro del `if`, pero para CERRAR esta misma pantalla cuando la propia acción de
         // vincular sale bien -no para volver a decidir si mostrarla, que es la decisión de arriba-.
@@ -100,13 +110,6 @@ fun ArkivTvRoot(
     // la fuente a partir del episodeId (ver PlayerSource.kindFor).
     fun goToPlayer(id: String) {
         navController.navigate("player/${Uri.encode(id)}") { launchSingleTop = true }
-    }
-
-    // Mantener la pantalla encendida mientras la app de TV esté abierta (no meter el wallpaper).
-    val view = LocalView.current
-    DisposableEffect(Unit) {
-        view.keepScreenOn = true
-        onDispose { view.keepScreenOn = false }
     }
 
     LaunchedEffect(deepLinkEpisodeId) {
@@ -173,7 +176,8 @@ fun ArkivTvRoot(
         }
         composable("categorias") {
             // Las secciones de adultos solo si ESTE aparato tiene el código puesto (Ajustes).
-            // El gateway responde 409 sin el parámetro, así que el default es el seguro incluso
+            // `MagisLiveCatalog.arbol` filtra la sección 18+ del lado del cliente y revienta con
+            // `require` si se pide su raíz sin el flag, así que el default es el seguro incluso
             // si esta pantalla se abriera por otro camino.
             val desbloqueado = graph.settings.adultosDesbloqueado.value
             val alcance = rememberCoroutineScope()

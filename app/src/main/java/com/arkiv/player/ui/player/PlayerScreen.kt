@@ -541,7 +541,10 @@ private fun PlayerContent(
         NowPlaying.episodeId = epId
     }
 
-    // Marcadores intro/outro (solo archive).
+    // Editor de marcadores intro/outro: la fuente que lo usaba (archive.org) se borró en esta rama
+    // (`loadArchive` ya solo reporta error) y el botón que lo abre está detrás de
+    // `MOSTRAR_MARCADORES_EN_TELEFONO = false`, pero el estado sigue vivo porque el resto del
+    // overlay (guardas de `marcadores.marcando`, el `BackHandler`, el listener de teclas) lo consulta.
     val marcadores = rememberEstadoDeMarcadores()
 
     // Selector de audio/subtítulos (ambas fuentes, vía la API VLC del player vivo). Todo el bloque
