@@ -69,7 +69,7 @@ internal class DituEpisodios(private val cliente: DituClienteLike) {
         val episodios = buildList {
             for (i in 0 until (crudos?.length() ?: 0)) {
                 val ep = crudos!!.optJSONObject(i) ?: continue
-                add(episodioDe(ep, temporadaForzada) ?: continue)
+                add(episodioDe(ep, temporadaForzada, posicion = i + 1) ?: continue)
             }
         }
         val meta = externo.optJSONObject("metadata") ?: JSONObject()
@@ -82,12 +82,19 @@ internal class DituEpisodios(private val cliente: DituClienteLike) {
         )
     }
 
-    private fun episodioDe(ep: JSONObject, temporadaForzada: Int): DituEpisodio? {
+    /**
+     * [posicion] es el lugar del capítulo dentro de su bundle, desde 1, y es el número de respaldo
+     * cuando Caracol no manda `episodeNumber` o lo manda en 0. Con 0 el capítulo no se guarda como
+     * capítulo: `DituEntities.build` toma `episode = 0` como película, y `ArkivRepository.addDituSource`
+     * lo deja como un ítem suelto con el id del capítulo, fuera de su serie. La lista, además,
+     * mostraría varios "Episodio 0".
+     */
+    private fun episodioDe(ep: JSONObject, temporadaForzada: Int, posicion: Int): DituEpisodio? {
         val id = ep.optString("id").takeIf { it.isNotBlank() } ?: return null
         // Sin assetId no hay nada que reproducir: ofrecerlo sería prometer algo que falla al tocarlo.
         DituCatalogo.assetMaster(ep) ?: return null
         val m = ep.optJSONObject("metadata") ?: JSONObject()
-        val numero = m.optInt("episodeNumber", 0)
+        val numero = m.optInt("episodeNumber", 0).takeIf { it > 0 } ?: posicion
         return DituEpisodio(
             numero = numero,
             temporada = temporadaForzada.takeIf { it > 0 } ?: m.optInt("season", 1).takeIf { it > 0 } ?: 1,

@@ -48,6 +48,24 @@ class DituEpisodiosTest {
         assertEquals("Episodio 7", DituEpisodios(fake).de(DituRef("99", "BUNDLE")).episodios.single().titulo)
     }
 
+    /**
+     * Un capítulo sin `episodeNumber` (o en 0) toma su posición dentro del bundle. Con 0 se guardaría
+     * como película suelta, y dos sin número tendrían el mismo id de capítulo en la biblioteca.
+     */
+    @Test fun `sin episodeNumber el numero es la posicion en el bundle`() = runTest {
+        val fake = FakeDituCliente()
+        fake.responde("CONTENT/DETAIL/BUNDLE/99", bundleCon(
+            """{"id":"e1","metadata":{"episodeTitle":"Uno"},"assets":[{"assetType":"MASTER","assetId":1}]}""",
+            ep("e2", 0, 1, "Dos"),
+        ))
+
+        val eps = DituEpisodios(fake).de(DituRef("99", "BUNDLE")).episodios
+
+        assertEquals(listOf(1, 2), eps.map { it.numero })
+        val ids = eps.map { com.arkiv.player.data.DituEntities.episodioIdDeCapitulo("ditu:99", it.temporada, it.numero) }
+        assertEquals(2, ids.toSet().size)
+    }
+
     /** Sin assetId no se puede reproducir: mostrarlo sería ofrecer algo que falla al tocarlo. */
     @Test fun `un capitulo sin assetId no entra`() = runTest {
         val fake = FakeDituCliente()
