@@ -14,11 +14,31 @@ siendo la app completa (torrent+web+archive+Magis+Ditu+RCN, con login PocketBase
 - Las únicas llamadas de red permitidas hacia fuera del dispositivo son:
   1. Directo al **portal de Magis** (protocolo ya crackeado, ver `/Users/cristian/mago/reverse/`).
      **Hecho** (sub-proyecto 2A): todo el protocolo vive en `app/src/main/java/com/arkiv/player/data/magis/`.
-  2. Directo a **TMDB** (`api.themoviedb.org`) con una API key propia embebida en el build de esta
-     rama. **Hecho** (sub-proyecto 2A).
+  2. Directo a **TMDB** (`api.themoviedb.org` para datos, `image.tmdb.org` para pósters/stills) con
+     una API key propia embebida en el build de esta rama. **Hecho** (sub-proyecto 2A).
   3. Al **CDN de Magis** para bajar los bytes de video (como ya es hoy).
   4. Al **OTA** (`apk.comparadorinternet.co/latest.json`, `UpdateChecker`), para avisar de una
      versión nueva del APK.
+  5. Directo a **AniList** (`graphql.anilist.co`), tercero público sin llave propia: alimenta las
+     filas y la búsqueda de anime (`data/catalog/AniListApi.kt`, consumido por `HomeViewModel`,
+     `CategoriasViewModel`, `RowBrowseViewModel`, `SearchViewModel`, `TvSearchScreen`,
+     `AnimeShowDetailScreen` y `AnimeSection`).
+  6. Directo a **raw.githubusercontent.com**, tercero público sin llave propia: descarga el dataset
+     de mapeo de anime de Fribb (`data/catalog/AnimeMappingRepository.kt`).
+
+  Ninguno de los seis es servidor propio, así que no violan la regla de arriba. Para verificarlo no
+  sirve un grep por nombres propios (`comparadorinternet`, `pocketbase`, `gatewayUrl`, `/v1/`): eso
+  es ciego a un host de terceros nuevo. El barrido correcto ENUMERA todos los hosts que la app llama
+  y los compara a mano contra esta lista:
+
+  ```
+  grep -roE "https?://[a-zA-Z0-9._-]+" app/src/main/java | sort -u
+  ```
+
+  (Va a salir ruido que no es una llamada de red real: URLs de ejemplo en comentarios/KDoc,
+  namespaces XML del cliente DLNA, `127.0.0.1` de los proxies locales. Cualquier host nuevo que SÍ
+  sea una llamada real y no esté en la lista de seis es justo lo que este barrido existe para
+  atrapar.)
 
   El gateway `arkiv-api` y PocketBase se sacaron ENTEROS en el sub-proyecto 2B (Tasks 1-10): ya no
   queda una sola línea que les hable. Eso incluye la **"dato curioso"/trivia**, que en el
