@@ -26,6 +26,22 @@ class ArkivApp : Application(), ImageLoaderFactory {
         super.onCreate()
         graph = AppGraph.from(this)
 
+        // Migración única (Task 7, sub-proyecto 2B): el candado 18+ y la purga de recientes
+        // vivían en `SecureDeviceStore` (prefs cifradas), que la Task 9 borra junto con las
+        // cuentas. Ninguna de las dos es un dato de cuenta, así que se rescatan acá antes de que
+        // ese store desaparezca -- una sola lectura, síncrona y ANTES de cualquier pantalla, para
+        // que nada llegue a leer `graph.settings.adultosDesbloqueado` sin migrar todavía. Si el
+        // store cifrado no abre (Keystore roto), `getOrNull()` lo trata como "no había nada que
+        // migrar" y sigue con el default -- no puede ser motivo para no arrancar.
+        runCatching {
+            graph.settings.migrarAdultosDesbloqueado(
+                runCatching { graph.deviceStore.adultosDesbloqueado() }.getOrNull(),
+            )
+            graph.settings.migrarRecientesPurgados(
+                runCatching { graph.deviceStore.recientesPurgados() }.getOrNull(),
+            )
+        }.onFailure { reportar(it, "arranque: migrar prefs del store cifrado") }
+
         // ADOPCION DE LA BASE LOCAL. Quien ya venia usando la app tiene datos que SI son suyos y
         // todavia no hay dueño anotado; sin esto, el primer login despues de actualizar los tomaria
         // por huerfanos y le vaciaria la biblioteca. Con sesion viva y sin dueño, el dueño pasa a
@@ -50,9 +66,9 @@ class ArkivApp : Application(), ImageLoaderFactory {
         // nube ya se limpiaron a mano, así que el próximo sync repuebla la lista con los legítimos.
         graph.applicationScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             runCatching {
-                if (!graph.deviceStore.recientesPurgados()) {
+                if (!graph.settings.recientesPurgados) {
                     graph.database.liveRecentDao().borrarTodos()
-                    graph.deviceStore.setRecientesPurgados(true)
+                    graph.settings.setRecientesPurgados(true)
                     android.util.Log.w("ArkivCuenta", "recientes purgados (fuga de canales de adultos)")
                 }
             }.onFailure { reportar(it, "arranque: purgar recientes") }

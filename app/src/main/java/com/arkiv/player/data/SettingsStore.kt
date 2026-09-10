@@ -41,6 +41,18 @@ class SettingsStore(context: Context) {
     private val _magisOfertaDescartada = MutableStateFlow(prefs.getBoolean(KEY_MAGIS_OFERTA_DESCARTADA, false))
     val magisOfertaDescartada: StateFlow<Boolean> = _magisOfertaDescartada
 
+    // Task 7 (sub-proyecto 2B): candado 18+ del APARATO. Vivía en `SecureDeviceStore`, que la
+    // Task 9 borra junto con las cuentas -- no es un dato de cuenta, así que se rescata acá antes.
+    // Igual criterio que [magisOfertaDescartada]: por device, no por persona.
+    private val _adultosDesbloqueado = MutableStateFlow(prefs.getBoolean(KEY_ADULTOS_DESBLOQUEADO, false))
+    val adultosDesbloqueado: StateFlow<Boolean> = _adultosDesbloqueado
+
+    // Marcador de la purga única de recientes del 2026-08-14 (ver `ArkivApp.onCreate`). Mismo
+    // rescate que [adultosDesbloqueado]: si se pierde, la purga simplemente vuelve a correr una
+    // vez más -- no hace falta un StateFlow porque nada la observa, solo se lee al arrancar.
+    val recientesPurgados: Boolean
+        get() = prefs.getBoolean(KEY_RECIENTES_PURGADOS, false)
+
     fun setDimLevel(v: Int) { prefs.edit().putInt(KEY_DIM_LEVEL, v).apply(); _dimLevel.value = v }
 
     /** Fija a mano la URL de lo que queda del servidor (marcadores, subtítulos, cuenta). */
@@ -59,12 +71,46 @@ class SettingsStore(context: Context) {
         _magisOfertaDescartada.value = v
     }
 
+    fun setAdultosDesbloqueado(v: Boolean) {
+        if (_adultosDesbloqueado.value == v) return
+        prefs.edit().putBoolean(KEY_ADULTOS_DESBLOQUEADO, v).apply()
+        _adultosDesbloqueado.value = v
+    }
+
+    fun setRecientesPurgados(v: Boolean) {
+        prefs.edit().putBoolean(KEY_RECIENTES_PURGADOS, v).apply()
+    }
+
+    /**
+     * Trae el candado 18+ del store cifrado del aparato la primera vez que corre. `deStoreViejo`
+     * es `null` cuando ese store no se pudo leer (ver `ArkivApp.onCreate`) -- ahí se queda con lo
+     * que ya haya acá (o el default). Idempotente: en los arranques siguientes `prefs` ya tiene la
+     * clave y `valorMigrado` la respeta sin volver a mirar el store viejo.
+     */
+    fun migrarAdultosDesbloqueado(deStoreViejo: Boolean?) {
+        setAdultosDesbloqueado(valorMigrado(leerNullable(KEY_ADULTOS_DESBLOQUEADO), deStoreViejo, false))
+    }
+
+    /** Mismo rescate que [migrarAdultosDesbloqueado] para el marcador de la purga de recientes. */
+    fun migrarRecientesPurgados(deStoreViejo: Boolean?) {
+        setRecientesPurgados(valorMigrado(leerNullable(KEY_RECIENTES_PURGADOS), deStoreViejo, false))
+    }
+
+    /** `null` si `key` todavía no se escribió en estos ajustes -- distinto de que valga `false`. */
+    private fun leerNullable(key: String): Boolean? = if (prefs.contains(key)) prefs.getBoolean(key, false) else null
+
     companion object {
         const val PREFS_NAME = "arkiv_settings"
         private const val KEY_DIM_LEVEL = "dim_level"
         private const val KEY_GATEWAY_URL = "gateway_url"
         private const val KEY_ARTWORK_REMATCH = "artwork_rematch_done"
         private const val KEY_MAGIS_OFERTA_DESCARTADA = "magis_oferta_descartada"
+
+        // Task 7: mismas keys de texto que usaba `SecureDeviceStore` (`K_ADULTOS`,
+        // `K_PURGA_RECIENTES`) para el nombre, aunque el valor viva en otro archivo de prefs --
+        // así el histórico del código sigue siendo buscable por ese nombre.
+        private const val KEY_ADULTOS_DESBLOQUEADO = "adultosDesbloqueado"
+        private const val KEY_RECIENTES_PURGADOS = "recientesPurgados2026_08_14"
         const val DEFAULT_GATEWAY_URL = "https://api.comparadorinternet.co"
         // La key del `POST /api/refresh` del mirror ya no existe acá: ese endpoint pasó a pedirse
         // por el gateway (`/v1/catalog/refresh`), que es quien pone la credencial. Con eso el APK
@@ -80,3 +126,11 @@ class SettingsStore(context: Context) {
         // y `KEY_USE_GATEWAY` (el flag para "caer al camino viejo", que ya no existe).
     }
 }
+
+/**
+ * Qué valor queda tras mudar una preferencia del store cifrado del aparato a estos ajustes.
+ * Lo que ya esté acá MANDA: si la persona cambió el valor después de migrar, el viejo no puede
+ * resucitar en el próximo arranque.
+ */
+internal fun valorMigrado(deSettings: Boolean?, deStoreViejo: Boolean?, default: Boolean): Boolean =
+    deSettings ?: deStoreViejo ?: default

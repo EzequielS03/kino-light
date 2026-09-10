@@ -163,7 +163,7 @@ fun ArkivTvRoot(
             // Las secciones de adultos solo si ESTE aparato tiene el código puesto (Ajustes).
             // El gateway responde 409 sin el parámetro, así que el default es el seguro incluso
             // si esta pantalla se abriera por otro camino.
-            val desbloqueado = graph.deviceStore.adultosDesbloqueado()
+            val desbloqueado = graph.settings.adultosDesbloqueado.value
             val alcance = rememberCoroutineScope()
             TvSeccionesDeCatalogo(
                 incluirAdultos = desbloqueado,

@@ -27,8 +27,8 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import kotlinx.coroutines.launch
+import com.arkiv.player.data.SettingsStore
 import com.arkiv.player.data.update.UpdateInfo
-import com.arkiv.player.pocketbase.DeviceStore
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.settings.CandadoDeAdultos
 import com.arkiv.player.ui.theme.ArkivRed
@@ -71,7 +71,7 @@ internal fun TvSettingsApp() {
         onClick = { if (!checking) checkForUpdatesNow() },
     )
 
-    TvSeccionAdultos(graph.deviceStore)
+    TvSeccionAdultos(graph.settings)
 }
 
 /**
@@ -81,9 +81,9 @@ internal fun TvSettingsApp() {
  * un botón en gris, ni un candado. Anunciar que existe algo es la mitad del problema — quien no
  * sabe el código no tiene por qué enterarse de que hay una puerta.
  *
- * Destraba SOLO este aparato ([DeviceStore.setAdultosDesbloqueado] va al store del fierro, no a
- * la cuenta): el televisor del living no hereda lo que se destrabó en el celular, y desinstalar
- * la app lo apaga.
+ * Destraba SOLO este aparato ([SettingsStore.setAdultosDesbloqueado] va a los ajustes del aparato,
+ * no a la cuenta): el televisor del living no hereda lo que se destrabó en el celular, y
+ * desinstalar la app lo apaga.
  *
  * Lo que hace al destrabarse es que la app pida las categorías con `adultos=1`; el gateway las
  * filtra por defecto. O sea que `18+` aparece como una categoría más en la guía de En vivo y en
@@ -91,9 +91,9 @@ internal fun TvSettingsApp() {
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun TvSeccionAdultos(store: DeviceStore) {
+private fun TvSeccionAdultos(store: SettingsStore) {
     val hayCodigo = com.arkiv.player.BuildConfig.ADULT_CODE.isNotBlank()
-    var desbloqueado by remember { mutableStateOf(store.adultosDesbloqueado()) }
+    var desbloqueado by remember { mutableStateOf(store.adultosDesbloqueado.value) }
     var codigo by remember { mutableStateOf("") }
     var error by remember { mutableStateOf(false) }
 

@@ -110,7 +110,7 @@ fun LiveScreen(
                     graph.database.liveChannelCacheDao(),
                     // Se lee en CADA carga, no una vez: destrabar 18+ desde Ajustes tiene
                     // que verse al volver a entrar, sin reiniciar la app.
-                    adultosDesbloqueado = { graph.deviceStore.adultosDesbloqueado() },
+                    adultosDesbloqueado = { graph.settings.adultosDesbloqueado.value },
                 )
             }
         },
