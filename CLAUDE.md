@@ -25,8 +25,27 @@ siendo la app completa (torrent+web+archive+Magis+Ditu+RCN, con login PocketBase
      `AnimeShowDetailScreen` y `AnimeSection`).
   6. Directo a **raw.githubusercontent.com**, tercero público sin llave propia: descarga el dataset
      de mapeo de anime de Fribb (`data/catalog/AnimeMappingRepository.kt`).
+  7. Directo a **Caracol Streaming** (Ditu), sin cuenta ni llave propia (sub-proyecto 3A, todo en
+     `app/src/main/java/com/arkiv/player/data/ditu/`). Va en dos partes, porque el barrido de abajo
+     solo ve la primera:
+     - **Hosts escritos en el código** (el barrido los ve):
+       - `middleware.ditu.caracoltv.com`: la API AVS y también la licencia Widevine
+         (`DituCliente.BASE` y `DituCliente.LICENCIA`, que es `…/CONTENT/LICENSE`);
+       - `image-registry.ditu.caracoltv.com`: pósters y fondos (`DituCatalogo.CDN_IMAGENES`).
+     - **Hosts que devuelve la API en tiempo de ejecución** (el barrido NO los ve, porque no están
+       en el código; es el mismo caso que el CDN de Magis del punto 3):
+       - el CDN del video: el `src` del `.mpd` que devuelve `CONTENT/VIDEOURL` (`DituResolve`),
+         con sus segmentos;
+       - los logos de canal (`logoMedium`, en `DituCatalogo`), que según el adaptador de Python
+         (`arkiv-api/src/arkiv_api/adapters/ditu/adapter.py`) vienen de
+         `image-registry.avscaracoltv.com`;
+       - las URLs `fileUrl` del `posterList` (`DituCatalogo`), que se usan cuando falta el
+         `pictureUrl`.
 
-  Ninguno de los seis es servidor propio, así que no violan la regla de arriba. Para verificarlo no
+     Todos son de Caracol TV y ninguno es servidor propio: ni la cookie `playback_token` ni la
+     licencia pasan por nada nuestro.
+
+  Ninguno de los siete es servidor propio, así que no violan la regla de arriba. Para verificarlo no
   sirve un grep por nombres propios (`comparadorinternet`, `pocketbase`, `gatewayUrl`, `/v1/`): eso
   es ciego a un host de terceros nuevo. El barrido correcto ENUMERA todos los hosts que la app llama
   y los compara a mano contra esta lista:
@@ -35,9 +54,11 @@ siendo la app completa (torrent+web+archive+Magis+Ditu+RCN, con login PocketBase
   grep -roE "https?://[a-zA-Z0-9._-]+" app/src/main/java | sort -u
   ```
 
-  (Va a salir ruido que no es una llamada de red real: URLs de ejemplo en comentarios/KDoc,
+  (En una máquina donde un hook intercepte `grep`, córrelo como `command grep`: el hook puede
+  recortar la salida sin avisar. Va a salir ruido que no es una llamada de red real: URLs de ejemplo
+  en comentarios/KDoc o en el texto de ayuda de un campo (`AddScreen`),
   namespaces XML del cliente DLNA, `127.0.0.1` de los proxies locales. Cualquier host nuevo que SÍ
-  sea una llamada real y no esté en la lista de seis es justo lo que este barrido existe para
+  sea una llamada real y no esté en la lista de siete es justo lo que este barrido existe para
   atrapar.)
 
   El gateway `arkiv-api` y PocketBase se sacaron ENTEROS en el sub-proyecto 2B (Tasks 1-10): ya no
