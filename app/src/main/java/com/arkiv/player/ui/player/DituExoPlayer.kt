@@ -162,16 +162,23 @@ internal fun DituExoPlayer(
         ArranqueConLaPrimeraImagen().also { it.empezo(SystemClock.elapsedRealtime()) }
     }
 
-    // Si la app se va al fondo mientras se espera la primera imagen, la espera se cancela: al volver
-    // el video queda en pausa y decide la persona (ver `alIrseAlFondo`). Sin esto, la salida de
-    // seguridad del reloj de abajo le daría play en el fondo, o la primera imagen lo arrancaría sola
-    // al volver.
+    // Si la app se va al fondo mientras se espera la primera imagen, la espera queda en suspenso: la
+    // salida de seguridad del reloj de abajo no mira si la app está a la vista, y podría darle play en
+    // el fondo. Al volver se retoma con su plazo contado de nuevo, así que nunca queda esperando sin
+    // plazo: arranca con la imagen o con la salida de seguridad. Con un canal en vivo es igual:
+    // `PlayerScreen` lo detiene al irse y lo prepara en el directo al volver (ver `alVolverAlDirecto`),
+    // y el arranque le da play. Lo que ya había arrancado no pasa por acá: eso lo decide
+    // `alIrseAlFondo`.
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, arranque) {
         val observador = LifecycleEventObserver { _, evento ->
             if (evento == Lifecycle.Event.ON_STOP && arranque.esperando) {
-                Log.i(TAG, "la app se fue al fondo esperando la primera imagen: se cancela el arranque")
-                arranque.cancelar()
+                Log.i(TAG, "la app se fue al fondo esperando la primera imagen: la espera queda en suspenso")
+                arranque.suspender()
+            }
+            if (evento == Lifecycle.Event.ON_START && arranque.suspendida) {
+                Log.i(TAG, "la app volvió: se retoma la espera de la primera imagen")
+                arranque.retomar(SystemClock.elapsedRealtime())
             }
         }
         lifecycleOwner.lifecycle.addObserver(observador)

@@ -24,7 +24,8 @@ internal const val ESPERA_MAXIMA_DE_LA_PRIMERA_IMAGEN_MS = 10_000L
  * la primera imagen ([llegoLaImagen]) o, si no llega, cuando se vence la espera ([vencio]): nunca
  * las dos, y una sola vez. Si en el medio la persona tocó play o pausa ([laPersonaDecidio]), manda
  * ella y esto ya no toca el reproductor: una pausa suya no se confunde con esta espera. Si la app se
- * fue al fondo mientras esperaba ([cancelar]), tampoco: al volver no arranca sola.
+ * va al fondo mientras espera ([suspender]), en el fondo no arranca; al volver ([retomar]) la espera
+ * sigue, con su plazo contado de nuevo: nunca queda esperando sin plazo.
  *
  * Va aparte y sin Android para poder probarlo en la JVM, igual que [EstadoDeDitu]. Es uno por
  * reproductor: una recarga arma otro reproductor y, con él, otra espera.
@@ -38,8 +39,14 @@ internal class ArranqueConLaPrimeraImagen(
     /** Ya arrancó, o ya decidió la persona: no queda nada que esperar. */
     private var resuelto = false
 
-    /** Si está preparado en pausa, esperando la primera imagen. */
-    val esperando: Boolean get() = desdeMs != null && !resuelto
+    /** La app se fue al fondo mientras se esperaba. Ver [suspender]. */
+    private var enSuspenso = false
+
+    /** Si está preparado en pausa, esperando la primera imagen (y con la app a la vista). */
+    val esperando: Boolean get() = desdeMs != null && !resuelto && !enSuspenso
+
+    /** Si la espera quedó en suspenso porque la app se fue al fondo. */
+    val suspendida: Boolean get() = enSuspenso
 
     /** El reproductor quedó preparado en pausa en [ahoraMs]: empieza la espera. */
     fun empezo(ahoraMs: Long) {
@@ -61,9 +68,22 @@ internal class ArranqueConLaPrimeraImagen(
         resuelto = true
     }
 
-    /** La app se fue al fondo mientras se esperaba: no arranca más sola, ni en el fondo ni al volver. */
-    fun cancelar() {
-        resuelto = true
+    /**
+     * La app se fue al fondo mientras se esperaba: la espera queda en suspenso. En el fondo no arranca,
+     * ni por la imagen ni por el vencimiento. Al volver, [retomar].
+     */
+    fun suspender() {
+        if (esperando) enSuspenso = true
+    }
+
+    /**
+     * La app volvió: la espera sigue, con su plazo contado de nuevo desde [ahoraMs]. Si la imagen no
+     * llega, la salida de seguridad lo arranca igual.
+     */
+    fun retomar(ahoraMs: Long) {
+        if (!enSuspenso) return
+        enSuspenso = false
+        desdeMs = ahoraMs
     }
 
     private fun soltar(): Boolean {

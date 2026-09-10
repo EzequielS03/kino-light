@@ -50,13 +50,35 @@ class ArranqueConLaPrimeraImagenTest {
         assertFalse(a.vencio(t0 + espera * 3))
     }
 
-    /** Irse de la app esperando la imagen: ni la salida de seguridad ni la imagen al volver le dan play. */
-    @Test fun `si la app se fue al fondo esperando, no arranca sola`() {
+    /** Con la app en el fondo no arranca: ni la salida de seguridad ni una imagen le dan play. */
+    @Test fun `con la app en el fondo la espera queda en suspenso`() {
         val a = preparado()
-        a.cancelar()
+        a.suspender()
+        assertTrue(a.suspendida)
         assertFalse(a.esperando)
         assertFalse(a.vencio(t0 + espera * 3))
         assertFalse(a.llegoLaImagen())
+    }
+
+    /** Al volver no queda esperando sin plazo: la espera sigue, contada de nuevo desde que volvió. */
+    @Test fun `al volver la espera se retoma con su plazo`() {
+        val a = preparado()
+        a.suspender()
+        val vuelta = t0 + espera * 5
+        a.retomar(vuelta)
+        assertTrue(a.esperando)
+        assertFalse(a.vencio(vuelta + espera - 1))
+        assertTrue(a.vencio(vuelta + espera))
+    }
+
+    @Test fun `si ya habia arrancado, irse y volver no cambia nada`() {
+        val a = preparado()
+        assertTrue(a.llegoLaImagen())
+        a.suspender()
+        a.retomar(t0 + espera * 5)
+        assertFalse(a.esperando)
+        assertFalse(a.suspendida)
+        assertFalse(a.vencio(t0 + espera * 10))
     }
 
     @Test fun `antes de preparar no hay espera`() {
