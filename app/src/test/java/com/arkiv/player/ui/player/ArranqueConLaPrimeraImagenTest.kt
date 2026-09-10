@@ -81,6 +81,38 @@ class ArranqueConLaPrimeraImagenTest {
         assertFalse(a.vencio(t0 + espera * 10))
     }
 
+    // --- la recarga ---------------------------------------------------------------------------
+
+    @Test fun `queria reproducir si sonaba o si todavia estaba arrancando`() {
+        val arrancando = preparado()
+        assertTrue(arrancando.queriaReproducir(playWhenReady = false))
+        arrancando.suspender()
+        assertTrue(arrancando.queriaReproducir(playWhenReady = false))
+
+        val sonando = preparado()
+        assertTrue(sonando.llegoLaImagen())
+        assertTrue(sonando.queriaReproducir(playWhenReady = true))
+    }
+
+    /** El caso del fondo: se pausó al irse, falló allá, y la recarga no puede arrancar sola al volver. */
+    @Test fun `en pausa no queria reproducir`() {
+        val pausadoAlIrse = preparado()
+        assertTrue(pausadoAlIrse.llegoLaImagen())
+        assertFalse(pausadoAlIrse.queriaReproducir(playWhenReady = false))
+
+        val pausadoPorLaPersona = preparado()
+        pausadoPorLaPersona.laPersonaDecidio()
+        assertFalse(pausadoPorLaPersona.queriaReproducir(playWhenReady = false))
+    }
+
+    @Test fun `el reproductor de una recarga en pausa no arranca solo`() {
+        val a = ArranqueConLaPrimeraImagen(esperaMaximaMs = espera, arrancaSolo = false).apply { empezo(t0) }
+        assertFalse(a.esperando)
+        assertFalse(a.llegoLaImagen())
+        assertFalse(a.vencio(t0 + espera * 3))
+        assertFalse(a.queriaReproducir(playWhenReady = false))
+    }
+
     @Test fun `antes de preparar no hay espera`() {
         val a = ArranqueConLaPrimeraImagen(esperaMaximaMs = espera)
         assertFalse(a.esperando)

@@ -1889,16 +1889,17 @@ private fun PlayerContent(
                 drmLicenseHeaders = dPlay.playable.drmLicenseHeaders,
                 espejo = espejo,
                 startPositionMs = dPlay.startPositionMs,
+                arrancarSolo = dPlay.arrancarSolo,
                 onPlayerReady = { player ->
                     dituPlayer = player
                     estadoPistas.setExoPlayer(player)
                     gestos.setExoPlayer(player)
                 },
-                onError = { codigo ->
+                onError = { codigo, queriaReproducir ->
                     // Desde dónde retomar si el ViewModel pide una URL nueva. Se le pregunta al
                     // player y no al espejo, que se pone al día recién con el sondeo de medio segundo.
                     val pos = dituPlayer?.currentPosition?.coerceAtLeast(0L) ?: dPlay.startPositionMs
-                    vm.onDituExoError(codigo, pos)
+                    vm.onDituExoError(codigo, pos, queriaReproducir)
                 },
                 pedirRepreparado = { vm.dituPuedeRepreparar() },
                 onPosicion = { pos, reproduciendo -> vm.dituAvanzo(pos, reproduciendo) },

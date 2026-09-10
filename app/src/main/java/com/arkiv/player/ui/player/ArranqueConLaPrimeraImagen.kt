@@ -28,10 +28,13 @@ internal const val ESPERA_MAXIMA_DE_LA_PRIMERA_IMAGEN_MS = 10_000L
  * sigue, con su plazo contado de nuevo: nunca queda esperando sin plazo.
  *
  * Va aparte y sin Android para poder probarlo en la JVM, igual que [EstadoDeDitu]. Es uno por
- * reproductor: una recarga arma otro reproductor y, con él, otra espera.
+ * reproductor: una recarga arma otro reproductor y, con él, otra espera. Si lo que falló estaba en
+ * pausa ([queriaReproducir]), el de la recarga se arma con [arrancaSolo] en `false`: queda preparado
+ * en pausa y decide la persona.
  */
 internal class ArranqueConLaPrimeraImagen(
     private val esperaMaximaMs: Long = ESPERA_MAXIMA_DE_LA_PRIMERA_IMAGEN_MS,
+    private val arrancaSolo: Boolean = true,
 ) {
     /** Cuándo quedó preparado en pausa, o `null` si todavía no. */
     private var desdeMs: Long? = null
@@ -50,8 +53,19 @@ internal class ArranqueConLaPrimeraImagen(
 
     /** El reproductor quedó preparado en pausa en [ahoraMs]: empieza la espera. */
     fun empezo(ahoraMs: Long) {
+        if (!arrancaSolo) {
+            resuelto = true
+            return
+        }
         if (desdeMs == null) desdeMs = ahoraMs
     }
+
+    /**
+     * ¿Este reproductor quería reproducir cuando falló? Es lo que hereda el que arme la recarga: sí si
+     * sonaba ([playWhenReady]) o si todavía estaba arrancando, aunque sea en suspenso; no si estaba en
+     * pausa, porque la persona lo pausó o porque la app se fue al fondo.
+     */
+    fun queriaReproducir(playWhenReady: Boolean): Boolean = playWhenReady || esperando || enSuspenso
 
     /** Se pintó la primera imagen. `true` = darle play ahora. */
     fun llegoLaImagen(): Boolean = soltar()

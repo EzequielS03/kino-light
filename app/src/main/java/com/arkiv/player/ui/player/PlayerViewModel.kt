@@ -152,6 +152,13 @@ data class DituReproducible(
      * tiene que rearmar el reproductor (lo compone dentro de un `key` con este valor entero).
      */
     val generacion: Int = 0,
+    /**
+     * Si el reproductor arranca solo con la primera imagen. `false` es una recarga de algo que estaba
+     * en pausa: por ejemplo, un video que se pausó al irse la app al fondo y falló allá. `PlayerScreen`
+     * lee esto con `collectAsStateWithLifecycle`, así que ese reproductor nuevo se arma recién al
+     * volver, y no puede arrancar a sonar solo. Ver [ArranqueConLaPrimeraImagen.queriaReproducir].
+     */
+    val arrancarSolo: Boolean = true,
 )
 
 /**
@@ -654,8 +661,11 @@ class PlayerViewModel internal constructor(
      *
      * [codigo] es el `errorCode` de la `PlaybackException`: con él [FalloDeCaracol.alReproducir] le
      * dice a la persona qué pasó. Su nombre técnico va al log.
+     *
+     * [queriaReproducir] pasa a la recarga: si lo que falló estaba en pausa, el reproductor nuevo
+     * también (ver [DituReproducible.arrancarSolo]).
      */
-    fun onDituExoError(codigo: Int, posicionMs: Long) {
+    fun onDituExoError(codigo: Int, posicionMs: Long, queriaReproducir: Boolean) {
         val nombre = androidx.media3.common.PlaybackException.getErrorCodeName(codigo)
         val episodio = ditu.pedirRecarga()
         if (episodio == null) {
@@ -663,8 +673,12 @@ class PlayerViewModel internal constructor(
             _error.value = FalloDeCaracol.alReproducir(codigo, esTelevision)
             return
         }
-        Log.w(PLAY, "Caracol: $nombre → pido una URL nueva para $episodio desde ${posicionMs}ms")
-        viewModelScope.launch { loadDitu(episodio, arrancarEnMs = posicionMs) }
+        Log.w(
+            PLAY,
+            "Caracol: $nombre → pido una URL nueva para $episodio desde ${posicionMs}ms " +
+                "(queríaReproducir=$queriaReproducir)",
+        )
+        viewModelScope.launch { loadDitu(episodio, arrancarEnMs = posicionMs, arrancarSolo = queriaReproducir) }
     }
 
     /** [DituExoPlayer] tuvo un error que se arregla volviendo a preparar: ¿queda alguno? Ver
@@ -915,8 +929,10 @@ class PlayerViewModel internal constructor(
      * [arrancarEnMs] es para las recargas: se retoma donde iba y no desde la posición guardada. Sin
      * él, la misma reanudación que Magis. Un vivo arranca siempre en 0, y con 0 [DituExoPlayer] no
      * hace `seekTo`: queda en la posición por defecto del directo.
+     *
+     * [arrancarSolo] también es de las recargas: ver [DituReproducible.arrancarSolo].
      */
-    private suspend fun loadDitu(episodeId: String, arrancarEnMs: Long? = null) {
+    private suspend fun loadDitu(episodeId: String, arrancarEnMs: Long? = null, arrancarSolo: Boolean = true) {
         val vivo = DituVivo.esVivo(episodeId)
         val canal = if (vivo) DituVivo.tomar(episodeId) else null
         val ref = if (vivo) null else repo.magisRefForEpisode(episodeId)
@@ -961,7 +977,7 @@ class PlayerViewModel internal constructor(
         val startPos = if (vivo) 0L else arrancarEnMs ?: safeStartPosition(episodeId, SourceKind.DITU)
         Log.w(PLAY, "loadDitu() drm=${play.drmLicenseUrl.isNotBlank()} startPos=$startPos")
         // `publicar` vuelve a mirar si sigue vigente: `safeStartPosition` también suspende.
-        if (!ditu.publicar(DituReproducible(episodeId, play, startPos))) {
+        if (!ditu.publicar(DituReproducible(episodeId, play, startPos, arrancarSolo = arrancarSolo))) {
             Log.w(PLAY, "loadDitu() descartado al publicar: $episodeId ya no es el pedido vigente")
         }
     }

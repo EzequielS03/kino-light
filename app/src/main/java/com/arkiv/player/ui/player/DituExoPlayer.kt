@@ -85,6 +85,10 @@ private fun esRecuperable(error: PlaybackException): Boolean =
  * una, y el audio podía empezar antes que la imagen. Que ExoPlayer pinte la primera imagen estando en
  * pausa no está probado en un aparato en esta rama: si no la pintara, lo que queda es esa salida de
  * seguridad.
+ *
+ * [arrancarSolo] en `false` lo arma preparado en pausa, sin que arranque solo: es el de una recarga de
+ * algo que estaba en pausa. [onError] entrega, junto con el código, si este reproductor quería
+ * reproducir ([ArranqueConLaPrimeraImagen.queriaReproducir]), que es lo que hereda la recarga.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
@@ -94,8 +98,9 @@ internal fun DituExoPlayer(
     drmLicenseHeaders: Map<String, String>,
     espejo: EspejoDelPlayer,
     startPositionMs: Long = 0L,
+    arrancarSolo: Boolean = true,
     onPlayerReady: (Player?) -> Unit = {},
-    onError: (codigo: Int) -> Unit = {},
+    onError: (codigo: Int, queriaReproducir: Boolean) -> Unit = { _, _ -> },
     pedirRepreparado: () -> Boolean,
     onPosicion: (posicionMs: Long, reproduciendo: Boolean) -> Unit = { _, _ -> },
     onTracksChanged: ((Tracks) -> Unit)? = null,
@@ -157,9 +162,10 @@ internal fun DituExoPlayer(
             }
     }
 
-    // Uno por reproductor: una recarga (`key(dPlay)` en `PlayerScreen`) arma otro y vuelve a esperar.
+    // Uno por reproductor: una recarga (`key(dPlay)` en `PlayerScreen`) arma otro y vuelve a esperar,
+    // salvo que lo que falló estuviera en pausa ([arrancarSolo]).
     val arranque = remember(exoPlayer) {
-        ArranqueConLaPrimeraImagen().also { it.empezo(SystemClock.elapsedRealtime()) }
+        ArranqueConLaPrimeraImagen(arrancaSolo = arrancarSolo).also { it.empezo(SystemClock.elapsedRealtime()) }
     }
 
     // Si la app se va al fondo mientras se espera la primera imagen, la espera queda en suspenso: la
@@ -236,7 +242,7 @@ internal fun DituExoPlayer(
                     exoPlayer.prepare()
                     return
                 }
-                onError(error.errorCode)
+                onError(error.errorCode, arranque.queriaReproducir(exoPlayer.playWhenReady))
             }
         }
         exoPlayer.addListener(escucha)

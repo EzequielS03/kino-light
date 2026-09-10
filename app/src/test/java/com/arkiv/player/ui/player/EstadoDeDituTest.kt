@@ -64,6 +64,15 @@ class EstadoDeDituTest {
         assertNull(estado.actual.value)
     }
 
+    /** Una recarga de algo que estaba en pausa llega en pausa a la pantalla. */
+    @Test
+    fun `una recarga en pausa se publica en pausa`() {
+        val estado = EstadoDeDitu()
+        estado.nuevoPedido("ditu:A")
+        estado.publicar(resuelto("ditu:A", 1_000).copy(arrancarSolo = false))
+        assertFalse(estado.actual.value!!.arrancarSolo)
+    }
+
     /** Si Caracol devuelve la misma URL, la pantalla igual tiene que rearmar el reproductor. */
     @Test
     fun `dos publicaciones iguales no son el mismo valor`() {
