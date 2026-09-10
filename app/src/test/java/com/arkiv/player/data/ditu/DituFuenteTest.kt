@@ -6,6 +6,7 @@ import com.arkiv.player.data.gateway.SearchEvent
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -201,5 +202,54 @@ class DituFuenteTest {
         assertTrue(serie.posterUrl.endsWith("portrait-thin-promotional-tablet.jpg"))
         // TMDB caído no aporta id: el título y las imágenes son los de Caracol, que sí respondió.
         assertEquals(0, serie.tmdbId)
+    }
+
+    /** Un TMDB de mentira que contesta [json] a la primera búsqueda. */
+    private fun tmdbQueContesta(json: String): Pair<MockWebServer, TmdbApi> {
+        val servidor = MockWebServer().also { it.enqueue(MockResponse().setBody(json)); it.start() }
+        val tmdb = TmdbApi(apiKey = "x", baseUrl = servidor.url("/3").toString().trimEnd('/'), client = OkHttpClient())
+        return servidor to tmdb
+    }
+
+    private fun serieLlamada(titulo: String) = FakeDituCliente().also {
+        it.responde("CONTENT/DETAIL/BUNDLE/99", """
+        {"resultObj":{"containers":[{"metadata":{"title":"$titulo","pictureUrl":"pic"},"containers":[
+          {"id":"e1","metadata":{"episodeNumber":1,"episodeTitle":"Uno","season":1},
+           "assets":[{"assetType":"MASTER","assetId":1}]}
+        ]}]}}
+        """)
+    }
+
+    /** El título coincide aunque cambien mayúsculas, tildes y signos: el id de TMDB se acepta. */
+    @Test fun `si el titulo de TMDB coincide, la serie se lleva su id`() = runTest {
+        val (servidor, tmdb) = tmdbQueContesta(
+            """{"results":[{"id":77,"name":"Café con aroma de mujer","original_name":"Café con aroma de mujer"}]}""",
+        )
+        try {
+            val (_, serie) = fuente(serieLlamada("¡CAFE, con aroma de Mujer!"), tmdb).episodesConSerie("ditu1:BUNDLE:99")
+
+            assertEquals(77, serie!!.tmdbId)
+        } finally {
+            servidor.shutdown()
+        }
+    }
+
+    /**
+     * El primer resultado de TMDB es OTRA serie: aceptarlo le daría su `tmdbId`, que es con lo que la
+     * biblioteca agrupa, y fundiría las dos. Sin coincidencia no hay id y el título es el de Caracol.
+     */
+    @Test fun `si TMDB devuelve otra serie, no hay id y el titulo es el de Caracol`() = runTest {
+        val (servidor, tmdb) = tmdbQueContesta(
+            """{"results":[{"id":55,"name":"Rigoberta","original_name":"Rigoberta","poster_path":"/otra.jpg"}]}""",
+        )
+        try {
+            val (_, serie) = fuente(serieLlamada("Rigo"), tmdb).episodesConSerie("ditu1:BUNDLE:99")
+
+            assertEquals(0, serie!!.tmdbId)
+            assertEquals("Rigo", serie.titulo)
+            assertTrue(serie.posterUrl.endsWith("portrait-thin-promotional-tablet.jpg"))
+        } finally {
+            servidor.shutdown()
+        }
     }
 }

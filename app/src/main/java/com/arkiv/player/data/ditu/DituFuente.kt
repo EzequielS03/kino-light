@@ -1,6 +1,7 @@
 package com.arkiv.player.data.ditu
 
 import com.arkiv.player.data.catalog.TmdbApi
+import com.arkiv.player.data.pickTmdbMatch
 import com.arkiv.player.data.gateway.FuenteDeContenido
 import com.arkiv.player.data.gateway.GatewayEpisode
 import com.arkiv.player.data.gateway.GatewayException
@@ -21,8 +22,9 @@ import kotlinx.coroutines.flow.flowOn
  * gateway hacía entre la API de Caracol y la app —armar los resultados, aplanar las temporadas,
  * cruzar con TMDB— vive acá.
  *
- * TMDB se usa SOLO para el `tmdbId` y el título canónico. Las imágenes las pone Caracol, que las
- * tiene siempre; las de TMDB entran únicamente si Caracol no trajo ninguna.
+ * TMDB se usa SOLO para el `tmdbId` y el título canónico, y solo cuando el título coincide (ver
+ * [episodesConSerie]). Las imágenes las pone Caracol, que las tiene siempre; las de TMDB entran
+ * únicamente si Caracol no trajo ninguna.
  */
 internal class DituFuente(
     private val catalogo: DituCatalogo,
@@ -117,7 +119,16 @@ internal class DituFuente(
         // de clase capturada dentro de un lambda, solo a variables locales.
         val tmdb = tmdb
         if (tmdb != null && temporada.tituloSerie.isNotBlank()) {
-            val hit = runCatching { tmdb.search("tv", temporada.tituloSerie).firstOrNull() }.getOrNull()
+            // Solo un acierto EXACTO ([pickTmdbMatch]: título normalizado, contra el de TMDB en
+            // español o contra el original). El primer resultado por texto puede ser otra serie, y el
+            // `tmdbId` es la clave con la que `LibraryGrouping` agrupa las series (`tv:<tmdbId>`): un
+            // acierto equivocado renombraría esta serie en la biblioteca o la fundiría con la otra.
+            // Sin coincidencia la serie queda sin id y con el título de Caracol. Un falso negativo
+            // cuesta poco: las imágenes ya son de Caracol.
+            val hit = runCatching { tmdb.search("tv", temporada.tituloSerie) }.getOrNull()
+                ?.let { pickTmdbMatch(temporada.tituloSerie, it) }
+                ?.takeIf { it.exacto }
+                ?.item
             if (hit != null) {
                 serie = serie.copy(
                     tmdbId = hit.id,
