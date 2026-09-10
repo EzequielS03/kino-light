@@ -2,11 +2,11 @@ package com.arkiv.player.data.gateway
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.filterNot
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.onEach
 
 /**
  * Varias fuentes detrás de una sola. Existe para que agregar Caracol —y después RCN— no obligue a
@@ -14,8 +14,10 @@ import kotlinx.coroutines.flow.merge
  *
  * Dos reglas gobiernan la búsqueda:
  *
- * - **Una fuente caída no vacía la búsqueda de las otras.** Cada fuente ya emite su propio
- *   `SourceError` y termina; acá simplemente no se deja que eso corte el flujo común.
+ * - **Una fuente caída no vacía la búsqueda de las otras.** Cada fuente se protege por separado
+ *   con `.catch` de Flow: si lanza (una excepción de la FUENTE), se emite un `SourceError` en
+ *   lugar de propagar. El `.catch` de Flow respeta la transparencia: solo atrapa excepciones de
+ *   la fuente, no las del recolector (quien llama), y tampoco se traga la cancelación.
  * - **Hay un solo `Done`, al final.** Los `Done` de cada fuente se descartan y se emite uno propio
  *   cuando todas terminaron: si pasaran los de adentro, la pantalla creería que la búsqueda
  *   terminó cuando apenas terminó la primera fuente.
@@ -31,29 +33,31 @@ internal class FuenteCompuesta(private val fuentes: List<FuenteDeContenido>) : F
         val t0 = System.currentTimeMillis()
         // `merge` corre las fuentes en paralelo y emite lo de cada una a medida que llega, que es
         // lo que la pantalla espera: pinta resultados mientras la otra fuente sigue buscando.
-        // Cada fuente se protege por separado: si lanza, se emite un SourceError en lugar de
-        // propagar la excepción que mataría toda la búsqueda.
+        // Cada fuente se protege con `.catch` de Flow: si lanza una excepción, se emite un
+        // SourceError. El `.catch` solo atrapa excepciones de la FUENTE, no del recolector
+        // (pantalla), y respeta la cancelación (no la atrapa).
         val mezclado = fuentes
             .map { fuente ->
                 flow {
                     var nombreFuente = "desconocida"
                     var countResultados = 0
-                    try {
+                    val t0Fuente = System.currentTimeMillis()
+                    emitAll(
                         fuente.search(ctx)
-                            .filterNot { e -> e is SearchEvent.Done }
-                            .collect { evento ->
+                            .filterNot { it is SearchEvent.Done }
+                            .onEach { evento ->
                                 if (evento is SearchEvent.SourceStart) {
                                     nombreFuente = evento.source
                                 }
                                 if (evento is SearchEvent.ResultEvent) {
                                     countResultados++
                                 }
-                                emit(evento)
                             }
-                    } catch (e: Exception) {
-                        // El catch de Flow respeta CancellationException: si es eso, se propaga.
-                        emit(SearchEvent.SourceError(nombreFuente, e.message ?: "Error desconocido", 1, countResultados))
-                    }
+                            .catch { e ->
+                                emit(SearchEvent.SourceError(nombreFuente, e.message ?: "Error desconocido",
+                                    System.currentTimeMillis() - t0Fuente, countResultados))
+                            }
+                    )
                 }
             }
             .merge()
