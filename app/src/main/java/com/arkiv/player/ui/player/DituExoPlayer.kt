@@ -1,6 +1,7 @@
 package com.arkiv.player.ui.player
 
 import android.net.Uri
+import android.os.SystemClock
 import android.util.Log
 import android.view.ViewGroup
 import androidx.compose.foundation.background
@@ -74,6 +75,13 @@ private fun esRecuperable(error: PlaybackException): Boolean =
  * `PlayerScreen` le pide al ViewModel una URL nueva. Los topes de los dos escalones no viven acá sino en
  * `EstadoDeDitu`, que los repone recién después de reproducción estable: [onPosicion] le pasa cada
  * lectura del reloj.
+ *
+ * Arranca con la primera imagen, no antes. Se prepara en pausa y [ArranqueConLaPrimeraImagen] decide
+ * cuándo darle play: cuando se pinta la primera imagen, o pasada
+ * [ESPERA_MAXIMA_DE_LA_PRIMERA_IMAGEN_MS] sin ella, para no quedar mudo y colgado. Antes arrancaba de
+ * una, y el audio podía empezar antes que la imagen. Que ExoPlayer pinte la primera imagen estando en
+ * pausa no está probado en un aparato en esta rama: si no la pintara, lo que queda es esa salida de
+ * seguridad.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
@@ -141,8 +149,14 @@ internal fun DituExoPlayer(
                 player.setMediaItem(item)
                 player.prepare()
                 if (startPositionMs > 0L) player.seekTo(startPositionMs)
-                player.playWhenReady = true
+                // En pausa: le da play [ArranqueConLaPrimeraImagen], con la primera imagen.
+                player.playWhenReady = false
             }
+    }
+
+    // Uno por reproductor: una recarga (`key(dPlay)` en `PlayerScreen`) arma otro y vuelve a esperar.
+    val arranque = remember(exoPlayer) {
+        ArranqueConLaPrimeraImagen().also { it.empezo(SystemClock.elapsedRealtime()) }
     }
 
     DisposableEffect(exoPlayer) {
@@ -163,6 +177,13 @@ internal fun DituExoPlayer(
             }
 
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                // Si la intención cambia mientras se espera la imagen, no fue el arranque —que suelta
+                // ANTES de llamar a `play()`, así que acá ya no está esperando—: fue alguien más, la
+                // persona con play o pausa. Desde ahí el arranque no vuelve a tocar el reproductor.
+                if (arranque.esperando) {
+                    Log.i(TAG, "play/pausa esperando la primera imagen (playWhenReady=$playWhenReady): decide la persona")
+                    arranque.laPersonaDecidio()
+                }
                 espejo.cambioLaIntencion(playWhenReady)
             }
 
@@ -173,6 +194,8 @@ internal fun DituExoPlayer(
             override fun onRenderedFirstFrame() {
                 Log.i(TAG, "onRenderedFirstFrame · pos=${exoPlayer.currentPosition}ms")
                 onPrimeraImagen(true)
+                // Con la imagen ya en pantalla: audio e imagen empiezan juntos.
+                if (arranque.llegoLaImagen()) exoPlayer.play()
             }
 
             override fun onPlayerError(error: PlaybackException) {
@@ -208,6 +231,12 @@ internal fun DituExoPlayer(
     LaunchedEffect(exoPlayer) {
         while (true) {
             delay(500)
+            // La salida de seguridad del arranque: sin imagen a tiempo, arranca igual. Va en este
+            // reloj porque ya mira cada medio segundo.
+            if (arranque.vencio(SystemClock.elapsedRealtime())) {
+                Log.w(TAG, "sin primera imagen en ${ESPERA_MAXIMA_DE_LA_PRIMERA_IMAGEN_MS}ms: arranco igual")
+                exoPlayer.play()
+            }
             val dur = exoPlayer.duration
             val pos = exoPlayer.currentPosition
             espejo.leyoElReloj(
