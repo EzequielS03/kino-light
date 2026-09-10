@@ -166,14 +166,12 @@ class PlayerViewModel(
     /** Si hay una cuenta de Magis vinculada en este aparato. Solo decide qué dice el error cuando
      *  un canal en vivo no abre (ver [mensajeErrorVivo]): el vivo la exige, el VOD no. */
     private val hayCuentaDeMagis: () -> Boolean = { false },
-    // Task 8: [gatewayClient] es OTRA instancia de `ArkivApiClient` además de
-    // `AppGraph.arkivApiClient` -esta la usa [prefetchNext] para pre-resolver el próximo capítulo
-    // de Magis-, así que también necesita las dos cabeceras de sesión: desde el Paso 3
-    // `X-Arkiv-Key` ya no existe, así que sin esto `/v1/resolve` se hubiera quedado sin NINGUNA
-    // credencial. `deviceAuth` ya viene por constructor arriba -de ahí sale el token del
-    // aparato-; el de la persona no tenía por dónde
-    // entrar, así que se suma esta lambda en vez de todo `SesionDePersona` (acá alcanza con leer
-    // el token, igual que ya hace [deviceAuth] para el suyo).
+    // [gatewayClient] (ver más abajo) es OTRA instancia de `ArkivApiClient` además de
+    // `AppGraph.arkivApiClient`, y necesita las dos cabeceras de sesión para lo que le queda —la
+    // trivia y los marcadores de intro—: `X-Arkiv-Key` ya no existe, así que sin esto se quedaría
+    // sin NINGUNA credencial. `deviceAuth` ya viene por constructor arriba -de ahí sale el token del
+    // aparato-; el de la persona no tenía por dónde entrar, así que se suma esta lambda en vez de
+    // todo `SesionDePersona` (acá alcanza con leer el token, igual que ya hace [deviceAuth]).
     private val personToken: () -> String? = { null },
 ) : ViewModel() {
 
@@ -1030,10 +1028,13 @@ class PlayerViewModel(
 
     /** Cliente HTTP compartido para [warmHead]: evita crear un OkHttpClient (pool de hilos+conexiones) por episodio. */
     /**
-     * Cliente del gateway. La URL se lee de [settings] en cada llamada. [httpGateway] viene por
-     * constructor (Task 7b, ver su KDoc): es el `OkHttpClient` compartido de `AppGraph` con
-     * `InterceptorDeSesion`, así que un 401/403 de identidad real cierra la sesión de la persona
-     * aunque el pedido haya salido de acá y no de un ViewModel de pantalla.
+     * Cliente del gateway, solo para lo que en esta rama sigue siendo del servidor: la trivia y los
+     * marcadores de intro. Lo reproducible lo da [fuente], que habla con el portal directo.
+     *
+     * La URL se lee de [settings] en cada llamada. [httpGateway] viene por constructor (Task 7b, ver
+     * su KDoc): es el `OkHttpClient` compartido de `AppGraph` con `InterceptorDeSesion`, así que un
+     * 401/403 de identidad real cierra la sesión de la persona aunque el pedido haya salido de acá y
+     * no de un ViewModel de pantalla.
      */
     private val gatewayClient by lazy {
         com.arkiv.player.data.gateway.ArkivApiClient(

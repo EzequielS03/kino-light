@@ -13,11 +13,17 @@ siendo la app completa (torrent+web+archive+Magis+Ditu+RCN, con login PocketBase
   desde el cliente Android, o se resigna — nunca se reintroduce un servidor propio "solo para esto".
 - Las únicas llamadas de red permitidas hacia fuera del dispositivo son:
   1. Directo al **portal de Magis** (protocolo ya crackeado, ver `/Users/cristian/mago/reverse/`).
-  2. Directo a **TMDB** (`api.themoviedb.org`) con una API key propia embebida en el build de esta rama.
+     **Hecho** (sub-proyecto 2A): todo el protocolo vive en `app/src/main/java/com/arkiv/player/data/magis/`.
+  2. Directo a **TMDB** (`api.themoviedb.org`) con una API key propia embebida en el build de esta
+     rama. **Hecho** (sub-proyecto 2A).
   3. Al **CDN de Magis** para bajar los bytes de video (como ya es hoy).
-  4. Al gateway `arkiv-api`, temporalmente, para: Magis (hasta sub-proyecto 2), TMDB-proxy (hasta
-     sub-proyecto 2), y **"dato curioso"/trivia** (`ArkivApiClient.trivia()`, `/v1/trivia` — se deja
-     tal cual está, llamando al gateway, indefinidamente; no tiene fecha de reemplazo por ahora).
+  4. Al gateway `arkiv-api`, para lo que todavía no se sacó:
+     - **"dato curioso"/trivia** (`ArkivApiClient.trivia()`, `/v1/trivia`): excepción **permanente**,
+       sin fecha de reemplazo.
+     - marcadores de intro (`/v1/marcadores`), metadata de anime (`/v1/anime`), el aviso de
+       recomendaciones (`/v1/recomendaciones/refrescar`), subtítulos (OpenSubtitles vía
+       `/v1/catalog/opensubtitles`) y Simkl (`/v1/catalog/simkl`).
+     - login/cuenta de la persona (PocketBase + `/v1/cuenta/*`): sale en el **sub-proyecto 2B**.
 - Se borra código muerto de verdad (login/cuentas, torrent, web-resolver, archive.org, VLC,
   cloud-sync, control remoto TV↔celu). No se comenta, no se deja detrás de un flag — si no se usa,
   se elimina del árbol.

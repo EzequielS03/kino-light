@@ -42,9 +42,32 @@ con mutaciones verificadas. Lo que el plan decía y la ejecución tuvo que corre
   24 h) por un descriptor local que no vence, y lee los refs viejos ya guardados para no perder la
   biblioteca.
 
-**Lo que queda**: el cableado (Task 8b-8e) y la verificación en dispositivo (Task 9). Después de
-2A siguen yendo al gateway, a propósito: login/PocketBase (sub-proyecto 2B), subtítulos
-(OpenSubtitles), Simkl, subida de crashes, OTA, y la trivia (excepción permanente).
+**Task 8 (cableado) hecha** (`02f899aa`, `bf3c3788`, `73eea4b7`, `faba1321`, `959d9025`). Lo que el
+plan no anticipaba y salió en el camino:
+
+- Se extrajo `FuenteDeContenido` (search/resolve/episodesConSerie) para que el cambio fuera de
+  constructor y no una reescritura de pantallas. `MagisFuente` es el puerto de `MagisAdapter`, o sea
+  de lo que el gateway hacía ENTRE el portal y la app: rankear la búsqueda con el título original de
+  TMDB, ordenar temporadas, armar capítulos y enriquecerlos con el guard de numeración.
+- Faltaba portar el **árbol del catálogo** (`/v1/live/arbol`), además del catálogo de vivo.
+- El **`ref`** se reemplazó por `MagisRef` (Task 8a): el del gateway era opaco por contrato, no por
+  criptografía, así que los que ya estaban guardados se migran leyendo su payload. De paso arregla
+  que un ítem guardado hace más de un día llevaba un ref vencido.
+- Se fue el **respaldo de firma en el servidor** (`FirmaDelGateway`/`FirmaConRespaldo`/
+  `FirmaSegunAjustes` + el interruptor "Forzar servidor"): sin servidor no hay a dónde conmutar.
+- Se **resignó crear cuentas de Magis** desde la app (el código por email lo orquestaba el gateway).
+- `mensajeErrorVivo` dejó de adivinar "este TV no está vinculado" por la config del gateway y
+  pregunta por la cuenta de Magis, que es el único motivo accionable.
+- Limpieza: se borró `LiveApi`, `MagisLinkClient`, el parser NDJSON, `parseEpisodesResponse`,
+  `GatewayConfigSource`, el flag `useGateway` y los campos de `GatewaySearchQuery` que ninguna
+  implementación mira.
+- Ojo con el timeout: el portal tarda ~11 s en resolver algunos canales, así que el cliente del
+  portal se arma con 25 s de lectura (era lo que hacía `httpConPaciencia` en el `LiveApi` borrado).
+
+**Lo que queda**: la verificación en dispositivo (Task 9). Después de 2A siguen yendo al gateway, a
+propósito: login/PocketBase (sub-proyecto 2B), subtítulos (OpenSubtitles), Simkl, marcadores de
+intro, metadata de anime, el aviso de recomendaciones, subida de crashes, OTA, y la trivia
+(excepción permanente).
 
 ## Global Constraints
 
