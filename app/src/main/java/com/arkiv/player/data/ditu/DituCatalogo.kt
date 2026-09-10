@@ -70,13 +70,11 @@ internal class DituCatalogo(private val cliente: DituClienteLike) {
         if (m.opt("isActive") != true) return null
         val id = m.optInt("channelId", 0).takeIf { it != 0 } ?: return null
         val nombre = m.optString("channelName").trim().takeIf { it.isNotBlank() } ?: return null
-        val assets = c.optJSONArray("assets") ?: JSONArray()
-        val lista = (0 until assets.length()).mapNotNull { assets.optJSONObject(it) }
         // El assetId sale de ACÁ y no del EPG: el EPG devuelve `assets` vacío para el programa en
         // curso, así que ese viaje vuelve sin nada.
-        val asset = lista.firstOrNull { it.optString("assetType") == "MASTER" && it.optInt("assetId", 0) != 0 }
-            ?: lista.firstOrNull { it.optInt("assetId", 0) != 0 }
-            ?: return null
+        val assetId = assetMaster(c) ?: return null
+        val assets = c.optJSONArray("assets") ?: JSONArray()
+        val lista = (0 until assets.length()).mapNotNull { assets.optJSONObject(it) }
         val logo = lista.firstNotNullOfOrNull { it.optString("logoMedium").takeIf { s -> s.isNotBlank() } }
             ?: lista.firstNotNullOfOrNull { it.optString("logoBig").takeIf { s -> s.isNotBlank() } }
             ?: lista.firstNotNullOfOrNull { it.optString("logoSmall").takeIf { s -> s.isNotBlank() } }
@@ -85,7 +83,7 @@ internal class DituCatalogo(private val cliente: DituClienteLike) {
             channelId = id,
             nombre = nombre,
             logoUrl = logo,
-            assetId = asset.optInt("assetId"),
+            assetId = assetId,
             orden = m.optInt("orderId", 0),
         )
     }

@@ -104,4 +104,30 @@ class DituEpisodiosTest {
         assertEquals("https://image-registry.ditu.caracoltv.com/pic/portrait-thin-promotional-tablet.jpg", t.posterUrl)
         assertEquals("https://image-registry.ditu.caracoltv.com/pic/landscape-regular-clean-tablet.jpg", t.fondoUrl)
     }
+
+    /**
+     * Un capítulo con múltiples assets donde el MASTER no es el primero: verifica que
+     * `assetMaster()` prefiere MASTER incluso si hay otro asset antes. Sin esta preferencia,
+     * una mutación de `assetMaster()` que quite el fallback al primer asset pasaría inadvertida.
+     */
+    @Test fun `elige el asset MASTER incluso si no es el primero`() = runTest {
+        val fake = FakeDituCliente()
+        fake.responde("CONTENT/DETAIL/BUNDLE/99", """
+        {"resultObj":{"containers":[{"metadata":{"title":"Rigo","pictureUrl":"pic"},
+          "containers":[
+            {"id":"e1","metadata":{"episodeNumber":1,"episodeTitle":"Uno"},
+             "assets":[
+               {"assetType":"OTRO","assetId":11},
+               {"assetType":"MASTER","assetId":22}
+             ]
+            }
+          ]
+        }]}}
+        """)
+
+        val t = DituEpisodios(fake).de(DituRef("99", "BUNDLE"))
+
+        // El episodio debe estar presente: assetMaster() encontró el MASTER a pesar de no ser el primero.
+        assertEquals(listOf("e1"), t.episodios.map { it.contentId })
+    }
 }
