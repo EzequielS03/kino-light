@@ -101,13 +101,17 @@ data class ItemDeCatalogo(
      */
     val adulto: Boolean = false,
     /**
-     * El token con el que se le pide el stream al portal. Es lo ÚNICO reproducible que trae el
-     * ítem: la resolución (`MagisLive`/`MagisResolve`) NO toma [id] (que es el contentId del portal),
-     * toma este token firmado,
-     * que solo el gateway puede acuñar. La app lo trata como opaco y nunca lo interpreta.
+     * El ref con el que se le pide el stream al portal al reproducir (`MagisLive`/`MagisResolve`).
+     * Es lo ÚNICO reproducible que trae el ítem: la resolución NO toma [id] (que es el contentId
+     * del portal), toma este string. Es un descriptor LOCAL -`MagisRef(id, tipo, 0).codificar()`,
+     * ver `MagisLiveCatalog.kt`-: nadie lo firma ni lo acuña, así que tampoco vence (antes sí,
+     * a las 24 h, cuando lo armaba el gateway -ver el KDoc de `MagisRef`-). La app lo sigue
+     * tratando como opaco y nunca lo interpreta, pero ya no por criptografía: por contrato.
      *
-     * Vacío = el gateway no lo pudo firmar. Ese ítem se lista igual —se puede ver— pero no se
-     * reproduce; ver [reproducible].
+     * El default en `""` es defensivo, no algo que pase hoy: el único sitio que construye un
+     * [ItemDeCatalogo] (`MagisLiveCatalog`) descarta antes cualquier `contentId` en blanco, así
+     * que en la práctica este campo nunca sale vacío. Si alguna vez lo estuviera, el ítem se
+     * lista igual —se puede ver— pero no se reproduce; ver [reproducible].
      */
     val ref: String = "",
     /** Lo que el portal dice que es: "movie", "teleplay"… Ver [esSerie]. */

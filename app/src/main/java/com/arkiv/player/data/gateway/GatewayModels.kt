@@ -48,8 +48,8 @@ data class GatewayPlayable(
     val mime: String = "",
     val expiresAt: String = "",
     val fallbackUrl: String? = null,
-    /** Pistas que la fuente entrega junto al stream. Magis las trae del portal y el resolver web
-     *  las sniffea de la página: descartarlas obligaría a buscarlas de nuevo en OpenSubtitles. */
+    /** Pistas que trae el stream. Hoy la única fuente que puebla este campo es Magis, que las
+     *  manda junto con la resolución del play (`MagisResolve.subtitulos`, ver `MagisFuente`). */
     val subtitles: List<GatewaySubtitle> = emptyList(),
     /**
      * Duración real en ms cuando la fuente la sabe (0 = no la sabe).
@@ -85,10 +85,10 @@ data class GatewaySubtitle(val lang: String, val url: String, val format: String
 /**
  * Un capítulo de una temporada de Magis.
  *
- * [still], [tmdbTitle] y [overview] los agrega el gateway cruzando el id de IMDb que publica el
- * portal contra TMDB: el portal NO tiene imagen ni nombre real por capítulo (su `posterList` por
- * capítulo llega siempre vacío). Son opcionales a propósito — si TMDB no resolvió, el capítulo se
- * muestra con [title], que es el del portal.
+ * [still], [tmdbTitle] y [overview] los agrega `MagisFuente`, en el propio cliente, cruzando el
+ * id de IMDb que publica el portal contra TMDB: el portal NO tiene imagen ni nombre real por
+ * capítulo (su `posterList` por capítulo llega siempre vacío). Son opcionales a propósito — si
+ * TMDB no resolvió, el capítulo se muestra con [title], que es el del portal.
  */
 data class GatewayEpisode(
     val number: Int,
@@ -100,12 +100,13 @@ data class GatewayEpisode(
 )
 
 /**
- * La serie a la que pertenece una temporada, cuando el gateway la pudo identificar.
+ * La serie a la que pertenece una temporada, cuando `MagisFuente` la pudo identificar (ver su
+ * KDoc: viaja siempre que el portal haya dado un imdb, así el enriquecimiento no haya salido).
  *
  * [titulo] es el nombre con el que TMDB la conoce ("Neon Genesis Evangelion"), no el del portal
  * ("Shin seiki evangerion Temp.1"): es lo que la biblioteca adopta como `tituloCanonico`. Viene
- * **vacío** cuando el gateway es viejo o TMDB no resolvió — no null, para que "no hay nombre" sea
- * una sola pregunta y no dos.
+ * **vacío** cuando TMDB no resolvió — no null, para que "no hay nombre" sea una sola pregunta y
+ * no dos.
  */
 data class GatewaySerie(
     val imdbId: String,
