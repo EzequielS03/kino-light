@@ -35,6 +35,15 @@ internal class DituCliente(
     private val http: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
+        // TOPE A LA LLAMADA ENTERA. Los dos de arriba no la acotan: `connectTimeout` vale por cada
+        // intento de conexión y `readTimeout` por cada lectura, así que una respuesta que llega a
+        // cuentagotas no dispara ninguno. Importa desde que `AppGraph.fuenteDeContenido` es una
+        // `FuenteCompuesta`: esa búsqueda emite un solo `Done` cuando terminaron TODAS las fuentes,
+        // o sea que cada búsqueda de Magis espera también a Caracol.
+        //
+        // 15 s y no menos: `DituCatalogo.catalogo` trae el catálogo entero en un solo GET, y en una
+        // red lenta como la del televisor podría no alcanzar a llegar en 10.
+        .callTimeout(15, TimeUnit.SECONDS)
         .build(),
 ) : DituClienteLike {
 

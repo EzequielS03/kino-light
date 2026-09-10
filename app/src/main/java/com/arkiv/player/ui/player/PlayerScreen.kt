@@ -65,6 +65,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -1277,7 +1278,8 @@ private fun PlayerContent(
                 dur > 0 && pos in 0 until dur
             ) {
                 vm.saveProgress(epId, pos, dur)
-                // Cada 600 ticks = 5 min. Ambos ExoPlayers usan TextureView → captura habilitada.
+                // Cada 600 ticks = 5 min. Magis pinta en TextureView y se captura; Caracol pinta en SurfaceView,
+                // así que para él `textureViewDelVideo()` da null y `FrameCapturer.capturar` no hace nada.
                 // !casting: casteando, `pos` es la posición del receptor REMOTO, pero el
                 // TextureView sigue siendo el LOCAL, que en ese momento no pinta lo que se ve en la
                 // tele. Capturarlo guardaría una imagen que no corresponde a esa posición (y se
@@ -1571,7 +1573,7 @@ private fun PlayerContent(
             // !enVivo (Tarea 14): salir de un canal en vivo no tiene "posición" que guardar.
             if (!enVivo && epId != null && (isExoOnDispose || mediaId == epId) && dur > 0 && pos in 0 until dur) {
                 vm.saveProgress(epId, pos, dur)
-                // Captura de SALIDA. Ambos ExoPlayers usan TextureView → captura habilitada.
+                // Captura de SALIDA. Igual que en el sondeo: con Caracol no hay TextureView y no se captura nada.
                 // !casting: mismo motivo que en el sondeo periódico — casteando, `pos` es la
                 // posición del receptor remoto, pero el TextureView local no está pintando eso.
                 if (!casting) vm.capturarFrame(epId, pos, textureViewDelVideo())
@@ -1806,8 +1808,10 @@ private fun PlayerContent(
 
         // Caracol: DASH con Widevine, sin proxy local (ver DituExoPlayer). Reanuda desde la misma
         // posición que usaría Magis: `safeStartPosition`, calculada en PlayerViewModel.loadDitu.
+        // Dentro de `key(dPlay)`: cada publicación trae una `generacion` nueva, así que una recarga
+        // rearma el reproductor aunque Caracol devuelva la misma URL.
         val dPlay = dituPlay
-        if (dPlay != null) {
+        if (dPlay != null) key(dPlay) {
             DituExoPlayer(
                 mediaUrl = dPlay.playable.url,
                 drmLicenseUrl = dPlay.playable.drmLicenseUrl,
@@ -1819,7 +1823,13 @@ private fun PlayerContent(
                     estadoPistas.setExoPlayer(player)
                     gestos.setExoPlayer(player)
                 },
-                onError = { msg -> vm.onDituExoError(msg) },
+                onError = { msg ->
+                    // Desde dónde retomar si el ViewModel pide una URL nueva. Se le pregunta al
+                    // player y no al espejo, que se pone al día recién con el sondeo de medio segundo.
+                    val pos = dituPlayer?.currentPosition?.coerceAtLeast(0L) ?: dPlay.startPositionMs
+                    vm.onDituExoError(msg, pos)
+                },
+                onListo = { vm.onDituListo() },
                 onTracksChanged = { tracks -> estadoPistas.actualizarPistasExo(tracks) },
                 onPrimeraImagen = { hay -> exoYaPintoAlgo = hay },
                 zoom = gestos.zoomParaExo,

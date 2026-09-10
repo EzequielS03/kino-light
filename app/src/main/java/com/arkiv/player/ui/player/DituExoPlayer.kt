@@ -70,7 +70,9 @@ private fun esRecuperable(error: PlaybackException): Boolean =
  * con un `TextureView` nulo.
  *
  * La publicidad no se filtra. Ante un error recuperable (ver [esRecuperable]) se vuelve a preparar
- * el stream, hasta [MAX_REPREPARADOS] veces seguidas; si se agotan, el error va a [onError].
+ * el stream, hasta [MAX_REPREPARADOS] veces seguidas; si se agotan, el error va a [onError]. Ese es
+ * el primer escalón: `PlayerScreen` responde a [onError] pidiéndole al ViewModel una URL nueva
+ * (ver `EstadoDeDitu`), y [onListo] le avisa cada vez que el player vuelve a READY.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
@@ -82,6 +84,7 @@ internal fun DituExoPlayer(
     startPositionMs: Long = 0L,
     onPlayerReady: (Player?) -> Unit = {},
     onError: (String) -> Unit = {},
+    onListo: () -> Unit = {},
     onTracksChanged: ((Tracks) -> Unit)? = null,
     onPrimeraImagen: (Boolean) -> Unit = {},
     zoom: Float = 1f,
@@ -147,7 +150,10 @@ internal fun DituExoPlayer(
 
         val escucha = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_READY) repreparados = 0
+                if (state == Player.STATE_READY) {
+                    repreparados = 0
+                    onListo()
+                }
                 espejo.cambioElBuffering(state == Player.STATE_BUFFERING)
             }
 
