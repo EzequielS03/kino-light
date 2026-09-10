@@ -34,6 +34,8 @@ internal class MagisFuente(
     private val ahoraMs: () -> Long = { System.currentTimeMillis() },
 ) : FuenteDeContenido {
 
+    override fun reconoce(ref: String): Boolean = MagisRef.decodificar(ref) != null
+
     private val candado = Mutex()
     private val busquedas = CacheConVencimiento<String, List<JSONObject>>(TTL_MS, tope = 32)
     private val capitulos = CacheConVencimiento<String, CapitulosDelPortal>(TTL_MS, tope = 16)

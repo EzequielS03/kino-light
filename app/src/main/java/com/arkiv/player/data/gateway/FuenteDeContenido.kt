@@ -14,6 +14,13 @@ import kotlinx.coroutines.flow.Flow
  * Los errores viajan como [GatewayException]: quien llama ya los atrapa así.
  */
 interface FuenteDeContenido {
+    /**
+     * Si este `ref` es de esta fuente. Existe desde que hay más de una: `FuenteCompuesta` lo usa
+     * para repartir sin tener que adivinar por prefijo desde afuera —cada fuente sabe leer los
+     * suyos, incluidos los viejos del gateway, que no llevan prefijo visible—.
+     */
+    fun reconoce(ref: String): Boolean
+
     fun search(ctx: GatewaySearchQuery): Flow<SearchEvent>
 
     suspend fun resolve(ref: String): GatewayPlayable
