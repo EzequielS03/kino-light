@@ -27,7 +27,10 @@ class MigracionDePrefsTest {
     }
 
     @Test
-    fun `la purga de recientes ya aplicada no se vuelve a correr`() {
-        assertEquals(true, valorMigrado(deSettings = null, deStoreViejo = true, default = false))
+    fun `la purga ya migrada no se repite aunque el store viejo ya no se pueda leer`() {
+        // El día después de la Task 9: `SecureDeviceStore` ya no existe (o el Keystore se rompió
+        // antes de llegar ahí) y `deStoreViejo` llega en `null`, pero la purga ya había quedado
+        // anotada acá -- no hace falta el valor viejo para no volver a correrla.
+        assertEquals(true, valorMigrado(deSettings = true, deStoreViejo = null, default = false))
     }
 }

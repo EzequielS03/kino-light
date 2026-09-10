@@ -86,9 +86,18 @@ class SettingsStore(context: Context) {
      * es `null` cuando ese store no se pudo leer (ver `ArkivApp.onCreate`) -- ahí se queda con lo
      * que ya haya acá (o el default). Idempotente: en los arranques siguientes `prefs` ya tiene la
      * clave y `valorMigrado` la respeta sin volver a mirar el store viejo.
+     *
+     * Escribe directo a `prefs` en vez de pasar por [setAdultosDesbloqueado]: ese setter no
+     * escribe si el valor no cambió (para no pisar el StateFlow con un `apply()` de más), pero acá
+     * el caso más común es justo ese -- el store viejo nunca se desbloqueó y el resultado coincide
+     * con el default en memoria. Si pasara por el guard, la clave nunca quedaría anotada y esta
+     * función volvería a mirar `SecureDeviceStore` en cada arranque, que es lo que el comentario de
+     * arriba dice que NO pasa.
      */
     fun migrarAdultosDesbloqueado(deStoreViejo: Boolean?) {
-        setAdultosDesbloqueado(valorMigrado(leerNullable(KEY_ADULTOS_DESBLOQUEADO), deStoreViejo, false))
+        val migrado = valorMigrado(leerNullable(KEY_ADULTOS_DESBLOQUEADO), deStoreViejo, false)
+        prefs.edit().putBoolean(KEY_ADULTOS_DESBLOQUEADO, migrado).apply()
+        _adultosDesbloqueado.value = migrado
     }
 
     /** Mismo rescate que [migrarAdultosDesbloqueado] para el marcador de la purga de recientes. */
