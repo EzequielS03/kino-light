@@ -160,7 +160,7 @@ class CrashGuardTest {
         guard(discoRoto).reportar(RuntimeException("atrapada"), "un runCatching")
     }
 
-    /** El handler necesita el archivo para intentar mandarlo en el acto ([EnvioDeUltimoMomento]). */
+    /** El archivo que dejó en la cola, para quien quiera hacer algo con él después de guardarlo. */
     @Test
     fun `atajar devuelve el archivo que dejo en la cola`() {
         val store = store()
@@ -168,31 +168,5 @@ class CrashGuardTest {
         val archivo = store.let { guard(it).atajar(Thread.currentThread(), RuntimeException("boom")) }
 
         assertEquals(store.pendientes().single(), archivo)
-    }
-
-    @Test
-    fun `el handler intenta mandar en el acto lo que acaba de guardar`() {
-        val store = store()
-        var intentado: java.io.File? = null
-
-        CrashHandler(previo = null, guard = guard(store), envioDeUltimoMomento = { intentado = it })
-            .uncaughtException(Thread.currentThread(), RuntimeException("boom"))
-
-        assertEquals(store.pendientes().single(), intentado)
-    }
-
-    /** Si el envío en el acto se cae, el crash tiene que seguir su curso igual. */
-    @Test
-    fun `si el envio en el acto revienta, igual le pasa la pelota al handler anterior`() {
-        var recibida: Throwable? = null
-        val explosion = RuntimeException("boom")
-
-        CrashHandler(
-            previo = { _, e -> recibida = e },
-            guard = guard(store()),
-            envioDeUltimoMomento = { error("sin red") },
-        ).uncaughtException(Thread.currentThread(), explosion)
-
-        assertEquals(explosion, recibida)
     }
 }

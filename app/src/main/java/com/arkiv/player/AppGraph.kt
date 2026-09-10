@@ -12,9 +12,6 @@ import com.arkiv.player.data.update.ApkDownloader
 import com.arkiv.player.data.update.UpdateChecker
 import com.arkiv.player.data.update.UpdateInfo
 import com.arkiv.player.dlna.DlnaController
-import com.arkiv.player.pocketbase.DeviceAuthManager
-import com.arkiv.player.pocketbase.PocketBaseClient
-import com.arkiv.player.pocketbase.SecureDeviceStore
 import com.google.android.gms.cast.framework.CastContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -71,48 +68,20 @@ class AppGraph(context: Context) {
     val apkDownloader: ApkDownloader by lazy { ApkDownloader(appContext) }
 
     /**
-     * `OkHttpClient` COMPARTIDO para todo lo que hable con el gateway unificado (Task 7b): antes
-     * había seis `OkHttpClient()` sueltos (acá abajo x3, el `gatewayClient` que tenía
-     * `PlayerViewModel` -se borró junto con `ArkivApiClient` en el sub-proyecto 2B-, `MagisLinkClient`,
-     * `PocketBaseClient`), así que un rechazo de identidad real (licencia
-     * revocada, aparato sacado desde "Mis aparatos") no tenía quién lo mirara fuera de las dos
-     * pantallas que ya implementan la regla a mano (`EntradaViewModel`, `MisAparatosViewModel`).
-     * `InterceptorDeSesion` es ese punto único: cierra [sesionDePersona] SOLO ante un 401/403 del
-     * gateway con un `codigo` de rechazo de identidad real -nunca ante un fallo de transporte, ver
-     * su KDoc-. `PocketBaseClient` no lo usa a propósito: habla con OTRO host (PocketBase, no el
-     * gateway), así que el interceptor nunca haría nada ahí -el check de host de
-     * `InterceptorDeSesion` ya lo filtraría solo-, y esa sesión la gobierna
-     * [com.arkiv.player.pocketbase.SesionDePersona.refrescar], que resuelve la misma distinción por
-     * su cuenta.
+     * `OkHttpClient` del portal de Magis (Task 9, sub-proyecto 2B): con el subsistema de cuentas
+     * afuera -`InterceptorDeSesion`, que colgaba acá para cerrar la sesión de la persona ante un
+     * 401/403 real, se fue junto con el resto de `pocketbase/`- este cliente quedó con un solo
+     * usuario, [magisPortal].
+     *
+     * `callTimeout` de 45 s: TOPE A LA LLAMADA ENTERA, no al socket -los timeouts sueltos de OkHttp
+     * se reinician con cada byte que llega, así que una respuesta que llega a cuentagotas nunca
+     * vencería-. [magisPortal] arma sobre este mismo cliente (mismo pool de conexiones) un
+     * `readTimeout` más paciente, 25 s, porque el portal tarda hasta ~11 s en resolver algunos
+     * canales (medido) y el default de lectura de OkHttp son 10 -lo mataba justo antes de llegar-.
      */
-    val httpGateway: okhttp3.OkHttpClient by lazy {
+    val httpDelPortal: okhttp3.OkHttpClient by lazy {
         okhttp3.OkHttpClient.Builder()
-            .addInterceptor(
-                com.arkiv.player.data.gateway.InterceptorDeSesion(
-                    gatewayUrl = { settings.gatewayUrl.value },
-                    sesion = sesionDePersona,
-                ),
-            )
-            // TOPE A LA LLAMADA ENTERA. Los timeouts sueltos de OkHttp se reinician con cada byte,
-            // así que una respuesta que llega a cuentagotas —o que se queda a medias detrás del
-            // túnel de Cloudflare -- no vence NUNCA. Se midió abriendo una película: el gateway
-            // contestó su 200 y la app se quedó dos minutos con el spinner, sin error y sin nada
-            // que reintentar, porque la corrutina del resolve nunca volvió.
-            //
-            // 45 s y no menos: `/v1/search` se gasta sus 15 s de presupuesto y todavía tiene que
-            // devolver el cuerpo. Lo que importa no es cortar rápido, es que corte.
             .callTimeout(45, java.util.concurrent.TimeUnit.SECONDS)
-            .build()
-    }
-
-    /** [httpGateway] con los timeouts cortos que ya usaba `TmdbApi` por default (pedidos JSON
-     *  cortos, no streaming) -se explicita acá para no perder ese ajuste al pasar de su
-     *  `OkHttpClient` por default a este compartido. Es su ÚNICO consumidor (`SimklApi`,
-     *  `SubtitleApi` y `MirrorApiClient` se borraron en podas anteriores). */
-    val httpGatewayCorto: okhttp3.OkHttpClient by lazy {
-        httpGateway.newBuilder()
-            .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
             .build()
     }
 
@@ -133,13 +102,11 @@ class AppGraph(context: Context) {
             appId = BuildConfig.IPTV_APP_ID,
             apkVersion = BuildConfig.IPTV_APK_VERSION,
             snProvider = { magisStore.leerSesion()?.sn.orEmpty() },
-            // El compartido, pero PACIENTE: el portal tarda ~11 s en resolver algunos canales
-            // (medido) y el default de lectura de OkHttp son 10, o sea que los mataba justo antes
-            // de llegar -- es el mismo motivo por el que `LiveApi` tenía su `httpConPaciencia`.
-            // `newBuilder()` y no un cliente nuevo: comparte pool de conexiones con el resto. El
-            // `InterceptorDeSesion` que viene colgado no estorba: solo mira respuestas cuyo host es
-            // el del gateway, y el portal está en otro.
-            http = httpGateway.newBuilder()
+            // PACIENTE: el portal tarda ~11 s en resolver algunos canales (medido) y el default de
+            // lectura de OkHttp son 10, o sea que los mataba justo antes de llegar. `newBuilder()`
+            // y no un cliente nuevo: comparte pool de conexiones con el resto de las llamadas al
+            // portal.
+            http = httpDelPortal.newBuilder()
                 .readTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
                 .build(),
         )
@@ -151,8 +118,10 @@ class AppGraph(context: Context) {
 
     /**
      * El vínculo con Magis visto desde "Ajustes → Cuenta" (celu y TV) y la oferta al entrar a la TV
-     * (Task 8, sub-proyecto 2B): las tres pantallas dejaron de usar [accountManager] para esto -ya
+     * (Task 8, sub-proyecto 2B): las tres pantallas dejaron de usar `AccountManager` para esto -ya
      * no depende de ninguna sesión de Kino, ver el KDoc de [com.arkiv.player.data.magis.CuentaDeMagis]-.
+     * `AccountManager` mismo se borró del todo en la Task 9 (sub-proyecto 2B), junto con el resto
+     * del subsistema de cuentas.
      */
     internal val cuentaDeMagis: com.arkiv.player.data.magis.CuentaDeMagis by lazy {
         com.arkiv.player.data.magis.CuentaDeMagis(magisSession)
@@ -266,8 +235,8 @@ class AppGraph(context: Context) {
     /**
      * Único punto que sabe borrar un frame (archivo + fila), y una sola instancia para todos: se la
      * pasa por constructor a [repository] (toggle manual, progreso al 60%, y sacar un ítem de la
-     * biblioteca) y a [libraryWiper] (logout) — mismo [almacenDeFrames], mismo `episodeFrameDao`
-     * que [frameCapturer].
+     * biblioteca) -antes también a `LibraryWiper` (logout), borrado en la Task 9 junto con el resto
+     * de las cuentas- — mismo [almacenDeFrames], mismo `episodeFrameDao` que [frameCapturer].
      */
     val destructorDeFrames: com.arkiv.player.miniaturas.DestructorDeFrames by lazy {
         com.arkiv.player.miniaturas.DestructorDeFrames(almacenDeFrames, database.episodeFrameDao())
@@ -320,11 +289,16 @@ class AppGraph(context: Context) {
     val animeMappingRepository: AnimeMappingRepository by lazy {
         AnimeMappingRepository(cacheDir = appContext.filesDir)
     }
+    /**
+     * Task 9 (sub-proyecto 2B): antes tomaba `httpGatewayCorto`, un cliente derivado del
+     * `OkHttpClient` "unificado" solo para compartir su pool de conexiones. Sin ese cliente
+     * compartido (ver [httpDelPortal], que ya es únicamente del portal de Magis), `TmdbApi` vuelve
+     * a su propio `OkHttpClient` por default -mismos timeouts (8 s/15 s) que tenía
+     * `httpGatewayCorto`, ver el default de su constructor-: TMDB es OTRO host, así que compartir
+     * pool con el portal no traía ningún beneficio real.
+     */
     val tmdbApi: TmdbApi by lazy {
-        TmdbApi(
-            language = "es-MX",
-            client = httpGatewayCorto,
-        )
+        TmdbApi(language = "es-MX")
     }
     val subtitlePrefs: com.arkiv.player.data.subtitles.SubtitlePrefs by lazy {
         com.arkiv.player.data.subtitles.SubtitlePrefs(appContext)
@@ -436,95 +410,7 @@ class AppGraph(context: Context) {
         com.arkiv.player.cast.CastTranscoder(appContext)
     }
 
-    val pbClient: PocketBaseClient by lazy { PocketBaseClient() }
-    val deviceStore: SecureDeviceStore by lazy { SecureDeviceStore(appContext) }
-    // `cuentaApi` referencia a `deviceAuth` solo dentro de una lambda (`deviceToken`, más abajo),
-    // así que forzar `cuentaApi` acá (Task 7: el alta anónima pasa por `CuentaApi.altaAparato`)
-    // no dispara una inicialización recursiva -- se resuelve esta dependencia circular con
-    // `by lazy` igual que el resto de este grafo.
-    val deviceAuth: DeviceAuthManager by lazy {
-        // `esTv` es una lambda y no un booleano fijo: `AppGraph` se arma temprano y
-        // consultarlo en el momento del alta evita depender del orden de inicializacion.
-        DeviceAuthManager(pbClient, deviceStore, cuentaApi, esTv = { DeviceType.isTelevision(appContext) })
-    }
-    val libraryWiper: com.arkiv.player.data.LibraryWiper by lazy {
-        com.arkiv.player.data.LibraryWiper(
-            database.itemDao(), database.playbackDao(), database.skipMarkerDao(),
-            destructorDeFrames,
-        )
-    }
-    /**
-     * Sesión de la PERSONA (Task 1): token del gateway persistido en las prefs cifradas. Una sola
-     * instancia compartida entre [accountManager] (la persiste al loguear/registrar/cerrar sesión)
-     * y [cuentaApi] (la usa para autenticar los tres pedidos que no son el alta) — dos instancias
-     * separadas se desincronizarían entre sí.
-     */
-    val sesionDePersona: com.arkiv.player.pocketbase.SesionDePersona by lazy {
-        com.arkiv.player.pocketbase.SesionDePersona(pbClient, deviceStore)
-    }
-
-    /**
-     * Cliente de `/v1/cuenta` (Task 2): alta con licencia + ciclo de vida de los aparatos de la
-     * cuenta. [registrar] identifica al APARATO (todavía sin cuenta de persona) con el mismo token
-     * que ya usa [deviceAuth]/[deviceStore] — de ahí `deviceToken` leyendo la sesión viva del
-     * device en vez de `deviceStore.token()` directo. Task 7:
-     * también lo usa [deviceAuth] mismo (`altaAparato`, alta anónima del aparato) — se referencian
-     * mutuamente pero sin ciclo real: acá `deviceAuth` solo aparece dentro de la lambda
-     * `deviceToken`, nunca evaluado en la construcción de este objeto.
-     */
-    val cuentaApi: com.arkiv.player.data.gateway.CuentaApi by lazy {
-        com.arkiv.player.data.gateway.CuentaApi(
-            baseUrl = { settings.gatewayUrl.value },
-            deviceToken = { deviceAuth.session.value?.token },
-            sesion = sesionDePersona,
-            // `InterceptorDeSesion` cierra la sesión ante un 401/403 de identidad real igual que ya
-            // hacen los llamadores (`EntradaViewModel.manejarErrorDeCuenta`,
-            // `MisAparatosViewModel.manejarErrorDeSesion`) al recibir el `ErrorDeCuenta` -llamar
-            // `cerrar()` dos veces es inofensivo (`SesionDePersona.cerrar` es idempotente)-, y
-            // `/v1/cuenta/registrar` queda afuera por la guarda de ruta del interceptor.
-            http = httpGateway,
-        )
-    }
-
-    val accountManager: com.arkiv.player.pocketbase.AccountManager by lazy {
-        com.arkiv.player.pocketbase.AccountManager(
-            client = pbClient,
-            deviceAuth = deviceAuth,
-            store = deviceStore,
-            magisSession = magisSession,
-            cuentaApi = cuentaApi,
-            sesion = sesionDePersona,
-            // Sin cloud sync (Task 5 de esta poda) la biblioteca es 100% local: no hay ningún
-            // historial anónimo remoto que fusionar al loguearse, así que este callback queda en
-            // no-op. Se mantiene el parámetro (en vez de sacarlo de `AccountManager`) porque el
-            // login todavía depende del ORDEN en que se llama -- ver el KDoc de `login()`.
-            onAccountSwitched = {},
-            // Task 10: junto con vaciar la biblioteca local, se olvida el "Ahora no" a la oferta de
-            // vincular Magis -ver el KDoc de SettingsStore.magisOfertaDescartada sobre por qué acá y
-            // no en LibraryWiper (ese vive en la capa de datos y no conoce SettingsStore, que es UI).
-            onLocalWipe = { libraryWiper.wipe(); settings.setMagisOfertaDescartada(false) },
-        )
-    }
-
-    /**
-     * "Mis aparatos" (Task 6): lista/saca los aparatos de la cuenta. `recordIdDeEsteAparato` lee la
-     * sesión viva del device -no un valor capturado- por el mismo motivo que [cuentaApi] lee
-     * `deviceAuth.session.value?.token`: al construirse este grafo el bootstrap puede no haber
-     * terminado. Una sola instancia (graph-level, como [accountManager]) para que el celular y la
-     * TV -[com.arkiv.player.ui.settings.SettingsScreen]/[com.arkiv.player.ui.tv.TvSettingsScreen]-
-     * compartan el mismo estado.
-     */
-    val misAparatosViewModel: com.arkiv.player.ui.settings.MisAparatosViewModel by lazy {
-        com.arkiv.player.ui.settings.MisAparatosViewModel(
-            cuentaApi = cuentaApi,
-            sesion = sesionDePersona,
-        ) { deviceAuth.session.value?.recordId }
-    }
-
     init {
-        applicationScope.launch {
-            deviceAuth.ensureBootstrapped()
-        }
         // CastPlayer/CastContext exigen el hilo principal. Forzamos su construcción ahí para que el
         // manager exista desde el arranque (y adopte una sesión ya viva) sin depender de quién lo
         // toque primero.

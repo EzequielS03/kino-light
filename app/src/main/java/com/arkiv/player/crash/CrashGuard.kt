@@ -73,11 +73,9 @@ class CrashGuard(
 class CrashHandler(
     private val previo: Thread.UncaughtExceptionHandler?,
     private val guard: CrashGuard,
-    /** Intento de mandarlo ya mismo, para el app que revienta apenas abre. Ver [EnvioDeUltimoMomento]. */
-    private val envioDeUltimoMomento: (java.io.File) -> Unit = {},
 ) : Thread.UncaughtExceptionHandler {
     override fun uncaughtException(hilo: Thread, error: Throwable) {
-        runCatching { envioDeUltimoMomento(guard.atajar(hilo, error)) }
+        runCatching { guard.atajar(hilo, error) }
         previo?.uncaughtException(hilo, error)
     }
 }

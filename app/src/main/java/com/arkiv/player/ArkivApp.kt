@@ -26,36 +26,17 @@ class ArkivApp : Application(), ImageLoaderFactory {
         super.onCreate()
         graph = AppGraph.from(this)
 
-        // Migración única (Task 7, sub-proyecto 2B): el candado 18+ y la purga de recientes
-        // vivían en `SecureDeviceStore` (prefs cifradas), que la Task 9 borra junto con las
-        // cuentas. Ninguna de las dos es un dato de cuenta, así que se rescatan acá antes de que
-        // ese store desaparezca -- una sola lectura, síncrona y ANTES de cualquier pantalla, para
+        // Migración única (Task 7, sub-proyecto 2B; reescrita en la Task 9): el candado 18+ y la
+        // purga de recientes vivían en `SecureDeviceStore` (prefs cifradas del subsistema de
+        // cuentas, borrado entero en esta misma tarea). Ninguna de las dos es un dato de cuenta,
+        // así que [SettingsStore.migrarDelStoreDeCuentasViejo] las rescata leyendo ese archivo
+        // directo, sin esa clase -- una sola lectura, síncrona y ANTES de cualquier pantalla, para
         // que nada llegue a leer `graph.settings.adultosDesbloqueado` sin migrar todavía. Si el
-        // store cifrado no abre (Keystore roto), `getOrNull()` lo trata como "no había nada que
-        // migrar" y sigue con el default -- no puede ser motivo para no arrancar.
+        // archivo no existe o el Keystore no lo descifra, se trata como "no había nada que migrar"
+        // y sigue con el default -- no puede ser motivo para no arrancar.
         runCatching {
-            graph.settings.migrarAdultosDesbloqueado(
-                runCatching { graph.deviceStore.adultosDesbloqueado() }.getOrNull(),
-            )
-            graph.settings.migrarRecientesPurgados(
-                runCatching { graph.deviceStore.recientesPurgados() }.getOrNull(),
-            )
+            graph.settings.migrarDelStoreDeCuentasViejo(this)
         }.onFailure { reportar(it, "arranque: migrar prefs del store cifrado") }
-
-        // ADOPCION DE LA BASE LOCAL. Quien ya venia usando la app tiene datos que SI son suyos y
-        // todavia no hay dueño anotado; sin esto, el primer login despues de actualizar los tomaria
-        // por huerfanos y le vaciaria la biblioteca. Con sesion viva y sin dueño, el dueño pasa a
-        // ser esa cuenta y no se borra nada. Corre una sola vez: despues siempre hay dueño.
-        // Ver [com.arkiv.player.pocketbase.DuenoDeLaBase].
-        graph.applicationScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            runCatching {
-                val cuenta = graph.deviceAuth.session.value?.accountId
-                if (com.arkiv.player.pocketbase.DuenoDeLaBase.hayQueAdoptar(graph.deviceStore.duenoDeLaBase(), cuenta)) {
-                    graph.deviceStore.saveDuenoDeLaBase(cuenta!!)
-                    android.util.Log.w("ArkivCuenta", "base local adoptada por la cuenta de la sesion")
-                }
-            }.onFailure { reportar(it, "arranque: adoptar la base local") }
-        }
 
         // Purga única del 2026-08-14: canales de adultos que quedaron anotados en "Recientes"
         // ANTES de que `abrirCanalActual` dejara de anotarlos. Estaban saliendo en la fila

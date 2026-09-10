@@ -1,6 +1,11 @@
 package com.arkiv.player.data
 
 import android.content.Context
+import android.content.SharedPreferences
+import android.util.Log
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
+import com.arkiv.player.data.magis.PrefsCifradas
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -110,6 +115,33 @@ class SettingsStore(context: Context) {
     /** `null` si `key` todavía no se escribió en estos ajustes -- distinto de que valga `false`. */
     private fun leerNullable(key: String): Boolean? = if (prefs.contains(key)) prefs.getBoolean(key, false) else null
 
+    /**
+     * Dispara [migrarAdultosDesbloqueado]/[migrarRecientesPurgados] leyendo el archivo cifrado
+     * VIEJO directo (Task 9, sub-proyecto 2B).
+     *
+     * Ese archivo (`arkiv_pb_secure`) era de `SecureDeviceStore`, que la Task 9 borra junto con el
+     * resto de `pocketbase/` -- las dos claves que interesan (`adultosDesbloqueado`,
+     * `recientesPurgados2026_08_14`) NO son datos de cuenta, así que se rescatan leyendo el mismo
+     * archivo con el mismo esquema (`EncryptedSharedPreferences` + `MasterKey` AES256_GCM +
+     * AES256_SIV/AES256_GCM) que usaba esa clase, sin resucitarla. `PrefsCifradas.abrirOReparar`
+     * sigue vivo porque lo usa `EncryptedMagisCredentialStore` -- se reusa acá para el mismo
+     * problema (Keystore que ya no descifra el archivo).
+     *
+     * Si ya migraron las dos claves, ni se abre el archivo viejo: `EncryptedSharedPreferences.create`
+     * cuesta Keystore + Tink, y esto se llama en CADA arranque.
+     */
+    fun migrarDelStoreDeCuentasViejo(context: Context) {
+        if (leerNullable(KEY_ADULTOS_DESBLOQUEADO) != null && leerNullable(KEY_RECIENTES_PURGADOS) != null) return
+        val viejas = runCatching { abrirStoreDeCuentasViejo(context.applicationContext) }.getOrNull()
+        // Mismas keys de texto que el archivo viejo (ver el comentario junto a estas constantes,
+        // más abajo): `SecureDeviceStore` las escribía tal cual.
+        migrarAdultosDesbloqueado(viejas.leerBooleanoViejo(KEY_ADULTOS_DESBLOQUEADO))
+        migrarRecientesPurgados(viejas.leerBooleanoViejo(KEY_RECIENTES_PURGADOS))
+    }
+
+    private fun SharedPreferences?.leerBooleanoViejo(key: String): Boolean? =
+        this?.let { if (it.contains(key)) it.getBoolean(key, false) else null }
+
     companion object {
         const val PREFS_NAME = "arkiv_settings"
         private const val KEY_DIM_LEVEL = "dim_level"
@@ -119,10 +151,44 @@ class SettingsStore(context: Context) {
 
         // Task 7: mismas keys de texto que usaba `SecureDeviceStore` (`K_ADULTOS`,
         // `K_PURGA_RECIENTES`) para el nombre, aunque el valor viva en otro archivo de prefs --
-        // así el histórico del código sigue siendo buscable por ese nombre.
+        // así el histórico del código sigue siendo buscable por ese nombre. Task 9:
+        // [migrarDelStoreDeCuentasViejo] lee esas mismas dos keys del archivo original.
         private const val KEY_ADULTOS_DESBLOQUEADO = "adultosDesbloqueado"
         private const val KEY_RECIENTES_PURGADOS = "recientesPurgados2026_08_14"
         const val DEFAULT_GATEWAY_URL = "https://api.comparadorinternet.co"
+
+        /** El archivo cifrado que escribía `SecureDeviceStore` (borrado en la Task 9). */
+        private const val ARCHIVO_STORE_DE_CUENTAS_VIEJO = "arkiv_pb_secure"
+
+        /**
+         * Abre `arkiv_pb_secure` con el mismo esquema con el que `SecureDeviceStore.cifradas()` lo
+         * escribía, para [migrarDelStoreDeCuentasViejo]. Solo lectura: acá nunca se le vuelve a
+         * escribir nada, así que si el Keystore no lo descifra no hace falta reparar nada -- alcanza
+         * con borrar el archivo (JAMÁS la llave maestra: es la MISMA que usa
+         * `EncryptedMagisCredentialStore` para `arkiv_magis_secure`, `MasterKey.Builder(app)` sin
+         * alias propio, así que tocarla de paso rompería la sesión de Magis sin necesidad) y dejar
+         * que el segundo intento abra un archivo vacío -- que para una migración es exactamente
+         * "no había nada que migrar".
+         */
+        private fun abrirStoreDeCuentasViejo(app: Context): SharedPreferences? =
+            PrefsCifradas.abrirOReparar<SharedPreferences?>(
+                crear = {
+                    EncryptedSharedPreferences.create(
+                        app,
+                        ARCHIVO_STORE_DE_CUENTAS_VIEJO,
+                        MasterKey.Builder(app).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
+                        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+                    )
+                },
+                tirarLoIndescifrable = {
+                    Log.w(TAG_MIGRACION, "store de cuentas viejo indescifrable: se abandona sin migrar")
+                    runCatching { app.deleteSharedPreferences(ARCHIVO_STORE_DE_CUENTAS_VIEJO) }
+                },
+                sinCifrar = { null },
+            )
+
+        private const val TAG_MIGRACION = "ArkivMigracion"
         // La key del `POST /api/refresh` del mirror ya no existe acá: ese endpoint pasó a pedirse
         // por el gateway (`/v1/catalog/refresh`), que es quien pone la credencial. Con eso el APK
         // dejó de llevarla — que era lo que decía el comentario que estaba en este lugar: sacarla de

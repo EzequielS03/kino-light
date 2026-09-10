@@ -102,8 +102,8 @@ class MainActivity : AppCompatActivity() {
                     if (loadContent) {
                         // Sin gate de sesión: Kino L entra directo al home, sin preguntarle a
                         // PocketBase ni al gateway si hay sesión. El subsistema de cuentas
-                        // (ui/entrada/, EntradaViewModel) sigue compilado pero ya no tiene
-                        // llamador desde acá.
+                        // (ui/entrada/, EntradaViewModel) se borró entero en la Task 9
+                        // (sub-proyecto 2B): no queda nada que llamar desde acá.
                         if (isTv) {
                             ArkivTvRoot(
                                 deepLinkEpisodeId = pendingEpisode,

@@ -31,13 +31,12 @@ import com.arkiv.player.ui.rememberGraph
 
 /**
  * Los cajones de Ajustes. El orden es por frecuencia de uso: lo que se toca seguido
- * (calidad) primero, lo que se toca una vez (cuenta, aparatos, actualizaciones) al final.
+ * (calidad) primero, lo que se toca una vez (cuenta, actualizaciones) al final.
  */
 private enum class TabDeAjustes(val etiqueta: String) {
     REPRODUCCION("Reproducción"),
     SUBTITULOS("Subtítulos"),
     CUENTA("Cuenta"),
-    APARATOS("Aparatos"),
     APP("App"),
 }
 
@@ -91,7 +90,6 @@ fun SettingsScreen(contentPadding: PaddingValues, onOpenDownloads: () -> Unit = 
                     TabDeAjustes.REPRODUCCION -> ReproduccionTab()
                     TabDeAjustes.SUBTITULOS -> SubtitulosTab()
                     TabDeAjustes.CUENTA -> AccountSection(graph.cuentaDeMagis)
-                    TabDeAjustes.APARATOS -> MisAparatosSection(graph.misAparatosViewModel)
                     TabDeAjustes.APP -> AppTab(onOpenDownloads = onOpenDownloads)
                 }
                 // El aire de abajo lo pone la cáscara: los tabs no tienen por qué saber que debajo hay

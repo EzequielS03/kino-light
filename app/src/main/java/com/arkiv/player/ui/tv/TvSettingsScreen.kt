@@ -41,7 +41,6 @@ import com.arkiv.player.ui.rememberGraph
 private enum class TabDeAjustesTv(val etiqueta: String) {
     SUBTITULOS("Subtítulos"),
     CUENTA("Cuenta"),
-    APARATOS("Aparatos"),
     APP("App"),
 }
 
@@ -133,7 +132,6 @@ fun TvSettingsScreen() {
             when (tab) {
                 TabDeAjustesTv.SUBTITULOS -> TvSettingsSubtitulos()
                 TabDeAjustesTv.CUENTA -> TvSettingsCuenta(cuentaMagis, onVincularMagis = { vinculandoMagis = true })
-                TabDeAjustesTv.APARATOS -> TvSettingsAparatos()
                 TabDeAjustesTv.APP -> TvSettingsApp()
             }
         }

@@ -18,16 +18,16 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.arkiv.player.data.magis.CuentaDeMagis
 import com.arkiv.player.data.magis.EstadoDeMagis
 import com.arkiv.player.data.magis.MagisException
-import com.arkiv.player.pocketbase.AccountException
-import com.arkiv.player.pocketbase.AccountManager
 import kotlinx.coroutines.launch
 
 /**
  * "Ajustes → Cuenta" del celular (Task 8, sub-proyecto 2B): el vínculo con Magis, sobre sus propios
  * pies. Ya no hay login/logout de Kino acá -esta pantalla dejó de tomar un `AccountManager`-; lo
  * único que queda es vincular o desvincular Magis directo contra [CuentaDeMagis], sin ninguna
- * cuenta de Kino de por medio. [AnonimoSection] sigue abajo tal cual -esta pantalla ya no la llama,
- * pero [com.arkiv.player.ui.entrada.PantallaDeEntrada] sí, para su propio login de Kino-.
+ * cuenta de Kino de por medio. La Task 9 (sub-proyecto 2B) se llevó `AccountManager` y el login de
+ * Kino enteros (`ui/entrada/`), así que este archivo perdió también `AnonimoSection` -su único
+ * llamador era esa pantalla-; [PasswordField] sigue abajo porque [SinVincularSection] la sigue
+ * usando para el formulario de Magis.
  */
 @Composable
 internal fun AccountSection(cuenta: CuentaDeMagis) {
@@ -69,43 +69,6 @@ private fun PasswordField(value: String, onValueChange: (String) -> Unit, label:
         // mostrarla, y marcarla igual haría que un lector de pantalla no pudiera dictarla.
         modifier = modifier.semantics { if (!visible) password() },
     )
-}
-
-/** `internal`, no `private`: `PantallaDeEntrada` (ui/entrada) la reusa tal cual para el mismo
- *  formulario de login -si divergen, se arreglan bugs en uno y no en el otro-. */
-@Composable
-internal fun AnonimoSection(account: AccountManager) {
-    val scope = rememberCoroutineScope()
-    var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf<String?>(null) }
-    var busy by remember { mutableStateOf(false) }
-
-    OutlinedTextField(email, { email = it; error = null }, label = { Text("Email") },
-        singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-        modifier = Modifier.fillMaxWidth())
-    PasswordField(password, { password = it; error = null }, "Contraseña",
-        modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
-
-    error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 6.dp)) }
-
-    Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(
-            enabled = !busy && email.isNotBlank() && password.isNotBlank(),
-            onClick = {
-                scope.launch {
-                    busy = true
-                    try {
-                        account.login(email.trim(), password)
-                    } catch (e: AccountException) {
-                        error = e.message
-                    } finally {
-                        busy = false
-                    }
-                }
-            },
-        ) { Text(if (busy) "Entrando…" else "Entrar") }
-    }
 }
 
 @Composable

@@ -1,4 +1,4 @@
-package com.arkiv.player.pocketbase
+package com.arkiv.player.data.magis
 
 import java.io.IOException
 import java.security.GeneralSecurityException

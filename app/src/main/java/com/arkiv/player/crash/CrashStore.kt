@@ -5,11 +5,12 @@ import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Cola de reportes pendientes en disco.
+ * Cola de reportes locales en disco.
  *
- * Existe por una sola razón: cuando salta una excepción no atrapada, el proceso se está muriendo y
- * una petición HTTP casi nunca alcanza a terminar. Escribir un archivo sí alcanza. El envío queda
- * para el arranque siguiente ([CrashUploader.drenar]).
+ * Existe por una sola razón: cuando salta una excepción no atrapada, el proceso se está muriendo, y
+ * escribir un archivo es lo único que alcanza a terminar antes de que se vaya. Ya no hay subida a
+ * ningún lado (Task 9, sub-proyecto 2B: se fue el `CrashUploader` que mandaba esto a PocketBase) --
+ * el reporte se queda acá y se lee por `adb logcat`.
  */
 class CrashStore(
     private val dir: File,

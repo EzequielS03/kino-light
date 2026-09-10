@@ -5,12 +5,10 @@ import android.os.Build
 import android.os.Process
 import com.arkiv.player.BuildConfig
 import com.arkiv.player.DeviceType
-import com.arkiv.player.pocketbase.SecureDeviceStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import java.io.File
 
 /**
@@ -18,11 +16,13 @@ import java.io.File
  * lo más temprano que existe en el proceso: antes que los ContentProviders (WorkManager y compañía)
  * y antes de `onCreate`, así que un crash armando el `AppGraph` también queda capturado.
  *
- * Todo lo específico de Android vive acá; la lógica está en [CrashGuard]/[CrashStore]/[CrashUploader],
- * que se prueban en la JVM.
+ * Todo lo específico de Android vive acá; la lógica está en [CrashGuard]/[CrashStore], que se
+ * prueban en la JVM.
  *
- * TEMPORAL: esto es para cazar un error que le está pasando a un usuario. Cuando aparezca, se
- * borra el paquete entero y las tres líneas de `ArkivApp`.
+ * NACIÓ TEMPORAL, para cazar el error de un usuario mandando cada reporte a la colección
+ * `crash_logs` de PocketBase. Task 9 (sub-proyecto 2B) se llevó esa subida junto con el resto de
+ * las cuentas -no queda una sola línea que hable con PocketBase-: lo que sigue acá es puro local,
+ * se guarda a disco y se lee por `adb logcat`.
  */
 object Crash {
     private const val CARPETA = "crashes"
@@ -37,11 +37,10 @@ object Crash {
 
     private val alcance = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    /** Arma el handler y manda lo que haya quedado del arranque anterior. Idempotente por descuido. */
+    /** Arma el handler. Idempotente por descuido. */
     fun instalar(app: Context) {
         runCatching {
             val store = CrashStore(dir = File(app.filesDir, CARPETA))
-            val uploader = CrashUploader()
             val armado = CrashGuard(
                 store = store,
                 datos = { datosDe(app) },
@@ -49,20 +48,11 @@ object Crash {
             )
             guard = armado
             Thread.setDefaultUncaughtExceptionHandler(
-                CrashHandler(
-                    previo = Thread.getDefaultUncaughtExceptionHandler(),
-                    guard = armado,
-                    envioDeUltimoMomento = EnvioDeUltimoMomento(
-                        store = store,
-                        subir = { json -> runBlocking { uploader.subir(json) } },
-                    ),
-                ),
+                CrashHandler(previo = Thread.getDefaultUncaughtExceptionHandler(), guard = armado),
             )
-            // Lo pendiente sale primero: si el app revienta apenas abre, este es el único momento
-            // en que hay proceso vivo para mandarlo.
-            alcance.launch { runCatching { uploader.drenar(store) } }
-            // Y la identidad se calienta aparte, fuera del camino del crash: leerla ahí adentro
-            // cuesta (prefs cifradas + keystore) justo cuando menos tiempo queda.
+            // La identidad se calienta aparte, fuera del camino del crash: si `DeviceType`
+            // tardara en resolver (consulta el PackageManager), que no sea justo cuando menos
+            // tiempo queda.
             alcance.launch { runCatching { cacheDeDatos = leerDatos(app) } }
         }
     }
@@ -78,18 +68,19 @@ object Crash {
     private fun datosDe(app: Context): DatosDelAparato =
         cacheDeDatos ?: leerDatos(app).also { cacheDeDatos = it }
 
-    private fun leerDatos(app: Context): DatosDelAparato {
-        val identidad = runCatching { SecureDeviceStore(app).load() }.getOrNull()
-        return DatosDelAparato(
-            accountId = identidad?.accountId.orEmpty(),
-            deviceId = identidad?.deviceId.orEmpty(),
-            kind = identidad?.kind
-                ?: runCatching { if (DeviceType.isTelevision(app)) "tv" else "phone" }.getOrDefault(""),
-            appVersion = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) ${BuildConfig.BUILD_TYPE}",
-            sistema = "Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT}) · " +
-                "${Build.MANUFACTURER} ${Build.MODEL}",
-        )
-    }
+    /**
+     * Task 9 (sub-proyecto 2B): sin cuentas ni identidad de aparato, `accountId`/`deviceId` quedan
+     * vacíos para siempre -- lo único que sigue distinguiendo un reporte de otro es [kind] (celular
+     * o TV), que no depende de ningún store, solo de [DeviceType].
+     */
+    private fun leerDatos(app: Context): DatosDelAparato = DatosDelAparato(
+        accountId = "",
+        deviceId = "",
+        kind = runCatching { if (DeviceType.isTelevision(app)) "tv" else "phone" }.getOrDefault(""),
+        appVersion = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) ${BuildConfig.BUILD_TYPE}",
+        sistema = "Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT}) · " +
+            "${Build.MANUFACTURER} ${Build.MODEL}",
+    )
 
     /**
      * Las últimas líneas del log de ESTE proceso (`--pid`), que es lo que de verdad dice qué venía
