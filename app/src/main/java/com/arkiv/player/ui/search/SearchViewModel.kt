@@ -33,14 +33,7 @@ fun handoffRouteFor(card: TitleCard, season: Int?, episode: Int?): String = when
     }
 }
 
-/** Presupuesto del fan-out del gateway para magis. */
-private const val GATEWAY_BUDGET_MS = 15000
-
-/** El anime necesita más tiempo para expandir títulos (AniList/Fribb/Simkl) del lado del
- *  servidor antes de poder buscar. */
-private const val GATEWAY_BUDGET_ANIME_MS = 50000
-
-/** Cuántos resultados del gateway se publican de una. Uno por uno hace que Compose recomponga
+/** Cuántos resultados de la búsqueda se publican de una. Uno por uno hace que Compose recomponga
  *  la lista entera por cada resultado, y con varias decenas la app llega a ANR. */
 private const val GATEWAY_LOTE = 25
 
