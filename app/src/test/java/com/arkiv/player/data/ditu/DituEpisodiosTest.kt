@@ -106,11 +106,12 @@ class DituEpisodiosTest {
     }
 
     /**
-     * Un capítulo con múltiples assets donde el MASTER no es el primero: verifica que
-     * `assetMaster()` prefiere MASTER incluso si hay otro asset antes. Sin esta preferencia,
-     * una mutación de `assetMaster()` que quite el fallback al primer asset pasaría inadvertida.
+     * Un capítulo con múltiples assets entra en la lista aunque el MASTER no sea el primero.
+     * Único test en este archivo que ejercita el caso de múltiples assets por episodio.
+     * La preferencia MASTER de verdad está cubierta en `DituCatalogoTest`, por el test de
+     * canales, porque `canalDe()` usa `assetMaster()`.
      */
-    @Test fun `elige el asset MASTER incluso si no es el primero`() = runTest {
+    @Test fun `un capitulo con varios assets entra aunque el MASTER no sea el primero`() = runTest {
         val fake = FakeDituCliente()
         fake.responde("CONTENT/DETAIL/BUNDLE/99", """
         {"resultObj":{"containers":[{"metadata":{"title":"Rigo","pictureUrl":"pic"},
@@ -127,7 +128,6 @@ class DituEpisodiosTest {
 
         val t = DituEpisodios(fake).de(DituRef("99", "BUNDLE"))
 
-        // El episodio debe estar presente: assetMaster() encontró el MASTER a pesar de no ser el primero.
         assertEquals(listOf("e1"), t.episodios.map { it.contentId })
     }
 }
