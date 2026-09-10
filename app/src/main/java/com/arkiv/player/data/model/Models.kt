@@ -48,13 +48,13 @@ data class Episode(
 /**
  * Temporada/capítulo de un episodio de serie, deducidos de los textos con los que se guardó
  * (`section` = "Temporada N", `displayName` = "TN · EM …" — ver `ArkivRepository.addWebSeriesEpisode`
- * y `addSeriesEpisodeMagnet`). No hay columnas int en la tabla, así que este parseo ES la única
- * fuente de la numeración para todo lo que cruza episodios locales contra la NUC.
+ * y `addSeriesEpisodeMagnet`). `section`/`displayName` no tienen columna int propia, así que este
+ * parseo es la fuente de esos dos números cuando hace falta mostrarlos.
  *
- * Vive acá, y no duplicado en cada llamador, para que el número de temporada/capítulo sea el MISMO
- * en cualquier sitio que lo necesite. Hoy lo usa el tilde de "ya descargado" del detalle, que
- * compara episodios locales contra la NUC por (temporada, capítulo): si el parseo divergiera del
- * de acá, un capítulo podría mostrarse como bajado sin serlo, o al revés.
+ * Verificado con `grep -rn "seasonOf(\|episodeOf(" app/src/main/java`: hoy el único consumidor real
+ * es [displayLabel] (vía `ArkivRepository.headerInfo`, para el rótulo "T1 · E3" del encabezado del
+ * player), que reusa [seasonOf] como uno de sus fallbacks de temporada. `episodeOf` no lo llama
+ * nadie en producción; solo lo ejercitan los tests de acá abajo.
  */
 object EpisodeNumbering {
     /** Primer número de la sección ("Temporada 2" → 2). Null si la sección no es de serie. */
@@ -74,9 +74,12 @@ object EpisodeNumbering {
      * inventar o volcar texto sucio — en la base real hay displayName con la sinopsis entera y la
      * fecha pegadas, y otros que son puro ruido ("TPO Neon Genesis Evangelion 04 · Trapo2019 …").
      *
-     * A propósito NO reusa ni amplía seasonOf/episodeOf: esos alimentan una decisión real (ver el
-     * KDoc de arriba, el tilde de "ya descargado") y ensancharles el regex para tragar formatos
-     * sucios la movería a ella también. Acá el peor caso es quedarse sin rótulo.
+     * Tiene sus propios regexes (SXE/TEMPORADA/CAPITULO) para el capítulo y para la temporada
+     * cuando el nombre la trae pegada; solo cae a [seasonOf] como último recurso, cuando ninguno
+     * de esos encuentra temporada y `section` sí trae algo. Por eso no conviene ensancharle el
+     * regex a [seasonOf] para que trague más formatos: sería tocar también este fallback, no solo
+     * un consumidor externo — acá el peor caso de equivocarse es un rótulo raro, no perder o
+     * inventar el número real.
      */
     fun displayLabel(section: String?, displayName: String): String? {
         SXE.find(displayName)?.let { m ->

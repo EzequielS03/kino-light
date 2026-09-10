@@ -6,9 +6,11 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * Fija el parseo de temporada/capítulo del que depende el tilde de "ya descargado" del detalle
- * (compara episodios locales contra la NUC por esos números). Los textos de ejemplo son
- * literalmente los que arma `addWebSeriesEpisode` / `addSeriesEpisodeMagnet`.
+ * Fija el parseo de temporada/capítulo del que depende `EpisodeNumbering.displayLabel` (el rótulo
+ * del encabezado del player): `seasonOf` es uno de sus fallbacks de temporada, hoy su único
+ * consumidor real (`grep -rn "seasonOf(\|episodeOf(" app/src/main/java`). `episodeOf` no lo llama
+ * nadie en producción; estos tests son su única cobertura. Los textos de ejemplo son literalmente
+ * los que arma `addWebSeriesEpisode` / `addSeriesEpisodeMagnet`.
  */
 class EpisodeNumberingTest {
 
