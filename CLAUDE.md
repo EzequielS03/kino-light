@@ -17,16 +17,17 @@ siendo la app completa (torrent+web+archive+Magis+Ditu+RCN, con login PocketBase
   2. Directo a **TMDB** (`api.themoviedb.org`) con una API key propia embebida en el build de esta
      rama. **Hecho** (sub-proyecto 2A).
   3. Al **CDN de Magis** para bajar los bytes de video (como ya es hoy).
-  4. Al gateway `arkiv-api`, para lo que todavía no se sacó:
-     - **"dato curioso"/trivia** (`ArkivApiClient.trivia()`, `/v1/trivia`): excepción **permanente**,
-       sin fecha de reemplazo.
-     - marcadores de intro (`/v1/marcadores`), metadata de anime (`/v1/anime`), el aviso de
-       recomendaciones (`/v1/recomendaciones/refrescar`), subtítulos (OpenSubtitles vía
-       `/v1/catalog/opensubtitles`) y Simkl (`/v1/catalog/simkl`).
-     - login/cuenta de la persona (PocketBase + `/v1/cuenta/*`): sale en el **sub-proyecto 2B**.
-- Se borra código muerto de verdad (login/cuentas, torrent, web-resolver, archive.org, VLC,
+  4. Al **OTA** (`apk.comparadorinternet.co/latest.json`, `UpdateChecker`), para avisar de una
+     versión nueva del APK.
+
+  El gateway `arkiv-api` y PocketBase se sacaron ENTEROS en el sub-proyecto 2B (Tasks 1-10): ya no
+  queda una sola línea que les hable. Eso incluye la **"dato curioso"/trivia**, que en el
+  sub-proyecto 1 había quedado anotada como excepción **permanente** -esa excepción se resignó acá,
+  junto con marcadores de intro, metadata de anime, el aviso de recomendaciones, subtítulos
+  (OpenSubtitles), Simkl y el login/cuenta de la persona (PocketBase).
+- Se borra código muerto de verdad (login/cuentas, torrent, web-resolver, archive.org,
   cloud-sync, control remoto TV↔celu). No se comenta, no se deja detrás de un flag — si no se usa,
-  se elimina del árbol.
+  se elimina del árbol. VLC es la excepción: ver más abajo, sigue vivo.
 - Reproductor: ExoPlayer/media3 (`MagisExoPlayer`, `LiveExoPlayer`) para Magis VOD y canal en vivo
   (Task 1, commits `537dadbb`..`4c3b846a`, sin verificar en dispositivo real todavía). **VLC no está
   sin uso** — corrección tras la revisión final del sub-proyecto 1 (2026-09-08): `VlcPlayer.kt` es
