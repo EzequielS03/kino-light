@@ -87,6 +87,14 @@ class SearchViewModel(
     private val _loadingMagis = MutableStateFlow(false)
     val loadingMagis: StateFlow<Boolean> = _loadingMagis.asStateFlow()
 
+    /**
+     * Qué fuentes respondieron y cuáles se cayeron en la búsqueda de fuentes en curso; se vacía al
+     * arrancar cada una. Lo leen los resultados del celular y del TV para mostrar el error de una
+     * fuente sin tapar lo que trajeron las otras (ver [EstadoDeLasFuentes]).
+     */
+    private val _estadoDeFuentes = MutableStateFlow(EstadoDeLasFuentes())
+    val estadoDeFuentes: StateFlow<EstadoDeLasFuentes> = _estadoDeFuentes.asStateFlow()
+
     private val _refineSeason = MutableStateFlow<Int?>(null)
     val refineSeason: StateFlow<Int?> = _refineSeason.asStateFlow()
 
@@ -233,6 +241,7 @@ class SearchViewModel(
         sourceJob?.cancel()
         _phase.value = SearchPhase.RESULTS
         _sources.value = emptyList()
+        _estadoDeFuentes.value = EstadoDeLasFuentes()
         _loadingMagis.value = true
         _refineSeason.value = season
         _refineEpisode.value = episode
@@ -285,10 +294,12 @@ class SearchViewModel(
                             }
                             is com.arkiv.player.data.gateway.SearchEvent.SourceError -> {
                                 Log.w(GW, "fuente ${ev.source} fallo: ${ev.error} (entrego ${ev.count})")
+                                _estadoDeFuentes.value = _estadoDeFuentes.value.conCaida(ev.source, ev.error)
                                 vaciarLote()
                             }
                             is com.arkiv.player.data.gateway.SearchEvent.SourceDone -> {
                                 Log.w(GW, "fuente ${ev.source}: ${ev.count} en ${ev.ms}ms")
+                                _estadoDeFuentes.value = _estadoDeFuentes.value.conRespuesta(ev.source)
                                 vaciarLote()
                             }
                             else -> Unit

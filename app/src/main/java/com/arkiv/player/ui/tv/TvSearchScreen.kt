@@ -78,6 +78,10 @@ import com.arkiv.player.ui.search.SourceTab
 import com.arkiv.player.ui.search.TitleCard
 import com.arkiv.player.ui.search.countsByTab
 import com.arkiv.player.ui.search.filasVisibles
+import com.arkiv.player.ui.search.EstadoDeLasFuentes
+import com.arkiv.player.ui.search.avisosDeFuentesCaidas
+import com.arkiv.player.ui.search.textoPestanaVacia
+import com.arkiv.player.ui.search.textoSinFuentes
 import com.arkiv.player.ui.theme.ArkivBlack
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
@@ -132,6 +136,7 @@ fun TvSearchScreen(
     val vmAnimeShow by vm.animeShow.collectAsStateWithLifecycle()
     val sources by vm.sources.collectAsStateWithLifecycle()
     val loadingMagis by vm.loadingMagis.collectAsStateWithLifecycle()
+    val estadoDeFuentes by vm.estadoDeFuentes.collectAsStateWithLifecycle()
     val refineSeason by vm.refineSeason.collectAsStateWithLifecycle()
     val refineEpisode by vm.refineEpisode.collectAsStateWithLifecycle()
 
@@ -542,6 +547,7 @@ fun TvSearchScreen(
                         episode = refineEpisode,
                         sources = sources,
                         loadingMagis = loadingMagis,
+                        estadoDeFuentes = estadoDeFuentes,
                         preparing = preparing,
                         playError = playError,
                         onSelect = { source -> playResult(source) },
@@ -1041,6 +1047,7 @@ private fun TvResultsContent(
     episode: Int?,
     sources: List<PlaySource>,
     loadingMagis: Boolean,
+    estadoDeFuentes: EstadoDeLasFuentes,
     preparing: Boolean,
     playError: String?,
     onSelect: (PlaySource) -> Unit,
@@ -1173,12 +1180,26 @@ private fun TvResultsContent(
                 )
             }
 
+            // Una línea por fuente caída, haya o no resultados: no tapa lo que las otras trajeron.
+            avisosDeFuentesCaidas(estadoDeFuentes, tab).forEach { aviso ->
+                item {
+                    Text(
+                        aviso,
+                        color = ArkivRed,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 48.dp, vertical = 4.dp),
+                    )
+                }
+            }
+
             val filas = filasVisibles(ordered, tab)
 
             if (ordered.isEmpty() && !anyLoading) {
                 item {
                     Text(
-                        "No se encontraron fuentes. Vuelve atrás y prueba con otra temporada/capítulo, o sin especificar ninguno.",
+                        textoSinFuentes(estadoDeFuentes),
                         color = ArkivTextSecondary,
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(horizontal = 48.dp, vertical = 8.dp),
@@ -1186,14 +1207,17 @@ private fun TvResultsContent(
                 }
             } else if (filas.isEmpty()) {
                 // Hay resultados, pero no de este origen. Sin este aviso la lista queda en blanco y
-                // parece que la app se colgó, cuando en realidad basta con volver a "Todo".
-                item {
-                    Text(
-                        if (loadingOf[tab] == true) "Buscando en ${tab.label}…" else "Sin resultados en ${tab.label}.",
-                        color = ArkivTextSecondary,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(horizontal = 48.dp, vertical = 8.dp),
-                    )
+                // parece que la app se colgó, cuando en realidad basta con volver a "Todo". Si la
+                // fuente de esta pestaña se cayó, no va: ya lo dice su línea de arriba.
+                textoPestanaVacia(tab, loadingOf[tab] == true, estadoDeFuentes)?.let { vacia ->
+                    item {
+                        Text(
+                            vacia,
+                            color = ArkivTextSecondary,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(horizontal = 48.dp, vertical = 8.dp),
+                        )
+                    }
                 }
             }
 

@@ -133,6 +133,7 @@ fun SearchScreen(
     val selected by vm.selected.collectAsStateWithLifecycle()
     val sources by vm.sources.collectAsStateWithLifecycle()
     val loadingMagis by vm.loadingMagis.collectAsStateWithLifecycle()
+    val estadoDeFuentes by vm.estadoDeFuentes.collectAsStateWithLifecycle()
     val refineSeason by vm.refineSeason.collectAsStateWithLifecycle()
     val refineEpisode by vm.refineEpisode.collectAsStateWithLifecycle()
     val detail by vm.detail.collectAsStateWithLifecycle()
@@ -320,6 +321,7 @@ fun SearchScreen(
                     episode = refineEpisode,
                     sources = sources,
                     loadingMagis = loadingMagis,
+                    estadoDeFuentes = estadoDeFuentes,
                     enabled = !preparing,
                     onPlay = { playResult(it) },
                     descargaDe = { s -> descargaDe(s) { saveResult(s) } },
@@ -791,6 +793,7 @@ private fun ResultsContent(
     episode: Int?,
     sources: List<PlaySource>,
     loadingMagis: Boolean,
+    estadoDeFuentes: EstadoDeLasFuentes,
     enabled: Boolean,
     onPlay: (PlaySource) -> Unit,
     /** En qué va la descarga de cada fuente, y qué se puede hacer con eso. Null = no se descarga. */
@@ -827,25 +830,40 @@ private fun ResultsContent(
             SourceTabRow(tab, counts, loadingOf, Modifier.padding(horizontal = HPAD, vertical = 12.dp)) { tab = it }
         }
 
+        // Una línea por fuente caída, haya o no resultados: no tapa lo que las otras trajeron.
+        avisosDeFuentesCaidas(estadoDeFuentes, tab).forEachIndexed { i, aviso ->
+            item(key = "aviso-$i") {
+                Text(
+                    aviso,
+                    color = ArkivRed,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = HPAD, vertical = 4.dp),
+                )
+            }
+        }
+
         if (!anyLoading && sources.isEmpty()) {
             item(key = "empty") {
                 Text(
-                    "No se encontraron fuentes. Vuelve atrás y prueba con otra temporada/capítulo, o sin especificar ninguno.",
+                    textoSinFuentes(estadoDeFuentes),
                     color = ArkivTextSecondary,
                     modifier = Modifier.padding(horizontal = HPAD, vertical = 12.dp),
                 )
             }
         } else if (tab == SourceTab.TODO) {
             // "Todo": una sección colapsable por origen, en el orden de [SourceTab].
-            sourceSection(this, "MAGIS", ArkivMagisBlue, magis, loadingMagis, "MAGIS" in expandedSections, { toggle("MAGIS") }, enabled, onPlay, descargaDe)
-            sourceSection(this, "CARACOL", ArkivCaracolVerde, caracol, loadingMagis, "CARACOL" in expandedSections, { toggle("CARACOL") }, enabled, onPlay, descargaDe)
+            sourceSection(this, "MAGIS", ArkivMagisBlue, magis, loadingMagis, "MAGIS" in expandedSections, { toggle("MAGIS") }, enabled, onPlay, descargaDe, textoSeccionVacia(SourceTab.MAGIS, estadoDeFuentes))
+            sourceSection(this, "CARACOL", ArkivCaracolVerde, caracol, loadingMagis, "CARACOL" in expandedSections, { toggle("CARACOL") }, enabled, onPlay, descargaDe, textoSeccionVacia(SourceTab.CARACOL, estadoDeFuentes))
         } else {
             // Con un origen elegido la cabecera de sección sobra: la lista va plana.
             val shown = filterByTab(sources, tab)
-            if (shown.isEmpty()) {
+            val vacia = if (shown.isEmpty()) textoPestanaVacia(tab, loadingOf[tab] == true, estadoDeFuentes) else null
+            if (vacia != null) {
                 item(key = "empty-tab") {
                     Text(
-                        if (loadingOf[tab] == true) "Buscando en ${tab.label}…" else "Sin resultados en ${tab.label}.",
+                        vacia,
                         color = ArkivTextSecondary,
                         modifier = Modifier.padding(horizontal = HPAD, vertical = 16.dp),
                     )
@@ -1009,6 +1027,8 @@ private fun sourceSection(
     enabled: Boolean,
     onPlay: (PlaySource) -> Unit,
     descargaDe: (PlaySource) -> DescargaDeFila?,
+    /** Lo que se dice bajo la sección si no trajo nada ([textoSeccionVacia]). */
+    vacio: String,
 ) {
     scope.item(key = "sec-$tag") {
         Box(Modifier.padding(horizontal = HPAD)) {
@@ -1028,7 +1048,7 @@ private fun sourceSection(
         if (items.isEmpty() && !loading) {
             scope.item(key = "sec-$tag-empty") {
                 Text(
-                    "Sin resultados", color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall,
+                    vacio, color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier.padding(start = HPAD + 8.dp, bottom = 8.dp),
                 )
             }
