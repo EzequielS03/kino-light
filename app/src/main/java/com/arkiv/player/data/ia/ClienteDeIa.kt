@@ -1,0 +1,131 @@
+package com.arkiv.player.data.ia
+
+import android.util.Log
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.IOException
+import java.util.concurrent.TimeUnit
+
+/** Lo que devuelve [ClienteDeIa]: el texto del modelo, o que no se pudo. Nunca una excepción. */
+internal sealed interface RespuestaDeIa {
+    data class Texto(val texto: String, val modelo: String) : RespuestaDeIa
+    data object NoPude : RespuestaDeIa
+}
+
+/**
+ * La app hablándole a los modelos gratis de Kilo, sin servidor propio y sin llave.
+ *
+ * **Nunca manda `Authorization`**: el tier anónimo de Kilo depende de que no viaje (así lo usa
+ * `llm-libre`, que omite la cabecera cuando la llave está vacía). Por eso no hay ningún secreto que
+ * embeber.
+ *
+ * Descubre los modelos en `/models` ([CatalogoDeKilo]), los prueba en el orden de lo que funcionó en
+ * este aparato ([MemoriaDeModelos]) y salta al siguiente si uno falla. Como mucho [MAX_INTENTOS]
+ * por pedido: medido en vivo, un modelo gratis tarda ~20 s en contestar. Es solo transporte: no
+ * sabe nada de películas.
+ */
+internal class ClienteDeIa(
+    private val baseUrl: String = BASE,
+    private val http: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(TIMEOUT_S, TimeUnit.SECONDS)
+        .callTimeout(TIMEOUT_S, TimeUnit.SECONDS)
+        .build(),
+    private val memoria: MemoriaDeModelos,
+    private val ahoraMs: () -> Long = { System.currentTimeMillis() },
+) {
+    /** Protege [memoria] y el catálogo en memoria: la trivia y "Para ti" pueden preguntar a la vez. */
+    private val candado = Mutex()
+    private var catalogo: List<ModeloDeKilo> = emptyList()
+    private var catalogoTraidoEnMs: Long? = null
+
+    suspend fun preguntar(instruccion: String): RespuestaDeIa = withContext(Dispatchers.IO) {
+        val modelos = catalogoVigente()
+        for (modelo in candado.withLock { memoria.ordenar(modelos) }.take(MAX_INTENTOS)) {
+            val texto = intentar(modelo, instruccion) ?: continue
+            candado.withLock { memoria.exito(modelo.id) }
+            return@withContext RespuestaDeIa.Texto(texto, modelo.id)
+        }
+        RespuestaDeIa.NoPude
+    }
+
+    /** Un intento contra un modelo: su texto, o null tras anotar la falla en [memoria]. */
+    private suspend fun intentar(modelo: ModeloDeKilo, instruccion: String): String? {
+        val cuerpo = JSONObject()
+            .put("model", modelo.id)
+            .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", instruccion)))
+            .toString()
+        val pedido = Request.Builder()
+            .url("$baseUrl/chat/completions")
+            .post(cuerpo.toRequestBody(JSON))
+            .build()
+        val falla: Falla = try {
+            http.newCall(pedido).execute().use { resp ->
+                when {
+                    resp.code == 429 -> Falla.Limite(resp.header("Retry-After")?.trim()?.toLongOrNull()?.times(1000))
+                    !resp.isSuccessful -> Falla.Servidor
+                    else -> {
+                        val texto = runCatching {
+                            JSONObject(resp.body?.string().orEmpty())
+                                .getJSONArray("choices").getJSONObject(0)
+                                .getJSONObject("message").getString("content")
+                        }.getOrNull()?.trim()
+                        if (!texto.isNullOrEmpty()) return texto
+                        Falla.Ilegible
+                    }
+                }
+            }
+        } catch (e: IOException) {
+            // Incluye el timeout de 45 s (`InterruptedIOException` es un `IOException`).
+            Falla.Servidor
+        }
+        Log.w(TAG, "${modelo.id}: $falla")
+        candado.withLock { memoria.fallo(modelo.id, falla) }
+        return null
+    }
+
+    /** El catálogo de las últimas [VIGENCIA_CATALOGO_MS]; si renovarlo falla, el último que había. */
+    private suspend fun catalogoVigente(): List<ModeloDeKilo> {
+        candado.withLock {
+            val traido = catalogoTraidoEnMs
+            if (traido != null && ahoraMs() - traido < VIGENCIA_CATALOGO_MS) return catalogo
+        }
+        val nuevo = try {
+            http.newCall(Request.Builder().url("$baseUrl/models").get().build()).execute().use { resp ->
+                if (!resp.isSuccessful) null
+                else CatalogoDeKilo.candidatos(JSONObject(resp.body?.string().orEmpty()))
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Red caída o un JSON roto (`JSONException`): lo mismo que un 5xx, sigue el último.
+            Log.w(TAG, "catálogo: ${e.javaClass.simpleName}: ${e.message}")
+            null
+        }
+        return candado.withLock {
+            if (!nuevo.isNullOrEmpty()) {
+                catalogo = nuevo
+                catalogoTraidoEnMs = ahoraMs()
+            }
+            catalogo
+        }
+    }
+
+    internal companion object {
+        const val BASE = "https://api.kilo.ai/api/gateway"
+        const val MAX_INTENTOS = 3
+        const val TIMEOUT_S = 45L
+        const val VIGENCIA_CATALOGO_MS = 6 * 60 * 60 * 1000L
+        private val JSON = "application/json".toMediaType()
+        private const val TAG = "ArkivIA"
+    }
+}

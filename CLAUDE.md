@@ -44,8 +44,11 @@ siendo la app completa (torrent+web+archive+Magis+Ditu+RCN, con login PocketBase
 
      Todos son de Caracol TV y ninguno es servidor propio: ni la cookie `playback_token` ni la
      licencia pasan por nada nuestro.
+  8. Directo a **Kilo** (`api.kilo.ai`), tercero público y **sin llave** (tier anónimo: nunca se
+     manda `Authorization`): alimenta el dato curioso y la fila "Para ti"
+     (`app/src/main/java/com/arkiv/player/data/ia/ClienteDeIa.kt`). No hay ningún secreto embebido.
 
-  Ninguno de los siete es servidor propio, así que no violan la regla de arriba. Para verificarlo no
+  Ninguno de los ocho es servidor propio, así que no violan la regla de arriba. Para verificarlo no
   sirve un grep por nombres propios (`comparadorinternet`, `pocketbase`, `gatewayUrl`, `/v1/`): eso
   es ciego a un host de terceros nuevo. El barrido correcto ENUMERA todos los hosts que la app llama
   y los compara a mano contra esta lista:
@@ -58,7 +61,7 @@ siendo la app completa (torrent+web+archive+Magis+Ditu+RCN, con login PocketBase
   recortar la salida sin avisar. Va a salir ruido que no es una llamada de red real: URLs de ejemplo
   en comentarios/KDoc o en el texto de ayuda de un campo (`AddScreen`),
   namespaces XML del cliente DLNA, `127.0.0.1` de los proxies locales. Cualquier host nuevo que SÍ
-  sea una llamada real y no esté en la lista de siete es justo lo que este barrido existe para
+  sea una llamada real y no esté en la lista de ocho es justo lo que este barrido existe para
   atrapar.)
 
   El gateway `arkiv-api` y PocketBase se sacaron ENTEROS en el sub-proyecto 2B (Tasks 1-10): ya no

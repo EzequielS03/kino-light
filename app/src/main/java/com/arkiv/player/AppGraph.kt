@@ -354,6 +354,15 @@ class AppGraph(context: Context) {
     }
     val applicationScope: CoroutineScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
 
+    /** El cliente de los modelos gratis de Kilo (sub-proyecto 4). Sin llave: ver su KDoc. */
+    internal val clienteDeIa: com.arkiv.player.data.ia.ClienteDeIa by lazy {
+        com.arkiv.player.data.ia.ClienteDeIa(
+            memoria = com.arkiv.player.data.ia.MemoriaDeModelos(
+                com.arkiv.player.data.ia.AlmacenEnPreferencias(appContext),
+            ) { System.currentTimeMillis() },
+        )
+    }
+
     /**
      * Agrega a la biblioteca lo que se elige en la fila "Para ti" del inicio. Necesita
      * `fuenteDeContenido` además del repositorio: una recomendación de serie trae el ref de la
