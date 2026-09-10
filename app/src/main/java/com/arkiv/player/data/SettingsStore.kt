@@ -42,6 +42,14 @@ class SettingsStore(context: Context) {
     private val _adultosDesbloqueado = MutableStateFlow(prefs.getBoolean(KEY_ADULTOS_DESBLOQUEADO, false))
     val adultosDesbloqueado: StateFlow<Boolean> = _adultosDesbloqueado
 
+    // El código que abre ese candado, elegido desde Ajustes. `null` = nunca se eligió ninguno y
+    // rige el default; quién decide eso es `CandadoDeAdultos.codigoEfectivo`, no este store --
+    // acá solo se guarda lo que la persona escribió. Es texto plano a propósito: el candado frena
+    // a alguien con el control remoto, no a alguien con `adb` (ver el KDoc de `CandadoDeAdultos`),
+    // así que cifrarlo daría una sensación de seguridad que el resto del diseño no sostiene.
+    private val _codigoAdultos = MutableStateFlow(prefs.getString(KEY_CODIGO_ADULTOS, null))
+    val codigoAdultos: StateFlow<String?> = _codigoAdultos
+
     // Marcador de la purga única de recientes del 2026-08-14 (ver `ArkivApp.onCreate`). Mismo
     // rescate que [adultosDesbloqueado]: si se pierde, la purga simplemente vuelve a correr una
     // vez más -- no hace falta un StateFlow porque nada la observa, solo se lee al arrancar.
@@ -67,6 +75,13 @@ class SettingsStore(context: Context) {
         if (_adultosDesbloqueado.value == v) return
         prefs.edit().putBoolean(KEY_ADULTOS_DESBLOQUEADO, v).apply()
         _adultosDesbloqueado.value = v
+    }
+
+    /** `null` borra la clave y devuelve el candado a su código por defecto. */
+    fun setCodigoAdultos(v: String?) {
+        if (_codigoAdultos.value == v) return
+        prefs.edit().apply { if (v == null) remove(KEY_CODIGO_ADULTOS) else putString(KEY_CODIGO_ADULTOS, v) }.apply()
+        _codigoAdultos.value = v
     }
 
     fun setRecientesPurgados(v: Boolean) {
@@ -157,6 +172,7 @@ class SettingsStore(context: Context) {
         // así el histórico del código sigue siendo buscable por ese nombre. Task 9:
         // [migrarDelStoreDeCuentasViejo] lee esas mismas dos keys del archivo original.
         private const val KEY_ADULTOS_DESBLOQUEADO = "adultosDesbloqueado"
+        private const val KEY_CODIGO_ADULTOS = "codigoAdultos"
         private const val KEY_RECIENTES_PURGADOS = "recientesPurgados2026_08_14"
 
         /** El archivo cifrado que escribía `SecureDeviceStore` (borrado en la Task 9). */

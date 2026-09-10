@@ -22,11 +22,10 @@ android {
         applicationId = "com.arkiv.player.light" // id propio: conviven Arkiv completo y Arkiv Light en el mismo device
         minSdk = 26
         targetSdk = 35
-        // Codigo del candado de la seccion 18+. Sale del .env (gitignoreado) igual que la llave
-        // de firma: no entra al repo. Si falta, queda vacio -- y `CandadoDeAdultos` NO abre con
-        // codigo vacio, asi que un build sin .env simplemente no ofrece la seccion en vez de
-        // dejarla abierta.
-        buildConfigField("String", "ADULT_CODE", "\"${readEnv("ARKIV_ADULT_CODE")}\"")
+        // Aca vivia `ADULT_CODE`, el codigo del candado 18+, que salia del .env al compilar. Ya no:
+        // el codigo lo elige la persona en Ajustes y arranca en un default publico (ver
+        // `CandadoDeAdultos`). Un APK distribuido con un codigo que solo conoce quien lo compilo
+        // dejaba la seccion cerrada para todos los demas.
         buildConfigField("String", "IPTV_3DES_KEY", "\"${readEnv("IPTV_3DES_KEY")}\"")
         buildConfigField("String", "IPTV_HOSTS", "\"${readEnv("IPTV_HOSTS")}\"")
         buildConfigField("String", "IPTV_APP_ID", "\"${readEnv("IPTV_APP_ID")}\"")

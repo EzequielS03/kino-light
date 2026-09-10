@@ -93,12 +93,12 @@ internal fun TvSettingsApp() {
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TvSeccionAdultos(store: SettingsStore) {
-    val hayCodigo = com.arkiv.player.BuildConfig.ADULT_CODE.isNotBlank()
     var desbloqueado by remember { mutableStateOf(store.adultosDesbloqueado.value) }
+    var guardado by remember { mutableStateOf(store.codigoAdultos.value) }
     var codigo by remember { mutableStateOf("") }
     var error by remember { mutableStateOf(false) }
 
-    if (CandadoDeAdultos.hayQueMostrarLaSeccion(desbloqueado, hayCodigo)) {
+    if (CandadoDeAdultos.hayQueMostrarLaSeccion(desbloqueado)) {
         Text("Adultos", style = MaterialTheme.typography.titleMedium, color = Color.White)
         Text(
             "La categoría 18+ está visible en En vivo y en el cajón de canales de este aparato.",
@@ -110,14 +110,25 @@ private fun TvSeccionAdultos(store: SettingsStore) {
             desbloqueado = false
             codigo = ""
         }
+        TvCambiarCodigoDeAdultos(store) { guardado = it }
         return
     }
-    if (!CandadoDeAdultos.hayQueMostrarElCampo(desbloqueado, hayCodigo)) return
+    if (!CandadoDeAdultos.hayQueMostrarElCampo(desbloqueado)) return
 
     val focusManager = LocalFocusManager.current
 
     fun intentar() {
-        if (CandadoDeAdultos.abre(codigo, com.arkiv.player.BuildConfig.ADULT_CODE)) {
+        // El reseteo se mira ANTES de abrir: es la salida para quien olvidó el código que puso, y
+        // por eso no hay ninguna otra pista de que exista. La señal de que funcionó es que el
+        // aviso del código por defecto vuelve a aparecer solo.
+        if (CandadoDeAdultos.pideReseteo(codigo)) {
+            store.setCodigoAdultos(null)
+            guardado = null
+            codigo = ""
+            error = false
+            return
+        }
+        if (CandadoDeAdultos.abre(codigo, CandadoDeAdultos.codigoEfectivo(guardado))) {
             store.setAdultosDesbloqueado(true)
             desbloqueado = true
             error = false
@@ -128,6 +139,15 @@ private fun TvSeccionAdultos(store: SettingsStore) {
 
     // Sin etiquetar como "adultos": el renglón dice "Código" y nada más.
     Text("Código", style = MaterialTheme.typography.titleMedium, color = Color.White)
+    // Mientras el código sea el que sabe cualquiera, se dice. Es lo que hace que la sección sea
+    // usable por quien instala el APK sin haberlo compilado; desaparece con un código propio.
+    if (CandadoDeAdultos.esElDefault(guardado)) {
+        Text(
+            "Por defecto: ${CandadoDeAdultos.CODIGO_POR_DEFECTO}",
+            style = MaterialTheme.typography.bodySmall,
+            color = ArkivTextSecondary,
+        )
+    }
     OutlinedTextField(
         value = codigo,
         onValueChange = { codigo = it; error = false },
@@ -156,4 +176,69 @@ private fun TvSeccionAdultos(store: SettingsStore) {
         Text("Código incorrecto", style = MaterialTheme.typography.bodySmall, color = ArkivRed)
     }
     TvActionOption(label = "Aplicar código") { intentar() }
+}
+
+/**
+ * Cambiar el código, solo desde adentro de la sección ya desbloqueada. No pide el código actual:
+ * para llegar hasta acá ya hubo que escribirlo.
+ *
+ * [alGuardar] avisa a [TvSeccionAdultos] cuál quedó, para que su aviso de "por defecto" refleje
+ * el cambio sin releer el store.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvCambiarCodigoDeAdultos(store: SettingsStore, alGuardar: (String) -> Unit) {
+    var nuevo by remember { mutableStateOf("") }
+    var mensaje by remember { mutableStateOf<String?>(null) }
+    var listo by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+
+    fun guardar() {
+        val limpio = nuevo.trim()
+        when {
+            !CandadoDeAdultos.formatoValido(limpio) -> {
+                mensaje = "Usa 4 dígitos"
+                listo = false
+            }
+            // Sin explicar por qué: decir "ese es el de reseteo" sería anunciar la salida que el
+            // reseteo existe para no anunciar.
+            CandadoDeAdultos.estaReservado(limpio) -> {
+                mensaje = "Ese código no está disponible, elige otro"
+                listo = false
+            }
+            else -> {
+                store.setCodigoAdultos(limpio)
+                alGuardar(limpio)
+                nuevo = ""
+                mensaje = null
+                listo = true
+            }
+        }
+    }
+
+    Text("Cambiar código", style = MaterialTheme.typography.titleMedium, color = Color.White)
+    OutlinedTextField(
+        value = nuevo,
+        onValueChange = { nuevo = it; mensaje = null; listo = false },
+        singleLine = true,
+        // Mismo trato de foco que el campo de arriba: `Done` aplica y baja, y el D-pad hacia abajo
+        // suelta el campo aunque el IME no dispare `onDone`.
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { guardar(); focusManager.moveFocus(FocusDirection.Down) }),
+        modifier = Modifier
+            .fillMaxWidth(0.4f)
+            .onPreviewKeyEvent { e ->
+                if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown) {
+                    focusManager.moveFocus(FocusDirection.Down)
+                    true
+                } else {
+                    false
+                }
+            },
+    )
+    mensaje?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = ArkivRed) }
+    if (listo) {
+        Text("Código actualizado", style = MaterialTheme.typography.bodySmall, color = ArkivTextSecondary)
+    }
+    TvActionOption(label = "Guardar código") { guardar() }
 }
