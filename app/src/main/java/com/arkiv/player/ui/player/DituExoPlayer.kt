@@ -29,9 +29,6 @@ import kotlinx.coroutines.delay
 
 private const val TAG = "DituExo"
 
-/** Cuántas veces seguidas se vuelve a preparar solo antes de pasarle el error a la pantalla. */
-private const val MAX_REPREPARADOS = 3
-
 /**
  * ¿Este error se arregla volviendo a preparar el mismo stream?
  *
@@ -70,9 +67,10 @@ private fun esRecuperable(error: PlaybackException): Boolean =
  * con un `TextureView` nulo.
  *
  * La publicidad no se filtra. Ante un error recuperable (ver [esRecuperable]) se vuelve a preparar
- * el stream, hasta [MAX_REPREPARADOS] veces seguidas; si se agotan, el error va a [onError]. Ese es
- * el primer escalón: `PlayerScreen` responde a [onError] pidiéndole al ViewModel una URL nueva
- * (ver `EstadoDeDitu`), y [onListo] le avisa cada vez que el player vuelve a READY.
+ * el stream mientras [pedirRepreparado] lo permita; si no, el error va a [onError], y `PlayerScreen`
+ * le pide al ViewModel una URL nueva. Los topes de los dos escalones no viven acá sino en
+ * `EstadoDeDitu`, que los repone recién después de reproducción estable: [onPosicion] le pasa cada
+ * lectura del reloj.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
@@ -84,7 +82,8 @@ internal fun DituExoPlayer(
     startPositionMs: Long = 0L,
     onPlayerReady: (Player?) -> Unit = {},
     onError: (String) -> Unit = {},
-    onListo: () -> Unit = {},
+    pedirRepreparado: () -> Boolean,
+    onPosicion: (posicionMs: Long, reproduciendo: Boolean) -> Unit = { _, _ -> },
     onTracksChanged: ((Tracks) -> Unit)? = null,
     onPrimeraImagen: (Boolean) -> Unit = {},
     zoom: Float = 1f,
@@ -145,15 +144,8 @@ internal fun DituExoPlayer(
             quiereReproducir = exoPlayer.playWhenReady,
         )
 
-        // Re-preparados seguidos sin haber vuelto a READY. Vive lo que vive este player.
-        var repreparados = 0
-
         val escucha = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_READY) {
-                    repreparados = 0
-                    onListo()
-                }
                 espejo.cambioElBuffering(state == Player.STATE_BUFFERING)
             }
 
@@ -175,9 +167,8 @@ internal fun DituExoPlayer(
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                Log.w(TAG, "onPlayerError code=${error.errorCode} ${error.errorCodeName} repreparados=$repreparados", error)
-                if (esRecuperable(error) && repreparados < MAX_REPREPARADOS) {
-                    repreparados++
+                Log.w(TAG, "onPlayerError code=${error.errorCode} ${error.errorCodeName}", error)
+                if (esRecuperable(error) && pedirRepreparado()) {
                     // Tras un error el player queda en IDLE: `prepare()` lo vuelve a arrancar desde
                     // la posición en que estaba. Quedarse atrás de la ventana de un directo es la
                     // excepción: ahí hay que volver al borde, porque esa posición ya no existe.
@@ -203,15 +194,18 @@ internal fun DituExoPlayer(
         }
     }
 
-    // Posición y duración para la barra, igual que el sondeo de [MagisExoPlayer].
+    // Posición y duración para la barra, igual que el sondeo de [MagisExoPlayer], y la misma
+    // lectura para [onPosicion], que es de donde `EstadoDeDitu` sabe si la reproducción anda.
     LaunchedEffect(exoPlayer) {
         while (true) {
             delay(500)
             val dur = exoPlayer.duration
+            val pos = exoPlayer.currentPosition
             espejo.leyoElReloj(
-                posicionMs = exoPlayer.currentPosition,
+                posicionMs = pos,
                 duracionMs = if (dur > 0) dur else 0L,
             )
+            onPosicion(pos, exoPlayer.isPlaying)
         }
     }
 

@@ -196,7 +196,8 @@ class PlayerViewModel(
     /**
      * Episodio de Caracol en curso, o `null` si lo que suena es de otra fuente. Cuando no es null,
      * `PlayerScreen` lo reproduce con [DituExoPlayer] en vez de VLC o del reproductor de Magis.
-     * Lo publica [EstadoDeDitu], que descarta lo que llega tarde y lleva la cuenta de las recargas.
+     * Lo publica [EstadoDeDitu], que descarta lo que llega tarde y lleva los topes de re-preparados
+     * y de recargas.
      */
     private val ditu = EstadoDeDitu()
     val dituPlayable: StateFlow<DituReproducible?> = ditu.actual
@@ -634,8 +635,12 @@ class PlayerViewModel(
         viewModelScope.launch { loadDitu(episodio, arrancarEnMs = posicionMs) }
     }
 
-    /** [DituExoPlayer] volvió a READY. Ver [EstadoDeDitu.volvioAReproducir]. */
-    fun onDituListo() = ditu.volvioAReproducir()
+    /** [DituExoPlayer] tuvo un error que se arregla volviendo a preparar: ¿queda alguno? Ver
+     *  [EstadoDeDitu.pedirRepreparado]. */
+    fun dituPuedeRepreparar(): Boolean = ditu.pedirRepreparado()
+
+    /** Cada lectura del reloj de [DituExoPlayer]. Ver [EstadoDeDitu.avanzo]. */
+    fun dituAvanzo(posicionMs: Long, reproduciendo: Boolean) = ditu.avanzo(posicionMs, reproduciendo)
 
     /**
      * Un directo se cayó del lado de ExoPlayer (segmento/playlist en 502 tras agotar los

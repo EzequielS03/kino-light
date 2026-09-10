@@ -1829,7 +1829,8 @@ private fun PlayerContent(
                     val pos = dituPlayer?.currentPosition?.coerceAtLeast(0L) ?: dPlay.startPositionMs
                     vm.onDituExoError(msg, pos)
                 },
-                onListo = { vm.onDituListo() },
+                pedirRepreparado = { vm.dituPuedeRepreparar() },
+                onPosicion = { pos, reproduciendo -> vm.dituAvanzo(pos, reproduciendo) },
                 onTracksChanged = { tracks -> estadoPistas.actualizarPistasExo(tracks) },
                 onPrimeraImagen = { hay -> exoYaPintoAlgo = hay },
                 zoom = gestos.zoomParaExo,
