@@ -14,6 +14,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -157,6 +160,22 @@ internal fun DituExoPlayer(
     // Uno por reproductor: una recarga (`key(dPlay)` en `PlayerScreen`) arma otro y vuelve a esperar.
     val arranque = remember(exoPlayer) {
         ArranqueConLaPrimeraImagen().also { it.empezo(SystemClock.elapsedRealtime()) }
+    }
+
+    // Si la app se va al fondo mientras se espera la primera imagen, la espera se cancela: al volver
+    // el video queda en pausa y decide la persona (ver `alIrseAlFondo`). Sin esto, la salida de
+    // seguridad del reloj de abajo le daría play en el fondo, o la primera imagen lo arrancaría sola
+    // al volver.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, arranque) {
+        val observador = LifecycleEventObserver { _, evento ->
+            if (evento == Lifecycle.Event.ON_STOP && arranque.esperando) {
+                Log.i(TAG, "la app se fue al fondo esperando la primera imagen: se cancela el arranque")
+                arranque.cancelar()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observador)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observador) }
     }
 
     DisposableEffect(exoPlayer) {

@@ -23,7 +23,8 @@ internal const val ESPERA_MAXIMA_DE_LA_PRIMERA_IMAGEN_MS = 10_000L
  * [DituExoPlayer] prepara en pausa y le pregunta a esto cuándo darle play. Arranca cuando se pinta
  * la primera imagen ([llegoLaImagen]) o, si no llega, cuando se vence la espera ([vencio]): nunca
  * las dos, y una sola vez. Si en el medio la persona tocó play o pausa ([laPersonaDecidio]), manda
- * ella y esto ya no toca el reproductor: una pausa suya no se confunde con esta espera.
+ * ella y esto ya no toca el reproductor: una pausa suya no se confunde con esta espera. Si la app se
+ * fue al fondo mientras esperaba ([cancelar]), tampoco: al volver no arranca sola.
  *
  * Va aparte y sin Android para poder probarlo en la JVM, igual que [EstadoDeDitu]. Es uno por
  * reproductor: una recarga arma otro reproductor y, con él, otra espera.
@@ -57,6 +58,11 @@ internal class ArranqueConLaPrimeraImagen(
 
     /** La persona tocó play o pausa mientras se esperaba: desde ahí decide ella. */
     fun laPersonaDecidio() {
+        resuelto = true
+    }
+
+    /** La app se fue al fondo mientras se esperaba: no arranca más sola, ni en el fondo ni al volver. */
+    fun cancelar() {
         resuelto = true
     }
 

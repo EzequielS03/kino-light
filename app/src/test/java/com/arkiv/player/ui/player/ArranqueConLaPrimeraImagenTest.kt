@@ -50,6 +50,15 @@ class ArranqueConLaPrimeraImagenTest {
         assertFalse(a.vencio(t0 + espera * 3))
     }
 
+    /** Irse de la app esperando la imagen: ni la salida de seguridad ni la imagen al volver le dan play. */
+    @Test fun `si la app se fue al fondo esperando, no arranca sola`() {
+        val a = preparado()
+        a.cancelar()
+        assertFalse(a.esperando)
+        assertFalse(a.vencio(t0 + espera * 3))
+        assertFalse(a.llegoLaImagen())
+    }
+
     @Test fun `antes de preparar no hay espera`() {
         val a = ArranqueConLaPrimeraImagen(esperaMaximaMs = espera)
         assertFalse(a.esperando)

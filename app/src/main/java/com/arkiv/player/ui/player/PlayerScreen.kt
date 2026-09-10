@@ -1554,6 +1554,7 @@ private fun PlayerContent(
     // y el observador de ciclo de vida lean el episodeId correcto aunque la pantalla ya esté saliendo.
     val currentMagisItem by rememberUpdatedState(magisItem)
     val currentDituPlay by rememberUpdatedState(dituPlay)
+    val currentEnVivo by rememberUpdatedState(enVivo)
 
     DisposableEffect(Unit) {
         onDispose {
@@ -1606,10 +1607,30 @@ private fun PlayerContent(
     }
 
     // Guarda progreso cuando la app va al fondo (botón Home, notificaciones, etc.). El onDispose
-    // de arriba solo corre al DESTRUIR la pantalla (back/swipe); con Home el composable sobrevive
-    // y el audio sigue, pero si el proceso muere después la posición se pierde.
+    // de arriba solo corre al DESTRUIR la pantalla (back/swipe); con Home el composable sobrevive,
+    // y si el proceso muere después la posición se perdería.
+    //
+    // Después de guardar, pausa: con Home los ExoPlayer de esta pantalla (Magis, el vivo, Caracol)
+    // seguían sonando afuera. Qué se pausa y cómo lo decide [alIrseAlFondo]; `isTv` es el que pasa
+    // `ArkivTvRoot`, la raíz que `MainActivity` elige con `DeviceType.isTelevision`. Al volver, un
+    // video queda en pausa donde iba y un canal en vivo arranca otra vez en el directo.
     DisposableEffect(lifecycleOwner) {
+        // El directo que se detuvo al irse al fondo, para arrancarlo al volver. Solo si al volver
+        // sigue siendo el reproductor activo: si mientras tanto se armó otro, ese no se toca.
+        var directoDetenido: Player? = null
         val obs = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_START) {
+                val detenido = directoDetenido
+                directoDetenido = null
+                if (detenido != null && detenido === currentPlayer) {
+                    android.util.Log.w("ArkivPlay", "app de vuelta → el directo arranca otra vez en el borde")
+                    runCatching {
+                        detenido.seekToDefaultPosition()
+                        detenido.prepare()
+                        detenido.play()
+                    }
+                }
+            }
             if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
                 val isExoStop = currentMagisItem != null || currentDituPlay != null
                 val epId = when {
@@ -1623,6 +1644,30 @@ private fun PlayerContent(
                 if (!enVivo && epId != null && (isExoStop || mediaId == epId) && dur > 0 && pos in 0 until dur) {
                     vm.saveProgress(epId, pos, dur)
                     if (!casting) vm.capturarFrame(epId, pos, textureViewDelVideo())
+                }
+
+                val jugador = currentPlayer
+                val accion = alIrseAlFondo(
+                    esTv = isTv,
+                    esExoPlayer = jugador !== controller,
+                    casteando = casting,
+                    enVivo = currentEnVivo,
+                )
+                android.util.Log.w(
+                    "ArkivPlay",
+                    "app al fondo → $accion · tv=$isTv casting=$casting enVivo=$currentEnVivo " +
+                        "player=${jugador::class.simpleName}",
+                )
+                when (accion) {
+                    AlIrseAlFondo.SEGUIR -> Unit
+                    AlIrseAlFondo.PAUSAR -> runCatching { jugador.pause() }
+                    AlIrseAlFondo.DETENER_EL_DIRECTO -> {
+                        runCatching {
+                            jugador.pause()
+                            jugador.stop()
+                        }
+                        directoDetenido = jugador
+                    }
                 }
             }
         }
