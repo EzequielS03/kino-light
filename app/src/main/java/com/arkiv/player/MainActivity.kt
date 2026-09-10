@@ -15,9 +15,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.lifecycle.viewmodel.initializer
-import androidx.lifecycle.viewmodel.viewModelFactory
 import com.arkiv.player.playback.ACTION_OPEN_PLAYER
 import com.arkiv.player.playback.EXTRA_EPISODE_ID
 import com.arkiv.player.playback.NowPlaying
@@ -27,10 +24,6 @@ import com.arkiv.player.seguridad.PantallaBloqueada
 import com.arkiv.player.seguridad.RecolectorDeSenales
 import com.arkiv.player.ui.ArkivRoot
 import com.arkiv.player.ui.ArkivSplash
-import com.arkiv.player.ui.entrada.EntradaViewModel
-import com.arkiv.player.ui.entrada.EstadoDeEntrada
-import com.arkiv.player.ui.entrada.PantallaDeEntrada
-import com.arkiv.player.ui.entrada.estadoDeEntrada
 import com.arkiv.player.ui.theme.ArkivTheme
 import com.arkiv.player.ui.tv.ArkivTvRoot
 import kotlinx.coroutines.delay
@@ -107,43 +100,20 @@ class MainActivity : AppCompatActivity() {
                 }
                 Box(Modifier.fillMaxSize()) {
                     if (loadContent) {
-                        // Gate de sesión (Task 4), al lado del de integridad que ya filtró antes de
-                        // llegar acá: sin sesión no se arma ni Room, ni el sync, ni las filas del
-                        // home. `sesionEstado` es una lectura en memoria (SesionDePersona.estado),
-                        // nunca un pedido de red -ver el KDoc de EntradaViewModel-, así que con
-                        // sesión guardada este `when` no agrega ninguna espera al arranque.
-                        val entradaVm: EntradaViewModel = viewModel(
-                            factory = viewModelFactory {
-                                initializer { EntradaViewModel(graph.sesionDePersona, graph.accountManager) }
-                            },
-                        )
-                        val sesionEstado by entradaVm.sesionEstado.collectAsState()
-                        val aviso by entradaVm.aviso.collectAsState()
-                        when (estadoDeEntrada(sesionEstado, aviso)) {
-                            is EstadoDeEntrada.Adentro -> {
-                                if (isTv) {
-                                    ArkivTvRoot(
-                                        deepLinkEpisodeId = pendingEpisode,
-                                        onDeepLinkConsumed = { pendingEpisode = null },
-                                    )
-                                } else {
-                                    ArkivRoot(
-                                        deepLinkEpisodeId = pendingEpisode,
-                                        onDeepLinkConsumed = { pendingEpisode = null },
-                                    )
-                                }
-                            }
-                            is EstadoDeEntrada.Entrada -> {
-                                // En la TV se entra con el teclado en pantalla (Task 9) o bajando la
-                                // app al teléfono para instalar Kino ahí -sin cloud sync (poda "Arkiv
-                                // Light") ya no hay pareo QR entre los dos-. El celular sigue usando
-                                // el formulario de siempre.
-                                if (isTv) {
-                                    com.arkiv.player.ui.tv.TvPantallaDeEntrada(entradaVm.account)
-                                } else {
-                                    PantallaDeEntrada(entradaVm)
-                                }
-                            }
+                        // Sin gate de sesión: Kino L entra directo al home, sin preguntarle a
+                        // PocketBase ni al gateway si hay sesión. El subsistema de cuentas
+                        // (ui/entrada/, EntradaViewModel) sigue compilado pero ya no tiene
+                        // llamador desde acá.
+                        if (isTv) {
+                            ArkivTvRoot(
+                                deepLinkEpisodeId = pendingEpisode,
+                                onDeepLinkConsumed = { pendingEpisode = null },
+                            )
+                        } else {
+                            ArkivRoot(
+                                deepLinkEpisodeId = pendingEpisode,
+                                onDeepLinkConsumed = { pendingEpisode = null },
+                            )
                         }
                     }
                     if (!splashDone) {
