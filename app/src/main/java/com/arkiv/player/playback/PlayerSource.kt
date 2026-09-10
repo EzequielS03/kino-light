@@ -72,8 +72,9 @@ object PlayerSource {
 
     fun kindFor(episodeId: String): SourceKind = when {
         episodeId.startsWith("magis:") -> SourceKind.MAGIS
-        // Caracol (Ditu). Los ids con este prefijo los arma `DituEntities` al guardar un título de
-        // Caracol en la biblioteca: su `PREFIX` tiene que coincidir con este.
+        // Caracol (Ditu). Los ids con este prefijo los arman `DituEntities`, al guardar un título de
+        // Caracol en la biblioteca, y `DituVivo`, para un canal en vivo: sus `PREFIX` tienen que
+        // empezar con este.
         episodeId.startsWith("ditu:") -> SourceKind.DITU
         episodeId.startsWith(LIVE_PREFIX) -> SourceKind.LIVE
         else -> SourceKind.ARCHIVE
