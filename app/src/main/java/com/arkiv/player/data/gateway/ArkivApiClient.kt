@@ -2,10 +2,8 @@ package com.arkiv.player.data.gateway
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
@@ -30,7 +28,7 @@ data class GatewaySearchQuery(
 
 /**
  * Cliente del gateway, para lo que en esta rama sigue siendo del servidor: la trivia ("dato
- * curioso", excepción permanente) y el aviso para regenerar recomendaciones.
+ * curioso", excepción permanente).
  *
  * El contenido ya NO sale de acá: búsqueda, reproducción y capítulos se los pide
  * [com.arkiv.player.data.magis.MagisFuente] al portal directo (sub-proyecto 2A).
@@ -65,26 +63,6 @@ class ArkivApiClient(
         personToken()?.takeIf { it.isNotBlank() }?.let { b.header("Authorization", it) }
         deviceToken()?.takeIf { it.isNotBlank() }?.let { b.header("X-Arkiv-Device", it) }
         return b
-    }
-
-    /**
-     * Avisa al gateway que conviene reconsiderar la fila "Para ti" (spec
-     * `2026-08-16-recomendaciones-por-historial`): responde 202 al instante y decide él mismo si
-     * corresponde generar -tiene su propia ventana de 24 h y su interruptor por cuenta-, así que
-     * este cliente no intenta adivinar nada de esa decisión, solo avisa.
-     *
-     * Lanza [GatewayException] igual que el resto de los métodos de esta clase si el pedido falla:
-     * acá NO se traga el error -eso es responsabilidad de quien llama (ver
-     * [com.arkiv.player.data.gateway.AvisadorDeRecomendaciones]).
-     */
-    suspend fun refrescarRecomendaciones() {
-        withContext(Dispatchers.IO) {
-            ejecutar(
-                pedido("${baseUrl()}/v1/recomendaciones/refrescar")
-                    .post(JSONObject().toString().toRequestBody("application/json".toMediaType()))
-                    .build(),
-            )
-        }
     }
 
     /**

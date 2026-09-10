@@ -7,13 +7,12 @@ import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
 /**
- * Lo que le queda a este cliente después del sub-proyecto 2A: la trivia, la metadata de anime y el
- * aviso de recomendaciones. La búsqueda, la reproducción y los capítulos se fueron al portal
+ * Lo que le queda a este cliente después del sub-proyecto 2A: la trivia (excepción permanente, ver
+ * el CLAUDE.md de la rama). La búsqueda, la reproducción y los capítulos se fueron al portal
  * directo — sus tests viven en `MagisFuenteTest`.
  */
 class ArkivApiClientTest {
@@ -106,28 +105,6 @@ class ArkivApiClientTest {
         server.enqueue(MockResponse().setBody("{}"))
 
         assertEquals(emptyList<String>(), client.trivia(42, "movie", null, null))
-    }
-
-    // --- recomendaciones ----------------------------------------------------------------------
-
-    @Test
-    fun `refrescarRecomendaciones pega al POST correcto`() = runBlocking {
-        server.enqueue(MockResponse().setResponseCode(202).setBody("{}"))
-
-        client.refrescarRecomendaciones()
-
-        val pedido = server.takeRequest()
-        assertEquals("POST", pedido.method)
-        assertEquals("/v1/recomendaciones/refrescar", pedido.path)
-    }
-
-    @Test
-    fun `refrescarRecomendaciones lanza si el gateway falla`() {
-        server.enqueue(MockResponse().setResponseCode(500).setBody("boom"))
-
-        val e = runCatching { runBlocking { client.refrescarRecomendaciones() } }.exceptionOrNull()
-
-        assertTrue("esperaba GatewayException y fue $e", e is GatewayException)
     }
 
 }

@@ -317,20 +317,11 @@ class AppGraph(context: Context) {
 
     val dlna: DlnaController by lazy { DlnaController(appContext) }
 
-    /** Avisa al gateway cuando algo pasa a visto, para "Para ti" (ver el doc de la clase). */
-    val avisadorDeRecomendaciones: com.arkiv.player.data.gateway.AvisadorDeRecomendaciones by lazy {
-        com.arkiv.player.data.gateway.AvisadorDeRecomendaciones(arkivApiClient)
-    }
-
     val repository: ArkivRepository by lazy {
         ArkivRepository(
             database, tmdbApi,
             almacenDeFrames = almacenDeFrames,
             destructorDeFrames = destructorDeFrames,
-            avisadorDeRecomendaciones = avisadorDeRecomendaciones,
-            // El mismo scope de vida-de-app que usa todo lo demás: el aviso de recomendaciones no
-            // puede depender de que la pantalla que lo disparó siga viva.
-            scope = applicationScope,
         )
     }
     val aniListApi: AniListApi by lazy { AniListApi() }

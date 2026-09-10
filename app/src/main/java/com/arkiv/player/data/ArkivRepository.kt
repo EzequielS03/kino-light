@@ -13,14 +13,10 @@ import com.arkiv.player.data.model.Episode
 import com.arkiv.player.data.model.EpisodeNumbering
 import com.arkiv.player.miniaturas.AlmacenDeFrames
 import com.arkiv.player.miniaturas.DestructorDeFrames
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.launch
 import org.json.JSONArray
 
 /** Fuente para reproducir un episodio torrent: magnet (no bloqueante) o bytes de .torrent. */
@@ -137,21 +133,6 @@ class ArkivRepository(
      */
     private val destructorDeFrames: DestructorDeFrames =
         DestructorDeFrames(almacenDeFrames, db.episodeFrameDao()),
-    /**
-     * Avisa al gateway cuando un capítulo pasa a visto, para que reconsidere la fila "Para ti"
-     * (spec `2026-08-16-recomendaciones-por-historial`). Nullable con default null por el mismo
-     * motivo que [almacenDeFrames]: sin avisador, los call sites de test/herramientas siguen
-     * guardando progreso igual, solo que sin avisarle a nadie.
-     */
-    private val avisadorDeRecomendaciones: com.arkiv.player.data.gateway.AvisadorDeRecomendaciones? = null,
-    /**
-     * Dónde correr trabajo en segundo plano sin bloquear la emisión del Flow que lo dispara (hoy,
-     * [dispararRefrescoDeRecomendaciones]). Un scope propio (no el de la UI) a propósito: tiene que
-     * sobrevivir a que la pantalla que lo disparó se cierre a mitad de camino. El default es un
-     * scope nuevo por si algún call site no inyecta uno; en la app real `AppGraph` pasa el mismo
-     * `applicationScope` que usa para todo lo demás.
-     */
-    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) {
     private val itemDao = db.itemDao()
     private val playbackDao = db.playbackDao()
@@ -162,19 +143,6 @@ class ArkivRepository(
     private val episodeFrameDao = db.episodeFrameDao()
     private val liveFavoriteDao = db.liveFavoriteDao()
     private val liveRecentDao = db.liveRecentDao()
-
-    /**
-     * Lanza [AvisadorDeRecomendaciones.avisar] en [scope], sin esperar el resultado.
-     *
-     * Se llama SIEMPRE después de que el progreso ya quedó guardado (`playbackDao.upsert`), nunca
-     * antes: guardar que se vio un capítulo es lo importante, y no puede depender de que el
-     * gateway responda rápido, de que haya red, o de nada de lo que pase acá adentro -- por eso
-     * `scope.launch` (no se espera) y el avisador traga sus propios errores (ver su doc).
-     */
-    private fun dispararRefrescoDeRecomendaciones() {
-        val avisador = avisadorDeRecomendaciones ?: return
-        scope.launch { avisador.avisar() }
-    }
 
     fun observeLibrary(): Flow<List<LibraryRow>> = itemDao.observeLibrary()
 
@@ -1177,10 +1145,6 @@ class ArkivRepository(
         // tocar nunca el toggle manual de setWatched— lo dejaría vivo para siempre.
         if (watched) {
             borrarFrameDe(episodeId)
-            // El progreso YA quedó guardado arriba (`playbackDao.upsert`): este aviso es un extra
-            // que corre después y en su propio scope, nunca puede ser la causa de que un capítulo
-            // visto no se guarde.
-            dispararRefrescoDeRecomendaciones()
         }
     }
 
@@ -1203,8 +1167,6 @@ class ArkivRepository(
         // el frame que haya sigue siendo válido.
         if (watched) {
             borrarFrameDe(episodeId)
-            // Mismo motivo que en savePlayback: el progreso ya está guardado, esto es un extra.
-            dispararRefrescoDeRecomendaciones()
         }
     }
 

@@ -59,8 +59,7 @@ class AgregadorDeRecomendaciones(
      * Un fallo acá NO es terminal: `/v1/episodes` responde 422 para las fuentes que no exponen
      * capítulos (hoy hay recomendaciones que apuntan a archive y a torrent), y un gateway caído no
      * puede dejar sin guardar algo que igual se puede reproducir. [CancellationException] se
-     * relanza, mismo criterio que `AvisadorDeRecomendaciones`: tragarla dejaría corriendo una
-     * corrutina que su scope ya dio por muerta.
+     * relanza: tragarla dejaría corriendo una corrutina que su scope ya dio por muerta.
      */
     private suspend fun temporadaDelGateway(rec: RecomendacionEntity): TemporadaDeRecomendacion? = try {
         val (capitulos, serie) = gateway.episodesConSerie(rec.ref)
