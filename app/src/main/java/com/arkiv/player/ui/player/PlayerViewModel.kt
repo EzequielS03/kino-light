@@ -161,14 +161,14 @@ class PlayerViewModel(
     private val httpGateway: okhttp3.OkHttpClient,
     // Sub-proyecto 2A: de acá sale lo reproducible. Antes lo pedía [gatewayClient] a `/v1/resolve`;
     // ahora es el portal directo. [gatewayClient] queda solo para lo que sigue siendo del servidor
-    // (la trivia y los marcadores de intro).
+    // (los marcadores de intro).
     private val fuente: com.arkiv.player.data.gateway.FuenteDeContenido,
     /** Si hay una cuenta de Magis vinculada en este aparato. Solo decide qué dice el error cuando
      *  un canal en vivo no abre (ver [mensajeErrorVivo]): el vivo la exige, el VOD no. */
     private val hayCuentaDeMagis: () -> Boolean = { false },
     // [gatewayClient] (ver más abajo) es OTRA instancia de `ArkivApiClient` además de
-    // `AppGraph.arkivApiClient`, y necesita las dos cabeceras de sesión para lo que le queda —la
-    // trivia y los marcadores de intro—: `X-Arkiv-Key` ya no existe, así que sin esto se quedaría
+    // `AppGraph.arkivApiClient`, y necesita las dos cabeceras de sesión para lo que le queda —los
+    // marcadores de intro—: `X-Arkiv-Key` ya no existe, así que sin esto se quedaría
     // sin NINGUNA credencial. `deviceAuth` ya viene por constructor arriba -de ahí sale el token del
     // aparato-; el de la persona no tenía por dónde entrar, así que se suma esta lambda en vez de
     // todo `SesionDePersona` (acá alcanza con leer el token, igual que ya hace [deviceAuth]).
@@ -222,18 +222,7 @@ class PlayerViewModel(
     val webExtras: StateFlow<WebExtras?> = _webExtras.asStateFlow()
 
     /**
-     * Datos curiosos de lo que se está viendo, o vacío. Se piden TODOS DE UNA al arrancar y la
-     * pantalla rota entre ellos (ver [TriviaDelPlayer]): cambiar de dato no puede costar los 3 a
-     * 20 s que tarda el modelo, ni fallar a mitad de una película.
-     */
-    private val _trivia = MutableStateFlow<List<String>>(emptyList())
-    val trivia: StateFlow<List<String>> = _trivia.asStateFlow()
-
-    /** Cancelable: al saltar de capítulo, la tanda del anterior ya no sirve. */
-    private var triviaJob: kotlinx.coroutines.Job? = null
-
-    /**
-     * Cancelable, igual que [triviaJob]: sin esto, dos `load()` seguidos para el mismo capítulo
+     * Cancelable: sin esto, dos `load()` seguidos para el mismo capítulo
      * (p. ej. una recomposición que dispara la carga dos veces) arrancan dos corrutinas que pasan
      * el chequeo de "¿ya hay fila?" de [BuscadorDeMarcadores.asegurar] ANTES de que la primera
      * llegue a escribir -- ese chequeo es lectura-luego-escritura sin lock, así que las dos le
@@ -256,10 +245,8 @@ class PlayerViewModel(
             loadLive(episodeId.removePrefix(PlayerSource.LIVE_PREFIX))
             return
         }
-        // En vivo NO lleva trivia y por eso va después del corte: un canal no es una obra, no
-        // tiene tmdbId, y lo que está pasando ahora cambia cada media hora. Mismo motivo para los
-        // marcadores automáticos: un canal no tiene intro/outro que saltar.
-        cargarTrivia(episodeId)
+        // En vivo NO lleva marcadores automáticos y por eso va después del corte: un canal no es
+        // una obra, no tiene tmdbId, y no tiene intro/outro que saltar.
         cargarMarcadores(episodeId)
         viewModelScope.launch {
             // Antes que nada: que el detalle sepa por qué capítulo vas aunque salgas enseguida.
@@ -687,57 +674,11 @@ class PlayerViewModel(
     }
 
     /**
-     * Pide la tanda de datos curiosos, best-effort.
-     *
-     * Se traga cualquier fallo: sin datos no se dibuja el botón, que es el fallo bueno para algo
-     * accesorio. Mismo criterio que [com.arkiv.player.data.gateway.AvisadorDeRecomendaciones] --
-     * lo que importa es reproducir, y esto no puede estorbar. `CancellationException` no se traga:
-     * dejaría corriendo una corrutina que su scope ya dio por muerta.
-     */
-    private fun cargarTrivia(episodeId: String) {
-        triviaJob?.cancel()
-        _trivia.value = emptyList()
-        triviaJob = viewModelScope.launch {
-            val obra = try {
-                repo.obraDeTriviaPara(episodeId)
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w(PLAY, "trivia: no se pudo identificar la obra: ${e.message}")
-                null
-            } ?: run {
-                // `obraDeTriviaPara` devuelve null sin excepción en tres casos —el episodio no está
-                // en la tabla, el ítem tampoco, o el ítem no tiene tmdbId— y ninguno pasa por el
-                // catch de arriba. Sin esta línea la trivia se apagaba en silencio absoluto: no hay
-                // botón, no hay aviso y no hay nada en el log que diga por qué.
-                Log.w(PLAY, "trivia: sin obra para $episodeId (¿ítem sin tmdbId?) → no se pide")
-                return@launch
-            }
-            _trivia.value = try {
-                gatewayClient.trivia(obra.tmdbId, obra.tipo, obra.temporada, obra.episodio).also {
-                    // También se anota la respuesta VACÍA: es el otro silencio, y desde la app se ve
-                    // igual que el anterior (sin botón), pero se arregla en un sitio distinto.
-                    Log.w(
-                        PLAY,
-                        "trivia: ${it.size} datos para tmdb=${obra.tmdbId} tipo=${obra.tipo} " +
-                            "t=${obra.temporada} e=${obra.episodio}",
-                    )
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w(PLAY, "trivia: ${e.javaClass.simpleName}: ${e.message}")
-                emptyList()
-            }
-        }
-    }
-
-    /**
      * Pide al gateway los tiempos de intro/outro de este capítulo y los guarda, best-effort.
      *
      * No pinta nada: quien va a dibujar el botón de saltar (tarea siguiente) lee `skip_markers`,
-     * que ya sincroniza -- acá solo hace falta dejar la fila puesta. Mismo criterio que
-     * [cargarTrivia]: se dispara al cargar el capítulo y no puede estorbar la reproducción.
+     * que ya sincroniza -- acá solo hace falta dejar la fila puesta. Se dispara al cargar el
+     * capítulo y no puede estorbar la reproducción.
      *
      * [BuscadorDeMarcadores.asegurar] ya se traga sus propios fallos de red (salvo cancelación) y
      * corta temprano si falta algún dato. El try/catch de acá es solo por las dos consultas a la
@@ -1028,7 +969,7 @@ class PlayerViewModel(
 
     /** Cliente HTTP compartido para [warmHead]: evita crear un OkHttpClient (pool de hilos+conexiones) por episodio. */
     /**
-     * Cliente del gateway, solo para lo que en esta rama sigue siendo del servidor: la trivia y los
+     * Cliente del gateway, solo para lo que en esta rama sigue siendo del servidor: los
      * marcadores de intro. Lo reproducible lo da [fuente], que habla con el portal directo.
      *
      * La URL se lee de [settings] en cada llamada. [httpGateway] viene por constructor (Task 7b, ver

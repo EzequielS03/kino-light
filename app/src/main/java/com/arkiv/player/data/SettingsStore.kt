@@ -43,7 +43,7 @@ class SettingsStore(context: Context) {
 
     fun setDimLevel(v: Int) { prefs.edit().putInt(KEY_DIM_LEVEL, v).apply(); _dimLevel.value = v }
 
-    /** Fija a mano la URL de lo que queda del servidor (trivia, marcadores, subtítulos, cuenta). */
+    /** Fija a mano la URL de lo que queda del servidor (marcadores, subtítulos, cuenta). */
     fun setGatewayUrl(v: String) { prefs.edit().putString(KEY_GATEWAY_URL, v).apply(); _gatewayUrl.value = v }
 
     fun setArtworkRematchDone(v: Boolean) {

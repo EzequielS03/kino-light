@@ -41,7 +41,6 @@ import androidx.compose.material.icons.filled.ClosedCaptionOff
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.SkipNext
@@ -351,7 +350,6 @@ private fun PlayerContent(
     // Fuente web: mientras el resolver de blog snifea el stream, y los subtítulos sniffeados a adjuntar.
     val resolving by vm.resolving.collectAsStateWithLifecycle()
     val webExtras by vm.webExtras.collectAsStateWithLifecycle()
-    val trivia by vm.trivia.collectAsStateWithLifecycle()
     // Adjunta como pistas externas los subtítulos que sniffeó el resolver (cuando ya hay media).
     LaunchedEffect(playlist, webExtras) {
         // Los idiomas que declara la fuente. Va PRIMERO, antes de cualquier return y antes del delay
@@ -466,12 +464,6 @@ private fun PlayerContent(
     // junto en `PlayerEspejo.kt`: son los valores que casi toda la interfaz lee a la vez.
     val espejo = rememberEspejoDelPlayer()
 
-    // --- Datos curiosos ---
-    // El dato avanza a PULSACIÓN, no con el reloj: cada `arriba` (o el botón "i", o tocar el
-    // cartel en el teléfono) muestra el siguiente, y al pasar el último vuelve el primero. El
-    // estado y las dos piezas de interfaz viven en `TriviaDelPlayer.kt`.
-    val estadoTrivia = rememberEstadoDeTrivia()
-    EfectosDeTrivia(estadoTrivia, trivia.size, episodeId)
     var loaded by remember { mutableStateOf(false) }
     // Episodio que esta pantalla ya mandó al receptor. Coordina los dos caminos que castean (la
     // carga de playlist y el salto local→cast de LaunchedEffect(casting)): si el usuario conecta
@@ -1342,10 +1334,6 @@ private fun PlayerContent(
     // mirara controles.visible, en modo marcado o con un error en pantalla la variable puede seguir
     // en true sin que se vea nada, y BACK quedaría muerto (ni cierra ni sale). Mantener ambas
     // iguales si se toca una.
-    // BACK cierra el panel del dato curioso antes que nada. Va ANTES del handler de los controles
-    // para quedar más adentro en la pila: con el panel abierto, BACK lo cierra y no sale del video.
-    BackHandler(enabled = estadoTrivia.panelAbierto) { estadoTrivia.cerrarPanel() }
-
     BackHandler(enabled = !enVivo && controles.visible && loadError == null && estadoDlna.activo == null && !marcadores.marcando) {
         controles.ocultar()
     }
@@ -1734,13 +1722,6 @@ private fun PlayerContent(
                             // listener ni siquiera debería recibir el evento; el fallback existe
                             // solo por si el foco no llegó a moverse a tiempo.
                             if (controles.visible) return@setOnKeyListener false
-                            // ARRIBA con los controles ocultos y datos cargados: en vez de abrir el
-                            // overlay, despliega el dato curioso que sigue. Va ANTES que el bloque
-                            // de vivo porque ahí arriba zapea, y un canal no lleva datos igual.
-                            if (!enVivo && keyCode == KeyEvent.KEYCODE_DPAD_UP && TriviaDelPlayer.hayBoton(trivia)) {
-                                estadoTrivia.mostrarSiguiente(trivia.size)
-                                return@setOnKeyListener true
-                            }
                             // Vivo (Tarea 14): Arriba/Abajo zapean en vez de mostrar el overlay de
                             // VOD (que en vivo no existe, ver `visible = !enVivo && ...`), e
                             // Izquierda/Derecha no hacen seek (no hay duración/posición en vivo).
@@ -2055,15 +2036,6 @@ private fun PlayerContent(
         // Vive AFUERA del AnimatedVisibility de los controles (como el cartel de Chromecast y el
         // indicador de descarga de torrent de arriba) a propósito: es informativo, no un control,
         // así que se mantiene visible aunque los controles se hayan desvanecido por inactividad.
-        // Cartel "Dato curioso" arriba y centrado, y el panel que despliega el texto (ver sus KDoc
-        // en `TriviaDelPlayer.kt`). En el teléfono el cartel es tocable; en TV se abre con la
-        // flecha arriba, ver el listener del video.
-        CartelDeTrivia(
-            estado = estadoTrivia,
-            onTocar = if (isTv) null else ({ estadoTrivia.mostrarSiguiente(trivia.size) }),
-        )
-        PanelDeTrivia(estadoTrivia, trivia)
-
         // Casteando a Chromecast.
         if (casting) {
             Row(
@@ -2598,41 +2570,14 @@ private fun PlayerContent(
                                         .focusRequester(focos.subirBrillo)
                                         .focusProperties {
                                             left = focos.bajarBrillo
-                                            right = when {
-                                                TriviaDelPlayer.hayBoton(trivia) -> focos.trivia
-                                                hayMarcadoresQueCorregir -> focos.marcadores
-                                                else -> focos.subirBrillo
-                                            }
+                                            right = if (hayMarcadoresQueCorregir) focos.marcadores else focos.subirBrillo
                                             up = focos.barra
                                             down = focos.subirBrillo
                                         },
                                 )
-                                // Datos curiosos: solo existe si el gateway devolvió algo. Va al
-                                // FINAL de la fila a propósito -- insertarlo en el medio obligaría a
-                                // reescribir varios eslabones de esta cadena de foco, y una
-                                // equivocación ahí se siente como un control remoto roto. El `right`
-                                // del botón de arriba ya lo tenía previsto.
-                                if (TriviaDelPlayer.hayBoton(trivia)) {
-                                    TvTransportButton(
-                                        icon = Icons.Default.Info,
-                                        contentDescription = "Dato curioso",
-                                        onClick = { estadoTrivia.mostrarSiguiente(trivia.size) },
-                                        iconSize = 24.dp,
-                                        tint = Color.White,
-                                        // Último de la fila: su `right` apunta a sí mismo (tope derecho).
-                                        modifier = Modifier
-                                            .focusRequester(focos.trivia)
-                                            .focusProperties {
-                                                left = focos.subirBrillo
-                                                right = if (hayMarcadoresQueCorregir) focos.marcadores else focos.trivia
-                                                up = focos.barra
-                                                down = focos.trivia
-                                            },
-                                    )
-                                }
                                 // Corregir los tiempos del capítulo en curso. Va al final de la
-                                // fila por lo mismo que el de datos curiosos: meterlo en el medio
-                                // obliga a reescribir eslabones de la cadena de foco.
+                                // fila -- meterlo en el medio obliga a reescribir eslabones de la
+                                // cadena de foco.
                                 if (hayMarcadoresQueCorregir) {
                                     MenuDeMarcadoresDelCapitulo(
                                         estado = marcadores,
@@ -2643,7 +2588,7 @@ private fun PlayerContent(
                                         modifier = Modifier
                                             .focusRequester(focos.marcadores)
                                             .focusProperties {
-                                                left = if (TriviaDelPlayer.hayBoton(trivia)) focos.trivia else focos.subirBrillo
+                                                left = focos.subirBrillo
                                                 right = focos.marcadores
                                                 up = focos.barra
                                                 down = focos.marcadores
@@ -2691,16 +2636,6 @@ private fun PlayerContent(
                                         contentDescription = "Subir brillo",
                                         tint = if (dimNivel > 0) ArkivRed else Color.White,
                                     )
-                                }
-                                // El mismo botón de dato curioso que en TV, al final de la fila.
-                                if (TriviaDelPlayer.hayBoton(trivia)) {
-                                    IconButton(onClick = { estadoTrivia.mostrarSiguiente(trivia.size) }) {
-                                        Icon(
-                                            Icons.Default.Info,
-                                            contentDescription = "Dato curioso",
-                                            tint = Color.White,
-                                        )
-                                    }
                                 }
                             }
                         }

@@ -3,7 +3,7 @@ package com.arkiv.player.ui.player
 /**
  * Cuándo tapar la pantalla con el spinner de carga.
  *
- * Vive afuera del Composable a propósito —mismo criterio que [TriviaDelPlayer] y `DpadDelDrawer`—
+ * Vive afuera del Composable a propósito —mismo criterio que `DpadDelDrawer`—
  * porque la condición se evalúa en DOS sitios: el overlay que la dibuja y el log que la diagnostica.
  * Escrita dos veces se desincroniza en el primer cambio, y entonces el log deja de describir lo que
  * se está viendo, que es justo para lo que existe.

@@ -26,8 +26,6 @@ internal class FocosDelOverlay {
     val bajarBrillo = FocusRequester()
     val subirBrillo = FocusRequester()
 
-    val trivia = FocusRequester()
-
     /** Fila de transporte. */
     val retroceder = FocusRequester()
     val playPausa = FocusRequester()

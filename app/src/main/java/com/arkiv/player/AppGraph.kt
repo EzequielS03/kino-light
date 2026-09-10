@@ -175,8 +175,8 @@ class AppGraph(context: Context) {
      * captura): así cambiarla en Ajustes tiene efecto sin reiniciar la app.
      *
      * Ya NO sirve contenido (búsqueda, reproducción ni capítulos): eso lo da [fuenteDeContenido]
-     * hablándole al portal directo. Queda para lo que sigue siendo del servidor — la trivia
-     * (excepción permanente) y los marcadores de intro.
+     * hablándole al portal directo. Queda para lo que sigue siendo del servidor — los marcadores
+     * de intro.
      */
     val arkivApiClient: com.arkiv.player.data.gateway.ArkivApiClient by lazy {
         com.arkiv.player.data.gateway.ArkivApiClient(
