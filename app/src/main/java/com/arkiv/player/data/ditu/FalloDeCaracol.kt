@@ -15,7 +15,8 @@ import java.net.UnknownHostException
  * pero a la persona no le dice qué pasó.
  *
  * Es el único lugar donde se traduce: la línea de la búsqueda ([enLaBusqueda]), lo que no se pudo
- * abrir ([alAbrir]) y lo que se cortó reproduciendo ([alReproducir]). Lo que no se reconoce cae en
+ * abrir ([alAbrir]), lo que se cortó reproduciendo ([alReproducir]) y lo que no cargó en la sección
+ * de Caracol ([alCargarElCatalogo], [alCargarLosCanales]). Lo que no se reconoce cae en
  * un genérico, nunca en el texto crudo. La excepción son los motivos de [DituEntitlement]: ya vienen
  * escritos para la persona y pasan igual.
  *
@@ -60,6 +61,14 @@ internal object FalloDeCaracol {
     /** Lo que dice el reproductor cuando no se pudo abrir lo de Caracol (falló resolverlo). */
     fun alAbrir(error: Throwable?): String =
         frase(clasificar(error), generico = GENERICO_AL_REPRODUCIR)
+
+    /** Lo que dice la sección de Caracol cuando no cargó su catálogo: ahí no se reproduce nada. */
+    fun alCargarElCatalogo(error: Throwable?): String =
+        frase(clasificar(error), generico = "No se pudo cargar el catálogo de Caracol")
+
+    /** Lo que dice la pestaña "En vivo" de la sección de Caracol cuando no cargaron los canales. */
+    fun alCargarLosCanales(error: Throwable?): String =
+        frase(clasificar(error), generico = "No se pudieron cargar los canales de Caracol")
 
     /**
      * Lo que dice el reproductor cuando `DituExoPlayer` se rindió, por la familia del [codigo] de

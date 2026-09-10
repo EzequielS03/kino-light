@@ -97,11 +97,15 @@ internal fun TvCaracolScreen(onPlay: (episodeId: String) -> Unit) {
         runCatching { graph.dituFuente.catalogoCompleto(forzar = recargas > 0) }
             .onSuccess { titulos = it; error = null }
             .onFailure {
-                error = it.message ?: "No se pudo cargar el catálogo de Caracol"
+                // El detalle va al log; en pantalla, en palabras de persona.
+                android.util.Log.w("TvCaracol", "no cargó el catálogo", it)
+                error = com.arkiv.player.data.ditu.FalloDeCaracol.alCargarElCatalogo(it)
                 aviso = error
             }
         // Si falla, se dice en la pestaña: no puede verse igual que "no hay canales".
-        canales = EstadoDeCanales.de(runCatching { graph.dituFuente.canales() })
+        val resultadoDeCanales = runCatching { graph.dituFuente.canales() }
+        resultadoDeCanales.exceptionOrNull()?.let { android.util.Log.w("TvCaracol", "no cargaron los canales", it) }
+        canales = EstadoDeCanales.de(resultadoDeCanales)
         cargando = false
     }
 
@@ -252,7 +256,7 @@ private fun TvCaracolContenido(
                             enVivo -> when (canales) {
                                 EstadoDeCanales.Cargando, is EstadoDeCanales.Listos -> "Cargando…"
                                 EstadoDeCanales.Vacio -> "Caracol no tiene canales en vivo para mostrar."
-                                // Falló: se dice con lo que dijo el error, y "Recargar" lo reintenta.
+                                // Falló: se dice en palabras de persona (ver EstadoDeCanales), y "Recargar" lo reintenta.
                                 is EstadoDeCanales.Fallo -> "${canales.mensaje}\nPrueba otra vez con «Recargar»."
                             }
                             cargando -> "Cargando…"

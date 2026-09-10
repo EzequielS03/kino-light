@@ -12,10 +12,22 @@ class EstadoDeCanalesTest {
 
     private val canal = DituCanal(channelId = 1, nombre = "Caracol TV", logoUrl = "", assetId = 11)
 
-    @Test fun `un fallo da el estado de error con su mensaje`() {
-        val estado = EstadoDeCanales.de(Result.failure(GatewayException("Caracol no responde")))
+    /** Con el TV sin internet la pestaña decía "Unable to resolve host…": ahora lo dice para la persona. */
+    @Test fun `un fallo da el estado de error en palabras de persona`() {
+        val sinDns = GatewayException(
+            "Caracol no responde: Unable to resolve host \"middleware.ditu.caracoltv.com\"",
+            java.net.UnknownHostException("Unable to resolve host \"middleware.ditu.caracoltv.com\""),
+        )
+        val estado = EstadoDeCanales.de(Result.failure(sinDns))
 
-        assertEquals(EstadoDeCanales.Fallo("Caracol no responde"), estado)
+        assertEquals(EstadoDeCanales.Fallo("Caracol no respondió: sin conexión a internet"), estado)
+    }
+
+    /** Lo que no se reconoce es el genérico de canales, nunca el mensaje crudo. */
+    @Test fun `un fallo que no se reconoce no muestra el mensaje crudo`() {
+        val estado = EstadoDeCanales.de(Result.failure(GatewayException("JSONObject[\"resultObj\"] not found")))
+
+        assertEquals(EstadoDeCanales.Fallo("No se pudieron cargar los canales de Caracol"), estado)
     }
 
     /** Un error sin mensaje igual se dice: no puede quedar como "no hay canales". */

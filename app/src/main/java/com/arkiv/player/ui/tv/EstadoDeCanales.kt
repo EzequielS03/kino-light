@@ -1,13 +1,15 @@
 package com.arkiv.player.ui.tv
 
 import com.arkiv.player.data.ditu.DituCanal
+import com.arkiv.player.data.ditu.FalloDeCaracol
 
 /**
  * Lo que muestra la pestaña "En vivo" de [TvCaracolScreen], armado a partir de la llamada a
  * `DituFuente.canales`.
  *
  * Existe para que un fallo NO se vea igual que "no hay canales": si Caracol o la red fallan, la
- * pestaña lo dice con el mensaje del error y la persona puede reintentar con "Recargar".
+ * pestaña lo dice en palabras de persona ([FalloDeCaracol.alCargarLosCanales]; el detalle va al log
+ * de `TvCaracolScreen`) y la persona puede reintentar con "Recargar".
  */
 internal sealed interface EstadoDeCanales {
 
@@ -24,9 +26,7 @@ internal sealed interface EstadoDeCanales {
     companion object {
         fun de(resultado: Result<List<DituCanal>>): EstadoDeCanales = resultado.fold(
             onSuccess = { if (it.isEmpty()) Vacio else Listos(it) },
-            onFailure = {
-                Fallo(it.message?.takeIf { m -> m.isNotBlank() } ?: "No se pudieron cargar los canales de Caracol.")
-            },
+            onFailure = { Fallo(FalloDeCaracol.alCargarLosCanales(it)) },
         )
     }
 }

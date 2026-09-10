@@ -77,6 +77,17 @@ class FalloDeCaracolTest {
         assertEquals("Caracol: solo disponible en Colombia", FalloDeCaracol.alAbrir(e))
     }
 
+    /** La sección de Caracol no reproduce nada: su genérico no puede hablar de reproducir. */
+    @Test fun `la seccion de Caracol tiene sus propios genericos`() {
+        val raro = envuelto(IllegalStateException("JSONObject[\"resultObj\"] not found"))
+        assertEquals("No se pudo cargar el catálogo de Caracol", FalloDeCaracol.alCargarElCatalogo(raro))
+        assertEquals("No se pudieron cargar los canales de Caracol", FalloDeCaracol.alCargarLosCanales(raro))
+
+        val sinDns = envuelto(UnknownHostException("Unable to resolve host \"x\""))
+        assertEquals("Caracol no respondió: sin conexión a internet", FalloDeCaracol.alCargarElCatalogo(sinDns))
+        assertEquals("Caracol no respondió: sin conexión a internet", FalloDeCaracol.alCargarLosCanales(sinDns))
+    }
+
     @Test fun `lo que no se reconoce es un generico`() {
         val e = envuelto(IllegalStateException("JSONObject[\"resultObj\"] not found"))
         assertEquals("Caracol no respondió", FalloDeCaracol.enLaBusqueda(e, e.message))
