@@ -11,19 +11,21 @@ import java.util.concurrent.TimeUnit
 
 class GatewayException(mensaje: String, causa: Throwable? = null) : RuntimeException(mensaje, causa)
 
+/**
+ * Qué se está buscando. Quedaron solo los campos que la fuente de verdad usa: el `year`, el
+ * `anilistId`, el `lang`, el `sources`, el `maxBytes` y el `budgetMs` eran parámetros del gateway
+ * -filtrar por idioma, elegir fuentes, acotar torrents, cortar por tiempo-, y el portal de Magis no
+ * recibe nada de eso. Dejarlos era prometer un filtro que nadie aplica.
+ *
+ * [tmdbId] sí se usa, y no para filtrar: de ahí sale el título ORIGINAL con el que se rankea lo que
+ * devuelve el portal (ver `MagisFuente.formasDelTitulo`).
+ */
 data class GatewaySearchQuery(
     val q: String,
     val type: String = "movie",
     val season: Int = 0,
     val episode: Int = 0,
-    val year: String = "",
     val tmdbId: Int = 0,
-    val anilistId: Long = 0,
-    val lang: String = "",
-    val sources: String = "",
-    /** Tope de tamaño por torrent en bytes (0 = sin tope). */
-    val maxBytes: Long = 0,
-    val budgetMs: Int = 0,
 )
 
 /**

@@ -4,7 +4,6 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.arkiv.player.data.ArkivRepository
-import com.arkiv.player.data.GatewayConfigSource
 import com.arkiv.player.data.SettingsStore
 import com.arkiv.player.data.db.LiveRecentDao
 import com.arkiv.player.data.db.LiveRecentEntity

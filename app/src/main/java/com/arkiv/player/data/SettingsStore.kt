@@ -4,18 +4,6 @@ import android.content.Context
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
-/**
- * De dónde salió el `gatewayUrl` que este dispositivo tiene ahora mismo.
- *
- * Existe para resolver la precedencia cuando el vínculo TV↔celu (ver [com.arkiv.player.pairing.PairingManager])
- * intenta propagar la config del celu al TV: [MANUAL] gana siempre (alguien la fijó a propósito
- * en ESTE dispositivo, p.ej. para apuntar a un gateway de pruebas) y nunca se pisa por sync;
- * [DEFAULT] (el default de [DEFAULT_GATEWAY_URL], nunca tocado) SÍ se puede reemplazar; [SYNCED]
- * es lo que dejó el último pareo -- también reemplazable por un pareo posterior, para no quedar
- * pegado a una config vieja para siempre.
- */
-enum class GatewayConfigSource { DEFAULT, MANUAL, SYNCED }
-
 /** Ajustes simples persistidos en SharedPreferences. */
 class SettingsStore(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("arkiv_settings", Context.MODE_PRIVATE)
@@ -32,16 +20,6 @@ class SettingsStore(context: Context) {
     // X-Arkiv-Device), así que no queda ningún secreto que persistir ni propagar por pareo.
     private val _gatewayUrl = MutableStateFlow(prefs.getString(KEY_GATEWAY_URL, DEFAULT_GATEWAY_URL)!!)
     val gatewayUrl: StateFlow<String> = _gatewayUrl
-
-    // Ver KDoc de [GatewayConfigSource]. Arranca en DEFAULT: un install nuevo (celu o TV) todavía
-    // no tiene ni override manual ni config sincronizada por pareo.
-    private val _gatewayConfigSource = MutableStateFlow(readGatewayConfigSource())
-    val gatewayConfigSource: StateFlow<GatewayConfigSource> = _gatewayConfigSource
-
-    // Arranca encendido, con caída al camino viejo si el gateway no responde: si el NUC se cae,
-    // la búsqueda tiene que seguir funcionando igual.
-    private val _useGateway = MutableStateFlow(prefs.getBoolean(KEY_USE_GATEWAY, true))
-    val useGateway: StateFlow<Boolean> = _useGateway
 
     // ¿Ya se reparó el arte que se resolvió antes del match exacto de TMDB? Ver
     // ArkivRepository.repairArtworkMatches. Se marca SOLO cuando la pasada termina entera, para que
@@ -65,15 +43,8 @@ class SettingsStore(context: Context) {
 
     fun setDimLevel(v: Int) { prefs.edit().putInt(KEY_DIM_LEVEL, v).apply(); _dimLevel.value = v }
 
-    // Fija la config a mano en ESTE dispositivo (p.ej. un ajuste de debug): marca la fuente como
-    // MANUAL.
-    fun setGatewayUrl(v: String) { prefs.edit().putString(KEY_GATEWAY_URL, v).apply(); _gatewayUrl.value = v; marcarGatewayManual() }
-    fun setUseGateway(v: Boolean) { prefs.edit().putBoolean(KEY_USE_GATEWAY, v).apply(); _useGateway.value = v }
-
-    private fun marcarGatewayManual() {
-        prefs.edit().putString(KEY_GATEWAY_CONFIG_SOURCE, GatewayConfigSource.MANUAL.name).apply()
-        _gatewayConfigSource.value = GatewayConfigSource.MANUAL
-    }
+    /** Fija a mano la URL de lo que queda del servidor (trivia, marcadores, subtítulos, cuenta). */
+    fun setGatewayUrl(v: String) { prefs.edit().putString(KEY_GATEWAY_URL, v).apply(); _gatewayUrl.value = v }
 
     fun setArtworkRematchDone(v: Boolean) {
         if (_artworkRematchDone.value == v) return
@@ -88,17 +59,10 @@ class SettingsStore(context: Context) {
         _magisOfertaDescartada.value = v
     }
 
-    private fun readGatewayConfigSource(): GatewayConfigSource =
-        runCatching {
-            GatewayConfigSource.valueOf(prefs.getString(KEY_GATEWAY_CONFIG_SOURCE, GatewayConfigSource.DEFAULT.name)!!)
-        }.getOrDefault(GatewayConfigSource.DEFAULT)
-
     companion object {
         const val PREFS_NAME = "arkiv_settings"
         private const val KEY_DIM_LEVEL = "dim_level"
         private const val KEY_GATEWAY_URL = "gateway_url"
-        private const val KEY_GATEWAY_CONFIG_SOURCE = "gateway_config_source"
-        private const val KEY_USE_GATEWAY = "use_gateway"
         private const val KEY_ARTWORK_REMATCH = "artwork_rematch_done"
         private const val KEY_MAGIS_OFERTA_DESCARTADA = "magis_oferta_descartada"
         const val DEFAULT_GATEWAY_URL = "https://api.comparadorinternet.co"
@@ -110,5 +74,9 @@ class SettingsStore(context: Context) {
         //
         // Task 8 (Paso 3): `DEFAULT_ARKIV_API_KEY`/`ARKIV_API_KEY` (la última llave de build que
         // quedaba) salió del todo por el mismo motivo -- ver `docs/INVENTARIO_DE_LLAVES.md`.
+        //
+        // Sub-proyecto 2A: se fueron `KEY_GATEWAY_CONFIG_SOURCE` (de qué venía la config del
+        // gateway: lo leía el mensaje de error del vivo, que ahora pregunta por la cuenta de Magis)
+        // y `KEY_USE_GATEWAY` (el flag para "caer al camino viejo", que ya no existe).
     }
 }

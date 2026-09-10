@@ -240,7 +240,7 @@ class SearchViewModel(
         sourceJob?.cancel()
         _phase.value = SearchPhase.RESULTS
         _sources.value = emptyList()
-        _loadingMagis.value = settings.useGateway.value
+        _loadingMagis.value = true
         _refineSeason.value = season
         _refineEpisode.value = episode
 
@@ -258,57 +258,53 @@ class SearchViewModel(
 
             fun append(new: List<PlaySource>) { _sources.value = _sources.value + new }
 
-            // Magis, por el gateway. Detrás del flag para poder apagarlo sin publicar APK.
-            if (settings.useGateway.value) {
-                launch {
-                    runCatching {
-                        val ctx = com.arkiv.player.data.gateway.GatewaySearchQuery(
-                            q = card.title,
-                            type = when (card.kind) {
-                                "movie" -> "movie"
-                                "anime" -> "anime"
-                                else -> "tv"
-                            },
-                            season = season ?: 0,
-                            episode = episode ?: 0,
-                            tmdbId = card.tmdbId ?: 0,
-                            anilistId = card.anilistId ?: 0,
-                            maxBytes = 0L,
-                            budgetMs = if (card.kind == "anime") GATEWAY_BUDGET_ANIME_MS else GATEWAY_BUDGET_MS,
-                            sources = "magis",
-                        )
-                        // Los resultados se acumulan y se publican EN LOTE. Publicar de a uno
-                        // dispara una recomposición por resultado: con 20 de magis sobre 50+
-                        // fuentes ya visibles, la UI se ahoga midiendo texto y la app da ANR.
-                        val lote = mutableListOf<PlaySource>()
-                        fun vaciarLote() {
-                            if (lote.isEmpty()) return
-                            append(lote.toList())
-                            lote.clear()
-                        }
-                        arkivApiClient.search(ctx).collect { ev ->
-                            when (ev) {
-                                is com.arkiv.player.data.gateway.SearchEvent.ResultEvent -> {
-                                    ev.item.toPlaySource()?.let { lote += it }
-                                    if (lote.size >= GATEWAY_LOTE) vaciarLote()
-                                }
-                                is com.arkiv.player.data.gateway.SearchEvent.SourceError -> {
-                                    Log.w(GW, "fuente ${ev.source} fallo: ${ev.error} (entrego ${ev.count})")
-                                    vaciarLote()
-                                }
-                                is com.arkiv.player.data.gateway.SearchEvent.SourceDone -> {
-                                    Log.w(GW, "fuente ${ev.source}: ${ev.count} en ${ev.ms}ms")
-                                    vaciarLote()
-                                }
-                                else -> Unit
-                            }
-                        }
-                        vaciarLote()
-                    }.onFailure {
-                        android.util.Log.w("ArkivGateway", "el gateway falló: ${it.message}")
+            // Magis, directo al portal. Antes esto iba detrás de un flag (`useGateway`) para poder
+            // apagarlo sin publicar APK y caer "al camino viejo": ya no hay camino viejo ni flag
+            // -- nadie tenía cómo apagarlo, y es la única fuente que queda.
+            launch {
+                runCatching {
+                    val ctx = com.arkiv.player.data.gateway.GatewaySearchQuery(
+                        q = card.title,
+                        type = when (card.kind) {
+                            "movie" -> "movie"
+                            "anime" -> "anime"
+                            else -> "tv"
+                        },
+                        season = season ?: 0,
+                        episode = episode ?: 0,
+                        tmdbId = card.tmdbId ?: 0,
+                    )
+                    // Los resultados se acumulan y se publican EN LOTE. Publicar de a uno
+                    // dispara una recomposición por resultado: con 20 de magis sobre 50+
+                    // fuentes ya visibles, la UI se ahoga midiendo texto y la app da ANR.
+                    val lote = mutableListOf<PlaySource>()
+                    fun vaciarLote() {
+                        if (lote.isEmpty()) return
+                        append(lote.toList())
+                        lote.clear()
                     }
-                    _loadingMagis.value = false
+                    arkivApiClient.search(ctx).collect { ev ->
+                        when (ev) {
+                            is com.arkiv.player.data.gateway.SearchEvent.ResultEvent -> {
+                                ev.item.toPlaySource()?.let { lote += it }
+                                if (lote.size >= GATEWAY_LOTE) vaciarLote()
+                            }
+                            is com.arkiv.player.data.gateway.SearchEvent.SourceError -> {
+                                Log.w(GW, "fuente ${ev.source} fallo: ${ev.error} (entrego ${ev.count})")
+                                vaciarLote()
+                            }
+                            is com.arkiv.player.data.gateway.SearchEvent.SourceDone -> {
+                                Log.w(GW, "fuente ${ev.source}: ${ev.count} en ${ev.ms}ms")
+                                vaciarLote()
+                            }
+                            else -> Unit
+                        }
+                    }
+                    vaciarLote()
+                }.onFailure {
+                    android.util.Log.w("ArkivGateway", "el gateway falló: ${it.message}")
                 }
+                _loadingMagis.value = false
             }
         }
     }

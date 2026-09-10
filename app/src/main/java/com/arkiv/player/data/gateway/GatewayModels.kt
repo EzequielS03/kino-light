@@ -100,92 +100,21 @@ data class GatewaySerie(
 )
 
 /**
- * Parsea el JSON crudo de `/v1/episodes`: la lista de capítulos y, si el gateway pudo cruzar el
- * imdb_id del portal contra TMDB, el bloque [GatewaySerie]. Los campos nuevos de [GatewayEpisode]
- * ([GatewayEpisode.still], [GatewayEpisode.tmdbTitle] y [GatewayEpisode.overview]) son opcionales:
- * ausentes o vacíos quedan en null, nunca rompen el parseo — así un gateway viejo, o uno al que
- * TMDB le falló para esa temporada, sigue funcionando igual que antes.
+ * Lo que la fuente va emitiendo mientras busca. Se conserva el formato de eventos -en vez de
+ * devolver una lista- porque la pantalla pinta resultados a medida que llegan, y porque así el
+ * arranque/fin/error de la fuente son estados explícitos y no ausencias.
+ *
+ * Antes estos eventos venían como NDJSON del gateway y los armaba `parseSearchEvent`; ahora los
+ * emite `MagisFuente` directo, así que ese parser se fue (y con él el evento `Unknown`, que existía
+ * para poder ignorar líneas de un servidor más nuevo).
  */
-fun parseEpisodesResponse(json: String): Pair<List<GatewayEpisode>, GatewaySerie?> {
-    val o = JSONObject(json)
-    val arr = o.optJSONArray("episodes")
-    val episodios = (0 until (arr?.length() ?: 0)).mapNotNull { i ->
-        arr!!.optJSONObject(i)?.let { e ->
-            val ref = e.optString("ref")
-            if (ref.isBlank()) null
-            else GatewayEpisode(
-                number = e.optInt("number"),
-                title = e.optString("title"),
-                ref = ref,
-                still = e.optString("still").takeIf { it.isNotBlank() },
-                tmdbTitle = e.optString("tmdb_title").takeIf { it.isNotBlank() },
-                overview = e.optString("overview").takeIf { it.isNotBlank() },
-            )
-        }
-    }
-    val serie = o.optJSONObject("series")?.let { s ->
-        GatewaySerie(
-            imdbId = s.optString("imdb_id"),
-            tmdbId = s.optInt("tmdb_id"),
-            seasonNumber = s.optInt("season_number"),
-            titulo = s.optString("title"),
-            posterUrl = s.optString("poster_url"),
-            backdropUrl = s.optString("backdrop_url"),
-        )
-    }
-    return episodios to serie
-}
-
 sealed interface SearchEvent {
     data class SourceStart(val source: String) : SearchEvent
     data class ResultEvent(val source: String, val item: GatewayResult) : SearchEvent
     data class SourceDone(val source: String, val count: Int, val ms: Long) : SearchEvent
     data class SourceError(val source: String, val error: String, val ms: Long, val count: Int) : SearchEvent
     data class Done(val ms: Long) : SearchEvent
-
-    /**
-     * Evento que esta versión de la app no conoce, o línea corrupta. Se ignora: el
-     * servidor puede sumar eventos nuevos sin romper APKs viejos.
-     */
-    data class Unknown(val raw: String) : SearchEvent
 }
-
-private fun JSONObject.mapaDeStrings(clave: String): Map<String, String> {
-    val obj = optJSONObject(clave) ?: return emptyMap()
-    return obj.keys().asSequence().associateWith { obj.opt(it)?.toString().orEmpty() }
-}
-
-private fun resultDe(obj: JSONObject) = GatewayResult(
-    source = obj.optString("source"),
-    title = obj.optString("title"),
-    ref = obj.optString("ref"),
-    kind = obj.optString("kind", "movie"),
-    lang = obj.optString("lang"),
-    quality = obj.optString("quality"),
-    sizeBytes = obj.optLong("size_bytes"),
-    seeders = obj.optInt("seeders"),
-    year = obj.optString("year"),
-    season = obj.optInt("season"),
-    episode = obj.optInt("episode"),
-    extra = obj.mapaDeStrings("extra"),
-)
-
-/** Convierte una línea del stream NDJSON en un evento. Nunca lanza. */
-fun parseSearchEvent(linea: String): SearchEvent = runCatching {
-    val o = JSONObject(linea)
-    when (o.optString("type")) {
-        "source_start" -> SearchEvent.SourceStart(o.optString("source"))
-        "result" -> SearchEvent.ResultEvent(o.optString("source"), resultDe(o.getJSONObject("item")))
-        "source_done" -> SearchEvent.SourceDone(
-            o.optString("source"), o.optInt("count"), o.optLong("ms"),
-        )
-        "source_error" -> SearchEvent.SourceError(
-            o.optString("source"), o.optString("error"), o.optLong("ms"), o.optInt("count"),
-        )
-        "done" -> SearchEvent.Done(o.optLong("ms"))
-        else -> SearchEvent.Unknown(linea)
-    }
-}.getOrElse { SearchEvent.Unknown(linea) }
 
 /** Tipos de `program_type` cuyo resultado es una temporada entera, no algo reproducible. */
 val MAGIS_SERIES = setOf("teleplay", "series", "variety")
