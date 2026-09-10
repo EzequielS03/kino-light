@@ -1,6 +1,8 @@
 package com.arkiv.player.data.gateway
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.filterNot
 import kotlinx.coroutines.flow.flow
@@ -29,8 +31,31 @@ internal class FuenteCompuesta(private val fuentes: List<FuenteDeContenido>) : F
         val t0 = System.currentTimeMillis()
         // `merge` corre las fuentes en paralelo y emite lo de cada una a medida que llega, que es
         // lo que la pantalla espera: pinta resultados mientras la otra fuente sigue buscando.
+        // Cada fuente se protege por separado: si lanza, se emite un SourceError en lugar de
+        // propagar la excepción que mataría toda la búsqueda.
         val mezclado = fuentes
-            .map { it.search(ctx).filterNot { e -> e is SearchEvent.Done } }
+            .map { fuente ->
+                flow {
+                    var nombreFuente = "desconocida"
+                    var countResultados = 0
+                    try {
+                        fuente.search(ctx)
+                            .filterNot { e -> e is SearchEvent.Done }
+                            .collect { evento ->
+                                if (evento is SearchEvent.SourceStart) {
+                                    nombreFuente = evento.source
+                                }
+                                if (evento is SearchEvent.ResultEvent) {
+                                    countResultados++
+                                }
+                                emit(evento)
+                            }
+                    } catch (e: Exception) {
+                        // El catch de Flow respeta CancellationException: si es eso, se propaga.
+                        emit(SearchEvent.SourceError(nombreFuente, e.message ?: "Error desconocido", 1, countResultados))
+                    }
+                }
+            }
             .merge()
         emitAll(mezclado)
         emit(SearchEvent.Done(System.currentTimeMillis() - t0))

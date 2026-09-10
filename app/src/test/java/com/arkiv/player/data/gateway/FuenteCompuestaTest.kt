@@ -113,4 +113,38 @@ class FuenteCompuestaTest {
         assertTrue(compuesta.reconoce("b:1"))
         assertTrue(!compuesta.reconoce("z:1"))
     }
+
+    private class FuenteQueLanza(
+        val nombre: String,
+        val prefijo: String,
+    ) : FuenteDeContenido {
+        override fun reconoce(ref: String) = ref.startsWith(prefijo)
+
+        override fun search(ctx: GatewaySearchQuery): Flow<SearchEvent> = flow {
+            emit(SearchEvent.SourceStart(nombre))
+            throw IllegalStateException("Explosión deliberada")
+        }
+
+        override suspend fun resolve(ref: String): GatewayPlayable {
+            return GatewayPlayable(kind = nombre, url = "http://$nombre")
+        }
+
+        override suspend fun episodesConSerie(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?> {
+            return listOf(GatewayEpisode(1, "Cap", ref)) to null
+        }
+    }
+
+    /** LA REGLA QUE MÁS IMPORTA: una fuente que lanza NO puede vaciar la búsqueda de las otras. */
+    @Test fun `si una fuente lanza la otra igual entrega`() = runTest {
+        val lanzadora = FuenteQueLanza("lanzadora", "l:")
+        val sana = FuenteDeMentira("sana", "s:", listOf("uno", "dos"))
+
+        val eventos = FuenteCompuesta(listOf(lanzadora, sana)).search(GatewaySearchQuery(q = "x")).toList()
+
+        assertEquals(2, eventos.filterIsInstance<SearchEvent.ResultEvent>().size)
+        val err = eventos.filterIsInstance<SearchEvent.SourceError>().single()
+        assertEquals("lanzadora", err.source)
+        assertEquals(0, err.count)
+        assertTrue(eventos.last() is SearchEvent.Done)
+    }
 }
