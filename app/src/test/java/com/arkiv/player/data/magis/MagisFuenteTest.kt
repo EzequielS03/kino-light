@@ -14,6 +14,7 @@ import okhttp3.mockwebserver.RecordedRequest
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -65,6 +66,26 @@ class MagisFuenteTest {
          "posterList":[{"fileType":"icon","fileUrl":"https://i/dune.jpg"},
                        {"fileType":"poster","fileUrl":"https://p/dune.jpg"}]}
     """.trimIndent()
+
+    /**
+     * `reconoce` hoy no lo usa nadie (llega con la fuente compuesta de la tarea siguiente), pero un
+     * `false` donde debería dar `true` deja CUALQUIER ref de Magis sin dueño y tumba toda la
+     * reproducción de la app ya existente sin que ningún test lo note — de ahí la cobertura directa.
+     */
+    @Test
+    fun `reconoce refs propios y viejos del gateway, y rechaza los de otra fuente`() {
+        val f = fuente(FakePortalClient())
+
+        assertTrue(f.reconoce(MagisRef("C1", "movie").codificar()))
+
+        // Ref viejo del gateway (`base64url(json).hmac`), mismo formato que arma MagisRefTest.
+        val json = """{"s":"magis","p":{"content_id":"C1","program_type":"movie"}}"""
+        val datos = java.util.Base64.getUrlEncoder().withoutPadding()
+            .encodeToString(json.toByteArray(Charsets.UTF_8))
+        assertTrue(f.reconoce("$datos.firmaquenadievalida"))
+
+        assertFalse(f.reconoce("ditu1:VOD:42"))
+    }
 
     // --- búsqueda -------------------------------------------------------------
 

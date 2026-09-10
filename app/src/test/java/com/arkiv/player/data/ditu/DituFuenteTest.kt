@@ -1,9 +1,12 @@
 package com.arkiv.player.data.ditu
 
+import com.arkiv.player.data.catalog.TmdbApi
 import com.arkiv.player.data.gateway.GatewaySearchQuery
 import com.arkiv.player.data.gateway.SearchEvent
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
+import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -94,6 +97,36 @@ class DituFuenteTest {
         assertTrue(serie.posterUrl.endsWith("portrait-thin-promotional-tablet.jpg"))
         assertTrue(serie.backdropUrl.endsWith("landscape-regular-clean-tablet.jpg"))
         // Sin TMDB cableado no hay id: el bloque igual viaja, con lo que Caracol sí sabe.
+        assertEquals(0, serie.tmdbId)
+    }
+
+    /**
+     * `TmdbApi` con un servidor real que se cae ANTES de la llamada (mismo patrón que
+     * `MagisFuenteTest."si TMDB se cae, los capitulos salen igual"`): a diferencia de `tmdb = null`,
+     * acá sí se intenta cruzar contra TMDB y la llamada falla de verdad — es la garantía central de
+     * `episodesConSerie` (que un TMDB caído no cueste los capítulos) y hasta ahora ningún test la
+     * ejercitaba, porque todos usaban `tmdb = null`.
+     */
+    @Test fun `si TMDB se cae, los capitulos salen igual`() = runTest {
+        val servidor = MockWebServer().also { it.start() }
+        val tmdb = TmdbApi(apiKey = "x", baseUrl = servidor.url("/3").toString().trimEnd('/'), client = OkHttpClient())
+        servidor.shutdown()
+
+        val fake = FakeDituCliente()
+        fake.responde("CONTENT/DETAIL/BUNDLE/99", """
+        {"resultObj":{"containers":[{"metadata":{"title":"Rigo","pictureUrl":"pic"},"containers":[
+          {"id":"e1","metadata":{"episodeNumber":1,"episodeTitle":"Uno","season":1},
+           "assets":[{"assetType":"MASTER","assetId":1}]}
+        ]}]}}
+        """)
+
+        val (eps, serie) = fuente(fake, tmdb).episodesConSerie("ditu1:BUNDLE:99")
+
+        assertEquals(1, eps.size)
+        assertEquals("Uno", eps.single().title)
+        assertEquals("Rigo", serie!!.titulo)
+        assertTrue(serie.posterUrl.endsWith("portrait-thin-promotional-tablet.jpg"))
+        // TMDB caído no aporta id: el título y las imágenes son los de Caracol, que sí respondió.
         assertEquals(0, serie.tmdbId)
     }
 }
