@@ -64,7 +64,25 @@ plan no anticipaba y salió en el camino:
 - Ojo con el timeout: el portal tarda ~11 s en resolver algunos canales, así que el cliente del
   portal se arma con 25 s de lectura (era lo que hacía `httpConPaciencia` en el `LiveApi` borrado).
 
-**Lo que queda**: la verificación en dispositivo (Task 9). Después de 2A siguen yendo al gateway, a
+**Task 9 (verificación en dispositivo) hecha** — KALLEY R3, 2026-09-09, con el APK de esta rama:
+
+- Sin cuenta de Magis: búsqueda con resultados, serie reproduciendo, capítulos con carátula/nombre/
+  sinopsis (o sea el cruce por IMDb contra TMDB), home con las filas de TMDB.
+- **Un capítulo de Naruto guardado en la biblioteca reprodujo**: es la prueba de que los `ref`
+  viejos del gateway se migran (ese ítem se guardó cuando el ref lo firmaba el servidor).
+- Vincular Magis desde la TV con la pantalla nueva (sin "Crear cuenta"): quedó vinculado.
+- Canal en vivo: **36 segmentos servidos, 36 aceptados** en 2,5 minutos seguidos — ni un 401/403,
+  ninguna reapertura, ningún cambio de CDN. Cada segmento va con una firma `sign_o3` distinta
+  calculada en el aparato, así que el CDN aceptó 36 firmas locales seguidas. Y el canal
+  `cyx-CityTV` se sirvió como `cyx-5D8498C9411Ea4b9FC8EA2364DAE`, o sea que el `playCode` se está
+  usando bien (confundirlo sería 401).
+
+**Lo único que quedó abierto**: la PRIMERA vez que se abrió un canal falló, pero no por la red — el
+canal resolvió, el CDN dio 200 al playlist y al segmento, y lo que murió fue el decodificador del
+box (`setPortMode … failed` → `OMX.realtek.video.decoder` → se cayó el `mediaserver`). La diferencia
+con la vez que anduvo: la que falló venía de reproducir un capítulo VOD. Sospecha: ahora resolver el
+canal es más rápido (dos llamadas locales en vez de pasar por el servidor) y el player del vivo se
+crea antes de que el del VOD suelte el codec. Sin confirmar. Después de 2A siguen yendo al gateway, a
 propósito: login/PocketBase (sub-proyecto 2B), subtítulos (OpenSubtitles), Simkl, marcadores de
 intro, metadata de anime, el aviso de recomendaciones, subida de crashes, OTA, y la trivia
 (excepción permanente).
