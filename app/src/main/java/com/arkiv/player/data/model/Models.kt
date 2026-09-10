@@ -51,10 +51,10 @@ data class Episode(
  * y `addSeriesEpisodeMagnet`). No hay columnas int en la tabla, así que este parseo ES la única
  * fuente de la numeración para todo lo que cruza episodios locales contra la NUC.
  *
- * Vive acá, y no duplicado en cada llamador, porque el resultado tiene que ser IDÉNTICO en los dos
- * caminos que deciden cosas con él: `ArkivRepository.subtitleContextForEpisode` (que alimenta la
- * decisión NUC-vs-vivo del player) y el tilde de "ya descargado" del detalle. Si divergieran, un
- * capítulo podría mostrarse como bajado y reproducirse igual en vivo.
+ * Vive acá, y no duplicado en cada llamador, para que el número de temporada/capítulo sea el MISMO
+ * en cualquier sitio que lo necesite. Hoy lo usa el tilde de "ya descargado" del detalle, que
+ * compara episodios locales contra la NUC por (temporada, capítulo): si el parseo divergiera del
+ * de acá, un capítulo podría mostrarse como bajado sin serlo, o al revés.
  */
 object EpisodeNumbering {
     /** Primer número de la sección ("Temporada 2" → 2). Null si la sección no es de serie. */
@@ -74,9 +74,9 @@ object EpisodeNumbering {
      * inventar o volcar texto sucio — en la base real hay displayName con la sinopsis entera y la
      * fecha pegadas, y otros que son puro ruido ("TPO Neon Genesis Evangelion 04 · Trapo2019 …").
      *
-     * A propósito NO reusa ni amplía seasonOf/episodeOf: esos alimentan DECISIONES (ver el KDoc de
-     * arriba) y ensancharles el regex para tragar formatos sucios movería el tilde de "ya
-     * descargado" y la elección NUC-vs-vivo. Acá el peor caso es quedarse sin rótulo.
+     * A propósito NO reusa ni amplía seasonOf/episodeOf: esos alimentan una decisión real (ver el
+     * KDoc de arriba, el tilde de "ya descargado") y ensancharles el regex para tragar formatos
+     * sucios la movería a ella también. Acá el peor caso es quedarse sin rótulo.
      */
     fun displayLabel(section: String?, displayName: String): String? {
         SXE.find(displayName)?.let { m ->

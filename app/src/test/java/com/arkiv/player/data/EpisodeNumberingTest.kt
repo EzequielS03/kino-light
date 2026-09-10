@@ -6,10 +6,9 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * Fija el parseo de temporada/capítulo, que ahora comparten dos consumidores que TIENEN que
- * coincidir: la decisión NUC-vs-vivo del player (`ArkivRepository.subtitleContextForEpisode`) y el
- * tilde de "ya descargado" del detalle. Los textos de ejemplo son literalmente los que arma
- * `addWebSeriesEpisode` / `addSeriesEpisodeMagnet`.
+ * Fija el parseo de temporada/capítulo del que depende el tilde de "ya descargado" del detalle
+ * (compara episodios locales contra la NUC por esos números). Los textos de ejemplo son
+ * literalmente los que arma `addWebSeriesEpisode` / `addSeriesEpisodeMagnet`.
  */
 class EpisodeNumberingTest {
 

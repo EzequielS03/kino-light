@@ -29,9 +29,6 @@ sealed interface EpisodeTorrent {
     data class Bytes(val data: ByteArray, val fileIndex: Int) : EpisodeTorrent
 }
 
-/** Datos para buscar subtítulos de lo que se está reproduciendo. */
-data class SubtitleContext(val imdbId: String?, val title: String, val season: Int?, val episode: Int?)
-
 /**
  * Mínimo de reproducción para entrar en "Continuar viendo". Por debajo de esto fue abrir y
  * cerrar (o una pasada rápida por el capítulo equivocado), no algo que estés viendo de verdad.
@@ -997,16 +994,6 @@ class ArkivRepository(
         }
         val label = if (isMovie) null else EpisodeNumbering.displayLabel(ep.section, ep.displayName)
         return PlayerHeaderInfo(item.title, label)
-    }
-
-    /** Contexto para buscar subtítulos de un episodio (imdb del ítem serie, título, temporada/ep). */
-    suspend fun subtitleContextForEpisode(episodeId: String): SubtitleContext? {
-        val ep = itemDao.getEpisode(episodeId) ?: return null
-        val item = itemDao.getItem(ep.itemId) ?: return null
-        val imdb = Regex("tt\\d+").find(item.identifier)?.value
-        val season = com.arkiv.player.data.model.EpisodeNumbering.seasonOf(ep.section)
-        val episode = com.arkiv.player.data.model.EpisodeNumbering.episodeOf(ep.displayName)
-        return SubtitleContext(imdbId = imdb, title = item.title, season = season, episode = episode)
     }
 
     suspend fun removeItem(identifier: String) {
