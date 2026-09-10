@@ -19,13 +19,6 @@ class SettingsStore(context: Context) {
     private val _dimLevel = MutableStateFlow(prefs.getInt(KEY_DIM_LEVEL, 0))
     val dimLevel: StateFlow<Int> = _dimLevel
 
-    // --- gateway unificado -------------------------------------------------
-    // Task 8 (Paso 3): acá vivía `arkivApiKey`, la credencial única de build para TODO el gateway.
-    // Salió del todo -- la app ya se autentica con la sesión de la persona (Authorization +
-    // X-Arkiv-Device), así que no queda ningún secreto que persistir ni propagar por pareo.
-    private val _gatewayUrl = MutableStateFlow(prefs.getString(KEY_GATEWAY_URL, DEFAULT_GATEWAY_URL)!!)
-    val gatewayUrl: StateFlow<String> = _gatewayUrl
-
     // ¿Ya se reparó el arte que se resolvió antes del match exacto de TMDB? Ver
     // ArkivRepository.repairArtworkMatches. Se marca SOLO cuando la pasada termina entera, para que
     // un arranque sin internet no la dé por hecha y deje los títulos mal apuntados para siempre.
@@ -61,9 +54,6 @@ class SettingsStore(context: Context) {
         get() = prefs.getBoolean(KEY_RECIENTES_PURGADOS, false)
 
     fun setDimLevel(v: Int) { prefs.edit().putInt(KEY_DIM_LEVEL, v).apply(); _dimLevel.value = v }
-
-    /** Fija a mano la URL de lo que queda del servidor (marcadores, subtítulos, cuenta). */
-    fun setGatewayUrl(v: String) { prefs.edit().putString(KEY_GATEWAY_URL, v).apply(); _gatewayUrl.value = v }
 
     fun setArtworkRematchDone(v: Boolean) {
         if (_artworkRematchDone.value == v) return
@@ -127,12 +117,19 @@ class SettingsStore(context: Context) {
      * sigue vivo porque lo usa `EncryptedMagisCredentialStore` -- se reusa acá para el mismo
      * problema (Keystore que ya no descifra el archivo).
      *
-     * Si ya migraron las dos claves, ni se abre el archivo viejo: `EncryptedSharedPreferences.create`
-     * cuesta Keystore + Tink, y esto se llama en CADA arranque.
+     * Si ya migraron las dos claves, ni se mira el archivo viejo: `EncryptedSharedPreferences.create`
+     * cuesta Keystore + Tink, y esto se llama en CADA arranque. Y si el archivo ni existe -una
+     * instalación limpia de esta rama, que nunca tuvo `SecureDeviceStore`-, tampoco se intenta
+     * abrir: ver [archivoStoreDeCuentasViejoExiste].
      */
     fun migrarDelStoreDeCuentasViejo(context: Context) {
         if (leerNullable(KEY_ADULTOS_DESBLOQUEADO) != null && leerNullable(KEY_RECIENTES_PURGADOS) != null) return
-        val viejas = runCatching { abrirStoreDeCuentasViejo(context.applicationContext) }.getOrNull()
+        val app = context.applicationContext
+        val viejas = if (archivoStoreDeCuentasViejoExiste(app)) {
+            runCatching { abrirStoreDeCuentasViejo(app) }.getOrNull()
+        } else {
+            null
+        }
         // Mismas keys de texto que el archivo viejo (ver el comentario junto a estas constantes,
         // más abajo): `SecureDeviceStore` las escribía tal cual.
         migrarAdultosDesbloqueado(viejas.leerBooleanoViejo(KEY_ADULTOS_DESBLOQUEADO))
@@ -145,7 +142,6 @@ class SettingsStore(context: Context) {
     companion object {
         const val PREFS_NAME = "arkiv_settings"
         private const val KEY_DIM_LEVEL = "dim_level"
-        private const val KEY_GATEWAY_URL = "gateway_url"
         private const val KEY_ARTWORK_REMATCH = "artwork_rematch_done"
         private const val KEY_MAGIS_OFERTA_DESCARTADA = "magis_oferta_descartada"
 
@@ -155,10 +151,19 @@ class SettingsStore(context: Context) {
         // [migrarDelStoreDeCuentasViejo] lee esas mismas dos keys del archivo original.
         private const val KEY_ADULTOS_DESBLOQUEADO = "adultosDesbloqueado"
         private const val KEY_RECIENTES_PURGADOS = "recientesPurgados2026_08_14"
-        const val DEFAULT_GATEWAY_URL = "https://api.comparadorinternet.co"
 
         /** El archivo cifrado que escribía `SecureDeviceStore` (borrado en la Task 9). */
         private const val ARCHIVO_STORE_DE_CUENTAS_VIEJO = "arkiv_pb_secure"
+
+        /**
+         * `true` si el archivo existe en disco. Chequearlo ANTES de [abrirStoreDeCuentasViejo] es
+         * la diferencia entre leer algo y CREARLO: `EncryptedSharedPreferences.create` escribe el
+         * keyset de Tink la primera vez, así que sin este chequeo una instalación limpia -que nunca
+         * tuvo `SecureDeviceStore`- terminaría generando `arkiv_pb_secure` y tocando el Keystore en
+         * el hilo principal de `Application.onCreate`, para rescatar un archivo que nunca existió.
+         */
+        private fun archivoStoreDeCuentasViejoExiste(app: Context): Boolean =
+            java.io.File(app.dataDir, "shared_prefs/$ARCHIVO_STORE_DE_CUENTAS_VIEJO.xml").exists()
 
         /**
          * Abre `arkiv_pb_secure` con el mismo esquema con el que `SecureDeviceStore.cifradas()` lo

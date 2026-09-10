@@ -290,12 +290,13 @@ class AppGraph(context: Context) {
         AnimeMappingRepository(cacheDir = appContext.filesDir)
     }
     /**
-     * Task 9 (sub-proyecto 2B): antes tomaba `httpGatewayCorto`, un cliente derivado del
-     * `OkHttpClient` "unificado" solo para compartir su pool de conexiones. Sin ese cliente
-     * compartido (ver [httpDelPortal], que ya es únicamente del portal de Magis), `TmdbApi` vuelve
-     * a su propio `OkHttpClient` por default -mismos timeouts (8 s/15 s) que tenía
-     * `httpGatewayCorto`, ver el default de su constructor-: TMDB es OTRO host, así que compartir
-     * pool con el portal no traía ningún beneficio real.
+     * Task 9 (sub-proyecto 2B): antes tomaba `httpGatewayCorto`, un cliente derivado de
+     * `httpGateway.newBuilder()` solo para compartir su pool de conexiones -y que por eso heredaba
+     * su `callTimeout(45 s)`-. Sin ese cliente compartido (ver [httpDelPortal], que ya es
+     * únicamente del portal de Magis), `TmdbApi` vuelve a su propio `OkHttpClient` por default,
+     * que ahora también lleva ese mismo `callTimeout(45 s)` -ver el default de su constructor- para
+     * no perderlo: TMDB es OTRO host, así que compartir pool con el portal no traía ningún
+     * beneficio real, pero el tope a la llamada entera sí hacía falta.
      */
     val tmdbApi: TmdbApi by lazy {
         TmdbApi(language = "es-MX")

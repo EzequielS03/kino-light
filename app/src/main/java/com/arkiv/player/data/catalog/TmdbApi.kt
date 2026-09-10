@@ -134,9 +134,15 @@ class TmdbApi(
     private val language: String = "es-MX",
     /** Parametrizable solo para los tests: producción habla con TMDB. */
     private val baseUrl: String = BASE_TMDB,
+    /**
+     * `callTimeout` de 45 s ADEMÁS de los timeouts sueltos: esos se reinician con cada byte que
+     * llega, así que una respuesta que llega a cuentagotas no vencería nunca sin un tope a la
+     * llamada entera (mismo motivo del `callTimeout` de `AppGraph.httpDelPortal`).
+     */
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
+        .callTimeout(45, TimeUnit.SECONDS)
         .build(),
 ) {
     private val base: String get() = baseUrl
