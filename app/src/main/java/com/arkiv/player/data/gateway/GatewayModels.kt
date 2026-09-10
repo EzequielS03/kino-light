@@ -36,7 +36,7 @@ data class GatewayResult(
 )
 
 /**
- * Lo reproducible que devuelve `/v1/resolve`.
+ * Lo reproducible que devuelve la resolución de Magis (`MagisResolve`/`MagisLive`).
  *
  * [headers] es genérico a propósito: cubre el Referer/User-Agent de las fuentes web
  * y el Content-Auth/Content-License de magis sin necesitar un campo por fuente.

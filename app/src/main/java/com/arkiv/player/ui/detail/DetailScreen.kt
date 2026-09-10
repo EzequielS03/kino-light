@@ -623,15 +623,6 @@ private fun FichaDelItem(data: ItemDetail, onPlayEpisode: (String) -> Unit) {
 }
 
 /**
- * ¿Este episodio puntual, con la fuente de la que se guardó, ya está bajado en la NUC?
- *
- * Exige las 3 partes (temporada, capítulo y fuente): si falta cualquiera devuelve false. Es a
- * propósito — un episodio sin numeración parseable, o guardado antes de que se persistiera la
- * fuente, no se puede cruzar con la NUC sin adivinar, y un tilde de más (decir "ya lo tenés"
- * cuando no) es peor que uno de menos. Los que no tienen fuente los rellena el primer refresh
- * contra la NUC, que trae el `source_ref` real.
- */
-/**
  * Host corto ("serieskao.top") a partir del `sourceRef` (pageUrl) de un episodio web, para
  * agrupar el filtro de la lista por sitio de origen. Null para archive.org, magnets de torrent
  * (no son una URL http válida), o episodios guardados antes de que se persistiera `sourceRef` —

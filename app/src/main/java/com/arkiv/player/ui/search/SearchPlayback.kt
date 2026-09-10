@@ -96,7 +96,7 @@ class SearchPlayback(private val graph: AppGraph) {
         // El capítulo hereda las imágenes de SU temporada: un GatewayEpisode no trae propias.
         posterUrl = temporada.extra["poster"].orEmpty(),
         backdropUrl = temporada.extra["backdrop"].orEmpty(),
-        // El ref de la temporada es el que responde /v1/episodes; el del capítulo no.
+        // El ref de la temporada es el que resuelve MagisCatalog.detail; el del capítulo no.
         seriesRef = temporada.ref,
         season = serie?.seasonNumber,
         // Mismo blindaje que en [playMagisSeason]: `tmdbId` sale de un `optInt`, así que un campo

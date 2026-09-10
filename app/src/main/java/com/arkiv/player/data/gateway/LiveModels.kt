@@ -101,8 +101,9 @@ data class ItemDeCatalogo(
      */
     val adulto: Boolean = false,
     /**
-     * El token con el que se le pide el stream al gateway. Es lo ÚNICO reproducible que trae el
-     * ítem: `/v1/resolve` NO toma [id] (que es el contentId del portal), toma este token firmado,
+     * El token con el que se le pide el stream al portal. Es lo ÚNICO reproducible que trae el
+     * ítem: la resolución (`MagisLive`/`MagisResolve`) NO toma [id] (que es el contentId del portal),
+     * toma este token firmado,
      * que solo el gateway puede acuñar. La app lo trata como opaco y nunca lo interpreta.
      *
      * Vacío = el gateway no lo pudo firmar. Ese ítem se lista igual —se puede ver— pero no se

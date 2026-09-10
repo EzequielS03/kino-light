@@ -7,7 +7,7 @@ import java.io.File
 /**
  * Magis: resuelve el `ref` guardado contra el gateway y baja el archivo del CDN.
  *
- * El CDN exige `Content-Auth` y `Content-License`, que llegan en la respuesta de `/v1/resolve`.
+ * El CDN exige `Content-Auth` y `Content-License`, que llegan en la respuesta de `MagisResolve.resolveVod`.
  * Esos tokens hacen falta para **bajar**, no para reproducir: una vez en disco el archivo se
  * reproduce como cualquier otro, sin depender de que el token siga vivo.
  *

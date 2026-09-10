@@ -65,18 +65,19 @@ class DestructorDeFrames(
     }
 
     /**
-     * El mismo borrado pero de TODO, para el wipe de logout
-     * ([com.arkiv.player.data.LibraryWiper]): sin esto, la identidad nueva se queda con los JPEG de
-     * las escenas que miró la persona anterior (además del disco, es un tema de privacidad).
+     * El mismo borrado pero de TODO. Lo usaba `LibraryWiper` para el wipe de logout -la identidad
+     * nueva se quedaba, si no, con los JPEG de las escenas que miró la persona anterior-;
+     * `LibraryWiper` se borró entero en la Task 9 (sub-proyecto 2B) junto con el resto de cuentas, y
+     * hoy este método no tiene llamador de producción (solo su test). Se deja porque documenta el
+     * único borrado físico -sin tombstone- que existe en esta clase, por si vuelve a hacer falta un
+     * wipe completo.
      *
      * A diferencia de [destruir], acá SÍ es un `DELETE` físico (`dao.borrarTodo`) y NO deja
-     * tombstones: el wipe es "esta identidad se va de ESTE aparato", no "borrá esto en todos
-     * lados". Si dejara tombstones, cerrar sesión en un dispositivo borraría —al viajar por
-     * sync— los frames de la cuenta en los demás, que ni se enteraron del logout.
+     * tombstones: sin cloud sync en esta rama (ver el KDoc de la clase) ya no hay a quién avisarle
+     * del borrado, así que no hace falta dejar rastro.
      *
-     * No es un `forEach` de [destruir] a propósito: en ese momento no hay una lista de capítulos a
-     * mano —el wipe borra `items` y `episodes` en el mismo barrido— y tanto el directorio como la
-     * tabla se vacían de una sola pasada.
+     * No es un `forEach` de [destruir] a propósito: el wipe borra `items` y `episodes` en el mismo
+     * barrido, y tanto el directorio como la tabla se vacían de una sola pasada.
      */
     suspend fun destruirTodo() {
         almacen?.borrarTodo()

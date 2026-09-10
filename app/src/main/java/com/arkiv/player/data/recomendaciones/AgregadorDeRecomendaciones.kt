@@ -33,8 +33,8 @@ class AgregadorDeRecomendaciones(
                 contentId = rec.id,
                 title = rec.titulo,
                 capitulos = temporada.capitulos,
-                // El ref de la recomendación ES el de la temporada: el mismo que responde
-                // `/v1/episodes`, así que queda guardado en el ítem y `BuscadorDeCapitulos` puede
+                // El ref de la recomendación ES el de la temporada: el mismo que resuelve
+                // `MagisCatalog.detail`, así que queda guardado en el ítem y `BuscadorDeCapitulos` puede
                 // preguntar por capítulos nuevos más adelante.
                 seriesRef = rec.ref,
                 posterUrl = rec.posterUrl,
@@ -56,7 +56,7 @@ class AgregadorDeRecomendaciones(
     /**
      * Los capítulos según el gateway, o null si no los pudo dar.
      *
-     * Un fallo acá NO es terminal: `/v1/episodes` responde 422 para las fuentes que no exponen
+     * Un fallo acá NO es terminal: `MagisCatalog.detail` responde 422 para las fuentes que no exponen
      * capítulos (hoy hay recomendaciones que apuntan a archive y a torrent), y un gateway caído no
      * puede dejar sin guardar algo que igual se puede reproducir. [CancellationException] se
      * relanza: tragarla dejaría corriendo una corrutina que su scope ya dio por muerta.

@@ -77,8 +77,8 @@ import kotlinx.coroutines.delay
  * canales +18 se colaron en la pantalla principal y no alcanzó con borrarlos del aparato, porque esa
  * tabla se sincroniza y ya habían viajado a la nube.
  *
- * Las series todavía no reproducen: hay que pedirle los capítulos al gateway (`/v1/episodes`) y
- * elegir uno. Se listan con su marca y no aceptan el clic.
+ * Las series todavía no reproducen: hay que pedirle los capítulos al portal (`MagisCatalog.detail`)
+ * y elegir uno. Se listan con su marca y no aceptan el clic.
  *
  * Las raíces (Películas, Series, Infantil, Anime y —si el aparato tiene el código— 18+) son tabs
  * arriba: en un televisor el ancho es el recurso escaso, y una fila horizontal es el gesto natural

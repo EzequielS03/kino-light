@@ -20,8 +20,8 @@ import kotlinx.coroutines.launch
  * "Ajustes → Cuenta" de la TV (Task 8, sub-proyecto 2B): igual que la del celular
  * (`ui/settings/AccountSection.kt`), solo el vínculo con Magis. Ya no hay login de Kino acá -eso
  * vivía en `TvAnonimoSection`/`TvConectadoSection` (con `AccountManager`), que se borraron en esta
- * misma tarea porque no tenían otro llamador: `TvPantallaDeEntrada.kt` arma su propio formulario de
- * login (`PanelDeLogin`) sin pasar por acá-.
+ * misma tarea porque no tenían otro llamador: `TvPantallaDeEntrada.kt`, que armaba su propio
+ * formulario de login (`PanelDeLogin`), se borró entera en la Task 9 (sub-proyecto 2B)-.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable

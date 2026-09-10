@@ -648,7 +648,8 @@ class PlayerViewModel(
      *
      * El CDN exige `Content-Auth` y `Content-License`, y libVLC solo sabe mandar Referer y
      * User-Agent: por eso el stream va por el proxy local, que sí puede ponerlos en la petición al
-     * origen. El [ref] guardado se manda tal cual a `/v1/resolve`; la app nunca lo interpreta.
+     * origen. El [ref] guardado se manda tal cual a `MagisResolve.resolveVod`; la app nunca lo
+     * interpreta.
      */
     private suspend fun loadMagis(episodeId: String) {
         // El contenido de adultos NO tiene fila en la biblioteca —esa es toda la idea, ver
@@ -768,7 +769,8 @@ class PlayerViewModel(
         // "hardware sin imagen → paso a software" de VlcPlayer sigue estando.
         //
         // Los subtítulos viajan por el MISMO canal que los de web: PlayerScreen decide qué hacer con
-        // ellos. El portal los entrega junto al stream, así que no hay que ir a OpenSubtitles.
+        // ellos. El portal los entrega junto al stream, así que no hace falta pedirlos aparte a
+        // ningún catálogo de subtítulos.
         _webExtras.value = WebExtras(
             episodeId,
             play.headers,

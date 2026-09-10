@@ -126,10 +126,11 @@ class ArkivRepository(
      */
     private val almacenDeFrames: AlmacenDeFrames? = null,
     /**
-     * El único destructor de frames del proceso: `AppGraph` le pasa acá EL MISMO que le da a
-     * `CloudSyncManager` y a `LibraryWiper`. El default está para los call sites que arman un
-     * repositorio suelto (pruebas, herramientas) y arma uno equivalente sobre las mismas dos cosas
-     * — el almacén de arriba y el DAO de esta base.
+     * El único destructor de frames del proceso: `AppGraph` le pasa acá el mismo que arma para el
+     * resto de la app (`CloudSyncManager` y `LibraryWiper`, que también lo usaban, se borraron antes
+     * de esta rama). El default está para los call sites que arman un repositorio suelto (pruebas,
+     * herramientas) y arma uno equivalente sobre las mismas dos cosas — el almacén de arriba y el DAO
+     * de esta base.
      */
     private val destructorDeFrames: DestructorDeFrames =
         DestructorDeFrames(almacenDeFrames, db.episodeFrameDao()),

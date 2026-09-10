@@ -18,9 +18,9 @@ sealed interface EstadoDeMagis {
 /**
  * El vínculo con Magis visto desde la UI. Reemplaza lo único que quedaba vivo de
  * `AccountManager` en las tres pantallas que lo consumían (`AccountSection`, `TvSettingsCuenta`,
- * `TvOfertaVincularMagis`): sostener si hay cuenta y avisar cuando cambia. `AccountManager` sigue
- * existiendo -lo usan `PantallaDeEntrada`/`TvPantallaDeEntrada` para el login de Kino- pero ya no
- * tiene llamador desde esas tres pantallas.
+ * `TvOfertaVincularMagis`): sostener si hay cuenta y avisar cuando cambia. `AccountManager`
+ * -junto con `PantallaDeEntrada`/`TvPantallaDeEntrada`, que lo usaban para el login de Kino- se
+ * borró entero en la Task 9 (sub-proyecto 2B).
  */
 internal class CuentaDeMagis(private val session: MagisSession) {
     private val _estado = MutableStateFlow<EstadoDeMagis>(EstadoDeMagis.Sin)

@@ -46,9 +46,10 @@ fun ArkivTvRoot(
     // Task 10 (condición actualizada en Task 8, sub-proyecto 2B): ofrecer vincular Magis apenas se
     // entra, ANTES que nada más. Ya NO depende de ninguna sesión de Kino: `MainActivity` compone
     // `ArkivTvRoot` sin gate de sesión (ver su comentario "Sin gate de sesión" en MainActivity.kt) y
-    // `TvPantallaDeEntrada` sigue existiendo en el árbol -compilada, pero sin llamador desde ahí-, así
-    // que esta pantalla decide solo con [EstadoDeMagis] (¿hay Magis vinculado en ESTE aparato?), nunca
-    // con `AccountState`/`AccountManager`. Sirve para las DOS rutas que dejan un aparato sin Magis
+    // `TvPantallaDeEntrada`/`PanelDeLogin` se borraron enteras en la Task 9 (sub-proyecto 2B) junto
+    // con el resto del login de Kino, así que esta pantalla decide solo con [EstadoDeMagis] (¿hay
+    // Magis vinculado en ESTE aparato?), nunca con `AccountState`/`AccountManager`. Sirve para las DOS
+    // rutas que dejan un aparato sin Magis
     // vinculado (recién instalado, o vinculado y luego desvinculado). Ver el KDoc de
     // `debeOfrecerVincularMagis` para la condición exacta.
     //

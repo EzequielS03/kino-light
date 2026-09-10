@@ -137,7 +137,7 @@ object MagisEntities {
      * idempotente**: ids derivados del contenido y todo lo que `upsertItem` (REPLACE) borraría
      * copiado de [existente], igual que en [build].
      *
-     * [seriesRef] es el ref de la temporada (el que responde `/v1/episodes`). En blanco no pisa el
+     * [seriesRef] es el ref de la temporada (el que resuelve `MagisCatalog.detail`). En blanco no pisa el
      * guardado: los refs caducan y uno vencido es mejor que ninguno. A diferencia de [build], acá
      * NO se cae al ref de un capítulo como último recurso — un ref de capítulo en el ítem haría que
      * `BuscadorDeCapitulos` le pidiera la lista de capítulos a un capítulo.
@@ -249,7 +249,7 @@ object MagisEntities {
      * Quiénes pasan hoy la temporada, y de dónde la sacan:
      *  - `SearchPlayback.magisEpisodeIdDe` (botón "Guardar" del diálogo de temporada, celu y TV) y
      *    `BuscadorDeCapitulos.revisarMagis` (capítulos nuevos en background): del `season_number`
-     *    del bloque `series` (`GatewaySerie`) que devuelve `/v1/episodes`.
+     *    del bloque `series` (`GatewaySerie`) que devuelve `MagisCatalog.detail`.
      *  - `SearchPlayback.magisEpisodeId` y `CineDetailScreen.playMagis` (resultado suelto de
      *    búsqueda, sin lista de capítulos): del `season` del propio `GatewayResult`.
      *

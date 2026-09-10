@@ -53,7 +53,7 @@ import com.arkiv.player.ui.theme.ArkivTextSecondary
  */
 sealed interface PlaySource {
     /** Resultado del portal Magis (solo VOD). El `ref` es opaco: se manda tal cual a
-     *  `/v1/resolve` y la app nunca lo interpreta. */
+     *  `MagisResolve.resolveVod` y la app nunca lo interpreta. */
     data class Magis(val result: com.arkiv.player.data.gateway.GatewayResult) : PlaySource
 }
 

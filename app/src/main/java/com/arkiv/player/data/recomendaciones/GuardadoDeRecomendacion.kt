@@ -27,7 +27,7 @@ data class TemporadaDeRecomendacion(
  * para una serie apunta a la temporada entera (lleva `episode: 0` adentro), así que guardarlo tal
  * cual con `addMagisSource` dejaba el ítem con un solo episodio y marcado como película — que es
  * exactamente como entró "My Hero Academia", con 1 de sus 13 capítulos. Los capítulos hay que
- * pedírselos al gateway (`/v1/episodes`) y guardarlos con `addMagisSeason`, igual que hace el botón
+ * pedírselos al gateway (`MagisCatalog.detail`) y guardarlos con `addMagisSeason`, igual que hace el botón
  * "Guardar" del diálogo de temporada (`SearchPlayback.magisEpisodeIdDe`).
  */
 object GuardadoDeRecomendacion {
@@ -47,7 +47,7 @@ object GuardadoDeRecomendacion {
      * suelto de siempre.
      *
      * Null con lista vacía y no una temporada de cero capítulos: los refs de "Para ti" no son todos
-     * de Magis (hoy hay recomendaciones que apuntan a archive y a torrent), y `/v1/episodes`
+     * de Magis (hoy hay recomendaciones que apuntan a archive y a torrent), y `MagisCatalog.detail`
      * responde 422 para esas fuentes. `addMagisSeason` con la lista vacía no escribe nada, así que
      * sin este null la tarjeta se quedaría sin guardar y sin abrir el detalle.
      *

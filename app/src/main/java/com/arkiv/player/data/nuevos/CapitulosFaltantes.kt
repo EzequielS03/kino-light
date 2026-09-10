@@ -4,7 +4,7 @@ package com.arkiv.player.data.nuevos
  * Qué capítulos pedirle a la fuente cuando se revisa una serie que estás viendo.
  *
  * Lo que hace caro este chequeo es web: el gateway no expone lista de episodios para esa fuente
- * (`/v1/episodes` es solo de magis, el resto responde 422), así que hay que hacer **una búsqueda
+ * (`MagisCatalog.detail` es solo de magis, el resto responde 422), así que hay que hacer **una búsqueda
  * por capítulo candidato**. Sin cotas, seguir 15 series serían cientos de búsquedas en cada
  * arranque de la app. Este objeto es el que las pone.
  *

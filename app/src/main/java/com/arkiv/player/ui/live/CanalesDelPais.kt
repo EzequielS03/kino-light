@@ -12,7 +12,7 @@ import java.util.TimeZone
 
 /**
  * Categorías del portal que representan un país, por código ISO-3166 alpha-2. Los nombres son los
- * que devuelve `/v1/live/categories` **tal cual** (con tilde: "México", "Perú", "Panamá") -- el
+ * que devuelve el portal **tal cual** (con tilde: "México", "Perú", "Panamá") -- el
  * cruce es por nombre y no por id porque los ids del portal son suyos y podrían cambiar; el nombre
  * es lo que se ve y lo que se mantiene estable.
  *

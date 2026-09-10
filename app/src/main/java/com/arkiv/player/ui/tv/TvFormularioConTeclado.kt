@@ -38,20 +38,21 @@ import com.arkiv.player.ui.theme.ArkivTextSecondary
 import kotlinx.coroutines.delay
 
 /**
- * Lo que comparten las pantallas de la TV que escriben con el teclado en pantalla y el control
- * remoto: [PanelDeLogin] (`TvPantallaDeEntrada.kt`, entrar/registrarse) y [TvOfertaVincularMagis]
- * (Task 10, ofrecer vincular Magis apenas se entra). Antes esto vivía duplicado adentro de
- * `PanelDeLogin`; se extrajo acá para que un fix de foco, de teclado o del chip de campo no haya que
- * repetirlo en las dos pantallas -si divergen, se arregla un bug en una y no en la otra, mismo
- * motivo por el que `AnonimoSection` es `internal` en `AccountSection.kt`-.
+ * Teclado en pantalla + control remoto para las pantallas de la TV que escriben texto. Hoy el único
+ * llamador es [TvOfertaVincularMagis] (email/contraseña de Magis): originalmente esto vivía
+ * duplicado adentro de `PanelDeLogin` (login de Kino, `TvPantallaDeEntrada.kt`) y se extrajo acá para
+ * no repetir un fix de foco, de teclado o del chip de campo en las dos pantallas -`PanelDeLogin` y
+ * `TvPantallaDeEntrada.kt` se borraron enteras en la Task 9 (sub-proyecto 2B) junto con el resto del
+ * login de Kino, así que ese motivo ya no aplica, pero el archivo se quedó como está por si vuelve a
+ * hacer falta compartir esto con una segunda pantalla-.
  */
 
 /**
  * Qué campo tiene el foco del teclado en pantalla, y el valor de cada uno. Genérico sobre el enum de
- * campos de cada pantalla ([PanelDeLogin] tiene dos -email/contraseña-, la oferta de Magis también
- * tiene dos -email/contraseña de Magis-) porque el MECANISMO es idéntico en las dos: el teclado
- * escribe sobre "el campo que tiene el foco ahora", sin un click aparte para "entrar" al campo (mismo
- * gesto que `TvSeasonChip` en `TvSearchScreen`).
+ * campos de la pantalla que lo usa (la oferta de Magis tiene dos -email/contraseña de Magis-) porque
+ * el MECANISMO no depende de cuáles sean: el teclado escribe sobre "el campo que tiene el foco
+ * ahora", sin un click aparte para "entrar" al campo (mismo gesto que `TvSeasonChip` en
+ * `TvSearchScreen`).
  */
 class TvCamposConFoco<C>(
     inicial: C,

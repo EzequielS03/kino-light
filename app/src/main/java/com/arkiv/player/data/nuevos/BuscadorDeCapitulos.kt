@@ -74,8 +74,8 @@ class BuscadorDeCapitulos(
     }
 
     /**
-     * Magis es la única fuente cuyos capítulos expone el gateway (`/v1/episodes`; el resto responde
-     * 422), así que se le puede preguntar directo.
+     * Magis es la única fuente cuyos capítulos expone el gateway (`MagisCatalog.detail`; el resto
+     * responde 422), así que se le puede preguntar directo.
      *
      * El `ref` guardado **se re-emite en cada búsqueda del portal** (ver `addMagisSource`), así que
      * el nuestro puede estar vencido. Que esto falle es esperable y no es un error del usuario: se

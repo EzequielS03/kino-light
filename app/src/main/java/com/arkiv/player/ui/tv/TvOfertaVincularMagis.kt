@@ -35,7 +35,7 @@ import kotlinx.coroutines.launch
  * Decide si corresponde ofrecer vincular Magis apenas se entra a la TV (Task 10; desde Task 8,
  * sub-proyecto 2B, ya no mira ninguna sesión de Kino, solo [EstadoDeMagis]).
  *
- * Separada de la Composable a propósito -mismo criterio que `entrarDesdeTv` en
+ * Separada de la Composable a propósito -mismo criterio que usaba `entrarDesdeTv` en la ya borrada
  * `TvPantallaDeEntrada.kt`-: este proyecto no tiene infraestructura de tests de UI de Compose, así
  * que la única forma de probar la condición ("¿aparece la pantalla o no?") es que viva en una
  * función pura, aparte.
@@ -59,11 +59,12 @@ private enum class CampoMagisOferta { EMAIL, PASSWORD }
  * ya no depende de ninguna cuenta de Kino-). Desde la Task 11 también deja CREAR una cuenta de
  * Magis nueva, no solo vincular una que ya existe.
  *
- * ### Por qué vive acá y no en `TvPantallaDeEntrada`
+ * ### Por qué vive acá y no en una pantalla de login
  *
  * `MainActivity` compone `ArkivTvRoot` sin gate de sesión de Kino (ver su comentario "Sin gate de
- * sesión"): `TvPantallaDeEntrada` sigue en el árbol pero ya no tiene llamador desde ahí. Esta oferta
- * se compone como lo primero DENTRO de `ArkivTvRoot` porque ese es el único lugar por el que pasan
+ * sesión"): `TvPantallaDeEntrada`, que antes ofrecía este mismo vínculo desde el login, se borró
+ * entera en la Task 9 (sub-proyecto 2B). Esta oferta se compone como lo primero DENTRO de
+ * `ArkivTvRoot` porque ese es el único lugar por el que pasan
  * las dos rutas que dejan un aparato sin Magis vinculado -uno recién instalado y uno al que se
  * desvinculó-, sin que importe si hay o no una cuenta de Kino de por medio.
  *
@@ -125,8 +126,7 @@ internal fun TvOfertaVincularMagis(cuenta: CuentaDeMagis, onAhoraNo: () -> Unit)
         onModo = { modoTeclado = it },
         textoActivo = campos.valorActivo(),
         onTextoActivoChange = { campos.escribirEnActivo(it); error = null },
-        // Mismo motivo que en PanelDeLogin: `@`/`.` a la vista sin cambiar de capa mientras se
-        // tipea el email.
+        // Para tener `@`/`.` a la vista sin cambiar de capa mientras se tipea el email.
         extras = if (campos.activo == CampoMagisOferta.EMAIL) listOf('@', '.') else emptyList(),
     ) { focoPrimerCampo ->
         CampoTvChip(
@@ -145,8 +145,8 @@ internal fun TvOfertaVincularMagis(cuenta: CuentaDeMagis, onAhoraNo: () -> Unit)
                 "•".repeat(campos.valor(CampoMagisOferta.PASSWORD).length)
             },
             activo = campos.activo == CampoMagisOferta.PASSWORD,
-            // Enmascarado SOLO mientras está oculta -ver el comentario de PanelDeLogin sobre por qué
-            // (PasswordVisualTransformation enmascara el dibujo, no la semántica de accesibilidad)-.
+            // Enmascarado SOLO mientras está oculta: `PasswordVisualTransformation` enmascara el
+            // dibujo, no la semántica de accesibilidad.
             enmascarado = !passwordVisible,
             onFocus = { campos.enfocar(CampoMagisOferta.PASSWORD) },
         )

@@ -58,9 +58,9 @@ import com.arkiv.player.ui.theme.ArkivTextSecondary
  * "Breaking Bad T5" son 16 capítulos bajo un solo ítem. Sin esta pantalla, tocar ese resultado
  * reproducía el capítulo 1 en silencio, sin forma de elegir.
  *
- * Los capítulos se piden al abrir (`/v1/episodes`): no vienen en el resultado de búsqueda porque
- * el portal los entrega en otra llamada, y pedirlos para las 20 series de una búsqueda gastaría el
- * rate-limit del portal en listas que nadie va a mirar.
+ * Los capítulos se piden al abrir (`MagisCatalog.detail`): no vienen en el resultado de búsqueda
+ * porque el portal los entrega en otra llamada, y pedirlos para las 20 series de una búsqueda
+ * gastaría el rate-limit del portal en listas que nadie va a mirar.
  */
 @Composable
 fun MagisSeasonDialog(
@@ -87,8 +87,8 @@ fun MagisSeasonDialog(
 
     LaunchedEffect(season.ref) {
         // Con qué se abrió la ventana. `program_type` es lo que decide que esto sea una serie (ver
-        // MAGIS_SERIES): si el portal etiquetó como serie algo que no tiene temporada, /v1/episodes
-        // responde 422 y desde la UI se ve igual que una caída de red.
+        // MAGIS_SERIES): si el portal etiquetó como serie algo que no tiene temporada,
+        // MagisCatalog.detail responde 422 y desde la UI se ve igual que una caída de red.
         android.util.Log.w(
             "ArkivGw",
             "temporada: pido capitulos titulo=${season.title} tipo=${season.extra["program_type"]} " +
