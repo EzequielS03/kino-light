@@ -5,8 +5,10 @@ import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
+import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -137,6 +139,29 @@ class ClienteDeIaTest {
     @Test fun `sin catalogo no puede`() = runTest {
         catalogo = MockResponse().setResponseCode(503)
         assertEquals(RespuestaDeIa.NoPude, cliente().preguntar("x"))
+    }
+
+    /**
+     * Una conexión que se cae a mitad del cuerpo, después de un 200, es "error de red": 5 min de
+     * espera ([Falla.Servidor]), no [Falla.Ilegible] (que no castiga). El cuerpo tiene que ser largo
+     * para que `DISCONNECT_DURING_RESPONSE_BODY` (corta a la mitad de los bytes) deje al lector a
+     * medio camino de un `Content-Length` que nunca se completa.
+     */
+    @Test fun `una conexion caida a mitad de la respuesta cuenta como falla de red`() = runTest {
+        val cuerpoLargo = """{"choices":[{"message":{"content":"${"x".repeat(5000)}"}}]}"""
+        porModelo["a:free"] = MockResponse().setBody(cuerpoLargo)
+            .setSocketPolicy(SocketPolicy.DISCONNECT_DURING_RESPONSE_BODY)
+        val c = cliente()
+        assertEquals("b:free", (c.preguntar("x") as RespuestaDeIa.Texto).modelo) // a falla, b responde
+        // b ya quedó arriba por su éxito: lo hacemos fallar también para que el orden siga bajando.
+        // Si a:free quedó castigado (5 min de espera), con el mismo `ahora` sigue afuera y el próximo
+        // candidato es c:free; si no lo castigaron (el bug de Ilegible), a:free se reintenta y, como
+        // ya no tiene el corte, responde bien.
+        porModelo.remove("a:free")
+        porModelo["b:free"] = MockResponse().setResponseCode(500)
+        pedidosDeChat.clear()
+        c.preguntar("y")
+        assertFalse(pedidosDeChat.contains("a:free"))
     }
 
     @Test fun `el modelo que respondio bien se prueba primero la proxima vez`() = runTest {

@@ -74,8 +74,13 @@ internal class ClienteDeIa(
                     resp.code == 429 -> Falla.Limite(resp.header("Retry-After")?.trim()?.toLongOrNull()?.times(1000))
                     !resp.isSuccessful -> Falla.Servidor
                     else -> {
+                        // La lectura del cuerpo queda FUERA del runCatching: si la conexión se cae a
+                        // mitad de un 200 (después de que `execute()` ya entregó la respuesta), es un
+                        // `IOException` real y tiene que caer en el catch de afuera como Falla.Servidor
+                        // (error de red), no como Ilegible (que no castiga).
+                        val cuerpoResp = resp.body?.string().orEmpty()
                         val texto = runCatching {
-                            JSONObject(resp.body?.string().orEmpty())
+                            JSONObject(cuerpoResp)
                                 .getJSONArray("choices").getJSONObject(0)
                                 .getJSONObject("message").getString("content")
                         }.getOrNull()?.trim()
