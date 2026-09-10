@@ -18,6 +18,10 @@ import com.arkiv.player.playback.SourceKind
 object FuenteDeDescarga {
     fun para(episodeId: String): String = when (PlayerSource.kindFor(episodeId)) {
         SourceKind.MAGIS -> "magis"
+        // Caracol no se baja: su video viene cifrado con Widevine. "ditu" no tiene estrategia en
+        // `AppGraph.downloadStrategies`, así que `LocalDownloadWorker` marca la fila FAILED con
+        // "Fuente no soportada: ditu". Mandarlo a "archive" diría que es de archive.org, que no lo es.
+        SourceKind.DITU -> "ditu"
         // NUC/LOCAL/LIVE no salen de `kindFor`, y un canal en vivo no se baja; archive.org es el
         // caso restante (un identifier pelado, sin prefijo).
         SourceKind.ARCHIVE, SourceKind.NUC, SourceKind.LOCAL, SourceKind.LIVE -> "archive"

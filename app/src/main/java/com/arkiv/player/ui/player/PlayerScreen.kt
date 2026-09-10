@@ -332,6 +332,9 @@ private fun PlayerContent(
     // Task 1 (poda de light-magis): canal en vivo, mismo patrón que magisItem/magisPlayer.
     val liveItem by vm.liveItem.collectAsStateWithLifecycle()
     var livePlayer by remember { mutableStateOf<Player?>(null) }
+    // Caracol: mismo patrón que magisItem/magisPlayer. Lo reproduce DituExoPlayer (DASH + Widevine).
+    val dituPlay by vm.dituPlayable.collectAsStateWithLifecycle()
+    var dituPlayer by remember { mutableStateOf<Player?>(null) }
     /**
      * Si el reproductor de ExoPlayer ya puso un fotograma en pantalla.
      *
@@ -397,13 +400,15 @@ private fun PlayerContent(
         }
     }
 
-    // Cómo se nombra la fuente en el cartel de "Resolviendo…". `vm.resolving` lo prenden LAS DOS
-    // cargas que resuelven contra la red —`loadWeb` y `loadMagis`—, pero el texto daba por sentado
-    // que era web: darle play a un capítulo de Magis anunciaba una fuente web que en ese camino no
-    // existe. Ninguna otra fuente prende esa bandera (archive tiene su propio cartel).
+    // Cómo se nombra la fuente en el cartel de "Resolviendo…". `vm.resolving` lo prenden las cargas
+    // que resuelven contra la red —`loadMagis` y `loadDitu`; `loadWeb` ya solo lo apaga—, pero el
+    // texto daba por sentado que era web: darle play a un capítulo de Magis anunciaba una fuente web
+    // que en ese camino no existe. Ninguna otra fuente prende esa bandera (archive tiene su propio
+    // cartel).
     val fuenteQueResuelve = remember(episodeId) {
         when (PlayerSource.kindFor(episodeId)) {
             SourceKind.MAGIS -> "de Magis"
+            SourceKind.DITU -> "de Caracol"
             else -> "web"
         }
     }
@@ -476,6 +481,7 @@ private fun PlayerContent(
         casting -> castPlayer ?: controller
         magisItem != null && magisPlayer != null -> magisPlayer!!
         liveItem != null && livePlayer != null -> livePlayer!!
+        dituPlay != null && dituPlayer != null -> dituPlayer!!
         else -> controller
     }
 
@@ -505,6 +511,7 @@ private fun PlayerContent(
     fun posicionEsDeEstaPantalla(): Boolean =
         magisItem != null ||
         liveItem != null ||
+        dituPlay != null ||
         loaded || runCatching { controller.currentMediaItem?.mediaId }.getOrNull() == episodeId
 
     fun contentDurationMs(): Long = CastProgress.contentDuration(
@@ -538,6 +545,10 @@ private fun PlayerContent(
     }
     LaunchedEffect(liveItem?.episodeId) {
         val epId = liveItem?.episodeId ?: return@LaunchedEffect
+        NowPlaying.episodeId = epId
+    }
+    LaunchedEffect(dituPlay?.episodeId) {
+        val epId = dituPlay?.episodeId ?: return@LaunchedEffect
         NowPlaying.episodeId = epId
     }
 
@@ -579,6 +590,9 @@ private fun PlayerContent(
      */
     fun textureViewDelVideo(): android.view.TextureView? = when {
         magisItem != null -> magisTextureView
+        // Caracol pinta en el SurfaceView de PlayerView, no en un TextureView (ver DituExoPlayer):
+        // no hay de dónde capturar.
+        dituPlay != null -> null
         else -> vlc.textureViewActual() ?: vlc.textureViewDe(videoView)
     }
 
@@ -885,9 +899,9 @@ private fun PlayerContent(
     // sonido es exactamente el instante en que `espejo.buffereando` ya es false y todavía no hay imagen, o
     // sea que ninguna de las señales viejas lo delata. Con `sinImagen` se ve si el spinner tapó ese
     // hueco o si la pantalla se quedó en negro.
-    LaunchedEffect(playlist == null, magisItem == null, liveItem == null, espejo.buffereando, sinPrimeraImagen, esperandoVideo, casting) {
+    LaunchedEffect(playlist == null, magisItem == null, liveItem == null, dituPlay == null, espejo.buffereando, sinPrimeraImagen, esperandoVideo, casting) {
         val spinner = hayQueMostrarElSpinner(
-            sinPlaylist = playlist == null && magisItem == null && liveItem == null,
+            sinPlaylist = playlist == null && magisItem == null && liveItem == null && dituPlay == null,
             buffereando = espejo.buffereando,
             sinPrimeraImagen = sinPrimeraImagen,
             perdioLaSalidaDeVideo = esperandoVideo,
@@ -896,7 +910,7 @@ private fun PlayerContent(
         android.util.Log.w(
             "ArkivVlc",
             "spinner=$spinner " +
-                "· sinPlaylist=${playlist == null && magisItem == null && liveItem == null} buffering=${espejo.buffereando} sinImagen=$sinPrimeraImagen " +
+                "· sinPlaylist=${playlist == null && magisItem == null && liveItem == null && dituPlay == null} buffering=${espejo.buffereando} sinImagen=$sinPrimeraImagen " +
                 "perdioVideo=$esperandoVideo",
         )
     }
@@ -1138,7 +1152,8 @@ private fun PlayerContent(
     // el cast, el efecto se relanza solo y el listener se re-engancha al que corresponda.
     val isMagis = magisItem != null   // MagisExoPlayer maneja sus propios errores.
     val isLiveExo = liveItem != null  // LiveExoPlayer maneja sus propios errores (→ reabrirVivoPorCorte).
-    val isExo = isMagis || isLiveExo     // Cualquier ExoPlayer activo (vs VLC).
+    val isDitu = dituPlay != null     // DituExoPlayer maneja sus propios errores (→ onDituExoError).
+    val isExo = isMagis || isLiveExo || isDitu     // Cualquier ExoPlayer activo (vs VLC).
     DisposableEffect(activePlayer) {
         // Snapshot del estado ExoPlayer en el momento en que se monta el listener.
         // Si isExo=true cuando el controller toma el control, STATE_ENDED del VLC no debe
@@ -1188,7 +1203,7 @@ private fun PlayerContent(
             // El ViewModel decide qué hacer con esto: hay fallos que se reparan solos (el 404 de un
             // archivo renombrado en archive.org) y otros que solo se pueden contar.
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                if (isExo) return  // MagisExoPlayer / LiveExoPlayer ya llamaron su onError
+                if (isExo) return  // MagisExoPlayer / LiveExoPlayer / DituExoPlayer ya llamaron su onError
                 val id = playlistRef.value?.items
                     ?.getOrNull(controller.currentMediaItemIndex)?.episodeId ?: episodeId
                 android.util.Log.w("ArkivPlay", "onPlayerError episodeId=$id → ${error.message}")
@@ -1250,6 +1265,7 @@ private fun PlayerContent(
             // Para las demás fuentes lo identifica la playlist LOCAL, no el player activo.
             val epId = when {
                 isMagis -> magisItem?.episodeId
+                isDitu -> dituPlay?.episodeId
                 else -> playlistRef.value?.items?.getOrNull(controller.currentMediaItemIndex)?.episodeId
             }
             // !enVivo (Tarea 14): en vivo no hay "dónde ibas" que guardar -- ni "continuar viendo"
@@ -1305,6 +1321,7 @@ private fun PlayerContent(
         val mediaId = activePlayer.currentMediaItem?.mediaId
         val epId = when {
             isMagis -> magisItem?.episodeId
+            isDitu -> dituPlay?.episodeId
             else -> playlistRef.value?.items?.getOrNull(controller.currentMediaItemIndex)?.episodeId
         }
         if (epId != null && (isExo || mediaId == epId) && dur > 0 && pos in 0 until dur) {
@@ -1522,6 +1539,7 @@ private fun PlayerContent(
     // Igual que currentPlayer: el ítem ExoPlayer vigente al salir / ir al fondo, para que onDispose
     // y el observador de ciclo de vida lean el episodeId correcto aunque la pantalla ya esté saliendo.
     val currentMagisItem by rememberUpdatedState(magisItem)
+    val currentDituPlay by rememberUpdatedState(dituPlay)
 
     DisposableEffect(Unit) {
         onDispose {
@@ -1543,10 +1561,11 @@ private fun PlayerContent(
             // "visto" con eso. `pos in 0 until dur` también faltaba acá.
             val mediaId = currentPlayer.currentMediaItem?.mediaId
             controller.pause()
-            val isExoOnDispose = currentMagisItem != null
+            val isExoOnDispose = currentMagisItem != null || currentDituPlay != null
             // ExoPlayer: playlist VLC vacía; el episodeId lo trae el ítem directamente.
             val epId = when {
                 currentMagisItem != null -> currentMagisItem?.episodeId
+                currentDituPlay != null -> currentDituPlay?.episodeId
                 else -> playlistRef.value?.items?.getOrNull(currentIndex)?.episodeId
             }
             // !enVivo (Tarea 14): salir de un canal en vivo no tiene "posición" que guardar.
@@ -1578,9 +1597,10 @@ private fun PlayerContent(
     DisposableEffect(lifecycleOwner) {
         val obs = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
-                val isExoStop = currentMagisItem != null
+                val isExoStop = currentMagisItem != null || currentDituPlay != null
                 val epId = when {
                     currentMagisItem != null -> currentMagisItem?.episodeId
+                    currentDituPlay != null -> currentDituPlay?.episodeId
                     else -> playlistRef.value?.items?.getOrNull(currentPlayer.currentMediaItemIndex)?.episodeId
                 }
                 val pos = currentPlayer.currentPosition
@@ -1659,6 +1679,7 @@ private fun PlayerContent(
             // Stick reinicia), la posición está guardada y no se pierde.
             val epId = when {
                 isMagis -> magisItem?.episodeId
+                isDitu -> dituPlay?.episodeId
                 else -> playlistRef.value?.items?.getOrNull(currentIndex)?.episodeId
             }
             val pos = activePlayer.currentPosition
@@ -1777,6 +1798,28 @@ private fun PlayerContent(
                 },
                 onTextureViewReady = { tv -> magisTextureView = tv },
                 onError = { msg -> vm.onMagisExoError(msg) },
+                onTracksChanged = { tracks -> estadoPistas.actualizarPistasExo(tracks) },
+                onPrimeraImagen = { hay -> exoYaPintoAlgo = hay },
+                zoom = gestos.zoomParaExo,
+            )
+        }
+
+        // Caracol: DASH con Widevine, sin proxy local (ver DituExoPlayer). Reanuda desde la misma
+        // posición que usaría Magis: `safeStartPosition`, calculada en PlayerViewModel.loadDitu.
+        val dPlay = dituPlay
+        if (dPlay != null) {
+            DituExoPlayer(
+                mediaUrl = dPlay.playable.url,
+                drmLicenseUrl = dPlay.playable.drmLicenseUrl,
+                drmLicenseHeaders = dPlay.playable.drmLicenseHeaders,
+                espejo = espejo,
+                startPositionMs = dPlay.startPositionMs,
+                onPlayerReady = { player ->
+                    dituPlayer = player
+                    estadoPistas.setExoPlayer(player)
+                    gestos.setExoPlayer(player)
+                },
+                onError = { msg -> vm.onDituExoError(msg) },
                 onTracksChanged = { tracks -> estadoPistas.actualizarPistasExo(tracks) },
                 onPrimeraImagen = { hay -> exoYaPintoAlgo = hay },
                 zoom = gestos.zoomParaExo,
@@ -1963,7 +2006,7 @@ private fun PlayerContent(
         if (
             loadError == null && estadoDlna.activo == null &&
             hayQueMostrarElSpinner(
-                sinPlaylist = playlist == null && magisItem == null && liveItem == null,
+                sinPlaylist = playlist == null && magisItem == null && liveItem == null && dituPlay == null,
                 buffereando = espejo.buffereando,
                 sinPrimeraImagen = sinPrimeraImagen,
                 perdioLaSalidaDeVideo = esperandoVideo,

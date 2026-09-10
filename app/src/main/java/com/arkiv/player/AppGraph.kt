@@ -131,13 +131,42 @@ class AppGraph(context: Context) {
         com.arkiv.player.data.magis.MagisCatalog(magisPortal, magisSession)
     }
 
-    /** De dónde salen los títulos que la app busca y reproduce: el portal, directo. */
-    val fuenteDeContenido: com.arkiv.player.data.gateway.FuenteDeContenido by lazy {
+    /** Los títulos de Magis, directo del portal. Afuera solo se ve a través de [fuenteDeContenido]. */
+    private val magisFuente: com.arkiv.player.data.gateway.FuenteDeContenido by lazy {
         com.arkiv.player.data.magis.MagisFuente(
             catalogo = magisCatalog,
             resolucion = com.arkiv.player.data.magis.MagisResolve(magisPortal, magisSession),
             tmdb = tmdbApi,
         )
+    }
+
+    // --- Caracol (Ditu) directo ---------------------------------------------------------------
+    //
+    // Todo el protocolo de Caracol vive en `data/ditu`. Sin cuenta ni sesión: el contenido gratuito
+    // se pide y se sirve (ver el KDoc de `DituCliente`).
+
+    private val dituCliente: com.arkiv.player.data.ditu.DituClienteLike by lazy {
+        com.arkiv.player.data.ditu.DituCliente()
+    }
+
+    /** Caracol como fuente de títulos. `internal` además de estar dentro de [fuenteDeContenido]:
+     *  los canales y el catálogo completo no son parte del contrato común. */
+    internal val dituFuente: com.arkiv.player.data.ditu.DituFuente by lazy {
+        com.arkiv.player.data.ditu.DituFuente(
+            catalogo = com.arkiv.player.data.ditu.DituCatalogo(dituCliente),
+            episodios = com.arkiv.player.data.ditu.DituEpisodios(dituCliente),
+            resolucion = com.arkiv.player.data.ditu.DituResolve(dituCliente),
+            tmdb = tmdbApi,
+        )
+    }
+
+    /**
+     * De dónde salen los títulos que la app busca y reproduce: Magis y Caracol detrás de un solo
+     * objeto. Para resolver y listar capítulos reparte por el `ref` (cada fuente reconoce los
+     * suyos); para buscar, mezcla las dos. Ver [com.arkiv.player.data.gateway.FuenteCompuesta].
+     */
+    val fuenteDeContenido: com.arkiv.player.data.gateway.FuenteDeContenido by lazy {
+        com.arkiv.player.data.gateway.FuenteCompuesta(listOf(magisFuente, dituFuente))
     }
 
     internal val magisLive: com.arkiv.player.data.magis.MagisLive by lazy {

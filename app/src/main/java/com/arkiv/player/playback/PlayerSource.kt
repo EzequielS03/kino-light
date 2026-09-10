@@ -2,7 +2,7 @@ package com.arkiv.player.playback
 
 import androidx.media3.common.MediaItem
 
-enum class SourceKind { ARCHIVE, MAGIS, NUC, LOCAL, LIVE }
+enum class SourceKind { ARCHIVE, MAGIS, NUC, LOCAL, LIVE, DITU }
 
 data class PlayerSourceTag(
     val kind: SourceKind,
@@ -72,6 +72,9 @@ object PlayerSource {
 
     fun kindFor(episodeId: String): SourceKind = when {
         episodeId.startsWith("magis:") -> SourceKind.MAGIS
+        // Caracol (Ditu). Todavía ningún código del árbol arma ids con este prefijo: tiene que
+        // coincidir con el que use quien guarde los episodios de Caracol en la biblioteca.
+        episodeId.startsWith("ditu:") -> SourceKind.DITU
         episodeId.startsWith(LIVE_PREFIX) -> SourceKind.LIVE
         else -> SourceKind.ARCHIVE
     }

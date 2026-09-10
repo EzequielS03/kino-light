@@ -118,6 +118,17 @@ data class WebExtras(
 )
 
 /**
+ * Lo que suena de Caracol: qué episodio es, desde dónde arrancar y lo que resolvió la fuente (la URL
+ * del manifiesto y la licencia Widevine). Va en un solo valor para que la pantalla nunca vea la URL
+ * de un episodio con la posición de otro.
+ */
+data class DituReproducible(
+    val episodeId: String,
+    val playable: com.arkiv.player.data.gateway.GatewayPlayable,
+    val startPositionMs: Long = 0L,
+)
+
+/**
  * Qué se le muestra a la persona cuando un canal no abre.
  *
  * Antes esto adivinaba "este TV no está vinculado" mirando si la config del gateway seguía en el
@@ -175,6 +186,13 @@ class PlayerViewModel(
      */
     private val _liveItem = MutableStateFlow<PlayerData?>(null)
     val liveItem: StateFlow<PlayerData?> = _liveItem.asStateFlow()
+
+    /**
+     * Episodio de Caracol en curso, o `null` si lo que suena es de otra fuente. Cuando no es null,
+     * `PlayerScreen` lo reproduce con [DituExoPlayer] en vez de VLC o del reproductor de Magis.
+     */
+    private val _dituPlayable = MutableStateFlow<DituReproducible?>(null)
+    val dituPlayable: StateFlow<DituReproducible?> = _dituPlayable.asStateFlow()
 
     /** Error de resolución (torrent sin peers, .torrent ilegible, etc.) para que la pantalla lo muestre. */
     private val _error = MutableStateFlow<String?>(null)
@@ -241,6 +259,8 @@ class PlayerViewModel(
             // ViewModel sobrevive, ver el guard de más arriba): sin este reset, `liveItem` seguía
             // publicando el último canal y PlayerScreen (isLive/isLiveExo) lo creía vigente.
             _liveItem.value = null
+            // Lo mismo con Caracol: PlayerScreen elige DituExoPlayer mientras esto no sea null.
+            _dituPlayable.value = null
             errorDeReproduccion = false
             // Si está guardado en el dispositivo, gana sobre cualquier streaming. Va ANTES de
             // ramificar por fuente: da igual de dónde vino el archivo, ya está acá.
@@ -257,6 +277,7 @@ class PlayerViewModel(
             when (kind) {
                 SourceKind.ARCHIVE -> loadArchive(episodeId)
                 SourceKind.MAGIS -> loadMagis(episodeId)
+                SourceKind.DITU -> loadDitu(episodeId)
                 // PlayerSource.kindFor() nunca devuelve NUC ni LOCAL (ver su propio KDoc): esta rama
                 // es inalcanzable por diseño, pero el `when` exhaustivo la exige. Apunta a loadWeb()
                 // porque es el único filler que sigue existiendo (NUC/PlaybackPreferenceStore se
@@ -342,6 +363,7 @@ class PlayerViewModel(
             // contra contenido ya abandonado.
             _playlist.value = null
             _magisItem.value = null
+            _dituPlayable.value = null
             val url = runCatching { liveController.abrir(canal.code) }.getOrElse {
                 Log.w(PLAY, "abrirCanalActual() falló para ${canal.code}: ${it.message}")
                 if (zapping?.actual?.code == canal.code) {
@@ -589,6 +611,11 @@ class PlayerViewModel(
         _error.value = "Magis: $message"
     }
 
+    /** [DituExoPlayer] agotó sus re-preparados, o el error no era de los que se arreglan así. */
+    fun onDituExoError(message: String) {
+        _error.value = "Caracol: $message"
+    }
+
     /**
      * Un directo se cayó del lado de ExoPlayer (segmento/playlist en 502 tras agotar los
      * reintentos del proxy, o cualquier otro `PlaybackException`).
@@ -813,6 +840,38 @@ class PlayerViewModel(
     }
 
     /**
+     * Reproduce un episodio de Caracol.
+     *
+     * A diferencia de [loadMagis], no pasa por [archiveCacheProxy]: los headers que pide Caracol los
+     * pone el propio [DituExoPlayer]. Acá solo se resuelve y se publica en [dituPlayable], junto con
+     * la posición desde donde reanudar.
+     *
+     * El `ref` sale de [ArkivRepository.magisRefForEpisode], que pese al nombre lee el ref guardado
+     * en la fila del episodio (o, si no tiene, en la de su ítem) sin mirar de qué fuente es.
+     */
+    private suspend fun loadDitu(episodeId: String) {
+        val ref = repo.magisRefForEpisode(episodeId)
+        Log.w(PLAY, "loadDitu() episodeId=$episodeId ref=${ref?.take(16)}…")
+        if (ref.isNullOrBlank()) { _error.value = "No se encontró la fuente de Caracol"; return }
+
+        _playlist.value = null
+        _webExtras.value = null
+        _resolving.value = true
+        val resuelto = withContext(Dispatchers.IO) { runCatching { fuente.resolve(ref) } }
+        _resolving.value = false
+        val play = resuelto.getOrNull()
+        if (play == null) {
+            Log.w(PLAY, "loadDitu() falló: ${resuelto.exceptionOrNull()?.message}")
+            _error.value = resuelto.exceptionOrNull()?.message ?: "No se pudo reproducir en Caracol"
+            return
+        }
+        // La misma reanudación que Magis: [safeStartPosition] sobre el progreso guardado.
+        val startPos = safeStartPosition(episodeId, SourceKind.DITU)
+        Log.w(PLAY, "loadDitu() drm=${play.drmLicenseUrl.isNotBlank()} startPos=$startPos")
+        _dituPlayable.value = DituReproducible(episodeId, play, startPos)
+    }
+
+    /**
      * ELIMINADA en la poda de esta rama (borrado de torrent+web+mirror, ver CLAUDE.md "Cero servidor
      * propio"): resolvía una `pageUrl` scrapeada on-device contra `WebResolverApi` (el resolver
      * headless de blog), que ya no existe. Se conserva la función -no se borra del todo- porque
@@ -887,6 +946,10 @@ class PlayerViewModel(
             // vivo (ver su guard), así que ni currentId llega acá con ese kind. El "siguiente" de
             // un canal en vivo es el zapping (LiveZapping), no esta precarga de series.
             SourceKind.LIVE -> Unit
+            // Caracol tampoco se precarga: resolver es pedirle a su API el detalle, el permiso y la
+            // URL (ver DituResolve.vod) por un capítulo que quizá no se vea, y nada acá guarda el
+            // resultado para usarlo después.
+            SourceKind.DITU -> Unit
         }
     }.onFailure { Log.w(PLAY, "prefetchNext falló: $it") }
 
@@ -971,6 +1034,8 @@ class PlayerViewModel(
         // la biblioteca: una fila acá no se queda quieta en este aparato. Ver
         // [hayQueAnotarHistorial], que es donde está la decisión y sus bordes.
         // Magis ExoPlayer: el ítem está en _magisItem, no en _playlist.
+        // Caracol cae en la rama de abajo: `loadDitu` deja `_playlist` en null, y con eso
+        // [hayQueAnotarHistorial] anota.
         val magisIt = _magisItem.value?.takeIf { it.episodeId == episodeId }
         if (magisIt != null) {
             if (!ContenidoDeAdultos.hayQueAnotar(magisIt.adulto)) return
