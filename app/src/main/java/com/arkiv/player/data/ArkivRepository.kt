@@ -49,7 +49,7 @@ data class ObraDeTrivia(val tmdbId: Int, val tipo: String, val temporada: Int?, 
  *     (ver `LibraryRow.isMovie`) y puede venir corregido a mano por la persona.
  *  3. Que ESTE capítulo traiga número.
  */
-private fun tipoDeObra(tipoDelItem: String?, categoryOverride: String?, episodio: Int?): String = when {
+internal fun tipoDeObra(tipoDelItem: String?, categoryOverride: String?, episodio: Int?): String = when {
     tipoDelItem == "tv" || tipoDelItem == "movie" -> tipoDelItem
     categoryOverride == "series" -> "tv"
     categoryOverride == "movie" -> "movie"
