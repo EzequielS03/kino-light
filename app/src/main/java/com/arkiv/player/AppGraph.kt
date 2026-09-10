@@ -72,8 +72,9 @@ class AppGraph(context: Context) {
 
     /**
      * `OkHttpClient` COMPARTIDO para todo lo que hable con el gateway unificado (Task 7b): antes
-     * había seis `OkHttpClient()` sueltos (acá abajo x3, `PlayerViewModel.gatewayClient`,
-     * `MagisLinkClient`, `PocketBaseClient`), así que un rechazo de identidad real (licencia
+     * había seis `OkHttpClient()` sueltos (acá abajo x3, el `gatewayClient` que tenía
+     * `PlayerViewModel` -se borró junto con `ArkivApiClient` en el sub-proyecto 2B-, `MagisLinkClient`,
+     * `PocketBaseClient`), así que un rechazo de identidad real (licencia
      * revocada, aparato sacado desde "Mis aparatos") no tenía quién lo mirara fuera de las dos
      * pantallas que ya implementan la regla a mano (`EntradaViewModel`, `MisAparatosViewModel`).
      * `InterceptorDeSesion` es ese punto único: cierra [sesionDePersona] SOLO ante un 401/403 del
@@ -104,9 +105,10 @@ class AppGraph(context: Context) {
             .build()
     }
 
-    /** [httpGateway] con los timeouts cortos que ya usaban `TmdbApi`/`SimklApi`/
-     *  `MirrorApiClient` por default (pedidos JSON cortos, no streaming) -se explicita acá para no
-     *  perder ese ajuste al pasar de sus `OkHttpClient` por default a este compartido. */
+    /** [httpGateway] con los timeouts cortos que ya usaba `TmdbApi` por default (pedidos JSON
+     *  cortos, no streaming) -se explicita acá para no perder ese ajuste al pasar de su
+     *  `OkHttpClient` por default a este compartido. Es su ÚNICO consumidor (`SimklApi`,
+     *  `SubtitleApi` y `MirrorApiClient` se borraron en podas anteriores). */
     val httpGatewayCorto: okhttp3.OkHttpClient by lazy {
         httpGateway.newBuilder()
             .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
@@ -167,25 +169,6 @@ class AppGraph(context: Context) {
     /** Categorías y canales de vivo + el árbol de secciones del catálogo, directo del portal. */
     internal val catalogoDeVivo: com.arkiv.player.data.magis.MagisLiveCatalog by lazy {
         com.arkiv.player.data.magis.MagisLiveCatalog(magisCatalog, magisPortal, magisSession)
-    }
-
-    /**
-     * Cliente del gateway unificado. La URL se lee del [settings] en CADA llamada (no se
-     * captura): así cambiarla en Ajustes tiene efecto sin reiniciar la app.
-     *
-     * Ya NO sirve contenido (búsqueda, reproducción ni capítulos): eso lo da [fuenteDeContenido]
-     * hablándole al portal directo. Queda para lo que sigue siendo del servidor — los marcadores
-     * de intro.
-     */
-    val arkivApiClient: com.arkiv.player.data.gateway.ArkivApiClient by lazy {
-        com.arkiv.player.data.gateway.ArkivApiClient(
-            baseUrl = { settings.gatewayUrl.value },
-            http = httpGateway,
-            // Task 8 (Paso 2): mismas fuentes que ya usa `cuentaApi` para las dos cabeceras de
-            // sesión -- no una lectura nueva/paralela del store.
-            personToken = { sesionDePersona.token() },
-            deviceToken = { deviceAuth.session.value?.token },
-        )
     }
 
     /**

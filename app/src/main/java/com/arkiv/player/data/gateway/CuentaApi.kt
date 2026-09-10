@@ -146,10 +146,9 @@ sealed class ErrorDeCuenta(val codigo: String, val mensaje: String) : Exception(
  * `licencia_invalida`/`email_en_uso`/`device_ya_registrado`) se sacó en Task 7 -poda de "Arkiv
  * Light": ya no se dan de alta cuentas nuevas desde la app, solo se entra a una que ya existe-.
  *
- * Sigue la forma de [ArkivApiClient] para `baseUrl` (proveedor en vez de valor fijo, para que un
- * cambio de gateway -[com.arkiv.player.data.SettingsStore]- se refleje sin reconstruir el
- * cliente). A diferencia de aquel, acá NO hay streaming: son pedidos JSON cortos, así que los
- * timeouts son finitos en lectura (no `0`).
+ * `baseUrl` es un proveedor y no un valor fijo, para que un cambio de gateway
+ * -[com.arkiv.player.data.SettingsStore]- se refleje sin reconstruir el cliente. Acá NO hay
+ * streaming: son pedidos JSON cortos, así que los timeouts son finitos en lectura (no `0`).
  *
  * El `Authorization` es la parte que importa: [altaAparato] no manda ninguno -el aparato todavía
  * no existe, ver su KDoc-, [entrar] identifica al APARATO que todavía no es de ninguna cuenta (por

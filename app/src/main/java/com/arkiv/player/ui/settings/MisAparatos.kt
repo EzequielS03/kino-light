@@ -118,7 +118,7 @@ fun mensajeDeConfirmacion(aparato: AparatoUi, esElUltimo: Boolean): String = whe
  * `AppGraph.misAparatosViewModel`) se comparte entre la pantalla del celular y la de la TV.
  *
  * [recordIdDeEsteAparato] es un provider, no un valor capturado, por la misma razón que
- * `AppGraph.arkivApiClient` lee `{ deviceAuth.session.value?.token }` en vez de un valor: al
+ * `AppGraph.cuentaApi` lee `{ deviceAuth.session.value?.token }` en vez de un valor: al
  * construirse esta clase el bootstrap del device puede no haber terminado todavía.
  */
 class MisAparatosViewModel(

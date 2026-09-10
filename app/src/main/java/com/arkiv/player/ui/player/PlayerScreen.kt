@@ -315,14 +315,12 @@ private fun PlayerContent(
         factory = viewModelFactory {
             initializer {
                 PlayerViewModel(
-                    graph.repository, graph.settings, graph.archiveCacheProxy,
-                    graph.localLibrary, graph.localFileServer, graph.deviceAuth, graph.frameCapturer,
+                    graph.repository, graph.archiveCacheProxy,
+                    graph.localLibrary, graph.localFileServer, graph.frameCapturer,
                     graph.liveController, graph.database.liveRecentDao(),
                     esTelevision = isTv,
-                    httpGateway = graph.httpGateway,
                     fuente = graph.fuenteDeContenido,
                     hayCuentaDeMagis = { graph.magisSession.hasAccountLinked },
-                    personToken = { graph.sesionDePersona.token() },
                 )
             }
         },

@@ -4,7 +4,6 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.arkiv.player.data.ArkivRepository
-import com.arkiv.player.data.SettingsStore
 import com.arkiv.player.data.db.LiveRecentDao
 import com.arkiv.player.data.db.LiveRecentEntity
 import com.arkiv.player.data.db.SkipMarkerEntity
@@ -141,11 +140,9 @@ fun mensajeErrorVivo(
 
 class PlayerViewModel(
     private val repo: ArkivRepository,
-    private val settings: SettingsStore,
     private val archiveCacheProxy: ArchiveCacheProxy,
     private val localLibrary: com.arkiv.player.data.local.LocalLibrary,
     private val localFileServer: com.arkiv.player.playback.LocalFileServer,
-    private val deviceAuth: com.arkiv.player.pocketbase.DeviceAuthManager,
     private val frameCapturer: com.arkiv.player.miniaturas.FrameCapturer,
     // Tarea 14 (modo vivo): pegados al final para no reordenar los parámetros posicionales de
     // arriba (el callsite en PlayerScreen los pasa por posición, no por nombre).
@@ -153,26 +150,11 @@ class PlayerViewModel(
     private val liveRecentDao: LiveRecentDao,
     // ¿Este proceso corre en un Android TV? Lo leen las pantallas que se dibujan distinto.
     private val esTelevision: Boolean = false,
-    // Task 7b: el `OkHttpClient` COMPARTIDO de `AppGraph` con `InterceptorDeSesion` colgado. Antes
-    // [gatewayClient] armaba su PROPIO `OkHttpClient()` (uno de los seis sueltos del brief), así
-    // que un 401/403 de identidad real disparado por la precarga en frío del siguiente capítulo
-    // -sin que ninguna pantalla esté mirando- no cerraba la sesión hasta el próximo pedido que sí
-    // pasara por un ViewModel que supiera reaccionar.
-    private val httpGateway: okhttp3.OkHttpClient,
-    // Sub-proyecto 2A: de acá sale lo reproducible. Antes lo pedía [gatewayClient] a `/v1/resolve`;
-    // ahora es el portal directo. [gatewayClient] queda solo para lo que sigue siendo del servidor
-    // (los marcadores de intro).
+    // Sub-proyecto 2A: de acá sale lo reproducible, directo del portal.
     private val fuente: com.arkiv.player.data.gateway.FuenteDeContenido,
     /** Si hay una cuenta de Magis vinculada en este aparato. Solo decide qué dice el error cuando
      *  un canal en vivo no abre (ver [mensajeErrorVivo]): el vivo la exige, el VOD no. */
     private val hayCuentaDeMagis: () -> Boolean = { false },
-    // [gatewayClient] (ver más abajo) es OTRA instancia de `ArkivApiClient` además de
-    // `AppGraph.arkivApiClient`, y necesita las dos cabeceras de sesión para lo que le queda —los
-    // marcadores de intro—: `X-Arkiv-Key` ya no existe, así que sin esto se quedaría
-    // sin NINGUNA credencial. `deviceAuth` ya viene por constructor arriba -de ahí sale el token del
-    // aparato-; el de la persona no tenía por dónde entrar, así que se suma esta lambda en vez de
-    // todo `SesionDePersona` (acá alcanza con leer el token, igual que ya hace [deviceAuth]).
-    private val personToken: () -> String? = { null },
 ) : ViewModel() {
 
     private val _playlist = MutableStateFlow<PlaylistData?>(null)
@@ -906,30 +888,12 @@ class PlayerViewModel(
         }
     }.onFailure { Log.w(PLAY, "prefetchNext falló: $it") }
 
-    /** Cliente HTTP compartido para [warmHead]: evita crear un OkHttpClient (pool de hilos+conexiones) por episodio. */
-    /**
-     * Cliente del gateway, solo para lo que en esta rama sigue siendo del servidor: los
-     * marcadores de intro. Lo reproducible lo da [fuente], que habla con el portal directo.
-     *
-     * La URL se lee de [settings] en cada llamada. [httpGateway] viene por constructor (Task 7b, ver
-     * su KDoc): es el `OkHttpClient` compartido de `AppGraph` con `InterceptorDeSesion`, así que un
-     * 401/403 de identidad real cierra la sesión de la persona aunque el pedido haya salido de acá y
-     * no de un ViewModel de pantalla.
-     */
-    private val gatewayClient by lazy {
-        com.arkiv.player.data.gateway.ArkivApiClient(
-            baseUrl = { settings.gatewayUrl.value },
-            http = httpGateway,
-            personToken = personToken,
-            deviceToken = { deviceAuth.session.value?.token },
-        )
-    }
-
     /** La corrección a mano de los tiempos, del capítulo en curso o de la serie. Ver su KDoc. */
     private val editorDeMarcadores by lazy {
         com.arkiv.player.data.marcadores.EditorDeMarcadores(dao = repo.skipMarkerDao())
     }
 
+    /** Cliente HTTP compartido para [warmHead]: evita crear un OkHttpClient (pool de hilos+conexiones) por episodio. */
     private val prefetchHttp by lazy {
         okhttp3.OkHttpClient.Builder()
             .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
