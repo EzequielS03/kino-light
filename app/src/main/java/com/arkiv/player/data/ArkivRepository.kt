@@ -1303,6 +1303,47 @@ class ArkivRepository(
     private suspend fun borrarFrameDe(episodeId: String) {
         destructorDeFrames.destruir(episodeId)
     }
+
+    /**
+     * La identidad de la obra de la que pedir datos curiosos, o null si no hay forma de nombrarla
+     * bien (ver [com.arkiv.player.data.trivia.ObraDeDatos.de]). Sin red: el nombre lo busca aparte
+     * [nombreDeObra], y solo si no hay caché.
+     *
+     * Temporada y capítulo salen primero de los campos que escriben Magis y Caracol al guardar
+     * (`EpisodeEntity.season` / `.episode`), y si no, del nombre y la sección, como antes.
+     */
+    internal suspend fun obraParaDatos(episodeId: String): com.arkiv.player.data.trivia.ObraDeDatos? {
+        val ep = itemDao.getEpisode(episodeId) ?: return null
+        val item = itemDao.getItem(ep.itemId) ?: return null
+        val episodio = ep.episode?.takeIf { it > 0 }
+            ?: com.arkiv.player.data.model.EpisodeNumbering.episodeOf(ep.displayName)
+        val temporada = ep.season?.takeIf { it > 0 }
+            ?: com.arkiv.player.data.model.EpisodeNumbering.seasonOf(ep.section)
+        return com.arkiv.player.data.trivia.ObraDeDatos.de(
+            tipo = com.arkiv.player.data.model.TipoDeObra.de(item.tipo, item.categoryOverride, episodio),
+            tmdbId = item.tmdbId,
+            tituloCanonico = item.tituloCanonico,
+            temporada = temporada,
+            episodio = episodio,
+        )
+    }
+
+    /**
+     * Cómo decirle al modelo qué obra es: el nombre de TMDB cuando hay `tmdbId`, y si no (o si TMDB
+     * no contesta) el título canónico. Null si no hay ninguno.
+     */
+    internal suspend fun nombreDeObra(obra: com.arkiv.player.data.trivia.ObraDeDatos): String? {
+        val deTmdb = obra.tmdbId?.let { id ->
+            try {
+                tmdbApi?.detail(obra.tipo, id)?.title
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+        }
+        return deTmdb?.takeIf { it.isNotBlank() } ?: obra.tituloCanonico
+    }
 }
 
 /**
