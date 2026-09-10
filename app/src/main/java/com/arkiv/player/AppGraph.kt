@@ -132,7 +132,15 @@ class AppGraph(context: Context) {
             appId = BuildConfig.IPTV_APP_ID,
             apkVersion = BuildConfig.IPTV_APK_VERSION,
             snProvider = { magisStore.leerSesion()?.sn.orEmpty() },
-            http = httpGateway,
+            // El compartido, pero PACIENTE: el portal tarda ~11 s en resolver algunos canales
+            // (medido) y el default de lectura de OkHttp son 10, o sea que los mataba justo antes
+            // de llegar -- es el mismo motivo por el que `LiveApi` tenía su `httpConPaciencia`.
+            // `newBuilder()` y no un cliente nuevo: comparte pool de conexiones con el resto. El
+            // `InterceptorDeSesion` que viene colgado no estorba: solo mira respuestas cuyo host es
+            // el del gateway, y el portal está en otro.
+            http = httpGateway.newBuilder()
+                .readTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
+                .build(),
         )
     }
 
