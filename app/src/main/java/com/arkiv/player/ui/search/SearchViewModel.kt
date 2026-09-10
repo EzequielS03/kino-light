@@ -84,8 +84,16 @@ class SearchViewModel(
     private val _sources = MutableStateFlow<List<PlaySource>>(emptyList())
     val sources: StateFlow<List<PlaySource>> = _sources.asStateFlow()
 
-    private val _loadingMagis = MutableStateFlow(false)
-    val loadingMagis: StateFlow<Boolean> = _loadingMagis.asStateFlow()
+    /** Qué fuentes siguen buscando en la búsqueda de fuentes en curso (ver [FuentesBuscando]). */
+    private val _fuentesBuscando = MutableStateFlow(FuentesBuscando())
+    val fuentesBuscando: StateFlow<FuentesBuscando> = _fuentesBuscando.asStateFlow()
+
+    /**
+     * Cuántas búsquedas de fuentes se arrancaron. La que se cancela porque arrancó otra igual pasa
+     * por el final de su corrutina (el `runCatching` de [runSourceSearch] atrapa la cancelación):
+     * con esto no le apaga los indicadores a la que la reemplazó.
+     */
+    private var busquedasDeFuentes = 0
 
     /**
      * Qué fuentes respondieron y cuáles se cayeron en la búsqueda de fuentes en curso; se vacía al
@@ -242,7 +250,12 @@ class SearchViewModel(
         _phase.value = SearchPhase.RESULTS
         _sources.value = emptyList()
         _estadoDeFuentes.value = EstadoDeLasFuentes()
-        _loadingMagis.value = true
+        val estaBusqueda = ++busquedasDeFuentes
+        _fuentesBuscando.value = FuentesBuscando.empezando()
+        // Solo mientras esta siga siendo la búsqueda vigente: ver [busquedasDeFuentes].
+        fun buscando(cambio: (FuentesBuscando) -> FuentesBuscando) {
+            if (estaBusqueda == busquedasDeFuentes) _fuentesBuscando.value = cambio(_fuentesBuscando.value)
+        }
         _refineSeason.value = season
         _refineEpisode.value = episode
 
@@ -297,11 +310,14 @@ class SearchViewModel(
                                 // escribe `FalloDeCaracol` (ver `avisosDeFuentesCaidas`).
                                 Log.w(GW, "fuente ${ev.source} fallo: ${ev.error} (entrego ${ev.count})", ev.causa)
                                 _estadoDeFuentes.value = _estadoDeFuentes.value.conCaida(ev.source, ev.error, ev.causa)
+                                // Su "Buscando…" se apaga ya, sin esperar a las demás fuentes.
+                                buscando { it.terminoLaFuente(ev.source) }
                                 vaciarLote()
                             }
                             is com.arkiv.player.data.gateway.SearchEvent.SourceDone -> {
                                 Log.w(GW, "fuente ${ev.source}: ${ev.count} en ${ev.ms}ms")
                                 _estadoDeFuentes.value = _estadoDeFuentes.value.conRespuesta(ev.source)
+                                buscando { it.terminoLaFuente(ev.source) }
                                 vaciarLote()
                             }
                             else -> Unit
@@ -311,7 +327,7 @@ class SearchViewModel(
                 }.onFailure {
                     android.util.Log.w("ArkivGateway", "el gateway falló: ${it.message}")
                 }
-                _loadingMagis.value = false
+                buscando { it.terminoTodo() }
             }
         }
     }

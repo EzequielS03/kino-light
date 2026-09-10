@@ -21,10 +21,12 @@ import com.arkiv.player.data.gateway.GatewaySerie
 import com.arkiv.player.data.gateway.SearchEvent
 import com.arkiv.player.ui.catalog.PlaySource
 import java.lang.reflect.Proxy
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -82,7 +84,35 @@ class SearchViewModelFuentesTest {
         // La excepción llega a la pantalla: es con lo que `FalloDeCaracol` escribe la línea.
         assertEquals(mapOf<String, Throwable>("ditu" to sinRed), vm.estadoDeFuentes.value.causas)
         assertEquals(setOf("magis"), vm.estadoDeFuentes.value.respondieron)
-        assertFalse(vm.loadingMagis.value)
+        assertFalse(vm.fuentesBuscando.value.alguna)
+    }
+
+    /** "Buscando en Magis…" se apaga con el SourceDone de Magis, no con el Done de toda la búsqueda. */
+    @Test fun `Magis deja de girar apenas responde, aunque Caracol siga buscando`() = runTest {
+        val caracolContesta = CompletableDeferred<Unit>()
+        val vm = vm(FuenteConFlujo {
+            flow {
+                emit(SearchEvent.SourceStart("magis"))
+                emit(SearchEvent.ResultEvent("magis", GatewayResult(source = "magis", title = "Rigo", ref = "m1")))
+                emit(SearchEvent.SourceDone("magis", 1, 5))
+                emit(SearchEvent.SourceStart("ditu"))
+                caracolContesta.await()
+                emit(SearchEvent.SourceDone("ditu", 0, 5))
+                emit(SearchEvent.Done(10))
+            }
+        })
+
+        vm.buscarFuentesPorTexto("rigo")
+        advanceUntilIdle()
+
+        assertFalse(vm.fuentesBuscando.value.buscando(SourceTab.MAGIS))
+        assertTrue(vm.fuentesBuscando.value.buscando(SourceTab.CARACOL))
+        assertTrue(vm.fuentesBuscando.value.buscando(SourceTab.TODO))
+
+        caracolContesta.complete(Unit)
+        advanceUntilIdle()
+
+        assertFalse(vm.fuentesBuscando.value.alguna)
     }
 
     @Test fun `una busqueda nueva arranca sin los errores de la anterior`() = runTest {
@@ -105,6 +135,15 @@ class SearchViewModelFuentesTest {
         assertTrue(vm.estadoDeFuentes.value.caidas.isEmpty())
         assertEquals(setOf("ditu"), vm.estadoDeFuentes.value.respondieron)
     }
+}
+
+/** Una fuente cuyo flujo arma el test, para poder dejar una fuente a mitad de camino. */
+private class FuenteConFlujo(private val flujo: () -> Flow<SearchEvent>) : FuenteDeContenido {
+    override fun reconoce(ref: String) = false
+    override fun search(ctx: GatewaySearchQuery): Flow<SearchEvent> = flujo()
+    override suspend fun resolve(ref: String): GatewayPlayable = throw GatewayException("sin uso en el test")
+    override suspend fun episodesConSerie(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?> =
+        emptyList<GatewayEpisode>() to null
 }
 
 /** Una fuente que devuelve, en cada búsqueda, los eventos que diga el test. */

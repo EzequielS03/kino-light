@@ -128,7 +128,7 @@ fun SearchScreen(
     val loadingDirect by vm.loadingDirect.collectAsStateWithLifecycle()
     val selected by vm.selected.collectAsStateWithLifecycle()
     val sources by vm.sources.collectAsStateWithLifecycle()
-    val loadingMagis by vm.loadingMagis.collectAsStateWithLifecycle()
+    val fuentesBuscando by vm.fuentesBuscando.collectAsStateWithLifecycle()
     val estadoDeFuentes by vm.estadoDeFuentes.collectAsStateWithLifecycle()
     val refineSeason by vm.refineSeason.collectAsStateWithLifecycle()
     val refineEpisode by vm.refineEpisode.collectAsStateWithLifecycle()
@@ -251,7 +251,7 @@ fun SearchScreen(
                     season = refineSeason,
                     episode = refineEpisode,
                     sources = sources,
-                    loadingMagis = loadingMagis,
+                    fuentesBuscando = fuentesBuscando,
                     estadoDeFuentes = estadoDeFuentes,
                     enabled = !preparing,
                     onPlay = { playResult(it) },
@@ -698,7 +698,7 @@ private fun ResultsContent(
     season: Int?,
     episode: Int?,
     sources: List<PlaySource>,
-    loadingMagis: Boolean,
+    fuentesBuscando: FuentesBuscando,
     estadoDeFuentes: EstadoDeLasFuentes,
     enabled: Boolean,
     onPlay: (PlaySource) -> Unit,
@@ -714,14 +714,11 @@ private fun ResultsContent(
 
     val magis = sources.filterIsInstance<PlaySource.Magis>()
     val caracol = sources.filterIsInstance<PlaySource.Ditu>()
-    val anyLoading = loadingMagis
+    val anyLoading = fuentesBuscando.alguna
     val counts = countsByTab(sources)
-    // `loadingMagis` cubre la búsqueda ENTERA: `SearchViewModel.runSourceSearch` lo apaga cuando
-    // termina de recorrer `FuenteDeContenido.search`, que es la fuente compuesta y pregunta a Magis
-    // y a Caracol a la vez. Por eso sirve igual para el chip de Caracol.
-    val loadingOf = mapOf(
-        SourceTab.TODO to anyLoading, SourceTab.MAGIS to loadingMagis, SourceTab.CARACOL to loadingMagis,
-    )
+    // Cada chip gira mientras su fuente siga buscando, y "Todo" mientras falte cualquiera: ver
+    // [FuentesBuscando].
+    val loadingOf = SourceTab.entries.associateWith { fuentesBuscando.buscando(it) }
 
     // El hero va a sangre (sin margen lateral) para que el backdrop llegue a los bordes; por eso el
     // padding horizontal lo pone cada ítem en vez del contentPadding de la lista.
@@ -758,8 +755,8 @@ private fun ResultsContent(
             }
         } else if (tab == SourceTab.TODO) {
             // "Todo": una sección colapsable por origen, en el orden de [SourceTab].
-            sourceSection(this, "MAGIS", ArkivMagisBlue, magis, loadingMagis, "MAGIS" in expandedSections, { toggle("MAGIS") }, enabled, onPlay, textoSeccionVacia(SourceTab.MAGIS, estadoDeFuentes))
-            sourceSection(this, "CARACOL", ArkivCaracolVerde, caracol, loadingMagis, "CARACOL" in expandedSections, { toggle("CARACOL") }, enabled, onPlay, textoSeccionVacia(SourceTab.CARACOL, estadoDeFuentes))
+            sourceSection(this, "MAGIS", ArkivMagisBlue, magis, fuentesBuscando.buscando(SourceTab.MAGIS), "MAGIS" in expandedSections, { toggle("MAGIS") }, enabled, onPlay, textoSeccionVacia(SourceTab.MAGIS, estadoDeFuentes))
+            sourceSection(this, "CARACOL", ArkivCaracolVerde, caracol, fuentesBuscando.buscando(SourceTab.CARACOL), "CARACOL" in expandedSections, { toggle("CARACOL") }, enabled, onPlay, textoSeccionVacia(SourceTab.CARACOL, estadoDeFuentes))
         } else {
             // Con un origen elegido la cabecera de sección sobra: la lista va plana.
             val shown = filterByTab(sources, tab)

@@ -29,7 +29,7 @@ data class EstadoDeLasFuentes(
 }
 
 /** La pestaña de una fuente por su nombre en los eventos, o null si no se sabe cuál es. */
-private fun tabDeFuente(fuente: String): SourceTab? = when (fuente) {
+internal fun tabDeFuente(fuente: String): SourceTab? = when (fuente) {
     "magis" -> SourceTab.MAGIS
     "ditu" -> SourceTab.CARACOL
     else -> null

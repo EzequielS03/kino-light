@@ -79,6 +79,7 @@ import com.arkiv.player.ui.search.TitleCard
 import com.arkiv.player.ui.search.countsByTab
 import com.arkiv.player.ui.search.filasVisibles
 import com.arkiv.player.ui.search.EstadoDeLasFuentes
+import com.arkiv.player.ui.search.FuentesBuscando
 import com.arkiv.player.ui.search.avisosDeFuentesCaidas
 import com.arkiv.player.ui.search.textoPestanaVacia
 import com.arkiv.player.ui.search.textoSinFuentes
@@ -135,7 +136,7 @@ fun TvSearchScreen(
     val vmDetail by vm.detail.collectAsStateWithLifecycle()
     val vmAnimeShow by vm.animeShow.collectAsStateWithLifecycle()
     val sources by vm.sources.collectAsStateWithLifecycle()
-    val loadingMagis by vm.loadingMagis.collectAsStateWithLifecycle()
+    val fuentesBuscando by vm.fuentesBuscando.collectAsStateWithLifecycle()
     val estadoDeFuentes by vm.estadoDeFuentes.collectAsStateWithLifecycle()
     val refineSeason by vm.refineSeason.collectAsStateWithLifecycle()
     val refineEpisode by vm.refineEpisode.collectAsStateWithLifecycle()
@@ -546,7 +547,7 @@ fun TvSearchScreen(
                         season = refineSeason,
                         episode = refineEpisode,
                         sources = sources,
-                        loadingMagis = loadingMagis,
+                        fuentesBuscando = fuentesBuscando,
                         estadoDeFuentes = estadoDeFuentes,
                         preparing = preparing,
                         playError = playError,
@@ -1046,7 +1047,7 @@ private fun TvResultsContent(
     season: Int?,
     episode: Int?,
     sources: List<PlaySource>,
-    loadingMagis: Boolean,
+    fuentesBuscando: FuentesBuscando,
     estadoDeFuentes: EstadoDeLasFuentes,
     preparing: Boolean,
     playError: String?,
@@ -1055,19 +1056,15 @@ private fun TvResultsContent(
     // distinctBy(sourceKey) es belt-and-braces: el pipeline de arriba ya debería llegar sin
     // duplicados, pero esto evita el crash de Compose por keys repetidas si algo se cuela.
     val ordered = remember(sources) { sources.distinctBy { sourceKey(it) } }
-    val anyLoading = loadingMagis
+    val anyLoading = fuentesBuscando.alguna
 
     // Filtro por origen. Los contadores salen de `ordered` (ya deduplicado), no de `sources`, para
     // que el número del chip sea exactamente el de filas que se van a ver al elegirlo.
     var tab by remember { mutableStateOf(SourceTab.TODO) }
     val counts = countsByTab(ordered)
-    // `loadingMagis` cubre la búsqueda ENTERA (la fuente compuesta pregunta a Magis y a Caracol a
-    // la vez; ver `SearchViewModel.runSourceSearch`), así que sirve igual para Caracol.
-    val loadingOf = mapOf(
-        SourceTab.TODO to anyLoading,
-        SourceTab.MAGIS to loadingMagis,
-        SourceTab.CARACOL to loadingMagis,
-    )
+    // Cada pestaña gira mientras su fuente siga buscando, y "Todo" mientras falte cualquiera: ver
+    // [FuentesBuscando].
+    val loadingOf = SourceTab.entries.associateWith { fuentesBuscando.buscando(it) }
 
     // Foco inicial en la primera fuente apenas aparece la primera tanda (progresiva: no le vuelve
     // a robar el foco al usuario cuando llegan más resultados después).
