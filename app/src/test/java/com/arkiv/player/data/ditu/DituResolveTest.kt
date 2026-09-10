@@ -100,6 +100,58 @@ class DituResolveTest {
         assertEquals("https://cdn/e2.mpd", play.url)
     }
 
+    /** Un GROUP_OF_BUNDLES resuelve el primer capítulo del primer bundle hijo. */
+    @Test fun `un GROUP_OF_BUNDLES resuelve el primer capitulo de su primer bundle`() = runTest {
+        val fake = FakeDituCliente()
+        fake.responde("TRAY/SEARCH/VOD", """
+        {"resultObj":{"containers":[{"id":"b1"},{"id":"b2"}]}}
+        """)
+        fake.responde("CONTENT/DETAIL/BUNDLE/b1", """
+        {"resultObj":{"containers":[{"containers":[
+          {"id":"ep1","metadata":{},"assets":[{"assetType":"MASTER","assetId":11}]}
+        ]}]}}
+        """)
+        fake.responde("CONTENT/USERDATA/VOD/ep1", """{"resultObj":{"containers":[{"entitlement":{}}]}}""")
+        fake.responde("CONTENT/VIDEOURL/VOD/ep1/11", """{"resultObj":{"src":"https://cdn/grupo.mpd"}}""")
+        fake.token = "tokgrupo"
+
+        val play = DituResolve(fake).vod(DituRef("999", "GROUP_OF_BUNDLES"))
+
+        assertEquals("https://cdn/grupo.mpd", play.url)
+        // Verificar que se pidió la lista de bundles hijos con los parámetros correctos
+        val trayCalls = fake.llamadas.filter { it.first == "TRAY/SEARCH/VOD" }
+        assertTrue(trayCalls.isNotEmpty())
+        val params = trayCalls.first().second
+        assertEquals("999", params["filter_parentId"])
+        assertEquals("BUNDLE", params["filter_contentType"])
+    }
+
+    /** Si el primer bundle no tiene capítulos reproducibles, usa el segundo. */
+    @Test fun `un GROUP_OF_BUNDLES salta bundles sin capitulos reproducibles`() = runTest {
+        val fake = FakeDituCliente()
+        fake.responde("TRAY/SEARCH/VOD", """
+        {"resultObj":{"containers":[{"id":"b1"},{"id":"b2"}]}}
+        """)
+        // Primer bundle sin capítulos reproducibles
+        fake.responde("CONTENT/DETAIL/BUNDLE/b1", """
+        {"resultObj":{"containers":[{"containers":[
+          {"id":"ep1","metadata":{}}
+        ]}]}}
+        """)
+        // Segundo bundle sí tiene
+        fake.responde("CONTENT/DETAIL/BUNDLE/b2", """
+        {"resultObj":{"containers":[{"containers":[
+          {"id":"ep2","metadata":{},"assets":[{"assetType":"MASTER","assetId":22}]}
+        ]}]}}
+        """)
+        fake.responde("CONTENT/USERDATA/VOD/ep2", """{"resultObj":{"containers":[{"entitlement":{}}]}}""")
+        fake.responde("CONTENT/VIDEOURL/VOD/ep2/22", """{"resultObj":{"src":"https://cdn/segundo.mpd"}}""")
+
+        val play = DituResolve(fake).vod(DituRef("999", "GROUP_OF_BUNDLES"))
+
+        assertEquals("https://cdn/segundo.mpd", play.url)
+    }
+
     // --- en vivo ---------------------------------------------------------------
 
     /** El vivo son DOS pasos: el assetId ya vino con el canal, así que no hay DETAIL. */

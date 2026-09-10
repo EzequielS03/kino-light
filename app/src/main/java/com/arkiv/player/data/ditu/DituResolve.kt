@@ -17,15 +17,17 @@ import org.json.JSONObject
 internal class DituResolve(private val cliente: DituClienteLike) {
 
     suspend fun vod(ref: DituRef): GatewayPlayable {
-        val (contentId, assetId) = if (ref.esSerie) {
-            primerCapitulo(ref.contentId)
-        } else {
-            val detalle = cliente.get("CONTENT/DETAIL/${ref.contentType}/${ref.contentId}")
-            val contenedor = DituCatalogo.contenedoresDe(detalle).firstOrNull()
-                ?: throw DituException("Caracol no devolvió el detalle de ${ref.contentId}")
-            val asset = DituCatalogo.assetMaster(contenedor)
-                ?: throw DituException("Caracol no tiene un asset reproducible para ${ref.contentId}")
-            ref.contentId to asset
+        val (contentId, assetId) = when {
+            ref.contentType == "GROUP_OF_BUNDLES" -> primerCapituloDeGrupo(ref.contentId)
+            ref.esSerie -> primerCapitulo(ref.contentId)
+            else -> {
+                val detalle = cliente.get("CONTENT/DETAIL/${ref.contentType}/${ref.contentId}")
+                val contenedor = DituCatalogo.contenedoresDe(detalle).firstOrNull()
+                    ?: throw DituException("Caracol no devolvió el detalle de ${ref.contentId}")
+                val asset = DituCatalogo.assetMaster(contenedor)
+                    ?: throw DituException("Caracol no tiene un asset reproducible para ${ref.contentId}")
+                ref.contentId to asset
+            }
         }
 
         revisarEntitlement("CONTENT/USERDATA/VOD/$contentId")
@@ -35,6 +37,25 @@ internal class DituResolve(private val cliente: DituClienteLike) {
     suspend fun vivo(canal: DituCanal): GatewayPlayable {
         revisarEntitlement("CONTENT/USERDATA/LIVE/${canal.channelId}")
         return playableDe("CONTENT/VIDEOURL/LIVE/${canal.channelId}/${canal.assetId}", canal.nombre)
+    }
+
+    /**
+     * Un GROUP_OF_BUNDLES no es reproducible en sí: lo que se abre es el primer capítulo
+     * reproducible de su primer bundle hijo que tenga capítulos.
+     */
+    private suspend fun primerCapituloDeGrupo(groupId: String): Pair<String, Int> {
+        val hijos = cliente.get(
+            DituCatalogo.TRAY,
+            mapOf("filter_parentId" to groupId, "filter_contentType" to "BUNDLE"),
+        )
+        val ids = DituCatalogo.contenedoresDe(hijos).mapNotNull { it.optString("id").takeIf { s -> s.isNotBlank() } }
+
+        for (bundleId in ids) {
+            val resultado = runCatching { primerCapitulo(bundleId) }.getOrNull()
+            if (resultado != null) return resultado
+        }
+
+        throw DituException("Ningún capítulo de la serie está disponible para reproducir")
     }
 
     /** Un BUNDLE no es reproducible en sí: lo que se abre es su primer capítulo con asset. */
