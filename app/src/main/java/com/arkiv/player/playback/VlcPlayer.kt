@@ -1330,36 +1330,34 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
         runCatching { mediaPlayer.setSpuTrack(id) }
     }
     /**
-     * Agrega una pista de subtítulo externa. [byUser] distingue una elección manual del usuario de
-     * la carga automática (los `.srt` sueltos del torrent, los del portal de magis): la automática
-     * no corta la selección por idioma — la pista nueva entra como candidata y `applyPreferredSpu`
-     * decide, en vez de quedar forzada.
+     * Agrega una pista de subtítulo externa adjuntada automáticamente (el resolver la sniffeó o el
+     * portal de magis la entregó junto al stream) — hoy el único llamador es [PlayerScreen], siempre
+     * así, nunca por una elección manual de la persona en pantalla. No corta la selección por
+     * idioma: la pista nueva entra como candidata y `applyPreferredSpu` decide, en vez de quedar
+     * forzada.
      *
-     * El `select` va en true incluso en la carga automática, que es el comportamiento que esto tenía
-     * antes de existir [byUser]: el re-pase de abajo lo corrige enseguida si la decisión dice que no
-     * van, así que no queda forzado. Se probó en false y no cambia nada de lo que importa.
+     * El `select` va en true: el re-pase de abajo lo corrige enseguida si la decisión dice que no
+     * van, así que no queda forzado.
      *
-     * OJO — en magis el slave NO se materializa, con true ni con false: `addSlave` devuelve sin
-     * excepción, las URLs del portal contestan 200 con SRT válido, y la pista no aparece nunca
-     * (`pistas=…/s4` = Disable + las tres embebidas del TS, medido en device). No importa: ese mismo
-     * contenido YA viene embebido en el TS, y lo que se aprovecha del portal es la lista de idiomas
-     * (ver [idiomasSpuDeLaFuente]), no los archivos.
+     * OJO — en magis el slave NO se materializa: `addSlave` devuelve sin excepción, las URLs del
+     * portal contestan 200 con SRT válido, y la pista no aparece nunca (`pistas=…/s4` = Disable +
+     * las tres embebidas del TS, medido en device). No importa: ese mismo contenido YA viene
+     * embebido en el TS, y lo que se aprovecha del portal es la lista de idiomas (ver
+     * [idiomasSpuDeLaFuente]), no los archivos.
      *
      * [lang] es el idioma que declaró la fuente, para cuando la URL no lo dice (una fuente web adjunta
-     * `…/9f8a7b.vtt` a secas). Los `.srt` del torrent ya lo llevan en el nombre del archivo y no lo
-     * necesitan.
+     * `…/9f8a7b.vtt` a secas).
      *
      * OJO con el MPEG-TS: esto solo es seguro porque magis se demuxea con avformat (ver loadMedia).
      * Con el demuxer `ts` nativo, adjuntar un subtítulo externo le cambia a libVLC el programa activo
      * y se lleva puestas TODAS las pistas del stream.
      */
-    fun addSubtitleSlave(uri: Uri, byUser: Boolean = true, lang: String = "") {
-        if (byUser) userTouchedSpu = true
+    fun addSubtitleSlave(uri: Uri, lang: String = "") {
         recordarIdioma(uri, lang)
         runCatching { mediaPlayer.addSlave(IMedia.Slave.Type.Subtitle, uri, true) }
         // Recién cargada, la pista todavía no figura: se re-decide un instante después. Este re-pase
         // es el que deshace el `select = true` de arriba cuando la decisión dice que no van.
-        if (!byUser) handler.postDelayed({ applyPreferredSpu(retries = 2) }, 300)
+        handler.postDelayed({ applyPreferredSpu(retries = 2) }, 300)
         // NO corregir acá el desfase de la ventana con `spuDelay`. Se probó y congela la
         // reproducción: con un desfase de −29 min VLC se queda clavado en `pos=0` con el buffer
         // subiendo de a gotas hasta que salta el rescate de "estancado en 0" (medido en device,

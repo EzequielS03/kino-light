@@ -33,16 +33,6 @@ class CrashStoreTest {
     }
 
     @Test
-    fun `borrar lo saca de la cola`() {
-        val store = store()
-        store.guardar("uno")
-
-        store.borrar(store.pendientes().single())
-
-        assertTrue(store.pendientes().isEmpty())
-    }
-
-    @Test
     fun `los pendientes salen del mas viejo al mas nuevo`() {
         val store = store()
         store.guardar("viejo")

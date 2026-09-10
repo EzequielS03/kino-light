@@ -5,15 +5,15 @@ import java.io.PrintWriter
 import java.io.StringWriter
 
 /**
- * Un reporte de error listo para viajar a la colección `crash_logs` de PocketBase.
+ * Un reporte de error, con la forma de campos que tenía la colección `crash_logs` de PocketBase
+ * -Task 9 (sub-proyecto 2B) se llevó la subida (ver el KDoc de `Crash`), pero los nombres se
+ * quedaron así porque el consumidor sigue siendo el mismo: leer el JSON a mano-.
  *
  * Es data pura a propósito: nada de acá toca Android ni la red, así que se puede armar dentro del
  * handler de excepciones no atrapadas (donde el proceso ya se está muriendo y no hay margen para
  * inicializar nada).
  */
 data class CrashReport(
-    val accountId: String,
-    val deviceId: String,
     val kind: String,
     val appVersion: String,
     /** Versión de Android + marca y modelo. Viaja al campo `android` de la colección. */
@@ -28,15 +28,11 @@ data class CrashReport(
     val ocurridoEn: String,
 ) {
     /**
-     * Los campos van recortados a lo que entra en la colección.
-     *
-     * PocketBase rechaza el registro ENTERO si uno solo se pasa de largo, y el reporte se pierde.
-     * Ya pasó una vez con el logcat. Se recorta acá para no depender de que los topes del servidor
-     * estén bien puestos.
+     * Los campos van recortados con el mismo tope que tenía la colección `crash_logs` de
+     * PocketBase -aunque el reporte ya no suba a ningún lado (ver el KDoc de `Crash`), el tope
+     * sigue evitando un JSON local gigante-. Ya pasó una vez con el logcat sin recortar.
      */
     fun toJson(): String = JSONObject()
-        .put("account_id", accountId.take(200))
-        .put("device_id", deviceId.take(200))
         .put("kind", kind.take(50))
         .put("app_version", appVersion.take(200))
         .put("android", sistema.take(300))

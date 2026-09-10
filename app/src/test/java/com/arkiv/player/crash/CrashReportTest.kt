@@ -6,7 +6,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * El payload que aterriza en la colección `crash_logs` de PocketBase.
+ * El payload del reporte de error local (ver el KDoc de `CrashReport`: tiene la forma que tenía la
+ * colección `crash_logs` de PocketBase, aunque ya no sube a ningún lado).
  *
  * Lo importante acá es la CAUSA encadenada: casi todo lo que revienta en el app llega envuelto
  * (`RuntimeException` alrededor de la de verdad), así que un stacktrace que corte en la de afuera
@@ -18,8 +19,6 @@ class CrashReportTest {
         mensaje: String = "java.lang.RuntimeException: algo",
         logcat: String = "",
     ) = CrashReport(
-        accountId = "cuenta-1",
-        deviceId = "aparato-1",
         kind = "phone",
         appVersion = "1.4.2 (142) release",
         sistema = "Android 14 (SDK 34) · samsung SM-S926B",
@@ -59,8 +58,6 @@ class CrashReportTest {
     fun `toJson escribe los campos con los nombres de la coleccion`() {
         val json = JSONObject(reporte(logcat = "linea de log").toJson())
 
-        assertEquals("cuenta-1", json.getString("account_id"))
-        assertEquals("aparato-1", json.getString("device_id"))
         assertEquals("phone", json.getString("kind"))
         assertEquals("1.4.2 (142) release", json.getString("app_version"))
         assertEquals("Android 14 (SDK 34) · samsung SM-S926B", json.getString("android"))
@@ -82,7 +79,7 @@ class CrashReportTest {
 
         assertEquals("", recortado.getString("logcat"))
         assertEquals("java.lang.RuntimeException: algo", recortado.getString("stacktrace"))
-        assertEquals("cuenta-1", recortado.getString("account_id"))
+        assertEquals("phone", recortado.getString("kind"))
     }
 
     @Test
@@ -91,9 +88,8 @@ class CrashReportTest {
     }
 
     /**
-     * PocketBase rechaza el registro entero si UN campo se pasa de largo, y el reporte se pierde.
-     * Ya pasó una vez con el logcat. Se recorta acá, del lado del app, para no depender de que los
-     * topes de la colección estén bien puestos.
+     * Mismo tope que tenía la colección `crash_logs` de PocketBase (ver el KDoc de
+     * `CrashReport.toJson`). Ya pasó una vez con el logcat sin recortar.
      */
     @Test
     fun `toJson recorta los campos que no entrarian en la coleccion`() {

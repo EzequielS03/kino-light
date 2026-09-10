@@ -388,12 +388,12 @@ private fun PlayerContent(
         // igual http o file://. Lo que lo resolvió fue cambiarle el demuxer a magis: ver
         // VlcPlayer.loadMedia. Sin programas no hay programa que perder.
         kotlinx.coroutines.delay(800) // dar tiempo a que VLC cargue el media antes del slave
-        // byUser=false: es un adjunto automático (el resolver los sniffeó), no una elección del
-        // usuario — igual que los .srt del torrent, así no le tapa la decisión de idioma al player.
-        // El idioma va aparte porque estas URLs son opacas (`…/9f8a7b.vtt`): sin pasarlo, la pista
+        // Adjunto automático (el resolver los sniffeó), no una elección de la persona: así no le
+        // tapa la decisión de idioma al player (ver el KDoc de VlcPlayer.addSubtitleSlave). El
+        // idioma va aparte porque estas URLs son opacas (`…/9f8a7b.vtt`): sin pasarlo, la pista
         // quedaría sin idioma y no habría forma de elegirla.
         extras.subtitles.forEach { s ->
-            runCatching { vlc.addSubtitleSlave(Uri.parse(s.url), byUser = false, lang = s.lang) }
+            runCatching { vlc.addSubtitleSlave(Uri.parse(s.url), lang = s.lang) }
         }
     }
 

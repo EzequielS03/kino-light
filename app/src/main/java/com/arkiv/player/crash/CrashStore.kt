@@ -48,10 +48,6 @@ class CrashStore(
         (dir.listFiles { f: File -> f.isFile && f.name.endsWith(".json") } ?: emptyArray())
             .sortedBy { it.name }
 
-    fun borrar(archivo: File) {
-        archivo.delete()
-    }
-
     private fun podar() {
         val actuales = pendientes()
         if (actuales.size <= maxPendientes) return

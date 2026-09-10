@@ -2,16 +2,17 @@ package com.arkiv.player.crash
 
 import java.time.Instant
 
-/** Lo que identifica al aparato y a la cuenta en un reporte. Vacío si no se pudo averiguar. */
+/**
+ * Lo que va en cada reporte además del error en sí: si es celu o TV, y la versión del app y del
+ * sistema. Vacío si no se pudo averiguar.
+ */
 data class DatosDelAparato(
-    val accountId: String,
-    val deviceId: String,
     val kind: String,
     val appVersion: String,
     val sistema: String,
 ) {
     companion object {
-        val DESCONOCIDO = DatosDelAparato(accountId = "", deviceId = "", kind = "", appVersion = "", sistema = "")
+        val DESCONOCIDO = DatosDelAparato(kind = "", appVersion = "", sistema = "")
     }
 }
 
@@ -47,8 +48,6 @@ class CrashGuard(
     private fun escribir(error: Throwable, contexto: String, fatal: Boolean): java.io.File {
         val aparato = runCatching { datos() }.getOrDefault(DatosDelAparato.DESCONOCIDO)
         val reporte = CrashReport(
-            accountId = aparato.accountId,
-            deviceId = aparato.deviceId,
             kind = aparato.kind,
             appVersion = aparato.appVersion,
             sistema = aparato.sistema,

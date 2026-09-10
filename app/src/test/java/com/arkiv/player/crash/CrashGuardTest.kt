@@ -20,8 +20,6 @@ class CrashGuardTest {
     val tmp = TemporaryFolder()
 
     private val datos = DatosDelAparato(
-        accountId = "cuenta-1",
-        deviceId = "aparato-1",
         kind = "tv",
         appVersion = "1.4.2 (142) release",
         sistema = "Android 14 (SDK 34) · samsung SM-S926B",
@@ -40,14 +38,12 @@ class CrashGuardTest {
     private fun unicoReporte(store: CrashStore) = JSONObject(store.pendientes().single().readText())
 
     @Test
-    fun `reportar deja en la cola un reporte con la identidad del aparato`() {
+    fun `reportar deja en la cola un reporte con los datos del aparato`() {
         val store = store()
 
         guard(store).reportar(IllegalStateException("no habia stream"), "resolviendo el capitulo")
 
         val json = unicoReporte(store)
-        assertEquals("cuenta-1", json.getString("account_id"))
-        assertEquals("aparato-1", json.getString("device_id"))
         assertEquals("tv", json.getString("kind"))
         assertEquals("1.4.2 (142) release", json.getString("app_version"))
         assertEquals("resolviendo el capitulo", json.getString("contexto"))
@@ -88,15 +84,15 @@ class CrashGuardTest {
     }
 
     @Test
-    fun `si no se puede leer la identidad, el stacktrace se guarda igual`() {
+    fun `si no se pueden leer los datos del aparato, el stacktrace se guarda igual`() {
         val store = store()
 
-        guard(store, datos = { error("la sesion no arranco") })
+        guard(store, datos = { error("no se pudo leer DeviceType") })
             .atajar(Thread.currentThread(), IllegalStateException("lo que de verdad importa"))
 
         val json = unicoReporte(store)
         assertTrue(json.getString("stacktrace").contains("lo que de verdad importa"))
-        assertEquals("", json.getString("account_id"))
+        assertEquals("", json.getString("kind"))
     }
 
     @Test

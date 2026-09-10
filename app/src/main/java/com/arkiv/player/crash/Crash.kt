@@ -69,13 +69,11 @@ object Crash {
         cacheDeDatos ?: leerDatos(app).also { cacheDeDatos = it }
 
     /**
-     * Task 9 (sub-proyecto 2B): sin cuentas ni identidad de aparato, `accountId`/`deviceId` quedan
-     * vacíos para siempre -- lo único que sigue distinguiendo un reporte de otro es [kind] (celular
-     * o TV), que no depende de ningún store, solo de [DeviceType].
+     * Task 9 (sub-proyecto 2B) se llevó `accountId`/`deviceId` del todo -sin cuentas ni identidad
+     * de aparato no había de dónde sacarlos-: lo único que sigue distinguiendo un reporte de otro
+     * es [kind] (celular o TV), que no depende de ningún store, solo de [DeviceType].
      */
     private fun leerDatos(app: Context): DatosDelAparato = DatosDelAparato(
-        accountId = "",
-        deviceId = "",
         kind = runCatching { if (DeviceType.isTelevision(app)) "tv" else "phone" }.getOrDefault(""),
         appVersion = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) ${BuildConfig.BUILD_TYPE}",
         sistema = "Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT}) · " +
