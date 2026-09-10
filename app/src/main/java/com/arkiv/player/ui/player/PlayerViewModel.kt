@@ -80,9 +80,10 @@ data class PlayerData(
  * adulto" dejaría de guardar el progreso de contenido normal en silencio.
  *
  * Un canal en vivo de Caracol ([DituVivo]) no se anota nunca: no tiene fila en la biblioteca ni nada
- * que reanudar. `PlayerScreen` no lo deja afuera con su `enVivo`, que es solo el de Magis
- * (`SourceKind.LIVE`), y en `saveProgress`/`capturarFrame` no entra por la rama de `_magisItem`, así
- * que esta es la guarda que lo frena en los dos.
+ * que reanudar. `PlayerScreen` ya no le guarda la posición (su `enVivo` sale de
+ * `PlayerSource.esCanalEnVivo`, que lo incluye), pero su captura al pausar no mira `enVivo`, y en
+ * `saveProgress`/`capturarFrame` no entra por la rama de `_magisItem`: esta sigue siendo la guarda
+ * que lo frena en los dos.
  */
 internal fun PlaylistData?.hayQueAnotarHistorial(episodeId: String): Boolean =
     !DituVivo.esVivo(episodeId) &&

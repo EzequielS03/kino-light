@@ -415,11 +415,19 @@ private fun PlayerContent(
         }
     }
     // Modo vivo (Tarea 14): aísla TODO el comportamiento distinto de VOD (sin barra de progreso ni
-    // seek, overlay propio, zapping) detrás de esta bandera calculada UNA vez del episodeId con el
+    // seek, overlay propio, zapping) detrás de estas banderas calculadas UNA vez del episodeId con el
     // que se compuso la pantalla. Zapear cambia el canal DENTRO del playlist del ViewModel; nunca
-    // navega a un episodeId nuevo (ver el LaunchedEffect(playlist) más abajo), así que esta bandera
-    // no puede quedar obsoleta durante la sesión de vivo.
-    val enVivo = remember(episodeId) { PlayerSource.kindFor(episodeId) == SourceKind.LIVE }
+    // navega a un episodeId nuevo (ver el LaunchedEffect(playlist) más abajo), así que no pueden
+    // quedar obsoletas durante la sesión de vivo.
+    //
+    // Son dos. `enVivo` es CUALQUIER canal en vivo, el de Magis o el de Caracol
+    // ([PlayerSource.esCanalEnVivo]): de ella cuelga lo que no tiene sentido en un directo (la barra
+    // de avance y el overlay de VOD, el seek por gestos y por D-pad, guardar la posición, el
+    // auto-avance al terminar). `vivoDeMagis` es solo el de Magis: el zapeo, el cajón y la ficha de
+    // canales, la reapertura por cortes y el "Cambiando de canal…". Un canal de Caracol no tiene nada
+    // de eso: se abre desde su sección, y `loadDitu` no arma ningún zapeo.
+    val enVivo = remember(episodeId) { PlayerSource.esCanalEnVivo(episodeId) }
+    val vivoDeMagis = remember(episodeId) { PlayerSource.kindFor(episodeId) == SourceKind.LIVE }
 
     // Índice del ítem que suena DENTRO de la playlist del ViewModel. Vive acá arriba —y no con el
     // resto del estado de transporte, más abajo— porque `episodioEnCurso` lo necesita.
@@ -872,9 +880,10 @@ private fun PlayerContent(
     // ese estado viaja por el MediaController y se pierde cuando VLC manda Stopped a los pocos ms
     // de EndReached -- medido el 2026-08-14, dos de cinco cortes no llegaron y el canal quedó
     // pausado sin que la reapertura disparara. Un contador que solo sube no se puede perder.
+    // Solo el vivo de Magis: `vm.reabrirVivoPorCorte` reabre el canal de su zapeo.
     var cortesAtendidos by remember(episodeId) { mutableStateOf(-1) }
-    LaunchedEffect(cortesEnVivo, enVivo) {
-        if (!enVivo) return@LaunchedEffect
+    LaunchedEffect(cortesEnVivo, vivoDeMagis) {
+        if (!vivoDeMagis) return@LaunchedEffect
         // La primera lectura solo toma nota: el contador es del reproductor, que sobrevive a esta
         // pantalla, así que al entrar ya puede venir con cortes de un canal anterior.
         if (cortesAtendidos < 0) { cortesAtendidos = cortesEnVivo; return@LaunchedEffect }
@@ -1243,7 +1252,7 @@ private fun PlayerContent(
                 // reponía igual las tres reaperturas — el tope no se agotaba nunca y el aviso en
                 // pantalla no podía aparecer. Reponer solo cuando de verdad se reprodujo un rato
                 // es lo que distingue "se recuperó" de "reabrió y se cayó de nuevo".
-                if (enVivo) vm.vivoAndando(espejo.posicionMs)
+                if (vivoDeMagis) vm.vivoAndando(espejo.posicionMs)
             }
             estadoPistas.sincronizarSubsOn()
             // "Arranca negro y con sonido": mientras libVLC ya suelta el audio pero todavía no dio
@@ -1447,8 +1456,10 @@ private fun PlayerContent(
                     // al empezar a castear (mismo gap ya aceptado para `magisPlayer`, ver el
                     // `controller.pause()` de la rama `if (casting)` de arriba), así que acá no hay
                     // nada que reanudar -- sigue sonando local igual que durante el casteo. Este
-                    // `controller.prepare()/play()` queda como no-op sobre el VLC vacío para el caso
-                    // (si alguno queda) en que `enVivo` sea true sin `liveItem`.
+                    // `controller.prepare()/play()` es sobre el VLC, que no es el que suena en vivo.
+                    // `enVivo` sin `liveItem` es un canal de Caracol, que suena en DituExoPlayer: para
+                    // él esta rama termina en el mismo `prepare()/play()` del controller que la de VOD
+                    // de abajo, que sin playlist (`loadDitu` la deja en null) tampoco reanuda nada.
                     runCatching { controller.prepare() }
                     runCatching { controller.play() }
                     casteabaAntes = casting
@@ -1738,20 +1749,26 @@ private fun PlayerContent(
                             // Vivo (Tarea 14): Arriba/Abajo zapean en vez de mostrar el overlay de
                             // VOD (que en vivo no existe, ver `visible = !enVivo && ...`), e
                             // Izquierda/Derecha no hacen seek (no hay duración/posición en vivo).
+                            // El zapeo y el cajón son del vivo de Magis: en un canal de Caracol las
+                            // flechas no hacen nada y el centro sigue siendo play/pausa.
                             if (enVivo) {
                                 // El cajón se queda con la flecha izquierda ANTES que nada. Con el
                                 // cajón abierto este listener ya no recibe teclas (el foco de
                                 // Android está en las filas de Compose), así que acá solo puede
                                 // pasar el caso "cerrado + izquierda".
-                                val accionDelCajon =
-                                    DpadDelDrawer.accion(keyCode, estadoVivo.cajonAbierto, estadoVivo.focoCajon)
-                                if (accionDelCajon == AccionDelDrawer.ABRIR) {
-                                    estadoVivo.abrirCajon()
-                                    return@setOnKeyListener true
+                                if (vivoDeMagis) {
+                                    val accionDelCajon =
+                                        DpadDelDrawer.accion(keyCode, estadoVivo.cajonAbierto, estadoVivo.focoCajon)
+                                    if (accionDelCajon == AccionDelDrawer.ABRIR) {
+                                        estadoVivo.abrirCajon()
+                                        return@setOnKeyListener true
+                                    }
                                 }
                                 return@setOnKeyListener when (keyCode) {
-                                    KeyEvent.KEYCODE_DPAD_UP -> { vm.zapAnterior(); estadoVivo.mostrarInfo(); true }
-                                    KeyEvent.KEYCODE_DPAD_DOWN -> { vm.zapSiguiente(); estadoVivo.mostrarInfo(); true }
+                                    KeyEvent.KEYCODE_DPAD_UP ->
+                                        if (vivoDeMagis) { vm.zapAnterior(); estadoVivo.mostrarInfo(); true } else false
+                                    KeyEvent.KEYCODE_DPAD_DOWN ->
+                                        if (vivoDeMagis) { vm.zapSiguiente(); estadoVivo.mostrarInfo(); true } else false
                                     KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER,
                                     KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
                                     KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE ->
@@ -1892,7 +1909,8 @@ private fun PlayerContent(
                                 // Vivo (Tarea 14): el tap muestra/oculta la FICHA de canal, no la
                                 // barra de controles de VOD (que en vivo ni se compone -- ver
                                 // `visible = !enVivo && ...` más abajo). Mismo par mostrar/ocultar
-                                // que controles.visible/bump() de VOD, con su propio estado.
+                                // que controles.visible/bump() de VOD, con su propio estado. La ficha
+                                // es del vivo de Magis: en un canal de Caracol el tap no muestra nada.
                                 if (enVivo) estadoVivo.alternarInfo()
                                 else controles.alternar()
                             },
@@ -1941,9 +1959,10 @@ private fun PlayerContent(
                                 // siguiente (como si el contenido "subiera", igual que un scroll),
                                 // abajo al anterior. UMBRAL_ZAP_PX chico a propósito: es la única
                                 // forma de zapear en el teléfono, no compite con nada más (no hay
-                                // seek/volumen/brillo en vivo, ver onDrag de abajo).
+                                // seek/volumen/brillo en vivo, ver onDrag de abajo). En un canal de
+                                // Caracol no hay zapeo (es del vivo de Magis): el swipe no hace nada.
                                 if (enVivo) {
-                                    if (!horizontal && kotlin.math.abs(totalDy) > UMBRAL_ZAP_PX) {
+                                    if (vivoDeMagis && !horizontal && kotlin.math.abs(totalDy) > UMBRAL_ZAP_PX) {
                                         if (totalDy < 0) vm.zapSiguiente() else vm.zapAnterior()
                                         estadoVivo.mostrarInfo()
                                     }
@@ -2034,10 +2053,11 @@ private fun PlayerContent(
                 if (resolving) {
                     Text("Resolviendo fuente $fuenteQueResuelve…", color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.labelMedium)
                 }
-                // Vivo (Tarea 14): resolver un canal ronda los 3s (dos llamadas al portal, ver
-                // KDoc de LiveController) -- sin texto, este mismo spinner se ve idéntico a un
-                // cuelgue.
-                if (enVivo) {
+                // Vivo de Magis (Tarea 14): resolver un canal ronda los 3s (dos llamadas al portal,
+                // ver KDoc de LiveController) -- sin texto, este mismo spinner se ve idéntico a un
+                // cuelgue. Un canal de Caracol no zapea: mientras resuelve lo dice `resolving`, y
+                // después cae en el "Cargando video…" de abajo.
+                if (vivoDeMagis) {
                     Text("Cambiando de canal…", color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.labelMedium)
                 }
                 if (esperandoVideo && !casting) {
@@ -2048,7 +2068,7 @@ private fun PlayerContent(
                 // el Fire Stick (el CDN rechazó dos rangos y el proxy los reintentó) sin una palabra
                 // en pantalla. El texto va solo cuando ningún otro lo cubre, para no amontonar dos
                 // renglones diciendo lo mismo.
-                if (!resolving && !enVivo && !esperandoVideo) {
+                if (!resolving && !vivoDeMagis && !esperandoVideo) {
                     Text(
                         if (casting) "Cargando en el receptor…" else "Cargando video…",
                         color = Color.White.copy(alpha = 0.9f),
@@ -2710,7 +2730,8 @@ private fun PlayerContent(
                 // propio diálogo de destino, por el mismo motivo).
                 DlnaCastButtons(casting = casting, castContext = castContext, onDiscoverDlna = estadoDlna::descubrir)
             }
-            FichaDelCanal(estado = estadoVivo, canal = liveCanal, liveApi = graph.catalogoDeVivo)
+            // La ficha es del vivo de Magis: su canal y su EPG. Caracol no la tiene.
+            if (vivoDeMagis) FichaDelCanal(estado = estadoVivo, canal = liveCanal, liveApi = graph.catalogoDeVivo)
         }
 
         // Que el botón TENÍA el foco. Es un pestillo y no la lectura viva de `isFocused`: cuando
@@ -2853,7 +2874,7 @@ private fun PlayerContent(
         BarraDlnaActiva(estadoDlna)
 
         // Va ÚLTIMO dentro del Box para quedar por encima del resto de overlays.
-        if (isTv && enVivo && estadoVivo.cajonAbierto) {
+        if (isTv && vivoDeMagis && estadoVivo.cajonAbierto) {
             CajonDeCanalesDelVivo(
                 estado = estadoVivo,
                 canalActual = liveCanal?.code,

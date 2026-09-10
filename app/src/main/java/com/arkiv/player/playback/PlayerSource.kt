@@ -70,6 +70,17 @@ object PlayerSource {
      */
     const val LIVE_PREFIX = "live:"
 
+    /**
+     * ¿[episodeId] es un canal en vivo, de cualquier fuente? El de Magis (`live:`, ver [LIVE_PREFIX])
+     * o el de Caracol ([DituVivo]).
+     *
+     * `PlayerScreen` cuelga de acá lo que es de cualquier directo: sin barra de avance ni seek, sin
+     * posición que guardar, sin "siguiente capítulo" al terminar. Lo que es solo del vivo de Magis
+     * (zapeo, cajón y ficha de canales, reapertura por cortes) sigue preguntando por [SourceKind.LIVE].
+     */
+    fun esCanalEnVivo(episodeId: String): Boolean =
+        kindFor(episodeId) == SourceKind.LIVE || DituVivo.esVivo(episodeId)
+
     fun kindFor(episodeId: String): SourceKind = when {
         episodeId.startsWith("magis:") -> SourceKind.MAGIS
         // Caracol (Ditu). Los ids con este prefijo los arman `DituEntities`, al guardar un título de
