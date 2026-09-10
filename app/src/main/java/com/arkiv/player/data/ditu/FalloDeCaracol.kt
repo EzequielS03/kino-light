@@ -27,7 +27,10 @@ internal object FalloDeCaracol {
     sealed interface Motivo {
         /** Caracol dijo por qué no deja ver algo: el texto de [DituEntitlement.bloqueo]. */
         data class Bloqueo(val motivo: String) : Motivo
+        /** El nombre de Caracol no resuelve, que es lo que pasa sin internet. */
         object SinConexion : Motivo
+        /** La conexión no se armó (rechazada, sin ruta): puede pasar con internet andando. */
+        object SinRespuesta : Motivo
         object Demora : Motivo
         object ServidorFallando : Motivo
         object Desconocido : Motivo
@@ -76,6 +79,7 @@ internal object FalloDeCaracol {
         // "Caracol: <motivo>" es como lo arma `DituResolve`: el mismo texto que se veía antes.
         is Motivo.Bloqueo -> "Caracol: ${motivo.motivo}"
         Motivo.SinConexion -> "Caracol no respondió: sin conexión a internet"
+        Motivo.SinRespuesta -> "Caracol no respondió"
         Motivo.Demora -> "Caracol tardó demasiado en responder"
         Motivo.ServidorFallando -> "Caracol está fallando en este momento"
         Motivo.Desconocido -> generico
@@ -83,7 +87,10 @@ internal object FalloDeCaracol {
 
     private fun porElTipo(e: Throwable): Motivo? = when {
         e is DituException && e.codigoHttp?.let { it in 500..599 } == true -> Motivo.ServidorFallando
-        e is UnknownHostException || e is ConnectException || e is NoRouteToHostException -> Motivo.SinConexion
+        // Sin internet es que el nombre no resuelve. Una conexión que no se arma (rechazada, sin ruta)
+        // puede pasar con internet andando: a la persona no se le puede decir que no tiene internet.
+        e is UnknownHostException -> Motivo.SinConexion
+        e is ConnectException || e is NoRouteToHostException -> Motivo.SinRespuesta
         e is SocketTimeoutException -> Motivo.Demora
         // Un `InterruptedIOException` a secas cuenta como demora solo si su mensaje lo dice.
         e is InterruptedIOException && e.message.orEmpty().contains("timeout", ignoreCase = true) -> Motivo.Demora
@@ -91,8 +98,8 @@ internal object FalloDeCaracol {
     }
 
     private fun porElTexto(t: String): Motivo? = when {
-        t.contains("Unable to resolve host", ignoreCase = true) ||
-            t.contains("Failed to connect", ignoreCase = true) -> Motivo.SinConexion
+        t.contains("Unable to resolve host", ignoreCase = true) -> Motivo.SinConexion
+        t.contains("Failed to connect", ignoreCase = true) -> Motivo.SinRespuesta
         t.contains("timeout", ignoreCase = true) || t.contains("timed out", ignoreCase = true) -> Motivo.Demora
         // "Caracol respondió 503 en <ruta>": el mensaje que arma `DituCliente` con un status de error.
         SERVIDOR_FALLANDO.containsMatchIn(t) -> Motivo.ServidorFallando

@@ -8,6 +8,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 import java.io.InterruptedIOException
 import java.net.ConnectException
+import java.net.NoRouteToHostException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 
@@ -26,9 +27,19 @@ class FalloDeCaracolTest {
         val sinDns = envuelto(UnknownHostException("Unable to resolve host \"middleware.ditu.caracoltv.com\""))
         assertEquals("Caracol no respondió: sin conexión a internet", FalloDeCaracol.enLaBusqueda(sinDns, sinDns.message))
         assertEquals("Caracol no respondió: sin conexión a internet", FalloDeCaracol.alAbrir(sinDns))
+    }
 
-        val sinRuta = envuelto(ConnectException("Failed to connect to /10.0.0.1:443"))
-        assertEquals("Caracol no respondió: sin conexión a internet", FalloDeCaracol.enLaBusqueda(sinRuta, null))
+    /** Una conexión rechazada puede pasar con internet andando: no se le dice "sin internet". */
+    @Test fun `una conexion rechazada no es sin internet`() {
+        for (causa in listOf(ConnectException("Failed to connect to /10.0.0.1:443"), NoRouteToHostException("No route to host"))) {
+            val e = envuelto(causa)
+            assertEquals("Caracol no respondió", FalloDeCaracol.enLaBusqueda(e, e.message))
+            assertEquals("Caracol no respondió", FalloDeCaracol.alAbrir(e))
+        }
+        assertEquals(
+            "Caracol no respondió",
+            FalloDeCaracol.enLaBusqueda(null, "Caracol no responde: Failed to connect to /10.0.0.1:443"),
+        )
     }
 
     @Test fun `una demora`() {
