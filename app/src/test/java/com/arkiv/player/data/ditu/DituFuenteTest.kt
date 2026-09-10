@@ -17,6 +17,55 @@ class DituFuenteTest {
     private fun fuente(fake: FakeDituCliente, tmdb: com.arkiv.player.data.catalog.TmdbApi? = null) =
         DituFuente(DituCatalogo(fake), DituEpisodios(fake), DituResolve(fake), tmdb)
 
+    /** Con el reloj en la mano del test: el vencimiento de 6 h se prueba sin esperar 6 h. */
+    private fun conReloj(fake: FakeDituCliente, reloj: () -> Long) =
+        DituFuente(DituCatalogo(fake), DituEpisodios(fake), DituResolve(fake), ahoraMs = reloj)
+
+    private fun FakeDituCliente.pedidosDelCatalogo() = llamadas.count { it.first == DituCatalogo.TRAY }
+
+    private val seisHoras = 6 * 60 * 60 * 1000L
+
+    private fun conUnTitulo() = FakeDituCliente().also {
+        it.responde(DituCatalogo.TRAY, """
+        {"resultObj":{"containers":[{"id":"1","metadata":{"title":"Rigo","contentType":"BUNDLE"}}]}}
+        """)
+    }
+
+    @Test fun `dentro de las 6 h el catalogo no se vuelve a pedir`() = runTest {
+        val fake = conUnTitulo()
+        var ahora = 1_000L
+        val f = conReloj(fake) { ahora }
+
+        f.catalogoCompleto()
+        ahora += seisHoras - 1
+        val segunda = f.catalogoCompleto()
+
+        assertEquals(1, fake.pedidosDelCatalogo())
+        assertEquals(listOf("Rigo"), segunda.map { it.titulo })
+    }
+
+    @Test fun `pasadas las 6 h el catalogo se vuelve a pedir`() = runTest {
+        val fake = conUnTitulo()
+        var ahora = 1_000L
+        val f = conReloj(fake) { ahora }
+
+        f.catalogoCompleto()
+        ahora += seisHoras
+        f.catalogoCompleto()
+
+        assertEquals(2, fake.pedidosDelCatalogo())
+    }
+
+    @Test fun `forzar pide aunque no haya vencido`() = runTest {
+        val fake = conUnTitulo()
+        val f = conReloj(fake) { 1_000L }
+
+        f.catalogoCompleto()
+        f.catalogoCompleto(forzar = true)
+
+        assertEquals(2, fake.pedidosDelCatalogo())
+    }
+
     @Test fun `reconoce sus refs y no los ajenos`() {
         val f = fuente(FakeDituCliente())
         assertTrue(f.reconoce("ditu1:VOD:42"))

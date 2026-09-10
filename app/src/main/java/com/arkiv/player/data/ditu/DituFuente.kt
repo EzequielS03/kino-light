@@ -65,9 +65,29 @@ internal class DituFuente(
         runCatching { catalogo.canales() }
             .getOrElse { throw GatewayException(it.message ?: "No se pudieron listar los canales", it) }
 
-    suspend fun catalogoCompleto(): List<DituItem> =
-        runCatching { catalogo.catalogo() }
+    /**
+     * El catálogo entero, guardado [VIGENCIA_DEL_CATALOGO_MS]: son unos 330 títulos en una sola
+     * llamada (ver [DituCatalogo]), y pedirlos cada vez que se entra a la sección es tiempo regalado.
+     *
+     * [forzar] se salta lo guardado: es el botón de recargar, para cuando Caracol agrega algo y no se
+     * quiere esperar a que venza. Si la llamada falla, lo guardado se queda como estaba.
+     */
+    suspend fun catalogoCompleto(forzar: Boolean = false): List<DituItem> {
+        val guardado = catalogoGuardado
+        if (!forzar && guardado != null && ahoraMs() - guardado.traidoEnMs < VIGENCIA_DEL_CATALOGO_MS) {
+            return guardado.titulos
+        }
+        val titulos = runCatching { catalogo.catalogo() }
             .getOrElse { throw GatewayException(it.message ?: "No se pudo cargar el catálogo", it) }
+        catalogoGuardado = CatalogoGuardado(titulos, ahoraMs())
+        return titulos
+    }
+
+    /** Un solo valor, no un caché por clave: el catálogo de Caracol es uno. */
+    private class CatalogoGuardado(val titulos: List<DituItem>, val traidoEnMs: Long)
+
+    @Volatile
+    private var catalogoGuardado: CatalogoGuardado? = null
 
     override suspend fun episodesConSerie(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?> {
         val propio = DituRef.decodificar(ref) ?: throw GatewayException("Ese enlace no es de Caracol")
@@ -121,5 +141,8 @@ internal class DituFuente(
 
     internal companion object {
         const val FUENTE = "ditu"
+
+        /** Cuánto vale el catálogo guardado por [catalogoCompleto]: 6 h. */
+        private const val VIGENCIA_DEL_CATALOGO_MS = 6 * 60 * 60 * 1000L
     }
 }
