@@ -1,5 +1,7 @@
 package com.arkiv.player.ui.search
 
+import com.arkiv.player.data.ditu.FalloDeCaracol
+
 /**
  * Qué pasó con cada fuente en la última búsqueda de fuentes: cuáles respondieron y cuáles se
  * cayeron, con su error.
@@ -16,9 +18,14 @@ data class EstadoDeLasFuentes(
     val respondieron: Set<String> = emptySet(),
     /** Fuente → mensaje de su error, en el orden en que fallaron. */
     val caidas: Map<String, String> = emptyMap(),
+    /** Fuente → la excepción de su error, para las que la mandaron (ver `SearchEvent.SourceError.causa`). */
+    val causas: Map<String, Throwable> = emptyMap(),
 ) {
     fun conRespuesta(fuente: String) = copy(respondieron = respondieron + fuente)
-    fun conCaida(fuente: String, error: String) = copy(caidas = caidas + (fuente to error))
+    fun conCaida(fuente: String, error: String, causa: Throwable? = null) = copy(
+        caidas = caidas + (fuente to error),
+        causas = if (causa == null) causas else causas + (fuente to causa),
+    )
 }
 
 /** La pestaña de una fuente por su nombre en los eventos, o null si no se sabe cuál es. */
@@ -41,11 +48,20 @@ private fun seCayo(tab: SourceTab, estado: EstadoDeLasFuentes): Boolean =
  * Una línea por cada fuente caída que corresponde a [tab] ("Todo" las muestra todas). Van arriba de
  * la lista, haya o no resultados: si Caracol se cae y Magis responde, se ven los resultados de Magis
  * y la línea de Caracol. Sin errores la lista es vacía y la pantalla queda igual que antes.
+ *
+ * La línea de Caracol la escribe [FalloDeCaracol], en palabras de persona. La de Magis y la de una
+ * fuente sin nombre siguen como antes: el nombre y el texto del error.
  */
 fun avisosDeFuentesCaidas(estado: EstadoDeLasFuentes, tab: SourceTab): List<String> =
     estado.caidas
         .filter { (fuente, _) -> tab == SourceTab.TODO || tabDeFuente(fuente) == tab }
-        .map { (fuente, error) -> "${nombreDeFuente(fuente)} no respondió: $error" }
+        .map { (fuente, error) ->
+            if (tabDeFuente(fuente) == SourceTab.CARACOL) {
+                FalloDeCaracol.enLaBusqueda(estado.causas[fuente], error)
+            } else {
+                "${nombreDeFuente(fuente)} no respondió: $error"
+            }
+        }
 
 /** Lo que dice la pantalla cuando la búsqueda terminó sin ningún resultado. */
 fun textoSinFuentes(estado: EstadoDeLasFuentes): String =

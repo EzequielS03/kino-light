@@ -92,6 +92,8 @@ class DituClienteTest {
 
         assertTrue("esperaba DituException y vino $e", e is DituException)
         assertTrue(e!!.message!!.contains("500"))
+        // El status viaja aparte: `FalloDeCaracol` lo lee de acá y no del mensaje.
+        assertEquals(500, (e as DituException).codigoHttp)
     }
 
     @Test fun `un cuerpo que no es JSON se convierte en DituException`() = runTest {

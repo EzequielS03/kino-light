@@ -62,13 +62,14 @@ class SearchViewModelFuentesTest {
     )
 
     @Test fun `si Caracol se cae, Magis se ve y la caida de Caracol queda expuesta`() = runTest {
+        val sinRed = java.net.UnknownHostException("sin red")
         val vm = vm(FuenteDePrueba {
             listOf(
                 SearchEvent.SourceStart("magis"),
                 SearchEvent.ResultEvent("magis", GatewayResult(source = "magis", title = "Rigo", ref = "m1")),
                 SearchEvent.SourceDone("magis", 1, 5),
                 SearchEvent.SourceStart("ditu"),
-                SearchEvent.SourceError("ditu", "sin red", 5, 0),
+                SearchEvent.SourceError("ditu", "sin red", 5, 0, causa = sinRed),
                 SearchEvent.Done(10),
             )
         })
@@ -78,6 +79,8 @@ class SearchViewModelFuentesTest {
 
         assertEquals(listOf("Rigo"), vm.sources.value.map { (it as PlaySource.Magis).result.title })
         assertEquals(mapOf("ditu" to "sin red"), vm.estadoDeFuentes.value.caidas)
+        // La excepción llega a la pantalla: es con lo que `FalloDeCaracol` escribe la línea.
+        assertEquals(mapOf<String, Throwable>("ditu" to sinRed), vm.estadoDeFuentes.value.causas)
         assertEquals(setOf("magis"), vm.estadoDeFuentes.value.respondieron)
         assertFalse(vm.loadingMagis.value)
     }

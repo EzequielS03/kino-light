@@ -40,7 +40,7 @@ internal class DituFuente(
         val t0 = ahoraMs()
         emit(SearchEvent.SourceStart(FUENTE))
         val items = runCatching { catalogo.buscar(ctx.q) }.getOrElse { e ->
-            emit(SearchEvent.SourceError(FUENTE, e.message ?: "error de Caracol", ahoraMs() - t0, 0))
+            emit(SearchEvent.SourceError(FUENTE, e.message ?: "error de Caracol", ahoraMs() - t0, 0, causa = e))
             emit(SearchEvent.Done(ahoraMs() - t0))
             return@flow
         }

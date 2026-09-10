@@ -1824,11 +1824,11 @@ private fun PlayerContent(
                     estadoPistas.setExoPlayer(player)
                     gestos.setExoPlayer(player)
                 },
-                onError = { msg ->
+                onError = { codigo ->
                     // Desde dónde retomar si el ViewModel pide una URL nueva. Se le pregunta al
                     // player y no al espejo, que se pone al día recién con el sondeo de medio segundo.
                     val pos = dituPlayer?.currentPosition?.coerceAtLeast(0L) ?: dPlay.startPositionMs
-                    vm.onDituExoError(msg, pos)
+                    vm.onDituExoError(codigo, pos)
                 },
                 pedirRepreparado = { vm.dituPuedeRepreparar() },
                 onPosicion = { pos, reproduciendo -> vm.dituAvanzo(pos, reproduciendo) },

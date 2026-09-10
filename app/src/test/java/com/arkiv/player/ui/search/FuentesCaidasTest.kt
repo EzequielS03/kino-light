@@ -5,6 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.net.UnknownHostException
 
 /** Qué dicen los resultados de la búsqueda cuando una fuente, o todas, no respondieron. */
 class FuentesCaidasTest {
@@ -25,8 +26,9 @@ class FuentesCaidasTest {
     }
 
     @Test fun caracol_caido_deja_su_linea_sin_tapar_a_magis() {
-        assertEquals(listOf("Caracol no respondió: sin red"), avisosDeFuentesCaidas(caracolCaido, SourceTab.TODO))
-        assertEquals(listOf("Caracol no respondió: sin red"), avisosDeFuentesCaidas(caracolCaido, SourceTab.CARACOL))
+        // "sin red" no dice nada que se entienda: la línea es el genérico, sin el texto crudo.
+        assertEquals(listOf("Caracol no respondió"), avisosDeFuentesCaidas(caracolCaido, SourceTab.TODO))
+        assertEquals(listOf("Caracol no respondió"), avisosDeFuentesCaidas(caracolCaido, SourceTab.CARACOL))
         assertTrue(avisosDeFuentesCaidas(caracolCaido, SourceTab.MAGIS).isEmpty())
         // La pestaña de Caracol no dice "Buscando…" ni "Sin resultados": lo explica su línea.
         assertNull(textoPestanaVacia(SourceTab.CARACOL, true, caracolCaido))
@@ -42,9 +44,28 @@ class FuentesCaidasTest {
         assertEquals(SIN_RESPUESTA, textoSinFuentes(todoCaido))
         assertFalse(textoSinFuentes(todoCaido).contains("temporada"))
         assertEquals(
-            listOf("Magis no respondió: timeout", "Caracol no respondió: sin red"),
+            listOf("Magis no respondió: timeout", "Caracol no respondió"),
             avisosDeFuentesCaidas(todoCaido, SourceTab.TODO),
         )
+    }
+
+    /** La línea de Caracol la dice `FalloDeCaracol`, con la excepción que mandó la fuente. */
+    @Test fun la_linea_de_caracol_va_en_palabras_de_persona() {
+        val estado = EstadoDeLasFuentes().conRespuesta("magis").conCaida(
+            "ditu",
+            "Caracol no responde: Unable to resolve host \"middleware.ditu.caracoltv.com\"",
+            UnknownHostException("Unable to resolve host \"middleware.ditu.caracoltv.com\""),
+        )
+        assertEquals(
+            listOf("Caracol no respondió: sin conexión a internet"),
+            avisosDeFuentesCaidas(estado, SourceTab.CARACOL),
+        )
+    }
+
+    /** Magis intacto: su línea sigue siendo su nombre y el texto de su error, como antes. */
+    @Test fun la_linea_de_magis_sigue_igual() {
+        val estado = EstadoDeLasFuentes().conCaida("magis", "Unable to resolve host \"x\"", UnknownHostException("x"))
+        assertEquals(listOf("Magis no respondió: Unable to resolve host \"x\""), avisosDeFuentesCaidas(estado, SourceTab.TODO))
     }
 
     /** `FuenteCompuesta` nombra "desconocida" a una fuente que se cae antes de anunciarse. */

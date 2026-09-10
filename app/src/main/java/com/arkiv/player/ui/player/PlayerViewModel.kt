@@ -7,6 +7,7 @@ import com.arkiv.player.data.ArkivRepository
 import com.arkiv.player.data.db.LiveRecentDao
 import com.arkiv.player.data.db.LiveRecentEntity
 import com.arkiv.player.data.db.SkipMarkerEntity
+import com.arkiv.player.data.ditu.FalloDeCaracol
 import com.arkiv.player.data.gateway.LiveChannel
 import com.arkiv.player.data.model.Episode
 import com.arkiv.player.playback.ArchiveCacheProxy
@@ -649,14 +650,19 @@ class PlayerViewModel internal constructor(
      * [DituExoPlayer] se rindió: agotó sus re-preparados, o el error no era de los que se arreglan
      * así. Antes de avisar se le pide a Caracol una URL nueva —trae otro `playback_token`— y se
      * retoma en [posicionMs]. Con tope: ver [EstadoDeDitu.pedirRecarga].
+     *
+     * [codigo] es el `errorCode` de la `PlaybackException`: con él [FalloDeCaracol.alReproducir] le
+     * dice a la persona qué pasó. Su nombre técnico va al log.
      */
-    fun onDituExoError(message: String, posicionMs: Long) {
+    fun onDituExoError(codigo: Int, posicionMs: Long) {
+        val nombre = androidx.media3.common.PlaybackException.getErrorCodeName(codigo)
         val episodio = ditu.pedirRecarga()
         if (episodio == null) {
-            _error.value = "Caracol: $message"
+            Log.w(PLAY, "Caracol: $nombre y no quedan recargas → aviso a la persona")
+            _error.value = FalloDeCaracol.alReproducir(codigo, esTelevision)
             return
         }
-        Log.w(PLAY, "Caracol: $message → pido una URL nueva para $episodio desde ${posicionMs}ms")
+        Log.w(PLAY, "Caracol: $nombre → pido una URL nueva para $episodio desde ${posicionMs}ms")
         viewModelScope.launch { loadDitu(episodio, arrancarEnMs = posicionMs) }
     }
 
@@ -943,8 +949,10 @@ class PlayerViewModel internal constructor(
         }
         val play = resuelto.getOrNull()
         if (play == null) {
-            Log.w(PLAY, "loadDitu() falló: ${resuelto.exceptionOrNull()?.message}")
-            _error.value = resuelto.exceptionOrNull()?.message ?: "No se pudo reproducir en Caracol"
+            val falla = resuelto.exceptionOrNull()
+            // El detalle va al log; a la persona, lo que `FalloDeCaracol` entiende de él.
+            Log.w(PLAY, "loadDitu() falló: ${falla?.message}", falla)
+            _error.value = FalloDeCaracol.alAbrir(falla)
             return
         }
         // La misma reanudación que Magis: [safeStartPosition] sobre el progreso guardado. Un vivo no

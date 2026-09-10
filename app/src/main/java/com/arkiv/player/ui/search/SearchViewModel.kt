@@ -293,8 +293,10 @@ class SearchViewModel(
                                 if (lote.size >= GATEWAY_LOTE) vaciarLote()
                             }
                             is com.arkiv.player.data.gateway.SearchEvent.SourceError -> {
-                                Log.w(GW, "fuente ${ev.source} fallo: ${ev.error} (entrego ${ev.count})")
-                                _estadoDeFuentes.value = _estadoDeFuentes.value.conCaida(ev.source, ev.error)
+                                // El detalle técnico va al log; la línea de Caracol en pantalla la
+                                // escribe `FalloDeCaracol` (ver `avisosDeFuentesCaidas`).
+                                Log.w(GW, "fuente ${ev.source} fallo: ${ev.error} (entrego ${ev.count})", ev.causa)
+                                _estadoDeFuentes.value = _estadoDeFuentes.value.conCaida(ev.source, ev.error, ev.causa)
                                 vaciarLote()
                             }
                             is com.arkiv.player.data.gateway.SearchEvent.SourceDone -> {

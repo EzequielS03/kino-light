@@ -70,8 +70,8 @@ private fun esRecuperable(error: PlaybackException): Boolean =
  * con un `TextureView` nulo.
  *
  * La publicidad no se filtra. Ante un error recuperable (ver [esRecuperable]) se vuelve a preparar
- * el stream mientras [pedirRepreparado] lo permita; si no, el error va a [onError], y `PlayerScreen`
- * le pide al ViewModel una URL nueva. Los topes de los dos escalones no viven acá sino en
+ * el stream mientras [pedirRepreparado] lo permita; si no, el `errorCode` del error va a [onError], y
+ * `PlayerScreen` le pide al ViewModel una URL nueva. Los topes de los dos escalones no viven acá sino en
  * `EstadoDeDitu`, que los repone recién después de reproducción estable: [onPosicion] le pasa cada
  * lectura del reloj.
  */
@@ -84,7 +84,7 @@ internal fun DituExoPlayer(
     espejo: EspejoDelPlayer,
     startPositionMs: Long = 0L,
     onPlayerReady: (Player?) -> Unit = {},
-    onError: (String) -> Unit = {},
+    onError: (codigo: Int) -> Unit = {},
     pedirRepreparado: () -> Boolean,
     onPosicion: (posicionMs: Long, reproduciendo: Boolean) -> Unit = { _, _ -> },
     onTracksChanged: ((Tracks) -> Unit)? = null,
@@ -187,7 +187,7 @@ internal fun DituExoPlayer(
                     exoPlayer.prepare()
                     return
                 }
-                onError(error.errorCodeName)
+                onError(error.errorCode)
             }
         }
         exoPlayer.addListener(escucha)

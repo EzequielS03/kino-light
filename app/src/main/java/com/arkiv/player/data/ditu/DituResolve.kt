@@ -75,7 +75,7 @@ internal class DituResolve(private val cliente: DituClienteLike) {
 
     private suspend fun revisarEntitlement(path: String) {
         val datos: JSONObject = cliente.get(path)
-        DituEntitlement.bloqueo(datos)?.let { throw DituException("Caracol: $it") }
+        DituEntitlement.bloqueo(datos)?.let { throw DituException("Caracol: $it", bloqueo = it) }
     }
 
     private suspend fun playableDe(path: String, queEs: String): GatewayPlayable {

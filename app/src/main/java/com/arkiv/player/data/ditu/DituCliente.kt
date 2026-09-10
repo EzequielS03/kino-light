@@ -8,7 +8,20 @@ import okhttp3.Request
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
-internal class DituException(mensaje: String, causa: Throwable? = null) : RuntimeException(mensaje, causa)
+/**
+ * Un fallo al hablarle a Caracol.
+ *
+ * [codigoHttp] y [bloqueo] existen para [FalloDeCaracol], que le traduce el error a la persona: el
+ * mensaje es para el log, y adivinar qué pasó leyéndolo es frágil.
+ */
+internal class DituException(
+    mensaje: String,
+    causa: Throwable? = null,
+    /** El status con que respondió Caracol, si la falla fue un status de error. */
+    val codigoHttp: Int? = null,
+    /** El motivo de [DituEntitlement.bloqueo], si Caracol no deja ver algo: ya viene escrito para la persona. */
+    val bloqueo: String? = null,
+) : RuntimeException(mensaje, causa)
 
 /**
  * Una respuesta de Caracol junto con el `playback_token` que traía, o `""` si no traía.
@@ -67,7 +80,7 @@ internal class DituCliente(
                 .getOrElse { throw DituException("Caracol no responde: ${it.message}", it) }
 
             respuesta.use {
-                if (!it.isSuccessful) throw DituException("Caracol respondió ${it.code} en $path")
+                if (!it.isSuccessful) throw DituException("Caracol respondió ${it.code} en $path", codigoHttp = it.code)
                 val cuerpo = it.body?.string().orEmpty()
                 val json = runCatching { JSONObject(cuerpo) }
                     .getOrElse { e -> throw DituException("Caracol devolvió algo que no es JSON en $path", e) }

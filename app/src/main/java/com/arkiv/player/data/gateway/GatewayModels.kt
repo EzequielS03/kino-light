@@ -140,7 +140,17 @@ sealed interface SearchEvent {
     data class SourceStart(val source: String) : SearchEvent
     data class ResultEvent(val source: String, val item: GatewayResult) : SearchEvent
     data class SourceDone(val source: String, val count: Int, val ms: Long) : SearchEvent
-    data class SourceError(val source: String, val error: String, val ms: Long, val count: Int) : SearchEvent
+    /**
+     * [causa] es la excepción, cuando la fuente la tiene a mano: `FalloDeCaracol` la necesita para
+     * decirle a la persona qué pasó. La manda `DituFuente`; `MagisFuente` y `FuenteCompuesta` no.
+     */
+    data class SourceError(
+        val source: String,
+        val error: String,
+        val ms: Long,
+        val count: Int,
+        val causa: Throwable? = null,
+    ) : SearchEvent
     data class Done(val ms: Long) : SearchEvent
 }
 
