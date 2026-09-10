@@ -18,6 +18,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import com.arkiv.player.data.magis.EstadoDeMagis
 import com.arkiv.player.playback.MagisEfimero
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Modifier
@@ -46,32 +47,50 @@ fun ArkivTvRoot(
     // entra, ANTES que nada más. Ya NO depende de ninguna sesión de Kino: `MainActivity` compone
     // `ArkivTvRoot` sin gate de sesión (ver su comentario "Sin gate de sesión" en MainActivity.kt) y
     // `TvPantallaDeEntrada` sigue existiendo en el árbol -compilada, pero sin llamador desde ahí-, así
-    // que esta pantalla decide solo con [com.arkiv.player.data.magis.EstadoDeMagis] (¿hay Magis
-    // vinculado en ESTE aparato?), nunca con `AccountState`/`AccountManager`. Sirve para las DOS rutas
-    // que dejan un aparato sin Magis vinculado (recién instalado, o vinculado y luego desvinculado).
-    // Ver el KDoc de `debeOfrecerVincularMagis` para la condición exacta.
-    val estadoMagis by graph.cuentaDeMagis.estado.collectAsStateWithLifecycle()
-    val ofertaDescartada by graph.settings.magisOfertaDescartada.collectAsStateWithLifecycle()
-
-    // `CuentaDeMagis.estado` arranca siempre en `Sin` -no lee las prefs cifradas en el constructor,
-    // ver su KDoc-, así que sin esta espera la oferta de abajo se dispararía en CADA arranque incluso
-    // para quien YA tiene Magis vinculado, hasta que `refrescar()` conteste. `magisConfirmado` frena
-    // la decisión hasta tener esa respuesta real; mientras tanto se sigue de largo al contenido normal
-    // -nunca al revés: un pedido que tarda no puede dejar a nadie mirando una pantalla en blanco antes
-    // de llegar al home-.
+    // que esta pantalla decide solo con [EstadoDeMagis] (¿hay Magis vinculado en ESTE aparato?), nunca
+    // con `AccountState`/`AccountManager`. Sirve para las DOS rutas que dejan un aparato sin Magis
+    // vinculado (recién instalado, o vinculado y luego desvinculado). Ver el KDoc de
+    // `debeOfrecerVincularMagis` para la condición exacta.
+    //
+    // `mostrarOferta` se decide UNA SOLA VEZ, al confirmarse el estado real -no en cada
+    // recomposición-: esto es una oferta DE ENTRADA, no un gate que se reevalúa todo el tiempo. Si
+    // lo fuera, desvincular Magis después desde Ajustes (`TvSettingsCuenta`, compuesta DENTRO del
+    // `NavHost` de más abajo) dejaría `cuentaDeMagis.estado` en `Sin` otra vez, y como este `if` se
+    // evalúa POR ENCIMA del `NavHost`, la próxima recomposición volvería a dar `true`, haría este
+    // `return` y le destruiría la pantalla de Ajustes a alguien que no pidió volver acá -el caso
+    // probable, no el raro: quien vinculó desde esta misma oferta nunca tocó "Ahora no", así que
+    // `magisOfertaDescartada` sigue en `false`-. `CuentaDeMagis.estado` arranca siempre en `Sin` -no
+    // lee las prefs cifradas en el constructor, ver su KDoc-, así que sin la espera de
+    // `magisConfirmado` esta decisión única se tomaría con un `Sin` que todavía no es la respuesta
+    // real; mientras tanto se sigue de largo al contenido normal -nunca al revés: un pedido que
+    // tarda no puede dejar a nadie mirando una pantalla en blanco antes de llegar al home-.
     var magisConfirmado by remember { mutableStateOf(false) }
+    var mostrarOferta by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         graph.cuentaDeMagis.refrescar()
+        mostrarOferta = debeOfrecerVincularMagis(
+            graph.cuentaDeMagis.estado.value,
+            graph.settings.magisOfertaDescartada.value,
+        )
         magisConfirmado = true
     }
 
-    if (magisConfirmado && debeOfrecerVincularMagis(estadoMagis, ofertaDescartada)) {
+    if (magisConfirmado && mostrarOferta) {
+        // Reactivo adentro del `if`, pero para CERRAR esta misma pantalla cuando la propia acción de
+        // vincular sale bien -no para volver a decidir si mostrarla, que es la decisión de arriba-.
+        val estadoMagis by graph.cuentaDeMagis.estado.collectAsStateWithLifecycle()
+        LaunchedEffect(estadoMagis) {
+            if (estadoMagis is EstadoDeMagis.Vinculada) mostrarOferta = false
+        }
         TvOfertaVincularMagis(
             cuenta = graph.cuentaDeMagis,
             // Se guarda la decisión (Task 10, ver SettingsStore.magisOfertaDescartada): "Ahora no" no
             // vuelve a preguntar en cada arranque. El camino sigue vivo en Ajustes
             // (TvSettingsCuenta), a propósito -esto es un atajo, no la única puerta-.
-            onAhoraNo = { graph.settings.setMagisOfertaDescartada(true) },
+            onAhoraNo = {
+                graph.settings.setMagisOfertaDescartada(true)
+                mostrarOferta = false
+            },
         )
         return
     }

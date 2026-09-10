@@ -35,9 +35,11 @@ class SettingsStore(context: Context) {
     // "Ahora no" a la oferta de vincular Magis apenas se entra a la TV (Task 10, ver
     // `debeOfrecerVincularMagis` en ui/tv/TvOfertaVincularMagis.kt). Es una decisión del DISPOSITIVO,
     // no de la cuenta -mismo criterio que [artworkRematchDone] acá arriba-: este es un TV
-    // de uso personal, no un kiosco compartido entre cuentas. Se resetea en `AccountManager.logout()`
-    // (ver `onLocalWipe` en AppGraph): la sesión que se está yendo ya no importa, y si otra persona
-    // entra después en este mismo aparato tiene sentido que la oferta le aparezca de nuevo.
+    // de uso personal, no un kiosco compartido entre cuentas. Ya NO se resetea en ningún logout
+    // -Task 8 (sub-proyecto 2B) sacó los botones de "Cerrar sesión" de las pantallas de Magis, que
+    // eran los últimos llamadores de `AccountManager.logout()`, así que esa ruta quedó muerta-: sin
+    // cuentas de Kino no hay logout que dispare el reseteo, y la oferta sigue accesible a mano desde
+    // Ajustes (`TvSettingsCuenta`) para quien quiera volver a vincular Magis sin depender de este flag.
     private val _magisOfertaDescartada = MutableStateFlow(prefs.getBoolean(KEY_MAGIS_OFERTA_DESCARTADA, false))
     val magisOfertaDescartada: StateFlow<Boolean> = _magisOfertaDescartada
 

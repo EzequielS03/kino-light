@@ -178,10 +178,13 @@ class AccountManagerTest {
 
     /**
      * Que Magis rechace unas credenciales NO dice nada sobre la cuenta de Kino -son dos identidades
-     * distintas (ver KDoc de `AccountManager`)-. Este test fija esa garantía en el lugar del que
-     * depende TODO llamador (la oferta al entrar a la TV, `TvVincularMagisSection` y
-     * `VincularMagisSection`): el portal rechaza, se lanza `AccountException` y listo, sin tocar ni
-     * `AccountState` ni `SesionDePersona.estado`.
+     * distintas (ver KDoc de `AccountManager`)-. Test histórico: `vincularMagis` ya no tiene ningún
+     * llamador desde la UI -Task 8 (sub-proyecto 2B) lo reemplazó por `CuentaDeMagis.vincular` en
+     * las tres pantallas que lo usaban (la oferta al entrar a la TV y las dos "Ajustes → Cuenta")-,
+     * así que la garantía equivalente para el camino real hoy la fija `CuentaDeMagisTest`
+     * (`credenciales rechazadas no cambian el estado y el mensaje lo dice`). Este test queda para no
+     * perder la cobertura de `AccountManager` mientras siga compilado, hasta que la Task 9 lo borre
+     * entero.
      */
     @Test
     fun vincularMagis_credencialesInvalidas_noTocaLaSesionDeKino() = runBlocking {

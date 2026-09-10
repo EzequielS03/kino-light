@@ -112,10 +112,10 @@ fun mensajeDeConfirmacion(aparato: AparatoUi, esElUltimo: Boolean): String = whe
  * uno con confirmación explícita en dos pasos ([pedirSacar] / [confirmarSacar]).
  *
  * Domain puro, NO `androidx.lifecycle.ViewModel`: expone `suspend fun` y quien compone la pantalla
- * las lanza con `rememberCoroutineScope()`, igual que ya hace [AccountSection] con
- * [com.arkiv.player.pocketbase.AccountManager]. Mismo motivo en los dos casos: se puede probar con
- * `runBlocking` sin depender de `Dispatchers.Main`, y una sola instancia (graph-level, ver
- * `AppGraph.misAparatosViewModel`) se comparte entre la pantalla del celular y la de la TV.
+ * las lanza con `rememberCoroutineScope()`, igual que ya hace [AccountSection]
+ * (`ui/settings/AccountSection.kt`) con `CuentaDeMagis`. Mismo motivo en los dos casos: se puede
+ * probar con `runBlocking` sin depender de `Dispatchers.Main`, y una sola instancia (graph-level,
+ * ver `AppGraph.misAparatosViewModel`) se comparte entre la pantalla del celular y la de la TV.
  *
  * [recordIdDeEsteAparato] es un provider, no un valor capturado, por la misma razón que
  * `AppGraph.cuentaApi` lee `{ deviceAuth.session.value?.token }` en vez de un valor: al
@@ -222,7 +222,7 @@ class MisAparatosViewModel(
 // ---------------------------------------------------------------------------------------------
 // Composables (celular). El equivalente de TV vive en TvSettingsScreen.kt -misma instancia de
 // [MisAparatosViewModel] (AppGraph.misAparatosViewModel), otra UI- igual que AccountSection/
-// TvAccountSection comparten un solo AccountManager.
+// TvSettingsCuenta comparten un solo CuentaDeMagis.
 // ---------------------------------------------------------------------------------------------
 
 @Composable

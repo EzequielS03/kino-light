@@ -70,4 +70,35 @@ class CuentaDeMagisTest {
 
         assertEquals(EstadoDeMagis.Sin, c.estado.value)
     }
+
+    @Test
+    fun `desvincular borra las credenciales aunque el portal este caido`() = runTest {
+        val portal = FakePortalClient()
+        portal.respuestaPorDefecto = MagisResult.RedError(java.io.IOException("sin red"))
+        val store = FakeCredentialStore()
+        store.guardarSesion(SesionGuardada("u", "t", "", "sn"))
+        store.guardarCuenta("persona@ejemplo.com", "clave123")
+        val c = cuenta(portal, store)
+        c.refrescar()
+        assertEquals(EstadoDeMagis.Vinculada("persona@ejemplo.com"), c.estado.value)
+
+        c.desvincular()
+
+        assertEquals(null, store.leerCuenta())
+        assertEquals(EstadoDeMagis.Sin, c.estado.value)
+    }
+
+    @Test
+    fun `desvincular con sesion activa avisa al portal antes de borrar`() = runTest {
+        val portal = FakePortalClient()
+        val store = FakeCredentialStore()
+        store.guardarSesion(SesionGuardada("u", "t", "", "sn"))
+        store.guardarCuenta("persona@ejemplo.com", "clave123")
+        val c = cuenta(portal, store)
+        c.refrescar()
+
+        c.desvincular()
+
+        assertEquals(1, portal.vecesLlamado("v5/loginOut"))
+    }
 }

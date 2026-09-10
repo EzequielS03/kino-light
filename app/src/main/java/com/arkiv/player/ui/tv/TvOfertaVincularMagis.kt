@@ -45,7 +45,7 @@ import kotlinx.coroutines.launch
  *   una cuenta de Kino conectada: `MainActivity` compone `ArkivTvRoot` sin gate de sesión (ver su
  *   comentario "Sin gate de sesión"), así que esa condición ya no aplica-;
  * - la persona no dijo "Ahora no" antes en este aparato ([descartada], persistido en
- *   `SettingsStore.magisOfertaDescartada` -ver su KDoc sobre qué lo resetea-).
+ *   `SettingsStore.magisOfertaDescartada` -ya NO se resetea solo, ver su KDoc-).
  */
 fun debeOfrecerVincularMagis(estado: EstadoDeMagis, descartada: Boolean): Boolean =
     estado is EstadoDeMagis.Sin && !descartada

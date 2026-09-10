@@ -117,7 +117,20 @@ private fun VinculadaSection(cuenta: CuentaDeMagis, estado: EstadoDeMagis.Vincul
 
     OutlinedButton(
         enabled = !busy,
-        onClick = { scope.launch { busy = true; cuenta.desvincular(); busy = false } },
+        onClick = {
+            scope.launch {
+                busy = true
+                // try/finally, no try/catch: desvincular() no lanza -MagisSession.logout() nunca
+                // tira, devuelve MagisResult-, pero sin el finally una excepción inesperada dejaba
+                // el botón clavado en "Desvinculando…" para siempre. Mismo patrón que la TV
+                // (TvSettingsCuenta.TvVinculadaSection).
+                try {
+                    cuenta.desvincular()
+                } finally {
+                    busy = false
+                }
+            }
+        },
         modifier = Modifier.padding(top = 8.dp),
     ) { Text(if (busy) "Desvinculando…" else "Desvincular Magis") }
 }
