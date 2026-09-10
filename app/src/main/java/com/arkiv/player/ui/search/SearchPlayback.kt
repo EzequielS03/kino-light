@@ -201,9 +201,7 @@ class SearchPlayback(private val graph: AppGraph) {
      * [playMagisSeason] ni [magisEpisodeIdDe], que arman ids `magis:`—. Guarda solo el capítulo
      * tocado, no la temporada entera como hace Magis.
      *
-     * La temporada sale del propio capítulo (`GatewayEpisode.season`, que `DituFuente` llena por
-     * capítulo) y de [serie] solo si falta: en un `GROUP_OF_BUNDLES` la de [serie] es una sola para
-     * todas las temporadas aplanadas.
+     * La temporada la decide [temporadaDelCapitulo].
      */
     suspend fun playDituEpisode(
         temporada: com.arkiv.player.data.gateway.GatewayResult,
@@ -219,7 +217,7 @@ class SearchPlayback(private val graph: AppGraph) {
             episodeTitle = capitulo.title,
             posterUrl = temporada.extra["poster"].orEmpty().ifBlank { serie?.posterUrl.orEmpty() },
             backdropUrl = serie?.backdropUrl.orEmpty(),
-            season = capitulo.season ?: serie?.seasonNumber,
+            season = temporadaDelCapitulo(capitulo, serie),
             // `DituFuente` deja el tmdbId en 0 cuando TMDB no la encontró: ese 0 no puede pisar un
             // tmdbId ya guardado.
             tmdbId = serie?.tmdbId?.takeIf { it > 0 },
@@ -263,3 +261,16 @@ internal suspend fun seriesIdOf(
 } else {
     seriesIdFor(card, detail)
 }
+
+/**
+ * La temporada con la que se guarda un capítulo de Caracol: la del propio capítulo
+ * (`GatewayEpisode.season`, que `DituFuente` llena por capítulo) y la de [serie] solo si falta.
+ *
+ * El orden importa: en un `GROUP_OF_BUNDLES` la de [serie] es UNA sola (la 1) para todas las
+ * temporadas aplanadas, así que si ganara ella, el capítulo 1 de la T2 se guardaría como el 1 de la
+ * T1 y le pisaría la fila (ver `DituEntities.episodioIdDeCapitulo`).
+ */
+internal fun temporadaDelCapitulo(
+    capitulo: com.arkiv.player.data.gateway.GatewayEpisode,
+    serie: com.arkiv.player.data.gateway.GatewaySerie?,
+): Int? = capitulo.season ?: serie?.seasonNumber

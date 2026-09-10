@@ -40,8 +40,8 @@ private const val GATEWAY_LOTE = 25
 private const val GW = "ArkivGateway"
 
 /**
- * ViewModel del wizard de búsqueda unificada: Fase QUERY (TMDB + AniList + directos archive),
- * paso REFINE (S/E opcional) y fase RESULTS (búsqueda multi-fuente magis/archive con S/E
+ * ViewModel del wizard de búsqueda unificada: Fase QUERY (TMDB + AniList), paso REFINE (S/E
+ * opcional) y fase RESULTS (búsqueda en Magis y en Caracol a la vez, con S/E
  * inyectado si se dio, o solo por nombre).
  */
 class SearchViewModel(
@@ -80,7 +80,7 @@ class SearchViewModel(
     private val _busquedaPorTexto = MutableStateFlow(false)
     val busquedaPorTexto: StateFlow<Boolean> = _busquedaPorTexto.asStateFlow()
 
-    // --- Fase RESULTS: resultados multi-fuente (magis/archive) de la card elegida ---
+    // --- Fase RESULTS: resultados de Magis y de Caracol para la card elegida ---
     private val _sources = MutableStateFlow<List<PlaySource>>(emptyList())
     val sources: StateFlow<List<PlaySource>> = _sources.asStateFlow()
 
@@ -224,7 +224,7 @@ class SearchViewModel(
     }
 
     /**
-     * Búsqueda multi-fuente (magis/archive) de la card elegida: si viene season/episode se
+     * Búsqueda en Magis y en Caracol de la card elegida: si viene season/episode se
      * inyectan en la búsqueda (capítulo concreto); si no, se busca solo por nombre. Progresiva:
      * cada fuente agrega resultados apenas los tiene.
      */
@@ -251,9 +251,10 @@ class SearchViewModel(
 
             fun append(new: List<PlaySource>) { _sources.value = _sources.value + new }
 
-            // Magis, directo al portal. Antes esto iba detrás de un flag (`useGateway`) para poder
-            // apagarlo sin publicar APK y caer "al camino viejo": ya no hay camino viejo ni flag
-            // -- nadie tenía cómo apagarlo, y es la única fuente que queda.
+            // `arkivApiClient` es la fuente compuesta (`AppGraph.fuenteDeContenido`: Magis y Caracol,
+            // cada una directo a su API). Antes esto iba detrás de un flag (`useGateway`) para poder
+            // apagarlo sin publicar APK y caer "al camino viejo": ya no hay camino viejo ni flag --
+            // nadie tenía cómo apagarlo.
             launch {
                 runCatching {
                     val ctx = com.arkiv.player.data.gateway.GatewaySearchQuery(

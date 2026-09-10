@@ -293,9 +293,12 @@ class AppGraph(context: Context) {
      * la regla del branch). Una fila vieja con `source="archive"` cae al mismo camino de gracia que
      * "web".
      *
-     * Ni para "ditu": `DituDownloadStrategy` se borró junto con el resto de Ditu/Caracol Play en
-     * esta poda (Ditu vuelve en el sub-proyecto 3 con un cliente directo). Una fila vieja con
-     * `source="ditu"` cae al mismo camino de gracia.
+     * Ni para "ditu": Caracol volvió con un cliente directo (`data/ditu`), pero su video viene
+     * cifrado con Widevine y no hay forma de bajarlo; `DituDownloadStrategy` se borró en la poda y no
+     * volvió. Una fila con `source="ditu"` cae al mismo camino de gracia.
+     *
+     * Las pantallas no ofrecen bajar lo que no tiene entrada acá: lo deciden
+     * `FuenteDeDescarga.sePuedeBajar`/`hayEstrategia` con las claves de este mapa.
      */
     val downloadStrategies: Map<String, com.arkiv.player.data.local.DownloadStrategy> by lazy {
         mapOf(

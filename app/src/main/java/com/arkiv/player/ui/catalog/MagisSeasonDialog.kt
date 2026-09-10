@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -178,22 +179,30 @@ fun MagisSeasonDialog(
                     color = ArkivTextSecondary,
                 )
 
-                else -> LazyColumn(
-                    Modifier.heightIn(max = 420.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    items(capitulos!!, key = { it.ref }) { cap ->
-                        EpisodeRow(
-                            cap = cap,
-                            marcado = cap.number in marcados,
-                            mostrarCasilla = puedeGuardar,
-                            acento = acento,
-                            onMarcar = {
-                                if (cap.number in marcados) marcados.remove(cap.number)
-                                else marcados.add(cap.number)
-                            },
-                            onPlay = { onPlay(capitulos!!, cap, serie) },
-                        )
+                else -> {
+                    // Con varias temporadas (una serie de Caracol), por temporada y número, y cada
+                    // fila dice la suya. Sin temporada —Magis— queda como llegó. Ver
+                    // [CapitulosPorTemporada].
+                    val enOrden = CapitulosPorTemporada.ordenar(capitulos!!)
+                    val variasTemporadas = CapitulosPorTemporada.variasTemporadas(capitulos!!)
+                    LazyColumn(
+                        Modifier.heightIn(max = 420.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        items(enOrden, key = { it.ref }) { cap ->
+                            EpisodeRow(
+                                cap = cap,
+                                etiqueta = CapitulosPorTemporada.etiqueta(cap, variasTemporadas),
+                                marcado = cap.number in marcados,
+                                mostrarCasilla = puedeGuardar,
+                                acento = acento,
+                                onMarcar = {
+                                    if (cap.number in marcados) marcados.remove(cap.number)
+                                    else marcados.add(cap.number)
+                                },
+                                onPlay = { onPlay(capitulos!!, cap, serie) },
+                            )
+                        }
                     }
                 }
             }
@@ -201,10 +210,12 @@ fun MagisSeasonDialog(
     )
 }
 
-/** Una fila de capítulo: casilla para guardar, número, nombre y play. */
+/** Una fila de capítulo: casilla para guardar, número (o temporada y número, ver
+ *  [CapitulosPorTemporada]), nombre y play. */
 @Composable
 private fun EpisodeRow(
     cap: GatewayEpisode,
+    etiqueta: String = cap.number.toString(),
     marcado: Boolean,
     mostrarCasilla: Boolean = true,
     acento: Color = ArkivMagisBlue,
@@ -234,9 +245,15 @@ private fun EpisodeRow(
                 )
             }
         }
-        Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
+        // "T2 · E1" no cabe en el cuadro de 28dp: con temporada se ensancha. El número pelado —el de
+        // Magis, siempre— queda en el cuadro de siempre.
+        val conTemporada = etiqueta != cap.number.toString()
+        Box(
+            if (conTemporada) Modifier.height(28.dp).widthIn(min = 28.dp) else Modifier.size(28.dp),
+            contentAlignment = Alignment.Center,
+        ) {
             Text(
-                cap.number.toString(),
+                etiqueta,
                 color = acento,
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,

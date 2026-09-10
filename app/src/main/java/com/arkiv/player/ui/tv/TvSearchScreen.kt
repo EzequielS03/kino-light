@@ -64,6 +64,7 @@ import com.arkiv.player.data.catalog.TmdbDetail
 import com.arkiv.player.data.catalog.TmdbEpisode
 import com.arkiv.player.data.catalog.TmdbSeason
 import com.arkiv.player.data.db.SearchHistoryEntity
+import com.arkiv.player.ui.catalog.CapitulosPorTemporada
 import com.arkiv.player.ui.catalog.PlaySource
 import com.arkiv.player.ui.catalog.esSerie
 import com.arkiv.player.ui.home.buildRowSpecs
@@ -1359,15 +1360,25 @@ private fun TvMagisSeasonContent(
                             ) { Text("Guardar toda la temporada") }
                         }
                     }
-                    items(caps, key = { it.ref }) { cap ->
+                    // Con varias temporadas (una serie de Caracol), por temporada y número, y cada fila
+                    // dice la suya. Sin temporada —Magis— queda como llegó. Ver [CapitulosPorTemporada].
+                    val enOrden = CapitulosPorTemporada.ordenar(caps)
+                    val variasTemporadas = CapitulosPorTemporada.variasTemporadas(caps)
+                    items(enOrden, key = { it.ref }) { cap ->
                         // Sin botón de guardar, el foco inicial va al primer capítulo: si nadie lo
                         // pidiera, el control no tendría dónde arrancar.
-                        val foco = if (onSaveAll == null && cap === caps.first()) {
+                        val foco = if (onSaveAll == null && cap === enOrden.first()) {
                             Modifier.focusRequester(saveAllFocus)
                         } else {
                             Modifier
                         }
-                        TvMagisEpisodeRow(cap = cap, enabled = !preparing, modifier = foco, onClick = { onPlayOne(caps, cap, serie) })
+                        TvMagisEpisodeRow(
+                            cap = cap,
+                            etiqueta = CapitulosPorTemporada.etiqueta(cap, variasTemporadas, sinTemporada = "E"),
+                            enabled = !preparing,
+                            modifier = foco,
+                            onClick = { onPlayOne(caps, cap, serie) },
+                        )
                     }
                 }
             }
@@ -1386,6 +1397,8 @@ private fun TvMagisSeasonContent(
 @Composable
 private fun TvMagisEpisodeRow(
     cap: com.arkiv.player.data.gateway.GatewayEpisode,
+    // "E3", o "T2 · E3" con varias temporadas: ver [CapitulosPorTemporada].
+    etiqueta: String = "E${cap.number}",
     enabled: Boolean,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
@@ -1424,7 +1437,7 @@ private fun TvMagisEpisodeRow(
                 // El nombre va al lado, nunca en su lugar. Prioridad: título de TMDB (el real) ->
                 // título del portal (salvo que solo repita el nombre de la temporada, ver más abajo)
                 // -> "Capítulo N" como último respaldo.
-                "E${cap.number}  " + (
+                "$etiqueta  " + (
                     cap.tmdbTitle?.takeIf { it.isNotBlank() }
                         ?: cap.title.takeIf { it.isNotBlank() && it != cap.number.toString() }
                         ?: "Capítulo ${cap.number}"

@@ -199,14 +199,14 @@ fun DetailScreen(
     var showSaveDialog by remember { mutableStateOf(false) }
     val snackbarHost = remember { SnackbarHostState() }
 
-    // Todos los capítulos se ofrecen para guardar en el dispositivo, sin filtro de elegibilidad:
-    // solo Magis (`FuenteDeDescarga.para` → "magis") tiene una estrategia real registrada en
-    // `AppGraph.downloadStrategies`. Torrent/web/archive.org se borraron en la poda de esta rama;
-    // un episodio "legacy" que caiga en `SourceKind.ARCHIVE/NUC/LOCAL` (filas viejas de biblioteca,
-    // ver `PlayerSource.kindFor`) mapea a la clave "archive", que ya no tiene estrategia: el worker
-    // (`LocalDownloadWorker`) no la encuentra y marca la descarga FAILED con "Fuente no soportada",
-    // sin romper la cola ni el resto de la app.
-    val savableEpisodes = detail?.episodes.orEmpty()
+    // Solo se ofrecen para guardar en el dispositivo los capítulos que se pueden bajar: los que
+    // tienen una estrategia en `AppGraph.downloadStrategies` (hoy, solo Magis). Un capítulo de
+    // Caracol (Widevine) o una fila vieja de archive.org terminaban FAILED con "Fuente no soportada"
+    // DESPUÉS de que esta pantalla dijera "Guardando": una opción que va a fallar no se muestra. Ver
+    // `FuenteDeDescarga.sePuedeBajar`.
+    val estrategias = remember { graph.downloadStrategies.keys }
+    val sePuedeBajar: (Episode) -> Boolean = { ep -> FuenteDeDescarga.sePuedeBajar(ep.id, estrategias) }
+    val savableEpisodes = detail?.episodes.orEmpty().filter(sePuedeBajar)
 
     // El botón de esta pantalla guarda EN EL DISPOSITIVO (worker local), no en ningún servidor
     // propio: la descarga a la NUC (`ArkivOfflineApi`/`NucDownloadCheckWorker`) se borró entera en
@@ -334,6 +334,7 @@ fun DetailScreen(
             estadosDeDescarga = estadosDeDescarga,
             onPlayEpisode = onPlayEpisode,
             onDownloadEpisode = onDownloadEpisode,
+            sePuedeBajar = sePuedeBajar,
             onRetryEpisode = onRetryEpisode,
             onAccionDeDescarga = onAccionDeDescarga,
             onToggleWatched = vm::toggleWatched,
@@ -359,6 +360,8 @@ private fun DetailContent(
     estadosDeDescarga: Map<String, EstadoDeDescarga>,
     onPlayEpisode: (String) -> Unit,
     onDownloadEpisode: (Episode) -> Unit,
+    /** Si hay con qué bajar ese capítulo. Sin eso, su fila no ofrece guardarlo. Ver [DetailScreen]. */
+    sePuedeBajar: (Episode) -> Boolean,
     onRetryEpisode: (Episode) -> Unit,
     /** Sacar de la cola / cancelar / borrar. Ya viene confirmada por el usuario. */
     onAccionDeDescarga: (Episode, AccionDeDescarga) -> Unit,
@@ -518,7 +521,7 @@ private fun DetailContent(
                         fallbackThumb = data.thumbnailUrl,
                         estado = estadosDeDescarga[ep.id] ?: EstadoDeDescarga.SinDescargar,
                         onPlay = { onPlayEpisode(ep.id) },
-                        onDownload = { onDownloadEpisode(ep) },
+                        onDownload = if (sePuedeBajar(ep)) { { onDownloadEpisode(ep) } } else null,
                         onRetry = { onRetryEpisode(ep) },
                         onPedirAccion = { accion -> porConfirmar = ep to accion },
                         onToggleWatched = onToggleWatched,
@@ -780,7 +783,8 @@ private fun EpisodeRow(
     /** En qué va su descarga al dispositivo: manda el ícono de la derecha y la barra de abajo. */
     estado: EstadoDeDescarga,
     onPlay: () -> Unit,
-    onDownload: () -> Unit,
+    /** Null = no hay con qué bajar este capítulo (ver `FuenteDeDescarga.sePuedeBajar`). */
+    onDownload: (() -> Unit)?,
     onRetry: () -> Unit,
     /** El usuario pidió deshacer algo de la descarga; quien recibe esto se encarga de confirmarlo. */
     onPedirAccion: (AccionDeDescarga) -> Unit,
@@ -918,12 +922,17 @@ private fun EpisodeRow(
             // Antes había DOS slots: este (Download, al teléfono) y otro con CloudDownload que mandaba a
             // bajar a la NUC. El de la NUC se quitó porque producía algo que ya nadie puede ver ni
             // reproducir desde que se desconectó la reproducción remota.
-            ControlDeDescarga(
-                estado = estado,
-                onDownload = onDownload,
-                onRetry = onRetry,
-                onPedirAccion = onPedirAccion,
-            )
+            //
+            // Sin con qué bajarlo, el botón de guardar no se muestra. Si ya hay una descarga suya en
+            // la tabla (de antes), el control sigue, para poder borrarla.
+            if (onDownload != null || estado != EstadoDeDescarga.SinDescargar) {
+                ControlDeDescarga(
+                    estado = estado,
+                    onDownload = onDownload ?: {},
+                    onRetry = onRetry,
+                    onPedirAccion = onPedirAccion,
+                )
+            }
             IconButton(onClick = { onToggleWatched(episode.id, !watched) }) {
                 Icon(
                     if (watched) Icons.Default.CheckCircle else Icons.Outlined.Circle,

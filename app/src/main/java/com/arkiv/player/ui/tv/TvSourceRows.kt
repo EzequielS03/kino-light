@@ -1,48 +1,23 @@
 package com.arkiv.player.ui.tv
 
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.tv.material3.Border
-import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
-import com.arkiv.player.ui.catalog.ArkivCaracolVerde
 import com.arkiv.player.ui.catalog.PlaySource
-import com.arkiv.player.ui.catalog.esSerie
 import com.arkiv.player.ui.search.SourceTab
-import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextPrimary
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 
@@ -58,144 +33,13 @@ import com.arkiv.player.ui.theme.ArkivTextSecondary
 /** Alto de las carátulas de Magis y Caracol. */
 private val ALTO_TARJETA = 220.dp
 
-/**
- * El mosaico de texto va más grande que la carátula, y a propósito.
- *
- * En magis la imagen hace el trabajo; en archive lo único que hay para decidir es el
- * texto, y esto se lee a dos metros de distancia. Que las filas no midan exactamente igual no
- * molesta: cada fila es de una sola fuente.
- */
-private val ALTO_MOSAICO = 230.dp
-private val ANCHO_MOSAICO = 380.dp
-
 /** El margen lateral de las filas del Home ([TvHomeScreen]), para que las dos pantallas alineen. */
 private val MARGEN = 48.dp
-
-private fun etiquetaDe(source: PlaySource): Pair<String, Color> = when (source) {
-    is PlaySource.Magis -> "MAGIS" to Color(0xFF64B5F6)
-    is PlaySource.Ditu -> "CARACOL" to ArkivCaracolVerde
-}
-
-/**
- * Una fuente sin imagen, como mosaico de texto.
- *
- * Torrent, web y archive no traen carátula, y su información ES el texto (seeds, tamaño, calidad,
- * idioma): meterlas en una tarjeta de póster vacía sería perder justo lo que hace falta para
- * elegir. Mismo contenido que tenía la fila vertical anterior, en un ancho fijo.
- */
-@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalLayoutApi::class)
-@Composable
-fun TvSourceCard(
-    source: PlaySource,
-    enabled: Boolean,
-    modifier: Modifier = Modifier,
-    onFocus: () -> Unit = {},
-    onClick: () -> Unit,
-) {
-    val tagColor = etiquetaDe(source).second
-
-    Surface(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = modifier.width(ANCHO_MOSAICO).height(ALTO_MOSAICO)
-            .onFocusChanged { if (it.isFocused) onFocus() },
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
-        // El foco NO inunda la tarjeta de rojo: borde blanco y un empujón de escala, igual que las
-        // tarjetas del Home. Con el fondo rojo, el texto blanco —que es justo lo que hay que leer
-        // en estas fuentes— quedaba peleando contra el color.
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = ArkivSurfaceHigh,
-            focusedContainerColor = ArkivSurfaceHigh,
-        ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
-        border = ClickableSurfaceDefaults.border(
-            focusedBorder = Border(BorderStroke(3.dp, Color.White)),
-        ),
-    ) {
-        Row(
-            Modifier.fillMaxSize()
-                // Un tinte del color del origen que se apaga hacia abajo: le da profundidad al
-                // rectángulo plano y hace que cada fila se lea como una familia, sin gritar.
-                .background(
-                    Brush.verticalGradient(
-                        listOf(tagColor.copy(alpha = 0.16f), Color.Transparent),
-                    ),
-                ),
-        ) {
-            Box(Modifier.width(4.dp).fillMaxHeight().background(tagColor))
-            Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 14.dp)) {
-                // El badge de la fuente NO va: la etiqueta de la fila ya dice la fuente, y la barra
-                // de color lo repite. Sacarlo le devuelve una línea entera al título, que es lo
-                // único que de verdad distingue un resultado de otro.
-                // El título toma el espacio libre en vez de dejar media tarjeta vacía.
-                Text(
-                    tituloDe(source),
-                    color = Color.White,
-                    style = MaterialTheme.typography.headlineSmall,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                // Los datos, como pastillas y no como una línea corrida: a dos metros se escanean
-                // de un vistazo en vez de leerse palabra por palabra.
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    datosDe(source).forEach { (texto, color) -> TvMetaChip(texto, color) }
-                }
-            }
-        }
-    }
-}
-
-/** Pastilla de dato con estilo de TV (tipografía más grande que la del teléfono). */
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun TvMetaChip(texto: String, color: Color, fuerte: Boolean = false) {
-    Box(
-        Modifier.clip(RoundedCornerShape(6.dp))
-            .background(color.copy(alpha = if (fuerte) 0.28f else 0.14f))
-            .padding(horizontal = 10.dp, vertical = 4.dp),
-    ) {
-        Text(texto, color = color, style = MaterialTheme.typography.labelLarge, maxLines = 1)
-    }
-}
-
-private fun tituloDe(source: PlaySource): String = when (source) {
-    is PlaySource.Magis -> source.result.title
-    is PlaySource.Ditu -> source.result.title
-}
-
-/**
- * Los datos de cada fuente, ya partidos en pastillas y con el color de su origen.
- *
- * Antes era una sola línea con separadores "·". Partirla deja que cada dato se lea solo, que es
- * lo que hace falta cuando la pantalla está a dos metros y lo que decide es "cuántos seeds tiene".
- */
-private fun datosDe(source: PlaySource): List<Pair<String, Color>> = when (source) {
-    is PlaySource.Magis -> {
-        val r = source.result
-        buildList {
-            add((if (r.extra["program_type"] == "teleplay") "Serie" else "Película") to Color(0xFF64B5F6))
-            r.year.takeIf { it.isNotBlank() }?.let { add(it to ArkivTextSecondary) }
-        }
-    }
-    is PlaySource.Ditu -> {
-        val r = source.result
-        buildList {
-            add((if (source.esSerie()) "Serie" else "Película") to ArkivCaracolVerde)
-            r.year.takeIf { it.isNotBlank() }?.let { add(it to ArkivTextSecondary) }
-        }
-    }
-}
 
 /**
  * Una fila etiquetada con los resultados de UNA fuente.
  *
- * Magis y Caracol van con carátula porque traen imagen propia. [TvSourceCard], el mosaico de texto,
- * queda sin llamadores: era para las fuentes sin imagen (torrent, web, archive), que ya no están. Que dos filas tengan tarjetas distintas es lo normal en una tele — el Home ya mezcla
- * apaisadas con pósters.
+ * Magis y Caracol traen imagen propia, así que las dos van con carátula ([TvPosterCard]).
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 fun LazyListScope.tvFilaDeFuente(
