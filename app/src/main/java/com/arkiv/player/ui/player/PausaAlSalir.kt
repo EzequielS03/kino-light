@@ -29,9 +29,12 @@ internal enum class AlIrseAlFondo {
      * Un canal en vivo en ExoPlayer: se pausa y se detiene (`stop()`), y al volver arranca otra vez
      * en el directo, no donde quedó.
      *
-     * Detenido y no solo pausado porque, pausado, el reproductor sigue armado y un error suyo en el
-     * fondo tendría consecuencias: el de `LiveExoPlayer` va a `reabrirVivoPorCorte`, que arma un
-     * reproductor nuevo, y `LiveExoPlayer` prepara con `playWhenReady = true`, así que sonaría solo.
+     * Detenido y no solo pausado porque, pausado, el reproductor sigue armado y puede fallar en el
+     * fondo. El error de `LiveExoPlayer` va a `reabrirVivoPorCorte`, que gasta una de sus reaperturas y
+     * vuelve a abrir el canal: `abrirCanalActual` publica un `liveItem` nuevo. En el fondo no se arma
+     * nada, porque `PlayerScreen` lee `liveItem` con `collectAsStateWithLifecycle`; lo recoge al volver,
+     * y ese `LiveExoPlayer` nuevo prepara con `playWhenReady = true`: arrancaría a sonar al volver
+     * aunque la persona lo hubiera pausado. Detenido no baja nada ni tiene de qué fallar.
      */
     DETENER_EL_DIRECTO,
 }
