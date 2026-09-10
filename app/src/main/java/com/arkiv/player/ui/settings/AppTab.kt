@@ -73,4 +73,7 @@ internal fun AppTab(onOpenDownloads: () -> Unit = {}) {
             Text("Buscar actualizaciones")
         }
     }
+
+    // Al final y sin anunciarse: bloqueado no se ve más que un renglón que pide un código.
+    SeccionDeAdultos(graph.settings)
 }
