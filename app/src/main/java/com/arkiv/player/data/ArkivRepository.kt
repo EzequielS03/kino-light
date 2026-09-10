@@ -32,31 +32,6 @@ sealed interface EpisodeTorrent {
 /** Datos para buscar subtítulos de lo que se está reproduciendo. */
 data class SubtitleContext(val imdbId: String?, val title: String, val season: Int?, val episode: Int?)
 
-/** Lo que el gateway necesita para identificar la obra que se está viendo (marcadores de intro/outro). */
-data class ObraDeTrivia(val tmdbId: Int, val tipo: String, val temporada: Int?, val episodio: Int?)
-
-/**
- * Si hay que pedirle a TMDB (o al gateway) datos de serie o de película para esta obra.
- *
- * **Equivocarse acá no da "sin datos", da datos de OTRA OBRA**: un id de TMDB solo significa
- * algo dentro de su catálogo. Medido en producción -- se pidió `movie:82452` para Avatar, y en
- * TMDB `tv:82452` es "Avatar: La leyenda de Aang" mientras que `movie:82452` es "Savage Water",
- * una película de rafting de 1979. Eso fue lo que se le mostró a quien estaba viendo Avatar.
- *
- * Por eso se miran todas las señales, de la más confiable a la más débil:
- *  1. `tipoDelItem`, que el gateway escribió verificando contra TMDB.
- *  2. `categoryOverride`, que es lo que la app ya usa para decidir si algo es serie
- *     (ver `LibraryRow.isMovie`) y puede venir corregido a mano por la persona.
- *  3. Que ESTE capítulo traiga número.
- */
-internal fun tipoDeObra(tipoDelItem: String?, categoryOverride: String?, episodio: Int?): String = when {
-    tipoDelItem == "tv" || tipoDelItem == "movie" -> tipoDelItem
-    categoryOverride == "series" -> "tv"
-    categoryOverride == "movie" -> "movie"
-    episodio != null -> "tv"
-    else -> "movie"
-}
-
 /**
  * Mínimo de reproducción para entrar en "Continuar viendo". Por debajo de esto fue abrir y
  * cerrar (o una pasada rápida por el capítulo equivocado), no algo que estés viendo de verdad.
@@ -1025,27 +1000,6 @@ class ArkivRepository(
     }
 
     /** Contexto para buscar subtítulos de un episodio (imdb del ítem serie, título, temporada/ep). */
-    /**
-     * La obra a la que pertenece este episodio, para identificarla ante el gateway (marcadores de
-     * intro/outro). Null si no se puede identificar: sin `tmdbId` no hay con qué.
-     *
-     * El `tmdbId` y el `tipo` los escribe el gateway al canonizar el título (verificado contra
-     * TMDB) y bajan por el sync; la temporada y el episodio salen del mismo sitio que ya usa
-     * [subtitleContextForEpisode].
-     */
-    suspend fun obraDeTriviaPara(episodeId: String): ObraDeTrivia? {
-        val ep = itemDao.getEpisode(episodeId) ?: return null
-        val item = itemDao.getItem(ep.itemId) ?: return null
-        val tmdbId = item.tmdbId?.takeIf { it > 0 } ?: return null
-        val episodio = com.arkiv.player.data.model.EpisodeNumbering.episodeOf(ep.displayName)
-        return ObraDeTrivia(
-            tmdbId = tmdbId,
-            tipo = tipoDeObra(item.tipo, item.categoryOverride, episodio),
-            temporada = com.arkiv.player.data.model.EpisodeNumbering.seasonOf(ep.section),
-            episodio = episodio,
-        )
-    }
-
     suspend fun subtitleContextForEpisode(episodeId: String): SubtitleContext? {
         val ep = itemDao.getEpisode(episodeId) ?: return null
         val item = itemDao.getItem(ep.itemId) ?: return null
@@ -1136,11 +1090,11 @@ class ArkivRepository(
      * El DAO crudo de `skip_markers`, sin pasar por las vistas ya armadas de acá abajo
      * (`getSkipMarker`, que solo ve el marcador de TODA la serie: `episodeId` vacío).
      *
-     * Lo necesita [com.arkiv.player.data.marcadores.BuscadorDeMarcadores]: hace `getById`/`upsert`
+     * Lo necesita [com.arkiv.player.data.marcadores.EditorDeMarcadores]: hace `getById`/`upsert`
      * puntuales POR CAPÍTULO. `PlayerViewModel` no recibe `AppGraph` por constructor (son ~15
-     * dependencias sueltas, ver su propio KDoc), así que arma su propio `BuscadorDeMarcadores` --
-     * igual que ya hace con `gatewayClient`-- y esto es lo que le falta para poder hacerlo sin
-     * agregar un parámetro nuevo que obligara a tocar el callsite en `PlayerScreen.kt`.
+     * dependencias sueltas, ver su propio KDoc), así que arma su propio `EditorDeMarcadores` --
+     * y esto es lo que le falta para poder hacerlo sin agregar un parámetro nuevo que obligara a
+     * tocar el callsite en `PlayerScreen.kt`.
      */
     fun skipMarkerDao(): com.arkiv.player.data.db.SkipMarkerDao = skipMarkerDao
 

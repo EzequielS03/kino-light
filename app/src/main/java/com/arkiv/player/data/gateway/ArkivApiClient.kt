@@ -30,8 +30,7 @@ data class GatewaySearchQuery(
 
 /**
  * Cliente del gateway, para lo que en esta rama sigue siendo del servidor: la trivia ("dato
- * curioso", excepción permanente), los marcadores de intro, la metadata de anime y el aviso para
- * regenerar recomendaciones.
+ * curioso", excepción permanente), la metadata de anime y el aviso para regenerar recomendaciones.
  *
  * El contenido ya NO sale de acá: búsqueda, reproducción y capítulos se los pide
  * [com.arkiv.player.data.magis.MagisFuente] al portal directo (sub-proyecto 2A).
@@ -67,14 +66,6 @@ class ArkivApiClient(
         deviceToken()?.takeIf { it.isNotBlank() }?.let { b.header("X-Arkiv-Device", it) }
         return b
     }
-    suspend fun marcadores(tmdbId: Int, temporada: Int, episodio: Int): GatewayMarcadores? =
-        withContext(Dispatchers.IO) {
-            runCatching {
-                val url = "${baseUrl()}/v1/marcadores?tmdbId=$tmdbId&temporada=$temporada&episodio=$episodio"
-                parseMarcadores(ejecutar(pedido(url).get().build()))
-            }.getOrNull()
-        }
-
     /**
      * Metadata de un anime (títulos, temporada TVDB, offset absoluto y tmdb_id).
      *

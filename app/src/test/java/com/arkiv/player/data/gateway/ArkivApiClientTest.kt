@@ -12,9 +12,9 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Lo que le queda a este cliente después del sub-proyecto 2A: la trivia, los marcadores de intro,
- * la metadata de anime y el aviso de recomendaciones. La búsqueda, la reproducción y los capítulos
- * se fueron al portal directo — sus tests viven en `MagisFuenteTest`.
+ * Lo que le queda a este cliente después del sub-proyecto 2A: la trivia, la metadata de anime y el
+ * aviso de recomendaciones. La búsqueda, la reproducción y los capítulos se fueron al portal
+ * directo — sus tests viven en `MagisFuenteTest`.
  */
 class ArkivApiClientTest {
 
@@ -155,10 +155,4 @@ class ArkivApiClientTest {
         assertNull(client.animeMeta(20))
     }
 
-    @Test
-    fun `los marcadores de intro devuelven null si el gateway falla`() = runBlocking {
-        server.enqueue(MockResponse().setResponseCode(500).setBody("no"))
-
-        assertNull(client.marcadores(1, 1, 1))
-    }
 }

@@ -1160,13 +1160,6 @@ private fun PlayerContent(
                 currentIndex = controller.currentMediaItemIndex
                 val epId = playlistRef.value?.items?.getOrNull(controller.currentMediaItemIndex)?.episodeId
                 NowPlaying.episodeId = epId
-                // Archive avanza de capítulo en capítulo DENTRO de esta misma playlist (sin volver
-                // a llamar a `vm.load()`), así que sin esto un capítulo alcanzado SOLO por
-                // auto-avance se quedaba sin pedirle nunca sus tiempos al gateway -- el botón de
-                // saltar no aparecía hasta salir y volver a entrar a ese capítulo. Llamarlo en cada
-                // transición es seguro: `cargarMarcadores` cancela su corrutina anterior y
-                // `BuscadorDeMarcadores.asegurar` corta temprano si la fila ya existe.
-                if (!epId.isNullOrBlank()) vm.cargarMarcadores(epId)
             }
 
             override fun onPlaybackStateChanged(state: Int) {

@@ -41,10 +41,8 @@ class EditorDeMarcadores(
     /**
      * "Este capítulo no tiene intro ni outro".
      *
-     * En un capítulo NO borra la fila: la deja manual y sin tiempos. Borrarla haría que
-     * [BuscadorDeMarcadores] se baje otra vez el automático equivocado en la próxima
-     * reproducción —su guarda es "ya hay fila para este capítulo"— y la corrección duraría hasta
-     * el siguiente play. Sin tiempos, [MarcadorDeCapitulo.elegir] la ignora y no dibuja botones.
+     * En un capítulo NO borra la fila: la deja manual y sin tiempos. Sin tiempos,
+     * [MarcadorDeCapitulo.elegir] la ignora y no dibuja botones.
      *
      * En la serie sí borra, que es lo que hacía siempre el diálogo de la ficha: ahí no hay nada
      * automático que pueda volver.

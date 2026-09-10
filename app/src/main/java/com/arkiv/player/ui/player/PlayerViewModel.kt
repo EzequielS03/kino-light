@@ -221,15 +221,6 @@ class PlayerViewModel(
     private val _webExtras = MutableStateFlow<WebExtras?>(null)
     val webExtras: StateFlow<WebExtras?> = _webExtras.asStateFlow()
 
-    /**
-     * Cancelable: sin esto, dos `load()` seguidos para el mismo capítulo
-     * (p. ej. una recomposición que dispara la carga dos veces) arrancan dos corrutinas que pasan
-     * el chequeo de "¿ya hay fila?" de [BuscadorDeMarcadores.asegurar] ANTES de que la primera
-     * llegue a escribir -- ese chequeo es lectura-luego-escritura sin lock, así que las dos le
-     * pegan al gateway. No corrompe nada (la fila final es la correcta), pero pide de más.
-     */
-    private var marcadoresJob: kotlinx.coroutines.Job? = null
-
     /** Job cancelable de la precarga del siguiente capítulo (torrent pack / web / archive). */
     private var prefetchJob: kotlinx.coroutines.Job? = null
 
@@ -245,9 +236,6 @@ class PlayerViewModel(
             loadLive(episodeId.removePrefix(PlayerSource.LIVE_PREFIX))
             return
         }
-        // En vivo NO lleva marcadores automáticos y por eso va después del corte: un canal no es
-        // una obra, no tiene tmdbId, y no tiene intro/outro que saltar.
-        cargarMarcadores(episodeId)
         viewModelScope.launch {
             // Antes que nada: que el detalle sepa por qué capítulo vas aunque salgas enseguida.
             //
@@ -674,55 +662,6 @@ class PlayerViewModel(
     }
 
     /**
-     * Pide al gateway los tiempos de intro/outro de este capítulo y los guarda, best-effort.
-     *
-     * No pinta nada: quien va a dibujar el botón de saltar (tarea siguiente) lee `skip_markers`,
-     * que ya sincroniza -- acá solo hace falta dejar la fila puesta. Se dispara al cargar el
-     * capítulo y no puede estorbar la reproducción.
-     *
-     * [BuscadorDeMarcadores.asegurar] ya se traga sus propios fallos de red (salvo cancelación) y
-     * corta temprano si falta algún dato. El try/catch de acá es solo por las dos consultas a la
-     * base de arriba (`obraDeTriviaPara`/`getEpisode`): en la práctica no deberían fallar, pero
-     * tampoco pueden tirar el reproductor si lo hicieran.
-     *
-     * `internal` (y no `private`) porque `load()` solo cubre la PRIMERA carga del capítulo con el
-     * que se abrió la pantalla. Archive.org reproduce la sección entera como una sola playlist y
-     * avanza de capítulo en capítulo POR DENTRO del `MediaController` (ver
-     * `PlayerScreen.onMediaItemTransition`), sin volver a llamar a `load()` -- sin ese segundo
-     * llamador, un capítulo alcanzado SOLO por auto-avance se quedaba sin fila (ni de capítulo ni
-     * de serie) y el botón de saltar no aparecía nunca para él. Llamarlo de más no cuesta: el
-     * `marcadoresJob?.cancel()` de acá abajo descarta cualquier pedido anterior en vuelo y
-     * `asegurar()` corta temprano si la fila ya existe.
-     */
-    internal fun cargarMarcadores(episodeId: String) {
-        marcadoresJob?.cancel()
-        marcadoresJob = viewModelScope.launch {
-            val obra = try {
-                repo.obraDeTriviaPara(episodeId)
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w(PLAY, "marcadores: no se pudo identificar la obra: ${e.message}")
-                null
-            } ?: return@launch
-            val itemId = try {
-                repo.getEpisode(episodeId)?.itemId
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                null
-            } ?: return@launch
-            buscadorDeMarcadores.asegurar(
-                itemId = itemId,
-                episodeId = episodeId,
-                tmdbId = obra.tmdbId,
-                temporada = obra.temporada ?: 0,
-                episodio = obra.episodio ?: 0,
-            )
-        }
-    }
-
-    /**
      * Reproduce un ítem de Magis.
      *
      * El CDN exige `Content-Auth` y `Content-License`, y libVLC solo sabe mandar Referer y
@@ -983,20 +922,6 @@ class PlayerViewModel(
             http = httpGateway,
             personToken = personToken,
             deviceToken = { deviceAuth.session.value?.token },
-        )
-    }
-
-    /**
-     * Igual que [gatewayClient]: se arma acá y no se recibe de `AppGraph.buscadorDeMarcadores` por
-     * constructor porque este ViewModel no recibe el graph entero (son ~15 dependencias sueltas,
-     * ver el KDoc de la clase) y el callsite en `PlayerScreen.kt` es de la tarea siguiente. Usa el
-     * mismo [gatewayClient] de arriba -- no tiene sentido un segundo `ArkivApiClient` con su propio
-     * `OkHttpClient` para esto.
-     */
-    private val buscadorDeMarcadores by lazy {
-        com.arkiv.player.data.marcadores.BuscadorDeMarcadores(
-            dao = repo.skipMarkerDao(),
-            gateway = gatewayClient,
         )
     }
 
