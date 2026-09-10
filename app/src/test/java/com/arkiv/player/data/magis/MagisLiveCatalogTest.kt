@@ -192,6 +192,95 @@ class MagisLiveCatalogTest {
         assertEquals(listOf("Todos", "Deportes"), catalogo.categorias().map { it.nombre })
     }
 
+    // --- árbol del catálogo (secciones con sus primeros ítems) --------------------------------
+
+    private fun arbolDelPortal() = MagisResult.Ok(
+        JSONObject(
+            """{"recommendList":[
+                {"columnId":91,"name":"Estrenos","assetList":[
+                    {"contentId":"P1","name":"Una pelicula","programType":"movie","duration":"5400",
+                     "posterList":[{"fileType":"icon","fileUrl":"https://i/p1.jpg"}]},
+                    {"contentId":"S1","name":"Una serie","programType":"teleplay"},
+                    {"name":"sin contentId"}
+                ]},
+                {"columnId":92,"name":"Recomendadas","assetList":[]},
+                {"columnId":93,"assetList":[]}
+            ]}""",
+        ),
+    )
+
+    @Test
+    fun `el arbol trae las secciones con sus items y el ref de cada uno`() = runTest {
+        val fake = FakePortalClient()
+        fake.encolarRespuesta("getNextColumns", arbolDelPortal())
+
+        val secciones = catalogoDeVivo(fake).arbol("peliculas")
+
+        // La sección sin nombre se descarta: no se puede pintar un encabezado vacío.
+        assertEquals(listOf("Estrenos", "Recomendadas"), secciones.map { it.nombre })
+        assertEquals(listOf(91, 92), secciones.map { it.id })
+        val items = secciones.first().items
+        assertEquals(listOf("Una pelicula", "Una serie"), items.map { it.titulo })
+        assertEquals("https://i/p1.jpg", items[0].poster)
+        assertEquals(5400, items[0].duracionS)
+        assertEquals(MagisRef("P1", "movie", 0), MagisRef.decodificar(items[0].ref))
+        assertTrue(items[0].reproducible)
+        // El tipo deja ramificar sin abrir el ref: una serie primero pide sus capítulos.
+        assertTrue(items[1].esSerie)
+        assertEquals(MagisRef("S1", "teleplay", 0), MagisRef.decodificar(items[1].ref))
+    }
+
+    @Test
+    fun `cada raiz tiene su propio codigo y los obvios no se usan`() = runTest {
+        val fake = FakePortalClient()
+        fake.respuestaPorDefecto = arbolDelPortal()
+        val catalogo = catalogoDeVivo(fake)
+
+        listOf("peliculas" to "masnew_movies", "series" to "masnew_series",
+               "infantil" to "masnew_kids", "anime" to "masnew_anime").forEach { (raiz, codigo) ->
+            catalogo.arbol(raiz)
+            assertEquals(codigo, fake.llamadas.last { it.first == "getNextColumns" }.second["columnCode"])
+        }
+    }
+
+    @Test
+    fun `una raiz que no existe no se le pide al portal`() = runTest {
+        val fake = FakePortalClient()
+
+        val e = runCatching { catalogoDeVivo(fake).arbol("lo-que-sea") }.exceptionOrNull()
+
+        assertTrue("esperaba un error de argumento y fue $e", e is IllegalArgumentException)
+        assertTrue(fake.llamadas.isEmpty())
+    }
+
+    @Test
+    fun `la seccion de adultos hay que pedirla explicitamente`() = runTest {
+        val fake = FakePortalClient()
+        fake.respuestaPorDefecto = arbolDelPortal()
+        val catalogo = catalogoDeVivo(fake)
+
+        val e = runCatching { catalogo.arbol("adultos") }.exceptionOrNull()
+        assertTrue("esperaba que se niegue y fue $e", e is IllegalArgumentException)
+        assertTrue(fake.llamadas.isEmpty())
+
+        val secciones = catalogo.arbol("adultos", incluirAdultos = true)
+        assertTrue("los items tienen que quedar marcados", secciones.first().items.all { it.adulto })
+        assertTrue(secciones.all { it.adulto })
+    }
+
+    @Test
+    fun `el arbol se cachea por raiz`() = runTest {
+        val fake = FakePortalClient()
+        fake.respuestaPorDefecto = arbolDelPortal()
+        val catalogo = catalogoDeVivo(fake)
+
+        catalogo.arbol("peliculas")
+        catalogo.arbol("peliculas")
+        catalogo.arbol("series")
+
+        assertEquals(2, fake.vecesLlamado("getNextColumns"))
+    }
+
     @Test
     fun `el portal no tiene EPG y se dice asi, sin inventar horarios`() = runTest {
         val fake = FakePortalClient()

@@ -157,7 +157,8 @@ class AppGraph(context: Context) {
         com.arkiv.player.data.magis.MagisLive(magisPortal, magisSession)
     }
 
-    val catalogoDeVivo: com.arkiv.player.data.gateway.LiveCatalogGateway by lazy {
+    /** Categorías y canales de vivo + el árbol de secciones del catálogo, directo del portal. */
+    internal val catalogoDeVivo: com.arkiv.player.data.magis.MagisLiveCatalog by lazy {
         com.arkiv.player.data.magis.MagisLiveCatalog(magisCatalog, magisPortal, magisSession)
     }
 
@@ -180,39 +181,15 @@ class AppGraph(context: Context) {
         )
     }
 
-    /** Cliente del gateway para el canal en vivo: mismos baseUrl/apiKey que [arkivApiClient]. */
-    val liveApi: com.arkiv.player.data.gateway.LiveApi by lazy {
-        com.arkiv.player.data.gateway.LiveApi(
-            baseUrl = { settings.gatewayUrl.value },
-            http = httpGateway,
-            personToken = { sesionDePersona.token() },
-            deviceToken = { deviceAuth.session.value?.token },
-        )
-    }
-
     /**
-     * Proxy HLS local del canal en vivo: firma en el aparato con respaldo en el gateway.
-     *
-     * El interruptor de Ajustes (`settings.liveSignRemote`) permite forzar el camino del gateway
-     * para comprobar que el respaldo sigue vivo, sin esperar a que el algoritmo local se rompa de
-     * verdad. Se lee con [com.arkiv.player.playback.FirmaSegunAjustes] -en CADA `firmar()`, no una
-     * sola vez acá- para que cambiarlo en Ajustes tenga efecto en el próximo segmento sin
-     * reiniciar la app (antes, al ser `by lazy`, el `if` de abajo se evaluaba una única vez con el
-     * valor que tuviera el interruptor la primera vez que se tocaba algo en vivo).
+     * Proxy HLS local del canal en vivo. La firma de cada segmento se calcula EN EL APARATO y no
+     * tiene respaldo: el respaldo era pedírsela al gateway, que en esta rama no existe. Si algún día
+     * Magis cambia el algoritmo, se arregla publicando un APK (antes se arreglaba redesplegando el
+     * servidor, que es justo la dependencia que esta rama saca).
      */
     val liveHlsProxy: com.arkiv.player.playback.LiveHlsProxy by lazy {
-        val remota = com.arkiv.player.playback.FirmaDelGateway(liveApi)
-        val conRespaldo = com.arkiv.player.playback.FirmaConRespaldo(
-            local = com.arkiv.player.playback.FirmaLocal(),
-            remota = remota,
-        )
-        val fuente = com.arkiv.player.playback.FirmaSegunAjustes(
-            conRespaldo = conRespaldo,
-            remota = remota,
-            forzarRemoto = { settings.liveSignRemote.value },
-        )
         com.arkiv.player.playback.LiveHlsProxy(
-            fuente,
+            com.arkiv.player.playback.FirmaLocal(),
             // Tras un doble 403 irrecuperable (sesión caducada, no firma): invalida la sesión
             // cacheada de ESE canal para que el próximo abrir()/precalentar() vuelva a resolver
             // contra el gateway en vez de reusar la que ya sabemos muerta hasta 300s más.
@@ -220,10 +197,11 @@ class AppGraph(context: Context) {
         )
     }
 
-    /** Abre canales en vivo: resuelve contra [liveApi] y le entrega a VLC la URL de [liveHlsProxy]. */
+    /** Abre canales en vivo: resuelve contra el portal y le entrega al reproductor la URL de
+     *  [liveHlsProxy]. */
     val liveController: com.arkiv.player.ui.live.LiveController by lazy {
         com.arkiv.player.ui.live.LiveController(
-            resolver = { code -> liveApi.resolver(code) },
+            resolver = { code -> magisLive.resolverOLanzar(code) },
             urlPara = { sesion -> liveHlsProxy.urlPara(sesion) },
         )
     }

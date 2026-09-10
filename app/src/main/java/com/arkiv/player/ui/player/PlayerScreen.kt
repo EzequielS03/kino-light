@@ -322,6 +322,7 @@ private fun PlayerContent(
                     esTelevision = isTv,
                     httpGateway = graph.httpGateway,
                     fuente = graph.fuenteDeContenido,
+                    hayCuentaDeMagis = { graph.magisSession.hasAccountLinked },
                     personToken = { graph.sesionDePersona.token() },
                 )
             }
@@ -2731,7 +2732,7 @@ private fun PlayerContent(
                 // propio diálogo de destino, por el mismo motivo).
                 DlnaCastButtons(casting = casting, castContext = castContext, onDiscoverDlna = estadoDlna::descubrir)
             }
-            FichaDelCanal(estado = estadoVivo, canal = liveCanal, liveApi = graph.liveApi)
+            FichaDelCanal(estado = estadoVivo, canal = liveCanal, liveApi = graph.catalogoDeVivo)
         }
 
         // Que el botón TENÍA el foco. Es un pestillo y no la lectura viva de `isFocused`: cuando

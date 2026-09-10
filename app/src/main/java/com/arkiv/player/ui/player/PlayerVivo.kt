@@ -44,7 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.arkiv.player.data.gateway.LiveApi
+import com.arkiv.player.data.gateway.LiveCatalogGateway
 import com.arkiv.player.data.gateway.LiveChannel
 import com.arkiv.player.data.gateway.LiveProgram
 import com.arkiv.player.ui.live.AccionDelDrawer
@@ -133,9 +133,9 @@ internal class EstadoDeVivo {
     /**
      * "Ahora"/"A continuación" del canal: pedido best-effort directo al gateway. Es puramente
      * informativo para este overlay, no algo que el ViewModel necesite para poder reproducir, así
-     * que no se lo carga con otra dependencia (LiveApi) por esto solo.
+     * que no se lo carga con otra dependencia por esto solo.
      */
-    suspend fun cargarEpg(canal: LiveChannel?, liveApi: LiveApi) {
+    suspend fun cargarEpg(canal: LiveChannel?, liveApi: LiveCatalogGateway) {
         if (canal == null) return
         ahora = null
         despues = null
@@ -207,7 +207,7 @@ internal fun BoxScope.FranjaEnVivo(
 internal fun BoxScope.FichaDelCanal(
     estado: EstadoDeVivo,
     canal: LiveChannel?,
-    liveApi: LiveApi,
+    liveApi: LiveCatalogGateway,
 ) {
     LaunchedEffect(canal?.code) { estado.cargarEpg(canal, liveApi) }
     LaunchedEffect(estado.infoTick) {

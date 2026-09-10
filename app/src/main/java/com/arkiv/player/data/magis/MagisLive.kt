@@ -95,6 +95,22 @@ internal class MagisLive(
         return MagisResult.Ok(sesionDeCanal)
     }
 
+    /**
+     * Como [resolveChannel] pero lanzando, que es lo que espera quien abre un canal (antes lo
+     * lanzaba `LiveApi.resolver`). El mensaje lleva el motivo del portal: es lo que se ve cuando un
+     * canal no abre, y "no se pudo abrir" a secas no deja diagnosticar nada.
+     */
+    suspend fun resolverOLanzar(channelCode: String): LiveSession {
+        val r = resolveChannel(channelCode)
+        return r.dato() ?: throw com.arkiv.player.data.gateway.GatewayException(
+            when (r) {
+                is MagisResult.PortalError -> "vivo: ${r.codigo}${r.msg?.let { " ($it)" }.orEmpty()}"
+                is MagisResult.RedError -> "vivo: no se pudo hablar con el portal (${r.causa.message})"
+                is MagisResult.Ok -> "vivo: el portal no dio sesión"
+            },
+        )
+    }
+
     private data class Señal(val playCode: String, val license: String)
 
     /**

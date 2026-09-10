@@ -26,28 +26,5 @@ import com.arkiv.player.ui.theme.ArkivTextSecondary
 internal fun ReproduccionTab() {
     val graph = rememberGraph()
     val settings = graph.settings
-    val liveSignRemote by settings.liveSignRemote.collectAsStateWithLifecycle()
 
-    LiveSignSection(liveSignRemote, settings::setLiveSignRemote)
-}
-
-@Composable
-private fun LiveSignSection(remote: Boolean, onSelect: (Boolean) -> Unit) {
-    Text(
-        "TV en vivo",
-        style = MaterialTheme.typography.titleMedium,
-        modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
-    )
-    Text(
-        "Normalmente el celular firma los segmentos solo, sin ida y vuelta al servidor. " +
-            "\"Forzar servidor\" fuerza el camino de respaldo aunque el CDN no esté rechazando " +
-            "nada — sirve para comprobar de vez en cuando que ese camino sigue andando.",
-        style = MaterialTheme.typography.bodySmall,
-        color = ArkivTextSecondary,
-        modifier = Modifier.padding(bottom = 8.dp),
-    )
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Chip("Automático", !remote) { onSelect(false) }
-        Chip("Forzar servidor", remote) { onSelect(true) }
-    }
 }

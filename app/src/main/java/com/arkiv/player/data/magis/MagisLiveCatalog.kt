@@ -4,6 +4,8 @@ import com.arkiv.player.data.gateway.LiveCatalogGateway
 import com.arkiv.player.data.gateway.LiveCategory
 import com.arkiv.player.data.gateway.LiveChannel
 import com.arkiv.player.data.gateway.LiveProgram
+import com.arkiv.player.data.gateway.ItemDeCatalogo
+import com.arkiv.player.data.gateway.SeccionDeCatalogo
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
@@ -31,6 +33,7 @@ internal class MagisLiveCatalog(
     private var categoriasCache: List<CategoriaDePortal> = emptyList()
     private var categoriasVencen = 0L
     private val canalesCache = mutableMapOf<Int, Pair<Long, List<LiveChannel>>>()
+    private val arboles = CacheConVencimiento<String, List<SeccionDeCatalogo>>(TTL_MS, tope = 8)
 
     /** Una categoría tal como la entiende el portal, con la marca de adultos que él no trae. */
     private data class CategoriaDePortal(val id: Int, val nombre: String, val adulto: Boolean)
@@ -74,6 +77,62 @@ internal class MagisLiveCatalog(
      */
     override suspend fun epg(codes: List<String>): Pair<Map<String, List<LiveProgram>>, List<String>> =
         emptyMap<String, List<LiveProgram>>() to codes
+
+    /**
+     * Las secciones de una raíz del catálogo (películas, series, infantil, anime, 18+), cada una
+     * con sus primeros ítems: `getNextColumns` los trae en `assetList`, así que no hace falta una
+     * segunda llamada por sección.
+     *
+     * Los códigos de las raíces se encontraron probando contra el portal: los "obvios"
+     * (`masnew_vod`, `masnew_movie`, `masnew_home`, `masnew`) los rechaza.
+     */
+    suspend fun arbol(raiz: String, incluirAdultos: Boolean = false): List<SeccionDeCatalogo> {
+        val codigo = RAICES[raiz] ?: throw IllegalArgumentException("no existe la raíz $raiz")
+        val esAdulta = raiz in RAICES_DE_ADULTOS
+        // Igual que la categoría 18+ de los canales: el default tiene que ser el seguro, para que
+        // ningún camino que se olvide del parámetro termine sirviéndola.
+        require(!esAdulta || incluirAdultos) { "la sección 18+ hay que pedirla explícitamente" }
+
+        candado.withLock { arboles[raiz]?.let { return it } }
+        val r = catalogo.nextColumns(codigo, tamano = 60)
+        val columnas = r.dato()?.optJSONArray("recommendList") ?: return emptyList()
+
+        val secciones = mutableListOf<SeccionDeCatalogo>()
+        columnas.forEachObjeto { c ->
+            val nombre = c.optString("name").takeIf { it.isNotBlank() } ?: return@forEachObjeto
+            val items = mutableListOf<ItemDeCatalogo>()
+            c.optJSONArray("assetList")?.forEachObjeto { a ->
+                val id = a.optString("contentId").takeIf { it.isNotBlank() } ?: return@forEachObjeto
+                val tipo = a.optString("programType").ifBlank { "movie" }
+                items.add(
+                    ItemDeCatalogo(
+                        id = id,
+                        titulo = a.optString("name"),
+                        poster = logoDe(a),
+                        duracionS = a.opt("duration")?.toString()?.toIntOrNull() ?: 0,
+                        // Marcado ÍTEM POR ÍTEM y no solo en la sección: el ítem viaja solo hasta el
+                        // reproductor, y ahí la regla de "esto no se anota en el historial" tiene que
+                        // poder aplicarse sin saber de qué sección vino.
+                        adulto = esAdulta,
+                        // Antes esto lo firmaba el gateway y vencía a las 24 h; ahora es un
+                        // descriptor local, así que la sección sirve para reproducir siempre.
+                        ref = MagisRef(id, tipo, 0).codificar(),
+                        tipo = tipo,
+                    ),
+                )
+            }
+            secciones.add(
+                SeccionDeCatalogo(
+                    id = c.opt("columnId")?.toString()?.toIntOrNull() ?: 0,
+                    nombre = nombre,
+                    adulto = esAdulta,
+                    items = items,
+                ),
+            )
+        }
+        if (secciones.isNotEmpty()) candado.withLock { arboles[raiz] = secciones }
+        return secciones
+    }
 
     private suspend fun todasLasCategorias(): List<CategoriaDePortal> {
         candado.withLock {
@@ -141,6 +200,16 @@ internal class MagisLiveCatalog(
 
     private companion object {
         const val RAIZ_DE_VIVO = "masnew_live"
+
+        /** Las raíces del catálogo VOD, con los códigos que el portal sí acepta. */
+        val RAICES = mapOf(
+            "peliculas" to "masnew_movies",
+            "series" to "masnew_series",
+            "infantil" to "masnew_kids",
+            "anime" to "masnew_anime",
+            "adultos" to "masnew_adult",
+        )
+        val RAICES_DE_ADULTOS = setOf("adultos")
         const val PAGINA = 500
         const val MAX_PAGINAS = 6
         const val TTL_MS = 6 * 60 * 60 * 1000L

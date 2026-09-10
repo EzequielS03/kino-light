@@ -5,7 +5,7 @@ import android.content.SharedPreferences
 import android.telephony.TelephonyManager
 import com.arkiv.player.data.db.LiveChannelCacheDao
 import com.arkiv.player.data.db.LiveChannelCacheEntity
-import com.arkiv.player.data.gateway.LiveApi
+import com.arkiv.player.data.gateway.LiveCatalogGateway
 import com.arkiv.player.data.gateway.LiveChannel
 import java.util.Locale
 import java.util.TimeZone
@@ -121,7 +121,7 @@ const val LIMITE_FILA_HOME = 24
  */
 suspend fun canalesDelPaisParaHome(
     context: Context,
-    api: LiveApi,
+    api: LiveCatalogGateway,
     cacheDao: LiveChannelCacheDao,
     prefs: SharedPreferences,
     ahoraMs: Long = System.currentTimeMillis(),

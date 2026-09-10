@@ -120,26 +120,22 @@ data class WebExtras(
 )
 
 /**
- * Mensaje de error para un canal en vivo que no abrió. Función pura (nada de red/estado) para
- * poder testearla sin construir todo [PlayerViewModel] -- tiene ~15 dependencias, la mayoría de
- * red/disco.
+ * Qué se le muestra a la persona cuando un canal no abre.
  *
- * Antes de esto, un TV sin la config del gateway (el fallo de diseño real: nunca la tuvo) mostraba
- * el mismo "No se pudo abrir X" que un canal caído de verdad -- el usuario no tenía forma de
- * distinguir "el portal está mal" de "este TV no está vinculado", así que no sabía qué hacer.
- * [esTelevision] + [fuenteGateway] alcanza para distinguir el caso sin tocar la excepción real
- * (evita parsear mensajes/códigos HTTP, que es frágil): si es un TV que TODAVÍA está en el default
- * baked-in -nunca sincronizó por pareo ni se le fijó una config a mano-, cualquier fallo al abrir
- * un canal probablemente es por eso.
+ * Antes esto adivinaba "este TV no está vinculado" mirando si la config del gateway seguía en el
+ * default baked-in. En esta rama no hay gateway, y el motivo real por el que un canal no abre —el
+ * único que la persona puede arreglar— es no tener cuenta de Magis vinculada: el portal rechaza el
+ * vivo con sesión anónima (`aaa100028`), aunque el VOD ande perfecto con ella. De ahí que se
+ * pregunte por la cuenta y no por el error del portal: es lo accionable, y no depende de parsear
+ * mensajes ni códigos.
  */
 fun mensajeErrorVivo(
-    esTelevision: Boolean,
-    fuenteGateway: GatewayConfigSource,
+    hayCuentaDeMagis: Boolean,
     nombreCanal: String,
 ): String =
-    if (esTelevision && fuenteGateway == GatewayConfigSource.DEFAULT) {
-        "Este TV no tiene la configuración del servicio en vivo. Volvé a vincularlo: en el " +
-            "teléfono abrí Kino, Conexión con el TV, Re-parear, y escaneá el código acá."
+    if (!hayCuentaDeMagis) {
+        "El canal en vivo necesita una cuenta de Magis vinculada (con el VOD alcanza sin ella). " +
+            "Vinculala en Ajustes, Cuenta."
     } else {
         "No se pudo abrir $nombreCanal"
     }
@@ -156,8 +152,7 @@ class PlayerViewModel(
     // arriba (el callsite en PlayerScreen los pasa por posición, no por nombre).
     private val liveController: LiveController,
     private val liveRecentDao: LiveRecentDao,
-    // ¿Este proceso corre en un Android TV? Solo importa para [mensajeErrorVivo]: ahí (y no en el
-    // celu) un 401/lo-que-sea al abrir un canal suele ser el TV sin vincular, no el portal caído.
+    // ¿Este proceso corre en un Android TV? Lo leen las pantallas que se dibujan distinto.
     private val esTelevision: Boolean = false,
     // Task 7b: el `OkHttpClient` COMPARTIDO de `AppGraph` con `InterceptorDeSesion` colgado. Antes
     // [gatewayClient] armaba su PROPIO `OkHttpClient()` (uno de los seis sueltos del brief), así
@@ -169,6 +164,9 @@ class PlayerViewModel(
     // ahora es el portal directo. [gatewayClient] queda solo para lo que sigue siendo del servidor
     // (la trivia y los marcadores de intro).
     private val fuente: com.arkiv.player.data.gateway.FuenteDeContenido,
+    /** Si hay una cuenta de Magis vinculada en este aparato. Solo decide qué dice el error cuando
+     *  un canal en vivo no abre (ver [mensajeErrorVivo]): el vivo la exige, el VOD no. */
+    private val hayCuentaDeMagis: () -> Boolean = { false },
     // Task 8: [gatewayClient] es OTRA instancia de `ArkivApiClient` además de
     // `AppGraph.arkivApiClient` -esta la usa [prefetchNext] para pre-resolver el próximo capítulo
     // de Magis-, así que también necesita las dos cabeceras de sesión: desde el Paso 3
@@ -393,7 +391,7 @@ class PlayerViewModel(
             val url = runCatching { liveController.abrir(canal.code) }.getOrElse {
                 Log.w(PLAY, "abrirCanalActual() falló para ${canal.code}: ${it.message}")
                 if (zapping?.actual?.code == canal.code) {
-                    _error.value = mensajeErrorVivo(esTelevision, settings.gatewayConfigSource.value, canal.nombre)
+                    _error.value = mensajeErrorVivo(hayCuentaDeMagis(), canal.nombre)
                 }
                 return@launch
             }

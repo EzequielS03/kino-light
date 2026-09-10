@@ -116,7 +116,7 @@ fun TvSeccionesDeCatalogo(
     LaunchedEffect(raiz, incluirAdultos) {
         secciones = emptyList()
         cargando = true
-        runCatching { graph.liveApi.arbol(raiz, incluirAdultos) }
+        runCatching { graph.catalogoDeVivo.arbol(raiz, incluirAdultos) }
             .onSuccess { secciones = it; error = null }
             .onFailure { error = it.message ?: "No se pudo cargar" }
         cargando = false

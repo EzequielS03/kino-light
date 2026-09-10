@@ -53,8 +53,6 @@ class SettingsStore(context: Context) {
     // FirmaDelGateway en vez de FirmaConRespaldo. Un camino de respaldo que nunca se ejerce se
     // pudre en silencio y falla justo el día que Magis cambia el algoritmo; con esto se puede
     // comprobar en un minuto que el camino del gateway sigue sirviendo, sin esperar a que pase.
-    private val _liveSignRemote = MutableStateFlow(prefs.getBoolean(KEY_LIVE_SIGN_REMOTE, false))
-    val liveSignRemote: StateFlow<Boolean> = _liveSignRemote
 
     // "Ahora no" a la oferta de vincular Magis apenas se entra a la TV (Task 10, ver
     // `debeOfrecerVincularMagis` en ui/tv/TvOfertaVincularMagis.kt). Es una decisión del DISPOSITIVO,
@@ -83,10 +81,6 @@ class SettingsStore(context: Context) {
         _artworkRematchDone.value = v
     }
 
-    fun setLiveSignRemote(v: Boolean) {
-        prefs.edit().putBoolean(KEY_LIVE_SIGN_REMOTE, v).apply()
-        _liveSignRemote.value = v
-    }
 
     fun setMagisOfertaDescartada(v: Boolean) {
         if (_magisOfertaDescartada.value == v) return
@@ -106,7 +100,6 @@ class SettingsStore(context: Context) {
         private const val KEY_GATEWAY_CONFIG_SOURCE = "gateway_config_source"
         private const val KEY_USE_GATEWAY = "use_gateway"
         private const val KEY_ARTWORK_REMATCH = "artwork_rematch_done"
-        private const val KEY_LIVE_SIGN_REMOTE = "live_sign_remote"
         private const val KEY_MAGIS_OFERTA_DESCARTADA = "magis_oferta_descartada"
         const val DEFAULT_GATEWAY_URL = "https://api.comparadorinternet.co"
         // La key del `POST /api/refresh` del mirror ya no existe acá: ese endpoint pasó a pedirse

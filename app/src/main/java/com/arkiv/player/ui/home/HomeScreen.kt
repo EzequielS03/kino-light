@@ -177,7 +177,7 @@ fun HomeScreen(
     LaunchedEffect(Unit) {
         canalesDelPais = canalesDelPaisParaHome(
             context = context,
-            api = graph.liveApi,
+            api = graph.catalogoDeVivo,
             cacheDao = liveCacheDao,
             prefs = context.getSharedPreferences(SettingsStore.PREFS_NAME, Context.MODE_PRIVATE),
         )
