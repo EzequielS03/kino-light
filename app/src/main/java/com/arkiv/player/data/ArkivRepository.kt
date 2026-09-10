@@ -790,6 +790,68 @@ class ArkivRepository(
     }
 
     /**
+     * Guarda la serie ENTERA de Caracol y devuelve el episodeId del capítulo [elegido], para
+     * reproducirlo. Es lo que corre al tocar un capítulo para verlo, con la lista que la ventana de
+     * capítulos ya tenía cargada (sin red). Calcado de [addMagisSeason].
+     *
+     * `upsert` y NO `replaceItem`: un capítulo que ya tenías guardado tiene que sobrevivir aunque
+     * Caracol no lo liste esta vez. Es idempotente (ids derivados del contenido, y los mismos que
+     * arma [addDituSource] para un capítulo suelto: ver [DituEntities.buildSerie]), así que se puede
+     * llamar en cada reproducción sin duplicar nada.
+     *
+     * UNA sola escritura sobre el ítem, por lo mismo que en [addMagisSeason]: `episodiosVistosEnLista`
+     * se re-sella ACÁ, antes de escribir, contra la UNIÓN de los capítulos que ya estaban guardados
+     * con los que llegan, y el ítem sale sellado del único `upsertItem`.
+     *
+     * Solo entran los capítulos de [DituEntities.capitulosGuardables] (la guarda de
+     * [DituEntities.contentIdDelItem]): un ref que no es de Caracol nunca termina con id `ditu:`.
+     *
+     * No lleva lo legacy de [addMagisSeason] (el barrido de ítems por capítulo, el episodio fantasma
+     * de película, los stills): Caracol no tiene filas viejas en esta rama, y `DituFuente` arma sus
+     * capítulos sin still.
+     *
+     * Null si no guardó nada, o si el [elegido] no quedó guardado con su ref (ver
+     * [DituEntities.elegidoEntre]): quien llama cae a guardar el capítulo solo.
+     */
+    suspend fun addDituSeason(
+        seriesRef: String,
+        title: String,
+        capitulos: List<CapituloDeCaracol>,
+        elegido: CapituloDeCaracol,
+        posterUrl: String = "",
+        backdropUrl: String = "",
+        // `DituFuente` deja el tmdbId en 0 cuando TMDB no la encontró: quien llama lo pasa en null
+        // para que no pise uno ya guardado.
+        tmdbId: Int? = null,
+        tituloCanonico: String? = null,
+    ): String? {
+        val guardables = DituEntities.capitulosGuardables(seriesRef, capitulos)
+        val contentId = guardables.firstNotNullOfOrNull {
+            DituEntities.contentIdDelItem(it.ref, seriesRef, it.number)
+        } ?: return null
+        val id = DituEntities.itemIdDe(contentId)
+        val existente = itemDao.getItem(id)
+        // El badge es para capítulos que salieron en Caracol, no para los que acabas de guardar tú:
+        // se re-sella al total que va a quedar tras el upsert (lo que ya había, más lo que llega).
+        val vivos = itemDao.getEpisodesOf(id).map { it.id }.toSet()
+        val idsNuevos = guardables.map { DituEntities.idDelCapitulo(id, it.season, it.number) }.toSet()
+        val episodiosVistosEnLista = com.arkiv.player.data.nuevos.ContadorDeNuevos.reSellar(
+            existente?.episodiosVistosEnLista,
+            (vivos + idsNuevos).size,
+        )
+        val serie = DituEntities.buildSerie(
+            contentId = contentId, seriesRef = seriesRef, title = title, capitulos = guardables,
+            elegido = elegido, posterUrl = posterUrl, ahora = clock(), existente = existente,
+            episodiosVistosEnLista = episodiosVistosEnLista, tmdbId = tmdbId,
+            tituloCanonico = tituloCanonico,
+        )
+        itemDao.upsertItem(serie.item)
+        itemDao.upsertEpisodes(serie.episodios)
+        guardarBackdropDeMagis(id, backdropUrl)
+        return serie.idDelElegido
+    }
+
+    /**
      * El ref con el que pedirle al gateway la identidad de un ítem de Magis guardado sin ella, o
      * null si no hay nada que reparar. La regla vive en [MagisEntities.refParaReparar]; acá solo se
      * lee la fila.

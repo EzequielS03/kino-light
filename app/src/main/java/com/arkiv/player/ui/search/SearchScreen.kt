@@ -149,7 +149,7 @@ fun SearchScreen(
     var magisSeason by remember { mutableStateOf<com.arkiv.player.data.gateway.GatewayResult?>(null) }
     // Serie de Caracol abierta: igual que Magis, se eligen los capítulos antes de reproducir. Es un
     // estado APARTE del de Magis a propósito: lo que se toca en su ventana solo llega a
-    // `playback.playDituEpisode`, así que un capítulo de Caracol nunca cae en el guardado de Magis.
+    // `playback.playDituSeason`, así que un capítulo de Caracol nunca cae en el guardado de Magis.
     var dituSeason by remember { mutableStateOf<com.arkiv.player.data.gateway.GatewayResult?>(null) }
 
     // Atajo desde el home: entra ya posicionado en un título. Se dispara una sola vez por
@@ -326,10 +326,11 @@ fun SearchScreen(
             // La fuente compuesta: con un ref de Caracol, `episodesConSerie` llega a `DituFuente`.
             client = graph.fuenteDeContenido,
             onDismiss = { dituSeason = null },
-            onPlay = { _, capitulo, serie ->
+            // Guarda en la biblioteca todos los capítulos que la ventana ya cargó, y reproduce el tocado.
+            onPlay = { capitulos, capitulo, serie ->
                 dituSeason = null
                 preparing = true; playError = null
-                scope.launch { applyResult(playback.playDituEpisode(serieDeCaracol, capitulo, serie)) }
+                scope.launch { applyResult(playback.playDituSeason(serieDeCaracol, capitulos, capitulo, serie)) }
             },
             // Sin casillas de "Guardar": en esta ventana guardar es bajar al dispositivo, y Caracol no
             // se baja (Widevine, ver `FuenteDeDescarga`). A la biblioteca entra al reproducir.

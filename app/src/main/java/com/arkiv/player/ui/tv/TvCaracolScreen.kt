@@ -63,8 +63,9 @@ import kotlinx.coroutines.launch
  *
  * Abrir un título va por el MISMO camino que la búsqueda (`playResult` de [TvSearchScreen]), no por
  * uno propio: [DituFuente.resultadoDe] lo vuelve el mismo resultado que da la búsqueda, una película
- * se guarda y se abre con [SearchPlayback.playDitu], y una serie abre [TvCapitulosDeCaracol]. Los
- * dos guardan por `ArkivRepository.addDituSource`, con id `ditu:`.
+ * se guarda y se abre con [SearchPlayback.playDitu], y una serie abre [TvCapitulosDeCaracol], que al
+ * tocar un capítulo guarda la serie entera. Los dos guardan con id `ditu:`: la película por
+ * `ArkivRepository.addDituSource`, la serie por `ArkivRepository.addDituSeason`.
  *
  * Un canal en vivo no pasa por la biblioteca: viaja por [DituVivo].
  */

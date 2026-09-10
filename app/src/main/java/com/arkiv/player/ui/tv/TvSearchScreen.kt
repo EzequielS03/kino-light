@@ -155,7 +155,7 @@ fun TvSearchScreen(
     // que abre la lista de capítulos en vez de reproducir el primero.
     var magisSeasonFor by remember { mutableStateOf<com.arkiv.player.data.gateway.GatewayResult?>(null) }
     // Serie de Caracol elegida: igual que Magis, abre sus capítulos. Es un estado APARTE a
-    // propósito: su lista de capítulos solo llama a `playback.playDituEpisode`, así que un capítulo
+    // propósito: su lista de capítulos solo llama a `playback.playDituSeason`, así que un capítulo
     // de Caracol nunca cae en el guardado de Magis.
     var dituSeasonFor by remember { mutableStateOf<com.arkiv.player.data.gateway.GatewayResult?>(null) }
 
@@ -1254,10 +1254,10 @@ internal fun sourceKey(s: PlaySource): String = when (s) {
 
 /**
  * Los capítulos de una serie de Caracol, para elegir cuál ver. La abren la búsqueda y la sección de
- * Caracol ([TvCaracolScreen]), y es una sola a propósito: el capítulo elegido se guarda siempre por
- * [SearchPlayback.playDituEpisode] —id `ditu:`, nunca el guardado de Magis—, y sin "Guardar toda la
- * temporada": ahí guardar es bajar al dispositivo, y Caracol no se baja (Widevine, ver
- * `FuenteDeDescarga`). A la biblioteca entra al reproducir.
+ * Caracol ([TvCaracolScreen]), y es una sola a propósito: tocar un capítulo guarda siempre por
+ * [SearchPlayback.playDituSeason] —la serie entera, id `ditu:`, nunca el guardado de Magis— y
+ * reproduce el tocado. Sin "Guardar toda la temporada": ahí guardar es bajar al dispositivo, y
+ * Caracol no se baja (Widevine, ver `FuenteDeDescarga`). A la biblioteca entra al reproducir.
  *
  * [alElegir] recibe ese guardado ya armado y lo corre en el alcance de la pantalla que llama: las
  * dos cierran esta lista al elegir, así que no puede correr en uno de acá adentro.
@@ -1277,8 +1277,9 @@ internal fun TvCapitulosDeCaracol(
         client = graph.fuenteDeContenido,
         posterUrl = posterUrl,
         preparing = preparing,
-        onPlayOne = { _, capitulo, datos ->
-            alElegir { playback.playDituEpisode(serie, capitulo, datos) }
+        // Con la lista entera que ya cargó la pantalla: se guardan todos, se reproduce el tocado.
+        onPlayOne = { capitulos, capitulo, datos ->
+            alElegir { playback.playDituSeason(serie, capitulos, capitulo, datos) }
         },
         onSaveAll = null,
         etiqueta = "Caracol",

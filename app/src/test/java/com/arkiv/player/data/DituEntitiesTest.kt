@@ -126,4 +126,134 @@ class DituEntitiesTest {
         assertEquals(5L, segunda.addedAt)
         assertEquals(77, segunda.tmdbId)
     }
+
+    // ── La serie entera: lo que se guarda al tocar un capítulo (`ArkivRepository.addDituSeason`) ──
+
+    private val grupo = "ditu1:GROUP_OF_BUNDLES:G1"
+
+    /** Un GROUP_OF_BUNDLES de dos temporadas, cada una con su capítulo 1 (como `DituEpisodiosTest`). */
+    private val listaDelGrupo = listOf(
+        CapituloDeCaracol(1, "Uno", "ditu1:VOD:a1", season = 1),
+        CapituloDeCaracol(2, "Dos", "ditu1:VOD:a2", season = 1),
+        CapituloDeCaracol(1, "Uno de la T2", "ditu1:VOD:b1", season = 2),
+        CapituloDeCaracol(2, "Dos de la T2", "ditu1:VOD:b2", season = 2),
+    )
+
+    private fun serie(
+        capitulos: List<CapituloDeCaracol> = listaDelGrupo,
+        elegido: CapituloDeCaracol = capitulos.first(),
+        existente: ItemEntity? = null,
+        episodiosVistosEnLista: Int? = null,
+        posterUrl: String = "poster.jpg",
+        tmdbId: Int? = null,
+        tituloCanonico: String? = null,
+    ) = DituEntities.buildSerie(
+        contentId = "G1", seriesRef = grupo, title = "Pedro el escamoso", capitulos = capitulos,
+        elegido = elegido, posterUrl = posterUrl, ahora = 1_000L, existente = existente,
+        episodiosVistosEnLista = episodiosVistosEnLista, tmdbId = tmdbId, tituloCanonico = tituloCanonico,
+    )
+
+    /** El capítulo guardado suelto, como lo guarda `ArkivRepository.addDituSource`. */
+    private fun suelto(cap: CapituloDeCaracol) = DituEntities.build(
+        contentId = "G1", ref = cap.ref, title = "Pedro el escamoso", episode = cap.number,
+        episodeTitle = cap.title, posterUrl = "poster.jpg", ahora = 1_000L, seriesRef = grupo,
+        existente = null, season = cap.season,
+    )
+
+    /** El bug que reportó la persona: la biblioteca mostraba la serie con un solo capítulo. */
+    @Test fun `la serie entra entera, cada capitulo con su ref`() {
+        val guardada = serie(elegido = listaDelGrupo[2])
+
+        assertEquals(listaDelGrupo.map { it.ref }, guardada.episodios.map { it.torrentData })
+        assertEquals(listaDelGrupo.size, guardada.episodios.map { it.id }.toSet().size)
+        assertTrue(guardada.episodios.all { it.itemId == "ditu:G1" })
+        assertTrue(guardada.episodios.all { PlayerSource.kindFor(it.id) == SourceKind.DITU })
+        // El ítem es la serie, con su ref: el del grupo, no el de ningún capítulo.
+        assertEquals("ditu:G1", guardada.item.identifier)
+        assertEquals(grupo, guardada.item.torrentData)
+        assertEquals("series", guardada.item.categoryOverride)
+        assertEquals("tv", guardada.item.tipo)
+        assertEquals("ditu", guardada.item.source)
+    }
+
+    @Test fun `en la serie el capitulo 1 de la T1 y el de la T2 no se pisan`() {
+        val (t1, t2) = serie().episodios.filter { it.episode == 1 }
+        assertNotEquals(t1.id, t2.id)
+        assertEquals("ditu:G1::e1", t1.id)
+        assertEquals("ditu1:VOD:b1", t2.torrentData)
+        assertEquals(2, t2.season)
+        assertTrue(t1.orderIndex < t2.orderIndex)
+    }
+
+    /**
+     * Lo que evita duplicados: la persona ya tiene la serie guardada con UN capítulo (por
+     * `addDituSource`), y al tocar otro se guarda la serie entera. Si el mismo capítulo tuviera otro
+     * id guardado con su serie, quedaría dos veces en la biblioteca.
+     */
+    @Test fun `el mismo capitulo tiene el mismo id suelto que guardado con su serie`() {
+        val conSuSerie = serie()
+        for (cap in listaDelGrupo) {
+            val (itemSuelto, epSuelto) = suelto(cap)
+            val epConSuSerie = conSuSerie.episodios.single { it.torrentData == cap.ref }
+            assertEquals(epSuelto.id, epConSuSerie.id)
+            assertEquals(epSuelto, epConSuSerie)
+            assertEquals(itemSuelto, conSuSerie.item)
+        }
+        // Sin temporada, los dos caminos lo mandan a la 1.
+        val sinTemporada = CapituloDeCaracol(3, "Tres", "ditu1:VOD:a3", season = null)
+        assertEquals(suelto(sinTemporada).second, serie(capitulos = listOf(sinTemporada)).episodios.single())
+        assertEquals(1, serie(capitulos = listOf(sinTemporada)).episodios.single().season)
+    }
+
+    @Test fun `guardar la serie de nuevo respeta lo guardado`() {
+        val primera = serie(tmdbId = 77, tituloCanonico = "Pedro el Escamoso").item.copy(addedAt = 5L)
+        // La segunda vez llegan vacíos: TMDB no la encontró, o no llegó póster.
+        val segunda = serie(existente = primera, posterUrl = "", tmdbId = null, tituloCanonico = "  ").item
+
+        assertEquals(5L, segunda.addedAt)
+        assertEquals(77, segunda.tmdbId)
+        assertEquals("Pedro el Escamoso", segunda.tituloCanonico)
+        assertEquals("poster.jpg", segunda.thumbnailUrl)
+    }
+
+    /** El badge lo re-sella el repositorio contra la unión; acá solo se guarda lo que llega. */
+    @Test fun `el badge queda en lo que le pasan, no en lo que tenia`() {
+        val existente = serie().item.copy(episodiosVistosEnLista = 2)
+        assertEquals(6, serie(existente = existente, episodiosVistosEnLista = 6).item.episodiosVistosEnLista)
+        assertNull(serie(existente = existente, episodiosVistosEnLista = null).item.episodiosVistosEnLista)
+    }
+
+    /** La trampa de los números repetidos: por número solo, tocar el 1 de la T2 abriría el de la T1. */
+    @Test fun `tocar el capitulo 1 de la T2 reproduce el de la T2`() {
+        assertEquals("ditu:G1::t2e1", serie(elegido = listaDelGrupo[2]).idDelElegido)
+        assertEquals("ditu:G1::e1", serie(elegido = listaDelGrupo[0]).idDelElegido)
+        assertEquals("ditu:G1::t2e2", serie(elegido = listaDelGrupo[3]).idDelElegido)
+    }
+
+    /**
+     * Si Caracol repitiera temporada y número, los dos capítulos caen en la misma fila y queda uno:
+     * tocar el otro no puede reproducir ese, tiene que caer a guardarlo solo (null).
+     */
+    @Test fun `un elegido que no quedo guardado con su ref no se reproduce`() {
+        val repetidos = listOf(
+            CapituloDeCaracol(1, "A", "ditu1:VOD:a", season = 1),
+            CapituloDeCaracol(1, "B", "ditu1:VOD:b", season = 1),
+        )
+        assertEquals(1, serie(capitulos = repetidos).episodios.size)
+        assertNull(serie(capitulos = repetidos, elegido = repetidos[0]).idDelElegido)
+        assertEquals("ditu:G1::e1", serie(capitulos = repetidos, elegido = repetidos[1]).idDelElegido)
+    }
+
+    @Test fun `a la serie solo entran capitulos de Caracol`() {
+        val deMagis = CapituloDeCaracol(4, "Cuatro", "magis1:movie:0:C1", season = 1)
+        val enCero = CapituloDeCaracol(0, "Cero", "ditu1:VOD:z", season = 1)
+        val unaSerie = CapituloDeCaracol(5, "Cinco", "ditu1:BUNDLE:B2", season = 1)
+
+        assertEquals(
+            listaDelGrupo,
+            DituEntities.capitulosGuardables(grupo, listaDelGrupo + deMagis + enCero + unaSerie),
+        )
+        // Con una serie que no es de Caracol, no entra ninguno.
+        assertTrue(DituEntities.capitulosGuardables("magis1:teleplay:0:C1", listaDelGrupo).isEmpty())
+    }
 }

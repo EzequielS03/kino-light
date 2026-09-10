@@ -6,8 +6,35 @@ import com.arkiv.player.data.ditu.DituFuente
 import com.arkiv.player.data.ditu.DituRef
 
 /**
- * Construye (ítem + episodio) de lo que llega de Caracol. Puro/JVM (sin `android.*`) para poder
- * testearse sin Room; el repositorio solo lo guarda ([ArkivRepository.addDituSource]).
+ * Un capítulo de una serie de Caracol, tal como lo necesita [DituEntities].
+ *
+ * Modelo propio y no `GatewayEpisode`, por lo mismo que [CapituloDeTemporada] en Magis: esto es
+ * puro/JVM y no depende del paquete `gateway`. El llamador mapea uno al otro.
+ *
+ * [season] es la del propio capítulo (en un `GROUP_OF_BUNDLES`, la de su bundle); null = no se
+ * sabe, y se guarda en la 1 ([DituEntities.temporadaGuardada]).
+ */
+data class CapituloDeCaracol(
+    val number: Int,
+    val title: String,
+    val ref: String,
+    val season: Int? = null,
+)
+
+/**
+ * Lo que arma [DituEntities.buildSerie]: el ítem, sus episodios, y el episodeId del capítulo que se
+ * tocó ([idDelElegido]), o null si ese capítulo no quedó guardado con su propio ref.
+ */
+data class SerieDeCaracol(
+    val item: ItemEntity,
+    val episodios: List<EpisodeEntity>,
+    val idDelElegido: String?,
+)
+
+/**
+ * Construye (ítem + episodios) de lo que llega de Caracol. Puro/JVM (sin `android.*`) para poder
+ * testearse sin Room; el repositorio solo lo guarda ([ArkivRepository.addDituSource] para una
+ * película o un capítulo suelto, [ArkivRepository.addDituSeason] para una serie entera).
  *
  * Calcado de [MagisEntities], y más chico: Caracol nunca tuvo filas viejas en esta rama, así que no
  * hay ids legacy que barrer ni identidad que reparar.
@@ -46,6 +73,20 @@ object DituEntities {
      */
     fun episodioIdDeCapitulo(itemId: String, temporada: Int, number: Int): String =
         if (temporada <= 1) episodioIdDe(itemId, number) else "$itemId::t${temporada}e$number"
+
+    /**
+     * La temporada con la que queda guardado un capítulo: la que llega, o la 1 si no llega ninguna
+     * (o llega en 0). Es la misma regla con la que `DituEpisodios` lee un capítulo que no la trae.
+     */
+    fun temporadaGuardada(season: Int?): Int = season?.takeIf { it > 0 } ?: 1
+
+    /**
+     * El id con el que queda guardado un capítulo, sea suelto ([build]) o con su serie
+     * ([buildSerie]): los dos lo arman por [capituloDe], que lo saca de acá. Y [elegidoEntre] busca
+     * con este mismo cálculo, así que el capítulo que se busca es el que se guardó.
+     */
+    fun idDelCapitulo(itemId: String, season: Int?, number: Int): String =
+        episodioIdDeCapitulo(itemId, temporadaGuardada(season), number)
 
     /**
      * El `contentId` del ítem al que va esto, o null si no se puede guardar.
@@ -103,43 +144,14 @@ object DituEntities {
     ): Pair<ItemEntity, EpisodeEntity> {
         val itemId = itemIdDe(contentId)
         val esCapitulo = episode > 0
-        val item = ItemEntity(
-            identifier = itemId,
-            title = title.ifBlank { "Caracol" },
-            description = null,
-            // Una carátula vacía no borra la que ya estaba.
-            thumbnailUrl = posterUrl.ifBlank { existente?.thumbnailUrl.orEmpty() },
-            addedAt = existente?.addedAt ?: ahora,
-            categoryOverride = if (esCapitulo) "series" else existente?.categoryOverride,
-            source = DituFuente.FUENTE,
-            torrentData = if (esCapitulo) seriesRef else ref,
+        val item = itemDe(
+            itemId = itemId, ref = ref, title = title, esCapitulo = esCapitulo, posterUrl = posterUrl,
+            ahora = ahora, seriesRef = seriesRef, existente = existente,
             episodiosVistosEnLista = existente?.episodiosVistosEnLista,
-            // Un tmdbId ausente no borra el que ya estaba guardado, igual que en Magis.
-            tmdbId = tmdbId ?: existente?.tmdbId,
-            tipo = if (esCapitulo) "tv" else "movie",
-            tituloCanonico = tituloCanonico?.trim()?.takeIf { it.isNotEmpty() } ?: existente?.tituloCanonico,
+            tmdbId = tmdbId, tituloCanonico = tituloCanonico,
         )
         val ep = if (esCapitulo) {
-            val temporada = season?.takeIf { it > 0 } ?: 1
-            EpisodeEntity(
-                id = episodioIdDeCapitulo(itemId, temporada, episode),
-                itemId = itemId,
-                section = "",
-                displayName = "E$episode" + episodeTitle.trim().takeIf { it.isNotBlank() }?.let { "  $it" }.orEmpty(),
-                orderIndex = (temporada - 1) * ORDEN_POR_TEMPORADA + episode,
-                durationSeconds = 0.0,
-                thumbPath = null,
-                originalPath = null,
-                originalFormat = null,
-                originalSize = 0,
-                derivativePath = null,
-                derivativeFormat = null,
-                derivativeSize = 0,
-                season = temporada,
-                episode = episode,
-                torrentFileIndex = null,
-                torrentData = ref,
-            )
+            capituloDe(itemId, CapituloDeCaracol(episode, episodeTitle, ref, season))
         } else {
             EpisodeEntity(
                 id = episodioIdDePelicula(itemId),
@@ -160,6 +172,136 @@ object DituEntities {
             )
         }
         return item to ep
+    }
+
+    /**
+     * La serie ENTERA: el ítem una vez, un episodio por cada uno de [capitulos], y cuál de esos
+     * episodios es el [elegido] (el capítulo que se tocó, para reproducirlo).
+     *
+     * Es lo que se guarda al tocar un capítulo para verlo ([ArkivRepository.addDituSeason]), con la
+     * lista que la ventana de capítulos ya cargó: sin ninguna llamada de red. Corre en cada
+     * reproducción, así que tiene que ser idempotente: ids derivados del contenido, y lo que
+     * `upsertItem` (REPLACE) borraría, copiado de [existente], igual que en [build].
+     *
+     * El ítem y cada episodio salen de las MISMAS piezas que usa [build] ([itemDe] y [capituloDe]):
+     * un capítulo que ya tenías guardado suelto cae en su misma fila, no en una repetida.
+     *
+     * [episodiosVistosEnLista] llega ya re-sellado por quien llama, como en
+     * `MagisEntities.buildSeason`: el total tras guardar es la unión de lo que ya había en la base
+     * con lo que trae [capitulos], y esta función no tiene con qué leer la base.
+     */
+    fun buildSerie(
+        contentId: String,
+        seriesRef: String,
+        title: String,
+        capitulos: List<CapituloDeCaracol>,
+        elegido: CapituloDeCaracol,
+        posterUrl: String,
+        ahora: Long,
+        existente: ItemEntity?,
+        episodiosVistosEnLista: Int?,
+        tmdbId: Int? = null,
+        tituloCanonico: String? = null,
+    ): SerieDeCaracol {
+        val itemId = itemIdDe(contentId)
+        val item = itemDe(
+            itemId = itemId, ref = "", title = title, esCapitulo = true, posterUrl = posterUrl,
+            ahora = ahora, seriesRef = seriesRef, existente = existente,
+            episodiosVistosEnLista = episodiosVistosEnLista,
+            tmdbId = tmdbId, tituloCanonico = tituloCanonico,
+        )
+        // Un episodio por id: si Caracol repitiera temporada y número en dos capítulos, los dos
+        // caerían en la misma fila, así que queda el último y a la base llega exactamente esto.
+        val episodios = capitulos.map { capituloDe(itemId, it) }.associateBy { it.id }.values.toList()
+        return SerieDeCaracol(item, episodios, elegidoEntre(episodios, elegido))
+    }
+
+    /**
+     * Los de [capitulos] que se pueden guardar en la serie [seriesRef]: los que pasan la guarda de
+     * [contentIdDelItem], para que un ref que no es de Caracol nunca termine con id `ditu:`. Un
+     * capítulo en 0 tampoco entra: con `episode = 0` esa guarda lo toma como película, y su
+     * contentId sería el del capítulo, no el de la serie.
+     */
+    fun capitulosGuardables(seriesRef: String, capitulos: List<CapituloDeCaracol>): List<CapituloDeCaracol> =
+        capitulos.filter { it.number > 0 && contentIdDelItem(it.ref, seriesRef, it.number) != null }
+
+    /**
+     * El episodeId del capítulo [elegido] entre los [guardados] (lo que devolvió [buildSerie]), o
+     * null si no quedó guardado con su propio ref.
+     *
+     * Se busca por temporada Y número, con el mismo cálculo del guardado ([idDelCapitulo]), nunca
+     * por número solo: en un `GROUP_OF_BUNDLES` la lista trae el capítulo 1 de la T1 y el capítulo 1
+     * de la T2 (ver [episodioIdDeCapitulo]), y por número el de la T2 reproduciría el de la T1.
+     *
+     * Y la fila tiene que tener el ref del [elegido]: si Caracol repitiera temporada y número en
+     * dos capítulos, los dos irían al mismo id y [buildSerie] guarda uno solo, así que reproducir
+     * esa fila sería reproducir otro. Con null, quien llama cae a guardar el elegido solo.
+     */
+    fun elegidoEntre(guardados: List<EpisodeEntity>, elegido: CapituloDeCaracol): String? =
+        guardados.firstOrNull { ep ->
+            ep.id == idDelCapitulo(ep.itemId, elegido.season, elegido.number) && ep.torrentData == elegido.ref
+        }?.id
+
+    /**
+     * El ítem, para [build] y [buildSerie]. Un capítulo ([esCapitulo]) va en el ítem de su serie, con
+     * el ref de la serie en el `torrentData`; una película lleva el suyo ([ref]).
+     */
+    private fun itemDe(
+        itemId: String,
+        ref: String,
+        title: String,
+        esCapitulo: Boolean,
+        posterUrl: String,
+        ahora: Long,
+        seriesRef: String,
+        existente: ItemEntity?,
+        episodiosVistosEnLista: Int?,
+        tmdbId: Int?,
+        tituloCanonico: String?,
+    ) = ItemEntity(
+        identifier = itemId,
+        title = title.ifBlank { "Caracol" },
+        description = null,
+        // Una carátula vacía no borra la que ya estaba.
+        thumbnailUrl = posterUrl.ifBlank { existente?.thumbnailUrl.orEmpty() },
+        addedAt = existente?.addedAt ?: ahora,
+        categoryOverride = if (esCapitulo) "series" else existente?.categoryOverride,
+        source = DituFuente.FUENTE,
+        torrentData = if (esCapitulo) seriesRef else ref,
+        episodiosVistosEnLista = episodiosVistosEnLista,
+        // Un tmdbId ausente no borra el que ya estaba guardado, igual que en Magis.
+        tmdbId = tmdbId ?: existente?.tmdbId,
+        tipo = if (esCapitulo) "tv" else "movie",
+        tituloCanonico = tituloCanonico?.trim()?.takeIf { it.isNotEmpty() } ?: existente?.tituloCanonico,
+    )
+
+    /**
+     * El episodio de UN capítulo. Lo comparten [build] y [buildSerie] a propósito: el `id` es la
+     * clave primaria, así que si los dos caminos no lo armaran idéntico, guardar la serie duplicaría
+     * el capítulo que ya estaba guardado suelto. Mismo cuidado que `MagisEntities.capituloDe`.
+     */
+    private fun capituloDe(itemId: String, capitulo: CapituloDeCaracol): EpisodeEntity {
+        val temporada = temporadaGuardada(capitulo.season)
+        val number = capitulo.number
+        return EpisodeEntity(
+            id = idDelCapitulo(itemId, capitulo.season, number),
+            itemId = itemId,
+            section = "",
+            displayName = "E$number" + capitulo.title.trim().takeIf { it.isNotBlank() }?.let { "  $it" }.orEmpty(),
+            orderIndex = (temporada - 1) * ORDEN_POR_TEMPORADA + number,
+            durationSeconds = 0.0,
+            thumbPath = null,
+            originalPath = null,
+            originalFormat = null,
+            originalSize = 0,
+            derivativePath = null,
+            derivativeFormat = null,
+            derivativeSize = 0,
+            season = temporada,
+            episode = number,
+            torrentFileIndex = null,
+            torrentData = capitulo.ref,
+        )
     }
 
     private const val ORDEN_POR_TEMPORADA = 10_000

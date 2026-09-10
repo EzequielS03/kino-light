@@ -1,6 +1,7 @@
 package com.arkiv.player.ui.search
 
 import com.arkiv.player.AppGraph
+import com.arkiv.player.data.CapituloDeCaracol
 import com.arkiv.player.data.SeriesItemIds
 import com.arkiv.player.data.catalog.AnimeShow
 import com.arkiv.player.data.catalog.TmdbDetail
@@ -180,7 +181,7 @@ class SearchPlayback(private val graph: AppGraph) {
      *
      * El id sale del `contentId` que va dentro del ref (`ditu1:<contentType>:<contentId>`), y el ref
      * queda en el `torrentData` del episodio: de ahí lo lee `PlayerViewModel.loadDitu`. A una serie
-     * le devuelve null: primero se eligen sus capítulos ([playDituEpisode]). Ver
+     * le devuelve null: primero se eligen sus capítulos ([playDituSeason]). Ver
      * `DituEntities.contentIdDelItem`.
      */
     suspend fun dituEpisodeId(r: com.arkiv.player.data.gateway.GatewayResult): String? =
@@ -194,12 +195,52 @@ class SearchPlayback(private val graph: AppGraph) {
     }
 
     /**
+     * Guarda la serie ENTERA de Caracol y devuelve el capítulo que se tocó, para reproducirlo.
+     *
+     * Es el camino de Caracol de la ventana de capítulos, calcado de [playMagisSeason]: tocar un
+     * capítulo trae a la biblioteca todos los de la lista que la ventana ya cargó con
+     * `episodesConSerie` al abrirse, así que no cuesta ninguna llamada de red. Solo escribe por
+     * `ArkivRepository.addDituSeason` —id `ditu:`, nunca por [playMagisSeason] ni
+     * [magisEpisodeIdDe], que arman ids `magis:`—.
+     *
+     * El elegido NO se busca por número, como en [playMagisSeason]: en un `GROUP_OF_BUNDLES` la lista
+     * trae un capítulo 1 en cada temporada, y por número se reproduciría el de otra. Se busca por su
+     * temporada y su número (`DituEntities.elegidoEntre`), y la lista y el elegido pasan por el mismo
+     * [capituloDeCaracol], así que su temporada sale de la misma [temporadaDelCapitulo].
+     *
+     * Si la serie no se pudo guardar, o el elegido no quedó en ella, cae a [playDituEpisode] —guardar
+     * solo el capítulo— antes que dejar a la persona sin reproducir nada.
+     */
+    suspend fun playDituSeason(
+        temporada: com.arkiv.player.data.gateway.GatewayResult,
+        capitulos: List<com.arkiv.player.data.gateway.GatewayEpisode>,
+        elegido: com.arkiv.player.data.gateway.GatewayEpisode,
+        serie: com.arkiv.player.data.gateway.GatewaySerie?,
+    ): PlaybackResult {
+        val epId = graph.repository.addDituSeason(
+            seriesRef = temporada.ref,
+            // El ítem es la serie; cada capítulo se nombra aparte, adentro.
+            title = temporada.title,
+            capitulos = capitulos.map { capituloDeCaracol(it, serie) },
+            elegido = capituloDeCaracol(elegido, serie),
+            posterUrl = temporada.extra["poster"].orEmpty().ifBlank { serie?.posterUrl.orEmpty() },
+            backdropUrl = serie?.backdropUrl.orEmpty(),
+            // Mismo blindaje que en [playDituEpisode]: un tmdbId en 0 no pisa uno ya guardado.
+            tmdbId = serie?.tmdbId?.takeIf { it > 0 },
+            // Sin cruce con TMDB, `GatewaySerie.titulo` es el nombre de Caracol, no el canónico.
+            tituloCanonico = serie?.takeIf { it.tmdbId > 0 }?.titulo,
+        ) ?: return playDituEpisode(temporada, elegido, serie)
+        return PlaybackResult.Ready(epId)
+    }
+
+    /**
      * Guarda UN capítulo de una serie de Caracol y devuelve su episodeId, para reproducirlo.
      *
-     * Es el camino de Caracol de la ventana de capítulos: lo llama la pantalla cuando la serie
-     * abierta es de Caracol, y solo escribe por `ArkivRepository.addDituSource` —nunca por
-     * [playMagisSeason] ni [magisEpisodeIdDe], que arman ids `magis:`—. Guarda solo el capítulo
-     * tocado, no la temporada entera como hace Magis.
+     * Ya no es el camino normal: al tocar un capítulo, la ventana de capítulos llama a
+     * [playDituSeason], que guarda la serie entera. Esto es su respaldo, para cuando la serie no se
+     * pudo guardar o el elegido no quedó en ella. Solo escribe por `ArkivRepository.addDituSource`
+     * —nunca por [playMagisSeason] ni [magisEpisodeIdDe], que arman ids `magis:`—, y le da al
+     * capítulo el mismo id que le da [playDituSeason] (los dos lo arman con `DituEntities`).
      *
      * La temporada la decide [temporadaDelCapitulo].
      */
@@ -274,3 +315,19 @@ internal fun temporadaDelCapitulo(
     capitulo: com.arkiv.player.data.gateway.GatewayEpisode,
     serie: com.arkiv.player.data.gateway.GatewaySerie?,
 ): Int? = capitulo.season ?: serie?.seasonNumber
+
+/**
+ * Un capítulo de Caracol como lo guarda `DituEntities`, con la temporada de [temporadaDelCapitulo].
+ *
+ * [SearchPlayback.playDituSeason] mapea con esto la lista Y el elegido: si los dos no sacaran la
+ * temporada del mismo lado, el elegido se buscaría en una temporada que no es la suya.
+ */
+internal fun capituloDeCaracol(
+    capitulo: com.arkiv.player.data.gateway.GatewayEpisode,
+    serie: com.arkiv.player.data.gateway.GatewaySerie?,
+): CapituloDeCaracol = CapituloDeCaracol(
+    number = capitulo.number,
+    title = capitulo.title,
+    ref = capitulo.ref,
+    season = temporadaDelCapitulo(capitulo, serie),
+)
