@@ -23,7 +23,9 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.dash.DashMediaSource
-import androidx.media3.exoplayer.drm.DefaultDrmSessionManagerProvider
+import androidx.media3.exoplayer.drm.DefaultDrmSessionManager
+import androidx.media3.exoplayer.drm.FrameworkMediaDrm
+import androidx.media3.exoplayer.drm.HttpMediaDrmCallback
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
 
@@ -47,8 +49,9 @@ private fun esRecuperable(error: PlaybackException): Boolean =
  * VLC no entra acá: libVLC no negocia licencias Widevine. Por eso es ExoPlayer, igual que
  * [MagisExoPlayer] y [LiveExoPlayer], y alimenta el mismo [EspejoDelPlayer] que ellos.
  *
- * La licencia se declara en el propio `MediaItem` ([MediaItem.DrmConfiguration]) en vez de armar
- * un `DrmSessionManager` a mano: media3 lo construye solo a partir de esa configuración.
+ * El `DrmSessionManager` se arma a mano, como en el reproductor de Caracol de `main`, para poder
+ * apagar el keepalive de la sesión DRM (ver el comentario junto a `setSessionKeepaliveMs`): el
+ * `DefaultDrmSessionManagerProvider` de media3 no tiene cómo cambiarlo.
  *
  * [drmLicenseHeaders] no es opcional en la práctica: trae la cookie `playback_token` que devolvió
  * `CONTENT/VIDEOURL`, que es lo que autoriza la licencia (ver `DituResolve` y `DituCliente`).
@@ -106,26 +109,32 @@ internal fun DituExoPlayer(
             .setConnectTimeoutMs(30_000)
             .setReadTimeoutMs(30_000)
 
-        val drm = MediaItem.DrmConfiguration.Builder(C.WIDEVINE_UUID)
-            .setLicenseUri(drmLicenseUrl)
-            .setLicenseRequestHeaders(drmLicenseHeaders)
-            .build()
-
         val item = MediaItem.Builder()
             .setUri(Uri.parse(mediaUrl))
             .setMimeType(MimeTypes.APPLICATION_MPD)
-            .setDrmConfiguration(drm)
             .build()
 
-        // Sin esto, la petición de licencia sale por un `DefaultHttpDataSource` propio de media3,
-        // sin el `User-Agent` ni el `restful: yes` de arriba.
-        val drmProvider = DefaultDrmSessionManagerProvider().apply {
-            setDrmHttpDataSourceFactory(httpFactory)
+        // La licencia se pide con el MISMO `httpFactory`: sin él, el callback saldría por un
+        // `DefaultHttpDataSource` propio, sin el `User-Agent` ni el `restful: yes` de arriba.
+        val licencia = HttpMediaDrmCallback(drmLicenseUrl, httpFactory).also { cb ->
+            drmLicenseHeaders.forEach { (k, v) -> cb.setKeyRequestProperty(k, v) }
         }
+        val drmManager = DefaultDrmSessionManager.Builder()
+            .setUuidAndExoMediaDrmProvider(C.WIDEVINE_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
+            // Portado del reproductor de Caracol de `main`, que lo midió en el Fire Stick el
+            // 2026-08-22: ese aparato tiene UN SOLO camino de video seguro, y con la sesión DRM del
+            // canal anterior todavía retenida, el decodificador seguro del canal nuevo tardó 14 s en
+            // conseguir superficie (pantalla negra todo ese rato). Por defecto media3 retiene la
+            // sesión 5 min después del último uso; C.TIME_UNSET apaga ese keepalive y la suelta
+            // apenas queda sin usar. Acá pesa porque cada canal en vivo y cada recarga por token
+            // vencido arman un reproductor nuevo (`key(dPlay)` en `PlayerScreen`). Sin probar en un
+            // aparato en esta rama.
+            .setSessionKeepaliveMs(C.TIME_UNSET)
+            .build(licencia)
 
         ExoPlayer.Builder(context)
             .setMediaSourceFactory(
-                DashMediaSource.Factory(httpFactory).setDrmSessionManagerProvider(drmProvider),
+                DashMediaSource.Factory(httpFactory).setDrmSessionManagerProvider { drmManager },
             )
             .build()
             .also { player ->
