@@ -26,8 +26,8 @@ internal enum class AlIrseAlFondo {
     PAUSAR,
 
     /**
-     * Un canal en vivo en ExoPlayer: se pausa y se detiene (`stop()`), y al volver arranca otra vez
-     * en el directo, no donde quedó.
+     * Un canal en vivo en ExoPlayer: se pausa y se detiene (`stop()`), y al volver se prepara otra
+     * vez en el directo, no donde quedó; sigue sonando solo si sonaba (ver [alVolverAlDirecto]).
      *
      * Detenido y no solo pausado porque, pausado, el reproductor sigue armado y puede fallar en el
      * fondo. El error de `LiveExoPlayer` va a `reabrirVivoPorCorte`, que gasta una de sus reaperturas y
@@ -49,3 +49,20 @@ internal fun alIrseAlFondo(esTv: Boolean, esExoPlayer: Boolean, casteando: Boole
         enVivo && esExoPlayer -> AlIrseAlFondo.DETENER_EL_DIRECTO
         else -> AlIrseAlFondo.PAUSAR
     }
+
+/** Qué se hace al volver con el directo que se detuvo al irse al fondo. Ver [alVolverAlDirecto]. */
+internal enum class AlVolverAlDirecto {
+    /** Sonaba al salir: se prepara en el borde del directo y vuelve a sonar. */
+    REANUDAR_EN_EL_DIRECTO,
+
+    /** Estaba en pausa al salir: se prepara en el borde del directo y sigue en pausa. */
+    SEGUIR_EN_PAUSA,
+}
+
+/**
+ * [sonabaAlSalir] es la intención de reproducir (`playWhenReady`) leída ANTES de pausarlo para
+ * irse: si la persona lo había pausado, al volver sigue en pausa. Vale igual para el vivo de Magis y
+ * para el de Caracol.
+ */
+internal fun alVolverAlDirecto(sonabaAlSalir: Boolean): AlVolverAlDirecto =
+    if (sonabaAlSalir) AlVolverAlDirecto.REANUDAR_EN_EL_DIRECTO else AlVolverAlDirecto.SEGUIR_EN_PAUSA

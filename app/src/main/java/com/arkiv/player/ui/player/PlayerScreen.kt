@@ -1613,21 +1613,27 @@ private fun PlayerContent(
     // Después de guardar, pausa: con Home los ExoPlayer de esta pantalla (Magis, el vivo, Caracol)
     // seguían sonando afuera. Qué se pausa y cómo lo decide [alIrseAlFondo]; `isTv` es el que pasa
     // `ArkivTvRoot`, la raíz que `MainActivity` elige con `DeviceType.isTelevision`. Al volver, un
-    // video queda en pausa donde iba y un canal en vivo arranca otra vez en el directo.
+    // video queda en pausa donde iba y un canal en vivo vuelve al directo: sonando si sonaba, en pausa
+    // si estaba en pausa ([alVolverAlDirecto]).
     DisposableEffect(lifecycleOwner) {
-        // El directo que se detuvo al irse al fondo, para arrancarlo al volver. Solo si al volver
-        // sigue siendo el reproductor activo: si mientras tanto se armó otro, ese no se toca.
+        // El directo que se detuvo al irse al fondo y si sonaba en ese momento, para decidir al volver.
+        // Solo si al volver sigue siendo el reproductor activo: si mientras tanto se armó otro, ese no
+        // se toca.
         var directoDetenido: Player? = null
+        var sonabaAlSalir = false
         val obs = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_START) {
                 val detenido = directoDetenido
                 directoDetenido = null
                 if (detenido != null && detenido === currentPlayer) {
-                    android.util.Log.w("ArkivPlay", "app de vuelta → el directo arranca otra vez en el borde")
+                    val alVolver = alVolverAlDirecto(sonabaAlSalir)
+                    android.util.Log.w("ArkivPlay", "app de vuelta → el directo se prepara en el borde · $alVolver")
                     runCatching {
+                        // Detenido no tiene nada cargado: sin `prepare()` quedaría quieto aunque la
+                        // persona le diera play.
                         detenido.seekToDefaultPosition()
                         detenido.prepare()
-                        detenido.play()
+                        if (alVolver == AlVolverAlDirecto.REANUDAR_EN_EL_DIRECTO) detenido.play()
                     }
                 }
             }
@@ -1662,6 +1668,8 @@ private fun PlayerContent(
                     AlIrseAlFondo.SEGUIR -> Unit
                     AlIrseAlFondo.PAUSAR -> runCatching { jugador.pause() }
                     AlIrseAlFondo.DETENER_EL_DIRECTO -> {
+                        // Antes de pausarlo: si la persona ya lo tenía en pausa, al volver sigue así.
+                        sonabaAlSalir = jugador.playWhenReady
                         runCatching {
                             jugador.pause()
                             jugador.stop()

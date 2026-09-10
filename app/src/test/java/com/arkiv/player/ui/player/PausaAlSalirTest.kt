@@ -38,4 +38,10 @@ class PausaAlSalirTest {
         assertEquals(AlIrseAlFondo.SEGUIR, alIrseAlFondo(esTv = false, esExoPlayer = false, casteando = false, enVivo = false))
         assertEquals(AlIrseAlFondo.SEGUIR, alIrseAlFondo(esTv = true, esExoPlayer = true, casteando = true, enVivo = true))
     }
+
+    /** Un canal que la persona había pausado no puede arrancar solo al volver. */
+    @Test fun `al volver, un directo que sonaba vuelve a sonar y uno en pausa sigue en pausa`() {
+        assertEquals(AlVolverAlDirecto.REANUDAR_EN_EL_DIRECTO, alVolverAlDirecto(sonabaAlSalir = true))
+        assertEquals(AlVolverAlDirecto.SEGUIR_EN_PAUSA, alVolverAlDirecto(sonabaAlSalir = false))
+    }
 }
