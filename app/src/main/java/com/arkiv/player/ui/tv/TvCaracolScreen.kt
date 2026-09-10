@@ -33,6 +33,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -73,7 +74,7 @@ internal fun TvCaracolScreen(onPlay: (episodeId: String) -> Unit) {
     val scope = rememberCoroutineScope()
     val playback = remember { SearchPlayback(graph) }
     var titulos by remember { mutableStateOf<List<DituItem>>(emptyList()) }
-    var canales by remember { mutableStateOf<List<DituCanal>>(emptyList()) }
+    var canales by remember { mutableStateOf<EstadoDeCanales>(EstadoDeCanales.Cargando) }
     var cargando by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var recargas by remember { mutableStateOf(0) }
@@ -98,8 +99,8 @@ internal fun TvCaracolScreen(onPlay: (episodeId: String) -> Unit) {
                 error = it.message ?: "No se pudo cargar el catálogo de Caracol"
                 aviso = error
             }
-        runCatching { graph.dituFuente.canales() }
-            .onSuccess { canales = it }
+        // Si falla, se dice en la pestaña: no puede verse igual que "no hay canales".
+        canales = EstadoDeCanales.de(runCatching { graph.dituFuente.canales() })
         cargando = false
     }
 
@@ -168,7 +169,7 @@ internal fun TvCaracolScreen(onPlay: (episodeId: String) -> Unit) {
 @Composable
 private fun TvCaracolContenido(
     titulos: List<DituItem>,
-    canales: List<DituCanal>,
+    canales: EstadoDeCanales,
     cargando: Boolean,
     error: String?,
     aviso: String?,
@@ -182,6 +183,7 @@ private fun TvCaracolContenido(
     LaunchedEffect(enVivo) { enfocado = null }
 
     val filas = remember(titulos) { filasDeCaracol(titulos) }
+    val listaDeCanales = (canales as? EstadoDeCanales.Listos)?.canales.orEmpty()
 
     // Enganche al borde de fila, tal cual del molde (ver su comentario): un ítem de la lista es una
     // fila enfocable, así que al frenar el scroll se redondea a la frontera más cercana.
@@ -242,12 +244,17 @@ private fun TvCaracolContenido(
                     }
                 }
 
-                val vacia = if (enVivo) canales.isEmpty() else titulos.isEmpty()
+                val vacia = if (enVivo) listaDeCanales.isEmpty() else titulos.isEmpty()
                 if (vacia) {
                     Mensaje(
                         when {
+                            enVivo -> when (canales) {
+                                EstadoDeCanales.Cargando, is EstadoDeCanales.Listos -> "Cargando…"
+                                EstadoDeCanales.Vacio -> "Caracol no tiene canales en vivo para mostrar."
+                                // Falló: se dice con lo que dijo el error, y "Recargar" lo reintenta.
+                                is EstadoDeCanales.Fallo -> "${canales.mensaje}\nPrueba otra vez con «Recargar»."
+                            }
                             cargando -> "Cargando…"
-                            enVivo -> "No hay canales en vivo de Caracol para mostrar."
                             else -> error ?: "Caracol no devolvió títulos."
                         },
                     )
@@ -256,14 +263,14 @@ private fun TvCaracolContenido(
                 }
             }
 
-            if (enVivo && canales.isNotEmpty()) {
+            if (enVivo && listaDeCanales.isNotEmpty()) {
                 Column(Modifier.fillMaxWidth().height(altoDeLaZona).padding(top = rowsTopPad)) {
                     CompositionLocalProvider(LocalBringIntoViewSpec provides PivotoDeTv) {
                         LazyRow(
                             contentPadding = PaddingValues(horizontal = 48.dp, vertical = 10.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
                         ) {
-                            items(canales, key = { it.channelId }) { canal ->
+                            items(listaDeCanales, key = { it.channelId }) { canal ->
                                 TvLandscapeCard(
                                     title = canal.nombre,
                                     imageUrl = canal.logoUrl,
@@ -380,7 +387,12 @@ private fun TextoDelHero(enfocado: Enfocado?, aviso: String?) {
 @Composable
 private fun Mensaje(texto: String) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(texto, style = MaterialTheme.typography.bodyMedium, color = ArkivTextSecondary)
+        Text(
+            texto,
+            style = MaterialTheme.typography.bodyMedium,
+            color = ArkivTextSecondary,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 

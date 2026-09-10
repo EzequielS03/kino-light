@@ -77,9 +77,26 @@ data class PlayerData(
  * publicando la del capítulo anterior mientras la fuente nueva resuelve (ver [PlaylistData.pedido]),
  * así que hay ventanas de segundos donde el episodio preguntado todavía no está. Leer eso como "es
  * adulto" dejaría de guardar el progreso de contenido normal en silencio.
+ *
+ * Un canal en vivo de Caracol ([DituVivo]) no se anota nunca: no tiene fila en la biblioteca ni nada
+ * que reanudar. `PlayerScreen` no lo deja afuera con su `enVivo`, que es solo el de Magis
+ * (`SourceKind.LIVE`), y en `saveProgress`/`capturarFrame` no entra por la rama de `_magisItem`, así
+ * que esta es la guarda que lo frena en los dos.
  */
 internal fun PlaylistData?.hayQueAnotarHistorial(episodeId: String): Boolean =
-    ContenidoDeAdultos.hayQueAnotar(this?.items?.firstOrNull { it.episodeId == episodeId }?.adulto)
+    !DituVivo.esVivo(episodeId) &&
+        ContenidoDeAdultos.hayQueAnotar(this?.items?.firstOrNull { it.episodeId == episodeId }?.adulto)
+
+/**
+ * ¿Hay que marcar [episodeId] como "en curso" al abrirlo (`ArkivRepository.marcarEnCurso`)?
+ *
+ * Es la decisión de `PlayerViewModel.load`, acá afuera para poder fijarla con tests. [adulto] es el
+ * del pendiente efímero ([MagisEfimero]), lo único que se sabe antes de resolver la fuente, y lo que
+ * no se sabe se anota, igual que en [ContenidoDeAdultos.hayQueAnotar]. Un canal en vivo de Caracol no
+ * se marca: `marcarEnCurso` escribiría una fila en `playback` con su id aunque no haya episodio.
+ */
+internal fun hayQueMarcarEnCurso(episodeId: String, adulto: Boolean?): Boolean =
+    !DituVivo.esVivo(episodeId) && ContenidoDeAdultos.hayQueAnotar(adulto)
 
 /** La sección como playlist: todos los episodios + dónde/cómo arrancar. */
 data class PlaylistData(
@@ -268,11 +285,8 @@ class PlayerViewModel internal constructor(
             // "no sé" → anotar, que es justo lo contrario de lo que hace falta. Lo que sí se sabe a
             // esta altura es el pendiente efímero, que la pantalla dejó antes de navegar.
             //
-            // Un canal en vivo de Caracol tampoco se anota: no tiene fila en la biblioteca ni nada
-            // que reanudar, y `marcarEnCurso` escribiría igual una fila en `playback` con su id.
-            if (!DituVivo.esVivo(episodeId) &&
-                ContenidoDeAdultos.hayQueAnotar(MagisEfimero.tomar(episodeId)?.adulto)
-            ) {
+            // Un canal en vivo de Caracol tampoco se marca: ver [hayQueMarcarEnCurso].
+            if (hayQueMarcarEnCurso(episodeId, MagisEfimero.tomar(episodeId)?.adulto)) {
                 runCatching { repo.marcarEnCurso(episodeId) }
             }
             _error.value = null
@@ -1101,17 +1115,14 @@ class PlayerViewModel internal constructor(
 
     fun saveProgress(episodeId: String, positionMs: Long, durationMs: Long) {
         if (durationMs <= 0) return
-        // Un canal en vivo de Caracol no guarda progreso. `PlayerScreen` deja afuera el vivo con
-        // `enVivo`, que es solo el de Magis (`SourceKind.LIVE`): el de Caracol es `SourceKind.DITU`,
-        // y `repo.savePlayback` escribe la fila aunque no haya episodio en la biblioteca.
-        if (DituVivo.esVivo(episodeId)) return
         // El progreso de contenido de adultos NO se escribe. `playback` es tabla sincronizada y de
         // ahí sale "seguir viendo", que se pinta en el inicio del televisor, en el del celular y en
         // la biblioteca: una fila acá no se queda quieta en este aparato. Ver
         // [hayQueAnotarHistorial], que es donde está la decisión y sus bordes.
         // Magis ExoPlayer: el ítem está en _magisItem, no en _playlist.
         // Caracol cae en la rama de abajo: `loadDitu` deja `_playlist` en null, y con eso
-        // [hayQueAnotarHistorial] anota.
+        // [hayQueAnotarHistorial] anota. Salvo un canal en vivo, que no se anota (ver su KDoc):
+        // `repo.savePlayback` escribiría la fila aunque no haya episodio en la biblioteca.
         val magisIt = _magisItem.value?.takeIf { it.episodeId == episodeId }
         if (magisIt != null) {
             if (!ContenidoDeAdultos.hayQueAnotar(magisIt.adulto)) return
