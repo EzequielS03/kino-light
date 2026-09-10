@@ -153,6 +153,22 @@ data class LibraryRow(
     }
 }
 
+/** Una reproducción con su capítulo y su ítem, para el historial de "Para ti". Solo lectura. */
+data class FilaDeHistorial(
+    val episodeId: String,
+    val positionMs: Long,
+    val durationMs: Long,
+    val watched: Boolean,
+    val lastPlayedAt: Long,
+    val episodio: Int?,
+    val itemId: String,
+    val titulo: String,
+    val tituloCanonico: String?,
+    val tipo: String?,
+    val categoryOverride: String?,
+    val tmdbId: Int?,
+)
+
 @Dao
 interface ItemDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -418,6 +434,23 @@ interface PlaybackDao {
 
     @Query("DELETE FROM playback")
     suspend fun deleteAllPlayback()
+
+    /** Lo último que se reprodujo, con su ítem, del más reciente al más viejo. Para "Para ti". */
+    @Query(
+        """
+        SELECT p.episodeId AS episodeId, p.positionMs AS positionMs, p.durationMs AS durationMs,
+               p.watched AS watched, p.lastPlayedAt AS lastPlayedAt, e.episode AS episodio,
+               i.identifier AS itemId, i.title AS titulo, i.tituloCanonico AS tituloCanonico,
+               i.tipo AS tipo, i.categoryOverride AS categoryOverride, i.tmdbId AS tmdbId
+        FROM playback p
+        JOIN episodes e ON e.id = p.episodeId
+        JOIN items i ON i.identifier = e.itemId
+        WHERE p.deleted = 0 AND e.deleted = 0 AND i.deleted = 0
+        ORDER BY p.lastPlayedAt DESC
+        LIMIT :tope
+        """
+    )
+    suspend fun historialReciente(tope: Int): List<FilaDeHistorial>
 }
 
 /** Descarga combinada con datos del episodio para mostrar en pantalla. */

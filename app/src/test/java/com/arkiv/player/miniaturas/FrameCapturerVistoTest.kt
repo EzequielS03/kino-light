@@ -1,6 +1,7 @@
 package com.arkiv.player.miniaturas
 
 import com.arkiv.player.data.db.ContinueRow
+import com.arkiv.player.data.db.FilaDeHistorial
 import com.arkiv.player.data.db.PlaybackDao
 import com.arkiv.player.data.db.UltimaReproduccionRow
 import com.arkiv.player.data.db.PlaybackEntity
@@ -57,6 +58,9 @@ class FrameCapturerVistoTest {
         // abierta. FrameCapturer no lo usa; está solo para que el fake siga implementando el DAO.
         override fun observeUltimaReproduccion(): Flow<List<UltimaReproduccionRow>> =
             MutableStateFlow(emptyList())
+        // Lo agregó la Task 7 (historial local para "Para ti"). FrameCapturer no lo usa; está solo
+        // para que el fake siga implementando el DAO.
+        override suspend fun historialReciente(tope: Int): List<FilaDeHistorial> = emptyList()
     }
 
     private fun progreso(episodeId: String, watched: Boolean) = PlaybackEntity(
