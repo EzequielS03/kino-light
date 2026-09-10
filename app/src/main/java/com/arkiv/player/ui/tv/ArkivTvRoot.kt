@@ -134,7 +134,7 @@ fun ArkivTvRoot(
                     context.findActivity()?.finish()
                 } else {
                     lastBackAt = now
-                    Toast.makeText(context, "Presioná atrás de nuevo para salir", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Presiona atrás de nuevo para salir", Toast.LENGTH_SHORT).show()
                 }
             }
             TvHomeScreen(

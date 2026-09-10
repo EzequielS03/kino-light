@@ -168,7 +168,7 @@ fun mensajeErrorVivo(
 ): String =
     if (!hayCuentaDeMagis) {
         "El canal en vivo necesita una cuenta de Magis vinculada (con el VOD alcanza sin ella). " +
-            "Vinculala en Ajustes, Cuenta."
+            "Vincúlala en Ajustes, Cuenta."
     } else {
         "No se pudo abrir $nombreCanal"
     }
@@ -500,7 +500,7 @@ class PlayerViewModel internal constructor(
         if (reaperturasVivo >= MAX_REAPERTURAS_VIVO) {
             Log.w(PLAY, "vivo: ${canal.code} no volvió tras $MAX_REAPERTURAS_VIVO reaperturas → aviso")
             _error.value = "Se cortó la señal de ${canal.nombre} y no volvió. " +
-                "Puede ser un problema del canal: probá de nuevo o mirá otro."
+                "Puede ser un problema del canal: prueba de nuevo o mira otro."
             return
         }
         if (cortadoEn == 0L) cortadoEn = System.currentTimeMillis()

@@ -613,7 +613,7 @@ private fun TvQueHacerConLaCardDialog(
         ) {
             Text(titulo, style = MaterialTheme.typography.headlineSmall, color = Color.White, maxLines = 2)
             Text(
-                "¿Qué querés hacer?",
+                "¿Qué quieres hacer?",
                 style = MaterialTheme.typography.bodyLarge,
                 color = ArkivTextSecondary,
                 modifier = Modifier.padding(bottom = 6.dp),
@@ -625,7 +625,7 @@ private fun TvQueHacerConLaCardDialog(
                 modifier = Modifier.fillMaxWidth().focusRequester(primero),
             ) { Text("Usar este nombre") }
             Text(
-                "Lo escribe en el buscador para que lo edites si querés, y con \"Buscar\" va tal cual a las fuentes.",
+                "Lo escribe en el buscador para que lo edites si quieres, y con \"Buscar\" va tal cual a las fuentes.",
                 style = MaterialTheme.typography.labelLarge,
                 color = ArkivTextSecondary,
             )
@@ -879,7 +879,7 @@ private fun TvRefineContent(
                 } else {
                     item {
                         Text(
-                            if (effectiveAnimeShow == null) "Cargando episodios…" else "Cantidad de episodios desconocida — usá \"Toda la serie\".",
+                            if (effectiveAnimeShow == null) "Cargando episodios…" else "Cantidad de episodios desconocida — usa \"Toda la serie\".",
                             color = ArkivTextSecondary,
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.padding(top = 16.dp),
