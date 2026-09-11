@@ -155,8 +155,8 @@ internal fun rememberEstadoDeVivo(): EstadoDeVivo = remember { EstadoDeVivo() }
  * Franja superior del modo vivo: el distintivo "EN VIVO" y, en el teléfono, el botón de salir.
  *
  * Es PERSISTENTE, no se desvanece con la ficha del canal — es la identidad de la pantalla, no
- * información transitoria. Vive afuera de la ficha a propósito, igual que el cartel de
- * Chromecast/NUC de VOD. Incluye el botón atrás porque con el bloque de controles de VOD oculto
+ * información transitoria. Vive afuera de la ficha a propósito, igual que el cartel de Chromecast
+ * de VOD. Incluye el botón atrás porque con el bloque de controles de VOD oculto
  * (`visible = !enVivo`) esta es la ÚNICA forma en pantalla de salir del reproductor en el teléfono.
  *
  * [botonesDeCast] es un hueco: la pantalla mete ahí los mismos DLNA/Chromecast que usa VOD, que

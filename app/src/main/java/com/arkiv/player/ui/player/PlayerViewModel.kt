@@ -39,7 +39,7 @@ data class PlayerData(
     val openingStartMs: Long?,
     val openingEndMs: Long?,
     val endingStartMs: Long?,
-    val kind: SourceKind,       // fuente (archive/torrent/web) — la UI la usa p/ el overlay de descarga
+    val kind: SourceKind,       // source (MAGIS/DITU/LOCAL/LIVE/UNKNOWN) -- the UI uses it for the download overlay
     val referer: String? = null,    // headers para el stream web (algunos hosts exigen Referer)
     val userAgent: String? = null,
     val proxyUrl: String? = null,   // web: URL proxeada de respaldo si la directa falla (403/geo/anti-leech)
@@ -56,8 +56,9 @@ data class PlayerData(
      * qué sección salió. Y dos, el contenido de adultos NO tiene fila en la biblioteca —esa es toda
      * la idea—, así que no hay a quién preguntarle después.
      *
-     * `false` por default a propósito: es lo correcto para todas las fuentes que no son el catálogo
-     * de Magis (archive, torrent, web, local), donde no existe la noción.
+     * `false` by default on purpose: it's the right value for every source that isn't the Magis
+     * catalog (Caracol/Ditu, local, live, or a legacy id from a source removed in this branch's
+     * pruning -- archive, torrent, web), where the notion doesn't exist.
      */
     val adulto: Boolean = false,
     /** Posición de arranque para reanudar (ExoPlayer, p.ej. magisItem). VLC usa PlaylistData.startPositionMs. */
@@ -99,7 +100,12 @@ internal fun PlaylistData?.hayQueAnotarHistorial(episodeId: String): Boolean =
 internal fun hayQueMarcarEnCurso(episodeId: String, adulto: Boolean?): Boolean =
     !DituVivo.esVivo(episodeId) && ContenidoDeAdultos.hayQueAnotar(adulto)
 
-/** La sección como playlist: todos los episodios + dónde/cómo arrancar. */
+/**
+ * The section as a playlist: every episode + where/how to start. archive.org (removed in this
+ * branch's pruning) was the only source that ever produced more than one item here -- every source
+ * today (Magis, Ditu, live, local, and the legacy torrent/web rows) publishes a single-item
+ * `PlaylistData(listOf(item), …)`. See `SaltoDeOutro`'s KDoc in PlayerSaltos.kt.
+ */
 data class PlaylistData(
     val items: List<PlayerData>,
     val startIndex: Int,
@@ -113,8 +119,10 @@ data class PlaylistData(
      * lo mío" de "esto todavía es lo de antes", y cargaba lo viejo: elegir el capítulo siguiente en
      * el carrusel volvía a reproducir el que estaba sonando. Ver [MediaReusePolicy.decide].
      *
-     * NO es "el capítulo que suena ahora": archive carga la sección entera y el player avanza solo
-     * dentro de ella sin volver a pedir nada (eso lo responde `episodioEnCurso` en PlayerScreen).
+     * NO es "el capítulo que suena ahora" (eso lo responde `episodioEnCurso` en PlayerScreen): the
+     * distinction dates back to archive.org, which used to load the whole section and let the
+     * player advance on its own within it without asking again. No source does that today (see
+     * this class's own KDoc), but `pedido` still exists for the survives-navigation race above.
      */
     val pedido: String,
 )
@@ -235,7 +243,7 @@ class PlayerViewModel internal constructor(
     private val ditu = EstadoDeDitu()
     val dituPlayable: StateFlow<DituReproducible?> = ditu.actual
 
-    /** Error de resolución (torrent sin peers, .torrent ilegible, etc.) para que la pantalla lo muestre. */
+    /** Resolution error (no source found on Magis/Caracol, a legacy id from a removed source, etc.) for the screen to show. */
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
@@ -254,11 +262,13 @@ class PlayerViewModel internal constructor(
      */
     private var errorDeReproduccion = false
 
-    // Feedback mientras el resolver de blog snifea el stream de una fuente web (puede tardar).
+    // Feedback while Magis/Caracol resolve the actual playable stream (can take a moment). Named
+    // after the removed web resolver this originally covered; Magis and Ditu are what set it today.
     private val _resolving = MutableStateFlow(false)
     val resolving: StateFlow<Boolean> = _resolving.asStateFlow()
 
-    // Subtítulos + headers sniffeados de la fuente web, para que PlayerScreen los adjunte.
+    // Subtitles + headers for PlayerScreen to attach. Named "web" from the removed web source;
+    // today it's Magis's own subtitle languages coming from the gateway (see WebExtras's KDoc).
     private val _webExtras = MutableStateFlow<WebExtras?>(null)
     val webExtras: StateFlow<WebExtras?> = _webExtras.asStateFlow()
 
@@ -273,10 +283,15 @@ class PlayerViewModel internal constructor(
     /** Cancelable: al saltar de capítulo, la tanda del anterior ya no sirve. */
     private var triviaJob: kotlinx.coroutines.Job? = null
 
-    /** Job cancelable de la precarga del siguiente capítulo (torrent pack / web / archive). */
+    /**
+     * Cancelable next-chapter prefetch job. Originally warmed torrent/web/archive.org ahead of
+     * time (all removed in this branch's pruning); today [prefetchNext] is a no-op for every
+     * current source (Magis rate-limits the portal, Ditu's resolve isn't cached) -- see its own
+     * comment. Kept as the coordinator in case a future source needs prefetching again.
+     */
     private var prefetchJob: kotlinx.coroutines.Job? = null
 
-    /** Carga el episodio como playlist, ramificando por fuente (archive vs torrent vs web). */
+    /** Carga el episodio como playlist, ramificando por fuente (Magis vs Ditu vs id desconocido/legado). */
     fun load(episodeId: String) {
         // Antes que todo lo demás, y también para el vivo: una resolución de Caracol que siga en
         // vuelo tiene que saber que ya no es la vigente. Ver [EstadoDeDitu].
@@ -390,9 +405,9 @@ class PlayerViewModel internal constructor(
     }
 
     // --- Modo vivo (Tarea 14) ---------------------------------------------------------------
-    // Aislado del resto del archivo a propósito (ver el guard al principio de load()): nada de
-    // esto participa en playlists de VOD, casteo, torrent o resume -- son conceptos que en vivo
-    // no existen. Ver KDoc de LiveController/LiveZapping para el porqué completo.
+    // Isolated from the rest of the file on purpose (see the guard at the start of load()): none
+    // of this participates in VOD playlists, casting, local downloads or resume -- concepts that
+    // don't exist in live. See LiveController/LiveZapping's KDoc for the full reasoning.
 
     /** Zapping en curso -- null fuera de modo vivo. */
     private var zapping: LiveZapping? = null
@@ -482,8 +497,7 @@ class PlayerViewModel internal constructor(
                 // Un canal en vivo nunca tiene un mp4 h.264 de respaldo -es un directo, no un
                 // archivo-, así que castUrl siempre es null. Eso NO significa que no castee (Tarea
                 // 18): PlayerScreen.castRequestFor resuelve la URL alcanzable por LAN del proxy
-                // local (LiveHlsProxy.lanUrl) por su cuenta, igual que hace con torrent -- ver su
-                // KDoc.
+                // local (LiveHlsProxy.lanUrl) por su cuenta -- ver el KDoc de CastRequestBuilder.
                 castUrl = null,
                 artworkUrl = canal.logo.orEmpty(),
                 openingStartMs = null, openingEndMs = null, endingStartMs = null,
@@ -1010,10 +1024,11 @@ class PlayerViewModel internal constructor(
     }
 
     /**
-     * Posición de arranque validada (resume seguro): aplica la posición guardada SOLO si tiene sentido
-     * retomar — más de 10s y no casi al final. Para TORRENT, además exige que esa fracción del archivo
-     * ya esté descargada (baja secuencial desde el inicio: saltar en frío a una zona sin bajar stalea).
-     * Si no cumple, arranca en 0. Portado de la lógica de resume de TorrentPlayerScreen.
+     * Validated start position (safe resume): applies the saved position only when resuming makes
+     * sense -- more than 10s in, and not near the end. See
+     * [com.arkiv.player.playback.ResumePolicy] for why nothing more is needed: torrent (a source
+     * removed in this branch's pruning) also required that fraction of the file to already be
+     * downloaded, but Magis and Ditu are pure streaming and don't have that problem.
      */
     private suspend fun safeStartPosition(episodeId: String, kind: SourceKind): Long {
         val saved = runCatching { repo.getPlayback(episodeId) }.getOrNull() ?: return 0L
@@ -1133,10 +1148,11 @@ class PlayerViewModel internal constructor(
      * necesita `viewModelScope` para que la captura no bloquee el hilo de composición.
      */
     fun capturarFrame(episodeId: String, positionMs: Long, textureView: android.view.TextureView?) {
-        // MISMO guarda que el progreso, y acá pesa más: un frame no es un número, es una imagen de
-        // lo que se estaba viendo — y `FrameCapturer.publicar` escribe el JPEG en disco Y una fila
-        // en `episode_frame`, que se sube a PocketBase y se propaga a los demás aparatos. Es la
-        // fuga del 2026-08-14 otra vez, pero con foto.
+        // Same guard as progress, and it matters more here: a frame isn't a number, it's an image
+        // of what was being watched -- `FrameCapturer.publicar` writes the JPEG straight to local
+        // storage. It's the 2026-08-14 leak again, but with a photo. (`episode_frame` used to sync
+        // to other devices through PocketBase; that's gone with the rest of cloud sync, but a
+        // locally-saved frame of adult content is still exactly the leak this guard exists to stop.)
         val magisIt = _magisItem.value?.takeIf { it.episodeId == episodeId }
         if (magisIt != null) {
             if (!ContenidoDeAdultos.hayQueAnotar(magisIt.adulto)) return

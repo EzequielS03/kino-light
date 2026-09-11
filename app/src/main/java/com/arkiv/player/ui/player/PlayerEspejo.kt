@@ -46,8 +46,9 @@ internal class EspejoDelPlayer {
         private set
 
     /**
-     * Fracción [0..1] ya descargada/buffereada por delante, para el tramo gris claro de la barra.
-     * Torrent: % de descarga del engine; archive: % del archivo cacheado por el proxy.
+     * Fraction [0..1] already downloaded/buffered ahead, for the light-gray stretch of the bar.
+     * Comes from `ArchiveCacheProxy.bufferedFraction` (see PlayerScreen's polling loop) -- the same
+     * proxy Magis reuses today; 0 while casting, since then it's the receiver that buffers.
      */
     var fraccionBuffereada by mutableFloatStateOf(0f)
         private set
