@@ -1,25 +1,28 @@
 package com.arkiv.player.ui.player
 
 /**
- * Qué hace el botón "Saltar outro" cuando se pulsa —y, por lo tanto, si vale la pena dibujarlo.
+ * What the "Skip outro" button does when tapped -- and so, whether it's worth drawing it.
  *
- * El botón hacía siempre `seekToNextMediaItem()`, que solo sirve si la playlist tiene más de un
- * ítem. Y **archive es la única fuente multi-ítem**: magis, web, torrent, local y la NUC publican
- * `PlaylistData(listOf(item), …)`. Mientras el botón exigía un marcador horneado en `PlayerData`
- * —que solo horneaba `loadArchive`— eso no se notaba; al pasar a leer los marcadores de Room el
- * botón empezó a salir en todas las fuentes, y en el Fire TV con magis —el caso que motivó la
- * feature— salía en los últimos minutos de cada capítulo para no hacer nada al pulsarlo.
+ * The button always did `seekToNextMediaItem()`, which only works if the playlist has more than
+ * one item. And **archive.org (removed in this branch's pruning) was the only multi-item
+ * source**: every source today -- magis, Ditu, and the legacy torrent/web/local rows -- publishes
+ * `PlaylistData(listOf(item), …)`, a single item. So `AVANZAR_EN_LA_PLAYLIST` no longer triggers
+ * in practice; `decidir` would still return it correctly if a playlist ever had more than one
+ * item, it just never does today. Back when only archive's loader baked a marker into `PlayerData`
+ * for this, the bug didn't show; once the markers started being read from Room instead, the
+ * button began showing up on every source, and on the Fire TV with magis -the case that motivated
+ * the feature- it showed up in a chapter's last minutes and did nothing when tapped.
  *
- * El camino bueno ya existía al lado: `alTerminarElCapitulo()` navega a la ruta del capítulo
- * siguiente ([PlayerScreen]'s `onNextEpisode`), que es lo que re-arranca la resolución de la
- * fuente. Se prefiere el avance dentro de la playlist cuando lo hay porque no re-resuelve nada
- * (archive ya tiene el ítem cargado); si no, se navega; y si no hay ninguno de los dos —una
- * película, o el último capítulo— no se dibuja el botón.
+ * The good path already existed right next to it: `alTerminarElCapitulo()` navigates to the next
+ * chapter's route ([PlayerScreen]'s `onNextEpisode`), which is what restarts resolving the
+ * source. Advancing within the playlist is preferred when there is one because it doesn't
+ * re-resolve anything (the item's already loaded); otherwise it navigates; and if neither applies
+ * -a movie, or the last chapter- the button isn't drawn.
  */
 internal object SaltoDeOutro {
 
     enum class Accion {
-        /** `seekToNextMediaItem()`: hay otro ítem cargado en la playlist (archive). */
+        /** `seekToNextMediaItem()`: hay otro ítem cargado en la playlist (archive.org lo producía; hoy ninguna fuente arma una playlist de más de un ítem). */
         AVANZAR_EN_LA_PLAYLIST,
 
         /** `onNextEpisode(siguiente)`: el mismo camino que el auto-avance de fin de capítulo. */

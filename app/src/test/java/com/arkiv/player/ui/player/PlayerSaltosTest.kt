@@ -10,8 +10,9 @@ import org.junit.Test
 class SaltoDeOutroTest {
 
     @Test fun con_otro_item_en_la_playlist_avanza_por_dentro() {
-        // archive.org es la única fuente multi-ítem: carga la sección entera como playlist y ahí
-        // `seekToNextMediaItem()` sí lleva a algún lado, sin re-resolver la fuente.
+        // archive.org (fuente borrada en la poda de esta rama) era la única fuente multi-ítem:
+        // cargaba la sección entera como playlist y ahí `seekToNextMediaItem()` sí llevaba a algún
+        // lado, sin re-resolver la fuente.
         assertEquals(
             SaltoDeOutro.Accion.AVANZAR_EN_LA_PLAYLIST,
             SaltoDeOutro.decidir(indiceActual = 0, itemsEnLaPlaylist = 12, siguienteCapitulo = "e2"),
@@ -26,9 +27,10 @@ class SaltoDeOutroTest {
     }
 
     @Test fun con_un_solo_item_navega_al_siguiente_capitulo() {
-        // El bug que arregla esto: magis, web, torrent, local y la NUC publican UN ítem, así que
-        // el `seekToNextMediaItem()` que hacía el botón no tenía a dónde ir y pulsarlo no hacía
-        // NADA. Es el mismo camino que ya usa el auto-avance al terminar el capítulo.
+        // El bug que arregla esto: magis, Ditu, local y las fuentes legacy (web, torrent, NUC)
+        // publican UN ítem, así que el `seekToNextMediaItem()` que hacía el botón no tenía a dónde
+        // ir y pulsarlo no hacía NADA. Es el mismo camino que ya usa el auto-avance al terminar el
+        // capítulo.
         assertEquals(
             SaltoDeOutro.Accion.IR_AL_SIGUIENTE_CAPITULO,
             SaltoDeOutro.decidir(indiceActual = 0, itemsEnLaPlaylist = 1, siguienteCapitulo = "e2"),
