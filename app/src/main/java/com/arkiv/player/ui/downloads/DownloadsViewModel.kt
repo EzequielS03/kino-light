@@ -58,7 +58,7 @@ class DownloadsViewModel(
         DownloadGroupPolicy.buildGroups(downloads, episodes, meta)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** El usuario aceptó una descarga que superaba el umbral de tamaño. Legado del gate de torrent (fuente borrada en la poda de esta rama): hoy nada dispara este estado. */
+    /** The user accepted a download that exceeded the size threshold. Legacy of the torrent gate (source removed in this branch's pruning): nothing triggers this state today. */
     fun confirm(episodeId: String) {
         viewModelScope.launch { manager.confirmSize(episodeId) }
     }
