@@ -22,7 +22,7 @@ package com.arkiv.player.ui.player
 internal object SaltoDeOutro {
 
     enum class Accion {
-        /** `seekToNextMediaItem()`: hay otro ítem cargado en la playlist (archive.org lo producía; hoy ninguna fuente arma una playlist de más de un ítem). */
+        /** `seekToNextMediaItem()`: there's another item already loaded in the playlist (archive.org used to produce this; today no source builds a playlist with more than one item). */
         AVANZAR_EN_LA_PLAYLIST,
 
         /** `onNextEpisode(siguiente)`: el mismo camino que el auto-avance de fin de capítulo. */

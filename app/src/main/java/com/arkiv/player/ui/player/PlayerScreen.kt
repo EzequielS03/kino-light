@@ -406,11 +406,11 @@ private fun PlayerContent(
     }
 
     // Cómo se nombra la fuente en el cartel de "Resolviendo…". `vm.resolving` lo prenden las cargas
-    // que resuelven contra la red —`loadMagis` y `loadDitu`; `loadUnknownSource` (ids de fuentes
-    // borradas en la poda de esta rama) solo lo apaga—, pero el texto daba por sentado que era web:
-    // darle play a un capítulo de Magis anunciaba una fuente web que en ese camino no existe.
-    // Ninguna otra fuente prende esa bandera (archive tenía su propio cartel, y se borró en la poda
-    // de esta rama).
+    // that resolve against the network —`loadMagis` and `loadDitu`; `loadUnknownSource` (ids from
+    // sources removed in this branch's pruning) only turns it off—, but the text assumed it was
+    // web: playing a Magis chapter announced a web source that doesn't exist on that path.
+    // No other source turns on that flag (archive had its own banner, and it was removed in this
+    // branch's pruning).
     val fuenteQueResuelve = remember(episodeId) {
         when (PlayerSource.kindFor(episodeId)) {
             SourceKind.MAGIS -> "de Magis"
@@ -438,14 +438,14 @@ private fun PlayerContent(
     var currentIndex by remember { mutableIntStateOf(0) }
 
     /**
-     * El capítulo que está sonando AHORA, que no siempre es el `episodeId` con el que se abrió la
-     * pantalla: archive.org (fuente borrada en la poda de esta rama) cargaba la sección entera
-     * como playlist -la única fuente multi-ítem que existió-, así que al terminar un capítulo el
-     * player avanzaba al siguiente por dentro —o lo hacía "Saltar outro" con su
-     * `seekToNextMediaItem()`— sin navegar a una ruta nueva. El argumento de navegación se quedaba
-     * con el capítulo viejo para siempre. Ninguna fuente actual arma una playlist de más de un
-     * ítem (ver [SaltoDeOutro]), pero la lectura por índice se queda: es la misma fuente de verdad
-     * que evita la clase entera de bug si alguna vez vuelve a hacer falta.
+     * The chapter that's playing RIGHT NOW, which isn't always the `episodeId` the screen was
+     * opened with: archive.org (source removed in this branch's pruning) used to load the whole
+     * section as a playlist -the only multi-item source that ever existed-, so when a chapter
+     * ended the player advanced to the next one internally —or "Skip outro" did it with its
+     * `seekToNextMediaItem()`— without navigating to a new route. The navigation argument was left
+     * with the old chapter forever. No current source builds a playlist with more than one item
+     * (see [SaltoDeOutro]), but the read-by-index stays: it's the same source of truth that avoids
+     * this whole class of bug if it's ever needed again.
      *
      * Colgar los vecinos y el encabezado de ese argumento tenía consecuencias visibles: tras el
      * auto-avance, "Siguiente episodio" llevaba al capítulo que YA se estaba viendo, "Capítulo
@@ -576,11 +576,11 @@ private fun PlayerContent(
         NowPlaying.episodeId = epId
     }
 
-    // Editor de marcadores intro/outro: la fuente que lo usaba (archive.org) se borró en esta rama
-    // (los ids de esa fuente caen hoy en `loadUnknownSource`, que solo reporta error) y el botón
-    // que lo abre está detrás de `MOSTRAR_MARCADORES_EN_TELEFONO = false`, pero el estado sigue vivo
-    // porque el resto del overlay (guardas de `marcadores.marcando`, el `BackHandler`, el listener
-    // de teclas) lo consulta.
+    // Intro/outro marker editor: the source that used it (archive.org) was removed in this branch
+    // (that source's ids fall through to `loadUnknownSource` today, which only reports an error)
+    // and the button that opens it sits behind `MOSTRAR_MARCADORES_EN_TELEFONO = false`, but the
+    // state stays alive because the rest of the overlay (the `marcadores.marcando` guards, the
+    // `BackHandler`, the key listener) reads it.
     val marcadores = rememberEstadoDeMarcadores()
 
     // Selector de audio/subtítulos (ambas fuentes, vía la API VLC del player vivo). Todo el bloque
@@ -840,10 +840,10 @@ private fun PlayerContent(
     /**
      * Reevaluar el códec si al conectar todavía no se conocía.
      *
-     * El portero decide con las pistas que el player local ya parseó; si conectás apenas se abre el
-     * video, no hay ninguna, y la decisión conservadora ("no sé → mandalo directo", que es lo que
-     * protege a cualquier fuente con codec todavía desconocido) manda el original sin
-     * transcodificar. En AC-3 eso es justo el fallo que
+     * The gatekeeper decides using the tracks the local player has already parsed; if you connect
+     * right as the video opens, there are none, and the conservative decision ("don't know → send
+     * it straight through", which is what protects any source with a still-unknown codec) sends
+     * the original without transcoding. En AC-3 eso es justo el fallo que
      * vinimos a eliminar: se ve y no suena. Medido en device: `codec=desconocido → va directo`, y
      * recién 29 s más tarde se corrigió de pura casualidad.
      *
@@ -986,10 +986,11 @@ private fun PlayerContent(
             episodeId = episodeId,
             // Qué hay cargado, con su URI. La URI se lee de requestMetadata y NO de localConfiguration:
             // este lado es el controller, y localConfiguration se pierde al cruzar el IPC (ver
-            // PlaybackService.MediaItemResolverCallback). Sin la URI, "es el mismo episodio" era la única
-            // señal para reusar — y esa señal sola no alcanza: el servidor local o la URL de origen
-            // pueden cambiar de una carga a otra aunque el episodio sea el mismo (antes era el caso
-            // de torrent, ya borrado; hoy lo es del servidor de vivo y del token de magis).
+            // PlaybackService.MediaItemResolverCallback). Without the URI, "it's the same episode" was
+            // the only signal to reuse it — and that signal alone isn't enough: the local server or
+            // the origin URL can change from one load to the next even if the episode is the same
+            // (it used to be torrent's case, now removed; today it's the live server's and Magis's
+            // token's).
             cargado = (0 until controller.mediaItemCount).map { i ->
                 val mi = controller.getMediaItemAt(i)
                 LoadedMedia(mi.mediaId, mi.requestMetadata.mediaUri?.toString().orEmpty())
@@ -1075,15 +1076,15 @@ private fun PlayerContent(
                 if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
                 controller.playWhenReady = true
             }
-            // Contenido nuevo, o la URL cambió bajo el mismo episodeId (antes: torrent re-servido
-            // en otro puerto, fuente ya borrada; hoy: token de magis renovado en la re-resolución):
-            // cargar la playlist con la URL fresca. "WEB re-entrante" es legado: `isWeb` está
-            // hardcodeado en `false` más abajo (la fuente web se borró en la poda de esta rama), así
-            // que el bloque que sigue queda sin efecto.
+            // New content, or the URL changed under the same episodeId (before: torrent re-served
+            // on another port, source now removed; today: magis token renewed on re-resolution):
+            // load the playlist with the fresh URL. "WEB re-entrant" is legacy: `isWeb` is
+            // hardcoded to `false` below (the web source was removed in this branch's pruning), so
+            // the block that follows has no effect.
             MediaReusePolicy.Decision.RECARGAR -> {
-                // WEB re-entrante (legado, inalcanzable hoy con `isWeb` hardcodeado en `false`): el
-                // item viejo (token muerto) podía seguir en el controller con el mismo mediaId →
-                // cortarlo antes de setMediaItems para que VlcPlayer cargara la URL nueva.
+                // WEB re-entrant (legacy, unreachable today with `isWeb` hardcoded to `false`): the
+                // old item (dead token) could still be in the controller with the same mediaId →
+                // stop it before setMediaItems so VlcPlayer loads the fresh URL.
                 if (isWeb && controller.mediaItemCount > 0) {
                     android.util.Log.w("ArkivPlay", "WEB re-entrante → stop() del item viejo antes de recargar")
                     controller.stop()
@@ -1106,11 +1107,11 @@ private fun PlayerContent(
     /**
      * Fin del capítulo → seguir con el siguiente.
      *
-     * Hasta ahora esto no existía y solo avanzaba archive.org (fuente borrada en la poda de esta
-     * rama), de rebote: era la única fuente multi-ítem (cargaba la sección entera como playlist),
-     * así que el avance lo hacía media3 solo, por dentro. Las demás —magis, Ditu, local, y las
-     * legacy web/torrent— publican UN ítem: al terminar, el player se quedaba en STATE_ENDED con
-     * la barra llena y no pasaba nada más.
+     * Until now this didn't exist and only archive.org (source removed in this branch's pruning)
+     * advanced, as a side effect: it was the only multi-item source (it loaded the whole section
+     * as a playlist), so media3 did the advancing on its own, internally. The others —magis, Ditu,
+     * local, and the legacy web/torrent— publish ONE item: when it ended, the player was left in
+     * STATE_ENDED with the bar full and nothing else happened.
      *
      * Va por el mismo camino que el botón "Siguiente episodio" del transporte ([onNextEpisode]):
      * navegar a la ruta del capítulo nuevo, que es lo que re-arranca la resolución de la fuente.
@@ -1232,9 +1233,9 @@ private fun PlayerContent(
             // como PlaybackException, pero la pantalla solo pinta `vm.error` —los errores de
             // resolución— así que la película no arrancaba y no aparecía ningún mensaje. Medido el
             // 2026-08-10 en el Fire TV: `EncounteredError` en el log y `error=false` en la UI.
-            // El ViewModel decide qué hacer con esto: hay fallos que se reparan solos (el ejemplo
-            // histórico era el 404 de un archivo renombrado en archive.org, cuyo camino de
-            // auto-reparación se borró junto con esa fuente) y otros que solo se pueden contar.
+            // The ViewModel decides what to do with this: some failures repair themselves (the
+            // historical example was the 404 of a file renamed on archive.org, whose
+            // self-repair path was removed along with that source) and others can only be counted.
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                 if (isExo) return  // MagisExoPlayer / LiveExoPlayer / DituExoPlayer ya llamaron su onError
                 val id = playlistRef.value?.items
@@ -1334,10 +1335,10 @@ private fun PlayerContent(
      * onDispose de más abajo) y hay otra periódica cada 5 min; esta es la de "pausé para irme a
      * hacer algo", que es justo cuando la miniatura tiene que quedar en lo último que se vio.
      *
-     * Va colgada de `quiereReproducir` (playWhenReady) y no de `reproduciendo` a propósito: esa
-     * también se cae en cada rebuffer (del CDN de magis, o de cualquier corte de red), así que
-     * capturaría —medio millón de píxeles,
-     * comprimir y escribir a disco— en cada tirón de red. playWhenReady solo cambia cuando alguien
+     * It hangs off `quiereReproducir` (playWhenReady) and not `reproduciendo` on purpose: that one
+     * also drops on every rebuffer (from Magis's CDN, or any network hiccup), so it would capture
+     * —half a million pixels,
+     * compress and write to disk— on every network stutter. playWhenReady only changes when someone
      * pausa de verdad (el botón, el OK sobre la barra, la sesión de medios, la pérdida de foco de
      * audio).
      *
@@ -2969,10 +2970,10 @@ private fun PlayerContent(
                     when (botonDeSalto) {
                         BotonDeSalto.INTRO -> marcadorVigente.openingEndMs?.let { activePlayer.seekTo(it) }
                         // A dónde salta lo decide `SaltoDeOutro` (ver su KDoc):
-                        // `seekToNextMediaItem()` a secas solo funcionaba en archive.org (fuente
-                        // borrada en la poda de esta rama), la única fuente multi-ítem, y en
-                        // magis/Ditu/local -y las legacy web/torrent/NUC- que publican UN ítem, el
-                        // botón salía igual y no hacía NADA.
+                        // `seekToNextMediaItem()` on its own only worked on archive.org (source
+                        // removed in this branch's pruning), the only multi-item source, and on
+                        // magis/Ditu/local -and the legacy web/torrent/NUC- which publish ONE item,
+                        // the button still showed up and did NOTHING.
                         BotonDeSalto.OUTRO -> when (accionDelOutro) {
                             SaltoDeOutro.Accion.AVANZAR_EN_LA_PLAYLIST -> controller.seekToNextMediaItem()
                             // El mismo camino que `alTerminarElCapitulo()`: navegar a la ruta del
