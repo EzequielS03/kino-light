@@ -59,8 +59,7 @@ class PlayerSourceTagTest {
     fun `todo campo del tag tiene que viajar por el IPC`() {
         val cableados = setOf(
             "kind", "openingStartMs", "openingEndMs", "endingStartMs", "castUrl",
-            "referer", "userAgent", "proxyUrl", "extraHeaders", "knownDurationMs",
-            "preferirSoftware", "contenedorDeLaFuente",
+            "referer", "userAgent", "proxyUrl", "extraHeaders", "preferirSoftware",
         )
         val declarados = PlayerSourceTag::class.java.declaredFields
             .filterNot { it.isSynthetic || it.name.startsWith("$") }

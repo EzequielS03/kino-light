@@ -42,10 +42,7 @@ data class PlayerData(
     val referer: String? = null,    // headers para el stream web (algunos hosts exigen Referer)
     val userAgent: String? = null,
     val proxyUrl: String? = null,   // web: URL proxeada de respaldo si la directa falla (403/geo/anti-leech)
-    val knownDurationMs: Long = 0L, // duración sondeada aparte, para fuentes cuya duración VLC no deduce (TS/HTTP)
     val preferirSoftware: Boolean = false, // HEVC de magis: el hardware falla y deja sin pistas. Ver PlayerSourceTag.
-    /** Contenedor que declara la fuente ("ts", "mp4"…); "" = no se sabe. Ver PlayerSourceTag. */
-    val contenedorDeLaFuente: String = "",
     /**
      * Si esto vino de una sección de adultos: nada de lo que suene con esta marca se anota en el
      * historial. Ver [com.arkiv.player.playback.ContenidoDeAdultos] y [hayQueAnotarHistorial].
@@ -887,11 +884,6 @@ class PlayerViewModel internal constructor(
             artworkUrl = "",
             openingStartMs = null, openingEndMs = null, endingStartMs = null,
             kind = SourceKind.MAGIS,
-            knownDurationMs = duracion,
-            // Lo que DICE el portal, no lo que sugiere la extensión que el gateway le puso a la
-            // URL: esa extensión colapsa a `.mp4` todo lo que no sea `ts` porque es la clave del
-            // objeto en el CDN.
-            contenedorDeLaFuente = play.container,
             // De acá lo lee [hayQueAnotarHistorial] en cada tick del reproductor. Es la segunda
             // vuelta de llave: la primera es que esto no tenga fila en la biblioteca.
             adulto = efimero?.adulto == true,

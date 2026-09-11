@@ -76,48 +76,10 @@ class VentanaDeArchivoTest {
 
     // ─── cuándo abrir ventana en vez de saltar ─────────────────────────────
 
-    @Test fun se_ventanea_el_ts_sin_duracion_propia() {
-        assertEquals(true, VentanaDeArchivo.hayQueAbrirVentana(158_158L, lengthMs = 0L, duracionMs = 8_580_000L))
-    }
-
-    @Test fun no_se_ventanea_si_el_reproductor_ya_sabe_cuanto_dura() {
-        // Con duración propia (mp4, HLS) el seek por tiempo de libVLC es exacto: no hay nada que arreglar.
-        assertEquals(false, VentanaDeArchivo.hayQueAbrirVentana(158_158L, lengthMs = 8_580_000L, duracionMs = 8_580_000L))
-    }
-
-    @Test fun no_se_ventanea_sin_ninguna_duracion() {
-        assertEquals(false, VentanaDeArchivo.hayQueAbrirVentana(158_158L, lengthMs = 0L, duracionMs = 0L))
-    }
-
-    @Test fun arrancar_desde_cero_no_necesita_ventana() {
-        assertEquals(false, VentanaDeArchivo.hayQueAbrirVentana(0L, lengthMs = 0L, duracionMs = 8_580_000L))
-    }
-
     @Test fun la_fraccion_sale_del_tiempo_sobre_la_duracion() {
         assertEquals(0.5f, VentanaDeArchivo.fraccionDe(4_290_000L, 8_580_000L), 0.0001f)
         assertEquals(0f, VentanaDeArchivo.fraccionDe(1_000L, 0L), 0.0001f)
         assertEquals(1f, VentanaDeArchivo.fraccionDe(99_000_000L, 8_580_000L), 0.0001f)
-    }
-
-    // ─── dónde va el reproductor dentro de la ventana ──────────────────────
-    // No se usa el reloj de VLC: dentro de una ventana no arranca en 0 (estos VOD reinician el PCR
-    // por tramos). Medido en device: ventana abierta en 1:07:29 y VLC reportando ~13:38 propios.
-
-    @Test fun al_abrir_la_ventana_la_posicion_es_el_punto_de_reanudacion() {
-        assertEquals(4_048_951L, VentanaDeArchivo.posicionAbsolutaMs(4_048_951L, 0f, 7_740_000L))
-    }
-
-    @Test fun a_mitad_de_ventana_va_a_mitad_de_lo_que_queda() {
-        // Ventana desde 1:00:00 de una película de 2:00:00 → la mitad de la ventana es 1:30:00.
-        assertEquals(5_400_000L, VentanaDeArchivo.posicionAbsolutaMs(3_600_000L, 0.5f, 7_200_000L))
-    }
-
-    @Test fun el_final_de_la_ventana_es_el_final_de_la_pelicula() {
-        assertEquals(7_200_000L, VentanaDeArchivo.posicionAbsolutaMs(3_600_000L, 1f, 7_200_000L))
-    }
-
-    @Test fun una_ventana_incoherente_no_devuelve_disparates() {
-        assertEquals(3_600_000L, VentanaDeArchivo.posicionAbsolutaMs(3_600_000L, 0.5f, 1_000L))
     }
 
     @Test fun el_total_sale_del_content_range() {

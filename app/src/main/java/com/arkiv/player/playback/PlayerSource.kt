@@ -22,15 +22,6 @@ data class PlayerSourceTag(
      */
     val extraHeaders: Map<String, String> = emptyMap(),
     /**
-     * Duración real en ms cuando el reproductor NO puede deducirla solo (0 = no se sabe).
-     *
-     * Existe por el MPEG-TS de magis: libVLC solo saca la duración de un TS sondeando el final del
-     * archivo, y eso lo hace únicamente con acceso de lectura rápida (archivo local). Servido por
-     * HTTP, `length` se queda en 0 y la barra queda llena/00:00 y sin poder buscar. La sonda de
-     * [TsDurationProbe] la calcula aparte y viaja hasta el player por acá.
-     */
-    val knownDurationMs: Long = 0L,
-    /**
      * Arrancar por SOFTWARE en vez de por hardware.
      *
      * Existe por los HEVC de magis: en device el decodificador por hardware falla a menudo al
@@ -40,16 +31,6 @@ data class PlayerSourceTag(
      * ~10 s de pantalla negra que tardaba el rescate automático en actuar.
      */
     val preferirSoftware: Boolean = false,
-    /**
-     * Contenedor tal como lo nombra la FUENTE ("ts", "mp4"…); "" = no se sabe, hay que sondear.
-     *
-     * Viaja hasta acá porque es lo que se le declara al demuxer al abrir (`:avformat-format`), y la
-     * única alternativa —deducirlo de la extensión de la URL— no sirve en magis: esa extensión la
-     * arma el gateway colapsando a `.mp4` todo lo que el portal no llame `ts`, porque es la clave
-     * del objeto en el CDN y solo existe en dos sabores. Es el mismo camino que usa la app original
-     * de magis, que pasa el `format` de su backend tal cual al `iformat` de su ijkplayer.
-     */
-    val contenedorDeLaFuente: String = "",
 ) {
     /** Todos los headers del origen en un solo mapa, para quien pueda mandarlos completos. */
     val allHeaders: Map<String, String>

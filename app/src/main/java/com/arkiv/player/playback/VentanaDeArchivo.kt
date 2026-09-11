@@ -14,9 +14,6 @@ package com.arkiv.player.playback
  * que nunca se había visto arranca perfecto). Así que en vez de abrir en 0 y saltar, el proxy abre
  * una ventana que EMPIEZA en el punto pedido y le miente al reproductor sobre el tamaño: para VLC
  * es un archivo nuevo que empieza en 0, con reloj limpio y sin un solo seek.
- *
- * El desfase en tiempo lo pone el reproductor encima de lo que reporta el origen (parámetro
- * `baseOffsetMs` de [posicionAbsolutaMs], abajo).
  */
 object VentanaDeArchivo {
 
@@ -43,43 +40,9 @@ object VentanaDeArchivo {
     /** Tamaño del archivo virtual que ve el reproductor: lo que queda desde [inicio]. */
     fun tamanoVisible(total: Long, inicio: Long): Long = (total - inicio).coerceAtLeast(0L)
 
-    /**
-     * Si conviene abrir una ventana en vez de dejar que el reproductor salte.
-     *
-     * Solo cuando el reproductor NO conoce la duración por su cuenta ([lengthMs] == 0, que es el
-     * caso del TS por HTTP) pero nosotros sí ([duracionMs] > 0, del gateway o de la sonda), y hay
-     * adónde ir. Con duración propia el seek por tiempo de libVLC es exacto y no hay nada que
-     * arreglar; sin ninguna duración no se puede calcular la fracción.
-     */
-    fun hayQueAbrirVentana(destinoMs: Long, lengthMs: Long, duracionMs: Long): Boolean =
-        destinoMs > 0L && lengthMs <= 0L && duracionMs > 0L
-
     /** Fracción del archivo que corresponde a [destinoMs]. Asume tasa de bits pareja. */
     fun fraccionDe(destinoMs: Long, duracionMs: Long): Float =
         if (duracionMs <= 0L) 0f else (destinoMs.toDouble() / duracionMs).coerceIn(0.0, 1.0).toFloat()
-
-    /**
-     * En qué milisegundo del CONTENIDO va el reproductor, estando dentro de una ventana.
-     *
-     * Se usa la FRACCIÓN por byte, no el reloj de libVLC, y las dos alternativas están medidas:
-     *
-     *  - El reloj no sirve. Sobre estos TS avanza a ~50× el tiempo real (medido en device:
-     *    +151 s de reloj en 3 s de reloj de pared, sostenido), porque el PCR viene discontinuo y
-     *    libVLC no puede armar una línea de tiempo. Ni en valor absoluto ni como diferencia contra
-     *    un ancla: si la pendiente está mal, restar un origen no la arregla.
-     *  - La fracción sí sigue el contenido. libVLC la calcula por byte sobre el tamaño que anuncia
-     *    el proxy, y la ventana va de [baseOffsetMs] al final. Es la misma suposición de tasa de
-     *    bits pareja que usa [fraccionDe] para elegir dónde abrir, así que ir y volver es coherente.
-     *
-     * Su defecto conocido: avanza a tirones y va por delante del punto que se está viendo, porque
-     * se mueve con lo que libVLC LEE, no con lo que muestra.
-     */
-    fun posicionAbsolutaMs(baseOffsetMs: Long, fraccionEnVentana: Float, duracionMs: Long): Long {
-        val restante = duracionMs - baseOffsetMs
-        if (restante <= 0L) return baseOffsetMs.coerceAtLeast(0L)
-        val f = fraccionEnVentana.coerceIn(0f, 1f).toDouble()
-        return baseOffsetMs + (restante * f).toLong()
-    }
 
     /**
      * El `Range` que hay que pedirle al origen para el [rango] que pidió el reproductor.

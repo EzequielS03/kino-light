@@ -212,13 +212,7 @@ private fun localMediaItems(items: List<PlayerData>): List<MediaItem> = items.ma
                     d.openingStartMs?.let { putLong("openingStartMs", it) }
                     d.openingEndMs?.let { putLong("openingEndMs", it) }
                     d.endingStartMs?.let { putLong("endingStartMs", it) }
-                    // Si no viaja acá, el tag reconstruido del otro lado del IPC pierde la duración
-                    // sondeada y el player vuelve a quedarse sin ella (barra llena, sin seek).
-                    if (d.knownDurationMs > 0) putLong("knownDurationMs", d.knownDurationMs)
                     if (d.preferirSoftware) putBoolean("preferirSoftware", true)
-                    if (d.contenedorDeLaFuente.isNotEmpty()) {
-                        putString("contenedorDeLaFuente", d.contenedorDeLaFuente)
-                    }
                 })
                 .build(),
         )
@@ -232,9 +226,7 @@ private fun localMediaItems(items: List<PlayerData>): List<MediaItem> = items.ma
                 referer = d.referer,
                 userAgent = d.userAgent,
                 proxyUrl = d.proxyUrl,
-                knownDurationMs = d.knownDurationMs,
                 preferirSoftware = d.preferirSoftware,
-                contenedorDeLaFuente = d.contenedorDeLaFuente,
             ),
         )
         .setMediaMetadata(
