@@ -142,19 +142,19 @@ fun SearchScreen(
     // Permiso de notificaciones (API 33+): se pide al disparar una descarga (el worker de descargas
     // locales también notifica). Ver rememberPostNotificationsRequest.
     val askNotifications = com.arkiv.player.ui.offline.rememberPostNotificationsRequest()
-    // Avisa "eso ya lo tenés bajado" cuando la cola saltea la descarga de una película por
-    // duplicada: mismo helper que usa la biblioteca (DetailScreen.saveEpisodesLocally).
+    // Shows "you already have that downloaded" when the queue skips a movie download as a
+    // duplicate: same helper the library uses (DetailScreen.saveEpisodesLocally).
     val notifyDuplicates = com.arkiv.player.ui.offline.rememberDuplicateDownloadNotice()
     val playback = remember { SearchPlayback(graph) }
     var preparing by remember { mutableStateOf(false) }
     var playError by remember { mutableStateOf<String?>(null) }
-    // Si hay una estrategia de descarga registrada para Magis (hoy siempre la hay): decide si el
-    // diálogo de una película ofrece "Descargar película". Ver `FuenteDeDescarga.hayEstrategia`.
+    // Whether a download strategy is registered for Magis (today there always is one): decides
+    // whether a movie's dialog offers "Descargar película". See `FuenteDeDescarga.hayEstrategia`.
     val magisDownloadable = remember { FuenteDeDescarga.hayEstrategia("magis", graph.downloadStrategies.keys) }
     // Temporada de Magis abierta: un resultado de serie del portal ES una temporada entera,
     // así que en vez de reproducir se abre su lista de capítulos.
     var magisSeason by remember { mutableStateOf<com.arkiv.player.data.gateway.GatewayResult?>(null) }
-    // Película de Magis tocada: en vez de reproducir directo, se pregunta ver o descargar.
+    // Magis movie that was tapped: instead of playing right away, ask whether to watch or download.
     var magisMovieChoice by remember { mutableStateOf<MagisTapDecision.ShowMovieDialog?>(null) }
     // Serie de Caracol abierta: igual que Magis, se eligen los capítulos antes de reproducir. Es un
     // estado APARTE del de Magis a propósito: lo que se toca en su ventana solo llega a
@@ -185,16 +185,18 @@ fun SearchScreen(
         }
     }
 
-    // Reproduce la película tal cual hacía playMagisResult antes de este diálogo: mismo camino,
-    // solo que ahora se dispara desde "Ver película" en vez de directo al tocar la card.
+    // Plays the movie exactly like playMagisResult used to before this dialog existed: same path,
+    // just triggered from "Ver película" instead of directly on tapping the card.
     fun watchMagisMovie(r: com.arkiv.player.data.gateway.GatewayResult) {
         preparing = true; playError = null
         scope.launch { applyResult(playback.playMagis(r)) }
     }
 
-    // Guarda la película y la encola para bajarla al dispositivo, igual que hace la biblioteca en
-    // DetailScreen.saveEpisodesLocally: mismo helper de permisos, mismo aviso de duplicados, y la
-    // misma FuenteDeDescarga.para(epId) para elegir la estrategia de la cola.
+    // Saves the movie and enqueues it for a device download, same as the library does in
+    // DetailScreen.saveEpisodesLocally: same permission helper, same duplicate notice, and the same
+    // FuenteDeDescarga.para(epId) to pick the queue's strategy. The "queued" toast only fires for a
+    // fresh EnqueueOutcome.QUEUED — ALREADY_QUEUED/ALREADY_DOWNLOADED already get their own message
+    // from notifyDuplicates, and showing both would be misleading. See [queuedDownloadToastText].
     fun downloadMagisMovie(r: com.arkiv.player.data.gateway.GatewayResult) {
         askNotifications()
         scope.launch {
@@ -203,16 +205,17 @@ fun SearchScreen(
                 playError = "No se pudo preparar la descarga de Magis."
                 return@launch
             }
-            notifyDuplicates(listOf(graph.localDownloads.enqueue(epId, FuenteDeDescarga.para(epId))))
-            android.widget.Toast.makeText(
-                context, "Descarga de \"${r.title}\" en cola", android.widget.Toast.LENGTH_SHORT,
-            ).show()
+            val outcome = graph.localDownloads.enqueue(epId, FuenteDeDescarga.para(epId))
+            notifyDuplicates(listOf(outcome))
+            queuedDownloadToastText(outcome, r.title)?.let {
+                android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
     fun playMagisResult(r: com.arkiv.player.data.gateway.GatewayResult) {
-        // Serie → abrir la temporada para elegir capítulo. Película → preguntar ver o descargar
-        // (ver `decideMagisTap`, MagisTapDecision.kt).
+        // Series → open the season dialog to pick a chapter. Movie → ask whether to watch or
+        // download (see `decideMagisTap`, MagisTapDecision.kt).
         when (val decision = decideMagisTap(r, magisDownloadable)) {
             is MagisTapDecision.OpenSeasonDialog -> magisSeason = decision.result
             is MagisTapDecision.ShowMovieDialog -> magisMovieChoice = decision
