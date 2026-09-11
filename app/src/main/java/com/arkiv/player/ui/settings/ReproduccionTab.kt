@@ -14,13 +14,15 @@ import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 
 /**
- * Todo lo que decide **con qué calidad y de qué fuente** se reproduce. Es el tab que más se toca,
- * así que es el que abre la pantalla.
+ * Used to hold every control that decided **what quality and source** to play. It was the tab
+ * people touched most, so it's still the one that opens the screen.
  *
- * Las calidades de streaming/descarga/torrent/web y el tamaño máximo de torrent se borraron con la
- * poda de esta rama (eran controles para fuentes que ya no existen: archive.org y torrent/web).
- * Magis no usa ninguno de esos ajustes (su CDN decide el bitrate solo). Lo único que sigue vivo acá
- * es la firma remota del canal en vivo.
+ * The streaming/download quality and torrent/web pickers were removed with this branch's pruning
+ * (controls for sources that no longer exist: archive.org and torrent/web). The "Force server"
+ * control for the live-channel signature was also removed afterwards, once the phone started
+ * signing segments on its own with no server-side fallback (commit `bf3c3788`). Magis never used
+ * any of these settings anyway (its CDN picks the bitrate on its own), so this tab renders nothing
+ * today.
  */
 @Composable
 internal fun ReproduccionTab() {
