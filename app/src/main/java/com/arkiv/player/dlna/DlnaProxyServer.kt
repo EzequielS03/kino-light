@@ -8,10 +8,10 @@ import java.net.Socket
 import java.util.concurrent.TimeUnit
 
 /**
- * Proxy HTTP local: sirve a la TV por http plano lo que baja de archive.org
- * (https). Muchos renderers DLNA (LG webOS, etc.) no soportan HTTPS ni siguen
- * redirecciones, así que el teléfono hace de intermediario y agrega los headers
- * DLNA que la TV necesita.
+ * Local HTTP proxy: serves the TV plain http for what it downloads over https from the real
+ * source (Magis or Caracol today; originally archive.org, hence `DlnaController.setUrlAndPlay`'s
+ * `archiveUrl` parameter). Many DLNA renderers (LG webOS, etc.) don't support HTTPS or don't
+ * follow redirects, so the phone acts as a middleman and adds the DLNA headers the TV needs.
  */
 class DlnaProxyServer {
 

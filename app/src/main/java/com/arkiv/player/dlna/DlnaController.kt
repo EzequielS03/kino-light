@@ -168,9 +168,11 @@ class DlnaController(context: Context) {
     }
 
     /**
-     * Castea a la TV vía el proxy local: la TV recibe una URL http del teléfono
-     * (compatible con su renderer) y el teléfono baja de archive.org por detrás.
-     * Devuelve true si pudo iniciar (hay IP de WiFi).
+     * Casts to the TV through the local proxy: the TV gets an http URL from the phone (compatible
+     * with its renderer) and the phone downloads the actual media behind it -- today that's Magis
+     * or Caracol; the parameter kept the `archiveUrl` name from when archive.org was the only
+     * source that needed this detour (the renderer can't take its direct URL). Returns true if it
+     * could start (there's a WiFi IP).
      */
     fun setUrlAndPlay(device: DlnaDevice, archiveUrl: String, title: String): Boolean {
         val ip = wifiIp() ?: return false
@@ -188,7 +190,7 @@ class DlnaController(context: Context) {
         return true
     }
 
-    /** Reproduce una URL cruda ya accesible por LAN (ej. el stream de un torrent). */
+    /** Reproduce una URL cruda ya accesible por LAN (hoy, el proxy HLS del canal en vivo). */
     fun playRawUrl(device: DlnaDevice, url: String, title: String, mime: String = "video/mp4"): Boolean {
         val didl = xmlEscape(didlLiteFor(url, title, mime))
         soap(
