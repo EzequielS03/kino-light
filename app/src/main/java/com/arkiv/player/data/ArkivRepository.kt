@@ -8,7 +8,6 @@ import com.arkiv.player.data.db.ContinueRow
 import com.arkiv.player.data.db.EpisodeStillEntity
 import com.arkiv.player.data.db.LibraryRow
 import com.arkiv.player.data.db.PlaybackEntity
-import com.arkiv.player.data.model.ArchiveItem
 import com.arkiv.player.data.model.Episode
 import com.arkiv.player.data.model.EpisodeNumbering
 import com.arkiv.player.miniaturas.AlmacenDeFrames
@@ -570,26 +569,6 @@ class ArkivRepository(
     // para las tres fuentes: `LocalLibrary.fileFor`, que cubre las dos columnas, chequea exists() y
     // limpia la fila si el archivo se fue.
 
-    /**
-     * ELIMINADA en la poda de esta rama (borrado de archive.org, ver CLAUDE.md "Cero servidor
-     * propio"): pedía metadata a `ArchiveApi.fetchItem` (borrada) y armaba los episodios de un
-     * ítem de archive.org.
-     *
-     * Se conserva la función -no se borra del todo- porque todavía la llaman [refreshItem] (que a
-     * su vez llaman `DetailViewModel`/`PlayerViewModel.sanarRenombre`), `AddViewModel` (la pantalla
-     * de "pegar una URL de archive.org"), `SearchPlayback`/`AnimeShowDetailScreen`/
-     * `CineDetailScreen` (guardar-y-reproducir un resultado de búsqueda) -maquinaria de la búsqueda
-     * multi-fuente que esta tarea no toca de raíz-, así que hace falta algo que siga compilando en
-     * su lugar. Devuelve el error limpio en vez de intentar pedirle nada a archive.org.
-     */
-    suspend fun addItem(
-        input: String,
-        titleOverride: String? = null,
-        tmdbId: Int? = null,
-        descriptionOverride: String? = null,
-    ): Result<ArchiveItem> =
-        Result.failure(UnsupportedOperationException("archive.org ya no está disponible en esta versión"))
-
     /** Fija el tipo a mano: true = película, false = serie, null = detección automática. */
     suspend fun setCategory(itemId: String, isMovie: Boolean?) {
         val value = when (isMovie) {
@@ -608,49 +587,16 @@ class ArkivRepository(
     }
 
     /**
-     * Vuelve a bajar la metadata de un ítem ya guardado y reemplaza su lista de episodios, que es
-     * como aparecen los capítulos subidos DESPUÉS de agregarlo a la biblioteca.
+     * Records that the user has already seen this item's chapter list, which is what turns off
+     * the "new chapters" badge.
      *
-     * Es seguro para el progreso: los ids de episodio se derivan del nombre del archivo en
-     * archive.org, así que al re-bajar salen idénticos, y `playback` no tiene foreign key hacia
-     * `episodes` (borrarlos no arrastra las marcas de "voy por aquí").
-     *
-     * Solo aplica a ítems de archive.org: los de torrent y los `web:` no tienen metadata que
-     * re-consultar ahí, y pedirla igual sería una llamada de red condenada a fallar.
-     */
-    /**
-     * Registra que el usuario ya vio la lista de capítulos de este ítem, que es lo que apaga el
-     * badge de novedades.
-     *
-     * Se llama DESPUÉS de refrescar, no antes: si se marcara al abrir el detalle y el refresco
-     * trajera capítulos nuevos un segundo después, esos quedarían contados como "ya vistos" sin
-     * que nadie los haya visto, y no aparecerían nunca como novedad.
+     * Called when the detail screen opens, as soon as the identifier to show is resolved. See
+     * `ContadorDeNuevos`.
      */
     suspend fun marcarCapitulosVistos(identifier: String) {
         val cuantos = itemDao.getEpisodesOf(identifier).count { !it.deleted }
         itemDao.marcarEpisodiosVistos(identifier, cuantos)
     }
-
-    suspend fun refreshItem(identifier: String): Result<ArchiveItem> {
-        val existing = itemDao.getItem(identifier)
-        if (existing != null && existing.source != "archive") {
-            return Result.failure(IllegalStateException("Solo se refrescan los ítems de archive.org"))
-        }
-        if (identifier.startsWith("torrent:") || identifier.startsWith("web:")) {
-            return Result.failure(IllegalStateException("Solo se refrescan los ítems de archive.org"))
-        }
-        // Conservar el título y la descripción que ya tiene la biblioteca. Sin esto el refresco los
-        // pisa con los de archive.org, y en NUESTRAS subidas el ítem allá se llama como el hash con
-        // el que se subió ("f75163…_s01e01"): la serie pasaba a mostrarse con ese hash en vez de
-        // "Dragon Ball GT". Es el mismo motivo por el que addItem acepta titleOverride.
-        // También respeta el renombre manual del usuario, que si no se perdía en cada refresco.
-        return addItem(
-            identifier,
-            titleOverride = existing?.title,
-            descriptionOverride = existing?.description,
-        )
-    }
-
 
     /**
      * Guarda un resultado de Magis para poder reproducirlo y reanudarlo.

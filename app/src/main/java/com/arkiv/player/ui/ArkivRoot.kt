@@ -55,7 +55,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.arkiv.player.ui.add.AddScreen
 import com.arkiv.player.ui.catalog.AnimeShowDetailScreen
 import com.arkiv.player.ui.catalog.CineCatalogScreen
 import com.arkiv.player.ui.catalog.CineDetailScreen
@@ -72,15 +71,14 @@ import com.arkiv.player.ui.theme.ArkivRed
 
 private data class Tab(val route: String, val label: String, val icon: @Composable () -> Unit)
 
-// La pestaña "Magis" (ruta "catalog" → CineCatalogScreen/CineDetailScreen) se sacó de la barra:
-// era un catálogo de TMDB cuyo único CTA ("Buscar fuentes") abría un panel que solo listaba
-// archive.org (borrado en la poda de esta rama) — Magis nunca se enganchó ahí, así que el panel
-// quedaba siempre vacío (ver el hallazgo de la revisión final del spec de esta rama). El camino
-// real para reproducir Magis desde TMDB ya existe y no se toca: "Categorías" → una fila → una
-// card → el buscador (SearchScreen/SearchViewModel.runSourceSearch), que sí busca en Magis.
-// Mismo criterio que la ruta "add"/AddScreen de más abajo: la ruta "catalog" y sus pantallas
-// siguen vivas en el NavHost por si un sub-proyecto futuro engancha ahí una búsqueda real de
-// Magis; para volver a mostrar la pestaña alcanza con agregarla de nuevo a esta lista.
+// The "Magis" tab (route "catalog" → CineCatalogScreen/CineDetailScreen) was pulled from the bar:
+// it was a TMDB catalog whose only CTA ("Buscar fuentes") opened a panel that only listed
+// archive.org (deleted in this branch's pruning) — Magis never hooked into it, so the panel was
+// always empty (see the finding from this branch's spec final review). The real path to play
+// Magis from TMDB already exists and isn't touched here: "Categorías" → a row → a card → the
+// search screen (SearchScreen/SearchViewModel.runSourceSearch), which does search Magis. The
+// "catalog" route and its screens stay alive in the NavHost in case a future sub-project hooks a
+// real Magis search there; to show the tab again it's enough to add it back to this list.
 private val TABS = listOf(
     Tab("home", "Inicio") { Icon(Icons.Default.Home, contentDescription = "Inicio") },
     Tab("categorias_home", "Categorías") { Icon(Icons.Default.GridView, contentDescription = "Categorías") },
@@ -213,11 +211,9 @@ fun ArkivRoot(
                 )
             }
         },
-        // Sin FAB. El "+" abría `AddScreen` (agregar por identifier de archive.org) y quedó sin
-        // uso: hoy el contenido entra por la búsqueda. Tapaba contenido del home flotando encima,
-        // que es caro para un botón que nadie toca. La ruta "add" y `AddScreen` siguen vivas —
-        // mismo criterio que la pestaña Catálogo de más arriba: para volver a mostrarlo alcanza
-        // con devolver este bloque.
+        // No FAB. The "+" used to open "add by archive.org identifier", deleted along with the
+        // rest of archive.org: content now comes in through search. It covered home content
+        // floating on top, which is expensive for a button nobody taps.
         //
         // Sin bottomBar: la barra de "reproduciendo en la TV/Chromecast" dependía de
         // NowPlayingCoordinator/RemoteController, borrados en Task 5 junto con el resto del pareo.
@@ -356,15 +352,6 @@ fun ArkivRoot(
                         deepLinkEpisode = episode,
                     )
                 }
-            }
-            composable("add") {
-                AddScreen(
-                    onBack = { navController.popBackStack() },
-                    onAdded = { id ->
-                        navController.popBackStack()
-                        navController.navigate("detail/${Uri.encode(id)}")
-                    },
-                )
             }
             composable("detail/{itemId}") { entry ->
                 val itemId = Uri.decode(entry.arguments?.getString("itemId").orEmpty())

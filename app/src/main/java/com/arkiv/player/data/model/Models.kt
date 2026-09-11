@@ -1,13 +1,6 @@
 package com.arkiv.player.data.model
 
-/** Una variante concreta de archivo de video dentro de un ítem de archive.org. */
-data class VideoVariant(
-    val path: String,        // ruta dentro del ítem, ej "carpeta/video.mkv"
-    val format: String,      // "Matroska", "h.264", ...
-    val sizeBytes: Long,
-)
-
-/** Un episodio/video lógico: agrupa el original (mkv) y su derivado (mp4). */
+/** Un episodio/video lógico. */
 data class Episode(
     val id: String,          // estable: "<identifier>::<claveBase>"
     val itemId: String,      // identifier del ítem
@@ -16,8 +9,6 @@ data class Episode(
     val orderIndex: Int,     // orden natural dentro del ítem
     val durationSeconds: Double,
     val thumbPath: String?,  // ruta de miniatura en .thumbs (o null)
-    val original: VideoVariant?,   // mejor calidad (mkv) — puede faltar
-    val derivative: VideoVariant?, // mp4 h.264 (compatible con Cast) — puede faltar
     /**
      * De dónde salió este episodio, cuando la fuente lo identifica: la pageUrl del capítulo si es
      * web (`ArkivRepository.addWebSeriesEpisode`) o el magnet si es torrent
@@ -28,22 +19,14 @@ data class Episode(
      */
     val sourceRef: String? = null,
     /**
-     * Temporada y capítulo, cuando el nombre del archivo los declara (ver
-     * [com.arkiv.player.data.MetadataParser.episodeNumberOf]). Null cuando no se pueden deducir.
-     * Sirven para pedirle a TMDB el título real del capítulo: el nombre del episodio no está ni
-     * en archive.org ni en el mirror, solo su número.
+     * Season and chapter number, set by the source when it builds the episode (see
+     * `MagisEntities`/`DituEntities`). Null when the source doesn't provide them. Used to ask
+     * TMDB for the chapter's real title: neither Magis nor Caracol return the episode name, only
+     * its number.
      */
     val season: Int? = null,
     val episode: Int? = null,
-) {
-    /** Variante preferida para reproducir localmente: original si existe. */
-    val playbackVariant: VideoVariant?
-        get() = original ?: derivative
-
-    /** Variante para Chromecast: siempre el mp4 compatible si existe. */
-    val castVariant: VideoVariant?
-        get() = derivative ?: original
-}
+)
 
 /**
  * Temporada/capítulo de un episodio de serie, deducidos de los textos con los que se guardó
@@ -96,22 +79,3 @@ object EpisodeNumbering {
         return if (temporada != null) "T$temporada · E$episodio" else "E$episodio"
     }
 }
-
-/** Un ítem de archive.org con sus videos ya agrupados. */
-data class ArchiveItem(
-    val identifier: String,
-    val title: String,
-    val description: String?,
-    val thumbnailUrl: String,
-    val episodes: List<Episode>,
-)
-
-/** Archivo crudo del JSON de metadata (antes de agrupar). Facilita testear el parser. */
-data class RawFile(
-    val name: String,
-    val source: String,      // "original" | "derivative" | "metadata"
-    val format: String,
-    val original: String?,   // para derivados: nombre del archivo original
-    val sizeBytes: Long,
-    val lengthSeconds: Double,
-)

@@ -13,8 +13,7 @@ class EspacioEnDiscoTest {
 
     private val GB = 1L shl 30
 
-    // Ojo: es `data.model.Episode` (el del dominio), NO `db.EpisodeEntity`. Sus variantes de video
-    // son objetos (`original`/`derivative`), no columnas sueltas.
+    // Ojo: es `data.model.Episode` (el del dominio), NO `db.EpisodeEntity`.
     private fun episodio(id: String) = Episode(
         id = id,
         itemId = "item",
@@ -23,8 +22,6 @@ class EspacioEnDiscoTest {
         orderIndex = 0,
         durationSeconds = 0.0,
         thumbPath = null,
-        original = null,
-        derivative = null,
     )
 
     private fun bajado(id: String, bytesDone: Long) = GroupedEpisode(

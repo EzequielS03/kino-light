@@ -41,9 +41,7 @@ class BuscadorDeCapitulos(
         for (serie in elegidas) {
             nuevos += runCatching {
                 when (serie.fuente) {
-                    "archive" -> revisarArchive(serie)
                     "magis" -> revisarMagis(serie)
-                    "web" -> revisarWeb(serie)
                     else -> 0
                 }
             }.getOrElse { e ->
@@ -54,23 +52,6 @@ class BuscadorDeCapitulos(
         }
         Log.i(TAG, "listo: $nuevos capítulo(s) nuevo(s)")
         nuevos
-    }
-
-    /**
-     * Archive es la barata: `refreshItem` ya re-lee `/metadata/` y reemplaza los episodios con lo
-     * que haya ahora, así que los nuevos aparecen solos. Lo único que faltaba era llamarlo sin
-     * tener que abrir el detalle.
-     */
-    private suspend fun revisarArchive(serie: SerieCandidata): Int {
-        val antes = serie.episodios
-        repo.refreshItem(serie.itemId).onFailure {
-            Log.i(TAG, "archive ${serie.itemId}: no se pudo refrescar (${it.message})")
-            return 0
-        }
-        val despues = itemDao.getEpisodesOf(serie.itemId).count { !it.deleted }
-        val nuevos = (despues - antes).coerceAtLeast(0)
-        if (nuevos > 0) Log.i(TAG, "archive ${serie.itemId}: +$nuevos")
-        return nuevos
     }
 
     /**
@@ -136,21 +117,6 @@ class BuscadorDeCapitulos(
         .removePrefix("magis:")
         .substringBefore(":e")
         .takeIf { it.isNotBlank() && itemId.startsWith("magis:") }
-
-    /**
-     * TODO(web): pendiente, y es la más cara de las tres.
-     *
-     * El gateway no expone lista de capítulos para web, así que hace falta: (1) preguntarle a la
-     * metadata (TMDB/Cinemeta) qué episodios existen en la temporada en curso, (2) acotar con
-     * [CapitulosFaltantes] a los posteriores al máximo que ya se tiene, y (3) por cada uno,
-     * `gateway.search(tmdbId, season, episode, sources = "web")` y `addWebSeriesEpisode` si hay
-     * resultado. Ver Task 5 del plan
-     * `docs/superpowers/plans/2026-08-10-capitulos-nuevos-en-series-seguidas.md`.
-     */
-    private fun revisarWeb(serie: SerieCandidata): Int {
-        Log.i(TAG, "web ${serie.itemId}: todavía no implementado (Task 5 del plan)")
-        return 0
-    }
 
     private companion object {
         const val TAG = "ArkivNuevos"

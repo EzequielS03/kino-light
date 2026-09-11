@@ -3,28 +3,21 @@ package com.arkiv.player.data.local
 import com.arkiv.player.data.db.DownloadRow
 
 /**
- * Encuentra la descarga que le corresponde a una FUENTE del buscador.
+ * Finds the download that matches a source-search result row.
  *
- * En la biblioteca cada fila ya es un capítulo y se busca por `episodeId`. En el buscador no: una
- * fila es una fuente (un release, un resultado web, un ítem de archive.org) y el capítulo recién
- * existe cuando alguien lo baja. Así que se busca por lo que la fila SÍ sabe de antemano:
+ * In the library each row is already a chapter and is looked up by `episodeId`. In the search
+ * screen it isn't: a row is a source (a release, a web result) and the chapter only exists once
+ * someone downloads it. So it's looked up by what the row already knows beforehand:
  *
- * - **web**: la URL de su página, que se guarda tal cual en `episodes.torrentData`.
- * - **archive**: el identifier del ítem, que ES el `itemId` de sus capítulos.
+ * - **web**: its page URL, stored as-is in `episodes.torrentData`.
  *
- * Devuelve la FILA, no solo el estado: cancelar o borrar necesitan el `episodeId`, que es
- * justamente lo que la pantalla no podía saber sola.
- *
- * Cuando varias filas matchean (un ítem de archive con varios capítulos encolados) gana la más
- * avanzada: para una fila que resume un ítem entero, "una está bajando" dice más que "una espera".
+ * Returns the ROW, not just the state: canceling or deleting needs the `episodeId`, which is
+ * exactly what the screen couldn't know on its own.
  */
 object DescargasPorFuente {
 
     fun deWeb(filas: List<DownloadRow>, pageUrl: String?): DownloadRow? =
         resumir(filas.filter { !pageUrl.isNullOrBlank() && it.sourceRef == pageUrl })
-
-    fun deArchive(filas: List<DownloadRow>, identifier: String?): DownloadRow? =
-        resumir(filas.filter { !identifier.isNullOrBlank() && it.itemId == identifier })
 
     /**
      * Prioridad: lo que está en curso manda sobre lo que espera, y lo que espera manda sobre lo ya

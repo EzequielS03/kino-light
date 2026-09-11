@@ -59,8 +59,7 @@ siendo la app completa (torrent+web+archive+Magis+Ditu+RCN, con login PocketBase
 
   (En una máquina donde un hook intercepte `grep`, córrelo como `command grep`: el hook puede
   recortar la salida sin avisar. Va a salir ruido que no es una llamada de red real: URLs de ejemplo
-  en comentarios/KDoc o en el texto de ayuda de un campo (`AddScreen`),
-  namespaces XML del cliente DLNA, `127.0.0.1` de los proxies locales. Cualquier host nuevo que SÍ
+  en comentarios/KDoc, namespaces XML del cliente DLNA, `127.0.0.1` de los proxies locales. Cualquier host nuevo que SÍ
   sea una llamada real y no esté en la lista de ocho es justo lo que este barrido existe para
   atrapar.)
 

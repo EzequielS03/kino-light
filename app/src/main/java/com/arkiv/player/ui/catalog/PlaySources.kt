@@ -93,39 +93,6 @@ fun MetaChip(text: String, color: Color = ArkivTextSecondary, strong: Boolean = 
     }
 }
 
-/**
- * Sección colapsable por tipo de fuente (MAGIS/ARCHIVE) con contador y spinner propio.
- * [descargaDe], si no es null, le da a cada fila su control de descarga: el mismo de la biblioteca,
- * con cola, progreso, cancelar y borrar. El archivo final queda en el celular, no en la NUC.
- */
-@Composable
-fun SourceSection(
-    tag: String,
-    tagColor: Color,
-    items: List<PlaySource>,
-    loading: Boolean,
-    expanded: Boolean,
-    onToggle: () -> Unit,
-    enabled: Boolean,
-    descargaDe: ((PlaySource) -> DescargaDeFila?)? = null,
-    onPlay: (PlaySource) -> Unit,
-) {
-    Column(Modifier.padding(top = 4.dp)) {
-        SourceSectionHeader(tag, tagColor, items.size, loading, expanded, onToggle)
-        if (expanded) {
-            items.forEach { s ->
-                SourceRow(s, enabled = enabled, descarga = descargaDe?.invoke(s)) { onPlay(s) }
-            }
-            if (items.isEmpty() && !loading) {
-                Text(
-                    "Sin resultados", color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.padding(start = 8.dp, bottom = 8.dp),
-                )
-            }
-        }
-    }
-}
-
 /** Cabecera de una sección, aparte para poder usarla suelta dentro de un LazyColumn. */
 @Composable
 fun SourceSectionHeader(

@@ -25,7 +25,7 @@ class EtiquetaDeCapituloTest {
         section: String = "",
     ) = Episode(
         id = id, itemId = itemId, section = section, displayName = displayName, orderIndex = orderIndex,
-        durationSeconds = 0.0, thumbPath = null, original = null, derivative = null,
+        durationSeconds = 0.0, thumbPath = null,
         season = season, episode = episode,
     )
 

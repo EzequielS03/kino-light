@@ -1,17 +1,15 @@
 package com.arkiv.player.data.nuevos
 
 /**
- * Cuántos capítulos nuevos mostrar en el badge de una serie de la biblioteca.
+ * How many new chapters to show in a library series' badge.
  *
- * **Por qué no se cuenta con fechas**, que es lo primero que uno intentaría: `EpisodeEntity` no
- * guarda fecha de alta — solo tiene `updatedAt`, que es el reloj LWW del sync. Y `refreshItem()`
- * reemplaza el ítem con `replaceItem`, que **borra y re-inserta TODOS los episodios**. O sea que
- * después de cualquier refresco los 26 capítulos tendrían `updatedAt` recién puesto y el badge
- * diría "26 nuevos" cada vez. Cualquier diseño basado en timestamps de episodio nace roto acá.
+ * **Why this doesn't count by date**, the obvious first attempt: `EpisodeEntity` doesn't store a
+ * creation date — it only has `updatedAt`, which is the sync LWW clock, and any write that
+ * touches an episode row bumps it. Any design based on episode timestamps starts broken here.
  *
- * Así que se cuenta contra **lo que ya viste listado**: el conteo de episodios que tenía la serie
- * la última vez que abriste su detalle. La diferencia contra el conteo de ahora es lo que apareció
- * desde entonces, sin depender de relojes que se pisan.
+ * So it's counted against **what was already listed**: the episode count the series had the last
+ * time its detail was opened. The difference against the current count is what appeared since
+ * then, without depending on clocks that get overwritten.
  */
 object ContadorDeNuevos {
 

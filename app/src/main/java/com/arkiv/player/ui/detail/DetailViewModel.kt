@@ -46,16 +46,13 @@ class DetailViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     init {
-        // El refresh necesita saber QUÉ ítem refrescar, y eso llega con el primer valor de
-        // selectedId (viene de la DB, no es inmediato). filterNotNull().first() evita refrescar
-        // null y evita que el detalle quede sin recargar si el grupo tarda en resolverse.
+        // Marking chapters as seen needs to know WHICH item to mark, and that arrives with the
+        // first value of selectedId (it comes from the DB, not immediate). filterNotNull().first()
+        // skips a null id and avoids marking nothing if the group takes a moment to resolve.
         viewModelScope.launch {
             val id = selectedId.filterNotNull().first()
-            repo.refreshItem(id)
-            // Abrir el detalle ES ver la lista: acá se apaga el badge de novedades. Va DESPUÉS del
-            // refresco para que los capítulos que este mismo refresco acaba de traer queden
-            // contados como vistos —el usuario los tiene en pantalla— y no como una novedad que ya
-            // se le mostró. Ver ContadorDeNuevos.
+            // Opening the detail IS seeing the list: this is where the "new chapters" badge turns
+            // off. See ContadorDeNuevos.
             repo.marcarCapitulosVistos(id)
         }
     }
@@ -83,10 +80,5 @@ class DetailViewModel(
     fun rename(title: String) {
         val id = selectedId.value ?: return
         viewModelScope.launch { repo.renameItem(id, title) }
-    }
-
-    fun refresh() {
-        val id = selectedId.value ?: return
-        viewModelScope.launch { repo.refreshItem(id) }
     }
 }

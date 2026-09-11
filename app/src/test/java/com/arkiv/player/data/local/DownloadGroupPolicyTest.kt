@@ -16,8 +16,6 @@ class DownloadGroupPolicyTest {
         orderIndex = order,
         durationSeconds = 0.0,
         thumbPath = null,
-        original = null,
-        derivative = null,
     )
 
     private fun row(

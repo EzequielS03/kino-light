@@ -22,12 +22,12 @@ data class ItemEntity(
     val updatedAt: Long = 0,
     val deleted: Boolean = false,
     /**
-     * Cuántos episodios tenía esta serie la última vez que se abrió su detalle. Es la base del
-     * badge de "hay capítulos nuevos": la diferencia contra el conteo de ahora es lo que apareció
-     * desde entonces. Ver [com.arkiv.player.data.nuevos.ContadorDeNuevos] para por qué se cuenta
-     * así y no con fechas (spoiler: `refreshItem` re-inserta TODOS los episodios).
+     * How many episodes this series had the last time its detail was opened. It's the base of
+     * the "new chapters" badge: the difference against the current count is what appeared since
+     * then. See [com.arkiv.player.data.nuevos.ContadorDeNuevos] for why it's counted this way and
+     * not by date.
      *
-     * `null` = nunca se abrió desde que existe el contador, y NO pinta badge.
+     * `null` = never opened since this counter exists, and does NOT paint a badge.
      */
     val episodiosVistosEnLista: Int? = null,
     /**
@@ -80,10 +80,10 @@ data class EpisodeEntity(
     val derivativeFormat: String?,
     val derivativeSize: Long,
     /**
-     * Temporada y capítulo deducidos del nombre del archivo (ver `MetadataParser.episodeNumberOf`).
-     * Con esto y el `tmdbId` del ítem se le puede pedir a TMDB el título real del capítulo: el
-     * nombre del episodio no está ni en archive.org ni en el mirror, solo su número.
-     * Null cuando el nombre no declara numeración, y en las filas guardadas antes de la v16.
+     * Season and chapter, set by the source when it builds the episode (see
+     * `MagisEntities`/`DituEntities`). With this and the item's `tmdbId`, TMDB can be asked for
+     * the chapter's real title: neither Magis nor Caracol return the episode name, only its
+     * number. Null when the source doesn't provide them, and in rows saved before v16.
      */
     val season: Int? = null,
     val episode: Int? = null,

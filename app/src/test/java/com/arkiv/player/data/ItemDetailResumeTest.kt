@@ -17,7 +17,7 @@ class ItemDetailResumeTest {
 
     private fun ep(n: Int) = Episode(
         id = "magis:ABC::e$n", itemId = "magis:ABC", section = "", displayName = "E$n",
-        orderIndex = n, durationSeconds = 0.0, thumbPath = null, original = null, derivative = null,
+        orderIndex = n, durationSeconds = 0.0, thumbPath = null,
         season = null, episode = n,
     )
 

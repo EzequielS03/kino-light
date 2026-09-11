@@ -166,7 +166,5 @@ object DownloadGroupPolicy {
         orderIndex = 0,
         durationSeconds = 0.0,
         thumbPath = thumbPath,
-        original = null,
-        derivative = null,
     )
 }
