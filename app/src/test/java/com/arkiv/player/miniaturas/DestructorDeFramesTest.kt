@@ -60,10 +60,11 @@ class DestructorDeFramesTest {
     }
 
     /**
-     * Regresión del hallazgo crítico de revisión: `savePlayback` llama `destruir` en CADA tick del
-     * reproductor (~5 s) mientras el capítulo siga visto, sin ninguna guarda. Si cada llamada
-     * reescribiera `updatedAt` con el reloj del momento, el loop de push (que mira `updatedAt >
-     * cursor`) empujaría la misma fila a PocketBase sin parar durante todo el resto del capítulo.
+     * Regression from a critical review finding: `savePlayback` calls `destruir` on EVERY player
+     * tick (~5 s) while the chapter stays watched, with no guard of its own. If every call
+     * rewrote `updatedAt` with the clock at that moment, it would needlessly invalidate the
+     * `episode_frame`-driven "Continue watching" Flow the rest of the chapter -- and, before
+     * Task 5, would also have kept re-queuing the same row for the push to PocketBase.
      */
     @Test
     fun `destruir dos veces seguidas no reescribe el updatedAt la segunda vez`() = runBlocking {

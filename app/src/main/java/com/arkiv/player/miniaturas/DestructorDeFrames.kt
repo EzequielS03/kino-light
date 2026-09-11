@@ -23,27 +23,32 @@ class DestructorDeFrames(
     private val ahora: () -> Long = { System.currentTimeMillis() },
 ) {
     /**
-     * Se puede (y hay que poder) llamar de más sin preguntar antes si el frame existe:
-     * `savePlayback` la dispara en CADA tick del reproductor (cada ~5 s, mientras `watched` siga
-     * en `true`) sin ninguna guarda propia, así que esto se repite muchas veces por capítulo.
+     * Can (and needs to) be called more than necessary without checking first whether the frame
+     * exists: `savePlayback` fires it on EVERY player tick (~5 s, as long as `watched` stays
+     * `true`) with no guard of its own, so this repeats many times per chapter.
      *
-     * `AlmacenDeFrames.borrar` (usa `File.delete()`, no lanza si no hay archivo) siempre fue
-     * segura de invocar de más, y sigue corriendo en cada llamada. La FILA ya NO: escribir el
-     * tombstone en cada llamada pisaría `updatedAt` con el reloj local en cada tick, y como el
-     * loop de push mira `updatedAt > cursor` para decidir qué empujar, eso mandaría la misma fila
-     * a PocketBase cada ~5 s sostenidos durante todo el resto del capítulo — nada de esto es un
-     * caso borde, es el camino más común (ver más abajo). Por eso se lee la fila primero
-     * ([EpisodeFrameDao.getIncluyendoBorradas], que ve también los tombstones) y si YA es
-     * tombstone (`deleted == 1`) no se toca: el sello (`upsert` con `updatedAt` nuevo) pasa UNA
-     * sola vez, la que hace la transición de vivo a borrado.
+     * `AlmacenDeFrames.borrar` (uses `File.delete()`, doesn't throw if there's no file) was always
+     * safe to call redundantly, and still runs on every call. The ROW is not: writing the tombstone
+     * on every call would stamp `updatedAt` with the local clock on every tick, and this row lives
+     * in `episode_frame`, the table that triggers [EpisodeFrameDao.observeTodos] -the only Flow
+     * that notices a new frame for "Continue watching" (see its own KDoc)-, so rewriting it every
+     * ~5 sustained seconds for the rest of the chapter would needlessly invalidate that home row --
+     * none of this is an edge case, it's the most common path (see below). (Until Task 5 this would
+     * also have re-queued the row for the push to PocketBase; that push -and PocketBase itself-
+     * were removed entirely in that pruning, so it no longer applies, but the reason not to
+     * over-write still stands because of the Flow invalidation.) That's why the row is read first
+     * ([EpisodeFrameDao.getIncluyendoBorradas], which also sees tombstones), and if it's ALREADY a
+     * tombstone (`deleted == 1`) it's left alone: the seal (`upsert` with a fresh `updatedAt`)
+     * happens exactly ONCE, the one that makes the live-to-deleted transition.
      *
-     * El archivo se borra de verdad, pero la FILA no desaparece: se deja tombstone (`deleted = 1`,
-     * `updatedAt` nuevo) en vez de un `DELETE`, para que el borrado viaje por el sync — una fila
-     * que desaparece de Room no tiene nada que empujar a PocketBase ni forma de ganarle el LWW a
-     * una copia remota vieja. `positionMs`/`capturedAt` quedan en 0 y `remoteUrl` en null a
-     * propósito: una vez borrado el frame esos campos no significan nada (nadie los lee de una
-     * fila con `deleted = 1`) y guardar los valores previos exigiría leer la fila antes de
-     * pisarla, para un dato que no se usa.
+     * The file really is deleted, but the ROW doesn't disappear: a tombstone is left (`deleted = 1`,
+     * fresh `updatedAt`) instead of a `DELETE` -until Task 5 that was so the deletion would travel
+     * through sync; without cloud sync there's nobody left to tell, but the tombstone is kept
+     * anyway because it's still the signal [EpisodeFrameDao.getIncluyendoBorradas] uses to avoid
+     * over-writing (see above)-. `positionMs`/`capturedAt` stay at 0 and `remoteUrl` at null on
+     * purpose: once the frame is deleted those fields mean nothing (nobody reads them off a row
+     * with `deleted = 1`), and keeping the previous values would require reading the row before
+     * overwriting it, for data nothing uses.
      */
     suspend fun destruir(episodeId: String) {
         // Se borra el archivo SIEMPRE, incluso si la fila ya es tombstone: puede haber quedado un

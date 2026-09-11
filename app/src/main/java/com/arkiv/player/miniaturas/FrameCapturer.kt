@@ -70,15 +70,16 @@ class FrameCapturer(
     /**
      * Escribe el archivo y la fila, salvo que el capítulo YA esté visto.
      *
-     * El chequeo va acá —después de comprimir, pegado a la escritura— y no al principio de
-     * [capturar], porque el problema es de CARRERA, no de intención: al salir del reproductor, el
-     * `onDispose` lanza `saveProgress` (que pasado el 60% marca visto y destruye el frame) e
-     * inmediatamente la captura. Como comprimir el JPEG cuesta decenas de ms, la captura aterriza
-     * ÚLTIMA: preguntar por `watched` al entrar daría "todavía no" y se escribiría igual, dejando el
-     * capítulo terminado con un frame vivo que ya nadie va a borrar (no quedan ticks del reproductor
-     * que vuelvan a llamar al destructor) — y desde la fase 2 eso se sube a PocketBase y se propaga
-     * a los demás aparatos. Rompía además el invariante del que vive `EleccionDeMiniatura`: el frame
-     * solo existe si el capítulo se empezó.
+     * The check happens here -after compressing, right next to the write- and not at the start of
+     * [capturar], because the problem is a RACE, not intent: on leaving the player, `onDispose`
+     * fires `saveProgress` (which marks watched and destroys the frame past 60%) and the capture
+     * immediately after. Since compressing the JPEG costs tens of ms, the capture lands LAST:
+     * checking `watched` on entry would answer "not yet" and it would write anyway, leaving the
+     * finished chapter with a live frame nobody will ever delete (no more player ticks are left to
+     * call the destructor again) -- before Task 5 that frame would also get uploaded to PocketBase
+     * and propagated to other devices; without cloud sync the damage stays contained to this
+     * device, but it's still an orphan frame that breaks the invariant `EleccionDeMiniatura` lives
+     * on: a frame only exists if the chapter was started.
      *
      * Se lee `playback` y no la propia `episode_frame`: el tombstone del destructor podría no
      * haberse escrito todavía, mientras que el visto es el hecho que lo origina.

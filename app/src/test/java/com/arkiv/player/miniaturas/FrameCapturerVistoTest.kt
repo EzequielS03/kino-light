@@ -20,12 +20,13 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * Un capítulo YA VISTO no puede quedarse con un frame.
+ * A chapter that's ALREADY WATCHED can't be left with a frame.
  *
- * Al salir del reproductor, el `onDispose` lanza `saveProgress` (que pasado el 60% marca visto y
- * destruye el frame) e inmediatamente la captura; como comprimir el JPEG cuesta decenas de ms, la
- * captura aterriza última y dejaba el capítulo terminado con un frame VIVO que ya nadie iba a
- * borrar. Desde la fase 2 eso además se sube a PocketBase y se propaga.
+ * On leaving the player, `onDispose` fires `saveProgress` (which marks watched and destroys the
+ * frame past 60%) and the capture right after; since compressing the JPEG costs tens of ms, the
+ * capture lands last and left the finished chapter with a LIVE frame nobody was going to delete.
+ * Before Task 5 that would also get uploaded to PocketBase and propagated; without cloud sync it's
+ * now an orphan local frame, still exactly what this guard exists to stop.
  *
  * Se ejerce [FrameCapturer.publicar] y no `capturar`: esa necesita un `TextureView`, que no existe
  * fuera de un dispositivo. Es el mismo punto donde vive la guarda.
