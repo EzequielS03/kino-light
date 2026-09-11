@@ -5,7 +5,7 @@ import java.io.File
 /** Resultado de intentar bajar un episodio. */
 sealed interface DownloadOutcome {
     data class Done(val file: File) : DownloadOutcome
-    /** Legado del gate de tamaño de torrent (fuente borrada en la poda de esta rama): hoy ninguna estrategia lo devuelve. */
+    /** Legacy of the torrent size gate (source removed in this branch's pruning): no strategy returns this today. */
     data class NeedsConfirmation(val fileSizeBytes: Long) : DownloadOutcome
     /**
      * [transient] = "esto puede andar en un rato" (corte de red, 5xx, torrent en uso). El worker lo

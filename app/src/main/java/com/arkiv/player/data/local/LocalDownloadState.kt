@@ -7,9 +7,9 @@ package com.arkiv.player.data.local
  */
 object LocalDownloadState {
     const val QUEUED = "queued"
-    /** Legado del gate de tamaño de torrent (fuente borrada en la poda de esta rama): hoy ninguna estrategia lo devuelve. */
+    /** Legacy of the torrent size gate (source removed in this branch's pruning): no strategy returns this today. */
     const val NEEDS_CONFIRMATION = "needs_confirmation"
-    /** Legado: la fase de staging del ahora-removido source web+NUC. Nada escribe este estado hoy, pero la UI todavía lo reconoce. */
+    /** Legacy: the staging phase of the now-removed web+NUC source. Nothing writes this state today, but the UI still recognizes it. */
     const val STAGING = "staging"
     const val DOWNLOADING = "downloading"
     const val COMPLETED = "completed"

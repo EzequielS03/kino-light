@@ -41,8 +41,8 @@ data class EpisodeOrigin(val episodeId: String, val torrentFileIndex: Int?)
  *   comparing it across items would be straight-up wrong. None of those get a key, i.e. no check
  *   -- they don't need one.
  *
- * Puro y sin Room, como [DownloadQueuePolicy]/[FreeSpacePolicy]: la consulta la
- * hace [LocalDownloadManager] y la decisión se toma acá.
+ * Pure and Room-free, like [DownloadQueuePolicy]/[FreeSpacePolicy]: [LocalDownloadManager] runs
+ * the query and the decision is made here.
  */
 object DuplicateDownloadPolicy {
 

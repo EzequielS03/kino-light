@@ -40,8 +40,8 @@ data class DownloadGroup(
 
 /**
  * Agrupa la cola de descargas por ítem y arma el resumen de cada cabecera ("3 de 24 guardados · 1
- * bajando"). Puro: no toca Room ni WorkManager, así se testea en la JVM sin Robolectric (misma
- * convención que [DownloadQueuePolicy]/[FreeSpacePolicy]/[StagingProgress]).
+ * bajando"). Pure: doesn't touch Room or WorkManager, so it's tested on the JVM without
+ * Robolectric (same convention as [DownloadQueuePolicy]/[FreeSpacePolicy]/[StagingProgress]).
  */
 object DownloadGroupPolicy {
 

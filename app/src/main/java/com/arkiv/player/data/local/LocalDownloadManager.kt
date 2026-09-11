@@ -99,7 +99,7 @@ class LocalDownloadManager(
         EnqueueOutcome.QUEUED
     }
 
-    /** El usuario aceptó una descarga que superaba el umbral de tamaño. Legado del gate de torrent (fuente borrada en la poda de esta rama): hoy nada dispara este estado. */
+    /** The user accepted a download that exceeded the size threshold. Legacy of the torrent gate (source removed in this branch's pruning): nothing triggers this state today. */
     suspend fun confirmSize(episodeId: String) = withContext(Dispatchers.IO) {
         downloadDao.markConfirmed(episodeId)
         wakeWorker(appContext)
@@ -121,13 +121,14 @@ class LocalDownloadManager(
     }
 
     /**
-     * DETIENE una descarga en curso sin borrar nada: la fila queda `failed` con motivo "Cancelada"
-     * y el `.part` intacto, así que "Reintentar" reanuda desde donde iba en vez de empezar de cero.
+     * STOPS an in-progress download without deleting anything: the row is left `failed` with reason
+     * "Cancelada" and the `.part` intact, so "Reintentar" resumes from where it left off instead of
+     * starting from zero.
      *
      * Cómo llega la señal hasta la estrategia: no hay canal directo con el worker, así que se corta
-     * el worker entero ([restartWorker], que es un `enqueueUniqueWork` con REPLACE). La corrutina
-     * recibe la cancelación y el descargador HTTP corta el bucle de escritura en su
-     * `ensureActive()`. La pasada nueva que REPLACE deja encolada toma la siguiente fila de la cola.
+     * el worker entero ([restartWorker], que es un `enqueueUniqueWork` con REPLACE). The coroutine
+     * receives the cancellation and the HTTP downloader breaks its write loop at its
+     * `ensureActive()`. The new pass that REPLACE queues up picks up the next row in the queue.
      *
      * Solo corta si esta fila es la que está en vuelo: la cola es de UNA a la vez, así que una fila
      * en `downloading`/`staging` ES la que está corriendo, y una en `queued` no está corriendo nada
@@ -144,9 +145,9 @@ class LocalDownloadManager(
     }
 
     /**
-     * Borra la fila y el archivo (y el parcial, si quedó a medias). Si la descarga está corriendo,
-     * primero la DETIENE: sin eso la estrategia seguía trabajando sobre una fila que ya no existe —
-     * la descarga HTTP seguía gastando datos móviles escribiendo a un inode ya desenlazado.
+     * Borra la fila y el archivo (y el parcial, si quedó a medias). If the download is running, it
+     * STOPS it first: without that, the strategy kept working on a row that no longer exists — the
+     * HTTP downloader kept spending mobile data writing to an already-unlinked inode.
      */
     suspend fun remove(episodeId: String) = withContext(Dispatchers.IO) {
         val row = downloadDao.get(episodeId)
