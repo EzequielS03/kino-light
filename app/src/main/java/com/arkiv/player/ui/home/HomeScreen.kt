@@ -3,6 +3,7 @@ package com.arkiv.player.ui.home
 import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -38,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -222,7 +225,47 @@ fun HomeScreen(
         }
     }
 
+    val listState = rememberLazyListState()
+
+    // Whether the person has scrolled the list by hand. rememberSaveable so it survives coming
+    // back from a detail screen with the same value -- once true, the auto-snap below never fires
+    // again for this screen instance. Only a real drag/fling sets it: `isScrollInProgress` is also
+    // true during the auto-snap's own `scrollToItem`, so it can't be used to tell the two apart.
+    var userScrolled by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(listState) {
+        listState.interactionSource.interactions.collect { interaction ->
+            if (interaction is DragInteraction.Start) userScrolled = true
+        }
+    }
+
+    // Shape of the top sections right now (see TopSectionsSignature/shouldSnapHomeToTop): those
+    // sections are always-present, stably-keyed items below, but they still grow from zero height
+    // to their real content as their data loads. While the person hasn't scrolled, snap back to
+    // the top whenever that shape changes -- the safety net for staying at the top of the list.
+    val topSectionsSignature = TopSectionsSignature(
+        heroVisible = continueWatching.firstOrNull() != null || rowItems["tendencias"]?.firstOrNull() != null,
+        continuarCount = (continueWatching.size - 1).coerceAtLeast(0),
+        canalesCount = canalesFila.size,
+        bibliotecaCount = bibliotecaOrdenada.size,
+    )
+    var lastTopSectionsSignature by remember { mutableStateOf<TopSectionsSignature?>(null) }
+    LaunchedEffect(topSectionsSignature, userScrolled) {
+        val signatureChanged = topSectionsSignature != lastTopSectionsSignature
+        lastTopSectionsSignature = topSectionsSignature
+        if (
+            shouldSnapHomeToTop(
+                userScrolled = userScrolled,
+                firstVisibleItemIndex = listState.firstVisibleItemIndex,
+                firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset,
+                signatureChanged = signatureChanged,
+            )
+        ) {
+            listState.scrollToItem(0)
+        }
+    }
+
     LazyColumn(
+        state = listState,
         contentPadding = PaddingValues(
             top = contentPadding.calculateTopPadding(),
             bottom = contentPadding.calculateBottomPadding() + 24.dp,
@@ -230,7 +273,10 @@ fun HomeScreen(
         modifier = Modifier.fillMaxSize(),
     ) {
         // 1. Hero: lo último visto, o si no hay nada en curso, la tendencia #1 (si ya cargó).
-        item {
+        // Always-present, keyed item (renders nothing until it has data) -- see TopSectionsSignature:
+        // an unkeyed, conditionally-emitted item here is what let this section get inserted ABOVE the
+        // already-visible, keyed remote rows and land the person mid-list.
+        item(key = "hero") {
             val heroContinue = continueWatching.firstOrNull()
             if (heroContinue != null) {
                 val backdrop = EleccionDeMiniatura.elegir(
@@ -286,9 +332,10 @@ fun HomeScreen(
             }
         }
 
-        // 2. Continuar viendo (el resto, sin repetir el hero).
-        if (continueWatching.size > 1) {
-            item {
+        // 2. Continuar viendo (el resto, sin repetir el hero). Always-present, keyed item -- ver
+        // el comentario del hero arriba.
+        item(key = "continuar") {
+            if (continueWatching.size > 1) {
                 Column(Modifier.padding(top = 16.dp)) {
                     SectionHeader("Continuar viendo", modifier = Modifier.padding(start = 16.dp))
                     LazyRow(
@@ -323,9 +370,10 @@ fun HomeScreen(
         // 3. Canales en vivo -- acceso directo sin pasar por "En vivo": lo último visto a la
         // izquierda, después los canales del país sin repetir los ya vistos, y al final la salida
         // a la parrilla completa (ver `filaDeCanalesDelHome`). Sin nada que mostrar, la fila no se
-        // dibuja: nada de un hueco vacío.
-        if (canalesFila.isNotEmpty()) {
-            item {
+        // dibuja: nada de un hueco vacío. Always-present, keyed item -- ver el comentario del hero
+        // arriba.
+        item(key = "canales") {
+            if (canalesFila.isNotEmpty()) {
                 Column(Modifier.padding(top = 16.dp)) {
                     SectionHeader("Canales en vivo", modifier = Modifier.padding(start = 16.dp))
                     LazyRow(
@@ -345,9 +393,10 @@ fun HomeScreen(
             }
         }
 
-        // 4. Mi biblioteca (con "Ver todo" hacia la grilla completa).
-        if (bibliotecaOrdenada.isNotEmpty()) {
-            item {
+        // 4. Mi biblioteca (con "Ver todo" hacia la grilla completa). Always-present, keyed item --
+        // ver el comentario del hero arriba.
+        item(key = "biblioteca") {
+            if (bibliotecaOrdenada.isNotEmpty()) {
                 Column(Modifier.padding(top = 16.dp)) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
