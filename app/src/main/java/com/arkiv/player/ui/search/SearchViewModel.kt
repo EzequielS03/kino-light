@@ -43,9 +43,6 @@ class SearchViewModel(
     private val _titleResults = MutableStateFlow<List<TitleCard>>(emptyList())
     val titleResults: StateFlow<List<TitleCard>> = _titleResults.asStateFlow()
 
-    private val _directResults = MutableStateFlow<List<PlaySource>>(emptyList())
-    val directResults: StateFlow<List<PlaySource>> = _directResults.asStateFlow()
-
     private val _loadingTitles = MutableStateFlow(false)
     val loadingTitles: StateFlow<Boolean> = _loadingTitles.asStateFlow()
 
@@ -121,16 +118,11 @@ class SearchViewModel(
     fun forgetTitle(t: com.arkiv.player.data.RecentTitle) = enHistorial { searchHistory.removeTitle(t) }
     fun clearHistory() = enHistorial { searchHistory.clear() }
 
-    /**
-     * Launches the QUERY-phase search: TMDB + anime (title cards). It also always clears
-     * `directResults` to empty -- that used to be archive.org's search-as-you-type; see the
-     * comment further down where this function sets it.
-     */
+    /** Launches the QUERY-phase search: TMDB + anime (title cards). */
     fun search(q: String) {
         searchJob?.cancel()
         if (q.isBlank()) {
             _titleResults.value = emptyList()
-            _directResults.value = emptyList()
             _loadingTitles.value = false
             _loadingDirect.value = false
             return
@@ -164,8 +156,7 @@ class SearchViewModel(
             }
 
             // archive.org (búsqueda "directa") se borró en la poda de esta rama: no hay resultados
-            // directos que ofrecer, así que la sección queda vacía de una.
-            _directResults.value = emptyList()
+            // directos que ofrecer, así que el spinner de esa sección se apaga de una.
             _loadingDirect.value = false
 
             tmdbJob.join()

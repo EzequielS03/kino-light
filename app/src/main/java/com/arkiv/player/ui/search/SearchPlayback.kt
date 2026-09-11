@@ -2,9 +2,6 @@ package com.arkiv.player.ui.search
 
 import com.arkiv.player.AppGraph
 import com.arkiv.player.data.CapituloDeCaracol
-import com.arkiv.player.data.SeriesItemIds
-import com.arkiv.player.data.catalog.TmdbDetail
-import com.arkiv.player.ui.catalog.PlaySource
 
 /** Resultado de intentar preparar una reproducción: listo con episodeId, o falló con un mensaje
  *  para mostrar al usuario (mismos textos que mostraba SearchScreen antes de la extracción). */
@@ -16,7 +13,7 @@ sealed class PlaybackResult {
 /**
  * Resuelve una fuente elegida en el buscador (Magis o Caracol), la guarda en la biblioteca vía
  * [AppGraph.repository] y devuelve el episodeId listo para reproducir. Extraído VERBATIM de las
- * funciones locales que vivían en `SearchScreen` (playDirect, playArchiveResult, seriesIdFor) para
+ * funciones locales que vivían en `SearchScreen` (playArchiveResult, entre otras) para
  * que TV pueda reusar exactamente la misma lógica sin duplicarla. No-Compose a propósito: solo
  * necesita el grafo de dependencias, no estado de UI.
  *
@@ -24,22 +21,6 @@ sealed class PlaybackResult {
  * este helper solo resuelve+guarda y devuelve el resultado.
  */
 class SearchPlayback(private val graph: AppGraph) {
-
-    /**
-     * Plays a QUERY-phase "direct result": no card/season/episode chosen yet. This was archive.org's
-     * search-as-you-type results; that source (and the code that populated them) was removed with
-     * this branch's pruning, so `SearchViewModel.search()` now always publishes an empty list here
-     * (see its own comment) and this function currently has no reachable caller with a real source.
-     * The `when` branches (Magis/Ditu) are what it would resolve if `directResults` were ever
-     * populated again. Template: the original `playDirect`.
-     */
-    suspend fun playDirect(source: PlaySource): PlaybackResult {
-        val epId: String? = when (source) {
-            is PlaySource.Magis -> magisEpisodeId(source.result)
-            is PlaySource.Ditu -> dituEpisodeId(source.result)
-        }
-        return if (epId != null) PlaybackResult.Ready(epId) else PlaybackResult.Failed("No se pudo preparar la reproducción.")
-    }
 
     /**
      * Guarda un resultado de Magis y devuelve su episodeId.
@@ -274,16 +255,6 @@ class SearchPlayback(private val graph: AppGraph) {
         else PlaybackResult.Failed("No se pudo preparar el capítulo de Caracol.")
     }
 
-}
-
-/** Stable TMDB "series" id to group episodes (imdb if there is one, tmdb id otherwise), delegating
- *  the rule to [SeriesItemIds.canonicalSeriesId], which is where it lives for the whole app.
- *  internal (not private): it used to back the NUC download's seriesId in SearchScreen.kt
- *  (`downloadWholeSeries`, which called `addWholeWebSeries`) -- both removed with the rest of the
- *  NUC/web sources in this branch's pruning, so this function currently has no caller anywhere. */
-internal fun seriesIdFor(card: TitleCard, detail: TmdbDetail?): String = when {
-    detail != null -> SeriesItemIds.canonicalSeriesId(detail.imdbId, detail.id)
-    else -> "tmdb${card.tmdbId}"
 }
 
 /**

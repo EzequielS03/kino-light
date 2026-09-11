@@ -125,7 +125,6 @@ fun SearchScreen(
     )
     val phase by vm.phase.collectAsStateWithLifecycle()
     val titleResults by vm.titleResults.collectAsStateWithLifecycle()
-    val directResults by vm.directResults.collectAsStateWithLifecycle()
     val loadingTitles by vm.loadingTitles.collectAsStateWithLifecycle()
     val loadingDirect by vm.loadingDirect.collectAsStateWithLifecycle()
     val selected by vm.selected.collectAsStateWithLifecycle()
@@ -176,12 +175,6 @@ fun SearchScreen(
             is PlaybackResult.Ready -> onPlay(result.episodeId)
             is PlaybackResult.Failed -> playError = result.message
         }
-    }
-
-    fun playDirect(source: PlaySource) {
-        preparing = true
-        playError = null
-        scope.launch { applyResult(playback.playDirect(source)) }
     }
 
     fun playMagisResult(r: com.arkiv.player.data.gateway.GatewayResult) {
@@ -260,7 +253,6 @@ fun SearchScreen(
                 )
                 else -> QueryContent(
                     titleResults = titleResults,
-                    directResults = directResults,
                     loadingTitles = loadingTitles,
                     loadingDirect = loadingDirect,
                     onBuscarFuentesTexto = { q -> vm.buscarFuentesPorTexto(q) },
@@ -272,7 +264,6 @@ fun SearchScreen(
                         else vm.search(q)
                     },
                     onPickTitle = { card -> vm.pickTitle(card) },
-                    onPlayDirect = { playDirect(it) },
                     onForgetQuery = { vm.forgetQuery(it) },
                     onForgetTitle = { vm.forgetTitle(it) },
                     onClearHistory = { vm.clearHistory() },
@@ -353,7 +344,6 @@ fun SearchScreen(
 @Composable
 private fun QueryContent(
     titleResults: List<TitleCard>,
-    directResults: List<PlaySource>,
     loadingTitles: Boolean,
     loadingDirect: Boolean,
     /** Manda el texto TAL CUAL al wizard de fuentes, sin pasar por el catálogo (mismo camino
@@ -364,7 +354,6 @@ private fun QueryContent(
     recentTitles: List<RecentTitle>,
     onSearch: (String) -> Unit,
     onPickTitle: (TitleCard) -> Unit,
-    onPlayDirect: (PlaySource) -> Unit,
     onForgetQuery: (String) -> Unit,
     onForgetTitle: (RecentTitle) -> Unit,
     onClearHistory: () -> Unit,
@@ -485,18 +474,9 @@ private fun QueryContent(
                 }
             }
         }
-        if (directResults.isEmpty() && !loadingDirect) {
+        if (!loadingDirect) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Text("Sin resultados", color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall)
-            }
-        }
-        if (directResults.isNotEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Column {
-                    directResults.forEach { source ->
-                        SourceRow(source, enabled = true) { onPlayDirect(source) }
-                    }
-                }
             }
         }
     }

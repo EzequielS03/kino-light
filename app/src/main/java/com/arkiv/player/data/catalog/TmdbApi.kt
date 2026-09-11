@@ -114,12 +114,6 @@ data class TmdbDetail(
     val year: String,
     val imdbId: String,
     val seasons: List<TmdbSeason>,
-    /**
-     * Title variants (latino, castellano and original, deduplicated) computed for searching the
-     * torrent source removed in this branch's pruning. Nothing reads this field today -- it's
-     * populated by [TmdbApi.buildSearchTitles] but has no consumer left.
-     */
-    val searchTitles: List<String>,
 ) {
     val isSeries: Boolean get() = type == "tv"
 }
@@ -250,46 +244,9 @@ class TmdbApi(
                 year = (if (isTv) o.optString("first_air_date") else o.optString("release_date")).take(4),
                 imdbId = imdb,
                 seasons = seasons,
-                searchTitles = buildSearchTitles(localized, original, o.optJSONObject("translations"), isTv),
             )
         }.getOrNull()
     }
-
-    /**
-     * Builds [TmdbDetail.searchTitles]: latino (es-MX) + English + original + castellano/other
-     * Spanish variants, deduplicated. Written for torrent tracker search (a source removed in this
-     * branch's pruning) -- **English** mattered a lot for anime and foreign film there: TMDB's
-     * original title is often Japanese in romaji (useless for trackers), while releases use the
-     * English title (e.g. "Curse of the Blood Rubies"). The field this builds currently has no
-     * reader anywhere in the app.
-     */
-    private fun buildSearchTitles(localized: String, original: String, translations: JSONObject?, isTv: Boolean): List<String> {
-        val out = mutableListOf<String>()
-        fun add(s: String?) { if (!s.isNullOrBlank() && out.none { it.equals(s.trim(), ignoreCase = true) }) out.add(s.trim()) }
-        val trs = translations?.optJSONArray("translations")
-        fun titleOf(t: JSONObject): String {
-            val data = t.optJSONObject("data") ?: return ""
-            return (if (isTv) data.optString("name") else data.optString("title"))
-        }
-        fun titlesFor(lang: String): List<JSONObject> =
-            (0 until (trs?.length() ?: 0)).mapNotNull { trs?.optJSONObject(it) }
-                .filter { it.optString("iso_639_1") == lang }
-
-        add(localized) // es-MX (latino)
-        // Título en inglés (preferir EE.UU.).
-        val en = titlesFor("en")
-        (en.firstOrNull { it.optString("iso_3166_1") == "US" } ?: en.firstOrNull())?.let { add(titleOf(it)) }
-        // Original solo si está en alfabeto latino (el japonés/chino no matchea trackers y puede
-        // hacer que algunos backends devuelvan basura al no encontrar nada).
-        if (isLatinScript(original)) add(original)
-        // Resto de variantes en español (España, Argentina, etc.).
-        titlesFor("es").forEach { add(titleOf(it)) }
-        return out.filter { it.isNotBlank() }.take(5)
-    }
-
-    /** true si el texto no tiene caracteres CJK/japoneses/coreanos (sirve para buscar en trackers). */
-    private fun isLatinScript(s: String): Boolean =
-        s.isNotBlank() && s.none { it.code in 0x2E80..0x9FFF || it.code in 0xAC00..0xD7AF || it.code in 0xFF00..0xFFEF }
 
     /**
      * Capítulos de una temporada de una serie.
