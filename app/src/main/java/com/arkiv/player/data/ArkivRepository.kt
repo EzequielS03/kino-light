@@ -1202,11 +1202,11 @@ class ArkivRepository(
      * [com.arkiv.player.miniaturas.DestructorDeFrames], que es el único sitio que sabe borrar un
      * frame (archivo + fila), para que la lógica de borrado viva en un solo lugar.
      *
-     * Hay más de un camino por el que un capítulo pasa a `watched = true` DENTRO de este
-     * repositorio: el toggle manual ([setWatched], desde el detalle) y el automático por progreso
-     * ([savePlayback], al superar el 60% de la duración — el camino más común, con diferencia).
-     * Los dos llaman acá. (These are the only two callers today; if a third local path that marks
-     * something watched shows up, it just needs to call this helper too.)
+     * There's more than one path inside this repository that flips a chapter to `watched = true`:
+     * the manual toggle ([setWatched], from the detail screen) and the automatic one from progress
+     * ([savePlayback], past 60% of the duration -- by far the most common one). Both call this.
+     * (These are the only two callers today; if a third local path that marks something watched
+     * shows up, it just needs to call this helper too.)
      *
      * Se llama incondicionalmente cada vez que `watched` da `true`, sin preguntar antes si el
      * frame existe (ver el doc de [com.arkiv.player.miniaturas.DestructorDeFrames.destruir]). En

@@ -3,9 +3,12 @@ package com.arkiv.player.data.db
 /**
  * El DDL que mantiene `updatedAt` al día en las tablas que se sincronizan.
  *
- * `updatedAt` es el reloj del que dependen los dos syncs: el merge decide con él quién gana
- * (`cloudsync.LwwMerge`, `sync.SyncMerge`) y el push elige qué subir con `updatedAt > cursor`. Una
- * fila que se queda en 0 **no supera ningún cursor y no se sube nunca**.
+ * `updatedAt` was the clock two removed cloud-sync paths depended on: the merge used it to decide
+ * who won between two devices' copies of a row (`cloudsync.LwwMerge`, `sync.SyncMerge`), and the
+ * push picked what to upload with `updatedAt > cursor` -- a row stuck at 0 never cleared that
+ * cursor and never got uploaded. Neither exists anymore in this branch; the column and these
+ * triggers stay only because dropping them would be a schema change, and they still seal every
+ * local write with a fresh clock.
  *
  * Vivía solo dentro de `MIGRATION_6_7`, y ahí estaba el problema: Room crea las tablas desde su
  * esquema generado, y los triggers no son parte de ese esquema. Un aparato **instalado de cero** en

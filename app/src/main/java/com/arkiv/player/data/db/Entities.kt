@@ -218,9 +218,10 @@ data class DownloadEntity(
 )
 
 /**
- * Canal de TV en vivo marcado como favorito. Sincroniza igual que `skip_markers`: LWW por
- * `updatedAt` + tombstone (`deleted`) -- ver [com.arkiv.player.data.db.SyncTriggers] y
- * [com.arkiv.player.sync.SyncMerge].
+ * A live TV channel marked as a favorite. Carries the `updatedAt` + tombstone (`deleted`) columns
+ * that this branch's two removed cloud-sync paths used for LWW merge and reconciliation (see
+ * [com.arkiv.player.data.db.SyncTriggers]); neither sync exists anymore, so these columns are just
+ * history the schema still carries.
  */
 @Entity(tableName = "live_favorites")
 data class LiveFavoriteEntity(
