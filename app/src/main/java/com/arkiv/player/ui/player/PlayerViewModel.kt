@@ -319,32 +319,23 @@ class PlayerViewModel internal constructor(
             // publicando el último canal y PlayerScreen (isLive/isLiveExo) lo creía vigente.
             _liveItem.value = null
             errorDeReproduccion = false
-            // Si está guardado en el dispositivo, gana sobre cualquier streaming. Va ANTES de
-            // ramificar por fuente: da igual de dónde vino el archivo, ya está acá.
-            //
-            // ARCHIVE queda fuera a propósito: loadArchive() ya arma la playlist de la sección
-            // pasando el archivo local por episodio, así que ya mezcla local y remoto bien. Meterlo
-            // acá lo degradaría a un solo ítem y rompería el autoplay del siguiente capítulo.
+            // If it's saved on the device, it wins over any streaming. Goes BEFORE branching by
+            // source: no matter where the file came from, it's already here.
             val kind = PlayerSource.kindFor(episodeId)
-            if (kind != SourceKind.ARCHIVE) {
-                val local = localLibrary.fileFor(episodeId)
-                if (local != null) { loadLocal(episodeId, local); return@launch }
-            }
-            // Después del desvío a lo descargado a propósito: un archivo en el aparato no lleva
-            // dato curioso (ver [TriviaDelPlayer.pideDatos]).
+            val local = localLibrary.fileFor(episodeId)
+            if (local != null) { loadLocal(episodeId, local); return@launch }
+            // After the download detour, on purpose: a file already on the device carries no
+            // trivia (see [TriviaDelPlayer.pideDatos]).
             if (TriviaDelPlayer.pideDatos(episodeId, kind)) cargarTrivia(episodeId)
             Log.w(PLAY, "load() episodeId=$episodeId kind=$kind")
             when (kind) {
-                SourceKind.ARCHIVE -> loadArchive(episodeId)
+                SourceKind.UNKNOWN -> loadUnknownSource(episodeId)
                 SourceKind.MAGIS -> loadMagis(episodeId)
                 SourceKind.DITU -> loadDitu(episodeId)
-                // PlayerSource.kindFor() nunca devuelve NUC ni LOCAL (ver su propio KDoc): esta rama
-                // es inalcanzable por diseño, pero el `when` exhaustivo la exige. Apunta a loadWeb()
-                // porque es el único filler que sigue existiendo (NUC/PlaybackPreferenceStore se
-                // borraron en la poda de Task 8).
-                SourceKind.NUC, SourceKind.LOCAL -> loadWeb(episodeId)
-                // Inalcanzable: se corta arriba del todo, antes de este launch (ver el guard de
-                // más arriba). La rama existe porque el `when` sobre SourceKind es exhaustivo.
+                // kindFor() never returns LOCAL: a downloaded file is detected above by
+                // localLibrary.fileFor(). The branch exists because the `when` is exhaustive.
+                SourceKind.LOCAL -> loadUnknownSource(episodeId)
+                // Unreachable: live channels return before this launch (see the guard above).
                 SourceKind.LIVE -> Unit
             }
         }
@@ -452,7 +443,7 @@ class PlayerViewModel internal constructor(
         viewModelScope.launch {
             _error.value = null
             errorDeReproduccion = false
-            // Fix de revisión (Task 1): igual que loadMagis()/loadWeb() descartan la
+            // Fix de revisión (Task 1): igual que loadMagis() descarta la
             // fuente VOD rival ANTES de publicar la propia, acá hay que descartar TODAS las fuentes
             // VOD antes de publicar `_liveItem`. Sin esto, entrar en vivo sin recomponer la pantalla
             // (irACanal()/zapSiguiente()/zapAnterior() llaman a abrirCanalActual() directo, sin pasar
@@ -669,38 +660,11 @@ class PlayerViewModel internal constructor(
     }
 
     /**
-     * Archivo guardado de un episodio de archive, listo para meterle a VLC, o null si no está.
-     *
-     * Sale de [LocalLibrary] y NO de la tabla `downloads` directo, que es lo que hacía antes vía
-     * `repo.completedDownloadUri`. Aquella consulta miraba SOLO la columna `localUri`, que es la que
-     * llenaba el `DownloadManager` del sistema; las descargas nuevas escriben la ruta en `filePath`,
-     * así que `completedDownloadUri` devolvía null para todo lo bajado con el worker: se bajaban los
-     * GB, la UI decía "Listo" y al dar play se streameaba igual (sin red, pantalla negra). Tampoco
-     * verificaba que el archivo existiera, así que borrarlo desde los Ajustes de Android dejaba un
-     * `file://` fantasma.
-     *
-     * `LocalLibrary.fileFor` cubre las DOS columnas (lo viejo sigue reproduciéndose), chequea
-     * `exists()` y limpia la fila si el archivo se fue — con lo cual el play cae a streaming en vez
-     * de a pantalla negra. Es el mismo y único resolvedor que ya usan torrent y web.
-     *
-     * El prefijo `file://` se agrega ACÁ: `fileFor` devuelve una ruta desnuda y `buildData` usa el
-     * valor tal cual como `mediaUrl`.
+     * Plays nothing and reports that the source is gone. Reached for ids whose source was
+     * removed from this branch (old library rows with no known prefix).
      */
-    private suspend fun localArchiveUri(episodeId: String): String? =
-        localLibrary.fileFor(episodeId)?.let { "file://$it" }
-
-    /**
-     * ELIMINADA en la poda de esta rama (borrado de archive.org, ver CLAUDE.md "Cero servidor
-     * propio"): armaba la sección completa de un ítem de archive.org como playlist, resolviendo
-     * cada episodio con [buildData] (local, o vía el proxy de caché en disco -hoy borrado-).
-     *
-     * Se conserva la función -no se borra del todo- porque todavía la llama [load] para
-     * SourceKind.ARCHIVE (filas viejas de la biblioteca, de antes de esta rama, siguen marcadas
-     * así), así que hace falta algo que siga compilando en su lugar. Reporta el error limpio en vez
-     * de intentar reproducir.
-     */
-    private fun loadArchive(episodeId: String) {
-        Log.w(PLAY, "loadArchive() episodeId=$episodeId → fuente archive.org eliminada de esta rama")
+    private fun loadUnknownSource(episodeId: String) {
+        Log.w(PLAY, "loadUnknownSource() episodeId=$episodeId → source not available in this branch")
         _playlist.value = null
         _webExtras.value = null
         _resolving.value = false
@@ -1040,22 +1004,6 @@ class PlayerViewModel internal constructor(
     }
 
     /**
-     * ELIMINADA en la poda de esta rama (borrado de torrent+web+mirror, ver CLAUDE.md "Cero servidor
-     * propio"): resolvía una `pageUrl` scrapeada on-device contra `WebResolverApi` (el resolver
-     * headless de blog), que ya no existe. Se conserva la función -no se borra del todo- porque
-     * el filler NUC/LOCAL de [load] todavía la llama (esa rama es inalcanzable por diseño, ver el
-     * KDoc de [load], pero el `when` exhaustivo la exige), así que hace falta algo que siga
-     * compilando en su lugar. Reporta el error limpio en vez de intentar reproducir.
-     */
-    private fun loadWeb(episodeId: String) {
-        Log.w(PLAY, "loadWeb() episodeId=$episodeId → fuente web eliminada de esta rama")
-        _playlist.value = null
-        _webExtras.value = null
-        _resolving.value = false
-        _error.value = "Esta fuente ya no está disponible en esta versión"
-    }
-
-    /**
      * Posición de arranque validada (resume seguro): aplica la posición guardada SOLO si tiene sentido
      * retomar — más de 10s y no casi al final. Para TORRENT, además exige que esa fracción del archivo
      * ya esté descargada (baja secuencial desde el inicio: saltar en frío a una zona sin bajar stalea).
@@ -1067,23 +1015,7 @@ class PlayerViewModel internal constructor(
             .also { Log.i(PLAY, "reanudar $episodeId ($kind): guardado=${saved.positionMs}ms → arranca en ${it}ms") }
     }
 
-    /**
-     * ELIMINADA en la poda de esta rama (borrado de archive.org, ver CLAUDE.md "Cero servidor
-     * propio"): armaba el [PlayerData] de un episodio de archive.org, local o vía el proxy de
-     * caché en disco de [ArchiveCacheProxy] (ese modo del proxy se borró junto con esta función;
-     * ver su KDoc). Se conserva -no se borra del todo- porque todavía la llaman [loadArchive] y
-     * [prefetchNext] -maquinaria de la sección archive de la biblioteca que esta tarea no arranca
-     * de raíz-, así que hace falta algo que siga compilando en su lugar. SIEMPRE null: no hay nada
-     * que reproducir.
-     */
-    private fun buildData(
-        episode: Episode,
-        localUri: String?,
-        marker: SkipMarkerEntity?,
-        startPosMs: Long = 0L,
-    ): PlayerData? = null
-
-    /** Precarga el SIGUIENTE episodio de la serie en segundo plano (archive). Best-effort. */
+    /** Preloads the NEXT episode of the series in the background. Best-effort. */
     private suspend fun prefetchNext(currentId: String) = runCatching {
         kotlinx.coroutines.delay(PREFETCH_DELAY_MS)
         val next = repo.nextEpisode(currentId) ?: return@runCatching
@@ -1091,21 +1023,9 @@ class PlayerViewModel internal constructor(
             // Magis NO se precarga: cada resolución es una llamada al portal, que corta a 1 cada
             // 1.5 s. Gastarla en un capítulo que quizá no se vea retrasaría el que sí se está viendo.
             SourceKind.MAGIS -> Unit
-            // Archive: calentar la cabeza (Range-GET de los primeros MB de la URL del próximo).
-            SourceKind.ARCHIVE -> {
-                val ep = repo.getEpisode(next.id) ?: return@runCatching
-                val marker = repo.getSkipMarker(ep.itemId)
-                val url = buildData(ep, localArchiveUri(ep.id), marker)?.mediaUrl ?: return@runCatching
-                // Descarga completada → url es file:// local (OkHttp la rechaza, trabajo inútil).
-                // Streaming → url es http://127.0.0.1… (proxy): ahí sí vale la pena calentar la cabeza.
-                if (url.startsWith("http", ignoreCase = true)) {
-                    Log.w(PLAY, "prefetch archive: calentando cabeza")
-                    warmHead(url)
-                }
-            }
-            // PlayerSource.kindFor() nunca devuelve NUC (no depende del episodeId, sino de la
-            // preferencia guardada) -- nada que precargar por esta rama.
-            SourceKind.NUC -> Unit
+            // Unknown source (old library rows with no known prefix): that source was removed
+            // from this branch, so there is nothing to preload.
+            SourceKind.UNKNOWN -> Unit
             // Idem LOCAL: no es un kind que devuelva kindFor(), lo decide el atajo de load() en
             // tiempo de reproducción (LocalLibrary.fileFor) -- nada que precargar por acá.
             SourceKind.LOCAL -> Unit
@@ -1124,22 +1044,6 @@ class PlayerViewModel internal constructor(
     /** La corrección a mano de los tiempos, del capítulo en curso o de la serie. Ver su KDoc. */
     private val editorDeMarcadores by lazy {
         com.arkiv.player.data.marcadores.EditorDeMarcadores(dao = repo.skipMarkerDao())
-    }
-
-    /** Cliente HTTP compartido para [warmHead]: evita crear un OkHttpClient (pool de hilos+conexiones) por episodio. */
-    private val prefetchHttp by lazy {
-        okhttp3.OkHttpClient.Builder()
-            .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
-            .build()
-    }
-
-    /** GET con Range de los primeros MB (best-effort, timeout corto) para calentar conexión/CDN. */
-    private fun warmHead(url: String) {
-        runCatching {
-            val req = okhttp3.Request.Builder().url(url).header("Range", "bytes=0-3145727").get().build() // 3 MB
-            prefetchHttp.newCall(req).execute().use { it.body?.byteStream()?.readNBytes(3 * 1024 * 1024) }
-        }
     }
 
     override fun onCleared() {

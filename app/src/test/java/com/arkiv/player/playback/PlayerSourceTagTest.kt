@@ -10,7 +10,7 @@ class PlayerSourceTagTest {
         userAgent: String? = null,
         extra: Map<String, String> = emptyMap(),
     ) = PlayerSourceTag(
-        kind = SourceKind.ARCHIVE,
+        kind = SourceKind.UNKNOWN,
         openingStartMs = null, openingEndMs = null, endingStartMs = null, castUrl = null,
         referer = referer, userAgent = userAgent, extraHeaders = extra,
     )

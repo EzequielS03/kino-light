@@ -37,7 +37,7 @@ class DeteccionDeEstancamientoTest {
 
     /** Las fuentes de archivo se quedan como estaban: ahí el reloj avanza de corrido. */
     @Test fun `el resto conserva el umbral de siempre`() {
-        listOf(SourceKind.ARCHIVE, SourceKind.MAGIS, SourceKind.LOCAL)
+        listOf(SourceKind.UNKNOWN, SourceKind.MAGIS, SourceKind.LOCAL)
             .forEach { assertEquals("kind=$it", 900L, DeteccionDeEstancamiento.umbralMs(it)) }
         assertEquals(900L, DeteccionDeEstancamiento.umbralMs(null))
     }

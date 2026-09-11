@@ -17,6 +17,10 @@ class FuenteDeDescargaTest {
         assertEquals("archive", FuenteDeDescarga.para("dragon-ball-gt_s01e01"))
     }
 
+    @Test fun `an unknown source keeps the persisted download source value`() {
+        assertEquals("archive", FuenteDeDescarga.para("some-old-archive-identifier"))
+    }
+
     @Test
     fun `un capitulo de caracol no cae en la estrategia de archive`() {
         assertEquals("ditu", FuenteDeDescarga.para("ditu:12345::e1"))

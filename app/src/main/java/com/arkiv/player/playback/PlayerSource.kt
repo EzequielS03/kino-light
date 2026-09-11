@@ -2,7 +2,7 @@ package com.arkiv.player.playback
 
 import androidx.media3.common.MediaItem
 
-enum class SourceKind { ARCHIVE, MAGIS, NUC, LOCAL, LIVE, DITU }
+enum class SourceKind { UNKNOWN, MAGIS, LOCAL, LIVE, DITU }
 
 data class PlayerSourceTag(
     val kind: SourceKind,
@@ -88,7 +88,9 @@ object PlayerSource {
         // empezar con este.
         episodeId.startsWith("ditu:") -> SourceKind.DITU
         episodeId.startsWith(LIVE_PREFIX) -> SourceKind.LIVE
-        else -> SourceKind.ARCHIVE
+        // UNKNOWN covers ids from sources removed from this branch (torrent, archive.org, web): the
+        // player answers them with a "no longer available" error, see PlayerViewModel.loadUnknownSource.
+        else -> SourceKind.UNKNOWN
     }
 }
 

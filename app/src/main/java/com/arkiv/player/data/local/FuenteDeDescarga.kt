@@ -23,9 +23,10 @@ object FuenteDeDescarga {
         // igual a la cola, `LocalDownloadWorker` la marca FAILED con "Fuente no soportada: ditu").
         // Mandarlo a "archive" diría que es de archive.org, que no lo es.
         SourceKind.DITU -> "ditu"
-        // NUC/LOCAL/LIVE no salen de `kindFor`, y un canal en vivo no se baja; archive.org es el
-        // caso restante (un identifier pelado, sin prefijo).
-        SourceKind.ARCHIVE, SourceKind.NUC, SourceKind.LOCAL, SourceKind.LIVE -> "archive"
+        // UNKNOWN (ids from removed sources), LOCAL and LIVE have no download strategy. "archive"
+        // is the value this branch has always persisted for them in `downloads.source`; it stays
+        // until the Phase 3 audit.
+        SourceKind.UNKNOWN, SourceKind.LOCAL, SourceKind.LIVE -> "archive"
     }
 
     /**

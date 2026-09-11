@@ -54,7 +54,7 @@ class CachingDeRedTest {
      * alarga el arranque, que es justo lo que más costó bajar. Sin medición no se toca.
      */
     @Test fun `el resto se queda en el colchon de siempre`() {
-        listOf(SourceKind.ARCHIVE, SourceKind.MAGIS, SourceKind.LOCAL, SourceKind.NUC)
+        listOf(SourceKind.UNKNOWN, SourceKind.MAGIS, SourceKind.LOCAL)
             .forEach { assertEquals("kind=$it", 1_500, CachingDeRed.msPara(it)) }
     }
 

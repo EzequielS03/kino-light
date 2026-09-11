@@ -155,7 +155,7 @@ class PlaybackService : MediaSessionService() {
                 if (ex != null && ex.containsKey("kind")) {
                     b.setTag(
                         PlayerSourceTag(
-                            kind = runCatching { SourceKind.valueOf(ex.getString("kind")!!) }.getOrDefault(SourceKind.ARCHIVE),
+                            kind = runCatching { SourceKind.valueOf(ex.getString("kind")!!) }.getOrDefault(SourceKind.UNKNOWN),
                             openingStartMs = if (ex.containsKey("openingStartMs")) ex.getLong("openingStartMs") else null,
                             openingEndMs = if (ex.containsKey("openingEndMs")) ex.getLong("openingEndMs") else null,
                             endingStartMs = if (ex.containsKey("endingStartMs")) ex.getLong("endingStartMs") else null,

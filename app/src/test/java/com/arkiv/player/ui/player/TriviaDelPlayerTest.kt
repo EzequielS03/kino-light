@@ -66,6 +66,6 @@ class TriviaDelPlayerTest {
         assertFalse(TriviaDelPlayer.pideDatos("ditu:vivo:canal1", SourceKind.DITU))
         assertFalse(TriviaDelPlayer.pideDatos("magis:efimero:C42", SourceKind.MAGIS))
         assertFalse(TriviaDelPlayer.pideDatos("live:1", SourceKind.LIVE))
-        assertFalse(TriviaDelPlayer.pideDatos("algo", SourceKind.ARCHIVE))
+        assertFalse(TriviaDelPlayer.pideDatos("algo", SourceKind.UNKNOWN))
     }
 }
