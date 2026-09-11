@@ -21,9 +21,6 @@ class FakeEpisodeFrameDao : EpisodeFrameDao {
 
     override suspend fun getIncluyendoBorradas(episodeId: String): EpisodeFrameEntity? = filas[episodeId]
 
-    override suspend fun getFramesSince(cursor: Long): List<EpisodeFrameEntity> =
-        filas.values.filter { it.updatedAt > cursor }.sortedBy { it.updatedAt }
-
     override fun observeForItem(itemId: String) = MutableStateFlow(emptyList<EpisodeFrameEntity>())
 
     override fun observeTodos() = MutableStateFlow(emptyList<EpisodeFrameEntity>())

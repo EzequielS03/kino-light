@@ -80,10 +80,10 @@ fun CineDetailScreen(
     // DuplicateDownloadPolicy): si no, el botón parecería no hacer nada.
     val notifyDuplicates = com.arkiv.player.ui.offline.rememberDuplicateDownloadNotice()
     // The per-source download control this screen used to show (observing `downloadRows` and
-    // matching them with [com.arkiv.player.data.local.DescargasPorFuente]) was archive.org search
-    // UI, removed with the rest of that source in this branch's pruning. `DescargasPorFuente`
-    // itself is still in the tree (`data/local`), just with no caller left here; `porConfirmar`
-    // stays wired to the dialog below, but nothing sets it anymore.
+    // matching them with `data.local.DescargasPorFuente`) was archive.org search UI, removed with
+    // the rest of that source in this branch's pruning; `DescargasPorFuente` itself was deleted as
+    // dead code in the cleanup. `porConfirmar` stays wired to the dialog below, but nothing sets
+    // it anymore.
     var porConfirmar by remember { mutableStateOf<Pair<DownloadRow, AccionDeDescarga>?>(null) }
 
     var detail by remember { mutableStateOf<TmdbDetail?>(null) }

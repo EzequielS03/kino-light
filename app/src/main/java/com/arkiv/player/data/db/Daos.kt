@@ -468,9 +468,9 @@ data class DownloadRow(
     val error: String?,
     val bytesDone: Long,
     /**
-     * De dónde salió el capítulo (`episodes.torrentData`): la URL de la página para web, los datos
-     * del torrent para torrent, null para archive.org. Lo usa el buscador de fuentes, donde una fila
-     * es UNA FUENTE y todavía no sabe qué `episodeId` le va a tocar. Ver `DescargasPorFuente`.
+     * Where the chapter came from (`episodes.torrentData`): the page URL for web, the torrent data
+     * for torrent, null for archive.org. Those sources were all deleted in this branch's pruning;
+     * today only `siteLabelOf` in `DetailScreen` reads it, for the site chip.
      */
     val sourceRef: String? = null,
 )
@@ -784,10 +784,6 @@ interface EpisodeFrameDao {
      */
     @Query("SELECT * FROM episode_frame WHERE episodeId = :episodeId")
     suspend fun getIncluyendoBorradas(episodeId: String): EpisodeFrameEntity?
-
-    /** Filas cambiadas después del cursor, para el push. Espeja a `getPlaybackSince`. */
-    @Query("SELECT * FROM episode_frame WHERE updatedAt > :cursor ORDER BY updatedAt ASC")
-    suspend fun getFramesSince(cursor: Long): List<EpisodeFrameEntity>
 
     /**
      * Filas (sin borrar) de los capítulos de un ítem, para el detalle de una serie. Misma forma

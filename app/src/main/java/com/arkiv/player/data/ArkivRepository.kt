@@ -1031,12 +1031,6 @@ class ArkivRepository(
     suspend fun episodesOf(itemId: String): List<Episode> =
         itemDao.getEpisodesOf(itemId).map { it.toEpisode() }
 
-    /** Item cover for the item an episode belongs to. No caller today: it's left over from the phone↔TV remote miniplayer, removed in the pairing/remote-control pruning (Task 5). */
-    suspend fun itemThumbnailForEpisode(episodeId: String): String? {
-        val ep = itemDao.getEpisode(episodeId) ?: return null
-        return itemDao.getItem(ep.itemId)?.thumbnailUrl
-    }
-
     /** Primer episodio de un ítem (para reproducir una película directo, sin lista). */
     suspend fun firstEpisodeId(itemId: String): String? =
         itemDao.getEpisodesOf(itemId).firstOrNull()?.id
