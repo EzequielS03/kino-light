@@ -714,9 +714,12 @@ fun TvHomeScreen(
                                                 //
                                                 // La llave con la que se navega es la que el agregador
                                                 // devuelve: es el id del ítem que de verdad quedó
-                                                // guardado, así que siempre coincide. Si no se guardó
-                                                // nada (null), no se navega a un detalle que no va a
-                                                // resolver.
+                                                // guardado, así que siempre coincide. `null` es
+                                                // exactamente "no quedó nada guardado a qué navegar"
+                                                // (ver AgregadorDeRecomendaciones.agregarDeCaracol: si
+                                                // el capítulo elegido no calzó en la temporada, ya cae
+                                                // a guardarlo solo antes de rendirse) -- nunca deja un
+                                                // ítem guardado sin abrir su detalle.
                                                 scope.launch {
                                                     agregador.agregar(rec)?.let(onOpenItem)
                                                 }

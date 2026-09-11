@@ -82,7 +82,25 @@ class AgregadorDeRecomendaciones(
                 tmdbId = tmdbId,
                 // `rec.titulo` es el de TMDB (lo confirmó la cascada), o sea el canónico.
                 tituloCanonico = rec.titulo.takeIf { tmdbId != null },
-            )
+            ) ?: run {
+                // `addDituSeason` ya escribió el ítem y sus capítulos en cuanto encontró un
+                // contentId válido (ver su KDoc): el null de acá NO es "no se guardó nada", es que
+                // [elegido] -el primero de la lista- no calzó con su propio ref entre los recién
+                // guardados. Igual que `SearchPlayback.playDituSeason`, se cae a guardar ESE
+                // capítulo solo antes de rendirse.
+                repo.addDituSource(
+                    ref = elegido.ref,
+                    seriesRef = rec.ref,
+                    title = rec.titulo,
+                    episode = elegido.number,
+                    episodeTitle = elegido.title,
+                    posterUrl = rec.posterUrl.ifBlank { serie?.posterUrl.orEmpty() },
+                    backdropUrl = serie?.backdropUrl.orEmpty(),
+                    season = elegido.season,
+                    tmdbId = tmdbId,
+                    tituloCanonico = rec.titulo.takeIf { tmdbId != null },
+                )
+            }
         } else {
             repo.addDituSource(
                 ref = rec.ref,
