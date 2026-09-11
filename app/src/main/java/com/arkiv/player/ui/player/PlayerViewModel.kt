@@ -310,12 +310,13 @@ class PlayerViewModel internal constructor(
         viewModelScope.launch {
             // Antes que nada: que el detalle sepa por qué capítulo vas aunque salgas enseguida.
             //
-            // Salvo que no haya que anotarlo. Este es el TERCER camino de escritura del historial,
-            // y el que se escapó de los otros dos: no escribe posición ni duración —la fila queda
-            // en 0— pero SÍ escribe `lastPlayedAt`, y `playback` se sincroniza. O sea deja el
-            // registro con hora de que esto se vio, y lo manda a la nube y a los otros aparatos.
-            // Encontrado reproduciendo de verdad en el Fire TV el 2026-08-14: los guardas de
-            // progreso, frames y biblioteca aguantaron los tres, y esta fila apareció igual.
+            // Unless it shouldn't be recorded. This is the THIRD path that writes to history, the
+            // one that slipped past the other two: it doesn't write position or duration -- the
+            // row stays at 0 -- but it DOES write `lastPlayedAt`. Until Task 5 `playback` traveled
+            // through cloud sync, so this also sent the record to the cloud and to other devices;
+            // without sync the effect stays local, but the row still ends up marked with when this
+            // was watched. Found playing for real on the Fire TV on 2026-08-14: the progress, frame
+            // and library guards all held, and this row showed up anyway.
             //
             // Acá NO sirve [hayQueAnotarHistorial]: esto corre ANTES de resolver la fuente, cuando
             // `_playlist` todavía es la del episodio anterior (o null), así que preguntarle daría
@@ -514,12 +515,14 @@ class PlayerViewModel internal constructor(
             // sin que se reprodujera nada. Medido en el Fire TV el 2026-08-14: `canal →` a las
             // 22:19:20 y después silencio, con la sesión de medios congelada en pos=99631ms.
             _generacionVivo.value++
-            // Un canal de adultos NO se anota. Y se resuelve NO ESCRIBIENDO en vez de filtrando
-            // al leer: lo que no se escribe no se puede escapar por una pantalla que nos
-            // olvidamos —"Recientes" se pinta en la guía, en el cajón y en el celular— y además
-            // nunca se sube a la nube, así que tampoco aparece en los otros aparatos de la
-            // cuenta. Filtrar al leer deja el dato adentro esperando el primer lugar que no
-            // filtre.
+            // An adult channel is NOT recorded. And it's solved by NOT WRITING instead of
+            // filtering on read: what isn't written can't leak through a screen we forgot about
+            // -- "Recents" is drawn in the guide, in the drawer and on the phone. Until Task 5 it
+            // also never got uploaded to the cloud, so it wouldn't show up on the account's other
+            // devices either; without cloud sync that specific risk is gone, but the risk on THIS
+            // device's own screens (above) is still reason enough not to write it. Filtering on
+            // read leaves the data sitting there, waiting for the first place that forgets to
+            // filter.
             // Por [ContenidoDeAdultos] y no por un `!canal.adulto` suelto: la regla es la misma que
             // la del progreso y la de los frames, y tenerla escrita en un solo lugar es lo que
             // evita que mañana una de las tres se corrija y las otras dos no.
@@ -1122,10 +1125,11 @@ class PlayerViewModel internal constructor(
 
     fun saveProgress(episodeId: String, positionMs: Long, durationMs: Long) {
         if (durationMs <= 0) return
-        // El progreso de contenido de adultos NO se escribe. `playback` es tabla sincronizada y de
-        // ahí sale "seguir viendo", que se pinta en el inicio del televisor, en el del celular y en
-        // la biblioteca: una fila acá no se queda quieta en este aparato. Ver
-        // [hayQueAnotarHistorial], que es donde está la decisión y sus bordes.
+        // Adult content progress is NOT written. "Continue watching" comes straight out of
+        // `playback`, and it's drawn on this device's home screen and in the library too -- a row
+        // here doesn't stay hidden, even though (unlike until Task 5) it no longer travels through
+        // cloud sync to any OTHER device. See [hayQueAnotarHistorial], where the decision and its
+        // edge cases live.
         // Magis ExoPlayer: el ítem está en _magisItem, no en _playlist.
         // Caracol cae en la rama de abajo: `loadDitu` deja `_playlist` en null, y con eso
         // [hayQueAnotarHistorial] anota. Salvo un canal en vivo, que no se anota (ver su KDoc):
