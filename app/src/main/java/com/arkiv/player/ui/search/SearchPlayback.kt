@@ -128,10 +128,10 @@ class SearchPlayback(private val graph: AppGraph) {
     /**
      * Guarda la temporada ENTERA y devuelve el capítulo que se tocó, para reproducirlo.
      *
-     * Same idea `playPackRow` (torrent) and `saveWebPack` (web) used to follow, before this
+     * Same idea that `playPackRow` (torrent) and `saveWebPack` (web) used to follow, before this
      * branch's pruning removed both: touching a chapter brings the whole season into the library,
-     * not just that chapter. La lista Y la serie ya las cargó la pantalla
-     * con `client.episodesConSerie` al abrirse, así que esto no cuesta ninguna llamada de red.
+     * not just that chapter. The list AND the series were already loaded by the screen
+     * with `client.episodesConSerie` when it opened, so this costs no network call.
      * **No descarga nada**: eso lo sigue haciendo el botón "Guardar".
      *
      * [serie] es el bloque `series` de esa misma respuesta (null si el gateway no pudo resolver la
