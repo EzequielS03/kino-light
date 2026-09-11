@@ -17,13 +17,13 @@ import com.arkiv.player.data.gateway.LiveChannel
  * sync is gone now, but the schema/migration cost of adding a column is unrelated to that and
  * still applies -- and `live_channels_cache` (which ALREADY stores logo/numero, and never needed
  * to sync since it's a reconstructible cache) solves the same need without touching any of that.
- * El costo de este atajo es que esa caché es por categoría del portal y puede no tener un
- * canal puntual (uno visto hace poco cuya categoría nunca se volvió a cargar): por eso, cuando
- * `code` no aparece en [cache], el resultado cae a `numero = 0` y `logo = null` -- valores
- * "desconocido", no un error. Quien pinta la tarjeta trata `logo == null` con el mismo criterio
- * que ya usa `ChannelCard` en `LiveScreen.kt` (degradado + un texto grande en vez de un logo roto),
- * salvo que ahí ni siquiera el número se conoce, así que la tarjeta cae más abajo, a las iniciales
- * del nombre.
+ * The cost of this shortcut is that the cache is keyed by the portal's category and may not have
+ * one specific channel (one seen recently whose category was never reloaded): that's why, when
+ * `code` doesn't show up in [cache], the result falls back to `numero = 0` and `logo = null` --
+ * "unknown" values, not an error. Whoever paints the card treats `logo == null` with the same
+ * criterion `ChannelCard` in `LiveScreen.kt` already uses (grayed out + large text instead of a
+ * broken logo), except there not even the number is known, so the card falls back further, to
+ * the name's initials.
  */
 fun canalesRecientesParaHome(
     recientes: List<LiveRecentEntity>,
