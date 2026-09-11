@@ -60,32 +60,30 @@ import com.arkiv.player.ui.search.SearchPlayback
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** Qué sección del catálogo de Caracol se ve. Arranca en "Series" -- ver el brief. */
-private enum class SeccionDeCaracol(val etiqueta: String) {
+/** Which Caracol catalog section is shown. Starts at "Series" -- see the brief. */
+private enum class CaracolSection(val label: String) {
     SERIES("Series"),
-    PELICULAS("Películas"),
-    EN_VIVO("En vivo"),
+    MOVIES("Películas"),
+    LIVE("En vivo"),
 }
 
 /**
- * La sección de Caracol en el celular: su catálogo y sus canales en vivo.
+ * The Caracol section on the phone: its catalog and its live channels.
  *
- * Misma data que el televisor ([com.arkiv.player.ui.tv.TvCaracolScreen]): el catálogo lo guarda
- * [DituFuente.catalogoCompleto] 6 h ("Recargar" lo pide igual), los canales se piden cada vez que se
- * entra, y el split en series/películas es el mismo [CaracolCatalogo] que usa el televisor.
+ * Same data as the TV screen ([com.arkiv.player.ui.tv.TvCaracolScreen]): the catalog is cached 6 h
+ * by [DituFuente.catalogoCompleto] ("Recargar" forces it anyway), channels are fetched every time
+ * the screen opens, and the series/movies split is the same [CaracolCatalog] the TV screen uses.
  *
- * Abrir un título va por el MISMO camino que la búsqueda ([SearchPlayback], ver
- * `SearchScreen.playDituResult`): una película se guarda y reproduce con
- * [SearchPlayback.playDitu], y una serie abre [MagisSeasonDialog] -- que al elegir un capítulo
- * guarda la serie entera con [SearchPlayback.playDituSeason]. Caracol es Widevine (no se puede
- * bajar), así que la ventana se abre sin casillas de guardar (`onSave = null`), igual que en la
- * búsqueda.
+ * Opening a title goes through the SAME path as search ([SearchPlayback], see
+ * `SearchScreen.playDituResult`): a movie is saved and played with [SearchPlayback.playDitu], and
+ * a series opens [MagisSeasonDialog] -- which saves the whole season with
+ * [SearchPlayback.playDituSeason] once a chapter is picked. Caracol is Widevine (can't be
+ * downloaded), so the dialog opens without save checkboxes (`onSave = null`), same as search.
  *
- * Un canal en vivo no pasa por la biblioteca: viaja por [DituVivo.dejar], igual que en el
- * televisor.
+ * A live channel never touches the library: it travels through [DituVivo.dejar], same as the TV
+ * screen.
  */
 @Composable
 fun CaracolScreen(onPlay: (episodeId: String) -> Unit, contentPadding: PaddingValues) {
@@ -93,34 +91,34 @@ fun CaracolScreen(onPlay: (episodeId: String) -> Unit, contentPadding: PaddingVa
     val scope = rememberCoroutineScope()
     val playback = remember { SearchPlayback(graph) }
 
-    var titulos by remember { mutableStateOf<List<DituItem>>(emptyList()) }
-    var canales by remember { mutableStateOf<EstadoDeCanales>(EstadoDeCanales.Cargando) }
-    var cargando by remember { mutableStateOf(true) }
-    var errorCatalogo by remember { mutableStateOf<String?>(null) }
-    var recargas by remember { mutableStateOf(0) }
-    var seccion by remember { mutableStateOf(SeccionDeCaracol.SERIES) }
+    var titles by remember { mutableStateOf<List<DituItem>>(emptyList()) }
+    var channels by remember { mutableStateOf<EstadoDeCanales>(EstadoDeCanales.Cargando) }
+    var loading by remember { mutableStateOf(true) }
+    var catalogError by remember { mutableStateOf<String?>(null) }
+    var reloads by remember { mutableStateOf(0) }
+    var section by remember { mutableStateOf(CaracolSection.SERIES) }
 
-    // Serie de Caracol abierta: se eligen los capítulos antes de reproducir, igual que en la
-    // búsqueda -- ver el KDoc de arriba.
+    // The Caracol series that's open: chapters are picked before playing, same as search -- see
+    // the KDoc above.
     var dituSeason by remember { mutableStateOf<GatewayResult?>(null) }
     var preparing by remember { mutableStateOf(false) }
     var playError by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(recargas) {
-        cargando = true
-        // Cada cosa falla sola: que no haya canales no puede dejar la pantalla sin catálogo.
-        runCatching { graph.dituFuente.catalogoCompleto(forzar = recargas > 0) }
-            .onSuccess { titulos = it; errorCatalogo = null }
+    LaunchedEffect(reloads) {
+        loading = true
+        // Each one fails on its own: missing channels can't leave the screen without a catalog.
+        runCatching { graph.dituFuente.catalogoCompleto(forzar = reloads > 0) }
+            .onSuccess { titles = it; catalogError = null }
             .onFailure {
-                // El detalle va al log; en pantalla, en palabras de persona.
+                // The detail goes to the log; on screen, in plain words.
                 android.util.Log.w("CaracolScreen", "no cargó el catálogo", it)
-                errorCatalogo = FalloDeCaracol.alCargarElCatalogo(it)
+                catalogError = FalloDeCaracol.alCargarElCatalogo(it)
             }
-        val resultadoDeCanales = runCatching { graph.dituFuente.canales() }
-        resultadoDeCanales.exceptionOrNull()
+        val channelsResult = runCatching { graph.dituFuente.canales() }
+        channelsResult.exceptionOrNull()
             ?.let { android.util.Log.w("CaracolScreen", "no cargaron los canales", it) }
-        canales = EstadoDeCanales.de(resultadoDeCanales)
-        cargando = false
+        channels = EstadoDeCanales.de(channelsResult)
+        loading = false
     }
 
     fun applyResult(result: PlaybackResult) {
@@ -131,20 +129,20 @@ fun CaracolScreen(onPlay: (episodeId: String) -> Unit, contentPadding: PaddingVa
         }
     }
 
-    // Lo mismo que hace la búsqueda con un resultado de Caracol (SearchScreen.playDituResult).
-    fun abrirTitulo(item: DituItem) {
+    // Same as what search does with a Caracol result (SearchScreen.playDituResult).
+    fun openTitle(item: DituItem) {
         if (preparing) return
-        val fuente = PlaySource.Ditu(DituFuente.resultadoDe(item))
-        if (fuente.esSerie()) {
-            dituSeason = fuente.result
+        val source = PlaySource.Ditu(DituFuente.resultadoDe(item))
+        if (source.esSerie()) {
+            dituSeason = source.result
             return
         }
         preparing = true
         playError = null
-        scope.launch { applyResult(playback.playDitu(fuente.result)) }
+        scope.launch { applyResult(playback.playDitu(source.result)) }
     }
 
-    val catalogo = remember(titulos) { CaracolCatalogo.de(titulos) }
+    val catalog = remember(titles) { CaracolCatalog.split(titles) }
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().padding(top = contentPadding.calculateTopPadding())) {
@@ -156,11 +154,11 @@ fun CaracolScreen(onPlay: (episodeId: String) -> Unit, contentPadding: PaddingVa
                     modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    SeccionDeCaracol.values().forEach { s ->
+                    CaracolSection.entries.forEach { entry ->
                         FilterChip(
-                            selected = seccion == s,
-                            onClick = { seccion = s },
-                            label = { Text(s.etiqueta) },
+                            selected = section == entry,
+                            onClick = { section = entry },
+                            label = { Text(entry.label) },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = ArkivCaracolVerde,
                                 selectedLabelColor = Color.White,
@@ -168,7 +166,7 @@ fun CaracolScreen(onPlay: (episodeId: String) -> Unit, contentPadding: PaddingVa
                         )
                     }
                 }
-                IconButton(onClick = { recargas++ }) {
+                IconButton(onClick = { reloads++ }) {
                     Icon(Icons.Default.Refresh, contentDescription = "Recargar", tint = ArkivTextSecondary)
                 }
             }
@@ -188,20 +186,20 @@ fun CaracolScreen(onPlay: (episodeId: String) -> Unit, contentPadding: PaddingVa
             )
 
             when {
-                cargando -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = ArkivRed)
                 }
-                seccion == SeccionDeCaracol.EN_VIVO -> CaracolCanales(
-                    canales = canales,
+                section == CaracolSection.LIVE -> CaracolChannels(
+                    channels = channels,
                     contentPadding = gridPadding,
-                    onAbrir = { canal -> onPlay(DituVivo.dejar(canal)) },
+                    onOpen = { channel -> onPlay(DituVivo.dejar(channel)) },
                 )
-                else -> CaracolGrilla(
-                    titulos = if (seccion == SeccionDeCaracol.SERIES) catalogo.series else catalogo.peliculas,
-                    vacio = if (seccion == SeccionDeCaracol.SERIES) "series" else "películas",
-                    error = errorCatalogo,
+                else -> CaracolGrid(
+                    titles = if (section == CaracolSection.SERIES) catalog.series else catalog.movies,
+                    emptyLabel = if (section == CaracolSection.SERIES) "series" else "películas",
+                    error = catalogError,
                     contentPadding = gridPadding,
-                    onAbrir = ::abrirTitulo,
+                    onOpen = ::openTitle,
                 )
             }
         }
@@ -216,19 +214,19 @@ fun CaracolScreen(onPlay: (episodeId: String) -> Unit, contentPadding: PaddingVa
         }
     }
 
-    dituSeason?.let { serie ->
+    dituSeason?.let { season ->
         MagisSeasonDialog(
-            season = serie,
+            season = season,
             client = graph.fuenteDeContenido,
             onDismiss = { dituSeason = null },
-            onPlay = { capitulos, capitulo, s ->
+            onPlay = { chapters, chapter, series ->
                 dituSeason = null
                 preparing = true
                 playError = null
-                scope.launch { applyResult(playback.playDituSeason(serie, capitulos, capitulo, s)) }
+                scope.launch { applyResult(playback.playDituSeason(season, chapters, chapter, series)) }
             },
-            // Sin casillas de "Guardar": Caracol es Widevine y no se baja (ver `FuenteDeDescarga`).
-            // A la biblioteca entra al reproducir, igual que en la búsqueda.
+            // No "Save" checkboxes: Caracol is Widevine and can't be downloaded (see
+            // `FuenteDeDescarga`). It enters the library when played, same as search.
             onSave = null,
             etiqueta = "Caracol",
             acento = ArkivCaracolVerde,
@@ -236,18 +234,18 @@ fun CaracolScreen(onPlay: (episodeId: String) -> Unit, contentPadding: PaddingVa
     }
 }
 
-/** La grilla de 3 columnas de series/películas, o el estado vacío/error de esa sección. */
+/** The 3-column grid of series/movies, or that section's empty/error state. */
 @Composable
-private fun CaracolGrilla(
-    titulos: List<DituItem>,
-    vacio: String,
+private fun CaracolGrid(
+    titles: List<DituItem>,
+    emptyLabel: String,
     error: String?,
     contentPadding: PaddingValues,
-    onAbrir: (DituItem) -> Unit,
+    onOpen: (DituItem) -> Unit,
 ) {
-    if (titulos.isEmpty()) {
+    if (titles.isEmpty()) {
         EmptyState(
-            title = error ?: "Caracol no tiene $vacio para mostrar.",
+            title = error ?: "Caracol no tiene $emptyLabel para mostrar.",
             subtitle = if (error != null) "Probá otra vez con «Recargar»." else null,
         )
         return
@@ -259,39 +257,39 @@ private fun CaracolGrilla(
         verticalArrangement = Arrangement.spacedBy(16.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
-        items(titulos, key = { it.ref() }) { item ->
-            PosterCard(title = item.titulo, imageUrl = item.posterUrl, onClick = { onAbrir(item) })
+        items(titles, key = { it.ref() }) { item ->
+            PosterCard(title = item.titulo, imageUrl = item.posterUrl, onClick = { onOpen(item) })
         }
     }
 }
 
-/** La pestaña "En vivo": la lista de canales, o el estado vacío/error de [EstadoDeCanales]. */
+/** The "En vivo" tab: the channel list, or the empty/error state from [EstadoDeCanales]. */
 @Composable
-private fun CaracolCanales(
-    canales: EstadoDeCanales,
+private fun CaracolChannels(
+    channels: EstadoDeCanales,
     contentPadding: PaddingValues,
-    onAbrir: (DituCanal) -> Unit,
+    onOpen: (DituCanal) -> Unit,
 ) {
-    when (canales) {
+    when (channels) {
         EstadoDeCanales.Cargando -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(color = ArkivRed)
         }
         EstadoDeCanales.Vacio -> EmptyState(title = "Caracol no tiene canales en vivo para mostrar.")
         is EstadoDeCanales.Fallo -> EmptyState(
-            title = canales.mensaje,
+            title = channels.mensaje,
             subtitle = "Probá otra vez con «Recargar».",
         )
         is EstadoDeCanales.Listos -> LazyColumn(contentPadding = contentPadding, modifier = Modifier.fillMaxSize()) {
-            items(canales.canales, key = { it.channelId }) { canal ->
-                CaracolCanalRow(canal = canal, onClick = { onAbrir(canal) })
+            items(channels.canales, key = { it.channelId }) { channel ->
+                CaracolChannelRow(channel = channel, onClick = { onOpen(channel) })
             }
         }
     }
 }
 
-/** Una fila de canal: logo + nombre, mismo tratamiento visual que `GuiaCanalRow` (ui/live). */
+/** A channel row: logo + name, same visual treatment as `GuiaCanalRow` (ui/live). */
 @Composable
-private fun CaracolCanalRow(canal: DituCanal, onClick: () -> Unit) {
+private fun CaracolChannelRow(channel: DituCanal, onClick: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 4.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -301,10 +299,10 @@ private fun CaracolCanalRow(canal: DituCanal, onClick: () -> Unit) {
             modifier = Modifier.size(52.dp).clip(RoundedCornerShape(8.dp)).background(ArkivSurfaceHigh),
             contentAlignment = Alignment.Center,
         ) {
-            if (canal.logoUrl.isNotBlank()) {
+            if (channel.logoUrl.isNotBlank()) {
                 AsyncImage(
-                    model = canal.logoUrl,
-                    contentDescription = canal.nombre,
+                    model = channel.logoUrl,
+                    contentDescription = channel.nombre,
                     modifier = Modifier.fillMaxSize().padding(6.dp),
                 )
             } else {
@@ -312,7 +310,7 @@ private fun CaracolCanalRow(canal: DituCanal, onClick: () -> Unit) {
             }
         }
         Text(
-            text = canal.nombre,
+            text = channel.nombre,
             style = MaterialTheme.typography.bodyLarge,
             color = Color.White,
             maxLines = 1,
