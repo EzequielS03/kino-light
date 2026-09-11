@@ -26,8 +26,12 @@ sealed class PlaybackResult {
 class SearchPlayback(private val graph: AppGraph) {
 
     /**
-     * "Resultados directos" (archive) de la fase QUERY: sin card/season/episode todavía
-     * elegidos. Molde: `playDirect` original.
+     * Plays a QUERY-phase "direct result": no card/season/episode chosen yet. This was archive.org's
+     * search-as-you-type results; that source (and the code that populated them) was removed with
+     * this branch's pruning, so `SearchViewModel.search()` now always publishes an empty list here
+     * (see its own comment) and this function currently has no reachable caller with a real source.
+     * The `when` branches (Magis/Ditu) are what it would resolve if `directResults` were ever
+     * populated again. Template: the original `playDirect`.
      */
     suspend fun playDirect(source: PlaySource): PlaybackResult {
         val epId: String? = when (source) {
@@ -123,8 +127,9 @@ class SearchPlayback(private val graph: AppGraph) {
     /**
      * Guarda la temporada ENTERA y devuelve el capítulo que se tocó, para reproducirlo.
      *
-     * Es el gemelo de `playPackRow` (torrent) y `saveWebPack` (web): tocar un capítulo trae la serie
-     * completa a la biblioteca, no solo ese capítulo. La lista Y la serie ya las cargó la pantalla
+     * Same idea `playPackRow` (torrent) and `saveWebPack` (web) used to follow, before this
+     * branch's pruning removed both: touching a chapter brings the whole season into the library,
+     * not just that chapter. La lista Y la serie ya las cargó la pantalla
      * con `client.episodesConSerie` al abrirse, así que esto no cuesta ninguna llamada de red.
      * **No descarga nada**: eso lo sigue haciendo el botón "Guardar".
      *
@@ -270,11 +275,11 @@ class SearchPlayback(private val graph: AppGraph) {
 
 }
 
-/** id estable de "serie" TMDB para agrupar episodios (imdb si hay, si no tmdb id), delegando el
- *  criterio en [SeriesItemIds.canonicalSeriesId], que es donde vive para toda la app.
- *  internal (no private): SearchScreen.kt (mismo paquete) necesita la MISMA lógica para el seriesId
- *  de la descarga NUC (downloadWholeSeries) que ya usa addWholeWebSeries -- divergir acá reintroduce
- *  el bug de season/seriesId arreglado en el Task 11. */
+/** Stable TMDB "series" id to group episodes (imdb if there is one, tmdb id otherwise), delegating
+ *  the rule to [SeriesItemIds.canonicalSeriesId], which is where it lives for the whole app.
+ *  internal (not private): it used to back the NUC download's seriesId in SearchScreen.kt
+ *  (`downloadWholeSeries`, which called `addWholeWebSeries`) -- both removed with the rest of the
+ *  NUC/web sources in this branch's pruning, so this function currently has no caller anywhere. */
 internal fun seriesIdFor(card: TitleCard, detail: TmdbDetail?): String = when {
     detail != null -> SeriesItemIds.canonicalSeriesId(detail.imdbId, detail.id)
     else -> "tmdb${card.tmdbId}"

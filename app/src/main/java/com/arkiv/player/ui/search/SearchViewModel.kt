@@ -121,7 +121,11 @@ class SearchViewModel(
     fun forgetTitle(t: com.arkiv.player.data.RecentTitle) = enHistorial { searchHistory.removeTitle(t) }
     fun clearHistory() = enHistorial { searchHistory.clear() }
 
-    /** Lanza la búsqueda unificada de Fase 1: TMDB + anime (títulos) y archive (directos). */
+    /**
+     * Launches the QUERY-phase search: TMDB + anime (title cards). It also always clears
+     * `directResults` to empty -- that used to be archive.org's search-as-you-type; see the
+     * comment further down where this function sets it.
+     */
     fun search(q: String) {
         searchJob?.cancel()
         if (q.isBlank()) {

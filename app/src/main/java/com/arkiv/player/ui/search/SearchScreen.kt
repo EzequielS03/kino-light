@@ -92,10 +92,12 @@ import com.arkiv.player.ui.theme.ArkivTextSecondary
 import kotlinx.coroutines.launch
 
 /**
- * Wizard de búsqueda unificada: Fase QUERY (buscador + cards TMDB/anime + resultados directos
- * torrent/archive), paso REFINE (temporada/capítulo opcional) y fase RESULTS (búsqueda multi-fuente
- * torrent/web/archive de la card elegida, con S/E inyectado si se dio o solo por nombre si no —
- * esto último surfacea packs de temporada/serie completa).
+ * Unified search wizard: QUERY phase (search box + TMDB/anime cards + a "direct results" section
+ * that's currently always empty -- it used to be archive.org's search-as-you-type, removed with
+ * the rest of that source in this branch's pruning; see `SearchViewModel.search()`'s own comment),
+ * REFINE step (optional season/chapter) and RESULTS phase (multi-source search in Magis and
+ * Caracol for the chosen card, with S/E injected if given, or by name alone otherwise — the latter
+ * surfaces whole-season/series packs).
  */
 @Composable
 fun SearchScreen(
@@ -343,8 +345,10 @@ fun SearchScreen(
 }
 
 /**
- * Fase QUERY: buscador + grilla de títulos (TMDB/anime) + resultados directos (torrent/archive).
- * Mientras no se haya buscado nada muestra el historial en lugar de los resultados vacíos.
+ * QUERY phase: search box + TMDB/anime title grid + a "direct results" section (was archive.org
+ * and torrent search-as-you-type; both removed in this branch's pruning, so this section is
+ * always empty today -- see `SearchViewModel.search()`). Shows the history instead of an empty
+ * results state while nothing has been searched yet.
  */
 @Composable
 private fun QueryContent(
@@ -685,9 +689,9 @@ private fun RefineContent(card: TitleCard, onContinue: (season: Int?, episode: I
 }
 
 /**
- * Fase RESULTS: búsqueda multi-fuente (magis/archive) de la card elegida, con S/E inyectado
- * si vino del REFINE o solo por nombre si no. Reutiliza SourceSectionHeader (mismo patrón
- * colapsable que el bottom sheet de CineDetailScreen).
+ * RESULTS phase: multi-source search (Magis/Caracol) for the chosen card, with S/E injected if it
+ * came from REFINE or by name alone otherwise. Reuses SourceSectionHeader (same collapsible
+ * pattern as CineDetailScreen's bottom sheet).
  */
 @Composable
 private fun ResultsContent(
