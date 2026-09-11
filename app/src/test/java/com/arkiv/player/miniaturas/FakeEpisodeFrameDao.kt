@@ -7,14 +7,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 /**
  * Fake en memoria de [EpisodeFrameDao], compartido por los tests de frames.
  *
- * Cada método copia la semántica de su `@Query` real.
+ * Each method copies the semantics of its real `@Query`.
  */
 class FakeEpisodeFrameDao : EpisodeFrameDao {
-    /**
-     * Concurrente porque `BajadorDeFramesTest` escribe filas desde el hilo del MockWebServer
-     * (simula un borrado que cae JUSTO a mitad de una bajada) mientras el bajador lee desde el
-     * suyo.
-     */
     val filas: MutableMap<String, EpisodeFrameEntity> = java.util.concurrent.ConcurrentHashMap()
 
     override suspend fun upsert(frame: EpisodeFrameEntity) {
