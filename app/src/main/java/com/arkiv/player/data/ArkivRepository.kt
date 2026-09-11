@@ -863,10 +863,10 @@ class ArkivRepository(
     }
 
     /**
-     * Guarda la temporada COMPLETA de Magis: es lo que corre al tocar un capítulo para verlo, con la
-     * lista que la pantalla ya tenía cargada (sin red). Las fuentes torrent y web tenían el mismo
-     * patrón (guardar la temporada entera de una), pero se borraron en la poda de esta rama — Magis
-     * era la única fuente que guardaba de a un capítulo.
+     * Saves Magis's ENTIRE season: this is what runs when a chapter is tapped to play it, with
+     * the list the screen already had loaded (no network). The torrent and web sources had the
+     * same pattern (saving the whole season at once), but they were removed in this branch's
+     * pruning — Magis was the only source that saved one chapter at a time.
      *
      * `upsert` y NO `replaceItem`: un capítulo que ya tenías guardado tiene que sobrevivir aunque el
      * portal no lo liste esta vez. Es idempotente (ids derivados del contenido), así que se puede
@@ -1031,7 +1031,7 @@ class ArkivRepository(
     suspend fun episodesOf(itemId: String): List<Episode> =
         itemDao.getEpisodesOf(itemId).map { it.toEpisode() }
 
-    /** Carátula del ítem al que pertenece un episodio. Sin caller hoy: quedó del miniplayer remoto celu↔TV, borrado en la poda de pareo/control remoto (Task 5). */
+    /** Item cover for the item an episode belongs to. No caller today: it's left over from the phone↔TV remote miniplayer, removed in the pairing/remote-control pruning (Task 5). */
     suspend fun itemThumbnailForEpisode(episodeId: String): String? {
         val ep = itemDao.getEpisode(episodeId) ?: return null
         return itemDao.getItem(ep.itemId)?.thumbnailUrl
@@ -1046,7 +1046,7 @@ class ArkivRepository(
         EpisodeNavigation.nextId(all, id)
     }
 
-    /** Devuelve el episodio anterior de la misma sección (para el "anterior"/"siguiente" del header del player, ver [com.arkiv.player.ui.player.PlayerCabecera]). */
+    /** Returns the previous episode in the same section (for the player header's "previous"/"next", see [com.arkiv.player.ui.player.PlayerCabecera]). */
     suspend fun previousEpisode(episodeId: String): Episode? = neighbourEpisode(episodeId) { all, id ->
         EpisodeNavigation.prevId(all, id)
     }
@@ -1314,10 +1314,10 @@ class ArkivRepository(
 /**
  * Título "desnudo" para buscar en TMDB.
  *
- * El sufijo " — Pack" lo ponía la app al guardar un torrent que traía la serie entera (fuente
- * borrada en la poda de esta rama); no es parte del nombre y sin quitarlo TMDB no devuelve nada
- * (verificado: los dos "Naruto — Pack" de la biblioteca quedaron sin tmdbId y por eso no se
- * agrupaban con el resto de los Naruto).
+ * The " — Pack" suffix was added by the app when saving a torrent that brought the whole series
+ * (source removed in this branch's pruning); it isn't part of the name, and without stripping it
+ * TMDB returns nothing (verified: the library's two "Naruto — Pack" entries ended up without a
+ * tmdbId and so weren't grouped with the rest of the Naruto entries).
  */
 /**
  * Cuál de los resultados de TMDB es el arte de este título.

@@ -53,9 +53,9 @@ object SeriesItemIds {
      *
      * Es LITERALMENTE la preferencia que ya usaba el camino no-anime (`d.imdbId.ifBlank {
      * "tmdb${d.id}" }`), con el mismo criterio laxo de "no vacío": anilist queda solo como último
-     * recurso, para el anime cuyo mapeo cruzado todavía no se conoce. Puro a propósito (misma
-     * convención que las policies de descarga): quien tenga que ir a buscar el mapeo lo hace
-     * afuera y le pasa los ids ya resueltos.
+     * recurso, para el anime cuyo mapeo cruzado todavía no se conoce. Purely deliberate (the same
+     * convention the download policies use): whoever needs the mapping looks it up outside and
+     * passes in the ids already resolved.
      *
      * **Ojo con endurecer esto.** El `org.json` de ANDROID devuelve el string `"null"` (no `""`)
      * cuando `optString` cae sobre un JSON `null`, y TMDB manda `"imdb_id": null` en las series sin

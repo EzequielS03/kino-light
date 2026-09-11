@@ -5,10 +5,10 @@ import com.arkiv.player.data.db.EpisodeStillEntity
 /**
  * Cómo se combina la fila de `episode_still` que YA estaba guardada con la que se acaba de resolver.
  *
- * Existe porque a esa tabla escriben dos fuentes distintas y con datos distintos: Magis la llena al
- * guardar la temporada (`MagisEntities.stillsDeTemporada`, con lo que el gateway cruzó contra TMDB)
- * y `ArkivRepository.ensureEpisodeStills` la llena para todo lo demás (Ditu hoy, y las filas legacy
- * de torrent/web/archive) preguntándole a TMDB.
+ * It exists because two different sources write to that table with different data: Magis fills it
+ * when saving the season (`MagisEntities.stillsDeTemporada`, with what the gateway matched
+ * against TMDB) and `ArkivRepository.ensureEpisodeStills` fills it for everything else (Ditu
+ * today, and legacy torrent/web/archive rows) by asking TMDB.
  * `EpisodeStillDao.upsertAll` es un REPLACE, así que la segunda escritura pisa la primera **fila
  * entera**: sin esta mezcla, un timeout de TMDB al abrir el detalle dejaba `stillUrl`, `title` y
  * `overview` en null encima de lo que Magis ya había guardado bien, y como la fila igual quedaba

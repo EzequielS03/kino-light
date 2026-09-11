@@ -243,8 +243,7 @@ object MagisEntities {
      * llamadas reescribe la fila entera del episodio; una sin [season] le BORRA la temporada a un
      * capítulo que otro camino ya había guardado bien, el ítem queda con episodios mezclados (unos
      * con temporada, otros sin) y `ArkivRepository.ensureEpisodeStills` cae a su rama de aplanar
-     * desde la T1 (ver el KDoc de [capituloDe]), pisando en silencio los stills de toda la serie. Y
-     * `episodes` es tabla sincronizada: ese null viaja al otro dispositivo.
+     * desde la T1 (ver el KDoc de [capituloDe]), pisando en silencio los stills de toda la serie.
      *
      * Quiénes pasan hoy la temporada, y de dónde la sacan:
      *  - `SearchPlayback.magisEpisodeIdDe` (botón "Guardar" del diálogo de temporada, celu y TV) y

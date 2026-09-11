@@ -40,8 +40,8 @@ data class LibraryGroup(
 }
 
 /**
- * Agrupa la biblioteca para que una misma serie entrada desde varias fuentes (Magis, Ditu, o
- * legado web/torrent/archive de antes de la poda de esta rama) sea una sola tarjeta.
+ * Groups the library so a series entered from several sources (Magis, Ditu, or the legacy
+ * web/torrent/archive sources from before this branch's pruning) becomes a single card.
  *
  * Los `identifier` se prefijan A PROPÓSITO por fuente para que no colisionen en `items` (ver
  * [SeriesItemIds]); eso está bien para guardar, pero el home no debería mostrarlos por separado.

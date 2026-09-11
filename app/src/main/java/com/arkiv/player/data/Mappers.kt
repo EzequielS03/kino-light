@@ -11,10 +11,11 @@ fun EpisodeEntity.toEpisode(): Episode = Episode(
     orderIndex = orderIndex,
     durationSeconds = durationSeconds,
     thumbPath = thumbPath,
-    // torrentData is the entity's generic source payload: Ditu's ref today, or the page URL/magnet
-    // that the now-removed web/torrent sources left in rows saved before this branch's pruning —
-    // see EpisodeEntity. Exposed as sourceRef so the UI can tell where each row came from without
-    // going back to the DB.
+    // torrentData is the entity's generic source payload: today Magis and Caracol (Ditu) write
+    // their source ref there (see MagisEntities/DituEntities); legacy rows may still hold the
+    // page URL or magnet left by the now-removed web/torrent sources before this branch's
+    // pruning — see EpisodeEntity. Exposed as sourceRef so the UI can tell where each row came
+    // from without going back to the DB.
     sourceRef = torrentData,
     season = season,
     episode = episode,
