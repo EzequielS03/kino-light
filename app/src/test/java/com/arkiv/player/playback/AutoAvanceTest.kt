@@ -20,10 +20,10 @@ class AutoAvanceTest {
     }
 
     /**
-     * La razón de existir de esta regla: VLC emite el MISMO EndReached cuando el stream se corta
-     * (magis con el CDN lento, un torrent que se queda sin peers). Sin este corte, un tirón de red
-     * en el minuto 3 no pausaba: saltaba al capítulo siguiente, que podía cortarse igual, y así en
-     * cascada por toda la serie.
+     * The reason this rule exists: VLC emits the SAME EndReached when the stream drops (Magis's
+     * CDN going slow, or -- for a source removed in this branch's pruning -- a torrent running out
+     * of peers). Without this guard, a network hiccup at minute 3 didn't pause: it skipped to the
+     * next chapter, which could stall the same way, cascading through the whole series.
      */
     @Test fun corte_a_mitad_del_capitulo_no_avanza() {
         assertFalse(AutoAvance.esFinDeCapitulo(positionMs = 3 * 60_000, durationMs = VEINTICUATRO_MIN))

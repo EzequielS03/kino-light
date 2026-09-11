@@ -1,13 +1,13 @@
 package com.arkiv.player.playback
 
 /**
- * Cuándo el fin de la reproducción es de verdad el fin del capítulo.
+ * When the end of playback really is the end of the chapter.
  *
- * libVLC avisa lo mismo (`EndReached`) cuando el capítulo se acabó que cuando el stream se quedó
- * sin datos: el CDN de magis que deja de responder, un torrent sin peers, una URL web que caducó.
- * La pantalla usa ese aviso para pasar al capítulo siguiente, así que sin distinguirlos un tirón de
- * red a mitad del capítulo se convertía en un salto —y el siguiente podía cortarse igual, en
- * cascada por toda la serie—.
+ * libVLC fires the same signal (`EndReached`) when the chapter finished as when the stream ran out
+ * of data: Magis's CDN going quiet, or -- for a source removed in this branch's pruning -- a
+ * torrent with no peers or a web URL that expired. The screen uses that signal to move to the next
+ * chapter, so without telling the two apart a network hiccup mid-chapter turned into a skip -- and
+ * the next chapter could stall the same way, cascading through the whole series.
  *
  * Vive aparte de la pantalla para poder probarse, igual que [MediaReusePolicy].
  */
