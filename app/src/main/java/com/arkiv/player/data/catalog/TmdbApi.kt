@@ -114,7 +114,11 @@ data class TmdbDetail(
     val year: String,
     val imdbId: String,
     val seasons: List<TmdbSeason>,
-    /** Títulos para buscar torrents: latino, castellano y original (deduplicados). */
+    /**
+     * Title variants (latino, castellano and original, deduplicated) computed for searching the
+     * torrent source removed in this branch's pruning. Nothing reads this field today -- it's
+     * populated by [TmdbApi.buildSearchTitles] but has no consumer left.
+     */
     val searchTitles: List<String>,
 ) {
     val isSeries: Boolean get() = type == "tv"
@@ -252,10 +256,12 @@ class TmdbApi(
     }
 
     /**
-     * Junta títulos para buscar torrents: latino (es-MX) + inglés + original + castellano/otras
-     * variantes en español, deduplicados. El **inglés** importa mucho para anime y cine extranjero:
-     * el original de TMDB suele ser japonés en romaji (inútil para trackers), mientras los releases
-     * usan el título en inglés (ej. "Curse of the Blood Rubies").
+     * Builds [TmdbDetail.searchTitles]: latino (es-MX) + English + original + castellano/other
+     * Spanish variants, deduplicated. Written for torrent tracker search (a source removed in this
+     * branch's pruning) -- **English** mattered a lot for anime and foreign film there: TMDB's
+     * original title is often Japanese in romaji (useless for trackers), while releases use the
+     * English title (e.g. "Curse of the Blood Rubies"). The field this builds currently has no
+     * reader anywhere in the app.
      */
     private fun buildSearchTitles(localized: String, original: String, translations: JSONObject?, isTv: Boolean): List<String> {
         val out = mutableListOf<String>()
