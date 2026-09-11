@@ -381,13 +381,15 @@ private fun DownloadItem(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                // STAGING va con barra INDETERMINADA, no con `row.progress`. El backend de la NUC
-                // calcula el progreso de un job web como `items terminados / items totales`
-                // (ver `_compute_progress` en arkiv-offline), y la app crea un job por capítulo con
-                // UN solo item: la cuenta solo puede dar 0/1 o 1/1. O sea que durante toda la fase
-                // —varios minutos bajando un capítulo por HLS— la barra se quedaba clavada en 0% y
-                // parecía trabada. Un indicador indeterminado es lo honesto: está trabajando y de
-                // verdad no sabemos cuánto le falta.
+                // STAGING renders with an INDETERMINATE bar, not `row.progress`. Nothing creates a
+                // STAGING row anymore -- the NUC/arkiv-offline backend that used to own this phase
+                // was removed with the rest of NUC downloads (Task 8), and today's only strategy
+                // (Magis) writes DOWNLOADING directly (see `LocalDownloadWorker`). This branch is
+                // only reachable for a row already sitting in the local `downloads` table from an
+                // install that predates that removal. It's kept indeterminate rather than switched
+                // to `row.progress` because that's what made the old NUC math (`items done / items
+                // total`, one item per job) honest: with a single item the count could only ever
+                // read 0/1 or 1/1, so a whole multi-minute HLS download looked stuck at 0%.
                 when (row.state) {
                     LocalDownloadState.STAGING -> LinearProgressIndicator(
                         color = ArkivRed,
@@ -455,7 +457,11 @@ private fun stateLabel(row: DownloadRow): String = when (row.state) {
     else -> row.state
 }
 
-/** Origen del archivo, para distinguir de un vistazo torrent de web de archive. */
+/**
+ * File-origin badge. "torrent" and "web" are legacy `source` values from rows saved before this
+ * branch's pruning; any other value -- including today's "magis" and "ditu" -- falls through to
+ * "ARCHIVE".
+ */
 private fun sourceBadge(source: String): String = when (source) {
     "torrent" -> "TORRENT"
     "web" -> "WEB"
