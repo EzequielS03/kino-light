@@ -37,7 +37,8 @@ class ClienteDeIaTest {
           {"id":"a:free","pricing":{"prompt":"0"},"supported_parameters":["tools"]},
           {"id":"b:free","pricing":{"prompt":"0"},"supported_parameters":["tools"]},
           {"id":"c:free","pricing":{"prompt":"0"},"supported_parameters":["tools"]},
-          {"id":"d:free","pricing":{"prompt":"0"},"supported_parameters":["tools"]}
+          {"id":"d:free","pricing":{"prompt":"0"},"supported_parameters":["tools"]},
+          {"id":"e:free","pricing":{"prompt":"0"},"supported_parameters":["tools"]}
         ]}""",
     )
     private val pedidosDeChat = mutableListOf<String>()
@@ -109,22 +110,21 @@ class ClienteDeIaTest {
     }
 
     /**
-     * Un `Retry-After` de días dejaría un modelo aparcado días -se persiste- así que un valor
-     * enorme se limita a una hora. Se prueba por exclusión (no por "cuál gana"): con los otros tres
-     * modelos rotos, "a:free" sigue afuera justo antes de la hora y ya se puede probar justo
-     * después.
+     * A `Retry-After` of days would park a model for days (it is persisted), so a huge value is
+     * capped at one hour. Tested by exclusion, not by "which one wins": with the other four models
+     * broken, "a:free" is still out just before the hour and can be tried again just after.
      */
     @Test fun `un Retry-After enorme se limita a una hora`() = runTest {
         porModelo["a:free"] = MockResponse().setResponseCode(429).addHeader("Retry-After", "999999")
         val c = cliente()
         assertEquals("b:free", (c.preguntar("x") as RespuestaDeIa.Texto).modelo) // a:free queda en espera
 
-        // Justo antes de la hora, a:free sigue excluido: si los otros tres fallan, no hay con qué.
+        // Just before the hour a:free is still excluded: if the other four fail, nothing is left.
         ahora += 60 * 60 * 1000L - 1
-        listOf("b:free", "c:free", "d:free").forEach { porModelo[it] = MockResponse().setResponseCode(500) }
+        listOf("b:free", "c:free", "d:free", "e:free").forEach { porModelo[it] = MockResponse().setResponseCode(500) }
         assertEquals(RespuestaDeIa.NoPude, c.preguntar("y"))
 
-        // Pasada la hora, a:free vuelve a estar disponible (los otros tres siguen rotos).
+        // Past the hour a:free is available again (the other four are still broken).
         ahora += 2
         porModelo.remove("a:free")
         assertEquals("a:free", (c.preguntar("z") as RespuestaDeIa.Texto).modelo)
@@ -146,10 +146,11 @@ class ClienteDeIaTest {
         assertEquals("a:free", (c.preguntar("y") as RespuestaDeIa.Texto).modelo)
     }
 
-    @Test fun `prueba como maximo tres modelos`() = runTest {
-        listOf("a:free", "b:free", "c:free").forEach { porModelo[it] = MockResponse().setResponseCode(500) }
+    @Test fun `tries at most four models`() = runTest {
+        listOf("a:free", "b:free", "c:free", "d:free").forEach { porModelo[it] = MockResponse().setResponseCode(500) }
         assertEquals(RespuestaDeIa.NoPude, cliente().preguntar("x"))
-        assertEquals(listOf("a:free", "b:free", "c:free"), pedidosDeChat)
+        // e:free would answer, but it is the fifth: the limit stops before it.
+        assertEquals(listOf("a:free", "b:free", "c:free", "d:free"), pedidosDeChat)
     }
 
     @Test fun `el catalogo se guarda seis horas`() = runTest {

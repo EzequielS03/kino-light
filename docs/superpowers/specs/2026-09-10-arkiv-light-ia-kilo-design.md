@@ -85,7 +85,7 @@ películas: es la única pieza que conoce a Kilo.
   - un **5xx**, un error de red o una demora de más de **45 s** lo deja en espera **5 minutos**;
   - una respuesta que llegó pero **no se puede leer** pasa al siguiente modelo **sin castigarlo**
     (en `llm-libre` costó nueve rondas aprender que un fallo del cliente no puede excluir una ruta).
-- **Máximo 3 modelos por pedido.** Si ninguno sirve, "no pude". Nunca lanza hacia arriba.
+- **Máximo 4 modelos por pedido** (eran 3; subido a 4 el 2026-09-11 por decisión de Cristian). Si ninguno sirve, "no pude". Nunca lanza hacia arriba.
 - **JSON envuelto**: port de `arkiv-api/src/arkiv_api/llm_json.py`. Saca el arreglo (o el objeto) aunque
   el modelo lo envuelva en ```` ```json ```` o le agregue texto alrededor; un arreglo donde se pidió un
   objeto es un error, no un éxito a medias.

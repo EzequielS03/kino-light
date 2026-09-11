@@ -57,10 +57,10 @@ internal class ClienteDeIa(
     suspend fun preguntar(instruccion: String): RespuestaDeIa = withContext(Dispatchers.IO) {
         val modelos = catalogoVigente()
         for (modelo in candado.withLock { memoria.ordenar(modelos) }.take(MAX_INTENTOS)) {
-            // Antes de cada modelo, no a mitad de uno: si se cancela mientras el anterior todavía no
-            // contestaba, esto corta el bucle en vez de seguir gastando la cuota anónima probando
-            // hasta 3 modelos (~135 s) por un pedido que ya nadie espera (saltar de capítulo, salir
-            // del reproductor).
+            // Before each model, not in the middle of one: if the ask is cancelled while the previous
+            // model had not answered yet, this ends the loop instead of spending the anonymous quota
+            // on up to MAX_INTENTOS models (~45 s each) for an ask nobody waits for anymore (skipping
+            // a chapter, leaving the player).
             currentCoroutineContext().ensureActive()
             val texto = intentar(modelo, instruccion) ?: continue
             candado.withLock { memoria.exito(modelo.id) }
@@ -168,7 +168,7 @@ internal class ClienteDeIa(
 
     internal companion object {
         const val BASE = "https://api.kilo.ai/api/gateway"
-        const val MAX_INTENTOS = 3
+        const val MAX_INTENTOS = 4
         const val TIMEOUT_S = 45L
         const val VIGENCIA_CATALOGO_MS = 6 * 60 * 60 * 1000L
         const val TOPE_ESPERA_LIMITE_MS = 60 * 60 * 1000L
