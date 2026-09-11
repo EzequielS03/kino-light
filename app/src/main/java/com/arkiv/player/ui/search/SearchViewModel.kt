@@ -46,9 +46,6 @@ class SearchViewModel(
     private val _loadingTitles = MutableStateFlow(false)
     val loadingTitles: StateFlow<Boolean> = _loadingTitles.asStateFlow()
 
-    private val _loadingDirect = MutableStateFlow(false)
-    val loadingDirect: StateFlow<Boolean> = _loadingDirect.asStateFlow()
-
     private val _selected = MutableStateFlow<TitleCard?>(null)
     val selected: StateFlow<TitleCard?> = _selected.asStateFlow()
 
@@ -124,13 +121,11 @@ class SearchViewModel(
         if (q.isBlank()) {
             _titleResults.value = emptyList()
             _loadingTitles.value = false
-            _loadingDirect.value = false
             return
         }
         enHistorial { searchHistory.addQuery(q) }
         searchJob = viewModelScope.launch {
             _loadingTitles.value = true
-            _loadingDirect.value = true
 
             var tmdbCards: List<TitleCard> = emptyList()
             var animeCards: List<TitleCard> = emptyList()
@@ -154,10 +149,6 @@ class SearchViewModel(
                 publicarTitulos()
                 if (tmdbDone) _loadingTitles.value = false
             }
-
-            // archive.org ("direct" search) was removed in this branch's pruning: there are no
-            // direct results to offer, so that section's spinner just turns off right away.
-            _loadingDirect.value = false
 
             tmdbJob.join()
             animeJob.join()

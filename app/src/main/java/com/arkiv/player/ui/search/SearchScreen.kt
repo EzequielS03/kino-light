@@ -92,12 +92,10 @@ import com.arkiv.player.ui.theme.ArkivTextSecondary
 import kotlinx.coroutines.launch
 
 /**
- * Unified search wizard: QUERY phase (search box + TMDB/anime cards + a "direct results" section
- * that's currently always empty -- it used to be archive.org's search-as-you-type, removed with
- * the rest of that source in this branch's pruning; see `SearchViewModel.search()`'s own comment),
- * REFINE step (optional season/chapter) and RESULTS phase (multi-source search in Magis and
- * Caracol for the chosen card, with S/E injected if given, or by name alone otherwise — the latter
- * surfaces whole-season/series packs).
+ * Unified search wizard: QUERY phase (search box + TMDB/anime cards), REFINE step (optional
+ * season/chapter) and RESULTS phase (multi-source search in Magis and Caracol for the chosen
+ * card, with S/E injected if given, or by name alone otherwise — the latter surfaces
+ * whole-season/series packs).
  */
 @Composable
 fun SearchScreen(
@@ -126,7 +124,6 @@ fun SearchScreen(
     val phase by vm.phase.collectAsStateWithLifecycle()
     val titleResults by vm.titleResults.collectAsStateWithLifecycle()
     val loadingTitles by vm.loadingTitles.collectAsStateWithLifecycle()
-    val loadingDirect by vm.loadingDirect.collectAsStateWithLifecycle()
     val selected by vm.selected.collectAsStateWithLifecycle()
     val sources by vm.sources.collectAsStateWithLifecycle()
     val fuentesBuscando by vm.fuentesBuscando.collectAsStateWithLifecycle()
@@ -254,7 +251,6 @@ fun SearchScreen(
                 else -> QueryContent(
                     titleResults = titleResults,
                     loadingTitles = loadingTitles,
-                    loadingDirect = loadingDirect,
                     onBuscarFuentesTexto = { q -> vm.buscarFuentesPorTexto(q) },
                     recentQueries = recentQueries,
                     recentTitles = recentTitles,
@@ -336,16 +332,13 @@ fun SearchScreen(
 }
 
 /**
- * QUERY phase: search box + TMDB/anime title grid + a "direct results" section (was archive.org
- * and torrent search-as-you-type; both removed in this branch's pruning, so this section is
- * always empty today -- see `SearchViewModel.search()`). Shows the history instead of an empty
- * results state while nothing has been searched yet.
+ * QUERY phase: search box + TMDB/anime title grid. Shows the history instead of an empty results
+ * state while nothing has been searched yet.
  */
 @Composable
 private fun QueryContent(
     titleResults: List<TitleCard>,
     loadingTitles: Boolean,
-    loadingDirect: Boolean,
     /** Manda el texto TAL CUAL al wizard de fuentes, sin pasar por el catálogo (mismo camino
      *  que el botón "Buscar" del TV): para cuando uno se acuerda de un pedazo del nombre y no
      *  del título exacto con el que TMDB lo tiene. */
@@ -463,21 +456,6 @@ private fun QueryContent(
         }
         items(titleResults, key = { "${it.kind}-${it.tmdbId}-${it.anilistId}-${it.title}" }) { card ->
             TitleCardItem(card, onClick = { onPickTitle(card) })
-        }
-
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 16.dp)) {
-                Text("Resultados directos", style = MaterialTheme.typography.titleMedium, color = Color.White)
-                if (loadingDirect) {
-                    Spacer(Modifier.size(8.dp))
-                    CircularProgressIndicator(color = ArkivRed, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
-                }
-            }
-        }
-        if (!loadingDirect) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Text("Sin resultados", color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall)
-            }
         }
     }
 }
