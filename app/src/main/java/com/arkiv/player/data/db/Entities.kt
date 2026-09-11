@@ -202,7 +202,7 @@ data class DownloadEntity(
     val progress: Float,              // 0..1
     val localUri: String?,            // histórico: file:// que dejó el DownloadManager del sistema
     val bytes: Long,                  // tamaño total conocido (0 si aún no se sabe)
-    val source: String = "archive",   // "magis" | "archive" (fallback) | legacy "torrent"/"web"
+    val source: String = "archive",   // "magis" | "ditu" | "archive" (fallback) | legacy "torrent"/"web"
     val filePath: String? = null,     // ruta absoluta del archivo final
     val bytesDone: Long = 0,
     // Huérfana desde la poda de NUC (Task 8): nada la lee ni la escribe más (era el puente

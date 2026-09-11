@@ -1002,12 +1002,12 @@ private fun PlayerContent(
             return@LaunchedEffect
         }
         if (loaded) {
-            android.util.Log.w("ArkivPlay", "playlist lista pero loaded=true → NO recarga (guard). items=${pl.items.map { it.episodeId }}")
+            android.util.Log.w("ArkivPlay", "playlist ready but loaded=true → skip reload (guard). items=${pl.items.map { it.episodeId }}")
             return@LaunchedEffect
         }
         loaded = true
         espejo.saltoA(pl.startPositionMs)
-        android.util.Log.w("ArkivPlay", "playlist lista → cargar. decision=$decision startPos=${pl.startPositionMs}")
+        android.util.Log.w("ArkivPlay", "playlist ready → load. decision=$decision startPos=${pl.startPositionMs}")
         if (casting && castSession != null) {
             val idx = pl.items.indexOfFirst { it.episodeId == episodeId }.coerceAtLeast(0)
             val req = castRequestFor(pl, idx, pl.startPositionMs)

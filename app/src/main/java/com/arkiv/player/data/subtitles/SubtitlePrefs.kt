@@ -12,9 +12,10 @@ import org.json.JSONObject
 enum class SubtitleMode { AUTO, OFF }
 
 /**
- * Preferencias de reproducción: idioma de audio, idioma y estilo de subtítulos. Se persiste local y
- * se sincroniza al TV. Los idiomas son LISTAS ORDENADAS: el reproductor las recorre y toma la primera
- * pista que exista, en vez de quedarse con la primera del archivo.
+ * Preferencias de reproducción: idioma de audio, idioma y estilo de subtítulos. Se persiste local
+ * (el sync a la TV que esto tenía se borró junto con el control remoto TV↔celu). Los idiomas son
+ * LISTAS ORDENADAS: el reproductor las recorre y toma la primera pista que exista, en vez de
+ * quedarse con la primera del archivo.
  */
 data class PlaybackPrefs(
     /** En qué ORDEN elegir la pista de audio. Solo eso: no dice nada sobre qué idiomas entendés. */
@@ -66,12 +67,10 @@ data class PlaybackPrefs(
         const val EDGE_OUTLINE = 1
         const val EDGE_SHADOW = 2
 
-        /**
-         * [base] es lo que se usa para TODO campo que el JSON no traiga. Con el default (unas prefs
-         * recién hechas) se comporta como siempre.
-         */
-        fun fromJson(s: String, base: PlaybackPrefs = PlaybackPrefs()): PlaybackPrefs? = runCatching {
+        /** Cualquier campo que el JSON no traiga cae a un [PlaybackPrefs] recién hecho. */
+        fun fromJson(s: String): PlaybackPrefs? = runCatching {
             val o = JSONObject(s)
+            val base = PlaybackPrefs()
             PlaybackPrefs(
                 audioLangs = langs(o, "audioLangs") ?: base.audioLangs,
                 // Migración: sin el campo nuevo se siembra desde audioLangs, que hasta ahora cargaba

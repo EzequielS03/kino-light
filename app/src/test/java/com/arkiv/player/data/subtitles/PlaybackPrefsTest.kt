@@ -58,33 +58,6 @@ class PlaybackPrefsTest {
         assertEquals(listOf(TrackLang.LATINO), PlaybackPrefs.fromJson(json)!!.understoodLangs)
     }
 
-    // --- mezcla con lo que ya hay (sync desde una build vieja) ---
-
-    /**
-     * El Fire Stick corre la build anterior y manda un JSON sin listas de idioma. Antes eso pisaba con
-     * los defaults lo que el celular tenía configurado; ahora lo que no viene se queda como estaba.
-     */
-    @Test fun jsonFromAnOldBuildKeepsTheListsAlreadyConfigured() {
-        val actual = PlaybackPrefs(
-            audioLangs = listOf(TrackLang.ENGLISH, TrackLang.LATINO),
-            understoodLangs = listOf(TrackLang.ENGLISH),
-            subtitleLangs = listOf(TrackLang.ENGLISH),
-        )
-        val delTv = """{"language":"es","sizePercent":110,"textColor":4294967295,"backgroundColor":2147483648,"edge":1}"""
-        val p = PlaybackPrefs.fromJson(delTv, base = actual)!!
-        assertEquals(actual.audioLangs, p.audioLangs)
-        assertEquals(actual.understoodLangs, p.understoodLangs)
-        assertEquals(actual.subtitleLangs, p.subtitleLangs)
-        assertEquals(110, p.sizePercent) // lo que sí vino, se aplica
-    }
-
-    /** Y lo que la otra punta sí manda tiene que ganar: mezclar no es ignorar. */
-    @Test fun listsPresentInTheJsonReplaceTheCurrentOnes() {
-        val actual = PlaybackPrefs(audioLangs = listOf(TrackLang.ENGLISH))
-        val json = PlaybackPrefs(audioLangs = listOf(TrackLang.JAPANESE)).toJson()
-        assertEquals(listOf(TrackLang.JAPANESE), PlaybackPrefs.fromJson(json, base = actual)!!.audioLangs)
-    }
-
     /**
      * Una build futura que agregue un `TrackLang` manda nombres que este binario no conoce. Quedarse
      * con la lista vacía sería "nunca auto-seleccionar audio" y "siempre poner subtítulos".

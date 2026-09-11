@@ -21,6 +21,11 @@ class MetadataParserTest {
     }
 
     @Test
+    fun `el prefijo de carpeta se pela antes de limpiar el nombre`() {
+        assertEquals("Evangelion 01", MetadataParser.cleanName("Serie/Season 1/Evangelion_01.mkv", "otro-item"))
+    }
+
+    @Test
     fun `nombre con @ se limpia legible`() {
         val name = "TPO_Neon_Genesis_Evangelion_01@Trapo2019_Universo_Anime.mkv"
         assertTrue(MetadataParser.cleanName(name, "id").startsWith("TPO Neon Genesis Evangelion 01"))

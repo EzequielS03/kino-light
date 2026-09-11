@@ -155,8 +155,8 @@ class SearchViewModel(
                 if (tmdbDone) _loadingTitles.value = false
             }
 
-            // archive.org (búsqueda "directa") se borró en la poda de esta rama: no hay resultados
-            // directos que ofrecer, así que el spinner de esa sección se apaga de una.
+            // archive.org ("direct" search) was removed in this branch's pruning: there are no
+            // direct results to offer, so that section's spinner just turns off right away.
             _loadingDirect.value = false
 
             tmdbJob.join()

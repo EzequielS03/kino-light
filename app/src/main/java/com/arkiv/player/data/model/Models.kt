@@ -1,6 +1,6 @@
 package com.arkiv.player.data.model
 
-/** Un episodio/video lógico. */
+/** A logical episode/video. */
 data class Episode(
     val id: String,          // estable: "<identifier>::<claveBase>"
     val itemId: String,      // identifier del ítem

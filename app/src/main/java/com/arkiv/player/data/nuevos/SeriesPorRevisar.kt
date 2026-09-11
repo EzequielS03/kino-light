@@ -46,7 +46,7 @@ object SeriesPorRevisar {
      * by being newly excluded; in practice `BuscadorDeCapitulos` no-ops on both. "magis" is the only
      * one that leads anywhere today (`BuscadorDeCapitulos.revisarMagis`). "ditu" isn't in this set:
      * checking Caracol for new chapters isn't implemented yet. Torrent stays out on purpose too
-     * (ver el plan).
+     * (see the spec).
      */
     private val FUENTES = setOf("archive", "web", "magis")
 
