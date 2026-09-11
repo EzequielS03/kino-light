@@ -25,8 +25,12 @@ class AgregadorDeRecomendaciones(
 ) {
 
     /**
-     * Guarda [rec] y devuelve el id del ítem que quedó en la biblioteca, para navegar a su detalle,
-     * o null si no quedó nada (navegar ahí se vería como una recomendación rota).
+     * Guarda [rec] y devuelve el id del ítem al que navegar, o null si no hay a qué navegar.
+     *
+     * Casi siempre null coincide con "no quedó nada guardado", pero no siempre: en el borde de
+     * [agregarDeCaracol] donde ni el capítulo elegido se pudo guardar solo, la serie puede haber
+     * quedado igual en la biblioteca (la escribió `addDituSeason` antes de fallar en el elegido),
+     * solo que sin ese capítulo listo para reproducir.
      */
     suspend fun agregar(rec: RecomendacionEntity): String? = when (val destino = GuardadoDeRecomendacion.destino(rec)) {
         is DestinoDeRecomendacion.Magis -> agregarDeMagis(rec, destino)

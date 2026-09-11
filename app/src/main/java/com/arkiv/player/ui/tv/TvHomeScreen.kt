@@ -713,13 +713,12 @@ fun TvHomeScreen(
                                                 // Magis reproduciría mal.
                                                 //
                                                 // La llave con la que se navega es la que el agregador
-                                                // devuelve: es el id del ítem que de verdad quedó
-                                                // guardado, así que siempre coincide. `null` es
-                                                // exactamente "no quedó nada guardado a qué navegar"
-                                                // (ver AgregadorDeRecomendaciones.agregarDeCaracol: si
-                                                // el capítulo elegido no calzó en la temporada, ya cae
-                                                // a guardarlo solo antes de rendirse) -- nunca deja un
-                                                // ítem guardado sin abrir su detalle.
+                                                // devuelve. `null` significa que no hay a qué navegar,
+                                                // pero no siempre que no se guardó nada: en el borde
+                                                // en que ni el capítulo elegido se pudo guardar solo
+                                                // (ver AgregadorDeRecomendaciones.agregar), la serie
+                                                // puede haber quedado igual en la biblioteca, solo que
+                                                // sin ese capítulo listo para reproducir.
                                                 scope.launch {
                                                     agregador.agregar(rec)?.let(onOpenItem)
                                                 }
