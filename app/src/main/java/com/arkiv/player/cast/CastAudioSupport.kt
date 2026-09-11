@@ -14,8 +14,9 @@ import androidx.media3.common.MimeTypes
  * que los decodifique la TV, y eso hay que habilitarlo aparte; DTS y TrueHD no están de ninguna
  * forma.
  *
- * Ya no hay transcodificador: cuando el receptor no puede con el audio, se castea igual y se avisa
- * (ver `castRequestFor` en `PlayerScreen.kt`). Este objeto solo decide el aviso, no un fallback.
+ * There is no transcoder any more: when the receiver can't handle the audio, it still gets cast
+ * and a warning is shown (see `castRequestFor` in `PlayerScreen.kt`). This object only decides the
+ * warning, not a fallback.
  */
 object CastAudioSupport {
 
@@ -38,12 +39,13 @@ object CastAudioSupport {
     )
 
     /**
-     * ¿El receptor decodifica este audio tal cual?
+     * Does the receiver decode this audio as-is?
      *
-     * Es una lista blanca: lo que no reconocemos NO se da por decodificable. Sin transcodificador
-     * ya no hay a dónde caer, así que esto solo decide si hace falta el aviso de "puede sonar
-     * mudo", nunca si se castea o no. La única excepción es un `sampleMimeType` nulo: ahí la pista
-     * todavía no se parseó, y forzar el aviso rompería el camino de hoy en fuentes que andan bien.
+     * It's a whitelist: anything we don't recognize is NOT assumed decodable. Without a transcoder
+     * there is nowhere left to fall back to, so this only decides whether the "might play mute"
+     * warning is needed, never whether the item gets cast. The only exception is a null
+     * `sampleMimeType`: the track hasn't been parsed yet, and forcing the warning there would break
+     * today's path for sources that work fine.
      */
     fun receiverDecodes(sampleMimeType: String?, channelCount: Int): Boolean = when (sampleMimeType) {
         null -> true

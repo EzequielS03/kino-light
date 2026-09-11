@@ -467,12 +467,12 @@ private fun PlayerContent(
     }
 
     /**
-     * Posición y duración DEL CONTENIDO, sea local o casteado.
+     * Content position and duration, whether local or cast.
      *
-     * Sin transcodificador el receptor siempre cuenta desde el mismo punto que el archivo, pero
-     * un directo en vivo igual puede mandar `TIME_UNSET` como duración: leerlo crudo dejaría la
-     * barra en un número negativo en vez de "sin duración". La traducción vive en CastProgress
-     * (con tests) para que no haya dos copias divergiendo.
+     * Without a transcoder the receiver always counts from the same point as the file, but a live
+     * stream can still send `TIME_UNSET` as duration: reading it raw would leave the bar showing a
+     * negative number instead of "no duration". The translation lives in CastProgress (with tests)
+     * so there isn't a second copy that can drift.
      */
     fun contentPositionMs(): Long = CastProgress.contentPosition(activePlayer.currentPosition)
 
@@ -693,14 +693,18 @@ private fun PlayerContent(
         // el celu -el canal está reproduciéndose cuando se llega hasta acá, nunca antes- así que no
         // hace falta ninguna lista de canales permitidos ni adivinar por nombre/categoría.
         val audio = localAudioFormat(controller.currentTracks)
+        // .coerceAtLeast(0): media3 reports an unset channel count as Format.NO_VALUE (-1), which
+        // would otherwise show up in the log below as "canales=-1". Doesn't change the decodable
+        // decision (receiverDecodes only compares it against AAC's <=2 stereo cap).
+        val channelCount = (audio?.channelCount ?: 0).coerceAtLeast(0)
         val decodable = com.arkiv.player.cast.CastAudioSupport.receiverDecodes(
             sampleMimeType = audio?.sampleMimeType,
-            channelCount = audio?.channelCount ?: 0,
+            channelCount = channelCount,
         )
         android.util.Log.i(
             "ArkivCast",
             "audio del origen · mime=${audio?.sampleMimeType ?: "desconocido"} " +
-                "canales=${audio?.channelCount ?: 0} → ${if (decodable) "va directo" else "puede sonar mudo"}",
+                "canales=$channelCount → ${if (decodable) "va directo" else "puede sonar mudo"}",
         )
 
         // La URL alcanzable por el receptor: la del proxy de vivo (LiveHlsProxy) LAN -- mismo motivo
@@ -722,8 +726,8 @@ private fun PlayerContent(
             startPositionMs = startPositionMs,
             isLive = esVivo,
         )
-        // No hay transcodificador: un audio que el receptor no decodifica se castea igual, mudo,
-        // en vez de no castear nada. El aviso es lo único que distingue ese caso de un cast normal.
+        // No transcoder: audio the receiver can't decode still gets cast, muted, instead of not
+        // casting at all. The warning is the only thing that tells that case apart from a normal cast.
         if (!decodable && directo != null) {
             android.widget.Toast.makeText(
                 context,
@@ -741,7 +745,7 @@ private fun PlayerContent(
      * canal viajaba en `_playlist`; ahora viaja en `liveItem` (ver PlayerViewModel.abrirCanalActual)
      * y ese efecto solo corre para VOD. Se arma un `PlaylistData` sintético de un solo ítem para
      * reusar [castRequestFor] tal cual -- esa función no lee de `PlaylistData` nada más que
-     * `items`/el índice, así que no hace falta duplicar la lógica de lanUrl/lector de audio/transcode.
+     * `items`/el índice, así que no hace falta duplicar la lógica de lanUrl/lector de audio.
      *
      * `generacionVivo` en la clave: reabrir el MISMO canal tras un corte produce un `PlayerData`
      * igual al anterior (mismo motivo que `_generacionVivo` en el ViewModel, ver su KDoc), así que
@@ -1678,10 +1682,10 @@ private fun PlayerContent(
     val seekStepMs = 10_000L
 
     /**
-     * Mueve la reproducción a [targetMs] DEL CONTENIDO.
+     * Moves playback to [targetMs] of the CONTENT.
      *
-     * Casteando, `activePlayer` ya es el `CastPlayer`: el seek va directo al receptor, sin
-     * transcodificador de por medio (removido -- ver el KDoc de `castRequestFor`).
+     * While casting, `activePlayer` is already the `CastPlayer`: the seek goes straight to the
+     * receiver, with no transcoder in between (removed -- see `castRequestFor`'s KDoc).
      */
     fun seekTo(targetMs: Long) {
         val dur = contentDurationMs()

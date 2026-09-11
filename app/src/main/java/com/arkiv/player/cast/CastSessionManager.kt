@@ -234,8 +234,8 @@ class CastSessionManager(
                     Triple(player.currentMediaItem?.mediaId, player.currentPosition, player.duration)
                 }
                 if (mediaId != epId) continue
-                // Sin transcodificador el receptor reporta la posición y la duración reales; la
-                // única razón para no guardar es un directo en vivo, que manda TIME_UNSET.
+                // Without a transcoder the receiver reports the real position and duration; the
+                // only reason not to save is a live stream, which sends TIME_UNSET.
                 val progress = CastProgress.toSave(reportedPosMs = pos, reportedDurMs = dur)
                 if (progress == null) {
                     // Loud on purpose -- born diagnosing "torrent always restarts from zero" (a

@@ -4,12 +4,12 @@ package com.arkiv.player.cast
 data class SavedProgress(val positionMs: Long, val durationMs: Long)
 
 /**
- * Acota lo que reporta el receptor a lo que tiene sentido mostrar o guardar.
+ * Clamps what the receiver reports to what makes sense to show or save.
  *
- * Sin transcodificador el receptor cuenta la posición y la duración del mismo archivo que el celu,
- * así que ya no hay un desfase que sumar. Lo único que sigue haciendo falta es acotar
- * `C.TIME_UNSET` (un negativo grande, lo que manda un directo en vivo que no sabe su duración) a
- * "no sé" (0), que es lo que la barra y el guardado de progreso ya interpretan.
+ * Without a transcoder the receiver counts the position and duration of the same file as the
+ * phone, so there is no longer an offset to add. The only thing still needed is clamping
+ * `C.TIME_UNSET` (a large negative, what a live stream that doesn't know its duration sends) to
+ * "unknown" (0), which is what the bar and the progress save already interpret.
  */
 object CastProgress {
 
