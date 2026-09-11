@@ -72,14 +72,18 @@ fun CineDetailScreen(
 ) {
     val graph = rememberGraph()
     val scope = rememberCoroutineScope()
-    // Permiso de notificaciones (API 33+): se pide al disparar una descarga (a la NUC o al propio
-    // dispositivo, el worker de descargas locales también notifica). Ver rememberPostNotificationsRequest.
+    // Notification permission (API 33+): requested when a download to the device is triggered, so
+    // the local downloads worker's "download complete" notification isn't silently dropped. See
+    // rememberPostNotificationsRequest.
     val askNotifications = com.arkiv.player.ui.offline.rememberPostNotificationsRequest()
     // Avisa "eso ya lo tenés bajado" cuando la cola saltea una descarga duplicada (ver
     // DuplicateDownloadPolicy): si no, el botón parecería no hacer nada.
     val notifyDuplicates = com.arkiv.player.ui.offline.rememberDuplicateDownloadNotice()
-    // El control de descarga por fuente era de archive.org ([DescargasPorFuente], borrado en la
-    // poda de esta rama); `porConfirmar` queda cableado al diálogo de abajo pero ya nadie lo llena.
+    // The per-source download control this screen used to show (observing `downloadRows` and
+    // matching them with [com.arkiv.player.data.local.DescargasPorFuente]) was archive.org search
+    // UI, removed with the rest of that source in this branch's pruning. `DescargasPorFuente`
+    // itself is still in the tree (`data/local`), just with no caller left here; `porConfirmar`
+    // stays wired to the dialog below, but nothing sets it anymore.
     var porConfirmar by remember { mutableStateOf<Pair<DownloadRow, AccionDeDescarga>?>(null) }
 
     var detail by remember { mutableStateOf<TmdbDetail?>(null) }
