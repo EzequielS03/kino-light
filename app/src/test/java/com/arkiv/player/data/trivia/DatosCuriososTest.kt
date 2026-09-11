@@ -166,6 +166,23 @@ class DatosCuriososTest {
         assertNull(cache.datos[pelicula.clave])
     }
 
+    /**
+     * Una ficha degradada (serie sin el capítulo pedido, porque esa llamada falló) igual se le
+     * pregunta a Kilo con lo que hay, pero la respuesta NO se guarda: guardarla dejaría a ESE
+     * capítulo con datos genéricos de la serie un mes, por una falla que la próxima apertura podría
+     * no repetir.
+     */
+    @Test fun `una ficha degradada no se guarda`() = runTest {
+        val cache = CacheEnMemoria()
+        val serieDegradada = ObraDeDatos(tipo = "tv", tmdbId = 46260, tituloCanonico = null, temporada = 1, episodio = 2)
+        val fichaDegradada = FichaDeObra(tipo = "tv", nombre = "Naruto", degradada = true)
+        var preguntas = 0
+        val datos = DatosCuriosos(ia = { preguntas++; RespuestaDeIa.Texto("""["a","b"]""", "m") }, cache = cache)
+        assertEquals(listOf("a", "b"), datos.de(serieDegradada) { fichaDegradada })
+        assertEquals(1, preguntas)
+        assertNull(cache.datos[serieDegradada.clave])
+    }
+
     @Test fun `el cache en disco vence a los treinta dias`() {
         var ahora = 0L
         val cache = CacheDeDatosEnDisco(carpeta.root) { ahora }

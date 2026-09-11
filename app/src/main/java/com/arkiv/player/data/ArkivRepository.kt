@@ -1343,11 +1343,21 @@ class ArkivRepository(
      * La ficha de hechos verificados de TMDB para anclar el dato curioso a ESTA obra exacta (adenda
      * de spec del 2026-09-10): nunca la sinopsis, porque trae trama.
      *
-     * Con `tmdbId`: la ficha de película o de serie, más la del capítulo si hay temporada y
-     * episodio y TMDB lo encuentra. Si la llamada del capítulo falla, la ficha de la serie se usa
-     * igual, sin capítulo. Sin `tmdbId`, o si TMDB no contestó nada, una ficha mínima con solo el
-     * título canónico (sin ningún hecho): sigue siendo mejor que preguntar a ciegas. `null` si no
-     * hay ni eso. La cancelación se relanza; lo demás se traga, como antes en `nombreDeObra`.
+     * **Sin `tmdbId`**: una ficha mínima con solo el título canónico (sin ningún hecho) — sigue
+     * siendo mejor que preguntar a ciegas. `null` si tampoco hay título canónico.
+     *
+     * **Con `tmdbId`**: la ficha de película o de serie, más la del capítulo si hay temporada y
+     * episodio y TMDB lo encuentra. Si TMDB no contesta NADA (ni película ni serie), `null` — no la
+     * ficha mínima: guardarla bajo esa clave sellaría un mes el modo "sin ancla" que la adenda midió
+     * como inventado, cuando lo que hubo fue una caída pasajera. Sin caché de por medio, la próxima
+     * apertura reintenta solo.
+     *
+     * Si la serie sí llegó pero falló la llamada del capítulo (pedido con temporada y episodio), la
+     * ficha queda [com.arkiv.player.data.trivia.FichaDeObra.degradada]: se pregunta igual con los
+     * hechos de la serie, pero [com.arkiv.player.data.trivia.DatosCuriosos] no guarda esa respuesta
+     * bajo la clave del capítulo.
+     *
+     * La cancelación se relanza; lo demás se traga, como antes en `nombreDeObra`.
      *
      * **Esto solo corre si no hay caché** (igual que antes con el nombre): puede costar hasta 2
      * llamadas a TMDB (película, o serie + capítulo).
@@ -1355,42 +1365,37 @@ class ArkivRepository(
     internal suspend fun fichaDeObra(obra: com.arkiv.player.data.trivia.ObraDeDatos): com.arkiv.player.data.trivia.FichaDeObra? {
         val tmdb = tmdbApi
         val id = obra.tmdbId
-        val deTmdb = if (tmdb == null || id == null) {
-            null
-        } else if (obra.tipo == "movie") {
-            try {
+        if (tmdb == null || id == null) {
+            return obra.tituloCanonico?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                com.arkiv.player.data.trivia.FichaDeObra(tipo = obra.tipo, nombre = it)
+            }
+        }
+        if (obra.tipo == "movie") {
+            return try {
                 tmdb.crudo("movie/$id", append = "credits")?.let { com.arkiv.player.data.trivia.fichaDePelicula(it) }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 null
             }
-        } else {
-            val serie = try {
-                tmdb.crudo("tv/$id", append = "aggregate_credits")?.let { com.arkiv.player.data.trivia.fichaDeSerie(it) }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                null
-            }
-            if (serie != null && obra.temporada != null && obra.episodio != null) {
-                val capitulo = try {
-                    tmdb.crudo("tv/$id/season/${obra.temporada}/episode/${obra.episodio}", append = "credits")
-                        ?.let { com.arkiv.player.data.trivia.capituloDeFicha(it) }
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    null
-                }
-                serie.copy(capitulo = capitulo)
-            } else {
-                serie
-            }
         }
-        if (deTmdb != null) return deTmdb
-        return obra.tituloCanonico?.trim()?.takeIf { it.isNotEmpty() }?.let {
-            com.arkiv.player.data.trivia.FichaDeObra(tipo = obra.tipo, nombre = it)
+        val serie = try {
+            tmdb.crudo("tv/$id", append = "aggregate_credits")?.let { com.arkiv.player.data.trivia.fichaDeSerie(it) }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        } ?: return null
+        if (obra.temporada == null || obra.episodio == null) return serie
+        val capitulo = try {
+            tmdb.crudo("tv/$id/season/${obra.temporada}/episode/${obra.episodio}", append = "credits")
+                ?.let { com.arkiv.player.data.trivia.capituloDeFicha(it) }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
         }
+        return if (capitulo != null) serie.copy(capitulo = capitulo) else serie.copy(degradada = true)
     }
 }
 

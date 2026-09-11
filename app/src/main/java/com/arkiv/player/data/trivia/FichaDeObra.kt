@@ -51,6 +51,14 @@ internal data class FichaDeObra(
     val cadenas: List<String> = emptyList(),
     /** Solo si la obra es un capítulo de serie y TMDB lo encontró. */
     val capitulo: FichaDeCapitulo? = null,
+    /**
+     * La serie sí se pudo traer, pero se pidió un capítulo puntual y esa llamada falló (ver
+     * `ArkivRepository.fichaDeObra`): la ficha se arma igual, sin [capitulo], porque preguntar con
+     * los hechos de la serie es mejor que no preguntar. [DatosCuriosos] pregunta con esto, pero no
+     * guarda la respuesta -guardarla dejaría a ESE capítulo con datos genéricos un mes por una
+     * falla que la próxima apertura podría no repetir.
+     */
+    val degradada: Boolean = false,
 ) {
     /**
      * El bloque de hechos que va en el prompt, para presentarlos como datos verificados de TMDB:

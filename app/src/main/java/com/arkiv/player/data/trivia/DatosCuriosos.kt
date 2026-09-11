@@ -142,6 +142,10 @@ internal class CacheDeDatosEnDisco(private val dir: File, private val ahoraMs: (
  * (eso es un tropiezo del modelo). Un `[]` que el modelo devolvió tal cual **sí** se guarda: desde la
  * adenda de spec del 2026-09-10 es una respuesta legítima ("no tengo nada seguro para esta obra"), y
  * no guardarla repreguntaría a Kilo (~20 s) cada vez que alguien vuelve a abrir la obra.
+ *
+ * Una ficha [FichaDeObra.degradada] tampoco se guarda, sea cual sea la respuesta: se pregunta igual
+ * con lo que hay, pero guardarla dejaría el capítulo pedido con datos genéricos de la serie un mes,
+ * por una falla que la próxima apertura podría no repetir.
  */
 internal class DatosCuriosos(
     private val ia: suspend (String) -> RespuestaDeIa,
@@ -159,11 +163,11 @@ internal class DatosCuriosos(
             return emptyList()
         }
         if (crudo.length() == 0) {
-            cache.guardar(obra.clave, emptyList())
+            if (!cual.degradada) cache.guardar(obra.clave, emptyList())
             return emptyList()
         }
         val datos = PreguntaDeDatos.limpiar(crudo)
-        if (datos.isNotEmpty()) cache.guardar(obra.clave, datos)
+        if (datos.isNotEmpty() && !cual.degradada) cache.guardar(obra.clave, datos)
         return datos
     }
 
