@@ -20,7 +20,9 @@ data class CastRequest(
 /**
  * Deriva la petición de cast según la fuente. Pura: testeable sin Android.
  *
- * Archive/web: se prefiere `castUrl` (mp4 h.264, compatible con el receptor) sobre `mediaUrl`.
+ * Local y magis: se prefiere `castUrl` (mp4 h.264, compatible con el receptor) sobre `mediaUrl`
+ * cuando está seteada -- archive.org y web, que fueron el origen de este caso, se borraron en la
+ * poda de esta rama.
  * Live (Task 18): the URL is that of the LOCAL HTTP server (the `LiveHlsProxy` proxy) reachable
  * over the LAN -- `mediaUrl` is always the loopback that VLC consumes on this same device, and
  * `castUrl` doesn't exist for live channels (there's never a fallback mp4 h.264, it's a live
@@ -70,7 +72,7 @@ object CastRequestBuilder {
      *
      * Here the bytes can't be inspected (the URL is remote, there's no file to open), so the
      * extension is all there is; what IS shared with the rest of the app is the TABLE, so there
-     * aren't three different versions of "what MIME does a .ts have" floating around. Ver
+     * aren't three different versions of "what MIME does a .ts have" floating around. See
      * [com.arkiv.player.playback.ContenedorDeVideo].
      */
     internal fun mimeForUrl(url: String): String =
