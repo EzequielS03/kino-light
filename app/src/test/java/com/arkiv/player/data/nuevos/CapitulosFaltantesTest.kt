@@ -1,5 +1,6 @@
 package com.arkiv.player.data.nuevos
 
+import com.arkiv.player.data.DituEntities
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -86,42 +87,59 @@ class CapitulosFaltantesTest {
     //
     // Plain `aPedir` compares against the highest NUMBER seen so far, which breaks for a source
     // that restarts numbering every season: with ten chapters in season 1, season 2's chapter 1
-    // would look like a duplicate of something already stored. `aPedirPorTemporada` keys by
+    // would look like a duplicate of something already stored. `toFetchBySeason` keys by
     // `(season, number)` instead, so it compares season-first.
 
-    @Test fun una_temporada_nueva_se_pide() {
+    @Test fun a_new_season_is_requested() {
         assertEquals(
             listOf(2 to 1),
-            CapitulosFaltantes.aPedirPorTemporada(tengo = listOf(1 to 10), enLaFuente = listOf(1 to 10, 2 to 1)),
+            CapitulosFaltantes.toFetchBySeason(have = listOf(1 to 10), inSource = listOf(1 to 10, 2 to 1)),
         )
     }
 
-    @Test fun un_capitulo_nuevo_de_la_misma_temporada_se_pide() {
+    @Test fun a_new_chapter_in_the_same_season_is_requested() {
         assertEquals(
             listOf(1 to 11),
-            CapitulosFaltantes.aPedirPorTemporada(tengo = listOf(1 to 10), enLaFuente = listOf(1 to 10, 1 to 11)),
+            CapitulosFaltantes.toFetchBySeason(have = listOf(1 to 10), inSource = listOf(1 to 10, 1 to 11)),
         )
     }
 
-    @Test fun una_fuente_con_menos_temporadas_no_pide_nada() {
-        // Ya tengo T2E3; la fuente solo reporta T1: nada de eso es "posterior" a lo guardado.
+    @Test fun a_source_with_fewer_seasons_requests_nothing() {
+        // Already have T2E3; the source only reports T1: none of that is "later" than what's stored.
         assertEquals(
             emptyList<Pair<Int, Int>>(),
-            CapitulosFaltantes.aPedirPorTemporada(tengo = listOf(2 to 3), enLaFuente = listOf(1 to 1, 1 to 2)),
+            CapitulosFaltantes.toFetchBySeason(have = listOf(2 to 3), inSource = listOf(1 to 1, 1 to 2)),
         )
     }
 
-    @Test fun el_tope_por_serie_tambien_aplica_por_temporada() {
-        val fuente = (1..8).map { 2 to it }
-        val pedidos = CapitulosFaltantes.aPedirPorTemporada(tengo = listOf(1 to 10), enLaFuente = fuente)
-        assertEquals(CapitulosFaltantes.MAX_POR_SERIE, pedidos.size)
-        assertEquals(listOf(2 to 1, 2 to 2, 2 to 3, 2 to 4, 2 to 5), pedidos)
+    @Test fun the_per_series_cap_also_applies_by_season() {
+        val source = (1..8).map { 2 to it }
+        val requested = CapitulosFaltantes.toFetchBySeason(have = listOf(1 to 10), inSource = source)
+        assertEquals(CapitulosFaltantes.MAX_POR_SERIE, requested.size)
+        assertEquals(listOf(2 to 1, 2 to 2, 2 to 3, 2 to 4, 2 to 5), requested)
     }
 
-    @Test fun temporada_null_se_trata_como_cero() {
+    @Test fun a_null_season_is_treated_as_zero() {
         assertEquals(
             listOf(0 to 2),
-            CapitulosFaltantes.aPedirPorTemporada(tengo = listOf(null to 1), enLaFuente = listOf(null to 1, null to 2)),
+            CapitulosFaltantes.toFetchBySeason(have = listOf(null to 1), inSource = listOf(null to 1, null to 2)),
+        )
+    }
+
+    /**
+     * Regression for fix round 1: `BuscadorDeCapitulos.revisarDitu` keyed the STORED side with the
+     * season Room already has (always written through [DituEntities.temporadaGuardada], so never
+     * null/0) but the SOURCE side with the raw, unresolved season. A chapter arriving with no
+     * season of its own keyed as `0`, which read as "older" than a stored high-water mark of `1` --
+     * so a genuinely new chapter was silently dropped. Keying both sides through
+     * [DituEntities.temporadaGuardada] (as the fix now does) closes that gap.
+     */
+    @Test fun keying_both_sides_through_temporadaGuardada_catches_a_seasonless_new_chapter() {
+        val have = listOf(DituEntities.temporadaGuardada(null) to 5) // stored as T1E1..T1E5
+        val newChapter = DituEntities.temporadaGuardada(null) to 6   // arrives with no season of its own
+        assertEquals(
+            listOf(newChapter),
+            CapitulosFaltantes.toFetchBySeason(have = have, inSource = listOf(newChapter)),
         )
     }
 }

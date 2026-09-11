@@ -2,7 +2,6 @@ package com.arkiv.player.data.nuevos
 
 import android.util.Log
 import com.arkiv.player.data.ArkivRepository
-import com.arkiv.player.data.CapituloDeCaracol
 import com.arkiv.player.data.DituEntities
 import com.arkiv.player.data.db.ItemDao
 import com.arkiv.player.data.gateway.FuenteDeContenido
@@ -113,7 +112,7 @@ class BuscadorDeCapitulos(
     /**
      * Caracol chapters, the same shape as [revisarMagis] but season-aware: `gateway.episodesConSerie`
      * (routed to `DituFuente` by `FuenteCompuesta`, since [ref] is a Caracol ref) lists what's on
-     * the source today, and [CapitulosFaltantes.aPedirPorTemporada] decides what's actually new.
+     * the source today, and [CapitulosFaltantes.toFetchBySeason] decides what's actually new.
      *
      * Season-aware on purpose, unlike [revisarMagis]'s plain [CapitulosFaltantes.aPedir]: Caracol
      * numbers chapters PER SEASON, so comparing against the highest NUMBER stored would make season
@@ -133,29 +132,29 @@ class BuscadorDeCapitulos(
         if (ref.isBlank()) return 0
         val (enLaFuente, gatewaySerie) = gateway.episodesConSerie(ref)
         if (enLaFuente.isEmpty()) {
-            Log.i(TAG, "ditu ${serie.itemId}: sin capítulos (¿ref vencido?)")
+            Log.i(TAG, "ditu ${serie.itemId}: no chapters (stale ref?)")
             return 0
         }
 
         // Same season rule the save path uses, so a chapter is keyed here exactly as it would be
         // once saved.
-        val candidatos = enLaFuente.map { ep ->
-            CapituloDeCaracol(
-                number = ep.number, title = ep.title, ref = ep.ref,
-                season = DituEntities.temporadaDelCapitulo(ep, gatewaySerie),
-            )
-        }
-        val guardables = DituEntities.capitulosGuardables(ref, candidatos)
-        if (guardables.isEmpty()) return 0
+        val candidates = enLaFuente.map { ep -> DituEntities.capituloDeCaracol(ep, gatewaySerie) }
+        val saveable = DituEntities.capitulosGuardables(ref, candidates)
+        if (saveable.isEmpty()) return 0
 
-        val tengo = itemDao.getEpisodesOf(serie.itemId).mapNotNull { ep -> ep.episode?.let { ep.season to it } }
-        val enFuente = guardables.map { it.season to it.number }
-        val faltan = CapitulosFaltantes.aPedirPorTemporada(tengo, enFuente).toSet()
-        if (faltan.isEmpty()) return 0
+        // Both sides keyed through DituEntities.temporadaGuardada: the stored `season` column is
+        // always written through it (null/0 -> 1), so comparing the raw source season directly
+        // would miss a chapter whose source season is null or 0 -- its key would land on `0`,
+        // never past a stored high-water mark that's really `1`.
+        val have = itemDao.getEpisodesOf(serie.itemId)
+            .mapNotNull { ep -> ep.episode?.let { DituEntities.temporadaGuardada(ep.season) to it } }
+        val inSource = saveable.map { DituEntities.temporadaGuardada(it.season) to it.number }
+        val missing = CapitulosFaltantes.toFetchBySeason(have, inSource).toSet()
+        if (missing.isEmpty()) return 0
 
-        var puestos = 0
-        for (cap in guardables) {
-            if ((cap.season ?: 0) to cap.number !in faltan) continue
+        var added = 0
+        for (cap in saveable) {
+            if (DituEntities.temporadaGuardada(cap.season) to cap.number !in missing) continue
             val id = repo.addDituSource(
                 ref = cap.ref,
                 title = item.title,
@@ -166,10 +165,10 @@ class BuscadorDeCapitulos(
                 season = cap.season,
                 tmdbId = gatewaySerie?.tmdbId?.takeIf { it > 0 },
             )
-            if (id != null) puestos++
+            if (id != null) added++
         }
-        if (puestos > 0) Log.i(TAG, "ditu ${serie.itemId}: +$puestos")
-        return puestos
+        if (added > 0) Log.i(TAG, "ditu ${serie.itemId}: +$added")
+        return added
     }
 
     /**

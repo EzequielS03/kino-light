@@ -20,7 +20,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -42,17 +41,6 @@ private enum class TabDeAjustes(val etiqueta: String) {
 }
 
 /**
- * Saves [TabDeAjustes] by name and falls back to [TabDeAjustes.SUBTITULOS] on restore when the
- * saved name doesn't match a current constant -- e.g. a `rememberSaveable` Bundle written before
- * an app update removed one (like the dropped `REPRODUCCION`). `Enum.valueOf` would otherwise
- * throw and crash the screen on restore.
- */
-private val TabDeAjustesSaver = Saver<TabDeAjustes, String>(
-    save = { it.name },
-    restore = { name -> runCatching { TabDeAjustes.valueOf(name) }.getOrDefault(TabDeAjustes.SUBTITULOS) },
-)
-
-/**
  * Ajustes del celular, repartidos en tabs.
  *
  * Antes era una sola columna con ocho bloques encadenados: para llegar a "Mis aparatos" había que
@@ -63,7 +51,7 @@ private val TabDeAjustesSaver = Saver<TabDeAjustes, String>(
 @Composable
 fun SettingsScreen(contentPadding: PaddingValues, onOpenDownloads: () -> Unit = {}) {
     val graph = rememberGraph()
-    var tab by rememberSaveable(stateSaver = TabDeAjustesSaver) { mutableStateOf(TabDeAjustes.SUBTITULOS) }
+    var tab by rememberSaveable { mutableStateOf(TabDeAjustes.SUBTITULOS) }
     // Un scroll por tab: con uno solo compartido, entrar a "Cuenta" desde el fondo de "Subtítulos"
     // dejaba la pantalla arrancada a mitad de camino.
     val scroll = rememberSaveable(tab, saver = ScrollState.Saver) { ScrollState(0) }

@@ -59,7 +59,7 @@ class SeriesPorRevisarTest {
         assertTrue(elegidas.isEmpty())
     }
 
-    @Test fun las_dos_fuentes_pedidas_entran() {
+    @Test fun both_sources_qualify() {
         val elegidas = SeriesPorRevisar.elegir(
             listOf(
                 serie("m", fuente = "magis", vistoHace = DIA),
@@ -70,19 +70,19 @@ class SeriesPorRevisarTest {
         assertEquals(2, elegidas.size)
     }
 
-    @Test fun una_serie_de_ditu_con_progreso_reciente_entra() {
+    @Test fun a_recently_watched_ditu_series_qualifies() {
         val elegidas = SeriesPorRevisar.elegir(listOf(serie("d", fuente = "ditu", vistoHace = DIA)), AHORA)
         assertEquals(listOf("d"), elegidas.map { it.itemId })
     }
 
-    @Test fun archive_ya_no_se_revisa() {
-        // Removida en la poda de esta rama: dejarla en FUENTES solo le quitaba un cupo a una serie
-        // real, porque BuscadorDeCapitulos no hace nada con ella.
+    @Test fun archive_is_no_longer_checked() {
+        // Removed in this branch's pruning: leaving it in FUENTES only cost a real series a slot,
+        // since BuscadorDeCapitulos does nothing with it.
         val elegidas = SeriesPorRevisar.elegir(listOf(serie("a", fuente = "archive", vistoHace = DIA)), AHORA)
         assertTrue(elegidas.isEmpty())
     }
 
-    @Test fun web_ya_no_se_revisa() {
+    @Test fun web_is_no_longer_checked() {
         val elegidas = SeriesPorRevisar.elegir(listOf(serie("w", fuente = "web", vistoHace = DIA)), AHORA)
         assertTrue(elegidas.isEmpty())
     }
