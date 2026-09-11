@@ -15,7 +15,7 @@ class SeriesPorRevisarTest {
 
     private fun serie(
         id: String,
-        fuente: String = "archive",
+        fuente: String = "magis",
         vistoHace: Long = 0L,
         episodios: Int = 12,
     ) = SerieCandidata(id, fuente, ultimoVistoMs = AHORA - vistoHace, episodios = episodios)
@@ -42,7 +42,7 @@ class SeriesPorRevisarTest {
     @Test fun sin_progreso_no_se_revisa() {
         // ultimoVistoMs = 0 es "nunca se reprodujo": no es una serie que estés viendo.
         val elegidas = SeriesPorRevisar.elegir(
-            listOf(SerieCandidata("a", "archive", ultimoVistoMs = 0L, episodios = 12)), AHORA,
+            listOf(SerieCandidata("a", "magis", ultimoVistoMs = 0L, episodios = 12)), AHORA,
         )
         assertTrue(elegidas.isEmpty())
     }
@@ -59,16 +59,32 @@ class SeriesPorRevisarTest {
         assertTrue(elegidas.isEmpty())
     }
 
-    @Test fun las_tres_fuentes_pedidas_entran() {
+    @Test fun las_dos_fuentes_pedidas_entran() {
         val elegidas = SeriesPorRevisar.elegir(
             listOf(
-                serie("a", fuente = "archive", vistoHace = DIA),
-                serie("w", fuente = "web", vistoHace = DIA),
                 serie("m", fuente = "magis", vistoHace = DIA),
+                serie("d", fuente = "ditu", vistoHace = DIA),
             ),
             AHORA,
         )
-        assertEquals(3, elegidas.size)
+        assertEquals(2, elegidas.size)
+    }
+
+    @Test fun una_serie_de_ditu_con_progreso_reciente_entra() {
+        val elegidas = SeriesPorRevisar.elegir(listOf(serie("d", fuente = "ditu", vistoHace = DIA)), AHORA)
+        assertEquals(listOf("d"), elegidas.map { it.itemId })
+    }
+
+    @Test fun archive_ya_no_se_revisa() {
+        // Removida en la poda de esta rama: dejarla en FUENTES solo le quitaba un cupo a una serie
+        // real, porque BuscadorDeCapitulos no hace nada con ella.
+        val elegidas = SeriesPorRevisar.elegir(listOf(serie("a", fuente = "archive", vistoHace = DIA)), AHORA)
+        assertTrue(elegidas.isEmpty())
+    }
+
+    @Test fun web_ya_no_se_revisa() {
+        val elegidas = SeriesPorRevisar.elegir(listOf(serie("w", fuente = "web", vistoHace = DIA)), AHORA)
+        assertTrue(elegidas.isEmpty())
     }
 
     @Test fun manda_lo_mas_recientemente_visto() {

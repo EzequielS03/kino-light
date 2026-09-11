@@ -1,5 +1,7 @@
 package com.arkiv.player.data.nuevos
 
+import com.arkiv.player.data.ditu.DituFuente
+
 /**
  * Una serie de la biblioteca con lo mínimo para decidir si vale revisarla.
  *
@@ -41,14 +43,12 @@ object SeriesPorRevisar {
     private const val DIA_MS = 24 * 60 * 60 * 1000L
 
     /**
-     * Sources this check lets through. "archive" and "web" are sources removed in this branch's
-     * pruning -- kept here only so a legacy library row with that `source` doesn't change behavior
-     * by being newly excluded; in practice `BuscadorDeCapitulos` no-ops on both. "magis" is the only
-     * one that leads anywhere today (`BuscadorDeCapitulos.revisarMagis`). "ditu" isn't in this set:
-     * checking Caracol for new chapters isn't implemented yet. Torrent stays out on purpose too
-     * (see the spec).
+     * Sources this check lets through. "magis" and "ditu" (Caracol) both lead somewhere today
+     * (`BuscadorDeCapitulos.revisarMagis`/`revisarDitu`). "archive" and "web" were removed in this
+     * branch's pruning and are left out on purpose: keeping them here only cost a real series a
+     * slot, since `BuscadorDeCapitulos` no-ops on both. Torrent stays out too (see the spec).
      */
-    private val FUENTES = setOf("archive", "web", "magis")
+    private val FUENTES = setOf("magis", DituFuente.FUENTE)
 
     fun elegir(candidatas: List<SerieCandidata>, ahoraMs: Long): List<SerieCandidata> {
         val piso = ahoraMs - VENTANA_DIAS * DIA_MS

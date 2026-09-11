@@ -41,4 +41,31 @@ object CapitulosFaltantes {
             .take(MAX_POR_SERIE)
             .toList()
     }
+
+    /**
+     * Season-aware variant of [aPedir], for a source that numbers chapters PER SEASON (Caracol):
+     * plain [aPedir] compares against the highest NUMBER stored, so season 2's chapter 1 would
+     * look like it's already covered by a season 1 that has ten chapters.
+     *
+     * The key is `(season ?: 0, number)`, compared season-first. Same two bounds as [aPedir] --
+     * only keys past the highest stored key, capped at [MAX_POR_SERIE] -- just applied to the pair
+     * instead of a single number.
+     */
+    fun aPedirPorTemporada(
+        tengo: Collection<Pair<Int?, Int>>,
+        enLaFuente: Collection<Pair<Int?, Int>>,
+    ): List<Pair<Int, Int>> {
+        fun clave(par: Pair<Int?, Int>): Pair<Int, Int> = (par.first ?: 0) to par.second
+        val piso = tengo.map(::clave).maxWithOrNull(ORDEN_DE_CLAVE)
+        return enLaFuente.asSequence()
+            .map(::clave)
+            .filter { piso == null || ORDEN_DE_CLAVE.compare(it, piso) > 0 }
+            .distinct()
+            .sortedWith(ORDEN_DE_CLAVE)
+            .take(MAX_POR_SERIE)
+            .toList()
+    }
+
+    /** Season first, then number -- the same order [aPedirPorTemporada]'s keys compare by. */
+    private val ORDEN_DE_CLAVE = compareBy<Pair<Int, Int>>({ it.first }, { it.second })
 }

@@ -81,4 +81,47 @@ class CapitulosFaltantesTest {
         // La fuente reporta menos de lo que ya tengo: no hay nada nuevo, y NO hay que borrar nada.
         assertEquals(emptyList<Int>(), CapitulosFaltantes.aPedir(listOf(1, 2, 3, 4, 5), listOf(1, 2)))
     }
+
+    // ─── season-aware variant (Caracol numbers chapters PER SEASON) ────────
+    //
+    // Plain `aPedir` compares against the highest NUMBER seen so far, which breaks for a source
+    // that restarts numbering every season: with ten chapters in season 1, season 2's chapter 1
+    // would look like a duplicate of something already stored. `aPedirPorTemporada` keys by
+    // `(season, number)` instead, so it compares season-first.
+
+    @Test fun una_temporada_nueva_se_pide() {
+        assertEquals(
+            listOf(2 to 1),
+            CapitulosFaltantes.aPedirPorTemporada(tengo = listOf(1 to 10), enLaFuente = listOf(1 to 10, 2 to 1)),
+        )
+    }
+
+    @Test fun un_capitulo_nuevo_de_la_misma_temporada_se_pide() {
+        assertEquals(
+            listOf(1 to 11),
+            CapitulosFaltantes.aPedirPorTemporada(tengo = listOf(1 to 10), enLaFuente = listOf(1 to 10, 1 to 11)),
+        )
+    }
+
+    @Test fun una_fuente_con_menos_temporadas_no_pide_nada() {
+        // Ya tengo T2E3; la fuente solo reporta T1: nada de eso es "posterior" a lo guardado.
+        assertEquals(
+            emptyList<Pair<Int, Int>>(),
+            CapitulosFaltantes.aPedirPorTemporada(tengo = listOf(2 to 3), enLaFuente = listOf(1 to 1, 1 to 2)),
+        )
+    }
+
+    @Test fun el_tope_por_serie_tambien_aplica_por_temporada() {
+        val fuente = (1..8).map { 2 to it }
+        val pedidos = CapitulosFaltantes.aPedirPorTemporada(tengo = listOf(1 to 10), enLaFuente = fuente)
+        assertEquals(CapitulosFaltantes.MAX_POR_SERIE, pedidos.size)
+        assertEquals(listOf(2 to 1, 2 to 2, 2 to 3, 2 to 4, 2 to 5), pedidos)
+    }
+
+    @Test fun temporada_null_se_trata_como_cero() {
+        assertEquals(
+            listOf(0 to 2),
+            CapitulosFaltantes.aPedirPorTemporada(tengo = listOf(null to 1), enLaFuente = listOf(null to 1, null to 2)),
+        )
+    }
 }
