@@ -3,7 +3,6 @@ package com.arkiv.player.ui.search
 import com.arkiv.player.AppGraph
 import com.arkiv.player.data.CapituloDeCaracol
 import com.arkiv.player.data.SeriesItemIds
-import com.arkiv.player.data.catalog.AnimeShow
 import com.arkiv.player.data.catalog.TmdbDetail
 import com.arkiv.player.ui.catalog.PlaySource
 
@@ -279,28 +278,6 @@ class SearchPlayback(private val graph: AppGraph) {
 internal fun seriesIdFor(card: TitleCard, detail: TmdbDetail?): String = when {
     detail != null -> SeriesItemIds.canonicalSeriesId(detail.imdbId, detail.id)
     else -> "tmdb${card.tmdbId}"
-}
-
-/**
- * seriesId canónico de una card del buscador, para anime y para el resto: **el mismo id para el
- * mismo show entre por donde entre el usuario**.
- *
- * El anime también resuelve imdb/tmdb (por el mapeo cruzado de [SeriesItemIds.animeSeriesId]) y solo
- * cae a "anilist<id>" si no hay mapeo. Antes armaba "anilist<id>" siempre, así que la misma serie
- * quedaba en la biblioteca como DOS ítems según hubiera entrado por "Anime" o por "Películas y
- * series" -- y con descargas locales eso son los mismos GB bajados dos veces.
- *
- * `suspend` porque el mapeo puede tocar disco o red; todos los llamadores ya están en corrutina.
- */
-internal suspend fun seriesIdOf(
-    graph: AppGraph,
-    card: TitleCard,
-    detail: TmdbDetail?,
-    animeShow: AnimeShow?,
-): String = if (card.kind == "anime") {
-    SeriesItemIds.animeSeriesId(graph.animeMappingRepository, card.anilistId ?: animeShow?.id)
-} else {
-    seriesIdFor(card, detail)
 }
 
 /**

@@ -971,12 +971,6 @@ class ArkivRepository(
         return ep.torrentData ?: itemDao.getItem(ep.itemId)?.torrentData
     }
 
-    /** pageUrl guardada de un episodio web (para que loadWeb la resuelva). */
-    suspend fun webSourceForEpisode(episodeId: String): String? {
-        val ep = itemDao.getEpisode(episodeId) ?: return null
-        return ep.torrentData ?: itemDao.getItem(ep.itemId)?.torrentData
-    }
-
     /**
      * Encabezado del player: título del ítem + rótulo de temporada/capítulo (solo si es serie).
      * El rótulo se PARSEA, no es el displayName crudo: en la base real esos nombres traen desde

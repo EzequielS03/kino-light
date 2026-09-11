@@ -30,8 +30,6 @@ data class CastRequest(
  */
 object CastRequestBuilder {
 
-    private const val MIME_MP4 = "video/mp4"
-
     /** El Default Media Receiver de Chromecast decide por esto si abrir el stream como HLS. */
     private const val MIME_HLS = "application/vnd.apple.mpegurl"
 
@@ -44,7 +42,6 @@ object CastRequestBuilder {
         mediaUrl: String,
         castUrl: String?,
         lanUrl: String?,
-        lanMime: String?,
         startPositionMs: Long,
         isLive: Boolean = false,
     ): CastRequest? {
@@ -71,11 +68,10 @@ object CastRequestBuilder {
      * MIME por extensión. El receptor decide por esto, así que inventarlo se paga con un video que
      * no arranca o que arranca sin sonido.
      *
-     * Acá NO se pueden mirar los bytes (la URL es remota y no hay archivo que abrir), así que la
-     * extensión es todo lo que hay; lo que sí se comparte con el resto de la app es la TABLA, para
-     * que no vuelva a haber tres versiones distintas de "qué MIME tiene un .ts". On-disk files
-     * —local downloads— do resolve it by signature, and those are the ones that come in through
-     * `lanMime`. Ver [com.arkiv.player.playback.ContenedorDeVideo].
+     * Here the bytes can't be inspected (the URL is remote, there's no file to open), so the
+     * extension is all there is; what IS shared with the rest of the app is the TABLE, so there
+     * aren't three different versions of "what MIME does a .ts have" floating around. Ver
+     * [com.arkiv.player.playback.ContenedorDeVideo].
      */
     internal fun mimeForUrl(url: String): String =
         com.arkiv.player.playback.ContenedorDeVideo.mimePorNombre(url)

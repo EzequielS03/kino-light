@@ -18,21 +18,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-/** Ruta de navegación a la pantalla de detalle según la card y el S/E opcional del REFINE.
- *  Ya NO se usa desde el wizard (Continuar ahora se queda en fase RESULTS), pero se conserva
- *  por si hace falta un handoff externo más adelante. */
-fun handoffRouteFor(card: TitleCard, season: Int?, episode: Int?): String = when (card.kind) {
-    "anime" -> buildString {
-        append("catalog_anime/").append(card.anilistId)
-        if (episode != null) append("?episode=").append(episode)
-    }
-    "movie" -> "cine/movie/${card.tmdbId}"
-    else -> buildString { // "series"
-        append("cine/tv/").append(card.tmdbId)
-        if (season != null && episode != null) append("?season=").append(season).append("&episode=").append(episode)
-    }
-}
-
 /** Cuántos resultados de la búsqueda se publican de una. Uno por uno hace que Compose recomponga
  *  la lista entera por cada resultado, y con varias decenas la app llega a ANR. */
 private const val GATEWAY_LOTE = 25

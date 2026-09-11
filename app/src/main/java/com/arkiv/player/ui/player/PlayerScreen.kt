@@ -740,7 +740,6 @@ private fun PlayerContent(
             mediaUrl = item.mediaUrl,
             castUrl = item.castUrl,
             lanUrl = lanUrl,
-            lanMime = null,
             startPositionMs = startPositionMs,
             isLive = esVivo,
         )

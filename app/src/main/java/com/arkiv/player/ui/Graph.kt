@@ -12,13 +12,6 @@ fun rememberGraph(): AppGraph {
     return (context.applicationContext as ArkivApp).graph
 }
 
-/** Formatea bytes a un texto legible (MB/GB). */
-fun formatBytes(bytes: Long): String {
-    if (bytes <= 0) return "—"
-    val mb = bytes / 1_000_000.0
-    return if (mb >= 1000) String.format("%.1f GB", mb / 1000) else String.format("%.0f MB", mb)
-}
-
 /** Formatea milisegundos a m:ss o h:mm:ss. */
 fun formatDuration(ms: Long): String {
     if (ms <= 0) return "0:00"

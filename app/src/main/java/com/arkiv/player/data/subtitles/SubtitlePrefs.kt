@@ -68,9 +68,7 @@ data class PlaybackPrefs(
 
         /**
          * [base] es lo que se usa para TODO campo que el JSON no traiga. Con el default (unas prefs
-         * recién hechas) se comporta como siempre; el sync le pasa las preferencias actuales del
-         * dispositivo para que un JSON de una build vieja —que no conoce las listas de idioma— no
-         * las borre. Ver [SubtitlePrefs.applyFromRemote].
+         * recién hechas) se comporta como siempre.
          */
         fun fromJson(s: String, base: PlaybackPrefs = PlaybackPrefs()): PlaybackPrefs? = runCatching {
             val o = JSONObject(s)
@@ -118,17 +116,6 @@ class SubtitlePrefs(context: Context) {
     fun update(p: PlaybackPrefs) {
         _prefs.value = p
         store.edit().putString(KEY, p.toJson()).apply()
-    }
-
-    /**
-     * Aplica preferencias recibidas del otro dispositivo (sync) sin re-emitir hacia afuera. Se
-     * MEZCLA sobre lo que ya hay en vez de reemplazar: el celular y el Fire Stick se actualizan por
-     * separado, así que es normal que el TV corra una build vieja. Su JSON no trae las listas de
-     * idioma, y con un reemplazo entero un simple "subile el tamaño de la letra" desde el TV le
-     * borraba al celular los idiomas configurados.
-     */
-    fun applyFromRemote(json: String) {
-        PlaybackPrefs.fromJson(json, base = _prefs.value)?.let { update(it) }
     }
 
     private fun read(): PlaybackPrefs =

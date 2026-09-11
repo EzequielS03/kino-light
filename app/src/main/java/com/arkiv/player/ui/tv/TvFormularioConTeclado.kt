@@ -73,43 +73,15 @@ class TvCamposConFoco<C>(inicial: C) {
 fun <C> rememberTvCamposConFoco(inicial: C): TvCamposConFoco<C> = remember { TvCamposConFoco(inicial) }
 
 /**
- * Reparto de ancho entre el teclado y los campos (Task 11). Antes el teclado tenía una columna FIJA
- * de 380.dp y los campos se quedaban con `fillMaxSize()` -TODO el resto-: en un TV de referencia
- * (1920×1080) eso eran campos larguísimos y casi vacíos al lado de un teclado apretado, comprobado
- * en el Fire TV real. Es al revés de lo que conviene: el teclado es lo que se usa TECLA POR TECLA
- * con el control remoto -cada dp de más en una tecla es un blanco más grande y más fácil de acertar
- * a la distancia de un sofá-, mientras que los campos solo MUESTRAN el texto ya tipeado -con que se
- * lean de un vistazo alcanza, no hace falta que crucen la pantalla-.
+ * Width split between the keyboard and the fields (Task 11), by WEIGHT rather than a fixed dp: a
+ * reference TV is 960.dp wide (1920px at density 320, measured on the Fire TV), and the row doesn't
+ * wrap, so any fixed pair of widths that overshoots that draws off-screen — the fields column (and
+ * the "Crear cuenta" button inside it) got clipped on the right, making the sign-up option look
+ * like it didn't exist from the couch.
  *
- * 640.dp de teclado reparte sus 6 columnas ([TvKeyboard] deriva el tamaño de tecla del ancho real,
- * `(maxWidth - gap*5) / 6`) en teclas de exactamente 100.dp -bien por encima del mínimo de 48.dp
- * recomendado para un blanco táctil, y un 76% más grandes que las ~56.7.dp que daba la columna
- * vieja de 380.dp-. 520.dp de campos alcanza y sobra para un email o una contraseña largos sin
- * cortar el texto ([CampoTvChip] usa una sola línea), y deja el resto de la pantalla vacío A
- * PROPÓSITO -mejor un margen sin usar que un campo que no dice nada más por ser más ancho-.
- *
- * `internal`, no `private`: así [TvFormularioConTecladoTest] puede fijar estos números con un test
- * -sin infraestructura de tests de Compose no hay forma de medir el layout real, pero un valor mal
- * puesto acá (p.ej. volver a dejar los campos más anchos que el teclado) sí se puede agarrar como
- * una regresión numérica simple-.
- */
-internal const val ANCHO_TECLADO_DP = 640
-internal const val ANCHO_CAMPOS_DP = 520
-
-/**
- * Y el reparto REAL se hace por peso, no con esos dos anchos fijos.
- *
- * Los anchos de arriba se eligieron bien de intención pero suman 1160 dp, y un televisor de
- * referencia tiene 960 dp de ancho (1920 px a densidad 320, medido en el Fire TV): 200 dp de más.
- * Como la fila no envuelve, lo que sobraba se dibujaba FUERA de la pantalla — la columna de campos
- * salía cortada por la derecha y con ella el botón "Crear cuenta", así que desde el sillón parecía
- * que la opción de registrarse no existía. Y de paso los campos se veían más angostos de lo que
- * decían ser, porque lo visible era el pedazo que entraba.
- *
- * Repartir por peso arregla las dos cosas y encima no depende del tamaño del televisor. La
- * proporción conserva la intención de la Task 11 —el teclado se lleva más, porque es lo que se usa
- * tecla por tecla con el control remoto, mientras que los campos solo muestran texto ya escrito—
- * pero ahora sobre el ancho que de verdad hay.
+ * The keyboard gets more weight than the fields on purpose: it's what gets used KEY BY KEY with the
+ * remote -every extra dp on a key is a bigger, easier target at sofa distance- while the fields only
+ * DISPLAY text already typed -legible at a glance is enough, they don't need to cross the screen-.
  */
 internal const val PESO_TECLADO = 1.2f
 internal const val PESO_CAMPOS = 1f

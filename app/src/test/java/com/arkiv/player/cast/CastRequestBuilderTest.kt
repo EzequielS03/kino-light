@@ -11,7 +11,7 @@ class CastRequestBuilderTest {
         val r = CastRequestBuilder.build(
             episodeId = "ep1", title = "Doc", subtitle = "", artworkUrl = "https://p.jpg",
             mediaUrl = "https://archive.org/x.mkv", castUrl = "https://archive.org/x.mp4",
-            lanUrl = null, lanMime = null, startPositionMs = 5000,
+            lanUrl = null, startPositionMs = 5000,
         )!!
         assertEquals("https://archive.org/x.mp4", r.uri)
         assertEquals("video/mp4", r.mimeType)
@@ -24,7 +24,7 @@ class CastRequestBuilderTest {
         val r = CastRequestBuilder.build(
             episodeId = "ep1", title = "t", subtitle = "s", artworkUrl = "",
             mediaUrl = "https://archive.org/x.mkv", castUrl = null,
-            lanUrl = null, lanMime = null, startPositionMs = 0,
+            lanUrl = null, startPositionMs = 0,
         )!!
         assertEquals("https://archive.org/x.mkv", r.uri)
         assertEquals("video/x-matroska", r.mimeType)
@@ -36,7 +36,7 @@ class CastRequestBuilderTest {
             CastRequestBuilder.build(
                 episodeId = "ep1", title = "t", subtitle = "s", artworkUrl = "",
                 mediaUrl = "", castUrl = null,
-                lanUrl = null, lanMime = null, startPositionMs = 0,
+                lanUrl = null, startPositionMs = 0,
             ),
         )
     }
@@ -46,7 +46,7 @@ class CastRequestBuilderTest {
         val r = CastRequestBuilder.build(
             episodeId = "ep1", title = "t", subtitle = "s", artworkUrl = "",
             mediaUrl = "https://a/x.mp4", castUrl = null,
-            lanUrl = null, lanMime = null, startPositionMs = -500,
+            lanUrl = null, startPositionMs = -500,
         )!!
         assertEquals(0, r.startPositionMs)
     }
@@ -56,7 +56,7 @@ class CastRequestBuilderTest {
         val r = CastRequestBuilder.build(
             episodeId = "ep1", title = "t", subtitle = "s", artworkUrl = "",
             mediaUrl = "https://archive.org/x.webm", castUrl = "",
-            lanUrl = null, lanMime = null, startPositionMs = 0,
+            lanUrl = null, startPositionMs = 0,
         )!!
         assertEquals("https://archive.org/x.webm", r.uri)
         assertEquals("video/webm", r.mimeType)
@@ -72,7 +72,7 @@ class CastRequestBuilderTest {
         fun mimeDe(url: String) = CastRequestBuilder.build(
             episodeId = "ep1", title = "t", subtitle = "s", artworkUrl = "",
             mediaUrl = url, castUrl = null,
-            lanUrl = null, lanMime = null, startPositionMs = 0,
+            lanUrl = null, startPositionMs = 0,
         )!!.mimeType
 
         assertEquals("video/mp2t", mimeDe("https://cdn/vod/ABC_media.ts"))
@@ -89,7 +89,7 @@ class CastRequestBuilderTest {
             episodeId = "live:espn", title = "ESPN", subtitle = "",
             artworkUrl = "", mediaUrl = "http://127.0.0.1:1/live.m3u8", castUrl = null,
             lanUrl = "http://192.168.3.20:1/live.m3u8",
-            lanMime = null, startPositionMs = 45_000, isLive = true,
+            startPositionMs = 45_000, isLive = true,
         )!!
         assertEquals("http://192.168.3.20:1/live.m3u8", r.uri)
         assertEquals("application/vnd.apple.mpegurl", r.mimeType)
@@ -101,7 +101,7 @@ class CastRequestBuilderTest {
             episodeId = "live:espn", title = "ESPN", subtitle = "",
             artworkUrl = "", mediaUrl = "http://127.0.0.1:1/live.m3u8", castUrl = null,
             lanUrl = "http://192.168.3.20:1/live.m3u8",
-            lanMime = null, startPositionMs = 999_999, isLive = true,
+            startPositionMs = 999_999, isLive = true,
         )!!
         assertEquals(0, r.startPositionMs)
     }
@@ -112,7 +112,7 @@ class CastRequestBuilderTest {
             CastRequestBuilder.build(
                 episodeId = "live:espn", title = "ESPN", subtitle = "", artworkUrl = "",
                 mediaUrl = "http://127.0.0.1:1/live.m3u8", castUrl = null,
-                lanUrl = null, lanMime = null,
+                lanUrl = null,
                 startPositionMs = 0, isLive = true,
             ),
         )
@@ -124,7 +124,7 @@ class CastRequestBuilderTest {
             episodeId = "live:espn", title = "ESPN", subtitle = "", artworkUrl = "",
             mediaUrl = "http://127.0.0.1:1/live.m3u8", castUrl = "https://no-deberia-usarse.mp4",
             lanUrl = "http://192.168.3.20:1/live.m3u8",
-            lanMime = null, startPositionMs = 0, isLive = true,
+            startPositionMs = 0, isLive = true,
         )!!
         assertEquals("http://192.168.3.20:1/live.m3u8", r.uri)
     }
@@ -135,7 +135,7 @@ class CastRequestBuilderTest {
             episodeId = "episode-42-custom", title = "Title", subtitle = "Season 2 Episode 5",
             artworkUrl = "https://example.com/poster.jpg",
             mediaUrl = "https://a/x.mp4", castUrl = null,
-            lanUrl = null, lanMime = null, startPositionMs = 0,
+            lanUrl = null, startPositionMs = 0,
         )!!
         assertEquals("episode-42-custom", r.episodeId)
         assertEquals("Season 2 Episode 5", r.subtitle)
