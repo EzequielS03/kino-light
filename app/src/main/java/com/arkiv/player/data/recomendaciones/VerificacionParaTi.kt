@@ -119,8 +119,9 @@ internal class VerificacionParaTi(
                 .filter { it.isNotEmpty() }
             if ("tmdb:${enTmdb.id}" in yaVistos || porTitulo.any { it in yaVistos }) continue
 
-            // 3. ¿Se puede reproducir? Recién acá se paga el paso caro. El año y el id de TMDB
-            //    viajan con la búsqueda.
+            // 3. Can it be played? Only here is the expensive step paid. The TMDB id travels with
+            //    the search; the year does not (the adapter in AppGraph drops it, since the search
+            //    query has no year field) and only reaches the arbiter in step 4.
             val anio = enTmdb.year
             val resultados = fuentes.buscar(c.titulo, tipo, anio, enTmdb.id)
             if (resultados.isEmpty()) continue

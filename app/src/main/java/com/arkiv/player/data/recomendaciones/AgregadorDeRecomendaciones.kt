@@ -128,12 +128,13 @@ class AgregadorDeRecomendaciones(
     }
 
     /**
-     * Los capítulos según el gateway, o null si no los pudo dar.
+     * The chapters from the Magis portal, or null if it could not give them.
      *
-     * Un fallo acá NO es terminal: `MagisCatalog.detail` responde 422 para las fuentes que no exponen
-     * capítulos (el ref puede ser de Caracol, no de Magis), y un gateway caído no puede dejar sin
-     * guardar algo que igual se puede reproducir. [CancellationException] se
-     * relanza: tragarla dejaría corriendo una corrutina que su scope ya dio por muerta.
+     * Only [agregarDeMagis] calls this. A failure here is NOT terminal: the portal listing can fail
+     * or come back empty, and an old row whose ref could not be read falls back to `Magis(rec.id)`,
+     * where `MagisFuente.episodesConSerie` throws "ese ref no es de magis". Neither may leave
+     * unsaved something that can still be played. [CancellationException] is rethrown: swallowing
+     * it would keep running a coroutine its scope already considers dead.
      */
     private suspend fun temporadaDelGateway(rec: RecomendacionEntity): TemporadaDeRecomendacion? = try {
         val (capitulos, serie) = gateway.episodesConSerie(rec.ref)

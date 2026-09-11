@@ -48,8 +48,8 @@ object GuardadoDeRecomendacion {
      *
      * Se decide por [RecomendacionEntity.tipo] —el que ya se cruzó contra TMDB— y solo aplica a
      * Magis: Caracol decide por su propio `ref` (`DituRef.esSerie`, ver
-     * `AgregadorDeRecomendaciones.agregarDeCaracol`). Una película que igual se preguntara pagaría
-     * un 422 de red por nada.
+     * `AgregadorDeRecomendaciones.agregarDeCaracol`). Asking for a movie would pay a portal listing
+     * call for nothing.
      */
     fun pideCapitulos(rec: RecomendacionEntity): Boolean = rec.tipo == "tv"
 
@@ -82,10 +82,10 @@ object GuardadoDeRecomendacion {
      * La temporada a guardar, o **null** si no hay ninguna y quien llama tiene que caer al guardado
      * suelto de siempre.
      *
-     * Null con lista vacía y no una temporada de cero capítulos: los refs de "Para ti" no son todos
-     * de Magis (el generador también produce de Caracol), y `MagisCatalog.detail` responde 422 para
-     * esos. `addMagisSeason` con la lista vacía no escribe nada, así que sin este null la tarjeta se
-     * quedaría sin guardar y sin abrir el detalle.
+     * Null for an empty list, not a season with zero chapters: the Magis portal listing can come
+     * back empty, and `addMagisSeason` with an empty list writes nothing, so without this null the
+     * card would stay unsaved and never open its detail. Caracol refs never get here: `destino()`
+     * sends them to `AgregadorDeRecomendaciones.agregarDeCaracol`.
      *
      * Un [GatewaySerie.tmdbId] en 0 es "no vino" y no una identificación: sale de un `optInt`, y ese
      * 0 le ganaría al `?:` con el que `buildSeason` preserva el tmdbId que ya estaba guardado.

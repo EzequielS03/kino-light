@@ -131,7 +131,9 @@ internal class ClienteDeIa(
             }
 
             override fun onResponse(call: Call, response: Response) {
-                if (cont.isActive) cont.resumeWith(Result.success(response)) else response.close()
+                // The handler closes the response when the coroutine was cancelled before or right
+                // after this resume, so a late answer never leaks its connection.
+                cont.resume(response) { response.close() }
             }
         })
     }
