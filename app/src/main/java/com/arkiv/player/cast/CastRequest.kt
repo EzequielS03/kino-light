@@ -20,9 +20,9 @@ data class CastRequest(
 /**
  * Deriva la petición de cast según la fuente. Pura: testeable sin Android.
  *
- * Local y magis: se prefiere `castUrl` (mp4 h.264, compatible con el receptor) sobre `mediaUrl`
- * cuando está seteada -- archive.org y web, que fueron el origen de este caso, se borraron en la
- * poda de esta rama.
+ * Local and magis: `castUrl` (mp4 h.264, compatible with the receiver) is preferred over
+ * `mediaUrl` when it's set -- archive.org and web, which were the origin of this case, were
+ * removed in this branch's pruning.
  * Live (Task 18): the URL is that of the LOCAL HTTP server (the `LiveHlsProxy` proxy) reachable
  * over the LAN -- `mediaUrl` is always the loopback that VLC consumes on this same device, and
  * `castUrl` doesn't exist for live channels (there's never a fallback mp4 h.264, it's a live
