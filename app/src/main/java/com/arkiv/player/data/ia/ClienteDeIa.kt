@@ -3,13 +3,19 @@ package com.arkiv.player.data.ia
 import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
@@ -51,6 +57,11 @@ internal class ClienteDeIa(
     suspend fun preguntar(instruccion: String): RespuestaDeIa = withContext(Dispatchers.IO) {
         val modelos = catalogoVigente()
         for (modelo in candado.withLock { memoria.ordenar(modelos) }.take(MAX_INTENTOS)) {
+            // Antes de cada modelo, no a mitad de uno: si se cancela mientras el anterior todavía no
+            // contestaba, esto corta el bucle en vez de seguir gastando la cuota anónima probando
+            // hasta 3 modelos (~135 s) por un pedido que ya nadie espera (saltar de capítulo, salir
+            // del reproductor).
+            currentCoroutineContext().ensureActive()
             val texto = intentar(modelo, instruccion) ?: continue
             candado.withLock { memoria.exito(modelo.id) }
             return@withContext RespuestaDeIa.Texto(texto, modelo.id)
@@ -69,7 +80,7 @@ internal class ClienteDeIa(
             .post(cuerpo.toRequestBody(JSON))
             .build()
         val falla: Falla = try {
-            http.newCall(pedido).execute().use { resp ->
+            ejecutar(pedido).use { resp ->
                 when {
                     resp.code == 429 -> Falla.Limite(resp.header("Retry-After")?.trim()?.toLongOrNull()?.times(1000))
                     !resp.isSuccessful -> Falla.Servidor
@@ -93,9 +104,31 @@ internal class ClienteDeIa(
             // Incluye el timeout de 45 s (`InterruptedIOException` es un `IOException`).
             Falla.Servidor
         }
+        // Una CancellationException (lanzada por `ejecutar` si la corrutina se cancela mientras
+        // espera) no cae acá: no es un IOException, así que sigue de largo hacia arriba sin pasar
+        // por esta anotación. Un modelo que nadie esperó no puede quedar castigado por eso.
         Log.w(TAG, "${modelo.id}: $falla")
         candado.withLock { memoria.fallo(modelo.id, falla) }
         return null
+    }
+
+    /**
+     * Ejecuta [pedido] de forma cancelable: si la corrutina se cancela mientras espera la
+     * respuesta, aborta la llamada de OkHttp (`call.cancel()`) en vez de dejarla corriendo sola en
+     * un hilo del pool hasta que el servidor conteste o el timeout de 45 s la corte.
+     */
+    private suspend fun ejecutar(pedido: Request): Response = suspendCancellableCoroutine { cont ->
+        val call = http.newCall(pedido)
+        cont.invokeOnCancellation { call.cancel() }
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                if (cont.isActive) cont.resumeWith(Result.failure(e))
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                if (cont.isActive) cont.resumeWith(Result.success(response)) else response.close()
+            }
+        })
     }
 
     /** El catálogo de las últimas [VIGENCIA_CATALOGO_MS]; si renovarlo falla, el último que había. */
@@ -104,6 +137,7 @@ internal class ClienteDeIa(
             val traido = catalogoTraidoEnMs
             if (traido != null && ahoraMs() - traido < VIGENCIA_CATALOGO_MS) return catalogo
         }
+        currentCoroutineContext().ensureActive()
         val nuevo = try {
             http.newCall(Request.Builder().url("$baseUrl/models").get().build()).execute().use { resp ->
                 if (!resp.isSuccessful) null

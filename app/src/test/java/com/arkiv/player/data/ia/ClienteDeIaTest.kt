@@ -1,6 +1,10 @@
 package com.arkiv.player.data.ia
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -13,6 +17,8 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class ClienteDeIaTest {
 
@@ -37,7 +43,12 @@ class ClienteDeIaTest {
     private val pedidosDeChat = mutableListOf<String>()
     private var pedidosDeCatalogo = 0
 
+    /** Se cuenta hasta cero apenas el servidor recibe un pedido de chat (no de catálogo): sirve
+     *  para esperar, con tiempo real, a que el pedido ya haya salido antes de cancelar. */
+    private var latchPedidoDeChat = CountDownLatch(1)
+
     @Before fun arranca() {
+        latchPedidoDeChat = CountDownLatch(1)
         server = MockWebServer()
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
@@ -51,6 +62,7 @@ class ClienteDeIaTest {
                 val cuerpo = request.body.clone().readUtf8()
                 val modelo = Regex("\"model\"\\s*:\\s*\"([^\"]+)\"").find(cuerpo)!!.groupValues[1]
                 pedidosDeChat += modelo
+                latchPedidoDeChat.countDown()
                 return porModelo[modelo] ?: MockResponse().setBody(
                     """{"model":"$modelo","choices":[{"message":{"content":"hola desde $modelo"}}]}""",
                 )
@@ -172,5 +184,31 @@ class ClienteDeIaTest {
         pedidosDeChat.clear()
         cliente().preguntar("y")
         assertEquals("b:free", pedidosDeChat.first())
+    }
+
+    /**
+     * Si se cancela mientras el primer modelo todavía no contestó (saltar de capítulo, salir del
+     * reproductor), el pedido no puede seguir probando modelos, y el que estaba respondiendo no
+     * puede quedar castigado por una cancelación que no dice nada de si el modelo sirve.
+     */
+    @Test fun `cancelar mientras el primer modelo tarda no prueba el segundo ni lo deja castigado`() = runTest {
+        // `setHeadersDelay` (no `setBodyDelay`): demora ANTES de contestar, como un modelo que
+        // tarda en generar la respuesta -el escenario real que preocupa a A3-, no una respuesta ya
+        // lista cuyo cuerpo tarda en llegar. 2 s alcanza de sobra para cancelar mucho antes: cancelar
+        // corta la llamada en milisegundos (ver el `time` de este test), no espera el resto del
+        // delay -solo el `@After` sigue el resto de esos 2 s porque el hilo del delay del servidor
+        // simulado no se entera de la cancelación del socket hasta que intenta escribir.
+        porModelo["a:free"] = MockResponse().setHeadersDelay(2, TimeUnit.SECONDS).setResponseCode(500)
+        val c = cliente()
+        val job = launch(Dispatchers.Default) { c.preguntar("x") }
+        withContext(Dispatchers.Default) { latchPedidoDeChat.await(2, TimeUnit.SECONDS) }
+        job.cancelAndJoin()
+        assertEquals(listOf("a:free"), pedidosDeChat) // nunca llegó a probar b:free
+
+        // Si a:free hubiera quedado castigado (5 min de espera por Falla.Servidor), el siguiente
+        // intento saltaría directo a b:free aunque a:free ya conteste bien y rápido.
+        porModelo.remove("a:free") // ahora responde el default: JSON válido y sin demora
+        pedidosDeChat.clear()
+        assertEquals("a:free", (c.preguntar("y") as RespuestaDeIa.Texto).modelo)
     }
 }
