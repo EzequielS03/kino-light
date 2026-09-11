@@ -1781,6 +1781,15 @@ private fun PlayerContent(
         if (!enVivo) bump()
     }
 
+    // El `setOnKeyListener` de más abajo se arma UNA sola vez, dentro del `factory` del AndroidView
+    // que crea el VLCVideoLayout, y ese factory no vuelve a correr en la vida de la pantalla. Sin
+    // este puente la lambda del listener se queda con el `togglePlayPause`/`seekBy` de la PRIMERA
+    // composición, que leen el `activePlayer` de ese momento (el `controller` de VLC, porque
+    // `magisPlayer`/`livePlayer`/`dituPlayer` todavía no se habían publicado) y ya no el reproductor
+    // que de verdad suena. Mismo patrón que `currentPlayer` más arriba.
+    val togglePlayPauseActual by rememberUpdatedState { togglePlayPause() }
+    val seekByActual by rememberUpdatedState { deltaMs: Long -> seekBy(deltaMs) }
+
     val onOpenEpisodesState = rememberUpdatedState(onOpenEpisodes)
 
     val outerModifier = if (isLandscape) Modifier.fillMaxSize()
@@ -1846,19 +1855,19 @@ private fun PlayerContent(
                                     KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER,
                                     KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
                                     KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE ->
-                                        { togglePlayPause(); true }
+                                        { togglePlayPauseActual(); true }
                                     else -> false
                                 }
                             }
                             when (keyCode) {
                                 KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD ->
-                                    { seekBy(seekStepMs); true }
+                                    { seekByActual(seekStepMs); true }
                                 KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_MEDIA_REWIND ->
-                                    { seekBy(-seekStepMs); true }
+                                    { seekByActual(-seekStepMs); true }
                                 KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER,
                                 KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
                                 KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE ->
-                                    { togglePlayPause(); true }
+                                    { togglePlayPauseActual(); true }
                                 // Cualquier otra flecha o MENÚ, con el overlay oculto: solo mostrarlo
                                 // (igual que Netflix/Prime) — la navegación real entre botones pasa
                                 // a manejarla el foco de Compose una vez visible.
