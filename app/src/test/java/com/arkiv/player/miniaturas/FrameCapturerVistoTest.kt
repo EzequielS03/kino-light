@@ -48,13 +48,6 @@ class FrameCapturerVistoTest {
         override fun observeVistos(): Flow<List<VistoRow>> = MutableStateFlow(emptyList())
         override fun observePlaybackForItem(itemId: String): Flow<List<PlaybackEntity>> =
             MutableStateFlow(emptyList())
-        override suspend fun getAllPlayback(): List<PlaybackEntity> = filas.values.toList()
-        override suspend fun getPlaybackSince(cursor: Long): List<PlaybackEntity> =
-            filas.values.filter { it.updatedAt > cursor }
-        override suspend fun softDeletePlayback(episodeId: String) {
-            filas[episodeId]?.let { filas[episodeId] = it.copy(deleted = true) }
-        }
-        override suspend fun deleteAllPlayback() = filas.clear()
         // Lo agregó otra rama (orden de la biblioteca por lo último visto) mientras esta estaba
         // abierta. FrameCapturer no lo usa; está solo para que el fake siga implementando el DAO.
         override fun observeUltimaReproduccion(): Flow<List<UltimaReproduccionRow>> =

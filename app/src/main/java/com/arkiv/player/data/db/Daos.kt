@@ -195,9 +195,6 @@ interface ItemDao {
         upsertEpisodes(episodes)
     }
 
-    @Query("DELETE FROM items WHERE identifier = :itemId")
-    suspend fun deleteItem(itemId: String)
-
     @Query("SELECT * FROM items WHERE identifier = :itemId")
     suspend fun getItem(itemId: String): ItemEntity?
 
@@ -268,16 +265,6 @@ interface ItemDao {
     @Query("SELECT * FROM items")
     suspend fun getAllItems(): List<ItemEntity>
 
-    @Query("SELECT * FROM episodes")
-    suspend fun getAllEpisodes(): List<EpisodeEntity>
-
-    // --- Sync en la nube (Plan 4): filas dirty por updatedAt + soft-delete (tombstone) ---
-    @Query("SELECT * FROM items WHERE updatedAt > :cursor")
-    suspend fun getItemsSince(cursor: Long): List<ItemEntity>
-
-    @Query("SELECT * FROM episodes WHERE updatedAt > :cursor")
-    suspend fun getEpisodesSince(cursor: Long): List<EpisodeEntity>
-
     /** Borrado suave: marca el tombstone; el trigger sube updatedAt para que se propague. */
     @Query("UPDATE items SET deleted = 1 WHERE identifier = :itemId")
     suspend fun softDeleteItem(itemId: String)
@@ -291,12 +278,6 @@ interface ItemDao {
      */
     @Query("UPDATE episodes SET deleted = 1 WHERE id = :episodeId")
     suspend fun softDeleteEpisode(episodeId: String)
-
-    @Query("DELETE FROM items")
-    suspend fun deleteAllItems()
-
-    @Query("DELETE FROM episodes")
-    suspend fun deleteAllEpisodes()
 }
 
 @Dao
@@ -422,19 +403,6 @@ interface PlaybackDao {
     @Query("SELECT * FROM playback WHERE episodeId IN (SELECT id FROM episodes WHERE itemId = :itemId)")
     fun observePlaybackForItem(itemId: String): Flow<List<PlaybackEntity>>
 
-    @Query("SELECT * FROM playback")
-    suspend fun getAllPlayback(): List<PlaybackEntity>
-
-    // --- Sync en la nube (Plan 4) ---
-    @Query("SELECT * FROM playback WHERE updatedAt > :cursor")
-    suspend fun getPlaybackSince(cursor: Long): List<PlaybackEntity>
-
-    @Query("UPDATE playback SET deleted = 1 WHERE episodeId = :episodeId")
-    suspend fun softDeletePlayback(episodeId: String)
-
-    @Query("DELETE FROM playback")
-    suspend fun deleteAllPlayback()
-
     /** Lo último que se reprodujo, con su ítem, del más reciente al más viejo. Para "Para ti". */
     @Query(
         """
@@ -492,9 +460,6 @@ interface SkipMarkerDao {
     @Query("SELECT * FROM skip_markers WHERE itemId = :itemId AND episodeId IN (:episodeId, '') AND deleted = 0")
     fun observeDeCapitulo(itemId: String, episodeId: String): Flow<List<SkipMarkerEntity>>
 
-    @Query("SELECT * FROM skip_markers WHERE itemId = :itemId AND episodeId IN (:episodeId, '') AND deleted = 0")
-    suspend fun getDeCapitulo(itemId: String, episodeId: String): List<SkipMarkerEntity>
-
     /** One row by its own key (PK). Used by [com.arkiv.player.data.ArkivRepository.getSkipMarker] to read the marker for an exact scope (chapter or whole series). */
     @Query("SELECT * FROM skip_markers WHERE id = :id")
     suspend fun getById(id: String): SkipMarkerEntity?
@@ -505,17 +470,6 @@ interface SkipMarkerDao {
 
     @Query("SELECT * FROM skip_markers")
     suspend fun getAll(): List<SkipMarkerEntity>
-
-    // --- Sync en la nube (Plan 4) ---
-    @Query("SELECT * FROM skip_markers WHERE updatedAt > :cursor")
-    suspend fun getMarkersSince(cursor: Long): List<SkipMarkerEntity>
-
-    /** Borra TODOS los marcadores del ítem (serie + cada capítulo): lo que hace hoy al quitar un ítem. */
-    @Query("UPDATE skip_markers SET deleted = 1 WHERE itemId = :itemId")
-    suspend fun softDeleteMarker(itemId: String)
-
-    @Query("DELETE FROM skip_markers")
-    suspend fun deleteAllMarkers()
 }
 
 @Dao
@@ -532,7 +486,7 @@ interface LiveFavoriteDao {
     // haría que el trigger de UPDATE no lo resellara (WHEN NEW.updatedAt = OLD.updatedAt no se
     // cumpliría) y el tombstone se quedaría sin `updatedAt` para siempre: el borrado nunca
     // llegaría al otro dispositivo. Se deja que el trigger sea quien selle, igual que
-    // `softDeleteMarker`/`softDeleteItem`.
+    // `softDeleteItem`.
     @Query("UPDATE live_favorites SET deleted = 1 WHERE code = :code")
     suspend fun borrar(code: String)
 

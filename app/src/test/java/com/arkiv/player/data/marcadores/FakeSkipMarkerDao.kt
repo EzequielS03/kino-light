@@ -24,11 +24,6 @@ class FakeSkipMarkerDao : SkipMarkerDao {
             },
         )
 
-    override suspend fun getDeCapitulo(itemId: String, episodeId: String): List<SkipMarkerEntity> =
-        filas.values.filter {
-            it.itemId == itemId && (it.episodeId == episodeId || it.episodeId == "") && !it.deleted
-        }
-
     override suspend fun getById(id: String): SkipMarkerEntity? = filas[id]
 
     override suspend fun delete(itemId: String) {
@@ -36,15 +31,4 @@ class FakeSkipMarkerDao : SkipMarkerDao {
     }
 
     override suspend fun getAll(): List<SkipMarkerEntity> = filas.values.toList()
-
-    override suspend fun getMarkersSince(cursor: Long): List<SkipMarkerEntity> =
-        filas.values.filter { it.updatedAt > cursor }
-
-    override suspend fun softDeleteMarker(itemId: String) {
-        filas.replaceAll { _, v -> if (v.itemId == itemId) v.copy(deleted = true) else v }
-    }
-
-    override suspend fun deleteAllMarkers() {
-        filas.clear()
-    }
 }

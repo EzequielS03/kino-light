@@ -11,9 +11,10 @@ import org.junit.Test
 /**
  * Los triggers que sellan `updatedAt` en cada escritura local.
  *
- * Son el reloj del que dependen los DOS syncs (nube y LAN) para decidir quién gana, y el filtro con
- * el que el push elige qué subir (`getItemsSince(cursor)` = `updatedAt > cursor`). Una fila que
- * queda en `updatedAt = 0` no supera ningún cursor: **no se sube nunca**.
+ * Eran el reloj del que dependían los DOS syncs (nube y LAN, los dos borrados de este branch) para
+ * decidir quién ganaba, y el filtro con el que el push elegía qué subir (`updatedAt > cursor`; el
+ * DAO que leía ese cursor también se borró). El trigger sigue vigente porque las columnas
+ * `updatedAt`/`deleted` se quedan hasta el audit de columnas de la Fase 3.
  *
  * Vivían solo dentro de `MIGRATION_6_7`, así que un aparato instalado de cero en una versión
  * posterior nunca los tuvo — Room genera las tablas desde su esquema y los triggers no son parte de
