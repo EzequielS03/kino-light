@@ -101,6 +101,7 @@ A few names with "remote" in them mean "from the network" and are correct: `Upda
 | `episodes` | `torrentFileIndex` | always `null` (Magis and Caracol write `null`); only the duplicate-download key and dead torrent code read it. |
 | `episodes` | `thumbPath`, `originalPath`, `originalFormat`, `originalSize`, `derivativePath`, `derivativeFormat`, `derivativeSize` | always `null` / `0`; read only by the dead archive.org mappers and projected by two DAO queries. |
 | `episode_frame` | `remoteUrl` | always `null`; it was the uploaded frame's URL for cloud sync. |
+| `episode_frame` | `origenRemoto` | always `0` now; only the removed cloud sync ever set it to `1`. |
 
 Facts that shape the migration:
 
