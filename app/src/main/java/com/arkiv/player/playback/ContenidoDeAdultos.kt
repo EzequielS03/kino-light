@@ -1,16 +1,18 @@
 package com.arkiv.player.playback
 
 /**
- * Qué contenido NO se anota en el historial: progreso, "seguir viendo", biblioteca, recientes y
- * las miniaturas de frame — esas últimas son una imagen de lo que se estaba viendo, guardada en
- * disco y sincronizada, así que son la peor de la lista y no la menos importante.
+ * What content is NOT logged to history: progress, "continue watching", library, recents, and
+ * frame thumbnails — those last ones are an image of what was being watched, saved to disk, which
+ * makes them the worst one on the list, not the least important.
  *
- * El 2026-08-14 dos canales +18 aparecieron en la fila "Canales en vivo" de la pantalla principal.
- * Y no alcanzó con borrarlos del aparato: esa tabla se sincroniza, así que ya habían viajado a la
- * nube y podían llegar al celular y a la otra TV. Hubo que limpiarlos en las dos puntas.
+ * On 2026-08-14, two +18 channels showed up in the "Live channels" row on the home screen.
+ * Deleting them from the device wasn't enough: that table synced through this branch's
+ * now-removed cloud sync, so they had already traveled to the cloud and could reach the phone and
+ * the other TV. Both ends had to be cleaned up.
  *
- * De ahí la regla: **no se escribe**, en vez de filtrarse al leer. Lo que no se escribe no se puede
- * escapar por una pantalla que nos olvidamos ni se sube a ningún lado.
+ * Hence the rule: **don't write it**, instead of filtering it out on read. What isn't written
+ * can't slip through some screen we forgot to filter, and — back when sync existed — couldn't be
+ * uploaded either.
  */
 object ContenidoDeAdultos {
 

@@ -5,20 +5,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Qué contenido NO se anota en el historial.
+ * What content is NOT logged to history.
  *
- * El 2026-08-14 dos canales +18 aparecieron en la fila "Canales en vivo" de la pantalla principal,
- * con nombre y logo. Y no alcanzó con borrarlos del aparato: `live_recents` se sincroniza, así que
- * ya habían viajado a PocketBase y podían llegar al celular y a la otra TV. Hubo que limpiarlos en
- * las dos puntas.
+ * On 2026-08-14, two +18 channels showed up in the "Live channels" row on the home screen, with
+ * name and logo. Deleting them from the device wasn't enough: `live_recents` synced through
+ * PocketBase (removed in this branch's pruning), so they had already traveled there and could
+ * reach the phone and the other TV. Both ends had to be cleaned up.
  *
- * De ahí la regla: **no se escribe**, en vez de filtrarse al leer. Lo que no se escribe no se puede
- * escapar por una pantalla que nos olvidamos —"seguir viendo" se pinta en el inicio del televisor,
- * en el del celular y en la biblioteca— ni se sube a la nube.
+ * Hence the rule: **don't write it**, instead of filtering it out on read. What isn't written
+ * can't slip through some screen we forgot to filter —"continue watching" is painted on the TV's
+ * home, on the phone's, and in the library— and, back when sync existed, couldn't be uploaded
+ * either.
  *
- * Vive acá afuera y no dentro de `saveProgress` para poder fijar sus bordes: el modo de fallar en
- * la otra dirección —dejar de guardar el progreso de contenido normal— es igual de malo y mucho
- * más silencioso.
+ * Lives out here and not inside `saveProgress` so its edges can be pinned down: failing the other
+ * way —no longer saving normal content's progress— is just as bad and much quieter.
  */
 class ContenidoDeAdultosTest {
 
