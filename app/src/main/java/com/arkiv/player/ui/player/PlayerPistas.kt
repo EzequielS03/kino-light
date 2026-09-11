@@ -58,6 +58,11 @@ internal class EstadoDePistas(
      * groups back to the player's own).
      */
     private val local: Player?,
+    /**
+     * The episode this screen opened. It tells the local player's tracks apart from the PREVIOUS
+     * download's, which the service player still holds while this screen resolves its own.
+     */
+    private val episodeId: String,
 ) {
     /** El menú de audio/subtítulos está abierto. */
     var pickerAbierto by mutableStateOf(false)
@@ -110,11 +115,30 @@ internal class EstadoDePistas(
         // se arrastra a la siguiente (ver [autoElegirIdiomaExo]).
         yaAutoElegiExo = false
         if (player == null) {
-            exoAudioGroups = emptyList()
-            exoSubGroups = emptyList()
+            olvidarPistas()
             // Back on the local player: its tracks replace the in-screen player's in the menu.
-            local?.let { actualizarPistasExo(it.currentTracks) }
+            local?.let { onLocalTracksChanged(it.currentTracks) }
         }
+    }
+
+    /**
+     * A local item is (re)loading: forget the previous one's tracks and let the language be decided
+     * again. Without this the one-shot auto-pick is spent on whatever the service player was holding.
+     */
+    fun onLocalItemLoad() {
+        yaAutoElegiExo = false
+        olvidarPistas()
+    }
+
+    /** Empties the menu. The tracks on screen must never describe an item that isn't playing. */
+    private fun olvidarPistas() {
+        exoAudioGroups = emptyList()
+        exoSubGroups = emptyList()
+        audioTracks = emptyList()
+        spuTracks = emptyList()
+        curAudio = -1
+        curSpu = -1
+        subsOn = false
     }
 
     /**
@@ -122,7 +146,14 @@ internal class EstadoDePistas(
      * is bound: the controller keeps reporting (an empty or stale item) and would overwrite its lists.
      */
     fun onLocalTracksChanged(tracks: Tracks) {
-        if (local != null && exoRef === local) actualizarPistasExo(tracks)
+        if (local == null || exoRef !== local) return
+        // While this screen resolves its own item, the service player is still playing the previous
+        // download and reporting ITS tracks: they must neither fill this menu nor spend the auto-pick.
+        if (tracksBelongToEpisode(local.currentMediaItem?.mediaId, episodeId)) {
+            actualizarPistasExo(tracks)
+        } else {
+            olvidarPistas()
+        }
     }
 
     /**
@@ -153,12 +184,11 @@ internal class EstadoDePistas(
      *
      * [TrackSelector] decides the audio and [SubtitleDecision] the subtitle (it turns them off when
      * the audio is already understood); without this ExoPlayer chose on its own and the preference
-     * was never applied. Con magis se nota porque sus
-     * ficheros traen ocho audios.
+     * was never applied. It shows with magis, whose files carry eight audio tracks.
      *
-     * Solo la primera vez: `onTracksChanged` se dispara también al cambiar de pista, y volver a
-     * decidir ahí pisaría lo que acabas de elegir a mano. El flag se limpia en [setExoPlayer], que
-     * es por donde entra cada reproducción nueva.
+     * Only the first time: `onTracksChanged` also fires when a track is switched, and deciding again
+     * there would overwrite what you just picked by hand. The flag is cleared for each new playback:
+     * [setExoPlayer] when an in-screen player takes over, [onLocalItemLoad] for each local item.
      */
     private fun autoElegirIdiomaExo() {
         if (yaAutoElegiExo) return
@@ -262,7 +292,7 @@ internal class EstadoDePistas(
      */
     fun refrescar() {
         val exo = exoRef ?: return
-        if (exo === local) actualizarPistasExo(exo.currentTracks)
+        if (exo === local) onLocalTracksChanged(exo.currentTracks)
     }
 
     /**
@@ -329,9 +359,20 @@ internal class EstadoDePistas(
 }
 
 @Composable
-internal fun rememberEstadoDePistas(local: Player?, graph: AppGraph): EstadoDePistas {
-    return remember(local, graph) { EstadoDePistas(graph, local) }
+internal fun rememberEstadoDePistas(local: Player?, graph: AppGraph, episodeId: String): EstadoDePistas {
+    return remember(local, graph, episodeId) { EstadoDePistas(graph, local, episodeId) }
 }
+
+/**
+ * Whether the local player's tracks describe the episode this screen opened.
+ *
+ * The service player keeps playing the previous download while a new screen resolves its own item
+ * (that is the point of playing in the background), so its tracks arrive at the new screen first.
+ * Taking them would fill the menu with the previous episode's tracks and, worse, spend the one-shot
+ * language auto-pick on them, leaving the real item with whatever ExoPlayer chose by itself.
+ */
+internal fun tracksBelongToEpisode(mediaIdEnElPlayer: String?, episodeId: String): Boolean =
+    mediaIdEnElPlayer != null && mediaIdEnElPlayer == episodeId
 
 /** Las pistas reales del contenedor: los ids negativos son las entradas sintéticas del menú. */
 internal fun List<Pair<Int, String>>.pistasReales(): List<Pair<Int, String>> = filter { it.first >= 0 }
@@ -339,9 +380,9 @@ internal fun List<Pair<Int, String>>.pistasReales(): List<Pair<Int, String>> = f
 internal fun List<Pair<Int, String>>.nombresReales(): List<String> = pistasReales().map { it.second }
 
 /**
- * Nombre a mostrar de una pista de subtítulo. The Magis MPEG-TS carries them without a language, so
- * their names say nothing. When the source declared the languages (same order as the tracks) the
- * language is prefixed; otherwise the raw name stays.
+ * Display name of a subtitle track. The Magis MPEG-TS carries them without a language, so their
+ * names say nothing. When the source declared the languages (same order as the tracks) the language
+ * is prefixed; otherwise the raw name stays.
  *
  * It covers the first N tracks by id, which are the container's; past that it doesn't guess. Fuera de magis
  * ([esMagis] en false) la lista de idiomas no describe estas pistas y etiquetarlas con ella sería

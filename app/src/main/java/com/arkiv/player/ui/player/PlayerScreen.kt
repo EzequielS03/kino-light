@@ -18,6 +18,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -546,7 +547,7 @@ private fun PlayerContent(
     // Audio/subtitle picker. Tracks come from the bound in-screen ExoPlayer or, by default, from the
     // local (service) player through `controller`. Todo el bloque vive en `PlayerPistas.kt`; de acá
     // solo se consulta `haySubtitulo`, para el ícono de CC.
-    val estadoPistas = rememberEstadoDePistas(controller, graph)
+    val estadoPistas = rememberEstadoDePistas(controller, graph, episodeId)
 
 
     // Modo noche: nivel del velo negro sobre el video, 0..DIM_MAX_LEVEL. Persistido en
@@ -566,12 +567,18 @@ private fun PlayerContent(
     // PlayerVideoLocal.kt.
     val videoLocal = remember { LocalVideoState() }
     // Embedded subtitles of a downloaded file: libVLC painted them itself, ExoPlayer hands the cues
-    // to whoever draws them (same as MagisExoPlayer's SubtitleView).
-    val subtitulosLocales = remember {
-        SubtitleView(context).apply {
-            setUserDefaultStyle()
-            setUserDefaultTextSize()
-        }
+    // to whoever draws them (same as MagisExoPlayer's SubtitleView). Created by its AndroidView
+    // factory, like the video view: a remembered View can't be re-parented when it is mounted again.
+    var subtitulosLocales by remember { mutableStateOf<SubtitleView?>(null) }
+
+    /**
+     * A local item started loading: the first-frame wait restarts and the track menu forgets the
+     * previous item, whose tracks the service player is still reporting (it keeps playing in the
+     * background) and which would otherwise spend the one-shot language auto-pick.
+     */
+    fun marcarCargaLocal(prefersSoftware: Boolean) {
+        videoLocal.onLoad(android.os.SystemClock.elapsedRealtime(), prefersSoftware)
+        estadoPistas.onLocalItemLoad()
     }
 
     /**
@@ -788,9 +795,10 @@ private fun PlayerContent(
      * sin esta clave un re-zap al canal que ya estaba en pantalla no volvería a empujar el receptor.
      *
      * The local player's audio read means nothing here (the channel plays on LiveExoPlayer, not on
-     * the service player, so it reads nothing or a stale item): `castRequestFor` cae a su default conservador
-     * ("no sé → mandalo directo", ver su propio KDoc), igual que ya acepta Magis VOD. Un canal con
-     * audio AC-3/DTS puede castear mudo -- limitación conocida, misma categoría que la de Magis.
+     * the service player, so it reads nothing or a stale item), so `castRequestFor` falls back to its
+     * conservative default ("don't know → send it straight through", see its own KDoc), the same one
+     * it already accepts for Magis VOD. A channel with AC-3/DTS audio can cast mute: a known
+     * limitation, the same category as Magis's.
      */
     LaunchedEffect(casting, liveItem, generacionVivo) {
         if (!casting || castSession == null) return@LaunchedEffect
@@ -1024,7 +1032,7 @@ private fun PlayerContent(
                 // nada; prepararlo primero es inofensivo si ya estaba preparado.
                 if (controller.playbackState == Player.STATE_IDLE) {
                     controller.prepare()
-                    videoLocal.onLoad(android.os.SystemClock.elapsedRealtime(), prefersSoftware = false)
+                    marcarCargaLocal(prefersSoftware = false)
                 }
                 controller.play()
             }
@@ -1037,29 +1045,26 @@ private fun PlayerContent(
                 // Mismo caso que REUSAR_ACTUAL de arriba: puede llegar cebado-pero-no-preparado.
                 if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
                 controller.playWhenReady = true
-                videoLocal.onLoad(android.os.SystemClock.elapsedRealtime(), prefersSoftware = false)
+                marcarCargaLocal(prefersSoftware = false)
             }
             // New content, or the URL changed under the same episodeId (before: torrent re-served
             // on another port, source now removed; today: magis token renewed on re-resolution):
             // load the playlist with the fresh URL.
             MediaReusePolicy.Decision.RECARGAR -> {
-                android.util.Log.w("ArkivPlay", "rama=nuevo → setMediaItems + prepare (opens the local player with the fresh URL)")
+                android.util.Log.w("ArkivPlay", "rama=nuevo → setMediaItems + prepare (abre el reproductor local con la URL fresca)")
                 currentIndex = pl.startIndex
                 controller.setMediaItems(localMediaItems(pl.items), pl.startIndex, pl.startPositionMs)
                 controller.playWhenReady = true
                 controller.prepare()
-                videoLocal.onLoad(
-                    android.os.SystemClock.elapsedRealtime(),
-                    prefersSoftware = pl.items.getOrNull(pl.startIndex)?.preferirSoftware == true,
-                )
+                marcarCargaLocal(prefersSoftware = pl.items.getOrNull(pl.startIndex)?.preferirSoftware == true)
             }
         }
         NowPlaying.episodeId =
             controller.currentMediaItem?.mediaId ?: pl.items.getOrNull(currentIndex)?.episodeId
     }
 
-    // Capítulo cuyo final YA se atendió, para no encadenar dos avances por el mismo final: el reproductor puede
-    // repetir el EndReached y, casteando, el CastPlayer emite además el suyo.
+    // Capítulo cuyo final YA se atendió, para no encadenar dos avances por el mismo final: el
+    // reproductor puede repetir su STATE_ENDED y, casteando, el CastPlayer emite además el suyo.
     var finAtendido by remember { mutableStateOf<String?>(null) }
 
     /**
@@ -1076,7 +1081,7 @@ private fun PlayerContent(
      */
     fun alTerminarElCapitulo() {
         android.util.Log.w("ArkivPlay", "alTerminarElCapitulo · pos=${espejo.posicionMs} dur=${espejo.duracionMs} enVivo=$enVivo finAtendido=$finAtendido ep=$episodeId")
-        // Un directo no termina: su EndReached es el stream que se cortó, y ahí no hay "siguiente
+        // Un directo no termina: su fin es el stream que se cortó, y ahí no hay "siguiente
         // capítulo" que valga (el único siguiente del modo vivo es el zapping). Reopening it isn't
         // hooked here: live channels play on LiveExoPlayer, whose error goes to
         // `vm.reabrirVivoPorCorte` (see `onLiveExoError`).
@@ -1166,7 +1171,7 @@ private fun PlayerContent(
             }
 
             override fun onCues(cueGroup: CueGroup) {
-                subtitulosLocales.setCues(cueGroup.cues)
+                subtitulosLocales?.setCues(cueGroup.cues)
             }
         }
         controller.addListener(listener)
@@ -1188,7 +1193,8 @@ private fun PlayerContent(
     /**
      * Decoder watchdog for downloaded files (see [DecoderWatchdog]): a load that never painted gets
      * ONE reload preferring a software decoder, at the same position. The preference travels in the
-     * item's `preferirSoftware` extra, which the service player's codec selector honours.
+     * item's `preferirSoftware` extra, which the service player's codec selector honours; the
+     * `software-first decoders for …` line it logs is the proof the rescue actually took effect.
      */
     fun vigilarDecodificadorLocal() {
         val ahora = android.os.SystemClock.elapsedRealtime()
@@ -1200,6 +1206,9 @@ private fun PlayerContent(
             videoTracks = pistasDeVideo,
             wantsToPlay = controller.playWhenReady,
             hasSurface = videoLocal.hasSurface,
+            // A file that fails to open also sits with playWhenReady and no frame: that is the error
+            // overlay's business, and a software reload would only reload the failure.
+            hasError = controller.playerError != null,
             alreadySoftware = videoLocal.loadPrefersSoftware,
         )
         if (!recargar) return
@@ -1211,10 +1220,17 @@ private fun PlayerContent(
                 "state=${controller.playbackState}) → reloading ${pl.items.getOrNull(currentIndex)?.episodeId} " +
                 "in software at ${pos}ms",
         )
+        // stop() FIRST, or the reload changes nothing. On a media-item change media3 keeps the video
+        // codec (it flushes and re-uses it; `releaseCodec()` only runs from the renderer's reset) and
+        // `prepare()` returns immediately outside STATE_IDLE — and this failure sits in BUFFERING —
+        // so the software-first selector would never be consulted. stop() resets the renderers, which
+        // releases the codec; the reload then starts from IDLE and the selector runs again. The
+        // position is not lost: it is passed to setMediaItems.
+        controller.stop()
         controller.setMediaItems(localMediaItems(pl.items.map { it.copy(preferirSoftware = true) }), currentIndex, pos)
         controller.prepare()
         controller.playWhenReady = true
-        videoLocal.onLoad(ahora, prefersSoftware = true)
+        marcarCargaLocal(prefersSoftware = true)
     }
 
     DisposableEffect(activePlayer) {
@@ -1565,9 +1581,7 @@ private fun PlayerContent(
                 runCatching { controller.play() }
                 // A new first frame comes only if the media was reloaded or prepared just now;
                 // otherwise the first-frame spinner and the decoder watchdog would wait for nothing.
-                if (recargado || estabaSinPreparar) {
-                    videoLocal.onLoad(android.os.SystemClock.elapsedRealtime(), prefersSoftware = false)
-                }
+                if (recargado || estabaSinPreparar) marcarCargaLocal(prefersSoftware = false)
             }
         }
         casteabaAntes = casting
@@ -1963,8 +1977,22 @@ private fun PlayerContent(
         )
 
         // Embedded subtitles of a downloaded file (cues from the local player, see the controller
-        // listener). Right above its video and below the in-screen players.
-        AndroidView(modifier = outerModifier, factory = { subtitulosLocales })
+        // listener). Mounted only while the local player is the one playing —the in-screen players
+        // draw their own— and confined to the picture: with the video letterboxed, cues belong under
+        // the image, not at the bottom of the screen.
+        if (!isExo) {
+            Box(outerModifier, contentAlignment = Alignment.Center) {
+                AndroidView(
+                    modifier = if (videoLocal.aspect > 0f) Modifier.aspectRatio(videoLocal.aspect) else Modifier.fillMaxSize(),
+                    factory = { ctx ->
+                        SubtitleView(ctx).apply {
+                            setUserDefaultStyle()
+                            setUserDefaultTextSize()
+                        }.also { subtitulosLocales = it }
+                    },
+                )
+            }
+        }
 
         // Magis: ExoPlayer reproduce el stream del proxy local (headers ya inyectados), sin VLC.
         val mItem = magisItem

@@ -1,6 +1,8 @@
 package com.arkiv.player.ui.player
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -71,4 +73,15 @@ class PlayerPistasTest {
         )
         assertEquals("Desactivar", etiqueta)
     }
+    /**
+     * A fresh screen finds the service player still on the PREVIOUS download (it keeps playing in
+     * the background), so its tracks must not fill this screen's menu nor spend its language pick.
+     */
+    @Test
+    fun `las pistas del local solo valen para el episodio de esta pantalla`() {
+        assertTrue(tracksBelongToEpisode("magis::ep1", "magis::ep1"))
+        assertFalse(tracksBelongToEpisode("magis::ep0", "magis::ep1"))
+        assertFalse(tracksBelongToEpisode(null, "magis::ep1"))
+    }
+
 }

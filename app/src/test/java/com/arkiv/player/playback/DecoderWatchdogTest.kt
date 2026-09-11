@@ -17,6 +17,7 @@ class DecoderWatchdogTest {
         videoTracks: Int = 1,
         wantsToPlay: Boolean = true,
         hasSurface: Boolean = true,
+        hasError: Boolean = false,
         alreadySoftware: Boolean = false,
     ) = DecoderWatchdog.shouldReloadInSoftware(
         waitingMs = waitingMs,
@@ -24,6 +25,7 @@ class DecoderWatchdogTest {
         videoTracks = videoTracks,
         wantsToPlay = wantsToPlay,
         hasSurface = hasSurface,
+        hasError = hasError,
         alreadySoftware = alreadySoftware,
     )
 
@@ -56,6 +58,15 @@ class DecoderWatchdogTest {
     /** Paused before the first frame: nothing is supposed to render. */
     @Test fun `paused it never fires`() {
         assertFalse(decide(wantsToPlay = false))
+    }
+
+    /**
+     * A file that fails to open also sits with playWhenReady and no frame, but that is an error on
+     * screen, not a silent decoder: reloading it in software would only reload the failure.
+     */
+    @Test fun `with a player error it never fires`() {
+        assertFalse(decide(hasError = true))
+        assertFalse(decide(waitingMs = 60_000L, hasError = true))
     }
 
     /** Once: a software load that still paints nothing is not reloaded again. */

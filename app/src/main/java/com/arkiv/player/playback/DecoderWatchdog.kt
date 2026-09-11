@@ -32,6 +32,9 @@ object DecoderWatchdog {
      * @param videoTracks how many video tracks the loaded media has (0 = audio only, or not known yet).
      * @param wantsToPlay `playWhenReady`: paused, nothing is supposed to render.
      * @param hasSurface whether a video surface is attached (false in the background).
+     * @param hasError whether the player is reporting a playback error. A file that fails to open
+     *   also sits with `playWhenReady` and no frame, and reloading it in software on top of the
+     *   error overlay fixes nothing.
      * @param alreadySoftware whether this load already prefers software, which is also what makes it
      *   fire only once.
      */
@@ -42,9 +45,11 @@ object DecoderWatchdog {
         videoTracks: Int,
         wantsToPlay: Boolean,
         hasSurface: Boolean,
+        hasError: Boolean,
         alreadySoftware: Boolean,
     ): Boolean {
         if (waitingMs < 0L) return false
+        if (hasError) return false
         if (alreadySoftware || renderedFirstFrame) return false
         if (videoTracks <= 0 || !wantsToPlay || !hasSurface) return false
         return waitingMs >= NO_FRAME_MS

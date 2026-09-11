@@ -85,6 +85,10 @@ object LocalExoPlayer {
             object : MediaSource.Factory by delegate {
                 override fun createMediaSource(mediaItem: MediaItem): MediaSource {
                     preferSoftware = prefersSoftware(mediaItem.localConfiguration?.tag)
+                    // Logged so the device check can tell the decoder rescue apart from the failure
+                    // it is rescuing: this line says the item asked for software, and the selector's
+                    // own line below says a software decoder was actually put first.
+                    if (preferSoftware) Log.w(TAG, "item asks for a software decoder: ${mediaItem.mediaId}")
                     return delegate.createMediaSource(mediaItem)
                 }
             }
