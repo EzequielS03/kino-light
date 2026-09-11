@@ -469,9 +469,9 @@ abstract class ArkivDatabase : RoomDatabase() {
          * esté en null la biblioteca sigue mostrando `title`, igual que hoy — no hay estado
          * intermedio raro, y por eso no hace falta vaciar nada (a diferencia de [MIGRATION_19_20]).
          *
-         * `items` carries the sync-ready columns (`updatedAt`/`deleted`) kept for this branch's
-         * future Phase 2/3 sync, so this column would travel to other devices once that exists
-         * again -- there's no active sync in this branch today.
+         * `items` carries the `updatedAt`/`deleted` columns from this branch's now-removed cloud
+         * sync; they stay until the Phase 3 column audit. No sync is planned to come back --
+         * this branch's rule (see CLAUDE.md) forbids a server of its own.
          */
         private val MIGRATION_26_27 = object : Migration(26, 27) {
             override fun migrate(db: SupportSQLiteDatabase) {

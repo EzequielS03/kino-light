@@ -8,8 +8,8 @@ import org.junit.Test
  * `TvFormularioConTeclado.kt`): it's done by weight, and the keyboard keeps more of it, because
  * it's what gets used key by key with the remote while the fields only display text already typed.
  *
- * The TWO screens that share `TvTecladoYCampos` (the TV login and the Magis linking offer) read
- * these same constants: a wrong number here breaks both alike, so one test covers both.
+ * The only screen that calls `TvTecladoYCampos` today is [TvOfertaVincularMagis] (the Magis
+ * linking offer), so this constant only needs to be right for that one screen.
  */
 class TvFormularioConTecladoTest {
 

@@ -125,11 +125,11 @@ class MediaReusePolicyTest {
     }
 
     /**
-     * La playlist SÍ es la de este capítulo pero no lo contiene: pasa en archive cuando el episodio
-     * pedido no tiene variante reproducible (`buildData` lo descarta) y la sección se arma sin él.
-     * No es el caso de arriba —no hay nada mejor que esperar— así que se carga lo que vino, que es
-     * el comportamiento de siempre. Distinguirlo es justo para lo que existe `pedido`: mirar sólo
-     * "¿está mi episodio en la lista?" dejaría la pantalla esperando para siempre.
+     * La playlist SÍ es la de este capítulo pero no lo contiene: pasa cuando el episodio pedido no
+     * tiene variante reproducible y la sección se arma sin él. No es el caso de arriba —no hay nada
+     * mejor que esperar— así que se carga lo que vino, que es el comportamiento de siempre.
+     * Distinguirlo es justo para lo que existe `pedido`: mirar sólo "¿está mi episodio en la
+     * lista?" dejaría la pantalla esperando para siempre.
      */
     @Test fun playlist_propia_que_no_contiene_al_episodio_recarga() {
         val otro = LoadedMedia("archive:serie::0", "https://archive.org/download/serie/e0.mp4")

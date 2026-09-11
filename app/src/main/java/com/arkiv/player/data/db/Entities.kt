@@ -306,9 +306,10 @@ data class EpisodeFrameEntity(
     val updatedAt: Long = 0,
     val deleted: Int = 0,
     /**
-     * URL del archivo en PocketBase cuando la fila vino de otro dispositivo y el JPEG todavía no se
-     * bajó. Null = el frame es local (se capturó acá) o ya se bajó. Es lo que hace posible la bajada
-     * perezosa: la fila llega por el sync barato y los bytes recién cuando hay que pintarlos.
+     * URL of the file that the now-removed cloud upload filled in when a row was adopted from
+     * another device and the JPEG hadn't been downloaded yet. Null = the frame is local (captured
+     * here) or already downloaded. Unused today: nothing writes a non-null value anymore, now that
+     * the cloud sync is gone.
      */
     val remoteUrl: String? = null,
     /**
@@ -330,7 +331,7 @@ data class EpisodeFrameEntity(
      * capture would fall below that mark and its bytes would never be uploaded.
      *
      * This whole mechanism is dormant in this branch: there's no cloud sync to adopt a row from,
-     * so `origenRemoto` is always 0 today. It stays for the Phase 2/3 sync that will need it again.
+     * so `origenRemoto` is always 0 today. It stays until the Phase 3 column audit.
      */
     val origenRemoto: Int = 0,
 )

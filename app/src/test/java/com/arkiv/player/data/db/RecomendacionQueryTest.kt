@@ -74,8 +74,9 @@ class RecomendacionQueryTest {
     }
 
     @Test fun una_borrada_mas_nueva_que_gano_el_lww_deja_de_aparecer() {
-        // Simula lo que hace CloudSyncManager.mergeRecomendacion tras un pull: la fila YA estaba
-        // viva localmente, y el upsert la deja con deleted=1 porque el remoto (más nuevo) ganó.
+        // Simulates what RecomendacionDao.retirarVigentes does on a fresh generation: the row was
+        // already live locally, and the update leaves it with deleted=1 and a newer updatedAt
+        // because the new generation buried it.
         insertar("rec1", orden = 0)
         db.createStatement().use {
             it.executeUpdate("UPDATE recomendaciones SET deleted = 1, updatedAt = 999 WHERE id = 'rec1'")

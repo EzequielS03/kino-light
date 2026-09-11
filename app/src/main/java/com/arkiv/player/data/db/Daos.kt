@@ -469,8 +469,9 @@ data class DownloadRow(
     val bytesDone: Long,
     /**
      * Where the chapter came from (`episodes.torrentData`): the page URL for web, the torrent data
-     * for torrent, null for archive.org. Those sources were all deleted in this branch's pruning;
-     * today only `siteLabelOf` in `DetailScreen` reads it, for the site chip.
+     * for torrent, null for archive.org. Those sources were all deleted in this branch's pruning.
+     * It has no reader today; it stays until the Phase 3 column audit because it projects the
+     * `torrentData` column.
      */
     val sourceRef: String? = null,
 )

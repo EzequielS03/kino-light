@@ -39,7 +39,7 @@ data class PlayerData(
     val openingStartMs: Long?,
     val openingEndMs: Long?,
     val endingStartMs: Long?,
-    val kind: SourceKind,       // source (MAGIS/DITU/LOCAL/LIVE/UNKNOWN) -- the UI uses it for the download overlay
+    val kind: SourceKind,       // source (MAGIS/DITU/LOCAL/LIVE/UNKNOWN) -- PlayerScreen reads it for live detection, the cast LAN URL and the cast-transcode origin
     val referer: String? = null,    // headers para el stream web (algunos hosts exigen Referer)
     val userAgent: String? = null,
     val proxyUrl: String? = null,   // web: URL proxeada de respaldo si la directa falla (403/geo/anti-leech)

@@ -1200,16 +1200,13 @@ class ArkivRepository(
     /**
      * Destruye el frame de un capítulo que acaba de quedar visto. Delega en
      * [com.arkiv.player.miniaturas.DestructorDeFrames], que es el único sitio que sabe borrar un
-     * frame (archivo + fila) — [mergeFromSync] acá abajo y
-     * [com.arkiv.player.cloudsync.CloudSyncManager] llaman al mismo destructor cuando el progreso
-     * que gana un merge de sync llega ya visto desde otro dispositivo, así que la lógica de borrado
-     * en sí vive en un solo lugar, no acá repetida.
+     * frame (archivo + fila), para que la lógica de borrado viva en un solo lugar.
      *
      * Hay más de un camino por el que un capítulo pasa a `watched = true` DENTRO de este
      * repositorio: el toggle manual ([setWatched], desde el detalle) y el automático por progreso
      * ([savePlayback], al superar el 60% de la duración — el camino más común, con diferencia).
-     * Los dos llaman acá; si mañana se suma un tercer camino local que marca visto, alcanza con que
-     * también llame a este helper.
+     * Los dos llaman acá. (These are the only two callers today; if a third local path that marks
+     * something watched shows up, it just needs to call this helper too.)
      *
      * Se llama incondicionalmente cada vez que `watched` da `true`, sin preguntar antes si el
      * frame existe (ver el doc de [com.arkiv.player.miniaturas.DestructorDeFrames.destruir]). En
