@@ -4,7 +4,9 @@ import org.json.JSONObject
 import java.util.Base64
 
 /**
- * Qué hay que reproducir, en una cadena que la app guarda en su base y sincroniza entre aparatos.
+ * What to play, as a string the app stores in its local database (`torrentData`). Until Task 5
+ * that column traveled between devices through cloud sync; without that sync, this string stays
+ * only on the device that saved it.
  *
  * Reemplaza al `ref` que acuñaba el gateway (`base64url(json).hmac`, **con 24 h de vencimiento**):
  * sin servidor no hay a quién pedirle uno nuevo, y tampoco hace falta: lo único que el portal

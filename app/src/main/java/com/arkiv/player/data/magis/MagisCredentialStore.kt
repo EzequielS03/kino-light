@@ -30,10 +30,12 @@ internal interface MagisCredentialStore {
 }
 
 /**
- * Implementación real sobre `EncryptedSharedPreferences`, en su propio archivo (aparte del de
- * PocketBase): la contraseña de Magis viaja en claro al portal en cada relogin, así que hay que
- * guardarla, y guardarla cifrada. Usa [PrefsCifradas] por lo mismo que `SecureDeviceStore`: un
- * archivo que el Keystore ya no descifra no puede dejar la app sin arrancar.
+ * Real implementation over `EncryptedSharedPreferences`, in its own file -- separate from the
+ * legacy `arkiv_pb_secure` that `SecureDeviceStore` used to write (removed in Task 9 along with
+ * PocketBase; `SettingsStore` still reads it once to migrate whatever was there). Magis's
+ * password travels in the clear to the portal on every relogin, so it has to be saved, and saved
+ * encrypted. Uses [PrefsCifradas] for the same reason `SecureDeviceStore` did: a file the
+ * Keystore can no longer decrypt shouldn't be able to keep the app from starting.
  */
 internal class EncryptedMagisCredentialStore(context: Context) : MagisCredentialStore {
 
