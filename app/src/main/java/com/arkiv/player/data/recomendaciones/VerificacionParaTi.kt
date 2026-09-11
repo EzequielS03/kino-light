@@ -126,11 +126,17 @@ internal class VerificacionParaTi(
             if (resultados.isEmpty()) continue
 
             // 4. ¿Es esa obra? Rechazo total = candidato descartado; árbitro caído = el primero.
+            //    Con varios aprobados gana el que va primero EN `resultados`, no el primer índice
+            //    que el modelo haya escrito (el JSON no obliga orden ascendente) — así decide
+            //    `router/search.py::buscar_para_recomendaciones` en el gateway.
             val indices = arbitro.cuales(c.titulo, anio, tipo, resultados)
             val elegido = when {
                 indices == null -> resultados.first()
                 indices.isEmpty() -> continue
-                else -> resultados[indices.first()]
+                else -> {
+                    val aprobados = indices.toSet()
+                    resultados.withIndex().first { (i, _) -> i in aprobados }.value
+                }
             }
             val titulo = enTmdb.title.ifBlank { c.titulo }
             salida += Verificada(c, enTmdb.id, tipo, titulo, enTmdb.posterUrl, elegido.ref)

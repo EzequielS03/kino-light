@@ -88,6 +88,16 @@ class VerificacionParaTiTest {
         assertEquals("ref-bueno", v.ref)
     }
 
+    /** El gateway (`router/search.py`) gana el aprobado que va PRIMERO en `resultados`, no el
+     *  primer índice que el modelo haya escrito (el JSON no obliga orden ascendente). */
+    @Test fun `con varios aprobados gana el primero de la lista de resultados`() = runTest {
+        val v = verificacion(
+            enFuentes = { listOf(resultado("A", "ref-a"), resultado("B", "ref-b"), resultado("C", "ref-c")) },
+            arbitro = Arbitro { _, _, _, _ -> listOf(2, 0) },
+        ).verificar(listOf(coco), emptySet()).single()
+        assertEquals("ref-a", v.ref)
+    }
+
     @Test fun `un rechazo total del arbitro descarta al candidato`() = runTest {
         assertTrue(verificacion(arbitro = Arbitro { _, _, _, _ -> emptyList() }).verificar(listOf(coco), emptySet()).isEmpty())
     }
