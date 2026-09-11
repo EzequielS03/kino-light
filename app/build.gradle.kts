@@ -132,7 +132,6 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-hls:1.5.1")
     implementation("androidx.media3:media3-ui:1.5.1")
     implementation("androidx.media3:media3-datasource:1.5.1")
-    implementation("androidx.media3:media3-database:1.5.1")
     implementation("androidx.media3:media3-session:1.5.1")
 
     // Chromecast
@@ -149,9 +148,6 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
-    // QR: solo GENERAR (el de "Descargar la app" en la TV, `TvPantallaDeEntrada`). Escanear
-    // (camera-*/mlkit) se borró en Task 5 junto con el pareo QR, que era su único consumidor.
-    implementation("com.google.zxing:core:3.5.3")
 
     // Reproductor VLC (libVLC): decodifica por software lo que ExoPlayer no maneja
     // (.avi/XviD, Dolby Vision P7, TrueHD/DTS-HD). Trae libs nativas arm64 + armeabi-v7a.
