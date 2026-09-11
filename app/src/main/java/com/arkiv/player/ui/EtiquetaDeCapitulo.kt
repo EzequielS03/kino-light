@@ -22,12 +22,13 @@ object EtiquetaDeCapitulo {
      * (`MagisEntities.build`, capítulo suelto) queda con `season = null`, aunque los que sí lo tienen
      * (`buildSeason`) ya numeran "T1 · E5"— y recién después se cae al `orderIndex`.
      *
-     * El `orderIndex` NO quiere decir lo mismo en todas las fuentes: en torrent y web trae la
-     * numeración codificada y en archive.org es un correlativo 0..N-1. Quién es quién lo decide
-     * [NumeracionCodificada] mirando la fuente de la fila, no el tamaño del número — mirar el número
-     * es lo que rompía la temporada 0, donde el especial 3 salía como "E4". De ahí que haga falta el
-     * [itemId] y la [section]. Si la fuente no codifica, el `orderIndex` es el correlativo y se
-     * muestra 1-based.
+     * The `orderIndex` doesn't mean the same thing for every row: torrent and web (both removed
+     * from this branch, only legacy rows saved before the pruning still carry their `itemId`
+     * prefix) packed the season/episode numbering into it, while archive.org (also removed) used
+     * it as a plain 0..N-1 correlative. [NumeracionCodificada] tells them apart by looking at the
+     * row's source, not the size of the number — looking at the number is what broke season 0,
+     * where special 3 showed up as "E4". That's why it needs [itemId] and [section]. When the
+     * source doesn't encode, `orderIndex` is the correlative and is shown 1-based.
      *
      * Recibe los valores sueltos y no un [Episode] porque el héroe del home los tiene así, de una
      * fila de "Continuar viendo" (`ContinueRow`), no como modelo. La regla vive UNA sola vez y las
@@ -38,13 +39,14 @@ object EtiquetaDeCapitulo {
         if (episode != null) return "E$episode"
         val codificada = NumeracionCodificada.coordenadas(itemId, section, orderIndex)
         if (codificada != null) return "T${codificada.first} · E${codificada.second}"
-        // El orderIndex no significa lo mismo en todas las fuentes: archive.org y los packs de
-        // torrent lo reparten con mapIndexed (0..N-1), pero Magis guarda el número de capítulo tal
-        // cual (`MagisEntities.capituloDe`: `orderIndex = number`). Sumarle uno a un ítem de Magis
-        // corría el capítulo entero: el e126 de Dragon Ball salía como "E127" en el héroe del home,
-        // en el detalle y en el botón "Reproducir". Los capítulos guardados por la versión actual
-        // traen `episode` y salen por la rama de arriba sin llegar acá; los viejos lo tienen en
-        // null y son los que dependen de esta cuenta.
+        // orderIndex doesn't mean the same thing for every source: archive.org and torrent packs
+        // (both removed from this branch; this only matters for legacy rows saved before the
+        // pruning) distributed it with mapIndexed (0..N-1), but Magis stores the chapter number
+        // as-is (`MagisEntities.capituloDe`: `orderIndex = number`). Adding one to a Magis item
+        // shifted the whole chapter: Dragon Ball's e126 showed up as "E127" in the home hero, in
+        // the detail screen and on the "Play" button. Chapters saved by the current version carry
+        // `episode` and take the branch above without reaching here; the old ones have it null
+        // and are the ones this count depends on.
         if (itemId.startsWith(MagisEntities.PREFIX)) return "E$orderIndex"
         return "E${orderIndex + 1}"
     }

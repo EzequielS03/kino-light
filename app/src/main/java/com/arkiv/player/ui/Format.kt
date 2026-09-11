@@ -22,9 +22,9 @@ private val HtmlTag = Regex("<[^>]*>")
 private val Whitespace = Regex("\\s+")
 
 /**
- * Sinopsis lista para pintar. AniList devuelve HTML (`<br>`, `<i>`) y las descripciones de
- * archive.org llegan con markup y saltos crudos. Devuelve "" si no queda texto, para que el
- * call site caiga a su respaldo con `ifBlank`.
+ * Synopsis ready to render. AniList returns HTML (`<br>`, `<i>`) with raw line breaks; TMDB
+ * overviews go through here too, though they already arrive cleaner. Returns "" when nothing is
+ * left, so the call site falls back to its own default with `ifBlank`.
  */
 fun plainSynopsis(raw: String?): String {
     if (raw.isNullOrBlank()) return ""
@@ -46,15 +46,17 @@ fun plainSynopsis(raw: String?): String {
 }
 
 /**
- * Subtítulo del hero: la sinopsis del título, o [fallback] cuando no sirve.
+ * Hero subtitle: the title's synopsis, or [fallback] when it doesn't work.
  *
- * "No sirve" incluye el caso que parece raro y no lo es: que la descripción **sea** el título.
- * En archive.org quien sube el archivo suele repetir el nombre en la descripción
- * ("Night Of The Living Dead 1990" → "Night of the living dead 1990"), y pintarla debajo del
- * título daría exactamente la duplicación que este subtítulo existe para evitar.
+ * "Doesn't work" includes the case that looks odd and isn't: the description **being** the
+ * title. This check's reason is historical -from when archive.org (a source removed in this
+ * branch's pruning) was a candidate: whoever uploaded the file tended to repeat the name in the
+ * description ("Night Of The Living Dead 1990" → "Night of the living dead 1990")-, but the check
+ * still applies to any source whose description happens to equal the title: rendering it below
+ * would give exactly the duplication this subtitle exists to avoid.
  *
- * Solo se descarta la igualdad, no el prefijo: una sinopsis que arranca con el nombre de la obra
- * ("Avatar Aang, el último Maestro Aire del mundo, se entera de…") es legítima y se conserva.
+ * Only equality is discarded, not a prefix: a synopsis that opens with the title
+ * ("Avatar Aang, the last Airbender of the world, finds out…") is legitimate and kept.
  */
 fun heroSubtitle(title: String, description: String?, fallback: String): String {
     val synopsis = plainSynopsis(description)

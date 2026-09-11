@@ -96,9 +96,11 @@ fun ArkivRoot(
     val navController = rememberNavController()
     val graph = rememberGraph()
     val scope = rememberCoroutineScope()
-    // Reproductor unificado: archive y torrent van a la misma ruta; la pantalla resuelve la fuente
-    // por el prefijo "torrent:" del id. Sin cloud sync ni pareo (Task 5) no hay a quién ofrecerle
-    // "reproducir en la TV": Chromecast/DLNA siguen disponibles dentro del player.
+    // Unified player: every source shares this one route. PlayerSource.kindFor() reads the id's
+    // prefix to route to Magis/Ditu/live; a legacy id from a source removed in this branch
+    // (torrent, archive.org, web) falls into SourceKind.UNKNOWN and PlayerViewModel.loadUnknownSource
+    // shows a "no longer available" message instead. Without cloud sync or pairing (Task 5) there's
+    // nobody to offer "play on the TV" to: Chromecast/DLNA are still available from inside the player.
     fun goToPlayer(id: String) {
         android.util.Log.w("ArkivNav", "goToPlayer id=$id ruta=${navController.currentBackStackEntry?.destination?.route}")
         navController.navigate("player/${Uri.encode(id)}") { launchSingleTop = true }
