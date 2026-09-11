@@ -153,6 +153,16 @@ object DownloadGroupPolicy {
             ?.episode?.id
 
     /**
+     * Thumbnail to render for a Downloads row: the episode's own artwork ([episodeThumb], from
+     * `Episode.thumbPath`/`DownloadRow.thumbPath`) when there is one, otherwise the item's poster
+     * ([itemThumbnailUrl], from `items.thumbnailUrl`). Today's sources (Magis, Caracol) never set a
+     * per-episode thumb, so in practice this always resolves to the item poster -- kept as a
+     * fallback chain rather than always using the item poster so a future source that does provide
+     * one is picked up for free.
+     */
+    fun rowThumbnail(episodeThumb: String?, itemThumbnailUrl: String): String = episodeThumb ?: itemThumbnailUrl
+
+    /**
      * Reconstruye un [Episode] mínimo a partir de una fila de `downloads`, para el caso (transitorio)
      * en que todavía no resolvió `episodesOf(itemId)`. Los campos que no viajan en [DownloadRow]
      * quedan en su valor neutro: no se muestran en la fila (ver `DownloadItem` en la UI) y se

@@ -33,6 +33,7 @@ class EspacioEnDiscoTest {
                 itemTitle = "item",
                 displayName = id,
                 thumbPath = null,
+                itemThumbnailUrl = "",
                 state = LocalDownloadState.COMPLETED,
                 progress = 1f,
                 localUri = null,

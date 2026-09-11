@@ -17,6 +17,7 @@ class EstadoDeDescargaDeCapituloTest {
         itemTitle = "Daima",
         displayName = "E1",
         thumbPath = null,
+        itemThumbnailUrl = "",
         state = state,
         progress = progress,
         localUri = null,

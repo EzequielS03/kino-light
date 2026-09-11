@@ -428,6 +428,8 @@ data class DownloadRow(
     val itemTitle: String,
     val displayName: String,
     val thumbPath: String?,
+    /** The item's poster (`items.thumbnailUrl`), used as a fallback when [thumbPath] is null. */
+    val itemThumbnailUrl: String,
     val state: String,
     val progress: Float,
     val localUri: String?,
@@ -642,6 +644,7 @@ interface DownloadDao {
         """
         SELECT d.episodeId AS episodeId, e.itemId AS itemId, COALESCE(NULLIF(TRIM(i.tituloCanonico), ''), i.title) AS itemTitle,
                e.displayName AS displayName, e.thumbPath AS thumbPath,
+               i.thumbnailUrl AS itemThumbnailUrl,
                d.state AS state, d.progress AS progress, d.localUri AS localUri, d.bytes AS bytes,
                d.source AS source, d.error AS error, d.bytesDone AS bytesDone,
                e.torrentData AS sourceRef

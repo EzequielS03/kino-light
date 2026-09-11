@@ -190,6 +190,7 @@ private fun DownloadGroupSection(
                         EpisodeDownloadStatus.NotDownloaded -> NotDownloadedRow(
                             episode = grouped.episode,
                             itemId = group.itemId,
+                            itemThumbnailUrl = group.itemThumbnailUrl,
                             onDownload = { onDownload(grouped.episode.id) },
                         )
                     }
@@ -276,6 +277,7 @@ private fun DownloadGroupHeader(
 private fun NotDownloadedRow(
     episode: Episode,
     itemId: String,
+    itemThumbnailUrl: String,
     onDownload: () -> Unit,
 ) {
     Row(
@@ -290,8 +292,8 @@ private fun NotDownloadedRow(
                 .clip(RoundedCornerShape(6.dp))
                 .background(ArkivSurfaceHigh),
         ) {
-            // El thumb de archive.org (itemId/thumbPath) se borró en la poda de esta rama.
-            val thumb: String? = null
+            // The episode's own thumb, falling back to the item poster (see DownloadGroupPolicy.rowThumbnail).
+            val thumb = DownloadGroupPolicy.rowThumbnail(episode.thumbPath, itemThumbnailUrl)
             AsyncImage(
                 model = thumb,
                 contentDescription = episode.displayName,
@@ -342,8 +344,8 @@ private fun DownloadItem(
                     .clip(RoundedCornerShape(6.dp))
                     .background(ArkivSurfaceHigh),
             ) {
-                // El thumb de archive.org (itemId/thumbPath) se borró en la poda de esta rama.
-                val thumb: String? = null
+                // The episode's own thumb, falling back to the item poster (see DownloadGroupPolicy.rowThumbnail).
+                val thumb = DownloadGroupPolicy.rowThumbnail(row.thumbPath, row.itemThumbnailUrl)
                 AsyncImage(
                     model = thumb,
                     contentDescription = row.displayName,

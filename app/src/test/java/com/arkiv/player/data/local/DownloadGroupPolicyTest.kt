@@ -29,6 +29,7 @@ class DownloadGroupPolicyTest {
         itemTitle = "Serie $itemId",
         displayName = displayName,
         thumbPath = null,
+        itemThumbnailUrl = "",
         state = state,
         progress = 0f,
         localUri = null,
@@ -236,5 +237,17 @@ class DownloadGroupPolicyTest {
             ),
         )
         assertEquals(null, DownloadGroupPolicy.firstPlayableEpisodeId(group))
+    }
+
+    // --- rowThumbnail ------------------------------------------------------------------------
+
+    @Test
+    fun `rowThumbnail prefers the episode's own thumbnail over the item poster`() {
+        assertEquals("episode.jpg", DownloadGroupPolicy.rowThumbnail("episode.jpg", "poster.jpg"))
+    }
+
+    @Test
+    fun `rowThumbnail falls back to the item poster when the episode has none`() {
+        assertEquals("poster.jpg", DownloadGroupPolicy.rowThumbnail(null, "poster.jpg"))
     }
 }
