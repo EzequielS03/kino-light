@@ -68,8 +68,9 @@ class GuardadoDeRecomendacionTest {
     }
 
     /**
-     * Los refs de "Para ti" no son todos de Magis: hoy mismo hay recomendaciones que apuntan a
-     * archive y a torrent, y `/v1/episodes` responde 422 para esas fuentes. Sin temporada que
+     * The episode listing can legitimately come back empty -- a series whose portal listing failed,
+     * or (until this branch's pruning) a legacy recommendation row pointing at a source that could
+     * no longer list chapters (`/v1/episodes` used to answer 422 for those). Sin temporada que
      * guardar, quien llama tiene que caer al guardado suelto de siempre — no dejar el ítem a medias.
      */
     @Test fun una_fuente_que_no_lista_capitulos_no_deja_temporada() {
