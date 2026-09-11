@@ -12,6 +12,7 @@ import com.arkiv.player.data.recomendaciones.ArbitroDeIa
 import com.arkiv.player.data.recomendaciones.BuscadorEnFuentes
 import com.arkiv.player.data.recomendaciones.BuscadorEnTmdb
 import com.arkiv.player.data.recomendaciones.GeneradorParaTi
+import com.arkiv.player.data.recomendaciones.conKindReal
 import com.arkiv.player.data.recomendaciones.NormalizarTitulo
 import com.arkiv.player.data.recomendaciones.SenalesDeHistorial
 import com.arkiv.player.data.recomendaciones.VerificacionParaTi
@@ -411,7 +412,9 @@ class AppGraph(context: Context) {
                     fuenteDeContenido
                         .search(com.arkiv.player.data.gateway.GatewaySearchQuery(q = titulo, type = tipo, tmdbId = tmdbId))
                         .filterIsInstance<com.arkiv.player.data.gateway.SearchEvent.ResultEvent>()
-                        .map { it.item }
+                        // El `kind` que arma la fuente es el tipo que se BUSCÓ, no el del ítem (ver
+                        // KDoc de `conKindReal`): se corrige acá, antes de que el árbitro vea la lista.
+                        .map { conKindReal(it.item) }
                         .take(25)
                         .toList()
                 } catch (e: kotlinx.coroutines.CancellationException) {

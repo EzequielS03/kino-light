@@ -125,13 +125,15 @@ internal class VerificacionParaTi(
             val resultados = fuentes.buscar(c.titulo, tipo, anio, enTmdb.id)
             if (resultados.isEmpty()) continue
 
-            // 4. ¿Es esa obra? Rechazo total = candidato descartado; árbitro caído = el primero.
+            // 4. ¿Es esa obra? Rechazo total = candidato descartado; árbitro caído = el primero DEL
+            //    TIPO que confirmó TMDB si hay alguno (no es un filtro duro: con el árbitro
+            //    contestando esto no pesa), si no el primero de todos, como hacía el gateway.
             //    Con varios aprobados gana el que va primero EN `resultados`, no el primer índice
             //    que el modelo haya escrito (el JSON no obliga orden ascendente) — así decide
             //    `router/search.py::buscar_para_recomendaciones` en el gateway.
             val indices = arbitro.cuales(c.titulo, anio, tipo, resultados)
             val elegido = when {
-                indices == null -> resultados.first()
+                indices == null -> resultados.firstOrNull { it.kind == tipo } ?: resultados.first()
                 indices.isEmpty() -> continue
                 else -> {
                     val aprobados = indices.toSet()

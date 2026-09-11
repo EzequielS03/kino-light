@@ -111,6 +111,24 @@ class VerificacionParaTiTest {
         assertEquals("ref-a", v.ref)
     }
 
+    /**
+     * Sin árbitro, si hay un resultado del tipo que TMDB confirmó, ese gana sobre el primero de la
+     * lista: no es un filtro duro (con el árbitro contestando esto no cambia nada), solo una mejor
+     * apuesta que "el primero que llegó" cuando no hay con qué decidir.
+     */
+    @Test fun `si el arbitro no contesta pero hay un resultado del tipo correcto se prefiere ese`() = runTest {
+        val v = verificacion(
+            enFuentes = {
+                listOf(
+                    resultado("Coco serie", "ref-tv").copy(kind = "tv"),
+                    resultado("Coco pelicula", "ref-movie").copy(kind = "movie"),
+                )
+            },
+            arbitro = Arbitro { _, _, _, _ -> null },
+        ).verificar(listOf(coco), emptySet()).single() // coco.tipo = "movie", y TMDB lo confirma
+        assertEquals("ref-movie", v.ref)
+    }
+
     @Test fun `se para en el tope`() = runTest {
         val muchos = (1..15).map { Candidato("Peli $it", "2020", "movie", "x") }
         assertEquals(10, verificacion().verificar(muchos, emptySet(), tope = 10).size)
