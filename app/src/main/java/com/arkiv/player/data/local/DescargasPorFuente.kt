@@ -7,12 +7,9 @@ import com.arkiv.player.data.db.DownloadRow
  *
  * En la biblioteca cada fila ya es un capítulo y se busca por `episodeId`. En el buscador no: una
  * fila es una fuente (un release, un resultado web, un ítem de archive.org) y el capítulo recién
- * existe cuando alguien lo baja — el id de torrent, por ejemplo, sale del infohash que solo se
- * conoce después de resolver el magnet contra la red. Así que se busca por lo que la fila SÍ sabe
- * de antemano:
+ * existe cuando alguien lo baja. Así que se busca por lo que la fila SÍ sabe de antemano:
  *
  * - **web**: la URL de su página, que se guarda tal cual en `episodes.torrentData`.
- * - **torrent**: el infohash, que queda al final del `episodeId` (`torrent:anime:<id>::<hash>`).
  * - **archive**: el identifier del ítem, que ES el `itemId` de sus capítulos.
  *
  * Devuelve la FILA, no solo el estado: cancelar o borrar necesitan el `episodeId`, que es
@@ -25,11 +22,6 @@ object DescargasPorFuente {
 
     fun deWeb(filas: List<DownloadRow>, pageUrl: String?): DownloadRow? =
         resumir(filas.filter { !pageUrl.isNullOrBlank() && it.sourceRef == pageUrl })
-
-    fun deTorrent(filas: List<DownloadRow>, infoHash: String?): DownloadRow? {
-        val hash = infoHash?.trim()?.lowercase()?.ifBlank { null } ?: return null
-        return resumir(filas.filter { it.episodeId.lowercase().endsWith("::$hash") })
-    }
 
     fun deArchive(filas: List<DownloadRow>, identifier: String?): DownloadRow? =
         resumir(filas.filter { !identifier.isNullOrBlank() && it.itemId == identifier })

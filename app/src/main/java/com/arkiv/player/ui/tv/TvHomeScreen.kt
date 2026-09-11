@@ -378,7 +378,7 @@ fun TvHomeScreen(
         heroSubtitle(
             row.title,
             row.description,
-            libraryMeta(row.isMovie, row.durationSeconds, row.episodeCount, row.isTorrent),
+            libraryMeta(row.isMovie, row.durationSeconds, row.episodeCount),
         ),
         heroArt(row.identifier, row.thumbnailUrl),
     )

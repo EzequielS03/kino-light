@@ -56,7 +56,6 @@ import kotlinx.coroutines.launch
 private enum class LibFilter(val label: String) { ALL("Todas"), MOVIES("Películas"), SERIES("Series") }
 
 private val SeriesBadgeColor = Color(0xE6444444)
-private val TorrentBadgeColor = Color(0xE60288A7)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -182,9 +181,9 @@ fun LibraryScreen(
             PosterCard(
                 title = row.title,
                 imageUrl = row.thumbnailUrl,
-                badge = if (row.isTorrent) "TORRENT" else if (row.isMovie) "PELÍCULA" else "SERIE",
-                badgeColor = if (row.isTorrent) TorrentBadgeColor else if (row.isMovie) ArkivRed else SeriesBadgeColor,
-                meta = libraryMeta(row.isMovie, row.durationSeconds, row.episodeCount, row.isTorrent),
+                badge = if (row.isMovie) "PELÍCULA" else "SERIE",
+                badgeColor = if (row.isMovie) ArkivRed else SeriesBadgeColor,
+                meta = libraryMeta(row.isMovie, row.durationSeconds, row.episodeCount),
                 saved = row.identifier in savedIds,
                 // Mantener pulsado abre el menú (detalle/descargar + cambiar categoría).
                 onLongClick = { menuRow = row },
@@ -222,11 +221,11 @@ fun LibraryScreen(
                         val episodes = graph.repository.episodesOf(row.identifier)
                         val single = episodes.singleOrNull()
                         if (single != null) {
-                            // `row.source` viene directo de `items.source` ("archive" | "magis" |
-                            // "ditu", o el legacy "torrent"/"web" de ítems guardados antes de esta
-                            // rama, que ya no tienen estrategia de descarga — ver
-                            // `AppGraph.downloadStrategies`): es el dato real, no una heurística a
-                            // partir de `isTorrent`.
+                            // `row.source` comes straight from `items.source` ("archive" | "magis" |
+                            // "ditu", or the legacy "torrent"/"web" from items saved before this
+                            // branch, which no longer have a download strategy — see
+                            // `AppGraph.downloadStrategies`): it's the real stored value, not a
+                            // heuristic.
                             notifyDuplicates(listOf(graph.localDownloads.enqueue(single.id, row.source)))
                         } else {
                             onOpenItem(row.identifier)

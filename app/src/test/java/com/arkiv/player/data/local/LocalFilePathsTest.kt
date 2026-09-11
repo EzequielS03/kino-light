@@ -74,9 +74,4 @@ class LocalFilePathsTest {
     fun `el parcial agrega punto part`() {
         assertEquals("ep1.mkv.part", LocalFilePaths.partOf(File("/tmp/ep1.mkv")).name)
     }
-
-    @Test
-    fun `el directorio de torrent usa el episodeId sanitizado`() {
-        assertEquals("web_series_9__s01e01", LocalFilePaths.torrentDirName("web:series:9::s01e01"))
-    }
 }

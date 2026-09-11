@@ -197,6 +197,5 @@ class LocalDownloadManager(
             DuplicateDownloadPolicy.deletablePaths(candidates, referenced)
                 .forEach { p -> runCatching { File(p).delete() } }
         }
-        runCatching { File(targetDir(), "torrents/${LocalFilePaths.torrentDirName(episodeId)}").deleteRecursively() }
     }
 }

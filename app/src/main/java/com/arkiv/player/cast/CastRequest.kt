@@ -20,15 +20,13 @@ data class CastRequest(
 /**
  * Deriva la petición de cast según la fuente. Pura: testeable sin Android.
  *
- * Torrent: la URL es la del servidor HTTP del PROPIO celu en la LAN, porque el receptor tiene que
- * poder descargarla; y se manda el MIME real del stream, no uno inventado.
  * Archive/web: se prefiere `castUrl` (mp4 h.264, compatible con el receptor) sobre `mediaUrl`.
- * Vivo (Tarea 18): igual que torrent, la URL es la del servidor HTTP LOCAL (el proxy de
- * `LiveHlsProxy`) alcanzable por la LAN -- `mediaUrl` es siempre el loopback que consume VLC en
- * este mismo aparato, y `castUrl` no existe para canales en vivo (nunca hay un mp4 h.264 de
- * respaldo, es un directo). Un directo tampoco tiene "dónde ibas": `startPositionMs` se fuerza a
- * 0 pase lo que pase se le pida, y el MIME es siempre el de un playlist HLS, no el que adivinaría
- * la extensión del archivo (`mimeForUrl` no sabe de `.m3u8`).
+ * Live (Task 18): the URL is that of the LOCAL HTTP server (the `LiveHlsProxy` proxy) reachable
+ * over the LAN -- `mediaUrl` is always the loopback that VLC consumes on this same device, and
+ * `castUrl` doesn't exist for live channels (there's never a fallback mp4 h.264, it's a live
+ * feed). A live feed also has no "where you were": `startPositionMs` is forced to 0 no matter
+ * what's requested, and the MIME is always that of an HLS playlist, not what the file extension
+ * would guess (`mimeForUrl` doesn't know `.m3u8`).
  */
 object CastRequestBuilder {
 
@@ -45,21 +43,19 @@ object CastRequestBuilder {
         artworkUrl: String,
         mediaUrl: String,
         castUrl: String?,
-        isTorrent: Boolean,
         lanUrl: String?,
         lanMime: String?,
         startPositionMs: Long,
         isLive: Boolean = false,
     ): CastRequest? {
         val uri = when {
-            isTorrent || isLive -> lanUrl
+            isLive -> lanUrl
             else -> castUrl?.takeIf { it.isNotBlank() } ?: mediaUrl
         }
         if (uri.isNullOrBlank()) return null
         return CastRequest(
             uri = uri,
             mimeType = when {
-                isTorrent -> lanMime ?: MIME_MP4
                 isLive -> MIME_HLS
                 else -> mimeForUrl(uri)
             },
@@ -77,9 +73,9 @@ object CastRequestBuilder {
      *
      * Acá NO se pueden mirar los bytes (la URL es remota y no hay archivo que abrir), así que la
      * extensión es todo lo que hay; lo que sí se comparte con el resto de la app es la TABLA, para
-     * que no vuelva a haber tres versiones distintas de "qué MIME tiene un .ts". Los casos con
-     * archivo en disco —torrent y descargas locales— sí lo resuelven por firma, y esos son los que
-     * llegan por `lanMime`. Ver [com.arkiv.player.playback.ContenedorDeVideo].
+     * que no vuelva a haber tres versiones distintas de "qué MIME tiene un .ts". On-disk files
+     * —local downloads— do resolve it by signature, and those are the ones that come in through
+     * `lanMime`. Ver [com.arkiv.player.playback.ContenedorDeVideo].
      */
     internal fun mimeForUrl(url: String): String =
         com.arkiv.player.playback.ContenedorDeVideo.mimePorNombre(url)

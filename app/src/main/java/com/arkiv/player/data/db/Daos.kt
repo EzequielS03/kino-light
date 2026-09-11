@@ -143,8 +143,6 @@ data class LibraryRow(
      */
     val tipo: String? = null,
 ) {
-    val isTorrent: Boolean get() = source == "torrent"
-
     /** Override manual si existe; si no, detección automática (1 video = película). */
     val isMovie: Boolean get() = when (categoryOverride) {
         "movie" -> true

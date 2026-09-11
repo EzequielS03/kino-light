@@ -45,20 +45,6 @@ class DescargasPorFuenteTest {
     }
 
     @Test
-    fun `un torrent se reconoce por su infohash aunque cambie el uso de mayusculas`() {
-        // El indexer devuelve el hash en mayúsculas y el motor lo guarda en minúsculas.
-        val filas = listOf(fila("torrent:anime:21::a1b2c3d4e5"))
-        assertEquals("torrent:anime:21::a1b2c3d4e5", DescargasPorFuente.deTorrent(filas, "A1B2C3D4E5")?.episodeId)
-    }
-
-    @Test
-    fun `un torrent sin infohash conocido no adivina`() {
-        val filas = listOf(fila("torrent:anime:21::a1b2c3d4e5"))
-        assertNull(DescargasPorFuente.deTorrent(filas, null))
-        assertNull(DescargasPorFuente.deTorrent(filas, "  "))
-    }
-
-    @Test
     fun `un item de archive se reconoce por su identifier`() {
         val filas = listOf(fila("cualquier-archivo.mp4", itemId = "dragon-ball-gt"))
         assertEquals("cualquier-archivo.mp4", DescargasPorFuente.deArchive(filas, "dragon-ball-gt")?.episodeId)

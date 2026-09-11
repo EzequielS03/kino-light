@@ -49,7 +49,4 @@ object LocalFilePaths {
      * limpieza por prefijo de `LocalDownloadManager.remove`.
      */
     fun originOf(file: File): File = File(file.parentFile, partOf(file).name + ".src")
-
-    /** Directorio propio de cada descarga de torrent (libtorrent necesita un savePath por torrent). */
-    fun torrentDirName(episodeId: String): String = sanitize(episodeId)
 }

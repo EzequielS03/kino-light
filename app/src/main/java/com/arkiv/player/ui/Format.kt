@@ -13,9 +13,8 @@ fun formatRuntime(seconds: Double): String {
 }
 
 /** Etiqueta secundaria de una card de biblioteca según su tipo. */
-fun libraryMeta(isMovie: Boolean, durationSeconds: Double, episodeCount: Int, isTorrent: Boolean = false): String = when {
+fun libraryMeta(isMovie: Boolean, durationSeconds: Double, episodeCount: Int): String = when {
     !isMovie -> "$episodeCount episodios"
-    isTorrent -> "Película" // la duración no se conoce hasta reproducir el torrent
     else -> formatRuntime(durationSeconds)
 }
 

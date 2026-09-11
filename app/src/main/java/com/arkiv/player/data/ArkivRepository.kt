@@ -19,12 +19,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import org.json.JSONArray
 
-/** Fuente para reproducir un episodio torrent: magnet (no bloqueante) o bytes de .torrent. */
-sealed interface EpisodeTorrent {
-    data class Magnet(val uri: String) : EpisodeTorrent
-    data class Bytes(val data: ByteArray, val fileIndex: Int) : EpisodeTorrent
-}
-
 /**
  * Mínimo de reproducción para entrar en "Continuar viendo". Por debajo de esto fue abrir y
  * cerrar (o una pasada rápida por el capítulo equivocado), no algo que estés viendo de verdad.
@@ -39,7 +33,6 @@ data class ItemDetail(
     val thumbnailUrl: String,
     val episodes: List<Episode>,
     val progress: Map<String, PlaybackEntity>,
-    val isTorrent: Boolean = false,
 ) {
     /**
      * Último episodio **tocado** y sin terminar (el "capítulo en el que voy"), o null si no hay.
@@ -659,28 +652,6 @@ class ArkivRepository(
     }
 
 
-    /** Bytes del .torrent guardado (para re-streamear un ítem torrent). */
-    suspend fun torrentDataOf(itemId: String): ByteArray? {
-        val data = itemDao.getItem(itemId)?.torrentData ?: return null
-        if (data.startsWith("magnet:")) return null
-        return runCatching { android.util.Base64.decode(data, android.util.Base64.NO_WRAP) }.getOrNull()
-    }
-
-    /**
-     * Fuente para reproducir un episodio torrent: puede ser un **magnet** (streaming no bloqueante,
-     * elige el video más grande) o los **bytes de un .torrent** con su índice de archivo (packs/
-     * series). El dato guardado puede estar en el episodio o en el ítem.
-     */
-    suspend fun torrentSourceForEpisode(episodeId: String): EpisodeTorrent? {
-        val ep = itemDao.getEpisode(episodeId) ?: return null
-        val raw = ep.torrentData ?: itemDao.getItem(ep.itemId)?.torrentData ?: return null
-        if (raw.startsWith("magnet:")) return EpisodeTorrent.Magnet(raw)
-        val fileIndex = ep.torrentFileIndex ?: return null
-        val bytes = runCatching { android.util.Base64.decode(raw, android.util.Base64.NO_WRAP) }.getOrNull()
-            ?: return null
-        return EpisodeTorrent.Bytes(bytes, fileIndex)
-    }
-
     /**
      * Guarda un resultado de Magis para poder reproducirlo y reanudarlo.
      *
@@ -1108,7 +1079,6 @@ class ArkivRepository(
             thumbnailUrl = item.thumbnailUrl,
             episodes = episodes.map { it.toEpisode() },
             progress = playback.associateBy { it.episodeId },
-            isTorrent = item.source == "torrent",
         )
     }
 

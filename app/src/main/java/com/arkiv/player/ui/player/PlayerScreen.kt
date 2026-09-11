@@ -739,7 +739,6 @@ private fun PlayerContent(
             artworkUrl = item.artworkUrl,
             mediaUrl = item.mediaUrl,
             castUrl = item.castUrl,
-            isTorrent = false,
             lanUrl = lanUrl,
             lanMime = null,
             startPositionMs = startPositionMs,
