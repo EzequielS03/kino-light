@@ -10,8 +10,9 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * `destruir` deja tombstone (no `DELETE`) para que el borrado viaje por el sync; `destruirTodo`
- * (wipe de logout) sigue siendo un `DELETE` físico a propósito — ver el doc de la clase.
+ * `destruir` leaves a tombstone (not a `DELETE`) -- until Task 5 that was so the deletion would
+ * travel through cloud sync; `destruirTodo` (logout wipe) is still a physical `DELETE` on purpose
+ * -- see the class's own doc.
  */
 class DestructorDeFramesTest {
 
