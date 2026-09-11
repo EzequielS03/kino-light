@@ -40,7 +40,14 @@ object SeriesPorRevisar {
 
     private const val DIA_MS = 24 * 60 * 60 * 1000L
 
-    /** Fuentes que este chequeo sabe consultar. Torrent queda afuera a propósito (ver el plan). */
+    /**
+     * Sources this check lets through. "archive" and "web" are sources removed in this branch's
+     * pruning -- kept here only so a legacy library row with that `source` doesn't change behavior
+     * by being newly excluded; in practice `BuscadorDeCapitulos` no-ops on both. "magis" is the only
+     * one that leads anywhere today (`BuscadorDeCapitulos.revisarMagis`). "ditu" isn't in this set:
+     * checking Caracol for new chapters isn't implemented yet. Torrent stays out on purpose too
+     * (ver el plan).
+     */
     private val FUENTES = setOf("archive", "web", "magis")
 
     fun elegir(candidatas: List<SerieCandidata>, ahoraMs: Long): List<SerieCandidata> {
