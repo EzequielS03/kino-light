@@ -40,9 +40,9 @@ object AvisoDeSalto {
     }
 
     /**
-     * Si corresponde avisar ahora. [esDelProxy] porque el aviso solo lo entiende nuestro proxy: un
-     * archivo local no tiene nada que precalentar (y el torrent, fuente borrada en la poda de esta
-     * rama, tenía su propio servidor que ya priorizaba piezas por su cuenta).
+     * Si corresponde avisar ahora. [esDelProxy] because the notice is only understood by our proxy:
+     * a local file has nothing to pre-warm (and torrent, a source removed in this branch's
+     * pruning, had its own server that already prioritized pieces on its own).
      */
     fun hayQueAvisar(esDelProxy: Boolean, msDesdeElUltimo: Long): Boolean =
         esDelProxy && msDesdeElUltimo >= MINIMO_ENTRE_AVISOS_MS

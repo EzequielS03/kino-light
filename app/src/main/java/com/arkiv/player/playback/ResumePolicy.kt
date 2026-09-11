@@ -18,12 +18,12 @@ object ResumePolicy {
      * @param savedPositionMs posición guardada.
      * @param savedDurationMs duración guardada, o 0 si no se conoce.
      *
-     * A propósito NO consulta el estado de la descarga. Con torrent (fuente borrada en la poda de
-     * esta rama) hacía falta: sin esto se descartaba la posición si esa zona no estaba bajada, y
-     * como en un magnet recién abierto nunca lo estaba, arrancaba SIEMPRE desde el principio hasta
-     * que el streaming server aprendió a anclar la descarga secuencial en el punto pedido. Magis y
-     * Ditu no tienen ese problema -son streaming puro, no hay "zona sin bajar" que consultar-, así
-     * que hoy directamente no hace falta el parámetro.
+     * Deliberately does NOT check the download's state. With torrent (source removed in this
+     * branch's pruning) it was needed: without it the position was discarded if that zone hadn't
+     * downloaded yet, and since it never had in a freshly-opened magnet, playback ALWAYS started
+     * from the beginning until the streaming server learned to anchor the sequential download at
+     * the requested point. Magis and Ditu don't have that problem -they're pure streaming, there's
+     * no "zone not downloaded yet" to check-, so today the parameter simply isn't needed.
      */
     fun startPosition(savedPositionMs: Long, savedDurationMs: Long): Long {
         if (savedPositionMs <= MINIMO_MS) return 0L

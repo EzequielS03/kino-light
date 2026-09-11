@@ -184,9 +184,9 @@ class PlaybackService : MediaSessionService() {
     override fun onTaskRemoved(rootIntent: android.content.Intent?) {
         // OJO: casteando, el reproductor local queda con playWhenReady=false A PROPÓSITO (para no
         // competirle el stream al receptor), que es justo la condición que acá se lee como "no hay
-        // nada reproduciendo". Que el service se frene está bien —el proxy de magis y el de vivo
-        // viven en el grafo, no acá—; lo que NO puede pasar es que suelte la red, y de eso se ocupa
-        // la guarda de releaseNetworkResources().
+        // nada reproduciendo". It's fine for the service to stop —the magis proxy and the live one
+        // live in the graph, not here—; what CANNOT happen is for it to let go of the network, and
+        // that's what the releaseNetworkResources() guard takes care of.
         val player = mediaSession?.player
         if (player == null || !player.playWhenReady || player.mediaItemCount == 0) {
             // El usuario sacó la app de recientes sin reproducción activa: cortar recursos de red
@@ -202,9 +202,9 @@ class PlaybackService : MediaSessionService() {
         // el player viejo (ver el comentario de langPrefsJob).
         langPrefsJob?.cancel()
         langPrefsJob = null
-        // Cortar el proxy de magis y el de vivo ANTES de liberar el player: los dos viven en el
-        // grafo (segundo plano vía service/MediaSession), así que al destruirse el service es acá
-        // donde hay que soltarlos para no fugar red/batería/disco.
+        // Stop the magis proxy and the live one BEFORE releasing the player: both live in the
+        // graph (background via service/MediaSession), so when the service is destroyed this is
+        // where they have to be released to avoid leaking network/battery/disk.
         releaseNetworkResources()
         PlaybackEngine.vlc = null
         mediaSession?.run {

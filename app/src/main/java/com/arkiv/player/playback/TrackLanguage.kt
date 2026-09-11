@@ -54,10 +54,10 @@ object LangTokens {
     }
 
     /**
-     * Clasifica una pista EXTERNA por el sufijo de idioma de su nombre de archivo. libVLC nombra las
-     * pistas `addSlave` con la ruta, así que sirve para cualquier `.srt` suelto que llegue así (el
-     * torrent que motivó esto se borró en la poda de esta rama). Si no hay sufijo reconocible, cae a
-     * [classify] sobre el nombre entero.
+     * Clasifica una pista EXTERNA por el sufijo de idioma de su nombre de archivo. libVLC names
+     * `addSlave` tracks by their path, so this works for any standalone `.srt` that arrives that
+     * way (the torrent source that motivated this was removed in this branch's pruning). If there's
+     * no recognizable suffix, it falls back to [classify] on the whole name.
      */
     fun classifyFileName(raw: String): TrackLang {
         val s = raw.lowercase()

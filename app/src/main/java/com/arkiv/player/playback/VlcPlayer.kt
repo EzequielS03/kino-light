@@ -252,9 +252,9 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
                 // El tiempo de reproducción avanza ⇒ está reproduciendo DE VERDAD. VLC a veces deja el
                 // estado pegado en Buffering (emite Buffering<100 mientras rellena cache sin re-emitir
                 // Playing); si el tiempo avanza, limpiamos ese Buffering pegado para que el overlay de
-                // "descargando" NO tape un video que se está reproduciendo bien. Si en cambio el origen
-                // se estanca por falta de buffer, TimeChanged deja de llegar y el Buffering persiste →
-                // el overlay se muestra (que es justo lo que se quiere ahí).
+                // "descargando" NO tape un video que se está reproduciendo bien. If instead the source
+                // stalls for lack of buffer, TimeChanged stops arriving and Buffering persists →
+                // the overlay shows (which is exactly what's wanted there).
                 MediaPlayer.Event.TimeChanged ->
                     if (event == VlcEvent.Buffering) event = VlcEvent.Playing else return@setEventListener
                 MediaPlayer.Event.Paused -> { event = VlcEvent.Paused }
@@ -755,9 +755,9 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
     }
 
     /**
-     * Arma y carga el Media del ítem actual. El caching de red se decide por FUENTE (ver
-     * [CachingDeRed.msPara]): vivo, que tiene su propio CDN, va con más colchón; todo lo demás
-     * (magis, local) usa el perfil estable. HW por defecto; software en el reintento.
+     * Arma y carga el Media del ítem actual. Network caching is decided by SOURCE (see
+     * [CachingDeRed.msPara]): live, which has its own CDN, gets more buffer; everything else
+     * (magis, local) uses the stable profile. HW por defecto; software en el reintento.
      */
     private fun loadMedia(hardware: Boolean, startPositionMs: Long, uriOverride: Uri? = null) {
         val item = items.getOrNull(currentIndex) ?: return
