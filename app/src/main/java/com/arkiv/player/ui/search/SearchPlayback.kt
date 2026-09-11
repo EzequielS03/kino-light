@@ -78,8 +78,9 @@ class SearchPlayback(private val graph: AppGraph) {
      * fila ENTERA del episodio; sin `season`, marcar tres capítulos de una temporada ya guardada por
      * [playMagisSeason] les borraba el número de temporada, y desde ahí `ensureEpisodeStills` cruza
      * aplanando desde la T1 y pisa los stills de toda la serie (ver el KDoc de
-     * `MagisEntities.build`). Además `episodes` es tabla sincronizada: ese `season = null` viajaba al
-     * otro dispositivo.
+     * `MagisEntities.build`). Hasta Task 5, además, `episodes` era tabla sincronizada: ese
+     * `season = null` viajaba al otro dispositivo también. Sin cloud sync el daño queda contenido
+     * a este aparato, pero sigue siendo el mismo bug local.
      *
      * Los tres campos enriquecidos del capítulo (still, nombre real y sinopsis) viajan por lo mismo
      * que la temporada: el diálogo YA los tiene en la mano, y sin pasarlos un capítulo guardado sin
