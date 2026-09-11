@@ -1108,9 +1108,9 @@ class PlayerViewModel internal constructor(
      * Captura el frame que se está viendo. Best-effort y fuera del camino crítico: si no hay
      * TextureView o el frame no pasa las guardas, no pasa nada.
      *
-     * El TextureView viaja como parámetro porque este ViewModel no tiene acceso al `VlcPlayer`
-     * (vive en `PlayerScreen`, que sí puede leerlo con `vlc.textureViewActual()`); acá solo se
-     * necesita `viewModelScope` para que la captura no bloquee el hilo de composición.
+     * The TextureView comes as a parameter because the views live in `PlayerScreen` (the local one
+     * and the in-screen players'); here only `viewModelScope` is needed so the capture doesn't block
+     * the composition thread.
      */
     fun capturarFrame(episodeId: String, positionMs: Long, textureView: android.view.TextureView?) {
         // Same guard as progress, and it matters more here: a frame isn't a number, it's an image

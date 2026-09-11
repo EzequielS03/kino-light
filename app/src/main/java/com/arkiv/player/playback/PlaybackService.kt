@@ -4,12 +4,12 @@ import android.app.PendingIntent
 import android.content.Intent
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.arkiv.player.MainActivity
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
-import kotlinx.coroutines.launch
 
 /** Referencia al capítulo que se está reproduciendo (para el deep-link de la notificación). */
 object NowPlaying {
@@ -47,13 +47,22 @@ object NowPlaying {
 }
 
 /**
- * Instancia viva del [VlcPlayer] del service. La pantalla usa el MediaController para el transporte,
- * pero necesita el VlcPlayer real para el render (VLCVideoLayout) y la selección de pistas (audio/
- * subtítulos VLC), que no están en la API del controller.
+ * The service's [ExoPlayer], the one that plays downloaded files (successor of the old libVLC
+ * handle). The screen drives it through its `MediaController` for everything —transport, tracks,
+ * speed, volume, first frame, errors— and uses this handle ONLY to bind its video `TextureView`
+ * (and to ask whether the loaded media already painted, for `MediaReusePolicy`).
+ *
+ * Why the surface doesn't go through the controller: every `PlayerScreen` builds its own
+ * `MediaController`, two screens coexist during a navigation, and a controller's surface state is
+ * its own. The outgoing controller sends `setVideoSurface(null)` when its TextureView is torn down
+ * (media3 1.5.1 `MediaControllerImplBase.onSurfaceTextureDestroyed`) and the session applies it to
+ * the shared player, blanking the incoming screen. The player's own `setVideoTextureView` /
+ * `clearVideoTextureView(view)` arbitrate that correctly: the latter is a no-op unless `view` is the
+ * current one.
  */
 object PlaybackEngine {
     @Volatile
-    var vlc: VlcPlayer? = null
+    var player: ExoPlayer? = null
 }
 
 const val ACTION_OPEN_PLAYER = "com.arkiv.player.OPEN_PLAYER"
@@ -66,57 +75,19 @@ const val ACTION_OPEN_PLAYER = "com.arkiv.player.OPEN_PLAYER"
 const val EXTRA_EPISODE_ID = "episodeId"
 
 /**
- * Servicio que aloja el VlcPlayer (libVLC sobre SimpleBasePlayer) y expone una
- * MediaSession. Media3 genera automáticamente la notificación de reproducción
- * con carátula y controles (pantalla de bloqueo / barra de notificaciones),
- * como las apps de música.
+ * Service that hosts the ExoPlayer for downloaded files ([LocalExoPlayer]) behind a MediaSession.
+ * Media3 builds the playback notification from it (artwork and controls on the lock screen and the
+ * notification shade), and the session keeps the file playing when the app goes to the background.
  */
 @UnstableApi
 class PlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
 
-    // Suscripción a los Ajustes (ver onCreate). Vive en applicationScope —de todo el proceso, no del
-    // service— porque ahí vive graph.subtitlePrefs; por eso hay que cancelarla a mano en onDestroy.
-    // Sin cancelar, el collect queda corriendo para siempre capturando ESTE `player` (y a través de
-    // su `context`, este `PlaybackService` ya destruido): cada ciclo crear→destruir el service fuga
-    // un VlcPlayer completo.
-    private var langPrefsJob: kotlinx.coroutines.Job? = null
-
     override fun onCreate() {
         super.onCreate()
-        val player = VlcPlayer(this, mainLooper)
-        PlaybackEngine.vlc = player
-
-        // El player vive en el servicio, así que se suscribe él mismo a las preferencias: un cambio
-        // en Ajustes —o sincronizado desde el celular— llega sin tener que reiniciar la reproducción.
-        val graph = com.arkiv.player.AppGraph.from(this)
-        // Que el reproductor pueda avisarle a la capa de entrega A DÓNDE va a saltar, antes de
-        // saltar. `precalentarSalto` ya existía y se llamaba solo al abrir, desde PlayerViewModel;
-        // los saltos hechos a mano con la barra no avisaban nada y el proxy se enteraba del destino
-        // recién cuando VLC le pedía el rango. Ver [AvisoDeSalto].
-        player.precalentarSalto = { origen, headers, fraccion ->
-            graph.archiveCacheProxy.precalentarSalto(origen, headers, fraccion)
-        }
-        var anteriores: com.arkiv.player.data.subtitles.PlaybackPrefs? = null
-        langPrefsJob = graph.applicationScope.launch {
-            graph.subtitlePrefs.prefs.collect { prefs ->
-                player.langPrefs = prefs
-                val previas = anteriores
-                anteriores = prefs
-                // Se re-aplica sobre lo que ya está sonando, porque volver a darle play a lo mismo
-                // reusa el media y no vuelve a disparar los pases: sin esto, un cambio en Ajustes no
-                // se veía hasta la próxima carga desde cero.
-                //
-                // Con dos recortes. `previas == null` es la primera emisión —el valor que ya había al
-                // suscribirse, no un cambio—, y del arranque se encarga el pase del evento Playing.
-                // Y solo cuentan los campos de IDIOMA: el estilo del subtítulo vive en el mismo objeto
-                // y su slider de tamaño persiste en cada paso del arrastre.
-                if (previas != null && !previas.mismosIdiomasQue(prefs)) {
-                    player.reaplicarIdiomaAlItemActual()
-                }
-            }
-        }
+        val player = LocalExoPlayer.build(this)
+        PlaybackEngine.player = player
 
         // Al tocar la notificación se abre la app en el capítulo actual.
         val openIntent = Intent(this, MainActivity::class.java).apply {
@@ -197,16 +168,11 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
-        // Cortar la suscripción a Ajustes ANTES que nada: vive en applicationScope (todo el proceso),
-        // así que si no se cancela acá sigue corriendo después de destruido el service, reteniendo
-        // el player viejo (ver el comentario de langPrefsJob).
-        langPrefsJob?.cancel()
-        langPrefsJob = null
         // Stop the magis proxy and the live one BEFORE releasing the player: both live in the
         // graph (background via service/MediaSession), so when the service is destroyed this is
         // where they have to be released to avoid leaking network/battery/disk.
         releaseNetworkResources()
-        PlaybackEngine.vlc = null
+        PlaybackEngine.player = null
         mediaSession?.run {
             player.release()
             release()

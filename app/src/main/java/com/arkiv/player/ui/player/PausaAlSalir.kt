@@ -4,12 +4,13 @@ package com.arkiv.player.ui.player
  * ¿Hay que pausar lo que suena cuando la app se va al fondo (Home, otra app)?
  *
  * Los ExoPlayer —Magis, el vivo y Caracol— se componen DENTRO de `PlayerScreen`: con Home la
- * pantalla no se destruye, así que seguían sonando afuera. VLC es otra cosa: suena en
- * `PlaybackService`, y en el celular que siga sonando afuera es a propósito.
+ * pantalla no se destruye, así que seguían sonando afuera. A downloaded file is different: it plays
+ * on the ExoPlayer hosted by `PlaybackService`, reached through the screen's `controller`, and on
+ * the phone it keeps playing in the background on purpose (with the media notification).
  *
  * - Enviando a un Chromecast, no: lo que se ve está en la tele.
- * - En el televisor, sí, todo, VLC incluido.
- * - En el celular, solo los ExoPlayer; VLC sigue sonando.
+ * - On the TV, yes, everything, the local player included.
+ * - On the phone, only the in-screen ExoPlayers; the local (service) player keeps playing.
  */
 internal fun hayQuePausarAlSalir(esTv: Boolean, esExoPlayer: Boolean, casteando: Boolean): Boolean = when {
     casteando -> false
@@ -19,7 +20,7 @@ internal fun hayQuePausarAlSalir(esTv: Boolean, esExoPlayer: Boolean, casteando:
 
 /** Qué se hace con lo que suena cuando la app se va al fondo. Ver [alIrseAlFondo]. */
 internal enum class AlIrseAlFondo {
-    /** Sigue sonando: VLC en el celular, o enviando a un Chromecast. */
+    /** Keeps playing: the local (service) player on the phone, or casting to a Chromecast. */
     SEGUIR,
 
     /** Se pausa donde va. Al volver queda en pausa: decide la persona. */
@@ -41,7 +42,7 @@ internal enum class AlIrseAlFondo {
 
 /**
  * [hayQuePausarAlSalir], más cómo: un video se pausa y un canal en vivo en ExoPlayer se detiene.
- * [esExoPlayer] es que lo que suena no sea el `controller` de VLC.
+ * [esExoPlayer] means what is playing is not the `controller` (the service-hosted local player).
  */
 internal fun alIrseAlFondo(esTv: Boolean, esExoPlayer: Boolean, casteando: Boolean, enVivo: Boolean): AlIrseAlFondo =
     when {

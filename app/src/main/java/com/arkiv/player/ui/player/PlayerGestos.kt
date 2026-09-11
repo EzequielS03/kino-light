@@ -12,14 +12,13 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import com.arkiv.player.data.SettingsStore
 import androidx.media3.common.Player
-import com.arkiv.player.playback.VlcPlayer
 import kotlinx.coroutines.delay
 
 /** Pasos de velocidad y sus etiquetas, en el mismo orden: el índice vale para las dos listas. */
 private val PASOS_DE_VELOCIDAD = listOf(0.75f, 1f, 1.25f, 1.5f, 2f)
 private val ETIQUETAS_DE_VELOCIDAD = listOf("0.75×", "1×", "1.25×", "1.5×", "2×")
 
-/** Ídem para el zoom nativo de VLC. 0f = "ajustar a la pantalla". */
+/** Zoom steps, applied as a scale of the video TextureView's transform. 0f = "fit the screen". */
 private val PASOS_DE_ZOOM = listOf(0f, 1.15f, 1.35f)
 private val ETIQUETAS_DE_ZOOM = listOf("Ajustar", "Zoom", "Zoom+")
 
@@ -50,7 +49,8 @@ private const val VELOCIDAD_ACELERADA = 2f
  */
 @Stable
 internal class EstadoDeGestos(
-    private val vlc: VlcPlayer,
+    /** The local (service-hosted) player, through the screen's `MediaController`. See [exoRef]. */
+    private val local: Player?,
     private val settings: SettingsStore,
     private val alInteractuar: () -> Unit,
 ) {
@@ -58,39 +58,38 @@ internal class EstadoDeGestos(
     private var indiceZoom by mutableIntStateOf(0) // arranca en "Ajustar"
 
     /**
-     * El ExoPlayer al mando, o null cuando reproduce VLC. Mismo trato que en [EstadoDePistas]: la
-     * pantalla lo enchufa al crear el player y la velocidad va a uno o a otro según quién esté
-     * sonando. Sin esto los gestos le hablaban siempre a VLC y en magis no hacían nada.
+     * The player in charge: an in-screen ExoPlayer while one is bound, otherwise [local]. Same
+     * treatment as in [EstadoDePistas]: the screen plugs it in when it creates the player, and speed
+     * and volume go to whichever is playing.
      */
-    private var exoRef: Player? = null
+    private var exoRef: Player? = local
 
+    /** Null = back to the local (service) player. */
     fun setExoPlayer(player: Player?) {
-        exoRef = player
+        exoRef = player ?: local
     }
 
     /** La velocidad va al que esté reproduciendo. */
     private fun aplicarVelocidad(rate: Float) {
-        val exo = exoRef
-        if (exo != null) exo.setPlaybackSpeed(rate) else vlc.setRate(rate)
+        exoRef?.setPlaybackSpeed(rate)
     }
 
-    private fun velocidadActual(): Float = exoRef?.playbackParameters?.speed ?: vlc.currentRate()
+    private fun velocidadActual(): Float = exoRef?.playbackParameters?.speed ?: 1f
 
     /**
      * Volumen 0..100 del que esté sonando. En ExoPlayer es un factor 0..1, así que se convierte —y
      * se redondea, para que subir y bajar un paso vuelva al mismo número en vez de derivar.
      *
-     * Sin esto el gesto le movía el volumen a un VlcPlayer que en magis y ditu está callado: el HUD
-     * se movía en pantalla y no cambiaba nada.
+     * It must be the player that is playing: moving the volume of a silent one moves the HUD and
+     * changes nothing.
      */
     fun volumenActual(): Int {
-        val exo = exoRef ?: return vlc.vlcVolume()
+        val exo = exoRef ?: return 100
         return Math.round(exo.volume * 100f).coerceIn(0, 100)
     }
 
     fun ponerVolumen(v: Int) {
-        val exo = exoRef
-        if (exo != null) exo.volume = (v / 100f).coerceIn(0f, 1f) else vlc.setVlcVolume(v)
+        exoRef?.volume = (v / 100f).coerceIn(0f, 1f)
     }
 
     /** Cartel central del gesto en curso (velocidad, seek, volumen, brillo), o null. */
@@ -120,10 +119,9 @@ internal class EstadoDeGestos(
     /**
      * El zoom que tiene que aplicar quien dibuja el video, o 1 si no hay que tocar nada.
      *
-     * Solo lo mira ExoPlayer: libVLC escala por su cuenta con `setScale` —es una operación del
-     * propio motor de video— y ahí esto no se usa. ExoPlayer no tiene equivalente, así que su
-     * superficie se agranda con un `scale` de Compose, que da el mismo recorte: el contenedor no
-     * cambia de tamaño y lo que se sale queda fuera.
+     * ExoPlayer has no zoom of its own, so whoever draws the video scales its TextureView transform
+     * by this (see `ajustarAlAspecto`): the view keeps its size and what overflows is cropped. That
+     * includes the local player, whose TextureView lives in PlayerScreen.
      */
     val zoomParaExo: Float get() = if (exoRef != null) PASOS_DE_ZOOM[indiceZoom].let { if (it <= 0f) 1f else it } else 1f
 
@@ -136,8 +134,7 @@ internal class EstadoDeGestos(
 
     fun siguienteZoom() {
         indiceZoom = (indiceZoom + 1) % PASOS_DE_ZOOM.size
-        // Con ExoPlayer no hay a quién decírselo: lo lee [zoomParaExo] quien dibuja el video.
-        if (exoRef == null) vlc.setScale(PASOS_DE_ZOOM[indiceZoom])
+        // Nobody to tell: whoever draws the video reads [zoomParaExo].
         alInteractuar()
     }
 
@@ -183,14 +180,14 @@ internal class EstadoDeGestos(
 
 @Composable
 internal fun rememberEstadoDeGestos(
-    vlc: VlcPlayer,
+    local: Player?,
     settings: SettingsStore,
     alInteractuar: () -> Unit,
 ): EstadoDeGestos {
     // rememberUpdatedState para que el holder no se quede con la primera versión del callback: se
     // crea una sola vez, pero `bump()` se recompone con el resto de la pantalla.
     val ultimo by rememberUpdatedState(alInteractuar)
-    return remember(vlc, settings) { EstadoDeGestos(vlc, settings) { ultimo() } }
+    return remember(local, settings) { EstadoDeGestos(local, settings) { ultimo() } }
 }
 
 /** Borra solo el HUD del nivel de brillo, un rato después de la última pulsación. */

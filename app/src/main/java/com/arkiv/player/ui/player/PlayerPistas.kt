@@ -32,15 +32,15 @@ import com.arkiv.player.playback.LangTokens
 import com.arkiv.player.playback.SubtitleDecision
 import com.arkiv.player.playback.TrackLang
 import com.arkiv.player.playback.TrackSelector
-import com.arkiv.player.playback.VlcPlayer
 import com.arkiv.player.ui.settings.etiqueta
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 import kotlinx.coroutines.delay
 
 /**
- * Audio y subtítulos del reproductor: las pistas que trae el archivo, vía la API VLC del player
- * vivo o las que reporta ExoPlayer.
+ * Audio y subtítulos del reproductor. The tracks come from ExoPlayer: the in-screen player that is
+ * bound ([setExoPlayer]) or, by default, the local player `PlaybackService` hosts for downloaded
+ * files, reached through the screen's `MediaController` ([local]).
  *
  * Sale de [PlayerContent] porque son varias variables que no lee nadie más de esa pantalla: el
  * único cruce con el resto es el ícono de CC de los controles, que pregunta si hay algún subtítulo
@@ -50,8 +50,14 @@ import kotlinx.coroutines.delay
  */
 @Stable
 internal class EstadoDePistas(
-    private val vlc: VlcPlayer,
     private val graph: AppGraph,
+    /**
+     * The local (service-hosted) player, through the screen's `MediaController`: what tracks are
+     * read from and chosen on when no in-screen ExoPlayer is bound. The controller proxies
+     * `currentTracks` and `trackSelectionParameters`, overrides included (media3 maps the track
+     * groups back to the player's own).
+     */
+    private val local: Player?,
 ) {
     /** El menú de audio/subtítulos está abierto. */
     var pickerAbierto by mutableStateOf(false)
@@ -71,8 +77,9 @@ internal class EstadoDePistas(
     var curAudio by mutableIntStateOf(-1)
         private set
 
-    // Referencia al ExoPlayer activo (null → modo VLC). Se actualiza desde PlayerScreen.
-    private var exoRef: Player? = null
+    // The player tracks are read from and chosen on: an in-screen ExoPlayer while one is bound,
+    // otherwise [local]. Updated from PlayerScreen.
+    private var exoRef: Player? = local
     // TrackGroups detectados por ExoPlayer para poder seleccionar con setOverrideForType.
     private var exoAudioGroups: List<TrackGroup> = emptyList()
     private var exoSubGroups: List<TrackGroup> = emptyList()
@@ -96,16 +103,26 @@ internal class EstadoDePistas(
         pickerAbierto = false
     }
 
-    /** Vincula el ExoPlayer activo para poder hacer track selection. Null = de vuelta a VLC. */
+    /** Binds the in-screen ExoPlayer that is playing. Null = back to the local (service) player. */
     fun setExoPlayer(player: Player?) {
-        exoRef = player
+        exoRef = player ?: local
         // Cada reproducción vuelve a decidir el idioma: lo que se eligió a mano en la anterior no
         // se arrastra a la siguiente (ver [autoElegirIdiomaExo]).
         yaAutoElegiExo = false
         if (player == null) {
             exoAudioGroups = emptyList()
             exoSubGroups = emptyList()
+            // Back on the local player: its tracks replace the in-screen player's in the menu.
+            local?.let { actualizarPistasExo(it.currentTracks) }
         }
+    }
+
+    /**
+     * Tracks reported by the local player's `onTracksChanged`. Ignored while an in-screen ExoPlayer
+     * is bound: the controller keeps reporting (an empty or stale item) and would overwrite its lists.
+     */
+    fun onLocalTracksChanged(tracks: Tracks) {
+        if (local != null && exoRef === local) actualizarPistasExo(tracks)
     }
 
     /**
@@ -134,9 +151,9 @@ internal class EstadoDePistas(
     /**
      * Aplica tu idioma preferido de audio y subtítulo, una sola vez por reproducción.
      *
-     * Es la misma decisión que toma VlcPlayer —[TrackSelector] para el audio, [SubtitleDecision]
-     * para el subtítulo, que los apaga si el audio ya se entiende— pero ExoPlayer no pasaba por
-     * ahí: elegía por su cuenta y la preferencia quedaba sin aplicar. Con magis se nota porque sus
+     * [TrackSelector] decides the audio and [SubtitleDecision] the subtitle (it turns them off when
+     * the audio is already understood); without this ExoPlayer chose on its own and the preference
+     * was never applied. Con magis se nota porque sus
      * ficheros traen ocho audios.
      *
      * Solo la primera vez: `onTracksChanged` se dispara también al cambiar de pista, y volver a
@@ -238,13 +255,14 @@ internal class EstadoDePistas(
             ?: codigo.uppercase()
     }
 
-    /** Lee las pistas embebidas (audio + subtítulos) del archivo, vía el player vivo. */
+    /**
+     * Re-reads the local player's tracks before opening the menu, in case an `onTracksChanged` was
+     * missed (re-entering an item that was already playing). In-screen players push theirs through
+     * [actualizarPistasExo] and are not polled.
+     */
     fun refrescar() {
-        if (exoRef != null) return  // ExoPlayer: las pistas llegan por actualizarPistasExo, no hay que sondear.
-        spuTracks = vlc.vlcSpuTracks()
-        audioTracks = vlc.vlcAudioTracks()
-        curSpu = vlc.currentSpuTrack()
-        curAudio = vlc.currentAudioTrack()
+        val exo = exoRef ?: return
+        if (exo === local) actualizarPistasExo(exo.currentTracks)
     }
 
     /**
@@ -252,54 +270,41 @@ internal class EstadoDePistas(
      * pantalla, que es quien sabe cada cuánto conviene mirar.
      */
     fun sincronizarSubsOn() {
-        subsOn = if (exoRef != null) curSpu >= 0 else vlc.currentSpuTrack() >= 0
+        subsOn = curSpu >= 0
     }
 
     fun elegirAudio(id: Int) {
-        val exo = exoRef
-        if (exo != null) {
-            val group = exoAudioGroups.getOrNull(id)
-            if (group != null) {
-                exo.trackSelectionParameters = exo.trackSelectionParameters
-                    .buildUpon()
-                    .setOverrideForType(TrackSelectionOverride(group, 0))
-                    .build()
-            }
-            curAudio = id
-            promoverIdioma(nombreDe(audioTracks, id) ?: return, audioTracks.nombresReales(), esAudio = true)
-            return
+        val exo = exoRef ?: return
+        val group = exoAudioGroups.getOrNull(id)
+        if (group != null) {
+            exo.trackSelectionParameters = exo.trackSelectionParameters
+                .buildUpon()
+                .setOverrideForType(TrackSelectionOverride(group, 0))
+                .build()
         }
-        vlc.setVlcAudioTrack(id)
         curAudio = id
         promoverIdioma(nombreDe(audioTracks, id) ?: return, audioTracks.nombresReales(), esAudio = true)
     }
 
     fun elegirSpu(id: Int) {
-        val exo = exoRef
-        if (exo != null) {
-            if (id < 0) {
-                exo.trackSelectionParameters = exo.trackSelectionParameters
-                    .buildUpon()
-                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
-                    .build()
-                curSpu = -1
-            } else {
-                val group = exoSubGroups.getOrNull(id)
-                if (group != null) {
-                    exo.trackSelectionParameters = exo.trackSelectionParameters
-                        .buildUpon()
-                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-                        .setOverrideForType(TrackSelectionOverride(group, 0))
-                        .build()
-                }
-                curSpu = id
-                promoverIdioma(nombreDe(spuTracks, id) ?: return, spuTracks.nombresReales(), esAudio = false)
-            }
+        val exo = exoRef ?: return
+        if (id < 0) {
+            exo.trackSelectionParameters = exo.trackSelectionParameters
+                .buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                .build()
+            curSpu = -1
             return
         }
-        vlc.setVlcSpuTrack(id)
+        val group = exoSubGroups.getOrNull(id)
+        if (group != null) {
+            exo.trackSelectionParameters = exo.trackSelectionParameters
+                .buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                .setOverrideForType(TrackSelectionOverride(group, 0))
+                .build()
+        }
         curSpu = id
-        if (id < 0) return
         promoverIdioma(nombreDe(spuTracks, id) ?: return, spuTracks.nombresReales(), esAudio = false)
     }
 
@@ -324,8 +329,8 @@ internal class EstadoDePistas(
 }
 
 @Composable
-internal fun rememberEstadoDePistas(vlc: VlcPlayer, graph: AppGraph): EstadoDePistas {
-    return remember(vlc, graph) { EstadoDePistas(vlc, graph) }
+internal fun rememberEstadoDePistas(local: Player?, graph: AppGraph): EstadoDePistas {
+    return remember(local, graph) { EstadoDePistas(graph, local) }
 }
 
 /** Las pistas reales del contenedor: los ids negativos son las entradas sintéticas del menú. */
@@ -334,12 +339,11 @@ internal fun List<Pair<Int, String>>.pistasReales(): List<Pair<Int, String>> = f
 internal fun List<Pair<Int, String>>.nombresReales(): List<String> = pistasReales().map { it.second }
 
 /**
- * Nombre a mostrar de una pista de subtítulo. El MPEG-TS de magis las entrega sin idioma y libVLC
- * las bautiza "Track 1", "Track 2"…, que no le dice nada a nadie. Cuando la fuente declaró los
- * idiomas (mismo orden que las pistas) se antepone el idioma; si no, se deja el nombre crudo.
+ * Nombre a mostrar de una pista de subtítulo. The Magis MPEG-TS carries them without a language, so
+ * their names say nothing. When the source declared the languages (same order as the tracks) the
+ * language is prefixed; otherwise the raw name stays.
  *
- * Misma regla que usa el selector (ver VlcPlayer.clasificarSpuConFuente): cubre las primeras N
- * pistas por id, que son las del contenedor; de ahí en adelante no se adivina. Fuera de magis
+ * It covers the first N tracks by id, which are the container's; past that it doesn't guess. Fuera de magis
  * ([esMagis] en false) la lista de idiomas no describe estas pistas y etiquetarlas con ella sería
  * mentir en el menú.
  */

@@ -116,15 +116,24 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.C
 import androidx.media3.common.Player
+import androidx.media3.common.Tracks
+import androidx.media3.common.VideoSize
+import androidx.media3.common.text.CueGroup
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.SubtitleView
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.arkiv.player.cast.CastProgress
+import com.arkiv.player.cast.localAudioTrackFormat
 import com.arkiv.player.data.MarcadorDeCapitulo
 import com.arkiv.player.ui.tv.library.SAFE_H
 import com.arkiv.player.ui.tv.library.SAFE_V
 import com.arkiv.player.playback.AutoAvance
+import com.arkiv.player.playback.DecoderWatchdog
+import com.arkiv.player.playback.EsperaDePrimeraImagen
 import com.arkiv.player.playback.LoadedMedia
 import com.arkiv.player.playback.MediaReusePolicy
 import com.arkiv.player.playback.NowPlaying
@@ -134,7 +143,6 @@ import com.arkiv.player.playback.PlayerSource
 import com.arkiv.player.playback.PlayerSourceTag
 import com.arkiv.player.playback.SourceKind
 import com.arkiv.player.playback.VideoAttachPolicy
-import com.arkiv.player.playback.VlcPlayer
 import com.arkiv.player.playback.setPlayerSourceTag
 import com.arkiv.player.ui.formatDuration
 import com.arkiv.player.ui.rememberGraph
@@ -146,7 +154,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import org.videolan.libvlc.util.VLCVideoLayout
 
 private fun Context.findActivity(): Activity? {
     var ctx: Context? = this
@@ -159,7 +166,7 @@ private fun Context.findActivity(): Activity? {
 
 /** Pasos de velocidad de reproducción (portado de TorrentPlayerScreen). */
 
-/** Pasos de zoom nativo de VLC: 0 = ajustar a pantalla; >0 = crop que recorta las barras negras. */
+/** Pasos de zoom: 0 = ajustar a pantalla; >0 = crop que recorta las barras negras (ver PlayerGestos). */
 
 /** Swipe vertical mínimo (px) para que el modo vivo (Tarea 14) lo tome como zapping en el teléfono. */
 private const val UMBRAL_ZAP_PX = 80f
@@ -274,16 +281,16 @@ fun PlayerScreen(
     isTv: Boolean = false,
 ) {
     val controller = rememberMediaController()
-    // El VlcPlayer vivo lo expone el service; se necesita para el render (VLCVideoLayout) y las
-    // pistas (audio/subtítulos VLC). Al conectar el controller el service ya está creado.
-    val vlc = PlaybackEngine.vlc
-    if (controller == null || vlc == null) {
+    // The service's ExoPlayer, used only to bind the local video surface (see PlaybackEngine).
+    // By the time the controller connects, the service exists.
+    val serviceExo = PlaybackEngine.player
+    if (controller == null || serviceExo == null) {
         Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(color = Color.White)
         }
         return
     }
-    PlayerContent(episodeId, onBack, onOpenEpisodes, onNextEpisode, controller, vlc, isTv)
+    PlayerContent(episodeId, onBack, onOpenEpisodes, onNextEpisode, controller, serviceExo, isTv)
 }
 
 @OptIn(UnstableApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
@@ -294,7 +301,7 @@ private fun PlayerContent(
     onOpenEpisodes: () -> Unit,
     onNextEpisode: (String) -> Unit,
     controller: MediaController,
-    vlc: VlcPlayer,
+    serviceExo: ExoPlayer,
     isTv: Boolean,
 ) {
     val graph = rememberGraph()
@@ -350,60 +357,11 @@ private fun PlayerContent(
      */
     var exoYaPintoAlgo by remember { mutableStateOf(false) }
     val generacionVivo by vm.generacionVivo.collectAsStateWithLifecycle()
-    val cortesEnVivo by vlc.cortesEnVivo.collectAsStateWithLifecycle()
     val loadError by vm.error.collectAsStateWithLifecycle()
     // Fuente web: mientras el resolver de blog snifea el stream, y los subtítulos sniffeados a adjuntar.
     val resolving by vm.resolving.collectAsStateWithLifecycle()
     val webExtras by vm.webExtras.collectAsStateWithLifecycle()
     val trivia by vm.trivia.collectAsStateWithLifecycle()
-    // Adjunta como pistas externas los subtítulos que sniffeó el resolver (cuando ya hay media).
-    LaunchedEffect(playlist, webExtras) {
-        // Los idiomas que declara la fuente. Va PRIMERO, antes de cualquier return y antes del delay
-        // de abajo: son la única forma de saber el idioma de las pistas EMBEBIDAS del MPEG-TS de magis
-        // (llegan sin idioma en ningún campo) y la decisión de subtítulos corre a los 400 ms de
-        // Playing, así que llegar tarde acá es no llegar. Se asigna SIEMPRE —vacío incluido— porque
-        // este es el único punto que limpia lo del ítem anterior: hacerlo en VlcPlayer.loadMedia
-        // competía con esta misma asignación y a veces la pisaba.
-        //
-        // SOLO MAGIS, y la distinción importa: ahí la lista del portal describe las pistas EMBEBIDAS
-        // y el cruce por posición es legítimo. En una fuente WEB los subtítulos declarados son los
-        // que se adjuntan acá abajo como pistas EXTERNAS —que ya llevan su idioma por el mapa de
-        // URI—, así que cruzarlos por posición etiquetaría las pistas embebidas del video con
-        // idiomas ajenos: un subtítulo francés sin etiqueta quedaría marcado "es" y se prendería
-        // como si fuera español.
-        vlc.idiomasSpuDeLaFuente =
-            if (PlayerSource.kindFor(episodeId) == SourceKind.MAGIS) {
-                webExtras?.subtitles?.map { it.lang }.orEmpty()
-            } else {
-                emptyList()
-            }
-        val extras = webExtras ?: return@LaunchedEffect
-        if (playlist == null) return@LaunchedEffect
-        // MAGIS NO: engancharle a su MPEG-TS un subtítulo externo le tumba TODAS las pistas al
-        // demuxer de libVLC, y no es cosa del momento en que se haga — medido en device las dos
-        // formas fallan. En marcha: `Vout 1` y 465 ms después `Vout 0` con `pistas=v0/a0`. Desde el
-        // arranque (adjuntándolo al media): nunca llega a tener pistas, se queda en `buffering 0%`
-        // y se traga 365 MB en 59 s. Sin el subtítulo, ese mismo stream arranca limpio con `v2/a3`,
-        // por hardware y por software. Hasta saber por qué, magis va sin subtítulo automático.
-        // Esto era veneno para magis mientras su MPEG-TS lo demuxeaba el módulo `ts` nativo: el
-        // subtítulo entraba como grupo 0, libVLC cambiaba a ese el programa activo y al soltar el
-        // programa 1 del TS se llevaba puestos sus tres PIDs (video 256 + audios 257/258). Quedaba
-        // `pistas=v0/a0` — negro, mudo y con el reloj disparado. Medido con libVLC en -vv:
-        //   input: loading spu-es slave: …srt (forced: 1)
-        //   input: unselecting program id=1
-        //   input: selecting program id=0
-        // Fallaban las tres variantes (en marcha, al abrir el media, y con select=false) y daba
-        // igual http o file://. Lo que lo resolvió fue cambiarle el demuxer a magis: ver
-        // VlcPlayer.loadMedia. Sin programas no hay programa que perder.
-        kotlinx.coroutines.delay(800) // dar tiempo a que VLC cargue el media antes del slave
-        // Adjunto automático (el resolver los sniffeó), no una elección de la persona: así no le
-        // tapa la decisión de idioma al player (ver el KDoc de VlcPlayer.addSubtitleSlave). El
-        // idioma va aparte porque estas URLs son opacas (`…/9f8a7b.vtt`): sin pasarlo, la pista
-        // quedaría sin idioma y no habría forma de elegirla.
-        extras.subtitles.forEach { s ->
-            runCatching { vlc.addSubtitleSlave(Uri.parse(s.url), lang = s.lang) }
-        }
-    }
 
     // Cómo se nombra la fuente en el cartel de "Resolviendo…". `vm.resolving` lo prenden las cargas
     // that resolve against the network —`loadMagis` and `loadDitu`; `loadUnknownSource` (ids from
@@ -501,6 +459,8 @@ private fun PlayerContent(
     // El player que estamos manejando ahora mismo: el del Chromecast mientras haya sesión, el
     // local si no. Ambos implementan Player, así que los controles no necesitan saber cuál es.
     // El `?: controller` cubre el caso sin Google Play Services (castContext y castPlayer nulos).
+    // For downloaded files it is `controller`: the local player lives in PlaybackService (see the
+    // background rule in the ON_STOP observer below).
     val activePlayer: Player = when {
         casting -> castPlayer ?: controller
         magisItem != null && magisPlayer != null -> magisPlayer!!
@@ -583,9 +543,10 @@ private fun PlayerContent(
     // `BackHandler`, the key listener) reads it.
     val marcadores = rememberEstadoDeMarcadores()
 
-    // Selector de audio/subtítulos (ambas fuentes, vía la API VLC del player vivo). Todo el bloque
-    // vive en `PlayerPistas.kt`; de acá solo se consulta `haySubtitulo`, para el ícono de CC.
-    val estadoPistas = rememberEstadoDePistas(vlc, graph)
+    // Audio/subtitle picker. Tracks come from the bound in-screen ExoPlayer or, by default, from the
+    // local (service) player through `controller`. Todo el bloque vive en `PlayerPistas.kt`; de acá
+    // solo se consulta `haySubtitulo`, para el ícono de CC.
+    val estadoPistas = rememberEstadoDePistas(controller, graph)
 
 
     // Modo noche: nivel del velo negro sobre el video, 0..DIM_MAX_LEVEL. Persistido en
@@ -598,40 +559,48 @@ private fun PlayerContent(
     // y de si el cast esta transcodificando.
     val seek = rememberEstadoDeSeek()
 
-    // Ref al layout de video (para devolverle el foco en TV al cerrar un diálogo).
-    var videoView by remember { mutableStateOf<VLCVideoLayout?>(null) }
+    // The local player's TextureView: where downloaded files paint, what their frames are captured
+    // from, and (TV) the view that holds the D-pad key listener and gets the focus back after a dialog.
+    var videoView by remember { mutableStateOf<android.view.TextureView?>(null) }
+    // What the screen knows about the local player's picture (first frame, aspect, surface). See
+    // PlayerVideoLocal.kt.
+    val videoLocal = remember { LocalVideoState() }
+    // Embedded subtitles of a downloaded file: libVLC painted them itself, ExoPlayer hands the cues
+    // to whoever draws them (same as MagisExoPlayer's SubtitleView).
+    val subtitulosLocales = remember {
+        SubtitleView(context).apply {
+            setUserDefaultStyle()
+            setUserDefaultTextSize()
+        }
+    }
 
     /**
      * El TextureView donde se está pintando el video, para las capturas de frame.
      *
      * Magis (ExoPlayer): MagisExoPlayer configura SURFACE_TYPE_TEXTURE_VIEW y nos lo pasa vía
-     * `onTextureViewReady` → `magisTextureView`. Se prefiere sobre la ruta VLC cuando está activo.
+     * `onTextureViewReady` → `magisTextureView`.
      *
-     * VLC: primero se le pregunta al player y recién después se cae al layout de ESTA pantalla: al
-     * salir, el `onRelease` del AndroidView le suelta el layout al player (`detachVideo`, que lo
-     * pone en null para no retener la Activity) y no hay garantía de que corra después del
-     * `onDispose` que captura el frame de salida. El layout sigue vivo acá, así que el respaldo es
-     * lo que hace que salir del reproductor capture de verdad.
+     * Local (downloaded files): this screen's own TextureView, bound to the service's ExoPlayer. It
+     * belongs to the screen, not to the player, so it is still here for the exit capture even when
+     * the AndroidView's `onRelease` already unbound it.
      */
     fun textureViewDelVideo(): android.view.TextureView? = when {
         magisItem != null -> magisTextureView
         // Caracol pinta en el SurfaceView de PlayerView, no en un TextureView (ver DituExoPlayer):
         // no hay de dónde capturar.
         dituPlay != null -> null
-        else -> vlc.textureViewActual() ?: vlc.textureViewDe(videoView)
+        else -> videoView
     }
 
-    // Re-enganchar el video al volver de otra app: al irse al fondo Android destruye la Surface y
-    // libVLC tumba su salida de video (evento `Vout 0`); sin un attachViews nuevo la salida no se
-    // reconstruye y queda la pantalla NEGRA con el audio sonando. Ver VideoAttachPolicy.
-    // VLC reconstruye el vout recién en el siguiente keyframe (segundos en HLS): sin avisar, ese rato
-    // se ve un negro que parece un cuelgue. Solo aplica si ANTES había video, para no dejar el spinner
-    // colgado en contenido de solo audio (que nunca tiene vout).
+    // Re-bind the local video when coming back from another app (see VideoAttachPolicy). The decoder
+    // only paints again from the next keyframe, and without a notice that gap looks like a hang.
+    // Only if there WAS a picture before and it is playing: audio-only content never paints, and a
+    // paused player has nothing new to paint.
     var esperandoVideo by remember { mutableStateOf(false) }
 
     // Distinto de [esperandoVideo], que es "HABÍA imagen y se perdió al volver del fondo". Esto es
-    // "todavía no hubo ninguna": el arranque negro con sonido. Lo decide VlcPlayer, que es quien
-    // sabe de pistas y de vout; acá solo se sondea. Ver VlcPlayer.esperandoPrimeraImagen.
+    // "todavía no hubo ninguna": el arranque negro con sonido. For the local player it is decided by
+    // [EsperaDePrimeraImagen] from [videoLocal] and the controller's tracks (see the polling loop).
     var sinPrimeraImagen by remember { mutableStateOf(false) }
 
     // Identidad de ESTA composición del reproductor. Al recrearse la pantalla (volver del segundo
@@ -645,21 +614,28 @@ private fun PlayerContent(
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner, vlc) {
+    DisposableEffect(lifecycleOwner, serviceExo) {
         var habiaVideo = false
         val policy = VideoAttachPolicy(
             attach = {
                 val v = videoView
                 if (v == null) {
-                    android.util.Log.w("ArkivVout", "ON_START #$pantallaId PERO videoView=null → no engancha nada")
+                    android.util.Log.w("ArkivVout", "ON_START #$pantallaId but videoView=null → nothing to bind")
                 } else {
-                    vlc.attachVideo(v, "ON_START#$pantallaId")
+                    android.util.Log.w("ArkivVout", "ATTACH ON_START#$pantallaId view=#${Integer.toHexString(System.identityHashCode(v))}")
+                    serviceExo.setVideoTextureView(v)
+                    videoLocal.onSurfaceAttached(android.os.SystemClock.elapsedRealtime())
                 }
-                esperandoVideo = habiaVideo
+                esperandoVideo = habiaVideo && controller.playWhenReady
             },
             detach = {
-                habiaVideo = vlc.hasVideoOutput()
-                vlc.detachVideo("ON_STOP#$pantallaId")
+                // Only the local player's own picture counts: with an in-screen player on, the
+                // service player has nothing loaded.
+                habiaVideo = videoLocal.renderedFirstFrame &&
+                    magisItem == null && liveItem == null && dituPlay == null
+                android.util.Log.w("ArkivVout", "DETACH ON_STOP#$pantallaId hadVideo=$habiaVideo")
+                videoView?.let { serviceExo.clearVideoTextureView(it) }
+                videoLocal.onSurfaceDetached()
             },
         )
         // Los eventos crudos se loguean aparte de lo que decide la política: la política ignora a
@@ -685,12 +661,13 @@ private fun PlayerContent(
         }
     }
 
-    // Sondea hasta que VLC vuelva a pintar. El timeout es un seguro: si el vout no vuelve (fuente sin
-    // video, error), el spinner se quita igual en vez de quedarse colgado para siempre.
+    // Polls until the local player paints on the re-bound surface (ExoPlayer notifies
+    // onRenderedFirstFrame again for each new surface). The timeout is a safety net: if no frame comes
+    // back (error, no video), the spinner goes away anyway instead of hanging forever.
     LaunchedEffect(esperandoVideo) {
         if (!esperandoVideo) return@LaunchedEffect
         withTimeoutOrNull(15_000) {
-            while (!vlc.hasVideoOutput()) delay(150)
+            while (!videoLocal.paintedSinceAttach) delay(150)
         }
         esperandoVideo = false
     }
@@ -718,7 +695,7 @@ private fun PlayerContent(
         // Vivo (Tarea 18) usa EXACTAMENTE el mismo portero: se lee el audio que YA está sonando en
         // el celu -el canal está reproduciéndose cuando se llega hasta acá, nunca antes- así que no
         // hace falta ninguna lista de canales permitidos ni adivinar por nombre/categoría.
-        val audio = vlc.currentAudioFormat()
+        val audio = localAudioTrackFormat(controller.currentTracks)
         val decodable = com.arkiv.player.cast.CastAudioSupport.receiverDecodes(
             fourcc = audio?.fourcc ?: 0,
             channels = audio?.channels ?: 0,
@@ -810,8 +787,8 @@ private fun PlayerContent(
      * igual al anterior (mismo motivo que `_generacionVivo` en el ViewModel, ver su KDoc), así que
      * sin esta clave un re-zap al canal que ya estaba en pantalla no volvería a empujar el receptor.
      *
-     * No se lee `vlc.currentAudioFormat()` con sentido acá (VLC no reproduce el vivo-vía-Exo, así
-     * que devuelve null/una lectura vieja): `castRequestFor` cae a su default conservador
+     * The local player's audio read means nothing here (the channel plays on LiveExoPlayer, not on
+     * the service player, so it reads nothing or a stale item): `castRequestFor` cae a su default conservador
      * ("no sé → mandalo directo", ver su propio KDoc), igual que ya acepta Magis VOD. Un canal con
      * audio AC-3/DTS puede castear mudo -- limitación conocida, misma categoría que la de Magis.
      */
@@ -865,7 +842,7 @@ private fun PlayerContent(
             // sido la correcta, o sea DOS transcodes por casteo, y el segundo obligaba al receptor a
             // buffear de nuevo.
             if (graph.castTranscoder.activeUrl != null) return@LaunchedEffect
-            val audio = vlc.currentAudioFormat() ?: return@repeat
+            val audio = localAudioTrackFormat(controller.currentTracks) ?: return@repeat
             if (com.arkiv.player.cast.CastAudioSupport.receiverDecodes(audio.fourcc, audio.channels)) {
                 return@LaunchedEffect // el camino directo era el correcto
             }
@@ -886,26 +863,10 @@ private fun PlayerContent(
     // recibe es lo único que los ata a esta pantalla — cada ajuste cuenta como actividad y
     // reinicia el auto-ocultado de los controles. Va acá abajo, y no con el resto del estado,
     // porque necesita que `bump` ya esté declarado.
-    val gestos = rememberEstadoDeGestos(vlc, graph.settings) { bump() }
+    val gestos = rememberEstadoDeGestos(controller, graph.settings) { bump() }
     EfectoDelHudDeBrillo(gestos)
 
 
-    // El corte de un directo, por el contador de [VlcPlayer.cortesEnVivo] y NO por STATE_ENDED:
-    // ese estado viaja por el MediaController y se pierde cuando VLC manda Stopped a los pocos ms
-    // de EndReached -- medido el 2026-08-14, dos de cinco cortes no llegaron y el canal quedó
-    // pausado sin que la reapertura disparara. Un contador que solo sube no se puede perder.
-    // Solo el vivo de Magis: `vm.reabrirVivoPorCorte` reabre el canal de su zapeo.
-    var cortesAtendidos by remember(episodeId) { mutableStateOf(-1) }
-    LaunchedEffect(cortesEnVivo, vivoDeMagis) {
-        if (!vivoDeMagis) return@LaunchedEffect
-        // La primera lectura solo toma nota: el contador es del reproductor, que sobrevive a esta
-        // pantalla, así que al entrar ya puede venir con cortes de un canal anterior.
-        if (cortesAtendidos < 0) { cortesAtendidos = cortesEnVivo; return@LaunchedEffect }
-        if (cortesEnVivo > cortesAtendidos) {
-            cortesAtendidos = cortesEnVivo
-            vm.reabrirVivoPorCorte()
-        }
-    }
 
 
     LaunchedEffect(controles.visible, espejo.buffereando, casting, estadoDlna.activo, marcadores.modo, loadError) {
@@ -994,8 +955,12 @@ private fun PlayerContent(
             fresco = pl.items.map { LoadedMedia(it.episodeId, it.mediaUrl) },
             pedido = pl.pedido,
             // ¿Volvimos sobre una pantalla NUEVA? Reusar el media con una superficie nueva mata al
-            // decodificador (ver MediaReusePolicy.decide para los números medidos).
-            pantallaNueva = vlc.superficieDistintaALaDelVideo(),
+            // decodificador (ver MediaReusePolicy.decide para los números medidos). The loaded media
+            // already painted (the service player's decoder counters) but not on THIS screen, so it
+            // painted on another screen's surface: the question libVLC's
+            // `superficieDistintaALaDelVideo` answered. False while it never painted.
+            pantallaNueva = (serviceExo.videoDecoderCounters?.renderedOutputBufferCount ?: 0) > 0 &&
+                !videoLocal.renderedFirstFrame,
         )
         if (decision == MediaReusePolicy.Decision.ESPERAR) {
             android.util.Log.w("ArkivPlay", "playlist de OTRO capítulo (pedido=${pl.pedido} ≠ $episodeId) → esperar la mía")
@@ -1057,7 +1022,10 @@ private fun PlayerContent(
                 // prepare() de LaunchedEffect(casting) nunca llegó a correr porque casteabaAntes es un
                 // `remember` de esa composición, no del player. play() sobre un player IDLE no arranca
                 // nada; prepararlo primero es inofensivo si ya estaba preparado.
-                if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
+                if (controller.playbackState == Player.STATE_IDLE) {
+                    controller.prepare()
+                    videoLocal.onLoad(android.os.SystemClock.elapsedRealtime(), prefersSoftware = false)
+                }
                 controller.play()
             }
             // Misma sección ya cargada (mismas URLs), otro episodio: saltar dentro de la playlist.
@@ -1069,23 +1037,28 @@ private fun PlayerContent(
                 // Mismo caso que REUSAR_ACTUAL de arriba: puede llegar cebado-pero-no-preparado.
                 if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
                 controller.playWhenReady = true
+                videoLocal.onLoad(android.os.SystemClock.elapsedRealtime(), prefersSoftware = false)
             }
             // New content, or the URL changed under the same episodeId (before: torrent re-served
             // on another port, source now removed; today: magis token renewed on re-resolution):
             // load the playlist with the fresh URL.
             MediaReusePolicy.Decision.RECARGAR -> {
-                android.util.Log.w("ArkivPlay", "rama=nuevo → setMediaItems + prepare (abre VLC con la URL fresca)")
+                android.util.Log.w("ArkivPlay", "rama=nuevo → setMediaItems + prepare (opens the local player with the fresh URL)")
                 currentIndex = pl.startIndex
                 controller.setMediaItems(localMediaItems(pl.items), pl.startIndex, pl.startPositionMs)
                 controller.playWhenReady = true
                 controller.prepare()
+                videoLocal.onLoad(
+                    android.os.SystemClock.elapsedRealtime(),
+                    prefersSoftware = pl.items.getOrNull(pl.startIndex)?.preferirSoftware == true,
+                )
             }
         }
         NowPlaying.episodeId =
             controller.currentMediaItem?.mediaId ?: pl.items.getOrNull(currentIndex)?.episodeId
     }
 
-    // Capítulo cuyo final YA se atendió, para no encadenar dos avances por el mismo final: VLC puede
+    // Capítulo cuyo final YA se atendió, para no encadenar dos avances por el mismo final: el reproductor puede
     // repetir el EndReached y, casteando, el CastPlayer emite además el suyo.
     var finAtendido by remember { mutableStateOf<String?>(null) }
 
@@ -1104,10 +1077,9 @@ private fun PlayerContent(
     fun alTerminarElCapitulo() {
         android.util.Log.w("ArkivPlay", "alTerminarElCapitulo · pos=${espejo.posicionMs} dur=${espejo.duracionMs} enVivo=$enVivo finAtendido=$finAtendido ep=$episodeId")
         // Un directo no termina: su EndReached es el stream que se cortó, y ahí no hay "siguiente
-        // capítulo" que valga (el único siguiente del modo vivo es el zapping). Reabrirlo NO se
-        // engancha acá: este camino depende de que el STATE_ENDED cruce el MediaController, y se
-        // pierde cuando VLC manda Stopped a los pocos ms (ver [VlcPlayer.cortesEnVivo], que es de
-        // donde sale la señal buena).
+        // capítulo" que valga (el único siguiente del modo vivo es el zapping). Reopening it isn't
+        // hooked here: live channels play on LiveExoPlayer, whose error goes to
+        // `vm.reabrirVivoPorCorte` (see `onLiveExoError`).
         if (enVivo) return
         val actual = playlistRef.value?.items?.getOrNull(controller.currentMediaItemIndex)?.episodeId
             ?: episodeId
@@ -1171,10 +1143,83 @@ private fun PlayerContent(
     val isMagis = magisItem != null   // MagisExoPlayer maneja sus propios errores.
     val isLiveExo = liveItem != null  // LiveExoPlayer maneja sus propios errores (→ reabrirVivoPorCorte).
     val isDitu = dituPlay != null     // DituExoPlayer maneja sus propios errores (→ onDituExoError).
-    val isExo = isMagis || isLiveExo || isDitu     // Cualquier ExoPlayer activo (vs VLC).
+    val isExo = isMagis || isLiveExo || isDitu     // Any in-screen ExoPlayer (vs the local player behind `controller`).
+    // The local player's picture, tracks and cues, from the controller. Apart from the transport
+    // listener below on purpose: that one follows `activePlayer` (the Chromecast while casting), and
+    // these belong to the local player whatever is active.
+    DisposableEffect(controller) {
+        controller.videoSize.let { videoLocal.onVideoSize(it.width, it.height, it.pixelWidthHeightRatio) }
+        estadoPistas.onLocalTracksChanged(controller.currentTracks)
+        val listener = object : Player.Listener {
+            override fun onRenderedFirstFrame() {
+                val desdeLaCarga = videoLocal.msSinceLoad(android.os.SystemClock.elapsedRealtime())
+                android.util.Log.i("ArkivPlay", "local first frame · ${desdeLaCarga}ms after load · screen #$pantallaId")
+                videoLocal.onFirstFrame()
+            }
+
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                videoLocal.onVideoSize(videoSize.width, videoSize.height, videoSize.pixelWidthHeightRatio)
+            }
+
+            override fun onTracksChanged(tracks: Tracks) {
+                estadoPistas.onLocalTracksChanged(tracks)
+            }
+
+            override fun onCues(cueGroup: CueGroup) {
+                subtitulosLocales.setCues(cueGroup.cues)
+            }
+        }
+        controller.addListener(listener)
+        onDispose { controller.removeListener(listener) }
+    }
+
+    /** Local counterpart of `exoYaPintoAlgo`: the first-frame spinner rule, fed by [videoLocal]. */
+    fun localEsperaPrimeraImagen(): Boolean {
+        val tracks = controller.currentTracks
+        return EsperaDePrimeraImagen.hayQueEsperar(
+            cargadoHaceMs = videoLocal.msSinceLoad(android.os.SystemClock.elapsedRealtime()),
+            huboImagen = videoLocal.renderedFirstFrame,
+            hayVideoAhora = false,
+            pistasDeVideo = tracks.groups.count { it.type == C.TRACK_TYPE_VIDEO },
+            pistasDeAudio = tracks.groups.count { it.type == C.TRACK_TYPE_AUDIO },
+        )
+    }
+
+    /**
+     * Decoder watchdog for downloaded files (see [DecoderWatchdog]): a load that never painted gets
+     * ONE reload preferring a software decoder, at the same position. The preference travels in the
+     * item's `preferirSoftware` extra, which the service player's codec selector honours.
+     */
+    fun vigilarDecodificadorLocal() {
+        val ahora = android.os.SystemClock.elapsedRealtime()
+        val esperaMs = videoLocal.msWithSurface(ahora)
+        val pistasDeVideo = controller.currentTracks.groups.count { it.type == C.TRACK_TYPE_VIDEO }
+        val recargar = DecoderWatchdog.shouldReloadInSoftware(
+            waitingMs = esperaMs,
+            renderedFirstFrame = videoLocal.renderedFirstFrame,
+            videoTracks = pistasDeVideo,
+            wantsToPlay = controller.playWhenReady,
+            hasSurface = videoLocal.hasSurface,
+            alreadySoftware = videoLocal.loadPrefersSoftware,
+        )
+        if (!recargar) return
+        val pl = playlistRef.value ?: return
+        val pos = controller.currentPosition.coerceAtLeast(0L)
+        android.util.Log.w(
+            "ArkivPlay",
+            "decoder watchdog: no frame ${esperaMs}ms with a surface (videoTracks=$pistasDeVideo " +
+                "state=${controller.playbackState}) → reloading ${pl.items.getOrNull(currentIndex)?.episodeId} " +
+                "in software at ${pos}ms",
+        )
+        controller.setMediaItems(localMediaItems(pl.items.map { it.copy(preferirSoftware = true) }), currentIndex, pos)
+        controller.prepare()
+        controller.playWhenReady = true
+        videoLocal.onLoad(ahora, prefersSoftware = true)
+    }
+
     DisposableEffect(activePlayer) {
         // Snapshot del estado ExoPlayer en el momento en que se monta el listener.
-        // Si isExo=true cuando el controller toma el control, STATE_ENDED del VLC no debe
+        // Si isExo=true cuando el controller toma el control, STATE_ENDED del reproductor local no debe
         // disparar alTerminarElCapitulo (el ExoPlayer gestiona su propio fin).
         val exoActivoAlMontar = isExo
         android.util.Log.w("ArkivPlay", "DisposableEffect montado · activePlayer=${activePlayer::class.simpleName} isExo=$exoActivoAlMontar ep=$episodeId")
@@ -1201,7 +1246,7 @@ private fun PlayerContent(
                 if (state == Player.STATE_ENDED) {
                     android.util.Log.w("ArkivPlay", "STATE_ENDED · activePlayer=${activePlayer::class.simpleName} exoActivoAlMontar=$exoActivoAlMontar pos=${espejo.posicionMs} dur=${espejo.duracionMs} ep=$episodeId")
                     // No disparar auto-avance si había un ExoPlayer activo cuando se montó este
-                    // listener: el STATE_ENDED pertenece al VLC que no tenía media, no al fin real.
+                    // listener: el STATE_ENDED pertenece al reproductor local que no tenía media, no al fin real.
                     if (!exoActivoAlMontar) alTerminarElCapitulo()
                 }
             }
@@ -1214,7 +1259,7 @@ private fun PlayerContent(
                 espejo.cambioLaIntencion(playWhenReady)
             }
 
-            // Sin esto, un fallo de reproducción no llegaba a NINGUNA parte: VlcPlayer lo publicaba
+            // Sin esto, un fallo de reproducción no llegaba a NINGUNA parte: el reproductor local lo publica
             // como PlaybackException, pero la pantalla solo pinta `vm.error` —los errores de
             // resolución— así que la película no arrancaba y no aparecía ningún mensaje. Medido el
             // 2026-08-10 en el Fire TV: `EncounteredError` en el log y `error=false` en la UI.
@@ -1263,10 +1308,11 @@ private fun PlayerContent(
                 if (vivoDeMagis) vm.vivoAndando(espejo.posicionMs)
             }
             estadoPistas.sincronizarSubsOn()
-            // "Arranca negro y con sonido": mientras libVLC ya suelta el audio pero todavía no dio
+            // "Arranca negro y con sonido": mientras el reproductor ya suelta el audio pero todavía no dio
             // la primera imagen, `playbackState` NO es BUFFERING y la pantalla se quedaba sin
             // spinner y sin imagen. Casteando no aplica: la imagen la pone la TV, no nosotros.
-            sinPrimeraImagen = !casting && if (isExo) !exoYaPintoAlgo else vlc.esperandoPrimeraImagen()
+            sinPrimeraImagen = !casting && if (isExo) !exoYaPintoAlgo else localEsperaPrimeraImagen()
+            if (!isExo && !casting) vigilarDecodificadorLocal()
             // Si el video está sonando, un fallo de reproducción anterior ya no describe nada (y
             // encima estaría tapando estos mismos controles). No-op salvo justo después de uno.
             if (ready && activePlayer.isPlaying) vm.onReproduccionViva()
@@ -1280,7 +1326,7 @@ private fun PlayerContent(
             // reproduciendo). Sin esta comprobación, tocar "siguiente episodio" cerca del final del
             // capítulo N marcaba como VISTO el N+1 antes de que arrancara.
             val mediaId = activePlayer.currentMediaItem?.mediaId
-            // ExoPlayer (Magis): playlist VLC vacía; el episodio lo trae el ítem directamente.
+            // ExoPlayer (Magis): playlist local vacía; el episodio lo trae el ítem directamente.
             // Para las demás fuentes lo identifica la playlist LOCAL, no el player activo.
             val epId = when {
                 isMagis -> magisItem?.episodeId
@@ -1472,7 +1518,7 @@ private fun PlayerContent(
                     // al empezar a castear (mismo gap ya aceptado para `magisPlayer`, ver el
                     // `controller.pause()` de la rama `if (casting)` de arriba), así que acá no hay
                     // nada que reanudar -- sigue sonando local igual que durante el casteo. Este
-                    // `controller.prepare()/play()` es sobre el VLC, que no es el que suena en vivo.
+                    // `controller.prepare()/play()` es sobre el reproductor local, que no es el que suena en vivo.
                     // `enVivo` sin `liveItem` es un canal de Caracol, que suena en DituExoPlayer: para
                     // él esta rama termina en el mismo `prepare()/play()` del controller que la de VOD
                     // de abajo, que sin playlist (`loadDitu` la deja en null) tampoco reanuda nada.
@@ -1503,22 +1549,25 @@ private fun PlayerContent(
                     android.util.Log.w("ArkivCast", "posición del receptor descartada: es de '$castMediaId', reanudamos '$epId'")
                     0L
                 }
-                // RECARGAR, no hacer seek. El local quedó cebado con `setMediaItems(…, startPositionMs)`
-                // y sin input abierto (playWhenReady=false), y eso ya horneó `:start-time=<esa posición>`
-                // en el Media de libVLC: el seekTo() es un no-op sin input, prepare() tampoco recarga
-                // (VlcPlayer.handlePrepare() solo actúa si mediaPlayer.media es null) y el play() abría
-                // el input respetando el start-time VIEJO. Resultado: el local reanudaba donde EMPEZÓ el
-                // casteo y el sondeo pisaba la posición buena a los segundos. Volver a llamar a
-                // setMediaItems() re-hornea el start-time en la posición del receptor.
+                // RELOAD, don't seek: `setMediaItems(…, castPos)` puts the local player at the
+                // receiver's position whether or not it was ever prepared (the CAST branch loads it
+                // without preparing). libVLC needed it because it baked the old start time into its
+                // media (the local resumed where casting STARTED); with ExoPlayer it stays correct.
                 if (castPos > 0L && pl != null) {
                     runCatching { controller.setMediaItems(localMediaItems(pl.items), currentIndex, castPos) }
                 }
                 // El local pudo quedar cebado SIN preparar (rama CAST de arriba): recién acá, al reanudar
-                // de verdad, se prepara. Si ya estaba preparado (se venía reproduciendo en local antes de
-                // castear) esto es un no-op: VlcPlayer.handlePrepare() solo recarga si mediaPlayer.media
-                // sigue nulo.
+                // de verdad, se prepara. If it was already prepared (it was playing locally before
+                // casting) prepare() is a no-op.
+                val recargado = castPos > 0L && pl != null
+                val estabaSinPreparar = controller.playbackState == Player.STATE_IDLE
                 runCatching { controller.prepare() }
                 runCatching { controller.play() }
+                // A new first frame comes only if the media was reloaded or prepared just now;
+                // otherwise the first-frame spinner and the decoder watchdog would wait for nothing.
+                if (recargado || estabaSinPreparar) {
+                    videoLocal.onLoad(android.os.SystemClock.elapsedRealtime(), prefersSoftware = false)
+                }
             }
         }
         casteabaAntes = casting
@@ -1593,7 +1642,7 @@ private fun PlayerContent(
             val mediaId = currentPlayer.currentMediaItem?.mediaId
             controller.pause()
             val isExoOnDispose = currentMagisItem != null || currentDituPlay != null
-            // ExoPlayer: playlist VLC vacía; el episodeId lo trae el ítem directamente.
+            // ExoPlayer: playlist local vacía; el episodeId lo trae el ítem directamente.
             val epId = when {
                 currentMagisItem != null -> currentMagisItem?.episodeId
                 currentDituPlay != null -> currentDituPlay?.episodeId
@@ -1669,6 +1718,12 @@ private fun PlayerContent(
                 }
 
                 val jugador = currentPlayer
+                // `controller` IS the local player: downloaded files play on the ExoPlayer hosted by
+                // PlaybackService, and this screen reaches it only through `controller`. So for a
+                // local file `jugador === controller`, `esExoPlayer` is false and the phone gets SEGUIR:
+                // it keeps playing in the background, with the media notification. Never route local
+                // files to an in-screen player, or this rule starts pausing them. Pinned by
+                // PausaAlSalirTest.
                 val accion = alIrseAlFondo(
                     esTv = isTv,
                     esExoPlayer = jugador !== controller,
@@ -1784,9 +1839,9 @@ private fun PlayerContent(
     }
 
     // El `setOnKeyListener` de más abajo se arma UNA sola vez, dentro del `factory` del AndroidView
-    // que crea el VLCVideoLayout, y ese factory no vuelve a correr en la vida de la pantalla. Sin
+    // que crea el TextureView del reproductor local, y ese factory no vuelve a correr en la vida de la pantalla. Sin
     // este puente la lambda del listener se queda con el `togglePlayPause`/`seekBy` de la PRIMERA
-    // composición, que leen el `activePlayer` de ese momento (el `controller` de VLC, porque
+    // composición, que leen el `activePlayer` de ese momento (el `controller` local, porque
     // `magisPlayer`/`livePlayer`/`dituPlayer` todavía no se habían publicado) y ya no el reproductor
     // que de verdad suena. Mismo patrón que `currentPlayer` más arriba.
     val togglePlayPauseActual by rememberUpdatedState { togglePlayPause() }
@@ -1801,22 +1856,35 @@ private fun PlayerContent(
         AndroidView(
             modifier = outerModifier,
             factory = { ctx ->
-                VLCVideoLayout(ctx).also { layout ->
+                android.view.TextureView(ctx).also { tv ->
+                    // Transparent until it paints: the black Box shows through, and the in-screen
+                    // players (Magis, live, Caracol) draw on top of it.
+                    tv.isOpaque = false
                     val previo = videoView
-                    videoView = layout
+                    videoView = tv
                     if (previo != null) {
                         android.util.Log.w(
                             "ArkivVout",
-                            "FACTORY #$pantallaId pisa videoView " +
+                            "FACTORY #$pantallaId replaces videoView " +
                                 "#${Integer.toHexString(System.identityHashCode(previo))} → " +
-                                "#${Integer.toHexString(System.identityHashCode(layout))}",
+                                "#${Integer.toHexString(System.identityHashCode(tv))}",
                         )
                     }
-                    vlc.attachVideo(layout, "factory#$pantallaId")
+                    // Bound on the player itself, not through `controller`: see PlaybackEngine.
+                    serviceExo.setVideoTextureView(tv)
+                    videoLocal.onSurfaceAttached(android.os.SystemClock.elapsedRealtime())
+                    android.util.Log.w("ArkivVout", "ATTACH factory#$pantallaId view=#${Integer.toHexString(System.identityHashCode(tv))}")
+                    // The activity handles rotation itself (configChanges), so this view is resized in
+                    // place and the aspect transform has to follow its new size.
+                    tv.addOnLayoutChangeListener { v, l, t, r, b, oldL, oldT, oldR, oldB ->
+                        if (r - l != oldR - oldL || b - t != oldB - oldT) {
+                            (v as android.view.TextureView).ajustarAlAspecto(videoLocal.aspect, gestos.zoomParaExo)
+                        }
+                    }
                     if (isTv) {
-                        layout.isFocusable = true
-                        layout.isFocusableInTouchMode = true
-                        layout.setOnKeyListener { _, keyCode, event ->
+                        tv.isFocusable = true
+                        tv.isFocusableInTouchMode = true
+                        tv.setOnKeyListener { _, keyCode, event ->
                             if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
                             if (marcadores.marcando) return@setOnKeyListener false
                             // Con el overlay de controles visible, el foco de Android ya está en
@@ -1878,15 +1946,25 @@ private fun PlayerContent(
                                 else -> false
                             }
                         }
-                        layout.post { layout.requestFocus() }
+                        tv.post { tv.requestFocus() }
                     }
                 }
             },
-            // El orden entre este onRelease y el factory de la pantalla entrante es justo lo que
-            // hay que ver: si suelta DESPUÉS del attach nuevo, le desarma el video a la que acaba
-            // de engancharlo y quedás en Vout 0 con el audio sonando.
-            onRelease = { vlc.detachVideo("onRelease#$pantallaId") },
+            // Aspect and zoom through the TextureView transform, same as the in-screen players.
+            update = { it.ajustarAlAspecto(videoLocal.aspect, gestos.zoomParaExo) },
+            // A no-op when the incoming screen already bound its own view: ExoPlayer only clears the
+            // view it is using. That's the ordering problem (outgoing release after incoming attach)
+            // the libVLC code had to log around.
+            onRelease = { tv ->
+                android.util.Log.w("ArkivVout", "DETACH onRelease#$pantallaId")
+                serviceExo.clearVideoTextureView(tv)
+                videoLocal.onSurfaceDetached()
+            },
         )
+
+        // Embedded subtitles of a downloaded file (cues from the local player, see the controller
+        // listener). Right above its video and below the in-screen players.
+        AndroidView(modifier = outerModifier, factory = { subtitulosLocales })
 
         // Magis: ExoPlayer reproduce el stream del proxy local (headers ya inyectados), sin VLC.
         val mItem = magisItem
@@ -2005,7 +2083,7 @@ private fun PlayerContent(
                                 if (!enVivo) { if (o.x < size.width / 2) seekBy(-seekStepMs) else seekBy(seekStepMs) }
                             },
                             onLongPress = {
-                                // Casteando no: el 2× temporal actúa sobre el VlcPlayer local, que no
+                                // Casteando no: el 2× temporal actúa sobre el reproductor local, que no
                                 // es lo que reproduce el Chromecast — el gesto queda inerte. Tampoco en
                                 // vivo: un 2x temporal sobre un directo no tiene "adelante" al que volver.
                                 if (!enVivo && !casting) {
@@ -2111,7 +2189,7 @@ private fun PlayerContent(
         // Spinner. Casteando TAMBIÉN se muestra: `espejo.buffereando` sigue al player activo, así que
         // mientras el receptor carga apaga la fila de transporte, y sin spinner la pantalla quedaba
         // con el degradado, la barra superior y el cartel de Chromecast — nada más, ni controles ni
-        // una explicación. `esperandoVideo` también se anula casteando: espera a que VLC recupere su
+        // una explicación. `esperandoVideo` también se anula casteando: espera a que el reproductor local recupere su
         // salida de video local (hasta 15s tras volver del fondo), que casteando no importa ni va a
         // llegar.
         //
@@ -2292,7 +2370,7 @@ private fun PlayerContent(
                     .background(Brush.verticalGradient(*velo))
                     // Cualquier tecla con el overlay abierto reinicia el timer de auto-ocultado, así
                     // no se desvanece encima mientras navegás botones o miniaturas. Antes solo lo
-                    // reiniciaba bump(), que dispara el listener de VLC — y ese únicamente actúa con
+                    // reiniciaba bump(), que dispara el listener del video — y ese únicamente actúa con
                     // los controles OCULTOS, así que moverse con el D-pad no lo reiniciaba nunca.
                     // Va en el contenedor y como PREVIEW (no onKeyEvent): el preview baja desde la
                     // raíz antes de llegar al control enfocado, así que ve todas las teclas aunque
@@ -2378,10 +2456,10 @@ private fun PlayerContent(
                     } else {
                         Spacer(Modifier.weight(1f))
                     }
-                    // Velocidad + zoom nativo de VLC (solo teléfono): cíclicos al tocar. Ambas fuentes.
+                    // Velocidad + zoom (solo teléfono): cíclicos al tocar. Ambas fuentes.
                     // Ocultos: el gesto de mantener presionado sigue dando 2× temporal, así que no se
                     // pierde el control de velocidad del todo.
-                    // Casteando no: siguienteVelocidad()/siguienteZoom() actúan sobre el VlcPlayer local, que
+                    // Casteando no: siguienteVelocidad()/siguienteZoom() actúan sobre el reproductor local, que
                     // no es lo que reproduce el Chromecast.
                     if (MOSTRAR_VELOCIDAD_Y_ZOOM_EN_TELEFONO && !isTv && !casting) {
                         TextButton(onClick = { gestos.siguienteVelocidad() }) {
@@ -2777,7 +2855,7 @@ private fun PlayerContent(
                             // ancho sobrante, así que los controles de transporte quedan a la
                             // izquierda y estos solo en la esquina — antes competía por espacio
                             // arriba con otros siete elementos.
-                            // Casteando no: las pistas se eligen sobre PlaybackEngine.vlc, el
+                            // Casteando no: las pistas se eligen sobre el reproductor local (`controller`), el
                             // reproductor local. El receptor de Chromecast maneja las suyas.
                             if (!isTv && !casting) {
                                 Spacer(Modifier.weight(1f))
@@ -3042,7 +3120,7 @@ private fun PlayerContent(
         }
     }
 
-    // Diálogo de audio y subtítulos (las pistas que trae el archivo/stream, vía VLC o ExoPlayer).
+    // Diálogo de audio y subtítulos (las pistas que trae el archivo/stream, vía ExoPlayer).
     // Los dos datos que recibe son solo para etiquetar las pistas que magis entrega sin idioma; ver
     // `etiquetaDeSpu`.
     DialogoDeAudioYSubtitulos(

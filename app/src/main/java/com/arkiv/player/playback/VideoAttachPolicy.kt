@@ -1,19 +1,16 @@
 package com.arkiv.player.playback
 
 /**
- * Re-engancha el video de libVLC al volver de segundo plano.
+ * Re-binds the local player's video when the app comes back from the background.
  *
- * Al salir de la app, Android DESTRUYE la Surface del SurfaceView y libVLC tumba su salida de video
- * (se ve un evento `Vout 0` en el log). Al volver se crea una Surface nueva, pero si nadie vuelve a
- * llamar `attachViews` la salida NUNCA se reconstruye: queda la pantalla NEGRA con el audio sonando
- * (el VlcPlayer vive en el PlaybackService, así que la reproducción sigue sin la UI).
+ * The local player (downloaded files) lives in `PlaybackService`, so it keeps playing without the
+ * UI. On ON_STOP the screen unbinds its TextureView from that ExoPlayer (the audio goes on); on
+ * ON_START it binds it again, and ExoPlayer rebuilds its video output on it. It never stops the
+ * player: the audio must keep going in the background.
  *
- * Es el patrón del sample oficial de libVLC (attach en onStart / detach en onStop) con una
- * diferencia: acá NO se para el player, porque el audio debe seguir en segundo plano.
- *
- * Solo re-engancha si hubo un ON_STOP previo: al entrar a la pantalla el layout ya se enganchó al
- * construirse, y el Lifecycle despacha un ON_START al registrar el observador — sin este guardián
- * ese ON_START tumbaría y rehacía el vout recién creado.
+ * It only re-binds after a previous ON_STOP: entering the screen already bound the view when it was
+ * built, and the Lifecycle dispatches an ON_START on registering the observer — without this guard
+ * that ON_START would unbind and rebind the output that was just created.
  */
 class VideoAttachPolicy(
     private val attach: () -> Unit,
