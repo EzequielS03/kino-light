@@ -18,12 +18,15 @@ val ArkivTextPrimary = Color(0xFFF5F5F5)
 val ArkivTextSecondary = Color(0xFFB3B3B3)
 
 /**
- * Verde ya usado en el resto de la app para "estado bueno" (idioma LATINO en [com.arkiv.player.ui.catalog.PlaySources],
- * categoría "series" en [com.arkiv.player.ui.search.SearchScreen]) -- se reusa para marcar
- * "ya descargado en la NUC" y así no inventar un color nuevo ni pisar el rojo de marca
- * (reservado a CTAs). Vive acá, y no en una pantalla, porque lo comparten el diálogo de packs
- * ([com.arkiv.player.ui.catalog.WebPackDialog]) y el detalle de "Mi biblioteca"
- * ([com.arkiv.player.ui.detail.DetailScreen]): son el MISMO indicador y tienen que verse igual.
+ * Green already used elsewhere in the app for "good state" (LATINO language in
+ * [com.arkiv.player.ui.catalog.PlaySources], "series" category in
+ * [com.arkiv.player.ui.search.SearchScreen]) -- reused to mark "already saved on the device" so as
+ * not to invent a new color or step on the brand red (reserved for CTAs). The name is a holdover
+ * from when this marked a NUC download; that server-side download path was removed in this
+ * branch's pruning, and the color now marks a plain local download instead. Lives here, not in a
+ * screen, because it's shared between [com.arkiv.player.ui.components.ControlDeDescarga] and the
+ * "Mi biblioteca" detail ([com.arkiv.player.ui.detail.DetailScreen]): it's the SAME indicator and
+ * has to look the same in both.
  */
 val NucDownloadedGreen = Color(0xFF4CAF50)
 
