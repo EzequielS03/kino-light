@@ -393,9 +393,12 @@ private fun DetailContent(
     // esta pantalla de composición al abrir el reproductor, y un remember plano se resetea al
     // volver — el filtro elegido se perdía en cada "atrás" desde el player.
     var selectedSite by rememberSaveable(data.identifier) { mutableStateOf<String?>(null) }
-    // Los episodios sin sourceRef reconocible (archive.org, magnets de torrent, o guardados antes
-    // de que se persistiera sourceRef) no pertenecen a NINGÚN sitio del filtro, así que se quedan
-    // siempre visibles en vez de desaparecer cuando el usuario filtra por un sitio puntual.
+    // Episodes without a recognizable sourceRef -- which today is basically ALL of them: Magis and
+    // Ditu both write an opaque ref into `torrentData` (`magis1:...`, `ditu1:...`), not a URL, so
+    // `siteLabelOf` returns null for them. This only ever resolves to a real host for a legacy row
+    // saved by the now-removed web source (a plain URL) or before sourceRef was persisted at all --
+    // these episodes don't belong to ANY site in the filter, so they stay visible always instead of
+    // disappearing when the user filters by one specific site.
     val filteredEpisodes = remember(data.episodes, selectedSite) {
         val site = selectedSite
         if (site == null) {
@@ -508,16 +511,18 @@ private fun DetailContent(
                         progress = data.progress[ep.id],
                         isCurrent = ep.id == currentEpisodeId,
 
-                        // Título e imagen reales del capítulo (TMDB). Solo aparecen si se pudo saber a
-                        // qué serie y a qué número corresponde la fila; si no, la fila cae al nombre
-                        // del archivo y al fotograma que genera archive.org, como antes.
+                        // Real chapter title and image (TMDB). Only show up when it could tell which
+                        // series/number this row is; otherwise the row falls back to the filename and
+                        // to the on-device captured frame (or the series poster, if there's no frame
+                        // either) -- see EleccionDeMiniatura further down.
                         tmdbTitle = tmdbTitles[ep.id],
                         tmdbStill = tmdbStills[ep.id],
                         tmdbFrame = tmdbFrames[ep.id],
                         tmdbOverview = tmdbOverviews[ep.id],
-                        // Fallback de miniatura: los capítulos web nunca traen un still propio
-                        // (addWebSeriesEpisode guarda thumbPath = null a propósito, el pack solo da un
-                        // póster de la serie), y sin esto la fila quedaba con un recuadro vacío.
+                        // Thumbnail fallback: chapters never bring their own still today -- both
+                        // MagisEntities and DituEntities always save thumbPath = null, the same way
+                        // the removed web source's `addWebSeriesEpisode` used to; only the series
+                        // poster is known, and without this the row was left with an empty box.
                         fallbackThumb = data.thumbnailUrl,
                         estado = estadosDeDescarga[ep.id] ?: EstadoDeDescarga.SinDescargar,
                         onPlay = { onPlayEpisode(ep.id) },
@@ -626,12 +631,13 @@ private fun FichaDelItem(data: ItemDetail, onPlayEpisode: (String) -> Unit) {
 }
 
 /**
- * Host corto ("serieskao.top") a partir del `sourceRef` (pageUrl) de un episodio web, para
- * agrupar el filtro de la lista por sitio de origen. Null para archive.org, magnets de torrent
- * (no son una URL http válida), o episodios guardados antes de que se persistiera `sourceRef` —
- * ninguno de esos tiene un "sitio" que mostrar como chip. Mismo patrón que
- * `CfClearanceStore.hostOf` / `CloudflareSolver` (`java.net.URL(...).host`), para no inventar una
- * segunda forma de sacarle el host a una URL en el código.
+ * Short host ("serieskao.top") from an episode's `sourceRef`, to group the list filter by origin
+ * site. Returns null for anything that isn't a real http URL -- which today is essentially
+ * everything: Magis and Ditu both write an opaque ref (`magis1:...`, `ditu1:...`), not a URL, into
+ * the field this reads (see `siteLabels` above). This only ever resolves for a legacy row saved by
+ * the now-removed web source (a real page URL), a torrent magnet, or an episode saved before
+ * `sourceRef` was persisted -- none of those has a "site" to show as a chip either. Uses plain
+ * `java.net.URL(...).host` rather than inventing a second way to pull a host out of a URL.
  */
 private fun siteLabelOf(sourceRef: String?): String? {
     if (sourceRef.isNullOrBlank()) return null
@@ -872,9 +878,10 @@ private fun EpisodeRow(
                     overflow = TextOverflow.Ellipsis,
                     color = if (watched) ArkivTextSecondary else MaterialTheme.colorScheme.onBackground,
                 )
-                // Los capítulos guardados desde web/torrent nunca traen duración real (queda en 0.0 a
-                // propósito al guardar, ver ArkivRepository.kt) -- mostrar "0:00" ahí parecía un error
-                // en vez de un dato que simplemente no se conoce, así que la fila la omite.
+                // No chapter brings a real duration when it's first saved -- MagisEntities and
+                // DituEntities both write durationSeconds = 0.0 on purpose, same as the removed
+                // web/torrent sources used to (see ArkivRepository.kt). Showing "0:00" there looked
+                // like a bug instead of a value that simply isn't known yet, so the row omits it.
                 if (episode.durationSeconds > 0) {
                     Text(
                         formatDuration((episode.durationSeconds * 1000).toLong()),
