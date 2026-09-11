@@ -1,4 +1,4 @@
-package com.arkiv.player.ui.tv
+package com.arkiv.player.ui.catalog
 
 import com.arkiv.player.data.ditu.DituCanal
 import com.arkiv.player.data.gateway.GatewayException

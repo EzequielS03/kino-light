@@ -1,15 +1,16 @@
-package com.arkiv.player.ui.tv
+package com.arkiv.player.ui.catalog
 
 import com.arkiv.player.data.ditu.DituCanal
 import com.arkiv.player.data.ditu.FalloDeCaracol
 
 /**
- * Lo que muestra la pestaña "En vivo" de [TvCaracolScreen], armado a partir de la llamada a
- * `DituFuente.canales`.
+ * Lo que muestra la pestaña "En vivo" de Caracol, armado a partir de la llamada a
+ * `DituFuente.canales`. Compartido por el televisor (`com.arkiv.player.ui.tv.TvCaracolScreen`) y el
+ * celular ([CaracolScreen]).
  *
  * Existe para que un fallo NO se vea igual que "no hay canales": si Caracol o la red fallan, la
  * pestaña lo dice en palabras de persona ([FalloDeCaracol.alCargarLosCanales]; el detalle va al log
- * de `TvCaracolScreen`) y la persona puede reintentar con "Recargar".
+ * de quien la usa) y la persona puede reintentar con "Recargar".
  */
 internal sealed interface EstadoDeCanales {
 

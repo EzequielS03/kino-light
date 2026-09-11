@@ -45,6 +45,8 @@ import com.arkiv.player.data.ditu.DituItem
 import com.arkiv.player.data.gateway.GatewayResult
 import com.arkiv.player.playback.DituVivo
 import com.arkiv.player.ui.catalog.ArkivCaracolVerde
+import com.arkiv.player.ui.catalog.CaracolCatalogo
+import com.arkiv.player.ui.catalog.EstadoDeCanales
 import com.arkiv.player.ui.catalog.PlaySource
 import com.arkiv.player.ui.catalog.esSerie
 import com.arkiv.player.ui.rememberGraph
@@ -412,12 +414,13 @@ private data class FilaDeCaracol(val clave: String, val seccion: String, val tit
  * [com.arkiv.player.data.ditu.DituCatalogo]), y una fila con todos los de un tipo se recorre tarjeta
  * por tarjeta con el D-pad; partidas, se baja entre filas, que es el gesto del molde.
  *
- * Sin repetidos: la clave de cada tarjeta es su ref, y una clave repetida en una lista lazy tumba la
- * pantalla.
+ * El split en series/películas (sin repetidos, por [CaracolCatalogo]) es compartido con la sección
+ * del celular; el chunking en filas de a [TITULOS_POR_FILA] es solo de la fila horizontal del
+ * televisor, así que se queda acá.
  */
 private fun filasDeCaracol(titulos: List<DituItem>): List<FilaDeCaracol> {
-    val (peliculas, series) = titulos.distinctBy { it.ref() }.partition { it.esPelicula }
-    return listOf("Series" to series, "Películas" to peliculas).flatMap { (nombre, lista) ->
+    val catalogo = CaracolCatalogo.de(titulos)
+    return listOf("Series" to catalogo.series, "Películas" to catalogo.peliculas).flatMap { (nombre, lista) ->
         lista.chunked(TITULOS_POR_FILA).mapIndexed { i, fila -> FilaDeCaracol("$nombre:$i", nombre, fila) }
     }
 }
