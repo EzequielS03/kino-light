@@ -28,14 +28,18 @@ internal sealed interface DestinoDeRecomendacion {
 
 /**
  * Qué guardar al agregar a la biblioteca una tarjeta de la fila "Para ti". Puro/JVM (se prueba sin
- * Room ni red); quien llama pone la red y la escritura, ver [GuardadorDeRecomendaciones].
+ * Room ni red); quien llama pone la red y la escritura, ver [AgregadorDeRecomendaciones].
  *
- * **Una recomendación de serie es una TEMPORADA, no un capítulo.** El `ref` que arma el gateway
- * para una serie apunta a la temporada entera (lleva `episode: 0` adentro), así que guardarlo tal
- * cual con `addMagisSource` dejaba el ítem con un solo episodio y marcado como película — que es
- * exactamente como entró "My Hero Academia", con 1 de sus 13 capítulos. Los capítulos hay que
- * pedírselos al gateway (`MagisCatalog.detail`) y guardarlos con `addMagisSeason`, igual que hace el botón
- * "Guardar" del diálogo de temporada (`SearchPlayback.magisEpisodeIdDe`).
+ * Primero decide de qué FUENTE es la recomendación ([destino], [destinoDeRef], [itemIdDe]: Magis o
+ * Caracol, según su `ref`) y después, para Magis, cómo guardarla:
+ *
+ * **Una recomendación de serie es una TEMPORADA, no un capítulo.** El `ref` de una serie de Magis
+ * apunta a la temporada entera (lleva `episode: 0` adentro), así que guardarlo tal cual con
+ * `addMagisSource` dejaba el ítem con un solo episodio y marcado como película — que es exactamente
+ * como entró "My Hero Academia", con 1 de sus 13 capítulos. Los capítulos hay que pedírselos al
+ * portal (`MagisCatalog.detail`) y guardarlos con `addMagisSeason`, igual que hace el botón
+ * "Guardar" del diálogo de temporada (`SearchPlayback.magisEpisodeIdDe`). Caracol resuelve su propio
+ * camino en `AgregadorDeRecomendaciones.agregarDeCaracol`.
  */
 object GuardadoDeRecomendacion {
 
@@ -79,9 +83,9 @@ object GuardadoDeRecomendacion {
      * suelto de siempre.
      *
      * Null con lista vacía y no una temporada de cero capítulos: los refs de "Para ti" no son todos
-     * de Magis (hoy hay recomendaciones que apuntan a archive y a torrent), y `MagisCatalog.detail`
-     * responde 422 para esas fuentes. `addMagisSeason` con la lista vacía no escribe nada, así que
-     * sin este null la tarjeta se quedaría sin guardar y sin abrir el detalle.
+     * de Magis (el generador también produce de Caracol), y `MagisCatalog.detail` responde 422 para
+     * esos. `addMagisSeason` con la lista vacía no escribe nada, así que sin este null la tarjeta se
+     * quedaría sin guardar y sin abrir el detalle.
      *
      * Un [GatewaySerie.tmdbId] en 0 es "no vino" y no una identificación: sale de un `optInt`, y ese
      * 0 le ganaría al `?:` con el que `buildSeason` preserva el tmdbId que ya estaba guardado.

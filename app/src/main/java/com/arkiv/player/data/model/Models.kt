@@ -51,10 +51,11 @@ data class Episode(
  * y `addSeriesEpisodeMagnet`). `section`/`displayName` no tienen columna int propia, así que este
  * parseo es la fuente de esos dos números cuando hace falta mostrarlos.
  *
- * Verificado con `grep -rn "seasonOf(\|episodeOf(" app/src/main/java`: hoy el único consumidor real
- * es [displayLabel] (vía `ArkivRepository.headerInfo`, para el rótulo "T1 · E3" del encabezado del
- * player), que reusa [seasonOf] como uno de sus fallbacks de temporada. `episodeOf` no lo llama
- * nadie en producción; solo lo ejercitan los tests de acá abajo.
+ * Verificado con `grep -rn "seasonOf(\|episodeOf(" app/src/main/java`: además de [displayLabel] (vía
+ * `ArkivRepository.headerInfo`, para el rótulo "T1 · E3" del encabezado del player, que reusa
+ * [seasonOf] como uno de sus fallbacks de temporada), hoy los llama directo
+ * `ArkivRepository.obraParaDatos`, para deducir la temporada y el capítulo de un episodio cuando
+ * `EpisodeEntity.season`/`.episode` no los trae.
  */
 object EpisodeNumbering {
     /** Primer número de la sección ("Temporada 2" → 2). Null si la sección no es de serie. */

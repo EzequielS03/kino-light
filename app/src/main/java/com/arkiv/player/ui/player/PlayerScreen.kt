@@ -1359,8 +1359,11 @@ private fun PlayerContent(
         carruselRevelado = estadoCapitulos.revelado,
     )
 
-    // BACK cierra el panel del dato curioso antes que nada. Va ANTES del handler de los controles
-    // para quedar más adentro en la pila: con el panel abierto, BACK lo cierra y no sale del video.
+    // Este BackHandler se agrega ANTES que el de los controles (más abajo), y `OnBackPressedDispatcher`
+    // le da prioridad al ÚLTIMO callback agregado: con el overlay visible Y el panel del dato curioso
+    // abierto, BACK cierra primero los controles, no el panel. Recién con los controles ya ocultos un
+    // segundo BACK cierra el panel. Sigue siendo mejor que nada (sin este handler, BACK con el panel
+    // abierto y los controles ocultos saldría del video de una) y no cambia en esta tanda.
     BackHandler(enabled = estadoTrivia.panelAbierto) { estadoTrivia.cerrarPanel() }
 
     // BACK con el overlay en pantalla lo CIERRA en vez de salir del video; con el overlay ya
@@ -2176,13 +2179,6 @@ private fun PlayerContent(
             )
         }
 
-        // Indicador "reproduciendo desde la NUC" (Task 11, sub-tarea de seguimiento). Antes la
-        // única señal de que el capítulo venía de la NUC en vez de la fuente en vivo era la mera
-        // PRESENCIA del botón "Reproducir en vivo" (más abajo, dentro del overlay de controles) —
-        // había que darse cuenta de qué significaba que estuviera ahí. Este chip lo dice directo.
-        // Vive AFUERA del AnimatedVisibility de los controles (como el cartel de Chromecast y el
-        // indicador de descarga de torrent de arriba) a propósito: es informativo, no un control,
-        // así que se mantiene visible aunque los controles se hayan desvanecido por inactividad.
         // Cartel "Dato curioso" arriba y centrado, y el panel que despliega el texto (ver sus KDoc
         // en `TriviaDelPlayer.kt`). En el teléfono el cartel es tocable; en TV se abre con la
         // flecha arriba, ver el listener del video.

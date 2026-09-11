@@ -131,8 +131,8 @@ class AgregadorDeRecomendaciones(
      * Los capítulos según el gateway, o null si no los pudo dar.
      *
      * Un fallo acá NO es terminal: `MagisCatalog.detail` responde 422 para las fuentes que no exponen
-     * capítulos (hoy hay recomendaciones que apuntan a archive y a torrent), y un gateway caído no
-     * puede dejar sin guardar algo que igual se puede reproducir. [CancellationException] se
+     * capítulos (el ref puede ser de Caracol, no de Magis), y un gateway caído no puede dejar sin
+     * guardar algo que igual se puede reproducir. [CancellationException] se
      * relanza: tragarla dejaría corriendo una corrutina que su scope ya dio por muerta.
      */
     private suspend fun temporadaDelGateway(rec: RecomendacionEntity): TemporadaDeRecomendacion? = try {

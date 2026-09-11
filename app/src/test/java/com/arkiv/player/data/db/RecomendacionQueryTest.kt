@@ -9,8 +9,8 @@ import org.junit.Test
 
 /**
  * La consulta que expone las recomendaciones vigentes de la cuenta (fila "Para ti" del inicio):
- * ordenadas por `orden` -- lo que decidió el gateway -- y sin lo que ya quedó marcado como tombstone
- * (`deleted`). Ver [RecomendacionDao.observeVigentes].
+ * ordenadas por `orden` -- lo que decidió `GeneradorParaTi`, en el aparato -- y sin lo que ya quedó
+ * marcado como tombstone (`deleted`). Ver [RecomendacionDao.observeVigentes].
  *
  * Se ejecuta contra SQLite de verdad -- mismo criterio que [SyncTriggersTest] -- porque es SQL puro
  * y este módulo no tiene infraestructura de Room (ni Robolectric) en los tests unitarios de la JVM.

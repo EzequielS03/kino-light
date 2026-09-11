@@ -151,8 +151,9 @@ películas: es la única pieza que conoce a Kilo.
   2. **¿Ya lo tienes?** Se descarta si su `tmdbId` o su título normalizado (sin tildes, mayúsculas ni
      signos) está en la biblioteca o en el historial. Se comparan **los dos títulos**, el de TMDB y el del
      modelo. Un título que normaliza a vacío nunca cuenta.
-  3. **¿Se puede reproducir?** Se busca en la fuente compuesta (Magis y Caracol) con el título, el tipo, el
-     año y el `tmdbId` de TMDB.
+  3. **¿Se puede reproducir?** Se busca en la fuente compuesta (Magis y Caracol) con el título, el tipo y
+     el `tmdbId` de TMDB. El año no viaja acá —`GatewaySearchQuery` no tiene ese campo, y el adaptador lo
+     descarta—; llega recién al árbitro, en el paso siguiente.
   4. **¿Es esa obra?** El **árbitro** —otra llamada al cliente de IA— recibe la lista numerada de
      resultados y responde cuáles corresponden, con el prompt del gateway (`arbitro.py`):
      > Busco: {titulo}{anio} ({tipo}). Abajo hay una lista numerada de resultados de varias fuentes:
@@ -187,8 +188,11 @@ recomendaciones nuevas, quedan las de antes.** El detalle de cada fallo va al lo
 ## Privacidad
 
 "Para ti" le manda a Kilo **los títulos de lo que viste**. El gateway ya lo hacía con sus proveedores;
-la diferencia es que ahora sale directo desde el aparato, con su IP. El dato curioso manda solo el
-nombre de la obra que se está reproduciendo.
+la diferencia es que ahora sale directo desde el aparato, con su IP. El dato curioso manda el nombre
+de la obra que se está reproduciendo y, desde la adenda del 2026-09-10, también la ficha pública de
+TMDB con la que se ancla: reparto, fechas de estreno o emisión, director, guionistas, creadores,
+cadena y los mismos datos del capítulo si aplica. Son datos públicos de catálogo -los que cualquiera
+ve en la página de TMDB de la obra-, no datos personales de quien mira.
 
 ## Riesgos
 
