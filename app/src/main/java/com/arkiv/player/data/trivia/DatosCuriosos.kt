@@ -11,7 +11,7 @@ import java.security.MessageDigest
 
 /**
  * La obra de la que se piden datos curiosos: su identidad, sin su ficha. La ficha de hechos
- * verificados de TMDB se busca aparte y solo si hace falta (puede costar hasta 3 llamadas): ver
+ * verificados de TMDB se busca aparte y solo si hace falta (puede costar hasta 2 llamadas): ver
  * [DatosCuriosos.de].
  */
 internal data class ObraDeDatos(
@@ -24,14 +24,15 @@ internal data class ObraDeDatos(
     /**
      * tipo + tmdbId (o el título canónico) + temporada + capítulo: la clave del caché.
      *
-     * El prefijo `v2:` es la versión del prompt y de la ficha anclada en TMDB (adenda de spec del
-     * 2026-09-10): sin él, los datos inventados que ya están guardados con la clave vieja (hasta 30
-     * días) se seguirían mostrando tal cual.
+     * El prefijo `v3:` es la versión del prompt, de la ficha anclada en TMDB y del filtro de
+     * nombres sin letras latinas (adenda de spec del 2026-09-10): sin subirlo, los datos ya
+     * guardados con la clave vieja —incluidos los que trajeron nombres en kanji— se seguirían
+     * mostrando tal cual.
      */
     val clave: String
         get() {
             val quien = tmdbId?.takeIf { it > 0 }?.toString() ?: tituloCanonico.orEmpty().trim().lowercase()
-            return "v2:$tipo:$quien:${temporada ?: 0}:${episodio ?: 0}"
+            return "v3:$tipo:$quien:${temporada ?: 0}:${episodio ?: 0}"
         }
 
     internal companion object {
@@ -78,10 +79,12 @@ internal object PreguntaDeDatos {
             "Cada uno UNA sola frase corta, en español de Colombia, sin voseo, de menos de " +
             "$LARGO_MAXIMO caracteres. SIN SPOILERS: nada de lo que pasa en la trama, ni finales, " +
             "ni giros. Habla de producción, doblaje, música, reparto, rodaje, recepción o contexto " +
-            "histórico. Apóyate en los datos verificados de arriba cuando los haya: nunca " +
-            "contradigas sus fechas ni sus nombres, y no incluyas un dato si no estás seguro de que " +
-            "es cierto para ESTA obra exacta. Es mejor devolver pocos datos, o un arreglo vacío " +
-            "([]), que inventar. Responde SOLO un arreglo JSON de cadenas, sin texto alrededor."
+            "histórico. Los nombres de personas van solo en caracteres latinos: si de alguien solo " +
+            "conoces el nombre en otro alfabeto, no lo menciones. Apóyate en los datos verificados " +
+            "de arriba cuando los haya: nunca contradigas sus fechas ni sus nombres, y no incluyas " +
+            "un dato si no estás seguro de que es cierto para ESTA obra exacta. Es mejor devolver " +
+            "pocos datos, o un arreglo vacío ([]), que inventar. Responde SOLO un arreglo JSON de " +
+            "cadenas, sin texto alrededor."
     }
 
     fun limpiar(arreglo: JSONArray): List<String> =

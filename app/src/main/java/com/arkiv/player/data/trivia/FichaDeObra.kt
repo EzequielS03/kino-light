@@ -103,6 +103,14 @@ internal data class FichaDeObra(
  *  null de verdad (mismo patrón que `TmdbApi.texto`; TMDB manda nulls de verdad seguido). */
 private fun JSONObject.texto(name: String): String = if (isNull(name)) "" else optString(name)
 
+/** Si [nombre] tiene alguna letra latina. TMDB guarda el `name` de mucha gente japonesa (y de otras
+ *  procedencias) en su alfabeto original: sin ninguna letra latina ese nombre sale ilegible para
+ *  quien ve en Colombia, así que los parsers de personas lo descartan (nunca los títulos de la obra
+ *  ni del capítulo, que se muestran tal cual). Un nombre mixto con al menos una letra latina se queda. */
+private val LETRA_LATINA = Regex("\\p{IsLatin}")
+
+private fun tieneLetrasLatinas(nombre: String): Boolean = LETRA_LATINA.containsMatchIn(nombre)
+
 /** Los `name` no vacíos (ni el texto `"null"`) de un arreglo de objetos `{"name": ...}`. */
 private fun JSONArray?.nombres(): List<String> =
     (0 until (this?.length() ?: 0)).mapNotNull { i -> this?.optJSONObject(i)?.texto("name")?.takeIf(String::isNotBlank) }
@@ -112,6 +120,7 @@ private fun JSONArray?.directoresDe(): List<String> =
     (0 until (this?.length() ?: 0)).mapNotNull { i -> this?.optJSONObject(i) }
         .filter { it.texto("job") == "Director" }
         .mapNotNull { it.texto("name").takeIf(String::isNotBlank) }
+        .filter(::tieneLetrasLatinas)
         .distinct()
 
 /** Los `name` de `crew` cuyo `department` es "Writing" (puede repetir persona con distintos `job`). */
@@ -119,14 +128,16 @@ private fun JSONArray?.guionistasDe(): List<String> =
     (0 until (this?.length() ?: 0)).mapNotNull { i -> this?.optJSONObject(i) }
         .filter { it.texto("department") == "Writing" }
         .mapNotNull { it.texto("name").takeIf(String::isNotBlank) }
+        .filter(::tieneLetrasLatinas)
         .distinct()
 
 /** Los primeros [n] `name` de un arreglo de reparto, ordenados por `order` (los sin `order` al final). */
 private fun JSONArray?.repartoDe(n: Int): List<String> =
     (0 until (this?.length() ?: 0)).mapNotNull { i -> this?.optJSONObject(i) }
         .sortedBy { it.optInt("order", Int.MAX_VALUE) }
-        .take(n)
         .mapNotNull { it.texto("name").takeIf(String::isNotBlank) }
+        .filter(::tieneLetrasLatinas)
+        .take(n)
 
 private const val REPARTO_PRINCIPAL = 5
 private const val INVITADOS_PRINCIPALES = 5
@@ -160,7 +171,7 @@ internal fun fichaDeSerie(json: String): FichaDeObra? = runCatching {
         nombre = nombre,
         fechaEstreno = o.texto("first_air_date").takeIf { it.isNotBlank() },
         reparto = cast.repartoDe(REPARTO_PRINCIPAL),
-        creadores = o.optJSONArray("created_by").nombres(),
+        creadores = o.optJSONArray("created_by").nombres().filter(::tieneLetrasLatinas),
         cadenas = o.optJSONArray("networks").nombres(),
     )
 }.getOrNull()
@@ -175,8 +186,9 @@ internal fun capituloDeFicha(json: String): FichaDeCapitulo? = runCatching {
     if (temporada == null && episodio == null) return@runCatching null
     val invitados = (0 until (o.optJSONArray("guest_stars")?.length() ?: 0))
         .mapNotNull { i -> o.optJSONArray("guest_stars")?.optJSONObject(i) }
-        .take(INVITADOS_PRINCIPALES)
         .mapNotNull { it.texto("name").takeIf(String::isNotBlank) }
+        .filter(::tieneLetrasLatinas)
+        .take(INVITADOS_PRINCIPALES)
     FichaDeCapitulo(
         temporada = temporada,
         episodio = episodio,

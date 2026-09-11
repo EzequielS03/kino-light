@@ -149,6 +149,90 @@ class FichaDeObraTest {
         assertNull(capituloDeFicha("{esto no es json"))
     }
 
+    @Test fun `un actor sin letras latinas no aparece en el reparto`() {
+        val json = """
+            {
+              "title": "Naruto la película",
+              "credits": {
+                "cast": [
+                  {"name": "竹内順子", "order": 0},
+                  {"name": "Junko Takeuchi", "order": 1}
+                ]
+              }
+            }
+        """.trimIndent()
+        val f = fichaDePelicula(json)!!
+        assertEquals(listOf("Junko Takeuchi"), f.reparto)
+    }
+
+    @Test fun `un director solo en kanji no aparece`() {
+        val json = """
+            {
+              "title": "Naruto la película",
+              "credits": {
+                "crew": [
+                  {"name": "小坂春女", "job": "Director", "department": "Directing"}
+                ]
+              }
+            }
+        """.trimIndent()
+        val f = fichaDePelicula(json)!!
+        assertTrue(f.directores.isEmpty())
+    }
+
+    @Test fun `un nombre mixto con letras latinas se queda`() {
+        val json = """
+            {
+              "title": "Naruto la película",
+              "credits": {
+                "crew": [
+                  {"name": "Haruko 春子", "job": "Director", "department": "Directing"}
+                ]
+              }
+            }
+        """.trimIndent()
+        val f = fichaDePelicula(json)!!
+        assertEquals(listOf("Haruko 春子"), f.directores)
+    }
+
+    @Test fun `un guionista solo en kanji no aparece`() {
+        val json = """
+            {
+              "title": "Naruto la película",
+              "credits": {
+                "crew": [
+                  {"name": "西園悟", "job": "Screenplay", "department": "Writing"}
+                ]
+              }
+            }
+        """.trimIndent()
+        val f = fichaDePelicula(json)!!
+        assertTrue(f.guionistas.isEmpty())
+    }
+
+    @Test fun `un creador solo en kanji no aparece en la ficha de serie`() {
+        val json = """
+            {
+              "name": "Naruto",
+              "created_by": [{"name": "岸本斉史"}, {"name": "Masashi Kishimoto"}]
+            }
+        """.trimIndent()
+        val f = fichaDeSerie(json)!!
+        assertEquals(listOf("Masashi Kishimoto"), f.creadores)
+    }
+
+    @Test fun `un invitado solo en kanji no aparece en el capitulo`() {
+        val json = """
+            {
+              "season_number": 1,
+              "episode_number": 2,
+              "guest_stars": [{"name": "竹内順子"}, {"name": "Invitado Uno"}]
+            }
+        """.trimIndent()
+        val c = capituloDeFicha(json)!!
+        assertEquals(listOf("Invitado Uno"), c.invitados)
+    }
+
     @Test fun `renglones arma serie y capitulo como en el ejemplo del brief`() {
         val ficha = fichaDeSerie(serieJson)!!.copy(capitulo = capituloDeFicha(capituloJson))
         val r = ficha.renglones()

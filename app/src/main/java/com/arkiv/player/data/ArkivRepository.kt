@@ -1349,8 +1349,8 @@ class ArkivRepository(
      * título canónico (sin ningún hecho): sigue siendo mejor que preguntar a ciegas. `null` si no
      * hay ni eso. La cancelación se relanza; lo demás se traga, como antes en `nombreDeObra`.
      *
-     * **Esto solo corre si no hay caché** (igual que antes con el nombre): puede costar hasta 3
-     * llamadas a TMDB.
+     * **Esto solo corre si no hay caché** (igual que antes con el nombre): puede costar hasta 2
+     * llamadas a TMDB (película, o serie + capítulo).
      */
     internal suspend fun fichaDeObra(obra: com.arkiv.player.data.trivia.ObraDeDatos): com.arkiv.player.data.trivia.FichaDeObra? {
         val tmdb = tmdbApi

@@ -260,3 +260,8 @@ que traía datos y quedó vacío tras la limpieza (eso es un tropiezo del modelo
 **La clave del caché cambia de versión** (`v2:` al principio): así los datos ya guardados con el prompt
 viejo —muchos de ellos inventados, como los de arriba— dejan de mostrarse, sin tener que borrar a mano
 los archivos del caché viejo (se quedan hasta que vencen sus 30 días).
+
+**Ajuste (2026-09-10, medido en el TV con *Naruto* E3)**: TMDB guarda el `name` de mucha gente
+japonesa en su alfabeto original (kanji), ilegible para quien ve en Colombia. La ficha descarta ahora
+el nombre de una persona sin ninguna letra latina, y el prompt le pide lo mismo al modelo; la clave del
+caché sube a `v3:` para que los datos ya guardados con nombres en kanji se vuelvan a generar.

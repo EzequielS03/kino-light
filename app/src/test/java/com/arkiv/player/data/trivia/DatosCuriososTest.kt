@@ -24,12 +24,12 @@ class DatosCuriososTest {
     }
 
     @Test fun `la clave usa el tmdbId cuando lo hay`() {
-        assertEquals("v2:movie:354912:0:0", pelicula.clave)
-        assertEquals("v2:tv:46260:1:2", ObraDeDatos("tv", 46260, "Naruto", 1, 2).clave)
+        assertEquals("v3:movie:354912:0:0", pelicula.clave)
+        assertEquals("v3:tv:46260:1:2", ObraDeDatos("tv", 46260, "Naruto", 1, 2).clave)
     }
 
     @Test fun `sin tmdbId la clave usa el titulo canonico`() {
-        assertEquals("v2:tv:naruto:1:2", ObraDeDatos("tv", null, "Naruto", 1, 2).clave)
+        assertEquals("v3:tv:naruto:1:2", ObraDeDatos("tv", null, "Naruto", 1, 2).clave)
     }
 
     /** Preguntar a ciegas es la forma más rápida de que el modelo invente. */
@@ -76,6 +76,11 @@ class DatosCuriososTest {
         assertTrue(i.contains(ficha.renglones()))
     }
 
+    @Test fun `la instruccion pide los nombres de personas en caracteres latinos`() {
+        val i = PreguntaDeDatos.instruccion(fichaCoco, null, null)
+        assertTrue(i.contains("caracteres latinos"))
+    }
+
     @Test fun `pide hasta 8, no 8 exactos`() {
         val i = PreguntaDeDatos.instruccion(fichaCoco, null, null)
         assertTrue(i.contains("Dame hasta 8"))
@@ -105,7 +110,7 @@ class DatosCuriososTest {
         assertEquals(listOf("a", "b"), cache.datos[pelicula.clave])
     }
 
-    /** La ficha puede costar hasta 3 llamadas a TMDB: con caché no se pide. */
+    /** La ficha puede costar hasta 2 llamadas a TMDB: con caché no se pide. */
     @Test fun `con cache no se pregunta ni se pide la ficha`() = runTest {
         val cache = CacheEnMemoria().apply { datos[pelicula.clave] = listOf("guardado") }
         var preguntas = 0
