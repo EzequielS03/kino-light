@@ -10,12 +10,14 @@ import com.arkiv.player.data.gateway.LiveChannel
  * reordena) con la caché local de canales ([cache], indexada por `code`) para completar logo y
  * número, que `live_recents` no guarda.
  *
- * Por qué cruzar con la caché y no guardar logo/número en `live_recents` directamente: esa tabla
- * sincroniza por PocketBase (ver `cloudsync/CloudSyncManager`), así que sumarle columnas de puro
- * presentación habría significado tocar el esquema, escribir una migración de Room Y decidir si
- * ese campo debe viajar entre dispositivos -- todo por un dato que `live_channels_cache` (que YA
- * guarda logo/numero, y que NO sincroniza por ser caché reconstruible) resuelve sin tocar nada de
- * eso. El costo de este atajo es que esa caché es por categoría del portal y puede no tener un
+ * Why cross-reference the cache instead of storing logo/number in `live_recents` directly: that
+ * table used to sync through PocketBase (`cloudsync/CloudSyncManager`, both removed with this
+ * branch's pruning) -- back then, adding presentation-only columns meant touching the schema,
+ * writing a Room migration, AND deciding whether that field should travel between devices. Cloud
+ * sync is gone now, but the schema/migration cost of adding a column is unrelated to that and
+ * still applies -- and `live_channels_cache` (which ALREADY stores logo/numero, and never needed
+ * to sync since it's a reconstructible cache) solves the same need without touching any of that.
+ * El costo de este atajo es que esa caché es por categoría del portal y puede no tener un
  * canal puntual (uno visto hace poco cuya categoría nunca se volvió a cargar): por eso, cuando
  * `code` no aparece en [cache], el resultado cae a `numero = 0` y `logo = null` -- valores
  * "desconocido", no un error. Quien pinta la tarjeta trata `logo == null` con el mismo criterio
