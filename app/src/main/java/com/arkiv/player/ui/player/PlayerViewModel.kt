@@ -283,14 +283,6 @@ class PlayerViewModel internal constructor(
     /** Cancelable: al saltar de capítulo, la tanda del anterior ya no sirve. */
     private var triviaJob: kotlinx.coroutines.Job? = null
 
-    /**
-     * Cancelable next-chapter prefetch job. Originally warmed torrent/web/archive.org ahead of
-     * time (all removed in this branch's pruning); today [prefetchNext] is a no-op for every
-     * current source (Magis rate-limits the portal, Ditu's resolve isn't cached) -- see its own
-     * comment. Kept as the coordinator in case a future source needs prefetching again.
-     */
-    private var prefetchJob: kotlinx.coroutines.Job? = null
-
     /** Carga el episodio como playlist, ramificando por fuente (Magis vs Ditu vs id desconocido/legado). */
     fun load(episodeId: String) {
         // Antes que todo lo demás, y también para el vivo: una resolución de Caracol que siga en
@@ -298,11 +290,10 @@ class PlayerViewModel internal constructor(
         ditu.nuevoPedido(episodeId)
         apagarTrivia()
         // Modo vivo (Tarea 14): CORTA ACÁ, antes de tocar nada del camino VOD de abajo -- ni
-        // marcarEnCurso, ni localLibrary, ni el prefetch del final (repo.nextEpisode() no sabe de
-        // canales). Es la bandera que aísla TODO el comportamiento distinto: un canal en vivo no
-        // tiene duración que sondear (ver KDoc de LiveZapping/LiveController -- sondearla es lo
-        // que rompía el VOD de Magis), progreso que guardar, ni "siguiente capítulo" de series --
-        // el único "siguiente" que existe en vivo es el zapping.
+        // marcarEnCurso ni localLibrary. Es la bandera que aísla TODO el comportamiento distinto:
+        // un canal en vivo no tiene duración que sondear (ver KDoc de LiveZapping/LiveController --
+        // sondearla es lo que rompía el VOD de Magis), progreso que guardar, ni "siguiente
+        // capítulo" de series -- el único "siguiente" que existe en vivo es el zapping.
         if (PlayerSource.kindFor(episodeId) == SourceKind.LIVE) {
             loadLive(episodeId.removePrefix(PlayerSource.LIVE_PREFIX))
             return
@@ -361,8 +352,6 @@ class PlayerViewModel internal constructor(
                 SourceKind.LIVE -> Unit
             }
         }
-        prefetchJob?.cancel()
-        prefetchJob = viewModelScope.launch(Dispatchers.IO) { prefetchNext(episodeId) }
     }
 
     /** Lo del episodio anterior no puede quedarse en pantalla con el siguiente. */
@@ -1039,39 +1028,12 @@ class PlayerViewModel internal constructor(
             .also { Log.i(PLAY, "reanudar $episodeId ($kind): guardado=${saved.positionMs}ms → arranca en ${it}ms") }
     }
 
-    /** Preloads the NEXT episode of the series in the background. Best-effort. */
-    private suspend fun prefetchNext(currentId: String) = runCatching {
-        kotlinx.coroutines.delay(PREFETCH_DELAY_MS)
-        val next = repo.nextEpisode(currentId) ?: return@runCatching
-        when (PlayerSource.kindFor(next.id)) {
-            // Magis NO se precarga: cada resolución es una llamada al portal, que corta a 1 cada
-            // 1.5 s. Gastarla en un capítulo que quizá no se vea retrasaría el que sí se está viendo.
-            SourceKind.MAGIS -> Unit
-            // Unknown source (old library rows with no known prefix): that source was removed
-            // from this branch, so there is nothing to preload.
-            SourceKind.UNKNOWN -> Unit
-            // Idem LOCAL: no es un kind que devuelva kindFor(), lo decide el atajo de load() en
-            // tiempo de reproducción (LocalLibrary.fileFor) -- nada que precargar por acá.
-            SourceKind.LOCAL -> Unit
-            // Idem LIVE: repo.nextEpisode() nunca devuelve un id "live:" (no es un episodio de
-            // ninguna serie) -- load() corta antes de programar este prefetch para un canal en
-            // vivo (ver su guard), así que ni currentId llega acá con ese kind. El "siguiente" de
-            // un canal en vivo es el zapping (LiveZapping), no esta precarga de series.
-            SourceKind.LIVE -> Unit
-            // Caracol tampoco se precarga: resolver es pedirle a su API el detalle, el permiso y la
-            // URL (ver DituResolve.vod) por un capítulo que quizá no se vea, y nada acá guarda el
-            // resultado para usarlo después.
-            SourceKind.DITU -> Unit
-        }
-    }.onFailure { Log.w(PLAY, "prefetchNext falló: $it") }
-
     /** La corrección a mano de los tiempos, del capítulo en curso o de la serie. Ver su KDoc. */
     private val editorDeMarcadores by lazy {
         com.arkiv.player.data.marcadores.EditorDeMarcadores(dao = repo.skipMarkerDao())
     }
 
     override fun onCleared() {
-        prefetchJob?.cancel()
         precalentarJob?.cancel()
         super.onCleared()
     }
@@ -1181,8 +1143,5 @@ class PlayerViewModel internal constructor(
 
         /** Tag del flujo de carga/replay del player (filtrar con `adb logcat -s ArkivPlay`). */
         const val PLAY = "ArkivPlay"
-
-        /** Colchón antes de precargar el próximo capítulo (dar aire al arranque del actual). */
-        const val PREFETCH_DELAY_MS = 8_000L
     }
 }

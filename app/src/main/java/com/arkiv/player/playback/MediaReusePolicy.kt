@@ -24,7 +24,6 @@ object MediaReusePolicy {
         cargado: List<LoadedMedia>,
         actualMediaId: String?,
         fresco: List<LoadedMedia>,
-        isWeb: Boolean,
         pedido: String,
         /**
          * Si esta pantalla del reproductor es OTRA que la que dejó ese media reproduciendo — o sea si
@@ -53,11 +52,10 @@ object MediaReusePolicy {
          */
         pantallaNueva: Boolean = false,
     ): Decision {
-        // Lo que llegó es de otro capítulo: no hay nada que decidir todavía. Va PRIMERO —antes que
-        // `isWeb`— porque cargarla es reproducir el capítulo equivocado en cualquier fuente. Ver el
-        // test `playlist_del_capitulo_anterior_espera`.
+        // What arrived is for another episode: nothing to decide yet. Checked first, because
+        // loading it would play the wrong episode from any source. See the test
+        // `playlist_del_capitulo_anterior_espera`.
         if (pedido != episodeId) return Decision.ESPERAR
-        if (isWeb) return Decision.RECARGAR
         // La identidad del episodio NO alcanza para reusar: hay que mirar de dónde sale. Un torrent
         // se sirve en 127.0.0.1:<puerto efímero>, y `startStream()` mata el servidor anterior y abre
         // otro en un puerto nuevo — el mismo episodeId puede estar cargado apuntando a un puerto ya

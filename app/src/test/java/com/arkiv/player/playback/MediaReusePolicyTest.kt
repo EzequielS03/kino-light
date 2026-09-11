@@ -21,7 +21,6 @@ class MediaReusePolicyTest {
             cargado = listOf(LoadedMedia(EP, "http://127.0.0.1:41111/video")),
             actualMediaId = EP,
             fresco = listOf(LoadedMedia(EP, "http://127.0.0.1:46793/video")),
-            isWeb = false,
             pedido = EP,
         )
         assertEquals(Decision.RECARGAR, d)
@@ -36,7 +35,6 @@ class MediaReusePolicyTest {
             cargado = listOf(LoadedMedia(EP, url)),
             actualMediaId = EP,
             fresco = listOf(LoadedMedia(EP, url)),
-            isWeb = false,
             pedido = EP,
         )
         assertEquals(Decision.REUSAR_ACTUAL, d)
@@ -52,7 +50,6 @@ class MediaReusePolicyTest {
             cargado = listOf(a, b),
             actualMediaId = a.mediaId,
             fresco = listOf(a, b),
-            isWeb = false,
             pedido = b.mediaId,
         )
         assertEquals(Decision.SALTAR_EN_PLAYLIST, d)
@@ -71,22 +68,7 @@ class MediaReusePolicyTest {
                 a.copy(uri = "http://127.0.0.1:46793/video"),
                 b.copy(uri = "http://127.0.0.1:46793/video?f=1"),
             ),
-            isWeb = false,
             pedido = b.mediaId,
-        )
-        assertEquals(Decision.RECARGAR, d)
-    }
-
-    /** WEB: el token del host expira aunque la URL se vea igual → recargar siempre, sin excepción. */
-    @Test fun web_siempre_recarga() {
-        val url = "https://cdn.example/stream.m3u8?token=abc"
-        val d = MediaReusePolicy.decide(
-            episodeId = "web:peli::0",
-            cargado = listOf(LoadedMedia("web:peli::0", url)),
-            actualMediaId = "web:peli::0",
-            fresco = listOf(LoadedMedia("web:peli::0", url)),
-            isWeb = true,
-            pedido = "web:peli::0",
         )
         assertEquals(Decision.RECARGAR, d)
     }
@@ -98,7 +80,6 @@ class MediaReusePolicyTest {
             cargado = emptyList(),
             actualMediaId = null,
             fresco = listOf(LoadedMedia(EP, "http://127.0.0.1:46793/video")),
-            isWeb = false,
             pedido = EP,
         )
         assertEquals(Decision.RECARGAR, d)
@@ -111,7 +92,6 @@ class MediaReusePolicyTest {
             cargado = listOf(LoadedMedia("archive:otra::0", "https://archive.org/x.mp4")),
             actualMediaId = "archive:otra::0",
             fresco = listOf(LoadedMedia(EP, "http://127.0.0.1:46793/video")),
-            isWeb = false,
             pedido = EP,
         )
         assertEquals(Decision.RECARGAR, d)
@@ -139,25 +119,6 @@ class MediaReusePolicyTest {
             cargado = listOf(anterior),
             actualMediaId = anterior.mediaId,
             fresco = listOf(anterior),
-            isWeb = false,
-            pedido = anterior.mediaId,
-        )
-        assertEquals(Decision.ESPERAR, d)
-    }
-
-    /**
-     * Lo mismo en web, y va ANTES que la regla de "web siempre recarga": ahí la playlist vieja no
-     * dejaba el player pegado (la buena entraba después), pero igual arrancaba unos segundos del
-     * capítulo anterior antes de corregirse.
-     */
-    @Test fun playlist_del_capitulo_anterior_espera_tambien_en_web() {
-        val anterior = LoadedMedia("web:serie::e1", "https://cdn.example/e1.m3u8?token=abc")
-        val d = MediaReusePolicy.decide(
-            episodeId = "web:serie::e2",
-            cargado = listOf(anterior),
-            actualMediaId = anterior.mediaId,
-            fresco = listOf(anterior),
-            isWeb = true,
             pedido = anterior.mediaId,
         )
         assertEquals(Decision.ESPERAR, d)
@@ -177,7 +138,6 @@ class MediaReusePolicyTest {
             cargado = emptyList(),
             actualMediaId = null,
             fresco = listOf(otro),
-            isWeb = false,
             pedido = "archive:serie::7",
         )
         assertEquals(Decision.RECARGAR, d)
@@ -195,7 +155,6 @@ class MediaReusePolicyTest {
             cargado = listOf(LoadedMedia(EP, "http://127.0.0.1:8080/v")),
             actualMediaId = EP,
             fresco = listOf(LoadedMedia(EP, "http://127.0.0.1:8080/v")),
-            isWeb = false,
             pedido = EP,
             pantallaNueva = true,
         )
@@ -211,7 +170,6 @@ class MediaReusePolicyTest {
             cargado = listOf(LoadedMedia(EP, "http://127.0.0.1:8080/v")),
             actualMediaId = EP,
             fresco = listOf(LoadedMedia(EP, "http://127.0.0.1:8080/v")),
-            isWeb = false,
             pedido = EP,
             pantallaNueva = false,
         )

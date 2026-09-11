@@ -971,11 +971,6 @@ private fun PlayerContent(
         // el LaunchedEffect(casting, liveItem, generacionVivo) que reemplaza el cast-to-TV que antes
         // vivía acá. `enVivo` sigue existiendo para el resto de la pantalla (overlay/gestos/D-pad),
         // pero este efecto es puramente VOD desde ahora.
-        // Antes, WEB (URL efímera: token que expira en cada resolve) forzaba NUNCA reusar el media
-        // viejo. Esa fuente se borró en la poda de esta rama -- ninguna fuente que sobrevive necesita
-        // este forzado (archive/magis tienen URL estable por reproducción), pero se deja el
-        // parámetro de [MediaReusePolicy.decide] en vez de tocar su firma/tests.
-        val isWeb = false
         // ¿Esto es lo que pidió ESTA pantalla, o todavía es la playlist del capítulo anterior? El
         // ViewModel sobrevive a la navegación entre capítulos, así que al entrar al siguiente lo
         // publicado sigue siendo lo de antes durante todo el resolve (~4 s en magis). Se pregunta
@@ -997,7 +992,6 @@ private fun PlayerContent(
             },
             actualMediaId = controller.currentMediaItem?.mediaId,
             fresco = pl.items.map { LoadedMedia(it.episodeId, it.mediaUrl) },
-            isWeb = isWeb,
             pedido = pl.pedido,
             // ¿Volvimos sobre una pantalla NUEVA? Reusar el media con una superficie nueva mata al
             // decodificador (ver MediaReusePolicy.decide para los números medidos).
@@ -1007,13 +1001,13 @@ private fun PlayerContent(
             android.util.Log.w("ArkivPlay", "playlist de OTRO capítulo (pedido=${pl.pedido} ≠ $episodeId) → esperar la mía")
             return@LaunchedEffect
         }
-        if (loaded && !isWeb) {
-            android.util.Log.w("ArkivPlay", "playlist lista pero loaded=true (no-WEB) → NO recarga (guard). items=${pl.items.map { it.episodeId }}")
+        if (loaded) {
+            android.util.Log.w("ArkivPlay", "playlist lista pero loaded=true → NO recarga (guard). items=${pl.items.map { it.episodeId }}")
             return@LaunchedEffect
         }
         loaded = true
         espejo.saltoA(pl.startPositionMs)
-        android.util.Log.w("ArkivPlay", "playlist lista → cargar. isWeb=$isWeb decision=$decision startPos=${pl.startPositionMs}")
+        android.util.Log.w("ArkivPlay", "playlist lista → cargar. decision=$decision startPos=${pl.startPositionMs}")
         if (casting && castSession != null) {
             val idx = pl.items.indexOfFirst { it.episodeId == episodeId }.coerceAtLeast(0)
             val req = castRequestFor(pl, idx, pl.startPositionMs)
@@ -1053,7 +1047,7 @@ private fun PlayerContent(
             // Inalcanzable: se corta arriba, apenas se calcula la decisión. La rama existe porque el
             // `when` sobre Decision es exhaustivo.
             MediaReusePolicy.Decision.ESPERAR -> Unit
-            // Mismo episodio ya en curso Y con la misma URL: re-enganchar (aprovecha el buffer). Solo no-WEB.
+            // Mismo episodio ya en curso Y con la misma URL: re-enganchar (aprovecha el buffer).
             MediaReusePolicy.Decision.REUSAR_ACTUAL -> {
                 android.util.Log.w("ArkivPlay", "rama=REUSAR_ACTUAL → controller.play() (NO recarga media)")
                 currentIndex = controller.currentMediaItemIndex
@@ -1066,7 +1060,7 @@ private fun PlayerContent(
                 if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
                 controller.play()
             }
-            // Misma sección ya cargada (mismas URLs), otro episodio: saltar dentro de la playlist. Solo no-WEB.
+            // Misma sección ya cargada (mismas URLs), otro episodio: saltar dentro de la playlist.
             MediaReusePolicy.Decision.SALTAR_EN_PLAYLIST -> {
                 android.util.Log.w("ArkivPlay", "rama=SALTAR_EN_PLAYLIST → seekTo dentro de la playlist (NO recarga media)")
                 val idx = pl.items.indexOfFirst { it.episodeId == episodeId }.coerceAtLeast(0)
@@ -1078,17 +1072,8 @@ private fun PlayerContent(
             }
             // New content, or the URL changed under the same episodeId (before: torrent re-served
             // on another port, source now removed; today: magis token renewed on re-resolution):
-            // load the playlist with the fresh URL. "WEB re-entrant" is legacy: `isWeb` is
-            // hardcoded to `false` below (the web source was removed in this branch's pruning), so
-            // the block that follows has no effect.
+            // load the playlist with the fresh URL.
             MediaReusePolicy.Decision.RECARGAR -> {
-                // WEB re-entrant (legacy, unreachable today with `isWeb` hardcoded to `false`): the
-                // old item (dead token) could still be in the controller with the same mediaId →
-                // stop it before setMediaItems so VlcPlayer loads the fresh URL.
-                if (isWeb && controller.mediaItemCount > 0) {
-                    android.util.Log.w("ArkivPlay", "WEB re-entrante → stop() del item viejo antes de recargar")
-                    controller.stop()
-                }
                 android.util.Log.w("ArkivPlay", "rama=nuevo → setMediaItems + prepare (abre VLC con la URL fresca)")
                 currentIndex = pl.startIndex
                 controller.setMediaItems(localMediaItems(pl.items), pl.startIndex, pl.startPositionMs)

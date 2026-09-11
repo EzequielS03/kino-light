@@ -7,8 +7,8 @@ package com.arkiv.player.playback
  * por la biblioteca (`ArkivRepository.addMagisSource` guarda el ítem y devuelve el `episodeId` con
  * el que se navega), y de ahí `loadMagis` lee el `ref` para pedirle el stream al gateway. Ese
  * camino es justo el que no puede existir acá: la regla de [ContenidoDeAdultos] es **no escribir**,
- * y una fila en la biblioteca es exactamente lo que no puede haber — se sincroniza, viaja a la nube
- * y aparece en el celular y en la otra TV.
+ * y una fila en la biblioteca es exactamente lo que no puede haber — it would show up in "Seguir
+ * viendo" and keep local playback progress on this device (no cloud sync left to spread it further).
  *
  * Así que el `ref` viaja por afuera. Es el mismo patrón (y por el mismo motivo) que
  * `LiveZappingSource`: la ruta de navegación es un `String`, el `ref` es un token largo y opaco que
