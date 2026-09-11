@@ -67,7 +67,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         handleIntent(intent)
 
-        // Controles de integridad ANTES de armar nada: ni servicios, ni Room, ni sync. Si el aparato
+        // Controles de integridad ANTES de armar nada: ni servicios, ni Room. Si el aparato
         // no pasa, lo único que se compone es el aviso. Ver `DeteccionDeRoot` para qué detecta y,
         // sobre todo, para qué NO puede detectar.
         val motivosDeBloqueo = motivosParaNoArrancar()
@@ -83,7 +83,7 @@ class MainActivity : AppCompatActivity() {
 
                 // La intro se dibuja ENCIMA de la app para tapar el arranque en frío.
                 //
-                // El contenido NO se compone de entrada: armar el root (Room, sync, filas del
+                // El contenido NO se compone de entrada: armar el root (Room, filas del
                 // home) satura el hilo principal y el reloj de la animación salta hasta el final
                 // sin llegar a dibujarse. Dándole ~1s de hilo libre, la intro se reproduce de
                 // verdad y recién ahí empieza a componerse la app, por detrás del fundido.
