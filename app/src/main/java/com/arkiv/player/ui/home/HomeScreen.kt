@@ -332,8 +332,8 @@ fun HomeScreen(
             }
         }
 
-        // 2. Continuar viendo (el resto, sin repetir el hero). Always-present, keyed item -- ver
-        // el comentario del hero arriba.
+        // 2. Continuar viendo (el resto, sin repetir el hero). Always-present, keyed item -- see
+        // the hero comment above.
         item(key = "continuar") {
             if (continueWatching.size > 1) {
                 Column(Modifier.padding(top = 16.dp)) {
@@ -370,8 +370,8 @@ fun HomeScreen(
         // 3. Canales en vivo -- acceso directo sin pasar por "En vivo": lo último visto a la
         // izquierda, después los canales del país sin repetir los ya vistos, y al final la salida
         // a la parrilla completa (ver `filaDeCanalesDelHome`). Sin nada que mostrar, la fila no se
-        // dibuja: nada de un hueco vacío. Always-present, keyed item -- ver el comentario del hero
-        // arriba.
+        // dibuja: nada de un hueco vacío. Always-present, keyed item -- see the hero comment
+        // above.
         item(key = "canales") {
             if (canalesFila.isNotEmpty()) {
                 Column(Modifier.padding(top = 16.dp)) {
@@ -394,7 +394,7 @@ fun HomeScreen(
         }
 
         // 4. Mi biblioteca (con "Ver todo" hacia la grilla completa). Always-present, keyed item --
-        // ver el comentario del hero arriba.
+        // see the hero comment above.
         item(key = "biblioteca") {
             if (bibliotecaOrdenada.isNotEmpty()) {
                 Column(Modifier.padding(top = 16.dp)) {
