@@ -41,8 +41,8 @@ object AvisoDeSalto {
 
     /**
      * Si corresponde avisar ahora. [esDelProxy] porque el aviso solo lo entiende nuestro proxy: un
-     * torrent lo sirve `TorrentStreamServer` —que ya prioriza piezas por su cuenta— y un archivo
-     * local no tiene nada que precalentar.
+     * archivo local no tiene nada que precalentar (y el torrent, fuente borrada en la poda de esta
+     * rama, tenía su propio servidor que ya priorizaba piezas por su cuenta).
      */
     fun hayQueAvisar(esDelProxy: Boolean, msDesdeElUltimo: Long): Boolean =
         esDelProxy && msDesdeElUltimo >= MINIMO_ENTRE_AVISOS_MS

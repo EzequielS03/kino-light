@@ -184,13 +184,13 @@ class PlaybackService : MediaSessionService() {
     override fun onTaskRemoved(rootIntent: android.content.Intent?) {
         // OJO: casteando, el reproductor local queda con playWhenReady=false A PROPÓSITO (para no
         // competirle el stream al receptor), que es justo la condición que acá se lee como "no hay
-        // nada reproduciendo". Que el service se frene está bien —el motor de torrent y su server
-        // LAN viven en el grafo, no acá, y el proceso lo sostiene TorrentServingService—; lo que NO
-        // puede pasar es que suelte la red, y de eso se ocupa la guarda de releaseNetworkResources().
+        // nada reproduciendo". Que el service se frene está bien —el proxy de magis y el de vivo
+        // viven en el grafo, no acá—; lo que NO puede pasar es que suelte la red, y de eso se ocupa
+        // la guarda de releaseNetworkResources().
         val player = mediaSession?.player
         if (player == null || !player.playWhenReady || player.mediaItemCount == 0) {
             // El usuario sacó la app de recientes sin reproducción activa: cortar recursos de red
-            // (stream de torrent + proxy de archive) antes de frenar el service.
+            // (proxy de magis + proxy de vivo) antes de frenar el service.
             releaseNetworkResources()
             stopSelf()
         }
@@ -202,9 +202,9 @@ class PlaybackService : MediaSessionService() {
         // el player viejo (ver el comentario de langPrefsJob).
         langPrefsJob?.cancel()
         langPrefsJob = null
-        // Cortar el stream de torrent y el proxy de archive ANTES de liberar el player: ambos viven
-        // en el grafo (segundo plano vía service/MediaSession), así que al destruirse el service es
-        // acá donde hay que soltarlos para no fugar red/batería/disco.
+        // Cortar el proxy de magis y el de vivo ANTES de liberar el player: los dos viven en el
+        // grafo (segundo plano vía service/MediaSession), así que al destruirse el service es acá
+        // donde hay que soltarlos para no fugar red/batería/disco.
         releaseNetworkResources()
         PlaybackEngine.vlc = null
         mediaSession?.run {

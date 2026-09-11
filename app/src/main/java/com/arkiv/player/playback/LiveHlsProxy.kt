@@ -138,8 +138,9 @@ class LiveHlsProxy(
      * Fija la sesión del canal y devuelve la URL que se le pasa a VLC.
      *
      * `bindLan = true`: el proxy queda alcanzable por la LAN desde que se abre el PRIMER canal,
-     * no solo cuando se castea -- mismo criterio que ya usa el servidor HTTP del torrent
-     * (`TorrentStreamServer`, `ServerSocket(0)` sin IP = todas las interfaces). La alternativa
+     * no solo cuando se castea -- mismo criterio que usaba el servidor HTTP del torrent (fuente
+     * borrada en la poda de esta rama), con `ServerSocket(0)` sin IP = todas las interfaces. La
+     * alternativa
      * -abrir en loopback y "ensanchar" a LAN recién al castear- le cambiaría el PUERTO a mitad de
      * reproducción: esta URL (con el puerto de HOY) ya quedó grabada como el media local de VLC,
      * y en el media cargado para Chromecast/DLNA (ver `LiveHlsProxy.lanUrl`); reabrir el socket en

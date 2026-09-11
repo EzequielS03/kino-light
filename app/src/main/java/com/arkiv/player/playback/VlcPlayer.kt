@@ -223,7 +223,7 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
             }
             when (e.type) {
                 MediaPlayer.Event.Buffering -> {
-                    // VLC bufferea (carga inicial, o cache underrun en torrent que descarga). <100% =
+                    // VLC bufferea (carga inicial, o cache underrun mientras el origen sigue sirviendo). <100% =
                     // no puede avanzar todavía → mostrar overlay. 100% = cache llena → listo/reproduciendo.
                     buffering = e.buffering
                     event = if (e.buffering >= 100f) VlcEvent.Playing else VlcEvent.Buffering
@@ -252,7 +252,7 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
                 // El tiempo de reproducción avanza ⇒ está reproduciendo DE VERDAD. VLC a veces deja el
                 // estado pegado en Buffering (emite Buffering<100 mientras rellena cache sin re-emitir
                 // Playing); si el tiempo avanza, limpiamos ese Buffering pegado para que el overlay de
-                // "descargando" NO tape un video que se está reproduciendo bien. Si en cambio el torrent
+                // "descargando" NO tape un video que se está reproduciendo bien. Si en cambio el origen
                 // se estanca por falta de buffer, TimeChanged deja de llegar y el Buffering persiste →
                 // el overlay se muestra (que es justo lo que se quiere ahí).
                 MediaPlayer.Event.TimeChanged ->
@@ -755,9 +755,9 @@ class VlcPlayer(context: Context, looper: Looper) : SimpleBasePlayer(looper) {
     }
 
     /**
-     * Arma y carga el Media del ítem actual. El caching de red se decide por FUENTE: un torrent
-     * (origen VARIABLE, piezas llegando) necesita más colchón (2500ms) para absorber baches de
-     * llegada sin cortar; archive/local va con 1500ms. HW por defecto; software en el reintento.
+     * Arma y carga el Media del ítem actual. El caching de red se decide por FUENTE (ver
+     * [CachingDeRed.msPara]): vivo, que tiene su propio CDN, va con más colchón; todo lo demás
+     * (magis, local) usa el perfil estable. HW por defecto; software en el reintento.
      */
     private fun loadMedia(hardware: Boolean, startPositionMs: Long, uriOverride: Uri? = null) {
         val item = items.getOrNull(currentIndex) ?: return

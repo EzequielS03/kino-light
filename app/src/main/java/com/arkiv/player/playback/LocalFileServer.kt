@@ -9,8 +9,8 @@ import java.net.Socket
  * Sirve UN archivo del almacenamiento local por HTTP con soporte de Range, para que el Chromecast y
  * el DLNA puedan reproducir lo que se guardó en el dispositivo (no pueden abrir un `file://`).
  *
- * Un archivo a la vez: [serve] reemplaza al anterior. Mismo patrón que
- * `com.arkiv.player.torrent.TorrentStreamServer`, con una diferencia clave: acá el server se
+ * Un archivo a la vez: [serve] reemplaza al anterior. Mismo patrón que el servidor HTTP del torrent
+ * (fuente borrada en la poda de esta rama), con una diferencia clave: acá el server se
  * REINICIA (`ServerSocket` nuevo, puerto nuevo) cada vez que el archivo servido cambia, en vez de
  * reusar el mismo puerto para archivos distintos. Motivo: si dos archivos compartieran URL, una
  * conexión que ya hizo HEAD sobre el archivo viejo (con su Content-Length) podría mandar el GET
