@@ -189,9 +189,11 @@ fun ArkivTvRoot(
                 onReproducir = { item ->
                     alcance.launch {
                         if (item.adulto) {
-                            // NO pasa por la biblioteca. `addMagisSource` escribiría una fila que se
-                            // sincroniza y termina en el celular y en la otra TV, que es exactamente
-                            // la fuga del 2026-08-14. El ref viaja por afuera; ver [MagisEfimero].
+                            // Doesn't go through the library. `addMagisSource` would write a row
+                            // that shows up right here on this device -- and, until cloud sync was
+                            // removed with the rest of this branch's pruning, would also have
+                            // synced to the phone and the other TV, which is exactly the 2026-08-14
+                            // leak. The ref travels around it instead; see [MagisEfimero].
                             val id = MagisEfimero.idPara(item.id)
                             MagisEfimero.dejar(
                                 MagisEfimero.Pendiente(id, item.ref, item.titulo, adulto = true),

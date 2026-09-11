@@ -680,12 +680,14 @@ fun TvHomeScreen(
                     }
 
                     // Recomendaciones ("Para ti"): va ACÁ, DESPUÉS de "Continuar viendo" y no antes,
-                    // y no es estético. Esta fila llega por sync y puede aparecer TARDE, con el home
-                    // ya dibujado y el foco puesto (ver el LaunchedEffect de `firstFocusKey` más
-                    // arriba). "Continuar viendo" es el ancla de ese foco inicial; poniendo "Para ti"
-                    // DEBAJO de ella, si aparece de golpe no empuja lo de arriba ni le roba el foco a
-                    // nadie -- es exactamente el bug que ya se peleó acá (ver el comentario largo
-                    // sobre `firstFocusKey`/`rowsListState` unas líneas más arriba).
+                    // y no es estético. Esta fila llega async -- generada en el dispositivo por
+                    // `GeneradorParaTi` con Kilo, que puede tardar (ver su KDoc) -- y puede aparecer
+                    // TARDE, con el home ya dibujado y el foco puesto (ver el LaunchedEffect de
+                    // `firstFocusKey` más arriba). "Continuar viendo" es el ancla de ese foco
+                    // inicial; poniendo "Para ti" DEBAJO de ella, si aparece de golpe no empuja lo de
+                    // arriba ni le roba el foco a nadie -- es exactamente el bug que ya se peleó acá
+                    // (ver el comentario largo sobre `firstFocusKey`/`rowsListState` unas líneas más
+                    // arriba).
                     if (mostrarFilaParaTi(recomendaciones)) {
                         item(key = "para_ti") {
                             TvRowLabel("Para ti", labelHeight)

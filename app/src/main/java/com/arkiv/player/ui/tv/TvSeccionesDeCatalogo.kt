@@ -73,9 +73,12 @@ import kotlinx.coroutines.delay
  * Elegir un ítem REPRODUCE, por dos caminos distintos según de dónde salga: uno normal, que lo
  * guarda en la biblioteca como cualquier cosa que se reproduce (y así tiene "seguir viendo"), y uno
  * efímero para el contenido de adultos, que no escribe una sola fila — ver
- * [com.arkiv.player.playback.MagisEfimero]. La separación no es cosmética: el 2026-08-14 dos
- * canales +18 se colaron en la pantalla principal y no alcanzó con borrarlos del aparato, porque esa
- * tabla se sincroniza y ya habían viajado a la nube.
+ * [com.arkiv.player.playback.MagisEfimero]. The separation isn't cosmetic: on 2026-08-14 two 18+
+ * channels leaked into the main screen, and deleting them from the device wasn't enough, because
+ * at the time that table synced and they'd already traveled to the cloud (cloud sync was removed
+ * entirely in this branch's pruning, so that specific risk is gone -- but an adult-content row
+ * would still show up in "Continue watching" and in the library of this SAME device, which is
+ * reason enough to keep not writing it).
  *
  * Las series todavía no reproducen: hay que pedirle los capítulos al portal (`MagisCatalog.detail`)
  * y elegir uno. Se listan con su marca y no aceptan el clic.
