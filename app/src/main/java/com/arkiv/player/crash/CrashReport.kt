@@ -64,15 +64,17 @@ data class CrashReport(
         }
 
         /**
-         * El mismo reporte con el logcat vacío, para reintentar cuando el entero no entra.
-         *
-         * Si lo que llega no es JSON, vuelve tal cual: perder el intento es peor que mandar algo
-         * que el servidor va a rechazar igual.
+         * The same report with the logcat emptied out. Written for retrying an upload that was too
+         * big to fit -- that upload path (`CrashUploader`, PocketBase) was removed in Task 9
+         * (sub-project 2B, see `Crash`'s KDoc), so this function currently has no caller outside
+         * its own test. If it's ever wired to something new, keep the non-JSON passthrough: losing
+         * the retry is worse than passing along something the new consumer can't use either.
          */
         fun sinLogcat(json: String): String =
             runCatching { JSONObject(json).put("logcat", "").toString() }.getOrDefault(json)
 
-        /** Una línea para poder barrer la lista en el admin de PocketBase sin abrir cada registro. */
+        /** One line summarizing the error -- meant for scanning a list of reports at a glance
+         *  without opening each one (originally the PocketBase admin's list, now `adb logcat`). */
         fun mensajeDe(t: Throwable): String =
             t.message?.takeIf { it.isNotBlank() }
                 ?.let { "${t.javaClass.name}: $it" }

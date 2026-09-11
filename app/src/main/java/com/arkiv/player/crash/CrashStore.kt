@@ -30,8 +30,8 @@ class CrashStore(
             ahora(),
             secuencia.getAndIncrement() % 10_000,
         )
-        // Escribir aparte y renombrar: así un corte a mitad de escritura deja un `.json.tmp`
-        // que la cola ignora, en vez de un `.json` roto que el servidor rechazaría para siempre.
+        // Write aside and rename: a cut mid-write this way leaves a `.json.tmp` the queue ignores,
+        // instead of a broken `.json` that whoever reads this locally (adb logcat) couldn't parse.
         val temporal = File(dir, "$nombre.tmp")
         temporal.writeText(json)
         val destino = File(dir, nombre)
