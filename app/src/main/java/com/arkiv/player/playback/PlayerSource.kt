@@ -47,8 +47,7 @@ data class PlayerSourceTag(
      * única alternativa —deducirlo de la extensión de la URL— no sirve en magis: esa extensión la
      * arma el gateway colapsando a `.mp4` todo lo que el portal no llame `ts`, porque es la clave
      * del objeto en el CDN y solo existe en dos sabores. Es el mismo camino que usa la app original
-     * de magis, que pasa el `format` de su backend tal cual al `iformat` de su ijkplayer. Ver
-     * [formatoAvformatDe].
+     * de magis, que pasa el `format` de su backend tal cual al `iformat` de su ijkplayer.
      */
     val contenedorDeLaFuente: String = "",
 ) {

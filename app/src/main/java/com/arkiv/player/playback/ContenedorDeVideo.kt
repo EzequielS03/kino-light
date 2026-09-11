@@ -15,7 +15,7 @@ enum class Contenedor(val mime: String) {
 /**
  * Qué contenedor es un archivo, mirando sus BYTES antes que su nombre.
  *
- * Es la regla de [formatoAvformatDe] —el contenedor sale del archivo, no de una suposición— llevada
+ * Es la regla que magis ya aplicaba —el contenedor sale del archivo, no de una suposición— llevada
  * al lado del cast, que es donde adivinar se paga. Había tres tablas de MIME distintas decidiendo
  * por extensión y contradiciéndose entre sí: lo desconocido era matroska en `TorrentStreamServer`,
  * mp4 en `LocalFileServer` y mp4 otra vez en `CastRequestBuilder`. Ese string es exactamente lo que

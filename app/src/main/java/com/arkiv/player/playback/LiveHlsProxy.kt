@@ -148,9 +148,10 @@ class LiveHlsProxy(
      * interfaces, así que esto no cambia nada para la reproducción local.
      */
     fun urlPara(nueva: LiveSession): String {
-        // El ZAPPING empieza acá. Es la marca contra la que se mide todo lo del vivo: de este
-        // instante al primer `Vout` de VlcPlayer es lo que el usuario espera mirando negro al
-        // cambiar de canal, y sin esta línea el log arranca recién cuando VLC pide el playlist.
+        // ZAPPING starts here. It's the mark everything about live playback gets measured against:
+        // from this instant to the first frame actually painted is what the user waits looking at
+        // black when switching channels, and without this line the log would only start once the
+        // player requests the playlist.
         val anterior = sesion?.channel
         android.util.Log.w(
             "LiveHlsProxy",

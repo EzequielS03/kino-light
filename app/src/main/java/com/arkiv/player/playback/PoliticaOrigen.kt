@@ -70,13 +70,13 @@ object PoliticaOrigen {
          * tirar los dados ya, no esperar— pero los siguientes le dan al CDN el tiempo que de verdad
          * llega a tardar: se ha medido contestando desde 0,2 s hasta 20 s el mismo rango.
          *
-         * Fueron 3 s planos, calibrados para que el presupuesto entero (9,65 s) cupiera dentro de
-         * los 10 s que tarda el rescate "sin imagen → software" de VlcPlayer. Esa invariante MURIÓ
-         * cuando magis pasó a ExoPlayer: ya no hay recarga del media que ganarle por la mano, y lo
-         * que quedaba era un plazo apretado estrangulando peticiones sanas. Medido en el Fire Stick
-         * el 2026-08-22: dos rangos "rechazados por el origen" a los 3,002 s y 3,004 s —o sea este
-         * temporizador, clavado, no el CDN— que costaron 18 s de espera antes de la primera imagen.
-         * Es la tercera vez que este número se queda corto (2 s → 3 s → acá).
+         * They used to be a flat 3s, calibrated so the whole budget (9.65s) fit inside the 10s the
+         * old "no picture -> software" rescue took to fire. That invariant DIED once magis moved to
+         * ExoPlayer: there's no longer a media reload to beat to the punch, and what was left was a
+         * tight deadline strangling healthy requests. Measured on the Fire Stick on 2026-08-22: two
+         * ranges "rejected by the origin" at 3.002s and 3.004s -- this timer, not the CDN, cutting
+         * them off -- cost 18s of waiting before the first picture. This is the third time this
+         * number has come up short (2s -> 3s -> here).
          *
          * Las esperas ENTRE intentos siguen cortas (50 ms → 150 ms → 450 ms): el escalón largo de
          * archive existe para no castigar a un nodo saturado que contesta 503, y este CDN no nos

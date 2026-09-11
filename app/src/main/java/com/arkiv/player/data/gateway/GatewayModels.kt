@@ -68,8 +68,8 @@ data class GatewayPlayable(
      *
      * Es el dato con el que la app le declara el contenedor al demuxer antes de abrir. Antes se
      * deducía de la extensión de [url], que para magis no es un dato de la fuente sino algo que
-     * arma `MagisResolve` colapsando a `.mp4` todo lo que el portal no llame `ts`. Ver
-     * [com.arkiv.player.playback.formatoAvformatDe]. "" = sondear, nunca suponer.
+     * arma `MagisResolve` colapsando a `.mp4` todo lo que el portal no llame `ts`. "" = sondear,
+     * nunca suponer.
      */
     val container: String = "",
     /** URL del servidor de licencias Widevine; "" = sin DRM (reproducir directo).

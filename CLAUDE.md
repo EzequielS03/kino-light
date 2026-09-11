@@ -72,14 +72,13 @@ siendo la app completa (torrent+web+archive+Magis+Ditu+RCN, con login PocketBase
   sin servidor propio.
 - Se borra código muerto de verdad (login/cuentas, torrent, web-resolver, archive.org,
   cloud-sync, control remoto TV↔celu). No se comenta, no se deja detrás de un flag — si no se usa,
-  se elimina del árbol. VLC es la excepción: ver más abajo, sigue vivo.
-- Reproductor: ExoPlayer/media3 (`MagisExoPlayer`, `LiveExoPlayer`) para Magis VOD y canal en vivo
-  (Task 1, commits `537dadbb`..`4c3b846a`, sin verificar en dispositivo real todavía). **VLC no está
-  sin uso** — corrección tras la revisión final del sub-proyecto 1 (2026-09-08): `VlcPlayer.kt` es
-  el reproductor activo de `SourceKind.LOCAL` (archivos ya descargados al dispositivo,
-  `PlayerViewModel.loadLocal()` → `PlayerScreen.isExo = isMagis || isLiveExo`, todo lo demás cae a
-  VLC). Verificar el canal en vivo en dispositivo NO autoriza borrar VLC — haría falta además
-  migrar la reproducción local a ExoPlayer, que no está planeado en este sub-proyecto.
+  se elimina del árbol.
+- Reproductor: ExoPlayer/media3 en toda la app, sin VLC. `MagisExoPlayer`/`LiveExoPlayer` cubren
+  Magis VOD y canal en vivo (Task 1, commits `537dadbb`..`4c3b846a`, sin verificar en dispositivo
+  real todavía). Los archivos ya descargados al dispositivo (`SourceKind.LOCAL`,
+  `PlayerViewModel.loadLocal()`) reproducen en el ExoPlayer que hospeda `PlaybackService`, migrados
+  ahí en el sub-proyecto de remoción de libVLC. libVLC se borró entero: la dependencia Gradle,
+  `VlcPlayer.kt` y los helpers que solo él usaba — ya no queda reproductor de respaldo.
 
 ## Spec
 

@@ -7,7 +7,7 @@ import org.junit.Test
 /**
  * El contenedor sale de los BYTES, no del nombre del archivo.
  *
- * Es la misma regla que ya rige para magis (ver [formatoAvformatDe]), aplicada al lado del cast:
+ * Es la misma regla que ya regía para magis, aplicada al lado del cast:
  * hoy hay tres tablas de MIME distintas que adivinan por extensión y no coinciden entre sí
  * —`TorrentStreamServer` manda todo lo desconocido a matroska, `LocalFileServer` a mp4 y
  * `CastRequestBuilder` también a mp4—, y ese string es exactamente lo que el receptor de Chromecast

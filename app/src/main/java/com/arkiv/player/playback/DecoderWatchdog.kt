@@ -20,8 +20,8 @@ object DecoderWatchdog {
 
     /**
      * How long without a first frame before reloading in software. Same bound libVLC used for its
-     * own rescue (`VlcPlayer.SIN_VIDEO_MS`), and shorter than [EsperaDePrimeraImagen.TOPE_MS] so the
-     * reload happens while the first-frame spinner still covers the screen.
+     * own rescue back when it played downloaded files, and shorter than [EsperaDePrimeraImagen.TOPE_MS]
+     * so the reload happens while the first-frame spinner still covers the screen.
      */
     const val NO_FRAME_MS = 10_000L
 

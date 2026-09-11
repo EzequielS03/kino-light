@@ -18,7 +18,7 @@ object EsperaDePrimeraImagen {
     /**
      * Cuánto se espera como máximo.
      *
-     * Más largo que el rescate hardware→software de [VlcPlayer] a propósito: el caso que este
+     * Más largo que el rescate hardware→software de [DecoderWatchdog] a propósito: el caso que este
      * spinner tapa es justamente ese —los segundos de negro esperando al decodificador y la recarga
      * en software que sí da imagen—, así que cortar antes sería irse en el peor momento.
      */

@@ -813,7 +813,8 @@ class PlayerViewModel internal constructor(
         // Los idiomas que declara el portal son lo ÚNICO que permite elegir subtítulo por idioma en
         // magis: sus pistas embebidas llegan sin idioma en ningún campo (medido en device,
         // `language=null` en `IMedia.Track` y nombre pelado "Track 1", mientras las de audio sí traen
-        // spa/eng/jpn). Viajan por [webExtras] y los cruza VlcPlayer.clasificarSpuConFuente.
+        // spa/eng/jpn). They travel through [webExtras]; PlayerPistas cross-references them with
+        // the source via SubtitleDecision.decide.
         Log.w(PLAY, "loadMagis() subtitulos del portal=${play.subtitles.size} langs=${play.subtitles.map { it.lang }}")
 
         withContext(Dispatchers.IO) { archiveCacheProxy.start() }
@@ -825,20 +826,23 @@ class PlayerViewModel internal constructor(
         // mientras VLC sigue leyendo por el offset viejo → el TS le llega con huecos, el tiempo salta
         // de a minutos y el video se muere. Sin caché no hay nada que truncar.
         val urlLocal = archiveCacheProxy.proxyUrl(play.url, play.headers, directo = true)
-        // LA DURACIÓN YA NO SE BUSCA ANTES DE ARRANCAR. La calcula libVLC solo.
+        // THE DURATION IS NO LONGER PROBED BEFORE STARTING. The player reports it on its own once
+        // it opens.
         //
-        // Esto era el respaldo de cuando magis se demuxeaba con el `ts` nativo, que sobre HTTP no
-        // deducía la duración y dejaba la barra llena y en 00:00. Desde que se demuxea con avformat
-        // (ver la opción `:demux=avformat` en VlcPlayer) ese respaldo dejó de hacer falta: medido en
-        // el Fire TV el 2026-08-13, VLC informó `dur=7010048ms` en una película y `dur=3831168ms` en
-        // un capítulo de serie, ambos al primer latido y ambos coincidiendo con lo que devolvía la
-        // sonda (7009961 y 3831000). `UnknownLengthPolicy.effectiveDurationMs` ya prefiere la de VLC
-        // cuando existe, así que lo que salía de acá se descartaba un segundo después.
+        // This used to be the fallback for when magis was demuxed with the native `ts` demuxer,
+        // which over HTTP couldn't deduce the duration and left the bar full and stuck at 00:00.
+        // Once the demuxer switched to avformat (the player's own duration probe) that fallback
+        // stopped being needed: measured on the Fire TV on 2026-08-13, the player reported
+        // `dur=7010048ms` for a movie and `dur=3831168ms` for a series episode, both on the first
+        // beat and both matching what the probe returned (7009961 and 3831000). The player's own
+        // duration is preferred whenever it exists, so whatever came from here was discarded a
+        // second later.
         //
-        // Y no salía gratis: en ese mismo capítulo, conseguirla costó 9,2 s de spinner —dos viajes
-        // al CDN antes de abrir el video, contra un origen que tarda entre 0,2 s y 20 s por rango—
-        // para un número que llegaba solo. Si el gateway la manda (las películas la traen gratis en
-        // el resolve) se aprovecha; si no, se arranca sin ella y VLC la completa.
+        // And it wasn't free: for that same episode, fetching it cost 9.2s of spinner -- two round
+        // trips to the CDN before opening the video, against an origin that takes 0.2s to 20s per
+        // range -- for a number that would arrive on its own anyway. If the gateway sends it
+        // (movies get it for free in the resolve) it's used; otherwise playback starts without it
+        // and the player fills it in.
         if (play.durationMs > 0) {
             Log.w(PLAY, "loadMagis() duracion del gateway=${play.durationMs}ms")
         }
@@ -886,7 +890,7 @@ class PlayerViewModel internal constructor(
             knownDurationMs = duracion,
             // Lo que DICE el portal, no lo que sugiere la extensión que el gateway le puso a la
             // URL: esa extensión colapsa a `.mp4` todo lo que no sea `ts` porque es la clave del
-            // objeto en el CDN. Ver [com.arkiv.player.playback.formatoAvformatDe].
+            // objeto en el CDN.
             contenedorDeLaFuente = play.container,
             // De acá lo lee [hayQueAnotarHistorial] en cada tick del reproductor. Es la segunda
             // vuelta de llave: la primera es que esto no tenga fila en la biblioteca.
@@ -896,8 +900,9 @@ class PlayerViewModel internal constructor(
         // hardware descartaba las pistas (`pistas=v0/a0`). Ese diagnóstico era falso: el que las
         // descartaba era el subtítulo externo (ver PlayerScreen, donde magis no lo adjunta). Sin él,
         // el mismo título arranca con `v2/a3` por hardware y por software. Se deja abrir por
-        // hardware —más rápido y sin gastar CPU—; si algún título de verdad falla ahí, el rescate
-        // "hardware sin imagen → paso a software" de VlcPlayer sigue estando.
+        // hardware —más rápido y sin gastar CPU—; si algún título de verdad falla ahí, hoy no hay
+        // rescate "hardware sin imagen → paso a software" para magis (a diferencia de los archivos
+        // descargados, ver [DecoderWatchdog]).
         //
         // Los subtítulos viajan por el MISMO canal que los de web: PlayerScreen decide qué hacer con
         // ellos. El portal los entrega junto al stream, así que no hace falta pedirlos aparte a
@@ -934,8 +939,8 @@ class PlayerViewModel internal constructor(
         // siempre, en vez de convertirse en un fallo del que no se vuelve.
         _magisItem.value = item.copy(startPositionMs = startPos)
         // RESUMEN, en una línea y en el orden en que se paga. Lo que falta para el primer frame es
-        // lo que tarde VLC en abrir, que se mide aparte (ver el "abrió en Xms" de VlcPlayer): la
-        // suma de las dos es lo que el usuario ve como spinner.
+        // lo que tarde el reproductor en abrir, que se mide aparte: la suma de las dos es lo que el
+        // usuario ve como spinner.
         Log.w(
             PLAY,
             "loadMagis() ⏱ TOTAL=${System.currentTimeMillis() - t0}ms " +

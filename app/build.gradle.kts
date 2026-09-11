@@ -148,10 +148,6 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
-    // Reproductor VLC (libVLC): decodifica por software lo que ExoPlayer no maneja
-    // (.avi/XviD, Dolby Vision P7, TrueHD/DTS-HD). Trae libs nativas arm64 + armeabi-v7a.
-    implementation("org.videolan.android:libvlc-all:3.6.0")
-
     // Image loading
     implementation("io.coil-kt:coil-compose:2.7.0")
 

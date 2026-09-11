@@ -9,8 +9,8 @@ import java.net.URLEncoder
  * Desarmar la URL del proxy local en su ORIGEN y sus HEADERS, una sola vez y bien.
  *
  * Ese desarmado estaba escrito tres veces con tres criterios distintos: en el proxy
- * (`substringAfter("u=").substringBefore('&')`), en [formatoAvformatDe] (partiendo por `&`, que es
- * la única correcta) y advertido a mano en los KDoc de `conFraccion`/`conVentanaDesde` ("va antes de
+ * (`substringAfter("u=").substringBefore('&')`), en el conversor de contenedor de magis (partiendo
+ * por `&`, que es la única correcta) y advertido a mano en los KDoc de `conFraccion`/`conVentanaDesde` ("va antes de
  * `u=` porque hay código que saca el origen con substringAfter"). El `h=` es base64 y su relleno son
  * `=`, así que un blob terminado en `u==` hace que la versión ingenua se lleve el relleno en vez del
  * parámetro — un bug que ya se pagó una vez.

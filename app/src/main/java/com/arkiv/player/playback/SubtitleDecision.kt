@@ -4,13 +4,14 @@ import com.arkiv.player.data.subtitles.PlaybackPrefs
 import com.arkiv.player.data.subtitles.SubtitleMode
 
 /**
- * Decide qué pista de subtítulo activar, en una función PURA para poder testearla — `VlcPlayer`
- * depende de libVLC y no corre en la JVM.
+ * Decides which subtitle track to activate, as a PURE function so it can be tested without a real
+ * player instance.
  *
- * La regla: los subtítulos se prenden solo si el audio que quedó SONANDO no está en un idioma que
- * dijiste entender ([PlaybackPrefs.understoodLangs]). Si el audio ya se entiende, subtitularlo sobra.
- * OJO que NO se mira [PlaybackPrefs.audioLangs]: esa lista es solo el orden con el que se elige la
- * pista, y elegir a mano el japonés de un anime la reordena — no significa que sepas japonés.
+ * The rule: subtitles turn on only if the audio that ended up PLAYING isn't in a language you said
+ * you understand ([PlaybackPrefs.understoodLangs]). If the audio is already understood, subtitling
+ * it is redundant. NOTE that [PlaybackPrefs.audioLangs] is NOT consulted: that list is only the
+ * order used to pick the track, and manually picking an anime's Japanese reorders it -- it doesn't
+ * mean you understand Japanese.
  */
 object SubtitleDecision {
 

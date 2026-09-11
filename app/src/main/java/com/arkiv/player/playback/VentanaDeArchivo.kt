@@ -15,8 +15,8 @@ package com.arkiv.player.playback
  * una ventana que EMPIEZA en el punto pedido y le miente al reproductor sobre el tamaño: para VLC
  * es un archivo nuevo que empieza en 0, con reloj limpio y sin un solo seek.
  *
- * El desfase en tiempo lo pone el reproductor encima de lo que reporta VLC (ver `baseOffsetMs` en
- * [VlcPlayer]).
+ * El desfase en tiempo lo pone el reproductor encima de lo que reporta el origen (parámetro
+ * `baseOffsetMs` de [posicionAbsolutaMs], abajo).
  */
 object VentanaDeArchivo {
 

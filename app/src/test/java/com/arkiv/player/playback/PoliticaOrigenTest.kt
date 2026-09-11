@@ -119,7 +119,7 @@ class PoliticaOrigenTest {
 
     @Test fun magis_escala_sus_plazos_porque_el_CDN_es_erratico() {
         // Esto ANTES exigía que el presupuesto entero cupiera en 10 s, para ganarle por la mano al
-        // rescate "sin imagen → software" de VlcPlayer. Esa invariante MURIÓ cuando magis pasó a
+        // rescate "sin imagen → software" que hacía VLC. Esa invariante MURIÓ cuando magis pasó a
         // ExoPlayer: ya no hay recarga del media a la que adelantarse, y el plazo apretado solo
         // servía para estrangular peticiones sanas. Medido en el Fire Stick el 2026-08-22: dos
         // rangos dados por "rechazados por el origen" a los 3,002 s y 3,004 s —el temporizador,

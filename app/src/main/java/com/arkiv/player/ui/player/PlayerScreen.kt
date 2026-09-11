@@ -2600,9 +2600,9 @@ private fun PlayerContent(
                             // Los saltos de capítulo dependen SOLO de que el vecino exista, nunca del
                             // estado de transporte. Colgarlos de `reproduciendo` (como estaba el de
                             // siguiente) los hacía parpadear: esa se cae a false en cada
-                            // rebuffer y en cada seek —VLC emite Buffering y VlcPlaybackState lo
-                            // traduce a STATE_BUFFERING—, así que el botón aparecía al adelantar y
-                            // se iba solo al volver a READY. Ver el KDoc de `espejo.quiereReproducir`.
+                            // rebuffer y en cada seek —el controller reporta STATE_BUFFERING directo,
+                            // sin ningún traductor de por medio—, así que el botón aparecía al
+                            // adelantar y se iba solo al volver a READY. Ver el KDoc de `espejo.quiereReproducir`.
                             // Se calculan ANTES de los botones para poder armar el grafo de foco
                             // completo (cada dirección explícita; dejar alguna sin definir hace que
                             // la búsqueda espacial por defecto de Compose falle y el foco "se pierda").

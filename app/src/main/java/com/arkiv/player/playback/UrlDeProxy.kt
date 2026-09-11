@@ -6,8 +6,8 @@ import java.net.URLDecoder
  * Desarma la URL del proxy local (`http://127.0.0.1:<port>/s?h=…&d=1&f=…&w=…&u=<origen>`).
  *
  * Existe para que ese desarmado esté escrito UNA vez. Estaba en tres lugares con tres criterios
- * distintos —el propio proxy con `substringAfter("u=")`, [formatoAvformatDe] partiendo por `&`, y
- * advertido a mano en los KDoc de `conFraccion`/`conVentanaDesde` ("va antes de `u=` porque hay
+ * distintos —el propio proxy con `substringAfter("u=")`, el conversor de contenedor de magis
+ * partiendo por `&`, y advertido a mano en los KDoc de `conFraccion`/`conVentanaDesde` ("va antes de `u=` porque hay
  * código que saca el origen con substringAfter")— y la diferencia entre esos criterios ya costó un
  * bug: el `h=` es base64 y su relleno son `=`, así que un blob terminado en `u==` hace que la
  * búsqueda ingenua se lleve el relleno en vez del parámetro.

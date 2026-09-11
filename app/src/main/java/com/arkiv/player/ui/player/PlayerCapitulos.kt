@@ -207,8 +207,8 @@ internal fun CarruselDeCapitulos(
                                 return@onKeyEvent true
                             }
                             // Tragarse las teclas que se saldrían de la fila: abajo del carrusel no
-                            // hay nada, así que la búsqueda espacial de Compose enganchaba el
-                            // VLCVideoLayout (focusable en TV) — el foco se iba al video y, como
+                            // hay nada, así que la búsqueda espacial de Compose enganchaba la vista
+                            // de video (focusable en TV) — el foco se iba ahí y, como
                             // controlsVisible seguía en true, su listener ignoraba todo y ninguna
                             // tecla respondía. Igual en los extremos con izq/der. Se consume acá
                             // (return true) en vez de usar FocusRequester.Cancel porque esa API es
