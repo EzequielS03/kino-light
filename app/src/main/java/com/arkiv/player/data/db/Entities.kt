@@ -197,7 +197,7 @@ data class RecentTitleEntity(
 @Entity(tableName = "downloads")
 data class DownloadEntity(
     @PrimaryKey val episodeId: String,
-    val variant: String,              // siempre "" hoy; solo lo llenaba archive.org, ya borrado
+    val variant: String,              // always "" today; only archive.org ever filled it, and that source is gone
     val state: String,                // ver LocalDownloadState
     val progress: Float,              // 0..1
     val localUri: String?,            // histórico: file:// que dejó el DownloadManager del sistema

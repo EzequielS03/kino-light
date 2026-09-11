@@ -448,7 +448,7 @@ abstract class ArkivDatabase : RoomDatabase() {
 
         /**
          * v25 -> v26: item's `tipo` ("movie"|"tv"), so the library can tell with certainty whether
-         * it already has something instead of comparing by title, which is fuzzy. Ver [ItemEntity.tipo].
+         * it already has something instead of comparing by title, which is fuzzy. See [ItemEntity.tipo].
          *
          * NULL sin DEFAULT a propósito, igual que [MIGRATION_15_16] con `tmdbId`: los ítems que ya
          * existen no saben su tipo con certeza, y adivinarlo (por ejemplo por `categoryOverride`,
