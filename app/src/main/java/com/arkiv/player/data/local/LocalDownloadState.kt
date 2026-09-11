@@ -7,9 +7,9 @@ package com.arkiv.player.data.local
  */
 object LocalDownloadState {
     const val QUEUED = "queued"
-    /** Torrent que supera el umbral de tamaño: espera confirmación del usuario, no baja nada. */
+    /** Legado del gate de tamaño de torrent (fuente borrada en la poda de esta rama): hoy ninguna estrategia lo devuelve. */
     const val NEEDS_CONFIRMATION = "needs_confirmation"
-    /** Solo web: la NUC está bajando el archivo, todavía no empezó la transferencia al dispositivo. */
+    /** Legado: la fase de staging del ahora-removido source web+NUC. Nada escribe este estado hoy, pero la UI todavía lo reconoce. */
     const val STAGING = "staging"
     const val DOWNLOADING = "downloading"
     const val COMPLETED = "completed"

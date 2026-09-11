@@ -96,9 +96,10 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
             // NO se traga la cancelación (antes iba dentro de un runCatching, que la atrapaba igual
             // que cualquier otra excepción). Tragársela tenía dos consecuencias feas: la fila
             // quedaba en `failed` con un motivo inventado aunque el usuario solo hubiera cancelado,
-            // y —peor— el `finally` de la estrategia de torrent nunca corría dentro de esta
-            // corrutina, dejando el TorrentHandle vivo en la sesión para siempre. Relanzarla deja
-            // que la estrategia limpie y que WorkManager marque el trabajo como CANCELLED.
+            // y —peor— el `finally` de la estrategia (torrent en su momento; ese motor se borró en
+            // la poda de esta rama) nunca corría dentro de esta corrutina, dejando el recurso vivo
+            // en la sesión para siempre. Relanzarla deja que la estrategia limpie y que WorkManager
+            // marque el trabajo como CANCELLED.
             throw ce
         } catch (t: Throwable) {
             DownloadOutcome.Failed(t.message ?: "Error inesperado", transient = DownloadRetryPolicy.isTransient(t))
@@ -107,10 +108,10 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
         when (outcome) {
             is DownloadOutcome.Done -> {
                 // Chequeo LO MÁS TARDE POSIBLE, justo antes de escribir el estado: la cancelación de
-                // WorkManager (disparada por "Quitar") llega de forma ASÍNCRONA, y ni el `while` de
-                // `TorrentDownloadStrategy` ni el `renameTo` final de `HttpRangeDownloader` tienen un
-                // punto de suspensión después del último chequeo cancelable — así que la estrategia
-                // puede terminar de escribir el archivo destino milisegundos después de que
+                // WorkManager (disparada por "Quitar") llega de forma ASÍNCRONA, y el `renameTo`
+                // final de `HttpRangeDownloader` no tiene un punto de suspensión después del último
+                // chequeo cancelable — así que la estrategia puede terminar de escribir el archivo
+                // destino milisegundos después de que
                 // `LocalDownloadManager.remove` ya borró la fila y barrió el directorio. Si la fila ya
                 // no está, este archivo es justo lo que ese barrido no llegó a agarrar: no hay ninguna
                 // otra limpieza que lo vaya a recoger después, así que se borra acá y NO se notifica
@@ -130,7 +131,7 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
             }
             is DownloadOutcome.NeedsConfirmation -> {
                 // Mismo cuidado que en `Done`, pero acá lo único engañoso es la notificación: no hay
-                // archivo bajado que limpiar (el torrent recién resolvió metadata, no bajó bytes), y
+                // archivo bajado que limpiar (`NeedsConfirmation` se devuelve antes de bajar bytes), y
                 // los `UPDATE` de Room sobre una fila ya borrada no fallan ni tienen efecto (el WHERE
                 // no matchea nada). Lo que sí sería un engaño es "Confirmá en Descargas para bajarla"
                 // sobre una fila que el usuario ya quitó — no hay nada que confirmar.

@@ -5,7 +5,7 @@ import java.io.File
 /** Resultado de intentar bajar un episodio. */
 sealed interface DownloadOutcome {
     data class Done(val file: File) : DownloadOutcome
-    /** Torrent que supera el umbral: no se bajó nada, espera confirmación del usuario. */
+    /** Legado del gate de tamaño de torrent (fuente borrada en la poda de esta rama): hoy ninguna estrategia lo devuelve. */
     data class NeedsConfirmation(val fileSizeBytes: Long) : DownloadOutcome
     /**
      * [transient] = "esto puede andar en un rato" (corte de red, 5xx, torrent en uso). El worker lo

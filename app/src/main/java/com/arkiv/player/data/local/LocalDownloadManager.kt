@@ -99,7 +99,7 @@ class LocalDownloadManager(
         EnqueueOutcome.QUEUED
     }
 
-    /** El usuario aceptó bajar un torrent que superaba el umbral de tamaño. */
+    /** El usuario aceptó una descarga que superaba el umbral de tamaño. Legado del gate de torrent (fuente borrada en la poda de esta rama): hoy nada dispara este estado. */
     suspend fun confirmSize(episodeId: String) = withContext(Dispatchers.IO) {
         downloadDao.markConfirmed(episodeId)
         wakeWorker(appContext)
@@ -122,14 +122,12 @@ class LocalDownloadManager(
 
     /**
      * DETIENE una descarga en curso sin borrar nada: la fila queda `failed` con motivo "Cancelada"
-     * y el `.part` (o el directorio del torrent) intacto, así que "Reintentar" reanuda desde donde
-     * iba en vez de empezar de cero.
+     * y el `.part` intacto, así que "Reintentar" reanuda desde donde iba en vez de empezar de cero.
      *
      * Cómo llega la señal hasta la estrategia: no hay canal directo con el worker, así que se corta
      * el worker entero ([restartWorker], que es un `enqueueUniqueWork` con REPLACE). La corrutina
-     * recibe la cancelación, la estrategia de torrent suelta el handle en su `finally` y el
-     * descargador HTTP corta el bucle de escritura en su `ensureActive()`. La pasada nueva que
-     * REPLACE deja encolada toma la siguiente fila de la cola.
+     * recibe la cancelación y el descargador HTTP corta el bucle de escritura en su
+     * `ensureActive()`. La pasada nueva que REPLACE deja encolada toma la siguiente fila de la cola.
      *
      * Solo corta si esta fila es la que está en vuelo: la cola es de UNA a la vez, así que una fila
      * en `downloading`/`staging` ES la que está corriendo, y una en `queued` no está corriendo nada
@@ -148,9 +146,7 @@ class LocalDownloadManager(
     /**
      * Borra la fila y el archivo (y el parcial, si quedó a medias). Si la descarga está corriendo,
      * primero la DETIENE: sin eso la estrategia seguía trabajando sobre una fila que ya no existe —
-     * el torrent seguía escribiendo en el `workDir` recién borrado y, al terminar, movía varios GB a
-     * un archivo que ninguna fila referenciaba (disco muerto permanente), y la descarga HTTP seguía
-     * gastando datos móviles escribiendo a un inode ya desenlazado.
+     * la descarga HTTP seguía gastando datos móviles escribiendo a un inode ya desenlazado.
      */
     suspend fun remove(episodeId: String) = withContext(Dispatchers.IO) {
         val row = downloadDao.get(episodeId)

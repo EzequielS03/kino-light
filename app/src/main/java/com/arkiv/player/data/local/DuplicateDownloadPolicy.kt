@@ -34,13 +34,14 @@ data class EpisodeOrigin(val episodeId: String, val torrentFileIndex: Int?)
  *   `episodes.torrentFileIndex`, así que la clave lo incluye ("el infohash + el archivo"). Si los
  *   dos caminos eligieran archivos distintos del mismo pack, no se detecta el duplicado y se baja
  *   igual: preferimos bajar de más antes que bloquear una descarga legítima.
- * - archive.org (`addItem`) → el itemId ES el identifier de archive.org, único; el mismo capítulo
- *   nunca puede estar bajo dos ítems distintos. Idem Magis/Ditu (id derivado del `contentId`/`ref`
- *   del portal) y las películas/torrents sueltos legacy (`web:<hash de la pageUrl>::0`,
- *   `torrent:<infohash>::…`), donde el sufijo es un índice de archivo y compararlo entre ítems
- *   sería directamente incorrecto. Para todos esos: sin clave, o sea sin chequeo — no lo necesitan.
+ * - archive.org (now removed too) -> the itemId WAS archive.org's identifier, unique; the same
+ *   chapter could never end up under two different items. Same for Magis/Ditu (id derived from the
+ *   portal's `contentId`/`ref`) and the legacy standalone web/torrent movies
+ *   (`web:<pageUrl hash>::0`, `torrent:<infohash>::…`), where the suffix is a file index and
+ *   comparing it across items would be straight-up wrong. None of those get a key, i.e. no check
+ *   -- they don't need one.
  *
- * Puro y sin Room, como [DownloadQueuePolicy]/[FreeSpacePolicy]/[TorrentSizeGate]: la consulta la
+ * Puro y sin Room, como [DownloadQueuePolicy]/[FreeSpacePolicy]: la consulta la
  * hace [LocalDownloadManager] y la decisión se toma acá.
  */
 object DuplicateDownloadPolicy {

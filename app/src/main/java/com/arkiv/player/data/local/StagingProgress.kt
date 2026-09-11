@@ -1,9 +1,12 @@
 package com.arkiv.player.data.local
 
 /**
- * Una descarga web tiene DOS fases en serie (la NUC baja del origen, y después el dispositivo baja de
- * la NUC), pero la UI muestra una sola barra. Cada fase ocupa la mitad, así que la barra avanza
- * siempre hacia adelante en vez de volver a cero al cambiar de fase.
+ * A web download used to have TWO phases in series (the NUC would download from the origin, then
+ * the device would download from the NUC), but the UI showed a single bar. Each phase took up
+ * half, so the bar always moved forward instead of resetting to zero when the phase changed.
+ *
+ * Unused today: the web source and the NUC/arkiv-offline server were both removed in this
+ * branch's pruning, and Magis downloads go straight device<->CDN with no staging phase.
  */
 object StagingProgress {
 
