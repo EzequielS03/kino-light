@@ -226,8 +226,8 @@ fun TvSearchScreen(
             }
     }
 
-    // La búsqueda NO se dispara al teclear: con el control cada letra costaba una vuelta completa
-    // de red (TMDB + AniList + torrents) que casi siempre se descartaba. Se busca con el botón.
+    // Search does NOT fire on every keystroke: with the remote, each letter cost a full network
+    // round-trip (TMDB + AniList) that was almost always discarded. Search happens on the button.
     // `searched` distingue "todavía no buscó nada" (mostramos recientes) de "buscó y no hubo nada".
     var searched by remember { mutableStateOf(false) }
     // Sube en cada búsqueda ejecutada. Es la llave para devolver la grilla al principio:

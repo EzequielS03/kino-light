@@ -46,7 +46,8 @@ fun TvEpisodeChip(
     progress: PlaybackEntity?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    /** Still del capítulo (TMDB). Si es null se cae al thumb de archive.org. */
+    /** Chapter still (TMDB). If null the background stays plain black -- the archive.org thumb
+     *  that used to be the fallback was removed in this branch's pruning (see where it's drawn). */
     stillUrl: String? = null,
     /**
      * Nombre real del capítulo (TMDB o el que trajo el gateway de Magis). Va DEBAJO del número, no
@@ -66,8 +67,9 @@ fun TvEpisodeChip(
     } else {
         0f
     }
-    // Solo mostrar el progreso en minutos si hay duración real: en packs de torrent sin
-    // metadata de duración, "0 de 0 min" no dice nada útil.
+    // Only show progress in minutes when there's a real duration: a chapter with no duration
+    // metadata yet (Magis/Ditu both save durationSeconds = 0.0 when first written; torrent packs
+    // used to do the same before this branch's pruning) would show a meaningless "0 de 0 min".
     val progressLabel = when {
         progress == null || progress.positionMs <= 0 || totalMin <= 0 -> null
         progress.watched -> "Visto"

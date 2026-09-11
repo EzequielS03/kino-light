@@ -266,12 +266,14 @@ fun TvHomeScreen(
 
     val context = LocalContext.current
 
-    // Recomendaciones del gateway ("Para ti"): se lee directo de Room, igual que los canales en
-    // vivo recientes de acá abajo -- es una fila de solo lectura que no necesita su propio
-    // ViewModel. Hasta Task 5 llegaban por cloud sync (CloudSyncManager, borrado en esa poda junto
-    // con el resto del pareo/sync); sin ese pull la tabla `recomendaciones` ya no se puebla, así
-    // que esta fila queda vacía en la práctica -- se deja la lectura intacta (no rompe nada, y no
-    // es alcance de esta tarea decidir el reemplazo) en vez de borrar la fila a mitad de poda.
+    // "Para ti" recommendations: read straight from Room, same as the recent live channels below
+    // -- a read-only row that doesn't need its own ViewModel. Until Task 5 these arrived through
+    // cloud sync (CloudSyncManager, removed in that pruning along with the rest of pairing/sync),
+    // which left the `recomendaciones` table empty in practice for a while. Since sub-project 4 it
+    // gets repopulated again by a completely different, on-device path: `GeneradorParaTi`
+    // (`data/recomendaciones`) asks Kilo directly and writes here through
+    // `AppGraph.generadorParaTi`, triggered from `repo.alTerminarAlgo` whenever something finishes
+    // playing -- no server of its own involved.
     val recomendacionDao = remember { graph.database.recomendacionDao() }
     val agregador = remember { graph.agregadorDeRecomendaciones }
     val recomendaciones by recomendacionDao.observeVigentes().collectAsStateWithLifecycle(initialValue = emptyList())
@@ -337,9 +339,10 @@ fun TvHomeScreen(
     fun cardArt(itemId: String, fallback: String?): String? = backdropsOf(itemId).firstOrNull() ?: fallback
     fun heroArt(itemId: String, fallback: String?): String? = backdropsOf(itemId).randomOrNull() ?: fallback
 
-    // El subtítulo del hero es la sinopsis del título; cuando el ítem no la tiene guardada
-    // (los que se agregaron por web o magnet suelto) cae al dato de siempre. Nunca repite el
-    // título, que ya está arriba en grande.
+    // The hero's subtitle is the title's synopsis; when the item doesn't have one saved (Magis and
+    // anime items often don't -- see the comment further down -- and so did the legacy items added
+    // via the now-removed web/magnet sources) it falls back to the usual data. Never repeats the
+    // title, which is already shown big above.
     fun continueFeatured(row: ContinueRow): Featured {
         // El still de TMDB manda si `episode_still` lo tiene; si no, la carátula del ítem. El
         // thumb de archive.org que iba en medio se borró en la poda de esta rama.

@@ -64,7 +64,7 @@ fun Modifier.dpadFocusEscape(): Modifier {
     }
 }
 
-/** Relleno para tarjetas sin carátula (p. ej. torrents): degradado + ícono de video. */
+/** Fallback for cards with no poster (any source can lack one): gradient + video icon. */
 @Composable
 private fun CardPlaceholder() {
     Box(

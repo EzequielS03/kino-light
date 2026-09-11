@@ -56,7 +56,7 @@ import com.arkiv.player.ui.theme.ArkivTextSecondary
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TvDetailScreen(
-    /** Llave de grupo (`tv:46260`) o identifier crudo (torrent recién agregado, "Continuar viendo"). */
+    /** Group key (`tv:46260`) or a raw identifier (an item that isn't grouped yet, or "Continue watching"). */
     groupKey: String,
     onPlayEpisode: (String) -> Unit,
 ) {
@@ -284,8 +284,10 @@ fun TvDetailScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         itemsIndexed(sources, key = { _, it -> it.identifier }) { index, src ->
-                            // El nombre de la fuente + cuántos capítulos aporta: es lo que deja
-                            // decidir (ej. "web · 300 ep." vs "torrent · 267 ep.").
+                            // Source name + how many chapters it contributes: that's what lets you
+                            // decide (e.g. "magis · 300 ep." vs "ditu · 267 ep.", or a legacy
+                            // "web"/"torrent" source still saved in the library from before this
+                            // branch's pruning).
                             TvSourceChip(
                                 label = "${src.source} · ${src.episodeCount} ep.",
                                 selected = src.identifier == selectedId,
@@ -336,8 +338,10 @@ fun TvDetailScreen(
                             episode = ep,
                             isCurrent = data.inProgressEpisode?.id == ep.id,
                             progress = data.progress[ep.id],
-                            // Mismo orden que el hero: frame -> still de TMDB. El respaldo al
-                            // thumb de archive.org sigue viviendo DENTRO de TvEpisodeChip, intacto.
+                            // Same order as the hero: frame -> TMDB still. The archive.org fallback
+                            // that used to live inside TvEpisodeChip after these two was removed
+                            // with the rest of that source; with neither of these, the chip just
+                            // shows a plain black background (see TvEpisodeChip's own comment).
                             stillUrl = EleccionDeMiniatura.elegir(frames[ep.id], stills[ep.id]),
                             onClick = { onPlayEpisode(ep.id) },
                             onFocus = { focusedEpisode = ep },

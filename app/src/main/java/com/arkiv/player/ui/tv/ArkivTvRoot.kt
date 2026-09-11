@@ -106,8 +106,10 @@ fun ArkivTvRoot(
         return
     }
 
-    // Reproductor unificado: archive/Magis van todos a la misma ruta; PlayerScreen resuelve
-    // la fuente a partir del episodeId (ver PlayerSource.kindFor).
+    // Unified player: every source shares this one route. PlayerSource.kindFor() resolves the
+    // source from the episodeId prefix (Magis/Ditu/live); a legacy id from a source removed in
+    // this branch (torrent, archive.org, web) falls into SourceKind.UNKNOWN, and PlayerScreen shows
+    // a "no longer available" message for it (see PlayerViewModel.loadUnknownSource).
     fun goToPlayer(id: String) {
         navController.navigate("player/${Uri.encode(id)}") { launchSingleTop = true }
     }
