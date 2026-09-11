@@ -85,6 +85,7 @@ private val TABS = listOf(
     Tab("home", "Inicio") { Icon(Icons.Default.Home, contentDescription = "Inicio") },
     Tab("categorias_home", "Categorías") { Icon(Icons.Default.GridView, contentDescription = "Categorías") },
     Tab("library", "Biblioteca") { Icon(Icons.Default.VideoLibrary, contentDescription = "Biblioteca") },
+    Tab("downloads", "Descargas") { Icon(Icons.Default.Download, contentDescription = "Descargas") },
     Tab("live", "En vivo") { Icon(Icons.Default.LiveTv, contentDescription = "En vivo") },
     Tab("caracol", "Caracol") { Icon(Icons.Default.Theaters, contentDescription = "Caracol") },
     Tab("settings", "Ajustes") { Icon(Icons.Default.Settings, contentDescription = "Ajustes") },
@@ -283,7 +284,9 @@ fun ArkivRoot(
             composable("settings") {
     SettingsScreen(
         contentPadding = padding,
-        onOpenDownloads = { navController.navigate("downloads") },
+        // "downloads" is now a tab (see TABS above): go through the same irA() the drawer/rail
+        // use, so the tab shows selected and the back stack behaves like any other tab switch.
+        onOpenDownloads = { irA(TABS.first { it.route == "downloads" }) },
     )
 }
             composable("categorias_home") {
