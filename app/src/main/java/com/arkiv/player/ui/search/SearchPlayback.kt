@@ -1,7 +1,7 @@
 package com.arkiv.player.ui.search
 
 import com.arkiv.player.AppGraph
-import com.arkiv.player.data.CapituloDeCaracol
+import com.arkiv.player.data.DituEntities
 
 /** Resultado de intentar preparar una reproducción: listo con episodeId, o falló con un mensaje
  *  para mostrar al usuario (mismos textos que mostraba SearchScreen antes de la extracción). */
@@ -192,7 +192,8 @@ class SearchPlayback(private val graph: AppGraph) {
      * El elegido NO se busca por número, como en [playMagisSeason]: en un `GROUP_OF_BUNDLES` la lista
      * trae un capítulo 1 en cada temporada, y por número se reproduciría el de otra. Se busca por su
      * temporada y su número (`DituEntities.elegidoEntre`), y la lista y el elegido pasan por el mismo
-     * [capituloDeCaracol], así que su temporada sale de la misma [temporadaDelCapitulo].
+     * [DituEntities.capituloDeCaracol], así que su temporada sale de la misma
+     * [DituEntities.temporadaDelCapitulo].
      *
      * Si la serie no se pudo guardar, o el elegido no quedó en ella, cae a [playDituEpisode] —guardar
      * solo el capítulo— antes que dejar a la persona sin reproducir nada.
@@ -207,8 +208,8 @@ class SearchPlayback(private val graph: AppGraph) {
             seriesRef = temporada.ref,
             // El ítem es la serie; cada capítulo se nombra aparte, adentro.
             title = temporada.title,
-            capitulos = capitulos.map { capituloDeCaracol(it, serie) },
-            elegido = capituloDeCaracol(elegido, serie),
+            capitulos = capitulos.map { DituEntities.capituloDeCaracol(it, serie) },
+            elegido = DituEntities.capituloDeCaracol(elegido, serie),
             posterUrl = temporada.extra["poster"].orEmpty().ifBlank { serie?.posterUrl.orEmpty() },
             backdropUrl = serie?.backdropUrl.orEmpty(),
             // Mismo blindaje que en [playDituEpisode]: un tmdbId en 0 no pisa uno ya guardado.
@@ -228,7 +229,7 @@ class SearchPlayback(private val graph: AppGraph) {
      * —nunca por [playMagisSeason] ni [magisEpisodeIdDe], que arman ids `magis:`—, y le da al
      * capítulo el mismo id que le da [playDituSeason] (los dos lo arman con `DituEntities`).
      *
-     * La temporada la decide [temporadaDelCapitulo].
+     * La temporada la decide [DituEntities.temporadaDelCapitulo].
      */
     suspend fun playDituEpisode(
         temporada: com.arkiv.player.data.gateway.GatewayResult,
@@ -244,7 +245,7 @@ class SearchPlayback(private val graph: AppGraph) {
             episodeTitle = capitulo.title,
             posterUrl = temporada.extra["poster"].orEmpty().ifBlank { serie?.posterUrl.orEmpty() },
             backdropUrl = serie?.backdropUrl.orEmpty(),
-            season = temporadaDelCapitulo(capitulo, serie),
+            season = DituEntities.temporadaDelCapitulo(capitulo, serie),
             // `DituFuente` deja el tmdbId en 0 cuando TMDB no la encontró: ese 0 no puede pisar un
             // tmdbId ya guardado.
             tmdbId = serie?.tmdbId?.takeIf { it > 0 },
@@ -256,32 +257,3 @@ class SearchPlayback(private val graph: AppGraph) {
     }
 
 }
-
-/**
- * La temporada con la que se guarda un capítulo de Caracol: la del propio capítulo
- * (`GatewayEpisode.season`, que `DituFuente` llena por capítulo) y la de [serie] solo si falta.
- *
- * El orden importa: en un `GROUP_OF_BUNDLES` la de [serie] es UNA sola (la 1) para todas las
- * temporadas aplanadas, así que si ganara ella, el capítulo 1 de la T2 se guardaría como el 1 de la
- * T1 y le pisaría la fila (ver `DituEntities.episodioIdDeCapitulo`).
- */
-internal fun temporadaDelCapitulo(
-    capitulo: com.arkiv.player.data.gateway.GatewayEpisode,
-    serie: com.arkiv.player.data.gateway.GatewaySerie?,
-): Int? = capitulo.season ?: serie?.seasonNumber
-
-/**
- * Un capítulo de Caracol como lo guarda `DituEntities`, con la temporada de [temporadaDelCapitulo].
- *
- * [SearchPlayback.playDituSeason] mapea con esto la lista Y el elegido: si los dos no sacaran la
- * temporada del mismo lado, el elegido se buscaría en una temporada que no es la suya.
- */
-internal fun capituloDeCaracol(
-    capitulo: com.arkiv.player.data.gateway.GatewayEpisode,
-    serie: com.arkiv.player.data.gateway.GatewaySerie?,
-): CapituloDeCaracol = CapituloDeCaracol(
-    number = capitulo.number,
-    title = capitulo.title,
-    ref = capitulo.ref,
-    season = temporadaDelCapitulo(capitulo, serie),
-)

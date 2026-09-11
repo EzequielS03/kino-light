@@ -4,6 +4,8 @@ import com.arkiv.player.data.db.EpisodeEntity
 import com.arkiv.player.data.db.ItemEntity
 import com.arkiv.player.data.ditu.DituFuente
 import com.arkiv.player.data.ditu.DituRef
+import com.arkiv.player.data.gateway.GatewayEpisode
+import com.arkiv.player.data.gateway.GatewaySerie
 
 /**
  * Un capítulo de una serie de Caracol, tal como lo necesita [DituEntities].
@@ -79,6 +81,40 @@ object DituEntities {
      * (o llega en 0). Es la misma regla con la que `DituEpisodios` lee un capítulo que no la trae.
      */
     fun temporadaGuardada(season: Int?): Int = season?.takeIf { it > 0 } ?: 1
+
+    /**
+     * The season a Caracol chapter is saved with: the chapter's own ([GatewayEpisode.season],
+     * which `DituFuente` fills in per chapter) and [serie]'s only when that's missing.
+     *
+     * Order matters: in a `GROUP_OF_BUNDLES`, [serie]'s season is a single value (season 1)
+     * flattened across every season in the group, so if it won, season 2's chapter 1 would save
+     * as season 1's chapter 1 and overwrite its row (see [episodioIdDeCapitulo]).
+     *
+     * Moved here from `ui/search/SearchPlayback.kt` once a second data-layer caller
+     * (`BuscadorDeCapitulos.revisarDitu`) needed it too, alongside `AgregadorDeRecomendaciones`.
+     */
+    fun temporadaDelCapitulo(
+        capitulo: GatewayEpisode,
+        serie: GatewaySerie?,
+    ): Int? = capitulo.season ?: serie?.seasonNumber
+
+    /**
+     * A Caracol chapter shaped the way [DituEntities] saves it, with the season from
+     * [temporadaDelCapitulo].
+     *
+     * Callers that map a whole list AND a chosen chapter through this (like
+     * `SearchPlayback.playDituSeason`) must map both with it: if they didn't pull the season from
+     * the same place, the chosen chapter would be looked up in a season that isn't its own.
+     */
+    fun capituloDeCaracol(
+        capitulo: GatewayEpisode,
+        serie: GatewaySerie?,
+    ): CapituloDeCaracol = CapituloDeCaracol(
+        number = capitulo.number,
+        title = capitulo.title,
+        ref = capitulo.ref,
+        season = temporadaDelCapitulo(capitulo, serie),
+    )
 
     /**
      * El id con el que queda guardado un capítulo, sea suelto ([build]) o con su serie

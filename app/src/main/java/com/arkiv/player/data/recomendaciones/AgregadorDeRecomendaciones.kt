@@ -74,7 +74,7 @@ class AgregadorDeRecomendaciones(
         val esSerie = com.arkiv.player.data.ditu.DituRef.decodificar(rec.ref)?.esSerie == true
         val episodeId = if (esSerie) {
             val (capitulos, serie) = capitulosDe(rec) ?: return null
-            val lista = capitulos.map { com.arkiv.player.ui.search.capituloDeCaracol(it, serie) }
+            val lista = capitulos.map { com.arkiv.player.data.DituEntities.capituloDeCaracol(it, serie) }
             val elegido = lista.firstOrNull() ?: return null
             repo.addDituSeason(
                 seriesRef = rec.ref,
