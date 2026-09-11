@@ -218,10 +218,10 @@ data class DownloadEntity(
 )
 
 /**
- * A live TV channel marked as a favorite. Carries the `updatedAt` + tombstone (`deleted`) columns
- * that this branch's two removed cloud-sync paths used for LWW merge and reconciliation (see
- * [com.arkiv.player.data.db.SyncTriggers]); neither sync exists anymore, so these columns are just
- * history the schema still carries.
+ * A live TV channel marked as a favorite. `deleted` is the live un-favorite mechanism: unfavoriting
+ * sets it (`LiveFavoriteDao.borrar`), and every read filters on it (`flowTodos`, `esFavorito`).
+ * `updatedAt` is left over from this branch's two removed cloud-sync paths (see
+ * [com.arkiv.player.data.db.SyncTriggers]) and has no reader today.
  */
 @Entity(tableName = "live_favorites")
 data class LiveFavoriteEntity(

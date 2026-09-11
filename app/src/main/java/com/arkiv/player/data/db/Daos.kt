@@ -480,13 +480,10 @@ interface LiveFavoriteDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun guardar(f: LiveFavoriteEntity)
 
-    // NO se toca updatedAt acá (el brief original lo ponía en 0): esta tabla SÍ viaja por el
-    // sync, y `updatedAt = 0` es la marca que usa el resto del código para "nunca se subió"
-    // (ver KDoc de SyncTriggers.ddl y MIGRATION_7_8 en ArkivDatabase). Poner el borrado en 0
-    // haría que el trigger de UPDATE no lo resellara (WHEN NEW.updatedAt = OLD.updatedAt no se
-    // cumpliría) y el tombstone se quedaría sin `updatedAt` para siempre: el borrado nunca
-    // llegaría al otro dispositivo. Se deja que el trigger sea quien selle, igual que
-    // `softDeleteItem`.
+    // Doesn't touch `updatedAt` here: leaving it alone is what lets the SyncTriggers UPDATE
+    // trigger's guard (`WHEN NEW.updatedAt = OLD.updatedAt`) fire and reseal it with a fresh clock
+    // -- same pattern as `softDeleteItem`. Nothing reads that clock anymore (see SyncTriggers),
+    // but the trigger still runs on every local write.
     @Query("UPDATE live_favorites SET deleted = 1 WHERE code = :code")
     suspend fun borrar(code: String)
 

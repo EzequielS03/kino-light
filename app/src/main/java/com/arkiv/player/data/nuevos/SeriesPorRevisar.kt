@@ -10,7 +10,7 @@ import com.arkiv.player.data.ditu.DituFuente
  */
 data class SerieCandidata(
     val itemId: String,
-    /** "archive" | "web" | "magis" | "torrent". */
+    /** "magis" | "ditu" today; legacy rows can still carry "archive" | "web" | "torrent". */
     val fuente: String,
     /** Cuándo se reprodujo por última vez algo de esta serie. 0 = nunca. */
     val ultimoVistoMs: Long,
