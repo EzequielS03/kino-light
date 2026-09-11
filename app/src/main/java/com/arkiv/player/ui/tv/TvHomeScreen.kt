@@ -172,20 +172,6 @@ internal fun recommendationFeatured(rec: RecomendacionEntity): Featured = Featur
 )
 
 /**
- * La llave con la que se navega al detalle (`onOpenItem`) tras guardar una recomendación.
- *
- * Tiene que ser EXACTAMENTE la misma que calcula `addMagisSource` puertas adentro para el ítem que
- * guarda ([com.arkiv.player.data.MagisEntities.build]: `itemIdDe(contentId)`) -- ahí se le pasa
- * `contentId = rec.id`, así que acá se recalcula con el mismo `rec.id` y la misma función, en vez
- * de partir el episodeId que devuelve `addMagisSource` (que además ni se necesita: el detalle
- * resuelve sus propias fuentes a partir del itemId). Si esta llave no coincidiera con la que
- * `addMagisSource` guardó, el detalle no encontraría nada y la recomendación se vería rota
- * ("No se pudo cargar este contenido").
- */
-internal fun recommendationItemId(rec: RecomendacionEntity): String =
-    com.arkiv.player.data.MagisEntities.itemIdDe(rec.id)
-
-/**
  * El pivote de TV, tal cual lo hace Compose, pero escrito acá porque el suyo es `internal`.
  *
  * Deja lo enfocado a un 30 % del largo del contenedor y hace que el contenido corra por debajo, en
@@ -721,16 +707,18 @@ fun TvHomeScreen(
                                                 // El guardado lo decide [AgregadorDeRecomendaciones]:
                                                 // una serie entra como TEMPORADA con todos sus
                                                 // capítulos, no como el ref suelto que antes la dejaba
-                                                // con uno solo y en la fila de Películas.
+                                                // con uno solo y en la fila de Películas. Y la fuente
+                                                // (Magis o Caracol) sale del `ref`, no del id de la
+                                                // fila: una recomendación de Caracol guardada como
+                                                // Magis reproduciría mal.
                                                 //
-                                                // La llave con la que se navega es la MISMA que el
-                                                // agregador calculó puertas adentro para guardar el
-                                                // ítem (ver [recommendationItemId]): si no
-                                                // coincidieran, el detalle no encontraría nada y se
-                                                // vería como una recomendación rota. Si no se guardó
-                                                // nada, no se navega a un detalle que no va a resolver.
+                                                // La llave con la que se navega es la que el agregador
+                                                // devuelve: es el id del ítem que de verdad quedó
+                                                // guardado, así que siempre coincide. Si no se guardó
+                                                // nada (null), no se navega a un detalle que no va a
+                                                // resolver.
                                                 scope.launch {
-                                                    if (agregador.agregar(rec)) onOpenItem(recommendationItemId(rec))
+                                                    agregador.agregar(rec)?.let(onOpenItem)
                                                 }
                                             },
                                         )

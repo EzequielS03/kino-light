@@ -126,4 +126,46 @@ class GuardadoDeRecomendacionTest {
         assertNull(temporada.tmdbId)
         assertNull(temporada.seasonNumber)
     }
+
+    private fun recCon(id: String, ref: String) = RecomendacionEntity(
+        id = id, tmdbId = 0, tipo = "movie", titulo = "x", posterUrl = "", porque = "", ref = ref,
+        orden = 0, generadoAt = 0,
+    )
+
+    @Test fun `un ref de Caracol va a Caracol con su contentId`() {
+        assertEquals(
+            DestinoDeRecomendacion.Caracol("99"),
+            GuardadoDeRecomendacion.destino(recCon("ditu:99", "ditu1:BUNDLE:99")),
+        )
+    }
+
+    @Test fun `un ref de Magis va a Magis con su contentId y no con el id de la fila`() {
+        assertEquals(
+            DestinoDeRecomendacion.Magis("C42"),
+            GuardadoDeRecomendacion.destino(recCon("otro-id", "magis1:teleplay:0:C42")),
+        )
+    }
+
+    /** Filas viejas del gateway: su id es el del registro de PocketBase y su ref puede no entenderse. */
+    @Test fun `una fila con un ref que no se entiende cae a Magis con su id`() {
+        assertEquals(
+            DestinoDeRecomendacion.Magis("pbrecord123"),
+            GuardadoDeRecomendacion.destino(recCon("pbrecord123", "ilegible")),
+        )
+    }
+
+    @Test fun `el ref sin fuente conocida no tiene destino`() {
+        assertNull(GuardadoDeRecomendacion.destinoDeRef("otra:cosa"))
+    }
+
+    @Test fun `el item guardado es el de la fuente`() {
+        assertEquals(
+            com.arkiv.player.data.MagisEntities.itemIdDe("C42"),
+            GuardadoDeRecomendacion.itemIdDe(DestinoDeRecomendacion.Magis("C42")),
+        )
+        assertEquals(
+            com.arkiv.player.data.DituEntities.itemIdDe("99"),
+            GuardadoDeRecomendacion.itemIdDe(DestinoDeRecomendacion.Caracol("99")),
+        )
+    }
 }

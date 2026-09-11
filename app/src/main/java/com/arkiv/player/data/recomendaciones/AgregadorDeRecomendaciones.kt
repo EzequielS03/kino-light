@@ -13,9 +13,11 @@ import kotlinx.coroutines.CancellationException
  * pura y sí se prueba. Mismo reparto que `BuscadorDeCapitulos`, que también junta repositorio y
  * gateway para una sola tarea de fondo.
  *
- * Una serie entra como TEMPORADA (`addMagisSeason`, un episodio por capítulo) y no como ref suelto:
- * el `ref` de una recomendación de serie apunta a la temporada entera, y guardarlo con
- * `addMagisSource` dejaba el ítem con un solo episodio y en la fila de Películas.
+ * Una serie de Magis entra como TEMPORADA (`addMagisSeason`, un episodio por capítulo) y no como ref
+ * suelto: el `ref` de una recomendación de serie apunta a la temporada entera, y guardarlo con
+ * `addMagisSource` dejaba el ítem con un solo episodio y en la fila de Películas. Una serie de
+ * Caracol entra igual de completa, pero por `addDituSeason`: [GuardadoDeRecomendacion.destino] decide
+ * primero de cuál de las dos fuentes es la recomendación.
  */
 class AgregadorDeRecomendaciones(
     private val repo: ArkivRepository,
@@ -23,34 +25,84 @@ class AgregadorDeRecomendaciones(
 ) {
 
     /**
-     * Guarda [rec] y dice si quedó algo en la biblioteca. En false no hay que navegar al detalle:
-     * no encontraría nada y se vería como una recomendación rota.
+     * Guarda [rec] y devuelve el id del ítem que quedó en la biblioteca, para navegar a su detalle,
+     * o null si no quedó nada (navegar ahí se vería como una recomendación rota).
      */
-    suspend fun agregar(rec: RecomendacionEntity): Boolean {
+    suspend fun agregar(rec: RecomendacionEntity): String? = when (val destino = GuardadoDeRecomendacion.destino(rec)) {
+        is DestinoDeRecomendacion.Magis -> agregarDeMagis(rec, destino)
+        is DestinoDeRecomendacion.Caracol -> agregarDeCaracol(rec, destino)
+    }
+
+    private suspend fun agregarDeMagis(rec: RecomendacionEntity, destino: DestinoDeRecomendacion.Magis): String? {
         val temporada = if (GuardadoDeRecomendacion.pideCapitulos(rec)) temporadaDelGateway(rec) else null
-        return if (temporada != null) {
+        val guardo = if (temporada != null) {
             repo.addMagisSeason(
-                contentId = rec.id,
+                contentId = destino.contentId,
                 title = rec.titulo,
                 capitulos = temporada.capitulos,
-                // El ref de la recomendación ES el de la temporada: el mismo que resuelve
-                // `MagisCatalog.detail`, así que queda guardado en el ítem y `BuscadorDeCapitulos` puede
-                // preguntar por capítulos nuevos más adelante.
+                // El ref de la recomendación ES el de la temporada: queda guardado en el ítem y
+                // `BuscadorDeCapitulos` puede preguntar por capítulos nuevos más adelante.
                 seriesRef = rec.ref,
                 posterUrl = rec.posterUrl,
                 tmdbId = temporada.tmdbId,
                 seasonNumber = temporada.seasonNumber,
             ).isNotEmpty()
         } else {
-            // Películas, y series cuya fuente no sabe listar capítulos (archive, torrent): el
-            // guardado de siempre, que es mejor que no guardar nada.
+            // Películas, y series cuyos capítulos no se pudieron listar: el guardado suelto, que es
+            // mejor que no guardar nada.
             repo.addMagisSource(
                 ref = rec.ref,
-                contentId = rec.id,
+                contentId = destino.contentId,
                 title = rec.titulo,
                 posterUrl = rec.posterUrl,
             ) != null
         }
+        return if (guardo) GuardadoDeRecomendacion.itemIdDe(destino) else null
+    }
+
+    /**
+     * Caracol decide por su ref y no por `rec.tipo`: un `BUNDLE`/`GROUP_OF_BUNDLES` se lista y se
+     * guarda entero, como en la búsqueda (`SearchPlayback.playDituSeason`); un `VOD` se guarda solo.
+     * El elegido es el primer capítulo: nadie tocó uno, y `addDituSeason` necesita alguno.
+     */
+    private suspend fun agregarDeCaracol(rec: RecomendacionEntity, destino: DestinoDeRecomendacion.Caracol): String? {
+        val tmdbId = rec.tmdbId.takeIf { it > 0 }
+        val esSerie = com.arkiv.player.data.ditu.DituRef.decodificar(rec.ref)?.esSerie == true
+        val episodeId = if (esSerie) {
+            val (capitulos, serie) = capitulosDe(rec) ?: return null
+            val lista = capitulos.map { com.arkiv.player.ui.search.capituloDeCaracol(it, serie) }
+            val elegido = lista.firstOrNull() ?: return null
+            repo.addDituSeason(
+                seriesRef = rec.ref,
+                title = rec.titulo,
+                capitulos = lista,
+                elegido = elegido,
+                posterUrl = rec.posterUrl.ifBlank { serie?.posterUrl.orEmpty() },
+                backdropUrl = serie?.backdropUrl.orEmpty(),
+                tmdbId = tmdbId,
+                // `rec.titulo` es el de TMDB (lo confirmó la cascada), o sea el canónico.
+                tituloCanonico = rec.titulo.takeIf { tmdbId != null },
+            )
+        } else {
+            repo.addDituSource(
+                ref = rec.ref,
+                title = rec.titulo,
+                posterUrl = rec.posterUrl,
+                tmdbId = tmdbId,
+                tituloCanonico = rec.titulo.takeIf { tmdbId != null },
+            )
+        }
+        return episodeId?.let { GuardadoDeRecomendacion.itemIdDe(destino) }
+    }
+
+    /** Los capítulos de una serie de Caracol, o null si no se pudieron listar. */
+    private suspend fun capitulosDe(rec: RecomendacionEntity) = try {
+        gateway.episodesConSerie(rec.ref)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "capitulos de Caracol de \"${rec.titulo}\": ${e.javaClass.simpleName}: ${e.message}")
+        null
     }
 
     /**

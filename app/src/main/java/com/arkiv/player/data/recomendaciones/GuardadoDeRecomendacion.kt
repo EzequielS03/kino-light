@@ -19,6 +19,13 @@ data class TemporadaDeRecomendacion(
     val seasonNumber: Int?,
 )
 
+/** A qué fuente va a parar una recomendación al guardarla, y con qué contentId. */
+internal sealed interface DestinoDeRecomendacion {
+    val contentId: String
+    data class Magis(override val contentId: String) : DestinoDeRecomendacion
+    data class Caracol(override val contentId: String) : DestinoDeRecomendacion
+}
+
 /**
  * Qué guardar al agregar a la biblioteca una tarjeta de la fila "Para ti". Puro/JVM (se prueba sin
  * Room ni red); quien llama pone la red y la escritura, ver [GuardadorDeRecomendaciones].
@@ -35,12 +42,37 @@ object GuardadoDeRecomendacion {
     /**
      * Si a esta recomendación hay que pedirle la lista de capítulos antes de guardarla.
      *
-     * Se decide por [RecomendacionEntity.tipo] —el que el gateway ya cruzó contra TMDB— y no por la
-     * fuente del `ref`: el tipo es un campo de la fila, y la fuente vendría de destripar un token
-     * que el gateway firma y la app trata como opaco. Una película que igual se preguntara pagaría
+     * Se decide por [RecomendacionEntity.tipo] —el que ya se cruzó contra TMDB— y solo aplica a
+     * Magis: Caracol decide por su propio `ref` (`DituRef.esSerie`, ver
+     * `AgregadorDeRecomendaciones.agregarDeCaracol`). Una película que igual se preguntara pagaría
      * un 422 de red por nada.
      */
     fun pideCapitulos(rec: RecomendacionEntity): Boolean = rec.tipo == "tv"
+
+    /**
+     * De qué fuente es este `ref`, o null si no es de ninguna conocida. Caracol se pregunta primero,
+     * pero da igual el orden: `DituRef.decodificar` y `MagisRef.decodificar` solo aceptan lo suyo
+     * (su prefijo, o un ref viejo del gateway con su propia fuente adentro).
+     */
+    internal fun destinoDeRef(ref: String): DestinoDeRecomendacion? {
+        com.arkiv.player.data.ditu.DituRef.decodificar(ref)?.let { return DestinoDeRecomendacion.Caracol(it.contentId) }
+        com.arkiv.player.data.magis.MagisRef.decodificar(ref)?.let { return DestinoDeRecomendacion.Magis(it.contentId) }
+        return null
+    }
+
+    /**
+     * De qué fuente es [rec]. Un ref de Caracol NUNCA puede guardarse como Magis (el reproductor lo
+     * mandaría a `loadMagis`). Una fila vieja con un ref que no se entiende cae a Magis con su id,
+     * que es como se guardaba antes.
+     */
+    internal fun destino(rec: RecomendacionEntity): DestinoDeRecomendacion =
+        destinoDeRef(rec.ref) ?: DestinoDeRecomendacion.Magis(rec.id)
+
+    /** El id del ítem que queda en la biblioteca: el mismo que arma la búsqueda para esa fuente. */
+    internal fun itemIdDe(destino: DestinoDeRecomendacion): String = when (destino) {
+        is DestinoDeRecomendacion.Magis -> com.arkiv.player.data.MagisEntities.itemIdDe(destino.contentId)
+        is DestinoDeRecomendacion.Caracol -> com.arkiv.player.data.DituEntities.itemIdDe(destino.contentId)
+    }
 
     /**
      * La temporada a guardar, o **null** si no hay ninguna y quien llama tiene que caer al guardado
