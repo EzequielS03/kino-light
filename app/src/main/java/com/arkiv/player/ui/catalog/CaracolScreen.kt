@@ -111,12 +111,12 @@ fun CaracolScreen(onPlay: (episodeId: String) -> Unit, contentPadding: PaddingVa
             .onSuccess { titles = it; catalogError = null }
             .onFailure {
                 // The detail goes to the log; on screen, in plain words.
-                android.util.Log.w("CaracolScreen", "no cargó el catálogo", it)
+                android.util.Log.w("CaracolScreen", "catalog failed to load", it)
                 catalogError = FalloDeCaracol.alCargarElCatalogo(it)
             }
         val channelsResult = runCatching { graph.dituFuente.canales() }
         channelsResult.exceptionOrNull()
-            ?.let { android.util.Log.w("CaracolScreen", "no cargaron los canales", it) }
+            ?.let { android.util.Log.w("CaracolScreen", "channels failed to load", it) }
         channels = EstadoDeCanales.de(channelsResult)
         loading = false
     }
