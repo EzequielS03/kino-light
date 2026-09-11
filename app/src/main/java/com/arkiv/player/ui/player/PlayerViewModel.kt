@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import com.arkiv.player.data.ArkivRepository
 import com.arkiv.player.data.db.LiveRecentDao
 import com.arkiv.player.data.db.LiveRecentEntity
-import com.arkiv.player.data.db.SkipMarkerEntity
 import com.arkiv.player.data.ditu.FalloDeCaracol
 import com.arkiv.player.data.gateway.LiveChannel
 import com.arkiv.player.data.model.Episode
@@ -321,9 +320,16 @@ class PlayerViewModel internal constructor(
             errorDeReproduccion = false
             // If it's saved on the device, it wins over any streaming. Goes BEFORE branching by
             // source: no matter where the file came from, it's already here.
+            //
+            // UNKNOWN stays out on purpose: ids of sources removed from this branch always get
+            // the "no longer available" error below, even if an old completed download for that
+            // id is still on disk (LocalLibrary.fileFor doesn't filter by source). Playing that
+            // old file would be a behavior change, not part of this cleanup.
             val kind = PlayerSource.kindFor(episodeId)
-            val local = localLibrary.fileFor(episodeId)
-            if (local != null) { loadLocal(episodeId, local); return@launch }
+            if (kind != SourceKind.UNKNOWN) {
+                val local = localLibrary.fileFor(episodeId)
+                if (local != null) { loadLocal(episodeId, local); return@launch }
+            }
             // After the download detour, on purpose: a file already on the device carries no
             // trivia (see [TriviaDelPlayer.pideDatos]).
             if (TriviaDelPlayer.pideDatos(episodeId, kind)) cargarTrivia(episodeId)

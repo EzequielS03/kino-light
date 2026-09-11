@@ -6,10 +6,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlayerSourceTest {
-    @Test fun other_is_archive() {
-        assertEquals(SourceKind.UNKNOWN, PlayerSource.kindFor("someitem::3"))
-    }
-
     @Test fun `an id with no known prefix is an unknown source`() {
         assertEquals(SourceKind.UNKNOWN, PlayerSource.kindFor("some-old-archive-identifier"))
     }
