@@ -1317,8 +1317,8 @@ class ArkivRepository(
 
     /**
      * La identidad de la obra de la que pedir datos curiosos, o null si no hay forma de nombrarla
-     * bien (ver [com.arkiv.player.data.trivia.ObraDeDatos.de]). Sin red: el nombre lo busca aparte
-     * [nombreDeObra], y solo si no hay caché.
+     * bien (ver [com.arkiv.player.data.trivia.ObraDeDatos.de]). Sin red: la ficha se busca aparte
+     * en [fichaDeObra], y solo si no hay caché.
      *
      * Temporada y capítulo salen primero de los campos que escriben Magis y Caracol al guardar
      * (`EpisodeEntity.season` / `.episode`), y si no, del nombre y la sección, como antes.
@@ -1340,20 +1340,57 @@ class ArkivRepository(
     }
 
     /**
-     * Cómo decirle al modelo qué obra es: el nombre de TMDB cuando hay `tmdbId`, y si no (o si TMDB
-     * no contesta) el título canónico. Null si no hay ninguno.
+     * La ficha de hechos verificados de TMDB para anclar el dato curioso a ESTA obra exacta (adenda
+     * de spec del 2026-09-10): nunca la sinopsis, porque trae trama.
+     *
+     * Con `tmdbId`: la ficha de película o de serie, más la del capítulo si hay temporada y
+     * episodio y TMDB lo encuentra. Si la llamada del capítulo falla, la ficha de la serie se usa
+     * igual, sin capítulo. Sin `tmdbId`, o si TMDB no contestó nada, una ficha mínima con solo el
+     * título canónico (sin ningún hecho): sigue siendo mejor que preguntar a ciegas. `null` si no
+     * hay ni eso. La cancelación se relanza; lo demás se traga, como antes en `nombreDeObra`.
+     *
+     * **Esto solo corre si no hay caché** (igual que antes con el nombre): puede costar hasta 3
+     * llamadas a TMDB.
      */
-    internal suspend fun nombreDeObra(obra: com.arkiv.player.data.trivia.ObraDeDatos): String? {
-        val deTmdb = obra.tmdbId?.let { id ->
+    internal suspend fun fichaDeObra(obra: com.arkiv.player.data.trivia.ObraDeDatos): com.arkiv.player.data.trivia.FichaDeObra? {
+        val tmdb = tmdbApi
+        val id = obra.tmdbId
+        val deTmdb = if (tmdb == null || id == null) {
+            null
+        } else if (obra.tipo == "movie") {
             try {
-                tmdbApi?.detail(obra.tipo, id)?.title
+                tmdb.crudo("movie/$id", append = "credits")?.let { com.arkiv.player.data.trivia.fichaDePelicula(it) }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 null
             }
+        } else {
+            val serie = try {
+                tmdb.crudo("tv/$id", append = "aggregate_credits")?.let { com.arkiv.player.data.trivia.fichaDeSerie(it) }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            if (serie != null && obra.temporada != null && obra.episodio != null) {
+                val capitulo = try {
+                    tmdb.crudo("tv/$id/season/${obra.temporada}/episode/${obra.episodio}", append = "credits")
+                        ?.let { com.arkiv.player.data.trivia.capituloDeFicha(it) }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    null
+                }
+                serie.copy(capitulo = capitulo)
+            } else {
+                serie
+            }
         }
-        return deTmdb?.takeIf { it.isNotBlank() } ?: obra.tituloCanonico
+        if (deTmdb != null) return deTmdb
+        return obra.tituloCanonico?.trim()?.takeIf { it.isNotEmpty() }?.let {
+            com.arkiv.player.data.trivia.FichaDeObra(tipo = obra.tipo, nombre = it)
+        }
     }
 }
 

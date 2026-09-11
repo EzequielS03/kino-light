@@ -304,6 +304,18 @@ class TmdbApi(
     }
 
     /**
+     * Una llamada cruda a una ruta de TMDB sin método propio en esta clase: el JSON tal cual lo
+     * manda el servidor, o `null` si la llamada falla. En IO, como el resto de esta clase.
+     *
+     * La usa el dato curioso ([com.arkiv.player.data.ArkivRepository.fichaDeObra]) para pedir
+     * `movie/{id}` y `tv/{id}` con sus créditos, y el capítulo puntual de una serie.
+     */
+    internal suspend fun crudo(ruta: String, append: String? = null): String? = withContext(Dispatchers.IO) {
+        val appendQuery = append?.let { "&append_to_response=$it" }.orEmpty()
+        get("$base/$ruta?$auth$appendQuery")
+    }
+
+    /**
      * La serie que TMDB conoce con ese id de IMDb. Es el único cruce EXACTO disponible para los
      * capítulos de Magis: el portal publica el imdb de la serie en `keyWords`, y buscar por título
      * cruzaría numeraciones que no corresponden.

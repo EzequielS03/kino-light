@@ -381,7 +381,7 @@ class PlayerViewModel internal constructor(
                 return@launch
             }
             _trivia.value = try {
-                fuenteDeDatos.de(obra) { repo.nombreDeObra(obra) }
+                fuenteDeDatos.de(obra) { repo.fichaDeObra(obra) }
                     .also { Log.w(PLAY, "trivia: ${it.size} datos para ${obra.clave}") }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
