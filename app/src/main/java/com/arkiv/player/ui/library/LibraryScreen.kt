@@ -101,7 +101,6 @@ fun LibraryScreen(
     if (library.isEmpty() && continueWatching.isEmpty()) {
         EmptyState(
             title = "Tu biblioteca está vacía",
-            subtitle = "Toca + para agregar un ítem de archive.org pegando su URL.",
             modifier = Modifier.padding(contentPadding),
         )
         return

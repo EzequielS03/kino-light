@@ -187,20 +187,22 @@ fun SectionHeader(text: String, modifier: Modifier = Modifier) {
     )
 }
 
-/** Estado vacío centrado. */
+/** Centered empty state. Without a [subtitle], only the title shows. */
 @Composable
-fun EmptyState(title: String, subtitle: String, modifier: Modifier = Modifier) {
+fun EmptyState(title: String, subtitle: String? = null, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier.fillMaxSize().padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
         Text(title, style = MaterialTheme.typography.titleLarge)
-        Text(
-            subtitle,
-            style = MaterialTheme.typography.bodyLarge,
-            color = ArkivTextSecondary,
-            modifier = Modifier.padding(top = 8.dp),
-        )
+        if (subtitle != null) {
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodyLarge,
+                color = ArkivTextSecondary,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
     }
 }
