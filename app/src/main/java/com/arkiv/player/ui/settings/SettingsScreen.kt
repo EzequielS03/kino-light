@@ -20,6 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -30,15 +31,26 @@ import com.arkiv.player.ui.anchoDeLectura
 import com.arkiv.player.ui.rememberGraph
 
 /**
- * Los cajones de Ajustes. El orden es por frecuencia de uso: lo que se toca seguido
- * (calidad) primero, lo que se toca una vez (cuenta, actualizaciones) al final.
+ * The Settings drawers. "Reproducción" was dropped from this row (its controls -- quality/source
+ * pickers -- were all pruned from this branch; see the deleted `ReproduccionTab.kt`), so today
+ * "Subtítulos" opens the screen.
  */
 private enum class TabDeAjustes(val etiqueta: String) {
-    REPRODUCCION("Reproducción"),
     SUBTITULOS("Subtítulos"),
     CUENTA("Cuenta"),
     APP("App"),
 }
+
+/**
+ * Saves [TabDeAjustes] by name and falls back to [TabDeAjustes.SUBTITULOS] on restore when the
+ * saved name doesn't match a current constant -- e.g. a `rememberSaveable` Bundle written before
+ * an app update removed one (like the dropped `REPRODUCCION`). `Enum.valueOf` would otherwise
+ * throw and crash the screen on restore.
+ */
+private val TabDeAjustesSaver = Saver<TabDeAjustes, String>(
+    save = { it.name },
+    restore = { name -> runCatching { TabDeAjustes.valueOf(name) }.getOrDefault(TabDeAjustes.SUBTITULOS) },
+)
 
 /**
  * Ajustes del celular, repartidos en tabs.
@@ -51,7 +63,7 @@ private enum class TabDeAjustes(val etiqueta: String) {
 @Composable
 fun SettingsScreen(contentPadding: PaddingValues, onOpenDownloads: () -> Unit = {}) {
     val graph = rememberGraph()
-    var tab by rememberSaveable { mutableStateOf(TabDeAjustes.REPRODUCCION) }
+    var tab by rememberSaveable(stateSaver = TabDeAjustesSaver) { mutableStateOf(TabDeAjustes.SUBTITULOS) }
     // Un scroll por tab: con uno solo compartido, entrar a "Cuenta" desde el fondo de "Subtítulos"
     // dejaba la pantalla arrancada a mitad de camino.
     val scroll = rememberSaveable(tab, saver = ScrollState.Saver) { ScrollState(0) }
@@ -87,7 +99,6 @@ fun SettingsScreen(contentPadding: PaddingValues, onOpenDownloads: () -> Unit = 
                     .padding(horizontal = 20.dp),
             ) {
                 when (tab) {
-                    TabDeAjustes.REPRODUCCION -> ReproduccionTab()
                     TabDeAjustes.SUBTITULOS -> SubtitulosTab()
                     TabDeAjustes.CUENTA -> AccountSection(graph.cuentaDeMagis)
                     TabDeAjustes.APP -> AppTab(onOpenDownloads = onOpenDownloads)
