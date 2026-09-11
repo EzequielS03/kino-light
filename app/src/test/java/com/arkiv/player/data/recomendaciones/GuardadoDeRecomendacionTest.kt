@@ -70,8 +70,8 @@ class GuardadoDeRecomendacionTest {
     /**
      * The episode listing can legitimately come back empty -- a series whose portal listing failed,
      * or (until this branch's pruning) a legacy recommendation row pointing at a source that could
-     * no longer list chapters (`/v1/episodes` used to answer 422 for those). Sin temporada que
-     * guardar, quien llama tiene que caer al guardado suelto de siempre — no dejar el ítem a medias.
+     * no longer list chapters (`/v1/episodes` used to answer 422 for those). With no season to
+     * save, the caller has to fall back to the usual standalone save -- never leave the item half-done.
      */
     @Test fun una_fuente_que_no_lista_capitulos_no_deja_temporada() {
         assertNull(GuardadoDeRecomendacion.temporadaDe(emptyList(), SERIE))
