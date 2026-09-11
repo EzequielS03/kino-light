@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Theaters
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -56,6 +57,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.arkiv.player.ui.catalog.AnimeShowDetailScreen
+import com.arkiv.player.ui.catalog.CaracolScreen
 import com.arkiv.player.ui.catalog.CineCatalogScreen
 import com.arkiv.player.ui.catalog.CineDetailScreen
 import com.arkiv.player.ui.detail.DetailScreen
@@ -84,6 +86,7 @@ private val TABS = listOf(
     Tab("categorias_home", "Categorías") { Icon(Icons.Default.GridView, contentDescription = "Categorías") },
     Tab("library", "Biblioteca") { Icon(Icons.Default.VideoLibrary, contentDescription = "Biblioteca") },
     Tab("live", "En vivo") { Icon(Icons.Default.LiveTv, contentDescription = "En vivo") },
+    Tab("caracol", "Caracol") { Icon(Icons.Default.Theaters, contentDescription = "Caracol") },
     Tab("settings", "Ajustes") { Icon(Icons.Default.Settings, contentDescription = "Ajustes") },
 )
 
@@ -255,6 +258,12 @@ fun ArkivRoot(
                     onAbrirCanal = { code ->
                         goToPlayer("${com.arkiv.player.playback.PlayerSource.LIVE_PREFIX}$code")
                     },
+                    contentPadding = padding,
+                )
+            }
+            composable("caracol") {
+                CaracolScreen(
+                    onPlay = { id -> playEpisode(id) },
                     contentPadding = padding,
                 )
             }
