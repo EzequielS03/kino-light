@@ -218,3 +218,45 @@ Cada paso: suite completa en verde (`--rerun`) y `assembleDebug`.
 - **En el KALLEY R3**: que aparezca el botón del dato curioso al ver una película y un capítulo, que los
   datos sean de esa obra y sin spoilers, que no aparezca en un canal en vivo ni en contenido de adultos,
   y que después de terminar algo aparezca la fila "Para ti" con recomendaciones que se puedan abrir.
+
+## Adenda (2026-09-10): el dato curioso anclado en TMDB
+
+Fuera de plan, sobre lo que ya construyeron las Tasks 5 y 6. Decisión de Cristian: "si mejorarlo", y
+después "preguntar por la serie y el capítulo así le damos más contexto, algo como serie + contexto +
+otros".
+
+**Qué se midió en el TV**: se revisaron los 24 datos guardados y se contrastaron con la web. En
+*Naruto* E2, unos 5 de 8 eran creíbles pero la fecha estaba mal (se emitió el 10-oct-2002, no el 13).
+En *Linternas* casi todo estaba inventado: el director real es James Hawes, los creadores
+Mundy/Lindelof/King, el estreno fue el 16-ago-2026 y la historia pasa en la Tierra. En *La Selección*
+también casi todo inventado — por ejemplo, "La Gozadera" es de 2015 y la serie es de 2013. Pedirle 8
+datos de un capítulo sin ningún contexto obliga al modelo gratis de Kilo a inventar con seguridad, sobre
+todo en obras poco conocidas o muy nuevas.
+
+**La decisión**: anclar la pregunta en una ficha de hechos verificados de TMDB (nunca la sinopsis, que
+trae trama y el dato curioso no puede tener spoilers), nombrando la serie Y el capítulo — no solo el
+capítulo a secas — para darle más contexto. El modelo puede devolver menos de 8, o ninguno: es mejor
+que diga "no sé" a que invente. Por eso **el prompt deja de ser el del gateway "tal cual"**: la versión
+vieja (arriba, sección "2. El dato curioso") no tenía de dónde sacar hechos reales para apoyarse, así
+que no tenía cómo pedirle al modelo que no contradijera nada.
+
+**La ficha** (`FichaDeObra`, con `FichaDeCapitulo` para el capítulo puntual) trae, según el caso:
+título/nombre, fecha de estreno o primera emisión, directores, guionistas, reparto principal (5),
+productoras y duración (película); nombre, primera emisión, creadores, cadenas y reparto principal
+(serie); y nombre del capítulo, fecha de emisión, director, guionistas e invitados (capítulo). Los
+campos vacíos se omiten, nunca se inventan, y el `overview` de TMDB no entra en ningún campo de la
+ficha — no hay forma de que llegue al prompt.
+
+**"Hasta 8, o ninguno"**: el prompt pide como máximo 8 datos, ya no 8 exactos, y le pide al modelo que
+se apoye en la ficha, que nunca contradiga sus fechas ni sus nombres, que no incluya un dato si no está
+seguro de que es cierto para ESA obra, y que es mejor devolver pocos —o un arreglo vacío— que inventar.
+
+**El `[]` se guarda**: antes cualquier respuesta sin datos se trataba como si no se hubiera podido
+preguntar, y no se guardaba. Con el prompt nuevo un `[]` es una respuesta legítima ("no tengo nada
+seguro para esta obra"): guardarlo evita repreguntarle a Kilo (~20 s) cada vez que alguien vuelve a
+abrir esa obra. Lo que sigue sin guardarse es un fallo del modelo, una respuesta ilegible, o un arreglo
+que traía datos y quedó vacío tras la limpieza (eso es un tropiezo del modelo, no un "no sé").
+
+**La clave del caché cambia de versión** (`v2:` al principio): así los datos ya guardados con el prompt
+viejo —muchos de ellos inventados, como los de arriba— dejan de mostrarse, sin tener que borrar a mano
+los archivos del caché viejo (se quedan hasta que vencen sus 30 días).
