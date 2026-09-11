@@ -234,8 +234,9 @@ class AppGraph(context: Context) {
                 // datos sin cerrar el socket — la lectura queda colgada para siempre. Como la cola
                 // procesa de a una, ESE cuelgue no traba una sola descarga: traba TODAS (el worker
                 // nunca retorna, nunca se re-encola). 60s funciona como watchdog de estancamiento,
-                // igual que el corte por estancamiento de TorrentDownloadStrategy (POLL_MS/
-                // STALL_TIMEOUT_MS), sin arriesgar una descarga legítima que sí sigue llegando.
+                // same idea as the stall cutoff `TorrentDownloadStrategy` used to have
+                // (POLL_MS/STALL_TIMEOUT_MS) before it was removed in this branch's pruning,
+                // without risking a legitimate download that's still coming in.
                 .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
                 .build()
         )
@@ -512,7 +513,8 @@ class AppGraph(context: Context) {
                 },
                 awaitSourceReady = { request ->
                     // Solo hay que esperar cuando lo que se manda es el stream que estamos
-                    // generando; una URL de archive.org ya está servida desde siempre.
+                    // generando; una URL que ya está servida de por sí (Magis/Ditu sin transcode
+                    // de audio) no necesita esperar nada.
                     if (request.uri != castTranscoder.activeUrl) {
                         true
                     } else {
