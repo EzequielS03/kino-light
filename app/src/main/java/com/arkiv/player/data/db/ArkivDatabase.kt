@@ -427,11 +427,12 @@ abstract class ArkivDatabase : RoomDatabase() {
         }
 
         /**
-         * v24 -> v25: recomendaciones generadas por el gateway a partir del historial ("Para ti").
-         * Colección de SOLO LECTURA -- la app nunca escribe acá, ver [RecomendacionEntity] -- así
-         * que a diferencia de MIGRATION_6_7/7_8 no hace falta sellar filas existentes con la hora
-         * actual: no hay filas previas (la tabla nace vacía) y el sync la llena con el `updatedAt`
-         * remoto, que el merge respeta tal cual.
+         * v24 -> v25: recommendations for the home's "Para ti" row. The table is born empty, so
+         * unlike MIGRATION_6_7/7_8 there's no need to seal existing rows with the current time.
+         *
+         * At the time this table came from a gateway sync and the app never wrote to it directly;
+         * since sub-project 4 the app generates these on-device and writes here itself (see
+         * [RecomendacionEntity]) -- the schema this migration adds hasn't changed either way.
          */
         private val MIGRATION_24_25 = object : Migration(24, 25) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -446,9 +447,8 @@ abstract class ArkivDatabase : RoomDatabase() {
         }
 
         /**
-         * v25 -> v26: `tipo` ("movie"|"tv") del ítem, para que la biblioteca sepa con exactitud si
-         * ya viste algo (colección `library_items` de PocketBase, campo `tipo`) en vez de comparar
-         * por título, que es difuso. Ver [ItemEntity.tipo].
+         * v25 -> v26: item's `tipo` ("movie"|"tv"), so the library can tell with certainty whether
+         * it already has something instead of comparing by title, which is fuzzy. Ver [ItemEntity.tipo].
          *
          * NULL sin DEFAULT a propósito, igual que [MIGRATION_15_16] con `tmdbId`: los ítems que ya
          * existen no saben su tipo con certeza, y adivinarlo (por ejemplo por `categoryOverride`,
@@ -469,8 +469,9 @@ abstract class ArkivDatabase : RoomDatabase() {
          * esté en null la biblioteca sigue mostrando `title`, igual que hoy — no hay estado
          * intermedio raro, y por eso no hace falta vaciar nada (a diferencia de [MIGRATION_19_20]).
          *
-         * `items` SÍ es tabla sincronizada, así que la columna viaja a los otros aparatos (ver
-         * `SyncMappers`): identificar la serie en el celu la arregla también en el TV.
+         * `items` carries the sync-ready columns (`updatedAt`/`deleted`) kept for this branch's
+         * future Phase 2/3 sync, so this column would travel to other devices once that exists
+         * again -- there's no active sync in this branch today.
          */
         private val MIGRATION_26_27 = object : Migration(26, 27) {
             override fun migrate(db: SupportSQLiteDatabase) {

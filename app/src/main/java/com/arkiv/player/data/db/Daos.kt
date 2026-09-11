@@ -21,11 +21,12 @@ data class ContinueRow(
     val durationMs: Long,
     val lastPlayedAt: Long,
     /**
-     * Still y título del capítulo según TMDB. Los escriben DOS caminos distintos, no uno:
-     * `ensureEpisodeStills` (torrent, web y archive, preguntándole a TMDB) y, en Magis,
-     * `addMagisSeason`/`addMagisSource`, con lo que el gateway ya cruzó contra TMDB al entregar los
-     * capítulos. Null si el capítulo no tiene fila en `episode_still` (p.ej. una película) o si no
-     * se pudo resolver el dato.
+     * Episode still and title from TMDB. Written by two different paths, not one:
+     * `ensureEpisodeStills` (everything except Magis -- Ditu today, plus legacy torrent/web/archive
+     * rows saved before this branch's pruning -- by asking TMDB) and, for Magis,
+     * `addMagisSeason`/`addMagisSource`, with what the gateway already matched against TMDB when it
+     * handed over the chapters. Null if the chapter has no row in `episode_still` (e.g. a movie) or
+     * if the data couldn't be resolved.
      */
     val stillUrl: String? = null,
     val episodeTitle: String? = null,
@@ -124,8 +125,9 @@ data class LibraryRow(
     /** Cuántos episodios se le mostraron al usuario la última vez. Null = nunca. Ver `ContadorDeNuevos`. */
     val episodiosVistosEnLista: Int? = null,
     /**
-     * La obra que este ítem ES, según TMDB. Lo llena el gateway con la canonización de títulos y
-     * baja por el sync (ver `SyncMappers.recordToItem`, que ya trata el 0 como ausente).
+     * The work this item IS, according to TMDB. Filled in when it's added from search, or by
+     * [com.arkiv.player.data.gateway.repararIdentidadDeMagis]'s title canonization for Magis items
+     * that came in without it (0 is treated the same as absent).
      *
      * Existe acá porque es la llave que le falta a la biblioteca para agrupar: un capítulo suelto
      * guardado con el título del capítulo ("T1 - E7: Construido por los hombres") no le pega a
@@ -492,7 +494,7 @@ interface SkipMarkerDao {
     @Query("SELECT * FROM skip_markers WHERE itemId = :itemId AND episodeId IN (:episodeId, '') AND deleted = 0")
     suspend fun getDeCapitulo(itemId: String, episodeId: String): List<SkipMarkerEntity>
 
-    /** Una fila por su propia llave (PK). La usa el sync por nube para el LWW puntual de un registro remoto. */
+    /** One row by its own key (PK). Used by [com.arkiv.player.data.ArkivRepository.getSkipMarker] to read the marker for an exact scope (chapter or whole series). */
     @Query("SELECT * FROM skip_markers WHERE id = :id")
     suspend fun getById(id: String): SkipMarkerEntity?
 
@@ -773,17 +775,12 @@ interface EpisodeFrameDao {
     suspend fun get(episodeId: String): EpisodeFrameEntity?
 
     /**
-     * Igual que [get] pero SIN el filtro `deleted = 0`: hace falta en los dos únicos lugares que
-     * necesitan VER un tombstone en vez de tratarlo como fila inexistente:
-     * - `CloudSyncManager.mergeFrame`, para el LWW: si usara [get], un tombstone local (creado por
-     *   `DestructorDeFrames.destruir`) se vería como fila INEXISTENTE, el LWW compararía el
-     *   `updatedAt` remoto contra 0, el remoto ganaría siempre, y un frame que este dispositivo
-     *   borró resucitaría en el siguiente sync.
-     * - `DestructorDeFrames.destruir`, para ser idempotente: necesita saber si la fila YA es
-     *   tombstone (y no reescribirla) o si recién ahora pasa de viva a borrada.
+     * Same as [get] but WITHOUT the `deleted = 0` filter: needed by `DestructorDeFrames.destruir`
+     * to be idempotent -- it needs to know whether the row is ALREADY a tombstone (and skip
+     * rewriting it) or is only now going from live to deleted.
      *
-     * No la uses para otra cosa: el resto de los callers SÍ quiere que una fila borrada cuente
-     * como "no hay frame".
+     * Don't use it for anything else: every other caller DOES want a deleted row to count as
+     * "there's no frame".
      */
     @Query("SELECT * FROM episode_frame WHERE episodeId = :episodeId")
     suspend fun getIncluyendoBorradas(episodeId: String): EpisodeFrameEntity?
@@ -801,19 +798,17 @@ interface EpisodeFrameDao {
     fun observeForItem(itemId: String): Flow<List<EpisodeFrameEntity>>
 
     /**
-     * TODAS las filas vivas, como DISPARADOR del Flow de "Continuar viendo".
+     * ALL live rows, as the TRIGGER for the "Continue watching" Flow.
      *
-     * Existe por un agujero del home: `PlaybackDao.observeContinueWatching` toca `playback`,
-     * `episodes`, `items` y `episode_still`, pero NO `episode_frame`. Como Room invalida por tabla,
-     * el frame que baja `BajadorDeFrames` (archivo + fila de `episode_frame`) no le notificaba nada
-     * a esa consulta: la tarjeta se quedaba con el still de TMDB hasta que se tocara otra cosa. Y
-     * peor, tampoco había con qué disparar la bajada en el caso real (el push manda `progress` ANTES
-     * que `episode_frames`, así que cuando llega la fila del frame ya no hay más escrituras de
-     * `playback` que reemitan nada).
+     * Exists because of a hole in the home screen: `PlaybackDao.observeContinueWatching` touches
+     * `playback`, `episodes`, `items` and `episode_still`, but not `episode_frame`. Since Room
+     * invalidates by table, the frame that [com.arkiv.player.miniaturas.FrameCapturer] saves (file
+     * + `episode_frame` row) never notified that query: the card stayed on the TMDB still until
+     * something else changed.
      *
-     * Devuelve la lista entera y no un `COUNT`: da igual el contenido —el repositorio la usa solo
-     * como señal de "algo cambió en `episode_frame`"— pero una consulta de filas es la misma forma
-     * que [observeForItem] y no esconde el costo real.
+     * Returns the whole list and not a `COUNT`: the content doesn't matter -the repository only
+     * uses it as a signal that "something changed in `episode_frame`"- but a row query has the
+     * same shape as [observeForItem] and doesn't hide the real cost.
      */
     @Query("SELECT * FROM episode_frame WHERE deleted = 0")
     fun observeTodos(): Flow<List<EpisodeFrameEntity>>

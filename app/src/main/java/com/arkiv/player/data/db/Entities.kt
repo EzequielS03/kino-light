@@ -54,9 +54,9 @@ data class ItemEntity(
      * se sabe con certeza al agregar. Distinto de [categoryOverride] -que es un override MANUAL y
      * usa "series", no "tv"-: esto es el tipo que trajo la fuente, no una corrección de la persona.
      *
-     * Sirve para que el gateway (colección `library_items` de PocketBase, campo `tipo`) sepa con
-     * exactitud si ya viste algo en vez de comparar por título, que es difuso. Null cuando la
-     * fuente no lo sabe (torrent por hash, web por URL): mejor un hueco que un tipo inventado.
+     * Lets the library tell with certainty whether it already has something (see
+     * [com.arkiv.player.data.model.TipoDeObra]) instead of comparing by title, which is fuzzy.
+     * Null when the source doesn't know it: better a gap than a made-up type.
      */
     val tipo: String? = null,
 )
@@ -185,22 +185,24 @@ data class RecentTitleEntity(
 )
 
 /**
- * Una descarga al almacenamiento del PROPIO dispositivo. Sirve a las tres fuentes: `source`
- * distingue archive.org, torrent y web.
+ * A download to the device's OWN storage. `source` records where it came from: `"magis"` for
+ * today's Magis downloads, `"archive"` as the fallback this branch has always written for
+ * sources without a real download strategy (see `FuenteDeDescarga.para`), and legacy `"torrent"`/
+ * `"web"` values left in rows saved before this branch's pruning.
  *
- * `variant` sigue siendo NOT NULL (y vale `""` para torrent y web) porque SQLite no puede cambiar la
- * nulabilidad de una columna con ALTER TABLE y reconstruir la tabla no se justifica por un campo que
- * solo usa archive.
+ * `variant` is still NOT NULL (and today it's always `""`) because SQLite can't change a column's
+ * nullability with ALTER TABLE, and rebuilding the table isn't worth it for a field that only
+ * archive.org's removed "original"/"derivative" quality ever wrote to.
  */
 @Entity(tableName = "downloads")
 data class DownloadEntity(
     @PrimaryKey val episodeId: String,
-    val variant: String,              // archive: "original" | "derivative"; torrent/web: ""
+    val variant: String,              // siempre "" hoy; solo lo llenaba archive.org, ya borrado
     val state: String,                // ver LocalDownloadState
     val progress: Float,              // 0..1
     val localUri: String?,            // histórico: file:// que dejó el DownloadManager del sistema
     val bytes: Long,                  // tamaño total conocido (0 si aún no se sabe)
-    val source: String = "archive",   // "archive" | "torrent" | "web"
+    val source: String = "archive",   // "magis" | "archive" (fallback) | legacy "torrent"/"web"
     val filePath: String? = null,     // ruta absoluta del archivo final
     val bytesDone: Long = 0,
     // Huérfana desde la poda de NUC (Task 8): nada la lee ni la escribe más (era el puente
@@ -310,22 +312,25 @@ data class EpisodeFrameEntity(
      */
     val remoteUrl: String? = null,
     /**
-     * 1 = esta fila la adoptamos de OTRO dispositivo (la escribió `CloudSyncManager.mergeFrame`);
-     * 0 = nació acá (la capturó [com.arkiv.player.miniaturas.FrameCapturer] o la selló el
-     * destructor).
+     * 1 = this row was adopted from ANOTHER device (written by `CloudSyncManager.mergeFrame`, in
+     * this branch's now-removed cloud sync); 0 = it was born here (captured by
+     * [com.arkiv.player.miniaturas.FrameCapturer] or sealed by the destructor).
      *
-     * Existe para que el que RECIBE un frame no lo vuelva a subir. Una fila adoptada se queda con el
-     * `updatedAt` del otro aparato, que supera el cursor de push de este, así que la próxima pasada
-     * la re-empuja; y como para entonces el JPEG ya está en disco, `subirFrame` re-subía LOS MISMOS
-     * BYTES. Eso hacía cruzar cada frame dos veces por la red, cambiaba el nombre del archivo en el
-     * servidor sin cambiar `updatedAt` (dejando a un tercer aparato con un `remoteUrl` que da 404
-     * para siempre) y, si el eco llegaba después de una captura nueva del original, hacía RETROCEDER
-     * el registro al frame viejo.
+     * Exists so that whoever RECEIVES a frame doesn't upload it again. An adopted row kept the
+     * `updatedAt` of the other device, which was past this device's push cursor, so the next pass
+     * would re-push it; and since the JPEG was already on disk by then, the push would re-upload
+     * the SAME BYTES. That made each frame cross the network twice, changed the file's name on the
+     * server without changing `updatedAt` (leaving a third device with a `remoteUrl` that 404s
+     * forever), and, if the echo arrived after a fresh capture of the original, made the record
+     * REGRESS to the old frame.
      *
-     * Es un campo LOCAL: no viaja a PocketBase (ver `frameToFields`). No alcanzaba con recordarlo en
-     * memoria —el push posterior puede caer en otro arranque del proceso— ni con comparar contra el
-     * último `updatedAt` adoptado: con el reloj de otro dispositivo adelantado, una captura local
-     * legítima queda por debajo de esa marca y sus bytes no se subirían nunca.
+     * It's a LOCAL field that never traveled to PocketBase. Remembering it in memory wasn't
+     * enough -the later push could land in a different process run- nor was comparing against the
+     * last adopted `updatedAt`: with another device's clock running ahead, a legitimate local
+     * capture would fall below that mark and its bytes would never be uploaded.
+     *
+     * This whole mechanism is dormant in this branch: there's no cloud sync to adopt a row from,
+     * so `origenRemoto` is always 0 today. It stays for the Phase 2/3 sync that will need it again.
      */
     val origenRemoto: Int = 0,
 )
