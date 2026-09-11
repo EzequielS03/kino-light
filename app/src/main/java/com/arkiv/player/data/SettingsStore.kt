@@ -88,6 +88,19 @@ class SettingsStore(context: Context) {
         prefs.edit().putBoolean(KEY_RECIENTES_PURGADOS, v).apply()
     }
 
+    /** Cuándo se intentó generar "Para ti" por última vez (0 = nunca). Ver `PuertaDeParaTi`. */
+    val paraTiUltimoIntentoMs: Long get() = prefs.getLong(KEY_PARA_TI_ULTIMO_INTENTO, 0L)
+
+    /** Si ese intento falló en el modelo: entonces se reintenta a los 15 min, no a las 24 h. */
+    val paraTiUltimoFueFalloDelModelo: Boolean get() = prefs.getBoolean(KEY_PARA_TI_FALLO_MODELO, false)
+
+    fun marcarIntentoDeParaTi(ahoraMs: Long, falloDelModelo: Boolean) {
+        prefs.edit()
+            .putLong(KEY_PARA_TI_ULTIMO_INTENTO, ahoraMs)
+            .putBoolean(KEY_PARA_TI_FALLO_MODELO, falloDelModelo)
+            .apply()
+    }
+
     /**
      * Trae el candado 18+ del store cifrado del aparato la primera vez que corre. `deStoreViejo`
      * es `null` cuando ese store no se pudo leer (ver `ArkivApp.onCreate`) -- ahí se queda con lo
@@ -174,6 +187,9 @@ class SettingsStore(context: Context) {
         private const val KEY_ADULTOS_DESBLOQUEADO = "adultosDesbloqueado"
         private const val KEY_CODIGO_ADULTOS = "codigoAdultos"
         private const val KEY_RECIENTES_PURGADOS = "recientesPurgados2026_08_14"
+
+        private const val KEY_PARA_TI_ULTIMO_INTENTO = "para_ti_ultimo_intento"
+        private const val KEY_PARA_TI_FALLO_MODELO = "para_ti_fallo_modelo"
 
         /** El archivo cifrado que escribía `SecureDeviceStore` (borrado en la Task 9). */
         private const val ARCHIVO_STORE_DE_CUENTAS_VIEJO = "arkiv_pb_secure"

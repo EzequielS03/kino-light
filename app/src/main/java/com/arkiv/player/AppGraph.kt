@@ -8,6 +8,13 @@ import com.arkiv.player.data.catalog.TmdbApi
 import com.arkiv.player.data.SearchHistoryRepo
 import com.arkiv.player.data.SettingsStore
 import com.arkiv.player.data.db.ArkivDatabase
+import com.arkiv.player.data.recomendaciones.ArbitroDeIa
+import com.arkiv.player.data.recomendaciones.BuscadorEnFuentes
+import com.arkiv.player.data.recomendaciones.BuscadorEnTmdb
+import com.arkiv.player.data.recomendaciones.GeneradorParaTi
+import com.arkiv.player.data.recomendaciones.NormalizarTitulo
+import com.arkiv.player.data.recomendaciones.SenalesDeHistorial
+import com.arkiv.player.data.recomendaciones.VerificacionParaTi
 import com.arkiv.player.data.update.ApkDownloader
 import com.arkiv.player.data.update.UpdateChecker
 import com.arkiv.player.data.update.UpdateInfo
@@ -16,6 +23,10 @@ import com.google.android.gms.cast.framework.CastContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 
 /** Grafo de dependencias manual (sin Hilt): singletons de app. */
@@ -315,7 +326,13 @@ class AppGraph(context: Context) {
             database, tmdbApi,
             almacenDeFrames = almacenDeFrames,
             destructorDeFrames = destructorDeFrames,
-        )
+        ).also { repo ->
+            // "Para ti" solo existe en el home del TV: en el celular no hay fila que llenar, y cada
+            // generación le pregunta a Kilo varias veces.
+            if (DeviceType.isTelevision(appContext)) {
+                repo.alTerminarAlgo = { applicationScope.launch { generadorParaTi.generarSiToca() } }
+            }
+        }
     }
     val aniListApi: AniListApi by lazy { AniListApi() }
     val animeMappingRepository: AnimeMappingRepository by lazy {
@@ -370,6 +387,57 @@ class AppGraph(context: Context) {
             cache = com.arkiv.player.data.trivia.CacheDeDatosEnDisco(
                 java.io.File(appContext.filesDir, "datos-curiosos"),
             ) { System.currentTimeMillis() },
+        )
+    }
+
+    /**
+     * "Para ti", generado en el aparato con Kilo (sub-proyecto 4). Verifica contra TMDB y contra la
+     * fuente compuesta (Magis y Caracol). Cada paso con red atrapa sus fallos para que un candidato
+     * roto no tumbe a los otros; la cancelación siempre se relanza.
+     */
+    internal val generadorParaTi: GeneradorParaTi by lazy {
+        val verificacion = VerificacionParaTi(
+            tmdb = BuscadorEnTmdb { tipo, titulo ->
+                try {
+                    tmdbApi.search(tipo, titulo).firstOrNull()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    null
+                }
+            },
+            fuentes = BuscadorEnFuentes { titulo, tipo, _, tmdbId ->
+                try {
+                    fuenteDeContenido
+                        .search(com.arkiv.player.data.gateway.GatewaySearchQuery(q = titulo, type = tipo, tmdbId = tmdbId))
+                        .filterIsInstance<com.arkiv.player.data.gateway.SearchEvent.ResultEvent>()
+                        .map { it.item }
+                        .take(25)
+                        .toList()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    emptyList()
+                }
+            },
+            arbitro = ArbitroDeIa { clienteDeIa.preguntar(it) },
+        )
+        GeneradorParaTi(
+            ia = { clienteDeIa.preguntar(it) },
+            historial = { SenalesDeHistorial.de(database.playbackDao().historialReciente(100)) },
+            yaVistos = {
+                database.itemDao().getAllItems().filter { !it.deleted }.flatMap { item ->
+                    listOfNotNull(
+                        item.tmdbId?.takeIf { it > 0 }?.let { "tmdb:$it" },
+                        NormalizarTitulo.de(item.title).takeIf { it.isNotEmpty() },
+                        item.tituloCanonico?.let { NormalizarTitulo.de(it) }?.takeIf { it.isNotEmpty() },
+                    )
+                }.toSet()
+            },
+            verificar = { candidatos, vistos -> verificacion.verificar(candidatos, vistos) },
+            guardar = { database.recomendacionDao().reemplazar(it, System.currentTimeMillis()) },
+            leerMarcas = { settings.paraTiUltimoIntentoMs to settings.paraTiUltimoFueFalloDelModelo },
+            escribirMarcas = { t, f -> settings.marcarIntentoDeParaTi(t, f) },
         )
     }
 

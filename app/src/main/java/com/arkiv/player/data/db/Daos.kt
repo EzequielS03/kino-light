@@ -887,4 +887,17 @@ interface RecomendacionDao {
      */
     @Query(QUERY_RECOMENDACIONES_VIGENTES)
     fun observeVigentes(): Flow<List<RecomendacionEntity>>
+
+    @Query("UPDATE recomendaciones SET deleted = 1, updatedAt = :ahora WHERE deleted = 0")
+    suspend fun retirarVigentes(ahora: Long)
+
+    /**
+     * Cambia la fila entera de una vez: nunca queda a medias entre la tanda vieja y la nueva. Se
+     * retiran con tombstone y no se borran, igual que el resto de las tablas con `deleted`.
+     */
+    @Transaction
+    suspend fun reemplazar(nuevas: List<RecomendacionEntity>, ahora: Long) {
+        retirarVigentes(ahora)
+        nuevas.forEach { upsert(it) }
+    }
 }

@@ -145,6 +145,12 @@ class ArkivRepository(
     private val liveFavoriteDao = db.liveFavoriteDao()
     private val liveRecentDao = db.liveRecentDao()
 
+    /**
+     * Se llama cuando un capítulo ACABA de quedar visto. Lo conecta `AppGraph` con "Para ti"; el
+     * repositorio no sabe nada de recomendaciones. Quien lo recibe tiene su propia puerta de 24 h.
+     */
+    var alTerminarAlgo: (() -> Unit)? = null
+
     fun observeLibrary(): Flow<List<LibraryRow>> = itemDao.observeLibrary()
 
     /**
@@ -1241,6 +1247,9 @@ class ArkivRepository(
     /** Persiste posición de reproducción. Marca visto según [UmbralDeVisto]. */
     suspend fun savePlayback(episodeId: String, positionMs: Long, durationMs: Long) {
         val watched = UmbralDeVisto.yaLoViste(positionMs, durationMs)
+        // Solo se lee el `playbackDao.get` extra cuando este guardado YA dice "visto": es el único
+        // caso donde hace falta saber si ya lo estaba, para no disparar `alTerminarAlgo` de más.
+        val yaEstabaVisto = watched && playbackDao.get(episodeId)?.watched == true
         playbackDao.upsert(
             PlaybackEntity(
                 episodeId = episodeId,
@@ -1255,6 +1264,7 @@ class ArkivRepository(
         // tocar nunca el toggle manual de setWatched— lo dejaría vivo para siempre.
         if (watched) {
             borrarFrameDe(episodeId)
+            if (!yaEstabaVisto) alTerminarAlgo?.invoke()
         }
     }
 
@@ -1277,6 +1287,7 @@ class ArkivRepository(
         // el frame que haya sigue siendo válido.
         if (watched) {
             borrarFrameDe(episodeId)
+            if (existing?.watched != true) alTerminarAlgo?.invoke()
         }
     }
 
