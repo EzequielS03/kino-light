@@ -131,8 +131,10 @@ class CastTranscoder(context: Context) {
         /** Fijo para que la URL sea predecible. Es el celu sirviendo a la TV en la LAN. */
         const val PORT = 8099
 
-        /** Generoso a propósito: con un torrent, abrir el origen puede tardar lo que tarden las
-         *  primeras piezas. Es tiempo de espera, no de CPU. */
+        /** Generous on purpose: opening the source can take a while -- with torrent (removed in
+         *  this branch's pruning) it was waiting on the first pieces; with Magis today it's the
+         *  CDN's own latency, measured anywhere from ~0.2s to ~20s per range. It's wait time, not
+         *  CPU time. */
         const val READY_TIMEOUT_MS = 45_000L
         const val POLL_MS = 250L
         const val CONNECT_TIMEOUT_MS = 500

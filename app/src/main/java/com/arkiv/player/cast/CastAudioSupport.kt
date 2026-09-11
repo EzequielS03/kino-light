@@ -58,7 +58,8 @@ object CastAudioSupport {
      * Es una lista blanca: lo que no reconocemos se transcodifica. Transcodificar de más cuesta algo
      * de CPU y siempre suena; no transcodificar de menos cuesta quedarse sin audio y sin pistas de
      * por qué. La única excepción es [SIN_INFO]: ahí no sabemos nada, y forzar el transcode rompería
-     * fuentes que hoy andan bien (archive.org es MP4 con AAC).
+     * fuentes que hoy andan bien -MP4 con AAC, como era el caso de archive.org antes de que esa
+     * fuente se borrara en la poda de esta rama-.
      */
     fun receiverDecodes(fourcc: Int, channels: Int): Boolean = when (fourcc) {
         SIN_INFO -> true

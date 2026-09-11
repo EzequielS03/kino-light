@@ -280,9 +280,11 @@ class CastSessionManager(
                     knownDurationMs = request.knownDurationMs,
                 )
                 if (progress == null) {
-                    // Ruidoso a propósito mientras se diagnostica "el torrent siempre arranca de
-                    // cero": si esto aparece, el progreso NO se está guardando y el culpable es la
-                    // duración (el receptor manda TIME_UNSET y `durConocida` vino en 0).
+                    // Loud on purpose -- born diagnosing "torrent always restarts from zero" (a
+                    // source removed in this branch's pruning), but the same audio-transcoded-cast
+                    // failure mode still reaches any source today: if this shows up, progress is
+                    // NOT being saved and the culprit is the duration (the receiver sends
+                    // TIME_UNSET and `durConocida` came in at 0).
                     android.util.Log.w(
                         TAG,
                         "progreso NO guardado · pos=${pos}ms durReceptor=${dur}ms " +

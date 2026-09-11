@@ -31,7 +31,8 @@ class CastAudioSupportTest {
 
     @Test
     fun `AAC estereo va directo`() {
-        // El caso de archive.org, que hoy funciona: no debe pagar ningún transcode.
+        // AAC stereo -the shape archive.org used to be, and any current source can also be-
+        // decodes on the receiver directly: no transcode needed.
         assertTrue(CastAudioSupport.receiverDecodes(CastAudioSupport.fourccOf("mp4a"), channels = 2))
     }
 
