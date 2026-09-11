@@ -34,6 +34,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -59,6 +60,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -72,12 +74,12 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import coil.compose.AsyncImage
 import com.arkiv.player.data.RecentTitle
+import com.arkiv.player.data.local.FuenteDeDescarga
 import com.arkiv.player.ui.catalog.PlaySource
 import com.arkiv.player.ui.catalog.SourceRow
 import com.arkiv.player.ui.catalog.posterDe
 import com.arkiv.player.ui.catalog.SourceCard
 import com.arkiv.player.ui.catalog.SourceSectionHeader
-import com.arkiv.player.data.gateway.MAGIS_SERIES
 import com.arkiv.player.ui.catalog.ArkivMagisBlue
 import com.arkiv.player.ui.catalog.ArkivCaracolVerde
 import com.arkiv.player.ui.catalog.esSerie
@@ -136,15 +138,24 @@ fun SearchScreen(
     val recentTitles by vm.recentTitles.collectAsStateWithLifecycle()
 
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     // Permiso de notificaciones (API 33+): se pide al disparar una descarga (el worker de descargas
     // locales también notifica). Ver rememberPostNotificationsRequest.
     val askNotifications = com.arkiv.player.ui.offline.rememberPostNotificationsRequest()
+    // Avisa "eso ya lo tenés bajado" cuando la cola saltea la descarga de una película por
+    // duplicada: mismo helper que usa la biblioteca (DetailScreen.saveEpisodesLocally).
+    val notifyDuplicates = com.arkiv.player.ui.offline.rememberDuplicateDownloadNotice()
     val playback = remember { SearchPlayback(graph) }
     var preparing by remember { mutableStateOf(false) }
     var playError by remember { mutableStateOf<String?>(null) }
+    // Si hay una estrategia de descarga registrada para Magis (hoy siempre la hay): decide si el
+    // diálogo de una película ofrece "Descargar película". Ver `FuenteDeDescarga.hayEstrategia`.
+    val magisDownloadable = remember { FuenteDeDescarga.hayEstrategia("magis", graph.downloadStrategies.keys) }
     // Temporada de Magis abierta: un resultado de serie del portal ES una temporada entera,
     // así que en vez de reproducir se abre su lista de capítulos.
     var magisSeason by remember { mutableStateOf<com.arkiv.player.data.gateway.GatewayResult?>(null) }
+    // Película de Magis tocada: en vez de reproducir directo, se pregunta ver o descargar.
+    var magisMovieChoice by remember { mutableStateOf<MagisTapDecision.ShowMovieDialog?>(null) }
     // Serie de Caracol abierta: igual que Magis, se eligen los capítulos antes de reproducir. Es un
     // estado APARTE del de Magis a propósito: lo que se toca en su ventana solo llega a
     // `playback.playDituSeason`, así que un capítulo de Caracol nunca cae en el guardado de Magis.
@@ -174,11 +185,38 @@ fun SearchScreen(
         }
     }
 
-    fun playMagisResult(r: com.arkiv.player.data.gateway.GatewayResult) {
-        // Serie → abrir la temporada para elegir capítulo. Película → reproducir directo.
-        if (r.extra["program_type"] in MAGIS_SERIES) { magisSeason = r; return }
+    // Reproduce la película tal cual hacía playMagisResult antes de este diálogo: mismo camino,
+    // solo que ahora se dispara desde "Ver película" en vez de directo al tocar la card.
+    fun watchMagisMovie(r: com.arkiv.player.data.gateway.GatewayResult) {
         preparing = true; playError = null
         scope.launch { applyResult(playback.playMagis(r)) }
+    }
+
+    // Guarda la película y la encola para bajarla al dispositivo, igual que hace la biblioteca en
+    // DetailScreen.saveEpisodesLocally: mismo helper de permisos, mismo aviso de duplicados, y la
+    // misma FuenteDeDescarga.para(epId) para elegir la estrategia de la cola.
+    fun downloadMagisMovie(r: com.arkiv.player.data.gateway.GatewayResult) {
+        askNotifications()
+        scope.launch {
+            val epId = playback.magisEpisodeId(r)
+            if (epId == null) {
+                playError = "No se pudo preparar la descarga de Magis."
+                return@launch
+            }
+            notifyDuplicates(listOf(graph.localDownloads.enqueue(epId, FuenteDeDescarga.para(epId))))
+            android.widget.Toast.makeText(
+                context, "Descarga de \"${r.title}\" en cola", android.widget.Toast.LENGTH_SHORT,
+            ).show()
+        }
+    }
+
+    fun playMagisResult(r: com.arkiv.player.data.gateway.GatewayResult) {
+        // Serie → abrir la temporada para elegir capítulo. Película → preguntar ver o descargar
+        // (ver `decideMagisTap`, MagisTapDecision.kt).
+        when (val decision = decideMagisTap(r, magisDownloadable)) {
+            is MagisTapDecision.OpenSeasonDialog -> magisSeason = decision.result
+            is MagisTapDecision.ShowMovieDialog -> magisMovieChoice = decision
+        }
     }
 
     fun playDituResult(source: PlaySource.Ditu) {
@@ -275,6 +313,26 @@ fun SearchScreen(
                 }
             }
         }
+    }
+
+    magisMovieChoice?.let { choice ->
+        val r = choice.result
+        AlertDialog(
+            onDismissRequest = { magisMovieChoice = null },
+            title = { Text(r.title) },
+            confirmButton = {
+                TextButton(onClick = { magisMovieChoice = null; watchMagisMovie(r) }) {
+                    Text("Ver película")
+                }
+            },
+            dismissButton = {
+                if (choice.canDownload) {
+                    TextButton(onClick = { magisMovieChoice = null; downloadMagisMovie(r) }) {
+                        Text("Descargar película")
+                    }
+                }
+            },
+        )
     }
 
     magisSeason?.let { temporada ->
