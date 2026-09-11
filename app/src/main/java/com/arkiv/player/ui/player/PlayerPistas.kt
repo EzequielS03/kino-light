@@ -384,9 +384,9 @@ internal fun List<Pair<Int, String>>.nombresReales(): List<String> = pistasReale
  * names say nothing. When the source declared the languages (same order as the tracks) the language
  * is prefixed; otherwise the raw name stays.
  *
- * It covers the first N tracks by id, which are the container's; past that it doesn't guess. Fuera de magis
- * ([esMagis] en false) la lista de idiomas no describe estas pistas y etiquetarlas con ella sería
- * mentir en el menú.
+ * It covers the first N tracks by id, which are the container's; past that it doesn't guess.
+ * Outside Magis ([esMagis] false) the language list doesn't describe these tracks, and labeling
+ * them with it would be lying in the menu.
  */
 internal fun etiquetaDeSpu(
     id: Int,

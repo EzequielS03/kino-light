@@ -9,12 +9,6 @@ data class CastRequest(
     val subtitle: String,
     val artworkUrl: String,
     val startPositionMs: Long,
-    /** Punto del video donde arranca el stream cuando va transcodificado. El receptor cuenta desde
-     *  cero a partir de acá, así que sin esto la posición que se guarda queda corrida. */
-    val baseOffsetMs: Long = 0,
-    /** Duración real del contenido. El stream transcodificado sale "en vivo" y el receptor no la
-     *  sabe, pero el celu sí porque la leyó del archivo. */
-    val knownDurationMs: Long = 0,
 )
 
 /**

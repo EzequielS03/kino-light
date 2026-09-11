@@ -502,37 +502,8 @@ class AppGraph(context: Context) {
     /** Dueño del CastPlayer con vida de app: sin esto, salir del reproductor corta el casteo. */
     val castSession: com.arkiv.player.cast.CastSessionManager? by lazy {
         castContext?.let {
-            com.arkiv.player.cast.CastSessionManager(
-                it,
-                repository,
-                applicationScope,
-                onSessionEnded = {
-                    // Sin esto el transcodificador sigue vivo después de desconectar: CPU y puerto
-                    // retenidos sin nadie del otro lado.
-                    castTranscoder.stop()
-                },
-                awaitSourceReady = { request ->
-                    // Solo hay que esperar cuando lo que se manda es el stream que estamos
-                    // generando; una URL que ya está servida de por sí (Magis/Ditu sin transcode
-                    // de audio) no necesita esperar nada.
-                    if (request.uri != castTranscoder.activeUrl) {
-                        true
-                    } else {
-                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                            castTranscoder.awaitReady()
-                        }
-                    }
-                },
-            )
+            com.arkiv.player.cast.CastSessionManager(it, repository, applicationScope)
         }
-    }
-
-    /**
-     * Transcodifica el audio que el Chromecast no decodifica (AC-3, DTS…). Vive acá, con el resto
-     * del casteo, porque tiene que sobrevivir a que se cierre el reproductor igual que [castSession].
-     */
-    val castTranscoder: com.arkiv.player.cast.CastTranscoder by lazy {
-        com.arkiv.player.cast.CastTranscoder(appContext)
     }
 
     init {

@@ -128,7 +128,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.arkiv.player.cast.CastProgress
-import com.arkiv.player.cast.localAudioTrackFormat
+import com.arkiv.player.cast.localAudioFormat
 import com.arkiv.player.data.MarcadorDeCapitulo
 import com.arkiv.player.ui.tv.library.SAFE_H
 import com.arkiv.player.ui.tv.library.SAFE_V
@@ -182,10 +182,6 @@ private const val MOSTRAR_VELOCIDAD_Y_ZOOM_EN_TELEFONO = false
 // normal (sin velo), DIM_MAX_LEVEL = negro total. No se usa el brillo real de la pantalla porque
 // en el Fire TV Stick es no-op (el brillo lo manda el televisor, no Android), y libVLC 3.x no
 // expone el filtro `adjust`. Cambiar la finura del paso = cambiar solo esta línea.
-
-/** Cada cuánto y cuántas veces reintentar leer las pistas si al conectar el cast no había ninguna. */
-private const val RECHEQUEO_MS = 500L
-private const val RECHEQUEO_INTENTOS = 40
 
 /**
  * Cuánto se espera, sin tocar nada, antes de confirmar una ráfaga de saltos incrementales (ver
@@ -471,17 +467,14 @@ private fun PlayerContent(
     }
 
     /**
-     * Posición y duración DEL CONTENIDO, que casteando no son las que reporta el receptor.
+     * Posición y duración DEL CONTENIDO, sea local o casteado.
      *
-     * Con el audio transcodificado el stream ya arranca en el punto pedido, así que el receptor
-     * cuenta desde cero, y al salir en vivo manda `TIME_UNSET` como duración. Leerlo crudo deja la
-     * barra vacía y hace que el local reanude en el lugar equivocado al desconectar. La traducción
-     * vive en CastProgress (con tests) para que no haya dos copias divergiendo.
+     * Sin transcodificador el receptor siempre cuenta desde el mismo punto que el archivo, pero
+     * un directo en vivo igual puede mandar `TIME_UNSET` como duración: leerlo crudo dejaría la
+     * barra en un número negativo en vez de "sin duración". La traducción vive en CastProgress
+     * (con tests) para que no haya dos copias divergiendo.
      */
-    fun contentPositionMs(): Long = CastProgress.contentPosition(
-        receiverPosMs = activePlayer.currentPosition,
-        baseOffsetMs = if (casting) graph.castSession?.baseOffsetMs ?: 0L else 0L,
-    )
+    fun contentPositionMs(): Long = CastProgress.contentPosition(activePlayer.currentPosition)
 
     /**
      * ¿La posición que reporta el player habla de lo que ESTA pantalla abrió?
@@ -499,10 +492,7 @@ private fun PlayerContent(
         dituPlay != null ||
         loaded || runCatching { controller.currentMediaItem?.mediaId }.getOrNull() == episodeId
 
-    fun contentDurationMs(): Long = CastProgress.contentDuration(
-        receiverDurMs = activePlayer.duration,
-        knownDurationMs = if (casting) graph.castSession?.knownDurationMs ?: 0L else 0L,
-    )
+    fun contentDurationMs(): Long = CastProgress.contentDuration(activePlayer.duration)
 
     // Controles custom (estilo torrent): visibles al tocar, se auto-ocultan mientras reproduce.
     // Arranca OCULTO: al abrir se ve el spinner de carga y luego el video limpio, sin el overlay de
@@ -702,15 +692,15 @@ private fun PlayerContent(
         // Vivo (Tarea 18) usa EXACTAMENTE el mismo portero: se lee el audio que YA está sonando en
         // el celu -el canal está reproduciéndose cuando se llega hasta acá, nunca antes- así que no
         // hace falta ninguna lista de canales permitidos ni adivinar por nombre/categoría.
-        val audio = localAudioTrackFormat(controller.currentTracks)
+        val audio = localAudioFormat(controller.currentTracks)
         val decodable = com.arkiv.player.cast.CastAudioSupport.receiverDecodes(
-            fourcc = audio?.fourcc ?: 0,
-            channels = audio?.channels ?: 0,
+            sampleMimeType = audio?.sampleMimeType,
+            channelCount = audio?.channelCount ?: 0,
         )
         android.util.Log.i(
             "ArkivCast",
-            "audio del origen · codec=${com.arkiv.player.cast.CastAudioSupport.fourccToString(audio?.fourcc ?: 0)} " +
-                "canales=${audio?.channels ?: 0} → ${if (decodable) "va directo" else "hay que transcodificar"}",
+            "audio del origen · mime=${audio?.sampleMimeType ?: "desconocido"} " +
+                "canales=${audio?.channelCount ?: 0} → ${if (decodable) "va directo" else "puede sonar mudo"}",
         )
 
         // La URL alcanzable por el receptor: la del proxy de vivo (LiveHlsProxy) LAN -- mismo motivo
@@ -732,53 +722,16 @@ private fun PlayerContent(
             startPositionMs = startPositionMs,
             isLive = esVivo,
         )
-        if (decodable || directo == null) {
-            // Puede venir de un capítulo que sí lo necesitaba: soltar el puerto y la CPU.
-            graph.castTranscoder.stop()
-            return directo
+        // No hay transcodificador: un audio que el receptor no decodifica se castea igual, mudo,
+        // en vez de no castear nada. El aviso es lo único que distingue ese caso de un cast normal.
+        if (!decodable && directo != null) {
+            android.widget.Toast.makeText(
+                context,
+                "Este audio podría no sonar en el Chromecast",
+                android.widget.Toast.LENGTH_SHORT,
+            ).show()
         }
-
-        // Hay que convertirle el audio. El origen es el loopback cuando hay un servidor propio
-        // (el proxy de vivo) -no sale a la red- y la misma URL que se hubiera casteado en el resto
-        // de los casos.
-        val origen = when (item.kind) {
-            SourceKind.LIVE -> item.mediaUrl // http://127.0.0.1:.../live.m3u8, ver abrirCanalActual
-            else -> directo.uri
-        }
-        val lanIp = graph.lanIp()
-        // Vivo no tiene "dónde ibas": start-time busca una posición DENTRO del archivo, y un HLS en
-        // vivo no tiene ese eje (ver KDoc de CastSoutChain.mediaOptions) -- forzar 0 sea cual sea la
-        // posición local (el tiempo que lleva ABIERTO el canal, no un punto para retomar).
-        val arranqueMs = if (esVivo) 0L else startPositionMs
-        val transcodificada = lanIp?.let {
-            graph.castTranscoder.start(
-                sourceUrl = origen,
-                lanIp = it,
-                startAtMs = arranqueMs,
-                audioTrackIndex = audio?.index,
-            )
-        }
-        if (transcodificada == null) {
-            // Sin IP en la LAN o sin poder arrancar: mejor mandar el original (se verá mudo, como
-            // antes) que no mandar nada, pero que quede dicho por qué.
-            android.util.Log.w("ArkivCast", "no se pudo transcodificar (lanIp=$lanIp): va el original y probablemente no suene")
-            return directo
-        }
-        // El stream ya arranca en el punto pedido, así que para el receptor empieza en cero; el
-        // desfase real lo guarda el transcodificador en baseOffsetMs.
-        return directo.copy(
-            uri = transcodificada,
-            mimeType = com.arkiv.player.cast.CastSoutChain.MIME,
-            startPositionMs = 0,
-            baseOffsetMs = arranqueMs,
-            // El receptor no puede saber la duración de un stream en vivo, pero el celu sí: sin
-            // esto, castear transcodificado no guardaría progreso nunca. Un canal en vivo no tiene
-            // duración NUNCA (ni local ni remota): 0 ("no sé"), sin ir a preguntarle al controller.
-            // `coerceAtLeast(0)` no es cosmético: media3 devuelve C.TIME_UNSET (muy negativo) cuando
-            // no la sabe, y eso hay que traducirlo a "no sé" (0), no dejarlo pasar como duración.
-            knownDurationMs = if (esVivo) 0L else runCatching { controller.duration }.getOrDefault(0L).coerceAtLeast(0L)
-                .also { android.util.Log.i("ArkivCast", "duración local para el cast: ${it}ms (cruda=${runCatching { controller.duration }.getOrDefault(0L)})") },
-        )
+        return directo
     }
 
     /**
@@ -820,49 +773,6 @@ private fun PlayerContent(
         castSession.setMedia(req)
         casteadoAlReceptor = item.episodeId
         NowPlaying.episodeId = item.episodeId
-    }
-
-    /**
-     * Reevaluar el códec si al conectar todavía no se conocía.
-     *
-     * The gatekeeper decides using the tracks the local player has already parsed; if you connect
-     * right as the video opens, there are none, and the conservative decision ("don't know → send
-     * it straight through", which is what protects any source with a still-unknown codec) sends
-     * the original without transcoding. En AC-3 eso es justo el fallo que
-     * vinimos a eliminar: se ve y no suena. Medido en device: `codec=desconocido → va directo`, y
-     * recién 29 s más tarde se corrigió de pura casualidad.
-     *
-     * Vivo (Tarea 18) agrega `liveCanal?.code` a la clave: `currentIndex` NUNCA cambia en vivo (el
-     * playlist siempre tiene un solo ítem en el índice 0, zapees lo que zapees), así que sin esto
-     * el recheque solo correría una vez -tras conectar el Chromecast- y nunca volvería a correr en
-     * los zaps siguientes. La primera lectura de audio al zapear con el Chromecast ya conectado es
-     * necesariamente la del canal ANTERIOR (setMediaItems() del canal nuevo recién dispara después,
-     * ver LaunchedEffect(playlist)); este recheque es lo que corrige esa foto vieja apenas VLC
-     * parsea las pistas del canal nuevo.
-     */
-    LaunchedEffect(casting, currentIndex, liveCanal?.code) {
-        if (!casting) return@LaunchedEffect
-        repeat(RECHEQUEO_INTENTOS) {
-            delay(RECHEQUEO_MS)
-            // El chequeo va ACÁ DENTRO, no solo al entrar: cuando el efecto arranca (al volverse
-            // true `casting`) el transcodificador todavía no se levantó, así que mirarlo una sola vez
-            // daba siempre null. Medido en device: recasteaba aunque la primera decisión ya hubiera
-            // sido la correcta, o sea DOS transcodes por casteo, y el segundo obligaba al receptor a
-            // buffear de nuevo.
-            if (graph.castTranscoder.activeUrl != null) return@LaunchedEffect
-            val audio = localAudioTrackFormat(controller.currentTracks) ?: return@repeat
-            if (com.arkiv.player.cast.CastAudioSupport.receiverDecodes(audio.fourcc, audio.channels)) {
-                return@LaunchedEffect // el camino directo era el correcto
-            }
-            val pl = playlistRef.value ?: return@LaunchedEffect
-            android.util.Log.w(
-                "ArkivCast",
-                "las pistas aparecieron tarde (codec=${com.arkiv.player.cast.CastAudioSupport.fourccToString(audio.fourcc)}): " +
-                    "recasteo transcodificando",
-            )
-            castRequestFor(pl, currentIndex, contentPositionMs())?.let { graph.castSession?.setMedia(it) }
-            return@LaunchedEffect
-        }
     }
 
     fun bump() = controles.huboActividad()
@@ -1552,14 +1462,10 @@ private fun PlayerContent(
                 // conectar/desconectar dejaría a B saltando a 45:00 — y el sondeo lo persistiría.
                 val castMediaId = runCatching { castPlayer?.currentMediaItem?.mediaId }.getOrNull()
                 val castPos = if (epId != null && castMediaId == epId) {
-                    // Con el audio transcodificado el receptor cuenta desde cero: hay que sumarle el
-                    // punto donde arrancó el stream, o desconectar tira la reproducción hacia atrás
-                    // hasta donde empezó el casteo.
+                    // Sin transcodificador el receptor cuenta desde el mismo punto que el archivo:
+                    // solo hace falta acotar un TIME_UNSET a "no sé" (0).
                     runCatching {
-                        CastProgress.contentPosition(
-                            receiverPosMs = castPlayer?.currentPosition ?: 0L,
-                            baseOffsetMs = graph.castSession?.baseOffsetMs ?: 0L,
-                        )
+                        CastProgress.contentPosition(castPlayer?.currentPosition ?: 0L)
                     }.getOrDefault(0L)
                 } else {
                     android.util.Log.w("ArkivCast", "posición del receptor descartada: es de '$castMediaId', reanudamos '$epId'")
@@ -1774,24 +1680,13 @@ private fun PlayerContent(
     /**
      * Mueve la reproducción a [targetMs] DEL CONTENIDO.
      *
-     * Casteando transcodificado no se puede "buscar": lo que sale es un stream en vivo, sin duración
-     * ni Range. Moverse significa rearrancar el transcode en el punto nuevo y recargar el receptor
-     * —lo mismo que hace Jellyfin cuando no usa HLS—, y eso ya lo sabe hacer `castRequestFor`.
+     * Casteando, `activePlayer` ya es el `CastPlayer`: el seek va directo al receptor, sin
+     * transcodificador de por medio (removido -- ver el KDoc de `castRequestFor`).
      */
     fun seekTo(targetMs: Long) {
         val dur = contentDurationMs()
         val target = targetMs.coerceIn(0L, if (dur > 0) dur else Long.MAX_VALUE)
-        val transcodificando = casting && graph.castTranscoder.activeUrl != null
-        if (transcodificando) {
-            val pl = playlistRef.value
-            val req = pl?.let { castRequestFor(it, currentIndex, target) }
-            if (req != null) {
-                android.util.Log.i("ArkivCast", "seek casteando: rearranco el transcode en ${target}ms")
-                graph.castSession?.setMedia(req)
-            }
-        } else {
-            activePlayer.seekTo(target)
-        }
+        activePlayer.seekTo(target)
         espejo.saltoA(target)
         bump()
     }

@@ -31,15 +31,6 @@ class CastSessionManager(
     private val castContext: CastContext,
     private val repository: ArkivRepository,
     private val scope: CoroutineScope,
-    /** Se llama al terminar la sesión. Sirve para apagar el transcodificador: si queda vivo, sigue
-     *  gastando CPU y reteniendo el puerto aunque ya no haya nadie del otro lado. */
-    private val onSessionEnded: () -> Unit = {},
-    /**
-     * Espera a que el origen esté servible ANTES de dárselo al receptor. Devuelve false si no llegó
-     * a estarlo. Existe porque un receptor al que se le da una URL que todavía no responde se va a
-     * idle y no reintenta: hay que no adelantarse, no hay forma de corregirlo después.
-     */
-    private val awaitSourceReady: suspend (CastRequest) -> Boolean = { true },
 ) {
     // Falla rápido y con causa explícita si algo construye esto fuera del hilo principal, en vez de
     // un crash oscuro dentro del SDK de Cast (CastPlayer/CastContext lo exigen, ver clase doc).
@@ -65,16 +56,6 @@ class CastSessionManager(
      * caso (ver MarcaFuente/sellarMarca en NowPlayingCoordinator).
      */
     @Volatile private var generacion = 0
-
-    /**
-     * Desfase y duración real de lo que se está casteando.
-     *
-     * La UI los necesita porque con el stream transcodificado el receptor cuenta desde cero y manda
-     * `TIME_UNSET` como duración: sin traducir esos números, la barra queda vacía y al desconectar el
-     * reproductor local reanuda en el lugar equivocado.
-     */
-    val baseOffsetMs: Long get() = pending?.baseOffsetMs ?: 0L
-    val knownDurationMs: Long get() = pending?.knownDurationMs ?: 0L
 
     /** Lo que se le pidió al receptor: de acá salen título, carátula y episodio para la barra. */
     val currentRequest: CastRequest? get() = pending
@@ -146,8 +127,6 @@ class CastSessionManager(
 
             override fun onCastSessionUnavailable() {
                 _casting.value = false
-                runCatching { onSessionEnded() }
-                    .onFailure { android.util.Log.w(TAG, "fallo al cerrar la sesión: ${it.message}") }
             }
         })
         // El único caso que el listener NO cubre: arrancar la app con una sesión ya viva (se mató y
@@ -195,11 +174,6 @@ class CastSessionManager(
                 // se podría volver a castear hasta reiniciar la app. Además `true` apaga la app
                 // receptora, que es lo que hace que la TV vuelva a lo suyo — release() usa `false`.
                 runCatching { castContext.sessionManager.endCurrentSession(true) }
-                // Best-effort: si la sesión ya estaba muerta, endCurrentSession no dispara ningún
-                // callback del SDK (onCastSessionUnavailable no llega solo) y onSessionEnded —que
-                // apaga el transcodificador— nunca se llamaría. Sin esto el transcodificador seguiría
-                // vivo (CPU + puerto retenidos) con la barra ya oculta.
-                runCatching { onSessionEnded() }
             }
         }
     }
@@ -216,21 +190,10 @@ class CastSessionManager(
         return at != 0L && System.currentTimeMillis() - at < VENTANA_PARADA_MS
     }
 
-    private suspend fun load(r: CastRequest) {
-        // Antes de tocar al receptor: que el origen ya esté entregando datos. Adelantarse acá es
-        // exactamente lo que lo dejaba en idle para siempre.
-        if (!awaitSourceReady(r)) {
-            android.util.Log.e(TAG, "el origen no quedó listo; no le mando nada al receptor: ${r.uri}")
-            return
-        }
-        loadNow(r)
-    }
-
-    private suspend fun loadNow(r: CastRequest) = withContext(Dispatchers.Main) {
+    private suspend fun load(r: CastRequest) = withContext(Dispatchers.Main) {
         android.util.Log.i(
             TAG,
-            "cargando en el receptor · mime=${r.mimeType} · desde=${r.startPositionMs}ms · " +
-                "offset=${r.baseOffsetMs}ms durConocida=${r.knownDurationMs}ms · ${r.uri}",
+            "cargando en el receptor · mime=${r.mimeType} · desde=${r.startPositionMs}ms · ${r.uri}",
         )
         player.setMediaItem(
             MediaItem.Builder()
@@ -271,25 +234,15 @@ class CastSessionManager(
                     Triple(player.currentMediaItem?.mediaId, player.currentPosition, player.duration)
                 }
                 if (mediaId != epId) continue
-                // Con el audio transcodificado el receptor cuenta desde cero y no sabe la duración,
-                // así que lo que reporta hay que traducirlo antes de guardarlo.
-                val progress = CastProgress.toSave(
-                    reportedPosMs = pos,
-                    reportedDurMs = dur,
-                    baseOffsetMs = request.baseOffsetMs,
-                    knownDurationMs = request.knownDurationMs,
-                )
+                // Sin transcodificador el receptor reporta la posición y la duración reales; la
+                // única razón para no guardar es un directo en vivo, que manda TIME_UNSET.
+                val progress = CastProgress.toSave(reportedPosMs = pos, reportedDurMs = dur)
                 if (progress == null) {
                     // Loud on purpose -- born diagnosing "torrent always restarts from zero" (a
-                    // source removed in this branch's pruning), but the same audio-transcoded-cast
-                    // failure mode still reaches any source today: if this shows up, progress is
-                    // NOT being saved and the culprit is the duration (the receiver sends
-                    // TIME_UNSET and `durConocida` came in at 0).
-                    android.util.Log.w(
-                        TAG,
-                        "progreso NO guardado · pos=${pos}ms durReceptor=${dur}ms " +
-                            "offset=${request.baseOffsetMs}ms durConocida=${request.knownDurationMs}ms",
-                    )
+                    // source removed in this branch's pruning); if this shows up for VOD, progress
+                    // is NOT being saved and the culprit is the duration (the receiver sent
+                    // TIME_UNSET, which live streams do and downloads should not).
+                    android.util.Log.w(TAG, "progreso NO guardado · pos=${pos}ms durReceptor=${dur}ms")
                     continue
                 }
                 runCatching { repository.savePlayback(epId, progress.positionMs, progress.durationMs) }
