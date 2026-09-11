@@ -4,6 +4,8 @@ import android.util.Log
 import com.arkiv.player.data.ia.JsonDelModelo
 import com.arkiv.player.data.ia.JsonIlegible
 import com.arkiv.player.data.ia.RespuestaDeIa
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -39,12 +41,18 @@ internal data class ObraDeDatos(
         /**
          * Null si no hay forma de nombrarla bien —ni `tmdbId` ni `tituloCanonico`—: preguntarle al
          * modelo a ciegas es la forma más rápida de que invente.
+         *
+         * [temporada] y [episodio] se descartan si [tipo] no es `"tv"`: `ArkivRepository.obraParaDatos`
+         * los deduce del `displayName` cuando la fila no los trae ("Se7en" da episodio 7), y una
+         * película no puede terminar preguntando por "el episodio 7" ni guardando su respuesta bajo
+         * esa clave.
          */
         fun de(tipo: String, tmdbId: Int?, tituloCanonico: String?, temporada: Int?, episodio: Int?): ObraDeDatos? {
             val id = tmdbId?.takeIf { it > 0 }
             val titulo = tituloCanonico?.trim()?.takeIf { it.isNotEmpty() }
             if (id == null && titulo == null) return null
-            return ObraDeDatos(tipo, id, titulo, temporada, episodio)
+            val esSerie = tipo == "tv"
+            return ObraDeDatos(tipo, id, titulo, temporada.takeIf { esSerie }, episodio.takeIf { esSerie })
         }
     }
 }
@@ -152,7 +160,9 @@ internal class DatosCuriosos(
     private val cache: CacheDeDatos,
 ) {
     suspend fun de(obra: ObraDeDatos, ficha: suspend () -> FichaDeObra?): List<String> {
-        cache.leer(obra.clave)?.let { return it }
+        // El caché es en disco (`CacheDeDatosEnDisco`) y esto corre desde `viewModelScope` (Main):
+        // leerlo y escribirlo va en Dispatchers.IO, nunca en el hilo principal.
+        withContext(Dispatchers.IO) { cache.leer(obra.clave) }?.let { return it }
         val cual = ficha() ?: return emptyList()
         val r = ia(PreguntaDeDatos.instruccion(cual, obra.temporada, obra.episodio))
         if (r !is RespuestaDeIa.Texto) return emptyList()
@@ -163,11 +173,11 @@ internal class DatosCuriosos(
             return emptyList()
         }
         if (crudo.length() == 0) {
-            if (!cual.degradada) cache.guardar(obra.clave, emptyList())
+            if (!cual.degradada) withContext(Dispatchers.IO) { cache.guardar(obra.clave, emptyList()) }
             return emptyList()
         }
         val datos = PreguntaDeDatos.limpiar(crudo)
-        if (datos.isNotEmpty() && !cual.degradada) cache.guardar(obra.clave, datos)
+        if (datos.isNotEmpty() && !cual.degradada) withContext(Dispatchers.IO) { cache.guardar(obra.clave, datos) }
         return datos
     }
 

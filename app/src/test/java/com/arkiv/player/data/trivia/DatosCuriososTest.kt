@@ -38,6 +38,23 @@ class DatosCuriososTest {
         assertNull(ObraDeDatos.de("movie", tmdbId = 0, tituloCanonico = null, temporada = null, episodio = null))
     }
 
+    /**
+     * Una película no puede recibir un "episodio" falso: `EpisodeNumbering.episodeOf` deduce el
+     * capítulo del `displayName` ("Se7en" da 7) sin saber si la obra es una serie. `ObraDeDatos.de`
+     * es donde `ArkivRepository.obraParaDatos` arma la identidad de la obra, así que el filtro va acá.
+     */
+    @Test fun `una pelicula no puede recibir un episodio ni una temporada falsos`() {
+        val o = ObraDeDatos.de("movie", tmdbId = 807, tituloCanonico = null, temporada = 1, episodio = 7)!!
+        assertNull(o.episodio)
+        assertNull(o.temporada)
+    }
+
+    @Test fun `una serie si conserva su temporada y su episodio`() {
+        val o = ObraDeDatos.de("tv", tmdbId = 46260, tituloCanonico = null, temporada = 1, episodio = 2)!!
+        assertEquals(1, o.temporada)
+        assertEquals(2, o.episodio)
+    }
+
     @Test fun `la instruccion de una pelicula nombra la obra y las reglas`() {
         val i = PreguntaDeDatos.instruccion(fichaCoco, temporada = null, episodio = null)
         assertTrue(i.startsWith("Dame hasta 8 datos curiosos y verificables sobre «Coco»."))

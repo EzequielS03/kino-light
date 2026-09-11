@@ -108,6 +108,28 @@ class ClienteDeIaTest {
         assertEquals("b:free", (r as RespuestaDeIa.Texto).modelo)
     }
 
+    /**
+     * Un `Retry-After` de días dejaría un modelo aparcado días -se persiste- así que un valor
+     * enorme se limita a una hora. Se prueba por exclusión (no por "cuál gana"): con los otros tres
+     * modelos rotos, "a:free" sigue afuera justo antes de la hora y ya se puede probar justo
+     * después.
+     */
+    @Test fun `un Retry-After enorme se limita a una hora`() = runTest {
+        porModelo["a:free"] = MockResponse().setResponseCode(429).addHeader("Retry-After", "999999")
+        val c = cliente()
+        assertEquals("b:free", (c.preguntar("x") as RespuestaDeIa.Texto).modelo) // a:free queda en espera
+
+        // Justo antes de la hora, a:free sigue excluido: si los otros tres fallan, no hay con qué.
+        ahora += 60 * 60 * 1000L - 1
+        listOf("b:free", "c:free", "d:free").forEach { porModelo[it] = MockResponse().setResponseCode(500) }
+        assertEquals(RespuestaDeIa.NoPude, c.preguntar("y"))
+
+        // Pasada la hora, a:free vuelve a estar disponible (los otros tres siguen rotos).
+        ahora += 2
+        porModelo.remove("a:free")
+        assertEquals("a:free", (c.preguntar("z") as RespuestaDeIa.Texto).modelo)
+    }
+
     @Test fun `un 500 salta al siguiente modelo`() = runTest {
         porModelo["a:free"] = MockResponse().setResponseCode(500)
         assertEquals("b:free", (cliente().preguntar("x") as RespuestaDeIa.Texto).modelo)

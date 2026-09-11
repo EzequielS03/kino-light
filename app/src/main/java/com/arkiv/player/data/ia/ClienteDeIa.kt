@@ -82,7 +82,12 @@ internal class ClienteDeIa(
         val falla: Falla = try {
             ejecutar(pedido).use { resp ->
                 when {
-                    resp.code == 429 -> Falla.Limite(resp.header("Retry-After")?.trim()?.toLongOrNull()?.times(1000))
+                    resp.code == 429 -> Falla.Limite(
+                        // Se persiste (`MemoriaDeModelos.fallo`): un `Retry-After` de días dejaría el
+                        // modelo aparcado días. Una hora es un tope generoso frente a los 10 minutos
+                        // por defecto y sigue dejando el modelo disponible el mismo día.
+                        resp.header("Retry-After")?.trim()?.toLongOrNull()?.times(1000)?.coerceAtMost(TOPE_ESPERA_LIMITE_MS),
+                    )
                     !resp.isSuccessful -> Falla.Servidor
                     else -> {
                         // La lectura del cuerpo queda FUERA del runCatching: si la conexión se cae a
@@ -164,6 +169,7 @@ internal class ClienteDeIa(
         const val MAX_INTENTOS = 3
         const val TIMEOUT_S = 45L
         const val VIGENCIA_CATALOGO_MS = 6 * 60 * 60 * 1000L
+        const val TOPE_ESPERA_LIMITE_MS = 60 * 60 * 1000L
         private val JSON = "application/json".toMediaType()
         private const val TAG = "ArkivIA"
     }
