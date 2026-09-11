@@ -552,8 +552,9 @@ class ArkivRepository(
 
     /**
      * Mapa episodeId -> sinopsis del capítulo según TMDB. La llenan tanto Magis
-     * (`addMagisSeason`/`addMagisSource`) como [ensureEpisodeStills] para torrent/web/archive:
-     * cualquier serie con `tmdbId` la tiene, no es un privilegio de una sola fuente.
+     * (`addMagisSeason`/`addMagisSource`) como [ensureEpisodeStills] para todo lo demás (Ditu hoy,
+     * y las filas legacy de torrent/web/archive): cualquier serie con `tmdbId` la tiene, no es un
+     * privilegio de una sola fuente.
      */
     fun observeEpisodeOverviews(itemId: String): Flow<Map<String, String>> =
         episodeStillDao.observeForItem(itemId).map { rows ->
@@ -863,8 +864,9 @@ class ArkivRepository(
 
     /**
      * Guarda la temporada COMPLETA de Magis: es lo que corre al tocar un capítulo para verlo, con la
-     * lista que la pantalla ya tenía cargada (sin red). Gemelo de [savePackAsSeries] para torrent y
-     * de `addWholeWebSeries` para web — Magis era la única fuente que guardaba de a un capítulo.
+     * lista que la pantalla ya tenía cargada (sin red). Las fuentes torrent y web tenían el mismo
+     * patrón (guardar la temporada entera de una), pero se borraron en la poda de esta rama — Magis
+     * era la única fuente que guardaba de a un capítulo.
      *
      * `upsert` y NO `replaceItem`: un capítulo que ya tenías guardado tiene que sobrevivir aunque el
      * portal no lo liste esta vez. Es idempotente (ids derivados del contenido), así que se puede
@@ -1029,7 +1031,7 @@ class ArkivRepository(
     suspend fun episodesOf(itemId: String): List<Episode> =
         itemDao.getEpisodesOf(itemId).map { it.toEpisode() }
 
-    /** Carátula del ítem al que pertenece un episodio (para el miniplayer remoto). */
+    /** Carátula del ítem al que pertenece un episodio. Sin caller hoy: quedó del miniplayer remoto celu↔TV, borrado en la poda de pareo/control remoto (Task 5). */
     suspend fun itemThumbnailForEpisode(episodeId: String): String? {
         val ep = itemDao.getEpisode(episodeId) ?: return null
         return itemDao.getItem(ep.itemId)?.thumbnailUrl
@@ -1044,7 +1046,7 @@ class ArkivRepository(
         EpisodeNavigation.nextId(all, id)
     }
 
-    /** Devuelve el episodio anterior de la misma sección (para el control remoto). */
+    /** Devuelve el episodio anterior de la misma sección (para el "anterior"/"siguiente" del header del player, ver [com.arkiv.player.ui.player.PlayerCabecera]). */
     suspend fun previousEpisode(episodeId: String): Episode? = neighbourEpisode(episodeId) { all, id ->
         EpisodeNavigation.prevId(all, id)
     }
@@ -1312,9 +1314,10 @@ class ArkivRepository(
 /**
  * Título "desnudo" para buscar en TMDB.
  *
- * El sufijo " — Pack" lo pone la app al guardar un torrent que trae la serie entera; no es parte
- * del nombre y sin quitarlo TMDB no devuelve nada (verificado: los dos "Naruto — Pack" de la
- * biblioteca quedaron sin tmdbId y por eso no se agrupaban con el resto de los Naruto).
+ * El sufijo " — Pack" lo ponía la app al guardar un torrent que traía la serie entera (fuente
+ * borrada en la poda de esta rama); no es parte del nombre y sin quitarlo TMDB no devuelve nada
+ * (verificado: los dos "Naruto — Pack" de la biblioteca quedaron sin tmdbId y por eso no se
+ * agrupaban con el resto de los Naruto).
  */
 /**
  * Cuál de los resultados de TMDB es el arte de este título.

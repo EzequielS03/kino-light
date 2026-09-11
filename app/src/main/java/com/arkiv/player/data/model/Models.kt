@@ -10,12 +10,13 @@ data class Episode(
     val durationSeconds: Double,
     val thumbPath: String?,  // ruta de miniatura en .thumbs (o null)
     /**
-     * De dónde salió este episodio, cuando la fuente lo identifica: la pageUrl del capítulo si es
-     * web (`ArkivRepository.addWebSeriesEpisode`) o el magnet si es torrent
-     * (`addSeriesEpisodeMagnet`). Es el `torrentData` de [com.arkiv.player.data.db.EpisodeEntity]
-     * expuesto al dominio, y lo necesita la UI para distinguir DOS filas del mismo (temporada,
-     * capítulo) guardadas desde sitios distintos — por número solo no se pueden diferenciar.
-     * Null para archive.org y para episodios viejos guardados sin este dato.
+     * Where this episode came from, when the source records it: Ditu's `ref` (see
+     * [com.arkiv.player.data.ditu.DituRef]) today, plus the page URL or magnet left by the
+     * now-removed web/torrent sources in rows saved before this branch's pruning. It's the
+     * `torrentData` of [com.arkiv.player.data.db.EpisodeEntity] exposed to the domain, and the UI
+     * needs it to tell apart TWO rows of the same (season, chapter) saved from different sites --
+     * the number alone can't tell them apart. Null for archive.org and for old episodes saved
+     * without this data.
      */
     val sourceRef: String? = null,
     /**

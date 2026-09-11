@@ -28,9 +28,10 @@ object MarcadorDeCapitulo {
     const val ORIGEN_AUTO = "auto"
 
     /**
-     * La llave de la fila. Derivada y no compuesta a propósito: `CloudSyncManager.pushRows` busca
-     * la fila remota por UN campo natural por colección, así que una clave compuesta obligaría a
-     * cambiar ese mecanismo para todas. Mismo criterio que `episodes`, que sincroniza por `epId`.
+     * The row's key. Derived and not composite on purpose: this branch's future sync (see the
+     * `updatedAt`/`deleted` columns kept for it) looks up the remote row by ONE natural field per
+     * collection, so a composite key would force changing that mechanism for all of them. Same
+     * criterion as `episodes`, which syncs by `epId`.
      */
     fun idDe(itemId: String, episodeId: String): String = "$itemId|$episodeId"
 

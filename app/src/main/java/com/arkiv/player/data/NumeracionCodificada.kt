@@ -1,34 +1,33 @@
 package com.arkiv.player.data
 
 /**
- * Cómo leer la numeración que algunas fuentes dejan METIDA dentro del `orderIndex`.
+ * How to read the numbering that some sources used to pack INSIDE `orderIndex`.
  *
- * Las fuentes de torrent y web guardan sus capítulos con `orderIndex = temporada*1000 + episodio`
- * (ver `ArkivRepository.addSeriesEpisode`, `addSeriesEpisodeMagnet`, `addWebSeriesEpisode` y
- * `PackRowBuilder`), mientras que archive.org lo usa como un correlativo 0..N-1. Los dos números
- * conviven en la misma columna y hay que saber cuál es cuál.
+ * The torrent and web sources (removed in this branch's pruning, along with the functions that
+ * used to save chapters this way) saved their chapters with `orderIndex = season*1000 + episode`,
+ * while archive.org (also removed) used it as a plain 0..N-1 correlative. Both numbers share the
+ * same column, and something has to tell them apart for the rows still saved from before that.
  *
- * **Por qué no alcanza con mirar el número.** La regla vieja era "si `orderIndex >= 1000` viene
- * codificado". Se cae por los dos lados:
- *  - Una **temporada 0** (los especiales) da `0*1000 + 3 = 3`, indistinguible de un correlativo de
- *    archive: el especial 3 se mostraba como "E4".
- *  - Un pack de anime con numeración **absoluta** (One Piece, capítulo 1085) sí pasa de 1000 sin
- *    estar codificado, y se leía como "T1 · E85".
+ * **Why just looking at the number isn't enough.** The old rule was "if `orderIndex >= 1000` it's
+ * encoded." It breaks on both sides:
+ *  - A **season 0** (specials) gives `0*1000 + 3 = 3`, indistinguishable from an archive
+ *    correlative: special 3 showed up as "E4".
+ *  - An anime pack with **absolute** numbering (One Piece, chapter 1085) does go past 1000
+ *    without being encoded, and was read as "S1 · E85".
  *
- * Lo que distingue de verdad es **de qué fuente viene la fila**, y eso son dos datos que ya están
- * guardados y que además el sync sí replica (a diferencia de `season`/`episode`, ver `SyncMappers`):
- * el prefijo del `itemId` (solo torrent y web codifican; archive.org usa su identificador pelado) y
- * la `section`, que esas mismas fuentes escriben como "Temporada N" exactamente cuando codifican.
- * Pedir las dos cosas es lo que deja afuera tanto a una subida de archive.org que guarde sus
- * archivos en una carpeta llamada "Temporada 1" como a los packs de numeración absoluta, que dejan
- * la sección vacía.
+ * What actually tells them apart is **which source the row came from**, and that's two pieces of
+ * data already saved on the row itself: the `itemId` prefix (only torrent and web ever encoded;
+ * archive.org used its bare identifier) and the `section`, which those same sources wrote as
+ * "Temporada N" exactly when they encoded. Asking for both is what rules out an archive.org
+ * upload that saved its files in a folder called "Temporada 1", as well as the absolute-numbering
+ * packs, which leave the section empty.
  *
- * La temporada se toma del texto de la sección y no de `orderIndex / 1000` porque es el dato
- * directo: para la temporada 0 las dos formas coinciden, pero una no depende de la aritmética.
+ * The season comes from the section's text and not from `orderIndex / 1000` because it's the
+ * direct value: for season 0 the two forms agree, but one doesn't depend on the arithmetic.
  *
- * Esto es un **lector de datos viejos**. Las fuentes ya guardan `season`/`episode` en su propia
- * columna, así que las filas nuevas ni pasan por acá; sigue existiendo para lo que ya está en la
- * base y para lo que llegue por sync desde un dispositivo con una versión anterior.
+ * This is a **reader for old data**. Sources save `season`/`episode` in their own column now, so
+ * new rows never go through here; it still exists for whatever is already saved from before this
+ * branch's torrent/web/archive.org pruning.
  */
 object NumeracionCodificada {
 

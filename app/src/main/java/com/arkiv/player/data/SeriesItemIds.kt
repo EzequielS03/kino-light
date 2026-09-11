@@ -4,17 +4,15 @@ import com.arkiv.player.data.catalog.AnimeMappingRepository
 import kotlinx.coroutines.CancellationException
 
 /**
- * Traducción entre el `identifier` del ítem LOCAL de una serie guardada y el `seriesId` "desnudo"
- * con el que se la conoce afuera (catálogo y NUC), y **fuente única del seriesId canónico**.
+ * Translation between a saved series' LOCAL `identifier` and the "bare" `seriesId` it's known by
+ * outside the item table, and the **single source of the canonical seriesId**.
  *
- * Al guardar, [ArkivRepository.addWebSeriesEpisode] y [ArkivRepository.addSeriesEpisodeMagnet]
- * prefijan el seriesId para que un mismo show guardado desde la web y desde torrent no colisione
- * en la misma fila de `items`. Pero `nuc_library_items`, `series_playback_prefs` y la API de
- * arkiv-offline usan el seriesId SIN prefijo (`"anilist$id"` / `imdbId` / `"tmdb$id"`), que es el
- * que mandan AnimeShowDetailScreen/CineDetailScreen al crear los jobs de descarga.
- *
- * Cruzar los dos formatos sin traducir no explota: simplemente no encuentra nada nunca. Por eso
- * vive acá, en un solo lugar, en vez de repetir el literal del prefijo en cada pantalla.
+ * The now-removed torrent and web sources used to prefix the seriesId (`web:series:`/
+ * `torrent:series:`) so that the same show saved from two different sources wouldn't collide in
+ * the same `items` row; [seriesIdOrNull] reads that prefix back out. Those add paths are gone, so
+ * no new item gets one of these prefixes, but the ones already in someone's library still do, and
+ * [com.arkiv.player.data.LibraryGrouping] still needs to recognize them to group a legacy item
+ * with its TMDB-matched counterpart.
  *
  * Lo MISMO pasaba un nivel más arriba, con el seriesId en sí: la pantalla de anime lo armaba como
  * `"anilist$anilistId"` y la de cine/series como `imdbId ?: "tmdb$id"`, así que la MISMA serie
@@ -26,23 +24,23 @@ import kotlinx.coroutines.CancellationException
  */
 object SeriesItemIds {
 
-    /** Prefijo del identifier local de una serie web (ver [ArkivRepository.addWebSeriesEpisode]). */
+    /** Prefix of a web series' local identifier (legacy: the web source was removed). */
     const val WEB_SERIES_PREFIX = "web:series:"
 
-    /** Prefijo del identifier local de una serie torrent (ver [ArkivRepository.addSeriesEpisodeMagnet]). */
+    /** Prefix of a torrent series' local identifier (legacy: the torrent source was removed). */
     const val TORRENT_SERIES_PREFIX = "torrent:series:"
 
-    /** Prefijo del identifier local de un anime torrent (ver [ArkivRepository.addAnimeEpisode]). */
+    /** Prefix of a torrent anime's local identifier (legacy: the torrent source was removed). */
     const val TORRENT_ANIME_PREFIX = "torrent:anime:"
 
     /** Un id de IMDb bien formado: es lo único que se acepta como primera preferencia. */
     private val IMDB_SHAPE = Regex("""^tt\d+$""")
 
     /**
-     * seriesId externo de un identifier local de serie, o `null` si el identifier no es de una
-     * serie guardada (un ítem de archive.org, una película web suelta, …). Devolver `null` en vez
-     * del identifier crudo es a propósito: así el llamador puede saltarse la consulta a la NUC en
-     * vez de preguntar por un seriesId que no existe.
+     * External seriesId of a saved series' local identifier, or `null` if the identifier isn't
+     * one of a saved series (a standalone item, a movie, …). Returning `null` instead of the raw
+     * identifier is on purpose: [com.arkiv.player.data.LibraryGrouping] can then skip trying to
+     * match a seriesId that doesn't exist.
      */
     fun seriesIdOrNull(identifier: String): String? = when {
         identifier.startsWith(WEB_SERIES_PREFIX) -> identifier.removePrefix(WEB_SERIES_PREFIX)
@@ -56,7 +54,7 @@ object SeriesItemIds {
      * Es LITERALMENTE la preferencia que ya usaba el camino no-anime (`d.imdbId.ifBlank {
      * "tmdb${d.id}" }`), con el mismo criterio laxo de "no vacío": anilist queda solo como último
      * recurso, para el anime cuyo mapeo cruzado todavía no se conoce. Puro a propósito (misma
-     * convención que `TorrentSizeGate` y compañía): quien tenga que ir a buscar el mapeo lo hace
+     * convención que las policies de descarga): quien tenga que ir a buscar el mapeo lo hace
      * afuera y le pasa los ids ya resueltos.
      *
      * **Ojo con endurecer esto.** El `org.json` de ANDROID devuelve el string `"null"` (no `""`)

@@ -7,7 +7,8 @@ import com.arkiv.player.data.db.EpisodeStillEntity
  *
  * Existe porque a esa tabla escriben dos fuentes distintas y con datos distintos: Magis la llena al
  * guardar la temporada (`MagisEntities.stillsDeTemporada`, con lo que el gateway cruzó contra TMDB)
- * y `ArkivRepository.ensureEpisodeStills` la llena para torrent/web/archive preguntándole a TMDB.
+ * y `ArkivRepository.ensureEpisodeStills` la llena para todo lo demás (Ditu hoy, y las filas legacy
+ * de torrent/web/archive) preguntándole a TMDB.
  * `EpisodeStillDao.upsertAll` es un REPLACE, así que la segunda escritura pisa la primera **fila
  * entera**: sin esta mezcla, un timeout de TMDB al abrir el detalle dejaba `stillUrl`, `title` y
  * `overview` en null encima de lo que Magis ya había guardado bien, y como la fila igual quedaba

@@ -14,12 +14,12 @@ object MetadataParser {
     }
 
     /**
-     * Nombre para mostrar: sin carpeta ni extensión, con separadores legibles.
+     * Display name: without folder or extension, with readable separators.
      *
-     * Si el archivo empieza con el [identifier] del ítem, ese prefijo se saca: archive.org
-     * nombraba así los archivos de muchas subidas (incluidas las nuestras, donde el identificador
-     * es un hash), y sin pelarlo cada capítulo se vería como
-     * "f75163f026d99259e37c 12697 s01e01" en vez de "s01e01".
+     * If the file starts with the item's [identifier], that prefix gets stripped: archive.org
+     * (removed in this branch's pruning) used to name files that way for many uploads (including
+     * ours, where the identifier is a hash), and without stripping it each chapter would show up
+     * as "f75163f026d99259e37c 12697 s01e01" instead of "s01e01".
      */
     fun cleanName(path: String, identifier: String? = null): String {
         val file = path.substringAfterLast('/')
