@@ -8,7 +8,7 @@ import org.junit.Test
 /** Qué pasa con lo que suena cuando la persona se va de la app. */
 class PausaAlSalirTest {
 
-    @Test fun `en el televisor se pausa todo, VLC incluido`() {
+    @Test fun `en el televisor se pausa todo, el local incluido`() {
         assertTrue(hayQuePausarAlSalir(esTv = true, esExoPlayer = true, casteando = false))
         assertTrue(hayQuePausarAlSalir(esTv = true, esExoPlayer = false, casteando = false))
     }
@@ -18,9 +18,17 @@ class PausaAlSalirTest {
         assertTrue(hayQuePausarAlSalir(esTv = false, esExoPlayer = true, casteando = false))
     }
 
-    /** Un descargado suena en `PlaybackService`: en el celular sigue, a propósito. */
-    @Test fun `en el celular VLC sigue sonando`() {
+    /**
+     * A downloaded file plays on the ExoPlayer hosted by `PlaybackService`, reached through the
+     * screen's `controller`, so `esExoPlayer` is false for it: on the phone it keeps playing in the
+     * background, with the media notification. This is the rule that keeps that working.
+     */
+    @Test fun `on the phone the service-hosted local player keeps playing`() {
         assertFalse(hayQuePausarAlSalir(esTv = false, esExoPlayer = false, casteando = false))
+        assertEquals(
+            AlIrseAlFondo.SEGUIR,
+            alIrseAlFondo(esTv = false, esExoPlayer = false, casteando = false, enVivo = false),
+        )
     }
 
     @Test fun `enviando a un Chromecast no se pausa`() {
