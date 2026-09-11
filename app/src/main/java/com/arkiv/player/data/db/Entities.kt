@@ -331,18 +331,20 @@ data class EpisodeFrameEntity(
 )
 
 /**
- * Una recomendación generada por el gateway a partir del historial de la cuenta, para la fila
- * "Para ti" del inicio. SOLO LECTURA: la app nunca escribe acá, solo recibe por el sync (ver
- * [com.arkiv.player.cloudsync.CloudSyncManager]) -- las reglas de la colección en PocketBase ya lo
- * imponen del lado del servidor (escribir es solo del admin).
+ * Una recomendación generada EN EL APARATO por
+ * [com.arkiv.player.data.recomendaciones.GeneradorParaTi], con los modelos gratis de Kilo, a partir
+ * del historial local, para la fila "Para ti" del inicio. La app SÍ escribe acá directamente
+ * (`RecomendacionDao.reemplazar`, llamado desde `AppGraph.generadorParaTi`): no hay PocketBase ni
+ * sync detrás -- `CloudSyncManager` no existe en esta rama.
  *
- * La clave local es [id] (el `id` de PocketBase) y **NO** [orden]: el gateway RECREA la lista
- * entera en cada generación en vez de reusar identidad entre tandas (ver
- * `arkiv-api/src/arkiv_api/recomendaciones/almacen.py::guardar`) -- crea filas nuevas y entierra
- * (`deleted=true`) las viejas con el MISMO `updatedAt`. Dos generaciones distintas pueden compartir
- * el mismo `orden` (0..9) con `id`s distintos; si `orden` fuera la PK, la tanda nueva y la tumba de
- * la vieja competirían por la MISMA fila en el LWW, y el orden de llegada del pull decidiría cuál de
- * las dos (en realidad independientes) sobrevive.
+ * La clave local es [id] (el id de la fuente ya resuelta, ver
+ * `com.arkiv.player.data.recomendaciones.GuardadoDeRecomendacion.itemIdDe`) y **NO** [orden]: cada
+ * generación RECREA la lista entera en vez de reusar identidad entre tandas (port de
+ * `arkiv-api/src/arkiv_api/recomendaciones/almacen.py::guardar`) -- `RecomendacionDao.reemplazar`
+ * entierra (`deleted=true`) las vigentes con el MISMO `updatedAt` y recién después inserta las
+ * nuevas. Dos generaciones distintas pueden compartir el mismo `orden` (0..9) con `id`s distintos;
+ * si `orden` fuera la PK, el `upsert` (`OnConflictStrategy.REPLACE`) de la fila nueva pisaría la
+ * fila vieja que tuviera ese mismo `orden` aunque fueran obras completamente distintas.
  */
 @Entity(tableName = "recomendaciones")
 data class RecomendacionEntity(
@@ -356,7 +358,10 @@ data class RecomendacionEntity(
     val posterUrl: String,
     /** La frase que explica por qué se recomienda (p. ej. "porque terminaste Dragon Ball"). */
     val porque: String,
-    /** La fuente ya resuelta para reproducir, armada por el gateway. */
+    /**
+     * La fuente ya resuelta para reproducir, armada en el aparato por la cascada de verificación
+     * (ver [com.arkiv.player.data.recomendaciones.VerificacionParaTi]).
+     */
     val ref: String,
     /** Posición 0..9 para ordenar la fila. NO es identidad -- ver el KDoc de la clase. */
     val orden: Int,
