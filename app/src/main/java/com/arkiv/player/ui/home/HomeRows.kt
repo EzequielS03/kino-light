@@ -24,9 +24,10 @@ fun buildRowSpecs(
     animeGenres: List<String>,
 ): List<HomeRowSpec> = buildList {
     add(HomeRowSpec("cartelera", "En cartelera", RowSource.Curated("movie", TmdbCategory.NOW_PLAYING)))
-    // "Próximamente" (UPCOMING) se quitó a propósito: son estrenos aún sin publicar, así que casi
-    // nunca hay torrents ni fuentes para ellos. El solapamiento entre el resto de las filas se
-    // resuelve con dedup (ver dedupAgainst), no quitando filas.
+    // "Upcoming" (UPCOMING) was dropped on purpose: it's titles not released yet, so there's
+    // almost never a source for them (true back when torrent was a source here, and still true
+    // for Magis/Ditu today). Overlap between the rest of the rows is handled with dedup (see
+    // dedupAgainst), not by dropping rows.
     add(HomeRowSpec("peliculas_populares", "Películas populares", RowSource.Curated("movie", TmdbCategory.POPULAR)))
     add(HomeRowSpec("tendencias", "Tendencias de la semana", RowSource.Curated("movie", TmdbCategory.TRENDING)))
     add(HomeRowSpec("series_populares", "Series populares", RowSource.Curated("tv", TmdbCategory.POPULAR)))
