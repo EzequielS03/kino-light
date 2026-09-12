@@ -768,11 +768,19 @@ private fun PlayerContent(
         // widened to do this -- `ArchiveCacheProxy.start()` already listens on every interface; it
         // is the same loopback url the phone is playing from, respelled. See its `lanUrl` KDoc.
         val lanIp = graph.lanIp()
+        val remuxMagis = if (item.kind == SourceKind.MAGIS) {
+            item.castUrl?.let { cdn -> graph.tsRemuxer.yaHecho(cdn)?.let { graph.localFileServer.serve(it) } }
+        } else {
+            null
+        }
         val lanUrl = when (item.kind) {
             SourceKind.LIVE -> lanIp?.let { graph.liveHlsProxy.lanUrl(it) }
             // Magis: through the proxy either way, because the CDN wants headers the receiver
             // cannot send. WHICH proxy url depends on the container -- see `magisEsTs` below.
-            SourceKind.MAGIS -> lanIp?.let {
+            // A finished remux wins over both: it is an MP4 served off this device, so the CDN's
+            // headers stop mattering and the receiver gets per-sample timing. Keyed by the CDN url
+            // because the proxy url carries tokens that change on every resolve.
+            SourceKind.MAGIS -> remuxMagis ?: lanIp?.let {
                 if (magisEsTs(item)) {
                     com.arkiv.player.playback.ArchiveCacheProxy.lanPlaylistUrl(item.mediaUrl, it)
                 } else {
@@ -842,8 +850,11 @@ private fun PlayerContent(
         // would only add the segmenter's cost and its rough edges for nothing: Magis serves both
         // (`MagisResolve` picks `_media.ts` vs `_media.mp4` from the portal's `videoFormat`).
         val mimeMagis = if (item.kind == SourceKind.MAGIS) {
-            if (magisEsTs(item)) "application/vnd.apple.mpegurl"
-            else com.arkiv.player.cast.CastRequestBuilder.mimeForUrl(item.castUrl.orEmpty())
+            when {
+                remuxMagis != null -> "video/mp4"
+                magisEsTs(item) -> "application/vnd.apple.mpegurl"
+                else -> com.arkiv.player.cast.CastRequestBuilder.mimeForUrl(item.castUrl.orEmpty())
+            }
         } else {
             null
         }
@@ -877,8 +888,9 @@ private fun PlayerContent(
                 else -> mimeLocal
             },
             // Magis has no usable fallback: `castUrl` is the CDN (401 without headers the receiver
-            // can't send) and `mediaUrl` is loopback. Either the LAN url or nothing.
-            requiresLanUrl = item.kind == SourceKind.MAGIS,
+            // can't send) and `mediaUrl` is loopback. Either the LAN url or nothing -- unless a
+            // remux exists, which is already a reachable url on this device.
+            requiresLanUrl = item.kind == SourceKind.MAGIS && remuxMagis == null,
         )
         // No transcoder: audio the receiver can't decode still gets cast, muted, instead of not
         // casting at all. The warning is the only thing that tells that case apart from a normal cast.
@@ -955,24 +967,40 @@ private fun PlayerContent(
      * be finalised (the index lands at the end), which is the wait a fragmented MP4 exists to
      * avoid; that path is separate.
      */
-    LaunchedEffect(casting, d?.episodeId, d?.kind) {
+    LaunchedEffect(casting, d?.episodeId, d?.kind, magisItem?.episodeId) {
         if (!casting || castSession == null) return@LaunchedEffect
-        val item = d ?: return@LaunchedEffect
-        if (item.kind != SourceKind.LOCAL) return@LaunchedEffect
-        val ruta = item.mediaUrl.removePrefix("file://")
-        val archivo = java.io.File(ruta)
-        if (!archivo.exists()) return@LaunchedEffect
-        val mime = runCatching {
-            com.arkiv.player.playback.ContenedorDeVideo.deArchivo(archivo).mime
-        }.getOrNull()
+        // Magis travels in `magisItem`, everything else in the playlist.
+        val item = magisItem?.takeIf { it.kind == SourceKind.MAGIS } ?: d ?: return@LaunchedEffect
+
+        // What to feed the remuxer, and what to key it by. They differ for Magis: the input is the
+        // loopback proxy (which puts the CDN's auth headers on), while the key is the CDN url,
+        // stable across resolves -- keying by the proxy url would remux the same title again every
+        // time its tokens were refreshed.
+        val (entrada, clave, mime) = when (item.kind) {
+            SourceKind.LOCAL -> {
+                val archivo = java.io.File(item.mediaUrl.removePrefix("file://"))
+                if (!archivo.exists()) return@LaunchedEffect
+                Triple(
+                    item.mediaUrl,
+                    item.mediaUrl,
+                    runCatching { com.arkiv.player.playback.ContenedorDeVideo.deArchivo(archivo).mime }.getOrNull(),
+                )
+            }
+            SourceKind.MAGIS -> {
+                val cdn = item.castUrl?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+                Triple(item.mediaUrl, cdn, com.arkiv.player.cast.CastRequestBuilder.mimeForUrl(cdn))
+            }
+            else -> return@LaunchedEffect
+        }
+
         if (!com.arkiv.player.playback.PoliticaDeRemux.hayQueRemuxear(mime)) {
-            android.util.Log.i("ArkivCast", "local file is $mime, no remux needed")
+            android.util.Log.i("ArkivCast", "${item.kind} is $mime, no remux needed")
             return@LaunchedEffect
         }
-        if (graph.tsRemuxer.yaHecho(item.mediaUrl) != null) return@LaunchedEffect
+        if (graph.tsRemuxer.yaHecho(clave) != null) return@LaunchedEffect
 
-        android.util.Log.w("ArkivCast", "remuxing ${archivo.name} to mp4 while the segments play")
-        val res = graph.tsRemuxer.remuxear(item.mediaUrl, item.mediaUrl)
+        android.util.Log.w("ArkivCast", "remuxing ${item.kind} to mp4 while the segments play")
+        val res = graph.tsRemuxer.remuxear(entrada, clave)
         if (res !is com.arkiv.player.playback.TsRemuxer.Resultado.Listo) {
             // Nothing to undo: the HLS segments keep playing. Worth a line, because a silent
             // failure here looks identical to a remux that was never attempted.
@@ -982,7 +1010,13 @@ private fun PlayerContent(
         // Still casting the same thing? The export takes a while and the person may have moved on.
         if (!casting || castSession == null) return@LaunchedEffect
         val desde = runCatching { contentPositionMs() }.getOrDefault(0L).coerceAtLeast(0L)
-        val pl = playlistRef.value ?: return@LaunchedEffect
+        // Magis has no playlist -- same synthetic one-item PlaylistData the rest of this screen
+        // uses for it, so castRequestFor stays the single place that decides what goes to the TV.
+        val pl = if (item.kind == SourceKind.MAGIS) {
+            PlaylistData(listOf(item), 0, desde, pedido = item.episodeId)
+        } else {
+            playlistRef.value ?: return@LaunchedEffect
+        }
         val idx = pl.items.indexOfFirst { it.episodeId == item.episodeId }.coerceAtLeast(0)
         val req = castRequestFor(pl, idx, desde) ?: return@LaunchedEffect
         android.util.Log.w("ArkivCast", "remux ready → re-casting as mp4 from ${desde}ms")

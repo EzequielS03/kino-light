@@ -9,10 +9,14 @@ import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.InAppMuxer
 import androidx.media3.transformer.Transformer
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.resume
 
 /**
@@ -35,9 +39,26 @@ import kotlin.coroutines.resume
  * the same filesystem, so what exists under the final name is always whole.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
-class TsRemuxer(private val context: Context, cacheDir: File) {
+class TsRemuxer(
+    private val context: Context,
+    cacheDir: File,
+    /**
+     * Where the export actually runs, and it must OUTLIVE whoever asked for it. Kicking it off
+     * inside a `LaunchedEffect` was measured to fail: casting churns those keys, each change
+     * cancelled a remux minutes from finishing and the next one started from zero, so it never
+     * completed once (`remux cancelled, partial file removed` at 44 s, then `remux starts` again).
+     */
+    private val scope: CoroutineScope,
+) {
 
     private val carpeta = File(cacheDir, PoliticaDeRemux.CARPETA)
+
+    /**
+     * Exports in flight, by key. A second caller for the same title joins the one already running
+     * instead of starting a rival export over the same output file -- and because the job lives in
+     * [scope], a caller giving up on the wait does not take the export with it.
+     */
+    private val enCurso = ConcurrentHashMap<String, Deferred<Resultado>>()
 
     /** Result of asking for a remux. `Listo` carries a file that is complete and playable. */
     sealed interface Resultado {
@@ -65,9 +86,19 @@ class TsRemuxer(private val context: Context, cacheDir: File) {
             Log.i(TAG, "already remuxed: ${it.name} (${it.length()}B), reusing it")
             return Resultado.Listo(it)
         }
+        val job = enCurso.computeIfAbsent(clave) {
+            scope.async { exportar(uriDeEntrada, clave) }
+                .also { j -> j.invokeOnCompletion { enCurso.remove(clave) } }
+        }
+        return job.await()
+    }
+
+    /** The export itself. One per key at a time; see [remuxear]. */
+    private suspend fun exportar(uriDeEntrada: String, clave: String): Resultado {
         if (!carpeta.exists() && !carpeta.mkdirs()) {
             return Resultado.Fallo("could not create ${carpeta.path}")
         }
+        hacerSitio()
         val destino = File(carpeta, PoliticaDeRemux.nombreDeArchivo(clave))
         val parcial = File(carpeta, "${destino.name}.part")
         runCatching { parcial.delete() }
@@ -119,10 +150,13 @@ class TsRemuxer(private val context: Context, cacheDir: File) {
                     })
                     .build()
 
+                // Only reached if [scope] itself is cancelled -- the app is going away. A caller
+                // that stops waiting no longer lands here, which is the whole point of running in
+                // an outer scope.
                 cont.invokeOnCancellation {
                     runCatching { transformer.cancel() }
                     runCatching { parcial.delete() }
-                    Log.w(TAG, "remux cancelled, partial file removed")
+                    Log.w(TAG, "remux cancelled with the app, partial file removed")
                 }
 
                 runCatching {
@@ -134,6 +168,27 @@ class TsRemuxer(private val context: Context, cacheDir: File) {
                 }
             }
         }
+    }
+
+    /**
+     * Evicts the oldest remuxes until the cache is back under its ceiling.
+     *
+     * Runs before starting a new one rather than after finishing it: the point is to have room,
+     * and discovering there was none only once a gigabyte is already written helps nobody.
+     */
+    private fun hacerSitio() {
+        val archivos = carpeta.listFiles().orEmpty().filter { it.isFile }
+        val fuera = PoliticaDeRemux.aBorrar(
+            archivos.map { Triple(it.name, it.length(), it.lastModified()) },
+        )
+        if (fuera.isEmpty()) return
+        var liberado = 0L
+        fuera.forEach { nombre ->
+            val f = File(carpeta, nombre)
+            val bytes = f.length()
+            if (runCatching { f.delete() }.getOrDefault(false)) liberado += bytes
+        }
+        Log.w(TAG, "cache over its ceiling: dropped ${fuera.size} file(s), freed ${liberado}B")
     }
 
     /** Drops every remux on disk. For the settings screen, and for tests. */

@@ -103,4 +103,51 @@ class PoliticaDeRemuxTest {
         assertFalse(PoliticaDeRemux.sePuedeEmpezar(90_000_000, 0, 7_200_000))
         assertFalse(PoliticaDeRemux.sePuedeEmpezar(90_000_000, 900_000_000, 0))
     }
+
+    // --- keeping the cache from eating the phone ---
+
+    private val GB = 1024L * 1024 * 1024
+
+    @Test
+    fun `under the ceiling nothing is dropped`() {
+        val f = listOf(Triple("a.mp4", GB, 1L), Triple("b.mp4", GB, 2L))
+        assertTrue(PoliticaDeRemux.aBorrar(f).isEmpty())
+    }
+
+    /** Oldest first. Backwards would evict what is playing and keep what nobody has opened. */
+    @Test
+    fun `the oldest goes first`() {
+        // 3 GB over a 4 GB ceiling, in 1.5 GB files: two have to go, and they are the two oldest.
+        val f = listOf(
+            Triple("nuevo.mp4", 3 * GB / 2, 4000L),
+            Triple("viejo.mp4", 3 * GB / 2, 1000L),
+            Triple("medio.mp4", 3 * GB / 2, 2000L),
+            Triple("reciente.mp4", 3 * GB / 2, 3000L),
+        )
+        assertEquals(listOf("viejo.mp4", "medio.mp4"), PoliticaDeRemux.aBorrar(f))
+    }
+
+    /** Only as many as needed: evicting more than the excess throws away work for nothing. */
+    @Test
+    fun `it stops as soon as it fits`() {
+        val f = listOf(
+            Triple("viejo.mp4", 2 * GB, 1000L),
+            Triple("medio.mp4", 2 * GB, 2000L),
+            Triple("nuevo.mp4", 2 * GB, 3000L),
+        )
+        assertEquals(listOf("viejo.mp4"), PoliticaDeRemux.aBorrar(f))
+    }
+
+    /** What is about to be written counts too, or the ceiling is only respected after busting it. */
+    @Test
+    fun `what is about to be written counts against the ceiling`() {
+        val f = listOf(Triple("a.mp4", 3 * GB, 1L))
+        assertTrue(PoliticaDeRemux.aBorrar(f).isEmpty())
+        assertEquals(listOf("a.mp4"), PoliticaDeRemux.aBorrar(f, bytesEntrantes = 2 * GB))
+    }
+
+    @Test
+    fun `an empty cache needs no eviction`() {
+        assertTrue(PoliticaDeRemux.aBorrar(emptyList(), bytesEntrantes = GB).isEmpty())
+    }
 }

@@ -63,4 +63,35 @@ object PoliticaDeRemux {
 
     /** How much finished content must exist before handing the receiver the url. */
     const val ARRANQUE_MINIMO_SEG = 30.0
+
+    /**
+     * Ceiling for everything remuxed, together. A two-hour title is around a gigabyte, and these
+     * are derived copies of things the person can always fetch again -- filling their phone with
+     * them would be a poor trade for saving a few minutes of re-muxing.
+     */
+    const val TOPE_BYTES = 4L * 1024 * 1024 * 1024
+
+    /**
+     * Which files to drop, oldest first, so that what remains fits under [TOPE_BYTES] alongside
+     * [bytesEntrantes].
+     *
+     * Takes (name, size, lastModified) and returns the names to delete. Pure so the eviction order
+     * can be pinned by test: getting it backwards would throw away what is being watched right now
+     * and keep what nobody has opened in weeks.
+     */
+    fun aBorrar(
+        archivos: List<Triple<String, Long, Long>>,
+        bytesEntrantes: Long = 0L,
+    ): List<String> {
+        val total = archivos.sumOf { it.second } + bytesEntrantes
+        if (total <= TOPE_BYTES) return emptyList()
+        var sobra = total - TOPE_BYTES
+        val fuera = ArrayList<String>()
+        archivos.sortedBy { it.third }.forEach { (nombre, bytes, _) ->
+            if (sobra <= 0L) return fuera
+            fuera.add(nombre)
+            sobra -= bytes
+        }
+        return fuera
+    }
 }

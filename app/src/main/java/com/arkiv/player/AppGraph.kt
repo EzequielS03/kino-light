@@ -298,7 +298,7 @@ class AppGraph(context: Context) {
      * anything.
      */
     val tsRemuxer: com.arkiv.player.playback.TsRemuxer by lazy {
-        com.arkiv.player.playback.TsRemuxer(appContext, appContext.cacheDir)
+        com.arkiv.player.playback.TsRemuxer(appContext, appContext.cacheDir, applicationScope)
     }
 
     /** IP del aparato en la LAN (ver [com.arkiv.player.playback.LanIp]): la necesitan el proxy de
