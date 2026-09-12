@@ -178,7 +178,7 @@ private const val UMBRAL_ZAP_PX = 80f
 // amontonados. El código se conserva —no se borra— para poder reactivarlos con un solo cambio acá.
 // En TV ninguno de los tres existía. Los subtítulos no se ocultan: se movieron abajo a la derecha.
 private const val MOSTRAR_MARCADORES_EN_TELEFONO = false
-private const val MOSTRAR_VELOCIDAD_Y_ZOOM_EN_TELEFONO = false
+private const val MOSTRAR_VELOCIDAD_Y_ZOOM_EN_TELEFONO = true
 
 // Night mode: the black veil sits ON TOP of the video, with opacity level/DIM_MAX_LEVEL -- 0 =
 // normal brightness (no veil), DIM_MAX_LEVEL = fully black. The screen's real brightness isn't
