@@ -122,26 +122,10 @@ class PlaybackService : MediaSessionService() {
                 val ex = item.requestMetadata.extras
                 val b = item.buildUpon()
                 if (uri != null) b.setUri(uri)
-                // Reconstruir el PlayerSourceTag (kind/referer/etc.) que se perdió en el IPC.
-                if (ex != null && ex.containsKey("kind")) {
-                    b.setTag(
-                        PlayerSourceTag(
-                            kind = runCatching { SourceKind.valueOf(ex.getString("kind")!!) }.getOrDefault(SourceKind.UNKNOWN),
-                            openingStartMs = if (ex.containsKey("openingStartMs")) ex.getLong("openingStartMs") else null,
-                            openingEndMs = if (ex.containsKey("openingEndMs")) ex.getLong("openingEndMs") else null,
-                            endingStartMs = if (ex.containsKey("endingStartMs")) ex.getLong("endingStartMs") else null,
-                            castUrl = ex.getString("castUrl"),
-                            referer = ex.getString("referer"),
-                            userAgent = ex.getString("userAgent"),
-                            proxyUrl = ex.getString("proxyUrl"),
-                            // Si se agrega un campo al tag hay que agregarlo ACÁ y en los extras que
-                            // arma PlayerScreen: el tag no cruza el IPC y lo que falte llega en su
-                            // valor por defecto, en silencio. Pasó con esto: el arranque por software
-                            // se quedaba en false y el HEVC seguía abriendo por hardware.
-                            preferirSoftware = ex.getBoolean("preferirSoftware", false),
-                        ),
-                    )
-                }
+                // Reconstruir el PlayerSourceTag (kind/referer/etc.) que se perdió en el IPC. Ver
+                // PlayerSourceTagIpc: el codec queda ahí (y no acá) para que el round trip sea
+                // testeable sin Robolectric.
+                PlayerSourceTagIpc.decodeFromBundle(ex)?.let { b.setTag(it) }
                 b.build()
             }
             return Futures.immediateFuture(resolved)

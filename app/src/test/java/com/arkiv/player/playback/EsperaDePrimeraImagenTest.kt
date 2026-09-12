@@ -21,7 +21,7 @@ class EsperaDePrimeraImagenTest {
         // es "no hay video", es "todavía no sé"— y la pantalla en negro.
         assertTrue(
             EsperaDePrimeraImagen.hayQueEsperar(
-                cargadoHaceMs = 300, huboImagen = false, hayVideoAhora = false,
+                cargadoHaceMs = 300, huboImagen = false,
                 pistasDeVideo = 0, pistasDeAudio = 0,
             ),
         )
@@ -32,7 +32,7 @@ class EsperaDePrimeraImagenTest {
         // El negro CON SONIDO propiamente dicho: ya hay pistas, el audio salió, la imagen no.
         assertTrue(
             EsperaDePrimeraImagen.hayQueEsperar(
-                cargadoHaceMs = 2_000, huboImagen = false, hayVideoAhora = false,
+                cargadoHaceMs = 2_000, huboImagen = false,
                 pistasDeVideo = 2, pistasDeAudio = 3,
             ),
         )
@@ -43,18 +43,8 @@ class EsperaDePrimeraImagenTest {
         // Si esperara, el spinner se quedaría puesto para siempre encima de algo que suena bien.
         assertFalse(
             EsperaDePrimeraImagen.hayQueEsperar(
-                cargadoHaceMs = 2_000, huboImagen = false, hayVideoAhora = false,
+                cargadoHaceMs = 2_000, huboImagen = false,
                 pistasDeVideo = 0, pistasDeAudio = 2,
-            ),
-        )
-    }
-
-    @Test
-    fun `en cuanto hay imagen deja de esperar`() {
-        assertFalse(
-            EsperaDePrimeraImagen.hayQueEsperar(
-                cargadoHaceMs = 2_000, huboImagen = false, hayVideoAhora = true,
-                pistasDeVideo = 2, pistasDeAudio = 3,
             ),
         )
     }
@@ -65,7 +55,7 @@ class EsperaDePrimeraImagenTest {
         // `esperandoVideo` en PlayerScreen (volver del segundo plano). Este no se mete ahí.
         assertFalse(
             EsperaDePrimeraImagen.hayQueEsperar(
-                cargadoHaceMs = 2_000, huboImagen = true, hayVideoAhora = false,
+                cargadoHaceMs = 2_000, huboImagen = true,
                 pistasDeVideo = 2, pistasDeAudio = 3,
             ),
         )
@@ -76,7 +66,7 @@ class EsperaDePrimeraImagenTest {
         assertFalse(
             EsperaDePrimeraImagen.hayQueEsperar(
                 cargadoHaceMs = EsperaDePrimeraImagen.TOPE_MS + 1, huboImagen = false,
-                hayVideoAhora = false, pistasDeVideo = 2, pistasDeAudio = 3,
+                pistasDeVideo = 2, pistasDeAudio = 3,
             ),
         )
     }
@@ -93,7 +83,7 @@ class EsperaDePrimeraImagenTest {
     fun `sin media cargado no hay nada que esperar`() {
         assertFalse(
             EsperaDePrimeraImagen.hayQueEsperar(
-                cargadoHaceMs = -1, huboImagen = false, hayVideoAhora = false,
+                cargadoHaceMs = -1, huboImagen = false,
                 pistasDeVideo = 0, pistasDeAudio = 0,
             ),
         )
@@ -124,7 +114,7 @@ class EsperaDePrimeraImagenTest {
     fun `una imagen del principio no cancela la espera si falta llegar al punto de reanudacion`() {
         assertTrue(
             EsperaDePrimeraImagen.hayQueEsperar(
-                cargadoHaceMs = 1_300, huboImagen = true, hayVideoAhora = true,
+                cargadoHaceMs = 1_300, huboImagen = true,
                 pistasDeVideo = 1, pistasDeAudio = 2,
                 pedidoMs = 1_327_653, posicionMs = 0,
             ),
@@ -136,7 +126,7 @@ class EsperaDePrimeraImagenTest {
     fun `llegado el punto de reanudacion la espera termina`() {
         assertFalse(
             EsperaDePrimeraImagen.hayQueEsperar(
-                cargadoHaceMs = 2_900, huboImagen = true, hayVideoAhora = true,
+                cargadoHaceMs = 2_900, huboImagen = true,
                 pistasDeVideo = 1, pistasDeAudio = 2,
                 pedidoMs = 1_327_653, posicionMs = 1_327_116,
             ),
@@ -148,7 +138,7 @@ class EsperaDePrimeraImagenTest {
     fun `sin reanudacion pedida la primera imagen sigue cancelando la espera`() {
         assertFalse(
             EsperaDePrimeraImagen.hayQueEsperar(
-                cargadoHaceMs = 1_300, huboImagen = true, hayVideoAhora = true,
+                cargadoHaceMs = 1_300, huboImagen = true,
                 pistasDeVideo = 1, pistasDeAudio = 2,
                 pedidoMs = 0, posicionMs = 0,
             ),
@@ -164,7 +154,7 @@ class EsperaDePrimeraImagenTest {
         assertFalse(
             EsperaDePrimeraImagen.hayQueEsperar(
                 cargadoHaceMs = EsperaDePrimeraImagen.TOPE_MS + 1, huboImagen = true,
-                hayVideoAhora = true, pistasDeVideo = 1, pistasDeAudio = 2,
+                pistasDeVideo = 1, pistasDeAudio = 2,
                 pedidoMs = 1_327_653, posicionMs = 0,
             ),
         )
@@ -179,9 +169,33 @@ class EsperaDePrimeraImagenTest {
     fun `aterrizar un poco antes del punto pedido cuenta como llegado`() {
         assertFalse(
             EsperaDePrimeraImagen.hayQueEsperar(
-                cargadoHaceMs = 2_900, huboImagen = true, hayVideoAhora = true,
+                cargadoHaceMs = 2_900, huboImagen = true,
                 pistasDeVideo = 1, pistasDeAudio = 2,
                 pedidoMs = 1_327_653, posicionMs = 1_320_000,
+            ),
+        )
+    }
+
+    /**
+     * The composed decision this call site relies on: with a resume requested and no frame yet, the
+     * spinner stays up (there's nothing to check against a landed position); once the player's
+     * position reaches it, it clears. Pins `PlayerScreen.localWaitsForFirstFrame`'s wiring of
+     * `pedidoMs`/`posicionMs` from the playlist's start position and the controller's clock.
+     */
+    @Test
+    fun `sin imagen y con reanudacion pedida la espera se sostiene hasta llegar a la posicion`() {
+        assertTrue(
+            EsperaDePrimeraImagen.hayQueEsperar(
+                cargadoHaceMs = 500, huboImagen = false,
+                pistasDeVideo = 0, pistasDeAudio = 0,
+                pedidoMs = 1_327_653, posicionMs = 0,
+            ),
+        )
+        assertFalse(
+            EsperaDePrimeraImagen.hayQueEsperar(
+                cargadoHaceMs = 2_900, huboImagen = true,
+                pistasDeVideo = 1, pistasDeAudio = 2,
+                pedidoMs = 1_327_653, posicionMs = 1_327_653,
             ),
         )
     }

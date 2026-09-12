@@ -144,6 +144,7 @@ import com.arkiv.player.playback.PlayerSource
 import com.arkiv.player.playback.PlayerSourceTag
 import com.arkiv.player.playback.SourceKind
 import com.arkiv.player.playback.VideoAttachPolicy
+import com.arkiv.player.playback.toIpcBundle
 import com.arkiv.player.playback.setPlayerSourceTag
 import com.arkiv.player.ui.formatDuration
 import com.arkiv.player.ui.rememberGraph
@@ -194,6 +195,17 @@ private const val SEEK_INCREMENTAL_DEBOUNCE_MS = 350L
 
 /** Construye los MediaItem locales para el controller, propagando el tag de fuente/marcadores. */
 private fun localMediaItems(items: List<PlayerData>): List<MediaItem> = items.map { d ->
+    val tag = PlayerSourceTag(
+        kind = d.kind,
+        openingStartMs = d.openingStartMs,
+        openingEndMs = d.openingEndMs,
+        endingStartMs = d.endingStartMs,
+        castUrl = d.castUrl,
+        referer = d.referer,
+        userAgent = d.userAgent,
+        proxyUrl = d.proxyUrl,
+        preferirSoftware = d.preferirSoftware,
+    )
     MediaItem.Builder()
         .setUri(d.mediaUrl)
         .setMediaId(d.episodeId)
@@ -201,35 +213,14 @@ private fun localMediaItems(items: List<PlayerData>): List<MediaItem> = items.ma
         // guardamos también en requestMetadata (que sí sobrevive el IPC) para que
         // PlaybackService.MediaItemResolverCallback.onAddMediaItems la reconstruya en la sesión.
         // El TAG (kind/referer/etc.) se PIERDE al cruzar controller→session igual que la URI; lo
-        // guardamos en extras (que SÍ sobreviven el IPC) para reconstruirlo en PlaybackService.
+        // guardamos en extras (que SÍ sobreviven el IPC, ver PlayerSourceTagIpc) para reconstruirlo
+        // en PlaybackService.
         .setRequestMetadata(
             MediaItem.RequestMetadata.Builder().setMediaUri(Uri.parse(d.mediaUrl))
-                .setExtras(android.os.Bundle().apply {
-                    putString("kind", d.kind.name)
-                    d.referer?.let { putString("referer", it) }
-                    d.userAgent?.let { putString("userAgent", it) }
-                    d.castUrl?.let { putString("castUrl", it) }
-                    d.proxyUrl?.let { putString("proxyUrl", it) }
-                    d.openingStartMs?.let { putLong("openingStartMs", it) }
-                    d.openingEndMs?.let { putLong("openingEndMs", it) }
-                    d.endingStartMs?.let { putLong("endingStartMs", it) }
-                    if (d.preferirSoftware) putBoolean("preferirSoftware", true)
-                })
+                .setExtras(tag.toIpcBundle())
                 .build(),
         )
-        .setPlayerSourceTag(
-            PlayerSourceTag(
-                kind = d.kind,
-                openingStartMs = d.openingStartMs,
-                openingEndMs = d.openingEndMs,
-                endingStartMs = d.endingStartMs,
-                castUrl = d.castUrl,
-                referer = d.referer,
-                userAgent = d.userAgent,
-                proxyUrl = d.proxyUrl,
-                preferirSoftware = d.preferirSoftware,
-            ),
-        )
+        .setPlayerSourceTag(tag)
         .setMediaMetadata(
             MediaMetadata.Builder()
                 .setTitle(d.title).setArtist(d.subtitle)
@@ -237,6 +228,55 @@ private fun localMediaItems(items: List<PlayerData>): List<MediaItem> = items.ma
                 .build(),
         )
         .build()
+}
+
+/**
+ * The exact player operations the decoder watchdog's software reload performs (see
+ * [reloadInSoftware]), narrowed from `Player` so a test can pin the call ORDER with a small
+ * recording fake instead of implementing all of `Player`'s members. [MediaController] satisfies it
+ * through [asSoftwareReloadPlayer].
+ */
+internal interface SoftwareReloadPlayer {
+    fun stop()
+    fun setMediaItems(mediaItems: List<MediaItem>, startIndex: Int, startPositionMs: Long)
+    fun prepare()
+    var playWhenReady: Boolean
+}
+
+private fun MediaController.asSoftwareReloadPlayer(): SoftwareReloadPlayer =
+    object : SoftwareReloadPlayer {
+        override fun stop() = this@asSoftwareReloadPlayer.stop()
+        override fun setMediaItems(mediaItems: List<MediaItem>, startIndex: Int, startPositionMs: Long) =
+            this@asSoftwareReloadPlayer.setMediaItems(mediaItems, startIndex, startPositionMs)
+        override fun prepare() = this@asSoftwareReloadPlayer.prepare()
+        override var playWhenReady: Boolean
+            get() = this@asSoftwareReloadPlayer.playWhenReady
+            set(value) { this@asSoftwareReloadPlayer.playWhenReady = value }
+    }
+
+/**
+ * Performs the decoder watchdog's software reload on [player]: `stop()` BEFORE `setMediaItems(…)`,
+ * then `prepare()` at the preserved position.
+ *
+ * The order matters: on a media-item change media3 1.5.1 KEEPS the video codec (it flushes and
+ * re-uses it -- `releaseCodec()` only runs from the renderer's reset) and `prepare()` returns
+ * immediately outside `STATE_IDLE` -- and this failure sits in `BUFFERING` -- so the software-first
+ * selector would never be consulted without `stop()` first. `stop()` resets the renderers, which
+ * releases the codec; the reload then starts from `IDLE` and the selector runs again. The position
+ * is not lost: it travels to `setMediaItems`. This was a Critical review finding: without the
+ * ordering, the rescue is a silent no-op. Split out from `watchLocalDecoder` so a recording fake
+ * [SoftwareReloadPlayer] can pin it without needing the whole composition.
+ */
+internal fun reloadInSoftware(
+    player: SoftwareReloadPlayer,
+    mediaItems: List<MediaItem>,
+    startIndex: Int,
+    startPositionMs: Long,
+) {
+    player.stop()
+    player.setMediaItems(mediaItems, startIndex, startPositionMs)
+    player.prepare()
+    player.playWhenReady = true
 }
 
 @Composable
@@ -548,19 +588,19 @@ private fun PlayerContent(
     var videoView by remember { mutableStateOf<android.view.TextureView?>(null) }
     // What the screen knows about the local player's picture (first frame, aspect, surface). See
     // PlayerVideoLocal.kt.
-    val videoLocal = remember { LocalVideoState() }
+    val localVideo = remember { LocalVideoState() }
     // Embedded subtitles of a downloaded file: libVLC painted them itself, ExoPlayer hands the cues
     // to whoever draws them (same as MagisExoPlayer's SubtitleView). Created by its AndroidView
     // factory, like the video view: a remembered View can't be re-parented when it is mounted again.
-    var subtitulosLocales by remember { mutableStateOf<SubtitleView?>(null) }
+    var localSubtitles by remember { mutableStateOf<SubtitleView?>(null) }
 
     /**
      * A local item started loading: the first-frame wait restarts and the track menu forgets the
      * previous item, whose tracks the service player is still reporting (it keeps playing in the
      * background) and which would otherwise spend the one-shot language auto-pick.
      */
-    fun marcarCargaLocal(prefersSoftware: Boolean) {
-        videoLocal.onLoad(android.os.SystemClock.elapsedRealtime(), prefersSoftware)
+    fun markLocalLoad(prefersSoftware: Boolean) {
+        localVideo.onLoad(android.os.SystemClock.elapsedRealtime(), prefersSoftware)
         estadoPistas.onLocalItemLoad()
     }
 
@@ -590,7 +630,7 @@ private fun PlayerContent(
 
     // Distinto de [esperandoVideo], que es "HABÍA imagen y se perdió al volver del fondo". Esto es
     // "todavía no hubo ninguna": el arranque negro con sonido. For the local player it is decided by
-    // [EsperaDePrimeraImagen] from [videoLocal] and the controller's tracks (see the polling loop).
+    // [EsperaDePrimeraImagen] from [localVideo] and the controller's tracks (see the polling loop).
     var sinPrimeraImagen by remember { mutableStateOf(false) }
 
     // Identidad de ESTA composición del reproductor. Al recrearse la pantalla (volver del segundo
@@ -614,18 +654,18 @@ private fun PlayerContent(
                 } else {
                     android.util.Log.w("ArkivVout", "ATTACH ON_START#$pantallaId view=#${Integer.toHexString(System.identityHashCode(v))}")
                     serviceExo.setVideoTextureView(v)
-                    videoLocal.onSurfaceAttached(android.os.SystemClock.elapsedRealtime())
+                    localVideo.onSurfaceAttached(android.os.SystemClock.elapsedRealtime())
                 }
                 esperandoVideo = habiaVideo && controller.playWhenReady
             },
             detach = {
                 // Only the local player's own picture counts: with an in-screen player on, the
                 // service player has nothing loaded.
-                habiaVideo = videoLocal.renderedFirstFrame &&
+                habiaVideo = localVideo.renderedFirstFrame &&
                     magisItem == null && liveItem == null && dituPlay == null
                 android.util.Log.w("ArkivVout", "DETACH ON_STOP#$pantallaId hadVideo=$habiaVideo")
                 videoView?.let { serviceExo.clearVideoTextureView(it) }
-                videoLocal.onSurfaceDetached()
+                localVideo.onSurfaceDetached()
             },
         )
         // Los eventos crudos se loguean aparte de lo que decide la política: la política ignora a
@@ -657,7 +697,7 @@ private fun PlayerContent(
     LaunchedEffect(esperandoVideo) {
         if (!esperandoVideo) return@LaunchedEffect
         withTimeoutOrNull(15_000) {
-            while (!videoLocal.paintedSinceAttach) delay(150)
+            while (!localVideo.paintedSinceAttach) delay(150)
         }
         esperandoVideo = false
     }
@@ -875,7 +915,7 @@ private fun PlayerContent(
             // painted on another screen's surface: the same question libVLC's
             // `superficieDistintaALaDelVideo` used to answer. False while it never painted.
             pantallaNueva = (serviceExo.videoDecoderCounters?.renderedOutputBufferCount ?: 0) > 0 &&
-                !videoLocal.renderedFirstFrame,
+                !localVideo.renderedFirstFrame,
         )
         if (decision == MediaReusePolicy.Decision.ESPERAR) {
             android.util.Log.w("ArkivPlay", "playlist for ANOTHER episode (requested=${pl.pedido} ≠ $episodeId) → waiting for mine")
@@ -939,7 +979,7 @@ private fun PlayerContent(
                 // nada; prepararlo primero es inofensivo si ya estaba preparado.
                 if (controller.playbackState == Player.STATE_IDLE) {
                     controller.prepare()
-                    marcarCargaLocal(prefersSoftware = false)
+                    markLocalLoad(prefersSoftware = false)
                 }
                 controller.play()
             }
@@ -952,7 +992,7 @@ private fun PlayerContent(
                 // Mismo caso que REUSAR_ACTUAL de arriba: puede llegar cebado-pero-no-preparado.
                 if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
                 controller.playWhenReady = true
-                marcarCargaLocal(prefersSoftware = false)
+                markLocalLoad(prefersSoftware = false)
             }
             // New content, or the URL changed under the same episodeId (before: torrent re-served
             // on another port, source now removed; today: magis token renewed on re-resolution):
@@ -963,7 +1003,7 @@ private fun PlayerContent(
                 controller.setMediaItems(localMediaItems(pl.items), pl.startIndex, pl.startPositionMs)
                 controller.playWhenReady = true
                 controller.prepare()
-                marcarCargaLocal(prefersSoftware = pl.items.getOrNull(pl.startIndex)?.preferirSoftware == true)
+                markLocalLoad(prefersSoftware = pl.items.getOrNull(pl.startIndex)?.preferirSoftware == true)
             }
         }
         NowPlaying.episodeId =
@@ -1060,17 +1100,17 @@ private fun PlayerContent(
     // listener below on purpose: that one follows `activePlayer` (the Chromecast while casting), and
     // these belong to the local player whatever is active.
     DisposableEffect(controller) {
-        controller.videoSize.let { videoLocal.onVideoSize(it.width, it.height, it.pixelWidthHeightRatio) }
+        controller.videoSize.let { localVideo.onVideoSize(it.width, it.height, it.pixelWidthHeightRatio) }
         estadoPistas.onLocalTracksChanged(controller.currentTracks)
         val listener = object : Player.Listener {
             override fun onRenderedFirstFrame() {
-                val desdeLaCarga = videoLocal.msSinceLoad(android.os.SystemClock.elapsedRealtime())
+                val desdeLaCarga = localVideo.msSinceLoad(android.os.SystemClock.elapsedRealtime())
                 android.util.Log.i("ArkivPlay", "local first frame · ${desdeLaCarga}ms after load · screen #$pantallaId")
-                videoLocal.onFirstFrame()
+                localVideo.onFirstFrame()
             }
 
             override fun onVideoSizeChanged(videoSize: VideoSize) {
-                videoLocal.onVideoSize(videoSize.width, videoSize.height, videoSize.pixelWidthHeightRatio)
+                localVideo.onVideoSize(videoSize.width, videoSize.height, videoSize.pixelWidthHeightRatio)
             }
 
             override fun onTracksChanged(tracks: Tracks) {
@@ -1078,22 +1118,30 @@ private fun PlayerContent(
             }
 
             override fun onCues(cueGroup: CueGroup) {
-                subtitulosLocales?.setCues(cueGroup.cues)
+                localSubtitles?.setCues(cueGroup.cues)
             }
         }
         controller.addListener(listener)
         onDispose { controller.removeListener(listener) }
     }
 
-    /** Local counterpart of `exoYaPintoAlgo`: the first-frame spinner rule, fed by [videoLocal]. */
-    fun localEsperaPrimeraImagen(): Boolean {
+    /**
+     * Local counterpart of `exoYaPintoAlgo`: the first-frame spinner rule, fed by [localVideo].
+     *
+     * `pedidoMs`/`posicionMs` keep [EsperaDePrimeraImagen]'s resume-landing branch wired: this may
+     * well be a no-op today, because ExoPlayer's `setMediaItems(…, startPositionMs)` opens straight
+     * at the requested position instead of opening at 0 and seeking there the way libVLC did (an
+     * upcoming device test will settle that) -- but the rule is cheap insurance meanwhile.
+     */
+    fun localWaitsForFirstFrame(): Boolean {
         val tracks = controller.currentTracks
         return EsperaDePrimeraImagen.hayQueEsperar(
-            cargadoHaceMs = videoLocal.msSinceLoad(android.os.SystemClock.elapsedRealtime()),
-            huboImagen = videoLocal.renderedFirstFrame,
-            hayVideoAhora = false,
+            cargadoHaceMs = localVideo.msSinceLoad(android.os.SystemClock.elapsedRealtime()),
+            huboImagen = localVideo.renderedFirstFrame,
             pistasDeVideo = tracks.groups.count { it.type == C.TRACK_TYPE_VIDEO },
             pistasDeAudio = tracks.groups.count { it.type == C.TRACK_TYPE_AUDIO },
+            pedidoMs = playlistRef.value?.startPositionMs ?: 0L,
+            posicionMs = controller.currentPosition.coerceAtLeast(0L),
         )
     }
 
@@ -1103,20 +1151,20 @@ private fun PlayerContent(
      * item's `preferirSoftware` extra, which the service player's codec selector honours; the
      * `software-first decoders for …` line it logs is the proof the rescue actually took effect.
      */
-    fun vigilarDecodificadorLocal() {
+    fun watchLocalDecoder() {
         val ahora = android.os.SystemClock.elapsedRealtime()
-        val esperaMs = videoLocal.msWithSurface(ahora)
+        val esperaMs = localVideo.msWithSurface(ahora)
         val pistasDeVideo = controller.currentTracks.groups.count { it.type == C.TRACK_TYPE_VIDEO }
         val recargar = DecoderWatchdog.shouldReloadInSoftware(
             waitingMs = esperaMs,
-            renderedFirstFrame = videoLocal.renderedFirstFrame,
+            renderedFirstFrame = localVideo.renderedFirstFrame,
             videoTracks = pistasDeVideo,
             wantsToPlay = controller.playWhenReady,
-            hasSurface = videoLocal.hasSurface,
+            hasSurface = localVideo.hasSurface,
             // A file that fails to open also sits with playWhenReady and no frame: that is the error
             // overlay's business, and a software reload would only reload the failure.
             hasError = controller.playerError != null,
-            alreadySoftware = videoLocal.loadPrefersSoftware,
+            alreadySoftware = localVideo.loadPrefersSoftware,
         )
         if (!recargar) return
         val pl = playlistRef.value ?: return
@@ -1127,17 +1175,14 @@ private fun PlayerContent(
                 "state=${controller.playbackState}) → reloading ${pl.items.getOrNull(currentIndex)?.episodeId} " +
                 "in software at ${pos}ms",
         )
-        // stop() FIRST, or the reload changes nothing. On a media-item change media3 keeps the video
-        // codec (it flushes and re-uses it; `releaseCodec()` only runs from the renderer's reset) and
-        // `prepare()` returns immediately outside STATE_IDLE — and this failure sits in BUFFERING —
-        // so the software-first selector would never be consulted. stop() resets the renderers, which
-        // releases the codec; the reload then starts from IDLE and the selector runs again. The
-        // position is not lost: it is passed to setMediaItems.
-        controller.stop()
-        controller.setMediaItems(localMediaItems(pl.items.map { it.copy(preferirSoftware = true) }), currentIndex, pos)
-        controller.prepare()
-        controller.playWhenReady = true
-        marcarCargaLocal(prefersSoftware = true)
+        // stop() BEFORE setMediaItems(), or the reload changes nothing -- see reloadInSoftware's KDoc.
+        reloadInSoftware(
+            controller.asSoftwareReloadPlayer(),
+            localMediaItems(pl.items.map { it.copy(preferirSoftware = true) }),
+            currentIndex,
+            pos,
+        )
+        markLocalLoad(prefersSoftware = true)
     }
 
     DisposableEffect(activePlayer) {
@@ -1234,8 +1279,8 @@ private fun PlayerContent(
             // "Arranca negro y con sonido": mientras el reproductor ya suelta el audio pero todavía no dio
             // la primera imagen, `playbackState` NO es BUFFERING y la pantalla se quedaba sin
             // spinner y sin imagen. Casteando no aplica: la imagen la pone la TV, no nosotros.
-            sinPrimeraImagen = !casting && if (isExo) !exoYaPintoAlgo else localEsperaPrimeraImagen()
-            if (!isExo && !casting) vigilarDecodificadorLocal()
+            sinPrimeraImagen = !casting && if (isExo) !exoYaPintoAlgo else localWaitsForFirstFrame()
+            if (!isExo && !casting) watchLocalDecoder()
             // Si el video está sonando, un fallo de reproducción anterior ya no describe nada (y
             // encima estaría tapando estos mismos controles). No-op salvo justo después de uno.
             if (ready && activePlayer.isPlaying) vm.onReproduccionViva()
@@ -1484,7 +1529,7 @@ private fun PlayerContent(
                 runCatching { controller.play() }
                 // A new first frame comes only if the media was reloaded or prepared just now;
                 // otherwise the first-frame spinner and the decoder watchdog would wait for nothing.
-                if (recargado || estabaSinPreparar) marcarCargaLocal(prefersSoftware = false)
+                if (recargado || estabaSinPreparar) markLocalLoad(prefersSoftware = false)
             }
         }
         casteabaAntes = casting
@@ -1778,13 +1823,13 @@ private fun PlayerContent(
                     }
                     // Bound on the player itself, not through `controller`: see PlaybackEngine.
                     serviceExo.setVideoTextureView(tv)
-                    videoLocal.onSurfaceAttached(android.os.SystemClock.elapsedRealtime())
+                    localVideo.onSurfaceAttached(android.os.SystemClock.elapsedRealtime())
                     android.util.Log.w("ArkivVout", "ATTACH factory#$pantallaId view=#${Integer.toHexString(System.identityHashCode(tv))}")
                     // The activity handles rotation itself (configChanges), so this view is resized in
                     // place and the aspect transform has to follow its new size.
                     tv.addOnLayoutChangeListener { v, l, t, r, b, oldL, oldT, oldR, oldB ->
                         if (r - l != oldR - oldL || b - t != oldB - oldT) {
-                            (v as android.view.TextureView).ajustarAlAspecto(videoLocal.aspect, gestos.zoomParaExo)
+                            (v as android.view.TextureView).ajustarAlAspecto(localVideo.aspect, gestos.zoomParaExo)
                         }
                     }
                     if (isTv) {
@@ -1857,14 +1902,14 @@ private fun PlayerContent(
                 }
             },
             // Aspect and zoom through the TextureView transform, same as the in-screen players.
-            update = { it.ajustarAlAspecto(videoLocal.aspect, gestos.zoomParaExo) },
+            update = { it.ajustarAlAspecto(localVideo.aspect, gestos.zoomParaExo) },
             // A no-op when the incoming screen already bound its own view: ExoPlayer only clears the
             // view it is using. That's the ordering problem (outgoing release after incoming attach)
             // the libVLC code had to log around.
             onRelease = { tv ->
                 android.util.Log.w("ArkivVout", "DETACH onRelease#$pantallaId")
                 serviceExo.clearVideoTextureView(tv)
-                videoLocal.onSurfaceDetached()
+                localVideo.onSurfaceDetached()
             },
         )
 
@@ -1875,12 +1920,12 @@ private fun PlayerContent(
         if (!isExo) {
             Box(outerModifier, contentAlignment = Alignment.Center) {
                 AndroidView(
-                    modifier = if (videoLocal.aspect > 0f) Modifier.aspectRatio(videoLocal.aspect) else Modifier.fillMaxSize(),
+                    modifier = if (localVideo.aspect > 0f) Modifier.aspectRatio(localVideo.aspect) else Modifier.fillMaxSize(),
                     factory = { ctx ->
                         SubtitleView(ctx).apply {
                             setUserDefaultStyle()
                             setUserDefaultTextSize()
-                        }.also { subtitulosLocales = it }
+                        }.also { localSubtitles = it }
                     },
                 )
             }

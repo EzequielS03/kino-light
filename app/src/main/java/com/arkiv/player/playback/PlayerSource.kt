@@ -76,3 +76,65 @@ object PlayerSource {
 }
 
 fun MediaItem.Builder.setPlayerSourceTag(tag: PlayerSourceTag): MediaItem.Builder = setTag(tag)
+
+/**
+ * Encodes/decodes the [PlayerSourceTag] fields that cross the controller→session IPC boundary as a
+ * plain map, free of `android.os.Bundle` so the round trip is testable without Robolectric (this
+ * project has none -- same convention as `LocalFilePaths`/`FreeSpacePolicy` and friends). The
+ * `android.os.Bundle` is only touched at the very edges, by `PlayerScreen.localMediaItems` (writing,
+ * via [PlayerSourceTag.toIpcBundle]) and `PlaybackService.MediaItemResolverCallback` (reading).
+ */
+internal object PlayerSourceTagIpc {
+
+    fun encode(tag: PlayerSourceTag): Map<String, Any> = buildMap {
+        put("kind", tag.kind.name)
+        tag.referer?.let { put("referer", it) }
+        tag.userAgent?.let { put("userAgent", it) }
+        tag.castUrl?.let { put("castUrl", it) }
+        tag.proxyUrl?.let { put("proxyUrl", it) }
+        tag.openingStartMs?.let { put("openingStartMs", it) }
+        tag.openingEndMs?.let { put("openingEndMs", it) }
+        tag.endingStartMs?.let { put("endingStartMs", it) }
+        if (tag.preferirSoftware) put("preferirSoftware", true)
+    }
+
+    /**
+     * Null when [extras] never went through [encode] (no `"kind"` key) -- same guard
+     * `MediaItemResolverCallback` used to run directly against the `Bundle`.
+     */
+    fun decode(extras: Map<String, Any?>): PlayerSourceTag? {
+        if ("kind" !in extras) return null
+        return PlayerSourceTag(
+            kind = runCatching { SourceKind.valueOf(extras["kind"] as String) }.getOrDefault(SourceKind.UNKNOWN),
+            openingStartMs = extras["openingStartMs"] as? Long,
+            openingEndMs = extras["openingEndMs"] as? Long,
+            endingStartMs = extras["endingStartMs"] as? Long,
+            castUrl = extras["castUrl"] as? String,
+            referer = extras["referer"] as? String,
+            userAgent = extras["userAgent"] as? String,
+            proxyUrl = extras["proxyUrl"] as? String,
+            // If a field gets added to the tag, it has to be wired HERE and in [encode]: the tag
+            // doesn't cross the IPC boundary itself, and whatever is missing arrives at its default,
+            // in silence. This happened once: preferirSoftware stayed false and magis's HEVC kept
+            // opening in hardware.
+            preferirSoftware = extras["preferirSoftware"] as? Boolean ?: false,
+        )
+    }
+}
+
+/** The thin `Bundle` adapter around [PlayerSourceTagIpc.encode], for [MediaItem.RequestMetadata]. */
+fun PlayerSourceTag.toIpcBundle(): android.os.Bundle = android.os.Bundle().apply {
+    PlayerSourceTagIpc.encode(this@toIpcBundle).forEach { (key, value) ->
+        when (value) {
+            is String -> putString(key, value)
+            is Long -> putLong(key, value)
+            is Boolean -> putBoolean(key, value)
+        }
+    }
+}
+
+/** The thin `Bundle` adapter around [PlayerSourceTagIpc.decode], for `MediaSession.Callback`. */
+internal fun PlayerSourceTagIpc.decodeFromBundle(extras: android.os.Bundle?): PlayerSourceTag? {
+    if (extras == null) return null
+    return decode(extras.keySet().associateWith { extras.get(it) })
+}

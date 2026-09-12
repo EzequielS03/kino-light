@@ -38,9 +38,6 @@ object EsperaDePrimeraImagen {
     /**
      * @param cargadoHaceMs since the media was loaded (negative = none loaded yet).
      * @param huboImagen whether this media has already produced any frame.
-     * @param hayVideoAhora whether the player is painting at this instant (libVLC-era parameter;
-     *   the local ExoPlayer path always passes `false` here and answers through [huboImagen]/
-     *   [pistasDeVideo] instead).
      * @param pistasDeVideo how many video tracks the media declares (0 = doesn't know yet, or none).
      * @param pistasDeAudio same, for audio.
      * @param pedidoMs the point resume was requested at (0 = none was requested).
@@ -50,7 +47,6 @@ object EsperaDePrimeraImagen {
     fun hayQueEsperar(
         cargadoHaceMs: Long,
         huboImagen: Boolean,
-        hayVideoAhora: Boolean,
         pistasDeVideo: Int,
         pistasDeAudio: Int,
         pedidoMs: Long = 0L,
@@ -71,7 +67,7 @@ object EsperaDePrimeraImagen {
         // "there was a frame, but not the right one". The original player covers this same gap:
         // its seek turns the spinner on the instant it's requested.
         if (pedidoMs > 0L && posicionMs < pedidoMs - MARGEN_DE_ATERRIZAJE_MS) return true
-        if (huboImagen || hayVideoAhora) return false // ya hubo imagen: esto no es asunto suyo
+        if (huboImagen) return false                  // ya hubo imagen: esto no es asunto suyo
         // Contenido SIN VIDEO: no hay imagen que esperar.
         //
         // Se pregunta por "hay audio y no hay video" y no por "la lista está vacía", y esa
