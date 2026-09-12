@@ -142,6 +142,7 @@ import com.arkiv.player.playback.PlaybackEngine
 import com.arkiv.player.playback.PlaybackService
 import com.arkiv.player.playback.PlayerSource
 import com.arkiv.player.playback.PlayerSourceTag
+import com.arkiv.player.playback.ReloadPositionPolicy
 import com.arkiv.player.playback.SourceKind
 import com.arkiv.player.playback.VideoAttachPolicy
 import com.arkiv.player.playback.setPlayerSourceTag
@@ -893,6 +894,9 @@ private fun PlayerContent(
         // ANTES de tocar `loaded`, la posición o el cast: darla por buena era reproducir el capítulo
         // anterior desde el principio y —peor— dejar `loaded=true`, con lo que la playlist buena ya
         // no entraba nunca. Ver el KDoc de PlaylistData.pedido y MediaReusePolicy.decide.
+        // Captured once and reused below by ReloadPositionPolicy: it needs the exact same
+        // "what's the controller currently on" identity that the reuse decision itself used.
+        val actualMediaId = controller.currentMediaItem?.mediaId
         val decision = MediaReusePolicy.decide(
             episodeId = episodeId,
             // Qué hay cargado, con su URI. La URI se lee de requestMetadata y NO de localConfiguration:
@@ -906,7 +910,7 @@ private fun PlayerContent(
                 val mi = controller.getMediaItemAt(i)
                 LoadedMedia(mi.mediaId, mi.requestMetadata.mediaUri?.toString().orEmpty())
             },
-            actualMediaId = controller.currentMediaItem?.mediaId,
+            actualMediaId = actualMediaId,
             fresco = pl.items.map { LoadedMedia(it.episodeId, it.mediaUrl) },
             pedido = pl.pedido,
             // Did we land back on a NEW screen? Reusing the media with a new surface kills the
@@ -985,10 +989,25 @@ private fun PlayerContent(
             }
             // Misma sección ya cargada (mismas URLs), otro episodio: saltar dentro de la playlist.
             MediaReusePolicy.Decision.SALTAR_EN_PLAYLIST -> {
-                android.util.Log.w("ArkivPlay", "branch=SKIP_IN_PLAYLIST → seekTo within the playlist (does NOT reload media)")
+                // `actualMediaId` is guaranteed different from `episodeId` here -- decide() would
+                // have returned REUSAR_ACTUAL/RECARGAR otherwise -- so this always resolves to
+                // Source.PLAYLIST. Routed through the same policy as RECARGAR below anyway: it's
+                // the single place that knows the rule, and the guarantee is decide()'s, not this
+                // call site's to re-derive.
+                val resume = ReloadPositionPolicy.resumePosition(
+                    episodeId = episodeId,
+                    currentMediaId = actualMediaId,
+                    currentPositionMs = controller.currentPosition.coerceAtLeast(0L),
+                    playlistPositionMs = pl.startPositionMs,
+                )
+                android.util.Log.w(
+                    "ArkivPlay",
+                    "branch=SKIP_IN_PLAYLIST → seekTo within the playlist (does NOT reload media). " +
+                        "resume pos=${resume.positionMs}ms source=${resume.source} (playlist had ${pl.startPositionMs}ms)",
+                )
                 val idx = pl.items.indexOfFirst { it.episodeId == episodeId }.coerceAtLeast(0)
                 currentIndex = idx
-                controller.seekTo(idx, pl.startPositionMs)
+                controller.seekTo(idx, resume.positionMs)
                 // Mismo caso que REUSAR_ACTUAL de arriba: puede llegar cebado-pero-no-preparado.
                 if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
                 controller.playWhenReady = true
@@ -998,9 +1017,24 @@ private fun PlayerContent(
             // on another port, source now removed; today: magis token renewed on re-resolution):
             // load the playlist with the fresh URL.
             MediaReusePolicy.Decision.RECARGAR -> {
-                android.util.Log.w("ArkivPlay", "branch=new → setMediaItems + prepare (opens the local player with the fresh URL)")
+                // The stale-playlist race (see ReloadPositionPolicy's KDoc): the screen can reach
+                // RECARGAR on a re-mount whose `playlist` StateFlow value is minutes old while the
+                // controller kept playing THIS episode in the background the whole time. Resuming
+                // at the playlist's `startPositionMs` in that case would throw away real progress
+                // -- ask the controller's own clock instead of trusting the playlist blindly.
+                val resume = ReloadPositionPolicy.resumePosition(
+                    episodeId = episodeId,
+                    currentMediaId = actualMediaId,
+                    currentPositionMs = controller.currentPosition.coerceAtLeast(0L),
+                    playlistPositionMs = pl.startPositionMs,
+                )
+                android.util.Log.w(
+                    "ArkivPlay",
+                    "branch=new → setMediaItems + prepare (opens the local player with the fresh URL). " +
+                        "resume pos=${resume.positionMs}ms source=${resume.source} (playlist had ${pl.startPositionMs}ms)",
+                )
                 currentIndex = pl.startIndex
-                controller.setMediaItems(localMediaItems(pl.items), pl.startIndex, pl.startPositionMs)
+                controller.setMediaItems(localMediaItems(pl.items), pl.startIndex, resume.positionMs)
                 controller.playWhenReady = true
                 controller.prepare()
                 markLocalLoad(prefersSoftware = pl.items.getOrNull(pl.startIndex)?.preferirSoftware == true)
