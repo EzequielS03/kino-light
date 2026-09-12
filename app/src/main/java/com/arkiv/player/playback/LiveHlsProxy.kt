@@ -11,16 +11,18 @@ import java.net.URLDecoder
 import java.net.URLEncoder
 
 /**
- * Proxy HLS local para la TV en vivo de Magis.
+ * Local HLS proxy for Magis live TV.
  *
- * Existe porque VLC solo deja pasar `:http-referrer` y `:http-user-agent`, y el CDN del vivo
- * exige `Content-Auth` y `Content-License`. Además el `Content-Auth` **caduca en segundos**:
- * cada segmento necesita una firma fresca, así que no alcanza con entregarle a VLC un m3u8
- * estático.
+ * Exists because the live CDN requires `Content-Auth` and `Content-License` headers, and
+ * `Content-Auth` **expires in seconds**: every segment needs a fresh signature, so handing the
+ * player a static m3u8 was never going to be enough (this was originally built because libVLC
+ * could only pass through `:http-referrer` and `:http-user-agent`; ExoPlayer, today's player,
+ * can set arbitrary headers itself, but the proxy stays because the per-segment fresh signing
+ * still has to happen somewhere).
  *
  * El proxy baja el playlist, reescribe las URLs absolutas de los `.ts` hacia sí mismo y pone
- * las cabeceras en cada petición al origen. VLC ve `127.0.0.1`; Chromecast/DLNA ven la IP LAN
- * del celu (ver [lanUrl]) porque, desde el primer canal que se abre, el socket escucha en TODAS
+ * las cabeceras en cada petición al origen. El reproductor local ve `127.0.0.1`; Chromecast/DLNA
+ * ven la IP LAN del celu (ver [lanUrl]) porque, desde el primer canal que se abre, el socket escucha en TODAS
  * las interfaces, no solo loopback (ver el KDoc de [start]/[urlPara]). Eso solo, sin nada más,
  * dejaría el canal -contenido pago de Magis- a la vista de cualquier equipo en la misma WiFi que
  * escanee el puerto efímero: por eso cada URL que entrega el proxy ([urlPara], [lanUrl], y las
@@ -46,8 +48,8 @@ class LiveHlsProxy(
     /**
      * Token aleatorio de la sesión de reproducción actual (ver [generarToken]). Vive tanto como
      * el `ServerSocket`: nace en [start] y muere en [stop], NO en cada [urlPara] -- si cambiara
-     * en cada zapeo de canal, la URL que YA quedó grabada en VLC o en el media cargado en
-     * Chromecast (mismo puerto, ver el KDoc de [urlPara]) empezaría a dar 403 a mitad de
+     * en cada zapeo de canal, la URL que YA quedó grabada en el reproductor local o en el media
+     * cargado en Chromecast (mismo puerto, ver el KDoc de [urlPara]) empezaría a dar 403 a mitad de
      * reproducción.
      */
     @Volatile private var token: String? = null
@@ -135,15 +137,15 @@ class LiveHlsProxy(
     }
 
     /**
-     * Fija la sesión del canal y devuelve la URL que se le pasa a VLC.
+     * Fija la sesión del canal y devuelve la URL que se le pasa al reproductor.
      *
      * `bindLan = true`: the proxy becomes reachable over the LAN as soon as the FIRST channel
      * opens, not only when casting -- same criterion the torrent HTTP server used (source removed
      * in this branch's pruning), with `ServerSocket(0)` and no IP = all interfaces. La
      * alternativa
      * -abrir en loopback y "ensanchar" a LAN recién al castear- le cambiaría el PUERTO a mitad de
-     * reproducción: esta URL (con el puerto de HOY) ya quedó grabada como el media local de VLC,
-     * y en el media cargado para Chromecast/DLNA (ver `LiveHlsProxy.lanUrl`); reabrir el socket en
+     * reproducción: esta URL (con el puerto de HOY) ya quedó grabada como el media local del
+     * reproductor, y en el media cargado para Chromecast/DLNA (ver `LiveHlsProxy.lanUrl`); reabrir el socket en
      * otro puerto rompería ambos. 127.0.0.1 sigue funcionando igual con el socket en todas las
      * interfaces, así que esto no cambia nada para la reproducción local.
      */
@@ -168,7 +170,7 @@ class LiveHlsProxy(
 
     /**
      * URL del canal que el proxy sirve AHORA MISMO, alcanzable por la LAN (Chromecast/DLNA) --
-     * mismo host:puerto que ya usa VLC en local, solo que con la IP del celu en vez de loopback
+     * mismo host:puerto que ya usa localmente el reproductor, solo que con la IP del celu en vez de loopback
      * (ver el KDoc de [urlPara]: el socket escucha en todas las interfaces desde el primer canal
      * abierto, así que no hace falta "ensanchar" nada acá). `null` si todavía no se abrió ningún
      * canal -no hay nada que castear-.
@@ -190,13 +192,13 @@ class LiveHlsProxy(
             // aceptado, no la cabecera `Host` del request. Se prefiere esto a parsear `Host`
             // porque `socket.localAddress` es un hecho de la conexión TCP -qué interfaz recibió
             // el paquete-, no un dato que declara el cliente: no hace falta validarlo ni
-            // sanitizarlo antes de meterlo en una URL de respuesta, y no depende de que VLC,
-            // Chromecast o el cliente DLNA manden una cabecera Host bien formada (algunos
-            // reproductores HLS no la mandan). Es lo mismo que resolvería a mano leyendo
-            // cabeceras, pero sin el riesgo de header injection ni el parsing extra.
+            // sanitizarlo antes de meterlo en una URL de respuesta, y no depende de que el
+            // reproductor local, Chromecast o el cliente DLNA manden una cabecera Host bien
+            // formada (algunos reproductores HLS no la mandan). Es lo mismo que resolvería a mano
+            // leyendo cabeceras, pero sin el riesgo de header injection ni el parsing extra.
             // `hostAddress` es un tipo plataforma (String! de Java): en la práctica nunca es null
             // para una InetAddress ya resuelta como esta, pero el fallback deja el camino local
-            // (VLC) intacto ante cualquier corner case en vez de reventar la conexión.
+            // intacto ante cualquier corner case en vez de reventar la conexión.
             val miHost = s.localAddress.hostAddress ?: "127.0.0.1"
             val entrada = s.getInputStream().bufferedReader()
             val linea = entrada.readLine() ?: return@runCatching
@@ -560,7 +562,7 @@ class LiveHlsProxy(
      *
      * Antes solo se tocaban líneas que empezaban literalmente con `"http"` y contenían `".ts"`.
      * Eso dejaba afuera (hallazgo I1):
-     * - segmentos RELATIVOS (`c_1.ts`): VLC los resuelve contra `127.0.0.1`, una ruta que el
+     * - segmentos RELATIVOS (`c_1.ts`): el reproductor los resuelve contra `127.0.0.1`, una ruta que el
      *   proxy no maneja → 404 y la reproducción se corta;
      * - segmentos protocol-relative (`//cdn.host/c_1.ts`): se resuelven DIRECTO contra el CDN,
      *   sin firma;
@@ -574,8 +576,8 @@ class LiveHlsProxy(
      * `127.0.0.1` fijo (hallazgo del agente anterior, Tarea 20): si las URLs de segmento SIEMPRE
      * quedaran en loopback, Chromecast/DLNA -que piden el playlist por la IP LAN del celu, ver
      * [lanUrl]- recibirían segmentos apuntando a `127.0.0.1`, que para ELLOS es su propio
-     * dispositivo, no el celu. Pantalla negra sin ningún error. VLC sigue sirviéndose de
-     * `127.0.0.1` igual que antes porque pide el playlist por loopback (ver [urlPara]), así que
+     * dispositivo, no el celu. Pantalla negra sin ningún error. El reproductor local sigue
+     * sirviéndose de `127.0.0.1` igual que antes porque pide el playlist por loopback (ver [urlPara]), así que
      * `miHost` le llega como `"127.0.0.1"` sin cambiar nada.
      */
     private fun reescribirLinea(ln: String, base: URL, miHost: String, miPuerto: Int, miToken: String): String {

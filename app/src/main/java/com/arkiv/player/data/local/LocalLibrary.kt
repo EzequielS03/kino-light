@@ -6,11 +6,11 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * Lo único que el reproductor consulta para saber si un episodio está guardado en el dispositivo.
+ * The only thing the player checks to know if an episode is saved on the device.
  *
- * Verifica que el archivo EXISTA de verdad, no solo que la fila diga `completed`: si el usuario lo
- * borró desde los ajustes de Android, sin esta comprobación el player apuntaría a un archivo
- * fantasma y VLC mostraría pantalla negra sin explicación.
+ * Verifies the file actually EXISTS, not just that the row says `completed`: if the user deleted
+ * it from Android's settings, without this check the player would point at a ghost file and show
+ * a black screen with no explanation.
  */
 class LocalLibrary(private val db: ArkivDatabase) {
 

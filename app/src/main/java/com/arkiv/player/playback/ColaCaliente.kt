@@ -3,8 +3,8 @@ package com.arkiv.player.playback
 /**
  * El FINAL del archivo, servido desde memoria.
  *
- * Al abrir un TS por HTTP, libVLC sondea el final: pide rangos a pocos KB del EOF para sacar el
- * último PCR y deducir la duración. Esas peticiones son las que se llevaban el arranque — medido el
+ * When opening a TS over HTTP, libVLC used to probe the end: it asked for ranges a few KB from
+ * the EOF to get the last PCR and deduce the duration. Those requests were what ate up startup — medido el
  * 2026-08-11 en el Fire TV, con el video ya en `Playing` pero clavado en `pos=0`:
  *
  * ```
@@ -19,7 +19,7 @@ package com.arkiv.player.playback
  * contestar, con uno largo se espera a alguien que no.
  *
  * Por eso esto no juega a los dados: la cola se baja UNA vez junto con el arranque (ver
- * [ArchiveCacheProxy.precalentar]) y desde ahí los sondeos de VLC se contestan sin tocar la red.
+ * [ArchiveCacheProxy.precalentar]) y desde ahí los sondeos del reproductor se contestan sin tocar la red.
  * Es la misma idea del arranque caliente del byte 0, aplicada a la otra punta.
  *
  * Es una función pura para poder fijar por test los bordes, que es donde esto sería peligroso:

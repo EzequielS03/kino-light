@@ -23,8 +23,8 @@ object RangeMath {
 /**
  * Descarga un archivo por HTTP con soporte de reanudación.
  *
- * Escribe siempre a `<target>.part` y renombra al final: así nunca existe un archivo destino a
- * medias que `LocalLibrary` pueda tomar por bueno y mandarle a VLC.
+ * Always writes to `<target>.part` and renames it at the end: this way a half-downloaded
+ * destination file that `LocalLibrary` could mistake for good and hand to the player never exists.
  *
  * Un parcial SOLO se reanuda si es del mismo origen (ver [LocalFilePaths.originOf]); si no coincide
  * —o si no tiene marca, que es el caso de los parciales que dejaron versiones anteriores— se tira y

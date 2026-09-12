@@ -10,8 +10,8 @@ import java.net.URL
  *
  * El TS es un formato de emisión: no lleva la duración en ninguna cabecera. La única forma de
  * saber cuánto dura es restar el reloj del programa (PCR) del final menos el del principio.
- * libVLC hace exactamente eso… pero SOLO cuando el acceso es de lectura rápida (un archivo local):
- * sobre HTTP nunca sondea el final, así que `mediaPlayer.length` se queda en 0. Con duración 0 la
+ * libVLC used to do exactly that... but ONLY when the access was fast-read (a local file): over
+ * HTTP it never probed the end, so `mediaPlayer.length` stayed at 0. Con duración 0 la
  * barra de progreso se llena de golpe, la derecha marca 00:00, no se puede adelantar (buscar por
  * TIEMPO se ignora sin duración) y no se guarda dónde ibas.
  *

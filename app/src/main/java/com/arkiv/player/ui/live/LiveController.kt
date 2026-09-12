@@ -6,7 +6,7 @@ import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Abre canales en vivo: resuelve contra el gateway y le entrega a VLC la URL del proxy local.
+ * Abre canales en vivo: resuelve contra el gateway y le entrega al reproductor la URL del proxy local.
  *
  * Guarda la última sesión resuelta por canal porque **resolver cuesta ~3 s** (dos llamadas al
  * portal, cada una cortada a 1,5 s). Eso es lo que hace que el zapping no se sienta lento:

@@ -1,19 +1,19 @@
 package com.arkiv.player.playback
 
 /**
- * Servir un TRAMO del archivo como si fuera el archivo entero.
+ * Serve a CHUNK of the file as if it were the whole file.
  *
- * Existe para reanudar un MPEG-TS de magis sin usar el seek de libVLC, que es el que rompe la
- * reproducción. Con TS por HTTP libVLC no conoce la duración, así que el único salto que responde
- * es el de FRACCIÓN, que busca por byte; y al hacerlo el demuxer queda con el reloj del punto
- * viejo mientras le entran datos del nuevo. Medido en device: tras el salto VLC se tragó 752 MB en
- * 330 s (17× tiempo real, o sea descartándolo todo) y el reloj no se movió ni un ms — pantalla
- * negra y "buffering 0%" para siempre.
+ * Exists to resume an MPEG-TS from magis without using libVLC's seek, which used to break
+ * playback. Over HTTP, libVLC didn't know the duration, so the only seek that responded was by
+ * FRACTION, which sought by byte; and doing so left the demuxer with the clock at the old point
+ * while data from the new one came in. Measured on device: after the seek, VLC swallowed 752 MB
+ * in 330s (17x real time, i.e. discarding all of it) and the clock didn't move a single ms --
+ * black screen and "buffering 0%" forever.
  *
- * Abrir directamente EN el punto no tiene ese problema: es el caso que sí funciona (una película
- * que nunca se había visto arranca perfecto). Así que en vez de abrir en 0 y saltar, el proxy abre
- * una ventana que EMPIEZA en el punto pedido y le miente al reproductor sobre el tamaño: para VLC
- * es un archivo nuevo que empieza en 0, con reloj limpio y sin un solo seek.
+ * Opening directly AT the point doesn't have that problem: it's the case that does work (a movie
+ * never watched before starts perfectly). So instead of opening at 0 and seeking, the proxy opens
+ * a window that STARTS at the requested point and lies to the player about the size: for VLC it
+ * was a new file starting at 0, with a clean clock and not a single seek.
  */
 object VentanaDeArchivo {
 

@@ -18,11 +18,12 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Proxy HTTP local para el CDN de magis: VLC no sabe mandar `Content-Auth`/`Content-License` ni
- * ponerlos por Range, así que el stream pasa por acá, que sí puede agregarlos en la petición al
- * origen. Además precalienta el arranque y la cola del archivo (ver [precalentar]) y sirve las
- * ventanas de salto (ver [precalentarSalto]) para tapar la latencia variable del CDN (0,2-20 s por
- * rango) sin que libVLC se quede sin pistas ni sin datos.
+ * Local HTTP proxy for magis's CDN: this was originally built because VLC couldn't send
+ * `Content-Auth`/`Content-License` or put them on a Range request, so the stream goes through
+ * here instead, which can add them to the request to the origin. It also pre-warms the startup
+ * chunk and the tail of the file (see [precalentar]) and serves seek windows (see
+ * [precalentarSalto]) to paper over the CDN's variable latency (0.2-20s per range) so the player
+ * never runs out of tracks or data.
  *
  * Hasta la poda de archive.org de esta rama (light-magis) este proxy tenía un SEGUNDO modo —caché
  * en disco de descarga única a archivo que crece, exclusivo de archive.org— que se borró junto con
@@ -107,7 +108,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
 
     /**
      * Último código HTTP que dio cada origen. Existe porque el reproductor NO puede distinguir por
-     * qué falló: pase lo que pase acá, VLC ve un 502 del proxy. Y la diferencia importa — un 404
+     * qué falló: pase lo que pase acá, el player ve un 502 del proxy. Y la diferencia importa — un 404
      * significa "archive renombró el archivo" y se puede arreglar solo (ver CoincidenciaDeArchivo),
      * mientras que un 503 o un timeout solo se pueden reintentar. Guardarlo acá es la forma más
      * barata de que esa distinción sobreviva hasta quien sabe qué hacer con ella.
@@ -126,8 +127,8 @@ class ArchiveCacheProxy(private val cacheDir: File) {
      *
      * Antes acá había un `ByteArray` ya completo, y por eso [precalentar] tenía que esperar los 2 MB
      * enteros antes de dejar abrir el video: medido en el Fire TV, 0,5 a 5 s de spinner en cada
-     * reproducción. Ahora es un [BufferQueCrece] y se lee mientras se llena — VLC abre apenas hay
-     * algo y no se queda sin datos porque el buffer sigue creciendo detrás.
+     * reproducción. Ahora es un [BufferQueCrece] y se lee mientras se llena — el player abre apenas
+     * hay algo y no se queda sin datos porque el buffer sigue creciendo detrás.
      *
      * Solo lo usa magis: nadie más llama a `precalentar`, así que para el resto de las fuentes este
      * mapa está siempre vacío y el camino es exactamente el de siempre.
@@ -162,8 +163,8 @@ class ArchiveCacheProxy(private val cacheDir: File) {
      * El FINAL de cada archivo, por clave de caché: (byte absoluto donde arranca, bytes). Lo llena
      * [precalentar] y lo consume [ColaCaliente], que es donde está el porqué.
      *
-     * A diferencia de [calientes], esta NO se consume al usarla: libVLC sondea el final VARIAS veces
-     * seguidas y con offsets distintos, y todas esas son las que hay que contestar sin red.
+     * A diferencia de [calientes], esta NO se consume al usarla: libVLC sondeaba el final VARIAS
+     * veces seguidas y con offsets distintos, y todas esas son las que hay que contestar sin red.
      */
     private val colas = ConcurrentHashMap<String, Pair<Long, ByteArray>>()
 
@@ -205,8 +206,8 @@ class ArchiveCacheProxy(private val cacheDir: File) {
     /**
      * Un tramo del archivo alrededor de un punto de SALTO, guardado en memoria.
      *
-     * El porqué, medido en el Fire TV el 2026-08-13 reanudando una película en 13:26: libVLC no salta
-     * de una: **bisecta**. Pidió diez rangos seguidos —`bytes=62148288-`, `63899508-`, `63533848-`,
+     * El porqué, medido en el Fire TV el 2026-08-13 reanudando una película en 13:26: libVLC no
+     * saltaba de una: **bisectaba**. Pidió diez rangos seguidos —`bytes=62148288-`, `63899508-`, `63533848-`,
      * `63443420-`…— leyendo unos cientos de KB de cada uno y cortando la conexión enseguida. Cada uno
      * abría su propia conexión al CDN a ~300 ms. Y los diez caían adentro de **1,8 MB** del archivo.
      *
@@ -284,7 +285,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
      * Cuánto se precalienta del arranque. Es el número que hay que mover si esto se vuelve lento, y
      * también el primero que hay que revisar si vuelve el negro-y-mudo.
      *
-     * Empezó en 2 MB, elegido con holgura para que libVLC identifique programas y pistas sin
+     * Empezó en 2 MB, elegido con holgura para que el player identifique programas y pistas sin
      * depender de la latencia del CDN. Medido el 2026-08-11 en el Fire TV sobre ocho arranques, esa
      * holgura pasó a ser LA fase dominante: bajar la cabeza costaba entre 917 y 9210 ms, contra
      * 246-511 ms de la cola de 256 KB en las mismas corridas — o sea que manda el tamaño.
@@ -301,8 +302,8 @@ class ArchiveCacheProxy(private val cacheDir: File) {
      *
      * Y el detalle que lo decide: los DOS arranques con `v0/a0` fueron justo los dos de peor
      * apertura (1782 ms y 2018 ms, contra 513-1027 ms del resto). Con menos datos calientes libVLC
-     * no termina de identificar el stream con lo que tiene en memoria y sale a la red en mitad del
-     * arranque, que es precisamente lo que este precalentado existe para evitar. No llegó a fallar
+     * no terminaba de identificar el stream con lo que tenía en memoria y salía a la red en mitad
+     * del arranque, que es precisamente lo que este precalentado existe para evitar. No llegó a fallar
      * —cero rescates, las dos se recuperaron— pero el final de ese camino es el negro-y-mudo
      * documentado en [precalentar], y el ahorro no lo justifica.
      *
@@ -338,10 +339,10 @@ class ArchiveCacheProxy(private val cacheDir: File) {
     }
 
     /**
-     * URL local que VLC puede reproducir. [headers] viaja codificado en la propia URL porque es lo
-     * unico que VLC nos deja pasar: solo entiende `:http-referrer` y `:http-user-agent`, y magis
-     * sirve el VOD detras de `Content-Auth` y `Content-License`. El proxy los pone en la peticion
-     * al origen.
+     * Local URL the player can play. [headers] travels encoded in the URL itself because that was
+     * the only thing VLC used to let through: it only understood `:http-referrer` and
+     * `:http-user-agent`, and magis serves the VOD behind `Content-Auth` and `Content-License`.
+     * The proxy puts them on the request to the origin.
      *
      * `h` va ANTES de `u` a proposito: hay codigo que saca el origen con `substringAfter("u=")`.
      */
@@ -390,8 +391,8 @@ class ArchiveCacheProxy(private val cacheDir: File) {
     fun bufferedFraction(proxyUrl: String): Float = 0f
 
     private fun serve(socket: Socket) {
-        // socket.use{} cierra el socket al salir; runCatching traga excepciones de red/IO (p.ej. VLC
-        // cierra el socket al hacer seek → escribir tira broken pipe) para no matar el thread.
+        // socket.use{} cierra el socket al salir; runCatching traga excepciones de red/IO (p.ej. el
+        // player cierra el socket al hacer seek → escribir tira broken pipe) para no matar el thread.
         socket.use { s ->
             runCatching {
                 val input = s.getInputStream()
@@ -425,8 +426,8 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                 val out = s.getOutputStream()
 
                 // Toda petición que entra queda registrada: el proxy es la frontera entre "el
-                // reproductor no pide" y "el proxy no entrega", que desde afuera se ven igual (VLC
-                // buffereando al 0% para siempre).
+                // reproductor no pide" y "el proxy no entrega", que desde afuera se ven igual (el
+                // player buffereando al 0% para siempre).
                 android.util.Log.w(
                     "ArchiveCacheProxy",
                     "← pide rango=${rangeHeader ?: "(todo)"} directo=$directo ventana=$fraccion",
@@ -575,8 +576,8 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                 // NO se mata la conexión anterior, y esto es lo contrario de lo que hacía antes.
                 //
                 // `ConexionUnica` se puso creyendo que el CDN atendía de a una conexión por archivo.
-                // Medido hoy: es falso — sirve dos simultáneas al mismo archivo sin quejarse (206 en
-                // 0,77 s la segunda, con la primera todavía descargando). Y al abrir, libVLC hace
+                // Medido en su momento: es falso — sirve dos simultáneas al mismo archivo sin quejarse (206 en
+                // 0,77 s la segunda, con la primera todavía descargando). Y al abrir, libVLC hacía
                 // VARIAS peticiones seguidas para sondear el stream (visto: bytes=0-, 216576-,
                 // 1115160- en 800 ms): matarle la anterior en cada una le cortaba justo las lecturas
                 // con las que identifica programas y pistas, y terminaba sin ninguna (`pistas=v0/a0`),
@@ -651,13 +652,13 @@ class ArchiveCacheProxy(private val cacheDir: File) {
      * Deja el arranque del stream listo en memoria ANTES de que el reproductor abra la URL.
      *
      * El porqué, medido: el CDN de magis tarda entre 0,2 s y 20 s en soltar el primer byte, y
-     * cuando la primera lectura se demora **libVLC se rinde identificando el stream**. No falla ni
+     * cuando la primera lectura se demoraba **libVLC se rendía identificando el stream**. No falla ni
      * avisa: se queda sin pistas (`pistas=v0/a0`, ni imagen ni sonido) y desde ahí traga el archivo
      * a toda velocidad sin volver a intentarlo — la película queda negra para siempre aunque los
      * datos lleguen dos segundos después. Es la explicación de "la primera vez anda y la segunda
      * no": no era el decodificador ni la vista sin destruir, era quién ganaba esa carrera.
      *
-     * Con el arranque ya en la mano, la primera lectura de VLC se responde al instante y siempre
+     * Con el arranque ya en la mano, la primera lectura del player se responde al instante y siempre
      * llega a identificar las pistas. Lo que tarde el CDN pasa a ser espera ANTES de abrir el
      * video, que es recuperable, en vez de un fallo silencioso del que no se vuelve.
      *
@@ -672,7 +673,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         /**
          * Si hay que ESPERAR a la cola antes de volver. Solo hace falta cuando la duración se saca
          * de ella ([duracionDelPrecalentado]); cuando la manda el gateway, la cola únicamente sirve
-         * para los sondeos de EOF de libVLC, que ocurren DESPUÉS de abrir y por lo tanto se pueden
+         * para los sondeos de EOF del player, que ocurren DESPUÉS de abrir y por lo tanto se pueden
          * dejar corriendo por detrás.
          *
          * Medido el 2026-08-11 en el Fire TV, y es la razón de que este parámetro exista: con la
@@ -711,7 +712,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         val buffer = BufferQueCrece(ARRANQUE_CALIENTE)
         calientes["$key@$inicio"] = buffer
         // El llenado NO se espera: se publica en el mapa ya mismo y sigue por su cuenta. El proxy le
-        // sirve a VLC de este mismo buffer mientras crece (ver serveArranque).
+        // sirve al player de este mismo buffer mientras crece (ver serveArranque).
         Thread {
             runCatching { bajarArranque(originUrl, headers, inicio, perfil, buffer) }
             buffer.cerrar()
@@ -725,7 +726,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         // scope, y por eso el plazo pasa a ser un plazo. Ver PrecalentadoNoBloqueaTest.
         //
         // `esperarCola` ya solo decide si alguien mira el resultado; el trabajo se lanza igual,
-        // porque los sondeos de EOF de libVLC quieren esa cola en memoria en los dos casos.
+        // porque los sondeos de EOF del player quieren esa cola en memoria en los dos casos.
         val cola = CompletableDeferred<Unit>()
         if (colaHaceFalta) {
             Thread {
@@ -743,7 +744,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         }
 
         // Lo ÚNICO que se espera siempre: que el arranque haya empezado a fluir. Con eso alcanza
-        // para que la primera lectura de libVLC se responda al instante, que es lo que evitaba el
+        // para que la primera lectura del player se responda al instante, que es lo que evitaba el
         // negro-y-mudo.
         val arranco = buffer.esperarHasta(ARRANQUE_MINIMO, ESPERA_ARRANQUE_MS)
         // La espera de la cola va ACOTADA. Medido el 2026-08-11 en el Fire TV: cuando el CDN se
@@ -753,7 +754,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         //
         // Pasado este plazo se reproduce SIN duración: la barra queda fea, pero el video arranca.
         // Al revés no — nunca frenar el video por una barra de progreso. La cola sigue bajando
-        // igual por detrás, así que los sondeos de EOF de VLC la encuentran cuando llegue.
+        // igual por detrás, así que los sondeos de EOF del player la encuentran cuando llegue.
         if (esperarCola && withTimeoutOrNull(ESPERA_COLA_MS) { cola.await() } == null) {
             android.util.Log.w(
                 "ArchiveCacheProxy",
@@ -801,7 +802,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                 while (total < ARRANQUE_CALIENTE) {
                     val leidos = ins.read(buf, 0, minOf(buf.size, ARRANQUE_CALIENTE - total))
                     if (leidos < 0) break
-                    // Cada bloque queda disponible EN EL ACTO para quien esté sirviendo a VLC.
+                    // Cada bloque queda disponible EN EL ACTO para quien esté sirviendo al player.
                     destino.escribir(buf, leidos)
                     total += leidos
                 }
@@ -828,7 +829,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
     }
 
     /**
-     * Se guarda el final del archivo para que los sondeos de EOF de libVLC no toquen la red.
+     * Se guarda el final del archivo para que los sondeos de EOF del player no toquen la red.
      * Ver [ColaCaliente] para la medición que justifica esto.
      *
      * Va por rango-SUFIJO (`bytes=-N`) por la misma razón que la sonda de duración: no hace falta
@@ -854,7 +855,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
             )
             return
         }
-        // Se avisa ANTES de abrir, no después: la carrera que esto evita empieza en cuanto libVLC
+        // Se avisa ANTES de abrir, no después: la carrera que esto evita empieza en cuanto el player
         // abre el media, que es milisegundos después de que arranque este hilo.
         val enVuelo = java.util.concurrent.CountDownLatch(1)
         colasEnVuelo[key] = enVuelo
@@ -872,8 +873,8 @@ class ArchiveCacheProxy(private val cacheDir: File) {
      *
      * El porqué, medido en el Fire TV el 2026-08-13 con un capítulo nuevo: el CDN rechazó la cola dos
      * veces seguidas —sin contestar nada, que es como falla este CDN— y cada rechazo cuesta los 3 s
-     * de plazo de [PoliticaOrigen.Perfil.MAGIS]. VLC, que necesita el final del archivo para abrir,
-     * se quedó esperando **7,3 s**. El reintento en serie no ayuda: espera a que el anterior se dé
+     * de plazo de [PoliticaOrigen.Perfil.MAGIS]. VLC, que necesitaba el final del archivo para
+     * abrir, se quedó esperando **7,3 s**. El reintento en serie no ayuda: espera a que el anterior se dé
      * por vencido para recién ahí volver a tirar los dados.
      *
      * Que el CDN aguante conexiones simultáneas no es una suposición: está medido (dos al mismo
@@ -943,7 +944,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         // esté: en el mismo arranque, tras seis rechazos seguidos de `bytes=-262144` —dos conexiones
         // en paralelo, tres intentos cada una, 8,8 s tirados— el reproductor pidió ese mismo final
         // por `bytes=322515168-` y el CDN lo sirvió en 267 ms. Cada rechazo cuesta los 3 s de plazo
-        // del perfil MAGIS, y libVLC no abre hasta tener el final: de ahí salían colas de 7036,
+        // del perfil MAGIS, y libVLC no abría hasta tener el final: de ahí salían colas de 7036,
         // 8485 y 9435 ms.
         //
         // El tamaño no cuesta una petición extra: lo anotó [anotarTotal] de la respuesta de la
@@ -1003,8 +1004,8 @@ class ArchiveCacheProxy(private val cacheDir: File) {
      * documenta [ColaCaliente]. Si el reproductor quiere más, lo pide con otro rango, que es
      * exactamente lo que hace al bisecar.
      *
-     * OJO con quién pregunta. Eso último vale para libVLC, que bisecta y vuelve a pedir; ExoPlayer
-     * NO: pide `bytes=N-` —de ahí al final— y un cuerpo más corto se lo come como fin de los datos.
+     * OJO con quién pregunta. Eso último vale para libVLC, que bisectaba y volvía a pedir;
+     * ExoPlayer NO: pide `bytes=N-` —de ahí al final— y un cuerpo más corto se lo come como fin de los datos.
      * Su ProgressiveMediaPeriod da la carga por terminada y deja de pedir, se acaba lo que tenía en
      * cola —se midieron 512000 frames de audio, 10,7 s exactos, justo el tramo servido—, para el
      * AudioTrack y detiene los renderers sin declarar BUFFERING: la imagen se congela y el reloj
@@ -1101,8 +1102,8 @@ class ArchiveCacheProxy(private val cacheDir: File) {
     /**
      * Prepara la zona a la que el reproductor va a SALTAR al reanudar, antes de que la pida.
      *
-     * El porqué, medido en el Fire TV el 2026-08-13 reanudando una película en 13:29: libVLC abre
-     * SIEMPRE en el byte 0 y recién después busca el minuto guardado. Entre una cosa y la otra se
+     * El porqué, medido en el Fire TV el 2026-08-13 reanudando una película en 13:29: libVLC abría
+     * SIEMPRE en el byte 0 y recién después buscaba el minuto guardado. Entre una cosa y la otra se
      * bajó **2,5 MB del principio de la película que después tiró**, y eso costó 3,4 s con el
      * reproductor clavado en `pos=0` — casi un tercio de los 10,8 s que tardó en arrancar.
      *
@@ -1209,7 +1210,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         }
     }
 
-    /** Passthrough directo origen→VLC (sin cachear), último recurso si no se pudo iniciar la descarga. */
+    /** Passthrough directo origen→reproductor (sin cachear), último recurso si no se pudo iniciar la descarga. */
     private fun passthrough(
         origin: String,
         rangeHeader: String?,
@@ -1235,7 +1236,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         if (inicio == 0L && claveUnica != null) {
             // Si la cola TODAVÍA se está bajando, se la espera en vez de abrir una conexión que le
             // compita por los mismos bytes (ver [colasEnVuelo] para la medición). Solo para rangos
-            // que no empiezan en 0: `bytes=0-` es la primera lectura de libVLC —la cabeza— y esa la
+            // que no empiezan en 0: `bytes=0-` es la primera lectura del player —la cabeza— y esa la
             // contesta el arranque caliente, no la cola.
             val enVuelo = colasEnVuelo[claveUnica]
             if (enVuelo != null && colas[claveUnica] == null && (rangoCliente?.start ?: 0L) > 0L) {
@@ -1292,8 +1293,8 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         // del stream. Se consume del mapa para que un salto posterior no reciba bytes del principio.
         // La clave incluye el BYTE de arranque, no solo el archivo. Sin eso, un precalentado hecho
         // para otro punto se le pegaba igual al principio del stream: 2 MB de otra parte de la
-        // película empalmados en la cabecera, que es basura para el demuxer y deja a VLC sin pistas
-        // — o sea, causando exactamente el fallo que este precalentado venía a evitar. Los offsets
+        // película empalmados en la cabecera, que es basura para el demuxer y deja al player sin
+        // pistas — o sea, causando exactamente el fallo que este precalentado venía a evitar. Los offsets
         // NO siempre coinciden: la posición guardada sigue avanzando entre que se precalienta y que
         // el reproductor abre.
         val caliente = if ((rangoCliente?.start ?: 0L) == 0L && claveUnica != null) {
@@ -1348,9 +1349,9 @@ class ArchiveCacheProxy(private val cacheDir: File) {
             conn.inputStream.use { ins ->
                 val buf = ByteArray(64 * 1024)
                 // ARRANQUE CALIENTE: si este tramo empieza justo donde se precalentó, los bytes se
-                // le entregan a VLC A MEDIDA QUE LLEGAN del precalentado, sin esperar a que estén
-                // los 2 MB completos. Eso es lo único que le importa a libVLC para no rendirse
-                // identificando el stream (ver precalentar), y es lo que permite que el arranque
+                // le entregan al player A MEDIDA QUE LLEGAN del precalentado, sin esperar a que
+                // estén los 2 MB completos. Eso era lo único que le importaba a libVLC para no
+                // rendirse identificando el stream (ver precalentar), y es lo que permite que el arranque
                 // deje de bloquear: antes había que tener el bloque entero antes de publicar la
                 // playlist, y eso costaba 0,5-5 s de spinner por reproducción.
                 //

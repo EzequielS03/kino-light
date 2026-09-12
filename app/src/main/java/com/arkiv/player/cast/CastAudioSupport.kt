@@ -3,16 +3,16 @@ package com.arkiv.player.cast
 import androidx.media3.common.MimeTypes
 
 /**
- * Qué audio puede decodificar el receptor de Chromecast por sí mismo.
+ * What audio the Chromecast receiver can decode on its own.
  *
- * Existe porque el fallo es MUDO: si el receptor no sabe el códec, reproduce el video y no suena
- * nada, sin un solo error ni en el celu ni en la TV. Pasó con AC-3 (Avatar) y con DTS (Naruto),
- * ambos H.264 — por eso se veía la imagen.
+ * Exists because the failure is SILENT: if the receiver doesn't know the codec, it plays the
+ * video and no sound comes out, without a single error on either the phone or the TV. It happened
+ * with AC-3 (Avatar) and DTS (Naruto), both H.264 -- that's why the picture showed up fine.
  *
- * La lista sale de la doc de Cast (https://developers.google.com/cast/docs/media): AAC, MP3, Opus,
- * Vorbis, FLAC y LPCM. AC-3 y E-AC-3 el Chromecast NO los decodifica, solo los reenvía por HDMI para
- * que los decodifique la TV, y eso hay que habilitarlo aparte; DTS y TrueHD no están de ninguna
- * forma.
+ * The list comes from Cast's own docs (https://developers.google.com/cast/docs/media): AAC, MP3,
+ * Opus, Vorbis, FLAC and LPCM. Chromecast does NOT decode AC-3 and E-AC-3 itself, it only passes
+ * them through over HDMI for the TV to decode, and that has to be enabled separately; DTS and
+ * TrueHD aren't supported at all.
  *
  * There is no transcoder any more: when the receiver can't handle the audio, it still gets cast
  * and a warning is shown (see `castRequestFor` in `PlayerScreen.kt`). This object only decides the

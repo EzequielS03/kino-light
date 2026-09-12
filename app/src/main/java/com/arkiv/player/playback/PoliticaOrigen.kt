@@ -66,9 +66,10 @@ object PoliticaOrigen {
         ARCHIVE(15_000, intArrayOf(20_000, 45_000, 90_000), 90_000, 400L, true),
 
         /**
-         * 4 s → 10 s → 20 s. El primer plazo sigue corto a propósito —acá la gracia es volver a
-         * tirar los dados ya, no esperar— pero los siguientes le dan al CDN el tiempo que de verdad
-         * llega a tardar: se ha medido contestando desde 0,2 s hasta 20 s el mismo rango.
+         * 4s -> 10s -> 20s. The first deadline stays short on purpose -- the whole point here is
+         * rolling the dice again right away, not waiting -- but the later ones give the CDN the
+         * time it genuinely takes: it's been measured answering the same range anywhere from
+         * 0.2s to 20s.
          *
          * They used to be a flat 3s, calibrated so the whole budget (9.65s) fit inside the 10s the
          * old "no picture -> software" rescue took to fire. That invariant DIED once magis moved to
@@ -78,9 +79,9 @@ object PoliticaOrigen {
          * them off -- cost 18s of waiting before the first picture. This is the third time this
          * number has come up short (2s -> 3s -> here).
          *
-         * Las esperas ENTRE intentos siguen cortas (50 ms → 150 ms → 450 ms): el escalón largo de
-         * archive existe para no castigar a un nodo saturado que contesta 503, y este CDN no nos
-         * frena — el que limita es el portal, y de eso se encarga el gateway.
+         * The waits BETWEEN attempts stay short (50ms -> 150ms -> 450ms): archive's long step
+         * exists so as not to punish a saturated node answering 503, and this CDN doesn't throttle
+         * us that way -- what limits us is the portal, and the gateway handles that.
          */
         MAGIS(5_000, intArrayOf(4_000, 10_000, 20_000), 30_000, 50L, false),
 

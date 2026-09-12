@@ -10,18 +10,18 @@ import java.nio.ByteBuffer
  * vez:
  *
  * ```
- * 09:35:12.667  ← pide rango=bytes=660308868-           ← libVLC quiere el FINAL del archivo
+ * 09:35:12.667  ← pide rango=bytes=660308868-           ← libVLC wanted the END of the file
  * 09:35:13.921  origen rechazó ... con -1 (intento 1/3)
  * 09:35:15.121  origen rechazó ... con -1 (intento 1/3)
  * 09:35:16.320  precalentada la cola: 256KB en 6205ms
  * 09:35:16.386  ⏱ abrió en 5376ms
  * ```
  *
- * Con un TS libVLC sondea el final del archivo para deducir la duración, y hasta que ese rango no
- * llega NO hay imagen (ver [ColaCaliente], que ya lo sirve de memoria). La comparación del mismo día
- * lo deja sin dudas: el mp4 nuevo pidió SOLO `bytes=0-` y abrió en 1525 ms; el mpegts nuevo pidió
- * también el final y tardó 5376 ms. Y los mpegts que abrieron en 393 y 421 ms eran el mismo título
- * ya visto, con la cola todavía en memoria.
+ * With a TS, libVLC used to probe the end of the file to deduce the duration, and until that
+ * range arrived there was NO picture (see [ColaCaliente], which already serves it from memory).
+ * La comparación del mismo día lo deja sin dudas: el mp4 nuevo pidió SOLO `bytes=0-` y abrió en
+ * 1525 ms; el mpegts nuevo pidió también el final y tardó 5376 ms. Y los mpegts que abrieron en
+ * 393 y 421 ms eran el mismo título ya visto, con la cola todavía en memoria.
  *
  * Ahí está el desperdicio que esto arregla: [ColaCaliente] y `abrirConDuplicado` ya atacan el
  * sondeo y los rechazos del CDN, pero esos 256 KB vivían en un mapa en memoria, así que CADA

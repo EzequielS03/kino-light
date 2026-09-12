@@ -62,8 +62,10 @@ android {
 
     buildTypes {
         release {
-            // R8 apagado a propósito: libVLC llama por JNI a clases/campos que el shrinker no ve
-            // referenciados y borraría. El APK pesa más, pero funciona.
+            // R8 stays off on this branch. The reason it was originally turned off (libVLC's JNI
+            // calls into classes/fields the shrinker couldn't see referenced) is gone now that
+            // libVLC is deleted, but turning R8 on is a separate decision that needs its own device
+            // verification pass -- not a side effect of a comment cleanup.
             isMinifyEnabled = false
             if (hayFirma) signingConfig = signingConfigs.getByName("release")
         }

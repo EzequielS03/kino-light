@@ -39,16 +39,15 @@ import kotlinx.coroutines.delay
 private const val TAG = "LiveExo"
 
 /**
- * Reproduce el canal en vivo de Magis usando ExoPlayer (Task 1, poda de light-magis — gate de
- * VLC). Reemplaza a VLC como reproductor del vivo; ver el KDoc de
- * [com.arkiv.player.ui.player.PlayerViewModel.abrirCanalActual] y el brief de la tarea para el
- * porqué del cambio.
+ * Plays the Magis live channel using ExoPlayer (Task 1, light-magis pruning -- the VLC gate).
+ * Replaced VLC as the live player; see the KDoc of
+ * [com.arkiv.player.ui.player.PlayerViewModel.abrirCanalActual] and the task brief for why.
  *
- * [mediaUrl] ya llega servida por [com.arkiv.player.playback.LiveHlsProxy] en `127.0.0.1`, con el
- * `Content-Auth`/`Content-License` del CDN inyectados por el proxy en cada petición — ExoPlayer la
- * descarga como HTTP plano, igual que hace [MagisExoPlayer] con el proxy de VOD. No hace falta
- * pasarle headers propios: la razón de ser del proxy es justamente que VLC no podía mandar esos
- * headers, y ExoPlayer tampoco los necesita porque nunca los ve — los pone el proxy.
+ * [mediaUrl] already arrives served by [com.arkiv.player.playback.LiveHlsProxy] on `127.0.0.1`,
+ * with the CDN's `Content-Auth`/`Content-License` injected by the proxy on every request --
+ * ExoPlayer downloads it as plain HTTP, the same way [MagisExoPlayer] does with the VOD proxy. No
+ * need to pass it its own headers: the proxy exists precisely because VLC couldn't send those
+ * headers, and ExoPlayer doesn't need them either since it never sees them -- the proxy sets them.
  *
  * A diferencia de [MagisExoPlayer]:
  * - Sin `startPositionMs`/reanudación: un directo no tiene "dónde ibas".
@@ -75,8 +74,9 @@ internal fun LiveExoPlayer(
      * recrearía/re-prepararía el player: la pantalla se quedaría congelada en el canal viejo. Pasar
      * `liveItem.episodeId` (que sí cambia por canal) combinado con `generacionVivo` (que sube en
      * cada reapertura, incluida la del MISMO canal tras un corte -- ver su KDoc en
-     * PlayerViewModel) cubre los dos casos. Es el equivalente ExoPlayer de lo que antes lograba
-     * `controller.setMediaItems(...)+prepare()` en el VLC de siempre, forzado por esa misma marca.
+     * PlayerViewModel) cubre los dos casos. It's the ExoPlayer equivalent of what
+     * `controller.setMediaItems(...)+prepare()` used to achieve on the old VLC player, forced by
+     * that same key.
      */
     key: Any,
     espejo: EspejoDelPlayer,

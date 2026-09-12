@@ -3,8 +3,9 @@ package com.arkiv.player.playback
 /**
  * When the end of playback really is the end of the chapter.
  *
- * libVLC fires the same signal (`EndReached`) when the chapter finished as when the stream ran out
- * of data: Magis's CDN going quiet, or -- for a source removed in this branch's pruning -- a
+ * Players fire the same completion signal (media3's `Player.STATE_ENDED`, or libVLC's
+ * `EndReached` before it) when the chapter finished as when the stream ran out of data: Magis's
+ * CDN going quiet, or -- for a source removed in this branch's pruning -- a
  * torrent with no peers or a web URL that expired. The screen uses that signal to move to the next
  * chapter, so without telling the two apart a network hiccup mid-chapter turned into a skip -- and
  * the next chapter could stall the same way, cascading through the whole series.
@@ -22,7 +23,7 @@ object AutoAvance {
 
     /**
      * @param positionMs última posición conocida por la pantalla (la sondea cada 0,5 s). No se lee
-     *   del player en el momento del aviso a propósito: al terminar, VLC puede devolver 0.
+     *   del player en el momento del aviso a propósito: al terminar, el player puede devolver 0.
      * @param durationMs duración del capítulo, o 0 si no se pudo sondear (pasa en magis, donde la
      *   sonda a veces pierde contra el CDN — ahí se decide sólo por lo que llegó a sonar).
      */

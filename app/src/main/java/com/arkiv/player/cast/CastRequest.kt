@@ -18,7 +18,7 @@ data class CastRequest(
  * `mediaUrl` when it's set -- archive.org and web, which were the origin of this case, were
  * removed in this branch's pruning.
  * Live (Task 18): the URL is that of the LOCAL HTTP server (the `LiveHlsProxy` proxy) reachable
- * over the LAN -- `mediaUrl` is always the loopback that VLC consumes on this same device, and
+ * over the LAN -- `mediaUrl` is always the loopback the local player consumes on this same device, and
  * `castUrl` doesn't exist for live channels (there's never a fallback mp4 h.264, it's a live
  * feed). A live feed also has no "where you were": `startPositionMs` is forced to 0 no matter
  * what's requested, and the MIME is always that of an HLS playlist, not what the file extension

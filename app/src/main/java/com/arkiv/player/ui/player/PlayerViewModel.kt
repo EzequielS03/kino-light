@@ -57,7 +57,10 @@ data class PlayerData(
      * pruning -- archive, torrent, web), where the notion doesn't exist.
      */
     val adulto: Boolean = false,
-    /** Posición de arranque para reanudar (ExoPlayer, p.ej. magisItem). VLC usa PlaylistData.startPositionMs. */
+    /**
+     * Start position to resume (ExoPlayer, e.g. magisItem). The local player uses
+     * PlaylistData.startPositionMs instead.
+     */
     val startPositionMs: Long = 0L,
 )
 
@@ -249,7 +252,7 @@ class PlayerViewModel internal constructor(
      * Son dos situaciones distintas que hasta ahora compartían canal. "No hay peers" o "no se pudo
      * resolver la fuente" significan que NO hay nada sonando: el cartel tiene que quedarse. En
      * cambio [onPlaybackFailed] se dispara con un PlaybackException, y de esos hay que se reparan
-     * solos —un tirón de red, un rebuffer que VLC remonta— con el video siguiendo de largo. Ahí el
+     * solos —un tirón de red, un rebuffer que el player remonta— con el video siguiendo de largo. Ahí el
      * cartel queda mintiendo sobre un video que anda bien, y encima tapa los controles: la barra se
      * compone con `loadError == null`, así que mientras esté en pantalla el D-pad no llega al
      * slider y no se puede ni pausar. Visto en el Fire TV el 2026-08-12.
@@ -588,11 +591,11 @@ class PlayerViewModel internal constructor(
     /**
      * El canal se está reproduciendo de verdad: se le repone el presupuesto de reaperturas.
      *
-     * Pide la POSICIÓN y no un booleano porque `isPlaying` se pone en true apenas VLC abre el
-     * medio, antes del primer fotograma: con eso, un canal que reabría y moría en `pos=0ms`
-     * reponía igual el presupuesto, el tope no se agotaba nunca y el aviso de [reabrirVivoPorCorte]
-     * era inalcanzable. [MINIMO_VIVO_SANO_MS] es la línea entre "se recuperó" y "reabrió y se cayó
-     * de nuevo".
+     * Asks for the POSITION and not a boolean because `isPlaying` used to turn true as soon as VLC
+     * opened the media, before the first frame: with that, a channel that reopened and died at
+     * `pos=0ms` still replenished the budget, the ceiling never ran out, and
+     * [reabrirVivoPorCorte]'s warning was unreachable. [MINIMO_VIVO_SANO_MS] is the line between
+     * "it recovered" and "it reopened and dropped again".
      */
     fun vivoAndando(posicionMs: Long) {
         if (reaperturasVivo == 0 || posicionMs < MINIMO_VIVO_SANO_MS) return
@@ -757,8 +760,8 @@ class PlayerViewModel internal constructor(
      * describe nada y se va.
      *
      * Lo llama el sondeo de la pantalla en cada tick mientras el player esté listo y reproduciendo,
-     * y no el `onIsPlayingChanged` del listener, a propósito: hay tropiezos que VLC remonta sin que
-     * `isPlaying` llegue a caer, así que colgado de esa transición el cartel se quedaba puesto
+     * y no el `onIsPlayingChanged` del listener, a propósito: hay tropiezos que el player remonta
+     * sin que `isPlaying` llegue a caer, así que colgado de esa transición el cartel se quedaba puesto
      * justamente en el caso más común. Es idempotente y sale por el `if` en cuanto no hay nada que
      * limpiar, que es siempre salvo el instante posterior a un fallo.
      *
@@ -774,10 +777,10 @@ class PlayerViewModel internal constructor(
     /**
      * Reproduce un ítem de Magis.
      *
-     * El CDN exige `Content-Auth` y `Content-License`, y libVLC solo sabe mandar Referer y
-     * User-Agent: por eso el stream va por el proxy local, que sí puede ponerlos en la petición al
-     * origen. El [ref] guardado se manda tal cual a `MagisResolve.resolveVod`; la app nunca lo
-     * interpreta.
+     * The CDN requires `Content-Auth` and `Content-License`; the stream goes through the local
+     * proxy, which can put them on the request to the origin -- libVLC, back when it played this,
+     * could only send Referer and User-Agent. El [ref] guardado se manda tal cual a
+     * `MagisResolve.resolveVod`; la app nunca lo interpreta.
      */
     private suspend fun loadMagis(episodeId: String) {
         // El contenido de adultos NO tiene fila en la biblioteca —esa es toda la idea, ver
@@ -820,7 +823,7 @@ class PlayerViewModel internal constructor(
         val cabecera = if (efimero != null) null else repo.headerInfo(episodeId)
         // `directo`: el proxy reenvía cada Range al CDN sin cachear. Con la caché (el camino de
         // archive) la descarga de ~1 GB se corta, el proxy borra el archivo y vuelve a empezar en 0
-        // mientras VLC sigue leyendo por el offset viejo → el TS le llega con huecos, el tiempo salta
+        // mientras el player sigue leyendo por el offset viejo → el TS le llega con huecos, el tiempo salta
         // de a minutos y el video se muere. Sin caché no hay nada que truncar.
         val urlLocal = archiveCacheProxy.proxyUrl(play.url, play.headers, directo = true)
         // THE DURATION IS NO LONGER PROBED BEFORE STARTING. The player reports it on its own once
@@ -845,12 +848,12 @@ class PlayerViewModel internal constructor(
         }
         // El ARRANQUE CALIENTE: lo ÚNICO que se espera antes de abrir el video.
         //
-        // Se precalienta en el byte 0, que es donde VLC abre SIEMPRE desde que magis dejó de abrir
-        // por ventana: reanuda saltando por tiempo, no abriendo el stream más adelante. Sin él, si
-        // la primera lectura se demora libVLC se rinde identificando el stream y se queda SIN PISTAS
-        // para siempre (negro y mudo, con el reloj disparado).
+        // Se precalienta en el byte 0, que es donde el player abre SIEMPRE desde que magis dejó de
+        // abrir por ventana: reanuda saltando por tiempo, no abriendo el stream más adelante. Sin
+        // él, si la primera lectura se demora libVLC se rendía identificando el stream y se quedaba
+        // SIN PISTAS para siempre (negro y mudo, con el reloj disparado).
         //
-        // La COLA sigue bajándose por detrás —para los sondeos de EOF de libVLC, que quiere el final
+        // La COLA sigue bajándose por detrás —para los sondeos de EOF del player, que quiere el final
         // del archivo apenas abre— pero ya nunca frena el arranque: `esperarCola=false` sin
         // condiciones. Ver ArchiveCacheProxy.precalentar y PrecalentadoNoBloqueaTest.
         val tArranque = System.currentTimeMillis()
@@ -869,7 +872,7 @@ class PlayerViewModel internal constructor(
         }
         val msArranque = System.currentTimeMillis() - tArranque
         // Si el gateway mandó la duración, se aprovecha; si no, se arranca sin ella y la completa
-        // VLC al abrir. Nada de esto pide un solo byte extra.
+        // el player al abrir. Nada de esto pide un solo byte extra.
         val duracion = play.durationMs
         Log.w(PLAY, "loadMagis() arranque caliente=${msArranque}ms → duracion=${duracion}ms")
         val item = PlayerData(
@@ -909,13 +912,13 @@ class PlayerViewModel internal constructor(
         // decidimos no anotar — y se prefiere eso a dejar el rastro.
         val startPos = if (efimero != null) 0L else safeStartPosition(episodeId, SourceKind.MAGIS)
         // REANUDAR: se le avisa al proxy A DÓNDE va a saltar el reproductor, para que prepare esa
-        // zona mientras el video abre. libVLC abre siempre en el byte 0 y recién después busca el
-        // minuto guardado: medido en el Fire TV, entre una cosa y la otra se bajaban 2,5 MB del
+        // zona mientras el video abre. El player abre siempre en el byte 0 y recién después busca
+        // el minuto guardado: medido en el Fire TV, entre una cosa y la otra se bajaban 2,5 MB del
         // principio de la película que después se tiraban, y eso costaba 3,4 s con la imagen
         // congelada en el segundo 0. Ver ArchiveCacheProxy.precalentarSalto.
         //
         // La duración sale del progreso GUARDADO y no del gateway: acá el gateway suele mandar 0
-        // (la duración la calcula VLC al abrir, que es demasiado tarde para esto), mientras que
+        // (la duración la calcula el player al abrir, que es demasiado tarde para esto), mientras que
         // quien ya vio un pedazo del capítulo tiene la duración anotada de esa vez.
         if (startPos > 0L) {
             val guardado = runCatching { repo.getPlayback(episodeId) }.getOrNull()

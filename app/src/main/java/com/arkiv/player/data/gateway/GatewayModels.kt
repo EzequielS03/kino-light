@@ -54,8 +54,8 @@ data class GatewayPlayable(
     /**
      * Duración real en ms cuando la fuente la sabe (0 = no la sabe).
      *
-     * Existe por el MPEG-TS crudo de magis: no la lleva en ninguna cabecera y libVLC tampoco la
-     * deduce sobre HTTP, así que sin este dato hay que bajar las dos puntas del archivo para leer
+     * Existe por el MPEG-TS crudo de magis: no la lleva en ninguna cabecera y libVLC couldn't
+     * deduce it over HTTP either, así que sin este dato hay que bajar las dos puntas del archivo para leer
      * sus PCR ([com.arkiv.player.playback.TsDurationProbe]) contra un CDN que tarda entre 0,2 s y
      * 20 s en contestar un rango. Cuando esa sonda pierde, la película queda con la barra llena,
      * 00:00 a la derecha y sin poder adelantar. El portal ya sabe cuánto dura: esto lo trae.

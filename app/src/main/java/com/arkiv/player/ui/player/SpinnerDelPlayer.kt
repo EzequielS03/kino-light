@@ -11,9 +11,9 @@ package com.arkiv.player.ui.player
  * Las cuatro razones son distintas y todas terminan en pantalla negra:
  *  - [sinPlaylist]: todavía no se resolvió qué reproducir.
  *  - [buffereando]: el player está cargando datos.
- *  - [sinPrimeraImagen]: "arranca negro y con sonido" — libVLC ya suelta el audio pero aún no dio
- *    el primer fotograma, y ahí `playbackState` NO es BUFFERING, así que sin esta bandera la
- *    pantalla se quedaba sin spinner y sin imagen.
+ *  - [sinPrimeraImagen]: "starts black with sound" -- the player already lets the audio
+ *    through but hasn't rendered the first frame yet, and there `playbackState` is NOT
+ *    BUFFERING, so without this flag the screen was left with no spinner and no picture.
  *  - [perdioLaSalidaDeVideo]: HABÍA imagen y se perdió al volver del fondo (hasta 15 s).
  *
  * [casting] anula la última: la imagen la pone la TV, no nosotros, así que esperar la salida de

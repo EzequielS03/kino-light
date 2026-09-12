@@ -1,24 +1,25 @@
 package com.arkiv.player.playback
 
 /**
- * Un buffer que se llena por un lado mientras se lee por el otro.
+ * A buffer that fills on one end while it's read from the other.
  *
- * Existe para que el arranque de magis deje de BLOQUEAR. Hasta el 2026-08-11, `precalentar` bajaba
- * los 2 MB del arranque enteros y recién ahí se publicaba la playlist: medido en el Fire TV, eso
- * costaba entre 0,5 y 5 s de spinner en cada reproducción, y era la fase dominante del arranque.
+ * Exists so magis's startup stops BLOCKING. Until 2026-08-11, `precalentar` downloaded the whole
+ * 2 MB startup chunk before publishing the playlist: measured on the Fire TV, that cost 0.5 to 5s
+ * of spinner on every playback, and was the dominant phase of startup.
  *
- * Pero lo que libVLC necesita para no rendirse identificando el stream NO son los 2 MB: es que su
- * PRIMERA LECTURA no espere (ver [ArchiveCacheProxy.precalentar]). Con esto, el proxy le entrega los
- * bytes a medida que llegan del origen: VLC abre apenas hay algo, y nunca se queda sin datos porque
- * el buffer sigue creciendo detrás. Es lo que hace cualquier reproductor que "arranca de una" —
- * empezar y seguir bajando— en vez de descargar un bloque fijo primero.
+ * But what libVLC needed to avoid giving up on identifying the stream was never the 2 MB itself:
+ * it was that its FIRST READ didn't wait (see [ArchiveCacheProxy.precalentar]). With this, the
+ * proxy hands out bytes as they arrive from the origin: the player opens as soon as there's
+ * something, and never runs out of data because the buffer keeps growing behind it. It's what any
+ * player that "starts right away" does -- start and keep downloading -- instead of fetching a
+ * fixed block first.
  *
- * Bajar el bloque fijo ya se probó y no es lo mismo: recortarlo a 512 KB dejó a VLC sin datos a
- * mitad de la identificación (ver la nota de `ARRANQUE_CALIENTE`). Acá no se recorta nada — solo se
- * deja de esperar.
+ * Downloading a fixed block was already tried and isn't the same: trimming it to 512 KB left the
+ * player without data mid-identification (see the note on `ARRANQUE_CALIENTE`). Nothing gets
+ * trimmed here -- it just stops waiting.
  *
- * Seguro para un escritor y varios lectores: [escribir] lo llama el hilo que baja del origen, y
- * [porcion]/[esperarHasta] los hilos que le sirven a VLC.
+ * Safe for one writer and several readers: [escribir] is called by the thread downloading from
+ * the origin, and [porcion]/[esperarHasta] by the threads serving the player.
  */
 class BufferQueCrece(capacidad: Int) {
 

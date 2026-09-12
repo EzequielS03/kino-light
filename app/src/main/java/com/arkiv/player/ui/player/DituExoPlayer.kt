@@ -50,8 +50,9 @@ private fun esRecuperable(error: PlaybackException): Boolean =
 /**
  * El reproductor de Caracol: MPEG-DASH con Widevine.
  *
- * VLC no entra acá: libVLC no negocia licencias Widevine. Por eso es ExoPlayer, igual que
- * [MagisExoPlayer] y [LiveExoPlayer], y alimenta el mismo [EspejoDelPlayer] que ellos.
+ * ExoPlayer, same as [MagisExoPlayer] and [LiveExoPlayer], feeding the same [EspejoDelPlayer] they
+ * do. libVLC never negotiated Widevine licenses, so Caracol was always going to need ExoPlayer even
+ * before the rest of the app dropped VLC.
  *
  * El `DrmSessionManager` se arma a mano, como en el reproductor de Caracol de `main`, para poder
  * apagar el keepalive de la sesión DRM (ver el comentario junto a `setSessionKeepaliveMs`): el
@@ -284,8 +285,8 @@ internal fun DituExoPlayer(
         factory = { ctx ->
             PlayerView(ctx).apply {
                 useController = false
-                // Las teclas del D-pad las atiende el layout de VLC de la pantalla, que pide el
-                // foco para eso: esta vista no tiene que quitárselo.
+                // The screen's own video view handles the D-pad keys and requests focus for that:
+                // this view doesn't need to take it away.
                 isFocusable = false
                 isFocusableInTouchMode = false
                 descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS

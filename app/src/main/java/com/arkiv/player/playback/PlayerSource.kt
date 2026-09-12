@@ -14,21 +14,22 @@ data class PlayerSourceTag(
     val userAgent: String? = null,
     val proxyUrl: String? = null,     // web: URL proxeada de respaldo si la directa falla (403/geo/anti-leech)
     /**
-     * Headers extra que exige el origen, más allá de Referer y User-Agent.
+     * Extra headers the origin requires, beyond Referer and User-Agent.
      *
-     * Existe porque magis sirve el VOD detrás de `Content-Auth` y `Content-License`, y libVLC solo
-     * expone `:http-referrer` y `:http-user-agent`: no hay forma de mandarle un header cualquiera.
-     * Estos viajan por el proxy local, que sí puede ponerlos en la petición al origen.
+     * Exists because magis serves its VOD behind `Content-Auth` and `Content-License`, and libVLC
+     * only exposed `:http-referrer` and `:http-user-agent` -- there was no way to send it an
+     * arbitrary header. These still travel through the local proxy, which can put them on the
+     * request to the origin.
      */
     val extraHeaders: Map<String, String> = emptyMap(),
     /**
-     * Arrancar por SOFTWARE en vez de por hardware.
+     * Start by SOFTWARE decoding instead of hardware.
      *
-     * Existe por los HEVC de magis: en device el decodificador por hardware falla a menudo al
-     * crearse con este contenido y libVLC responde descartando las pistas enteras (`pistas=v0/a0`),
-     * o sea ni imagen ni sonido, mientras el demuxer corre a vaciar el archivo. Por software esos
-     * mismos títulos reproducen bien. Sabiéndolo de antemano se evita el intento fallido y los
-     * ~10 s de pantalla negra que tardaba el rescate automático en actuar.
+     * Exists for magis's HEVC titles: on device, the hardware decoder often failed to initialise
+     * with this content and libVLC used to respond by dropping every track (`pistas=v0/a0`) -- no
+     * picture, no sound -- while the demuxer kept draining the file. The same titles play fine by
+     * software. Knowing this ahead of time skips the failed attempt and the ~10s of black screen
+     * the automatic rescue used to take to kick in.
      */
     val preferirSoftware: Boolean = false,
 ) {

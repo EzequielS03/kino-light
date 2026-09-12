@@ -19,8 +19,8 @@ enum class Contenedor(val mime: String) {
  * al lado del cast, que es donde adivinar se paga. Había tres tablas de MIME distintas decidiendo
  * por extensión y contradiciéndose entre sí: lo desconocido era matroska en `TorrentStreamServer`,
  * mp4 en `LocalFileServer` y mp4 otra vez en `CastRequestBuilder`. Ese string es exactamente lo que
- * el receptor de Chromecast y el renderer DLNA usan para decidir si abren el stream; libVLC lo
- * ignora y sondea, ellos no. Un `.avi` o un `.ts` de un torrent se le anunciaba a la TV como
+ * el receptor de Chromecast y el renderer DLNA usan para decidir si abren el stream; libVLC used
+ * to ignore it and probe instead, they don't. Un `.avi` o un `.ts` de un torrent se le anunciaba a la TV como
  * Matroska, y un `.mkv` bajado de la NUC —que `LocalFilePaths.fileNameFor` guarda como `.mp4`
  * porque la URL de origen es una página web sin extensión— se anunciaba como mp4.
  *

@@ -52,10 +52,10 @@ private const val TAG = "MagisExo"
  * headers de autenticación del CDN transparentemente. ExoPlayer la descarga como HTTP plano.
  *
  * [DefaultMediaSourceFactory] auto-detecta HLS, DASH o progresivo (MP4/TS) según el tipo de
- * contenido. Para la barra de progreso y los controles usa el mismo [EspejoDelPlayer] que VLC.
+ * contenido. For the progress bar and controls it uses the same [EspejoDelPlayer] VLC used to.
  *
- * Usa [TextureView] directamente para que [onTextureViewReady] exponga la superficie y
- * `capturarFrame` funcione igual que con VLC. El aspect ratio se mantiene escuchando
+ * Uses [TextureView] directly so [onTextureViewReady] exposes the surface and `capturarFrame`
+ * works the same way it did with VLC. El aspect ratio se mantiene escuchando
  * [Player.Listener.onVideoSizeChanged]: en portrait el video queda centrado en formato horizontal.
  *
  * Los subtítulos externos del portal se pasan como [subtitleConfigs] y ExoPlayer los carga

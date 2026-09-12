@@ -54,10 +54,10 @@ object LangTokens {
     }
 
     /**
-     * Clasifica una pista EXTERNA por el sufijo de idioma de su nombre de archivo. libVLC names
-     * `addSlave` tracks by their path, so this works for any standalone `.srt` that arrives that
-     * way (the torrent source that motivated this was removed in this branch's pruning). If there's
-     * no recognizable suffix, it falls back to [classify] on the whole name.
+     * Clasifica una pista EXTERNA por el sufijo de idioma de su nombre de archivo. libVLC used to
+     * name `addSlave` tracks by their path, and this still works for any standalone `.srt` that
+     * arrives that way (the torrent source that motivated this was removed in this branch's
+     * pruning). If there's no recognizable suffix, it falls back to [classify] on the whole name.
      */
     fun classifyFileName(raw: String): TrackLang {
         val s = raw.lowercase()
@@ -97,10 +97,10 @@ object TrackSelector {
 
     /**
      * Id de pista a seleccionar según [order], o null si nada coincide (→ dejar la pista por defecto
-     * de VLC). Ignora la pseudo-pista "Disable" (id<0).
+     * del reproductor). Ignora la pseudo-pista "Disable" (id<0).
      *
      * [requireChoice] = true (audio): con una sola pista real no hay nada que elegir y se devuelve
-     * null, para no pelearle a VLC por una decisión que no existe. false (subtítulos): un único
+     * null, para no pelearle al reproductor por una decisión que no existe. false (subtítulos): un único
      * subtítulo en japonés SÍ hay que poder prenderlo.
      *
      * [classifier] permite pasar [LangTokens.classifyFileName] para pistas externas.

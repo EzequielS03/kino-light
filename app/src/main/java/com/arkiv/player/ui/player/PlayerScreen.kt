@@ -180,8 +180,8 @@ private const val MOSTRAR_VELOCIDAD_Y_ZOOM_EN_TELEFONO = false
 
 // Modo noche: el velo negro va ENCIMA del video, con opacidad nivel/DIM_MAX_LEVEL — 0 = brillo
 // normal (sin velo), DIM_MAX_LEVEL = negro total. No se usa el brillo real de la pantalla porque
-// en el Fire TV Stick es no-op (el brillo lo manda el televisor, no Android), y libVLC 3.x no
-// expone el filtro `adjust`. Cambiar la finura del paso = cambiar solo esta línea.
+// en el Fire TV Stick es no-op (el brillo lo manda el televisor, no Android), and libVLC 3.x
+// didn't expose the `adjust` filter. Cambiar la finura del paso = cambiar solo esta línea.
 
 /**
  * Cuánto se espera, sin tocar nada, antes de confirmar una ráfaga de saltos incrementales (ver
@@ -505,7 +505,7 @@ private fun PlayerContent(
         com.arkiv.player.playback.NowPlaying.liveChannelName = liveCanal?.nombre
     }
 
-    // ExoPlayer (Magis): NowPlaying no se actualiza por onMediaItemTransition (VLC no toca nada).
+    // ExoPlayer (Magis): NowPlaying no se actualiza por onMediaItemTransition.
     LaunchedEffect(magisItem?.episodeId) {
         val epId = magisItem?.episodeId ?: return@LaunchedEffect
         NowPlaying.episodeId = epId
@@ -871,8 +871,8 @@ private fun PlayerContent(
             // ¿Volvimos sobre una pantalla NUEVA? Reusar el media con una superficie nueva mata al
             // decodificador (ver MediaReusePolicy.decide para los números medidos). The loaded media
             // already painted (the service player's decoder counters) but not on THIS screen, so it
-            // painted on another screen's surface: the question libVLC's
-            // `superficieDistintaALaDelVideo` answered. False while it never painted.
+            // painted on another screen's surface: the same question libVLC's
+            // `superficieDistintaALaDelVideo` used to answer. False while it never painted.
             pantallaNueva = (serviceExo.videoDecoderCounters?.renderedOutputBufferCount ?: 0) > 0 &&
                 !videoLocal.renderedFirstFrame,
         )
@@ -1222,8 +1222,8 @@ private fun PlayerContent(
             if (ready) {
                 espejo.leyoElReloj(contentPositionMs(), contentDurationMs())
                 // El presupuesto de reaperturas se repone con la POSICIÓN, no con `espejo.reproduciendo`.
-                // Medido en el Fire TV el 2026-08-14: `espejo.reproduciendo` se pone en true apenas VLC abre,
-                // antes del primer fotograma, así que un canal que reabría y moría en pos=0ms
+                // Measured on the Fire TV on 2026-08-14: `espejo.reproduciendo` used to turn true as soon
+                // as VLC opened, before the first frame, así que un canal que reabría y moría en pos=0ms
                 // reponía igual las tres reaperturas — el tope no se agotaba nunca y el aviso en
                 // pantalla no podía aparecer. Reponer solo cuando de verdad se reprodujo un rato
                 // es lo que distingue "se recuperó" de "reabrió y se cayó de nuevo".

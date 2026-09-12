@@ -6,9 +6,9 @@ import java.util.Base64
 /**
  * Empaqueta un mapa de headers dentro de una URL.
  *
- * Hace falta porque libVLC solo sabe mandar `Referer` y `User-Agent`: cualquier otro header
- * (los `Content-Auth` / `Content-License` de magis) tiene que viajar hasta el proxy local por
- * el único canal que VLC respeta, que es la propia URL.
+ * Needed because libVLC could only send `Referer` and `User-Agent`: any other header (magis's
+ * `Content-Auth`/`Content-License`) had to travel to the local proxy through the only channel VLC
+ * respected, the URL itself.
  *
  * Base64 URL-safe sin padding: el valor va como parámetro de query y no debe traer `+`, `/` ni `=`.
  * Se usa `java.util.Base64` (API 26+, y el minSdk es 26) y no `android.util.Base64` porque este

@@ -3,9 +3,10 @@ package com.arkiv.player.playback
 /**
  * Si hay que tapar la pantalla mientras se espera la PRIMERA imagen de un media.
  *
- * Existe por el "arranca negro y con sonido": libVLC llega a `Playing` y suelta el audio en cuanto
- * tiene con qué, pero la primera imagen puede tardar bastante más —el decodificador HEVC del Fire
- * Stick tiene que arrancar— y en ese hueco `playbackState` ya NO es `STATE_BUFFERING`. La pantalla
+ * Existe por el "arranca negro y con sonido": libVLC used to reach `Playing` and let the audio go
+ * as soon as it had something to play, but la primera imagen puede tardar bastante más —el
+ * decodificador HEVC del Fire Stick tiene que arrancar— y en ese hueco `playbackState` ya NO es
+ * `STATE_BUFFERING`. La pantalla
  * se quedaba entonces sin spinner Y sin imagen: negro pelado con audio, que desde el sillón se ve
  * igual que un cuelgue. Medido el 2026-08-13 en el Fire TV, entre la primera imagen y el video
  * caminando llegó a haber 8,5 s.
@@ -37,7 +38,9 @@ object EsperaDePrimeraImagen {
     /**
      * @param cargadoHaceMs desde que se cargó el media (negativo = todavía no hay ninguno).
      * @param huboImagen si este media ya dio alguna imagen.
-     * @param hayVideoAhora si libVLC está pintando en este instante.
+     * @param hayVideoAhora si el player está pintando en este instante (libVLC-era parameter; the
+     *   local ExoPlayer path always passes `false` here and answers through [huboImagen]/
+     *   [pistasDeVideo] instead).
      * @param pistasDeVideo cuántas pistas de video declara el media (0 = todavía no sabe, o no hay).
      * @param pistasDeAudio ídem para audio.
      * @param pedidoMs a qué punto se pidió reanudar (0 = no se pidió ninguno).
@@ -57,8 +60,8 @@ object EsperaDePrimeraImagen {
         if (cargadoHaceMs > TOPE_MS) return false     // pasó el tope: mejor un negro que un spinner eterno
         // REANUDACIÓN TODAVÍA EN CAMINO: hay imagen, pero NO es la del punto que se pidió.
         //
-        // Medido en el Fire TV el 2026-08-14: `:start-time` no abre en el minuto guardado. VLC abre
-        // en el byte 0, saca un frame de ahí (`⏱ abrió en 1025ms`) y RECIÉN ENTONCES salta —el
+        // Medido en el Fire TV el 2026-08-14: `:start-time` no abría en el minuto guardado. VLC
+        // opened at byte 0, pulled a frame from there (`⏱ abrió en 1025ms`) and only THEN jumped —el
         // `PAUSA (buffering) en pos=0ms` que sigue dura 1,5 s—. Esa primera imagen prendía
         // `huboImagen` y apagaba el spinner, así que el usuario se quedaba mirando un fotograma
         // congelado DEL PRINCIPIO, con el audio ya sonando, hasta que el salto aterrizaba. Se ve
@@ -73,7 +76,7 @@ object EsperaDePrimeraImagen {
         //
         // Se pregunta por "hay audio y no hay video" y no por "la lista está vacía", y esa
         // diferencia es todo el asunto: al abrir, TODAS las cuentas son 0 —y eso no significa que no
-        // haya video, significa que libVLC todavía no sabe—. Es justo el instante en el que este
+        // haya video, significa que el player todavía no sabe—. Es justo el instante en el que este
         // spinner tiene que estar puesto.
         if (pistasDeVideo <= 0 && pistasDeAudio > 0) return false
         return true
