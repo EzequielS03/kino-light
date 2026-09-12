@@ -21,9 +21,9 @@ import androidx.media3.common.MimeTypes
 object CastAudioSupport {
 
     /**
-     * La familia AAC. Cast la lista como soportada, pero se cae con más de 2 canales: el módulo de
-     * Chromecast de VLC lo prohíbe explícitamente ("Disallow multichannel AAC") y Jellyfin tuvo que
-     * arreglar exactamente lo mismo.
+     * The AAC family. Cast lists it as supported, but it falls over with more than 2 channels:
+     * VLC's own Chromecast module forbids it explicitly ("Disallow multichannel AAC") and Jellyfin
+     * had to fix that exact same thing.
      */
     private val AAC = setOf(MimeTypes.AUDIO_AAC)
 

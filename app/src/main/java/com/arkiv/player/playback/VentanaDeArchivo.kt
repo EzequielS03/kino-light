@@ -40,10 +40,6 @@ object VentanaDeArchivo {
     /** Tamaño del archivo virtual que ve el reproductor: lo que queda desde [inicio]. */
     fun tamanoVisible(total: Long, inicio: Long): Long = (total - inicio).coerceAtLeast(0L)
 
-    /** Fracción del archivo que corresponde a [destinoMs]. Asume tasa de bits pareja. */
-    fun fraccionDe(destinoMs: Long, duracionMs: Long): Float =
-        if (duracionMs <= 0L) 0f else (destinoMs.toDouble() / duracionMs).coerceIn(0.0, 1.0).toFloat()
-
     /**
      * El `Range` que hay que pedirle al origen para el [rango] que pidió el reproductor.
      *

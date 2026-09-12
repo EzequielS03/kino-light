@@ -76,12 +76,6 @@ class VentanaDeArchivoTest {
 
     // ─── cuándo abrir ventana en vez de saltar ─────────────────────────────
 
-    @Test fun la_fraccion_sale_del_tiempo_sobre_la_duracion() {
-        assertEquals(0.5f, VentanaDeArchivo.fraccionDe(4_290_000L, 8_580_000L), 0.0001f)
-        assertEquals(0f, VentanaDeArchivo.fraccionDe(1_000L, 0L), 0.0001f)
-        assertEquals(1f, VentanaDeArchivo.fraccionDe(99_000_000L, 8_580_000L), 0.0001f)
-    }
-
     @Test fun el_total_sale_del_content_range() {
         assertEquals(TOTAL, VentanaDeArchivo.totalDelContentRange("bytes 0-4095/1118023968"))
         assertEquals(0L, VentanaDeArchivo.totalDelContentRange("cualquier cosa"))

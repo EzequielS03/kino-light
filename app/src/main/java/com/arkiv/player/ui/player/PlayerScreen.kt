@@ -808,7 +808,7 @@ private fun PlayerContent(
             casting = casting,
         )
         android.util.Log.w(
-            "ArkivVlc",
+            "ArkivSpinner",
             "spinner=$spinner " +
                 "· sinPlaylist=${playlist == null && magisItem == null && liveItem == null && dituPlay == null} buffering=${espejo.buffereando} sinImagen=$sinPrimeraImagen " +
                 "perdioVideo=$esperandoVideo",
