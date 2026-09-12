@@ -96,14 +96,14 @@ object TrackSelector {
     val DEFAULT_AUDIO = listOf(TrackLang.LATINO, TrackLang.CASTELLANO, TrackLang.DUAL)
 
     /**
-     * Id de pista a seleccionar según [order], o null si nada coincide (→ dejar la pista por defecto
-     * del reproductor). Ignora la pseudo-pista "Disable" (id<0).
+     * Track id to select per [order], or null if nothing matches (→ leave the player's default
+     * track). Ignores the "Disable" pseudo-track (id<0).
      *
-     * [requireChoice] = true (audio): con una sola pista real no hay nada que elegir y se devuelve
-     * null, para no pelearle al reproductor por una decisión que no existe. false (subtítulos): un único
-     * subtítulo en japonés SÍ hay que poder prenderlo.
+     * [requireChoice] = true (audio): with only one real track there's nothing to choose, so it
+     * returns null rather than fighting the player over a decision that doesn't exist. false
+     * (subtitles): a single Japanese subtitle DOES need to be turned on.
      *
-     * [classifier] permite pasar [LangTokens.classifyFileName] para pistas externas.
+     * [classifier] lets [LangTokens.classifyFileName] be passed in, for external tracks.
      */
     fun select(
         tracks: List<Pair<Int, String>>,
