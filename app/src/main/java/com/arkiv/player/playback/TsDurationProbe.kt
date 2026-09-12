@@ -23,8 +23,6 @@ object TsDurationProbe {
 
     private const val TAG = "ArkivTsDur"
 
-    /** Tamaño de un paquete TS. Invariante del formato. */
-    private const val PACKET = 188
 
     /** Cuánto se baja de cada punta para buscar PCR. 256 KB ≈ 1400 paquetes: de sobra (el PCR se
      *  repite como mínimo cada 100 ms por norma). */
@@ -65,25 +63,22 @@ object TsDurationProbe {
     /** Respiro entre intentos: corto a propósito, la gracia es volver a tirar los dados ya. */
     fun esperaEntreIntentosMs(intento: Int): Long = PoliticaOrigen.esperaMs(intento, PERFIL)
 
-    /** El PCR es un contador de 33 bits a 90 kHz: da la vuelta cada ~26,5 h. */
-    private const val PCR_WRAP = 1L shl 33
-
     /** Por encima de esto el parseo se fue a la basura: mejor sin duración que con una inventada. */
     private const val MAX_CREIBLE_MS = 24L * 60 * 60 * 1000
-
-    private data class Pcr(val pid: Int, val base90k: Long)
 
     /**
      * Duración en ms entre el primer PCR de [cabeza] y el último de [cola] del MISMO pid, o 0 si no
      * se puede determinar. Exigir el mismo pid evita mezclar relojes de programas distintos, que
      * darían un número disparatado.
+     *
+     * El parseo de paquetes vive en [MpegTs] desde que [TsSegmenter] necesitó exactamente lo mismo:
+     * dos copias acabarían respondiendo distinto sobre una vuelta del contador o sobre dónde
+     * empieza un paquete, y eso se vería como una barra que no cuadra con el playlist.
      */
     fun durationMs(cabeza: ByteArray, cola: ByteArray): Long {
-        val primero = pcrs(cabeza).firstOrNull() ?: return 0L
-        val ultimo = pcrs(cola).lastOrNull { it.pid == primero.pid } ?: return 0L
-        var delta = ultimo.base90k - primero.base90k
-        if (delta < 0) delta += PCR_WRAP          // el contador dio la vuelta a mitad del archivo
-        val ms = delta * 1000 / 90_000
+        val primero = MpegTs.pcrs(cabeza).firstOrNull() ?: return 0L
+        val ultimo = MpegTs.pcrs(cola).lastOrNull { it.pid == primero.pid } ?: return 0L
+        val ms = MpegTs.deltaTicks(primero.base90k, ultimo.base90k) * 1000 / MpegTs.PCR_HZ
         return if (ms in 1..MAX_CREIBLE_MS) ms else 0L
     }
 
@@ -112,56 +107,6 @@ object TsDurationProbe {
                 "(${System.currentTimeMillis() - t0}ms)",
         )
         ms
-    }
-
-    /** Todos los PCR del bloque, en orden de aparición. */
-    private fun pcrs(buf: ByteArray): List<Pcr> {
-        val inicio = alineacion(buf)
-        if (inicio < 0) return emptyList()
-        val out = ArrayList<Pcr>()
-        var i = inicio
-        while (i + PACKET <= buf.size) {
-            leerPcr(buf, i)?.let { out.add(it) }
-            i += PACKET
-        }
-        return out
-    }
-
-    /**
-     * Offset del primer paquete completo. Un Range cae en cualquier byte, así que la cola llega
-     * cortada a mitad de paquete: se busca el 0x47 que se repite cada 188 bytes (uno suelto puede
-     * ser un byte cualquiera del payload; tres seguidos, no).
-     */
-    private fun alineacion(buf: ByteArray): Int {
-        if (buf.size < PACKET) return -1
-        // El desfase, por definición, cae dentro del primer paquete.
-        val limite = minOf(buf.size - PACKET, PACKET - 1)
-        for (off in 0..limite) {
-            var k = 0
-            var ok = true
-            // Se confirman hasta 3 paquetes seguidos (los que quepan): con uno solo bastaría un
-            // 0x47 cualquiera del payload para engañarnos.
-            while (k < 3 && off + PACKET * (k + 1) <= buf.size) {
-                if (buf[off + PACKET * k] != 0x47.toByte()) { ok = false; break }
-                k++
-            }
-            if (ok && k > 0) return off
-        }
-        return -1
-    }
-
-    /** PCR del paquete que empieza en [i], si lo trae. */
-    private fun leerPcr(buf: ByteArray, i: Int): Pcr? {
-        if (buf[i] != 0x47.toByte()) return null
-        val afc = (buf[i + 3].toInt() shr 4) and 0x3
-        if (afc != 2 && afc != 3) return null                 // sin campo de adaptación → sin PCR
-        val afLen = buf[i + 4].toInt() and 0xFF
-        if (afLen < 7) return null                            // no cabe un PCR (6 bytes + flags)
-        if (buf[i + 5].toInt() and 0x10 == 0) return null     // flag de PCR apagado
-        val b = { k: Int -> buf[i + k].toLong() and 0xFF }
-        val base = (b(6) shl 25) or (b(7) shl 17) or (b(8) shl 9) or (b(9) shl 1) or (b(10) shr 7)
-        val pid = ((buf[i + 1].toInt() and 0x1F) shl 8) or (buf[i + 2].toInt() and 0xFF)
-        return Pcr(pid, base)
     }
 
     /** Un tramo, reintentando: ver [INTENTOS] para por qué son varios y cortos. */
