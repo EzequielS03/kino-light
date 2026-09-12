@@ -122,9 +122,9 @@ class PlaybackService : MediaSessionService() {
                 val ex = item.requestMetadata.extras
                 val b = item.buildUpon()
                 if (uri != null) b.setUri(uri)
-                // Reconstruir el PlayerSourceTag (kind/referer/etc.) que se perdió en el IPC. Ver
-                // PlayerSourceTagIpc: el codec queda ahí (y no acá) para que el round trip sea
-                // testeable sin Robolectric.
+                // Rebuild the PlayerSourceTag (kind/referer/etc.) that the IPC lost. See
+                // PlayerSourceTagIpc: the codec lives there and not here so the round trip is
+                // testable without Robolectric.
                 PlayerSourceTagIpc.decodeFromBundle(ex)?.let { b.setTag(it) }
                 b.build()
             }

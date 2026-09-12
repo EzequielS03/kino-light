@@ -144,8 +144,8 @@ import com.arkiv.player.playback.PlayerSource
 import com.arkiv.player.playback.PlayerSourceTag
 import com.arkiv.player.playback.SourceKind
 import com.arkiv.player.playback.VideoAttachPolicy
-import com.arkiv.player.playback.toIpcBundle
 import com.arkiv.player.playback.setPlayerSourceTag
+import com.arkiv.player.playback.toIpcBundle
 import com.arkiv.player.ui.formatDuration
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivRed
@@ -209,12 +209,12 @@ private fun localMediaItems(items: List<PlayerData>): List<MediaItem> = items.ma
     MediaItem.Builder()
         .setUri(d.mediaUrl)
         .setMediaId(d.episodeId)
-        // La URI en localConfiguration se PIERDE al cruzar MediaController→MediaSession; la
-        // guardamos también en requestMetadata (que sí sobrevive el IPC) para que
-        // PlaybackService.MediaItemResolverCallback.onAddMediaItems la reconstruya en la sesión.
-        // El TAG (kind/referer/etc.) se PIERDE al cruzar controller→session igual que la URI; lo
-        // guardamos en extras (que SÍ sobreviven el IPC, ver PlayerSourceTagIpc) para reconstruirlo
-        // en PlaybackService.
+        // The URI in localConfiguration is LOST crossing MediaController→MediaSession, so we keep
+        // it in requestMetadata too (which does survive the IPC) for
+        // PlaybackService.MediaItemResolverCallback.onAddMediaItems to rebuild on the session.
+        // The TAG (kind/referer/etc.) is LOST crossing controller→session just like the URI, so we
+        // keep it in extras (which DO survive the IPC, see PlayerSourceTagIpc) to rebuild it in
+        // PlaybackService.
         .setRequestMetadata(
             MediaItem.RequestMetadata.Builder().setMediaUri(Uri.parse(d.mediaUrl))
                 .setExtras(tag.toIpcBundle())

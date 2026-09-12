@@ -16,7 +16,7 @@ class PlayerSourceTagTest {
     )
 
     @Test
-    fun `allHeaders junta referer user-agent y los extra`() {
+    fun `allHeaders merges referer user-agent and the extra ones`() {
         val t = tag(
             referer = "https://serieskao.top/",
             userAgent = "Ranger/4.9.4-17294ac0",
@@ -34,41 +34,54 @@ class PlayerSourceTagTest {
     }
 
     @Test
-    fun `allHeaders omite los vacios`() {
+    fun `allHeaders leaves out the empty ones`() {
         assertEquals(emptyMap<String, String>(), tag(referer = "", userAgent = null).allHeaders)
     }
 
     @Test
-    fun `sin extras el comportamiento es el de antes`() {
+    fun `with no extras the behaviour is the old one`() {
         assertEquals(mapOf("Referer" to "https://x/"), tag(referer = "https://x/").allHeaders)
     }
 
     /**
-     * GUARDIA DEL IPC. El tag NO cruza de `MediaController` a `MediaSession`: se desarma en los
-     * extras que arma `PlayerScreen.localMediaItems` y se rearma en
-     * `PlaybackService.MediaItemResolverCallback`. Un campo que se agregue acá y no en esos dos
-     * lugares llega del otro lado con su valor por defecto, EN SILENCIO — sin error, sin log, sin
-     * nada. Ya pasó una vez: `preferirSoftware` se quedaba en false y los HEVC de magis seguían
-     * abriendo por hardware, que es exactamente lo que ese campo venía a evitar.
+     * IPC GUARD. The tag does NOT cross from `MediaController` to `MediaSession`: `PlayerSourceTagIpc`
+     * takes it apart into the extras `PlayerScreen.localMediaItems` builds, and puts it back together
+     * in `PlaybackService.MediaItemResolverCallback`. A field added here and not there arrives on the
+     * other side with its default value, SILENTLY -- no error, no log, nothing. It happened once
+     * already: `preferirSoftware` stayed false and magis HEVC kept opening on hardware, which is
+     * exactly what that field exists to prevent.
      *
-     * Si este test falla es porque agregaste (o sacaste) un campo. Lo que hay que hacer NO es
-     * actualizar la lista de acá y seguir: es cablearlo en los DOS lugares de arriba y recién
-     * después sumarlo a esta lista.
+     * [TRAVELS] is what `PlayerSourceTagIpc.encode` really writes; [STAYS_BEHIND] is what it leaves
+     * out on purpose, with the reason. If this test fails you added (or removed) a field. What to do
+     * is NOT to update the list here and move on: wire it in BOTH places above, and only then add it
+     * to [TRAVELS].
      */
     @Test
-    fun `todo campo del tag tiene que viajar por el IPC`() {
-        val cableados = setOf(
-            "kind", "openingStartMs", "openingEndMs", "endingStartMs", "castUrl",
-            "referer", "userAgent", "proxyUrl", "extraHeaders", "preferirSoftware",
-        )
-        val declarados = PlayerSourceTag::class.java.declaredFields
+    fun `every tag field either travels through the IPC or is listed as left behind`() {
+        val declared = PlayerSourceTag::class.java.declaredFields
             .filterNot { it.isSynthetic || it.name.startsWith("$") }
             .map { it.name }
             .toSet()
         assertEquals(
-            "Campo del tag sin cablear en el IPC (ver el KDoc de este test)",
-            cableados,
-            declarados,
+            "Tag field neither wired through the IPC nor listed in STAYS_BEHIND (see this test's KDoc)",
+            TRAVELS + STAYS_BEHIND,
+            declared,
         )
+    }
+
+    private companion object {
+        /** The nine keys `PlayerSourceTagIpc.encode` writes, in its own order. */
+        val TRAVELS = setOf(
+            "kind", "openingStartMs", "openingEndMs", "endingStartMs", "castUrl",
+            "referer", "userAgent", "proxyUrl", "preferirSoftware",
+        )
+
+        /**
+         * Deliberately out of the IPC: only `SourceKind.LOCAL` items cross this boundary and
+         * `PlayerViewModel.loadLocal` never sets `extraHeaders` -- magis and Caracol carry their
+         * headers on the in-screen players, which never reach the session. Wire it the day a local
+         * source needs a header, and move it to [TRAVELS].
+         */
+        val STAYS_BEHIND = setOf("extraHeaders")
     }
 }
