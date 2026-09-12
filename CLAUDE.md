@@ -4,6 +4,41 @@ Esta rama es un fork permanente de Arkiv — **no se vuelve a mergear a `main`**
 siendo la app completa (torrent+web+archive+Magis+Ditu+RCN, con login PocketBase y el gateway
 `arkiv-api`) y no se toca desde acá.
 
+## You are in the right tree — this is where the work happens
+
+If you got here from `/Users/cristian/archive` (branch `main`), good: this is the active tree. Run
+`git branch --show-current` and confirm it prints `light-magis` before editing anything. Anything
+Cristian asks about Magis, Caracol/Ditu, cast, the player, the catalog or the TV UI belongs here,
+not on `main`.
+
+**Never diagnose a bug in this branch by reading `main`'s sources.** They are different codebases:
+`main` still has torrent, web, archive.org, NUC, libVLC, PocketBase and the `arkiv-api` gateway,
+all of which were deleted here. Its `SourceKind` has eight values, this one has five; its LAN-IP
+helper is `graph.torrentEngine.lanIp()`, this one is `graph.lanIp()` and has no `TorrentEngine`.
+Code read over there is confidently wrong over here.
+
+### Traps measured in this tree
+
+- **graft's index is stale for this branch** — it lists deleted files as live. Verify with
+  `command grep`, never with the graph alone.
+- **The `rtk` hook truncates `cat` and `grep` with no warning.** When exact content matters, use
+  the Read tool or `command cat` / `command grep`.
+- **The git stash stack is shared** with `main` and every other worktree and session. Never bare
+  `git stash` / `git stash pop` — prefer a WIP commit.
+- **Other Claude sessions share these trees.** Never `git add -A`; stage only the files you
+  changed, and re-check the branch before committing — it can change under you.
+- **Commits go as `lordmacu`**, never the work account, and never with a `Co-Authored-By: Claude`
+  footer — check the footer of every commit a subagent makes.
+- **adb:** use only the SDK one (`~/Library/Android/sdk/platform-tools/adb`, v37). Mixing it with
+  `/opt/homebrew/bin/adb` (v36) restarts the server and drops every connection.
+- **Installing:** this app is debuggable — `assembleDebug`. The `.env` here has no `RELEASE_*`
+  keys, so `assembleRelease` silently produces an unsigned APK.
+
+### Language
+
+Lo que ve la persona usuaria: español de Bogotá, tuteo, nunca voseo. Lo que ve un desarrollador
+—código, identificadores, comentarios, KDoc, logs, mensajes de commit, specs y planes—: **inglés**.
+
 ## Regla del branch (no negociable)
 
 **Todo corre dentro de la app. Cero servidor propio.**
