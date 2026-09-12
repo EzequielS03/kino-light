@@ -44,6 +44,13 @@ siendo la app completa (torrent+web+archive+Magis+Ditu+RCN, con login PocketBase
 
      Todos son de Caracol TV y ninguno es servidor propio: ni la cookie `playback_token` ni la
      licencia pasan por nada nuestro.
+
+     Ojo con el punto 1 (el portal de Magis): al barrido tampoco lo ve, y por un motivo TODAVÍA más
+     ciego que el del CDN de Magis/Ditu de arriba. Esos son hosts que la API devuelve en tiempo de
+     ejecución; el del portal ni siquiera existe como string en el código — se arma en runtime con
+     `"$scheme://$host/api/portalCore/$path"` (`data/magis/MagisPortalClient.kt:94`) a partir de
+     `BuildConfig.IPTV_HOSTS`, que sale del `.env` (`app/build.gradle.kts:30`). Un futuro barrido
+     podría concluir, equivocado, que la llamada al portal desapareció.
   8. Directo a **Kilo** (`api.kilo.ai`), tercero público y **sin llave** (tier anónimo: nunca se
      manda `Authorization`): alimenta el dato curioso y la fila "Para ti"
      (`app/src/main/java/com/arkiv/player/data/ia/ClienteDeIa.kt`). No hay ningún secreto embebido.
