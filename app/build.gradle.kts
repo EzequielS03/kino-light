@@ -62,11 +62,13 @@ android {
 
     buildTypes {
         release {
-            // R8 stays off on this branch. The reason it was originally turned off (libVLC's JNI
-            // calls into classes/fields the shrinker couldn't see referenced) is gone now that
-            // libVLC is deleted, but turning R8 on is a separate decision that needs its own device
-            // verification pass -- not a side effect of a comment cleanup.
-            isMinifyEnabled = false
+            // R8 is ON. It was off for years because libVLC reached classes and fields through JNI
+            // that the shrinker could not see referenced and would strip; libVLC is deleted, so the
+            // reason went with it. Measured 2026-09-12, same build type both ways: the release APK
+            // goes 20,151,333 -> 7,404,256 bytes with R8, and it builds with no extra keep rules.
+            // NOT exercised on a device yet: installing a release build means uninstalling the debug
+            // one, which wipes app data, so that check waits for a device that can afford it.
+            isMinifyEnabled = true
             if (hayFirma) signingConfig = signingConfigs.getByName("release")
         }
         debug {
