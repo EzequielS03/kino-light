@@ -114,22 +114,57 @@ class LocalFileServer(private val lanIp: () -> String?) {
         Log.i(TAG, "request from $client · $reqLine · agent=$userAgent")
 
         if (reqLine.contains("/hls.m3u8")) {
-            val body = playlistFor(file)
+            val body = playlistFor(file).toByteArray()
             val out = sock.getOutputStream()
             out.write(
                 ("HTTP/1.1 200 OK\r\n" +
                     "Content-Type: application/vnd.apple.mpegurl\r\n" +
-                    "Content-Length: ${body.toByteArray().size}\r\n" +
+                    "Content-Length: ${body.size}\r\n" +
+                    "Access-Control-Allow-Origin: *\r\n" +
                     "Connection: close\r\n\r\n").toByteArray(),
             )
-            if (method != "HEAD") out.write(body.toByteArray())
+            if (method != "HEAD") out.write(body)
             out.flush()
-            Log.i(
-                TAG,
-                "-> $client 200 playlist · ${body.toByteArray().size} bytes · " +
-                    "${body.lineSequence().count { it == "file" }} segments · head: " +
-                    body.lineSequence().take(6).joinToString(" | "),
+            Log.i(TAG, "-> $client 200 playlist · ${body.size} bytes · ${segmentsFor(file).size} segments")
+            return
+        }
+
+        // One segment, addressed by index. The range is resolved HERE and the segment answered as
+        // a resource of its own, because this receiver ignores `EXT-X-BYTERANGE` -- measured
+        // 2026-09-12, it fetched the segment URI repeatedly with no `Range` header at all. See
+        // the KDoc of [TsSegmenter.playlist].
+        if (reqLine.contains("/seg")) {
+            val n = reqLine.substringAfter("n=", "").substringBefore('&').substringBefore(' ').toIntOrNull()
+            val seg = n?.let { segmentsFor(file).getOrNull(it) }
+            val out = sock.getOutputStream()
+            if (seg == null) {
+                Log.w(TAG, "-> $client 404 segment n=$n (there are ${segmentsFor(file).size})")
+                out.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n".toByteArray())
+                out.flush()
+                return
+            }
+            out.write(
+                ("HTTP/1.1 200 OK\r\n" +
+                    "Content-Type: video/mp2t\r\n" +
+                    "Content-Length: ${seg.length}\r\n" +
+                    "Access-Control-Allow-Origin: *\r\n" +
+                    "Connection: close\r\n\r\n").toByteArray(),
             )
+            if (method != "HEAD") {
+                java.io.RandomAccessFile(file, "r").use { raf ->
+                    raf.seek(seg.start)
+                    val buf = ByteArray(64 * 1024)
+                    var left = seg.length
+                    while (left > 0) {
+                        val read = raf.read(buf, 0, minOf(buf.size.toLong(), left).toInt())
+                        if (read <= 0) break
+                        out.write(buf, 0, read)
+                        left -= read
+                    }
+                }
+            }
+            out.flush()
+            Log.i(TAG, "-> $client 200 segment $n · ${seg.length}B · ${"%.1f".format(seg.durationSec)}s")
             return
         }
 
@@ -211,59 +246,59 @@ class LocalFileServer(private val lanIp: () -> String?) {
 
     /**
      * The file cut into HLS segments by BYTE RANGE -- nothing is copied or converted, each segment
-     * is an interval of the very same file.
+     * is an interval of the very same file, and HLS segments are themselves MPEG-TS.
      *
-     * One segment covering the whole file was refused: the receiver fetched the playlist four times
-     * in three seconds and never requested a byte of media (measured 2026-09-12, twice, once from
-     * minute 70 and once from zero, so it was not the seek). The live proxy, which casts fine to
-     * this same TV, announces many short segments -- that is the only shape difference left, and
-     * segments of a few seconds are what every HLS client expects.
+     * Why a playlist at all: the receiver refuses a bare transport stream served progressively.
+     * Read off the KALLEY's own log (2026-09-12), it says so in as many words --
+     * `{"error":"FFmpegDemuxer: open context failed"}`, `{"pipeline_error":12}` -- so it never even
+     * reaches a decoder. The same bytes announced as a playlist are the fix.
      *
-     * Offsets are aligned to [PAQUETE_TS] so a segment never starts mid-packet. Durations are
-     * prorated from the total (bytes are a good proxy at constant bitrate); the real version cuts on
-     * PCR so each boundary is exact.
+     * One segment covering the whole file was refused too: the receiver fetched the playlist four
+     * times in three seconds and never requested a byte of media. Short segments are what every
+     * HLS client expects.
+     *
+     * The cutting itself lives in [TsSegmenter], which anchors every boundary on a packet carrying
+     * a PCR and reads each `#EXTINF` from the PCR difference. That is what restores seeking: the
+     * spike prorated durations from the byte size, so on a variable-bitrate title the receiver's
+     * idea of a given minute drifted from the bytes actually there.
      */
-    private fun playlistFor(file: File): String {
-        val total = file.length()
-        val totalMs = duracionDe(file)
-        if (total <= 0L || totalMs <= 0L) return ""
-        val objetivoMs = 10_000L
-        val bytesPorSegmento = ((total.toDouble() * objetivoMs / totalMs).toLong() / PAQUETE_TS * PAQUETE_TS)
-            .coerceAtLeast(PAQUETE_TS.toLong() * 100)
-        return buildString {
-            append("#EXTM3U\n")
-            append("#EXT-X-VERSION:4\n")               // BYTERANGE needs 4
-            append("#EXT-X-PLAYLIST-TYPE:VOD\n")
-            append("#EXT-X-TARGETDURATION:${Math.ceil(objetivoMs / 1000.0).toInt() + 1}\n")
-            append("#EXT-X-MEDIA-SEQUENCE:0\n")
-            var offset = 0L
-            while (offset < total) {
-                val largo = minOf(bytesPorSegmento, total - offset)
-                val segundos = largo.toDouble() * totalMs / total / 1000.0
-                append(String.format(java.util.Locale.US, "#EXTINF:%.3f,\n", segundos))
-                append("#EXT-X-BYTERANGE:$largo@$offset\n")
-                append("file\n")
-                offset += largo
+    /** The segment table for [file], computed once. Cutting probes the file, so it is not free. */
+    @Synchronized
+    private fun segmentsFor(file: File): List<TsSegmenter.Segment> {
+        cachedSegmentsFor?.let { if (it == file.path) return cachedSegments }
+        cachedSegments = runCatching {
+            java.io.RandomAccessFile(file, "r").use { raf ->
+                TsSegmenter.segment(file.length(), SEGMENT_TARGET_SEC) { offset, size ->
+                    val room = (file.length() - offset).coerceAtLeast(0L)
+                    val n = minOf(size.toLong(), room).toInt()
+                    if (n <= 0) ByteArray(0) else ByteArray(n).also { raf.seek(offset); raf.readFully(it) }
+                }
             }
-            append("#EXT-X-ENDLIST\n")
+        }.getOrElse {
+            Log.w(TAG, "could not cut ${file.name} into segments: $it")
+            emptyList()
         }
+        cachedSegmentsFor = file.path
+        Log.i(
+            TAG,
+            "cut ${file.name} into ${cachedSegments.size} segments of ~${SEGMENT_TARGET_SEC}s " +
+                "(${"%.1f".format(cachedSegments.sumOf { it.durationSec })}s total)",
+        )
+        return cachedSegments
     }
 
-    /** Transport-stream packet size: segment boundaries are aligned to it. */
-    private val PAQUETE_TS = 188
+    @Volatile private var cachedSegmentsFor: String? = null
+    @Volatile private var cachedSegments: List<TsSegmenter.Segment> = emptyList()
 
-    /** PCR at both ends of the file, which is what [TsDurationProbe] already knows how to read. */
-    private fun duracionDe(file: File): Long = runCatching {
-        val trozo = 256 * 1024
-        val size = file.length()
-        val cabeza = ByteArray(minOf(trozo.toLong(), size).toInt())
-        val cola = ByteArray(minOf(trozo.toLong(), size).toInt())
-        java.io.RandomAccessFile(file, "r").use { raf ->
-            raf.seek(0); raf.readFully(cabeza)
-            raf.seek((size - cola.size).coerceAtLeast(0)); raf.readFully(cola)
-        }
-        TsDurationProbe.durationMs(cabeza, cola)
-    }.getOrDefault(0L)
+    private fun playlistFor(file: File): String =
+        TsSegmenter.playlist(segmentsFor(file)) { "/seg?n=$it" }
 
-    private companion object { const val TAG = "ArkivLocalServer" }
+    private companion object {
+        const val TAG = "ArkivLocalServer"
+
+        /** Segment length aimed for. Ten seconds is the usual HLS default and what the live proxy,
+         *  which already casts fine to this same TV, ends up serving. */
+        const val SEGMENT_TARGET_SEC = 10.0
+
+    }
 }

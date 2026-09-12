@@ -88,4 +88,27 @@ class ArchiveCacheProxyLanUrlTest {
         val lan = ArchiveCacheProxy.lanUrl("http://127.0.0.1:1/s?u=x", "192.168.1.7")
         assertEquals("http://192.168.1.7:1/s?u=x", lan)
     }
+
+    /**
+     * The receiver is handed the PLAYLIST path, not the raw stream: it refuses a bare transport
+     * stream served progressively ("FFmpegDemuxer: open context failed", read off its own log)
+     * and plays the identical bytes announced as byte ranges. Only the path changes -- host, port
+     * and the whole query, auth headers included, must survive, because `/s` serves the media
+     * with exactly that query.
+     */
+    @Test
+    fun `the playlist url keeps everything but the path`() {
+        val local = "http://127.0.0.1:41234/s?h=QUJD&d=1&u=https%3A%2F%2Fcdn%2Fx.ts"
+        assertEquals(
+            "http://192.168.3.20:41234/hls.m3u8?h=QUJD&d=1&u=https%3A%2F%2Fcdn%2Fx.ts",
+            ArchiveCacheProxy.lanPlaylistUrl(local, "192.168.3.20"),
+        )
+    }
+
+    /** Same guards as [ArchiveCacheProxy.lanUrl]: no ip or not one of ours means no cast. */
+    @Test
+    fun `no playlist url without a LAN ip or a proxy url`() {
+        assertNull(ArchiveCacheProxy.lanPlaylistUrl("http://127.0.0.1:1/s?u=x", ""))
+        assertNull(ArchiveCacheProxy.lanPlaylistUrl("https://cdn.magis.tv/v/x.ts", "192.168.3.20"))
+    }
 }

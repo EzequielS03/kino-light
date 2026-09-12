@@ -106,6 +106,40 @@ class ArchiveCacheProxy(private val cacheDir: File) {
     // Tamaño real de cada origen, para poder ventanear. Ver totalDelOrigen.
     private val totales = ConcurrentHashMap<String, Long>()
 
+    // Duración de cada origen, para el playlist de cast. Ver duracionDelOrigen.
+    private val duraciones = ConcurrentHashMap<String, Long>()
+
+    // Tabla de segmentos de cada origen, para el playlist de cast. Ver segmentosDe.
+    private val segmentos = ConcurrentHashMap<String, List<TsSegmenter.Segment>>()
+
+    // Dónde empieza DE VERDAD cada segmento (el IDR más cercano a la frontera estimada), por
+    // origen y por índice. Se aprende al servir, ver serveSegment.
+    private val idrPorOrigen = ConcurrentHashMap<String, ConcurrentHashMap<Int, Long>>()
+
+    /** Cuánto se mira más allá de la frontera estimada buscando el keyframe real. Un GOP típico
+     *  son 2-5 s, que a los bitrates de magis es medio mega largo. */
+    private val MARGEN_GOP = 1_500_000L
+
+    /** Cuántas ventanas de [MARGEN_GOP] se recorren buscando un IDR tras un salto. */
+    private val VENTANAS_IDR = 6
+
+    /**
+     * Segment length aimed for in the cast playlist, in seconds.
+     *
+     * Thirty. Ten was too fine once each segment carries [MARGEN_GOP] of overlap while the real
+     * keyframe is found -- 1.5 MB of slack on a 1.35 MB segment is more overlap than segment. At
+     * thirty the slack is a third of the fetch, and sixty was MEASURED to be worse (2026-09-12). Longer segments were tried as a way
+     * to reduce how often a mid-GOP boundary can stall the receiver -- ~120 boundaries instead of
+     * ~700 -- and the cure cost more than the disease: at 60 s a segment is 8.1 MB, the proxy
+     * holds all of it before sending a byte, and the receiver fetches segment 0 in full even when
+     * resuming at minute 62. Startup went from ~11 s to ~50 s and the retry loop merely got more
+     * expensive per attempt.
+     *
+     * The stalls were never about how MANY boundaries there are; they are about WHERE each one
+     * lands. See [TsSegmenter.segmentByBitrate].
+     */
+    private val SEGMENTO_OBJETIVO_SEG = 30.0
+
     /**
      * Último código HTTP que dio cada origen. Existe porque el reproductor NO puede distinguir por
      * qué falló: pase lo que pase acá, el player ve un 502 del proxy. Y la diferencia importa — un 404
@@ -419,6 +453,20 @@ class ArchiveCacheProxy(private val cacheDir: File) {
             if (puerto.any { !it.isDigit() }) return null
             return "http://$ip:$puerto${tras.substring(corte)}"
         }
+
+        /**
+         * The LAN url of the HLS PLAYLIST for the same stream -- what the Cast receiver is given.
+         *
+         * Same host, port and query as [lanUrl]; only the path changes from `/s` to `/hls.m3u8`.
+         * The receiver refuses a bare transport stream served progressively (its own log:
+         * `FFmpegDemuxer: open context failed`) but plays those identical bytes as a playlist of
+         * byte ranges, which `/hls.m3u8` describes and `/s` still serves.
+         */
+        fun lanPlaylistUrl(proxyUrl: String, ip: String): String? =
+            lanUrl(proxyUrl, ip)?.let { lan ->
+                val i = lan.indexOf("/s?")
+                if (i < 0) null else lan.substring(0, i) + "/hls.m3u8?" + lan.substring(i + 3)
+            }
     }
 
     /**
@@ -471,8 +519,34 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                 // player buffereando al 0% para siempre).
                 android.util.Log.w(
                     "ArchiveCacheProxy",
-                    "← requests range=${rangeHeader ?: "(all)"} direct=$directo window=$fraccion",
+                    "← requests range=${rangeHeader ?: "(all)"} direct=$directo window=$fraccion path=${path.substringBefore('?')}",
                 )
+
+                // HLS playlist over the SAME stream, for the Cast receiver. It refuses a bare
+                // transport stream served progressively -- read off the receiver's own log
+                // (2026-09-12): `{"error":"FFmpegDemuxer: open context failed"}`, so it never
+                // reaches a decoder -- but it plays the identical bytes offered as a playlist of
+                // byte ranges. Nothing is converted; `/s` still serves the media, one range at a
+                // time, exactly as it does for the phone.
+                if (path.startsWith("/hls.m3u8")) {
+                    servePlaylist(path, origin, extraHeaders, out)
+                    return@runCatching
+                }
+
+                // One segment of that playlist, addressed by index. The index is resolved to a byte
+                // range HERE rather than by the receiver, because the receiver does not implement
+                // `EXT-X-BYTERANGE` -- see the KDoc of [TsSegmenter.playlist] for the measurement.
+                // From its side this is an ordinary resource it GETs whole.
+                if (path.startsWith("/seg")) {
+                    val n = path.substringAfter("n=", "").substringBefore('&').toIntOrNull()
+                    if (n == null) {
+                        out.write("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n".toByteArray())
+                        out.flush()
+                    } else {
+                        serveSegment(n, origin, extraHeaders, out)
+                    }
+                    return@runCatching
+                }
 
                 // Camino DIRECTO (magis): cada Range va tal cual al origen y su cuerpo se devuelve
                 // sin tocar el disco.
@@ -506,6 +580,237 @@ class ArchiveCacheProxy(private val cacheDir: File) {
             }
         }
     }
+
+    /**
+     * Answers `/hls.m3u8` with a playlist of byte ranges over the same origin.
+     *
+     * Two facts are needed and both are cheap: the total size (one 1-byte ranged request, already
+     * remembered per origin by [totalDelOrigen]) and the duration (two 256 KB ends, which
+     * [TsDurationProbe] already knows how to read and which the app pays for anyway to draw the
+     * progress bar). Both are cached, so a receiver that re-fetches the playlist -- it does, several
+     * times -- costs nothing after the first.
+     *
+     * Segments are prorated, NOT cut on PCR, and that is deliberate: cutting on PCR needs a read
+     * per boundary, and against this CDN a read costs 0.2 s to 20 s. A two-hour title is ~720
+     * boundaries, so the exact version would take hours to answer one playlist request. The price
+     * is that seeking lands approximately on a variable-bitrate title. See
+     * [TsSegmenter.segmentByBitrate]; a LOCAL file, where reads are free, uses the exact path.
+     */
+    private fun servePlaylist(
+        path: String,
+        origin: String,
+        headers: Map<String, String>,
+        out: java.io.OutputStream,
+    ) {
+        val segments = segmentosDe(origin, headers)
+        // Relative URIs: same host, same port, same query -- only the path and the added `n=`
+        // differ. Relative keeps the LAN ip out of the playlist, so whatever URL the receiver used
+        // to fetch it is the one it keeps using.
+        val query = path.substringAfter('?', "")
+        val body = TsSegmenter.playlist(segments) { i ->
+            "/seg?n=$i" + if (query.isEmpty()) "" else "&$query"
+        }
+        if (body.isEmpty()) {
+            android.util.Log.w(
+                "ArchiveCacheProxy",
+                "playlist: can't build it (no size or no duration) → 502, the receiver will show an error",
+            )
+            out.write("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n".toByteArray())
+            out.flush()
+            return
+        }
+        val bytes = body.toByteArray()
+        android.util.Log.w(
+            "ArchiveCacheProxy",
+            "playlist → ${segments.size} segments, one URI each (${bytes.size}B)",
+        )
+        out.write(
+            (
+                "HTTP/1.1 200 OK\r\n" +
+                    "Content-Type: application/vnd.apple.mpegurl\r\n" +
+                    "Content-Length: ${bytes.size}\r\n" +
+                    "Access-Control-Allow-Origin: *\r\n" +
+                    "Connection: close\r\n\r\n"
+                ).toByteArray(),
+        )
+        out.write(bytes)
+        out.flush()
+    }
+
+    /**
+     * The segment table for an origin, remembered. The receiver asks for the playlist more than
+     * once and then for ~700 segments, and every one of those would otherwise re-probe the size
+     * and the duration -- two CDN round trips each, against an origin that answers between 0.2 s
+     * and 20 s.
+     */
+    private fun segmentosDe(origin: String, headers: Map<String, String>): List<TsSegmenter.Segment> {
+        segmentos[origin]?.let { return it }
+        val total = totalDelOrigen(origin, headers, PoliticaOrigen.Perfil.MAGIS)
+        val durMs = duracionDelOrigen(origin, headers)
+        val out = TsSegmenter.segmentByBitrate(total, durMs / 1000.0, SEGMENTO_OBJETIVO_SEG)
+        if (out.isNotEmpty()) {
+            segmentos[origin] = out
+            android.util.Log.w(
+                "ArchiveCacheProxy",
+                "segment table: ${out.size} of ~${SEGMENTO_OBJETIVO_SEG}s over $total bytes / ${durMs}ms",
+            )
+        }
+        return out
+    }
+
+    /**
+     * Serves segment [n] as a resource of its own: a plain 200 with its real `Content-Length`,
+     * which is all the receiver knows how to consume (it ignores `EXT-X-BYTERANGE`). The range
+     * itself is fetched from the origin exactly as any other ranged read.
+     */
+    /**
+     * Serves segment [n], starting at a REAL random access point.
+     *
+     * This is where the "it plays in sections" bug was fixed. The playlist's boundaries are
+     * prorated arithmetic, so they land mid-GOP, and a hardware decoder drops every frame until it
+     * sees an IDR -- measured on the KALLEY's own decoder, which emitted 2 pictures out of every
+     * 17 (`OMX_VDEC ooo … diff=333666`, one frame each 333 ms of a 23.976 fps title, so ~3 fps).
+     * Chromium will not fix that and the Cast receiver is Chromium, so the segment has to arrive
+     * already aligned.
+     *
+     * Aligning up front was priced and rejected: finding a keyframe means reading forward up to a
+     * whole GOP, and at ~700 boundaries that is ~280 MB before a single playlist could be answered.
+     * Instead each boundary is discovered WHILE the segment around it is served -- bytes this proxy
+     * has to move anyway -- and remembered. Sequential playback therefore pays nothing beyond
+     * [MARGEN_GOP] of overlap per segment; only a seek into a segment never visited costs a probe.
+     */
+    private fun serveSegment(
+        n: Int,
+        origin: String,
+        headers: Map<String, String>,
+        out: java.io.OutputStream,
+    ) {
+        val segments = segmentosDe(origin, headers)
+        val seg = segments.getOrNull(n)
+        if (seg == null) {
+            android.util.Log.w("ArchiveCacheProxy", "segment $n out of range (there are ${segments.size})")
+            out.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n".toByteArray())
+            out.flush()
+            return
+        }
+        val total = totalDelOrigen(origin, headers, PoliticaOrigen.Perfil.MAGIS)
+        val inicios = idrPorOrigen.getOrPut(origin) { ConcurrentHashMap() }
+        // Segment 0 starts at byte 0: the file's own first packet is a random access point.
+        if (n == 0) inicios.putIfAbsent(0, 0L)
+
+        val inicio = inicios[n] ?: buscarIdr(origin, headers, seg.start, total)
+        if (inicio == null) {
+            android.util.Log.w("ArchiveCacheProxy", "segment $n: no random access point near ${seg.start}")
+            out.write("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n".toByteArray())
+            out.flush()
+            return
+        }
+        inicios.putIfAbsent(n, inicio)
+
+        // Where the NEXT segment should begin, by the playlist's arithmetic, plus a GOP of slack to
+        // look for the real keyframe. The last segment simply runs to EOF.
+        val esUltimo = n >= segments.size - 1
+        val finEstimado = if (esUltimo) total else segments[n + 1].start
+        val hasta = if (esUltimo) total else minOf(total, finEstimado + MARGEN_GOP)
+        val cuerpo = rangoCrudo(origin, headers, "bytes=$inicio-${hasta - 1}")
+        if (cuerpo == null || cuerpo.isEmpty()) {
+            android.util.Log.w("ArchiveCacheProxy", "segment $n ($inicio-${hasta - 1}): the origin didn't serve it")
+            out.write("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n".toByteArray())
+            out.flush()
+            return
+        }
+
+        // Cut at the first random access point at or after the estimated boundary, and remember it
+        // as where segment n+1 begins -- learned for free from bytes already in hand.
+        var largo = cuerpo.size
+        if (!esUltimo) {
+            val desde = (finEstimado - inicio).coerceIn(0L, cuerpo.size.toLong()).toInt()
+            val corte = primerIdrEn(cuerpo, desde)
+            if (corte != null) {
+                largo = corte
+                inicios.putIfAbsent(n + 1, inicio + corte)
+            } else {
+                // No keyframe within the margin: serve up to the estimate and let the next segment
+                // probe for itself. Rare, and better than a segment that runs long.
+                largo = desde.coerceAtLeast(1)
+            }
+        }
+
+        android.util.Log.w(
+            "ArchiveCacheProxy",
+            "segment $n → ${largo}B from $inicio (estimate was ${seg.start}, " +
+                "next starts ${inicios[n + 1] ?: -1})",
+        )
+        out.write(
+            (
+                "HTTP/1.1 200 OK\r\n" +
+                    "Content-Type: video/mp2t\r\n" +
+                    "Content-Length: $largo\r\n" +
+                    "Access-Control-Allow-Origin: *\r\n" +
+                    "Connection: close\r\n\r\n"
+                ).toByteArray(),
+        )
+        out.write(cuerpo, 0, largo)
+        out.flush()
+    }
+
+    /** First random access point at or after [desde] inside [buf], or null. */
+    private fun primerIdrEn(buf: ByteArray, desde: Int): Int? {
+        val base = MpegTs.alignment(buf)
+        if (base < 0) return null
+        // Walk packets from the first one at or after `desde`.
+        var i = base + ((desde - base).coerceAtLeast(0) + MpegTs.PACKET - 1) / MpegTs.PACKET * MpegTs.PACKET
+        while (i + MpegTs.PACKET <= buf.size) {
+            if (MpegTs.isRandomAccess(buf, i)) return i
+            i += MpegTs.PACKET
+        }
+        return null
+    }
+
+    /** Probes the origin for the first random access point at or after [desde]. Used only when a
+     *  segment is reached without having served the one before it -- that is, after a seek. */
+    private fun buscarIdr(origin: String, headers: Map<String, String>, desde: Long, total: Long): Long? {
+        var at = desde.coerceIn(0L, total)
+        repeat(VENTANAS_IDR) {
+            val fin = minOf(total, at + MARGEN_GOP)
+            if (fin <= at) return null
+            val bloque = rangoCrudo(origin, headers, "bytes=$at-${fin - 1}") ?: return null
+            primerIdrEn(bloque, 0)?.let { return at + it }
+            at = fin
+        }
+        android.util.Log.w("ArchiveCacheProxy", "no random access point within ${VENTANAS_IDR} windows of $desde")
+        return null
+    }
+
+    /** Duration of an origin, remembered: the receiver asks for the playlist more than once. */
+    private fun duracionDelOrigen(origin: String, headers: Map<String, String>): Long {
+        duraciones[origin]?.let { return it }
+        val cabeza = rangoCrudo(origin, headers, "bytes=0-${TsDurationProbe.PROBE_BYTES - 1}")
+        val cola = rangoCrudo(origin, headers, "bytes=-${TsDurationProbe.PROBE_BYTES}")
+        if (cabeza == null || cola == null) return 0L
+        val ms = TsDurationProbe.durationMs(cabeza, cola)
+        if (ms > 0L) duraciones[origin] = ms
+        return ms
+    }
+
+    /** One ranged read straight from the origin, for the playlist's own bookkeeping. */
+    private fun rangoCrudo(origin: String, headers: Map<String, String>, range: String): ByteArray? =
+        runCatching {
+            val conn = (URL(origin).openConnection() as HttpURLConnection).apply {
+                instanceFollowRedirects = true
+                setRequestProperty("User-Agent", "Arkiv/0.1 (personal)")
+                headers.forEach { (k, v) -> setRequestProperty(k, v) }
+                setRequestProperty("Range", range)
+                setRequestProperty("Connection", "close")
+                connectTimeout = PoliticaOrigen.Perfil.MAGIS_SONDA.conectarMs
+                readTimeout = PoliticaOrigen.respuestaMs(0, PoliticaOrigen.Perfil.MAGIS_SONDA)
+            }
+            if (conn.responseCode != HttpURLConnection.HTTP_PARTIAL) {
+                conn.disconnect(); null
+            } else {
+                conn.inputStream.use { it.readBytes() }.also { runCatching { conn.disconnect() } }
+            }
+        }.getOrNull()
 
     /**
      * Tamaño real de un origen, leído del `Content-Range` de una petición de 1 byte.

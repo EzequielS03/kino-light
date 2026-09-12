@@ -717,6 +717,17 @@ private fun PlayerContent(
      * capítulo estando ya casteando, y conectar el Chromecast con el capítulo ya sonando en el
      * celu—. Si divergieran, lo que llega a la TV dependería de por dónde entraste.
      */
+    /**
+     * Is this Magis title an MPEG-TS? Only those need the HLS wrapper for cast.
+     *
+     * Read from the CDN url, which is the only place the true container survives: the proxy url
+     * the phone plays from has no extension at all, so guessing from it always answers mp4.
+     * `MagisResolve` builds the CDN url as `_media.ts` or `_media.mp4` straight from the portal's
+     * `videoFormat`.
+     */
+    fun magisEsTs(item: PlayerData): Boolean =
+        com.arkiv.player.cast.CastRequestBuilder.mimeForUrl(item.castUrl.orEmpty()) == "video/mp2t"
+
     fun castRequestFor(pl: PlaylistData, idx: Int, startPositionMs: Long): com.arkiv.player.cast.CastRequest? {
         val item = pl.items.getOrNull(idx) ?: return null
         // DIAGNÓSTICO TEMPORAL (cast Magis): qué se le quiere mandar al receptor y con qué URL.
@@ -759,8 +770,14 @@ private fun PlayerContent(
         val lanIp = graph.lanIp()
         val lanUrl = when (item.kind) {
             SourceKind.LIVE -> lanIp?.let { graph.liveHlsProxy.lanUrl(it) }
+            // Magis: through the proxy either way, because the CDN wants headers the receiver
+            // cannot send. WHICH proxy url depends on the container -- see `magisEsTs` below.
             SourceKind.MAGIS -> lanIp?.let {
-                com.arkiv.player.playback.ArchiveCacheProxy.lanUrl(item.mediaUrl, it)
+                if (magisEsTs(item)) {
+                    com.arkiv.player.playback.ArchiveCacheProxy.lanPlaylistUrl(item.mediaUrl, it)
+                } else {
+                    com.arkiv.player.playback.ArchiveCacheProxy.lanUrl(item.mediaUrl, it)
+                }
             }
             else -> null
         }
@@ -798,19 +815,24 @@ private fun PlayerContent(
             )
         }
 
-        // Magis: the url the receiver gets is the proxy's ("…/s?h=…&u=…"), whose path has no
-        // extension and whose query is stripped before guessing -- so the guess is always mp4,
-        // and Magis really does serve MPEG-TS (`MagisResolve` picks `_media.ts` vs `_media.mp4`
-        // from the portal's `videoFormat`). The CDN url kept in `castUrl` is the one that carries
-        // the true extension, so the container is read from there.
+        // Only an MPEG-TS needs the playlist, and it is the container that decides -- not the
+        // source. The receiver refuses a bare transport stream served progressively
+        // (`FFmpegDemuxer: open context failed`, read off its own log 2026-09-12) so that one is
+        // announced as HLS and served in segments. An mp4 it accepts as-is, and wrapping one
+        // would only add the segmenter's cost and its rough edges for nothing: Magis serves both
+        // (`MagisResolve` picks `_media.ts` vs `_media.mp4` from the portal's `videoFormat`).
         val mimeMagis = if (item.kind == SourceKind.MAGIS) {
-            item.castUrl?.takeIf { it.isNotBlank() }
-                ?.let { com.arkiv.player.cast.CastRequestBuilder.mimeForUrl(it) }
+            if (magisEsTs(item)) "application/vnd.apple.mpegurl"
+            else com.arkiv.player.cast.CastRequestBuilder.mimeForUrl(item.castUrl.orEmpty())
         } else {
             null
         }
         if (mimeMagis != null) {
-            android.util.Log.i("ArkivCast", "magis container from the CDN url: $mimeMagis")
+            android.util.Log.i(
+                "ArkivCast",
+                "magis container=${com.arkiv.player.cast.CastRequestBuilder.mimeForUrl(item.castUrl.orEmpty())} " +
+                    "→ ${if (magisEsTs(item)) "HLS playlist (only the announcement changes)" else "straight through, no playlist needed"}",
+            )
         }
         val directo = com.arkiv.player.cast.CastRequestBuilder.build(
             episodeId = item.episodeId,
@@ -820,12 +842,13 @@ private fun PlayerContent(
             mediaUrl = item.mediaUrl,
             castUrl = hlsLocal ?: item.castUrl,
             lanUrl = lanUrl,
-            // SPIKE: a one-segment playlist has no entry point to seek to, so asking the receiver to
-            // start at minute 70 made it re-fetch the playlist looking for one and give up without
-            // ever requesting a byte of media (measured 2026-09-12: 4 playlist GETs, 0 file GETs).
-            // Starting at 0 is what makes the spike answer the question it exists for -- does this
-            // receiver decode the HEVC inside? Real segments are what restore seeking.
-            startPositionMs = if (hlsLocal != null) 0L else startPositionMs,
+            // The resume position survives again. It was forced to 0 while the playlist had a
+            // single segment covering the whole file: with no entry point to seek to, asking the
+            // receiver to start at minute 70 made it re-fetch the playlist looking for one and
+            // give up without requesting a byte of media (4 playlist GETs, 0 file GETs). Now that
+            // TsSegmenter cuts real segments on PCR boundaries, every one of them IS an entry
+            // point and the receiver can land on the right one.
+            startPositionMs = startPositionMs,
             isLive = esVivo,
             mimeOverride = when {
                 hlsLocal != null -> "application/vnd.apple.mpegurl"
