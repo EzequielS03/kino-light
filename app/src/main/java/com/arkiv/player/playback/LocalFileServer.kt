@@ -66,7 +66,9 @@ class LocalFileServer(private val lanIp: () -> String?) {
         }.apply { isDaemon = true }.start()
     }
 
-    private fun handle(socket: Socket, file: File) = socket.use { sock ->
+    // Explicit Unit: the body ends in a Log call, and android.util.Log returns Int, which would
+    // otherwise infer this function as Int and break the bare `return`s inside it.
+    private fun handle(socket: Socket, file: File): Unit = socket.use { sock ->
         val sockIn = sock.getInputStream()
         // Lectura byte a byte hasta la línea en blanco que cierra las cabeceras — mismo enfoque que
         // TorrentStreamServer.serve(), no un BufferedReader sobre el InputStream del socket. Un
@@ -86,6 +88,13 @@ class LocalFileServer(private val lanIp: () -> String?) {
         val reqLine = lines.firstOrNull().orEmpty()
         if (reqLine.isBlank()) return
         val method = reqLine.substringBefore(' ')
+        // Who asked and for what. This is the line that splits a failed cast in two: if the
+        // receiver never shows up here, the problem is reachability or a load that never happened;
+        // if it shows up and then gives up, the problem is what we serve it.
+        val client = runCatching { sock.inetAddress?.hostAddress }.getOrNull() ?: "?"
+        val userAgent = lines.firstOrNull { it.startsWith("User-Agent:", ignoreCase = true) }
+            ?.substringAfter(':')?.trim().orEmpty()
+        Log.i(TAG, "request from $client · $reqLine · agent=$userAgent")
 
         val size = file.length()
         val maxIndex = (size - 1).coerceAtLeast(0)
@@ -116,23 +125,40 @@ class LocalFileServer(private val lanIp: () -> String?) {
             "Content-Length: $length\r\n" +
             "Connection: close\r\n\r\n"
 
+        Log.i(
+            TAG,
+            "-> $client $status · type=${mimeOf(file)} · range=${rangeValue ?: "(none)"} " +
+                "· serving $length of $size bytes",
+        )
         val out = sock.getOutputStream()
         out.write(responseHeader.toByteArray())
         // HEAD: el Chromecast lo manda antes del GET para conocer tamaño y tipo.
         if (method == "HEAD") { out.flush(); return }
 
-        file.inputStream().use { input ->
-            input.skip(start)
-            val buf = ByteArray(64 * 1024)
-            var remaining = length
-            while (remaining > 0) {
-                val n = input.read(buf, 0, minOf(buf.size.toLong(), remaining).toInt())
-                if (n < 0) break
-                out.write(buf, 0, n)
-                remaining -= n
+        var sent = 0L
+        val outcome = runCatching {
+            file.inputStream().use { input ->
+                input.skip(start)
+                val buf = ByteArray(64 * 1024)
+                var remaining = length
+                while (remaining > 0) {
+                    val n = input.read(buf, 0, minOf(buf.size.toLong(), remaining).toInt())
+                    if (n < 0) break
+                    out.write(buf, 0, n)
+                    sent += n
+                    remaining -= n
+                }
             }
+            out.flush()
         }
-        out.flush()
+        // How it ended matters as much as that it started: a receiver that cannot parse what it is
+        // being served hangs up after the first few KB, which shows up here as a short send plus a
+        // broken pipe -- not as any error on the sending side.
+        Log.i(
+            TAG,
+            "<- $client sent $sent/$length bytes" +
+                (outcome.exceptionOrNull()?.let { " · CUT OFF: $it" } ?: " · complete"),
+        )
     }
 
     /**

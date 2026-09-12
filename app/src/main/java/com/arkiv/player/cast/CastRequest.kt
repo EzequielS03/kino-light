@@ -40,6 +40,7 @@ object CastRequestBuilder {
         lanUrl: String?,
         startPositionMs: Long,
         isLive: Boolean = false,
+        mimeOverride: String? = null,
     ): CastRequest? {
         val uri = when {
             isLive -> lanUrl
@@ -50,6 +51,11 @@ object CastRequestBuilder {
             uri = uri,
             mimeType = when {
                 isLive -> MIME_HLS
+                // What the bytes say, when the caller could read them. [mimeForUrl] guesses from the
+                // extension, and the local file server's URL has none ("…/file"), so it always fell
+                // back to mp4 while the server served the real thing -- we announced one container
+                // and delivered another, which is exactly the mistake this file's KDoc warns about.
+                mimeOverride != null -> mimeOverride
                 else -> mimeForUrl(uri)
             },
             episodeId = episodeId,

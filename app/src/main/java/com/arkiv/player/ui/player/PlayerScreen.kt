@@ -749,6 +749,27 @@ private fun PlayerContent(
             else -> null
         }
 
+        // A downloaded file is the one case where the container can be KNOWN instead of guessed:
+        // the bytes are on this device. The cast URL is the local server's ("…/file", no extension),
+        // so guessing by extension always answered mp4 while the server served what the bytes say --
+        // the receiver was told one container and handed another. `mediaUrl` is "file://<path>" for
+        // LOCAL, which is where the path comes from.
+        val mimeLocal = if (item.kind == SourceKind.LOCAL) {
+            runCatching {
+                com.arkiv.player.playback.ContenedorDeVideo
+                    .deArchivo(java.io.File(item.mediaUrl.removePrefix("file://"))).mime
+            }.getOrNull()
+        } else {
+            null
+        }
+        if (mimeLocal != null) {
+            android.util.Log.i(
+                "ArkivCast",
+                "local container from its bytes: $mimeLocal (url guess was ${
+                    com.arkiv.player.cast.CastRequestBuilder.mimeForUrl(item.castUrl ?: item.mediaUrl)
+                })",
+            )
+        }
         val directo = com.arkiv.player.cast.CastRequestBuilder.build(
             episodeId = item.episodeId,
             title = item.title,
@@ -759,6 +780,7 @@ private fun PlayerContent(
             lanUrl = lanUrl,
             startPositionMs = startPositionMs,
             isLive = esVivo,
+            mimeOverride = mimeLocal,
         )
         // No transcoder: audio the receiver can't decode still gets cast, muted, instead of not
         // casting at all. The warning is the only thing that tells that case apart from a normal cast.
@@ -1357,7 +1379,8 @@ private fun PlayerContent(
             if (casting && tick % 6 == 0) {
                 android.util.Log.i(
                     "ArkivCast",
-                    "heartbeat · pos=${pos}ms dur=${dur}ms state=${activePlayer.playbackState} playing=${activePlayer.isPlaying}",
+                    "heartbeat · pos=${pos}ms dur=${dur}ms state=${activePlayer.playbackState} " +
+                        "playing=${activePlayer.isPlaying} item=${activePlayer.currentMediaItem?.mediaId ?: "NONE"}",
                 )
             }
         }

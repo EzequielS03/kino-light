@@ -123,10 +123,16 @@ class CastSessionManager(
         player.setSessionAvailabilityListener(object : SessionAvailabilityListener {
             override fun onCastSessionAvailable() {
                 _casting.value = true
+                val device = runCatching {
+                    castContext.sessionManager.currentCastSession?.castDevice?.friendlyName
+                }.getOrNull()
+                android.util.Log.i(TAG, "session available · receiver=${device ?: "?"} · pending=${pending?.episodeId}")
                 pending?.let { scope.launch { load(it) } }
+                    ?: android.util.Log.w(TAG, "session available but nothing pending: nothing will be loaded")
             }
 
             override fun onCastSessionUnavailable() {
+                android.util.Log.i(TAG, "session gone")
                 _casting.value = false
             }
         })
@@ -142,7 +148,16 @@ class CastSessionManager(
     fun setMedia(request: CastRequest) {
         generacion++
         pending = request
-        if (_casting.value) scope.launch { load(request) }
+        // Without this line "nothing was ever asked of the receiver" and "it was asked and refused"
+        // look identical from a log: both end up as a session with an idle player.
+        android.util.Log.i(
+            TAG,
+            "cast requested · ep=${request.episodeId} · mime=${request.mimeType} · from=${request.startPositionMs}ms " +
+                "· session=${_casting.value} · ${request.uri}",
+        )
+        if (_casting.value) scope.launch { load(request) } else {
+            android.util.Log.i(TAG, "no session yet: it stays pending until one shows up")
+        }
     }
 
     /**
@@ -196,7 +211,7 @@ class CastSessionManager(
             TAG,
             "loading on the receiver · mime=${r.mimeType} · from=${r.startPositionMs}ms · ${r.uri}",
         )
-        player.setMediaItem(
+        val loadOutcome = runCatching { player.setMediaItem(
             MediaItem.Builder()
                 .setUri(r.uri)
                 .setMimeType(r.mimeType)
@@ -210,9 +225,15 @@ class CastSessionManager(
                 )
                 .build(),
             r.startPositionMs,
-        )
+        ) }
+        loadOutcome.onFailure { android.util.Log.e(TAG, "setMediaItem FAILED: $it", it) }
         player.playWhenReady = true
-        player.prepare()
+        runCatching { player.prepare() }
+            .onFailure { android.util.Log.e(TAG, "prepare FAILED: $it", it) }
+        android.util.Log.i(
+            TAG,
+            "load handed to the receiver · state=${player.playbackState} · item=${player.currentMediaItem?.mediaId}",
+        )
     }
 
     /**
@@ -225,7 +246,14 @@ class CastSessionManager(
             while (true) {
                 delay(PROGRESS_MS)
                 if (!_casting.value) continue
-                val request = pending ?: continue
+                val request = pending
+                if (request == null) {
+                    // A session with nothing pending is one of the two ways a cast "does nothing",
+                    // and the one that used to leave no trace at all: the receiver sits on its logo
+                    // because it was never handed any media, not because it refused ours.
+                    android.util.Log.w(TAG, "casting with NOTHING pending: the receiver was never given media")
+                    continue
+                }
                 val epId = request.episodeId
                 // mediaId, posición y duración se leen juntos en el mismo tick del hilo principal:
                 // setMedia() actualiza `pending` en sync pero el receptor tarda (red) en cargar el
