@@ -4,15 +4,15 @@ import org.json.JSONObject
 import java.util.Base64
 
 /**
- * Empaqueta un mapa de headers dentro de una URL.
+ * Packs a map of headers into a URL.
  *
  * Needed because libVLC could only send `Referer` and `User-Agent`: any other header (magis's
  * `Content-Auth`/`Content-License`) had to travel to the local proxy through the only channel VLC
  * respected, the URL itself.
  *
- * Base64 URL-safe sin padding: el valor va como parámetro de query y no debe traer `+`, `/` ni `=`.
- * Se usa `java.util.Base64` (API 26+, y el minSdk es 26) y no `android.util.Base64` porque este
- * ultimo es un stub en los tests JVM y devuelve null.
+ * URL-safe Base64 without padding: the value travels as a query param and must not carry `+`,
+ * `/` or `=`. Uses `java.util.Base64` (API 26+, and minSdk is 26) and not `android.util.Base64`
+ * because the latter is a stub in JVM tests and returns null.
  */
 object HeaderCodec {
 

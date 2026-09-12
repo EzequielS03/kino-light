@@ -1,30 +1,30 @@
 package com.arkiv.player.playback
 
 /**
- * El FINAL del archivo, servido desde memoria.
+ * The END of the file, served from memory.
  *
  * When opening a TS over HTTP, libVLC used to probe the end: it asked for ranges a few KB from
- * the EOF to get the last PCR and deduce the duration. Those requests were what ate up startup — medido el
- * 2026-08-11 en el Fire TV, con el video ya en `Playing` pero clavado en `pos=0`:
+ * the EOF to get the last PCR and deduce the duration. Those requests were what ate up startup --
+ * measured on 2026-08-11 on the Fire TV, with the video already in `Playing` but stuck at `pos=0`:
  *
  * ```
- * bytes=859421696-   (a 940 B del final)    → 206 con 0 KB
- * bytes=859419628-   (a 3 008 B del final)  → 206 con 2 KB
- * bytes=859415492-   (a 7 144 B del final)  → tres intentos vencidos seguidos
+ * bytes=859421696-   (940 B from the end)    → 206 with 0 KB
+ * bytes=859419628-   (3,008 B from the end)  → 206 with 2 KB
+ * bytes=859415492-   (7,144 B from the end)  → three attempts timed out in a row
  * ```
  *
- * Y no es que el CDN esté roto ahí: pedidos desde el Mac, esos MISMOS offsets contestaron 24 de 24
- * veces en 0,14-0,37 s. Es la latencia del camino real la que a veces se pasa de cualquier plazo
- * razonable, y ajustar el plazo solo mueve el problema — con uno corto se corta a alguien que iba a
- * contestar, con uno largo se espera a alguien que no.
+ * And it's not that the CDN is broken there: requested from the Mac, those SAME offsets answered
+ * 24 out of 24 times in 0.14-0.37s. It's the real path's latency that sometimes blows past any
+ * reasonable deadline, and adjusting the deadline only moves the problem -- a short one cuts off
+ * someone who was about to answer, a long one waits for someone who won't.
  *
- * Por eso esto no juega a los dados: la cola se baja UNA vez junto con el arranque (ver
- * [ArchiveCacheProxy.precalentar]) y desde ahí los sondeos del reproductor se contestan sin tocar la red.
- * Es la misma idea del arranque caliente del byte 0, aplicada a la otra punta.
+ * That's why this doesn't roll the dice: the tail is downloaded ONCE together with startup (see
+ * [ArchiveCacheProxy.precalentar]) and from there the player's probes are answered without
+ * touching the network. It's the same idea as the hot startup at byte 0, applied to the other end.
  *
- * Es una función pura para poder fijar por test los bordes, que es donde esto sería peligroso:
- * entregar un cuerpo más corto que el `Content-Length` deja al reproductor esperando para siempre,
- * y sin error visible.
+ * It's a pure function so the edges can be pinned by test, which is where this would be dangerous:
+ * handing over a body shorter than the `Content-Length` leaves the player waiting forever, with
+ * no visible error.
  */
 object ColaCaliente {
 

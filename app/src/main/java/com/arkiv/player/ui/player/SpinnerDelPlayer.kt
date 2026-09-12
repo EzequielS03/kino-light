@@ -1,24 +1,25 @@
 package com.arkiv.player.ui.player
 
 /**
- * Cuándo tapar la pantalla con el spinner de carga.
+ * When to cover the screen with the loading spinner.
  *
- * Vive afuera del Composable a propósito —mismo criterio que `DpadDelDrawer`—
- * porque la condición se evalúa en DOS sitios: el overlay que la dibuja y el log que la diagnostica.
- * Escrita dos veces se desincroniza en el primer cambio, y entonces el log deja de describir lo que
- * se está viendo, que es justo para lo que existe.
+ * Lives outside the Composable on purpose -- same criterion as `DpadDelDrawer` -- because the
+ * condition is evaluated in TWO places: the overlay that draws it and the log that diagnoses it.
+ * Written twice it goes out of sync on the first change, and then the log stops describing what's
+ * actually on screen, which is exactly what it exists for.
  *
- * Las cuatro razones son distintas y todas terminan en pantalla negra:
- *  - [sinPlaylist]: todavía no se resolvió qué reproducir.
- *  - [buffereando]: el player está cargando datos.
+ * The four reasons are different and all end in a black screen:
+ *  - [sinPlaylist]: what to play hasn't been resolved yet.
+ *  - [buffereando]: the player is loading data.
  *  - [sinPrimeraImagen]: "starts black with sound" -- the player already lets the audio
  *    through but hasn't rendered the first frame yet, and there `playbackState` is NOT
  *    BUFFERING, so without this flag the screen was left with no spinner and no picture.
- *  - [perdioLaSalidaDeVideo]: HABÍA imagen y se perdió al volver del fondo (hasta 15 s).
+ *  - [perdioLaSalidaDeVideo]: there WAS a picture and it was lost coming back from the background
+ *    (up to 15s).
  *
- * [casting] anula la última: la imagen la pone la TV, no nosotros, así que esperar la salida de
- * video local no importa ni va a llegar. Las otras tres siguen aplicando casteando — mientras el
- * receptor carga, la pantalla local también tiene que explicar qué pasa.
+ * [casting] cancels the last one: the TV puts up the picture, not us, so waiting on the local
+ * video output doesn't matter and never will arrive. The other three still apply while casting --
+ * while the receiver loads, the local screen still has to explain what's going on.
  */
 internal fun hayQueMostrarElSpinner(
     sinPlaylist: Boolean,

@@ -25,10 +25,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * [precalentarSalto]) to paper over the CDN's variable latency (0.2-20s per range) so the player
  * never runs out of tracks or data.
  *
- * Hasta la poda de archive.org de esta rama (light-magis) este proxy tenía un SEGUNDO modo —caché
- * en disco de descarga única a archivo que crece, exclusivo de archive.org— que se borró junto con
- * el resto de esa fuente: nunca lo usó magis (su camino es `directo=true`, ver el dispatcher de
- * [serve]). Lo que queda acá es exactamente lo que magis necesitaba.
+ * Until this branch's (light-magis) archive.org pruning, this proxy had a SECOND mode -- a
+ * disk cache that downloaded once into a growing file, exclusive to archive.org -- that was
+ * deleted along with the rest of that source: magis never used it (its path is `directo=true`,
+ * see [serve]'s dispatcher). What's left here is exactly what magis needed.
  */
 class ArchiveCacheProxy(private val cacheDir: File) {
     /**
@@ -344,7 +344,8 @@ class ArchiveCacheProxy(private val cacheDir: File) {
      * `:http-user-agent`, and magis serves the VOD behind `Content-Auth` and `Content-License`.
      * The proxy puts them on the request to the origin.
      *
-     * `h` va ANTES de `u` a proposito: hay codigo que saca el origen con `substringAfter("u=")`.
+     * `h` goes BEFORE `u` on purpose: there's code that pulls out the origin with
+     * `substringAfter("u=")`.
      */
     fun proxyUrl(
         originUrl: String,

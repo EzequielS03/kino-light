@@ -1,18 +1,18 @@
 package com.arkiv.player.playback
 
 /**
- * Si hay que tapar la pantalla mientras se espera la PRIMERA imagen de un media.
+ * Whether the screen needs to stay covered while waiting for a media's FIRST frame.
  *
- * Existe por el "arranca negro y con sonido": libVLC used to reach `Playing` and let the audio go
- * as soon as it had something to play, but la primera imagen puede tardar bastante más —el
- * decodificador HEVC del Fire Stick tiene que arrancar— y en ese hueco `playbackState` ya NO es
- * `STATE_BUFFERING`. La pantalla
- * se quedaba entonces sin spinner Y sin imagen: negro pelado con audio, que desde el sillón se ve
- * igual que un cuelgue. Medido el 2026-08-13 en el Fire TV, entre la primera imagen y el video
- * caminando llegó a haber 8,5 s.
+ * Exists because of "starts black with sound": libVLC used to reach `Playing` and let the audio
+ * go as soon as it had something to play, but the first frame can take a lot longer -- the Fire
+ * Stick's HEVC decoder has to spin up -- and in that gap `playbackState` is already NOT
+ * `STATE_BUFFERING`. The screen would then sit with no spinner AND no image: plain black with
+ * audio, which from the couch looks exactly like a freeze. Measured on 2026-08-13 on the Fire TV,
+ * the gap between the first frame and the video actually moving reached 8.5s.
  *
- * Es una función pura porque acá el modo de fallar es dejar el spinner puesto ENCIMA de un video que
- * sí estaba reproduciendo, y eso es peor que el negro que vino a tapar. Los bordes se fijan por test.
+ * It's a pure function because here the failure mode is leaving the spinner sitting ON TOP of a
+ * video that was already playing, and that's worse than the black screen it came to cover. The
+ * edges are pinned by test.
  */
 object EsperaDePrimeraImagen {
 
@@ -36,15 +36,15 @@ object EsperaDePrimeraImagen {
     const val MARGEN_DE_ATERRIZAJE_MS = 10_000L
 
     /**
-     * @param cargadoHaceMs desde que se cargó el media (negativo = todavía no hay ninguno).
-     * @param huboImagen si este media ya dio alguna imagen.
-     * @param hayVideoAhora si el player está pintando en este instante (libVLC-era parameter; the
-     *   local ExoPlayer path always passes `false` here and answers through [huboImagen]/
+     * @param cargadoHaceMs since the media was loaded (negative = none loaded yet).
+     * @param huboImagen whether this media has already produced any frame.
+     * @param hayVideoAhora whether the player is painting at this instant (libVLC-era parameter;
+     *   the local ExoPlayer path always passes `false` here and answers through [huboImagen]/
      *   [pistasDeVideo] instead).
-     * @param pistasDeVideo cuántas pistas de video declara el media (0 = todavía no sabe, o no hay).
-     * @param pistasDeAudio ídem para audio.
-     * @param pedidoMs a qué punto se pidió reanudar (0 = no se pidió ninguno).
-     * @param posicionMs dónde va el reloj del reproductor ahora.
+     * @param pistasDeVideo how many video tracks the media declares (0 = doesn't know yet, or none).
+     * @param pistasDeAudio same, for audio.
+     * @param pedidoMs the point resume was requested at (0 = none was requested).
+     * @param posicionMs where the player's clock is right now.
      */
     @Suppress("LongParameterList")
     fun hayQueEsperar(
@@ -58,18 +58,18 @@ object EsperaDePrimeraImagen {
     ): Boolean {
         if (cargadoHaceMs < 0L) return false          // no hay media cargado
         if (cargadoHaceMs > TOPE_MS) return false     // pasó el tope: mejor un negro que un spinner eterno
-        // REANUDACIÓN TODAVÍA EN CAMINO: hay imagen, pero NO es la del punto que se pidió.
+        // RESUME STILL LANDING: there IS a frame, but it's NOT the one for the requested point.
         //
-        // Medido en el Fire TV el 2026-08-14: `:start-time` no abría en el minuto guardado. VLC
-        // opened at byte 0, pulled a frame from there (`⏱ abrió en 1025ms`) and only THEN jumped —el
-        // `PAUSA (buffering) en pos=0ms` que sigue dura 1,5 s—. Esa primera imagen prendía
-        // `huboImagen` y apagaba el spinner, así que el usuario se quedaba mirando un fotograma
-        // congelado DEL PRINCIPIO, con el audio ya sonando, hasta que el salto aterrizaba. Se ve
-        // igual que un cuelgue y encima muestra contenido equivocado.
+        // Measured on the Fire TV on 2026-08-14: `:start-time` didn't open at the saved minute.
+        // VLC opened at byte 0, pulled a frame from there (`⏱ abrió en 1025ms`) and only THEN
+        // jumped -- the `PAUSA (buffering) en pos=0ms` that follows lasts 1.5s. That first frame
+        // turned on `huboImagen` and switched off the spinner, so the user was left staring at a
+        // frozen frame FROM THE BEGINNING, with audio already playing, until the seek landed. It
+        // looks exactly like a freeze and shows the wrong content on top of it.
         //
-        // Va ANTES del corte por "ya hubo imagen" justamente porque el caso es "hubo imagen, pero
-        // no la que corresponde". El reproductor original tapa este mismo hueco: su salto prende el
-        // spinner en el instante en que lo pide.
+        // It comes BEFORE the "there was already a frame" cutoff precisely because the case is
+        // "there was a frame, but not the right one". The original player covers this same gap:
+        // its seek turns the spinner on the instant it's requested.
         if (pedidoMs > 0L && posicionMs < pedidoMs - MARGEN_DE_ATERRIZAJE_MS) return true
         if (huboImagen || hayVideoAhora) return false // ya hubo imagen: esto no es asunto suyo
         // Contenido SIN VIDEO: no hay imagen que esperar.

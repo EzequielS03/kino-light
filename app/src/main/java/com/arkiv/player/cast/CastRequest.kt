@@ -61,8 +61,8 @@ object CastRequestBuilder {
     }
 
     /**
-     * MIME por extensión. El receptor decide por esto, así que inventarlo se paga con un video que
-     * no arranca o que arranca sin sonido.
+     * MIME by extension. The receiver decides based on this, so getting it wrong is paid for with
+     * a video that doesn't start, or starts with no sound.
      *
      * Here the bytes can't be inspected (the URL is remote, there's no file to open), so the
      * extension is all there is; what IS shared with the rest of the app is the TABLE, so there

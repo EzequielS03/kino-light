@@ -52,13 +52,14 @@ data class GatewayPlayable(
      *  manda junto con la resolución del play (`MagisResolve.subtitulos`, ver `MagisFuente`). */
     val subtitles: List<GatewaySubtitle> = emptyList(),
     /**
-     * Duración real en ms cuando la fuente la sabe (0 = no la sabe).
+     * Real duration in ms when the source knows it (0 = it doesn't).
      *
-     * Existe por el MPEG-TS crudo de magis: no la lleva en ninguna cabecera y libVLC couldn't
-     * deduce it over HTTP either, así que sin este dato hay que bajar las dos puntas del archivo para leer
-     * sus PCR ([com.arkiv.player.playback.TsDurationProbe]) contra un CDN que tarda entre 0,2 s y
-     * 20 s en contestar un rango. Cuando esa sonda pierde, la película queda con la barra llena,
-     * 00:00 a la derecha y sin poder adelantar. El portal ya sabe cuánto dura: esto lo trae.
+     * Exists because of magis's raw MPEG-TS: it doesn't carry it in any header and libVLC
+     * couldn't deduce it over HTTP either, so without this value both ends of the file have to be
+     * downloaded to read its PCR ([com.arkiv.player.playback.TsDurationProbe]) against a CDN that
+     * takes between 0.2s and 20s to answer a range. When that probe loses, the movie ends up with
+     * a full progress bar, 00:00 on the right, and no way to seek forward. The portal already
+     * knows how long it runs: this carries that value.
      */
     val durationMs: Long = 0L,
     /** Códec de video que reporta la fuente ("h264", "h265"…); "" si no se sabe. */

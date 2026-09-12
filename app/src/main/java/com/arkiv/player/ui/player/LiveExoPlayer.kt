@@ -49,34 +49,34 @@ private const val TAG = "LiveExo"
  * need to pass it its own headers: the proxy exists precisely because VLC couldn't send those
  * headers, and ExoPlayer doesn't need them either since it never sees them -- the proxy sets them.
  *
- * A diferencia de [MagisExoPlayer]:
- * - Sin `startPositionMs`/reanudación: un directo no tiene "dónde ibas".
- * - Sin subtítulos: el portal no los manda para el vivo.
- * - Sin [LoadControl] a medida: el problema que motivó el de Magis (un solo TS gigante con 8
- *   pistas de audio mal intercaladas) no existe acá — el proxy sirve un HLS bien segmentado, así
- *   que los valores por defecto de ExoPlayer (pensados para live) alcanzan.
- * - `onError` no debe mostrar un cartel: [PlayerViewModel.onLiveExoError] lo manda a
- *   `reabrirVivoPorCorte()`, que reintenta solo -- un canal en vivo se recupera casi siempre en
- *   unos segundos (ver su KDoc), y mostrar error en el primer tropiezo sería alarmar de más.
+ * Unlike [MagisExoPlayer]:
+ * - No `startPositionMs`/resume: a live feed has no "where you were".
+ * - No subtitles: the portal doesn't send any for the live feed.
+ * - No custom [LoadControl]: the problem that motivated Magis's (a single giant TS with 8 badly
+ *   interleaved audio tracks) doesn't exist here -- the proxy serves a properly segmented HLS, so
+ *   ExoPlayer's defaults (built for live) are enough.
+ * - `onError` must not show an overlay: [PlayerViewModel.onLiveExoError] sends it to
+ *   `reabrirVivoPorCorte()`, which retries on its own -- a live channel recovers almost always in
+ *   a few seconds (see its KDoc), and showing an error on the first hiccup would over-alarm.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 internal fun LiveExoPlayer(
     mediaUrl: String,
     /**
-     * Fuerza recrear el ExoPlayer aunque [mediaUrl] no cambie.
+     * Forces the ExoPlayer to be recreated even when [mediaUrl] doesn't change.
      *
-     * [com.arkiv.player.playback.LiveHlsProxy.urlPara] devuelve SIEMPRE la misma URL
-     * (`http://127.0.0.1:<puerto>/live.m3u8?t=<token>`) para toda la vida del proxy: el canal
-     * activo lo decide el proxy puertas adentro (su campo `sesion`), no la URL. Zapear a otro
-     * canal, o reabrir el mismo tras un corte, NO cambia `mediaUrl` -- solo cambia qué playlist
-     * contesta el proxy en esa misma ruta. Sin esta clave, `remember` vería la URL igual y jamás
-     * recrearía/re-prepararía el player: la pantalla se quedaría congelada en el canal viejo. Pasar
-     * `liveItem.episodeId` (que sí cambia por canal) combinado con `generacionVivo` (que sube en
-     * cada reapertura, incluida la del MISMO canal tras un corte -- ver su KDoc en
-     * PlayerViewModel) cubre los dos casos. It's the ExoPlayer equivalent of what
-     * `controller.setMediaItems(...)+prepare()` used to achieve on the old VLC player, forced by
-     * that same key.
+     * [com.arkiv.player.playback.LiveHlsProxy.urlPara] ALWAYS returns the same URL
+     * (`http://127.0.0.1:<port>/live.m3u8?t=<token>`) for the whole life of the proxy: the active
+     * channel is decided by the proxy behind closed doors (its `sesion` field), not by the URL.
+     * Switching to another channel, or reopening the same one after a cut, does NOT change
+     * `mediaUrl` -- it only changes which playlist the proxy answers on that same route. Without
+     * this key, `remember` would see the same URL and never recreate/re-prepare the player: the
+     * screen would stay frozen on the old channel. Passing `liveItem.episodeId` (which does change
+     * per channel) combined with `generacionVivo` (which goes up on every reopen, including of the
+     * SAME channel after a cut -- see its KDoc in PlayerViewModel) covers both cases. It's the
+     * ExoPlayer equivalent of what `controller.setMediaItems(...)+prepare()` used to achieve on the
+     * old VLC player, forced by that same key.
      */
     key: Any,
     espejo: EspejoDelPlayer,

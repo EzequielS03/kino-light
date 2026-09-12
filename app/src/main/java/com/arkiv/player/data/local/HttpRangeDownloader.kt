@@ -38,11 +38,12 @@ class HttpRangeDownloader(private val client: OkHttpClient) {
         target: File,
         headers: Map<String, String> = emptyMap(),
         /**
-         * Identidad del origen para decidir si el `.part` se puede reanudar. Por defecto la propia
-         * URL. It's passed differently when the URL ISN'T stable across attempts even though the
-         * content is: today that's Magis's case, whose URL carries a token that changes on every
-         * resolution (see `MagisDownloadStrategy`, which passes the `episodeId` as the key); with
-         * the URL as the key, a simple retry would discard a perfectly valid multi-GB partial.
+         * The origin's identity for deciding whether the `.part` can be resumed. Defaults to the
+         * URL itself. It's passed differently when the URL ISN'T stable across attempts even
+         * though the content is: today that's Magis's case, whose URL carries a token that
+         * changes on every resolution (see `MagisDownloadStrategy`, which passes the `episodeId`
+         * as the key); with the URL as the key, a simple retry would discard a perfectly valid
+         * multi-GB partial.
          */
         resumeKey: String = url,
         onProgress: (bytesDone: Long, totalBytes: Long) -> Unit,

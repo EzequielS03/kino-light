@@ -48,48 +48,50 @@ private fun esRecuperable(error: PlaybackException): Boolean =
         error.errorCode in PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED..PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED
 
 /**
- * El reproductor de Caracol: MPEG-DASH con Widevine.
+ * The Caracol player: MPEG-DASH with Widevine.
  *
  * ExoPlayer, same as [MagisExoPlayer] and [LiveExoPlayer], feeding the same [EspejoDelPlayer] they
  * do. libVLC never negotiated Widevine licenses, so Caracol was always going to need ExoPlayer even
  * before the rest of the app dropped VLC.
  *
- * El `DrmSessionManager` se arma a mano, como en el reproductor de Caracol de `main`, para poder
- * apagar el keepalive de la sesión DRM (ver el comentario junto a `setSessionKeepaliveMs`): el
- * `DefaultDrmSessionManagerProvider` de media3 no tiene cómo cambiarlo.
+ * The `DrmSessionManager` is built by hand, like `main`'s Caracol player, to be able to turn off
+ * the DRM session's keepalive (see the comment next to `setSessionKeepaliveMs`): media3's
+ * `DefaultDrmSessionManagerProvider` has no way to change that.
  *
- * [drmLicenseHeaders] no es opcional en la práctica: trae la cookie `playback_token` que devolvió
- * `CONTENT/VIDEOURL`, que es lo que autoriza la licencia (ver `DituResolve` y `DituCliente`).
+ * [drmLicenseHeaders] isn't optional in practice: it carries the `playback_token` cookie that
+ * `CONTENT/VIDEOURL` returned, which is what authorizes the license (see `DituResolve` and
+ * `DituCliente`).
  *
- * No hay proxy local de por medio, a diferencia de Magis: los headers que pide Caracol los pone el
- * propio `DefaultHttpDataSource` de acá, y el MISMO se usa para el manifiesto, los segmentos y la
- * petición de licencia. Lleva el `User-Agent` y el `restful: yes` de `DituCliente.CABECERAS` y,
- * además, [drmLicenseHeaders]: el reproductor de `main` manda la cookie también al manifiesto y a
- * los segmentos, con la nota de que sin ella el CDN devuelve HTML. Acá se copia sin haberlo medido
- * todavía en esta rama.
+ * There's no local proxy in the middle, unlike Magis: the headers Caracol requires are set by this
+ * file's own `DefaultHttpDataSource`, and the SAME one is used for the manifest, the segments, and
+ * the license request. It carries the `User-Agent` and `restful: yes` from `DituCliente.CABECERAS`
+ * and, on top of that, [drmLicenseHeaders]: `main`'s player also sends the cookie to the manifest
+ * and the segments, noting that without it the CDN returns HTML. It's copied here without having
+ * measured it yet on this branch.
  *
- * El video va en el `SurfaceView` que [PlayerView] usa por defecto, no en un `TextureView` como
- * [MagisExoPlayer]. En `main` se midió que un buffer protegido por Widevine no se puede pintar en
- * un `TextureView` (hwui aborta el proceso). El precio es que Caracol se queda sin miniaturas de
- * frame: la pantalla le pasa `null` a `capturarFrame`, y `FrameCapturer.capturar` devuelve `false`
- * con un `TextureView` nulo.
+ * The video goes on the `SurfaceView` that [PlayerView] uses by default, not on a `TextureView`
+ * like [MagisExoPlayer]. On `main` it was measured that a Widevine-protected buffer can't be
+ * painted on a `TextureView` (hwui aborts the process). The price is that Caracol loses frame
+ * thumbnails: the screen passes `null` to `capturarFrame`, and `FrameCapturer.capturar` returns
+ * `false` with a null `TextureView`.
  *
- * La publicidad no se filtra. Ante un error recuperable (ver [esRecuperable]) se vuelve a preparar
- * el stream mientras [pedirRepreparado] lo permita; si no, el `errorCode` del error va a [onError], y
- * `PlayerScreen` le pide al ViewModel una URL nueva. Los topes de los dos escalones no viven acá sino en
- * `EstadoDeDitu`, que los repone recién después de reproducción estable: [onPosicion] le pasa cada
- * lectura del reloj.
+ * Ads aren't filtered. On a recoverable error (see [esRecuperable]) the stream is re-prepared
+ * while [pedirRepreparado] allows it; otherwise, the error's `errorCode` goes to [onError], and
+ * `PlayerScreen` asks the ViewModel for a new URL. The caps for the two tiers don't live here but
+ * in `EstadoDeDitu`, which only resets them after stable playback: [onPosicion] passes it every
+ * clock reading.
  *
- * Arranca con la primera imagen, no antes. Se prepara en pausa y [ArranqueConLaPrimeraImagen] decide
- * cuándo darle play: cuando se pinta la primera imagen, o pasada
- * [ESPERA_MAXIMA_DE_LA_PRIMERA_IMAGEN_MS] sin ella, para no quedar mudo y colgado. Antes arrancaba de
- * una, y el audio podía empezar antes que la imagen. Que ExoPlayer pinte la primera imagen estando en
- * pausa no está probado en un aparato en esta rama: si no la pintara, lo que queda es esa salida de
- * seguridad.
+ * Starts with the first frame, not before. It's prepared paused and
+ * [ArranqueConLaPrimeraImagen] decides when to give it play: when the first frame is painted, or
+ * after [ESPERA_MAXIMA_DE_LA_PRIMERA_IMAGEN_MS] without it, so it doesn't end up silent and
+ * frozen. It used to start right away, and the audio could begin before the picture. Whether
+ * ExoPlayer paints the first frame while paused hasn't been verified on a device on this branch:
+ * if it didn't, what's left is that safety exit.
  *
- * [arrancarSolo] en `false` lo arma preparado en pausa, sin que arranque solo: es el de una recarga de
- * algo que estaba en pausa. [onError] entrega, junto con el código, si este reproductor quería
- * reproducir ([ArranqueConLaPrimeraImagen.queriaReproducir]), que es lo que hereda la recarga.
+ * [arrancarSolo] set to `false` builds it prepared and paused, without starting on its own: that's
+ * the case of reloading something that was paused. [onError] hands over, along with the code,
+ * whether this player wanted to play ([ArranqueConLaPrimeraImagen.queriaReproducir]), which is
+ * what the reload inherits.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable

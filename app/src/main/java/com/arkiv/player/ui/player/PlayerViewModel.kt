@@ -775,12 +775,12 @@ class PlayerViewModel internal constructor(
     }
 
     /**
-     * Reproduce un ítem de Magis.
+     * Plays a Magis item.
      *
      * The CDN requires `Content-Auth` and `Content-License`; the stream goes through the local
      * proxy, which can put them on the request to the origin -- libVLC, back when it played this,
-     * could only send Referer and User-Agent. El [ref] guardado se manda tal cual a
-     * `MagisResolve.resolveVod`; la app nunca lo interpreta.
+     * could only send Referer and User-Agent. The stored [ref] is sent as-is to
+     * `MagisResolve.resolveVod`; the app never interprets it.
      */
     private suspend fun loadMagis(episodeId: String) {
         // El contenido de adultos NO tiene fila en la biblioteca —esa es toda la idea, ver

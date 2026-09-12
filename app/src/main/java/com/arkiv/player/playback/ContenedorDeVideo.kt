@@ -13,19 +13,20 @@ enum class Contenedor(val mime: String) {
 }
 
 /**
- * Qué contenedor es un archivo, mirando sus BYTES antes que su nombre.
+ * What container a file is, by looking at its BYTES before its name.
  *
- * Es la regla que magis ya aplicaba —el contenedor sale del archivo, no de una suposición— llevada
- * al lado del cast, que es donde adivinar se paga. Había tres tablas de MIME distintas decidiendo
- * por extensión y contradiciéndose entre sí: lo desconocido era matroska en `TorrentStreamServer`,
- * mp4 en `LocalFileServer` y mp4 otra vez en `CastRequestBuilder`. Ese string es exactamente lo que
- * el receptor de Chromecast y el renderer DLNA usan para decidir si abren el stream; libVLC used
- * to ignore it and probe instead, they don't. Un `.avi` o un `.ts` de un torrent se le anunciaba a la TV como
- * Matroska, y un `.mkv` bajado de la NUC —que `LocalFilePaths.fileNameFor` guarda como `.mp4`
- * porque la URL de origen es una página web sin extensión— se anunciaba como mp4.
+ * It's the rule magis already applied -- the container comes from the file, not from a guess --
+ * carried over to the cast side, which is where guessing costs something. There used to be three
+ * different MIME tables deciding by extension and contradicting each other: the unknown case was
+ * matroska in `TorrentStreamServer`, mp4 in `LocalFileServer`, and mp4 again in
+ * `CastRequestBuilder`. That string is exactly what the Chromecast receiver and the DLNA renderer
+ * use to decide whether to open the stream; libVLC used to ignore it and probe instead, they
+ * don't. An `.avi` or `.ts` from a torrent was announced to the TV as Matroska, and an `.mkv`
+ * downloaded from the NUC -- which `LocalFilePaths.fileNameFor` saves as `.mp4` because the source
+ * URL is a web page with no extension -- was announced as mp4.
  *
- * Puro y sin Android para poder fijar los bordes por test: acá el modo de fallar es silencioso
- * (la TV rechaza el ítem, o peor, lo abre y no suena) y no deja rastro en ningún log nuestro.
+ * Pure and Android-free so the edges can be pinned by test: here the failure mode is silent (the
+ * TV rejects the item, or worse, opens it and stays mute) and leaves no trace in any log of ours.
  */
 object ContenedorDeVideo {
 

@@ -54,7 +54,7 @@ object LangTokens {
     }
 
     /**
-     * Clasifica una pista EXTERNA por el sufijo de idioma de su nombre de archivo. libVLC used to
+     * Classifies an EXTERNAL track by the language suffix of its file name. libVLC used to
      * name `addSlave` tracks by their path, and this still works for any standalone `.srt` that
      * arrives that way (the torrent source that motivated this was removed in this branch's
      * pruning). If there's no recognizable suffix, it falls back to [classify] on the whole name.

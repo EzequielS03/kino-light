@@ -6,18 +6,18 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * Duración de un MPEG-TS, deducida de sus PCR.
+ * Duration of an MPEG-TS, deduced from its PCR.
  *
- * El TS es un formato de emisión: no lleva la duración en ninguna cabecera. La única forma de
- * saber cuánto dura es restar el reloj del programa (PCR) del final menos el del principio.
- * libVLC used to do exactly that... but ONLY when the access was fast-read (a local file): over
- * HTTP it never probed the end, so `mediaPlayer.length` stayed at 0. Con duración 0 la
- * barra de progreso se llena de golpe, la derecha marca 00:00, no se puede adelantar (buscar por
- * TIEMPO se ignora sin duración) y no se guarda dónde ibas.
+ * TS is a broadcast format: it doesn't carry the duration in any header. The only way to know how
+ * long it runs is subtracting the program clock reference (PCR) at the start from the one at the
+ * end. libVLC used to do exactly that... but ONLY when the access was fast-read (a local file):
+ * over HTTP it never probed the end, so `mediaPlayer.length` stayed at 0. With duration 0 the
+ * progress bar fills up instantly, the right side shows 00:00, there's no seeking forward (seeking
+ * by TIME is ignored without a duration) and where you were doesn't get saved.
  *
- * Como el origen sí acepta Range, la sacamos nosotros: 256 KB del principio + 256 KB del final.
- * Medido contra la película real de magis, da 89 ms de diferencia con ffprobe (10 143,84 s vs
- * 10 143,93 s), que para pintar la barra y buscar sobra.
+ * Since the origin does accept Range, we pull it ourselves: 256 KB from the start + 256 KB from
+ * the end. Measured against magis's real movie, it's 89ms off from ffprobe (10,143.84s vs
+ * 10,143.93s), which is more than enough for drawing the bar and seeking.
  */
 object TsDurationProbe {
 

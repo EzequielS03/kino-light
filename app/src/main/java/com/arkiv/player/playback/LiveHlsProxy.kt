@@ -20,21 +20,23 @@ import java.net.URLEncoder
  * can set arbitrary headers itself, but the proxy stays because the per-segment fresh signing
  * still has to happen somewhere).
  *
- * El proxy baja el playlist, reescribe las URLs absolutas de los `.ts` hacia sí mismo y pone
- * las cabeceras en cada petición al origen. El reproductor local ve `127.0.0.1`; Chromecast/DLNA
- * ven la IP LAN del celu (ver [lanUrl]) porque, desde el primer canal que se abre, el socket escucha en TODAS
- * las interfaces, no solo loopback (ver el KDoc de [start]/[urlPara]). Eso solo, sin nada más,
- * dejaría el canal -contenido pago de Magis- a la vista de cualquier equipo en la misma WiFi que
- * escanee el puerto efímero: por eso cada URL que entrega el proxy ([urlPara], [lanUrl], y las
- * URLs de segmento que el propio proxy reescribe dentro del m3u8) lleva el token aleatorio de
- * [generarToken] como query param, y [atender] lo exige antes de resolver cualquier ruta.
+ * The proxy downloads the playlist, rewrites the `.ts` absolute URLs to point at itself, and sets
+ * the headers on every request to the origin. The local player sees `127.0.0.1`; Chromecast/DLNA
+ * see the phone's LAN IP (see [lanUrl]) because, from the first channel that opens, the socket
+ * listens on ALL interfaces, not just loopback (see the KDoc of [start]/[urlPara]). That alone,
+ * with nothing else, would leave the channel -- Magis's paid content -- visible to any device on
+ * the same WiFi that scans the ephemeral port: that's why every URL the proxy hands out
+ * ([urlPara], [lanUrl], and the segment URLs the proxy itself rewrites inside the m3u8) carries
+ * [generarToken]'s random token as a query param, and [atender] requires it before resolving any
+ * route.
  *
- * [onSesionMuerta] avisa cuando una petición se rinde tras dos 403 seguidos ([pedirAlOrigen]):
- * eso significa que caducó la sesión del canal (token/license), no la firma -ver el KDoc de
- * [pedirAlOrigen]-, así que quien la resolvió (`LiveController`) debe volver a pedirla al gateway
- * la próxima vez, en vez de servir la copia cacheada que ya sabemos muerta hasta que expire sola
- * (hasta 300s; ver `LiveController.vigente`). Sin este aviso el canal queda roto todo ese rato
- * aunque el usuario zapee y vuelva (hallazgo "en la misma ola" de la revisión final).
+ * [onSesionMuerta] fires when a request gives up after two 403s in a row ([pedirAlOrigen]): that
+ * means the channel's session (token/license) expired, not the signature -- see the KDoc of
+ * [pedirAlOrigen] -- so whoever resolved it (`LiveController`) must ask the gateway for it again
+ * next time, instead of serving the cached copy that's already known to be dead until it expires
+ * on its own (up to 300s; see `LiveController.vigente`). Without this notice the channel stays
+ * broken that whole time even if the user zaps away and back (a finding from "the same wave" of
+ * the final review).
  */
 class LiveHlsProxy(
     private val firmas: FirmaDeSegmentos,
@@ -137,17 +139,17 @@ class LiveHlsProxy(
     }
 
     /**
-     * Fija la sesión del canal y devuelve la URL que se le pasa al reproductor.
+     * Sets the channel session and returns the URL handed to the player.
      *
      * `bindLan = true`: the proxy becomes reachable over the LAN as soon as the FIRST channel
      * opens, not only when casting -- same criterion the torrent HTTP server used (source removed
-     * in this branch's pruning), with `ServerSocket(0)` and no IP = all interfaces. La
-     * alternativa
-     * -abrir en loopback y "ensanchar" a LAN recién al castear- le cambiaría el PUERTO a mitad de
-     * reproducción: esta URL (con el puerto de HOY) ya quedó grabada como el media local del
-     * reproductor, y en el media cargado para Chromecast/DLNA (ver `LiveHlsProxy.lanUrl`); reabrir el socket en
-     * otro puerto rompería ambos. 127.0.0.1 sigue funcionando igual con el socket en todas las
-     * interfaces, así que esto no cambia nada para la reproducción local.
+     * in this branch's pruning), with `ServerSocket(0)` and no IP = all interfaces. The
+     * alternative -- opening on loopback and "widening" to LAN only when casting starts -- would
+     * change the PORT mid-playback: this URL (with TODAY's port) is already recorded as the
+     * player's local media, and in the media loaded for Chromecast/DLNA (see
+     * `LiveHlsProxy.lanUrl`); reopening the socket on another port would break both. 127.0.0.1
+     * keeps working the same with the socket on all interfaces, so this changes nothing for local
+     * playback.
      */
     fun urlPara(nueva: LiveSession): String {
         // ZAPPING starts here. It's the mark everything about live playback gets measured against:

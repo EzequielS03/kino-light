@@ -46,22 +46,21 @@ import kotlinx.coroutines.delay
 private const val TAG = "MagisExo"
 
 /**
- * Reproduce un stream de Magis usando ExoPlayer.
+ * Plays a Magis stream using ExoPlayer.
  *
- * La URL ya llega proxificada por [archiveCacheProxy] (http://127.0.0.1:…), que inyecta los
- * headers de autenticación del CDN transparentemente. ExoPlayer la descarga como HTTP plano.
+ * The URL already arrives proxied by [archiveCacheProxy] (http://127.0.0.1:...), which injects the
+ * CDN's authentication headers transparently. ExoPlayer downloads it as plain HTTP.
  *
- * [DefaultMediaSourceFactory] auto-detecta HLS, DASH o progresivo (MP4/TS) según el tipo de
- * contenido. For the progress bar and controls it uses the same [EspejoDelPlayer] VLC used to.
+ * [DefaultMediaSourceFactory] auto-detects HLS, DASH or progressive (MP4/TS) based on the content
+ * type. For the progress bar and controls it uses the same [EspejoDelPlayer] VLC used to.
  *
  * Uses [TextureView] directly so [onTextureViewReady] exposes the surface and `capturarFrame`
- * works the same way it did with VLC. El aspect ratio se mantiene escuchando
- * [Player.Listener.onVideoSizeChanged]: en portrait el video queda centrado en formato horizontal.
+ * works the same way it did with VLC. The aspect ratio is kept in sync by listening to
+ * [Player.Listener.onVideoSizeChanged]: in portrait the video stays centered in landscape format.
  *
- * Los subtítulos externos del portal se pasan como [subtitleConfigs] y ExoPlayer los carga
- * automáticamente; el [SubtitleView] superpuesto los renderiza en pantalla. Las pistas de audio
- * y subtítulo detectadas se notifican via [onTracksChanged] para que [EstadoDePistas] las
- * exponga en el menú.
+ * The portal's external subtitles are passed as [subtitleConfigs] and ExoPlayer loads them
+ * automatically; the overlaid [SubtitleView] renders them on screen. Detected audio and subtitle
+ * tracks are reported via [onTracksChanged] so [EstadoDePistas] can expose them in the menu.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable

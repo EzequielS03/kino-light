@@ -178,10 +178,11 @@ private const val UMBRAL_ZAP_PX = 80f
 private const val MOSTRAR_MARCADORES_EN_TELEFONO = false
 private const val MOSTRAR_VELOCIDAD_Y_ZOOM_EN_TELEFONO = false
 
-// Modo noche: el velo negro va ENCIMA del video, con opacidad nivel/DIM_MAX_LEVEL — 0 = brillo
-// normal (sin velo), DIM_MAX_LEVEL = negro total. No se usa el brillo real de la pantalla porque
-// en el Fire TV Stick es no-op (el brillo lo manda el televisor, no Android), and libVLC 3.x
-// didn't expose the `adjust` filter. Cambiar la finura del paso = cambiar solo esta línea.
+// Night mode: the black veil sits ON TOP of the video, with opacity level/DIM_MAX_LEVEL -- 0 =
+// normal brightness (no veil), DIM_MAX_LEVEL = fully black. The screen's real brightness isn't
+// used because on the Fire TV Stick it's a no-op (the TV controls brightness, not Android), and
+// libVLC 3.x didn't expose the `adjust` filter. Changing the step's granularity = changing only
+// this line.
 
 /**
  * Cuánto se espera, sin tocar nada, antes de confirmar una ráfaga de saltos incrementales (ver
@@ -868,8 +869,8 @@ private fun PlayerContent(
             actualMediaId = controller.currentMediaItem?.mediaId,
             fresco = pl.items.map { LoadedMedia(it.episodeId, it.mediaUrl) },
             pedido = pl.pedido,
-            // ¿Volvimos sobre una pantalla NUEVA? Reusar el media con una superficie nueva mata al
-            // decodificador (ver MediaReusePolicy.decide para los números medidos). The loaded media
+            // Did we land back on a NEW screen? Reusing the media with a new surface kills the
+            // decoder (see MediaReusePolicy.decide for the measured numbers). The loaded media
             // already painted (the service player's decoder counters) but not on THIS screen, so it
             // painted on another screen's surface: the same question libVLC's
             // `superficieDistintaALaDelVideo` used to answer. False while it never painted.
@@ -1221,12 +1222,12 @@ private fun PlayerContent(
             val ready = activePlayer.playbackState == Player.STATE_READY && posicionEsDeEstaPantalla()
             if (ready) {
                 espejo.leyoElReloj(contentPositionMs(), contentDurationMs())
-                // El presupuesto de reaperturas se repone con la POSICIÓN, no con `espejo.reproduciendo`.
+                // The reopen budget is replenished by POSITION, not by `espejo.reproduciendo`.
                 // Measured on the Fire TV on 2026-08-14: `espejo.reproduciendo` used to turn true as soon
-                // as VLC opened, before the first frame, así que un canal que reabría y moría en pos=0ms
-                // reponía igual las tres reaperturas — el tope no se agotaba nunca y el aviso en
-                // pantalla no podía aparecer. Reponer solo cuando de verdad se reprodujo un rato
-                // es lo que distingue "se recuperó" de "reabrió y se cayó de nuevo".
+                // as VLC opened, before the first frame, so a channel that reopened and died at pos=0ms
+                // would still replenish all three reopens -- the cap never ran out and the on-screen
+                // warning could never appear. Replenishing only once it actually played for a while
+                // is what distinguishes "it recovered" from "it reopened and died again".
                 if (vivoDeMagis) vm.vivoAndando(espejo.posicionMs)
             }
             estadoPistas.sincronizarSubsOn()

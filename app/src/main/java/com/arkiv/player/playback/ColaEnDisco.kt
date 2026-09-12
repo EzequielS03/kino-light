@@ -4,10 +4,10 @@ import java.io.File
 import java.nio.ByteBuffer
 
 /**
- * Los últimos KB de un archivo, guardados en disco para que sobrevivan al reinicio de la app.
+ * The last KB of a file, saved to disk so they survive the app's restart.
  *
- * Existe por una medición del Fire TV del 2026-08-14, abriendo una película en MPEG-TS por primera
- * vez:
+ * Exists because of a Fire TV measurement from 2026-08-14, opening an MPEG-TS movie for the first
+ * time:
  *
  * ```
  * 09:35:12.667  ← pide rango=bytes=660308868-           ← libVLC wanted the END of the file
@@ -19,17 +19,17 @@ import java.nio.ByteBuffer
  *
  * With a TS, libVLC used to probe the end of the file to deduce the duration, and until that
  * range arrived there was NO picture (see [ColaCaliente], which already serves it from memory).
- * La comparación del mismo día lo deja sin dudas: el mp4 nuevo pidió SOLO `bytes=0-` y abrió en
- * 1525 ms; el mpegts nuevo pidió también el final y tardó 5376 ms. Y los mpegts que abrieron en
- * 393 y 421 ms eran el mismo título ya visto, con la cola todavía en memoria.
+ * The comparison from the same day leaves no doubt: the new mp4 asked ONLY for `bytes=0-` and
+ * opened in 1525ms; the new mpegts also asked for the end and took 5376ms. And the mpegts files
+ * that opened in 393 and 421ms were the same title already seen, with the tail still in memory.
  *
- * Ahí está el desperdicio que esto arregla: [ColaCaliente] y `abrirConDuplicado` ya atacan el
- * sondeo y los rechazos del CDN, pero esos 256 KB vivían en un mapa en memoria, así que CADA
- * arranque de la app volvía a pagar la primera vez. En un Fire TV, que mata la app en cuanto se va
- * al fondo, eso es casi siempre.
+ * That's the waste this fixes: [ColaCaliente] and `abrirConDuplicado` already tackle the probing
+ * and the CDN's rejections, but those 256 KB lived in an in-memory map, so EVERY app startup paid
+ * the first-time cost again. On a Fire TV, which kills the app as soon as it goes to the
+ * background, that's almost always.
  *
- * La clave es estable entre sesiones porque es el SHA-1 de la URL de ORIGEN, y la de magis no lleva
- * el token adentro (viaja en los headers): `…/vod/<contentId>_media.mp4`.
+ * The key is stable across sessions because it's the SHA-1 of the ORIGIN URL, and magis's doesn't
+ * carry the token inside it (it travels in the headers): `…/vod/<contentId>_media.mp4`.
  */
 class ColaEnDisco(private val dir: File, private val maxColas: Int = MAX_COLAS) {
 
