@@ -7,6 +7,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
+import androidx.media3.transformer.InAppMuxer
 import androidx.media3.transformer.Transformer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -77,6 +78,15 @@ class TsRemuxer(private val context: Context, cacheDir: File) {
         return withContext(Dispatchers.Main) {
             suspendCancellableCoroutine { cont ->
                 val transformer = Transformer.Builder(context)
+                    // media3's OWN muxer, never the platform one. Transformer defaults to
+                    // `FrameworkMuxer`, which is `MediaMuxer` and underneath it libstagefright's
+                    // `MPEG4Writer` -- and that one ABORTS THE PROCESS on the HEVC samples coming
+                    // out of a Magis transport stream: `FORTIFY: write: count
+                    // 18446744073709551615 > SSIZE_MAX` (a sample size of -1 read as unsigned),
+                    // SIGABRT on the MPEG4Writer thread, measured 2026-09-12. A native abort is
+                    // not catchable, so the only defence is not to use that muxer. The in-app one
+                    // is pure Java, and it is also what can write fragmented MP4.
+                    .setMuxerFactory(InAppMuxer.Factory.Builder().build())
                     .addListener(object : Transformer.Listener {
                         override fun onCompleted(composition: Composition, result: ExportResult) {
                             val ok = runCatching { parcial.renameTo(destino) }.getOrDefault(false)

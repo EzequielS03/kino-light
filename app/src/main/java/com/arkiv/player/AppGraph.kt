@@ -289,6 +289,18 @@ class AppGraph(context: Context) {
         com.arkiv.player.playback.LocalFileServer(lanIp = { lanIp() })
     }
 
+    /**
+     * Rewrites an MPEG-TS into an MP4 so the Cast receiver gets explicit per-sample timing instead
+     * of having to derive it from PTS/DTS. Nothing is re-encoded. See [TsRemuxer].
+     *
+     * In `cacheDir` on purpose: a remux is a derived copy and Android may reclaim it, which is
+     * exactly the right outcome -- it is rebuilt on demand and never holds the only copy of
+     * anything.
+     */
+    val tsRemuxer: com.arkiv.player.playback.TsRemuxer by lazy {
+        com.arkiv.player.playback.TsRemuxer(appContext, appContext.cacheDir)
+    }
+
     /** IP del aparato en la LAN (ver [com.arkiv.player.playback.LanIp]): la necesitan el proxy de
      *  canal en vivo y el cast transcodificado para que un renderer en la LAN pueda alcanzarlos. */
     fun lanIp(): String? = com.arkiv.player.playback.LanIp.current(appContext)

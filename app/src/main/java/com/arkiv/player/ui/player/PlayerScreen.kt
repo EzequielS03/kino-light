@@ -797,7 +797,27 @@ private fun PlayerContent(
         // SPIKE: a local file is cast as a one-segment HLS playlist, not as a bare MPEG-TS. The
         // receiver refuses the latter (measured 2026-09-12: fetched 5.3 MB, broken pipe) and accepts
         // the former, whose segments are that very same MPEG-TS.
-        val hlsLocal = if (item.kind == SourceKind.LOCAL) graph.localFileServer.playlistUrl() else null
+        // A downloaded file that has already been remuxed is cast as the MP4, which is what the
+        // receiver wants: explicit per-sample timing instead of deriving it from the transport
+        // stream's PTS/DTS. Only when there is no remux yet does it fall back to serving the
+        // original as HLS segments. The remux itself is kicked off by the effect below -- this
+        // function stays synchronous because every cast path calls it.
+        val remuxLocal = if (item.kind == SourceKind.LOCAL) {
+            graph.tsRemuxer.yaHecho(item.mediaUrl)?.let { graph.localFileServer.serve(it) }
+        } else {
+            null
+        }
+        if (item.kind == SourceKind.LOCAL) {
+            android.util.Log.i(
+                "ArkivCast",
+                "local file → ${if (remuxLocal != null) "remuxed mp4" else "HLS segments (no remux yet)"}",
+            )
+        }
+        val hlsLocal = if (item.kind == SourceKind.LOCAL && remuxLocal == null) {
+            graph.localFileServer.playlistUrl()
+        } else {
+            null
+        }
         val mimeLocal = if (item.kind == SourceKind.LOCAL) {
             runCatching {
                 com.arkiv.player.playback.ContenedorDeVideo
@@ -840,7 +860,7 @@ private fun PlayerContent(
             subtitle = item.subtitle,
             artworkUrl = item.artworkUrl,
             mediaUrl = item.mediaUrl,
-            castUrl = hlsLocal ?: item.castUrl,
+            castUrl = remuxLocal ?: hlsLocal ?: item.castUrl,
             lanUrl = lanUrl,
             // The resume position survives again. It was forced to 0 while the playlist had a
             // single segment covering the whole file: with no entry point to seek to, asking the
@@ -851,6 +871,7 @@ private fun PlayerContent(
             startPositionMs = startPositionMs,
             isLive = esVivo,
             mimeOverride = when {
+                remuxLocal != null -> "video/mp4"
                 hlsLocal != null -> "application/vnd.apple.mpegurl"
                 mimeMagis != null -> mimeMagis
                 else -> mimeLocal
@@ -915,6 +936,58 @@ private fun PlayerContent(
         castSession.setMedia(req)
         casteadoAlReceptor = item.episodeId
         NowPlaying.episodeId = item.episodeId
+    }
+
+    /**
+     * Remuxes a downloaded MPEG-TS to MP4 while it is being cast, and re-casts it when done.
+     *
+     * The first cast of a title goes out as HLS segments, which plays but leaves the receiver
+     * deriving every frame's presentation time from PTS/DTS -- hundreds of
+     * `Failed to get frame timestamps` a minute on the KALLEY, and visible judder with the decoder
+     * otherwise healthy. The remux removes that entirely, and it costs almost no CPU because
+     * nothing is re-encoded.
+     *
+     * It runs WHILE the cast plays rather than before it, so the person waits for nothing: the
+     * segments carry the picture meanwhile, and the swap happens when the MP4 is whole. Done once
+     * per file -- `yaHecho` short-circuits every later cast of the same title.
+     *
+     * Only for a LOCAL file. A remote title would mean downloading all of it before the MP4 could
+     * be finalised (the index lands at the end), which is the wait a fragmented MP4 exists to
+     * avoid; that path is separate.
+     */
+    LaunchedEffect(casting, d?.episodeId, d?.kind) {
+        if (!casting || castSession == null) return@LaunchedEffect
+        val item = d ?: return@LaunchedEffect
+        if (item.kind != SourceKind.LOCAL) return@LaunchedEffect
+        val ruta = item.mediaUrl.removePrefix("file://")
+        val archivo = java.io.File(ruta)
+        if (!archivo.exists()) return@LaunchedEffect
+        val mime = runCatching {
+            com.arkiv.player.playback.ContenedorDeVideo.deArchivo(archivo).mime
+        }.getOrNull()
+        if (!com.arkiv.player.playback.PoliticaDeRemux.hayQueRemuxear(mime)) {
+            android.util.Log.i("ArkivCast", "local file is $mime, no remux needed")
+            return@LaunchedEffect
+        }
+        if (graph.tsRemuxer.yaHecho(item.mediaUrl) != null) return@LaunchedEffect
+
+        android.util.Log.w("ArkivCast", "remuxing ${archivo.name} to mp4 while the segments play")
+        val res = graph.tsRemuxer.remuxear(item.mediaUrl, item.mediaUrl)
+        if (res !is com.arkiv.player.playback.TsRemuxer.Resultado.Listo) {
+            // Nothing to undo: the HLS segments keep playing. Worth a line, because a silent
+            // failure here looks identical to a remux that was never attempted.
+            android.util.Log.w("ArkivCast", "remux failed, staying on HLS segments")
+            return@LaunchedEffect
+        }
+        // Still casting the same thing? The export takes a while and the person may have moved on.
+        if (!casting || castSession == null) return@LaunchedEffect
+        val desde = runCatching { contentPositionMs() }.getOrDefault(0L).coerceAtLeast(0L)
+        val pl = playlistRef.value ?: return@LaunchedEffect
+        val idx = pl.items.indexOfFirst { it.episodeId == item.episodeId }.coerceAtLeast(0)
+        val req = castRequestFor(pl, idx, desde) ?: return@LaunchedEffect
+        android.util.Log.w("ArkivCast", "remux ready → re-casting as mp4 from ${desde}ms")
+        castSession.setMedia(req)
+        casteadoAlReceptor = item.episodeId
     }
 
     fun bump() = controles.huboActividad()
