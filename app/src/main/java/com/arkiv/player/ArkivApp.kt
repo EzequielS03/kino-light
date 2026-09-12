@@ -50,7 +50,7 @@ class ArkivApp : Application(), ImageLoaderFactory {
                 if (!graph.settings.recientesPurgados) {
                     graph.database.liveRecentDao().borrarTodos()
                     graph.settings.setRecientesPurgados(true)
-                    android.util.Log.w("ArkivCuenta", "recientes purgados (fuga de canales de adultos)")
+                    android.util.Log.w("ArkivCuenta", "recent items purged (adult channel leak)")
                 }
             }.onFailure { reportar(it, "arranque: purgar recientes") }
         }

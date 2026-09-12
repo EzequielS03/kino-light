@@ -1317,17 +1317,17 @@ private fun TvMagisSeasonContent(
     val saveAllFocus = remember { FocusRequester() }
 
     LaunchedEffect(season.ref) {
-        // Mismo diagnóstico que en la ventana del celular (ver MagisSeasonDialog): sin esto el
-        // motivo real del fallo no llega a ningún lado.
+        // Same diagnostic as the phone's dialog (see MagisSeasonDialog): without this the
+        // real reason for the failure doesn't reach anywhere.
         android.util.Log.w(
             "ArkivGw",
-            "temporada TV: pido capitulos titulo=${season.title} tipo=${season.extra["program_type"]} " +
-                "esperados=${season.extra["episode_count"]} kind=${season.kind} ref=${season.ref.take(24)}…",
+            "season TV: requesting chapters title=${season.title} type=${season.extra["program_type"]} " +
+                "expected=${season.extra["episode_count"]} kind=${season.kind} ref=${season.ref.take(24)}…",
         )
         runCatching { client.episodesConSerie(season.ref) }
             .onSuccess { (caps, s) -> capitulos = caps; serie = s }
             .onFailure {
-                android.util.Log.w("ArkivGw", "temporada TV: fallo ${it.javaClass.simpleName}: ${it.message}", it)
+                android.util.Log.w("ArkivGw", "season TV: failed ${it.javaClass.simpleName}: ${it.message}", it)
                 error = "No se pudieron cargar los capítulos."
             }
     }

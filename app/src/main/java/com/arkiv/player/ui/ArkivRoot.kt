@@ -106,7 +106,7 @@ fun ArkivRoot(
     // shows a "no longer available" message instead. Without cloud sync or pairing (Task 5) there's
     // nobody to offer "play on the TV" to: Chromecast/DLNA are still available from inside the player.
     fun goToPlayer(id: String) {
-        android.util.Log.w("ArkivNav", "goToPlayer id=$id ruta=${navController.currentBackStackEntry?.destination?.route}")
+        android.util.Log.w("ArkivNav", "goToPlayer id=$id route=${navController.currentBackStackEntry?.destination?.route}")
         navController.navigate("player/${Uri.encode(id)}") { launchSingleTop = true }
     }
     fun playEpisode(id: String) = goToPlayer(id)

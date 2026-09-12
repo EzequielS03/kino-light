@@ -175,7 +175,7 @@ internal class EstadoDePistas(
         }
         curAudio = audioGrupos.indexOfFirst { it.isSelected }.coerceAtLeast(-1)
         curSpu   = subGrupos.indexOfFirst   { it.isSelected }.coerceAtLeast(-1)
-        android.util.Log.i("PistasExo", "pistas actualizadas: audio=${audioTracks.size} subs=${spuTracks.size} curAudio=$curAudio curSpu=$curSpu")
+        android.util.Log.i("PistasExo", "tracks updated: audio=${audioTracks.size} subs=${spuTracks.size} curAudio=$curAudio curSpu=$curSpu")
         autoElegirIdiomaExo()
     }
 
@@ -205,7 +205,7 @@ internal class EstadoDePistas(
         TrackSelector.select(audioTracks, prefs.audioLangs, requireChoice = true)
             ?.takeIf { it != curAudio }
             ?.let { elegido ->
-                android.util.Log.i("PistasExo", "auto-audio: ${nombreDe(audioTracks, elegido)} (era ${nombreDe(audioTracks, curAudio)})")
+                android.util.Log.i("PistasExo", "auto-audio: ${nombreDe(audioTracks, elegido)} (was ${nombreDe(audioTracks, curAudio)})")
                 aplicarAudioExo(elegido)
             }
 
@@ -216,7 +216,7 @@ internal class EstadoDePistas(
             spuClassifier = LangTokens::classify,
         )
         if (spu != curSpu) {
-            android.util.Log.i("PistasExo", "auto-subtítulo: ${if (spu < 0) "apagados" else nombreDe(spuTracks, spu)}")
+            android.util.Log.i("PistasExo", "auto-subtitle: ${if (spu < 0) "off" else nombreDe(spuTracks, spu)}")
             aplicarSpuExo(spu)
         }
     }

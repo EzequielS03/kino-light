@@ -50,7 +50,7 @@ suspend fun repararIdentidadDeMagis(
     )
     android.util.Log.w(
         "ArkivGw",
-        "reparada la identidad de $itemId: tmdb=$tmdbId · ${enriquecidos.size}/${capitulos.size} capitulos con metadata",
+        "repaired the identity of $itemId: tmdb=$tmdbId · ${enriquecidos.size}/${capitulos.size} chapters with metadata",
     )
     return true
 }

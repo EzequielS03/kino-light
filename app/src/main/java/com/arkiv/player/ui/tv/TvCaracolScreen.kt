@@ -100,13 +100,13 @@ internal fun TvCaracolScreen(onPlay: (episodeId: String) -> Unit) {
             .onSuccess { titulos = it; error = null }
             .onFailure {
                 // El detalle va al log; en pantalla, en palabras de persona.
-                android.util.Log.w("TvCaracol", "no cargó el catálogo", it)
+                android.util.Log.w("TvCaracol", "catalog failed to load", it)
                 error = com.arkiv.player.data.ditu.FalloDeCaracol.alCargarElCatalogo(it)
                 aviso = error
             }
         // Si falla, se dice en la pestaña: no puede verse igual que "no hay canales".
         val resultadoDeCanales = runCatching { graph.dituFuente.canales() }
-        resultadoDeCanales.exceptionOrNull()?.let { android.util.Log.w("TvCaracol", "no cargaron los canales", it) }
+        resultadoDeCanales.exceptionOrNull()?.let { android.util.Log.w("TvCaracol", "channels failed to load", it) }
         canales = EstadoDeCanales.de(resultadoDeCanales)
         cargando = false
     }

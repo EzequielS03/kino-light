@@ -52,9 +52,9 @@ class VigilanteDeRed(
         runCatching {
             val cm = context.getSystemService(ConnectivityManager::class.java) ?: return
             cm.registerDefaultNetworkCallback(callback)
-            android.util.Log.w("ArkivRed", "vigilante de red activo")
+            android.util.Log.w("ArkivRed", "network watchdog active")
         }.onFailure {
-            android.util.Log.w("ArkivRed", "no se pudo vigilar la red: ${it.message}")
+            android.util.Log.w("ArkivRed", "couldn't watch the network: ${it.message}")
         }
     }
 

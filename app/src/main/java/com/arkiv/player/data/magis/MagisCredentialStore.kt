@@ -44,11 +44,11 @@ internal class EncryptedMagisCredentialStore(context: Context) : MagisCredential
         PrefsCifradas.abrirOReparar(
             crear = { cifradas(app) },
             tirarLoIndescifrable = {
-                Log.w(TAG, "prefs de Magis indescifrables: de cero (hay que volver a vincular)")
+                Log.w(TAG, "Magis prefs undecryptable: starting fresh (need to re-link)")
                 runCatching { app.deleteSharedPreferences(PREFS) }
             },
             sinCifrar = {
-                Log.e(TAG, "el Keystore no da ni recien tirado: prefs de Magis SIN cifrar")
+                Log.e(TAG, "the Keystore won't even work freshly thrown: Magis prefs left UNENCRYPTED")
                 app.getSharedPreferences(PREFS_PLANAS, Context.MODE_PRIVATE)
             },
         )

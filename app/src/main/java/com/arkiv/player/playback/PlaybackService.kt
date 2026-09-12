@@ -187,7 +187,7 @@ class PlaybackService : MediaSessionService() {
         // BINDEADO, y al soltar el MediaController (salir de la pantalla) el service se destruye y
         // llega acá.
         if (isCasting()) {
-            android.util.Log.i("ArkivCast", "no suelto los recursos de red: hay sesión de Chromecast viva")
+            android.util.Log.i("ArkivCast", "not releasing network resources: a Chromecast session is alive")
             return
         }
         runCatching {

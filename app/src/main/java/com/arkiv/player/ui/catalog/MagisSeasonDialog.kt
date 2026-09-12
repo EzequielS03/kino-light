@@ -93,24 +93,24 @@ fun MagisSeasonDialog(
     val puedeGuardar = onSave != null
 
     LaunchedEffect(season.ref) {
-        // Con qué se abrió la ventana. `program_type` es lo que decide que esto sea una serie (ver
-        // MAGIS_SERIES): si el portal etiquetó como serie algo que no tiene temporada,
-        // MagisCatalog.detail responde 422 y desde la UI se ve igual que una caída de red.
+        // What the dialog was opened with. `program_type` is what decides this is a series (see
+        // MAGIS_SERIES): if the portal tagged something as a series that has no season,
+        // MagisCatalog.detail responds 422 and from the UI it looks just like a network drop.
         android.util.Log.w(
             "ArkivGw",
-            "temporada: pido capitulos titulo=${season.title} tipo=${season.extra["program_type"]} " +
-                "esperados=${season.extra["episode_count"]} kind=${season.kind} ref=${season.ref.take(24)}…",
+            "season: requesting chapters title=${season.title} type=${season.extra["program_type"]} " +
+                "expected=${season.extra["episode_count"]} kind=${season.kind} ref=${season.ref.take(24)}…",
         )
         try {
             val (caps, s) = client.episodesConSerie(season.ref)
-            android.util.Log.w("ArkivGw", "temporada: ok caps=${caps.size}")
+            android.util.Log.w("ArkivGw", "season: ok caps=${caps.size}")
             capitulos = caps
             serie = s
         } catch (e: kotlinx.coroutines.CancellationException) {
-            android.util.Log.w("ArkivGw", "temporada: cancelada (CancellationException) ${e.message}")
+            android.util.Log.w("ArkivGw", "season: cancelled (CancellationException) ${e.message}")
             throw e
         } catch (e: Throwable) {
-            android.util.Log.w("ArkivGw", "temporada: fallo ${e.javaClass.simpleName}: ${e.message}", e)
+            android.util.Log.w("ArkivGw", "season: failed ${e.javaClass.simpleName}: ${e.message}", e)
             error = "No se pudieron cargar los capítulos."
         }
     }

@@ -41,7 +41,7 @@ internal class CuentaDeMagis(private val session: MagisSession) {
      */
     suspend fun refrescar() = withContext(Dispatchers.IO) {
         val email = runCatching { session.emailVinculado() }
-            .onFailure { Log.w(TAG, "no se pudo leer la cuenta vinculada: se asume sin vincular", it) }
+            .onFailure { Log.w(TAG, "couldn't read the linked account: assuming not linked", it) }
             .getOrNull()
         _estado.value = email?.let { EstadoDeMagis.Vinculada(it) } ?: EstadoDeMagis.Sin
     }
@@ -50,11 +50,11 @@ internal class CuentaDeMagis(private val session: MagisSession) {
         when (val r = session.login(email, clave)) {
             is MagisResult.Ok -> _estado.value = EstadoDeMagis.Vinculada(email)
             is MagisResult.RedError -> throw MagisException("Magis no disponible")
-            // El portal dice POR QUÉ, pero en chino: se muestra el nuestro y el suyo (código +
-            // mensaje) queda en el log -sin el código, un "credenciales inválidas" que en realidad
-            // es "aaa100082: este device ya está bindeado a otra cuenta" es indiagnosticable-.
+            // The portal says WHY, but in Chinese: we show ours and theirs (code +
+            // message) goes to the log -- without the code, a "credenciales inválidas" that's
+            // actually "aaa100082: this device is already bound to another account" is undiagnosable.
             is MagisResult.PortalError -> {
-                Log.w(TAG, "vincular rechazado por el portal: código=${r.codigo}, mensaje=${r.msg}")
+                Log.w(TAG, "link rejected by the portal: code=${r.codigo}, message=${r.msg}")
                 throw MagisException("Credenciales de Magis inválidas")
             }
         }

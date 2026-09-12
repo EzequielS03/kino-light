@@ -159,8 +159,8 @@ class LiveHlsProxy(
         val anterior = sesion?.channel
         android.util.Log.w(
             "LiveHlsProxy",
-            "canal → ${nueva.channel}" + (if (anterior != null && anterior != nueva.channel) " (venía de $anterior)" else "") +
-                " cdn=${nueva.cflHost}" + (if (nueva.cdns.size > 1) " (+${nueva.cdns.size - 1} de respaldo)" else ""),
+            "channel → ${nueva.channel}" + (if (anterior != null && anterior != nueva.channel) " (came from $anterior)" else "") +
+                " cdn=${nueva.cflHost}" + (if (nueva.cdns.size > 1) " (+${nueva.cdns.size - 1} backup)" else ""),
         )
         sesion = nueva
         // El CDN elegido es de la sesión ANTERIOR: sus tokens no valen para este canal, y peor,
@@ -220,7 +220,7 @@ class LiveHlsProxy(
                 else -> salida.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n".toByteArray())
             }
         }.onFailure { e ->
-            runCatching { android.util.Log.w("LiveHlsProxy", "atender() falló: ${e.message}") }
+            runCatching { android.util.Log.w("LiveHlsProxy", "atender() failed: ${e.message}") }
         }
     }
 
@@ -279,20 +279,22 @@ class LiveHlsProxy(
             }
             val code = c.responseCode
             val ms = System.currentTimeMillis() - t0
-            // 401 y 403 los dos: este CDN usa 401 y mirar solo el 403 dejaba la firma dada por
-            // buena, el respaldo sin conmutar y el canal muerto en un 502. Ver [esRechazoDeFirma].
+            // Both 401 and 403: this CDN uses 401 and only checking 403 left the signature
+            // considered good, the backup never switching, and the channel dead with a 502. See
+            // [esRechazoDeFirma].
             if (!esRechazoDeFirma(code)) {
                 android.util.Log.w(
                     "LiveHlsProxy",
-                    "$queEs → $code en ${ms}ms" + (if (intento > 0) " (2do intento)" else "") +
-                        // El PORQUÉ del rechazo, que hasta ahora se tiraba a la basura. Un "→ 409"
-                        // pelado no distingue "la señal no existe" de "esta sesión ya no vale", y
-                        // sin eso no se puede hacer más que adivinar: el 2026-08-14 un canal daba
-                        // 409 en el playlist y 404 en los segmentos mientras los otros cuatro
-                        // andaban perfecto, y el log no alcanzaba para decir por qué.
-                        // El cuerpo de un no-200 no lo lee nadie más (el playlist corta con
-                        // error502 y [pedirOk] descarta la conexión), así que consumirlo acá no le
-                        // saca nada a nadie.
+                    "$queEs → $code in ${ms}ms" + (if (intento > 0) " (2nd attempt)" else "") +
+                        // The WHY of the rejection, which used to get thrown away. A bare "→ 409"
+                        // doesn't tell apart "the signal doesn't exist" from "this session is no
+                        // longer valid", and without that there's nothing to do but guess: on
+                        // 2026-08-14 one channel gave 409 on the playlist and 404 on the segments
+                        // while the other four were running fine, and the log wasn't enough to say
+                        // why.
+                        // Nobody else reads the body of a non-200 (the playlist cuts with
+                        // error502 and [pedirOk] discards the connection), so consuming it here
+                        // doesn't take anything away from anyone.
                         (if (code != 200) " · ${motivoDelOrigen(c)}" else ""),
                 )
                 // Avisa que la firma usada en ESTA petición fue aceptada: es la señal que
@@ -300,9 +302,10 @@ class LiveHlsProxy(
                 firmas.aceptada()
                 return c
             }
-            // 401/403 = la firma no sirvió. Se registra aparte porque es el fallo CARO: dos
-            // intentos y después la sesión se da por muerta, o sea que el canal se corta.
-            android.util.Log.w("LiveHlsProxy", "$queEs → $code FIRMA RECHAZADA en ${ms}ms (intento ${intento + 1}/2)")
+            // 401/403 = the signature didn't work. Logged separately because it's the EXPENSIVE
+            // failure: two attempts and then the session is given up for dead, meaning the channel
+            // cuts out.
+            android.util.Log.w("LiveHlsProxy", "$queEs → $code SIGNATURE REJECTED in ${ms}ms (attempt ${intento + 1}/2)")
             // El aviso es lo que permite a FirmaConRespaldo detectar que el algoritmo
             // dejó de servir y conmutar al gateway. Sin esto, el respaldo nunca entra.
             if (!avisado) { firmas.rechazada(); avisado = true }
@@ -310,40 +313,40 @@ class LiveHlsProxy(
         }
         android.util.Log.w(
             "LiveHlsProxy",
-            "$queEs: dos rechazos seguidos en ${cdn.cflHost} (canal=${s.channel})",
+            "$queEs: two rejections in a row on ${cdn.cflHost} (channel=${s.channel})",
         )
         return null
     }
 
     /**
-     * Lo que el CDN dijo al rechazar, recortado para el log.
+     * What the CDN said when rejecting, trimmed for the log.
      *
-     * Se queda con el cuerpo del error si lo hay (el portal contesta JSON con su propio código de
-     * error, que es el dato que sirve) y si no, con la primera cabecera que explique algo. Nunca
-     * tira: esto corre en el camino de un rechazo, y romper acá cambiaría un canal que falla por
-     * uno que además pierde la conexión.
+     * Keeps the error body if there is one (the portal answers with JSON carrying its own error
+     * code, which is the useful part) and otherwise the first header that explains something.
+     * Never throws: this runs on the rejection path, and breaking here would turn a channel that
+     * merely fails into one that also loses the connection.
      */
     private fun motivoDelOrigen(c: HttpURLConnection): String = runCatching {
         val cuerpo = c.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty().trim()
         val dice = if (cuerpo.isNotEmpty()) {
             cuerpo.take(300).replace('\n', ' ')
         } else {
-            c.responseMessage ?: "sin cuerpo"
+            c.responseMessage ?: "no body"
         }
-        // Y de QUIÉN salió. Los dos CDN de vivo están detrás de Cloudflare (verificado el
-        // 2026-08-14: 104.18.x.x, `Server: cloudflare`), así que un rechazo puede venir del origen
-        // o del borde. La diferencia decide todo: si un 404 llega `HIT`, es una respuesta negativa
-        // CACHEADA y reintentar la misma URL no puede funcionar por más veces que se pida --
-        // habría que esquivar el caché, no insistir.
+        // And WHO it came from. Both live CDNs sit behind Cloudflare (verified on 2026-08-14:
+        // 104.18.x.x, `Server: cloudflare`), so a rejection can come from the origin or from the
+        // edge. The difference decides everything: if a 404 arrives `HIT`, it's a CACHED negative
+        // response and retrying the same URL can't work no matter how many times it's asked --
+        // you'd have to dodge the cache, not insist.
         "$dice [cf-cache=${c.getHeaderField("cf-cache-status") ?: "-"}" +
             " age=${c.getHeaderField("age") ?: "-"} ray=${c.getHeaderField("cf-ray") ?: "-"}]"
-    }.getOrDefault("no se pudo leer el motivo")
+    }.getOrDefault("couldn't read the reason")
 
     private fun error502(salida: java.io.OutputStream, motivo: String = "") {
-        // El 502 es lo ÚNICO que ve el reproductor pase lo que pase acá adentro, así que el motivo
-        // tiene que quedar del lado del proxy o se pierde. Es el mismo problema que ArchiveCacheProxy
-        // resolvió anotando el último código HTTP por origen.
-        if (motivo.isNotEmpty()) android.util.Log.w("LiveHlsProxy", "502 al reproductor: $motivo")
+        // The 502 is the ONLY thing the player sees no matter what happens in here, so the reason
+        // has to stay on the proxy's side or it's lost. It's the same problem ArchiveCacheProxy
+        // solved by recording the last HTTP code per origin.
+        if (motivo.isNotEmpty()) android.util.Log.w("LiveHlsProxy", "502 to the player: $motivo")
         salida.write("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n".toByteArray())
     }
 
@@ -352,9 +355,9 @@ class LiveHlsProxy(
         // urlPara() nuevo) cambia `sesion`/`server` desde otro hilo a mitad de camino, esta
         // petición sigue con los valores que tenía al empezar. Ver la nota de [pedirAlOrigen].
         val t0 = System.currentTimeMillis()
-        val s = sesion ?: return error502(salida, "no hay sesión de canal")
+        val s = sesion ?: return error502(salida, "no channel session")
         val miPuerto = port
-        val miToken = token ?: return error502(salida, "no hay token del proxy")
+        val miToken = token ?: return error502(salida, "no proxy token")
         // `playCode`, NO `channel`: así se llama la señal en el CDN, y no siempre son lo mismo
         // (ver el KDoc de [LiveSession.playCode] — `cyx-RCNHD` se sirve con otro nombre). Con el
         // código del canal acá, el CDN recibía un pedido por una señal distinta de la que
@@ -389,7 +392,7 @@ class LiveHlsProxy(
                 val r = pedirAlOrigen("http://${cdn.cflHost}/live/${s.playCode}.m3u8", s, cdn)
                 if (r == null) {
                     if (cdn !== enOrden.last()) {
-                        android.util.Log.w("LiveHlsProxy", "playlist: ${cdn.cflHost} rechazó → pruebo el siguiente CDN")
+                        android.util.Log.w("LiveHlsProxy", "playlist: ${cdn.cflHost} rejected → trying the next CDN")
                     }
                     continue
                 }
@@ -408,8 +411,8 @@ class LiveHlsProxy(
             if (vuelta < INTENTOS_PLAYLIST - 1) {
                 android.util.Log.w(
                     "LiveHlsProxy",
-                    "playlist de ${s.channel} sin servir (último $ultimoCodigo) → " +
-                        "reintento ${vuelta + 2}/$INTENTOS_PLAYLIST en ${ESPERA_SEGMENTO_MS}ms",
+                    "playlist for ${s.channel} not served (last $ultimoCodigo) → " +
+                        "retry ${vuelta + 2}/$INTENTOS_PLAYLIST in ${ESPERA_SEGMENTO_MS}ms",
                 )
                 Thread.sleep(ESPERA_SEGMENTO_MS)
             }
@@ -421,14 +424,14 @@ class LiveHlsProxy(
             if (!algunoContesto) {
                 android.util.Log.w(
                     "LiveHlsProxy",
-                    "playlist: los ${enOrden.size} CDN rechazaron → doy la sesión por muerta (canal=${s.channel})",
+                    "playlist: all ${enOrden.size} CDNs rejected → giving up the session for dead (channel=${s.channel})",
                 )
                 onSesionMuerta(s.channel)
             }
-            return error502(salida, "ningún CDN dio el playlist de ${s.channel} (último código $ultimoCodigo)")
+            return error502(salida, "no CDN served the playlist for ${s.channel} (last code $ultimoCodigo)")
         }
         if (cdnActivo?.cflHost != elegido.cflHost) {
-            android.util.Log.w("LiveHlsProxy", "CDN activo → ${elegido.cflHost} (canal=${s.channel})")
+            android.util.Log.w("LiveHlsProxy", "active CDN → ${elegido.cflHost} (channel=${s.channel})")
         }
         cdnActivo = elegido
         val urlPlaylist = "http://${elegido.cflHost}/live/${s.playCode}.m3u8"
@@ -448,8 +451,8 @@ class LiveHlsProxy(
             .firstOrNull { it.startsWith("#EXT-X-MEDIA-SEQUENCE") }?.substringAfter(':') ?: "?"
         android.util.Log.w(
             "LiveHlsProxy",
-            "playlist servido canal=${s.channel} segmentos=$segmentos seq=$secuencia " +
-                "${bytes.size}B en ${System.currentTimeMillis() - t0}ms",
+            "playlist served channel=${s.channel} segments=$segmentos seq=$secuencia " +
+                "${bytes.size}B in ${System.currentTimeMillis() - t0}ms",
         )
         salida.write(
             ("HTTP/1.1 200 OK\r\nContent-Type: application/vnd.apple.mpegurl\r\n" +
@@ -475,11 +478,11 @@ class LiveHlsProxy(
      */
     private fun servirSegmento(ruta: String, salida: java.io.OutputStream) {
         val t0 = System.currentTimeMillis()
-        val s = sesion ?: return error502(salida, "segmento sin sesión de canal")
+        val s = sesion ?: return error502(salida, "segment with no channel session")
         val u = URLDecoder.decode(ruta.substringAfter("u=").substringBefore("&"), "UTF-8")
         val nombre = u.substringAfterLast('/')
         val c = conseguirSegmento(u, s)
-            ?: return error502(salida, "ningún CDN dio el segmento $nombre (posición ${posicionEnPlaylist(nombre)})")
+            ?: return error502(salida, "no CDN served the segment $nombre (position ${posicionEnPlaylist(nombre)})")
         // La cabecera se escribe RECIÉN ACÁ, con un 200 en la mano. Una vez escrita ya no se puede
         // convertir en error: por eso no puede salir antes de saber que hay cuerpo.
         salida.write("HTTP/1.1 200 OK\r\nContent-Type: video/mp2t\r\n\r\n".toByteArray())
@@ -488,8 +491,8 @@ class LiveHlsProxy(
         val copiados = runCatching { c.inputStream.copyTo(salida, 64 * 1024) }.getOrDefault(-1L)
         android.util.Log.w(
             "LiveHlsProxy",
-            "segmento servido ${copiados / 1024}KB en ${System.currentTimeMillis() - t0}ms" +
-                (if (copiados < 0) " (CORTADO)" else "") + " $nombre",
+            "segment served ${copiados / 1024}KB in ${System.currentTimeMillis() - t0}ms" +
+                (if (copiados < 0) " (CUT OFF)" else "") + " $nombre",
         )
     }
 
@@ -517,8 +520,8 @@ class LiveHlsProxy(
             if (intento < INTENTOS_SEGMENTO - 1) {
                 android.util.Log.w(
                     "LiveHlsProxy",
-                    "segmento $nombre (posición ${posicionEnPlaylist(nombre)} del playlist) no está " +
-                        "todavía → reintento ${intento + 2}/$INTENTOS_SEGMENTO en ${ESPERA_SEGMENTO_MS}ms",
+                    "segment $nombre (position ${posicionEnPlaylist(nombre)} in the playlist) isn't " +
+                        "there yet → retry ${intento + 2}/$INTENTOS_SEGMENTO in ${ESPERA_SEGMENTO_MS}ms",
                 )
                 Thread.sleep(ESPERA_SEGMENTO_MS)
             }
@@ -535,7 +538,7 @@ class LiveHlsProxy(
             val alterna = runCatching {
                 url.replaceFirst("://${URL(url).authority}", "://${cdn.cflHost}")
             }.getOrNull() ?: continue
-            android.util.Log.w("LiveHlsProxy", "segmento $nombre → pruebo el CDN ${cdn.cflHost}")
+            android.util.Log.w("LiveHlsProxy", "segment $nombre → trying CDN ${cdn.cflHost}")
             val c = pedirOk(alterna, s, cdn)
             if (c != null) return c
         }

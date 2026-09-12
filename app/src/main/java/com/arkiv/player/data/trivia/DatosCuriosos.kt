@@ -169,7 +169,7 @@ internal class DatosCuriosos(
         val crudo = try {
             JsonDelModelo.arreglo(r.texto)
         } catch (e: JsonIlegible) {
-            Log.w(TAG, "respuesta ilegible de ${r.modelo}: ${e.message}")
+            Log.w(TAG, "unreadable response from ${r.modelo}: ${e.message}")
             return emptyList()
         }
         if (crudo.length() == 0) {

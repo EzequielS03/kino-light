@@ -599,8 +599,8 @@ private fun PlayerContent(
     // engancha el video y cuál lo suelta.
     val pantallaId = remember { PANTALLA_SEQ.incrementAndGet() }
     DisposableEffect(Unit) {
-        android.util.Log.w("ArkivVout", "PANTALLA #$pantallaId entra")
-        onDispose { android.util.Log.w("ArkivVout", "PANTALLA #$pantallaId sale (dispose)") }
+        android.util.Log.w("ArkivVout", "SCREEN #$pantallaId enters")
+        onDispose { android.util.Log.w("ArkivVout", "SCREEN #$pantallaId exits (dispose)") }
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -634,11 +634,11 @@ private fun PlayerContent(
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_START -> {
-                    android.util.Log.w("ArkivVout", "CICLO #$pantallaId ON_START (dueño=${lifecycleOwner.hashCode()})")
+                    android.util.Log.w("ArkivVout", "CYCLE #$pantallaId ON_START (owner=${lifecycleOwner.hashCode()})")
                     policy.onStart()
                 }
                 Lifecycle.Event.ON_STOP -> {
-                    android.util.Log.w("ArkivVout", "CICLO #$pantallaId ON_STOP (dueño=${lifecycleOwner.hashCode()})")
+                    android.util.Log.w("ArkivVout", "CYCLE #$pantallaId ON_STOP (owner=${lifecycleOwner.hashCode()})")
                     policy.onStop()
                 }
                 else -> Unit
@@ -646,7 +646,7 @@ private fun PlayerContent(
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
-            android.util.Log.w("ArkivVout", "CICLO #$pantallaId observador removido")
+            android.util.Log.w("ArkivVout", "CYCLE #$pantallaId observer removed")
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
@@ -696,8 +696,8 @@ private fun PlayerContent(
         )
         android.util.Log.i(
             "ArkivCast",
-            "audio del origen · mime=${audio?.sampleMimeType ?: "desconocido"} " +
-                "canales=$channelCount → ${if (decodable) "va directo" else "puede sonar mudo"}",
+            "source audio · mime=${audio?.sampleMimeType ?: "unknown"} " +
+                "channels=$channelCount → ${if (decodable) "goes straight through" else "might play mute"}",
         )
 
         // La URL alcanzable por el receptor: la del proxy de vivo (LiveHlsProxy) LAN -- mismo motivo
@@ -759,7 +759,7 @@ private fun PlayerContent(
             // Mismo aviso que ya da VOD cuando castRequestFor no encuentra una URL alcanzable
             // por la TV (ver el Toast idéntico más abajo en este archivo) -- antes de esta migración
             // el vivo-vía-VLC lo mostraba también; se había perdido al portar el bloque a ExoPlayer.
-            android.util.Log.w("ArkivCast", "vivo (exo): sin URL que el receptor pueda alcanzar")
+            android.util.Log.w("ArkivCast", "live (exo): no URL the receiver can reach")
             android.widget.Toast.makeText(
                 context,
                 "No se pudo castear: la TV no puede alcanzar este stream (revisa el WiFi)",
@@ -787,8 +787,8 @@ private fun PlayerContent(
     LaunchedEffect(controles.visible, espejo.buffereando, casting, estadoDlna.activo, marcadores.modo, loadError) {
         android.util.Log.i(
             "ArkivCast",
-            "UI barra · controles=${controles.visible} buffering=${espejo.buffereando} casting=$casting " +
-                "dlna=${estadoDlna.activo != null} marcando=${marcadores.marcando} error=${loadError != null} " +
+            "UI bar · controls=${controles.visible} buffering=${espejo.buffereando} casting=$casting " +
+                "dlna=${estadoDlna.activo != null} marking=${marcadores.marcando} error=${loadError != null} " +
                 "→ overlay=${controles.visible && loadError == null && estadoDlna.activo == null && !marcadores.marcando}",
         )
     }
@@ -811,8 +811,8 @@ private fun PlayerContent(
         android.util.Log.w(
             "ArkivSpinner",
             "spinner=$spinner " +
-                "· sinPlaylist=${playlist == null && magisItem == null && liveItem == null && dituPlay == null} buffering=${espejo.buffereando} sinImagen=$sinPrimeraImagen " +
-                "perdioVideo=$esperandoVideo",
+                "· noPlaylist=${playlist == null && magisItem == null && liveItem == null && dituPlay == null} buffering=${espejo.buffereando} noImage=$sinPrimeraImagen " +
+                "lostVideo=$esperandoVideo",
         )
     }
 
@@ -825,11 +825,11 @@ private fun PlayerContent(
         val kind = PlayerSource.kindFor(episodeId)
         val loadedIds = (0 until controller.mediaItemCount).mapNotNull { controller.getMediaItemAt(it).mediaId }
         val yaCargado = episodeId in loadedIds
-        android.util.Log.w("ArkivPlay", "PlayerScreen enter episodeId=$episodeId kind=$kind yaEnController=$yaCargado loaded=$loaded loadedIds=$loadedIds")
+        android.util.Log.w("ArkivPlay", "PlayerScreen enter episodeId=$episodeId kind=$kind alreadyInController=$yaCargado loaded=$loaded loadedIds=$loadedIds")
         if (!yaCargado) {
             // stop() corta el video viejo; el setMediaItems de abajo reemplaza la playlist cuando la
             // fuente nueva termina de resolver.
-            android.util.Log.w("ArkivPlay", "stop() + loaded=false (episodeId nuevo)")
+            android.util.Log.w("ArkivPlay", "stop() + loaded=false (new episodeId)")
             controller.stop()
             loaded = false
         }
@@ -841,7 +841,7 @@ private fun PlayerContent(
     // IGUAL al anterior y el StateFlow lo descarta, así que sin esta clave el efecto no volvía a
     // correr y la reapertura no cargaba nada. Ver su KDoc en PlayerViewModel.
     LaunchedEffect(playlist, generacionVivo) {
-        val pl = playlist ?: run { android.util.Log.w("ArkivPlay", "playlist=null (aún resolviendo o descartada)"); return@LaunchedEffect }
+        val pl = playlist ?: run { android.util.Log.w("ArkivPlay", "playlist=null (still resolving or discarded)"); return@LaunchedEffect }
         // Vivo (Tarea 14) YA NO pasa por acá (Task 1, poda de light-magis): `abrirCanalActual` deja
         // de publicar `_playlist` y publica `liveItem` -- ver LiveExoPlayer/isLiveExo más arriba y
         // el LaunchedEffect(casting, liveItem, generacionVivo) que reemplaza el cast-to-TV que antes
@@ -878,7 +878,7 @@ private fun PlayerContent(
                 !videoLocal.renderedFirstFrame,
         )
         if (decision == MediaReusePolicy.Decision.ESPERAR) {
-            android.util.Log.w("ArkivPlay", "playlist de OTRO capítulo (pedido=${pl.pedido} ≠ $episodeId) → esperar la mía")
+            android.util.Log.w("ArkivPlay", "playlist for ANOTHER episode (requested=${pl.pedido} ≠ $episodeId) → waiting for mine")
             return@LaunchedEffect
         }
         if (loaded) {
@@ -896,7 +896,7 @@ private fun PlayerContent(
                 // remoto entre dispositivos, no bookkeeping local — no puede quedar apuntando al
                 // capítulo anterior.
                 NowPlaying.episodeId = episodeId
-                android.util.Log.w("ArkivPlay", "rama=CAST → el capítulo va al Chromecast, el local queda cebado en pausa")
+                android.util.Log.w("ArkivPlay", "branch=CAST → the episode goes to Chromecast, the local one stays primed in pause")
                 // El local se carga IGUAL —setMediaItems() ya dispara loadMedia() y abre el archivo/URL,
                 // eso no lo evita el prepare()— pero NO arranca: playWhenReady=false es lo que hace que
                 // no compita con el receptor por el stream. Se deja sin preparar a propósito: el
@@ -916,7 +916,7 @@ private fun PlayerContent(
             // seguiría con el capítulo ANTERIOR mientras la pantalla dice que este está sonando—.
             // Se cae a la reproducción local normal: el usuario pidió un capítulo, se lo damos en el
             // celu, y el Toast ya explica que a la TV no se pudo mandar.
-            android.util.Log.w("ArkivCast", "casteando pero no hay URL que mandarle al receptor → se reproduce en el celu")
+            android.util.Log.w("ArkivCast", "casting but there's no URL to send the receiver → plays on the phone instead")
             android.widget.Toast.makeText(
                 context,
                 "No se pudo castear: la TV no puede alcanzar este stream (revisa el WiFi)",
@@ -929,7 +929,7 @@ private fun PlayerContent(
             MediaReusePolicy.Decision.ESPERAR -> Unit
             // Mismo episodio ya en curso Y con la misma URL: re-enganchar (aprovecha el buffer).
             MediaReusePolicy.Decision.REUSAR_ACTUAL -> {
-                android.util.Log.w("ArkivPlay", "rama=REUSAR_ACTUAL → controller.play() (NO recarga media)")
+                android.util.Log.w("ArkivPlay", "branch=REUSE_CURRENT → controller.play() (does NOT reload media)")
                 currentIndex = controller.currentMediaItemIndex
                 // El controller puede llegar acá cebado-pero-no-preparado: la rama CAST de arriba lo
                 // carga con setMediaItems() sin prepare(), y si el cast se desconectó ESTANDO AFUERA del
@@ -945,7 +945,7 @@ private fun PlayerContent(
             }
             // Misma sección ya cargada (mismas URLs), otro episodio: saltar dentro de la playlist.
             MediaReusePolicy.Decision.SALTAR_EN_PLAYLIST -> {
-                android.util.Log.w("ArkivPlay", "rama=SALTAR_EN_PLAYLIST → seekTo dentro de la playlist (NO recarga media)")
+                android.util.Log.w("ArkivPlay", "branch=SKIP_IN_PLAYLIST → seekTo within the playlist (does NOT reload media)")
                 val idx = pl.items.indexOfFirst { it.episodeId == episodeId }.coerceAtLeast(0)
                 currentIndex = idx
                 controller.seekTo(idx, pl.startPositionMs)
@@ -958,7 +958,7 @@ private fun PlayerContent(
             // on another port, source now removed; today: magis token renewed on re-resolution):
             // load the playlist with the fresh URL.
             MediaReusePolicy.Decision.RECARGAR -> {
-                android.util.Log.w("ArkivPlay", "rama=nuevo → setMediaItems + prepare (abre el reproductor local con la URL fresca)")
+                android.util.Log.w("ArkivPlay", "branch=new → setMediaItems + prepare (opens the local player with the fresh URL)")
                 currentIndex = pl.startIndex
                 controller.setMediaItems(localMediaItems(pl.items), pl.startIndex, pl.startPositionMs)
                 controller.playWhenReady = true
@@ -987,7 +987,7 @@ private fun PlayerContent(
      * navegar a la ruta del capítulo nuevo, que es lo que re-arranca la resolución de la fuente.
      */
     fun alTerminarElCapitulo() {
-        android.util.Log.w("ArkivPlay", "alTerminarElCapitulo · pos=${espejo.posicionMs} dur=${espejo.duracionMs} enVivo=$enVivo finAtendido=$finAtendido ep=$episodeId")
+        android.util.Log.w("ArkivPlay", "alTerminarElCapitulo · pos=${espejo.posicionMs} dur=${espejo.duracionMs} live=$enVivo endHandled=$finAtendido ep=$episodeId")
         // Un directo no termina: su fin es el stream que se cortó, y ahí no hay "siguiente
         // capítulo" que valga (el único siguiente del modo vivo es el zapping). Reopening it isn't
         // hooked here: live channels play on LiveExoPlayer, whose error goes to
@@ -998,12 +998,12 @@ private fun PlayerContent(
         if (finAtendido == actual) return
         // Un stream cortado avisa igual que un capítulo terminado: ver AutoAvance.
         if (!AutoAvance.esFinDeCapitulo(espejo.posicionMs, espejo.duracionMs)) {
-            android.util.Log.w("ArkivPlay", "fin en pos=${espejo.posicionMs} de ${espejo.duracionMs} → no es el final, no avanza")
+            android.util.Log.w("ArkivPlay", "end at pos=${espejo.posicionMs} of ${espejo.duracionMs} → not actually the end, not advancing")
             return
         }
         finAtendido = actual
         val siguiente = cabecera.siguiente
-        android.util.Log.w("ArkivPlay", "fin de $actual → siguiente=$siguiente")
+        android.util.Log.w("ArkivPlay", "end of $actual → next=$siguiente")
         if (siguiente != null) onNextEpisode(siguiente)
     }
 
@@ -1145,7 +1145,7 @@ private fun PlayerContent(
         // Si isExo=true cuando el controller toma el control, STATE_ENDED del reproductor local no debe
         // disparar alTerminarElCapitulo (el ExoPlayer gestiona su propio fin).
         val exoActivoAlMontar = isExo
-        android.util.Log.w("ArkivPlay", "DisposableEffect montado · activePlayer=${activePlayer::class.simpleName} isExo=$exoActivoAlMontar ep=$episodeId")
+        android.util.Log.w("ArkivPlay", "DisposableEffect mounted · activePlayer=${activePlayer::class.simpleName} isExo=$exoActivoAlMontar ep=$episodeId")
         espejo.sincronizarTransporte(
             buffereando = activePlayer.playbackState == Player.STATE_BUFFERING,
             reproduciendo = activePlayer.isPlaying,
@@ -1167,7 +1167,7 @@ private fun PlayerContent(
             override fun onPlaybackStateChanged(state: Int) {
                 espejo.cambioElBuffering(state == Player.STATE_BUFFERING)
                 if (state == Player.STATE_ENDED) {
-                    android.util.Log.w("ArkivPlay", "STATE_ENDED · activePlayer=${activePlayer::class.simpleName} exoActivoAlMontar=$exoActivoAlMontar pos=${espejo.posicionMs} dur=${espejo.duracionMs} ep=$episodeId")
+                    android.util.Log.w("ArkivPlay", "STATE_ENDED · activePlayer=${activePlayer::class.simpleName} exoActiveOnMount=$exoActivoAlMontar pos=${espejo.posicionMs} dur=${espejo.duracionMs} ep=$episodeId")
                     // No disparar auto-avance si había un ExoPlayer activo cuando se montó este
                     // listener: el STATE_ENDED pertenece al reproductor local que no tenía media, no al fin real.
                     if (!exoActivoAlMontar) alTerminarElCapitulo()
@@ -1273,12 +1273,12 @@ private fun PlayerContent(
                 // repetiría en cada disparo mientras dure el casteo).
                 if (tick % 600 == 0 && !casting) vm.capturarFrame(epId, pos, textureViewDelVideo())
             }
-            // Latido mientras se castea: dice si el receptor AVANZA de verdad. Una posición
-            // clavada con estado=listo significa que aceptó el medio pero no lo está decodificando.
+            // Heartbeat while casting: says whether the receiver is REALLY advancing. A position
+            // stuck with state=ready means it accepted the media but isn't decoding it.
             if (casting && tick % 6 == 0) {
                 android.util.Log.i(
                     "ArkivCast",
-                    "latido · pos=${pos}ms dur=${dur}ms estado=${activePlayer.playbackState} reproduciendo=${activePlayer.isPlaying}",
+                    "heartbeat · pos=${pos}ms dur=${dur}ms state=${activePlayer.playbackState} playing=${activePlayer.isPlaying}",
                 )
             }
         }
@@ -1412,14 +1412,14 @@ private fun PlayerContent(
                 val desde = runCatching { controller.currentPosition }.getOrDefault(0L).coerceAtLeast(0L)
                 val req = castRequestFor(pl, idx, desde)
                 if (req == null) {
-                    android.util.Log.w("ArkivCast", "sesión abierta pero no hay URL que mandarle al receptor")
+                    android.util.Log.w("ArkivCast", "session open but there's no URL to send the receiver")
                     android.widget.Toast.makeText(
                         context,
                         "No se pudo castear: la TV no puede alcanzar este stream (revisa el WiFi)",
                         android.widget.Toast.LENGTH_SHORT,
                     ).show()
                 } else {
-                    android.util.Log.w("ArkivCast", "sesión abierta → mando el capítulo en curso al receptor desde ${desde}ms")
+                    android.util.Log.w("ArkivCast", "session open → sending the current episode to the receiver from ${desde}ms")
                     castSession.setMedia(req)
                     casteadoAlReceptor = epId
                 }
@@ -1465,7 +1465,7 @@ private fun PlayerContent(
                         CastProgress.contentPosition(castPlayer?.currentPosition ?: 0L)
                     }.getOrDefault(0L)
                 } else {
-                    android.util.Log.w("ArkivCast", "posición del receptor descartada: es de '$castMediaId', reanudamos '$epId'")
+                    android.util.Log.w("ArkivCast", "receiver position discarded: it's for '$castMediaId', we're resuming '$epId'")
                     0L
                 }
                 // RELOAD, don't seek: `setMediaItems(…, castPos)` puts the local player at the
@@ -1609,7 +1609,7 @@ private fun PlayerContent(
                 directoDetenido = null
                 if (detenido != null && detenido === currentPlayer) {
                     val alVolver = alVolverAlDirecto(sonabaAlSalir)
-                    android.util.Log.w("ArkivPlay", "app de vuelta → el directo se prepara en el borde · $alVolver")
+                    android.util.Log.w("ArkivPlay", "app back in foreground → the live stream primes at the edge · $alVolver")
                     runCatching {
                         // Detenido no tiene nada cargado: sin `prepare()` quedaría quieto aunque la
                         // persona le diera play.
@@ -1649,7 +1649,7 @@ private fun PlayerContent(
                 )
                 android.util.Log.w(
                     "ArkivPlay",
-                    "app al fondo → $accion · tv=$isTv casting=$casting enVivo=$currentEnVivo " +
+                    "app to background → $accion · tv=$isTv casting=$casting live=$currentEnVivo " +
                         "player=${jugador::class.simpleName}",
                 )
                 when (accion) {

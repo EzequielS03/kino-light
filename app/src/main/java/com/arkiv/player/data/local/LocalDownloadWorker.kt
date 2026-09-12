@@ -74,7 +74,7 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
         // pasar al siguiente capítulo de la cola la notificación se convierte en la de ese capítulo,
         // con su propio progreso.
         runCatching { setForeground(foregroundInfo(tituloDeLaNotificacion, null, entity.episodeId)) }
-            .onFailure { Log.w(TAG, "no se pudo mostrar la notificación de foreground: ${it.message}") }
+            .onFailure { Log.w(TAG, "couldn't show the foreground notification: ${it.message}") }
 
         val strategy = graph.downloadStrategies[entity.source]
         if (strategy == null) {
@@ -119,7 +119,7 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
                 if (dao.get(entity.episodeId) == null) {
                     Log.i(
                         TAG,
-                        "la fila de ${entity.episodeId} se quitó mientras terminaba de bajar; se descarta el archivo",
+                        "the row for ${entity.episodeId} was removed while it finished downloading; discarding the file",
                     )
                     runCatching { outcome.file.delete() }
                     runCatching { LocalFilePaths.partOf(outcome.file).delete() }
@@ -145,7 +145,7 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
                 }
             }
             is DownloadOutcome.Failed -> {
-                Log.w(TAG, "falló ${entity.episodeId}: ${outcome.reason} (transitorio=${outcome.transient})")
+                Log.w(TAG, "failed ${entity.episodeId}: ${outcome.reason} (transient=${outcome.transient})")
                 // Acá NO hace falta el mismo chequeo: esta rama no notifica nada visible (solo loguea
                 // y escribe estado), y un `UPDATE`/`Result.retry()` sobre una fila ya borrada no
                 // reintroduce la fila ni engaña a nadie — en el peor caso, si el usuario la volvió a
@@ -205,7 +205,7 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
         val path = twin.filePath ?: twin.localUri?.removePrefix("file://") ?: return false
         if (!java.io.File(path).let { it.exists() && it.length() > 0L }) return false
 
-        Log.i(TAG, "${entity.episodeId} ya está en disco como $twinId; se adopta el archivo en vez de bajarlo")
+        Log.i(TAG, "${entity.episodeId} is already on disk as $twinId; adopting the file instead of downloading it")
         // El tamaño se copia del gemelo: es el del archivo que esta fila va a servir, y sin esto la
         // pantalla de Descargas mostraría 0 B para algo que sí ocupa disco.
         dao.updateProgress(entity.episodeId, 1f, twin.bytesDone, twin.bytes)

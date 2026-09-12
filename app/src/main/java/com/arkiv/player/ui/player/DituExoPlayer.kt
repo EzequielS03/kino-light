@@ -117,7 +117,7 @@ internal fun DituExoPlayer(
     val exoPlayer = remember(mediaUrl, drmLicenseUrl, drmLicenseHeaders) {
         Log.i(
             TAG,
-            "Creando ExoPlayer DASH · url=${mediaUrl.take(80)} licencia=${drmLicenseUrl.take(60)} " +
+            "Creating ExoPlayer DASH · url=${mediaUrl.take(80)} license=${drmLicenseUrl.take(60)} " +
                 "headers=${drmLicenseHeaders.keys} startMs=$startPositionMs",
         )
 
@@ -182,11 +182,11 @@ internal fun DituExoPlayer(
     DisposableEffect(lifecycleOwner, arranque) {
         val observador = LifecycleEventObserver { _, evento ->
             if (evento == Lifecycle.Event.ON_STOP && arranque.esperando) {
-                Log.i(TAG, "la app se fue al fondo esperando la primera imagen: la espera queda en suspenso")
+                Log.i(TAG, "the app went to background while waiting for the first frame: the wait is suspended")
                 arranque.suspender()
             }
             if (evento == Lifecycle.Event.ON_START && arranque.suspendida) {
-                Log.i(TAG, "la app volvió: se retoma la espera de la primera imagen")
+                Log.i(TAG, "the app came back: resuming the wait for the first frame")
                 arranque.retomar(SystemClock.elapsedRealtime())
             }
         }
@@ -216,7 +216,7 @@ internal fun DituExoPlayer(
                 // ANTES de llamar a `play()`, así que acá ya no está esperando—: fue alguien más, la
                 // persona con play o pausa. Desde ahí el arranque no vuelve a tocar el reproductor.
                 if (arranque.esperando) {
-                    Log.i(TAG, "play/pausa esperando la primera imagen (playWhenReady=$playWhenReady): decide la persona")
+                    Log.i(TAG, "play/pause while waiting for the first frame (playWhenReady=$playWhenReady): the person decides")
                     arranque.laPersonaDecidio()
                 }
                 espejo.cambioLaIntencion(playWhenReady)
@@ -269,7 +269,7 @@ internal fun DituExoPlayer(
             // La salida de seguridad del arranque: sin imagen a tiempo, arranca igual. Va en este
             // reloj porque ya mira cada medio segundo.
             if (arranque.vencio(SystemClock.elapsedRealtime())) {
-                Log.w(TAG, "sin primera imagen en ${ESPERA_MAXIMA_DE_LA_PRIMERA_IMAGEN_MS}ms: arranco igual")
+                Log.w(TAG, "no first frame within ${ESPERA_MAXIMA_DE_LA_PRIMERA_IMAGEN_MS}ms: starting anyway")
                 exoPlayer.play()
             }
             val dur = exoPlayer.duration

@@ -226,7 +226,7 @@ class SettingsStore(context: Context) {
                     )
                 },
                 tirarLoIndescifrable = {
-                    Log.w(TAG_MIGRACION, "store de cuentas viejo indescifrable: se abandona sin migrar")
+                    Log.w(TAG_MIGRACION, "old accounts store undecryptable: abandoning without migrating")
                     runCatching { app.deleteSharedPreferences(ARCHIVO_STORE_DE_CUENTAS_VIEJO) }
                 },
                 sinCifrar = { null },

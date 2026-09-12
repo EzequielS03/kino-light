@@ -123,7 +123,7 @@ class AgregadorDeRecomendaciones(
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
-        Log.w(TAG, "capitulos de Caracol de \"${rec.titulo}\": ${e.javaClass.simpleName}: ${e.message}")
+        Log.w(TAG, "chapters from Caracol for \"${rec.titulo}\": ${e.javaClass.simpleName}: ${e.message}")
         null
     }
 
@@ -142,7 +142,7 @@ class AgregadorDeRecomendaciones(
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
-        Log.w(TAG, "capitulos de \"${rec.titulo}\": ${e.javaClass.simpleName}: ${e.message}")
+        Log.w(TAG, "chapters for \"${rec.titulo}\": ${e.javaClass.simpleName}: ${e.message}")
         null
     }
 

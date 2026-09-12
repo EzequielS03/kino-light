@@ -78,30 +78,31 @@ class CastSessionManager(
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
             android.util.Log.e(
                 TAG,
-                "el receptor falló: code=${error.errorCode} (${error.errorCodeName}) · ${error.message}",
+                "the receiver failed: code=${error.errorCode} (${error.errorCodeName}) · ${error.message}",
                 error,
             )
         }
 
         override fun onPlaybackStateChanged(state: Int) {
-            android.util.Log.i(TAG, "estado del receptor: $state (1=idle 2=buffering 3=listo 4=terminado)")
+            android.util.Log.i(TAG, "receiver state: $state (1=idle 2=buffering 3=ready 4=ended)")
         }
 
         override fun onIsPlayingChanged(playing: Boolean) {
             android.util.Log.i(
                 TAG,
-                "receptor reproduciendo=$playing · pos=${player.currentPosition}ms · dur=${player.duration}ms",
+                "receiver playing=$playing · pos=${player.currentPosition}ms · dur=${player.duration}ms",
             )
         }
 
         /**
-         * Lo más informativo para "se ve pero no suena": qué pistas ACEPTÓ el receptor. Si la TV
-         * descarta el audio por códec (DTS suele no estar), acá se ve la de video seleccionada y la
-         * de audio ausente o no soportada, sin que salte ningún error.
+         * The most informative thing for "it plays but doesn't sound": which tracks the receiver
+         * ACCEPTED. If the TV drops the audio due to codec (DTS often isn't there), here you see
+         * the selected video track and the missing or unsupported audio one, with no error popping
+         * up.
          */
         override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
             if (tracks.groups.isEmpty()) {
-                android.util.Log.w(TAG, "el receptor no reporta NINGUNA pista")
+                android.util.Log.w(TAG, "the receiver isn't reporting ANY track")
                 return
             }
             tracks.groups.forEach { g ->
@@ -109,8 +110,8 @@ class CastSessionManager(
                     val f = g.getTrackFormat(i)
                     android.util.Log.i(
                         TAG,
-                        "pista tipo=${g.type} codec=${f.codecs} mime=${f.sampleMimeType} " +
-                            "idioma=${f.language} soportada=${g.isTrackSupported(i)} elegida=${g.isTrackSelected(i)}",
+                        "track type=${g.type} codec=${f.codecs} mime=${f.sampleMimeType} " +
+                            "language=${f.language} supported=${g.isTrackSupported(i)} selected=${g.isTrackSelected(i)}",
                     )
                 }
             }
@@ -193,7 +194,7 @@ class CastSessionManager(
     private suspend fun load(r: CastRequest) = withContext(Dispatchers.Main) {
         android.util.Log.i(
             TAG,
-            "cargando en el receptor · mime=${r.mimeType} · desde=${r.startPositionMs}ms · ${r.uri}",
+            "loading on the receiver · mime=${r.mimeType} · from=${r.startPositionMs}ms · ${r.uri}",
         )
         player.setMediaItem(
             MediaItem.Builder()
@@ -242,11 +243,11 @@ class CastSessionManager(
                     // source removed in this branch's pruning); if this shows up for VOD, progress
                     // is NOT being saved and the culprit is the duration (the receiver sent
                     // TIME_UNSET, which live streams do and downloads should not).
-                    android.util.Log.w(TAG, "progreso NO guardado · pos=${pos}ms durReceptor=${dur}ms")
+                    android.util.Log.w(TAG, "progress NOT saved · pos=${pos}ms receiverDur=${dur}ms")
                     continue
                 }
                 runCatching { repository.savePlayback(epId, progress.positionMs, progress.durationMs) }
-                    .onFailure { android.util.Log.w(TAG, "no se pudo guardar el progreso: ${it.message}") }
+                    .onFailure { android.util.Log.w(TAG, "couldn't save the progress: ${it.message}") }
             }
         }
     }

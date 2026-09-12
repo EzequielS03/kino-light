@@ -277,16 +277,16 @@ class SearchViewModel(
                                 if (lote.size >= GATEWAY_LOTE) vaciarLote()
                             }
                             is com.arkiv.player.data.gateway.SearchEvent.SourceError -> {
-                                // El detalle técnico va al log; la línea de Caracol en pantalla la
-                                // escribe `FalloDeCaracol` (ver `avisosDeFuentesCaidas`).
-                                Log.w(GW, "fuente ${ev.source} fallo: ${ev.error} (entrego ${ev.count})", ev.causa)
+                                // The technical detail goes to the log; the on-screen Caracol line
+                                // is written by `FalloDeCaracol` (see `avisosDeFuentesCaidas`).
+                                Log.w(GW, "source ${ev.source} failed: ${ev.error} (delivered ${ev.count})", ev.causa)
                                 _estadoDeFuentes.value = _estadoDeFuentes.value.conCaida(ev.source, ev.error, ev.causa)
                                 // Su "Buscando…" se apaga ya, sin esperar a las demás fuentes.
                                 buscando { it.terminoLaFuente(ev.source) }
                                 vaciarLote()
                             }
                             is com.arkiv.player.data.gateway.SearchEvent.SourceDone -> {
-                                Log.w(GW, "fuente ${ev.source}: ${ev.count} en ${ev.ms}ms")
+                                Log.w(GW, "source ${ev.source}: ${ev.count} in ${ev.ms}ms")
                                 _estadoDeFuentes.value = _estadoDeFuentes.value.conRespuesta(ev.source)
                                 buscando { it.terminoLaFuente(ev.source) }
                                 vaciarLote()
@@ -296,7 +296,7 @@ class SearchViewModel(
                     }
                     vaciarLote()
                 }.onFailure {
-                    android.util.Log.w("ArkivGateway", "el gateway falló: ${it.message}")
+                    android.util.Log.w("ArkivGateway", "the gateway failed: ${it.message}")
                 }
                 buscando { it.terminoTodo() }
             }

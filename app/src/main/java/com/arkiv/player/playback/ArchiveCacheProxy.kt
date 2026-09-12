@@ -100,7 +100,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
     fun abandonarConexiones(motivo: String) {
         val cerradas = conexionesVivas.cerrarTodas()
         if (cerradas > 0) {
-            android.util.Log.w("ArchiveCacheProxy", "$motivo → abandono $cerradas conexión(es) al origen")
+            android.util.Log.w("ArchiveCacheProxy", "$motivo → abandoning $cerradas connection(s) to the origin")
         }
     }
     // Tamaño real de cada origen, para poder ventanear. Ver totalDelOrigen.
@@ -431,7 +431,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                 // player buffereando al 0% para siempre).
                 android.util.Log.w(
                     "ArchiveCacheProxy",
-                    "← pide rango=${rangeHeader ?: "(todo)"} directo=$directo ventana=$fraccion",
+                    "← requests range=${rangeHeader ?: "(all)"} direct=$directo window=$fraccion",
                 )
 
                 // Camino DIRECTO (magis): cada Range va tal cual al origen y su cuerpo se devuelve
@@ -448,7 +448,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                             perfil = PoliticaOrigen.Perfil.MAGIS,
                         )
                     ) {
-                        android.util.Log.w("ArchiveCacheProxy", "directo: el origen no sirvió el tramo")
+                        android.util.Log.w("ArchiveCacheProxy", "direct: the origin didn't serve the range")
                         out.write("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n".toByteArray())
                         out.flush()
                     }
@@ -462,7 +462,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                     out.flush()
                 }
             }.onFailure { e ->
-                runCatching { android.util.Log.w("ArchiveCacheProxy", "serve() falló: ${e.message}") }
+                runCatching { android.util.Log.w("ArchiveCacheProxy", "serve() failed: ${e.message}") }
             }
         }
     }
@@ -503,7 +503,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                 Thread.sleep(PoliticaOrigen.esperaMs(intento, perfil))
             }
         }
-        android.util.Log.w("ArchiveCacheProxy", "ventana: no se pudo saber el tamaño del origen")
+        android.util.Log.w("ArchiveCacheProxy", "window: couldn't find out the origin's size")
         return 0L
     }
 
@@ -591,8 +591,8 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                 val etiquetaRango = "${rango ?: "(todo)"}#${intento + 1}"
                 android.util.Log.w(
                     "ArchiveCacheProxy",
-                    "abro ${rango ?: "(todo)"} → conexiones vivas de este archivo: $vivas · " +
-                        "en paralelo: ${fotoDeRangosEnVuelo()}",
+                    "opening ${rango ?: "(all)"} → live connections for this file: $vivas · " +
+                        "in flight: ${fotoDeRangosEnVuelo()}",
                 )
                 rangosEnVuelo[etiquetaRango] = System.currentTimeMillis()
                 val plazoMs = PoliticaOrigen.respuestaMs(intento, perfil)
@@ -602,40 +602,43 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                 anotarCodigo(origin, code)
                 ultimoCodigo = code
                 if (code == HttpURLConnection.HTTP_OK || code == HttpURLConnection.HTTP_PARTIAL) {
-                    // El tiempo hasta la CABECERA, que es lo que decide si el plazo alcanza. Sin
-                    // esto solo se veía el total del cuerpo, que mezcla la espera del CDN con lo
-                    // que se tarda en bajar los bytes: dos cosas distintas.
+                    // The time to the HEADER, which is what decides whether the deadline is
+                    // enough. Without this only the total for the body was visible, which mixes
+                    // the wait for the CDN with how long it takes to download the bytes: two
+                    // different things.
                     rangosEnVuelo.remove(etiquetaRango)
                     android.util.Log.w(
                         "ArchiveCacheProxy",
-                        "origen contestó ${rango ?: "(todo)"} con $code en ${tardoMs}ms " +
-                            "(plazo ${plazoMs}ms, intento ${intento + 1}, $vivas conexión(es) a la vez)",
+                        "origin answered ${rango ?: "(all)"} with $code in ${tardoMs}ms " +
+                            "(deadline ${plazoMs}ms, attempt ${intento + 1}, $vivas connection(s) at once)",
                     )
                     return conn to cerrable
                 }
-                // `code=-1` + un tiempo pegado al plazo = venció NUESTRO temporizador, no el CDN.
-                // La distinción importa y no se veía: se leía "origen rechazó" y parecía culpa del
-                // origen cuando era el plazo estrangulando una petición que iba a contestar.
+                // `code=-1` + a time right up against the deadline = OUR timer expired, not the
+                // CDN's. The distinction matters and wasn't visible: it read "origin rejected" and
+                // looked like the origin's fault when it was the deadline choking a request that
+                // was going to answer.
                 val vencioElPlazo = code == -1 && tardoMs >= plazoMs - 150
                 rangosEnVuelo.remove(etiquetaRango)
                 android.util.Log.w(
                     "ArchiveCacheProxy",
-                    "origen rechazó ${rango ?: "(todo)"} con $code en ${tardoMs}ms " +
-                        "(plazo ${plazoMs}ms, intento ${intento + 1}/$intentos, " +
-                        "$vivas conexión(es) a la vez)" +
-                        (if (vencioElPlazo) " ← VENCIÓ EL PLAZO, no el CDN" else "") +
-                        " · en paralelo: ${fotoDeRangosEnVuelo()}",
+                    "origin rejected ${rango ?: "(all)"} with $code in ${tardoMs}ms " +
+                        "(deadline ${plazoMs}ms, attempt ${intento + 1}/$intentos, " +
+                        "$vivas connection(s) at once)" +
+                        (if (vencioElPlazo) " ← OUR DEADLINE EXPIRED, not the CDN" else "") +
+                        " · in flight: ${fotoDeRangosEnVuelo()}",
                 )
                 claveUnica?.let { soltarViva(it) }
                 conexionesVivas.soltar(cerrable)
                 runCatching { conn.disconnect() }
-                // Un 404 no mejora por insistir: el archivo no está donde lo tenemos anotado. Cortar
-                // acá ahorra dos timeouts y, sobre todo, deja el 404 llegar limpio hasta arriba, que
-                // es lo que dispara la revalidación de la metadata (ver CoincidenciaDeArchivo).
+                // A 404 doesn't improve by insisting: the file isn't where we have it recorded.
+                // Cutting here saves two timeouts and, above all, lets the 404 arrive clean all the
+                // way up, which is what triggers the metadata revalidation (see
+                // CoincidenciaDeArchivo).
                 if (!PoliticaOrigen.valeReintentar(code)) {
                     android.util.Log.w(
                         "ArchiveCacheProxy",
-                        "origen: $code no se reintenta, me rindo con ${rango ?: "(todo)"}",
+                        "origin: $code isn't retried, giving up on ${rango ?: "(all)"}",
                     )
                     return null
                 }
@@ -707,7 +710,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         if (!colaHaceFalta) {
             android.util.Log.w(
                 "ArchiveCacheProxy",
-                "cola omitida: el contenedor '$contenedor' abre sin leer el final del archivo",
+                "tail skipped: the '$contenedor' container opens without reading the end of the file",
             )
         }
         val buffer = BufferQueCrece(ARRANQUE_CALIENTE)
@@ -759,16 +762,16 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         if (esperarCola && withTimeoutOrNull(ESPERA_COLA_MS) { cola.await() } == null) {
             android.util.Log.w(
                 "ArchiveCacheProxy",
-                "la cola no llegó en ${ESPERA_COLA_MS}ms → se reproduce sin duración",
+                "the tail didn't arrive within ${ESPERA_COLA_MS}ms → playing without duration",
             )
         }
         android.util.Log.w(
             "ArchiveCacheProxy",
-            "arranque servible tras ${System.currentTimeMillis() - t0}ms " +
-                "(${buffer.disponible / 1024}KB de ${ARRANQUE_CALIENTE / 1024}KB, sigue bajando)",
+            "startup servable after ${System.currentTimeMillis() - t0}ms " +
+                "(${buffer.disponible / 1024}KB of ${ARRANQUE_CALIENTE / 1024}KB, still downloading)",
         )
         if (!arranco && buffer.disponible == 0) {
-            android.util.Log.w("ArchiveCacheProxy", "precalentar: no llegaron bytes")
+            android.util.Log.w("ArchiveCacheProxy", "precalentar: no bytes arrived")
             calientes.remove("$key@$inicio")
             return@withContext false
         }
@@ -789,7 +792,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         val (conn, _) =
             abrirEnOrigen(originUrl, "bytes=$inicio-", headers, claveUnica = null, perfil = perfil)
                 ?: run {
-                    android.util.Log.w("ArchiveCacheProxy", "precalentar: el origen no dio el arranque")
+                    android.util.Log.w("ArchiveCacheProxy", "precalentar: the origin didn't give the startup chunk")
                     return
                 }
         // El TAMAÑO del archivo sale gratis de esta misma respuesta, y hace falta enseguida: es lo
@@ -851,8 +854,8 @@ class ArchiveCacheProxy(private val cacheDir: File) {
             totales[originUrl] = guardada.total
             android.util.Log.w(
                 "ArchiveCacheProxy",
-                "cola del disco: ${guardada.bytes.size / 1024}KB desde ${guardada.inicio} " +
-                    "(total=${guardada.total}) sin tocar la red",
+                "tail from disk: ${guardada.bytes.size / 1024}KB from ${guardada.inicio} " +
+                    "(total=${guardada.total}) without touching the network",
             )
             return
         }
@@ -908,7 +911,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                             if (i > 0) {
                                 android.util.Log.w(
                                     "ArchiveCacheProxy",
-                                    "ganó el pedido DUPLICADO de ${rango ?: "(todo)"}",
+                                    "the DUPLICATE request for ${rango ?: "(all)"} won",
                                 )
                             }
                             listo.countDown()
@@ -960,13 +963,13 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         val rangoCola = if (totalConocido > COLA_CALIENTE) {
             "bytes=${totalConocido - COLA_CALIENTE}-${totalConocido - 1}"
         } else {
-            android.util.Log.w("ArchiveCacheProxy", "cola: sin tamaño a tiempo, cae al sufijo")
+            android.util.Log.w("ArchiveCacheProxy", "tail: no size in time, falling back to suffix")
             "bytes=-$COLA_CALIENTE"
         }
         val (conn, _) = abrirConDuplicado(
             originUrl, rangoCola, headers, perfil,
         ) ?: run {
-            android.util.Log.w("ArchiveCacheProxy", "precalentar cola: el origen no la dio")
+            android.util.Log.w("ArchiveCacheProxy", "precalentar tail: the origin didn't give it")
             return
         }
         val contentRange = conn.getHeaderField("Content-Range")
@@ -978,7 +981,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         if (bytes == null || bytes.isEmpty() || m == null) {
             android.util.Log.w(
                 "ArchiveCacheProxy",
-                "precalentar cola: sin Content-Range utilizable (${contentRange ?: "ninguno"})",
+                "precalentar tail: no usable Content-Range (${contentRange ?: "none"})",
             )
             return
         }
@@ -990,8 +993,8 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         colaEnDisco.guardar(key, inicio, total, bytes)
         android.util.Log.w(
             "ArchiveCacheProxy",
-            "precalentada la cola: ${bytes.size / 1024}KB desde $inicio (total=$total) " +
-                "en ${System.currentTimeMillis() - t0}ms",
+            "tail pre-warmed: ${bytes.size / 1024}KB from $inicio (total=$total) " +
+                "in ${System.currentTimeMillis() - t0}ms",
         )
     }
 
@@ -1056,8 +1059,8 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         }.isSuccess
         android.util.Log.w(
             "ArchiveCacheProxy",
-            "ventana de salto: $rangeHeader servido de memoria (${trozo.size / 1024}KB, sin red)" +
-                if (abierto) " · sigo con la red desde ${pedido + trozo.size}" else "",
+            "seek window: $rangeHeader served from memory (${trozo.size / 1024}KB, no network)" +
+                if (abierto) " · continuing over the network from ${pedido + trozo.size}" else "",
         )
         if (!abierto || !salioLaCabecera) return true
 
@@ -1093,8 +1096,8 @@ class ArchiveCacheProxy(private val cacheDir: File) {
             runCatching { conn.disconnect() }
             android.util.Log.w(
                 "ArchiveCacheProxy",
-                "ventana de salto: cola desde la red ${escritos / 1024}KB de ${restante / 1024}KB " +
-                    "en ${System.currentTimeMillis() - t0}ms",
+                "seek window: tail from the network ${escritos / 1024}KB of ${restante / 1024}KB " +
+                    "in ${System.currentTimeMillis() - t0}ms",
             )
         }
         return true
@@ -1147,7 +1150,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                 total = runCatching { totalDelOrigen(originUrl, headers, perfil) }.getOrDefault(0L)
             }
             if (total <= 0L) {
-                android.util.Log.w("ArchiveCacheProxy", "salto: sin tamaño del archivo, no se precalienta")
+                android.util.Log.w("ArchiveCacheProxy", "seek: no file size, not pre-warming")
                 return@Thread
             }
             val destino = (total * fraccion.toDouble()).toLong()
@@ -1158,7 +1161,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
             val abierta = abrirEnOrigen(originUrl, "bytes=$inicio-", headers, null, perfil)
             if (abierta == null) {
                 buffer.cerrar()
-                android.util.Log.w("ArchiveCacheProxy", "salto: el origen no dio el tramo de $inicio")
+                android.util.Log.w("ArchiveCacheProxy", "seek: the origin didn't give the range at $inicio")
                 return@Thread
             }
             runCatching {
@@ -1174,8 +1177,8 @@ class ArchiveCacheProxy(private val cacheDir: File) {
             runCatching { abierta.first.disconnect() }
             android.util.Log.w(
                 "ArchiveCacheProxy",
-                "salto precalentado: ${buffer.disponible / 1024}KB desde $inicio " +
-                    "(destino estimado $destino) en ${System.currentTimeMillis() - t0}ms",
+                "seek pre-warmed: ${buffer.disponible / 1024}KB from $inicio " +
+                    "(estimated target $destino) in ${System.currentTimeMillis() - t0}ms",
             )
         }.apply { isDaemon = true; name = "arkiv-precalentar-salto" }.start()
     }
@@ -1245,8 +1248,8 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                 val llego = enVuelo.await(ESPERA_COLA_EN_VUELO_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
                 android.util.Log.w(
                     "ArchiveCacheProxy",
-                    "cola en vuelo: $rangeHeader esperó ${System.currentTimeMillis() - t}ms " +
-                        "(${if (llego) "llegó" else "venció el plazo, voy al origen"})",
+                    "tail in flight: $rangeHeader waited ${System.currentTimeMillis() - t}ms " +
+                        "(${if (llego) "arrived" else "deadline expired, going to the origin"})",
                 )
             }
             // SALTO YA GUARDADO: si este rango cae en una ventana de un salto anterior, se contesta
@@ -1284,7 +1287,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                 out.flush()
                 android.util.Log.w(
                     "ArchiveCacheProxy",
-                    "cola caliente: $rangeHeader servido de memoria (${trozo.size}B, sin red)",
+                    "hot tail: $rangeHeader served from memory (${trozo.size}B, no network)",
                 )
                 return true
             }
@@ -1301,12 +1304,13 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         val caliente = if ((rangoCliente?.start ?: 0L) == 0L && claveUnica != null) {
             calientes.remove("$claveUnica@$inicio").also {
                 if (it == null && calientes.isNotEmpty()) {
-                    // Había arranque precalentado pero para OTRO punto: el reproductor abrió en un
-                    // sitio distinto al que se preparó. No es fatal (se sirve del origen), pero es
-                    // el precalentado desperdiciado y hay que verlo: era el fallo silencioso.
+                    // There WAS a pre-warmed startup but for ANOTHER point: the player opened at a
+                    // different spot than the one that was prepared. It's not fatal (it's served
+                    // from the origin), but it's a wasted pre-warm and needs to be visible: it used
+                    // to be the silent failure.
                     android.util.Log.w(
                         "ArchiveCacheProxy",
-                        "arranque caliente NO coincide: se abrió en $inicio y había ${calientes.keys}",
+                        "hot startup DOESN'T MATCH: opened at $inicio and had ${calientes.keys}",
                     )
                 }
             }
@@ -1376,7 +1380,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                     }
                     android.util.Log.w(
                         "ArchiveCacheProxy",
-                        "arranque caliente: ${servidos / 1024}KB servidos mientras se bajaban",
+                        "hot startup: ${servidos / 1024}KB served while they were downloading",
                     )
                     var porDescartar = servidos
                     while (porDescartar > 0) {
@@ -1408,8 +1412,8 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                 if (cortoElCliente && ventana != null) {
                     android.util.Log.w(
                         "ArchiveCacheProxy",
-                        "ventana de salto en ${rangoCliente?.start}: " +
-                            "${ventana.disponible / 1024}KB guardados tras cortar el reproductor",
+                        "seek window at ${rangoCliente?.start}: " +
+                            "${ventana.disponible / 1024}KB saved after the player cut off",
                     )
                 }
             }
@@ -1425,9 +1429,9 @@ class ArchiveCacheProxy(private val cacheDir: File) {
             runCatching { conn.disconnect() }
             android.util.Log.w(
                 "ArchiveCacheProxy",
-                "directo ${rangeHeader ?: "(todo)"}" +
-                    (if (inicio > 0L) " [ventana desde $inicio → pedí $rangoAlOrigen]" else "") +
-                    " → code=$code ${escritos / 1024}KB en ${System.currentTimeMillis() - t0}ms",
+                "direct ${rangeHeader ?: "(all)"}" +
+                    (if (inicio > 0L) " [window from $inicio → requested $rangoAlOrigen]" else "") +
+                    " → code=$code ${escritos / 1024}KB in ${System.currentTimeMillis() - t0}ms",
             )
         }
         return true

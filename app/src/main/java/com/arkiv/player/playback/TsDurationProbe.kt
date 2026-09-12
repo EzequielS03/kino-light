@@ -108,7 +108,7 @@ object TsDurationProbe {
         val ms = durationMs(cabeza, cola)
         android.util.Log.w(
             TAG,
-            "sonda PCR: cabeza=${cabeza.size}B cola=${cola.size}B → duracion=${ms}ms " +
+            "PCR probe: head=${cabeza.size}B tail=${cola.size}B → duration=${ms}ms " +
                 "(${System.currentTimeMillis() - t0}ms)",
         )
         ms
@@ -170,7 +170,7 @@ object TsDurationProbe {
             intentarTramo(url, headers, range, i)?.let { return it }
             if (i < INTENTOS - 1) Thread.sleep(esperaEntreIntentosMs(i))
         }
-        android.util.Log.w(TAG, "tramo $range: agotados los $INTENTOS intentos")
+        android.util.Log.w(TAG, "range $range: exhausted all $INTENTOS attempts")
         return null
     }
 
@@ -185,7 +185,7 @@ object TsDurationProbe {
             // Sin 206 el servidor ignoró el Range y estaría mandando el archivo ENTERO (cientos de
             // MB por una sonda). Se corta antes de leer nada.
             if (conn.responseCode != HttpURLConnection.HTTP_PARTIAL) {
-                android.util.Log.w(TAG, "tramo $range: el origen no respetó el Range (${conn.responseCode})")
+                android.util.Log.w(TAG, "range $range: the origin ignored the Range (${conn.responseCode})")
                 conn.disconnect()
                 return null
             }
@@ -193,7 +193,7 @@ object TsDurationProbe {
             conn.disconnect()
             bytes
         }.getOrElse {
-            android.util.Log.w(TAG, "falló el tramo $range: ${it.message}")
+            android.util.Log.w(TAG, "range $range failed: ${it.message}")
             null
         }
 

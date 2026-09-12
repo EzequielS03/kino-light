@@ -102,7 +102,7 @@ internal class GeneradorParaTi(
                 try { PreguntaParaTi.candidatos(it.texto) } catch (e: JsonIlegible) { null }
             }
             if (candidatos.isNullOrEmpty()) {
-                Log.w(TAG, "el modelo no dio candidatos: se conservan las recomendaciones de antes")
+                Log.w(TAG, "the model gave no candidates: keeping the previous recommendations")
                 escribirMarcas(ahora, true)
                 return
             }
@@ -119,15 +119,15 @@ internal class GeneradorParaTi(
                 )
             }
             if (filas.isEmpty()) {
-                Log.w(TAG, "ninguna verificada de ${candidatos.size}: se conservan las de antes")
+                Log.w(TAG, "none verified out of ${candidatos.size}: keeping the previous ones")
                 return
             }
             guardar(filas)
-            Log.w(TAG, "${filas.size} recomendaciones nuevas de ${candidatos.size} candidatos")
+            Log.w(TAG, "${filas.size} new recommendations out of ${candidatos.size} candidates")
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.w(TAG, "falló la generación: ${e.javaClass.simpleName}: ${e.message}")
+            Log.w(TAG, "generation failed: ${e.javaClass.simpleName}: ${e.message}")
             runCatching { escribirMarcas(ahora, true) }
         } finally {
             enCurso.unlock()

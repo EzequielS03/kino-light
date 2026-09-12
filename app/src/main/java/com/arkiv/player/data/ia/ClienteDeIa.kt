@@ -154,7 +154,7 @@ internal class ClienteDeIa(
             throw e
         } catch (e: Exception) {
             // Red caída o un JSON roto (`JSONException`): lo mismo que un 5xx, sigue el último.
-            Log.w(TAG, "catálogo: ${e.javaClass.simpleName}: ${e.message}")
+            Log.w(TAG, "catalog: ${e.javaClass.simpleName}: ${e.message}")
             null
         }
         return candado.withLock {

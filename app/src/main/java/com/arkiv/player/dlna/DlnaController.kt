@@ -90,14 +90,14 @@ class DlnaController(context: Context) {
                 }
             }
             socket.close()
-            Log.i("ArkivDlna", "SSDP: $responses respuestas, ${locations.size} ubicaciones: $locations")
+            Log.i("ArkivDlna", "SSDP: $responses responses, ${locations.size} locations: $locations")
         } catch (_: Exception) {
             // sin red / error de socket
         } finally {
             runCatching { lock.release() }
         }
         val devices = locations.mapNotNull { parseDevice(it) }.distinctBy { it.controlUrl }
-        Log.i("ArkivDlna", "Dispositivos con AVTransport: ${devices.map { it.friendlyName }}")
+        Log.i("ArkivDlna", "Devices with AVTransport: ${devices.map { it.friendlyName }}")
         return devices
     }
 
@@ -107,7 +107,7 @@ class DlnaController(context: Context) {
             client.newCall(Request.Builder().url(location).build()).execute().use { it.body?.string() }
         }.getOrNull()
         if (xml == null) {
-            Log.w("ArkivDlna", "parseDevice: fetch falló para $location")
+            Log.w("ArkivDlna", "parseDevice: fetch failed for $location")
             return null
         }
         Log.i("ArkivDlna", "parseDevice: $location -> ${xml.length} bytes, AVT=${xml.contains("AVTransport")}")
@@ -158,7 +158,7 @@ class DlnaController(context: Context) {
 
         val ctrl = controlUrl
         if (ctrl == null) {
-            Log.w("ArkivDlna", "parseDevice: sin AVTransport controlURL en $location (name=$friendlyName)")
+            Log.w("ArkivDlna", "parseDevice: no AVTransport controlURL on $location (name=$friendlyName)")
             return null
         }
         val base = urlBase ?: location

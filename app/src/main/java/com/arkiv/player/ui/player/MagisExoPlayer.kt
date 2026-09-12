@@ -79,7 +79,7 @@ internal fun MagisExoPlayer(
     val context = LocalContext.current
 
     val exoPlayer = remember(mediaUrl, subtitleConfigs) {
-        Log.i(TAG, "Creando ExoPlayer · url=${mediaUrl.take(80)} startMs=$startPositionMs subs=${subtitleConfigs.size}")
+        Log.i(TAG, "Creating ExoPlayer · url=${mediaUrl.take(80)} startMs=$startPositionMs subs=${subtitleConfigs.size}")
         val httpFactory = DefaultHttpDataSource.Factory()
             .setUserAgent("okhttp/4.12.0")
             .setConnectTimeoutMs(30_000)
@@ -127,7 +127,7 @@ internal fun MagisExoPlayer(
                 player.prepare()
                 if (startPositionMs > 0L) player.seekTo(startPositionMs)
                 player.playWhenReady = true
-                Log.i(TAG, "ExoPlayer preparado · seekTo=$startPositionMs")
+                Log.i(TAG, "ExoPlayer prepared · seekTo=$startPositionMs")
             }
     }
 
@@ -141,7 +141,7 @@ internal fun MagisExoPlayer(
             // (1920x1080 al montarse, 1920x800 al llegar la proporción del video), y sigue acá por
             // si algún aparato vuelve a hacer algo raro con el tamaño.
             addOnLayoutChangeListener { _, l, t, r, b, _, _, _, _ ->
-                Log.i(TAG, "TextureView colocado en [$l,$t]-[$r,$b] · ${r - l}x${b - t}")
+                Log.i(TAG, "TextureView placed at [$l,$t]-[$r,$b] · ${r - l}x${b - t}")
             }
         }
     }
@@ -162,7 +162,7 @@ internal fun MagisExoPlayer(
             reproduciendo = exoPlayer.isPlaying,
             quiereReproducir = exoPlayer.playWhenReady,
         )
-        Log.i(TAG, "DisposableEffect enganchado · state=${exoPlayer.playbackState} isPlaying=${exoPlayer.isPlaying}")
+        Log.i(TAG, "DisposableEffect hooked · state=${exoPlayer.playbackState} isPlaying=${exoPlayer.isPlaying}")
 
         val listener = object : Player.Listener {
 
@@ -179,7 +179,7 @@ internal fun MagisExoPlayer(
                 val text  = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
                 val video = tracks.groups.filter { it.type == C.TRACK_TYPE_VIDEO }
 
-                Log.i(TAG, "onTracksChanged · video=${video.size} grupos / audio=${audio.size} grupos / subs=${text.size} grupos")
+                Log.i(TAG, "onTracksChanged · video=${video.size} groups / audio=${audio.size} groups / subs=${text.size} groups")
 
                 audio.forEachIndexed { gi, group ->
                     for (ti in 0 until group.length) {
@@ -279,7 +279,7 @@ internal fun MagisExoPlayer(
             val frames = exoPlayer.videoDecoderCounters?.renderedOutputBufferCount?.toLong() ?: -1L
 
             if (!playing && !wantPlay && pos != lastPos && lastPos >= 0) {
-                Log.w(TAG, "POSICION AVANZA PAUSADO · pos=$pos lastPos=$lastPos state=$state")
+                Log.w(TAG, "POSITION ADVANCES WHILE PAUSED · pos=$pos lastPos=$lastPos state=$state")
             }
 
             // El reloj corre de verdad (no es un seek ni una pausa) pero no entró ningún frame.
@@ -290,7 +290,7 @@ internal fun MagisExoPlayer(
             if (playing && state == Player.STATE_READY && relojAvanzo && sinFrames && frames >= 0) {
                 if (congeladoDesdeMs == 0L) {
                     congeladoDesdeMs = ahora
-                    Log.w(TAG, "VIDEO SIN FRAMES · empieza · pos=${pos}ms frames=$frames")
+                    Log.w(TAG, "VIDEO WITHOUT FRAMES · starts · pos=${pos}ms frames=$frames")
                 }
                 val congeladoMs = ahora - congeladoDesdeMs
                 // 5 s de margen: por debajo se confunde con los tirones normales del CDN, que
@@ -312,12 +312,12 @@ internal fun MagisExoPlayer(
                     congeladoDesdeMs = 0L
                     rescatesSeguidos++
                     if (rescatesSeguidos <= 1) {
-                        Log.w(TAG, "VIDEO CONGELADO ${congeladoMs}ms · rescate 1: prepare() en $pos")
+                        Log.w(TAG, "VIDEO FROZEN ${congeladoMs}ms · rescue 1: prepare() at $pos")
                         exoPlayer.seekTo(pos)
                         exoPlayer.prepare()
                         exoPlayer.playWhenReady = true
                     } else {
-                        Log.w(TAG, "VIDEO CONGELADO ${congeladoMs}ms · rescate $rescatesSeguidos: reenganchando la superficie en $pos")
+                        Log.w(TAG, "VIDEO FROZEN ${congeladoMs}ms · rescue $rescatesSeguidos: re-hooking the surface at $pos")
                         exoPlayer.clearVideoTextureView(textureView)
                         exoPlayer.setVideoTextureView(textureView)
                         exoPlayer.seekTo(pos)
@@ -327,7 +327,7 @@ internal fun MagisExoPlayer(
                 }
             } else {
                 if (congeladoDesdeMs != 0L) {
-                    Log.i(TAG, "VIDEO SIN FRAMES · se recuperó tras ${ahora - congeladoDesdeMs}ms · frames=$frames")
+                    Log.i(TAG, "VIDEO WITHOUT FRAMES · recovered after ${ahora - congeladoDesdeMs}ms · frames=$frames")
                 }
                 congeladoDesdeMs = 0L
                 // Solo cuenta como recuperado si de verdad entraron frames nuevos, no por un

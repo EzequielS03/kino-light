@@ -373,17 +373,17 @@ class PlayerViewModel internal constructor(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.w(PLAY, "trivia: no se pudo identificar la obra: ${e.message}")
+                Log.w(PLAY, "trivia: couldn't identify the title: ${e.message}")
                 null
             } ?: run {
-                // Sin esta línea la trivia se apagaría en silencio: sin botón y sin nada en el log
-                // que diga por qué (el ítem no tiene ni tmdbId ni título canónico).
-                Log.w(PLAY, "trivia: sin obra con nombre para $episodeId → no se pide")
+                // Without this line, trivia would silently turn off: no button and nothing in the
+                // log saying why (the item has neither a tmdbId nor a canonical title).
+                Log.w(PLAY, "trivia: no titled work for $episodeId → not requested")
                 return@launch
             }
             _trivia.value = try {
                 fuenteDeDatos.de(obra) { repo.fichaDeObra(obra) }
-                    .also { Log.w(PLAY, "trivia: ${it.size} datos para ${obra.clave}") }
+                    .also { Log.w(PLAY, "trivia: ${it.size} facts for ${obra.clave}") }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -466,7 +466,7 @@ class PlayerViewModel internal constructor(
             _magisItem.value = null
             ditu.limpiar()
             val url = runCatching { liveController.abrir(canal.code) }.getOrElse {
-                Log.w(PLAY, "abrirCanalActual() falló para ${canal.code}: ${it.message}")
+                Log.w(PLAY, "abrirCanalActual() failed for ${canal.code}: ${it.message}")
                 if (zapping?.actual?.code == canal.code) {
                     _error.value = mensajeErrorVivo(hayCuentaDeMagis(), canal.nombre)
                 }
@@ -566,7 +566,7 @@ class PlayerViewModel internal constructor(
             reaperturasVivo = 0
         }
         if (reaperturasVivo >= MAX_REAPERTURAS_VIVO) {
-            Log.w(PLAY, "vivo: ${canal.code} no volvió tras $MAX_REAPERTURAS_VIVO reaperturas → aviso")
+            Log.w(PLAY, "live: ${canal.code} didn't come back after $MAX_REAPERTURAS_VIVO reopens → warning")
             _error.value = "Se cortó la señal de ${canal.nombre} y no volvió. " +
                 "Puede ser un problema del canal: prueba de nuevo o mira otro."
             return
@@ -576,8 +576,8 @@ class PlayerViewModel internal constructor(
         val espera = ESPERA_REAPERTURA_MS shl (reaperturasVivo - 1)
         Log.w(
             PLAY,
-            "vivo: ${canal.code} se cortó → reabro en ${espera}ms " +
-                "(intento $reaperturasVivo/$MAX_REAPERTURAS_VIVO)",
+            "live: ${canal.code} cut out → reopening in ${espera}ms " +
+                "(attempt $reaperturasVivo/$MAX_REAPERTURAS_VIVO)",
         )
         reabrirJob?.cancel()
         reabrirJob = viewModelScope.launch {
@@ -602,8 +602,8 @@ class PlayerViewModel internal constructor(
         val hueco = if (cortadoEn > 0L) System.currentTimeMillis() - cortadoEn else -1L
         Log.w(
             PLAY,
-            "vivo: recuperado tras ${hueco}ms sin imagen y $reaperturasVivo reapertura(s) " +
-                "(reprodujo ${posicionMs}ms) → repongo el presupuesto",
+            "live: recovered after ${hueco}ms with no picture and $reaperturasVivo reopen(s) " +
+                "(played ${posicionMs}ms) → replenishing the budget",
         )
         reaperturasVivo = 0
         cortadoEn = 0L
@@ -701,14 +701,14 @@ class PlayerViewModel internal constructor(
         val nombre = androidx.media3.common.PlaybackException.getErrorCodeName(codigo)
         val episodio = ditu.pedirRecarga()
         if (episodio == null) {
-            Log.w(PLAY, "Caracol: $nombre y no quedan recargas → aviso a la persona")
+            Log.w(PLAY, "Caracol: $nombre and no reloads left → notifying the person")
             _error.value = FalloDeCaracol.alReproducir(codigo, esTelevision)
             return
         }
         Log.w(
             PLAY,
-            "Caracol: $nombre → pido una URL nueva para $episodio desde ${posicionMs}ms " +
-                "(queríaReproducir=$queriaReproducir)",
+            "Caracol: $nombre → requesting a new URL for $episodio from ${posicionMs}ms " +
+                "(wantedToPlay=$queriaReproducir)",
         )
         viewModelScope.launch { loadDitu(episodio, arrancarEnMs = posicionMs, arrancarSolo = queriaReproducir) }
     }
@@ -731,7 +731,7 @@ class PlayerViewModel internal constructor(
      * avisarle a la persona.
      */
     fun onLiveExoError(message: String) {
-        Log.w(PLAY, "vivo (exo) error para ${zapping?.actual?.code}: $message")
+        Log.w(PLAY, "live (exo) error for ${zapping?.actual?.code}: $message")
         reabrirVivoPorCorte()
     }
 
@@ -787,7 +787,7 @@ class PlayerViewModel internal constructor(
         // [MagisEfimero]—, así que su `ref` no se puede leer de ahí: viaja por afuera.
         val efimero = MagisEfimero.tomar(episodeId)
         val ref = efimero?.ref ?: repo.magisRefForEpisode(episodeId)
-        Log.w(PLAY, "loadMagis() episodeId=$episodeId efimero=${efimero != null} ref=${ref?.take(12)}…")
+        Log.w(PLAY, "loadMagis() episodeId=$episodeId ephemeral=${efimero != null} ref=${ref?.take(12)}…")
         if (ref.isNullOrBlank()) { _error.value = "No se encontró la fuente de Magis"; return }
 
         _playlist.value = null
@@ -801,11 +801,11 @@ class PlayerViewModel internal constructor(
         val resuelto = withContext(Dispatchers.IO) { runCatching { fuente.resolve(ref) } }
         val msResolve = System.currentTimeMillis() - t0
         _resolving.value = false
-        Log.w(PLAY, "loadMagis() resolve del portal=${msResolve}ms")
+        Log.w(PLAY, "loadMagis() portal resolve=${msResolve}ms")
 
         val play = resuelto.getOrNull()
         if (play == null) {
-            Log.w(PLAY, "loadMagis() falló: ${resuelto.exceptionOrNull()?.message}")
+            Log.w(PLAY, "loadMagis() failed: ${resuelto.exceptionOrNull()?.message}")
             _error.value = "No se pudo resolver esta fuente de Magis"
             return
         }
@@ -815,7 +815,7 @@ class PlayerViewModel internal constructor(
         // `language=null` en `IMedia.Track` y nombre pelado "Track 1", mientras las de audio sí traen
         // spa/eng/jpn). They travel through [webExtras]; PlayerPistas cross-references them with
         // the source via SubtitleDecision.decide.
-        Log.w(PLAY, "loadMagis() subtitulos del portal=${play.subtitles.size} langs=${play.subtitles.map { it.lang }}")
+        Log.w(PLAY, "loadMagis() portal subtitles=${play.subtitles.size} langs=${play.subtitles.map { it.lang }}")
 
         withContext(Dispatchers.IO) { archiveCacheProxy.start() }
         // Sin fila en la biblioteca no hay cabecera que leer: el título lo trae el propio pendiente,
@@ -844,7 +844,7 @@ class PlayerViewModel internal constructor(
         // (movies get it for free in the resolve) it's used; otherwise playback starts without it
         // and the player fills it in.
         if (play.durationMs > 0) {
-            Log.w(PLAY, "loadMagis() duracion del gateway=${play.durationMs}ms")
+            Log.w(PLAY, "loadMagis() gateway duration=${play.durationMs}ms")
         }
         // El ARRANQUE CALIENTE: lo ÚNICO que se espera antes de abrir el video.
         //
@@ -874,7 +874,7 @@ class PlayerViewModel internal constructor(
         // Si el gateway mandó la duración, se aprovecha; si no, se arranca sin ella y la completa
         // el player al abrir. Nada de esto pide un solo byte extra.
         val duracion = play.durationMs
-        Log.w(PLAY, "loadMagis() arranque caliente=${msArranque}ms → duracion=${duracion}ms")
+        Log.w(PLAY, "loadMagis() hot startup=${msArranque}ms → duration=${duracion}ms")
         val item = PlayerData(
             episodeId = episodeId,
             itemId = episodeId.substringBefore("::"),
@@ -939,7 +939,7 @@ class PlayerViewModel internal constructor(
         Log.w(
             PLAY,
             "loadMagis() ⏱ TOTAL=${System.currentTimeMillis() - t0}ms " +
-                "[resolve=${msResolve}ms | arranque=${msArranque}ms] startPos=$startPos",
+                "[resolve=${msResolve}ms | startup=${msArranque}ms] startPos=$startPos",
         )
     }
 
@@ -970,8 +970,8 @@ class PlayerViewModel internal constructor(
         val ref = if (vivo) null else repo.magisRefForEpisode(episodeId)
         Log.w(
             PLAY,
-            "loadDitu() episodeId=$episodeId ref=${ref?.take(16)}… canal=${canal?.channelId} " +
-                "recarga=${arrancarEnMs != null}",
+            "loadDitu() episodeId=$episodeId ref=${ref?.take(16)}… channel=${canal?.channelId} " +
+                "reload=${arrancarEnMs != null}",
         )
         // Lo que sigue toca estado que comparten todas las fuentes: si mientras se leía el ref ya se
         // pidió otro episodio, esto no es de nadie. Ver [EstadoDeDitu].
@@ -993,14 +993,14 @@ class PlayerViewModel internal constructor(
         // ese camino no toca esta bandera y quedaría prendida.
         _resolving.value = false
         if (!ditu.esVigente(episodeId)) {
-            Log.w(PLAY, "loadDitu() descartado: $episodeId ya no es el pedido vigente")
+            Log.w(PLAY, "loadDitu() discarded: $episodeId is no longer the current request")
             return
         }
         val play = resuelto.getOrNull()
         if (play == null) {
             val falla = resuelto.exceptionOrNull()
-            // El detalle va al log; a la persona, lo que `FalloDeCaracol` entiende de él.
-            Log.w(PLAY, "loadDitu() falló: ${falla?.message}", falla)
+            // The detail goes to the log; the person gets what `FalloDeCaracol` makes of it.
+            Log.w(PLAY, "loadDitu() failed: ${falla?.message}", falla)
             _error.value = FalloDeCaracol.alAbrir(falla)
             return
         }
@@ -1010,7 +1010,7 @@ class PlayerViewModel internal constructor(
         Log.w(PLAY, "loadDitu() drm=${play.drmLicenseUrl.isNotBlank()} startPos=$startPos")
         // `publicar` vuelve a mirar si sigue vigente: `safeStartPosition` también suspende.
         if (!ditu.publicar(DituReproducible(episodeId, play, startPos, arrancarSolo = arrancarSolo))) {
-            Log.w(PLAY, "loadDitu() descartado al publicar: $episodeId ya no es el pedido vigente")
+            Log.w(PLAY, "loadDitu() discarded on publish: $episodeId is no longer the current request")
         }
     }
 
@@ -1024,7 +1024,7 @@ class PlayerViewModel internal constructor(
     private suspend fun safeStartPosition(episodeId: String, kind: SourceKind): Long {
         val saved = runCatching { repo.getPlayback(episodeId) }.getOrNull() ?: return 0L
         return com.arkiv.player.playback.ResumePolicy.startPosition(saved.positionMs, saved.durationMs)
-            .also { Log.i(PLAY, "reanudar $episodeId ($kind): guardado=${saved.positionMs}ms → arranca en ${it}ms") }
+            .also { Log.i(PLAY, "resume $episodeId ($kind): saved=${saved.positionMs}ms → starts at ${it}ms") }
     }
 
     /** La corrección a mano de los tiempos, del capítulo en curso o de la serie. Ver su KDoc. */

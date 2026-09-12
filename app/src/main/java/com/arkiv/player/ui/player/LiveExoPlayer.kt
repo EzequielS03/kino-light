@@ -89,7 +89,7 @@ internal fun LiveExoPlayer(
     val context = LocalContext.current
 
     val exoPlayer = remember(key) {
-        Log.i(TAG, "Creando ExoPlayer · url=${mediaUrl.take(80)} key=$key")
+        Log.i(TAG, "Creating ExoPlayer · url=${mediaUrl.take(80)} key=$key")
         val httpFactory = DefaultHttpDataSource.Factory()
             .setUserAgent("okhttp/4.12.0")
             .setConnectTimeoutMs(15_000)
@@ -106,7 +106,7 @@ internal fun LiveExoPlayer(
                 player.setMediaItem(mediaItem)
                 player.prepare()
                 player.playWhenReady = true
-                Log.i(TAG, "ExoPlayer preparado")
+                Log.i(TAG, "ExoPlayer prepared")
             }
     }
 
@@ -126,7 +126,7 @@ internal fun LiveExoPlayer(
             reproduciendo = exoPlayer.isPlaying,
             quiereReproducir = exoPlayer.playWhenReady,
         )
-        Log.i(TAG, "DisposableEffect enganchado · state=${exoPlayer.playbackState}")
+        Log.i(TAG, "DisposableEffect hooked · state=${exoPlayer.playbackState}")
 
         val listener = object : Player.Listener {
 
@@ -211,19 +211,19 @@ internal fun LiveExoPlayer(
             if (playing && state == Player.STATE_READY && relojAvanzo && sinFrames && frames >= 0) {
                 if (congeladoDesdeMs == 0L) {
                     congeladoDesdeMs = ahora
-                    Log.w(TAG, "VIDEO SIN FRAMES · empieza · pos=${pos}ms frames=$frames")
+                    Log.w(TAG, "VIDEO WITHOUT FRAMES · starts · pos=${pos}ms frames=$frames")
                 }
                 val congeladoMs = ahora - congeladoDesdeMs
                 if (congeladoMs >= 5_000 && ahora - ultimoRescateMs >= 8_000) {
                     ultimoRescateMs = ahora
                     congeladoDesdeMs = 0L
-                    Log.w(TAG, "VIDEO CONGELADO ${congeladoMs}ms · prepare() en $pos")
+                    Log.w(TAG, "VIDEO FROZEN ${congeladoMs}ms · prepare() at $pos")
                     exoPlayer.prepare()
                     exoPlayer.playWhenReady = true
                 }
             } else {
                 if (congeladoDesdeMs != 0L) {
-                    Log.i(TAG, "VIDEO SIN FRAMES · se recuperó tras ${ahora - congeladoDesdeMs}ms · frames=$frames")
+                    Log.i(TAG, "VIDEO WITHOUT FRAMES · recovered after ${ahora - congeladoDesdeMs}ms · frames=$frames")
                 }
                 congeladoDesdeMs = 0L
             }

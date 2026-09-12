@@ -36,7 +36,7 @@ class BuscadorDeCapitulos(
             ?: return@withContext 0
         val elegidas = SeriesPorRevisar.elegir(candidatas, ahora())
         if (elegidas.isEmpty()) return@withContext 0
-        Log.i(TAG, "reviso ${elegidas.size} serie(s) de ${candidatas.size} en biblioteca")
+        Log.i(TAG, "checking ${elegidas.size} series out of ${candidatas.size} in the library")
 
         var nuevos = 0
         for (serie in elegidas) {
@@ -47,12 +47,12 @@ class BuscadorDeCapitulos(
                     else -> 0
                 }
             }.getOrElse { e ->
-                // Una serie que falla no puede llevarse puestas a las demás.
-                Log.i(TAG, "no se pudo revisar ${serie.itemId}: ${e.message}")
+                // A series that fails can't take the others down with it.
+                Log.i(TAG, "couldn't check ${serie.itemId}: ${e.message}")
                 0
             }
         }
-        Log.i(TAG, "listo: $nuevos capítulo(s) nuevo(s)")
+        Log.i(TAG, "done: $nuevos new chapter(s)")
         nuevos
     }
 
@@ -78,7 +78,7 @@ class BuscadorDeCapitulos(
         if (ref.isBlank()) return 0
         val (enLaFuente, gatewaySerie) = gateway.episodesConSerie(ref)
         if (enLaFuente.isEmpty()) {
-            Log.i(TAG, "magis ${serie.itemId}: sin capítulos (¿ref vencido?)")
+            Log.i(TAG, "magis ${serie.itemId}: no chapters (stale ref?)")
             return 0
         }
         val tengo = itemDao.getEpisodesOf(serie.itemId).mapNotNull { it.episode }
