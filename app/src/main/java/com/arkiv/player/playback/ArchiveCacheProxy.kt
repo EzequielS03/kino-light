@@ -379,6 +379,46 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         // descarga a caché empezara lejos del byte 0 al reanudar. Se borró junto con el resto de la
         // caché en disco (exclusiva de archive.org, ver [VentanaDeDescarga] en el historial) — el
         // dispatcher de [serve] ya no lee `w=`, así que dejar la URL armaría un parámetro sin efecto.
+
+        /** Loopback authority that [proxyUrl] writes, and the only thing [lanUrl] replaces. */
+        private const val LOOPBACK = "http://127.0.0.1:"
+
+        /**
+         * The same proxy URL, spelled so the Chromecast can reach it: the phone's LAN [ip] instead
+         * of loopback. `null` if [proxyUrl] isn't one of ours or there's no LAN ip yet.
+         *
+         * This is the ONLY URL a Cast receiver can be given for Magis. Its VOD sits behind
+         * `Content-Auth`/`Content-License`, and the Default Media Receiver cannot send custom
+         * headers (that needs a custom receiver app), so the CDN answers it 401. The proxy is what
+         * puts those headers on the request to the origin, so the receiver has to come through it.
+         *
+         * No socket is widened here, and none needs to be: [start] opens `ServerSocket(0)` with no
+         * bind address, which already listens on every interface — the same convention
+         * `LiveHlsProxy` documents in `urlPara` and `LocalFileServer` relies on. Loopback keeps
+         * working for the local player exactly as before.
+         *
+         * It rewrites an EXISTING url instead of rebuilding one from `originUrl`+`headers` so the
+         * two spellings cannot drift: same port, same path, same query, byte for byte. That matters
+         * more than it looks — `h=` is a [HeaderCodec] blob and `u=` is percent-encoded, so
+         * re-encoding either would corrupt the headers the proxy exists to inject. It also rules
+         * out a blind string replace: an origin that itself mentions 127.0.0.1 lives inside `u=`
+         * and must survive untouched.
+         *
+         * ⚠️ The auth headers ride in the query, so this url hands them to anyone on the LAN. That
+         * is the same exposure `LiveHlsProxy` covers with a random token, and the reason this is
+         * built only at cast time rather than alongside the local url.
+         */
+        fun lanUrl(proxyUrl: String, ip: String): String? {
+            if (ip.isBlank() || !proxyUrl.startsWith(LOOPBACK)) return null
+            // Everything after "http://127.0.0.1:" is "<port>/<path>?<query>"; the first '/' ends
+            // the authority, and the query is never touched.
+            val tras = proxyUrl.substring(LOOPBACK.length)
+            val corte = tras.indexOf('/')
+            if (corte <= 0) return null
+            val puerto = tras.substring(0, corte)
+            if (puerto.any { !it.isDigit() }) return null
+            return "http://$ip:$puerto${tras.substring(corte)}"
+        }
     }
 
     /**

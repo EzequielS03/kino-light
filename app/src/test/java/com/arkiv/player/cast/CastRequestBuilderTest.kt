@@ -129,6 +129,74 @@ class CastRequestBuilderTest {
         assertEquals("http://192.168.3.20:1/live.m3u8", r.uri)
     }
 
+    /**
+     * Magis: the receiver can ONLY be given our proxy's LAN url. Its VOD sits behind
+     * `Content-Auth`/`Content-License` and the Default Media Receiver cannot send custom headers,
+     * so `castUrl` -- the raw CDN url -- answers 401. `mediaUrl` is the loopback the phone plays
+     * from and is unreachable from the TV. Both must be ignored, exactly like live does.
+     */
+    @Test
+    fun `magis usa la url de la LAN e ignora el CDN y el loopback`() {
+        val r = CastRequestBuilder.build(
+            episodeId = "magis:7B66::0", title = "Peli", subtitle = "",
+            artworkUrl = "", mediaUrl = "http://127.0.0.1:41234/s?h=AAA&d=1&u=https%3A%2F%2Fcdn%2Fx.ts",
+            castUrl = "https://cdn.magis.tv/vod/x_media.ts",
+            lanUrl = "http://192.168.3.20:41234/s?h=AAA&d=1&u=https%3A%2F%2Fcdn%2Fx.ts",
+            startPositionMs = 90_000, requiresLanUrl = true, mimeOverride = "video/mp2t",
+        )!!
+        assertEquals("http://192.168.3.20:41234/s?h=AAA&d=1&u=https%3A%2F%2Fcdn%2Fx.ts", r.uri)
+        assertEquals("video/mp2t", r.mimeType)
+        // Not live: Magis VOD does have a "where you were", so the position must survive.
+        assertEquals(90_000, r.startPositionMs)
+    }
+
+    /**
+     * No LAN ip (no WiFi, or the proxy never started) means there is NO url the receiver can use.
+     * Falling back to `castUrl` here would cast a 401 and look like a mystery on the TV; null is
+     * what makes the caller show "la TV no puede alcanzar este stream".
+     */
+    @Test
+    fun `magis sin url de LAN no se puede castear, no cae al CDN`() {
+        assertNull(
+            CastRequestBuilder.build(
+                episodeId = "magis:7B66::0", title = "Peli", subtitle = "", artworkUrl = "",
+                mediaUrl = "http://127.0.0.1:41234/s?u=x",
+                castUrl = "https://cdn.magis.tv/vod/x_media.ts",
+                lanUrl = null, startPositionMs = 0, requiresLanUrl = true,
+            ),
+        )
+    }
+
+    /**
+     * The proxy url's path is `/s` and its query is stripped before guessing, so the extension
+     * says nothing -- [CastRequestBuilder.mimeForUrl] would answer mp4 for a `.ts` stream, which
+     * is the "announce one container, deliver another" mistake this file warns about. The real
+     * container comes from the CDN url's extension (see `MagisResolve`, which builds it as
+     * `_media.ts` / `_media.mp4`), passed in as `mimeOverride`.
+     */
+    @Test
+    fun `magis sin mimeOverride adivinaria mp4 para un ts`() {
+        val r = CastRequestBuilder.build(
+            episodeId = "magis:7B66::0", title = "Peli", subtitle = "", artworkUrl = "",
+            mediaUrl = "http://127.0.0.1:41234/s?u=x",
+            castUrl = null,
+            lanUrl = "http://192.168.3.20:41234/s?h=AAA&u=https%3A%2F%2Fcdn%2Fx.ts",
+            startPositionMs = 0, requiresLanUrl = true,
+        )!!
+        assertEquals("video/mp4", r.mimeType)
+    }
+
+    /** `requiresLanUrl` must not disturb the sources that legitimately cast a remote url. */
+    @Test
+    fun `sin requiresLanUrl se sigue prefiriendo castUrl`() {
+        val r = CastRequestBuilder.build(
+            episodeId = "ep1", title = "t", subtitle = "s", artworkUrl = "",
+            mediaUrl = "file:///data/x.ts", castUrl = "http://192.168.3.20:9/file",
+            lanUrl = null, startPositionMs = 0,
+        )!!
+        assertEquals("http://192.168.3.20:9/file", r.uri)
+    }
+
     @Test
     fun `episodeId subtitle artworkUrl pasan sin cambios`() {
         val r = CastRequestBuilder.build(

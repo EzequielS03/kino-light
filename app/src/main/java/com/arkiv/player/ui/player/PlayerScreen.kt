@@ -750,9 +750,26 @@ private fun PlayerContent(
         // La URL alcanzable por el receptor: la del proxy de vivo (LiveHlsProxy) LAN -- mismo motivo
         // que el resto de este método, ver el KDoc de CastRequestBuilder. `graph.lanIp()` es un
         // helper genérico (IP del celu en la LAN), no algo específico de ninguna fuente.
+        //
+        // MAGIS is the same shape for a different reason: its origin is remote, but the CDN wants
+        // `Content-Auth`/`Content-License` and the Cast receiver cannot send custom headers, so it
+        // gets 401 from the CDN and has to come through our proxy like live does. No socket is
+        // widened to do this -- `ArchiveCacheProxy.start()` already listens on every interface; it
+        // is the same loopback url the phone is playing from, respelled. See its `lanUrl` KDoc.
+        val lanIp = graph.lanIp()
         val lanUrl = when (item.kind) {
-            SourceKind.LIVE -> graph.lanIp()?.let { graph.liveHlsProxy.lanUrl(it) }
+            SourceKind.LIVE -> lanIp?.let { graph.liveHlsProxy.lanUrl(it) }
+            SourceKind.MAGIS -> lanIp?.let {
+                com.arkiv.player.playback.ArchiveCacheProxy.lanUrl(item.mediaUrl, it)
+            }
             else -> null
+        }
+        if (item.kind == SourceKind.MAGIS) {
+            android.util.Log.w(
+                "ArkivCast",
+                "magis cast url · lanIp=${lanIp ?: "NONE"} " +
+                    "proxyLocal=${item.mediaUrl.take(60)} → lan=${lanUrl?.take(60) ?: "NULL (cannot cast)"}",
+            )
         }
 
         // A downloaded file is the one case where the container can be KNOWN instead of guessed:
@@ -780,6 +797,21 @@ private fun PlayerContent(
                 })",
             )
         }
+
+        // Magis: the url the receiver gets is the proxy's ("…/s?h=…&u=…"), whose path has no
+        // extension and whose query is stripped before guessing -- so the guess is always mp4,
+        // and Magis really does serve MPEG-TS (`MagisResolve` picks `_media.ts` vs `_media.mp4`
+        // from the portal's `videoFormat`). The CDN url kept in `castUrl` is the one that carries
+        // the true extension, so the container is read from there.
+        val mimeMagis = if (item.kind == SourceKind.MAGIS) {
+            item.castUrl?.takeIf { it.isNotBlank() }
+                ?.let { com.arkiv.player.cast.CastRequestBuilder.mimeForUrl(it) }
+        } else {
+            null
+        }
+        if (mimeMagis != null) {
+            android.util.Log.i("ArkivCast", "magis container from the CDN url: $mimeMagis")
+        }
         val directo = com.arkiv.player.cast.CastRequestBuilder.build(
             episodeId = item.episodeId,
             title = item.title,
@@ -795,7 +827,14 @@ private fun PlayerContent(
             // receiver decode the HEVC inside? Real segments are what restore seeking.
             startPositionMs = if (hlsLocal != null) 0L else startPositionMs,
             isLive = esVivo,
-            mimeOverride = if (hlsLocal != null) "application/vnd.apple.mpegurl" else mimeLocal,
+            mimeOverride = when {
+                hlsLocal != null -> "application/vnd.apple.mpegurl"
+                mimeMagis != null -> mimeMagis
+                else -> mimeLocal
+            },
+            // Magis has no usable fallback: `castUrl` is the CDN (401 without headers the receiver
+            // can't send) and `mediaUrl` is loopback. Either the LAN url or nothing.
+            requiresLanUrl = item.kind == SourceKind.MAGIS,
         )
         // No transcoder: audio the receiver can't decode still gets cast, muted, instead of not
         // casting at all. The warning is the only thing that tells that case apart from a normal cast.
@@ -1518,9 +1557,14 @@ private fun PlayerContent(
     // terminar se adelanta hasta donde llegó el receptor antes de reanudar — si no, el sondeo
     // persiste la posición vieja encima de la buena en ≤5s.
     var casteabaAntes by remember { mutableStateOf(false) }
-    LaunchedEffect(casting) {
+    // `magisItem?.episodeId` in the key, not just `casting`: opening ANOTHER Magis title while the
+    // Chromecast is already connected has to push the new one at the receiver. For playlist
+    // sources that job belongs to LaunchedEffect(playlist), which Magis never reaches.
+    LaunchedEffect(casting, magisItem?.episodeId) {
         if (casting) {
-            // DIAGNÓSTICO TEMPORAL (cast Magis no envía nada): cuál guard frena el envío al receptor.
+            // Which guard, if any, stops the send. Kept past the Magis fix: every branch below is
+            // conditional, and a cast that silently does nothing is the failure mode of this whole
+            // screen -- this line is what tells "no session" from "no item" from "already sent".
             android.util.Log.w(
                 "ArkivCast",
                 "casting=true · pl=${playlistRef.value != null} loaded=$loaded casteado=$casteadoAlReceptor " +
@@ -1553,7 +1597,56 @@ private fun PlayerContent(
                     casteadoAlReceptor = epId
                 }
             }
+
+            // MAGIS. Its item never enters `playlist` -- the ViewModel publishes it in `magisItem`
+            // and MagisExoPlayer plays it -- so the block above, which reads `playlistRef`, never
+            // ran for it: connecting the Chromecast on a Magis title paused the phone, showed the
+            // card, and left the TV on its idle screen forever, with no error anywhere. Measured
+            // 2026-09-12: `pl=false loaded=false magis=magis:7B66…`, and `castRequestFor` was
+            // never even entered.
+            //
+            // Same synthetic one-item PlaylistData the live channel above already uses, and for
+            // the same reason: `castRequestFor` reads nothing from PlaylistData but `items` and
+            // the index, so reusing it beats a second copy of the lanUrl/mime/audio logic that
+            // could drift from it.
+            val mg = magisItem
+            if (mg != null && castSession != null && casteadoAlReceptor != mg.episodeId) {
+                // From the LOCAL ExoPlayer, which is where the person actually is. `activePlayer()`
+                // is no use here: `casting` is already true, so it answers the receiver.
+                val posLocal = runCatching { magisPlayer?.currentPosition }.getOrNull()
+                val desde = (posLocal ?: mg.startPositionMs).coerceAtLeast(0L)
+                android.util.Log.w(
+                    "ArkivCast",
+                    "magis → cast · ep=${mg.episodeId} from=${desde}ms " +
+                        "(${if (posLocal != null) "live position of the local player" else "no local player yet, using the saved startPosition"})",
+                )
+                val req = castRequestFor(PlaylistData(listOf(mg), 0, desde, pedido = mg.episodeId), 0, desde)
+                if (req == null) {
+                    android.util.Log.w("ArkivCast", "magis: no URL the receiver can reach (no LAN ip, or the proxy isn't up)")
+                    android.widget.Toast.makeText(
+                        context,
+                        "No se pudo castear: la TV no puede alcanzar este stream (revisa el WiFi)",
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
+                } else {
+                    android.util.Log.w("ArkivCast", "magis → receiver · uri=${req.uri.take(90)} mime=${req.mimeType} start=${req.startPositionMs}ms")
+                    castSession.setMedia(req)
+                    casteadoAlReceptor = mg.episodeId
+                    // Same reason as the live effect: the notification and the remote read this,
+                    // and it must not keep pointing at whatever played before.
+                    NowPlaying.episodeId = mg.episodeId
+                }
+            }
+
             runCatching { controller.pause() }
+            // `controller` is the service player; Magis plays on its own ExoPlayer, so pausing the
+            // former did nothing for it. That gap was harmless while Magis could not cast at all
+            // (it was noted as accepted in the resume branch below) -- now that it does cast,
+            // leaving it out means the phone and the TV play the same title at once.
+            if (magisPlayer != null) {
+                android.util.Log.i("ArkivCast", "pausing the local Magis player so it doesn't play over the cast")
+                runCatching { magisPlayer?.pause() }
+            }
         } else if (casteabaAntes) {
             casteadoAlReceptor = null
             // Si la sesión terminó porque el usuario pulsó "parar" (botón de la barra), NO hay que
@@ -1576,6 +1669,32 @@ private fun PlayerContent(
                     // de abajo, que sin playlist (`loadDitu` la deja en null) tampoco reanuda nada.
                     runCatching { controller.prepare() }
                     runCatching { controller.play() }
+                    casteabaAntes = casting
+                    return@LaunchedEffect
+                }
+                // MAGIS: resume on ITS player, not on the service one. Same question as VOD below
+                // -- "did the receiver report a position for THIS episode?" -- but a seek is enough
+                // here: MagisExoPlayer was only paused (see the branch above), never unloaded, so
+                // there is nothing to reload.
+                val mg = magisItem
+                if (mg != null) {
+                    val castMediaId = runCatching { castPlayer?.currentMediaItem?.mediaId }.getOrNull()
+                    val castPos = if (castMediaId == mg.episodeId) {
+                        runCatching { CastProgress.contentPosition(castPlayer?.currentPosition ?: 0L) }
+                            .getOrDefault(0L)
+                    } else {
+                        android.util.Log.w(
+                            "ArkivCast",
+                            "magis resume: receiver position discarded, it's for '$castMediaId' and we're resuming '${mg.episodeId}'",
+                        )
+                        0L
+                    }
+                    android.util.Log.w(
+                        "ArkivCast",
+                        "magis ← cast · resuming locally at ${castPos}ms (player=${if (magisPlayer != null) "ready" else "gone"})",
+                    )
+                    if (castPos > 0L) runCatching { magisPlayer?.seekTo(castPos) }
+                    runCatching { magisPlayer?.play() }
                     casteabaAntes = casting
                     return@LaunchedEffect
                 }

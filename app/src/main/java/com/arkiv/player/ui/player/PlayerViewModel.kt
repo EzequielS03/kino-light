@@ -881,8 +881,18 @@ class PlayerViewModel internal constructor(
             title = cabecera?.itemTitle ?: efimero?.titulo?.takeIf { it.isNotBlank() } ?: "Magis",
             subtitle = cabecera?.episodeLabel.orEmpty(),
             mediaUrl = urlLocal,
-            // Castear NO va a funcionar: el proxy escucha en 127.0.0.1 y la TV no llega ahí. Se deja
-            // la URL directa para no romper el flujo; sin los headers el CDN devolverá 401.
+            // NOT the url the receiver is given -- `castUrl` is the raw CDN, which answers 401
+            // without `Content-Auth`/`Content-License`, and the Cast Default Media Receiver cannot
+            // send custom headers. It is kept because it is the only place the TRUE container
+            // survives: `MagisResolve` builds it as `_media.ts` or `_media.mp4` from the portal's
+            // `videoFormat`, while the proxy url this plays from has no extension at all, so
+            // guessing from it always answers mp4. PlayerScreen reads the container from here and
+            // casts the proxy over the LAN instead (see `ArchiveCacheProxy.lanUrl`).
+            //
+            // An older comment here said casting could not work because "el proxy escucha en
+            // 127.0.0.1". That was wrong and it cost a full misdiagnosis: `ArchiveCacheProxy.start`
+            // opens `ServerSocket(0)` with no bind address, which listens on EVERY interface --
+            // only the url string was loopback.
             castUrl = play.url,
             artworkUrl = "",
             openingStartMs = null, openingEndMs = null, endingStartMs = null,

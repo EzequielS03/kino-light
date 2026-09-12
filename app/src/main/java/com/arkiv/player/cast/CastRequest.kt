@@ -23,6 +23,15 @@ data class CastRequest(
  * feed). A live feed also has no "where you were": `startPositionMs` is forced to 0 no matter
  * what's requested, and the MIME is always that of an HLS playlist, not what the file extension
  * would guess (`mimeForUrl` doesn't know `.m3u8`).
+ *
+ * `requiresLanUrl` is live's URL rule without the rest of live's behaviour, for a source whose
+ * origin IS remote but that the receiver still cannot fetch by itself. Magis is the case: its VOD
+ * is served behind `Content-Auth`/`Content-License`, and the Cast Default Media Receiver has no
+ * way to send custom headers (only a custom receiver app could), so the CDN answers it 401. Our
+ * proxy is the only thing that adds those headers, so the receiver must come through it -- and
+ * when there's no LAN url, the honest answer is `null`, not a fallback to a URL that will fail on
+ * the TV with nothing in our logs to explain it. Unlike live, a Magis VOD does keep its
+ * `startPositionMs`.
  */
 object CastRequestBuilder {
 
@@ -41,9 +50,10 @@ object CastRequestBuilder {
         startPositionMs: Long,
         isLive: Boolean = false,
         mimeOverride: String? = null,
+        requiresLanUrl: Boolean = false,
     ): CastRequest? {
         val uri = when {
-            isLive -> lanUrl
+            isLive || requiresLanUrl -> lanUrl
             else -> castUrl?.takeIf { it.isNotBlank() } ?: mediaUrl
         }
         if (uri.isNullOrBlank()) return null
