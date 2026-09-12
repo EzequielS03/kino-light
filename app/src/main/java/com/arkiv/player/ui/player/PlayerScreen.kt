@@ -719,6 +719,12 @@ private fun PlayerContent(
      */
     fun castRequestFor(pl: PlaylistData, idx: Int, startPositionMs: Long): com.arkiv.player.cast.CastRequest? {
         val item = pl.items.getOrNull(idx) ?: return null
+        // DIAGNÓSTICO TEMPORAL (cast Magis): qué se le quiere mandar al receptor y con qué URL.
+        android.util.Log.w(
+            "ArkivCast",
+            "castRequestFor · ep=${item.episodeId} kind=${item.kind} desde=${startPositionMs}ms " +
+                "castUrl=${item.castUrl?.take(120)} mediaUrl=${item.mediaUrl.take(120)}",
+        )
         val esVivo = item.kind == SourceKind.LIVE
         // Qué audio lleva esto y si el receptor puede con él. Se lee del player LOCAL, que es el que
         // ya parseó el archivo. Un "no lo decodifica" acá explica el video mudo que antes no dejaba
@@ -754,6 +760,10 @@ private fun PlayerContent(
         // so guessing by extension always answered mp4 while the server served what the bytes say --
         // the receiver was told one container and handed another. `mediaUrl` is "file://<path>" for
         // LOCAL, which is where the path comes from.
+        // SPIKE: a local file is cast as a one-segment HLS playlist, not as a bare MPEG-TS. The
+        // receiver refuses the latter (measured 2026-09-12: fetched 5.3 MB, broken pipe) and accepts
+        // the former, whose segments are that very same MPEG-TS.
+        val hlsLocal = if (item.kind == SourceKind.LOCAL) graph.localFileServer.playlistUrl() else null
         val mimeLocal = if (item.kind == SourceKind.LOCAL) {
             runCatching {
                 com.arkiv.player.playback.ContenedorDeVideo
@@ -776,11 +786,16 @@ private fun PlayerContent(
             subtitle = item.subtitle,
             artworkUrl = item.artworkUrl,
             mediaUrl = item.mediaUrl,
-            castUrl = item.castUrl,
+            castUrl = hlsLocal ?: item.castUrl,
             lanUrl = lanUrl,
-            startPositionMs = startPositionMs,
+            // SPIKE: a one-segment playlist has no entry point to seek to, so asking the receiver to
+            // start at minute 70 made it re-fetch the playlist looking for one and give up without
+            // ever requesting a byte of media (measured 2026-09-12: 4 playlist GETs, 0 file GETs).
+            // Starting at 0 is what makes the spike answer the question it exists for -- does this
+            // receiver decode the HEVC inside? Real segments are what restore seeking.
+            startPositionMs = if (hlsLocal != null) 0L else startPositionMs,
             isLive = esVivo,
-            mimeOverride = mimeLocal,
+            mimeOverride = if (hlsLocal != null) "application/vnd.apple.mpegurl" else mimeLocal,
         )
         // No transcoder: audio the receiver can't decode still gets cast, muted, instead of not
         // casting at all. The warning is the only thing that tells that case apart from a normal cast.
@@ -791,6 +806,11 @@ private fun PlayerContent(
                 android.widget.Toast.LENGTH_SHORT,
             ).show()
         }
+        // DIAGNÓSTICO TEMPORAL (cast Magis): con qué sale — null significa "sin URL alcanzable".
+        android.util.Log.w(
+            "ArkivCast",
+            "castRequestFor → ${if (directo == null) "NULL" else "uri=${directo.uri.take(120)} mime=${directo.mimeType}"}",
+        )
         return directo
     }
 
@@ -1500,6 +1520,13 @@ private fun PlayerContent(
     var casteabaAntes by remember { mutableStateOf(false) }
     LaunchedEffect(casting) {
         if (casting) {
+            // DIAGNÓSTICO TEMPORAL (cast Magis no envía nada): cuál guard frena el envío al receptor.
+            android.util.Log.w(
+                "ArkivCast",
+                "casting=true · pl=${playlistRef.value != null} loaded=$loaded casteado=$casteadoAlReceptor " +
+                    "castSession=${castSession != null} magis=${magisItem?.episodeId} " +
+                    "live=${liveItem?.episodeId} ditu=${dituPlay?.episodeId}",
+            )
             // Conectar el Chromecast con el capítulo YA sonando en el celu es la acción con la que
             // arranca todo el feature, y es este efecto el único que la ve: LaunchedEffect(playlist)
             // no está clavado a `casting` y encima corta con el guard de `loaded`. Sin esto, tocar

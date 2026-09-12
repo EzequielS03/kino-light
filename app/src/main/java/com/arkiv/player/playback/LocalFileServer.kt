@@ -39,6 +39,23 @@ class LocalFileServer(private val lanIp: () -> String?) {
         return "http://$ip:$port/file"
     }
 
+    /**
+     * SPIKE (2026-09-12): the same file wrapped in a one-segment HLS playlist.
+     *
+     * The Cast receiver refuses a bare MPEG-TS served progressively (measured: it fetched 5.3 MB
+     * and hung up) but it does play HLS -- whose segments ARE MPEG-TS. So the container never has
+     * to change; it only has to be announced as a playlist. One segment is deliberately crude: it
+     * answers the only question that can sink the real implementation -- does this receiver decode
+     * the HEVC inside? -- before any of it is built. Seeking on a single segment is bad, which is
+     * exactly what the real version (segments cut on PCR, with EXT-X-BYTERANGE) is for.
+     */
+    @Synchronized
+    fun playlistUrl(): String? {
+        val ip = lanIp() ?: return null
+        val port = server?.localPort ?: return null
+        return "http://$ip:$port/hls.m3u8"
+    }
+
     @Synchronized
     fun stop() {
         closeServer()
@@ -95,6 +112,26 @@ class LocalFileServer(private val lanIp: () -> String?) {
         val userAgent = lines.firstOrNull { it.startsWith("User-Agent:", ignoreCase = true) }
             ?.substringAfter(':')?.trim().orEmpty()
         Log.i(TAG, "request from $client · $reqLine · agent=$userAgent")
+
+        if (reqLine.contains("/hls.m3u8")) {
+            val body = playlistFor(file)
+            val out = sock.getOutputStream()
+            out.write(
+                ("HTTP/1.1 200 OK\r\n" +
+                    "Content-Type: application/vnd.apple.mpegurl\r\n" +
+                    "Content-Length: ${body.toByteArray().size}\r\n" +
+                    "Connection: close\r\n\r\n").toByteArray(),
+            )
+            if (method != "HEAD") out.write(body.toByteArray())
+            out.flush()
+            Log.i(
+                TAG,
+                "-> $client 200 playlist · ${body.toByteArray().size} bytes · " +
+                    "${body.lineSequence().count { it == "file" }} segments · head: " +
+                    body.lineSequence().take(6).joinToString(" | "),
+            )
+            return
+        }
 
         val size = file.length()
         val maxIndex = (size - 1).coerceAtLeast(0)
@@ -171,6 +208,62 @@ class LocalFileServer(private val lanIp: () -> String?) {
      * `video/mp4` que el receptor no podía cumplir.
      */
     private fun mimeOf(file: File): String = ContenedorDeVideo.deArchivo(file).mime
+
+    /**
+     * The file cut into HLS segments by BYTE RANGE -- nothing is copied or converted, each segment
+     * is an interval of the very same file.
+     *
+     * One segment covering the whole file was refused: the receiver fetched the playlist four times
+     * in three seconds and never requested a byte of media (measured 2026-09-12, twice, once from
+     * minute 70 and once from zero, so it was not the seek). The live proxy, which casts fine to
+     * this same TV, announces many short segments -- that is the only shape difference left, and
+     * segments of a few seconds are what every HLS client expects.
+     *
+     * Offsets are aligned to [PAQUETE_TS] so a segment never starts mid-packet. Durations are
+     * prorated from the total (bytes are a good proxy at constant bitrate); the real version cuts on
+     * PCR so each boundary is exact.
+     */
+    private fun playlistFor(file: File): String {
+        val total = file.length()
+        val totalMs = duracionDe(file)
+        if (total <= 0L || totalMs <= 0L) return ""
+        val objetivoMs = 10_000L
+        val bytesPorSegmento = ((total.toDouble() * objetivoMs / totalMs).toLong() / PAQUETE_TS * PAQUETE_TS)
+            .coerceAtLeast(PAQUETE_TS.toLong() * 100)
+        return buildString {
+            append("#EXTM3U\n")
+            append("#EXT-X-VERSION:4\n")               // BYTERANGE needs 4
+            append("#EXT-X-PLAYLIST-TYPE:VOD\n")
+            append("#EXT-X-TARGETDURATION:${Math.ceil(objetivoMs / 1000.0).toInt() + 1}\n")
+            append("#EXT-X-MEDIA-SEQUENCE:0\n")
+            var offset = 0L
+            while (offset < total) {
+                val largo = minOf(bytesPorSegmento, total - offset)
+                val segundos = largo.toDouble() * totalMs / total / 1000.0
+                append(String.format(java.util.Locale.US, "#EXTINF:%.3f,\n", segundos))
+                append("#EXT-X-BYTERANGE:$largo@$offset\n")
+                append("file\n")
+                offset += largo
+            }
+            append("#EXT-X-ENDLIST\n")
+        }
+    }
+
+    /** Transport-stream packet size: segment boundaries are aligned to it. */
+    private val PAQUETE_TS = 188
+
+    /** PCR at both ends of the file, which is what [TsDurationProbe] already knows how to read. */
+    private fun duracionDe(file: File): Long = runCatching {
+        val trozo = 256 * 1024
+        val size = file.length()
+        val cabeza = ByteArray(minOf(trozo.toLong(), size).toInt())
+        val cola = ByteArray(minOf(trozo.toLong(), size).toInt())
+        java.io.RandomAccessFile(file, "r").use { raf ->
+            raf.seek(0); raf.readFully(cabeza)
+            raf.seek((size - cola.size).coerceAtLeast(0)); raf.readFully(cola)
+        }
+        TsDurationProbe.durationMs(cabeza, cola)
+    }.getOrDefault(0L)
 
     private companion object { const val TAG = "ArkivLocalServer" }
 }
