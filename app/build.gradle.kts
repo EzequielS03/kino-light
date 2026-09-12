@@ -137,6 +137,13 @@ dependencies {
     implementation("androidx.media3:media3-ui:1.5.1")
     implementation("androidx.media3:media3-datasource:1.5.1")
     implementation("androidx.media3:media3-session:1.5.1")
+    // Transmux MPEG-TS -> MP4 for cast. Transformer copies the compressed samples when the format
+    // already fits (no re-encode, so no quality loss and little CPU), which is what turns a
+    // container the Cast receiver refuses into one it indexes properly. Chosen over ffmpeg-kit,
+    // which was retired in January 2025 and would have re-added a large native blob right after
+    // libVLC was removed from this branch.
+    implementation("androidx.media3:media3-transformer:1.5.1")
+    implementation("androidx.media3:media3-muxer:1.5.1")
 
     // Chromecast
     implementation("androidx.media3:media3-cast:1.5.1")
