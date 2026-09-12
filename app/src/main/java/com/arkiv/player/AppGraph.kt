@@ -297,6 +297,19 @@ class AppGraph(context: Context) {
      * exactly the right outcome -- it is rebuilt on demand and never holds the only copy of
      * anything.
      */
+    /**
+     * Serves the remuxed CHUNKS, several at once.
+     *
+     * [localFileServer] cannot: it holds one file and restarts its socket when that file changes.
+     * A title cast as a queue needs every queued chunk reachable at the same time.
+     */
+    val localFileServerDeTrozos: com.arkiv.player.playback.ServidorDeTrozos by lazy {
+        com.arkiv.player.playback.ServidorDeTrozos(
+            carpeta = java.io.File(appContext.cacheDir, com.arkiv.player.playback.PoliticaDeRemux.CARPETA),
+            lanIp = { lanIp() },
+        )
+    }
+
     val tsRemuxer: com.arkiv.player.playback.TsRemuxer by lazy {
         com.arkiv.player.playback.TsRemuxer(appContext, appContext.cacheDir, applicationScope)
     }

@@ -65,6 +65,37 @@ object PoliticaDeRemux {
     const val ARRANQUE_MINIMO_SEG = 30.0
 
     /**
+     * How long each chunk runs when a title is cast as a QUEUE of finished files.
+     *
+     * Thirty seconds: short enough that playback starts almost at once (only the first chunk has
+     * to exist), long enough that the joins between chunks stay rare. Each chunk is a complete mp4
+     * with a duration of its own, which is the entire point -- one file that kept growing made the
+     * receiver recompute its duration every second or two and chase an end that never stopped
+     * moving.
+     */
+    const val TROZO_SEG = 30L
+
+    /** How many chunks a title of [duracionMs] is cut into. */
+    fun trozosDe(duracionMs: Long): Int =
+        if (duracionMs <= 0L) 0 else Math.ceil(duracionMs / 1000.0 / TROZO_SEG).toInt()
+
+    /** Cache name for chunk [indice] of [claveDeOrigen]. */
+    fun nombreDeTrozo(claveDeOrigen: String, indice: Int): String =
+        "${claveDeOrigen.hashCode().toUInt().toString(16)}-$indice.$EXTENSION"
+
+    /**
+     * Seconds of playable content in [bytes], for a title of [bytesTotales] and [duracionMs].
+     *
+     * The head start has to be measured in TIME, not megabytes. A fixed 6 MB is twenty-seven
+     * seconds of a 221 KB/s title and six seconds of a 1 MB/s one -- the same number meaning
+     * "comfortable" for one title and "about to stall" for another.
+     */
+    fun segundosListos(bytes: Long, bytesTotales: Long, duracionMs: Long): Double {
+        if (bytes <= 0L || bytesTotales <= 0L || duracionMs <= 0L) return 0.0
+        return duracionMs / 1000.0 * bytes / bytesTotales
+    }
+
+    /**
      * Ceiling for everything remuxed, together. A two-hour title is around a gigabyte, and these
      * are derived copies of things the person can always fetch again -- filling their phone with
      * them would be a poor trade for saving a few minutes of re-muxing.

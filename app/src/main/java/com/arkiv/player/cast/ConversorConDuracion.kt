@@ -32,21 +32,34 @@ class ConversorConDuracion : MediaItemConverter {
 
     override fun toMediaQueueItem(mediaItem: MediaItem): MediaQueueItem {
         val item = base.toMediaQueueItem(mediaItem)
-        val ms = mediaItem.requestMetadata.extras?.getLong(CLAVE_DURACION, C.TIME_UNSET)
-            ?: C.TIME_UNSET
-        if (ms <= 0L) return item
+        val extras = mediaItem.requestMetadata.extras
+        val ms = extras?.getLong(CLAVE_DURACION, C.TIME_UNSET) ?: C.TIME_UNSET
+        val enVivo = extras?.getBoolean(CLAVE_EN_VIVO, false) ?: false
+        if (ms <= 0L && !enVivo) return item
 
         val info = item.media ?: return item
         val conDuracion = MediaInfo.Builder(info.contentId)
-            .setStreamType(info.streamType)
+            // LIVE for a file still being written: it has no end yet, and calling it "buffered"
+            // makes the receiver invent one and stall against it. The duration goes to -1, which
+            // is what the API asks for on a live stream.
+            .setStreamType(if (enVivo) MediaInfo.STREAM_TYPE_LIVE else info.streamType)
             .setContentType(info.contentType)
             .setContentUrl(info.contentUrl ?: info.contentId)
             .setMetadata(info.metadata)
-            .setStreamDuration(ms)
+            .setStreamDuration(if (enVivo) -1L else ms)
             .setCustomData(info.customData)
             .build()
-        android.util.Log.i(TAG, "telling the receiver the title runs ${ms}ms")
-        return MediaQueueItem.Builder(conDuracion).build()
+        android.util.Log.i(
+            TAG,
+            if (enVivo) "announcing it as LIVE (no end to chase)" else "telling the receiver the title runs ${ms}ms",
+        )
+        return MediaQueueItem.Builder(conDuracion)
+            // Chain straight into the next item. Without these the Default Media Receiver puts its
+            // own interstitial between queue entries -- "Your video will play in N" -- which on a
+            // title cut into thirty-second chunks means a countdown twice a minute.
+            .setAutoplay(true)
+            .setPreloadTime(PRECARGA_SEG)
+            .build()
     }
 
     override fun toMediaItem(mediaQueueItem: MediaQueueItem): MediaItem =
@@ -55,6 +68,16 @@ class ConversorConDuracion : MediaItemConverter {
     companion object {
         /** Key under which the duration rides in `MediaItem.requestMetadata.extras`. */
         const val CLAVE_DURACION = "arkiv.durationMs"
+
+        /** Key under which "treat this as live" rides in `MediaItem.requestMetadata.extras`. */
+        const val CLAVE_EN_VIVO = "arkiv.comoEnVivo"
+
+        /**
+         * Seconds before an item ends that the receiver should start fetching the next one. It is
+         * what lets one queue entry run into the next without the receiver stopping to announce
+         * it.
+         */
+        private const val PRECARGA_SEG = 10.0
 
         private const val TAG = "ArkivCast"
     }

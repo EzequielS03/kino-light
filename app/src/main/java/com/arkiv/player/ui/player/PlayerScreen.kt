@@ -494,6 +494,16 @@ private fun PlayerContent(
     // (measured 2026-09-12, `code=7002` after seven minutes), and stuttery beats blank every time.
     val remuxImposible = remember { mutableStateListOf<String>() }
 
+    /**
+     * Which episode is on the receiver AS A REMUX, as opposed to as HLS segments.
+     *
+     * Separate from [casteadoAlReceptor] because they answer different questions, and conflating
+     * them broke the upgrade: the HLS cast goes out first and marks the episode as cast, so the
+     * loop waiting for the remux saw "already cast" and gave up -- the TV stayed on the stuttering
+     * segments forever while a perfectly good mp4 finished behind it.
+     */
+    var casteadoComoRemux by remember { mutableStateOf<String?>(null) }
+
     // El player que estamos manejando ahora mismo: el del Chromecast mientras haya sesión, el
     // local si no. Ambos implementan Player, así que los controles no necesitan saber cuál es.
     // El `?: controller` cubre el caso sin Google Play Services (castContext y castPlayer nulos).
@@ -790,8 +800,16 @@ private fun PlayerContent(
         val lanIp = graph.lanIp()
         // Finished OR still being written: a fragmented MP4 is playable before it is complete,
         // which is what turns "wait minutes, then cast" into "cast now, it fills in behind you".
+        var remuxMagisCreciendo = false
         val remuxMagis = if (item.kind == SourceKind.MAGIS) {
             item.castUrl?.let { cdn ->
+                // COMPLETE only. Serving one while it grew was the plan, and the receiver
+                // settled it: it recomputes the duration from the fragments it has and reports a
+                // new one every second or two (`kDurationChanged 75.25 … 80.25`, read off its own
+                // log), ignoring the duration we send it. So playback chases an end that keeps
+                // moving just ahead of it, reaches it, stalls, gets more, resumes -- the "loading"
+                // that came back no matter how large the head start was, 64 s of cushion included.
+                // A finished file has one duration and stays still.
                 graph.tsRemuxer.enProgreso(cdn)?.let { (archivo, completo) ->
                     // ALWAYS chunked, finished or not. Measured 2026-09-12, and it is the
                     // difference between playing and not: served while it grew -- chunked, no
@@ -802,6 +820,7 @@ private fun PlayerContent(
                     // and over) and never produced a frame. Withholding the ability to seek is
                     // what makes it work, which is backwards but it is what the device does.
                     graph.localFileServer.creciendo = true
+                    remuxMagisCreciendo = !completo
                     android.util.Log.w(
                         "ArkivCast",
                         "magis → remuxed mp4 (${if (completo) "complete" else "still growing, ${archivo.length()}B"})",
@@ -938,6 +957,9 @@ private fun PlayerContent(
             // the raw CDN url instead (measured 2026-09-12: `uri=http://…_media.ts mime=video/mp4`),
             // since the builder falls back to `castUrl` whenever it is not required to use the LAN.
             requiresLanUrl = item.kind == SourceKind.MAGIS,
+            // While the remux is still being written it IS a live stream, and saying so is what
+            // keeps the receiver from inventing an end and stalling against it.
+            comoEnVivo = remuxMagisCreciendo,
             // The local player already knows how long this runs -- it has been showing it on the
             // bar. A remux still being written cannot state it, so without this the receiver
             // invents one from the fragments it has (5 s for a two-hour film) and stalls on that
@@ -1071,38 +1093,36 @@ private fun PlayerContent(
         }
         if (graph.tsRemuxer.yaHecho(clave) != null) return@LaunchedEffect
 
-        android.util.Log.w("ArkivCast", "remuxing ${item.kind} to a fragmented mp4")
-
-        // Cast as soon as there is enough of it, not when it finishes. A fragmented MP4 plays
-        // while it is written, so waiting for the whole title would be waiting for nothing -- that
-        // wait was minutes, with the TV showing an idle screen the whole time.
+        // One growing fragmented mp4, announced as LIVE.
+        //
+        // The chase that broke every earlier attempt was ours to cause: a file still being written
+        // was announced as "buffered", which tells the receiver the media has a definite end. It
+        // then works one out from the fragments that have arrived and reports a new one every
+        // second or two (`kDurationChanged 75.25 … 80.25`, off its own log), plays toward it, and
+        // stalls each time it catches up. No head start fixed that -- 64 s of cushion stalled the
+        // same as 6 MB -- because the end moves with the file.
+        //
+        // A live stream has no end to reach. That is both the truth about a file being written and
+        // the thing that stops the chase. Cutting the title into a queue of finished chunks also
+        // worked around it, but the receiver announces every queue entry with a countdown
+        // ("Your video will play in N"), twice a minute.
         if (item.kind == SourceKind.MAGIS) {
-            // Dispatchers.Main, and not by preference: `castRequestFor` reads
-            // `controller.currentTracks`, and a MediaController throws if it is touched from any
-            // other thread. Launching this on the application scope's default dispatcher crashed
-            // the app every time the head start was reached (`MediaController method is called
-            // from a wrong thread`, measured 2026-09-12). The scope is still the application's, so
-            // the wait outlives the effect that started it.
             graph.applicationScope.launch(Dispatchers.Main) {
-                val arranque = com.arkiv.player.playback.PoliticaDeRemux.ARRANQUE_MINIMO_SEG
-                repeat(120) {
+                repeat(600) {
                     delay(1000)
                     if (!casting || castSession == null) return@launch
-                    if (casteadoAlReceptor == item.episodeId) return@launch
+                    if (casteadoComoRemux == item.episodeId) return@launch
                     val parcial = graph.tsRemuxer.enProgreso(clave) ?: return@repeat
-                    // Rough but sufficient: enough bytes that the receiver will not drain it in
-                    // seconds. The remux runs far faster than playback, so it only has to get a
-                    // head start once.
-                    if (parcial.first.length() < 6_000_000L) return@repeat
-                    val desde0 = runCatching { contentPositionMs() }.getOrDefault(0L).coerceAtLeast(0L)
-                    val plr = PlaylistData(listOf(item), 0, desde0, pedido = item.episodeId)
-                    val reqr = castRequestFor(plr, 0, desde0) ?: return@repeat
+                    if (parcial.first.length() < 12_000_000L) return@repeat
+                    val plr = PlaylistData(listOf(item), 0, 0L, pedido = item.episodeId)
+                    val reqr = castRequestFor(plr, 0, 0L) ?: return@repeat
                     android.util.Log.w(
                         "ArkivCast",
-                        "fragmented mp4 has a ${arranque}s head start → casting it now",
+                        "remux has ${parcial.first.length() / 1_000_000}MB → casting it as a live stream",
                     )
                     castSession.setMedia(reqr)
                     casteadoAlReceptor = item.episodeId
+                    casteadoComoRemux = item.episodeId
                     return@launch
                 }
             }
@@ -1140,6 +1160,7 @@ private fun PlayerContent(
         android.util.Log.w("ArkivCast", "remux ready → re-casting as mp4 from ${desde}ms")
         castSession.setMedia(req)
         casteadoAlReceptor = item.episodeId
+        casteadoComoRemux = item.episodeId
     }
 
     /**
@@ -1943,6 +1964,11 @@ private fun PlayerContent(
             }
         } else if (casteabaAntes) {
             casteadoAlReceptor = null
+            casteadoComoRemux = null
+            // Stop converting what nobody is going to watch. The remux covers the whole title, so
+            // a cast that ends after ten minutes would otherwise keep pulling the other hour and
+            // fifty down the person's connection.
+            magisItem?.castUrl?.takeIf { it.isNotBlank() }?.let { graph.tsRemuxer.detener(it) }
             // Si la sesión terminó porque el usuario pulsó "parar" (botón de la barra), NO hay que
             // reanudar acá: pidió silencio, y el local ya quedó pausado desde que empezó el casteo
             // (rama de arriba) — reanudarlo sería justo lo contrario de lo que pidió ese botón. Se

@@ -17,6 +17,16 @@ data class CastRequest(
      * two-hour film. See [ConversorConDuracion].
      */
     val durationMs: Long = 0,
+    /**
+     * Announce this as a LIVE stream rather than a fixed-length one.
+     *
+     * For a file that is still being WRITTEN, "buffered" is a lie: it tells the receiver the media
+     * has a definite end, so it works one out from the fragments that have arrived and plays
+     * toward it. Measured on the KALLEY -- `kDurationChanged 75.25 … 80.25`, a new duration every
+     * second or two -- and every time playback caught that moving end it stalled. A live stream
+     * has no end to reach, which is the truth here and also what stops the chase.
+     */
+    val comoEnVivo: Boolean = false,
 )
 
 /**
@@ -60,6 +70,7 @@ object CastRequestBuilder {
         mimeOverride: String? = null,
         requiresLanUrl: Boolean = false,
         durationMs: Long = 0,
+        comoEnVivo: Boolean = false,
     ): CastRequest? {
         val uri = when {
             isLive || requiresLanUrl -> lanUrl
@@ -84,6 +95,7 @@ object CastRequestBuilder {
             startPositionMs = if (isLive) 0L else startPositionMs.coerceAtLeast(0),
             // A live channel has no length to state; anything else passes through what it knows.
             durationMs = if (isLive) 0L else durationMs.coerceAtLeast(0),
+            comoEnVivo = comoEnVivo,
         )
     }
 

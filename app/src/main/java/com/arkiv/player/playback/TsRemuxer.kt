@@ -200,8 +200,10 @@ class TsRemuxer(
                 // an outer scope.
                 cont.invokeOnCancellation {
                     runCatching { transformer.cancel() }
-                    runCatching { parcial.delete() }
-                    Log.w(TAG, "remux cancelled with the app, partial file removed")
+                    // The partial file is KEPT. A fragmented MP4 stops at a fragment boundary, so
+                    // what is on disk is a valid, playable prefix -- casting the same title again
+                    // starts on it immediately instead of converting from zero.
+                    Log.w(TAG, "remux stopped, keeping ${parcial.length()}B already written")
                 }
 
                 // Progress, polled: Transformer has no callback for it. On the main thread
@@ -248,6 +250,118 @@ class TsRemuxer(
             if (runCatching { f.delete() }.getOrDefault(false)) liberado += bytes
         }
         Log.w(TAG, "cache over its ceiling: dropped ${fuera.size} file(s), freed ${liberado}B")
+    }
+
+    /** The finished chunk [indice] of [clave], or null. */
+    fun trozoHecho(clave: String, indice: Int): File? =
+        File(carpeta, PoliticaDeRemux.nombreDeTrozo(clave, indice))
+            .takeIf { it.exists() && it.length() > 0 }
+
+    /**
+     * Remuxes ONE chunk: the stretch of [uriDeEntrada] from [indice] * TROZO_SEG, lasting
+     * TROZO_SEG, into a complete mp4 of its own.
+     *
+     * Complete and NOT fragmented, which is the whole idea. A single fragmented file served while
+     * it grew made the receiver recompute the duration from whatever fragments had arrived and
+     * report a new one every second (`kDurationChanged 75.25 … 80.25`, read off its own log), so
+     * playback chased an end that kept moving and stalled whenever it caught up. A finished chunk
+     * states one duration and stays still; the receiver plays a queue of them back to back.
+     *
+     * The cut starts at a keyframe: video can only begin at one while audio can begin anywhere, so
+     * an arbitrary cut point offsets the tracks against each other -- audible as the picture
+     * running behind the sound.
+     */
+    suspend fun remuxearTrozo(uriDeEntrada: String, clave: String, indice: Int): Resultado {
+        trozoHecho(clave, indice)?.let { return Resultado.Listo(it) }
+        val claveTrozo = "$clave##$indice"
+        val job = enCurso.computeIfAbsent(claveTrozo) {
+            scope.async { exportarTrozo(uriDeEntrada, clave, indice) }
+                .also { j -> j.invokeOnCompletion { enCurso.remove(claveTrozo) } }
+        }
+        return job.await()
+    }
+
+    private suspend fun exportarTrozo(uriDeEntrada: String, clave: String, indice: Int): Resultado {
+        if (!carpeta.exists() && !carpeta.mkdirs()) {
+            return Resultado.Fallo("could not create ${carpeta.path}")
+        }
+        val destino = File(carpeta, PoliticaDeRemux.nombreDeTrozo(clave, indice))
+        val parcial = File(carpeta, "${destino.name}.part")
+        runCatching { parcial.delete() }
+        val desdeMs = indice * PoliticaDeRemux.TROZO_SEG * 1000L
+        val hastaMs = desdeMs + PoliticaDeRemux.TROZO_SEG * 1000L
+        val t0 = System.currentTimeMillis()
+
+        return withContext(Dispatchers.Main) {
+            suspendCancellableCoroutine { cont ->
+                val transformer = Transformer.Builder(context)
+                    // Plain mp4, not fragmented: a chunk is finished before it is ever served.
+                    .setMuxerFactory(InAppMuxer.Factory.Builder().build())
+                    .addListener(object : Transformer.Listener {
+                        override fun onCompleted(composition: Composition, result: ExportResult) {
+                            val ok = runCatching { parcial.renameTo(destino) }.getOrDefault(false)
+                            Log.w(
+                                TAG,
+                                "chunk $indice [${desdeMs}..${hastaMs}ms] " +
+                                    (if (ok) "done in ${System.currentTimeMillis() - t0}ms (${destino.length()}B)"
+                                    else "finished but the rename failed"),
+                            )
+                            if (cont.isActive) {
+                                cont.resume(if (ok) Resultado.Listo(destino) else Resultado.Fallo("rename"))
+                            }
+                        }
+
+                        override fun onError(
+                            composition: Composition,
+                            result: ExportResult,
+                            exception: ExportException,
+                        ) {
+                            runCatching { parcial.delete() }
+                            Log.w(TAG, "chunk $indice failed (code=${exception.errorCode}): ${exception.message}")
+                            if (cont.isActive) cont.resume(Resultado.Fallo("error ${exception.errorCode}"))
+                        }
+                    })
+                    .build()
+
+                cont.invokeOnCancellation {
+                    runCatching { transformer.cancel() }
+                    runCatching { parcial.delete() }
+                }
+
+                val entrada = MediaItem.Builder()
+                    .setUri(uriDeEntrada)
+                    .setClippingConfiguration(
+                        MediaItem.ClippingConfiguration.Builder()
+                            .setStartPositionMs(desdeMs)
+                            .setEndPositionMs(hastaMs)
+                            // Both tracks must begin at the same instant, or the audio runs ahead.
+                            .setStartsAtKeyFrame(true)
+                            .build(),
+                    )
+                    .build()
+
+                runCatching { transformer.start(entrada, parcial.absolutePath) }.onFailure {
+                    runCatching { parcial.delete() }
+                    Log.w(TAG, "chunk $indice could not start: ${it.message}")
+                    if (cont.isActive) cont.resume(Resultado.Fallo(it.message ?: "could not start"))
+                }
+            }
+        }
+    }
+
+    /**
+     * Stops the remux for [clave] if one is running.
+     *
+     * Called when casting ends, because the remux converts the WHOLE title regardless of how much
+     * is watched: casting ten minutes of a film otherwise downloads and converts all two hours of
+     * it, which on mobile data is a gigabyte or more spent on something nobody is going to see.
+     * Whatever was written is kept -- it is a valid prefix, and resuming the same title later
+     * plays it straight away.
+     */
+    fun detener(clave: String) {
+        val job = enCurso.remove(clave) ?: return
+        Log.w(TAG, "cast ended → stopping the remux of ${PoliticaDeRemux.nombreDeArchivo(clave)}")
+        job.cancel()
     }
 
     /** Drops every remux on disk. For the settings screen, and for tests. */

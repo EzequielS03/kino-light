@@ -208,6 +208,31 @@ class CastSessionManager(
         return at != 0L && System.currentTimeMillis() - at < VENTANA_PARADA_MS
     }
 
+    /**
+     * Appends one more finished chunk to what the receiver is already playing.
+     *
+     * A title cast this way is a QUEUE of complete little mp4s rather than one file: each states
+     * its own duration and never changes, so the receiver has nothing to recompute. See
+     * `TsRemuxer.remuxearTrozo` for why a single growing file could not work.
+     */
+    fun encolar(uri: String, episodeId: String, titulo: String) {
+        // The duration rides along so the converter can set autoplay and preload on the queue item
+        // -- without them the receiver announces each entry with a countdown.
+        scope.launch(Dispatchers.Main) {
+            runCatching {
+                player.addMediaItem(
+                    MediaItem.Builder()
+                        .setUri(uri)
+                        .setMimeType("video/mp4")
+                        .setMediaId(episodeId)
+                        .setMediaMetadata(MediaMetadata.Builder().setTitle(titulo).build())
+                        .build(),
+                )
+                android.util.Log.i(TAG, "queued one more chunk · ${player.mediaItemCount} in the queue")
+            }.onFailure { android.util.Log.w(TAG, "could not queue a chunk: $it") }
+        }
+    }
+
     private suspend fun load(r: CastRequest) = withContext(Dispatchers.Main) {
         android.util.Log.i(
             TAG,
@@ -223,6 +248,7 @@ class CastSessionManager(
                         .setExtras(
                             android.os.Bundle().apply {
                                 putLong(ConversorConDuracion.CLAVE_DURACION, r.durationMs)
+                                putBoolean(ConversorConDuracion.CLAVE_EN_VIVO, r.comoEnVivo)
                             },
                         )
                         .build(),
