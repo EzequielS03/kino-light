@@ -25,6 +25,17 @@ class LocalFileServer(private val lanIp: () -> String?) {
     @Volatile private var server: ServerSocket? = null
     @Volatile private var current: File? = null
 
+    /**
+     * Serve the file even while something else is still WRITING it.
+     *
+     * A fragmented MP4 is a chain of self-contained pieces, so a receiver can start on the first
+     * one while the rest is still arriving -- which is the entire reason the remux writes one.
+     * With this off, casting a remux meant waiting minutes for the whole title before a single
+     * frame reached the TV.
+     */
+    @Volatile
+    var creciendo: Boolean = false
+
     /** Devuelve la URL alcanzable desde la LAN, o null si no hay IP (sin red) o el archivo no está. */
     @Synchronized
     fun serve(file: File): String? {
@@ -168,6 +179,51 @@ class LocalFileServer(private val lanIp: () -> String?) {
             return
         }
 
+        // A file still being written has no final size, so there is no honest `Content-Length`
+        // and no Range to satisfy: it goes out chunked, and the reader blocks at the end of what
+        // exists until more is written or the writer finishes. Anything else would hand the
+        // receiver a length that is a lie and get the stream cut short.
+        if (creciendo) {
+            val out = sock.getOutputStream()
+            out.write(
+                ("HTTP/1.1 200 OK\r\n" +
+                    "Content-Type: video/mp4\r\n" +
+                    "Transfer-Encoding: chunked\r\n" +
+                    "Access-Control-Allow-Origin: *\r\n" +
+                    "Connection: close\r\n\r\n").toByteArray(),
+            )
+            if (method == "HEAD") { out.flush(); return }
+            var enviado = 0L
+            var quietoDesde = System.currentTimeMillis()
+            val buf = ByteArray(64 * 1024)
+            java.io.RandomAccessFile(file, "r").use { raf ->
+                while (true) {
+                    val disponible = file.length() - enviado
+                    if (disponible <= 0L) {
+                        // Caught up with the writer. Give it a moment; give up only after it has
+                        // stopped producing for long enough that it is finished or dead -- cutting
+                        // early would truncate the title mid-playback.
+                        if (System.currentTimeMillis() - quietoDesde > ESPERA_ESCRITOR_MS) break
+                        Thread.sleep(200)
+                        continue
+                    }
+                    quietoDesde = System.currentTimeMillis()
+                    raf.seek(enviado)
+                    val n = raf.read(buf, 0, minOf(buf.size.toLong(), disponible).toInt())
+                    if (n <= 0) { Thread.sleep(200); continue }
+                    out.write("${Integer.toHexString(n)}\r\n".toByteArray())
+                    out.write(buf, 0, n)
+                    out.write("\r\n".toByteArray())
+                    out.flush()
+                    enviado += n
+                }
+            }
+            out.write("0\r\n\r\n".toByteArray())
+            out.flush()
+            Log.i(TAG, "-> $client growing stream ended after ${enviado}B")
+            return
+        }
+
         val size = file.length()
         val maxIndex = (size - 1).coerceAtLeast(0)
         var start = 0L
@@ -295,6 +351,9 @@ class LocalFileServer(private val lanIp: () -> String?) {
 
     private companion object {
         const val TAG = "ArkivLocalServer"
+
+        /** How long the writer may produce nothing before a growing stream is considered over. */
+        const val ESPERA_ESCRITOR_MS = 20_000L
 
         /** Segment length aimed for. Ten seconds is the usual HLS default and what the live proxy,
          *  which already casts fine to this same TV, ends up serving. */

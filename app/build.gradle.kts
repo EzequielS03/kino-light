@@ -31,6 +31,11 @@ android {
         buildConfigField("String", "IPTV_APP_ID", "\"${readEnv("IPTV_APP_ID")}\"")
         buildConfigField("String", "IPTV_APK_VERSION", "\"${readEnv("IPTV_APK_VERSION")}\"")
         buildConfigField("String", "TMDB_API_KEY", "\"${readEnv("API_KEY")}\"")
+        // Cast receiver to launch on the TV. Empty falls back to Google's Default Media Receiver,
+        // which cannot play the MPEG-TS Magis serves -- see `receiver/index.html`. It lives in the
+        // .env because it is registered per developer account in the Cast Developer Console, so a
+        // checkout without one still builds and still casts what the default receiver can handle.
+        buildConfigField("String", "CAST_RECEIVER_ID", "\"${readEnv("CAST_RECEIVER_ID")}\"")
         versionCode = 48
         versionName = "0.9.17"
         // Task 8 (Paso 3): acá vivía `ARKIV_API_KEY`, la última credencial de build que quedaba

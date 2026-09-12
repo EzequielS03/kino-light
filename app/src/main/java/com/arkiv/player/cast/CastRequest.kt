@@ -9,6 +9,14 @@ data class CastRequest(
     val subtitle: String,
     val artworkUrl: String,
     val startPositionMs: Long,
+    /**
+     * How long the title really runs, or 0 when unknown.
+     *
+     * Needed because a fragmented MP4 served WHILE it is written cannot state its own length, and
+     * the receiver then reads one off the fragments it happens to have -- five seconds for a
+     * two-hour film. See [ConversorConDuracion].
+     */
+    val durationMs: Long = 0,
 )
 
 /**
@@ -51,6 +59,7 @@ object CastRequestBuilder {
         isLive: Boolean = false,
         mimeOverride: String? = null,
         requiresLanUrl: Boolean = false,
+        durationMs: Long = 0,
     ): CastRequest? {
         val uri = when {
             isLive || requiresLanUrl -> lanUrl
@@ -73,6 +82,8 @@ object CastRequestBuilder {
             subtitle = subtitle,
             artworkUrl = artworkUrl,
             startPositionMs = if (isLive) 0L else startPositionMs.coerceAtLeast(0),
+            // A live channel has no length to state; anything else passes through what it knows.
+            durationMs = if (isLive) 0L else durationMs.coerceAtLeast(0),
         )
     }
 

@@ -40,7 +40,9 @@ class CastSessionManager(
         }
     }
 
-    val player: CastPlayer = CastPlayer(castContext)
+    // Custom converter, because the default one never states the duration -- see
+    // [ConversorConDuracion] for what that costs on a fragmented MP4 still being written.
+    val player: CastPlayer = CastPlayer(castContext, ConversorConDuracion())
 
     private val _casting = MutableStateFlow(false)
     val casting: StateFlow<Boolean> = _casting.asStateFlow()
@@ -216,6 +218,15 @@ class CastSessionManager(
                 .setUri(r.uri)
                 .setMimeType(r.mimeType)
                 .setMediaId(r.episodeId)
+                .setRequestMetadata(
+                    MediaItem.RequestMetadata.Builder()
+                        .setExtras(
+                            android.os.Bundle().apply {
+                                putLong(ConversorConDuracion.CLAVE_DURACION, r.durationMs)
+                            },
+                        )
+                        .build(),
+                )
                 .setMediaMetadata(
                     MediaMetadata.Builder()
                         .setTitle(r.title)

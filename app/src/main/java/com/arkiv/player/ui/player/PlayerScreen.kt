@@ -69,6 +69,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -129,6 +130,7 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.arkiv.player.cast.CastProgress
 import com.arkiv.player.cast.localAudioFormat
+import com.arkiv.player.cast.localVideoFormat
 import com.arkiv.player.data.MarcadorDeCapitulo
 import com.arkiv.player.ui.tv.library.SAFE_H
 import com.arkiv.player.ui.tv.library.SAFE_V
@@ -487,6 +489,11 @@ private fun PlayerContent(
     // recargaría dos veces lo mismo. Se limpia al desconectar.
     var casteadoAlReceptor by remember { mutableStateOf<String?>(null) }
 
+    // Titles whose remux failed. They fall back to HLS segments immediately instead of waiting for
+    // something that will not arrive: a muxer error left the screen with nothing cast at all
+    // (measured 2026-09-12, `code=7002` after seven minutes), and stuttery beats blank every time.
+    val remuxImposible = remember { mutableStateListOf<String>() }
+
     // El player que estamos manejando ahora mismo: el del Chromecast mientras haya sesión, el
     // local si no. Ambos implementan Player, así que los controles no necesitan saber cuál es.
     // El `?: controller` cubre el caso sin Google Play Services (castContext y castPlayer nulos).
@@ -744,6 +751,19 @@ private fun PlayerContent(
         // el celu -el canal está reproduciéndose cuando se llega hasta acá, nunca antes- así que no
         // hace falta ninguna lista de canales permitidos ni adivinar por nombre/categoría.
         val audio = localAudioFormat(controller.currentTracks)
+        // Why a remux costs minutes instead of being a copy. `TransformerUtil.shouldTranscodeVideo`
+        // re-encodes unconditionally when `pixelWidthHeightRatio != 1`, and broadcast transport
+        // streams very often declare a non-square pixel. This is the one number that says whether
+        // a true transmux is even reachable for this title.
+        val videoLocal = localVideoFormat(controller.currentTracks)
+            ?: magisPlayer?.let { runCatching { localVideoFormat(it.currentTracks) }.getOrNull() }
+        android.util.Log.w(
+            "ArkivCast",
+            "source video · mime=${videoLocal?.sampleMimeType} ${videoLocal?.width}x${videoLocal?.height} " +
+                "par=${videoLocal?.pixelWidthHeightRatio} → transmux ${
+                    if (videoLocal?.pixelWidthHeightRatio == 1f) "possible" else "BLOCKED by a non-square pixel"
+                }",
+        )
         // .coerceAtLeast(0): media3 reports an unset channel count as Format.NO_VALUE (-1), which
         // would otherwise show up in the log below as "canales=-1". Doesn't change the decodable
         // decision (receiverDecodes only compares it against AAC's <=2 stereo cap).
@@ -768,8 +788,27 @@ private fun PlayerContent(
         // widened to do this -- `ArchiveCacheProxy.start()` already listens on every interface; it
         // is the same loopback url the phone is playing from, respelled. See its `lanUrl` KDoc.
         val lanIp = graph.lanIp()
+        // Finished OR still being written: a fragmented MP4 is playable before it is complete,
+        // which is what turns "wait minutes, then cast" into "cast now, it fills in behind you".
         val remuxMagis = if (item.kind == SourceKind.MAGIS) {
-            item.castUrl?.let { cdn -> graph.tsRemuxer.yaHecho(cdn)?.let { graph.localFileServer.serve(it) } }
+            item.castUrl?.let { cdn ->
+                graph.tsRemuxer.enProgreso(cdn)?.let { (archivo, completo) ->
+                    // ALWAYS chunked, finished or not. Measured 2026-09-12, and it is the
+                    // difference between playing and not: served while it grew -- chunked, no
+                    // Content-Length, no ranges -- the receiver had nothing to do but play from
+                    // the start, and it played. Served complete, with a length and range support,
+                    // it went hunting through 1.4 GB for an index a fragmented MP4 does not carry
+                    // (`range=bytes=308510720-`, 4 MB, broken pipe, a slightly later range, over
+                    // and over) and never produced a frame. Withholding the ability to seek is
+                    // what makes it work, which is backwards but it is what the device does.
+                    graph.localFileServer.creciendo = true
+                    android.util.Log.w(
+                        "ArkivCast",
+                        "magis → remuxed mp4 (${if (completo) "complete" else "still growing, ${archivo.length()}B"})",
+                    )
+                    graph.localFileServer.serve(archivo)
+                }
+            }
         } else {
             null
         }
@@ -811,7 +850,10 @@ private fun PlayerContent(
         // original as HLS segments. The remux itself is kicked off by the effect below -- this
         // function stays synchronous because every cast path calls it.
         val remuxLocal = if (item.kind == SourceKind.LOCAL) {
-            graph.tsRemuxer.yaHecho(item.mediaUrl)?.let { graph.localFileServer.serve(it) }
+            graph.tsRemuxer.yaHecho(item.mediaUrl)?.let {
+                graph.localFileServer.creciendo = true
+                graph.localFileServer.serve(it)
+            }
         } else {
             null
         }
@@ -873,13 +915,15 @@ private fun PlayerContent(
             mediaUrl = item.mediaUrl,
             castUrl = remuxLocal ?: hlsLocal ?: item.castUrl,
             lanUrl = lanUrl,
-            // The resume position survives again. It was forced to 0 while the playlist had a
-            // single segment covering the whole file: with no entry point to seek to, asking the
-            // receiver to start at minute 70 made it re-fetch the playlist looking for one and
-            // give up without requesting a byte of media (4 playlist GETs, 0 file GETs). Now that
-            // TsSegmenter cuts real segments on PCR boundaries, every one of them IS an entry
-            // point and the receiver can land on the right one.
-            startPositionMs = startPositionMs,
+            // HLS segments keep the resume position -- every segment boundary is a real entry
+            // point since TsSegmenter cuts them on keyframes. A REMUX does not: a fragmented MP4
+            // carries no seek index, that being the price of playing while it is written. Asking
+            // the receiver to start at minute 4:52 of one sent it hunting through the file blind
+            // -- `range=bytes=308510720-`, 4 MB, broken pipe, a slightly later range, again,
+            // without ever playing a frame (measured 2026-09-12). Starting at zero is what makes
+            // it play. Losing "where you were" is the cost, and getting it back means writing a
+            // real index.
+            startPositionMs = if (remuxLocal != null || remuxMagis != null) 0L else startPositionMs,
             isLive = esVivo,
             mimeOverride = when {
                 remuxLocal != null -> "video/mp4"
@@ -887,10 +931,20 @@ private fun PlayerContent(
                 mimeMagis != null -> mimeMagis
                 else -> mimeLocal
             },
-            // Magis has no usable fallback: `castUrl` is the CDN (401 without headers the receiver
-            // can't send) and `mediaUrl` is loopback. Either the LAN url or nothing -- unless a
-            // remux exists, which is already a reachable url on this device.
-            requiresLanUrl = item.kind == SourceKind.MAGIS && remuxMagis == null,
+            // Magis has no usable fallback: `castUrl` is the CDN, which answers 401 without headers
+            // the receiver cannot send, and `mediaUrl` is loopback. Either `lanUrl` or nothing --
+            // ALWAYS, including when a remux exists, because the remux's url is what `lanUrl`
+            // holds in that case. Letting this go false when there was a remux sent the receiver
+            // the raw CDN url instead (measured 2026-09-12: `uri=http://…_media.ts mime=video/mp4`),
+            // since the builder falls back to `castUrl` whenever it is not required to use the LAN.
+            requiresLanUrl = item.kind == SourceKind.MAGIS,
+            // The local player already knows how long this runs -- it has been showing it on the
+            // bar. A remux still being written cannot state it, so without this the receiver
+            // invents one from the fragments it has (5 s for a two-hour film) and stalls on that
+            // imaginary end every few seconds.
+            durationMs = runCatching {
+                (magisPlayer ?: controller).duration.takeIf { it > 0 } ?: 0L
+            }.getOrDefault(0L),
         )
         // No transcoder: audio the receiver can't decode still gets cast, muted, instead of not
         // casting at all. The warning is the only thing that tells that case apart from a normal cast.
@@ -993,18 +1047,82 @@ private fun PlayerContent(
             else -> return@LaunchedEffect
         }
 
+        // Why this remux will cost minutes instead of being a copy. `TransformerUtil`
+        // re-encodes unconditionally when `pixelWidthHeightRatio != 1`, and that is the only
+        // condition left that can be firing here: the in-app muxer does accept H265 and AAC.
+        // Logged before starting, because by the time the export runs the answer is already baked.
+        val fmt = localVideoFormat(controller.currentTracks)
+            ?: magisPlayer?.let { runCatching { localVideoFormat(it.currentTracks) }.getOrNull() }
+        android.util.Log.w(
+            "ArkivCast",
+            "source video · mime=${fmt?.sampleMimeType} ${fmt?.width}x${fmt?.height} " +
+                "par=${fmt?.pixelWidthHeightRatio} → transmux ${
+                    when (fmt?.pixelWidthHeightRatio) {
+                        null -> "unknown, no video format available"
+                        1f -> "possible"
+                        else -> "BLOCKED by a non-square pixel"
+                    }
+                }",
+        )
+
         if (!com.arkiv.player.playback.PoliticaDeRemux.hayQueRemuxear(mime)) {
             android.util.Log.i("ArkivCast", "${item.kind} is $mime, no remux needed")
             return@LaunchedEffect
         }
         if (graph.tsRemuxer.yaHecho(clave) != null) return@LaunchedEffect
 
-        android.util.Log.w("ArkivCast", "remuxing ${item.kind} to mp4 while the segments play")
+        android.util.Log.w("ArkivCast", "remuxing ${item.kind} to a fragmented mp4")
+
+        // Cast as soon as there is enough of it, not when it finishes. A fragmented MP4 plays
+        // while it is written, so waiting for the whole title would be waiting for nothing -- that
+        // wait was minutes, with the TV showing an idle screen the whole time.
+        if (item.kind == SourceKind.MAGIS) {
+            // Dispatchers.Main, and not by preference: `castRequestFor` reads
+            // `controller.currentTracks`, and a MediaController throws if it is touched from any
+            // other thread. Launching this on the application scope's default dispatcher crashed
+            // the app every time the head start was reached (`MediaController method is called
+            // from a wrong thread`, measured 2026-09-12). The scope is still the application's, so
+            // the wait outlives the effect that started it.
+            graph.applicationScope.launch(Dispatchers.Main) {
+                val arranque = com.arkiv.player.playback.PoliticaDeRemux.ARRANQUE_MINIMO_SEG
+                repeat(120) {
+                    delay(1000)
+                    if (!casting || castSession == null) return@launch
+                    if (casteadoAlReceptor == item.episodeId) return@launch
+                    val parcial = graph.tsRemuxer.enProgreso(clave) ?: return@repeat
+                    // Rough but sufficient: enough bytes that the receiver will not drain it in
+                    // seconds. The remux runs far faster than playback, so it only has to get a
+                    // head start once.
+                    if (parcial.first.length() < 6_000_000L) return@repeat
+                    val desde0 = runCatching { contentPositionMs() }.getOrDefault(0L).coerceAtLeast(0L)
+                    val plr = PlaylistData(listOf(item), 0, desde0, pedido = item.episodeId)
+                    val reqr = castRequestFor(plr, 0, desde0) ?: return@repeat
+                    android.util.Log.w(
+                        "ArkivCast",
+                        "fragmented mp4 has a ${arranque}s head start → casting it now",
+                    )
+                    castSession.setMedia(reqr)
+                    casteadoAlReceptor = item.episodeId
+                    return@launch
+                }
+            }
+        }
+
         val res = graph.tsRemuxer.remuxear(entrada, clave)
         if (res !is com.arkiv.player.playback.TsRemuxer.Resultado.Listo) {
-            // Nothing to undo: the HLS segments keep playing. Worth a line, because a silent
-            // failure here looks identical to a remux that was never attempted.
-            android.util.Log.w("ArkivCast", "remux failed, staying on HLS segments")
+            // Remember the failure so this title stops waiting for a remux that will not come, and
+            // fall back to the segments NOW. For Magis that fallback is the only thing standing
+            // between the person and a blank screen, because nothing was cast while it prepared.
+            android.util.Log.w("ArkivCast", "remux failed → falling back to HLS segments for this title")
+            remuxImposible.add(clave)
+            if (item.kind == SourceKind.MAGIS && casting && castSession != null) {
+                val ahora = runCatching { contentPositionMs() }.getOrDefault(0L).coerceAtLeast(0L)
+                val plFallback = PlaylistData(listOf(item), 0, ahora, pedido = item.episodeId)
+                castRequestFor(plFallback, 0, ahora)?.let {
+                    castSession.setMedia(it)
+                    casteadoAlReceptor = item.episodeId
+                }
+            }
             return@LaunchedEffect
         }
         // Still casting the same thing? The export takes a while and the person may have moved on.
@@ -1022,6 +1140,39 @@ private fun PlayerContent(
         android.util.Log.w("ArkivCast", "remux ready → re-casting as mp4 from ${desde}ms")
         castSession.setMedia(req)
         casteadoAlReceptor = item.episodeId
+    }
+
+    /**
+     * "Preparándolo para la TV — NN%" while a streaming MPEG-TS is being remuxed.
+     *
+     * The wait is the price of reading the title once instead of twice (see the cast effect), and
+     * a still screen for a few minutes with no sign of life reads as a hang. Only for the case
+     * that actually waits: a downloaded file casts immediately and swaps later, and an mp4 never
+     * waits at all.
+     */
+    val progresoDeRemux by graph.tsRemuxer.progreso.collectAsStateWithLifecycle()
+    val preparandoParaLaTv = casting &&
+        magisItem?.let { magisEsTs(it) && graph.tsRemuxer.yaHecho(it.castUrl.orEmpty()) == null } == true
+    if (preparandoParaLaTv) {
+        Box(
+            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.75f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator(color = Color.White)
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    "Preparándolo para la TV" + if (progresoDeRemux in 0..100) " — $progresoDeRemux%" else "",
+                    color = Color.White,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Solo la primera vez de cada título",
+                    color = Color.White.copy(alpha = 0.7f),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
     }
 
     fun bump() = controles.huboActividad()
@@ -1740,7 +1891,20 @@ private fun PlayerContent(
             // the index, so reusing it beats a second copy of the lanUrl/mime/audio logic that
             // could drift from it.
             val mg = magisItem
-            if (mg != null && castSession != null && casteadoAlReceptor != mg.episodeId) {
+            // A streaming MPEG-TS is PREPARED before it is cast, not while. Casting the segments
+            // and remuxing at the same time means downloading the same title twice at once through
+            // one proxy, and measured on 2026-09-12 they starved each other: three live
+            // connections to the origin, a broken pipe, the export stalled and the receiver frozen
+            // at `state=2`. Reading it once, then casting the result, is the whole point of
+            // waiting. The effect below does the preparing; this one stays quiet until it lands.
+            val esperandoRemux = mg != null &&
+                magisEsTs(mg) &&
+                mg.castUrl.orEmpty() !in remuxImposible &&
+                graph.tsRemuxer.yaHecho(mg.castUrl.orEmpty()) == null
+            if (esperandoRemux) {
+                android.util.Log.w("ArkivCast", "magis ts: preparing the mp4 before casting, nothing sent yet")
+            }
+            if (mg != null && !esperandoRemux && castSession != null && casteadoAlReceptor != mg.episodeId) {
                 // From the LOCAL ExoPlayer, which is where the person actually is. `activePlayer()`
                 // is no use here: `casting` is already true, so it answers the receiver.
                 val posLocal = runCatching { magisPlayer?.currentPosition }.getOrNull()

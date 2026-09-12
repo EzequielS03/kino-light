@@ -13,6 +13,14 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import androidx.media3.common.util.Util
+import androidx.media3.transformer.ProgressHolder
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -54,11 +62,26 @@ class TsRemuxer(
     private val carpeta = File(cacheDir, PoliticaDeRemux.CARPETA)
 
     /**
+     * Length of each fragment. Short enough that playback can begin almost immediately, long
+     * enough that the overhead of a `moof` header per fragment stays negligible.
+     */
+    private val FRAGMENTO_MS = 2_000L
+
+    /**
      * Exports in flight, by key. A second caller for the same title joins the one already running
      * instead of starting a rival export over the same output file -- and because the job lives in
      * [scope], a caller giving up on the wait does not take the export with it.
      */
     private val enCurso = ConcurrentHashMap<String, Deferred<Resultado>>()
+
+    /**
+     * How far along the export is, 0..100, or -1 when nothing is running.
+     *
+     * Exists because the wait is the whole cost of this approach: a person staring at a still
+     * screen for four minutes with no sign of life assumes it hung, and they would be right to.
+     */
+    private val _progreso = MutableStateFlow(-1)
+    val progreso: StateFlow<Int> = _progreso.asStateFlow()
 
     /** Result of asking for a remux. `Listo` carries a file that is complete and playable. */
     sealed interface Resultado {
@@ -69,6 +92,18 @@ class TsRemuxer(
     /** The finished remux for [clave] if one is already on disk, or null. */
     fun yaHecho(clave: String): File? =
         File(carpeta, PoliticaDeRemux.nombreDeArchivo(clave)).takeIf { it.exists() && it.length() > 0 }
+
+    /**
+     * The remux for [clave] as it stands, finished or still being written, with a flag saying
+     * which. A fragmented MP4 is playable before it is complete, so the half-written one is worth
+     * handing out -- that is the whole reason for fragmenting it.
+     */
+    fun enProgreso(clave: String): Pair<File, Boolean>? {
+        val hecho = File(carpeta, PoliticaDeRemux.nombreDeArchivo(clave))
+        if (hecho.exists() && hecho.length() > 0) return hecho to true
+        val parcial = File(carpeta, "${hecho.name}.part")
+        return if (parcial.exists() && parcial.length() > 0) parcial to false else null
+    }
 
     /**
      * Remuxes [uriDeEntrada] into the cache and returns the finished file.
@@ -117,7 +152,17 @@ class TsRemuxer(
                     // SIGABRT on the MPEG4Writer thread, measured 2026-09-12. A native abort is
                     // not catchable, so the only defence is not to use that muxer. The in-app one
                     // is pure Java, and it is also what can write fragmented MP4.
-                    .setMuxerFactory(InAppMuxer.Factory.Builder().build())
+                    .setMuxerFactory(
+                        InAppMuxer.Factory.Builder()
+                            // FRAGMENTED, so the file can be served WHILE it is written. A plain
+                            // MP4 keeps its index at the end, which is why casting one meant
+                            // waiting minutes for the whole title before a single frame reached
+                            // the TV. A fragmented one is a chain of self-contained pieces: the
+                            // receiver can start on the first while the rest is still arriving.
+                            .setOutputFragmentedMp4(true)
+                            .setFragmentDurationMs(FRAGMENTO_MS)
+                            .build(),
+                    )
                     .addListener(object : Transformer.Listener {
                         override fun onCompleted(composition: Composition, result: ExportResult) {
                             val ok = runCatching { parcial.renameTo(destino) }.getOrDefault(false)
@@ -157,6 +202,20 @@ class TsRemuxer(
                     runCatching { transformer.cancel() }
                     runCatching { parcial.delete() }
                     Log.w(TAG, "remux cancelled with the app, partial file removed")
+                }
+
+                // Progress, polled: Transformer has no callback for it. On the main thread
+                // because that is where the transformer lives, and cheap -- twice a second.
+                val holder = ProgressHolder()
+                scope.launch(Dispatchers.Main) {
+                    while (isActive && cont.isActive) {
+                        val estado = runCatching { transformer.getProgress(holder) }.getOrNull()
+                        if (estado == Transformer.PROGRESS_STATE_AVAILABLE) {
+                            _progreso.value = holder.progress
+                        }
+                        delay(500)
+                    }
+                    _progreso.value = -1
                 }
 
                 runCatching {
