@@ -247,9 +247,9 @@ class AppGraph(context: Context) {
             appContext, database,
             wakeWorker = { com.arkiv.player.data.local.LocalDownloadWorker.schedule(it) },
             restartWorker = { com.arkiv.player.data.local.LocalDownloadWorker.restart(it) },
-            // Por lambda: `downloadStrategies` necesita `repository`, que se construye después de
-            // esto. Evaluarlo acá cerraría el círculo y reventaría al arrancar.
-            estrategias = { downloadStrategies },
+            // By lambda: `downloadStrategies` needs `repository`, which gets built after this.
+            // Evaluating it here would close the circle and blow up on startup.
+            strategies = { downloadStrategies },
         )
     }
 

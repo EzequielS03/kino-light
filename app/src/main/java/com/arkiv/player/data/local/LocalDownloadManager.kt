@@ -11,71 +11,71 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import java.io.File
 
-/** Qué pasó al encolar. La UI solo necesita distinguir "se encoló" de "ya lo tenías". */
+/** What happened on enqueue. The UI only needs to tell "it got queued" apart from "you already had it". */
 enum class EnqueueOutcome {
     QUEUED,
 
-    /** Ya había una fila en curso (encolada, bajando, …) para ESTE episodio. */
+    /** There was already a row in progress (queued, downloading, …) for THIS episode. */
     ALREADY_QUEUED,
 
-    /** Ese contenido ya está en el dispositivo: este episodio, o su gemelo bajo otro ítem. */
+    /** That content is already on the device: this episode, or its twin under another item. */
     ALREADY_DOWNLOADED,
 }
 
 /**
- * Fachada de las descargas al dispositivo: lo único que toca la UI. Encola en Room y despierta al
- * worker; no baja nada por su cuenta.
+ * Facade for on-device downloads: the only thing the UI touches. Queues in Room and wakes the
+ * worker; doesn't download anything on its own.
  */
 class LocalDownloadManager(
     context: Context,
     db: ArkivDatabase,
-    /** Inyectado para poder testear sin WorkManager; en producción es `LocalDownloadWorker::schedule`. */
+    /** Injected so it can be tested without WorkManager; in production it's `LocalDownloadWorker::schedule`. */
     private val wakeWorker: (Context) -> Unit,
     /**
-     * Corta la pasada que está corriendo y relanza la cola. En producción es
-     * `LocalDownloadWorker::restart`. Es lo único que puede detener de verdad una descarga en curso:
-     * la fachada no tiene forma de hablarle a la estrategia que está adentro del worker.
+     * Cuts the pass currently running and relaunches the queue. In production it's
+     * `LocalDownloadWorker::restart`. It's the only thing that can actually stop an in-progress
+     * download: the facade has no way to talk to the strategy running inside the worker.
      */
     private val restartWorker: (Context) -> Unit,
     /**
-     * Las estrategias, para poder pedirles que limpien lo suyo al quitar una descarga (ver
-     * [DownloadStrategy.clearLeftovers]). Va como lambda y no como mapa para romper el ciclo con
-     * `AppGraph`: las estrategias necesitan el repositorio, que se construye después de esto.
+     * The strategies, so they can be asked to clean up their own mess when a download gets removed
+     * (see [DownloadStrategy.clearLeftovers]). Goes as a lambda and not as a map to break the cycle
+     * with `AppGraph`: the strategies need the repository, which gets built after this.
      */
-    private val estrategias: () -> Map<String, DownloadStrategy> = { emptyMap() },
+    private val strategies: () -> Map<String, DownloadStrategy> = { emptyMap() },
 ) {
     private val appContext = context.applicationContext
     private val downloadDao = db.downloadDao()
     private val itemDao = db.itemDao()
 
-    /** `Android/data/<pkg>/files/Movies`. Cae a filesDir si no hay almacenamiento externo montado. */
+    /** `Android/data/<pkg>/files/Movies`. Falls back to filesDir if no external storage is mounted. */
     fun targetDir(): File =
         (appContext.getExternalFilesDir(Environment.DIRECTORY_MOVIES) ?: File(appContext.filesDir, "Movies"))
             .apply { mkdirs() }
 
     fun observeRows(): Flow<List<DownloadRow>> = downloadDao.observeDownloadRows()
 
-    /** Mide el disco real y delega la decisión en [FreeSpacePolicy], que es lo testeable. */
+    /** Measures the real disk and delegates the decision to [FreeSpacePolicy], which is the testable part. */
     fun hasFreeSpaceFor(bytes: Long): Boolean =
         FreeSpacePolicy.fits(StatFs(targetDir().absolutePath).availableBytes, bytes)
 
     /**
-     * Bytes disponibles en el disco donde viven las descargas. Es la misma medición que usa
-     * [hasFreeSpaceFor], expuesta para poder MOSTRARLA: la biblioteca del TV la necesita para que el
-     * disco lleno deje de ser una sorpresa. Bloqueante (toca el filesystem), así que se llama fuera
-     * del hilo principal o dentro de un `produceState`.
+     * Bytes available on the disk where downloads live. Same measurement [hasFreeSpaceFor] uses,
+     * exposed so it can be SHOWN: the TV library needs it so a full disk stops being a surprise.
+     * Blocking (touches the filesystem), so it's called off the main thread or inside a
+     * `produceState`.
      */
-    fun espacioLibreBytes(): Long = StatFs(targetDir().absolutePath).availableBytes
+    fun freeSpaceBytes(): Long = StatFs(targetDir().absolutePath).availableBytes
 
     /**
-     * Encola un episodio. Idempotente: si ya hay una fila que no falló, no hace nada — así tocar dos
-     * veces el botón no duplica la descarga.
+     * Queues an episode. Idempotent: if there's already a row that hasn't failed, it does nothing —
+     * so tapping the button twice doesn't duplicate the download.
      *
-     * Y un paso más: tampoco encola si ESE MISMO CONTENIDO ya está descargado bajo otro ítem de la
-     * biblioteca (la misma serie guardada dos veces, ver [DuplicateDownloadPolicy]). Eso evita bajar
-     * los mismos gigabytes dos veces incluso con los ítems duplicados que ya existen, que no se
-     * migran. El resultado le dice al llamador qué pasó para que la UI pueda avisarle al usuario que
-     * ya lo tiene (ver `DuplicateDownloadPolicy.skippedNotice`).
+     * And one step further: it also doesn't queue if THAT SAME CONTENT is already downloaded under
+     * another library item (the same series saved twice, see [DuplicateDownloadPolicy]). That
+     * avoids downloading the same gigabytes twice even with the duplicate items that already exist,
+     * which don't get migrated. The result tells the caller what happened so the UI can let the
+     * user know they already have it (see `DuplicateDownloadPolicy.skippedNotice`).
      */
     suspend fun enqueue(episodeId: String, source: String): EnqueueOutcome = withContext(Dispatchers.IO) {
         val existing = downloadDao.get(episodeId)
@@ -112,16 +112,16 @@ class LocalDownloadManager(
     }
 
     /**
-     * Vuelve a encolar una fila fallida. El `.part` que haya quedado se conserva a propósito: el
-     * descargador reanuda desde ahí con `Range` en vez de empezar de cero.
+     * Re-queues a failed row. Any `.part` left behind is kept on purpose: the downloader resumes
+     * from there with `Range` instead of starting from zero.
      */
     suspend fun retry(episodeId: String) = withContext(Dispatchers.IO) {
         val row = downloadDao.get(episodeId) ?: return@withContext
         if (!DownloadQueuePolicy.isRetryable(row.state)) return@withContext
-        // Una fila vieja pudo quedar apuntando a la estrategia equivocada (ver [FuenteDeDescarga]);
-        // reencolarla tal cual la haría fallar con el mismo mensaje para siempre.
-        val fuente = DownloadSource.sourceFor(episodeId)
-        if (row.source != fuente) downloadDao.updateSource(episodeId, fuente)
+        // An old row might be left pointing at the wrong strategy (see [DownloadSource]);
+        // re-queuing it as-is would make it fail with the same message forever.
+        val source = DownloadSource.sourceFor(episodeId)
+        if (row.source != source) downloadDao.updateSource(episodeId, source)
         downloadDao.updateState(episodeId, LocalDownloadState.QUEUED, null)
         wakeWorker(appContext)
     }
@@ -131,75 +131,76 @@ class LocalDownloadManager(
      * "Cancelada" and the `.part` intact, so "Reintentar" resumes from where it left off instead of
      * starting from zero.
      *
-     * Cómo llega la señal hasta la estrategia: no hay canal directo con el worker, así que se corta
-     * el worker entero ([restartWorker], que es un `enqueueUniqueWork` con REPLACE). The coroutine
+     * How the signal reaches the strategy: there's no direct channel to the worker, so the whole
+     * worker gets cut ([restartWorker], which is an `enqueueUniqueWork` with REPLACE). The coroutine
      * receives the cancellation and the HTTP downloader breaks its write loop at its
      * `ensureActive()`. The new pass that REPLACE queues up picks up the next row in the queue.
      *
-     * Solo corta si esta fila es la que está en vuelo: la cola es de UNA a la vez, así que una fila
-     * en `downloading`/`staging` ES la que está corriendo, y una en `queued` no está corriendo nada
-     * (cortar por ella mataría la descarga ajena que sí está en curso).
+     * Only cuts if this row is the one in flight: the queue is one at a time, so a row in
+     * `downloading`/`staging` IS the one running, and one in `queued` isn't running anything
+     * (cutting for it would kill someone else's download that's actually in progress).
      */
     suspend fun cancel(episodeId: String) = withContext(Dispatchers.IO) {
         val row = downloadDao.get(episodeId) ?: return@withContext
         if (DownloadQueuePolicy.isTerminal(row.state)) return@withContext
         val inFlight = row.state == LocalDownloadState.DOWNLOADING || row.state == LocalDownloadState.STAGING
-        // El estado se escribe ANTES de cortar: si no, la pasada nueva encuentra la fila todavía en
-        // `downloading` y la vuelve a tomar de inmediato (nextToProcess prefiere lo ya empezado).
+        // The state is written BEFORE cutting: otherwise the new pass finds the row still in
+        // `downloading` and picks it up again immediately (nextToProcess prefers what's already started).
         downloadDao.updateState(episodeId, LocalDownloadState.FAILED, "Cancelada")
         if (inFlight) restartWorker(appContext)
     }
 
     /**
-     * Borra la fila y el archivo (y el parcial, si quedó a medias). If the download is running, it
-     * STOPS it first: without that, the strategy kept working on a row that no longer exists — the
-     * HTTP downloader kept spending mobile data writing to an already-unlinked inode.
+     * Deletes the row and the file (and the partial, if it was left halfway). If the download is
+     * running, it STOPS it first: without that, the strategy kept working on a row that no longer
+     * exists — the HTTP downloader kept spending mobile data writing to an already-unlinked inode.
      */
     suspend fun remove(episodeId: String) = withContext(Dispatchers.IO) {
         val row = downloadDao.get(episodeId)
         val inFlight = row != null &&
             (row.state == LocalDownloadState.DOWNLOADING || row.state == LocalDownloadState.STAGING)
-        // Orden deliberado: 1) sacar la fila de la cola, 2) cortar el worker, 3) recién ahí borrar
-        // los archivos. Si se borrara primero, la pasada nueva podría volver a tomar la fila; si se
-        // cortara sin borrar la fila, ídem. Queda una ventana mínima en la que la estrategia todavía
-        // no se enteró de la cancelación y puede recrear su directorio de trabajo: es benigna,
-        // porque la propia estrategia limpia lo suyo al salir y el archivo final ya no se produce.
+        // Deliberate order: 1) take the row out of the queue, 2) cut the worker, 3) only then
+        // delete the files. Deleting first would let the new pass pick the row back up; cutting
+        // without deleting the row would do the same. There's a minimal window where the strategy
+        // hasn't heard about the cancellation yet and can recreate its working directory: it's
+        // benign, because the strategy itself cleans up its own mess on exit and the final file
+        // never gets produced.
         downloadDao.delete(episodeId)
         if (inFlight) restartWorker(appContext)
-        // Lo que no es un archivo en `targetDir` lo borra quien lo escribió: para Caracol son los
-        // segmentos dentro del caché compartido de media3, que ningún barrido por nombre alcanza.
-        // Va ANTES de borrar el registro por prefijo, porque es ese registro el que dice qué bytes
-        // del caché son de este capítulo.
-        row?.source?.let { fuente ->
-            runCatching { estrategias()[fuente]?.clearLeftovers(episodeId, targetDir()) }
+        // Whatever isn't a file in `targetDir` gets deleted by whoever wrote it: for Caracol that's
+        // the segments inside media3's shared cache, which no sweep by name reaches. Goes BEFORE
+        // deleting the record by prefix, because that record is what says which cache bytes belong
+        // to this chapter.
+        row?.source?.let { source ->
+            runCatching { strategies()[source]?.clearLeftovers(episodeId, targetDir()) }
         }
         val path = row?.filePath ?: row?.localUri?.removePrefix("file://")
-        // Dos filas pueden compartir el MISMO archivo: cuando el worker encuentra que ese contenido
-        // ya estaba en disco bajo otro ítem, adopta el archivo del gemelo en vez de re-descargarlo
-        // (ver LocalDownloadWorker.adoptTwinIfAlreadyDownloaded). Borrarlo desde CUALQUIERA de las
-        // dos dejaría a la otra diciendo "Listo" sobre un archivo que ya no está.
+        // Two rows can share the SAME file: when the worker finds that content was already on disk
+        // under another item, it adopts the twin's file instead of re-downloading it (see
+        // LocalDownloadWorker.adoptTwinIfAlreadyDownloaded). Deleting it from EITHER of the two
+        // would leave the other saying "Listo" over a file that's no longer there.
         //
-        // El filtro se aplica a los DOS caminos de borrado de acá abajo, no solo al explícito: el
-        // barrido por prefijo borra por NOMBRE, y el archivo compartido se llama con el episodeId
-        // del gemelo ORIGINAL. O sea que quitar al adoptante efectivamente no lo toca, pero quitar
-        // al original sí lo barría aunque el borrado explícito lo hubiera salteado — el archivo
-        // desaparecía y el adoptante quedaba mintiendo. Ver DuplicateDownloadPolicy.deletablePaths.
+        // The filter applies to BOTH deletion paths below, not just the explicit one: the prefix
+        // sweep deletes by NAME, and the shared file is named after the ORIGINAL twin's episodeId.
+        // Meaning removing the adopter effectively doesn't touch it, but removing the original
+        // would sweep it even if the explicit delete had skipped it — the file would vanish and the
+        // adopter would be left lying. See DuplicateDownloadPolicy.deletablePaths.
         val referenced = downloadDao.filePathsReferencedByOthers(episodeId).toSet()
         if (path != null && DuplicateDownloadPolicy.canDeleteFile(path, referenced)) {
-            // Cubre el nombre exacto que dejaron descargas viejas (pre-migración), que puede no
-            // seguir el patrón sanitize(episodeId) + extensión que arma LocalFilePaths.fileNameFor.
+            // Covers the exact name old (pre-migration) downloads left, which might not follow the
+            // sanitize(episodeId) + extension pattern LocalFilePaths.fileNameFor builds.
             val file = File(path)
             runCatching { file.delete() }
             runCatching { LocalFilePaths.partOf(file).delete() }
             runCatching { LocalFilePaths.originOf(file).delete() }
         }
-        // Barrido por prefijo: para archive/web el nombre destino es determinista
-        // (LocalFilePaths.fileNameFor = sanitize(episodeId) + extensión), así que esto cubre el
-        // archivo final Y el ".part" (y su marca de origen ".part.src") aunque la fila todavía no
-        // tenga filePath (QUEUED/DOWNLOADING, que es cuando el usuario más suele tocar "Quitar").
-        // Sin esto el .part queda huérfano: nadie más lo referencia ni lo limpia, y se come el disco
-        // justo lo que FreeSpacePolicy protege. Los .part nunca son el filePath de otra fila, así
-        // que el filtro de compartidos no cambia nada para ellos.
+        // Prefix sweep: for archive/web the target name is deterministic
+        // (LocalFilePaths.fileNameFor = sanitize(episodeId) + extension), so this covers the final
+        // file AND the ".part" (and its origin mark ".part.src") even if the row doesn't have a
+        // filePath yet (QUEUED/DOWNLOADING, which is when the user most often taps "Quitar").
+        // Without this the .part is left orphaned: nobody else references it or cleans it up, and
+        // it eats up exactly the disk FreeSpacePolicy protects. The .part files are never another
+        // row's filePath, so the shared-file filter changes nothing for them.
         val prefix = "${LocalFilePaths.sanitize(episodeId)}."
         runCatching {
             val candidates = targetDir().listFiles { f -> f.name.startsWith(prefix) }.orEmpty()

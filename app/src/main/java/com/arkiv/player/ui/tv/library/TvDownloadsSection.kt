@@ -82,7 +82,7 @@ fun TvDownloadsSection(onPlayEpisode: (String) -> Unit, modifier: Modifier = Mod
     // "0 MB libres" -- en un aparato casi lleno eso se lee como alarma falsa. Con null no se dibuja
     // nada hasta tener el dato real.
     val libres by produceState<Long?>(initialValue = null, ocupado) {
-        value = withContext(Dispatchers.IO) { graph.localDownloads.espacioLibreBytes() }
+        value = withContext(Dispatchers.IO) { graph.localDownloads.freeSpaceBytes() }
     }
 
     // Mismo aire contra los bordes que el resto de la biblioteca (ver SAFE_H/SAFE_V): una sección
