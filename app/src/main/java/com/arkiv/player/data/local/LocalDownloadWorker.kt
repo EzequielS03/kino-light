@@ -22,14 +22,15 @@ import com.arkiv.player.data.db.DownloadEntity
 import kotlinx.coroutines.runBlocking
 
 /**
- * Procesa la cola de descargas al dispositivo, UNA a la vez.
+ * Processes the on-device download queue, ONE at a time.
  *
- * Secuencial y no en paralelo por tres razones concretas: `TorrentEngine` es de un stream activo a la
- * vez, el disco de blog no aguanta varios staging simultáneos (fase 2), y en el Fire TV Stick el
- * ancho de banda no sobra.
+ * Sequential and not in parallel for three concrete reasons: `TorrentEngine` is for a single
+ * active stream at a time, the blog's disk can't take several simultaneous stagings (phase 2), and
+ * on the Fire TV Stick bandwidth doesn't spare.
  *
- * Auto-relanzamiento: al terminar una fila se re-encola para tomar la siguiente, en vez de iterar
- * dentro de un solo `doWork()` — WorkManager no garantiza un trabajo largo indefinido en background.
+ * Self-relaunching: when a row finishes it re-queues itself to pick up the next one, instead of
+ * looping inside a single `doWork()` — WorkManager doesn't guarantee an indefinitely long
+ * background job.
  */
 class LocalDownloadWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
@@ -41,39 +42,40 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
         val next = DownloadQueuePolicy.nextToProcess(rows) ?: return Result.success()
         val entity = dao.get(next.episodeId) ?: return Result.success()
 
-        // Nombre de verdad para los avisos (antes mostraban el id crudo del episodio) y cuántos
-        // esperan turno: como la cola es de UNA a la vez, sin ese dato los demás capítulos parecen
-        // haberse perdido. Se calcula ACÁ, antes de la compuerta de gemelos, para que todos los
-        // avisos de esta pasada —incluido el de "ya lo tenías"— puedan decir de qué capítulo hablan.
-        val episodio = graph.database.itemDao().getEpisode(entity.episodeId)
-        val serie = episodio?.let { graph.database.itemDao().getItem(it.itemId)?.title }
-        nombreDelCapitulo = DownloadNotificationText.name(serie, episodio?.displayName)
-        tituloDeLaNotificacion = DownloadNotificationText.title(serie, episodio?.displayName)
-        enCola = rows.count { it.state == LocalDownloadState.QUEUED && it.episodeId != entity.episodeId }
+        // Real name for the notifications (they used to show the episode's raw id) and how many
+        // are waiting their turn: since the queue is ONE at a time, without that data the other
+        // chapters look lost. Computed HERE, before the twin gate, so every notification in this
+        // pass — including "you already had it" — can say which chapter it's about.
+        val episode = graph.database.itemDao().getEpisode(entity.episodeId)
+        val series = episode?.let { graph.database.itemDao().getItem(it.itemId)?.title }
+        chapterName = DownloadNotificationText.name(series, episode?.displayName)
+        notificationTitle = DownloadNotificationText.title(series, episode?.displayName)
+        queued = rows.count { it.state == LocalDownloadState.QUEUED && it.episodeId != entity.episodeId }
 
-        // La compuerta de duplicados corre TAMBIÉN acá, no solo en `LocalDownloadManager.enqueue`.
-        // Dos motivos, los dos reales:
-        //  1. Las filas que YA estaban en la cola nunca vuelven a pasar por `enqueue`. En el
-        //     dispositivo del usuario había justo eso: `web:series:tt30217403::31fe74c5` completed
-        //     (461 MB en disco) y `web:series:anilist171018::31fe74c5` queued, esperando turno para
-        //     bajar el mismo archivo otra vez.
-        //  2. Dos gemelos encolados en el mismo lote pasan los dos por `enqueue` sin que ninguno
-        //     esté completed todavía. Como la cola es de UNA a la vez, cuando el segundo llega acá
-        //     el primero ya terminó y esta compuerta lo agarra.
+        // The duplicate gate runs HERE TOO, not only in `LocalDownloadManager.enqueue`. Two
+        // reasons, both real:
+        //  1. Rows that were ALREADY in the queue never go through `enqueue` again. The user's
+        //     device had exactly that: `web:series:tt30217403::31fe74c5` completed (461 MB on
+        //     disk) and `web:series:anilist171018::31fe74c5` queued, waiting its turn to download
+        //     the same file again.
+        //  2. Two twins queued in the same batch both go through `enqueue` with neither completed
+        //     yet. Since the queue is ONE at a time, by the time the second one gets here the first
+        //     has already finished and this gate catches it.
         if (adoptTwinIfAlreadyDownloaded(graph, dao, entity)) {
             reschedule()
             return Result.success()
         }
 
-        // `setForeground` puede lanzar: si la app está en background sin Activity visible reciente,
-        // o si el sistema restringe el arranque de foreground services (ForegroundServiceStartNotAllowedException
-        // en API 31+, o cualquier otra excepción de notificación/binder). Si eso pasa NO puede tumbar la
-        // descarga: preferimos bajar el archivo sin notificación visible a no bajarlo. Por eso va con
-        // runCatching en vez de dejar que la excepción se propague fuera de doWork().
-        // Cada fila que arranca REEMPLAZA la notificación anterior (mismo NOTIF_ID), así que al
-        // pasar al siguiente capítulo de la cola la notificación se convierte en la de ese capítulo,
-        // con su propio progreso.
-        runCatching { setForeground(foregroundInfo(tituloDeLaNotificacion, null, entity.episodeId)) }
+        // `setForeground` can throw: if the app is in the background with no recently visible
+        // Activity, or if the system restricts starting foreground services
+        // (ForegroundServiceStartNotAllowedException on API 31+, or any other notification/binder
+        // exception). If that happens it must NOT sink the download: downloading the file with no
+        // visible notification is preferred over not downloading it. That's why it goes with
+        // runCatching instead of letting the exception propagate out of doWork().
+        // Every row that starts REPLACES the previous notification (same NOTIF_ID), so moving on
+        // to the queue's next chapter turns the notification into that chapter's, with its own
+        // progress.
+        runCatching { setForeground(foregroundInfo(notificationTitle, null, entity.episodeId)) }
             .onFailure { Log.w(TAG, "couldn't show the foreground notification: ${it.message}") }
 
         val strategy = graph.downloadStrategies[entity.source]
@@ -93,8 +95,8 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
                 onProgress = { done, total -> persistProgress(dao, entity, done, total) },
             )
         } catch (ce: kotlinx.coroutines.CancellationException) {
-            // NO se traga la cancelación (antes iba dentro de un runCatching, que la atrapaba igual
-            // que cualquier otra excepción). Swallowing it had two ugly consequences: the row was
+            // The cancellation is NOT swallowed (it used to go inside a runCatching, which caught
+            // it same as any other exception). Swallowing it had two ugly consequences: the row was
             // left `failed` with a made-up reason even though the user had only cancelled, and
             // —worse— the strategy's `finally` (torrent at the time; that engine was removed in
             // this branch's pruning) never ran inside this coroutine, leaving the resource alive
@@ -112,10 +114,9 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
                 // final `renameTo` has no suspension point after the last cancellable check — so the
                 // strategy can finish writing the destination file milliseconds after
                 // `LocalDownloadManager.remove` has already deleted the row and swept the directory.
-                // Si la fila ya
-                // no está, este archivo es justo lo que ese barrido no llegó a agarrar: no hay ninguna
-                // otra limpieza que lo vaya a recoger después, así que se borra acá y NO se notifica
-                // "Descarga completa" de algo que el usuario ya eliminó.
+                // If the row is already gone, this file is exactly what that sweep failed to catch:
+                // there's no other cleanup that will pick it up later, so it gets deleted here and
+                // "Download complete" is NOT notified for something the user already removed.
                 if (dao.get(entity.episodeId) == null) {
                     Log.i(
                         TAG,
@@ -133,8 +134,9 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
                 // Same care as in `Done`, but here the only misleading part is the notification:
                 // there's no downloaded file to clean up (`NeedsConfirmation` is returned before any
                 // bytes come down), and Room's `UPDATE`s on a row that's already been deleted don't
-                // fail or have any effect (the WHERE matches nothing). Lo que sí sería un engaño es "Confirmá en Descargas para bajarla"
-                // sobre una fila que el usuario ya quitó — no hay nada que confirmar.
+                // fail or have any effect (the WHERE matches nothing). What WOULD be misleading is
+                // "Confirmá en Descargas para bajarla" over a row the user already removed — there's
+                // nothing to confirm.
                 if (dao.get(entity.episodeId) != null) {
                     dao.updateProgress(entity.episodeId, 0f, 0, outcome.fileSizeBytes)
                     dao.updateState(
@@ -146,17 +148,17 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
             }
             is DownloadOutcome.Failed -> {
                 Log.w(TAG, "failed ${entity.episodeId}: ${outcome.reason} (transient=${outcome.transient})")
-                // Acá NO hace falta el mismo chequeo: esta rama no notifica nada visible (solo loguea
-                // y escribe estado), y un `UPDATE`/`Result.retry()` sobre una fila ya borrada no
-                // reintroduce la fila ni engaña a nadie — en el peor caso, si el usuario la volvió a
-                // encolar mientras tanto, es la MISMA fila (incluso mismo episodeId) y el motivo del
-                // error es información legítima para ella.
-                // Corte de red a mitad de 4 GB: el `.part` está intacto y `Range` reanuda, pero
-                // nadie disparaba esa reanudación porque todo fallo terminaba en `failed`. Ahora los
-                // fallos transitorios devuelven `Result.retry()`: WorkManager reintenta ESTE mismo
-                // request con backoff exponencial y la fila sigue en `downloading`, así que
-                // `nextToProcess` la vuelve a elegir a ella (lo empezado gana sobre lo encolado).
-                // NO se re-encola la cola acá: hacerlo con REPLACE mataría el retry programado.
+                // The same check ISN'T needed here: this branch notifies nothing visible (it only
+                // logs and writes state), and an `UPDATE`/`Result.retry()` on a row already deleted
+                // doesn't reintroduce the row or mislead anyone — worst case, if the user re-queued
+                // it in the meantime, it's the SAME row (even the same episodeId) and the error's
+                // reason is legitimate information for it.
+                // Network cut halfway through 4 GB: the `.part` is intact and `Range` resumes, but
+                // nothing was triggering that resumption because every failure ended in `failed`.
+                // Now transient failures return `Result.retry()`: WorkManager retries THIS SAME
+                // request with exponential backoff and the row stays in `downloading`, so
+                // `nextToProcess` picks it again (what's started wins over what's queued). The
+                // queue is NOT re-scheduled here: doing so with REPLACE would kill the scheduled retry.
                 if (DownloadRetryPolicy.shouldRetry(outcome.transient, runAttemptCount)) {
                     dao.setError(entity.episodeId, outcome.reason)
                     return Result.retry()
@@ -170,25 +172,27 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
     }
 
     /**
-     * Si el contenido de [entity] ya está en disco bajo OTRO ítem, no lo baja: **adopta el archivo
-     * del gemelo** (marca esta fila `completed` con el mismo `filePath`) y devuelve `true`.
+     * If [entity]'s content is already on disk under ANOTHER item, it doesn't download it:
+     * **adopts the twin's file** (marks this row `completed` with the same `filePath`) and returns
+     * `true`.
      *
-     * Por qué adoptar y no borrar la fila ni marcarla `failed`:
-     *  - Borrarla en silencio deja el capítulo como "no descargado" para siempre y el botón de la UI
-     *    no hace nada visible: el usuario vuelve a tocarlo y vuelve a no pasar nada.
-     *  - `failed` refleja algo que no pasó (no falló nada) y encima invita a "Reintentar", que
-     *    volvería a caer acá.
-     *  - `completed` apuntando al archivo del gemelo dice la verdad ("ya lo tenés"), deja la fila
-     *    visible y quitable en Descargas, y además hace que ESE capítulo se pueda ver sin conexión
-     *    desde su propio ítem: `LocalLibrary.fileFor` resuelve el mismo archivo y la biblioteca le
-     *    pinta el tilde. Sin esto quedaba sin tilde y reproduciéndose por red teniendo el archivo
-     *    ahí al lado.
+     * Why adopt instead of deleting the row or marking it `failed`:
+     *  - Silently deleting it leaves the chapter as "not downloaded" forever and the UI's button
+     *    does nothing visible: the user taps it again and again nothing happens.
+     *  - `failed` reflects something that didn't happen (nothing failed) and on top of that invites
+     *    "Reintentar", which would fall back in here.
+     *  - `completed` pointing at the twin's file tells the truth ("you already have it"), leaves
+     *    the row visible and removable in Descargas, and on top of that makes THAT chapter
+     *    watchable offline from its own item: `LocalLibrary.fileFor` resolves the same file and the
+     *    library paints its checkmark. Without this it stayed without a checkmark and played over
+     *    the network with the file sitting right there.
      *
-     * Que dos filas compartan `filePath` es deliberado y está contemplado en
-     * `LocalDownloadManager.remove`, que no borra el archivo si otra fila lo referencia.
+     * Two rows sharing `filePath` is deliberate and is accounted for in
+     * `LocalDownloadManager.remove`, which doesn't delete the file if another row references it.
      *
-     * Si el archivo del gemelo ya no existe (el usuario lo borró por fuera), NO se adopta nada y la
-     * descarga sigue su curso normal: la compuerta es "ya está en disco", no "alguna vez estuvo".
+     * If the twin's file no longer exists (the user deleted it from outside), NOTHING gets adopted
+     * and the download follows its normal course: the gate is "it's already on disk", not "it was
+     * on disk at some point".
      */
     private suspend fun adoptTwinIfAlreadyDownloaded(
         graph: AppGraph,
@@ -206,15 +210,15 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
         if (!java.io.File(path).let { it.exists() && it.length() > 0L }) return false
 
         Log.i(TAG, "${entity.episodeId} is already on disk as $twinId; adopting the file instead of downloading it")
-        // El tamaño se copia del gemelo: es el del archivo que esta fila va a servir, y sin esto la
-        // pantalla de Descargas mostraría 0 B para algo que sí ocupa disco.
+        // The size is copied from the twin: it's the size of the file this row is about to serve,
+        // and without this the Downloads screen would show 0 B for something that does take up disk.
         dao.updateProgress(entity.episodeId, 1f, twin.bytesDone, twin.bytes)
         dao.markCompleted(entity.episodeId, path)
         dao.setError(entity.episodeId, DuplicateDownloadPolicy.ADOPTED_REASON)
-        // Si esta fila venía a medias (se reanudó una descarga que ya no hace falta), su `.part`
-        // queda huérfano: nadie más lo referencia ni lo limpia. Mismo barrido por prefijo que
-        // `LocalDownloadManager.remove`, que por usar sanitize(episodeId) solo toca archivos de ESTE
-        // episodio — nunca el del gemelo, que se llama con el episodeId del gemelo.
+        // If this row was halfway through (a download that no longer makes sense was resumed), its
+        // `.part` is left orphaned: nobody else references it or cleans it up. Same prefix sweep as
+        // `LocalDownloadManager.remove`, which by using sanitize(episodeId) only touches files from
+        // THIS episode — never the twin's, which is named with the twin's episodeId.
         runCatching {
             val prefix = "${LocalFilePaths.sanitize(entity.episodeId)}."
             graph.localDownloads.targetDir().listFiles { f -> f.name.startsWith(prefix) }
@@ -225,28 +229,29 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
     }
 
     /**
-     * Escribe el progreso a Room, no más de una vez por segundo. Sin esta cadencia una descarga de
-     * 4 GB haría decenas de miles de UPDATE (el callback llega cada 64 KB) y la UI, que observa la
-     * tabla, se recompondría sin parar.
+     * Writes progress to Room, no more than once a second. Without this cadence a 4 GB download
+     * would fire tens of thousands of UPDATEs (the callback arrives every 64 KB) and the UI, which
+     * observes the table, would keep recomposing non-stop.
      *
-     * `lastPersistMs` es un campo mutable de instancia, no un `companion object`/`var` compartido:
-     * WorkManager crea una instancia NUEVA de `LocalDownloadWorker` en cada ejecución (vía
-     * `WorkerFactory`, una por `doWork()`), así que arranca en 0 en cada pasada y no hay estado
-     * pegajoso entre descargas ni corrupción por reuso — el ciclo de vida de esta instancia es
-     * exactamente el de una sola llamada a `doWork()`.
+     * `lastPersistMs` is a mutable instance field, not a shared `companion object`/`var`:
+     * WorkManager creates a NEW `LocalDownloadWorker` instance on every run (via `WorkerFactory`,
+     * one per `doWork()`), so it starts at 0 on every pass and there's no sticky state between
+     * downloads or corruption from reuse — this instance's lifecycle is exactly that of a single
+     * call to `doWork()`.
      *
-     * No es `suspend`: `DownloadStrategy.onProgress` es `(Long, Long) -> Unit`, un callback síncrono
-     * (interfaz ya existente, no se puede tocar acá), y las dos estrategias lo invocan sincrónicamente
-     * desde dentro de su propio `download()` suspendido (que ya corre en un dispatcher de I/O). Como
-     * el DAO de Room es `suspend`, se puentea con `runBlocking` — aceptable porque el throttle de
-     * más arriba lo reduce a como mucho una escritura por segundo, no una por cada chunk de 64 KB.
+     * Not `suspend`: `DownloadStrategy.onProgress` is `(Long, Long) -> Unit`, a synchronous
+     * callback (an interface that already exists and can't be touched here), and both strategies
+     * invoke it synchronously from inside their own suspended `download()` (which already runs on
+     * an I/O dispatcher). Since Room's DAO is `suspend`, it's bridged with `runBlocking` —
+     * acceptable because the throttle above reduces it to at most one write per second, not one
+     * per 64 KB chunk.
      */
     private var lastPersistMs = 0L
 
-    /** Nombre, título y cola de la fila que esta pasada baja; los usan los avisos. */
-    private var nombreDelCapitulo: String? = null
-    private var tituloDeLaNotificacion = "Bajando un capítulo"
-    private var enCola = 0
+    /** Name, title and queue count of the row this pass is downloading; used by the notifications. */
+    private var chapterName: String? = null
+    private var notificationTitle = "Bajando un capítulo"
+    private var queued = 0
     private fun persistProgress(
         dao: com.arkiv.player.data.db.DownloadDao,
         entity: DownloadEntity,
@@ -257,24 +262,24 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
         if (now - lastPersistMs < PROGRESS_THROTTLE_MS) return
         lastPersistMs = now
         val progress = if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else 0f
-        // `updateProgress` y no `updateBytes`: escribir el estado junto con el progreso hacía que la
-        // fase de staging (web) fuera inalcanzable — el primer tick de progreso devolvía la fila de
-        // `staging` a `downloading`. El estado lo escribe quien conoce la fase.
+        // `updateProgress` and not `updateBytes`: writing the state together with the progress made
+        // the (web) staging phase unreachable — the first progress tick would return the `staging`
+        // row to `downloading`. The state is written by whoever knows the phase.
         runBlocking { dao.updateProgress(entity.episodeId, progress, done, total) }
-        // Con el mismo throttle: la notificación se queda en el 0% inicial toda la descarga si nadie
-        // la vuelve a emitir. `total <= 0` es tamaño desconocido -> barra indeterminada.
-        actualizarNotificacion(entity.episodeId, if (total > 0) progress else null)
+        // Same throttle: the notification stays at the initial 0% for the whole download if nobody
+        // emits it again. `total <= 0` is an unknown size -> indeterminate bar.
+        updateNotification(entity.episodeId, if (total > 0) progress else null)
     }
 
     /**
-     * Re-encola para tomar la siguiente fila. A propósito NO llama a [schedule] (que usa `KEEP`):
-     * en este punto la fila única `WORK_NAME` todavía figura en WorkManager como `RUNNING` — esta
-     * misma ejecución no terminó de escribir su estado final hasta que `doWork()` retorna — y `KEEP`
-     * mira exactamente los estados `ENQUEUED`/`RUNNING` para decidir si no hacer nada. El resultado
-     * con `KEEP` acá sería un no-op silencioso en el 100% de las pasadas: la cola procesaría una fila
-     * por cada `enqueue()` externo y nunca se auto-relanzaría, rompiendo el propósito central de este
-     * worker. `REPLACE` sí fuerza la inserción de la siguiente pasada aunque esta instancia siga
-     * "viva" un instante más.
+     * Re-queues to pick up the next row. Deliberately does NOT call [schedule] (which uses `KEEP`):
+     * at this point the single `WORK_NAME` row is still listed in WorkManager as `RUNNING` — this
+     * very run hasn't finished writing its final state until `doWork()` returns — and `KEEP` looks
+     * at exactly the `ENQUEUED`/`RUNNING` states to decide whether to do nothing. The result with
+     * `KEEP` here would be a silent no-op on 100% of passes: the queue would process one row per
+     * external `enqueue()` and never self-relaunch, breaking this worker's whole point. `REPLACE`
+     * does force the next pass's insertion even while this instance is still "alive" for one more
+     * instant.
      */
     private fun reschedule() {
         WorkManager.getInstance(applicationContext).enqueueUniqueWork(
@@ -285,30 +290,30 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
     }
 
     /**
-     * La notificación de la descarga en curso. [fraccion] null = todavía no se sabe cuánto falta, y
-     * entonces la barra va indeterminada en vez de mentir con un 0% clavado.
+     * The notification for the download in progress. [fraction] null = how much is left isn't
+     * known yet, so the bar goes indeterminate instead of lying with a bar stuck at 0%.
      *
-     * `setOnlyAlertOnce` porque esta notificación se re-emite cada segundo con el progreso nuevo: sin
-     * eso, cada actualización volvería a "avisar".
+     * `setOnlyAlertOnce` because this notification is re-emitted every second with new progress:
+     * without it, every update would "alert" again.
      */
-    private fun notificacionDeProgreso(title: String, fraccion: Float?, episodeId: String) =
+    private fun progressNotification(title: String, fraction: Float?, episodeId: String) =
         NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setContentTitle(title)
-            .setContentText(DownloadNotificationText.subtitle(fraccion, enCola))
+            .setContentText(DownloadNotificationText.subtitle(fraction, queued))
             .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setProgress(100, ((fraccion ?: 0f) * 100).toInt(), fraccion == null)
+            .setProgress(100, ((fraction ?: 0f) * 100).toInt(), fraction == null)
             .setOnlyAlertOnce(true)
             .setOngoing(true)
-            // Frenar una descarga sin tener que abrir la app y buscar el capítulo.
+            // Stop a download without having to open the app and look for the chapter.
             .addAction(
                 android.R.drawable.ic_menu_close_clear_cancel,
                 "Cancelar descarga",
-                intentDeCancelar(episodeId),
+                cancelIntent(episodeId),
             )
             .build()
 
     /** Fires [DownloadActionsReceiver], which cancels without opening anything. */
-    private fun intentDeCancelar(episodeId: String): PendingIntent = PendingIntent.getBroadcast(
+    private fun cancelIntent(episodeId: String): PendingIntent = PendingIntent.getBroadcast(
         applicationContext,
         episodeId.hashCode(),
         Intent(applicationContext, DownloadActionsReceiver::class.java).apply {
@@ -318,8 +323,8 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
 
-    /** Abre el reproductor en ESE capítulo (no en el que estuviera sonando). */
-    private fun intentDeVer(episodeId: String): PendingIntent = PendingIntent.getActivity(
+    /** Opens the player on THAT chapter (not on whatever was playing). */
+    private fun viewIntent(episodeId: String): PendingIntent = PendingIntent.getActivity(
         applicationContext,
         episodeId.hashCode(),
         Intent(applicationContext, MainActivity::class.java).apply {
@@ -331,20 +336,21 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
     )
 
     /**
-     * Re-emite la notificación de foreground con el progreso nuevo. Va por `NotificationManager` y no
-     * por `setForeground`: es la MISMA notificación (mismo id) y actualizarla no pasa por el servicio,
-     * así que no puede tumbar la descarga si el sistema restringe el arranque de foreground services.
+     * Re-emits the foreground notification with the new progress. Goes through
+     * `NotificationManager` and not `setForeground`: it's the SAME notification (same id) and
+     * updating it doesn't go through the service, so it can't sink the download if the system
+     * restricts starting foreground services.
      */
-    private fun actualizarNotificacion(episodeId: String, fraccion: Float?) {
+    private fun updateNotification(episodeId: String, fraction: Float?) {
         runCatching {
             val nm = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            nm.notify(NOTIF_ID, notificacionDeProgreso(tituloDeLaNotificacion, fraccion, episodeId))
+            nm.notify(NOTIF_ID, progressNotification(notificationTitle, fraction, episodeId))
         }
     }
 
-    private fun foregroundInfo(title: String, fraccion: Float?, episodeId: String): ForegroundInfo {
+    private fun foregroundInfo(title: String, fraction: Float?, episodeId: String): ForegroundInfo {
         ensureChannel()
-        val notif = notificacionDeProgreso(title, fraccion, episodeId)
+        val notif = progressNotification(title, fraction, episodeId)
         return if (android.os.Build.VERSION.SDK_INT >= 29) {
             ForegroundInfo(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
@@ -353,15 +359,15 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
     }
 
     /**
-     * "Descarga completa" + QUÉ capítulo terminó + un botón para verlo ahí mismo. Antes decía solo
-     * "Descarga completa": con varias descargas seguidas no había forma de saber cuál era cuál, y
-     * para verlo había que abrir la app y volver a buscar el capítulo a mano.
+     * "Descarga completa" + WHICH chapter finished + a button to watch it right there. It used to
+     * only say "Descarga completa": with several downloads in a row there was no way to tell which
+     * was which, and watching it meant opening the app and looking up the chapter by hand.
      */
     private fun notifyDone(episodeId: String) = notify(
         episodeId.hashCode(),
         "Descarga completa",
-        DownloadNotificationText.done(null, nombreDelCapitulo),
-        verEpisodeId = episodeId,
+        DownloadNotificationText.done(null, chapterName),
+        viewEpisodeId = episodeId,
     )
 
     private fun notifyAlreadyDownloaded(episodeId: String) = notify(
@@ -376,18 +382,18 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
         "Pesa ${FileSizeFormat.formatSize(bytes)}. Confírmala en Descargas para bajarla.",
     )
 
-    private fun notify(id: Int, title: String, text: String, verEpisodeId: String? = null) {
+    private fun notify(id: Int, title: String, text: String, viewEpisodeId: String? = null) {
         ensureChannel()
         val nm = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val builder = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setContentTitle(title).setContentText(text)
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setAutoCancel(true)
-        if (verEpisodeId != null) {
-            // Tocar el aviso y tocar el botón hacen lo mismo: abrir ESE capítulo.
-            val ver = intentDeVer(verEpisodeId)
-            builder.setContentIntent(ver)
-                .addAction(android.R.drawable.ic_media_play, "Ver capítulo", ver)
+        if (viewEpisodeId != null) {
+            // Tapping the notice and tapping the button do the same thing: open THAT chapter.
+            val view = viewIntent(viewEpisodeId)
+            builder.setContentIntent(view)
+                .addAction(android.R.drawable.ic_media_play, "Ver capítulo", view)
         }
         nm.notify(id, builder.build())
     }
@@ -409,9 +415,9 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
         private const val RETRY_BACKOFF_SECONDS = 30L
 
         /**
-         * Backoff explícito para los `Result.retry()` de los fallos transitorios. Arranca en 30 s y
-         * duplica: 30 s, 1 min, 2 min… Suficiente para que un WiFi que parpadea vuelva, y corto
-         * comparado con lo que tarda una descarga de varios GB.
+         * Explicit backoff for transient failures' `Result.retry()`. Starts at 30s and doubles:
+         * 30s, 1min, 2min… Enough for a flaky WiFi to come back, and short compared to how long a
+         * several-GB download takes.
          */
         private fun request() = OneTimeWorkRequestBuilder<LocalDownloadWorker>()
             .setBackoffCriteria(
@@ -422,10 +428,10 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
             .build()
 
         /**
-         * KEEP y no REPLACE: si ya hay una pasada corriendo, encolar otra descarga no debe matarla a
-         * mitad. Cuando termine, se re-encola sola (ver [reschedule], que sí usa REPLACE) y toma la
-         * siguiente. Este `schedule` es el punto de entrada EXTERNO (desde `LocalDownloadManager`);
-         * el auto-relanzamiento interno no pasa por acá.
+         * KEEP and not REPLACE: if a pass is already running, queuing another download must not
+         * kill it halfway. When it finishes, it re-queues itself (see [reschedule], which does use
+         * REPLACE) and picks up the next one. This `schedule` is the EXTERNAL entry point (from
+         * `LocalDownloadManager`); the internal self-relaunch doesn't go through here.
          */
         fun schedule(context: Context) {
             WorkManager.getInstance(context).enqueueUniqueWork(
@@ -436,17 +442,17 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
         }
 
         /**
-         * CORTA lo que se esté bajando ahora mismo y relanza la cola desde cero.
+         * CUTS whatever is downloading right now and relaunches the queue from scratch.
          *
-         * Es el mecanismo con el que `LocalDownloadManager.cancel/remove` detienen de verdad una
-         * descarga en curso: `REPLACE` cancela el trabajo único —incluido el que está RUNNING, cuya
-         * corrutina recibe la cancelación— y encola una pasada nueva en el mismo acto. Hacerlo en
-         * dos pasos (`cancelUniqueWork` + `schedule` con KEEP) tenía una carrera: mientras el
-         * trabajo cancelado sigue figurando como RUNNING, el KEEP es un no-op y la cola quedaba
-         * dormida hasta el próximo `enqueue`.
+         * It's the mechanism `LocalDownloadManager.cancel/remove` use to actually stop a download
+         * in progress: `REPLACE` cancels the unique work —including the one that's RUNNING, whose
+         * coroutine receives the cancellation— and queues a new pass in the same act. Doing it in
+         * two steps (`cancelUniqueWork` + `schedule` with KEEP) had a race: while the cancelled work
+         * is still listed as RUNNING, KEEP is a no-op and the queue stayed asleep until the next
+         * `enqueue`.
          *
-         * La fila cancelada tiene que estar YA borrada (o fuera de la cola) cuando esto se llama, o
-         * la pasada nueva la vuelve a tomar.
+         * The cancelled row has to be ALREADY deleted (or out of the queue) by the time this is
+         * called, or the new pass picks it up again.
          */
         fun restart(context: Context) {
             WorkManager.getInstance(context).enqueueUniqueWork(

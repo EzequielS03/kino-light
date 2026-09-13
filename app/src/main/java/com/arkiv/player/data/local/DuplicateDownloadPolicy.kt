@@ -3,37 +3,38 @@ package com.arkiv.player.data.local
 import com.arkiv.player.data.SeriesItemIds
 
 /**
- * Origen de un episodio de la biblioteca: su id + (solo torrent) el índice del archivo dentro del
- * torrent. Es también la proyección de `DownloadDao.completedOrigins`, así que los nombres de los
- * campos son los alias de esa consulta.
+ * Origin of a library episode: its id + (torrent only) the index of the file inside the torrent.
+ * It's also `DownloadDao.completedOrigins`'s projection, so the field names are that query's
+ * aliases.
  */
 data class EpisodeOrigin(val episodeId: String, val torrentFileIndex: Int?)
 
 /**
- * ¿Este episodio es el MISMO contenido que algo que ya está descargado en el dispositivo?
+ * Is this episode the SAME content as something already downloaded on the device?
  *
- * Hace falta porque la misma serie puede estar guardada bajo dos ítems distintos (entró por la
- * pantalla de anime y por la de series; ver [SeriesItemIds.canonicalSeriesId], que cierra el agujero
- * de acá en adelante pero no toca lo ya guardado). Sin esto, tocar "descargar" en el ítem duplicado
- * baja de nuevo los mismos gigabytes que ya están en disco.
+ * Needed because the same series can be saved under two different items (it came in through the
+ * anime screen and through the series one; see [SeriesItemIds.canonicalSeriesId], which closes the
+ * hole from here on but doesn't touch what's already saved). Without this, tapping "download" on
+ * the duplicate item downloads the same gigabytes already on disk all over again.
  *
- * La identidad NO es el episodeId: es el ORIGEN del capítulo, que ya viaja dentro del propio id.
+ * The identity is NOT the episodeId: it's the chapter's ORIGIN, which already travels inside the
+ * id itself.
  *
- * **Nota (poda torrent/web):** esta app ya no crea ítems `torrent:*`/`web:*` — las funciones de
- * `ArkivRepository` que los generaban se borraron junto con las fuentes torrent/web. Los prefijos
- * de acá abajo (`WEB_SERIES_PREFIX`/`TORRENT_SERIES_PREFIX`/`TORRENT_ANIME_PREFIX`) siguen vivos
- * solo para detectar duplicados en ítems de esas fuentes que ya existían en la biblioteca de un
- * usuario ANTES de esta rama; no hace falta un camino equivalente para Magis/Ditu/archive.org
- * porque ninguno de los tres puede terminar duplicado bajo dos ítems distintos (ver el último punto):
+ * **Note (torrent/web pruning):** this app no longer creates `torrent:*`/`web:*` items — the
+ * `ArkivRepository` functions that generated them were deleted along with the torrent/web sources.
+ * The prefixes below (`WEB_SERIES_PREFIX`/`TORRENT_SERIES_PREFIX`/`TORRENT_ANIME_PREFIX`) stay
+ * alive only to detect duplicates in items from those sources that already existed in a user's
+ * library BEFORE this branch; no equivalent path is needed for Magis/Ditu/archive.org because none
+ * of the three can end up duplicated under two different items (see the last bullet):
  *
- * - `web:series:<seriesId>::<hash de la pageUrl>` (legacy). El sufijo depende SOLO de la pageUrl,
- *   así que dos ítems distintos del mismo capítulo comparten sufijo. Este es el caso real que
- *   motivó todo esto.
- * - `torrent:series:<seriesId>::<infohash>` y `torrent:anime:<anilistId>::<infohash>` (legacy). El
- *   sufijo es el infohash; el archivo elegido dentro del torrent vive aparte, en
- *   `episodes.torrentFileIndex`, así que la clave lo incluye ("el infohash + el archivo"). Si los
- *   dos caminos eligieran archivos distintos del mismo pack, no se detecta el duplicado y se baja
- *   igual: preferimos bajar de más antes que bloquear una descarga legítima.
+ * - `web:series:<seriesId>::<hash de la pageUrl>` (legacy). The suffix depends ONLY on the
+ *   pageUrl, so two different items of the same chapter share a suffix. This is the real case that
+ *   motivated all of this.
+ * - `torrent:series:<seriesId>::<infohash>` and `torrent:anime:<anilistId>::<infohash>` (legacy).
+ *   The suffix is the infohash; the file chosen inside the torrent lives apart, in
+ *   `episodes.torrentFileIndex`, so the key includes it ("the infohash + the file"). If the two
+ *   paths chose different files from the same pack, the duplicate isn't detected and it downloads
+ *   anyway: downloading too much is preferred over blocking a legitimate download.
  * - archive.org (now removed too) -> the itemId WAS archive.org's identifier, unique; the same
  *   chapter could never end up under two different items. Same for Magis/Ditu (id derived from the
  *   portal's `contentId`/`ref`) and the legacy standalone web/torrent movies
@@ -47,8 +48,8 @@ data class EpisodeOrigin(val episodeId: String, val torrentFileIndex: Int?)
 object DuplicateDownloadPolicy {
 
     /**
-     * Clave de origen de [origin], o `null` si ese episodio no puede tener un gemelo bajo otro ítem
-     * (ver el KDoc del objeto). Dos episodios con la misma clave son literalmente el mismo archivo.
+     * [origin]'s origin key, or `null` if that episode can't have a twin under another item (see
+     * the object's KDoc). Two episodes with the same key are literally the same file.
      */
     fun originKeyOf(origin: EpisodeOrigin): String? {
         val id = origin.episodeId
@@ -64,11 +65,11 @@ object DuplicateDownloadPolicy {
     }
 
     /**
-     * episodeId de una descarga YA COMPLETADA con el mismo origen que [target], o `null` si no hay.
-     * [completed] son las filas de `downloads` en estado `completed` con su `torrentFileIndex`.
+     * episodeId of an ALREADY COMPLETED download with the same origin as [target], or `null` if
+     * none. [completed] are `downloads` rows in `completed` state with their `torrentFileIndex`.
      *
-     * El propio [target] se excluye: que un episodio ya esté bajado es asunto de la cola
-     * ([LocalDownloadManager.enqueue] lo corta antes), no de esta detección entre ítems.
+     * [target] itself is excluded: whether an episode is already downloaded is the queue's concern
+     * ([LocalDownloadManager.enqueue] cuts it off earlier), not this cross-item detection.
      */
     fun completedDuplicateOf(target: EpisodeOrigin, completed: List<EpisodeOrigin>): String? {
         val key = originKeyOf(target) ?: return null
@@ -78,9 +79,9 @@ object DuplicateDownloadPolicy {
     }
 
     /**
-     * Aviso para el usuario cuando la cola salteó [skipped] descargas por duplicado. `null` = no hay
-     * nada que avisar. Un pack manda TODOS sus resultados juntos para que salga un solo aviso y no
-     * uno por capítulo.
+     * Notice for the user when the queue skipped [skipped] downloads as duplicates. `null` = there's
+     * nothing to notify. A pack sends ALL its results together so a single notice comes out instead
+     * of one per chapter.
      */
     fun skippedNotice(skipped: Int): String? = when {
         skipped <= 0 -> null
@@ -89,31 +90,31 @@ object DuplicateDownloadPolicy {
     }
 
     /**
-     * De [candidates] (rutas absolutas que un `remove` está por borrar), las que **sí** se pueden
-     * borrar: las que ninguna OTRA fila de `downloads` sigue declarando como su archivo.
+     * Of [candidates] (absolute paths a `remove` is about to delete), the ones that **can** actually
+     * be deleted: the ones no OTHER `downloads` row still declares as its file.
      *
-     * Existe porque dos filas pueden compartir archivo: cuando el worker encuentra que ese contenido
-     * ya estaba en disco bajo otro ítem, adopta el archivo del gemelo en vez de re-descargarlo (ver
-     * `LocalDownloadWorker.adoptTwinIfAlreadyDownloaded`). Borrarlo desde cualquiera de las dos
-     * dejaría a la otra diciendo "Listo" sobre un archivo que ya no está.
+     * Exists because two rows can share a file: when the worker finds that content was already on
+     * disk under another item, it adopts the twin's file instead of re-downloading it (see
+     * `LocalDownloadWorker.adoptTwinIfAlreadyDownloaded`). Deleting it from either one would leave
+     * the other saying "Listo" over a file that's no longer there.
      *
-     * Filtra por RUTA y no por episodeId a propósito: `LocalDownloadManager.remove` borra por dos
-     * caminos —la ruta explícita de la fila y un barrido por nombre (`sanitize(episodeId) + "."`)—
-     * y el segundo también alcanza el archivo compartido. Ojo con la asimetría, que fue justo el
-     * agujero: el archivo se llama con el episodeId del gemelo ORIGINAL, así que quitar al adoptante
-     * no lo toca, pero quitar al original sí lo barría aunque el borrado explícito lo hubiera
-     * salteado. Con el filtro por ruta los dos caminos quedan cubiertos con la misma regla.
+     * Filters by PATH and not by episodeId on purpose: `LocalDownloadManager.remove` deletes
+     * through two paths — the row's explicit path and a sweep by name (`sanitize(episodeId) +
+     * "."`) — and the second one also reaches the shared file. Watch the asymmetry, which was
+     * exactly the hole: the file is named after the ORIGINAL twin's episodeId, so removing the
+     * adopter doesn't touch it, but removing the original would sweep it even if the explicit
+     * delete had skipped it. With the path filter both paths end up covered by the same rule.
      *
-     * Los `.part` / `.part.src` que arrastra el barrido nunca son el `filePath` de otra fila, así
-     * que se siguen borrando igual que antes.
+     * The `.part` / `.part.src` files the sweep drags along are never another row's `filePath`, so
+     * they keep getting deleted same as before.
      */
     fun deletablePaths(candidates: List<String>, referencedByOthers: Set<String>): List<String> =
         candidates.filter { it !in referencedByOthers }
 
-    /** Atajo de [deletablePaths] para una sola ruta. */
+    /** Shortcut of [deletablePaths] for a single path. */
     fun canDeleteFile(path: String, referencedByOthers: Set<String>): Boolean =
         deletablePaths(listOf(path), referencedByOthers).isNotEmpty()
 
-    /** Rótulo de la fila que se saltó porque el archivo ya estaba en disco bajo otro ítem. */
+    /** Label for the row skipped because the file was already on disk under another item. */
     const val ADOPTED_REASON = "Ya estaba descargado"
 }

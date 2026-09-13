@@ -70,7 +70,7 @@ class PruebaDeDescargaDeCaracol : BroadcastReceiver() {
         val epId = SearchPlayback(graph).dituEpisodeIdDe(temporada, capitulos, elegido, serie) ?: return
 
         val fila = graph.database.downloadDao().get(epId)
-        val descarga = graph.localLibrary.descargaDeCaracol(epId)
+        val descarga = graph.localLibrary.caracolDownload(epId)
         val comoArchivo = graph.localLibrary.fileFor(epId)
         Log.w(
             TAG,

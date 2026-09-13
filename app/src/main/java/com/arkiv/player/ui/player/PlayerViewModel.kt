@@ -1030,7 +1030,7 @@ class PlayerViewModel internal constructor(
         // `publicar` vuelve a mirar si sigue vigente: `safeStartPosition` también suspende.
         // Si está bajado, esto dice de dónde leer. Se busca DESPUÉS de resolver y no antes porque
         // resolver hace falta igual: es lo único que trae el token con el que se pide la licencia.
-        val descarga = if (vivo) null else runCatching { localLibrary.descargaDeCaracol(episodeId) }.getOrNull()
+        val descarga = if (vivo) null else runCatching { localLibrary.caracolDownload(episodeId) }.getOrNull()
         if (descarga != null) {
             Log.w(PLAY, "loadDitu() $episodeId is on the device (${descarga.height}p); media comes off the disk")
         }

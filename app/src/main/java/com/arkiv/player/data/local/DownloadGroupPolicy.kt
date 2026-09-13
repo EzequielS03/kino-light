@@ -3,63 +3,63 @@ package com.arkiv.player.data.local
 import com.arkiv.player.data.db.DownloadRow
 import com.arkiv.player.data.model.Episode
 
-/** Carátula, título y fuente del ítem al que pertenece el grupo. Sale de `LibraryRow`. */
+/** Poster, title and source of the item the group belongs to. Comes from `LibraryRow`. */
 data class DownloadItemMeta(
     val title: String,
     val thumbnailUrl: String,
     val source: String,
 )
 
-/** Estado de un episodio de la serie en la pantalla de Descargas. */
+/** State of one of the series' episodes on the Downloads screen. */
 sealed interface EpisodeDownloadStatus {
-    /** Nunca se encoló: no hay fila en `downloads` para este episodio. */
+    /** Never queued: there's no row in `downloads` for this episode. */
     data object NotDownloaded : EpisodeDownloadStatus
 
-    /** Tiene fila en `downloads`; el estado real vive en `row.state` (ver [LocalDownloadState]). */
+    /** Has a row in `downloads`; the real state lives in `row.state` (see [LocalDownloadState]). */
     data class Tracked(val row: DownloadRow) : EpisodeDownloadStatus
 }
 
-/** Un episodio de la serie fusionado con su descarga, si la tiene. */
+/** One of the series' episodes merged with its download, if it has one. */
 data class GroupedEpisode(
     val episode: Episode,
     val status: EpisodeDownloadStatus,
 )
 
-/** Cabecera + episodios de un ítem (serie o película) para la pantalla de Descargas. */
+/** Header + episodes of an item (series or movie) for the Downloads screen. */
 data class DownloadGroup(
     val itemId: String,
     val itemTitle: String,
     val itemThumbnailUrl: String,
     val source: String,
-    /** TODOS los episodios del ítem, en orden natural -- no solo los que pasaron por la cola. */
+    /** ALL of the item's episodes, in natural order -- not just the ones that went through the queue. */
     val episodes: List<GroupedEpisode>,
 ) {
-    /** Una película (un solo episodio) no tiene nada que plegar: se muestra como fila simple. */
+    /** A movie (a single episode) has nothing to fold: it's shown as a plain row. */
     val isSingleEpisode: Boolean get() = episodes.size <= 1
 }
 
 /**
- * Agrupa la cola de descargas por ítem y arma el resumen de cada cabecera ("3 de 24 guardados · 1
+ * Groups the download queue by item and builds each header's summary ("3 de 24 guardados · 1
  * bajando"). Pure: doesn't touch Room or WorkManager, so it's tested on the JVM without
  * Robolectric (same convention as [DownloadQueuePolicy]/[FreeSpacePolicy]/[StagingProgress]).
  */
 object DownloadGroupPolicy {
 
     /**
-     * [episodesByItem] trae SIEMPRE la lista completa de episodios de cada ítem (no solo los
-     * encolados): la pantalla ofrece "descargar" para los que todavía no tienen fila. [itemMeta] es
-     * (título, carátula, source) por itemId, sale de `LibraryRow`.
+     * [episodesByItem] ALWAYS carries the full list of each item's episodes (not just the queued
+     * ones): the screen offers "download" for the ones that don't have a row yet. [itemMeta] is
+     * (title, poster, source) by itemId, comes from `LibraryRow`.
      *
-     * El orden de los grupos es el de aparición en [downloads] (que ya llega `ORDER BY createdAt
-     * DESC` desde `observeDownloadRows`): el ítem con actividad más reciente queda arriba, igual que
-     * la lista plana de antes.
+     * The groups' order is their order of appearance in [downloads] (which already arrives `ORDER
+     * BY createdAt DESC` from `observeDownloadRows`): the item with the most recent activity stays
+     * on top, same as the old flat list.
      *
-     * Un itemId sin metadata en [itemMeta] se salta -- puede pasar en el instante entre que se
-     * encola un episodio y que `observeLibrary()` resuelve, o si el ítem se borró de la biblioteca
-     * con descargas todavía en la tabla. Un itemId sin entrada en [episodesByItem] (todavía no
-     * resolvió el fetch async de `episodesOf`) no se salta: muestra solo los episodios que ya se
-     * conocen por [downloads] y se completa solo en cuanto el fetch resuelve, para no hacer
-     * parpadear la pantalla a "vacío" mientras carga.
+     * An itemId with no metadata in [itemMeta] gets skipped -- can happen in the instant between an
+     * episode getting queued and `observeLibrary()` resolving, or if the item got deleted from the
+     * library with downloads still in the table. An itemId with no entry in [episodesByItem]
+     * (`episodesOf`'s async fetch hasn't resolved yet) doesn't get skipped: it shows only the
+     * episodes already known from [downloads] and fills in on its own as soon as the fetch
+     * resolves, so the screen doesn't flash to "empty" while loading.
      */
     fun buildGroups(
         downloads: List<DownloadRow>,
@@ -86,7 +86,7 @@ object DownloadGroupPolicy {
         }
     }
 
-    /** "3 de 24 guardados · 1 bajando" -- omite cláusulas en cero. */
+    /** "3 de 24 guardados · 1 bajando" -- omits zero-valued clauses. */
     fun summarize(episodes: List<GroupedEpisode>): String {
         val total = episodes.size
         var saved = 0
@@ -116,12 +116,12 @@ object DownloadGroupPolicy {
     }
 
     /**
-     * Episodios que "cancelar todos" tiene que frenar: encolados o en vuelo. Pensado para pasarse,
-     * fila por fila, a [LocalDownloadManager.cancel] -- es el único camino que corta de verdad el
-     * worker cuando la que está en vuelo es una de estas (ver el KDoc de `cancel`); llamarlo también
-     * para las encoladas de más no hace nada raro, porque `cancel` ya distingue cuál es la fila que
-     * corre. Sin pasar por acá, "cancelar todos" solo tacharía filas de la cola dejando la descarga
-     * en curso corriendo sola -- el bug de archivo huérfano que ya se arregló una vez.
+     * Episodes "cancel all" has to stop: queued or in flight. Meant to be passed, row by row, to
+     * [LocalDownloadManager.cancel] -- it's the only path that actually cuts off the worker when
+     * the one in flight is one of these (see `cancel`'s KDoc); calling it for the extra queued ones
+     * too does nothing odd, because `cancel` already tells which row is running. Skipping this,
+     * "cancel all" would only cross out queue rows and leave the in-progress download running on
+     * its own -- the orphan-file bug that already got fixed once.
      */
     fun activeEpisodeIds(group: DownloadGroup): List<String> =
         group.episodes.mapNotNull { (it.status as? EpisodeDownloadStatus.Tracked)?.row }
@@ -132,20 +132,20 @@ object DownloadGroupPolicy {
             }
             .map { it.episodeId }
 
-    /** Episodios que "reintentar fallidos" tiene que reencolar. */
+    /** Episodes "retry failed" has to re-queue. */
     fun failedEpisodeIds(group: DownloadGroup): List<String> =
         group.episodes.mapNotNull { (it.status as? EpisodeDownloadStatus.Tracked)?.row }
             .filter { it.state == LocalDownloadState.FAILED }
             .map { it.episodeId }
 
-    /** Todos los episodios con fila en `downloads` (cualquier estado), para "quitar todos". */
+    /** All episodes with a row in `downloads` (any state), for "remove all". */
     fun trackedEpisodeIds(group: DownloadGroup): List<String> =
         group.episodes.mapNotNull { (it.status as? EpisodeDownloadStatus.Tracked)?.row?.episodeId }
 
     /**
-     * El primer episodio del grupo que ya se puede reproducir sin red (descarga `COMPLETED`), en el
-     * orden en que [DownloadGroup.episodes] ya los trae (orden natural de la serie) -- no el primero
-     * que terminó de bajar. Null si todavía no hay ninguno completo.
+     * The group's first episode that's already playable offline (download `COMPLETED`), in the
+     * order [DownloadGroup.episodes] already carries them in (the series' natural order) -- not the
+     * first one that finished downloading. Null if none is complete yet.
      */
     fun firstPlayableEpisodeId(group: DownloadGroup): String? =
         group.episodes
@@ -163,10 +163,10 @@ object DownloadGroupPolicy {
     fun rowThumbnail(episodeThumb: String?, itemThumbnailUrl: String): String = episodeThumb ?: itemThumbnailUrl
 
     /**
-     * Reconstruye un [Episode] mínimo a partir de una fila de `downloads`, para el caso (transitorio)
-     * en que todavía no resolvió `episodesOf(itemId)`. Los campos que no viajan en [DownloadRow]
-     * quedan en su valor neutro: no se muestran en la fila (ver `DownloadItem` en la UI) y se
-     * reemplazan por los reales apenas llega el fetch completo.
+     * Rebuilds a minimal [Episode] from a `downloads` row, for the (transient) case where
+     * `episodesOf(itemId)` hasn't resolved yet. Fields not carried by [DownloadRow] stay at their
+     * neutral value: they're not shown in the row (see `DownloadItem` in the UI) and get replaced
+     * by the real ones as soon as the full fetch arrives.
      */
     private fun DownloadRow.toPlaceholderEpisode(): Episode = Episode(
         id = episodeId,

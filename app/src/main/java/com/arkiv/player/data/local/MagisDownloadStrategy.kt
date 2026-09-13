@@ -5,14 +5,14 @@ import com.arkiv.player.data.gateway.ContentSource
 import java.io.File
 
 /**
- * Magis: resuelve el `ref` guardado contra el gateway y baja el archivo del CDN.
+ * Magis: resolves the saved `ref` against the gateway and downloads the file from the CDN.
  *
- * El CDN exige `Content-Auth` y `Content-License`, que llegan en la respuesta de `MagisResolve.resolveVod`.
- * Esos tokens hacen falta para **bajar**, no para reproducir: una vez en disco el archivo se
- * reproduce como cualquier otro, sin depender de que el token siga vivo.
+ * The CDN requires `Content-Auth` and `Content-License`, which come in `MagisResolve.resolveVod`'s
+ * response. Those tokens are needed to **download**, not to play: once on disk the file plays like
+ * any other, without depending on the token still being alive.
  *
- * Se resuelve en el momento de la descarga (no al encolar) porque el token del CDN vive ~48 h: un
- * ítem que estuvo en cola un día llegaría con el token vencido.
+ * Resolved at the moment of downloading (not when queuing) because the CDN token lives ~48h: an
+ * item that sat in the queue for a day would arrive with an expired token.
  */
 class MagisDownloadStrategy(
     private val repo: ArkivRepository,
@@ -29,27 +29,27 @@ class MagisDownloadStrategy(
         val ref = repo.magisRefForEpisode(episodeId)
             ?: return DownloadOutcome.Failed("No se encontró la fuente de Magis")
 
-        val reproducible = runCatching { gateway.resolve(ref) }.getOrElse {
+        val playable = runCatching { gateway.resolve(ref) }.getOrElse {
             return DownloadOutcome.Failed(
                 it.message ?: "No se pudo resolver la fuente de Magis",
                 transient = DownloadRetryPolicy.isTransient(it),
             )
         }
-        if (reproducible.url.isBlank()) {
+        if (playable.url.isBlank()) {
             return DownloadOutcome.Failed("Magis no devolvió un archivo descargable")
         }
 
-        // La extensión sale de la URL del CDN (`..._media.ts` / `..._media.mp4`): el contenedor
-        // importa para que el reproductor local elija bien el demuxer.
-        val extension = reproducible.url.substringAfterLast('.', "mp4").take(4)
+        // The extension comes from the CDN URL (`..._media.ts` / `..._media.mp4`): the container
+        // matters so the local player picks the right demuxer.
+        val extension = playable.url.substringAfterLast('.', "mp4").take(4)
         val target = File(targetDir, LocalFilePaths.fileNameFor(episodeId, "magis.$extension"))
 
-        // resumeKey explícito: la URL trae un token que cambia en cada resolución, así que usarla
-        // como clave (el default) descartaría el `.part` en cada reintento y volvería a empezar.
+        // Explicit resumeKey: the URL carries a token that changes on every resolution, so using
+        // it as the key (the default) would discard the `.part` on every retry and start over.
         return http.download(
-            reproducible.url,
+            playable.url,
             target,
-            reproducible.headers,
+            playable.headers,
             resumeKey = episodeId,
             onProgress = onProgress,
         ).fold(
@@ -63,3 +63,4 @@ class MagisDownloadStrategy(
         )
     }
 }
+
