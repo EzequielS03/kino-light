@@ -362,8 +362,8 @@ class AppGraph(context: Context) {
      * Cuelga del mismo directorio que las descargas normales para que el espacio libre que mide
      * `LocalDownloadManager` sea el mismo disco que realmente se llena.
      */
-    val almacenDeCaracol: com.arkiv.player.data.caracol.AlmacenDeCaracol by lazy {
-        com.arkiv.player.data.caracol.AlmacenDeCaracol(
+    val almacenDeCaracol: com.arkiv.player.data.caracol.CaracolStore by lazy {
+        com.arkiv.player.data.caracol.CaracolStore(
             appContext,
             java.io.File(localDownloads.targetDir(), "caracol"),
         )

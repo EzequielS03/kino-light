@@ -385,7 +385,7 @@ fun SearchScreen(
             },
             // Caracol SÍ se baja, desde 2026-09-13. No como Magis: lo que queda en el aparato son
             // sus segmentos cifrados, y abrirlos sigue pidiendo una licencia por red (unos KB). Ver
-            // `AlmacenDeCaracol`. Se ofrece solo si hay estrategia registrada, que es la misma
+            // `CaracolStore`. Se ofrece solo si hay estrategia registrada, que es la misma
             // compuerta que usa el resto de la app.
             onSave = if (!caracolSeBaja) null else { todos, elegidos, serie ->
                 askNotifications()

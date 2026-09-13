@@ -108,8 +108,8 @@ internal fun DituExoPlayer(
      * concede licencias persistentes, así que "bajado" acá significa que no vuelven a viajar los
      * gigabytes, no que se pueda ver en modo avión.
      */
-    descargaLocal: com.arkiv.player.data.caracol.DescargaDeCaracol? = null,
-    almacen: com.arkiv.player.data.caracol.AlmacenDeCaracol? = null,
+    descargaLocal: com.arkiv.player.data.caracol.CaracolDownload? = null,
+    almacen: com.arkiv.player.data.caracol.CaracolStore? = null,
     startPositionMs: Long = 0L,
     arrancarSolo: Boolean = true,
     onPlayerReady: (Player?) -> Unit = {},
@@ -129,7 +129,7 @@ internal fun DituExoPlayer(
             TAG,
             "Creating ExoPlayer DASH · url=${(descargaLocal?.mpd ?: mediaUrl).take(80)} " +
                 "license=${drmLicenseUrl.take(60)} headers=${drmLicenseHeaders.keys} " +
-                "startMs=$startPositionMs fromDisk=${descargaLocal != null} quality=${descargaLocal?.alto}p",
+                "startMs=$startPositionMs fromDisk=${descargaLocal != null} quality=${descargaLocal?.height}p",
         )
 
         val httpFactory = DefaultHttpDataSource.Factory()
@@ -143,7 +143,7 @@ internal fun DituExoPlayer(
         // a medio bajar sigue siendo mirable). Sin bajar: el CDN, como siempre. La licencia NO pasa
         // por acá -- va por `httpFactory`, más abajo, porque siempre tiene que salir a la red.
         val deDisco = descargaLocal != null && almacen != null
-        val fabricaDeMedios = if (deDisco) almacen!!.fabricaParaVer(drmLicenseHeaders) else httpFactory
+        val fabricaDeMedios = if (deDisco) almacen!!.factoryForPlayback(drmLicenseHeaders) else httpFactory
 
         // La URL guardada MANDA sobre la recién resuelta. Un caché se indexa por la URI con la que
         // se escribió: abrir con otra -- aunque apunte al mismo video -- falla todos los bytes y se
@@ -157,7 +157,7 @@ internal fun DituExoPlayer(
             .setMimeType(MimeTypes.APPLICATION_MPD)
             .apply {
                 descargaLocal?.let { d ->
-                    setStreamKeys(d.claves.map { StreamKey(it.periodo, it.grupo, it.pista) })
+                    setStreamKeys(d.keys.map { StreamKey(it.period, it.group, it.track) })
                 }
             }
             .build()

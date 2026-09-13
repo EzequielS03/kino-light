@@ -170,10 +170,10 @@ data class DituReproducible(
      *
      * `null` = reproducir por streaming, como siempre. Cuando viene, los segmentos salen del caché
      * en vez del CDN -- pero la LICENCIA se sigue pidiendo por red, porque Caracol no concede
-     * licencias persistentes (ver [com.arkiv.player.data.caracol.DescargaDeCaracol]). Por eso esto
+     * licencias persistentes (ver [com.arkiv.player.data.caracol.CaracolDownload]). Por eso esto
      * convive con [playable] en lugar de reemplazarlo: de ahí sale el `playback_token` fresco.
      */
-    val descargaLocal: com.arkiv.player.data.caracol.DescargaDeCaracol? = null,
+    val descargaLocal: com.arkiv.player.data.caracol.CaracolDownload? = null,
 )
 
 /**
@@ -1032,7 +1032,7 @@ class PlayerViewModel internal constructor(
         // resolver hace falta igual: es lo único que trae el token con el que se pide la licencia.
         val descarga = if (vivo) null else runCatching { localLibrary.descargaDeCaracol(episodeId) }.getOrNull()
         if (descarga != null) {
-            Log.w(PLAY, "loadDitu() $episodeId is on the device (${descarga.alto}p); media comes off the disk")
+            Log.w(PLAY, "loadDitu() $episodeId is on the device (${descarga.height}p); media comes off the disk")
         }
         if (!ditu.publicar(
                 DituReproducible(episodeId, play, startPos, arrancarSolo = arrancarSolo, descargaLocal = descarga),

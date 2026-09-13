@@ -76,9 +76,9 @@ class PruebaDeDescargaDeCaracol : BroadcastReceiver() {
             TAG,
             "episodeId=$epId\n" +
                 "  row      : state=${fila?.state} source=${fila?.source} bytes=${fila?.bytesDone}/${fila?.bytes}\n" +
-                "  record   : ${descarga?.let { "${it.alto}p, ${it.claves.size} tracks, mpd=${it.mpd.take(60)}" } ?: "none"}\n" +
+                "  record   : ${descarga?.let { "${it.height}p, ${it.keys.size} tracks, mpd=${it.mpd.take(60)}" } ?: "none"}\n" +
                 "  asFile   : ${comoArchivo ?: "null (correct: Caracol must NOT go to the local-file player)"}\n" +
-                "  onDisk   : ${graph.almacenDeCaracol.bytesEnDisco() / 1_000_000}MB of Caracol",
+                "  onDisk   : ${graph.almacenDeCaracol.bytesOnDisk() / 1_000_000}MB of Caracol",
         )
     }
 
@@ -93,9 +93,9 @@ class PruebaDeDescargaDeCaracol : BroadcastReceiver() {
         val elegido = capitulos.getOrNull(cual - 1) ?: return
         val epId = SearchPlayback(graph).dituEpisodeIdDe(temporada, capitulos, elegido, serie) ?: return
 
-        val antes = graph.almacenDeCaracol.bytesEnDisco()
+        val antes = graph.almacenDeCaracol.bytesOnDisk()
         graph.localDownloads.remove(epId)
-        val despues = graph.almacenDeCaracol.bytesEnDisco()
+        val despues = graph.almacenDeCaracol.bytesOnDisk()
         val fila = graph.database.downloadDao().get(epId)
         val registro = java.io.File(
             graph.localDownloads.targetDir(),

@@ -234,7 +234,7 @@ fun CaracolScreen(onPlay: (episodeId: String) -> Unit, contentPadding: PaddingVa
             // Caracol can be downloaded since 2026-09-13 -- not the way Magis is. What lands on
             // the device are its ENCRYPTED segments, and opening them still asks the licence server
             // for a few KB over the network, because Caracol grants no persistent licences. See
-            // `AlmacenDeCaracol`. Offered only when a strategy is registered, the same gate the
+            // `CaracolStore`. Offered only when a strategy is registered, the same gate the
             // rest of the app uses.
             onSave = if (!caracolSeBaja) null else { todos, elegidos, series ->
                 pedirNotificaciones()

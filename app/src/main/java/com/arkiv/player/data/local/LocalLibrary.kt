@@ -1,6 +1,6 @@
 package com.arkiv.player.data.local
 
-import com.arkiv.player.data.caracol.DescargaDeCaracol
+import com.arkiv.player.data.caracol.CaracolDownload
 import com.arkiv.player.data.db.ArkivDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -45,12 +45,12 @@ class LocalLibrary(private val db: ArkivDatabase) {
      * El registro de un capítulo de Caracol bajado, o `null` si no está en el dispositivo.
      *
      * Devuelve lo que hace falta para ABRIRLO: con qué URL se llenó el caché y qué calidad se bajó.
-     * Ver [DescargaDeCaracol], que explica por qué ninguno de los dos se puede adivinar después.
+     * Ver [CaracolDownload], que explica por qué ninguno de los dos se puede adivinar después.
      *
      * Igual que [fileFor], comprueba que lo de disco siga existiendo: si la persona borró los datos
      * de la app por fuera, la fila se limpia y el próximo play cae a streaming en vez de fallar.
      */
-    suspend fun descargaDeCaracol(episodeId: String): DescargaDeCaracol? = withContext(Dispatchers.IO) {
+    suspend fun descargaDeCaracol(episodeId: String): CaracolDownload? = withContext(Dispatchers.IO) {
         val row = downloadDao.get(episodeId) ?: return@withContext null
         if (row.state != LocalDownloadState.COMPLETED || row.source != FUENTE_CARACOL) return@withContext null
         val path = row.filePath ?: return@withContext null
@@ -59,7 +59,7 @@ class LocalLibrary(private val db: ArkivDatabase) {
             downloadDao.delete(episodeId)
             return@withContext null
         }
-        val datos = runCatching { DescargaDeCaracol.deJson(registro.readText()) }.getOrNull()
+        val datos = runCatching { CaracolDownload.fromJson(registro.readText()) }.getOrNull()
         if (datos == null) {
             // Un registro ilegible es una descarga que no se puede abrir. Se limpia la fila para que
             // la UI deje de prometer algo que no va a funcionar, y se vuelve a poder bajar.
