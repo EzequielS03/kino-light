@@ -99,7 +99,7 @@ class PruebaDeDescargaDeCaracol : BroadcastReceiver() {
         val fila = graph.database.downloadDao().get(epId)
         val registro = java.io.File(
             graph.localDownloads.targetDir(),
-            com.arkiv.player.data.local.DituDownloadStrategy.nombreDelRegistro(epId),
+            com.arkiv.player.data.local.DituDownloadStrategy.recordFileName(epId),
         )
         Log.w(
             TAG,

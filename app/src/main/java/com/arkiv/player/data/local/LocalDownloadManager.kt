@@ -39,7 +39,7 @@ class LocalDownloadManager(
     private val restartWorker: (Context) -> Unit,
     /**
      * Las estrategias, para poder pedirles que limpien lo suyo al quitar una descarga (ver
-     * [DownloadStrategy.borrarRestos]). Va como lambda y no como mapa para romper el ciclo con
+     * [DownloadStrategy.clearLeftovers]). Va como lambda y no como mapa para romper el ciclo con
      * `AppGraph`: las estrategias necesitan el repositorio, que se construye después de esto.
      */
     private val estrategias: () -> Map<String, DownloadStrategy> = { emptyMap() },
@@ -171,7 +171,7 @@ class LocalDownloadManager(
         // Va ANTES de borrar el registro por prefijo, porque es ese registro el que dice qué bytes
         // del caché son de este capítulo.
         row?.source?.let { fuente ->
-            runCatching { estrategias()[fuente]?.borrarRestos(episodeId, targetDir()) }
+            runCatching { estrategias()[fuente]?.clearLeftovers(episodeId, targetDir()) }
         }
         val path = row?.filePath ?: row?.localUri?.removePrefix("file://")
         // Dos filas pueden compartir el MISMO archivo: cuando el worker encuentra que ese contenido

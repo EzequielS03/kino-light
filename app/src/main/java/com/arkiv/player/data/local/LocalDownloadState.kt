@@ -1,9 +1,9 @@
 package com.arkiv.player.data.local
 
 /**
- * Estados de una fila de la tabla `downloads`. Son strings y no un enum porque Room ya los guarda
- * así desde la primera versión de la tabla y cambiarlo obligaría a un converter + migración de datos
- * sin ganar nada.
+ * States of a `downloads` table row. They're strings and not an enum because Room has saved them
+ * that way since the table's first version, and changing it would force a converter + data
+ * migration for no gain.
  */
 object LocalDownloadState {
     const val QUEUED = "queued"
@@ -16,20 +16,20 @@ object LocalDownloadState {
     const val FAILED = "failed"
 }
 
-/** Fila mínima de la cola: lo único que la política necesita para decidir. */
+/** Minimal queue row: the only thing the policy needs to decide. */
 data class QueueRow(val episodeId: String, val state: String, val createdAt: Long)
 
 /**
- * Decide qué fila procesa el worker. La cola es de UNA a la vez (ver el spec: `TorrentEngine` es de
- * un stream activo, el disco de blog no aguanta varios staging, y el ancho de banda del Fire TV no
- * sobra), así que esto devuelve una sola fila o null.
+ * Decides which row the worker processes. The queue is ONE at a time (see the spec:
+ * `TorrentEngine` is for a single active stream, the blog's disk can't take several stagings, and
+ * the Fire TV's bandwidth is scarce), so this returns a single row or null.
  */
 object DownloadQueuePolicy {
 
     /**
-     * Lo ya empezado (`downloading` / `staging`) gana sobre lo encolado: si la app se mató a mitad de
-     * una descarga de 4 GB, retomarla vale más que arrancar otra desde cero. Entre iguales, la más
-     * vieja primero (FIFO).
+     * What's already started (`downloading` / `staging`) wins over what's queued: if the app got
+     * killed mid-way through a 4 GB download, resuming it is worth more than starting another one
+     * from scratch. Among equals, the oldest first (FIFO).
      */
     fun nextToProcess(rows: List<QueueRow>): QueueRow? {
         val inFlight = rows.filter { it.state == LocalDownloadState.DOWNLOADING || it.state == LocalDownloadState.STAGING }

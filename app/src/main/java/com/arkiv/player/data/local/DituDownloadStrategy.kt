@@ -22,30 +22,30 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * Caracol: guarda los segmentos CIFRADOS de un capítulo en el caché de media3.
+ * Caracol: saves an episode's ENCRYPTED segments in media3's cache.
  *
- * Es la estrategia rara de las dos. Magis baja UN archivo y ese archivo después se reproduce solo,
- * sin depender de nada. Caracol no puede: su video es DASH con Widevine, y lo que queda en disco
- * son segmentos que solo el CDM del aparato sabe abrir, con una licencia que hay que pedir de
- * nuevo cada vez. Acá no se descifra nada — ver [CaracolStore].
+ * It's the odd one of the two strategies. Magis downloads ONE file and that file then plays on
+ * its own, with no dependency. Caracol can't: its video is DASH with Widevine, and what's left on
+ * disk is segments only the device's CDM knows how to open, with a license that has to be
+ * requested again every time. Nothing gets decrypted here — see [CaracolStore].
  *
- * El resultado no es entonces un video reproducible sino el REGISTRO de la descarga
- * ([CaracolDownload]): un archivito JSON al lado de las descargas normales, con la URL del
- * manifiesto y qué calidad se bajó. Eso es lo que devuelve [DownloadOutcome.Done] y lo que queda
- * en `downloads.filePath`. Va así, y no como una columna nueva, porque toda la maquinaria que ya
- * existe —el barrido por prefijo de `LocalDownloadManager.remove`, la fila de la UI, el gemelo—
- * trabaja con un path; y porque `LocalLibrary.fileFor` sabe no entregárselo al reproductor de
- * archivos locales (miraría un JSON y mostraría pantalla negra).
+ * The result then isn't a playable video but the download's RECORD ([CaracolDownload]): a little
+ * JSON file next to the normal downloads, with the manifest's URL and which quality was
+ * downloaded. That's what [DownloadOutcome.Done] returns and what ends up in
+ * `downloads.filePath`. It goes this way, and not as a new column, because all the machinery that
+ * already exists —`LocalDownloadManager.remove`'s prefix sweep, the UI row, the twin— works with a
+ * path; and because `LocalLibrary.fileFor` knows not to hand it to the local-file player (it would
+ * look at a JSON and show a black screen).
  *
- * Se resuelve en el momento de bajar y no al encolar: el `playback_token` de Caracol dura horas.
+ * Resolved at the moment of downloading and not when queuing: Caracol's `playback_token` lasts hours.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 class DituDownloadStrategy(
     private val repo: ArkivRepository,
     private val gateway: ContentSource,
-    private val almacen: CaracolStore,
-    /** Techo de calidad. Inyectado para poder probar la decisión sin tocar la constante global. */
-    private val altoObjetivo: Int = CaracolQuality.TARGET_HEIGHT,
+    private val store: CaracolStore,
+    /** Quality ceiling. Injected so the decision can be tested without touching the global constant. */
+    private val targetHeight: Int = CaracolQuality.TARGET_HEIGHT,
 ) : DownloadStrategy {
 
     override suspend fun download(
@@ -68,7 +68,7 @@ class DituDownloadStrategy(
         val headers = play.drmLicenseHeaders
         val manifest = runCatching {
             withContext(Dispatchers.IO) {
-                DashUtil.loadManifest(almacen.httpFactory(headers).createDataSource(), Uri.parse(play.url))
+                DashUtil.loadManifest(store.httpFactory(headers).createDataSource(), Uri.parse(play.url))
             }
         }.getOrElse {
             return DownloadOutcome.Failed(
@@ -77,50 +77,50 @@ class DituDownloadStrategy(
             )
         }
 
-        val elegidas = CaracolQuality.choose(pistasDe(manifest), altoObjetivo)
-        if (elegidas.isEmpty()) return DownloadOutcome.Failed("Ese capítulo de Caracol no trae video")
-        val claves = elegidas.map { StreamKey(PERIODO, it.group, it.track) }
-        val alto = elegidas.firstOrNull { it.isVideo }?.height ?: 0
-        val estimado = CaracolQuality.estimatedBytes(elegidas, manifest.durationMs)
+        val chosen = CaracolQuality.choose(tracksFrom(manifest), targetHeight)
+        if (chosen.isEmpty()) return DownloadOutcome.Failed("Ese capítulo de Caracol no trae video")
+        val keys = chosen.map { StreamKey(PERIOD, it.group, it.track) }
+        val height = chosen.firstOrNull { it.isVideo }?.height ?: 0
+        val estimatedBytes = CaracolQuality.estimatedBytes(chosen, manifest.durationMs)
         Log.i(
             TAG,
-            "$episodeId: downloading ${alto}p (~${estimado / 1_000_000}MB of ${manifest.durationMs}ms) keys=$claves",
+            "$episodeId: downloading ${height}p (~${estimatedBytes / 1_000_000}MB of ${manifest.durationMs}ms) keys=$keys",
         )
 
-        // El registro se escribe ANTES de bajar un solo byte. Si la descarga se corta a la mitad,
-        // lo que quedó en el caché sigue siendo identificable: sin el registro, esos megas serían
-        // basura anónima que nadie sabría ni reanudar ni borrar.
-        val registro = File(targetDir, nombreDelRegistro(episodeId))
-        val datos = CaracolDownload(
+        // The record is written BEFORE a single byte downloads. If the download cuts off halfway,
+        // what's left in the cache is still identifiable: without the record, those megabytes
+        // would be anonymous junk nobody would know how to resume or delete.
+        val record = File(targetDir, recordFileName(episodeId))
+        val data = CaracolDownload(
             mpd = play.url,
-            keys = elegidas.map { TrackKey(PERIODO, it.group, it.track) },
-            height = alto,
+            keys = chosen.map { TrackKey(PERIOD, it.group, it.track) },
+            height = height,
         )
-        runCatching { registro.writeText(datos.toJson()) }
+        runCatching { record.writeText(data.toJson()) }
             .onFailure { return DownloadOutcome.Failed("No se pudo anotar la descarga: ${it.message}") }
 
         val item = MediaItem.Builder()
             .setUri(play.url)
             .setMimeType(MimeTypes.APPLICATION_MPD)
-            .setStreamKeys(claves)
+            .setStreamKeys(keys)
             .build()
 
         return try {
-            // `runInterruptible` y no un `withContext` pelado: `DashDownloader.download` BLOQUEA el
-            // hilo, y una corrutina cancelada no interrumpe por su cuenta una llamada bloqueante.
-            // Sin esto, "Cancelar" dejaba la descarga corriendo hasta terminar — gastando datos de
-            // una fila que ya no existe, que es exactamente lo que `LocalDownloadManager.remove`
-            // documenta querer evitar.
+            // `runInterruptible` and not a bare `withContext`: `DashDownloader.download` BLOCKS the
+            // thread, and a cancelled coroutine doesn't interrupt a blocking call on its own.
+            // Without this, "Cancel" left the download running until it finished — spending data
+            // for a row that no longer exists, exactly what `LocalDownloadManager.remove`
+            // documents wanting to avoid.
             runInterruptible(Dispatchers.IO) {
-                almacen.downloader(item, headers).download { contentLength, bytesDownloaded, _ ->
-                    onProgress(bytesDownloaded, if (contentLength > 0) contentLength else estimado)
+                store.downloader(item, headers).download { contentLength, bytesDownloaded, _ ->
+                    onProgress(bytesDownloaded, if (contentLength > 0) contentLength else estimatedBytes)
                 }
             }
-            Log.i(TAG, "$episodeId: done, ${almacen.bytesOnDisk() / 1_000_000}MB of Caracol on disk")
-            DownloadOutcome.Done(registro)
+            Log.i(TAG, "$episodeId: done, ${store.bytesOnDisk() / 1_000_000}MB of Caracol on disk")
+            DownloadOutcome.Done(record)
         } catch (ce: kotlinx.coroutines.CancellationException) {
-            // Se propaga: el worker la distingue de un fallo, y lo bajado queda en el caché para
-            // que "Reintentar" siga desde ahí en vez de empezar de cero.
+            // Propagated: the worker tells it apart from a failure, and what downloaded stays in
+            // the cache so "Retry" continues from there instead of starting from scratch.
             throw ce
         } catch (t: Throwable) {
             DownloadOutcome.Failed(
@@ -131,44 +131,44 @@ class DituDownloadStrategy(
     }
 
     /**
-     * Borra del caché lo que bajó ESTE capítulo, sin tocar los demás.
+     * Deletes from the cache what THIS episode downloaded, without touching the others.
      *
-     * El caché es uno solo para todos, así que no alcanza con borrar una carpeta: quien sabe qué
-     * bytes son de quién es el propio descargador, reconstruido con el mismo manifiesto y las
-     * mismas pistas que quedaron anotadas en el registro.
+     * The cache is a single one for everyone, so deleting a folder isn't enough: what knows which
+     * bytes belong to whom is the downloader itself, rebuilt with the same manifest and the same
+     * tracks that were recorded in the record.
      */
-    override suspend fun borrarRestos(episodeId: String, targetDir: File) {
-        val registro = File(targetDir, nombreDelRegistro(episodeId))
-        val datos = runCatching { CaracolDownload.fromJson(registro.readText()) }.getOrNull()
-        if (datos == null) {
+    override suspend fun clearLeftovers(episodeId: String, targetDir: File) {
+        val record = File(targetDir, recordFileName(episodeId))
+        val data = runCatching { CaracolDownload.fromJson(record.readText()) }.getOrNull()
+        if (data == null) {
             Log.w(TAG, "$episodeId: no download record, nothing to clear from the cache")
             return
         }
         val item = MediaItem.Builder()
-            .setUri(datos.mpd)
+            .setUri(data.mpd)
             .setMimeType(MimeTypes.APPLICATION_MPD)
-            .setStreamKeys(datos.keys.map { StreamKey(it.period, it.group, it.track) })
+            .setStreamKeys(data.keys.map { StreamKey(it.period, it.group, it.track) })
             .build()
-        runCatching { runInterruptible(Dispatchers.IO) { almacen.downloader(item, emptyMap()).remove() } }
+        runCatching { runInterruptible(Dispatchers.IO) { store.downloader(item, emptyMap()).remove() } }
             .onFailure { Log.w(TAG, "$episodeId: couldn't clear the cache: ${it.message}") }
-        Log.i(TAG, "$episodeId: cleared; ${almacen.bytesOnDisk() / 1_000_000}MB of Caracol left on disk")
+        Log.i(TAG, "$episodeId: cleared; ${store.bytesOnDisk() / 1_000_000}MB of Caracol left on disk")
     }
 
-    /** El manifiesto, reducido a lo que [CaracolQuality] necesita para elegir. */
-    private fun pistasDe(manifest: DashManifest): List<CaracolTrack> {
+    /** The manifest, reduced to what [CaracolQuality] needs to choose. */
+    private fun tracksFrom(manifest: DashManifest): List<CaracolTrack> {
         if (manifest.periodCount == 0) return emptyList()
-        val periodo = manifest.getPeriod(PERIODO)
+        val period = manifest.getPeriod(PERIOD)
         return buildList {
-            periodo.adaptationSets.forEachIndexed { grupo, conjunto ->
-                val esVideo = conjunto.type == C.TRACK_TYPE_VIDEO
-                if (!esVideo && conjunto.type != C.TRACK_TYPE_AUDIO) return@forEachIndexed
-                conjunto.representations.forEachIndexed { pista, representacion ->
-                    val f = representacion.format
+            period.adaptationSets.forEachIndexed { group, set ->
+                val isVideo = set.type == C.TRACK_TYPE_VIDEO
+                if (!isVideo && set.type != C.TRACK_TYPE_AUDIO) return@forEachIndexed
+                set.representations.forEachIndexed { track, representation ->
+                    val f = representation.format
                     add(
                         CaracolTrack(
-                            group = grupo,
-                            track = pista,
-                            isVideo = esVideo,
+                            group = group,
+                            track = track,
+                            isVideo = isVideo,
                             height = f.height.takeIf { it != androidx.media3.common.Format.NO_VALUE } ?: 0,
                             bitsPerSecond = f.bitrate.takeIf { it != androidx.media3.common.Format.NO_VALUE } ?: 0,
                         ),
@@ -182,13 +182,13 @@ class DituDownloadStrategy(
         private const val TAG = "ArkivDituDl"
 
         /**
-         * Caracol sirve un solo período. Se nombra en vez de escribir 0 suelto en cinco lugares:
-         * un manifiesto multi-período necesitaría bajar todos, y así se ve dónde habría que mirar.
+         * Caracol serves a single period. Named instead of writing a bare 0 in five places: a
+         * multi-period manifest would need to download them all, and this way it's clear where to look.
          */
-        private const val PERIODO = 0
+        private const val PERIOD = 0
 
-        /** Nombre del registro de un capítulo. El prefijo es el que barre `LocalDownloadManager.remove`. */
-        fun nombreDelRegistro(episodeId: String): String =
+        /** Name of an episode's record. The prefix is what `LocalDownloadManager.remove` sweeps by. */
+        fun recordFileName(episodeId: String): String =
             "${LocalFilePaths.sanitize(episodeId)}.${CaracolDownload.EXTENSION}"
     }
 }

@@ -2,27 +2,28 @@ package com.arkiv.player.data.local
 
 import java.io.File
 
-/** Resultado de intentar bajar un episodio. */
+/** Result of trying to download an episode. */
 sealed interface DownloadOutcome {
     data class Done(val file: File) : DownloadOutcome
     /** Legacy of the torrent size gate (source removed in this branch's pruning): no strategy returns this today. */
     data class NeedsConfirmation(val fileSizeBytes: Long) : DownloadOutcome
     /**
-     * [transient] = "esto puede andar en un rato" (corte de red, 5xx, torrent en uso). El worker lo
-     * usa para decidir si devuelve `Result.retry()` (backoff de WorkManager) o marca la fila
-     * `failed`. Por defecto false: un motivo nuevo que nadie clasificó no debe reintentarse solo.
-     * Ver [DownloadRetryPolicy].
+     * [transient] = "this might work in a bit" (network cut, 5xx, torrent in use). The worker uses
+     * it to decide whether to return `Result.retry()` (WorkManager's backoff) or mark the row
+     * `failed`. Defaults to false: a new reason nobody classified shouldn't retry on its own.
+     * See [DownloadRetryPolicy].
      */
     data class Failed(val reason: String, val transient: Boolean = false) : DownloadOutcome
 }
 
 /**
- * Cómo se baja UNA fuente. El worker elige la implementación por `source` y no sabe nada de
- * libtorrent, de la NUC ni de archive.org.
+ * How ONE source is downloaded. The worker picks the implementation by `source` and knows nothing
+ * about libtorrent, the NUC or archive.org.
  *
- * Las estrategias resuelven el origen consultando el repositorio por `episodeId` (igual que hace hoy
- * `PlayerViewModel`), en vez de recibirlo por parámetro: así la tabla `downloads` no duplica datos
- * que ya viven en `items`/`episodes` y no hay dos fuentes de verdad que se puedan desincronizar.
+ * Strategies resolve the origin by querying the repository for `episodeId` (same as
+ * `PlayerViewModel` does today), instead of receiving it as a parameter: that way the `downloads`
+ * table doesn't duplicate data that already lives in `items`/`episodes`, and there aren't two
+ * sources of truth that can drift apart.
  */
 interface DownloadStrategy {
     suspend fun download(
@@ -33,15 +34,15 @@ interface DownloadStrategy {
     ): DownloadOutcome
 
     /**
-     * Borra lo que [download] dejó FUERA de [targetDir], si dejó algo.
+     * Deletes what [download] left OUTSIDE [targetDir], if it left anything.
      *
-     * `LocalDownloadManager.remove` sabe borrar un archivo y barrer por prefijo el directorio de
-     * descargas, y con eso alcanzaba mientras toda descarga fue un archivo. Caracol no lo es: sus
-     * bytes viven en un caché de media3 compartido por todos los capítulos, y quién sabe cuáles son
-     * de cuál es su propia estrategia. Sin este gancho, "Quitar" borraba la fila y dejaba los megas
-     * ocupando disco para siempre.
+     * `LocalDownloadManager.remove` knows how to delete a file and sweep the downloads directory
+     * by prefix, and that was enough while every download was a file. Caracol isn't one: its bytes
+     * live in a media3 cache shared by every chapter, and only its own strategy knows which ones
+     * belong to which. Without this hook, "Remove" deleted the row and left the megabytes taking
+     * up disk forever.
      *
-     * Vacío por defecto: una estrategia que solo escribe un archivo no tiene nada que agregar.
+     * Empty by default: a strategy that only writes a file has nothing to add.
      */
-    suspend fun borrarRestos(episodeId: String, targetDir: File) = Unit
+    suspend fun clearLeftovers(episodeId: String, targetDir: File) = Unit
 }
