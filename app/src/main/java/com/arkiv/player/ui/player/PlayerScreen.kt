@@ -548,8 +548,8 @@ private fun PlayerContent(
         val cdn = magisItem?.castUrl?.takeIf { it.isNotBlank() } ?: return 0L
         // From the stored, keyframe-aligned point -- NOT from the local player's live position,
         // which keeps moving and would make the bar jump every time it was read.
-        val clave = com.arkiv.player.playback.PoliticaDeRemux.claveDesde(cdn, puntoDeArranque[ep] ?: 0L)
-        return com.arkiv.player.playback.PoliticaDeRemux.desdeDeLaClave(clave)
+        val clave = com.arkiv.player.playback.RemuxPolicy.keyFrom(cdn, puntoDeArranque[ep] ?: 0L)
+        return com.arkiv.player.playback.RemuxPolicy.fromInKey(clave)
     }
 
     fun contentPositionMs(): Long =
@@ -881,7 +881,7 @@ private fun PlayerContent(
                 // The SAME key the remux was filed under: the keyframe-aligned point, not the
                 // raw position, which drifts as the local player keeps its own time.
                 graph.tsRemuxer.inProgress(
-                    com.arkiv.player.playback.PoliticaDeRemux.claveDesde(
+                    com.arkiv.player.playback.RemuxPolicy.keyFrom(
                         cdn,
                         puntoDeArranque[item.episodeId] ?: 0L,
                     ),
@@ -1037,8 +1037,8 @@ private fun PlayerContent(
             asLive = remuxMagisCreciendo,
             // Where the remux begins, so a saved position lands on the right minute of the title.
             offsetMs = if (item.kind == SourceKind.MAGIS) {
-                com.arkiv.player.playback.PoliticaDeRemux.desdeDeLaClave(
-                    com.arkiv.player.playback.PoliticaDeRemux.claveDesde(
+                com.arkiv.player.playback.RemuxPolicy.fromInKey(
+                    com.arkiv.player.playback.RemuxPolicy.keyFrom(
                         item.castUrl.orEmpty(),
                         puntoDeArranque[item.episodeId] ?: 0L,
                     ),
@@ -1187,7 +1187,7 @@ private fun PlayerContent(
                 }
                 Triple(
                     item.mediaUrl,
-                    com.arkiv.player.playback.PoliticaDeRemux.claveDesde(cdn, alineado),
+                    com.arkiv.player.playback.RemuxPolicy.keyFrom(cdn, alineado),
                     com.arkiv.player.cast.CastRequestBuilder.mimeForUrl(cdn),
                 )
             }
@@ -1212,7 +1212,7 @@ private fun PlayerContent(
                 }",
         )
 
-        if (!com.arkiv.player.playback.PoliticaDeRemux.hayQueRemuxear(mime)) {
+        if (!com.arkiv.player.playback.RemuxPolicy.needsRemux(mime)) {
             android.util.Log.i("ArkivCast", "${item.kind} is $mime, no remux needed")
             return@LaunchedEffect
         }

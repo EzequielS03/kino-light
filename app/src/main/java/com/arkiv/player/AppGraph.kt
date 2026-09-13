@@ -308,7 +308,7 @@ class AppGraph(context: Context) {
      */
     val localFileServerDeTrozos: com.arkiv.player.playback.ServidorDeTrozos by lazy {
         com.arkiv.player.playback.ServidorDeTrozos(
-            carpeta = java.io.File(appContext.cacheDir, com.arkiv.player.playback.PoliticaDeRemux.CARPETA),
+            carpeta = java.io.File(appContext.cacheDir, com.arkiv.player.playback.RemuxPolicy.FOLDER),
             lanIp = { lanIp() },
         )
     }

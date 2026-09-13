@@ -15,13 +15,13 @@ package com.arkiv.player.playback
  * minute. An MP4 carries explicit per-sample timing instead. Nothing is re-encoded: Transformer
  * copies the compressed samples when the format already fits.
  */
-object PoliticaDeRemux {
+object RemuxPolicy {
 
     /** Extension of the remuxed copy. Not `.mp4` by accident: it IS an mp4. */
     const val EXTENSION = "mp4"
 
     /** Remuxed copies live here, under the app's own cache dir. */
-    const val CARPETA = "remux"
+    const val FOLDER = "remux"
 
     /**
      * Does [mime] need remuxing before this receiver will play it properly?
@@ -31,38 +31,38 @@ object PoliticaDeRemux {
      * the segmenter path still exists for it, and a remux that fails is worse than a cast that
      * works imperfectly.
      */
-    fun hayQueRemuxear(mime: String?): Boolean = mime == Container.MPEGTS.mime
+    fun needsRemux(mime: String?): Boolean = mime == Container.MPEGTS.mime
 
     /**
-     * Name of the remuxed copy for [claveDeOrigen].
+     * Name of the remuxed copy for [originKey].
      *
      * Keyed by the ORIGIN, not by the title: two episodes can share a title, and the same episode
      * re-resolved gets a new proxy url with new tokens but the same object in the CDN. Hashing
      * also keeps the auth blob in the query from ever reaching the filesystem.
      */
-    fun nombreDeArchivo(claveDeOrigen: String): String =
-        "${claveDeOrigen.hashCode().toUInt().toString(16)}.$EXTENSION"
+    fun fileName(originKey: String): String =
+        "${originKey.hashCode().toUInt().toString(16)}.$EXTENSION"
 
     /**
-     * Is [bytesRemuxeados] far enough ahead of playback at [posicionMs] to start casting?
+     * Is [remuxedBytes] far enough ahead of playback at [positionMs] to start casting?
      *
      * A remux that has only just begun is not castable: the receiver would drain it in seconds and
-     * stall. [ARRANQUE_MINIMO_SEG] of content, estimated from the title's own bitrate, is the
+     * stall. [MIN_START_SEC] of content, estimated from the title's own bitrate, is the
      * floor -- enough that the remux, which runs much faster than real time, stays ahead.
      */
-    fun sePuedeEmpezar(
-        bytesRemuxeados: Long,
-        bytesTotales: Long,
-        duracionMs: Long,
-        posicionMs: Long = 0L,
+    fun canStart(
+        remuxedBytes: Long,
+        totalBytes: Long,
+        durationMs: Long,
+        positionMs: Long = 0L,
     ): Boolean {
-        if (bytesRemuxeados <= 0L || bytesTotales <= 0L || duracionMs <= 0L) return false
-        val segundosListos = duracionMs / 1000.0 * bytesRemuxeados / bytesTotales
-        return segundosListos >= posicionMs / 1000.0 + ARRANQUE_MINIMO_SEG
+        if (remuxedBytes <= 0L || totalBytes <= 0L || durationMs <= 0L) return false
+        val secondsReady = durationMs / 1000.0 * remuxedBytes / totalBytes
+        return secondsReady >= positionMs / 1000.0 + MIN_START_SEC
     }
 
     /** How much finished content must exist before handing the receiver the url. */
-    const val ARRANQUE_MINIMO_SEG = 30.0
+    const val MIN_START_SEC = 30.0
 
     /**
      * How long each chunk runs when a title is cast as a QUEUE of finished files.
@@ -73,59 +73,59 @@ object PoliticaDeRemux {
      * receiver recompute its duration every second or two and chase an end that never stopped
      * moving.
      */
-    const val TROZO_SEG = 30L
+    const val CHUNK_SEC = 30L
 
-    /** How many chunks a title of [duracionMs] is cut into. */
-    fun trozosDe(duracionMs: Long): Int =
-        if (duracionMs <= 0L) 0 else Math.ceil(duracionMs / 1000.0 / TROZO_SEG).toInt()
+    /** How many chunks a title of [durationMs] is cut into. */
+    fun chunksFor(durationMs: Long): Int =
+        if (durationMs <= 0L) 0 else Math.ceil(durationMs / 1000.0 / CHUNK_SEC).toInt()
 
     /**
-     * Cache key for a remux that starts at [desdeMs] instead of at the beginning.
+     * Cache key for a remux that starts at [fromMs] instead of at the beginning.
      *
      * Starting somewhere other than zero is done by remuxing FROM that point, not by seeking into
      * the result. The remux is cast as a LIVE stream -- that is what stopped the receiver inventing
      * an end and stalling against it -- and a live stream has no timeline to seek along. A file
      * that begins where you left off needs none: it plays from its own zero.
      *
-     * Rounded to [GRANO_SEG] so reopening a title seconds later reuses the remux instead of paying
+     * Rounded to [GRAIN_SEC] so reopening a title seconds later reuses the remux instead of paying
      * for another. The rounding goes BACKWARDS on purpose: starting a few seconds early is
      * harmless, starting late skips content.
      */
-    fun claveDesde(claveDeOrigen: String, desdeMs: Long): String {
-        if (desdeMs <= 0L) return claveDeOrigen
+    fun keyFrom(originKey: String, fromMs: Long): String {
+        if (fromMs <= 0L) return originKey
         // EXACT milliseconds, no rounding. Rounding here was a real bug: the keyframe is found to
         // the millisecond and then this filed it under the nearest 30 s, so the remux was clipped
         // 583 ms away from the keyframe and the tracks went back to starting at different instants
         // -- the very desync the search exists to remove. Reuse comes from rounding the REQUEST
         // before the search instead, which lands on the same keyframe and so the same key.
-        return "$claveDeOrigen#$desdeMs"
+        return "$originKey#$fromMs"
     }
 
-    /** Rounds a resume point down to [GRANO_SEG], so nearby ones look for the same keyframe. */
-    fun redondearPeticion(desdeMs: Long): Long =
-        if (desdeMs < GRANO_SEG * 1000L) 0L else desdeMs / 1000 / GRANO_SEG * GRANO_SEG * 1000L
+    /** Rounds a resume point down to [GRAIN_SEC], so nearby ones look for the same keyframe. */
+    fun roundRequest(fromMs: Long): Long =
+        if (fromMs < GRAIN_SEC * 1000L) 0L else fromMs / 1000 / GRAIN_SEC * GRAIN_SEC * 1000L
 
     /** How coarsely a resume point is rounded when keying a remux. */
-    const val GRANO_SEG = 30L
+    const val GRAIN_SEC = 30L
 
-    /** Where a remux keyed by [claveDesde] actually begins, in ms. */
-    fun desdeDeLaClave(clave: String): Long =
-        clave.substringAfterLast('#', "").toLongOrNull() ?: 0L
+    /** Where a remux keyed by [keyFrom] actually begins, in ms. */
+    fun fromInKey(key: String): Long =
+        key.substringAfterLast('#', "").toLongOrNull() ?: 0L
 
-    /** Cache name for chunk [indice] of [claveDeOrigen]. */
-    fun nombreDeTrozo(claveDeOrigen: String, indice: Int): String =
-        "${claveDeOrigen.hashCode().toUInt().toString(16)}-$indice.$EXTENSION"
+    /** Cache name for chunk [index] of [originKey]. */
+    fun chunkFileName(originKey: String, index: Int): String =
+        "${originKey.hashCode().toUInt().toString(16)}-$index.$EXTENSION"
 
     /**
-     * Seconds of playable content in [bytes], for a title of [bytesTotales] and [duracionMs].
+     * Seconds of playable content in [bytes], for a title of [totalBytes] and [durationMs].
      *
      * The head start has to be measured in TIME, not megabytes. A fixed 6 MB is twenty-seven
      * seconds of a 221 KB/s title and six seconds of a 1 MB/s one -- the same number meaning
      * "comfortable" for one title and "about to stall" for another.
      */
-    fun segundosListos(bytes: Long, bytesTotales: Long, duracionMs: Long): Double {
-        if (bytes <= 0L || bytesTotales <= 0L || duracionMs <= 0L) return 0.0
-        return duracionMs / 1000.0 * bytes / bytesTotales
+    fun secondsReady(bytes: Long, totalBytes: Long, durationMs: Long): Double {
+        if (bytes <= 0L || totalBytes <= 0L || durationMs <= 0L) return 0.0
+        return durationMs / 1000.0 * bytes / totalBytes
     }
 
     /**
@@ -133,29 +133,29 @@ object PoliticaDeRemux {
      * are derived copies of things the person can always fetch again -- filling their phone with
      * them would be a poor trade for saving a few minutes of re-muxing.
      */
-    const val TOPE_BYTES = 4L * 1024 * 1024 * 1024
+    const val BYTE_CAP = 4L * 1024 * 1024 * 1024
 
     /**
-     * Which files to drop, oldest first, so that what remains fits under [TOPE_BYTES] alongside
-     * [bytesEntrantes].
+     * Which files to drop, oldest first, so that what remains fits under [BYTE_CAP] alongside
+     * [incomingBytes].
      *
      * Takes (name, size, lastModified) and returns the names to delete. Pure so the eviction order
      * can be pinned by test: getting it backwards would throw away what is being watched right now
      * and keep what nobody has opened in weeks.
      */
-    fun aBorrar(
-        archivos: List<Triple<String, Long, Long>>,
-        bytesEntrantes: Long = 0L,
+    fun toDelete(
+        files: List<Triple<String, Long, Long>>,
+        incomingBytes: Long = 0L,
     ): List<String> {
-        val total = archivos.sumOf { it.second } + bytesEntrantes
-        if (total <= TOPE_BYTES) return emptyList()
-        var sobra = total - TOPE_BYTES
-        val fuera = ArrayList<String>()
-        archivos.sortedBy { it.third }.forEach { (nombre, bytes, _) ->
-            if (sobra <= 0L) return fuera
-            fuera.add(nombre)
-            sobra -= bytes
+        val total = files.sumOf { it.second } + incomingBytes
+        if (total <= BYTE_CAP) return emptyList()
+        var over = total - BYTE_CAP
+        val out = ArrayList<String>()
+        files.sortedBy { it.third }.forEach { (name, bytes, _) ->
+            if (over <= 0L) return out
+            out.add(name)
+            over -= bytes
         }
-        return fuera
+        return out
     }
 }

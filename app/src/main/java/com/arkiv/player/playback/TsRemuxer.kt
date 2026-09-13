@@ -59,7 +59,7 @@ class TsRemuxer(
     private val scope: CoroutineScope,
 ) {
 
-    private val folder = File(cacheDir, PoliticaDeRemux.CARPETA)
+    private val folder = File(cacheDir, RemuxPolicy.FOLDER)
 
     /**
      * Length of each fragment. Short enough that playback can begin almost immediately, long
@@ -91,7 +91,7 @@ class TsRemuxer(
 
     /** The finished remux for [key] if one is already on disk, or null. */
     fun alreadyDone(key: String): File? =
-        File(folder, PoliticaDeRemux.nombreDeArchivo(key)).takeIf { it.exists() && it.length() > 0 }
+        File(folder, RemuxPolicy.fileName(key)).takeIf { it.exists() && it.length() > 0 }
 
     /**
      * The remux for [key] as it stands, finished or still being written, with a flag saying
@@ -99,7 +99,7 @@ class TsRemuxer(
      * handing out -- that is the whole reason for fragmenting it.
      */
     fun inProgress(key: String): Pair<File, Boolean>? {
-        val done = File(folder, PoliticaDeRemux.nombreDeArchivo(key))
+        val done = File(folder, RemuxPolicy.fileName(key))
         if (done.exists() && done.length() > 0) return done to true
         val partial = File(folder, "${done.name}.part")
         return if (partial.exists() && partial.length() > 0) partial to false else null
@@ -134,7 +134,7 @@ class TsRemuxer(
             return RemuxResult.Failed("could not create ${folder.path}")
         }
         makeRoom()
-        val destination = File(folder, PoliticaDeRemux.nombreDeArchivo(key))
+        val destination = File(folder, RemuxPolicy.fileName(key))
         val partial = File(folder, "${destination.name}.part")
         runCatching { partial.delete() }
 
@@ -223,7 +223,7 @@ class TsRemuxer(
                 // Clipped when the key says so, so the result BEGINS where playback should.
                 // The remux is cast as a live stream and a live stream has no timeline to seek
                 // along, so a file that starts at the right place is the only way to land there.
-                val fromMs = PoliticaDeRemux.desdeDeLaClave(key)
+                val fromMs = RemuxPolicy.fromInKey(key)
                 val input = if (fromMs > 0L) {
                     Log.w(TAG, "remux starts at ${fromMs}ms, so nothing has to seek")
                     MediaItem.Builder()
@@ -263,7 +263,7 @@ class TsRemuxer(
      */
     private fun makeRoom() {
         val files = folder.listFiles().orEmpty().filter { it.isFile }
-        val toDelete = PoliticaDeRemux.aBorrar(
+        val toDelete = RemuxPolicy.toDelete(
             files.map { Triple(it.name, it.length(), it.lastModified()) },
         )
         if (toDelete.isEmpty()) return
@@ -278,12 +278,12 @@ class TsRemuxer(
 
     /** The finished chunk [index] of [key], or null. */
     fun chunkDone(key: String, index: Int): File? =
-        File(folder, PoliticaDeRemux.nombreDeTrozo(key, index))
+        File(folder, RemuxPolicy.chunkFileName(key, index))
             .takeIf { it.exists() && it.length() > 0 }
 
     /**
-     * Remuxes ONE chunk: the stretch of [inputUri] from [index] * TROZO_SEG, lasting
-     * TROZO_SEG, into a complete mp4 of its own.
+     * Remuxes ONE chunk: the stretch of [inputUri] from [index] * CHUNK_SEC, lasting
+     * CHUNK_SEC, into a complete mp4 of its own.
      *
      * Complete and NOT fragmented, which is the whole idea. A single fragmented file served while
      * it grew made the receiver recompute the duration from whatever fragments had arrived and
@@ -309,11 +309,11 @@ class TsRemuxer(
         if (!folder.exists() && !folder.mkdirs()) {
             return RemuxResult.Failed("could not create ${folder.path}")
         }
-        val destination = File(folder, PoliticaDeRemux.nombreDeTrozo(key, index))
+        val destination = File(folder, RemuxPolicy.chunkFileName(key, index))
         val partial = File(folder, "${destination.name}.part")
         runCatching { partial.delete() }
-        val fromMs = index * PoliticaDeRemux.TROZO_SEG * 1000L
-        val toMs = fromMs + PoliticaDeRemux.TROZO_SEG * 1000L
+        val fromMs = index * RemuxPolicy.CHUNK_SEC * 1000L
+        val toMs = fromMs + RemuxPolicy.CHUNK_SEC * 1000L
         val t0 = System.currentTimeMillis()
 
         return withContext(Dispatchers.Main) {
@@ -384,7 +384,7 @@ class TsRemuxer(
      */
     fun stop(key: String) {
         val job = activeExports.remove(key) ?: return
-        Log.w(TAG, "cast ended → stopping the remux of ${PoliticaDeRemux.nombreDeArchivo(key)}")
+        Log.w(TAG, "cast ended → stopping the remux of ${RemuxPolicy.fileName(key)}")
         job.cancel()
     }
 
