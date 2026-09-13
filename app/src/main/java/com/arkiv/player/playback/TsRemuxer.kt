@@ -59,20 +59,20 @@ class TsRemuxer(
     private val scope: CoroutineScope,
 ) {
 
-    private val carpeta = File(cacheDir, PoliticaDeRemux.CARPETA)
+    private val folder = File(cacheDir, PoliticaDeRemux.CARPETA)
 
     /**
      * Length of each fragment. Short enough that playback can begin almost immediately, long
      * enough that the overhead of a `moof` header per fragment stays negligible.
      */
-    private val FRAGMENTO_MS = 2_000L
+    private val FRAGMENT_MS = 2_000L
 
     /**
      * Exports in flight, by key. A second caller for the same title joins the one already running
      * instead of starting a rival export over the same output file -- and because the job lives in
      * [scope], a caller giving up on the wait does not take the export with it.
      */
-    private val enCurso = ConcurrentHashMap<String, Deferred<Resultado>>()
+    private val activeExports = ConcurrentHashMap<String, Deferred<RemuxResult>>()
 
     /**
      * How far along the export is, 0..100, or -1 when nothing is running.
@@ -80,33 +80,33 @@ class TsRemuxer(
      * Exists because the wait is the whole cost of this approach: a person staring at a still
      * screen for four minutes with no sign of life assumes it hung, and they would be right to.
      */
-    private val _progreso = MutableStateFlow(-1)
-    val progreso: StateFlow<Int> = _progreso.asStateFlow()
+    private val _progress = MutableStateFlow(-1)
+    val progress: StateFlow<Int> = _progress.asStateFlow()
 
-    /** Result of asking for a remux. `Listo` carries a file that is complete and playable. */
-    sealed interface Resultado {
-        data class Listo(val archivo: File) : Resultado
-        data class Fallo(val motivo: String) : Resultado
+    /** Result of asking for a remux. `Done` carries a file that is complete and playable. */
+    sealed interface RemuxResult {
+        data class Done(val file: File) : RemuxResult
+        data class Failed(val reason: String) : RemuxResult
     }
 
-    /** The finished remux for [clave] if one is already on disk, or null. */
-    fun yaHecho(clave: String): File? =
-        File(carpeta, PoliticaDeRemux.nombreDeArchivo(clave)).takeIf { it.exists() && it.length() > 0 }
+    /** The finished remux for [key] if one is already on disk, or null. */
+    fun alreadyDone(key: String): File? =
+        File(folder, PoliticaDeRemux.nombreDeArchivo(key)).takeIf { it.exists() && it.length() > 0 }
 
     /**
-     * The remux for [clave] as it stands, finished or still being written, with a flag saying
+     * The remux for [key] as it stands, finished or still being written, with a flag saying
      * which. A fragmented MP4 is playable before it is complete, so the half-written one is worth
      * handing out -- that is the whole reason for fragmenting it.
      */
-    fun enProgreso(clave: String): Pair<File, Boolean>? {
-        val hecho = File(carpeta, PoliticaDeRemux.nombreDeArchivo(clave))
-        if (hecho.exists() && hecho.length() > 0) return hecho to true
-        val parcial = File(carpeta, "${hecho.name}.part")
-        return if (parcial.exists() && parcial.length() > 0) parcial to false else null
+    fun inProgress(key: String): Pair<File, Boolean>? {
+        val done = File(folder, PoliticaDeRemux.nombreDeArchivo(key))
+        if (done.exists() && done.length() > 0) return done to true
+        val partial = File(folder, "${done.name}.part")
+        return if (partial.exists() && partial.length() > 0) partial to false else null
     }
 
     /**
-     * Remuxes [uriDeEntrada] into the cache and returns the finished file.
+     * Remuxes [inputUri] into the cache and returns the finished file.
      *
      * Idempotent: a remux already on disk is returned without redoing the work. Suspends until the
      * export finishes, and cancelling the coroutine cancels the export and removes the partial
@@ -116,30 +116,30 @@ class TsRemuxer(
      * Transformer needs a Looper, so the export is driven on the main thread; the actual work
      * happens on its own threads, so this does not block the UI.
      */
-    suspend fun remuxear(uriDeEntrada: String, clave: String): Resultado {
-        yaHecho(clave)?.let {
+    suspend fun remux(inputUri: String, key: String): RemuxResult {
+        alreadyDone(key)?.let {
             Log.i(TAG, "already remuxed: ${it.name} (${it.length()}B), reusing it")
-            return Resultado.Listo(it)
+            return RemuxResult.Done(it)
         }
-        val job = enCurso.computeIfAbsent(clave) {
-            scope.async { exportar(uriDeEntrada, clave) }
-                .also { j -> j.invokeOnCompletion { enCurso.remove(clave) } }
+        val job = activeExports.computeIfAbsent(key) {
+            scope.async { export(inputUri, key) }
+                .also { j -> j.invokeOnCompletion { activeExports.remove(key) } }
         }
         return job.await()
     }
 
-    /** The export itself. One per key at a time; see [remuxear]. */
-    private suspend fun exportar(uriDeEntrada: String, clave: String): Resultado {
-        if (!carpeta.exists() && !carpeta.mkdirs()) {
-            return Resultado.Fallo("could not create ${carpeta.path}")
+    /** The export itself. One per key at a time; see [remux]. */
+    private suspend fun export(inputUri: String, key: String): RemuxResult {
+        if (!folder.exists() && !folder.mkdirs()) {
+            return RemuxResult.Failed("could not create ${folder.path}")
         }
-        hacerSitio()
-        val destino = File(carpeta, PoliticaDeRemux.nombreDeArchivo(clave))
-        val parcial = File(carpeta, "${destino.name}.part")
-        runCatching { parcial.delete() }
+        makeRoom()
+        val destination = File(folder, PoliticaDeRemux.nombreDeArchivo(key))
+        val partial = File(folder, "${destination.name}.part")
+        runCatching { partial.delete() }
 
         val t0 = System.currentTimeMillis()
-        Log.w(TAG, "remux starts → ${destino.name}")
+        Log.w(TAG, "remux starts → ${destination.name}")
 
         return withContext(Dispatchers.Main) {
             suspendCancellableCoroutine { cont ->
@@ -160,24 +160,24 @@ class TsRemuxer(
                             // the TV. A fragmented one is a chain of self-contained pieces: the
                             // receiver can start on the first while the rest is still arriving.
                             .setOutputFragmentedMp4(true)
-                            .setFragmentDurationMs(FRAGMENTO_MS)
+                            .setFragmentDurationMs(FRAGMENT_MS)
                             .build(),
                     )
                     .addListener(object : Transformer.Listener {
                         override fun onCompleted(composition: Composition, result: ExportResult) {
-                            val ok = runCatching { parcial.renameTo(destino) }.getOrDefault(false)
+                            val ok = runCatching { partial.renameTo(destination) }.getOrDefault(false)
                             val ms = System.currentTimeMillis() - t0
                             if (ok) {
                                 Log.w(
                                     TAG,
-                                    "remux done in ${ms}ms → ${destino.name} (${destino.length()}B" +
+                                    "remux done in ${ms}ms → ${destination.name} (${destination.length()}B" +
                                         (result.durationMs.takeIf { it > 0 }?.let { ", ${it}ms" } ?: "") + ")",
                                 )
-                                if (cont.isActive) cont.resume(Resultado.Listo(destino))
+                                if (cont.isActive) cont.resume(RemuxResult.Done(destination))
                             } else {
-                                runCatching { parcial.delete() }
+                                runCatching { partial.delete() }
                                 Log.w(TAG, "remux finished but the rename failed")
-                                if (cont.isActive) cont.resume(Resultado.Fallo("rename failed"))
+                                if (cont.isActive) cont.resume(RemuxResult.Failed("rename failed"))
                             }
                         }
 
@@ -186,11 +186,11 @@ class TsRemuxer(
                             result: ExportResult,
                             exception: ExportException,
                         ) {
-                            runCatching { parcial.delete() }
+                            runCatching { partial.delete() }
                             // The code matters more than the message: it tells "this device cannot"
                             // from "this file cannot", and only the second is worth giving up on.
                             Log.w(TAG, "remux failed (code=${exception.errorCode}): ${exception.message}")
-                            if (cont.isActive) cont.resume(Resultado.Fallo("error ${exception.errorCode}"))
+                            if (cont.isActive) cont.resume(RemuxResult.Failed("error ${exception.errorCode}"))
                         }
                     })
                     .build()
@@ -203,7 +203,7 @@ class TsRemuxer(
                     // The partial file is KEPT. A fragmented MP4 stops at a fragment boundary, so
                     // what is on disk is a valid, playable prefix -- casting the same title again
                     // starts on it immediately instead of converting from zero.
-                    Log.w(TAG, "remux stopped, keeping ${parcial.length()}B already written")
+                    Log.w(TAG, "remux stopped, keeping ${partial.length()}B already written")
                 }
 
                 // Progress, polled: Transformer has no callback for it. On the main thread
@@ -211,26 +211,26 @@ class TsRemuxer(
                 val holder = ProgressHolder()
                 scope.launch(Dispatchers.Main) {
                     while (isActive && cont.isActive) {
-                        val estado = runCatching { transformer.getProgress(holder) }.getOrNull()
-                        if (estado == Transformer.PROGRESS_STATE_AVAILABLE) {
-                            _progreso.value = holder.progress
+                        val state = runCatching { transformer.getProgress(holder) }.getOrNull()
+                        if (state == Transformer.PROGRESS_STATE_AVAILABLE) {
+                            _progress.value = holder.progress
                         }
                         delay(500)
                     }
-                    _progreso.value = -1
+                    _progress.value = -1
                 }
 
                 // Clipped when the key says so, so the result BEGINS where playback should.
                 // The remux is cast as a live stream and a live stream has no timeline to seek
                 // along, so a file that starts at the right place is the only way to land there.
-                val desdeMs = PoliticaDeRemux.desdeDeLaClave(clave)
-                val entrada = if (desdeMs > 0L) {
-                    Log.w(TAG, "remux starts at ${desdeMs}ms, so nothing has to seek")
+                val fromMs = PoliticaDeRemux.desdeDeLaClave(key)
+                val input = if (fromMs > 0L) {
+                    Log.w(TAG, "remux starts at ${fromMs}ms, so nothing has to seek")
                     MediaItem.Builder()
-                        .setUri(uriDeEntrada)
+                        .setUri(inputUri)
                         .setClippingConfiguration(
                             MediaItem.ClippingConfiguration.Builder()
-                                .setStartPositionMs(desdeMs)
+                                .setStartPositionMs(fromMs)
                                 // On a KEYFRAME. Video can only begin at one while audio can begin
                                 // anywhere, so an arbitrary cut point starts the tracks at
                                 // different instants -- heard on device as the sound running ahead
@@ -241,15 +241,15 @@ class TsRemuxer(
                         )
                         .build()
                 } else {
-                    MediaItem.fromUri(uriDeEntrada)
+                    MediaItem.fromUri(inputUri)
                 }
 
                 runCatching {
-                    transformer.start(entrada, parcial.absolutePath)
+                    transformer.start(input, partial.absolutePath)
                 }.onFailure {
-                    runCatching { parcial.delete() }
+                    runCatching { partial.delete() }
                     Log.w(TAG, "remux could not start: ${it.message}")
-                    if (cont.isActive) cont.resume(Resultado.Fallo(it.message ?: "could not start"))
+                    if (cont.isActive) cont.resume(RemuxResult.Failed(it.message ?: "could not start"))
                 }
             }
         }
@@ -261,28 +261,28 @@ class TsRemuxer(
      * Runs before starting a new one rather than after finishing it: the point is to have room,
      * and discovering there was none only once a gigabyte is already written helps nobody.
      */
-    private fun hacerSitio() {
-        val archivos = carpeta.listFiles().orEmpty().filter { it.isFile }
-        val fuera = PoliticaDeRemux.aBorrar(
-            archivos.map { Triple(it.name, it.length(), it.lastModified()) },
+    private fun makeRoom() {
+        val files = folder.listFiles().orEmpty().filter { it.isFile }
+        val toDelete = PoliticaDeRemux.aBorrar(
+            files.map { Triple(it.name, it.length(), it.lastModified()) },
         )
-        if (fuera.isEmpty()) return
-        var liberado = 0L
-        fuera.forEach { nombre ->
-            val f = File(carpeta, nombre)
+        if (toDelete.isEmpty()) return
+        var freed = 0L
+        toDelete.forEach { name ->
+            val f = File(folder, name)
             val bytes = f.length()
-            if (runCatching { f.delete() }.getOrDefault(false)) liberado += bytes
+            if (runCatching { f.delete() }.getOrDefault(false)) freed += bytes
         }
-        Log.w(TAG, "cache over its ceiling: dropped ${fuera.size} file(s), freed ${liberado}B")
+        Log.w(TAG, "cache over its ceiling: dropped ${toDelete.size} file(s), freed ${freed}B")
     }
 
-    /** The finished chunk [indice] of [clave], or null. */
-    fun trozoHecho(clave: String, indice: Int): File? =
-        File(carpeta, PoliticaDeRemux.nombreDeTrozo(clave, indice))
+    /** The finished chunk [index] of [key], or null. */
+    fun chunkDone(key: String, index: Int): File? =
+        File(folder, PoliticaDeRemux.nombreDeTrozo(key, index))
             .takeIf { it.exists() && it.length() > 0 }
 
     /**
-     * Remuxes ONE chunk: the stretch of [uriDeEntrada] from [indice] * TROZO_SEG, lasting
+     * Remuxes ONE chunk: the stretch of [inputUri] from [index] * TROZO_SEG, lasting
      * TROZO_SEG, into a complete mp4 of its own.
      *
      * Complete and NOT fragmented, which is the whole idea. A single fragmented file served while
@@ -295,25 +295,25 @@ class TsRemuxer(
      * an arbitrary cut point offsets the tracks against each other -- audible as the picture
      * running behind the sound.
      */
-    suspend fun remuxearTrozo(uriDeEntrada: String, clave: String, indice: Int): Resultado {
-        trozoHecho(clave, indice)?.let { return Resultado.Listo(it) }
-        val claveTrozo = "$clave##$indice"
-        val job = enCurso.computeIfAbsent(claveTrozo) {
-            scope.async { exportarTrozo(uriDeEntrada, clave, indice) }
-                .also { j -> j.invokeOnCompletion { enCurso.remove(claveTrozo) } }
+    suspend fun remuxChunk(inputUri: String, key: String, index: Int): RemuxResult {
+        chunkDone(key, index)?.let { return RemuxResult.Done(it) }
+        val chunkKey = "$key##$index"
+        val job = activeExports.computeIfAbsent(chunkKey) {
+            scope.async { exportChunk(inputUri, key, index) }
+                .also { j -> j.invokeOnCompletion { activeExports.remove(chunkKey) } }
         }
         return job.await()
     }
 
-    private suspend fun exportarTrozo(uriDeEntrada: String, clave: String, indice: Int): Resultado {
-        if (!carpeta.exists() && !carpeta.mkdirs()) {
-            return Resultado.Fallo("could not create ${carpeta.path}")
+    private suspend fun exportChunk(inputUri: String, key: String, index: Int): RemuxResult {
+        if (!folder.exists() && !folder.mkdirs()) {
+            return RemuxResult.Failed("could not create ${folder.path}")
         }
-        val destino = File(carpeta, PoliticaDeRemux.nombreDeTrozo(clave, indice))
-        val parcial = File(carpeta, "${destino.name}.part")
-        runCatching { parcial.delete() }
-        val desdeMs = indice * PoliticaDeRemux.TROZO_SEG * 1000L
-        val hastaMs = desdeMs + PoliticaDeRemux.TROZO_SEG * 1000L
+        val destination = File(folder, PoliticaDeRemux.nombreDeTrozo(key, index))
+        val partial = File(folder, "${destination.name}.part")
+        runCatching { partial.delete() }
+        val fromMs = index * PoliticaDeRemux.TROZO_SEG * 1000L
+        val toMs = fromMs + PoliticaDeRemux.TROZO_SEG * 1000L
         val t0 = System.currentTimeMillis()
 
         return withContext(Dispatchers.Main) {
@@ -323,15 +323,15 @@ class TsRemuxer(
                     .setMuxerFactory(InAppMuxer.Factory.Builder().build())
                     .addListener(object : Transformer.Listener {
                         override fun onCompleted(composition: Composition, result: ExportResult) {
-                            val ok = runCatching { parcial.renameTo(destino) }.getOrDefault(false)
+                            val ok = runCatching { partial.renameTo(destination) }.getOrDefault(false)
                             Log.w(
                                 TAG,
-                                "chunk $indice [${desdeMs}..${hastaMs}ms] " +
-                                    (if (ok) "done in ${System.currentTimeMillis() - t0}ms (${destino.length()}B)"
+                                "chunk $index [${fromMs}..${toMs}ms] " +
+                                    (if (ok) "done in ${System.currentTimeMillis() - t0}ms (${destination.length()}B)"
                                     else "finished but the rename failed"),
                             )
                             if (cont.isActive) {
-                                cont.resume(if (ok) Resultado.Listo(destino) else Resultado.Fallo("rename"))
+                                cont.resume(if (ok) RemuxResult.Done(destination) else RemuxResult.Failed("rename"))
                             }
                         }
 
@@ -340,41 +340,41 @@ class TsRemuxer(
                             result: ExportResult,
                             exception: ExportException,
                         ) {
-                            runCatching { parcial.delete() }
-                            Log.w(TAG, "chunk $indice failed (code=${exception.errorCode}): ${exception.message}")
-                            if (cont.isActive) cont.resume(Resultado.Fallo("error ${exception.errorCode}"))
+                            runCatching { partial.delete() }
+                            Log.w(TAG, "chunk $index failed (code=${exception.errorCode}): ${exception.message}")
+                            if (cont.isActive) cont.resume(RemuxResult.Failed("error ${exception.errorCode}"))
                         }
                     })
                     .build()
 
                 cont.invokeOnCancellation {
                     runCatching { transformer.cancel() }
-                    runCatching { parcial.delete() }
+                    runCatching { partial.delete() }
                 }
 
-                val entrada = MediaItem.Builder()
-                    .setUri(uriDeEntrada)
+                val input = MediaItem.Builder()
+                    .setUri(inputUri)
                     .setClippingConfiguration(
                         MediaItem.ClippingConfiguration.Builder()
-                            .setStartPositionMs(desdeMs)
-                            .setEndPositionMs(hastaMs)
+                            .setStartPositionMs(fromMs)
+                            .setEndPositionMs(toMs)
                             // Both tracks must begin at the same instant, or the audio runs ahead.
                             .setStartsAtKeyFrame(true)
                             .build(),
                     )
                     .build()
 
-                runCatching { transformer.start(entrada, parcial.absolutePath) }.onFailure {
-                    runCatching { parcial.delete() }
-                    Log.w(TAG, "chunk $indice could not start: ${it.message}")
-                    if (cont.isActive) cont.resume(Resultado.Fallo(it.message ?: "could not start"))
+                runCatching { transformer.start(input, partial.absolutePath) }.onFailure {
+                    runCatching { partial.delete() }
+                    Log.w(TAG, "chunk $index could not start: ${it.message}")
+                    if (cont.isActive) cont.resume(RemuxResult.Failed(it.message ?: "could not start"))
                 }
             }
         }
     }
 
     /**
-     * Stops the remux for [clave] if one is running.
+     * Stops the remux for [key] if one is running.
      *
      * Called when casting ends, because the remux converts the WHOLE title regardless of how much
      * is watched: casting ten minutes of a film otherwise downloads and converts all two hours of
@@ -382,23 +382,23 @@ class TsRemuxer(
      * Whatever was written is kept -- it is a valid prefix, and resuming the same title later
      * plays it straight away.
      */
-    fun detener(clave: String) {
-        val job = enCurso.remove(clave) ?: return
-        Log.w(TAG, "cast ended → stopping the remux of ${PoliticaDeRemux.nombreDeArchivo(clave)}")
+    fun stop(key: String) {
+        val job = activeExports.remove(key) ?: return
+        Log.w(TAG, "cast ended → stopping the remux of ${PoliticaDeRemux.nombreDeArchivo(key)}")
         job.cancel()
     }
 
     /** Drops every remux on disk. For the settings screen, and for tests. */
-    fun limpiar(): Int {
-        val archivos = carpeta.listFiles().orEmpty()
+    fun clear(): Int {
+        val files = folder.listFiles().orEmpty()
         var n = 0
-        archivos.forEach { if (runCatching { it.delete() }.getOrDefault(false)) n++ }
+        files.forEach { if (runCatching { it.delete() }.getOrDefault(false)) n++ }
         Log.i(TAG, "cleared $n remuxed file(s)")
         return n
     }
 
     /** Bytes the remuxes are taking up, so the caller can decide when to clear them. */
-    fun bytesEnDisco(): Long = carpeta.listFiles().orEmpty().sumOf { it.length() }
+    fun bytesOnDisk(): Long = folder.listFiles().orEmpty().sumOf { it.length() }
 
     private companion object { const val TAG = "ArkivRemux" }
 }

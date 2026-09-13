@@ -217,7 +217,7 @@ class CastSessionManager(
      *
      * A title cast this way is a QUEUE of complete little mp4s rather than one file: each states
      * its own duration and never changes, so the receiver has nothing to recompute. See
-     * `TsRemuxer.remuxearTrozo` for why a single growing file could not work.
+     * `TsRemuxer.remuxChunk` for why a single growing file could not work.
      */
     fun enqueue(uri: String, episodeId: String, title: String) {
         // The duration rides along so the converter can set autoplay and preload on the queue item

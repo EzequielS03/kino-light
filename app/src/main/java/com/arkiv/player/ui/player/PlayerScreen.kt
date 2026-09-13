@@ -880,7 +880,7 @@ private fun PlayerContent(
                 // The same key the remux was filed under: the one that says where it begins.
                 // The SAME key the remux was filed under: the keyframe-aligned point, not the
                 // raw position, which drifts as the local player keeps its own time.
-                graph.tsRemuxer.enProgreso(
+                graph.tsRemuxer.inProgress(
                     com.arkiv.player.playback.PoliticaDeRemux.claveDesde(
                         cdn,
                         puntoDeArranque[item.episodeId] ?: 0L,
@@ -944,7 +944,7 @@ private fun PlayerContent(
         // original as HLS segments. The remux itself is kicked off by the effect below -- this
         // function stays synchronous because every cast path calls it.
         val remuxLocal = if (item.kind == SourceKind.LOCAL) {
-            graph.tsRemuxer.yaHecho(item.mediaUrl)?.let {
+            graph.tsRemuxer.alreadyDone(item.mediaUrl)?.let {
                 graph.localFileServer.creciendo = true
                 graph.localFileServer.serve(it)
             }
@@ -1216,7 +1216,7 @@ private fun PlayerContent(
             android.util.Log.i("ArkivCast", "${item.kind} is $mime, no remux needed")
             return@LaunchedEffect
         }
-        if (graph.tsRemuxer.yaHecho(clave) != null) return@LaunchedEffect
+        if (graph.tsRemuxer.alreadyDone(clave) != null) return@LaunchedEffect
 
         // One growing fragmented mp4, announced as LIVE.
         //
@@ -1237,7 +1237,7 @@ private fun PlayerContent(
                     delay(1000)
                     if (!casting || castSession == null) return@launch
                     if (casteadoComoRemux == item.episodeId) return@launch
-                    val parcial = graph.tsRemuxer.enProgreso(clave) ?: return@repeat
+                    val parcial = graph.tsRemuxer.inProgress(clave) ?: return@repeat
                     // 40 MB, not 12. Measured 2026-09-12: casting at 14 MB stalled seven times
                     // in the first forty-five seconds and then never again -- the remux is still
                     // getting up to speed at that point, so playback catches it repeatedly, and
@@ -1259,8 +1259,8 @@ private fun PlayerContent(
             }
         }
 
-        val res = graph.tsRemuxer.remuxear(entrada, clave)
-        if (res !is com.arkiv.player.playback.TsRemuxer.Resultado.Listo) {
+        val res = graph.tsRemuxer.remux(entrada, clave)
+        if (res !is com.arkiv.player.playback.TsRemuxer.RemuxResult.Done) {
             // Remember the failure so this title stops waiting for a remux that will not come, and
             // fall back to the segments NOW. For Magis that fallback is the only thing standing
             // between the person and a blank screen, because nothing was cast while it prepared.
@@ -1302,9 +1302,9 @@ private fun PlayerContent(
      * that actually waits: a downloaded file casts immediately and swaps later, and an mp4 never
      * waits at all.
      */
-    val progresoDeRemux by graph.tsRemuxer.progreso.collectAsStateWithLifecycle()
+    val progresoDeRemux by graph.tsRemuxer.progress.collectAsStateWithLifecycle()
     val preparandoParaLaTv = casting &&
-        magisItem?.let { magisEsTs(it) && graph.tsRemuxer.yaHecho(it.castUrl.orEmpty()) == null } == true
+        magisItem?.let { magisEsTs(it) && graph.tsRemuxer.alreadyDone(it.castUrl.orEmpty()) == null } == true
     if (preparandoParaLaTv) {
         Box(
             Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.75f)),
@@ -2083,7 +2083,7 @@ private fun PlayerContent(
             val esperandoRemux = mg != null &&
                 magisEsTs(mg) &&
                 mg.castUrl.orEmpty() !in remuxImposible &&
-                graph.tsRemuxer.yaHecho(mg.castUrl.orEmpty()) == null
+                graph.tsRemuxer.alreadyDone(mg.castUrl.orEmpty()) == null
             if (esperandoRemux) {
                 android.util.Log.w("ArkivCast", "magis ts: preparing the mp4 before casting, nothing sent yet")
             }
@@ -2130,7 +2130,7 @@ private fun PlayerContent(
             // Stop converting what nobody is going to watch. The remux covers the whole title, so
             // a cast that ends after ten minutes would otherwise keep pulling the other hour and
             // fifty down the person's connection.
-            magisItem?.castUrl?.takeIf { it.isNotBlank() }?.let { graph.tsRemuxer.detener(it) }
+            magisItem?.castUrl?.takeIf { it.isNotBlank() }?.let { graph.tsRemuxer.stop(it) }
             // Si la sesión terminó porque el usuario pulsó "parar" (botón de la barra), NO hay que
             // reanudar acá: pidió silencio, y el local ya quedó pausado desde que empezó el casteo
             // (rama de arriba) — reanudarlo sería justo lo contrario de lo que pidió ese botón. Se
@@ -2422,7 +2422,7 @@ private fun PlayerContent(
      */
     fun castEsUnDirecto(): Boolean =
         casting && magisItem != null && magisEsTs(magisItem!!) &&
-            magisItem!!.castUrl?.let { graph.tsRemuxer.yaHecho(it) == null } == true
+            magisItem!!.castUrl?.let { graph.tsRemuxer.alreadyDone(it) == null } == true
 
     fun seekTo(targetMs: Long) {
         if (castEsUnDirecto()) {
