@@ -30,7 +30,7 @@ import java.util.concurrent.TimeUnit
  * they're seconds spent on data libVLC calculates on its own anyway (measured on the same device:
  * `dur=3831168ms` against the probe's 3831000 ms).
  */
-class PrecalentadoNoBloqueaTest {
+class PreWarmDoesNotBlockTest {
 
     @get:Rule
     val temp = TemporaryFolder()

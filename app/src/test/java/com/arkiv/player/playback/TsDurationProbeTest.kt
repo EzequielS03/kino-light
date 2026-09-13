@@ -114,16 +114,16 @@ class TsDurationProbeTest {
 
     @Test fun the_probe_does_not_hold_out_longer_than_the_proxy_on_the_same_dead_connection() {
         // It hits the SAME CDN as ArchiveCacheProxy and the deadlines come from the same place
-        // -PoliticaOrigen-, but through its own profile: the probe blocks startup and what's at
+        // -OriginPolicy-, but through its own profile: the probe blocks startup and what's at
         // stake is a bar with no duration, while the proxy risks the film cutting out. What's
         // required is that it NEVER waits longer than playback does.
         assertTrue(
             "the probe cannot hold out longer than the proxy",
             TsDurationProbe.readTimeoutMs(0) <=
-                PoliticaOrigen.responseMs(0, PoliticaOrigen.Profile.MAGIS),
+                OriginPolicy.responseMs(0, OriginPolicy.Profile.MAGIS),
         )
         assertEquals(
-            PoliticaOrigen.responseMs(0, PoliticaOrigen.Profile.MAGIS_PROBE),
+            OriginPolicy.responseMs(0, OriginPolicy.Profile.MAGIS_PROBE),
             TsDurationProbe.readTimeoutMs(0),
         )
     }

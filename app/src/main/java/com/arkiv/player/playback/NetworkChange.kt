@@ -4,7 +4,7 @@ package com.arkiv.player.playback
  * When a network change leaves DEAD the connections to the origin that were already open.
  *
  * Until now the app knew nothing about it: there wasn't a single `ConnectivityManager` in the
- * code. And the price is written into [PoliticaOrigen]'s constants: the BODY read deadline is 90 s
+ * code. And the price is written into [OriginPolicy]'s constants: the BODY read deadline is 90 s
  * on archive and 30 s on magis, and it's generous ON PURPOSE -- "a network hiccup mid-playback
  * recovers on its own; cutting off fast here fixes nothing, it breaks the film".
  *

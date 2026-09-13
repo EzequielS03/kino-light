@@ -50,17 +50,17 @@ object TsDurationProbe {
      * The NUMBERS no longer live here. This probe hits exactly the same CDN as
      * [ArchiveCacheProxy], so keeping its own calibration only let the two drift apart: on
      * 2026-08-11 the proxy waited 20 s and the probe 8 s on the same dead connection, both too
-     * long (the retry answered in ~1 s). Single source: [PoliticaOrigen.Profile.MAGIS].
+     * long (the retry answered in ~1 s). Single source: [OriginPolicy.Profile.MAGIS].
      */
-    // Its own profile, not playback's: see [PoliticaOrigen.Profile.MAGIS_PROBE]. What's at stake
+    // Its own profile, not playback's: see [OriginPolicy.Profile.MAGIS_PROBE]. What's at stake
     // here is a spinner, not the film cutting out, so it gives up sooner.
-    private val PROFILE = PoliticaOrigen.Profile.MAGIS_PROBE
-    private val ATTEMPTS = PoliticaOrigen.attempts(PROFILE)
+    private val PROFILE = OriginPolicy.Profile.MAGIS_PROBE
+    private val ATTEMPTS = OriginPolicy.attempts(PROFILE)
 
-    fun readTimeoutMs(attempt: Int): Int = PoliticaOrigen.responseMs(attempt, PROFILE)
+    fun readTimeoutMs(attempt: Int): Int = OriginPolicy.responseMs(attempt, PROFILE)
 
     /** Breather between attempts: short on purpose, the point is to roll the dice again right away. */
-    fun waitBetweenAttemptsMs(attempt: Int): Long = PoliticaOrigen.waitMs(attempt, PROFILE)
+    fun waitBetweenAttemptsMs(attempt: Int): Long = OriginPolicy.waitMs(attempt, PROFILE)
 
     /** Above this the parsing went haywire: better no duration than a made-up one. */
     private const val MAX_BELIEVABLE_MS = 24L * 60 * 60 * 1000
@@ -153,9 +153,9 @@ object TsDurationProbe {
             setRequestProperty("User-Agent", "Arkiv/0.1 (personal)")
             headers.forEach { (k, v) -> setRequestProperty(k, v) }
             setRequestProperty("Range", range)
-            // A new socket, not recycled from the pool: see PoliticaOrigen.Profile.reusaSockets.
-            if (!PROFILE.reusaSockets) setRequestProperty("Connection", "close")
-            connectTimeout = PROFILE.conectarMs
+            // A new socket, not recycled from the pool: see OriginPolicy.Profile.reuseSockets.
+            if (!PROFILE.reuseSockets) setRequestProperty("Connection", "close")
+            connectTimeout = PROFILE.connectMs
             readTimeout = readTimeoutMs(attempt)
         }
 }

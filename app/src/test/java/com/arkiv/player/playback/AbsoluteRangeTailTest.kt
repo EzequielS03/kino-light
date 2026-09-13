@@ -35,7 +35,7 @@ import java.util.concurrent.TimeUnit
  * Since libVLC doesn't open the video until it has the end of the file, those seconds were paid for
  * in full as spinner.
  */
-class ColaPorRangoAbsolutoTest {
+class AbsoluteRangeTailTest {
 
     @get:Rule
     val temp = TemporaryFolder()

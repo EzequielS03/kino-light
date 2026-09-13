@@ -7,7 +7,7 @@ import java.util.Collections
  *
  * Exists because of [NetworkChange]: when the device switches networks, open sockets are left tied
  * to an interface that no longer exists, and with nobody to close them the read just waits until
- * [PoliticaOrigen]'s body deadline —90 s in archive, 30 s in magis— before even the first retry
+ * [OriginPolicy]'s body deadline —90 s in archive, 30 s in magis— before even the first retry
  * begins. Closing them makes that read fail on the spot and the retry go out over the new network.
  *
  * NOT [SingleConnection], which did something different and was abandoned: that one closed the

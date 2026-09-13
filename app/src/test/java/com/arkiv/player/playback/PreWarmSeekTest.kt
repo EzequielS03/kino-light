@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * These tests' offsets are the ones really measured, not made up: it's the only thing that backs up
  * estimating the byte by constant rate at all.
  */
-class PrecalentarSaltoTest {
+class PreWarmSeekTest {
 
     @get:Rule
     val temp = TemporaryFolder()

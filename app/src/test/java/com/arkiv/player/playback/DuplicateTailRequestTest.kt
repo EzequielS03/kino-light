@@ -25,7 +25,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * Retrying IN SERIES doesn't fix that: it has to wait for the previous attempt to give up before
  * rolling the dice again. That's why the second request goes out IN PARALLEL.
  */
-class ColaDuplicadaTest {
+class DuplicateTailRequestTest {
 
     @get:Rule
     val temp = TemporaryFolder()

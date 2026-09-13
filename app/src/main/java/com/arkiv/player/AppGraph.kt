@@ -306,9 +306,9 @@ class AppGraph(context: Context) {
      * [localFileServer] cannot: it holds one file and restarts its socket when that file changes.
      * A title cast as a queue needs every queued chunk reachable at the same time.
      */
-    val localFileServerDeTrozos: com.arkiv.player.playback.ServidorDeTrozos by lazy {
-        com.arkiv.player.playback.ServidorDeTrozos(
-            carpeta = java.io.File(appContext.cacheDir, com.arkiv.player.playback.RemuxPolicy.FOLDER),
+    val chunkServer: com.arkiv.player.playback.ChunkServer by lazy {
+        com.arkiv.player.playback.ChunkServer(
+            folder = java.io.File(appContext.cacheDir, com.arkiv.player.playback.RemuxPolicy.FOLDER),
             lanIp = { lanIp() },
         )
     }

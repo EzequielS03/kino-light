@@ -6,9 +6,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * How long to wait on archive.org and when to retry. See [PoliticaOrigen] for the why.
+ * How long to wait on archive.org and when to retry. See [OriginPolicy] for the why.
  */
-class PoliticaOrigenTest {
+class OriginPolicyTest {
 
     // ─── the read timeout grows with each attempt ──────────────────────
     // Measured on 2026-08-10 against the Evangelion item: 72.3 s to the first byte (a correct 206,
@@ -17,29 +17,29 @@ class PoliticaOrigenTest {
     @Test fun the_first_attempt_does_not_wait_forever() {
         // The common case (a healthy origin) answers in seconds: if the first attempt already paid
         // the worst case's 90 s, a genuinely dead origin would leave the user staring at nothing for 4 minutes.
-        assertEquals(20_000, PoliticaOrigen.responseMs(0))
+        assertEquals(20_000, OriginPolicy.responseMs(0))
     }
 
     @Test fun each_retry_gives_the_origin_more_room() {
-        assertTrue(PoliticaOrigen.responseMs(1) > PoliticaOrigen.responseMs(0))
-        assertTrue(PoliticaOrigen.responseMs(2) > PoliticaOrigen.responseMs(1))
+        assertTrue(OriginPolicy.responseMs(1) > OriginPolicy.responseMs(0))
+        assertTrue(OriginPolicy.responseMs(2) > OriginPolicy.responseMs(1))
     }
 
     @Test fun the_last_attempt_covers_the_measured_72s() {
         assertTrue(
             "the last attempt has to hold out for the measured worst case (72.3 s)",
-            PoliticaOrigen.responseMs(PoliticaOrigen.ATTEMPTS - 1) > 72_300,
+            OriginPolicy.responseMs(OriginPolicy.ATTEMPTS - 1) > 72_300,
         )
     }
 
     @Test fun an_extra_attempt_does_not_go_past_the_cap() {
         // Nobody should ever ask for attempt #9, but if it happens it can't return half an hour.
-        assertEquals(PoliticaOrigen.responseMs(PoliticaOrigen.ATTEMPTS - 1), PoliticaOrigen.responseMs(9))
+        assertEquals(OriginPolicy.responseMs(OriginPolicy.ATTEMPTS - 1), OriginPolicy.responseMs(9))
     }
 
     @Test fun connecting_is_short_because_the_handshake_is_not_the_slow_part() {
         // Measured: 4.28 s to connect against 72.3 s to the first byte. What's slow is the node serving.
-        assertTrue(PoliticaOrigen.CONNECT_MS <= 20_000)
+        assertTrue(OriginPolicy.CONNECT_MS <= 20_000)
     }
 
     // ─── the wait between attempts grows ────────────────────────────────────
@@ -47,13 +47,13 @@ class PoliticaOrigenTest {
     // quick blows at the same node that's already saying it can't keep up.
 
     @Test fun the_wait_between_attempts_grows() {
-        assertTrue(PoliticaOrigen.waitMs(1) > PoliticaOrigen.waitMs(0))
-        assertTrue(PoliticaOrigen.waitMs(2) > PoliticaOrigen.waitMs(1))
+        assertTrue(OriginPolicy.waitMs(1) > OriginPolicy.waitMs(0))
+        assertTrue(OriginPolicy.waitMs(2) > OriginPolicy.waitMs(1))
     }
 
     @Test fun the_first_wait_stays_short() {
         // An occasional no recovers right away; the good case shouldn't be punished.
-        assertEquals(400L, PoliticaOrigen.waitMs(0))
+        assertEquals(400L, OriginPolicy.waitMs(0))
     }
 
     // ─── what's worth retrying ───────────────────────────────────────
@@ -63,40 +63,40 @@ class PoliticaOrigenTest {
     @Test fun a_404_is_never_retried() {
         // The file isn't there: retrying means losing 3 timeouts to land on the same 404. It's
         // also the signal that archive renamed it and the metadata needs revalidating.
-        assertFalse(PoliticaOrigen.worthRetrying(404))
+        assertFalse(OriginPolicy.worthRetrying(404))
     }
 
     @Test fun a_503_is_retried() {
-        assertTrue(PoliticaOrigen.worthRetrying(503))
+        assertTrue(OriginPolicy.worthRetrying(503))
     }
 
     @Test fun a_timeout_is_retried() {
         // -1 is the code the proxy uses when the connection died with no response.
-        assertTrue(PoliticaOrigen.worthRetrying(-1))
+        assertTrue(OriginPolicy.worthRetrying(-1))
     }
 
     @Test fun the_other_server_errors_are_retried() {
         listOf(429, 500, 502, 504).forEach {
-            assertTrue("$it should be retried", PoliticaOrigen.worthRetrying(it))
+            assertTrue("$it should be retried", OriginPolicy.worthRetrying(it))
         }
     }
 
     @Test fun a_success_is_not_retried() {
-        assertFalse(PoliticaOrigen.worthRetrying(200))
-        assertFalse(PoliticaOrigen.worthRetrying(206))
+        assertFalse(OriginPolicy.worthRetrying(200))
+        assertFalse(OriginPolicy.worthRetrying(206))
     }
 
     @Test fun a_410_is_not_retried_either() {
         // Same as 404: the resource doesn't come back by insisting.
-        assertFalse(PoliticaOrigen.worthRetrying(410))
+        assertFalse(OriginPolicy.worthRetrying(410))
     }
 
     // ─── the total budget can't blow up ────────────────────────────
 
     @Test fun the_full_worst_case_does_not_exceed_three_minutes() {
         // A dead origin has to give up in a time a human tolerates staring at the screen.
-        val total = (0 until PoliticaOrigen.ATTEMPTS).sumOf {
-            PoliticaOrigen.responseMs(it).toLong() + PoliticaOrigen.waitMs(it)
+        val total = (0 until OriginPolicy.ATTEMPTS).sumOf {
+            OriginPolicy.responseMs(it).toLong() + OriginPolicy.waitMs(it)
         }
         assertTrue("total budget = ${total}ms", total <= 180_000)
     }
@@ -113,7 +113,7 @@ class PoliticaOrigenTest {
     @Test fun magis_does_not_wait_twenty_seconds_on_a_dead_connection() {
         assertTrue(
             "a healthy magis CDN answers in <1 s: waiting longer is dead time",
-            PoliticaOrigen.responseMs(0, PoliticaOrigen.Profile.MAGIS) <= 4_000,
+            OriginPolicy.responseMs(0, OriginPolicy.Profile.MAGIS) <= 4_000,
         )
     }
 
@@ -127,8 +127,8 @@ class PoliticaOrigenTest {
         //
         // What's required now is the opposite: that the deadlines GROW, because the same range that
         // answers in 164 ms sometimes goes past 4 s with nothing else at stake.
-        val profile = PoliticaOrigen.Profile.MAGIS
-        val deadlines = (0 until PoliticaOrigen.attempts(profile)).map { PoliticaOrigen.responseMs(it, profile) }
+        val profile = OriginPolicy.Profile.MAGIS
+        val deadlines = (0 until OriginPolicy.attempts(profile)).map { OriginPolicy.responseMs(it, profile) }
         assertTrue(
             "magis's deadlines have to increase, and they are $deadlines",
             deadlines.zipWithNext().all { (a, b) -> b > a },
@@ -140,8 +140,8 @@ class PoliticaOrigenTest {
         // the worst that happens if it fails is a bar with no duration. Playback, on the other hand,
         // cuts out. That's why the probe gives up sooner; if the two ever line up again, TsDurationProbe's
         // budget overflows (see its own test).
-        val playback = PoliticaOrigen.responseMs(1, PoliticaOrigen.Profile.MAGIS)
-        val probe = PoliticaOrigen.responseMs(1, PoliticaOrigen.Profile.MAGIS_PROBE)
+        val playback = OriginPolicy.responseMs(1, OriginPolicy.Profile.MAGIS)
+        val probe = OriginPolicy.responseMs(1, OriginPolicy.Profile.MAGIS_PROBE)
         assertTrue("probe=${probe}ms has to be less than playback=${playback}ms", probe < playback)
     }
 
@@ -152,10 +152,10 @@ class PoliticaOrigenTest {
     // would be a regression.
 
     @Test fun riding_out_a_body_stall_is_longer_than_waiting_for_the_response() {
-        PoliticaOrigen.Profile.entries.forEach { profile ->
+        OriginPolicy.Profile.entries.forEach { profile ->
             assertTrue(
                 "$profile: the body must hold out longer than the response",
-                PoliticaOrigen.bodyMs(profile) > PoliticaOrigen.responseMs(0, profile),
+                OriginPolicy.bodyMs(profile) > OriginPolicy.responseMs(0, profile),
             )
         }
     }
@@ -163,15 +163,15 @@ class PoliticaOrigenTest {
     @Test fun magis_rides_out_a_wifi_hiccup_mid_film() {
         assertTrue(
             "cutting the body off after a few seconds would break playback, not fix it",
-            PoliticaOrigen.bodyMs(PoliticaOrigen.Profile.MAGIS) >= 20_000,
+            OriginPolicy.bodyMs(OriginPolicy.Profile.MAGIS) >= 20_000,
         )
     }
 
     @Test fun archive_keeps_the_tolerance_it_needed() {
         // Not an acceptable regression: the Evangelion case (72.3 s to the first byte) still has to fit.
-        val profile = PoliticaOrigen.Profile.ARCHIVE
-        assertEquals(20_000, PoliticaOrigen.responseMs(0, profile))
-        assertTrue(PoliticaOrigen.responseMs(PoliticaOrigen.attempts(profile) - 1, profile) > 72_300)
+        val profile = OriginPolicy.Profile.ARCHIVE
+        assertEquals(20_000, OriginPolicy.responseMs(0, profile))
+        assertTrue(OriginPolicy.responseMs(OriginPolicy.attempts(profile) - 1, profile) > 72_300)
     }
 
     @Test fun magis_does_not_reuse_pool_sockets() {
@@ -179,11 +179,11 @@ class PoliticaOrigenTest {
         // every time and didn't hang once in 26 shots. On device the open connection always hung
         // right after `preWarm` abandoned a 209 MB `bytes=0-` having read 2 MB -- i.e. with an
         // undrained body left in the keep-alive pool.
-        assertFalse(PoliticaOrigen.Profile.MAGIS.reusaSockets)
+        assertFalse(OriginPolicy.Profile.MAGIS.reuseSockets)
     }
 
     @Test fun archive_still_reuses_sockets() {
         // Archive.org does behave well with keep-alive, and reusing saves it the handshake.
-        assertTrue(PoliticaOrigen.Profile.ARCHIVE.reusaSockets)
+        assertTrue(OriginPolicy.Profile.ARCHIVE.reuseSockets)
     }
 }

@@ -27,7 +27,7 @@ import java.util.concurrent.TimeUnit
  * This checks the one thing that keeps that from coming back: that the second one to arrive WAITS
  * on the first instead of opening its own connection.
  */
-class ColaEnVueloTest {
+class InFlightTailRequestTest {
 
     @get:Rule
     val temp = TemporaryFolder()

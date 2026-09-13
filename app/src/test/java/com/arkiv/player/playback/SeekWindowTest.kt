@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * This reproduces that read pattern -request, read a little, cut, request again nearby- and checks
  * that the second round no longer touches the network.
  */
-class VentanaDeSaltoTest {
+class SeekWindowTest {
 
     @get:Rule
     val temp = TemporaryFolder()

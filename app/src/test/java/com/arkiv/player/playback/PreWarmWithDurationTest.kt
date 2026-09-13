@@ -24,7 +24,7 @@ import org.junit.rules.TemporaryFolder
  *
  * The bytes the probe needs are EXACTLY the ones the pre-warm already has in hand.
  */
-class PrecalentadoConDuracionTest {
+class PreWarmWithDurationTest {
 
     @get:Rule
     val temp = TemporaryFolder()

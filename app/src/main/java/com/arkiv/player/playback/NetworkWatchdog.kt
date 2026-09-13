@@ -17,7 +17,7 @@ import android.net.Network
  *
  * Why it exists: until now there wasn't a single `ConnectivityManager` in the app, so switching
  * from WiFi to mobile data mid-playback left the old socket hanging against an interface that no
- * longer exists, and the read waited out [PoliticaOrigen]'s BODY deadline -90 s in archive, 30 s in
+ * longer exists, and the read waited out [OriginPolicy]'s BODY deadline -90 s in archive, 30 s in
  * magis- before even the first retry began. See [NetworkChange].
  *
  * Ported from magis's original app's system-status reporting, which sends its delivery engine

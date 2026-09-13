@@ -17,22 +17,22 @@ import java.net.URLDecoder
  * Range is supported because the receiver asks for one: a chunk is a complete mp4 and it seeks
  * inside it normally.
  *
- * Only files directly inside [carpeta] are served, and the name is taken as a bare filename with
+ * Only files directly inside [folder] are served, and the name is taken as a bare filename with
  * no path separators -- a request is a URL from the network, and a media server that resolves
  * `../` reaches the whole app's storage.
  */
-class ServidorDeTrozos(private val carpeta: File, private val lanIp: () -> String?) {
+class ChunkServer(private val folder: File, private val lanIp: () -> String?) {
 
     @Volatile private var server: ServerSocket? = null
 
-    /** The LAN url for [archivo], starting the server if needed. Null without an ip. */
+    /** The LAN url for [file], starting the server if needed. Null without an ip. */
     @Synchronized
-    fun serve(archivo: File): String? {
-        if (!archivo.exists()) return null
+    fun serve(file: File): String? {
+        if (!file.exists()) return null
         if (server == null || server?.isClosed == true) start()
         val ip = lanIp() ?: return null
         val port = server?.localPort ?: return null
-        return "http://$ip:$port/${archivo.name}"
+        return "http://$ip:$port/${file.name}"
     }
 
     @Synchronized
@@ -49,75 +49,75 @@ class ServidorDeTrozos(private val carpeta: File, private val lanIp: () -> Strin
         Thread {
             while (!s.isClosed) {
                 val socket = runCatching { s.accept() }.getOrNull() ?: break
-                Thread { runCatching { atender(socket) }.onFailure { Log.w(TAG, "serve: $it") } }
+                Thread { runCatching { handle(socket) }.onFailure { Log.w(TAG, "serve: $it") } }
                     .apply { isDaemon = true }.start()
             }
         }.apply { isDaemon = true }.start()
         Log.i(TAG, "chunk server up on port ${s.localPort}")
     }
 
-    private fun atender(socket: Socket): Unit = socket.use { sock ->
-        val entrada = sock.getInputStream()
-        val cabecera = StringBuilder()
-        val uno = ByteArray(1)
-        while (entrada.read(uno) == 1) {
-            cabecera.append(uno[0].toInt().toChar())
-            if (cabecera.endsWith("\r\n\r\n") || cabecera.length > 8192) break
+    private fun handle(socket: Socket): Unit = socket.use { sock ->
+        val input = sock.getInputStream()
+        val header = StringBuilder()
+        val one = ByteArray(1)
+        while (input.read(one) == 1) {
+            header.append(one[0].toInt().toChar())
+            if (header.endsWith("\r\n\r\n") || header.length > 8192) break
         }
-        val lineas = cabecera.toString().split("\r\n")
-        val peticion = lineas.firstOrNull().orEmpty()
-        val metodo = peticion.substringBefore(' ')
-        val ruta = peticion.split(' ').getOrNull(1).orEmpty().substringBefore('?')
-        val nombre = runCatching { URLDecoder.decode(ruta.trimStart('/'), "UTF-8") }
+        val lines = header.toString().split("\r\n")
+        val requestLine = lines.firstOrNull().orEmpty()
+        val method = requestLine.substringBefore(' ')
+        val path = requestLine.split(' ').getOrNull(1).orEmpty().substringBefore('?')
+        val name = runCatching { URLDecoder.decode(path.trimStart('/'), "UTF-8") }
             .getOrDefault("")
             .substringAfterLast('/')   // a request is network input: no traversing out of here
-        val archivo = File(carpeta, nombre)
+        val file = File(folder, name)
         val out = sock.getOutputStream()
 
-        if (nombre.isBlank() || !archivo.exists() || !archivo.isFile) {
-            Log.w(TAG, "404 $nombre")
+        if (name.isBlank() || !file.exists() || !file.isFile) {
+            Log.w(TAG, "404 $name")
             out.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n".toByteArray())
             out.flush()
             return
         }
 
-        val total = archivo.length()
-        val rango = lineas.firstOrNull { it.startsWith("Range:", true) }
+        val total = file.length()
+        val rangeValue = lines.firstOrNull { it.startsWith("Range:", true) }
             ?.substringAfter(':')?.trim()
-        val r = RangeHeader.parse(rango)
-        val desde = (r?.start ?: 0L).coerceIn(0L, (total - 1).coerceAtLeast(0L))
-        val hasta = (r?.end ?: (total - 1)).coerceAtMost(total - 1)
-        val largo = (hasta - desde + 1).coerceAtLeast(0L)
+        val r = RangeHeader.parse(rangeValue)
+        val start = (r?.start ?: 0L).coerceIn(0L, (total - 1).coerceAtLeast(0L))
+        val end = (r?.end ?: (total - 1)).coerceAtMost(total - 1)
+        val length = (end - start + 1).coerceAtLeast(0L)
 
-        val estado = if (r != null) "206 Partial Content" else "200 OK"
-        val contentRange = if (r != null) "Content-Range: bytes $desde-$hasta/$total\r\n" else ""
+        val status = if (r != null) "206 Partial Content" else "200 OK"
+        val contentRange = if (r != null) "Content-Range: bytes $start-$end/$total\r\n" else ""
         out.write(
             (
-                "HTTP/1.1 $estado\r\n" +
+                "HTTP/1.1 $status\r\n" +
                     "Content-Type: video/mp4\r\n" +
                     "Accept-Ranges: bytes\r\n" +
                     contentRange +
-                    "Content-Length: $largo\r\n" +
+                    "Content-Length: $length\r\n" +
                     "Access-Control-Allow-Origin: *\r\n" +
                     "Connection: close\r\n\r\n"
                 ).toByteArray(),
         )
-        if (metodo == "HEAD") { out.flush(); return }
+        if (method == "HEAD") { out.flush(); return }
 
-        var enviado = 0L
-        java.io.RandomAccessFile(archivo, "r").use { raf ->
-            raf.seek(desde)
+        var sent = 0L
+        java.io.RandomAccessFile(file, "r").use { raf ->
+            raf.seek(start)
             val buf = ByteArray(64 * 1024)
-            while (enviado < largo) {
-                val n = raf.read(buf, 0, minOf(buf.size.toLong(), largo - enviado).toInt())
+            while (sent < length) {
+                val n = raf.read(buf, 0, minOf(buf.size.toLong(), length - sent).toInt())
                 if (n <= 0) break
                 out.write(buf, 0, n)
-                enviado += n
+                sent += n
             }
         }
         out.flush()
-        Log.i(TAG, "-> $nombre $estado ${enviado}B of $total")
+        Log.i(TAG, "-> $name $status ${sent}B of $total")
     }
 
-    private companion object { const val TAG = "ArkivTrozos" }
+    private companion object { const val TAG = "ArkivChunkServer" }
 }

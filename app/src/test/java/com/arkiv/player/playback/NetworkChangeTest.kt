@@ -6,7 +6,7 @@ import org.junit.Test
  * When a network change leaves the connections that were already open DEAD.
  *
  * Today the app knows nothing about it: there isn't a single `ConnectivityManager` anywhere in the
- * code. And the price is measured in [PoliticaOrigen]'s own constants: the BODY read deadline is
+ * code. And the price is measured in [OriginPolicy]'s own constants: the BODY read deadline is
  * 90 s on archive and 30 s on magis, on purpose -- "a network hiccup mid-playback recovers on its
  * own, cutting off fast here breaks the film". That reasoning holds for a hiccup. When the phone
  * switches from WiFi to mobile data, the old socket was left tied to an interface that no longer

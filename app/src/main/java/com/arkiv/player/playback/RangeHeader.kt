@@ -1,6 +1,6 @@
 package com.arkiv.player.playback
 
-/** Rango de bytes pedido por el cliente HTTP. `end` null = hasta el final. */
+/** Byte range requested by the HTTP client. `end` null = to the end. */
 data class ByteRange(val start: Long, val end: Long?)
 
 object RangeHeader {

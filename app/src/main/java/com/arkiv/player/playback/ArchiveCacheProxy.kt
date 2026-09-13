@@ -91,7 +91,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
     /**
      * Closes every open connection to the origin. Called by the network watchdog when the device
      * switches networks: those sockets were left tied to an interface that no longer exists, and
-     * without this the read just waits until [PoliticaOrigen]'s BODY deadline -90 s in archive,
+     * without this the read just waits until [OriginPolicy]'s BODY deadline -90 s in archive,
      * 30 s in magis- before even the first retry begins.
      *
      * No need to notify anyone else: closing the socket makes the read fail on the spot, and from
@@ -567,13 +567,13 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                 //
                 // `d=1` is also where the ENDURANCE PROFILE comes from: today only magis uses this
                 // path (`proxyUrl(direct = true)` has no other caller), and magis and archive fail
-                // in opposite ways -- see PoliticaOrigen.Profile. If some other source ever asks for
+                // in opposite ways -- see OriginPolicy.Profile. If some other source ever asks for
                 // `d=1`, the profile has to travel in the URL, not be inferred.
                 if (direct) {
                     if (!passthrough(
                             origin, rangeHeader, out, extraHeaders,
                             uniqueKey = key, fraction = fraction,
-                            profile = PoliticaOrigen.Profile.MAGIS,
+                            profile = OriginPolicy.Profile.MAGIS,
                         )
                     ) {
                         android.util.Log.w("ArchiveCacheProxy", "direct: the origin didn't serve the range")
@@ -659,7 +659,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
      */
     private fun segmentsFor(origin: String, headers: Map<String, String>): List<TsSegmenter.Segment> {
         segments[origin]?.let { return it }
-        val total = totalOfOrigin(origin, headers, PoliticaOrigen.Profile.MAGIS)
+        val total = totalOfOrigin(origin, headers, OriginPolicy.Profile.MAGIS)
         val durMs = durationOfOrigin(origin, headers)
         val out = TsSegmenter.segmentByBitrate(total, durMs / 1000.0, TARGET_SEGMENT_SEC)
         if (out.isNotEmpty()) {
@@ -702,7 +702,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
             out.flush()
             return
         }
-        val total = totalOfOrigin(origin, headers, PoliticaOrigen.Profile.MAGIS)
+        val total = totalOfOrigin(origin, headers, OriginPolicy.Profile.MAGIS)
         val starts = idrByOrigin.getOrPut(origin) { ConcurrentHashMap() }
         // Segment 0 starts at byte 0: the file's own first packet is a random access point.
         if (n == 0) starts.putIfAbsent(0, 0L)
@@ -808,7 +808,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
      */
     fun msOfKeyframeNear(origin: String, headers: Map<String, String>, targetMs: Long): Long {
         if (targetMs <= 0L) return 0L
-        val total = totalOfOrigin(origin, headers, PoliticaOrigen.Profile.MAGIS)
+        val total = totalOfOrigin(origin, headers, OriginPolicy.Profile.MAGIS)
         val durMs = durationOfOrigin(origin, headers)
         if (total <= 0L || durMs <= 0L) {
             android.util.Log.w("ArchiveCacheProxy", "keyframe search: no size or duration, using ${targetMs}ms as asked")
@@ -857,8 +857,8 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                 headers.forEach { (k, v) -> setRequestProperty(k, v) }
                 setRequestProperty("Range", range)
                 setRequestProperty("Connection", "close")
-                connectTimeout = PoliticaOrigen.Profile.MAGIS_PROBE.conectarMs
-                readTimeout = PoliticaOrigen.responseMs(0, PoliticaOrigen.Profile.MAGIS_PROBE)
+                connectTimeout = OriginPolicy.Profile.MAGIS_PROBE.connectMs
+                readTimeout = OriginPolicy.responseMs(0, OriginPolicy.Profile.MAGIS_PROBE)
             }
             if (conn.responseCode != HttpURLConnection.HTTP_PARTIAL) {
                 conn.disconnect(); null
@@ -878,21 +878,21 @@ class ArchiveCacheProxy(private val cacheDir: File) {
     private fun totalOfOrigin(
         origin: String,
         extraHeaders: Map<String, String>,
-        profile: PoliticaOrigen.Profile = PoliticaOrigen.Profile.ARCHIVE,
+        profile: OriginPolicy.Profile = OriginPolicy.Profile.ARCHIVE,
     ): Long {
         totals[origin]?.let { return it }
-        repeat(PoliticaOrigen.attempts(profile)) { attempt ->
+        repeat(OriginPolicy.attempts(profile)) { attempt ->
             val total = runCatching {
                 val conn = (URL(origin).openConnection() as HttpURLConnection).apply {
                     instanceFollowRedirects = true
                     setRequestProperty("User-Agent", "Arkiv/0.1 (personal)")
                     extraHeaders.forEach { (k, v) -> setRequestProperty(k, v) }
                     setRequestProperty("Range", "bytes=0-0")
-                    if (!profile.reusaSockets) setRequestProperty("Connection", "close")
+                    if (!profile.reuseSockets) setRequestProperty("Connection", "close")
                     // Used to be a fixed 8 s. It's a single byte, but what's being paid for here is
                     // the node's latency, not the size: against the measured 72 s, 8 s was never enough.
-                    connectTimeout = profile.conectarMs
-                    readTimeout = PoliticaOrigen.responseMs(attempt, profile)
+                    connectTimeout = profile.connectMs
+                    readTimeout = OriginPolicy.responseMs(attempt, profile)
                 }
                 val cr = conn.getHeaderField("Content-Range")
                 runCatching { conn.inputStream.use { it.readBytes() } }
@@ -900,8 +900,8 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                 FileWindow.totalFromContentRange(cr)
             }.getOrDefault(0L)
             if (total > 0) { totals[origin] = total; return total }
-            if (attempt < PoliticaOrigen.attempts(profile) - 1) {
-                Thread.sleep(PoliticaOrigen.waitMs(attempt, profile))
+            if (attempt < OriginPolicy.attempts(profile) - 1) {
+                Thread.sleep(OriginPolicy.waitMs(attempt, profile))
             }
         }
         android.util.Log.w("ArchiveCacheProxy", "window: couldn't find out the origin's size")
@@ -913,13 +913,13 @@ class ArchiveCacheProxy(private val cacheDir: File) {
      *
      * `HttpURLConnection` has a single `readTimeout` governing both, and that's why lowering the
      * number wasn't enough: waiting for the response and riding out a stall mid-body need opposite
-     * deadlines (see [PoliticaOrigen.Profile]). Here the short deadline is enforced by a timer that
+     * deadlines (see [OriginPolicy.Profile]). Here the short deadline is enforced by a timer that
      * cuts the connection out from under it: a `disconnect()` from another thread makes the blocked
      * `responseCode` throw, which is exactly what's wanted.
      *
      * The `AtomicBoolean` is what avoids the ugly race -the timer disconnecting RIGHT after the
      * response arrived and breaking the stream for a request that had gone fine-: whichever marks
-     * it first wins, and if the timer wins this returns [PoliticaOrigen.NO_RESPONSE] so the
+     * it first wins, and if the timer wins this returns [OriginPolicy.NO_RESPONSE] so the
      * caller retries instead of reading an already-dead connection.
      */
     private fun codeWithDeadline(conn: HttpURLConnection, deadlineMs: Int): Int {
@@ -929,10 +929,10 @@ class ArchiveCacheProxy(private val cacheDir: File) {
             deadlineMs.toLong(),
             TimeUnit.MILLISECONDS,
         )
-        val code = runCatching { conn.responseCode }.getOrDefault(PoliticaOrigen.NO_RESPONSE)
+        val code = runCatching { conn.responseCode }.getOrDefault(OriginPolicy.NO_RESPONSE)
         val killedByTheTimer = !resolved.compareAndSet(false, true)
         cutoff.cancel(false)
-        return if (killedByTheTimer) PoliticaOrigen.NO_RESPONSE else code
+        return if (killedByTheTimer) OriginPolicy.NO_RESPONSE else code
     }
 
     /**
@@ -949,10 +949,10 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         range: String?,
         extraHeaders: Map<String, String>,
         uniqueKey: String?,
-        profile: PoliticaOrigen.Profile = PoliticaOrigen.Profile.ARCHIVE,
+        profile: OriginPolicy.Profile = OriginPolicy.Profile.ARCHIVE,
     ): Pair<HttpURLConnection, SingleConnection.Closer>? {
-        var lastCode = PoliticaOrigen.NO_RESPONSE
-        val attempts = PoliticaOrigen.attempts(profile)
+        var lastCode = OriginPolicy.NO_RESPONSE
+        val attempts = OriginPolicy.attempts(profile)
         repeat(attempts) { attempt ->
             val conn = runCatching {
                 (URL(origin).openConnection() as HttpURLConnection).apply {
@@ -960,13 +960,13 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                     setRequestProperty("User-Agent", "Arkiv/0.1 (personal)")
                     extraHeaders.forEach { (k, v) -> setRequestProperty(k, v) }
                     if (range != null) setRequestProperty("Range", range)
-                    // A new socket for origins that don't tolerate the pool. See Perfil.reusaSockets.
-                    if (!profile.reusaSockets) setRequestProperty("Connection", "close")
-                    connectTimeout = profile.conectarMs
+                    // A new socket for origins that don't tolerate the pool. See Profile.reuseSockets.
+                    if (!profile.reuseSockets) setRequestProperty("Connection", "close")
+                    connectTimeout = profile.connectMs
                     // The BODY's deadline, the long one. The RESPONSE's -the short one, the one that
                     // cuts a dead connection- is applied by codeWithDeadline() below, because
                     // HttpURLConnection doesn't tell the two apart and here they need to differ.
-                    readTimeout = PoliticaOrigen.bodyMs(profile)
+                    readTimeout = OriginPolicy.bodyMs(profile)
                 }
             }.getOrNull()
             if (conn != null) {
@@ -996,7 +996,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                         "in flight: ${snapshotOfRangesInFlight()}",
                 )
                 rangesInFlight[rangeLabel] = System.currentTimeMillis()
-                val deadlineMs = PoliticaOrigen.responseMs(attempt, profile)
+                val deadlineMs = OriginPolicy.responseMs(attempt, profile)
                 val responseT0 = System.currentTimeMillis()
                 val code = codeWithDeadline(conn, deadlineMs)
                 val tookMs = System.currentTimeMillis() - responseT0
@@ -1036,7 +1036,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                 // Cutting here saves two timeouts and, above all, lets the 404 arrive clean all the
                 // way up, which is what triggers the metadata revalidation (see
                 // CoincidenciaDeArchivo).
-                if (!PoliticaOrigen.worthRetrying(code)) {
+                if (!OriginPolicy.worthRetrying(code)) {
                     android.util.Log.w(
                         "ArchiveCacheProxy",
                         "origin: $code isn't retried, giving up on ${range ?: "(all)"}",
@@ -1044,7 +1044,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                     return null
                 }
             }
-            if (attempt < attempts - 1) Thread.sleep(PoliticaOrigen.waitMs(attempt, profile))
+            if (attempt < attempts - 1) Thread.sleep(OriginPolicy.waitMs(attempt, profile))
         }
         // Out of attempts against the front door. There used to be a plan B here for archive.org
         // (talking directly to the node holding the file, skipping `download.php` — see
@@ -1075,7 +1075,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         originUrl: String,
         headers: Map<String, String> = emptyMap(),
         fraction: Float = 0f,
-        profile: PoliticaOrigen.Profile = PoliticaOrigen.Profile.MAGIS,
+        profile: OriginPolicy.Profile = OriginPolicy.Profile.MAGIS,
         /**
          * Whether to WAIT for the tail before returning. Only needed when the duration comes from
          * it ([durationOfPreWarmed]); when the gateway sends it, the tail is only for the player's
@@ -1188,7 +1188,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         originUrl: String,
         headers: Map<String, String>,
         start: Long,
-        profile: PoliticaOrigen.Profile,
+        profile: OriginPolicy.Profile,
         destination: GrowingBuffer,
     ) {
         val (conn, _) =
@@ -1249,7 +1249,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         originUrl: String,
         headers: Map<String, String>,
         key: String,
-        profile: PoliticaOrigen.Profile,
+        profile: OriginPolicy.Profile,
     ) {
         val t0 = System.currentTimeMillis()
         // DO WE ALREADY HAVE IT FROM ANOTHER SESSION? It's the first thing tried: a file's tail
@@ -1283,7 +1283,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
      *
      * The why, measured on the Fire TV on 2026-08-13 with a new chapter: the CDN rejected the tail
      * twice in a row -answering nothing at all, which is how this CDN fails- and each rejection
-     * costs [PoliticaOrigen.Profile.MAGIS]'s 3 s deadline. VLC, which needed the end of the file to
+     * costs [OriginPolicy.Profile.MAGIS]'s 3 s deadline. VLC, which needed the end of the file to
      * open, was left waiting **7.3 s**. Retrying in series doesn't help: it waits for the previous
      * attempt to give up before rolling the dice again.
      *
@@ -1300,7 +1300,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         origin: String,
         range: String?,
         headers: Map<String, String>,
-        profile: PoliticaOrigen.Profile,
+        profile: OriginPolicy.Profile,
     ): Pair<HttpURLConnection, SingleConnection.Closer>? {
         val winner = java.util.concurrent.atomic.AtomicReference<Pair<HttpURLConnection, SingleConnection.Closer>?>()
         val finished = java.util.concurrent.atomic.AtomicInteger(0)
@@ -1339,7 +1339,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         originUrl: String,
         headers: Map<String, String>,
         key: String,
-        profile: PoliticaOrigen.Profile,
+        profile: OriginPolicy.Profile,
         t0: Long,
     ) {
         // THE END IS REQUESTED BY ABSOLUTE RANGE, NOT BY SUFFIX. This isn't a style preference:
@@ -1432,7 +1432,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         origin: String,
         extraHeaders: Map<String, String>,
         uniqueKey: String?,
-        profile: PoliticaOrigen.Profile,
+        profile: OriginPolicy.Profile,
     ): Boolean {
         val from = (requested - v.start).toInt()
         val chunk = runCatching { v.buffer.slice(from) }.getOrNull() ?: return false
@@ -1536,7 +1536,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         originUrl: String,
         headers: Map<String, String> = emptyMap(),
         fraction: Float,
-        profile: PoliticaOrigen.Profile = PoliticaOrigen.Profile.MAGIS,
+        profile: OriginPolicy.Profile = OriginPolicy.Profile.MAGIS,
     ) {
         if (fraction <= 0f || fraction >= 1f) return
         val key = keyFor(originUrl)
@@ -1630,7 +1630,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         extraHeaders: Map<String, String> = emptyMap(),
         uniqueKey: String? = null,
         fraction: Float = 0f,
-        profile: PoliticaOrigen.Profile = PoliticaOrigen.Profile.ARCHIVE,
+        profile: OriginPolicy.Profile = OriginPolicy.Profile.ARCHIVE,
     ): Boolean {
         // Window: the player asks in the coordinates of a file that starts at 0, and here they get
         // translated to the real file's. If the size couldn't be found, `start` stays at 0 and this

@@ -23,7 +23,7 @@ package com.arkiv.player.playback
  *    the same place. And it's exactly the signal that archive renamed the file and the metadata
  *    needs revalidating.
  */
-object PoliticaOrigen {
+object OriginPolicy {
 
     /**
      * How much to put up with EACH origin, because they don't fail the same way.
@@ -47,7 +47,7 @@ object PoliticaOrigen {
      * mid-film is a perfectly normal WiFi hiccup.
      */
     enum class Profile(
-        val conectarMs: Int,
+        val connectMs: Int,
         internal val response: IntArray,
         internal val body: Int,
         internal val waitBase: Long,
@@ -60,7 +60,7 @@ object PoliticaOrigen {
          * read 2 MB: an undrained body going back into the pool leaves the next request reading
          * leftovers instead of headers. Reusing saves a ~100 ms handshake; the hang costs seconds.
          */
-        val reusaSockets: Boolean,
+        val reuseSockets: Boolean,
     ) {
         /** 20 s → 45 s → 90 s. The last one covers the measured 72.3 s with margin. */
         ARCHIVE(15_000, intArrayOf(20_000, 45_000, 90_000), 90_000, 400L, true),
