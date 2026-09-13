@@ -29,12 +29,12 @@ class DlnaProxyServer {
 
     fun setTarget(url: String) { target = url }
 
-    /** Arranca el servidor si no está corriendo y devuelve el puerto. */
+    /** Starts the server if it isn't running yet and returns the port. */
     @Synchronized
     fun ensureStarted(): Int {
         val existing = serverSocket
         if (existing != null && !existing.isClosed) return existing.localPort
-        val ss = ServerSocket(0) // puerto libre
+        val ss = ServerSocket(0) // free port
         serverSocket = ss
         Thread {
             while (!ss.isClosed) {
@@ -49,7 +49,7 @@ class DlnaProxyServer {
         try {
             socket.use { s ->
                 val input = s.getInputStream()
-                // Leer request line + headers (sin body: GET/HEAD).
+                // Read request line + headers (no body: GET/HEAD).
                 val header = StringBuilder()
                 val buf = ByteArray(1)
                 while (input.read(buf) == 1) {
@@ -87,7 +87,7 @@ class DlnaProxyServer {
                 }
             }
         } catch (_: Exception) {
-            // el cliente cerró la conexión / cambio de rango: normal en streaming
+            // the client closed the connection / range change: normal in streaming
         }
     }
 

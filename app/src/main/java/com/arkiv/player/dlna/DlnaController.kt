@@ -17,16 +17,16 @@ import java.net.SocketTimeoutException
 import java.net.URI
 import java.util.concurrent.TimeUnit
 
-/** Un dispositivo DLNA (MediaRenderer) descubierto en la red. */
+/** A DLNA device (MediaRenderer) discovered on the network. */
 data class DlnaDevice(
     val friendlyName: String,
     val controlUrl: String,
 )
 
 /**
- * Cliente DLNA/UPnP mínimo: descubre MediaRenderers por SSDP y los controla por
- * SOAP (AVTransport). Sirve para mandar un video a TVs sin Chromecast (LG webOS,
- * etc.) que sí hablan DLNA.
+ * Minimal DLNA/UPnP client: discovers MediaRenderers over SSDP and controls them via
+ * SOAP (AVTransport). Used to cast video to TVs without Chromecast (LG webOS,
+ * etc.) that do speak DLNA.
  */
 class DlnaController(context: Context) {
 
@@ -41,7 +41,7 @@ class DlnaController(context: Context) {
     private val AVT = "urn:schemas-upnp-org:service:AVTransport:1"
     private val proxy = DlnaProxyServer()
 
-    /** IP del teléfono en la WiFi (para que la TV le pida el stream al proxy). */
+    /** The phone's IP on the WiFi (so the TV can request the stream from the proxy). */
     @Suppress("DEPRECATION")
     private fun wifiIp(): String? {
         val ip = wifi.connectionInfo.ipAddress
@@ -49,7 +49,7 @@ class DlnaController(context: Context) {
         return "${ip and 0xff}.${(ip shr 8) and 0xff}.${(ip shr 16) and 0xff}.${(ip shr 24) and 0xff}"
     }
 
-    /** Descubre MediaRenderers por SSDP (bloquea ~timeoutMs). */
+    /** Discovers MediaRenderers over SSDP (blocks for ~timeoutMs). */
     fun discover(timeoutMs: Long = 3500): List<DlnaDevice> {
         val lock = wifi.createMulticastLock("arkiv-dlna").apply {
             setReferenceCounted(false)
@@ -59,8 +59,8 @@ class DlnaController(context: Context) {
         try {
             val socket = DatagramSocket().apply { soTimeout = 900; broadcast = true }
             val group = InetAddress.getByName("239.255.255.250")
-            // Buscar todo (ssdp:all) es más robusto: algunas TVs no responden al ST
-            // específico de MediaRenderer. Después filtramos por AVTransport.
+            // Searching for everything (ssdp:all) is more robust: some TVs don't respond to the
+            // specific MediaRenderer ST. We filter by AVTransport afterwards.
             for (st in listOf("ssdp:all", "urn:schemas-upnp-org:service:AVTransport:1")) {
                 val msearch = (
                     "M-SEARCH * HTTP/1.1\r\n" +
@@ -86,13 +86,13 @@ class DlnaController(context: Context) {
                         ?.let { line -> line.substring(line.indexOf(':') + 1).trim() }
                         ?.let { locations.add(it) }
                 } catch (_: SocketTimeoutException) {
-                    // seguir escuchando hasta el deadline
+                    // keep listening until the deadline
                 }
             }
             socket.close()
             Log.i("ArkivDlna", "SSDP: $responses responses, ${locations.size} locations: $locations")
         } catch (_: Exception) {
-            // sin red / error de socket
+            // no network / socket error
         } finally {
             runCatching { lock.release() }
         }
@@ -101,7 +101,7 @@ class DlnaController(context: Context) {
         return devices
     }
 
-    /** Descarga y parsea la descripción del dispositivo; extrae nombre + controlURL de AVTransport. */
+    /** Downloads and parses the device description; extracts name + AVTransport controlURL. */
     private fun parseDevice(location: String): DlnaDevice? {
         val xml = runCatching {
             client.newCall(Request.Builder().url(location).build()).execute().use { it.body?.string() }
@@ -190,7 +190,7 @@ class DlnaController(context: Context) {
         return true
     }
 
-    /** Reproduce una URL cruda ya accesible por LAN (hoy, el proxy HLS del canal en vivo). */
+    /** Plays a raw URL already reachable over LAN (today, the live channel's HLS proxy). */
     fun playRawUrl(device: DlnaDevice, url: String, title: String, mime: String = "video/mp4"): Boolean {
         val didl = xmlEscape(didlLiteFor(url, title, mime))
         soap(
