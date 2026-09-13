@@ -1149,16 +1149,26 @@ private fun PlayerContent(
                     "ArkivCast",
                     "resume point: ${pedido}ms (${if (vivo != null) "live position" else "the item's startPosition, player not ready"})",
                 )
-                val alineado = puntoDeArranque[item.episodeId] ?: withContext(Dispatchers.IO) {
-                    graph.archiveCacheProxy.msDeKeyframeCercaDe(
-                        origin = cdn,
-                        headers = (webExtras?.takeIf { it.episodeId == item.episodeId }?.headers).orEmpty(),
-                        // Rounded BEFORE the search, never after: a nearby resume point then looks
-                        // for the same keyframe and reuses the same remux, while the keyframe
-                        // itself is used to the millisecond.
-                        objetivoMs = com.arkiv.player.playback.PoliticaDeRemux.redondearPeticion(pedido),
+                // ALWAYS FROM ZERO. Clipping works -- the cut lands exactly on a keyframe now,
+                // verified in the log -- and the audio still ran ahead of the picture. The cause
+                // measured earlier (1.57 s of audio with no video in the opening fragment) was
+                // fixed and the symptom survived it, so something else misaligns the tracks when
+                // the remux does not start at the beginning. The likeliest remaining suspect is
+                // outside our reach: media3's fragmented muxer writes no `tfdt`, the box that
+                // anchors each fragment in time, so nothing ever re-syncs what starts out skewed.
+                //
+                // Starting at zero has no such problem and is measured good: real time, no stalls,
+                // audio correct. Resuming is a convenience; watchable sound is not. The keyframe
+                // search and the clipping stay in the code -- they are correct and they are what a
+                // receiver that can seek would need.
+                val alineado = 0L
+                puntoDeArranque[item.episodeId] = 0L
+                if (pedido > 0L) {
+                    android.util.Log.w(
+                        "ArkivCast",
+                        "starting the cast from zero, not from ${pedido}ms: clipping desynchronises the audio",
                     )
-                }.also { puntoDeArranque[item.episodeId] = it }
+                }
                 Triple(
                     item.mediaUrl,
                     com.arkiv.player.playback.PoliticaDeRemux.claveDesde(cdn, alineado),
