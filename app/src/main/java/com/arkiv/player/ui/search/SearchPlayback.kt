@@ -204,20 +204,62 @@ class SearchPlayback(private val graph: AppGraph) {
         elegido: com.arkiv.player.data.gateway.GatewayEpisode,
         serie: com.arkiv.player.data.gateway.GatewaySerie?,
     ): PlaybackResult {
-        val epId = graph.repository.addDituSeason(
-            seriesRef = temporada.ref,
-            // El ítem es la serie; cada capítulo se nombra aparte, adentro.
-            title = temporada.title,
-            capitulos = capitulos.map { DituEntities.capituloDeCaracol(it, serie) },
-            elegido = DituEntities.capituloDeCaracol(elegido, serie),
-            posterUrl = temporada.extra["poster"].orEmpty().ifBlank { serie?.posterUrl.orEmpty() },
-            backdropUrl = serie?.backdropUrl.orEmpty(),
-            // Mismo blindaje que en [playDituEpisode]: un tmdbId en 0 no pisa uno ya guardado.
-            tmdbId = serie?.tmdbId?.takeIf { it > 0 },
-            // Sin cruce con TMDB, `GatewaySerie.titulo` es el nombre de Caracol, no el canónico.
-            tituloCanonico = serie?.takeIf { it.tmdbId > 0 }?.titulo,
-        ) ?: return playDituEpisode(temporada, elegido, serie)
-        return PlaybackResult.Ready(epId)
+        val epId = dituEpisodeIdDe(temporada, capitulos, elegido, serie)
+        return if (epId != null) PlaybackResult.Ready(epId)
+        else PlaybackResult.Failed("No se pudo preparar el capítulo de Caracol.")
+    }
+
+    /**
+     * El `episodeId` de un capítulo de Caracol, guardando la serie entera. Es [playDituSeason] sin
+     * reproducir: lo que necesita el botón de descargar, que trae el capítulo a la biblioteca
+     * exactamente igual pero lo manda a la cola en vez de al reproductor.
+     *
+     * El respaldo es el mismo: si la serie no se pudo guardar, se guarda el capítulo solo.
+     */
+    suspend fun dituEpisodeIdDe(
+        temporada: com.arkiv.player.data.gateway.GatewayResult,
+        capitulos: List<com.arkiv.player.data.gateway.GatewayEpisode>,
+        elegido: com.arkiv.player.data.gateway.GatewayEpisode,
+        serie: com.arkiv.player.data.gateway.GatewaySerie?,
+    ): String? = graph.repository.addDituSeason(
+        seriesRef = temporada.ref,
+        // El ítem es la serie; cada capítulo se nombra aparte, adentro.
+        title = temporada.title,
+        capitulos = capitulos.map { DituEntities.capituloDeCaracol(it, serie) },
+        elegido = DituEntities.capituloDeCaracol(elegido, serie),
+        posterUrl = temporada.extra["poster"].orEmpty().ifBlank { serie?.posterUrl.orEmpty() },
+        backdropUrl = serie?.backdropUrl.orEmpty(),
+        // Mismo blindaje que en [playDituEpisode]: un tmdbId en 0 no pisa uno ya guardado.
+        tmdbId = serie?.tmdbId?.takeIf { it > 0 },
+        // Sin cruce con TMDB, `GatewaySerie.titulo` es el nombre de Caracol, no el canónico.
+        tituloCanonico = serie?.takeIf { it.tmdbId > 0 }?.titulo,
+    ) ?: dituEpisodeIdSuelto(temporada, elegido, serie)
+
+    /**
+     * Encola la descarga de [elegidos] y devuelve cuántos entraron NUEVOS a la cola.
+     *
+     * Vive acá y no en cada pantalla porque son dos —el catálogo de Caracol y la búsqueda— y las dos
+     * tienen que guardar el capítulo en la biblioteca antes de encolarlo: sin fila en `episodes` la
+     * estrategia no encuentra el `ref` y la descarga falla con "No se encontró la fuente de Caracol".
+     *
+     * La fuente sale de [FuenteDeDescarga], no de un `"ditu"` escrito a mano: el id ya dice de dónde
+     * vino el capítulo, y es la misma decisión que toma el worker al elegir la estrategia.
+     */
+    suspend fun encolarDescargaDeCaracol(
+        temporada: com.arkiv.player.data.gateway.GatewayResult,
+        capitulos: List<com.arkiv.player.data.gateway.GatewayEpisode>,
+        elegidos: List<com.arkiv.player.data.gateway.GatewayEpisode>,
+        serie: com.arkiv.player.data.gateway.GatewaySerie?,
+    ): Int {
+        var encolados = 0
+        for (capitulo in elegidos) {
+            val epId = dituEpisodeIdDe(temporada, capitulos, capitulo, serie) ?: continue
+            val fuente = com.arkiv.player.data.local.FuenteDeDescarga.para(epId)
+            if (graph.localDownloads.enqueue(epId, fuente) ==
+                com.arkiv.player.data.local.EnqueueOutcome.QUEUED
+            ) encolados++
+        }
+        return encolados
     }
 
     /**
@@ -236,7 +278,17 @@ class SearchPlayback(private val graph: AppGraph) {
         capitulo: com.arkiv.player.data.gateway.GatewayEpisode,
         serie: com.arkiv.player.data.gateway.GatewaySerie?,
     ): PlaybackResult {
-        val epId = graph.repository.addDituSource(
+        val epId = dituEpisodeIdSuelto(temporada, capitulo, serie)
+        return if (epId != null) PlaybackResult.Ready(epId)
+        else PlaybackResult.Failed("No se pudo preparar el capítulo de Caracol.")
+    }
+
+    /** El `episodeId` de UN capítulo de Caracol guardado solo. El cuerpo de [playDituEpisode]. */
+    private suspend fun dituEpisodeIdSuelto(
+        temporada: com.arkiv.player.data.gateway.GatewayResult,
+        capitulo: com.arkiv.player.data.gateway.GatewayEpisode,
+        serie: com.arkiv.player.data.gateway.GatewaySerie?,
+    ): String? = graph.repository.addDituSource(
             ref = capitulo.ref,
             seriesRef = temporada.ref,
             // El ítem es la serie; el capítulo se nombra aparte, adentro.
@@ -252,8 +304,4 @@ class SearchPlayback(private val graph: AppGraph) {
             // Sin cruce con TMDB, `GatewaySerie.titulo` es el nombre de Caracol, no el canónico.
             tituloCanonico = serie?.takeIf { it.tmdbId > 0 }?.titulo,
         )
-        return if (epId != null) PlaybackResult.Ready(epId)
-        else PlaybackResult.Failed("No se pudo preparar el capítulo de Caracol.")
-    }
-
 }

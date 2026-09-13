@@ -1,5 +1,6 @@
 package com.arkiv.player.data.local
 
+import com.arkiv.player.data.caracol.DescargaDeCaracol
 import com.arkiv.player.data.db.ArkivDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -19,6 +20,13 @@ class LocalLibrary(private val db: ArkivDatabase) {
     suspend fun fileFor(episodeId: String): String? = withContext(Dispatchers.IO) {
         val row = downloadDao.get(episodeId) ?: return@withContext null
         if (row.state != LocalDownloadState.COMPLETED) return@withContext null
+        // Caracol NO pasa por acá. Lo que su descarga deja en `filePath` no es un video sino el
+        // registro de la descarga (un JSON: ver `DituDownloadStrategy`), porque sus bytes son
+        // segmentos DASH cifrados dentro del caché de media3 y no un archivo reproducible.
+        // Entregarlo como si lo fuera manda al reproductor de archivos locales a abrir un JSON:
+        // pantalla negra y ningún error que lo explique. Quien sabe abrirlo es
+        // `descargaDeCaracol`, y la usa el reproductor de Caracol.
+        if (row.source == FUENTE_CARACOL) return@withContext null
 
         // filePath es lo nuevo; localUri es el `file://` que dejaron las descargas hechas con el
         // DownloadManager del sistema antes de la migración 16->17. Las dos siguen valiendo.
@@ -31,5 +39,38 @@ class LocalLibrary(private val db: ArkivDatabase) {
             return@withContext null
         }
         file.absolutePath
+    }
+
+    /**
+     * El registro de un capítulo de Caracol bajado, o `null` si no está en el dispositivo.
+     *
+     * Devuelve lo que hace falta para ABRIRLO: con qué URL se llenó el caché y qué calidad se bajó.
+     * Ver [DescargaDeCaracol], que explica por qué ninguno de los dos se puede adivinar después.
+     *
+     * Igual que [fileFor], comprueba que lo de disco siga existiendo: si la persona borró los datos
+     * de la app por fuera, la fila se limpia y el próximo play cae a streaming en vez de fallar.
+     */
+    suspend fun descargaDeCaracol(episodeId: String): DescargaDeCaracol? = withContext(Dispatchers.IO) {
+        val row = downloadDao.get(episodeId) ?: return@withContext null
+        if (row.state != LocalDownloadState.COMPLETED || row.source != FUENTE_CARACOL) return@withContext null
+        val path = row.filePath ?: return@withContext null
+        val registro = File(path)
+        if (!registro.exists()) {
+            downloadDao.delete(episodeId)
+            return@withContext null
+        }
+        val datos = runCatching { DescargaDeCaracol.deJson(registro.readText()) }.getOrNull()
+        if (datos == null) {
+            // Un registro ilegible es una descarga que no se puede abrir. Se limpia la fila para que
+            // la UI deje de prometer algo que no va a funcionar, y se vuelve a poder bajar.
+            downloadDao.delete(episodeId)
+            return@withContext null
+        }
+        datos
+    }
+
+    private companion object {
+        /** El valor de `downloads.source` de Caracol. Ver [com.arkiv.player.data.local.FuenteDeDescarga]. */
+        const val FUENTE_CARACOL = "ditu"
     }
 }

@@ -27,6 +27,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.dash.DashMediaSource
+import androidx.media3.common.StreamKey
 import androidx.media3.exoplayer.drm.DefaultDrmSessionManager
 import androidx.media3.exoplayer.drm.FrameworkMediaDrm
 import androidx.media3.exoplayer.drm.HttpMediaDrmCallback
@@ -100,6 +101,15 @@ internal fun DituExoPlayer(
     drmLicenseUrl: String,
     drmLicenseHeaders: Map<String, String>,
     espejo: EspejoDelPlayer,
+    /**
+     * El capítulo está bajado al dispositivo: los segmentos salen del caché y no del CDN.
+     *
+     * `null` = streaming, como siempre. La LICENCIA se pide por red en los dos casos: Caracol no
+     * concede licencias persistentes, así que "bajado" acá significa que no vuelven a viajar los
+     * gigabytes, no que se pueda ver en modo avión.
+     */
+    descargaLocal: com.arkiv.player.data.caracol.DescargaDeCaracol? = null,
+    almacen: com.arkiv.player.data.caracol.AlmacenDeCaracol? = null,
     startPositionMs: Long = 0L,
     arrancarSolo: Boolean = true,
     onPlayerReady: (Player?) -> Unit = {},
@@ -114,11 +124,12 @@ internal fun DituExoPlayer(
 
     // Los headers de licencia van en la clave: dos resoluciones del mismo episodio traen la misma
     // URL pero un `playback_token` nuevo, y el player viejo seguiría pidiendo con el vencido.
-    val exoPlayer = remember(mediaUrl, drmLicenseUrl, drmLicenseHeaders) {
+    val exoPlayer = remember(mediaUrl, drmLicenseUrl, drmLicenseHeaders, descargaLocal) {
         Log.i(
             TAG,
-            "Creating ExoPlayer DASH · url=${mediaUrl.take(80)} license=${drmLicenseUrl.take(60)} " +
-                "headers=${drmLicenseHeaders.keys} startMs=$startPositionMs",
+            "Creating ExoPlayer DASH · url=${(descargaLocal?.mpd ?: mediaUrl).take(80)} " +
+                "license=${drmLicenseUrl.take(60)} headers=${drmLicenseHeaders.keys} " +
+                "startMs=$startPositionMs fromDisk=${descargaLocal != null} quality=${descargaLocal?.alto}p",
         )
 
         val httpFactory = DefaultHttpDataSource.Factory()
@@ -128,9 +139,27 @@ internal fun DituExoPlayer(
             .setConnectTimeoutMs(30_000)
             .setReadTimeoutMs(30_000)
 
+        // De dónde salen los BYTES. Bajado: el caché, con la red solo para lo que falte (un capítulo
+        // a medio bajar sigue siendo mirable). Sin bajar: el CDN, como siempre. La licencia NO pasa
+        // por acá -- va por `httpFactory`, más abajo, porque siempre tiene que salir a la red.
+        val deDisco = descargaLocal != null && almacen != null
+        val fabricaDeMedios = if (deDisco) almacen!!.fabricaParaVer(drmLicenseHeaders) else httpFactory
+
+        // La URL guardada MANDA sobre la recién resuelta. Un caché se indexa por la URI con la que
+        // se escribió: abrir con otra -- aunque apunte al mismo video -- falla todos los bytes y se
+        // va a la red en silencio, que es justo lo que la descarga vino a evitar.
+        //
+        // Y las pistas van declaradas por la misma razón: el manifiesto anuncia TODAS las calidades
+        // estén o no en disco, así que sin este filtro el selector elige por ancho de banda y pide
+        // una que nadie bajó. Medido el 2026-09-13: pidió `init-f4-v1-x3` con la f1 en disco.
         val item = MediaItem.Builder()
-            .setUri(Uri.parse(mediaUrl))
+            .setUri(Uri.parse(descargaLocal?.mpd ?: mediaUrl))
             .setMimeType(MimeTypes.APPLICATION_MPD)
+            .apply {
+                descargaLocal?.let { d ->
+                    setStreamKeys(d.claves.map { StreamKey(it.periodo, it.grupo, it.pista) })
+                }
+            }
             .build()
 
         // La licencia se pide con el MISMO `httpFactory`: sin él, el callback saldría por un
@@ -153,7 +182,7 @@ internal fun DituExoPlayer(
 
         ExoPlayer.Builder(context)
             .setMediaSourceFactory(
-                DashMediaSource.Factory(httpFactory).setDrmSessionManagerProvider { drmManager },
+                DashMediaSource.Factory(fabricaDeMedios).setDrmSessionManagerProvider { drmManager },
             )
             .build()
             .also { player ->

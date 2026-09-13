@@ -165,6 +165,15 @@ data class DituReproducible(
      * volver, y no puede arrancar a sonar solo. Ver [ArranqueConLaPrimeraImagen.queriaReproducir].
      */
     val arrancarSolo: Boolean = true,
+    /**
+     * El capítulo ya está bajado al dispositivo: de dónde leerlo.
+     *
+     * `null` = reproducir por streaming, como siempre. Cuando viene, los segmentos salen del caché
+     * en vez del CDN -- pero la LICENCIA se sigue pidiendo por red, porque Caracol no concede
+     * licencias persistentes (ver [com.arkiv.player.data.caracol.DescargaDeCaracol]). Por eso esto
+     * convive con [playable] en lugar de reemplazarlo: de ahí sale el `playback_token` fresco.
+     */
+    val descargaLocal: com.arkiv.player.data.caracol.DescargaDeCaracol? = null,
 )
 
 /**
@@ -1019,7 +1028,16 @@ class PlayerViewModel internal constructor(
         val startPos = if (vivo) 0L else arrancarEnMs ?: safeStartPosition(episodeId, SourceKind.DITU)
         Log.w(PLAY, "loadDitu() drm=${play.drmLicenseUrl.isNotBlank()} startPos=$startPos")
         // `publicar` vuelve a mirar si sigue vigente: `safeStartPosition` también suspende.
-        if (!ditu.publicar(DituReproducible(episodeId, play, startPos, arrancarSolo = arrancarSolo))) {
+        // Si está bajado, esto dice de dónde leer. Se busca DESPUÉS de resolver y no antes porque
+        // resolver hace falta igual: es lo único que trae el token con el que se pide la licencia.
+        val descarga = if (vivo) null else runCatching { localLibrary.descargaDeCaracol(episodeId) }.getOrNull()
+        if (descarga != null) {
+            Log.w(PLAY, "loadDitu() $episodeId is on the device (${descarga.alto}p); media comes off the disk")
+        }
+        if (!ditu.publicar(
+                DituReproducible(episodeId, play, startPos, arrancarSolo = arrancarSolo, descargaLocal = descarga),
+            )
+        ) {
             Log.w(PLAY, "loadDitu() discarded on publish: $episodeId is no longer the current request")
         }
     }

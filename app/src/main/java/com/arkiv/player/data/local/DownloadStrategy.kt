@@ -31,4 +31,17 @@ interface DownloadStrategy {
         targetDir: File,
         onProgress: (bytesDone: Long, totalBytes: Long) -> Unit,
     ): DownloadOutcome
+
+    /**
+     * Borra lo que [download] dejó FUERA de [targetDir], si dejó algo.
+     *
+     * `LocalDownloadManager.remove` sabe borrar un archivo y barrer por prefijo el directorio de
+     * descargas, y con eso alcanzaba mientras toda descarga fue un archivo. Caracol no lo es: sus
+     * bytes viven en un caché de media3 compartido por todos los capítulos, y quién sabe cuáles son
+     * de cuál es su propia estrategia. Sin este gancho, "Quitar" borraba la fila y dejaba los megas
+     * ocupando disco para siempre.
+     *
+     * Vacío por defecto: una estrategia que solo escribe un archivo no tiene nada que agregar.
+     */
+    suspend fun borrarRestos(episodeId: String, targetDir: File) = Unit
 }

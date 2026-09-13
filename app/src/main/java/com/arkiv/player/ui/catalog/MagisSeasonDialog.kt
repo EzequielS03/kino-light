@@ -76,7 +76,12 @@ fun MagisSeasonDialog(
     // del episodio entera (REPLACE), así que sin ella los capítulos marcados perderían la temporada
     // que el play ya había guardado bien. Ver `SearchPlayback.magisEpisodeIdDe`.
     // Null = descarga deshabilitada.
-    onSave: ((List<GatewayEpisode>, GatewaySerie?) -> Unit)? = null,
+    //
+    // Van las DOS listas: los capítulos elegidos y la temporada entera que la ventana ya cargó.
+    // Magis solo necesita los elegidos, pero Caracol guarda la serie completa para poder guardar
+    // uno (`ArkivRepository.addDituSeason`), y sin fila en `episodes` la descarga después no
+    // encuentra el `ref`.
+    onSave: ((todos: List<GatewayEpisode>, elegidos: List<GatewayEpisode>, GatewaySerie?) -> Unit)? = null,
     // El nombre y el color de la fuente. La ventana también abre las series de Caracol.
     etiqueta: String = "Magis",
     acento: Color = ArkivMagisBlue,
@@ -91,6 +96,8 @@ fun MagisSeasonDialog(
     // marcar los 16 capítulos por defecto invitaría a bajar una temporada entera sin querer.
     val marcados = remember(season.ref) { mutableStateListOf<Int>() }
     val puedeGuardar = onSave != null
+    // El capítulo que se tocó y todavía no decidió si se ve o se baja. Ver el diálogo del final.
+    var porElegir by remember(season.ref) { mutableStateOf<GatewayEpisode?>(null) }
 
     LaunchedEffect(season.ref) {
         // What the dialog was opened with. `program_type` is what decides this is a series (see
@@ -122,8 +129,9 @@ fun MagisSeasonDialog(
         confirmButton = {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (puedeGuardar && marcados.isNotEmpty()) {
-                    val elegidos = capitulos.orEmpty().filter { it.number in marcados }
-                    TextButton(onClick = { onSave!!(elegidos, serie); onDismiss() }) {
+                    val caps = capitulos.orEmpty()
+                    val elegidos = caps.filter { it.number in marcados }
+                    TextButton(onClick = { onSave!!(caps, elegidos, serie); onDismiss() }) {
                         Icon(Icons.Default.Download, contentDescription = null, tint = acento)
                         Spacer(Modifier.size(6.dp))
                         Text("Guardar ${elegidos.size}", color = acento)
@@ -200,7 +208,13 @@ fun MagisSeasonDialog(
                                     if (cap.number in marcados) marcados.remove(cap.number)
                                     else marcados.add(cap.number)
                                 },
-                                onPlay = { onPlay(capitulos!!, cap, serie) },
+                                onPlay = {
+                                    // Donde se puede bajar, tocar un capítulo PREGUNTA; donde no
+                                    // (Caracol es Widevine, ver `FuenteDeDescarga`), ver es el único
+                                    // gesto posible y un diálogo de una sola opción solo estorba.
+                                    if (puedeGuardar) porElegir = cap
+                                    else onPlay(capitulos!!, cap, serie)
+                                },
                             )
                         }
                     }
@@ -208,7 +222,53 @@ fun MagisSeasonDialog(
             }
         },
     )
+
+    // Ver o bajar ESTE capítulo. Es el gemelo del diálogo que ya tenían las películas
+    // (`MagisTapDecision.ShowMovieDialog`): hasta ahora bajar un capítulo solo se podía marcando su
+    // casilla, que es un gesto para varios capítulos a la vez y que nadie encuentra cuando quiere
+    // uno. Va como un Dialog HERMANO y no dentro del `text` del de arriba: uno anidado en el
+    // contenido del otro hereda su ancho y su scroll.
+    porElegir?.let { cap ->
+        val caps = capitulos.orEmpty()
+        AlertDialog(
+            onDismissRequest = { porElegir = null },
+            title = { Text(nombreDeCapitulo(cap), color = Color.White, fontWeight = FontWeight.SemiBold) },
+            confirmButton = {
+                TextButton(onClick = { porElegir = null; onPlay(caps, cap, serie) }) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = acento)
+                    Spacer(Modifier.size(6.dp))
+                    Text("Ver", color = acento)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    porElegir = null
+                    onSave!!(caps, listOf(cap), serie)
+                    // Se cierra la temporada, igual que al guardar varios: quien encola es la
+                    // pantalla de atrás y ahí es donde se ve si entró en la cola o ya estaba.
+                    onDismiss()
+                }) {
+                    Icon(Icons.Default.Download, contentDescription = null, tint = ArkivTextSecondary)
+                    Spacer(Modifier.size(6.dp))
+                    Text("Descargar", color = ArkivTextSecondary)
+                }
+            },
+        )
+    }
 }
+
+/**
+ * Cómo se llama un capítulo en pantalla.
+ *
+ * El número del portal MANDA: identifica el capítulo que se va a reproducir, y si el cruce con
+ * TMDB quedara corrido para esta temporada, sigue siendo el dato cierto. El nombre va al lado,
+ * nunca en su lugar. Prioridad: título de TMDB (el real) -> título del portal (salvo que solo
+ * repita el número) -> "Capítulo N" como último respaldo.
+ */
+private fun nombreDeCapitulo(cap: GatewayEpisode): String =
+    cap.tmdbTitle?.takeIf { it.isNotBlank() }
+        ?: cap.title.takeIf { it.isNotBlank() && it != cap.number.toString() }
+        ?: "Capítulo ${cap.number}"
 
 /** Una fila de capítulo: casilla para guardar, número (o temporada y número, ver
  *  [CapitulosPorTemporada]), nombre y play. */
@@ -273,14 +333,7 @@ private fun EpisodeRow(
             }
         }
         Text(
-            // El número del portal MANDA: identifica el capítulo que se va a reproducir, y si el
-            // cruce con TMDB quedara corrido para esta temporada, sigue siendo el dato cierto. El
-            // nombre va al lado, nunca en su lugar. Prioridad: título de TMDB (el real) -> título
-            // del portal (salvo que solo repita el nombre de la temporada, regla ya existente) ->
-            // "Capítulo N" como último respaldo.
-            cap.tmdbTitle?.takeIf { it.isNotBlank() }
-                ?: cap.title.takeIf { it.isNotBlank() && it != cap.number.toString() }
-                ?: "Capítulo ${cap.number}",
+            nombreDeCapitulo(cap),
             color = Color.White,
             style = MaterialTheme.typography.bodyMedium,
             maxLines = 1,

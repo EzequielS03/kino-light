@@ -151,6 +151,7 @@ fun SearchScreen(
     // Whether a download strategy is registered for Magis (today there always is one): decides
     // whether a movie's dialog offers "Descargar película". See `FuenteDeDescarga.hayEstrategia`.
     val magisDownloadable = remember { FuenteDeDescarga.hayEstrategia("magis", graph.downloadStrategies.keys) }
+    val caracolSeBaja = remember { FuenteDeDescarga.hayEstrategia("ditu", graph.downloadStrategies.keys) }
     // Temporada de Magis abierta: un resultado de serie del portal ES una temporada entera,
     // así que en vez de reproducir se abre su lista de capítulos.
     var magisSeason by remember { mutableStateOf<com.arkiv.player.data.gateway.GatewayResult?>(null) }
@@ -348,7 +349,7 @@ fun SearchScreen(
                 preparing = true; playError = null
                 scope.launch { applyResult(playback.playMagisSeason(temporada, capitulos, capitulo, serie)) }
             },
-            onSave = { elegidos, serie ->
+            onSave = { _, elegidos, serie ->
                 askNotifications()
                 scope.launch {
                     // Se guarda capítulo por capítulo: cada uno es un archivo aparte en el CDN y
@@ -382,9 +383,21 @@ fun SearchScreen(
                 preparing = true; playError = null
                 scope.launch { applyResult(playback.playDituSeason(serieDeCaracol, capitulos, capitulo, serie)) }
             },
-            // Sin casillas de "Guardar": en esta ventana guardar es bajar al dispositivo, y Caracol no
-            // se baja (Widevine, ver `FuenteDeDescarga`). A la biblioteca entra al reproducir.
-            onSave = null,
+            // Caracol SÍ se baja, desde 2026-09-13. No como Magis: lo que queda en el aparato son
+            // sus segmentos cifrados, y abrirlos sigue pidiendo una licencia por red (unos KB). Ver
+            // `AlmacenDeCaracol`. Se ofrece solo si hay estrategia registrada, que es la misma
+            // compuerta que usa el resto de la app.
+            onSave = if (!caracolSeBaja) null else { todos, elegidos, serie ->
+                askNotifications()
+                scope.launch {
+                    val encolados = playback.encolarDescargaDeCaracol(serieDeCaracol, todos, elegidos, serie)
+                    playError = when {
+                        encolados == 0 -> "Esos capítulos ya estaban guardados."
+                        encolados == elegidos.size -> null
+                        else -> "Se encolaron $encolados de ${elegidos.size} (el resto ya estaba)."
+                    }
+                }
+            },
             etiqueta = "Caracol",
             acento = ArkivCaracolVerde,
         )

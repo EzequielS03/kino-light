@@ -74,6 +74,16 @@ internal fun MagisExoPlayer(
     onError: (String) -> Unit = {},
     onTracksChanged: ((Tracks) -> Unit)? = null,
     onPrimeraImagen: (Boolean) -> Unit = {},
+    /**
+     * The episode reached its end.
+     *
+     * Magis plays here and not on the service player, and the screen's own end-of-episode listener
+     * deliberately stays quiet while an ExoPlayer is active -- its STATE_ENDED would belong to a
+     * local player holding nothing. That left NOBODY watching for the end of a Magis episode, so
+     * it simply stopped at the last frame and the next one had to be started by hand. The comment
+     * excusing it said "the ExoPlayer handles its own end"; it never did.
+     */
+    onFinDelCapitulo: () -> Unit = {},
     zoom: Float = 1f,
 ) {
     val context = LocalContext.current
@@ -211,6 +221,10 @@ internal fun MagisExoPlayer(
                 }
                 Log.i(TAG, "onPlaybackStateChanged → $nombre · isPlaying=${exoPlayer.isPlaying} pos=${exoPlayer.currentPosition}ms dur=${exoPlayer.duration}ms")
                 espejo.cambioElBuffering(state == Player.STATE_BUFFERING)
+                if (state == Player.STATE_ENDED) {
+                    Log.w(TAG, "episode ended at ${exoPlayer.currentPosition}ms of ${exoPlayer.duration}ms")
+                    onFinDelCapitulo()
+                }
             }
 
             override fun onIsPlayingChanged(playing: Boolean) {

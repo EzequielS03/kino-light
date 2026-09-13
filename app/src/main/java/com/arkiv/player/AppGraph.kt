@@ -247,6 +247,9 @@ class AppGraph(context: Context) {
             appContext, database,
             wakeWorker = { com.arkiv.player.data.local.LocalDownloadWorker.schedule(it) },
             restartWorker = { com.arkiv.player.data.local.LocalDownloadWorker.restart(it) },
+            // Por lambda: `downloadStrategies` necesita `repository`, que se construye después de
+            // esto. Evaluarlo acá cerraría el círculo y reventaría al arrancar.
+            estrategias = { downloadStrategies },
         )
     }
 
@@ -343,6 +346,26 @@ class AppGraph(context: Context) {
             "magis" to com.arkiv.player.data.local.MagisDownloadStrategy(
                 repository, fuenteDeContenido, httpRangeDownloader,
             ),
+            // Caracol. Con esta clave presente, `FuenteDeDescarga.sePuedeBajar` empieza a decir que
+            // sí para sus capítulos y la UI muestra el botón sola -- ese es justamente el contrato
+            // que documenta: una fuente sin estrategia queda escondida, una con estrategia aparece.
+            "ditu" to com.arkiv.player.data.local.DituDownloadStrategy(
+                repository, fuenteDeContenido, almacenDeCaracol,
+            ),
+        )
+    }
+
+    /**
+     * Dónde viven los capítulos de Caracol bajados. Uno solo por proceso: `SimpleCache` no deja
+     * abrir dos veces la misma carpeta, y acá lo comparten la descarga y el reproductor.
+     *
+     * Cuelga del mismo directorio que las descargas normales para que el espacio libre que mide
+     * `LocalDownloadManager` sea el mismo disco que realmente se llena.
+     */
+    val almacenDeCaracol: com.arkiv.player.data.caracol.AlmacenDeCaracol by lazy {
+        com.arkiv.player.data.caracol.AlmacenDeCaracol(
+            appContext,
+            java.io.File(localDownloads.targetDir(), "caracol"),
         )
     }
 

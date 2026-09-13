@@ -70,7 +70,9 @@ Lo que ve la persona usuaria: español de Bogotá, tuteo, nunca voseo. Lo que ve
      - **Hosts que devuelve la API en tiempo de ejecución** (el barrido NO los ve, porque no están
        en el código; es el mismo caso que el CDN de Magis del punto 3):
        - el CDN del video: el `src` del `.mpd` que devuelve `CONTENT/VIDEOURL` (`DituResolve`),
-         con sus segmentos;
+         con sus segmentos. Medido el 2026-09-13: es **Mediastream** (`mdstrm.com`), que redirige a
+         CloudFront. Ahí también van los segmentos que guarda la descarga de Caracol
+         (`DituDownloadStrategy`), o sea que bajar no agrega ningún host nuevo a esta lista;
        - los logos de canal (`logoMedium`, en `DituCatalogo`), que según el adaptador de Python
          (`arkiv-api/src/arkiv_api/adapters/ditu/adapter.py`) vienen de
          `image-registry.avscaracoltv.com`;

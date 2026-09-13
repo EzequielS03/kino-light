@@ -37,6 +37,12 @@ class LocalDownloadManager(
      * la fachada no tiene forma de hablarle a la estrategia que está adentro del worker.
      */
     private val restartWorker: (Context) -> Unit,
+    /**
+     * Las estrategias, para poder pedirles que limpien lo suyo al quitar una descarga (ver
+     * [DownloadStrategy.borrarRestos]). Va como lambda y no como mapa para romper el ciclo con
+     * `AppGraph`: las estrategias necesitan el repositorio, que se construye después de esto.
+     */
+    private val estrategias: () -> Map<String, DownloadStrategy> = { emptyMap() },
 ) {
     private val appContext = context.applicationContext
     private val downloadDao = db.downloadDao()
@@ -160,6 +166,13 @@ class LocalDownloadManager(
         // porque la propia estrategia limpia lo suyo al salir y el archivo final ya no se produce.
         downloadDao.delete(episodeId)
         if (inFlight) restartWorker(appContext)
+        // Lo que no es un archivo en `targetDir` lo borra quien lo escribió: para Caracol son los
+        // segmentos dentro del caché compartido de media3, que ningún barrido por nombre alcanza.
+        // Va ANTES de borrar el registro por prefijo, porque es ese registro el que dice qué bytes
+        // del caché son de este capítulo.
+        row?.source?.let { fuente ->
+            runCatching { estrategias()[fuente]?.borrarRestos(episodeId, targetDir()) }
+        }
         val path = row?.filePath ?: row?.localUri?.removePrefix("file://")
         // Dos filas pueden compartir el MISMO archivo: cuando el worker encuentra que ese contenido
         // ya estaba en disco bajo otro ítem, adopta el archivo del gemelo en vez de re-descargarlo

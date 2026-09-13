@@ -709,7 +709,23 @@ private fun PlayerContent(
     val pantallaId = remember { PANTALLA_SEQ.incrementAndGet() }
     DisposableEffect(Unit) {
         android.util.Log.w("ArkivVout", "SCREEN #$pantallaId enters")
-        onDispose { android.util.Log.w("ArkivVout", "SCREEN #$pantallaId exits (dispose)") }
+        onDispose {
+            android.util.Log.w("ArkivVout", "SCREEN #$pantallaId exits (dispose)")
+            // LEAVING THE PLAYER ENDS THE CAST. A Cast session outlives this screen, so walking
+            // out of an episode and opening another one used to arrive with casting already on:
+            // the new title went to the TV without anyone asking, and every remux and wait that
+            // implies started on its own. Casting is a thing the person does on purpose, once,
+            // for what they are watching -- so it ends with what they were watching.
+            //
+            // Only when the screen really goes away. Rotating or the app going to the background
+            // does not come through here with the activity kept, and auto-advance to the next
+            // episode replaces the item WITHOUT disposing this, so a series still plays on
+            // through to the TV.
+            if (runCatching { graph.castSession?.casting?.value }.getOrNull() == true) {
+                android.util.Log.w("ArkivCast", "leaving the player → ending the cast session")
+                runCatching { graph.castSession?.stopIntentionally() }
+            }
+        }
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -2639,6 +2655,10 @@ private fun PlayerContent(
                 },
                 onTextureViewReady = { tv -> magisTextureView = tv },
                 onError = { msg -> vm.onMagisExoError(msg) },
+                // Nobody else watches for the end of a Magis episode: the screen's listener stays
+                // quiet while an ExoPlayer is active, on the grounds that its STATE_ENDED belongs
+                // to a local player holding nothing. True, but it left the end unhandled entirely.
+                onFinDelCapitulo = { alTerminarElCapitulo() },
                 onTracksChanged = { tracks -> estadoPistas.actualizarPistasExo(tracks) },
                 onPrimeraImagen = { hay -> exoYaPintoAlgo = hay },
                 zoom = gestos.zoomParaExo,
@@ -2655,6 +2675,8 @@ private fun PlayerContent(
                 mediaUrl = dPlay.playable.url,
                 drmLicenseUrl = dPlay.playable.drmLicenseUrl,
                 drmLicenseHeaders = dPlay.playable.drmLicenseHeaders,
+                descargaLocal = dPlay.descargaLocal,
+                almacen = graph.almacenDeCaracol,
                 espejo = espejo,
                 startPositionMs = dPlay.startPositionMs,
                 arrancarSolo = dPlay.arrancarSolo,
@@ -3298,6 +3320,62 @@ private fun PlayerContent(
                             Text(formatDuration(espejo.duracionMs), color = Color.White, style = MaterialTheme.typography.labelMedium)
                         }
                         Spacer(Modifier.height(8.dp))
+
+                        // PORTRAIT DOES NOT FIT. Transport is five buttons and the secondary
+                        // controls are up to five more; at 48dp each that is ~430dp of icon before
+                        // a single gap, against roughly 379dp of usable width on a phone held
+                        // upright. They were not merely cramped, they ran off the screen. So in
+                        // portrait they go on a SECOND row and the transport centres itself;
+                        // landscape has the room and keeps the single row it always had.
+                        val esVertical = LocalConfiguration.current.orientation ==
+                            Configuration.ORIENTATION_PORTRAIT
+                        // Casting, tracks are chosen on the LOCAL player, so these hide entirely.
+                        val haySecundarios = !isTv && !casting
+                        val iconosSecundarios: @Composable () -> Unit = {
+                            if (hayMarcadoresQueCorregir) {
+                                MenuDeMarcadoresDelCapitulo(
+                                    estado = marcadores,
+                                    isTv = false,
+                                    onFinDelOpening = { marcarTiempo(ModoDeMarcado.INTRO) },
+                                    onInicioDelEnding = { marcarTiempo(ModoDeMarcado.OUTRO) },
+                                    onQuitar = { quitarLosMarcadoresDelCapitulo() },
+                                )
+                            }
+                            IconButton(onClick = { estadoPistas.abrirPicker() }) {
+                                Icon(
+                                    if (estadoPistas.haySubtitulo) Icons.Default.ClosedCaption else Icons.Default.ClosedCaptionOff,
+                                    contentDescription = "Subtítulos y audio",
+                                    tint = if (estadoPistas.haySubtitulo) ArkivRed else Color.White,
+                                )
+                            }
+                            // MODO NOCHE (los mismos dos botones que en TV; acá el gesto de
+                            // brillo del borde izquierdo sigue existiendo y es independiente:
+                            // ese baja el backlight real, estos ponen el velo sobre el video).
+                            IconButton(onClick = { gestos.pasoDeBrillo(+1, dimNivel) }) {
+                                Icon(
+                                    Icons.Default.Brightness2,
+                                    contentDescription = "Bajar brillo",
+                                    tint = if (dimNivel > 0) ArkivRed else Color.White,
+                                )
+                            }
+                            IconButton(onClick = { gestos.pasoDeBrillo(-1, dimNivel) }) {
+                                Icon(
+                                    Icons.Default.BrightnessHigh,
+                                    contentDescription = "Subir brillo",
+                                    tint = if (dimNivel > 0) ArkivRed else Color.White,
+                                )
+                            }
+                            if (TriviaDelPlayer.hayBoton(trivia)) {
+                                IconButton(onClick = { estadoTrivia.mostrarSiguiente(trivia.size) }) {
+                                    Icon(
+                                        Icons.Default.Info,
+                                        contentDescription = "Dato curioso",
+                                        tint = Color.White,
+                                    )
+                                }
+                            }
+                        }
+
                         // Capítulo anterior / retroceder / play-pausa / adelantar / capítulo
                         // siguiente / subtítulos (TV) — todo en una sola fila, izq/der navegable
                         // con D-pad. Los dos saltos de capítulo van en los extremos del transporte,
@@ -3325,7 +3403,13 @@ private fun PlayerContent(
                                     }
                                 },
                             ),
-                            horizontalArrangement = Arrangement.spacedBy(20.dp),
+                            // Centred in portrait, where nothing else shares the row; left-aligned
+                            // in landscape, where the spacer pushes the secondary icons right.
+                            horizontalArrangement = if (esVertical) {
+                                Arrangement.spacedBy(20.dp, Alignment.CenterHorizontally)
+                            } else {
+                                Arrangement.spacedBy(20.dp)
+                            },
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             // Los saltos de capítulo dependen SOLO de que el vecino exista, nunca del
@@ -3509,57 +3593,26 @@ private fun PlayerContent(
                                     )
                                 }
                             }
-                            // TELÉFONO: subtítulos contra el borde derecho. El Spacer se come el
-                            // ancho sobrante, así que los controles de transporte quedan a la
-                            // izquierda y estos solo en la esquina — antes competía por espacio
-                            // arriba con otros siete elementos.
-                            // Casteando no: las pistas se eligen sobre el reproductor local (`controller`), el
-                            // reproductor local. El receptor de Chromecast maneja las suyas.
-                            if (!isTv && !casting) {
+                            // LANDSCAPE: they ride at the right end of this same row, pushed
+                            // there by the spacer. In portrait they do not fit and go below --
+                            // see `esVertical` above.
+                            if (haySecundarios && !esVertical) {
                                 Spacer(Modifier.weight(1f))
-                                if (hayMarcadoresQueCorregir) {
-                                    MenuDeMarcadoresDelCapitulo(
-                                        estado = marcadores,
-                                        isTv = false,
-                                        onFinDelOpening = { marcarTiempo(ModoDeMarcado.INTRO) },
-                                        onInicioDelEnding = { marcarTiempo(ModoDeMarcado.OUTRO) },
-                                        onQuitar = { quitarLosMarcadoresDelCapitulo() },
-                                    )
-                                }
-                                IconButton(onClick = { estadoPistas.abrirPicker() }) {
-                                    Icon(
-                                        if (estadoPistas.haySubtitulo) Icons.Default.ClosedCaption else Icons.Default.ClosedCaptionOff,
-                                        contentDescription = "Subtítulos y audio",
-                                        tint = if (estadoPistas.haySubtitulo) ArkivRed else Color.White,
-                                    )
-                                }
-                                // MODO NOCHE (los mismos dos botones que en TV; acá el gesto de
-                                // brillo del borde izquierdo sigue existiendo y es independiente:
-                                // ese baja el backlight real, estos ponen el velo sobre el video).
-                                IconButton(onClick = { gestos.pasoDeBrillo(+1, dimNivel) }) {
-                                    Icon(
-                                        Icons.Default.Brightness2,
-                                        contentDescription = "Bajar brillo",
-                                        tint = if (dimNivel > 0) ArkivRed else Color.White,
-                                    )
-                                }
-                                IconButton(onClick = { gestos.pasoDeBrillo(-1, dimNivel) }) {
-                                    Icon(
-                                        Icons.Default.BrightnessHigh,
-                                        contentDescription = "Subir brillo",
-                                        tint = if (dimNivel > 0) ArkivRed else Color.White,
-                                    )
-                                }
-                                // El mismo botón de dato curioso que en TV, al final de la fila.
-                                if (TriviaDelPlayer.hayBoton(trivia)) {
-                                    IconButton(onClick = { estadoTrivia.mostrarSiguiente(trivia.size) }) {
-                                        Icon(
-                                            Icons.Default.Info,
-                                            contentDescription = "Dato curioso",
-                                            tint = Color.White,
-                                        )
-                                    }
-                                }
+                                iconosSecundarios()
+                            }
+                        }
+
+                        // PORTRAIT: the secondary controls, on their own row, against the right
+                        // edge so the thumb reaches them without covering the picture. They keep
+                        // the order they have in landscape, so the same icon is in the same place
+                        // whichever way the phone is held.
+                        if (haySecundarios && esVertical) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                iconosSecundarios()
                             }
                         }
                         // Carrusel de capítulos (TV, series con más de 1 episodio): un paso más

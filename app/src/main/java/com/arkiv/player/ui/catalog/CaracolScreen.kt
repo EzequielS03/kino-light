@@ -103,6 +103,12 @@ fun CaracolScreen(onPlay: (episodeId: String) -> Unit, contentPadding: PaddingVa
     var dituSeason by remember { mutableStateOf<GatewayResult?>(null) }
     var preparing by remember { mutableStateOf(false) }
     var playError by remember { mutableStateOf<String?>(null) }
+    // El permiso de notificaciones (API 33+) se pide recién al disparar una descarga, que es lo
+    // único de esta pantalla que notifica. Mismo criterio que en la búsqueda.
+    val pedirNotificaciones = com.arkiv.player.ui.offline.rememberPostNotificationsRequest()
+    val caracolSeBaja = remember {
+        com.arkiv.player.data.local.FuenteDeDescarga.hayEstrategia("ditu", graph.downloadStrategies.keys)
+    }
 
     LaunchedEffect(reloads) {
         loading = true
@@ -225,9 +231,22 @@ fun CaracolScreen(onPlay: (episodeId: String) -> Unit, contentPadding: PaddingVa
                 playError = null
                 scope.launch { applyResult(playback.playDituSeason(season, chapters, chapter, series)) }
             },
-            // No "Save" checkboxes: Caracol is Widevine and can't be downloaded (see
-            // `FuenteDeDescarga`). It enters the library when played, same as search.
-            onSave = null,
+            // Caracol can be downloaded since 2026-09-13 -- not the way Magis is. What lands on
+            // the device are its ENCRYPTED segments, and opening them still asks the licence server
+            // for a few KB over the network, because Caracol grants no persistent licences. See
+            // `AlmacenDeCaracol`. Offered only when a strategy is registered, the same gate the
+            // rest of the app uses.
+            onSave = if (!caracolSeBaja) null else { todos, elegidos, series ->
+                pedirNotificaciones()
+                scope.launch {
+                    val encolados = playback.encolarDescargaDeCaracol(season, todos, elegidos, series)
+                    playError = when {
+                        encolados == 0 -> "Esos capítulos ya estaban guardados."
+                        encolados == elegidos.size -> null
+                        else -> "Se encolaron $encolados de ${elegidos.size} (el resto ya estaba)."
+                    }
+                }
+            },
             etiqueta = "Caracol",
             acento = ArkivCaracolVerde,
         )
