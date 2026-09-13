@@ -104,7 +104,7 @@
         <!-- El botón "Cancelar" de la notificación de descarga. `exported=false`: lo dispara solo
              nuestro propio PendingIntent, nadie de afuera. -->
         <receiver
-            android:name=".data.local.AccionesDeDescargaReceiver"
+            android:name=".data.local.DownloadActionsReceiver"
             android:exported="false" />
     </application>
 </manifest>

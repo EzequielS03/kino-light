@@ -74,7 +74,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import coil.compose.AsyncImage
 import com.arkiv.player.data.RecentTitle
-import com.arkiv.player.data.local.FuenteDeDescarga
+import com.arkiv.player.data.local.DownloadSource
 import com.arkiv.player.ui.catalog.PlaySource
 import com.arkiv.player.ui.catalog.SourceRow
 import com.arkiv.player.ui.catalog.posterDe
@@ -149,9 +149,9 @@ fun SearchScreen(
     var preparing by remember { mutableStateOf(false) }
     var playError by remember { mutableStateOf<String?>(null) }
     // Whether a download strategy is registered for Magis (today there always is one): decides
-    // whether a movie's dialog offers "Descargar película". See `FuenteDeDescarga.hayEstrategia`.
-    val magisDownloadable = remember { FuenteDeDescarga.hayEstrategia("magis", graph.downloadStrategies.keys) }
-    val caracolSeBaja = remember { FuenteDeDescarga.hayEstrategia("ditu", graph.downloadStrategies.keys) }
+    // whether a movie's dialog offers "Descargar película". See `DownloadSource.hasStrategy`.
+    val magisDownloadable = remember { DownloadSource.hasStrategy("magis", graph.downloadStrategies.keys) }
+    val caracolSeBaja = remember { DownloadSource.hasStrategy("ditu", graph.downloadStrategies.keys) }
     // Temporada de Magis abierta: un resultado de serie del portal ES una temporada entera,
     // así que en vez de reproducir se abre su lista de capítulos.
     var magisSeason by remember { mutableStateOf<com.arkiv.player.data.gateway.GatewayResult?>(null) }
@@ -195,7 +195,7 @@ fun SearchScreen(
 
     // Saves the movie and enqueues it for a device download, same as the library does in
     // DetailScreen.saveEpisodesLocally: same permission helper, same duplicate notice, and the same
-    // FuenteDeDescarga.para(epId) to pick the queue's strategy. The "queued" toast only fires for a
+    // DownloadSource.sourceFor(epId) to pick the queue's strategy. The "queued" toast only fires for a
     // fresh EnqueueOutcome.QUEUED — ALREADY_QUEUED/ALREADY_DOWNLOADED already get their own message
     // from notifyDuplicates, and showing both would be misleading. See [queuedDownloadToastText].
     fun downloadMagisMovie(r: com.arkiv.player.data.gateway.GatewayResult) {
@@ -206,7 +206,7 @@ fun SearchScreen(
                 playError = "No se pudo preparar la descarga de Magis."
                 return@launch
             }
-            val outcome = graph.localDownloads.enqueue(epId, FuenteDeDescarga.para(epId))
+            val outcome = graph.localDownloads.enqueue(epId, DownloadSource.sourceFor(epId))
             notifyDuplicates(listOf(outcome))
             queuedDownloadToastText(outcome, r.title)?.let {
                 android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_SHORT).show()

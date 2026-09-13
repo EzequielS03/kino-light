@@ -187,7 +187,7 @@ data class RecentTitleEntity(
 /**
  * A download to the device's OWN storage. `source` records where it came from: `"magis"` for
  * today's Magis downloads, `"archive"` as the fallback this branch has always written for
- * sources without a real download strategy (see `FuenteDeDescarga.para`), and legacy `"torrent"`/
+ * sources without a real download strategy (see `DownloadSource.sourceFor`), and legacy `"torrent"`/
  * `"web"` values left in rows saved before this branch's pruning.
  *
  * `variant` is still NOT NULL (and today it's always `""`) because SQLite can't change a column's

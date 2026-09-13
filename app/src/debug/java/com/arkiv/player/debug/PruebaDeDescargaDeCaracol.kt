@@ -16,7 +16,7 @@ import kotlinx.coroutines.launch
  *
  * Unlike [SpikeDeDescargaDeCaracol] -- which built its own downloader to answer "is this possible
  * at all" -- this one goes through the shipping path: it saves the series the way the chapter
- * dialog does, enqueues with the source `FuenteDeDescarga` picks, and then `LocalDownloadWorker`
+ * dialog does, enqueues with the source `DownloadSource` picks, and then `LocalDownloadWorker`
  * runs `DituDownloadStrategy`. Nothing here is a stand-in for production code; it only replaces
  * the finger that would tap the button.
  *
@@ -127,7 +127,7 @@ class PruebaDeDescargaDeCaracol : BroadcastReceiver() {
         return Triple(temporada, capitulos, serie)
     }
 
-    private fun fuenteDe(epId: String) = com.arkiv.player.data.local.FuenteDeDescarga.para(epId)
+    private fun fuenteDe(epId: String) = com.arkiv.player.data.local.DownloadSource.sourceFor(epId)
 
     private companion object {
         const val TAG = "ArkivPruebaDitu"

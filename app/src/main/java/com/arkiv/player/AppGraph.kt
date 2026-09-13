@@ -339,14 +339,14 @@ class AppGraph(context: Context) {
      * volvió. Una fila con `source="ditu"` cae al mismo camino de gracia.
      *
      * Las pantallas no ofrecen bajar lo que no tiene entrada acá: lo deciden
-     * `FuenteDeDescarga.sePuedeBajar`/`hayEstrategia` con las claves de este mapa.
+     * `DownloadSource.canDownload`/`hasStrategy` con las claves de este mapa.
      */
     val downloadStrategies: Map<String, com.arkiv.player.data.local.DownloadStrategy> by lazy {
         mapOf(
             "magis" to com.arkiv.player.data.local.MagisDownloadStrategy(
                 repository, fuenteDeContenido, httpRangeDownloader,
             ),
-            // Caracol. Con esta clave presente, `FuenteDeDescarga.sePuedeBajar` empieza a decir que
+            // Caracol. Con esta clave presente, `DownloadSource.canDownload` empieza a decir que
             // sí para sus capítulos y la UI muestra el botón sola -- ese es justamente el contrato
             // que documenta: una fuente sin estrategia queda escondida, una con estrategia aparece.
             "ditu" to com.arkiv.player.data.local.DituDownloadStrategy(

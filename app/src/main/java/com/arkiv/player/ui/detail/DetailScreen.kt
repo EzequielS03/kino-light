@@ -79,7 +79,7 @@ import com.arkiv.player.data.local.DownloadAction
 import com.arkiv.player.data.local.DownloadDisplayState
 import com.arkiv.player.data.local.ChapterDownloadState
 import com.arkiv.player.data.local.DownloadLabel
-import com.arkiv.player.data.local.FuenteDeDescarga
+import com.arkiv.player.data.local.DownloadSource
 import com.arkiv.player.data.local.LocalDownloadState
 import com.arkiv.player.thumbnails.ThumbnailChoice
 import com.arkiv.player.ui.esTabletHorizontal
@@ -170,7 +170,7 @@ fun DetailScreen(
         askNotifications()
         scope.launch {
             // Un solo aviso para todo el lote, no uno por capítulo.
-            notifyDuplicates(episodes.map { graph.localDownloads.enqueue(it.id, FuenteDeDescarga.para(it.id)) })
+            notifyDuplicates(episodes.map { graph.localDownloads.enqueue(it.id, DownloadSource.sourceFor(it.id)) })
         }
     }
 
@@ -203,9 +203,9 @@ fun DetailScreen(
     // tienen una estrategia en `AppGraph.downloadStrategies` (hoy, solo Magis). Un capítulo de
     // Caracol (Widevine) o una fila vieja de archive.org terminaban FAILED con "Fuente no soportada"
     // DESPUÉS de que esta pantalla dijera "Guardando": una opción que va a fallar no se muestra. Ver
-    // `FuenteDeDescarga.sePuedeBajar`.
+    // `DownloadSource.canDownload`.
     val estrategias = remember { graph.downloadStrategies.keys }
-    val sePuedeBajar: (Episode) -> Boolean = { ep -> FuenteDeDescarga.sePuedeBajar(ep.id, estrategias) }
+    val sePuedeBajar: (Episode) -> Boolean = { ep -> DownloadSource.canDownload(ep.id, estrategias) }
     val savableEpisodes = detail?.episodes.orEmpty().filter(sePuedeBajar)
 
     // El botón de esta pantalla guarda EN EL DISPOSITIVO (worker local), no en ningún servidor
@@ -789,7 +789,7 @@ private fun EpisodeRow(
     /** En qué va su descarga al dispositivo: manda el ícono de la derecha y la barra de abajo. */
     estado: DownloadDisplayState,
     onPlay: () -> Unit,
-    /** Null = no hay con qué bajar este capítulo (ver `FuenteDeDescarga.sePuedeBajar`). */
+    /** Null = no hay con qué bajar este capítulo (ver `DownloadSource.canDownload`). */
     onDownload: (() -> Unit)?,
     onRetry: () -> Unit,
     /** El usuario pidió deshacer algo de la descarga; quien recibe esto se encarga de confirmarlo. */

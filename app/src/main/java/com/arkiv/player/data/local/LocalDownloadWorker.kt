@@ -47,8 +47,8 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
         // avisos de esta pasada —incluido el de "ya lo tenías"— puedan decir de qué capítulo hablan.
         val episodio = graph.database.itemDao().getEpisode(entity.episodeId)
         val serie = episodio?.let { graph.database.itemDao().getItem(it.itemId)?.title }
-        nombreDelCapitulo = AvisoDeDescarga.nombre(serie, episodio?.displayName)
-        tituloDeLaNotificacion = AvisoDeDescarga.titulo(serie, episodio?.displayName)
+        nombreDelCapitulo = DownloadNotificationText.name(serie, episodio?.displayName)
+        tituloDeLaNotificacion = DownloadNotificationText.title(serie, episodio?.displayName)
         enCola = rows.count { it.state == LocalDownloadState.QUEUED && it.episodeId != entity.episodeId }
 
         // La compuerta de duplicados corre TAMBIÉN acá, no solo en `LocalDownloadManager.enqueue`.
@@ -294,7 +294,7 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
     private fun notificacionDeProgreso(title: String, fraccion: Float?, episodeId: String) =
         NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setContentTitle(title)
-            .setContentText(AvisoDeDescarga.subtitulo(fraccion, enCola))
+            .setContentText(DownloadNotificationText.subtitle(fraccion, enCola))
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setProgress(100, ((fraccion ?: 0f) * 100).toInt(), fraccion == null)
             .setOnlyAlertOnce(true)
@@ -307,13 +307,13 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
             )
             .build()
 
-    /** Dispara [AccionesDeDescargaReceiver], que cancela sin abrir nada. */
+    /** Fires [DownloadActionsReceiver], which cancels without opening anything. */
     private fun intentDeCancelar(episodeId: String): PendingIntent = PendingIntent.getBroadcast(
         applicationContext,
         episodeId.hashCode(),
-        Intent(applicationContext, AccionesDeDescargaReceiver::class.java).apply {
-            action = AccionesDeDescargaReceiver.ACTION_CANCELAR
-            putExtra(AccionesDeDescargaReceiver.EXTRA_EPISODE_ID, episodeId)
+        Intent(applicationContext, DownloadActionsReceiver::class.java).apply {
+            action = DownloadActionsReceiver.ACTION_CANCEL
+            putExtra(DownloadActionsReceiver.EXTRA_EPISODE_ID, episodeId)
         },
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
@@ -360,7 +360,7 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
     private fun notifyDone(episodeId: String) = notify(
         episodeId.hashCode(),
         "Descarga completa",
-        AvisoDeDescarga.listo(null, nombreDelCapitulo),
+        DownloadNotificationText.done(null, nombreDelCapitulo),
         verEpisodeId = episodeId,
     )
 

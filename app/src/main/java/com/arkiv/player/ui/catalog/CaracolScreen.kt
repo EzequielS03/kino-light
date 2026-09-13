@@ -107,7 +107,7 @@ fun CaracolScreen(onPlay: (episodeId: String) -> Unit, contentPadding: PaddingVa
     // único de esta pantalla que notifica. Mismo criterio que en la búsqueda.
     val pedirNotificaciones = com.arkiv.player.ui.offline.rememberPostNotificationsRequest()
     val caracolSeBaja = remember {
-        com.arkiv.player.data.local.FuenteDeDescarga.hayEstrategia("ditu", graph.downloadStrategies.keys)
+        com.arkiv.player.data.local.DownloadSource.hasStrategy("ditu", graph.downloadStrategies.keys)
     }
 
     LaunchedEffect(reloads) {

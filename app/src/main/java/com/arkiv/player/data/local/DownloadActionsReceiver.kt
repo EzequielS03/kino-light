@@ -9,33 +9,33 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
- * El botón "Cancelar" de la notificación de descarga.
+ * The download notification's "Cancel" button.
  *
- * Va por un receiver y no por una Activity porque cancelar no tiene nada que mostrar: abrir la app
- * para frenar una descarga es justo lo que hacía falta evitar.
+ * A receiver and not an Activity because cancelling has nothing to show: opening the app to stop
+ * a download is exactly what needed to be avoided.
  *
- * `goAsync()` porque [LocalDownloadManager.cancel] toca la base y el worker: sin eso el proceso
- * puede morir apenas retorna `onReceive` y la cancelación quedar a medias — la fila marcada pero el
- * worker sin cortar.
+ * `goAsync()` because [LocalDownloadManager.cancel] touches the database and the worker: without
+ * it the process can die as soon as `onReceive` returns and the cancellation is left half-done —
+ * the row marked but the worker never cut off.
  */
-class AccionesDeDescargaReceiver : BroadcastReceiver() {
+class DownloadActionsReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != ACTION_CANCELAR) return
+        if (intent.action != ACTION_CANCEL) return
         val episodeId = intent.getStringExtra(EXTRA_EPISODE_ID) ?: return
         val app = context.applicationContext
-        val pendiente = goAsync()
+        val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 AppGraph.from(app).localDownloads.cancel(episodeId)
             } finally {
-                pendiente.finish()
+                pending.finish()
             }
         }
     }
 
     companion object {
-        const val ACTION_CANCELAR = "com.arkiv.player.CANCELAR_DESCARGA"
+        const val ACTION_CANCEL = "com.arkiv.player.CANCELAR_DESCARGA"
         const val EXTRA_EPISODE_ID = "episodeId"
     }
 }

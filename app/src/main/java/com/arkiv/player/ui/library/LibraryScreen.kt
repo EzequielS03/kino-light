@@ -191,7 +191,7 @@ fun LibraryScreen(
         }
     }
 
-    // Con qué fuentes se puede bajar algo (hoy, solo Magis). Ver `FuenteDeDescarga.hayEstrategia`.
+    // Con qué fuentes se puede bajar algo (hoy, solo Magis). Ver `DownloadSource.hasStrategy`.
     val estrategias = remember { graph.downloadStrategies.keys }
     menuRow?.let { row ->
         ModalBottomSheet(onDismissRequest = { menuRow = null }) {
@@ -212,7 +212,7 @@ fun LibraryScreen(
                 // Solo si hay con qué bajarlo: sin estrategia para su fuente (Caracol, o una fila vieja
                 // de archive.org) la descarga terminaba FAILED con "Fuente no soportada" después de
                 // aceptarla. Una opción que va a fallar no se muestra.
-                if (com.arkiv.player.data.local.FuenteDeDescarga.hayEstrategia(row.source, estrategias)) SheetAction("Guardar en el dispositivo") {
+                if (com.arkiv.player.data.local.DownloadSource.hasStrategy(row.source, estrategias)) SheetAction("Guardar en el dispositivo") {
                     scope.launch {
                         // Una película es un ítem de un solo episodio; una serie se guarda desde su
                         // detalle, capítulo por capítulo (no tiene sentido encolar 200 capítulos

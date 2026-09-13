@@ -210,7 +210,7 @@ fun MagisSeasonDialog(
                                 },
                                 onPlay = {
                                     // Donde se puede bajar, tocar un capítulo PREGUNTA; donde no
-                                    // (Caracol es Widevine, ver `FuenteDeDescarga`), ver es el único
+                                    // (Caracol es Widevine, ver `DownloadSource`), ver es el único
                                     // gesto posible y un diálogo de una sola opción solo estorba.
                                     if (puedeGuardar) porElegir = cap
                                     else onPlay(capitulos!!, cap, serie)

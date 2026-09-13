@@ -1254,7 +1254,7 @@ internal fun sourceKey(s: PlaySource): String = when (s) {
  * Caracol ([TvCaracolScreen]), y es una sola a propósito: tocar un capítulo guarda siempre por
  * [SearchPlayback.playDituSeason] —la serie entera, id `ditu:`, nunca el guardado de Magis— y
  * reproduce el tocado. Sin "Guardar toda la temporada": ahí guardar es bajar al dispositivo, y
- * Caracol no se baja (Widevine, ver `FuenteDeDescarga`). A la biblioteca entra al reproducir.
+ * Caracol no se baja (Widevine, ver `DownloadSource`). A la biblioteca entra al reproducir.
  *
  * [alElegir] recibe ese guardado ya armado y lo corre en el alcance de la pantalla que llama: las
  * dos cierran esta lista al elegir, así que no puede correr en uno de acá adentro.
@@ -1303,7 +1303,7 @@ private fun TvMagisSeasonContent(
     posterUrl: String,
     preparing: Boolean,
     onPlayOne: (List<com.arkiv.player.data.gateway.GatewayEpisode>, com.arkiv.player.data.gateway.GatewayEpisode, com.arkiv.player.data.gateway.GatewaySerie?) -> Unit,
-    // Null = sin botón de guardar (Caracol: no se baja al dispositivo, ver `FuenteDeDescarga`).
+    // Null = sin botón de guardar (Caracol: no se baja al dispositivo, ver `DownloadSource`).
     onSaveAll: ((List<com.arkiv.player.data.gateway.GatewayEpisode>, com.arkiv.player.data.gateway.GatewaySerie?) -> Unit)?,
     // El nombre de la fuente, en la línea de datos de arriba.
     etiqueta: String = "Magis",

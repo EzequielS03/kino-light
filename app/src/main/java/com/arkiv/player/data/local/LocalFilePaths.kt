@@ -4,9 +4,9 @@ import com.arkiv.player.playback.VideoContainer
 import java.io.File
 
 /**
- * Nombres y rutas de los archivos guardados en el dispositivo. Puro a propósito (no toca `Context`)
- * para poder testearlo sin Robolectric: quien conoce el directorio raíz es
- * `LocalDownloadManager`, que lo saca de `getExternalFilesDir(DIRECTORY_MOVIES)`.
+ * Names and paths of the files saved on the device. Pure on purpose (doesn't touch `Context`) so
+ * it can be tested without Robolectric: the one who knows the root directory is
+ * `LocalDownloadManager`, which gets it from `getExternalFilesDir(DIRECTORY_MOVIES)`.
  */
 object LocalFilePaths {
 
@@ -15,38 +15,38 @@ object LocalFilePaths {
     fun sanitize(id: String): String = id.replace(Regex("[^A-Za-z0-9._-]"), "_")
 
     /**
-     * El nombre destino es el `episodeId` sanitizado + la extensión del origen. Se usa el episodeId y
-     * no el título del release porque es la clave con la que después se busca el archivo al dar play,
-     * y así el mapeo es directo sin depender de la tabla.
+     * The target name is the sanitized `episodeId` + the origin's extension. The episodeId is used
+     * and not the release's title because it's the key the file is later looked up by at play
+     * time, and that way the mapping is direct without depending on the table.
      */
     fun fileNameFor(episodeId: String, sourceName: String?): String {
-        // La extensión sale de la lista ÚNICA de contenedores y normalizada como URL, no de un
-        // corte por el último punto: a la descarga de la NUC le llega una URL de página como
-        // nombre de origen, y sobre `https://sitio.com/peli` ese corte devuelve `"com/peli"`.
-        // Todo lo demás después de un punto es parte del título.
+        // The extension comes from the SINGLE container list, normalized as a URL, not from a cut
+        // at the last dot: the NUC download used to get a page URL as its origin name, and on
+        // `https://sitio.com/peli` that cut would return `"com/peli"`. Everything else after a dot
+        // is part of the title.
         val ext = sourceName?.let { VideoContainer.videoExtension(it) } ?: DEFAULT_EXT
         return "${sanitize(episodeId)}.$ext"
     }
 
-    /** Archivo parcial: se escribe acá y se renombra al final, para que nunca exista un destino a medias. */
+    /** Partial file: written here and renamed at the end, so a half-done target never exists. */
     fun partOf(file: File): File = File(file.parentFile, file.name + ".part")
 
     /**
-     * Marca de ORIGEN del parcial: guarda de qué URL (o de qué ítem) salieron los bytes que ya están
-     * en el `.part`, para no reanudar contra otra fuente.
+     * The partial's ORIGIN mark: saves which URL (or which item) the bytes already in the `.part`
+     * came from, so as not to resume against a different source.
      *
-     * Sin esto, un reintento podría pedir `Range: bytes=<40%>-` contra una URL de origen distinta
-     * a la que dejó ese mismo `.part` a medio bajar (por ejemplo si el link firmado venció y se
-     * resuelve de nuevo): el server responde 206, se appendea la cola de un archivo al prefijo de
-     * otro, y la verificación de tamaño no lo detecta porque las cuentas cierran. El resultado se
-     * marcaba "Listo" y era basura. (El caso original que motivó esto era el toggle
-     * `downloadQuality` original/derivative de archive.org, borrado en la poda de esta rama; el
-     * riesgo de fondo — reanudar un `.part` contra una fuente distinta a la que lo escribió — sigue
-     * existiendo con Magis, así que la marca se queda.)
+     * Without this, a retry could ask `Range: bytes=<40%>-` against an origin URL different from
+     * the one that left that same `.part` half-downloaded (for example if the signed link expired
+     * and gets resolved again): the server answers 206, the tail of one file gets appended to
+     * another's prefix, and the size check doesn't catch it because the numbers add up. The result
+     * used to get marked "Listo" and was garbage. (The original case that motivated this was
+     * archive.org's original/derivative `downloadQuality` toggle, removed in this branch's
+     * pruning; the underlying risk — resuming a `.part` against a source different from the one
+     * that wrote it — still exists with Magis, so the mark stays.)
      *
-     * Va como archivo hermano y no como columna de la tabla a propósito: el descargador es puro
-     * HTTP + disco (no conoce Room), y así el par `.part`/marca viaja junto y lo barre la misma
-     * limpieza por prefijo de `LocalDownloadManager.remove`.
+     * A sibling file and not a table column on purpose: the downloader is pure HTTP + disk
+     * (doesn't know Room), and this way the `.part`/mark pair travels together and gets swept by
+     * the same prefix cleanup in `LocalDownloadManager.remove`.
      */
     fun originOf(file: File): File = File(file.parentFile, partOf(file).name + ".src")
 }

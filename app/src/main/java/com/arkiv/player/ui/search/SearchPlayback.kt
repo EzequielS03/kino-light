@@ -254,7 +254,7 @@ class SearchPlayback(private val graph: AppGraph) {
         var encolados = 0
         for (capitulo in elegidos) {
             val epId = dituEpisodeIdDe(temporada, capitulos, capitulo, serie) ?: continue
-            val fuente = com.arkiv.player.data.local.FuenteDeDescarga.para(epId)
+            val fuente = com.arkiv.player.data.local.DownloadSource.sourceFor(epId)
             if (graph.localDownloads.enqueue(epId, fuente) ==
                 com.arkiv.player.data.local.EnqueueOutcome.QUEUED
             ) encolados++

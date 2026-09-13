@@ -461,7 +461,7 @@ private fun stateLabel(row: DownloadRow): String = when (row.state) {
 
 /**
  * File-origin badge. "torrent" and "web" are legacy `source` values from rows saved before this
- * branch's pruning. "magis" is today's real value (`FuenteDeDescarga.para`); any other value falls
+ * branch's pruning. "magis" is today's real value (`DownloadSource.sourceFor`); any other value falls
  * through to "ARCHIVE".
  */
 private fun sourceBadge(source: String): String = when (source) {
