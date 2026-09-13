@@ -68,9 +68,9 @@ object PlaybackEngine {
 const val ACTION_OPEN_PLAYER = "com.arkiv.player.OPEN_PLAYER"
 
 /**
- * Qué capítulo abrir con [ACTION_OPEN_PLAYER]. Opcional: sin él se abre el que esté sonando
- * ([NowPlaying]), que es lo que quiere la notificación del reproductor. Lo usa el aviso de "descarga
- * completa", que apunta a un capítulo concreto y no al que sonaba.
+ * Which episode to open with [ACTION_OPEN_PLAYER]. Optional: without it, whatever is currently
+ * playing opens ([NowPlaying]), which is what the player's notification wants. The "download
+ * complete" notice uses it, since it points at a specific episode and not whatever was playing.
  */
 const val EXTRA_EPISODE_ID = "episodeId"
 
