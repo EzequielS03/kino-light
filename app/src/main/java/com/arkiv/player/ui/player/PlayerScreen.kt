@@ -3403,10 +3403,18 @@ private fun PlayerContent(
                                     }
                                 },
                             ),
-                            // Centred in portrait, where nothing else shares the row; left-aligned
-                            // in landscape, where the spacer pushes the secondary icons right.
+                            // Portrait spreads them across the whole width; landscape keeps the
+                            // fixed gaps, because there the spacer below pushes the secondary icons
+                            // to the right end of this same row and even spacing would fight it.
+                            //
+                            // `SpaceEvenly` and not a centred cluster: this row and the one under it
+                            // then span the same width and share the same rhythm, which is what
+                            // makes them read as one block of controls instead of two leftovers.
+                            // It also never overflows -- at 48dp a side, eight icons is the point
+                            // where 384dp of phone runs out, and the most this player ever shows
+                            // is five.
                             horizontalArrangement = if (esVertical) {
-                                Arrangement.spacedBy(20.dp, Alignment.CenterHorizontally)
+                                Arrangement.SpaceEvenly
                             } else {
                                 Arrangement.spacedBy(20.dp)
                             },
@@ -3602,14 +3610,17 @@ private fun PlayerContent(
                             }
                         }
 
-                        // PORTRAIT: the secondary controls, on their own row, against the right
-                        // edge so the thumb reaches them without covering the picture. They keep
-                        // the order they have in landscape, so the same icon is in the same place
-                        // whichever way the phone is held.
+                        // PORTRAIT: the secondary controls, on their own row, spread across the
+                        // full width on the same rhythm as the transport row above. They were
+                        // right-aligned first and it looked like what it was -- leftovers shoved
+                        // into a corner, two thirds of the row empty, and the two rows not even
+                        // sharing an axis. They keep the order they have in landscape, so the same
+                        // icon is in the same place whichever way the phone is held.
                         if (haySecundarios && esVertical) {
+                            Spacer(Modifier.height(4.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.End,
+                                horizontalArrangement = Arrangement.SpaceEvenly,
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 iconosSecundarios()
