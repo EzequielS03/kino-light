@@ -85,7 +85,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
      * A diferencia de [vivasPorClave] —que solo cuenta, para diagnóstico— esto guarda con qué
      * cerrarlas. Ver [abandonarConexiones] y [CambioDeRed].
      */
-    private val conexionesVivas = ConexionesVivas()
+    private val conexionesVivas = LiveConnections()
 
     /**
      * Cierra todas las conexiones al origen que haya abiertas. Lo llama el vigilante de red cuando
@@ -98,7 +98,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
      * — esta vez por la red nueva.
      */
     fun abandonarConexiones(motivo: String) {
-        val cerradas = conexionesVivas.cerrarTodas()
+        val cerradas = conexionesVivas.closeAll()
         if (cerradas > 0) {
             android.util.Log.w("ArchiveCacheProxy", "$motivo → abandoning $cerradas connection(s) to the origin")
         }
@@ -941,7 +941,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         extraHeaders: Map<String, String>,
         claveUnica: String?,
         perfil: PoliticaOrigen.Perfil = PoliticaOrigen.Perfil.ARCHIVE,
-    ): Pair<HttpURLConnection, ConexionUnica.Cerrable>? {
+    ): Pair<HttpURLConnection, SingleConnection.Closer>? {
         var ultimoCodigo = PoliticaOrigen.SIN_RESPUESTA
         val intentos = PoliticaOrigen.intentos(perfil)
         repeat(intentos) { intento ->
@@ -961,13 +961,13 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                 }
             }.getOrNull()
             if (conn != null) {
-                val cerrable = ConexionUnica.Cerrable { runCatching { conn.disconnect() } }
+                val cerrable = SingleConnection.Closer { runCatching { conn.disconnect() } }
                 // Desde ACÁ y no desde el `return` de más abajo: entre medio está la espera de las
                 // cabeceras (`codigoConFechaLimite`), que contra una red muerta se cuelga hasta 90 s.
-                conexionesVivas.registrar(cerrable)
+                conexionesVivas.register(cerrable)
                 // NO se mata la conexión anterior, y esto es lo contrario de lo que hacía antes.
                 //
-                // `ConexionUnica` se puso creyendo que el CDN atendía de a una conexión por archivo.
+                // `SingleConnection` se puso creyendo que el CDN atendía de a una conexión por archivo.
                 // Medido en su momento: es falso — sirve dos simultáneas al mismo archivo sin quejarse (206 en
                 // 0,77 s la segunda, con la primera todavía descargando). Y al abrir, libVLC hacía
                 // VARIAS peticiones seguidas para sondear el stream (visto: bytes=0-, 216576-,
@@ -1020,7 +1020,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                         " · in flight: ${fotoDeRangosEnVuelo()}",
                 )
                 claveUnica?.let { soltarViva(it) }
-                conexionesVivas.soltar(cerrable)
+                conexionesVivas.release(cerrable)
                 runCatching { conn.disconnect() }
                 // A 404 doesn't improve by insisting: the file isn't where we have it recorded.
                 // Cutting here saves two timeouts and, above all, lets the 404 arrive clean all the
@@ -1286,8 +1286,8 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         rango: String?,
         headers: Map<String, String>,
         perfil: PoliticaOrigen.Perfil,
-    ): Pair<HttpURLConnection, ConexionUnica.Cerrable>? {
-        val ganador = java.util.concurrent.atomic.AtomicReference<Pair<HttpURLConnection, ConexionUnica.Cerrable>?>()
+    ): Pair<HttpURLConnection, SingleConnection.Closer>? {
+        val ganador = java.util.concurrent.atomic.AtomicReference<Pair<HttpURLConnection, SingleConnection.Closer>?>()
         val terminados = java.util.concurrent.atomic.AtomicInteger(0)
         val listo = java.util.concurrent.CountDownLatch(1)
         repeat(TIROS_A_LA_COLA) { i ->
@@ -1483,7 +1483,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
             // El cliente cortó o el origen se cayó: lo dice el log de abajo y no hay más que hacer.
         } finally {
             claveUnica?.let { soltarViva(it) }
-            conexionesVivas.soltar(cerrable)
+            conexionesVivas.release(cerrable)
             runCatching { conn.disconnect() }
             android.util.Log.w(
                 "ArchiveCacheProxy",
@@ -1812,7 +1812,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         } finally {
             ventana?.cerrar()
             claveUnica?.let { soltarViva(it) }
-            conexionesVivas.soltar(cerrable)
+            conexionesVivas.release(cerrable)
             // disconnect() SIEMPRE, también cuando el reproductor corta la conexión a mitad (seek →
             // "broken pipe"). Antes la excepción se saltaba esta línea y la conexión al CDN quedaba
             // viva en el pool de HttpURLConnection drenando el resto del archivo: el origen veía dos

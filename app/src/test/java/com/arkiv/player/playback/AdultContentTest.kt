@@ -20,24 +20,24 @@ import org.junit.Test
  * Lives out here and not inside `saveProgress` so its edges can be pinned down: failing the other
  * way —no longer saving normal content's progress— is just as bad and much quieter.
  */
-class ContenidoDeAdultosTest {
+class AdultContentTest {
 
-    @Test fun `el contenido de adultos no se anota`() {
-        assertFalse(ContenidoDeAdultos.hayQueAnotar(esAdulto = true))
+    @Test fun `adult content does not get logged`() {
+        assertFalse(AdultContent.shouldLog(isAdult = true))
     }
 
-    @Test fun `el contenido normal se anota como siempre`() {
-        assertTrue(ContenidoDeAdultos.hayQueAnotar(esAdulto = false))
+    @Test fun `normal content gets logged as always`() {
+        assertTrue(AdultContent.shouldLog(isAdult = false))
     }
 
     /**
-     * EL BORDE PELIGROSO, y va en esta dirección a propósito: lo que NO se sabe se anota. Un
-     * `null` es "no tengo el dato", y tratarlo como adulto dejaría de guardar el progreso de
-     * películas normales sin que nadie se entere — un daño silencioso y difícil de rastrear.
-     * El riesgo opuesto ya está cubierto por otro lado: al contenido de adultos solo se llega por
-     * una sección que no existe sin el código del aparato.
+     * THE DANGEROUS EDGE, and it goes this way on purpose: what ISN'T known gets logged. A `null`
+     * means "I don't have the data", and treating it as adult would stop saving normal films'
+     * progress without anyone noticing — silent damage that's hard to trace. The opposite risk is
+     * already covered elsewhere: adult content is only reachable through a section that doesn't
+     * exist without the device's code.
      */
-    @Test fun `sin dato, se anota`() {
-        assertTrue(ContenidoDeAdultos.hayQueAnotar(esAdulto = null))
+    @Test fun `with no data, it gets logged`() {
+        assertTrue(AdultContent.shouldLog(isAdult = null))
     }
 }

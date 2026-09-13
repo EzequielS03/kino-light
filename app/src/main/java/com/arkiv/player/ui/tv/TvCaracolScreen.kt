@@ -43,7 +43,7 @@ import com.arkiv.player.data.ditu.DituCanal
 import com.arkiv.player.data.ditu.DituFuente
 import com.arkiv.player.data.ditu.DituItem
 import com.arkiv.player.data.gateway.GatewayResult
-import com.arkiv.player.playback.DituVivo
+import com.arkiv.player.playback.DituLive
 import com.arkiv.player.ui.catalog.ArkivCaracolVerde
 import com.arkiv.player.ui.catalog.CaracolCatalog
 import com.arkiv.player.ui.catalog.EstadoDeCanales
@@ -69,7 +69,7 @@ import kotlinx.coroutines.launch
  * tocar un capítulo guarda la serie entera. Los dos guardan con id `ditu:`: la película por
  * `ArkivRepository.addDituSource`, la serie por `ArkivRepository.addDituSeason`.
  *
- * Un canal en vivo no pasa por la biblioteca: viaja por [DituVivo].
+ * Un canal en vivo no pasa por la biblioteca: viaja por [DituLive].
  */
 @Composable
 internal fun TvCaracolScreen(onPlay: (episodeId: String) -> Unit) {
@@ -160,7 +160,7 @@ internal fun TvCaracolScreen(onPlay: (episodeId: String) -> Unit) {
         aviso = if (preparando) "Preparando…" else aviso,
         alRecargar = { recargas++ },
         alAbrirTitulo = { abrirTitulo(it) },
-        alAbrirCanal = { canal -> onPlay(DituVivo.dejar(canal)) },
+        alAbrirCanal = { canal -> onPlay(DituLive.leave(canal)) },
     )
 }
 

@@ -19,7 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import com.arkiv.player.data.magis.EstadoDeMagis
-import com.arkiv.player.playback.MagisEfimero
+import com.arkiv.player.playback.MagisEphemeral
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -193,10 +193,10 @@ fun ArkivTvRoot(
                             // that shows up right here on this device -- and, until cloud sync was
                             // removed with the rest of this branch's pruning, would also have
                             // synced to the phone and the other TV, which is exactly the 2026-08-14
-                            // leak. The ref travels around it instead; see [MagisEfimero].
-                            val id = MagisEfimero.idPara(item.id)
-                            MagisEfimero.dejar(
-                                MagisEfimero.Pendiente(id, item.ref, item.titulo, adulto = true),
+                            // leak. The ref travels around it instead; see [MagisEphemeral].
+                            val id = MagisEphemeral.idFor(item.id)
+                            MagisEphemeral.leave(
+                                MagisEphemeral.Pending(id, item.ref, item.titulo, adulto = true),
                             )
                             goToPlayer(id)
                         } else {
@@ -245,7 +245,7 @@ fun ArkivTvRoot(
         }
         composable("caracol") {
             // Lo que llega es el episodeId con el que navegar: el de un título que se guardó igual
-            // que desde la búsqueda, o el de un canal en vivo que viaja por `DituVivo`.
+            // que desde la búsqueda, o el de un canal en vivo que viaja por `DituLive`.
             TvCaracolScreen(onPlay = { goToPlayer(it) })
         }
         composable("detail/{itemId}") { entry ->

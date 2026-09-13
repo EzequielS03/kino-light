@@ -1,7 +1,7 @@
 package com.arkiv.player.ui.player
 
 import com.arkiv.player.data.DituEntities
-import com.arkiv.player.playback.DituVivo
+import com.arkiv.player.playback.DituLive
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -12,7 +12,7 @@ import org.junit.Test
  */
 class VivoDeCaracolNoSeAnotaTest {
 
-    private val vivo = "${DituVivo.PREFIX}5"
+    private val vivo = "${DituLive.PREFIX}5"
     private val magis = "magis:2AD2591D4242471D96B68FF04FFD2784::e6"
     private val vodDeCaracol = DituEntities.episodioIdDePelicula(DituEntities.itemIdDe("42"))
 

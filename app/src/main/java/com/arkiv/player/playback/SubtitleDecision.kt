@@ -16,11 +16,11 @@ import com.arkiv.player.data.subtitles.SubtitleMode
 object SubtitleDecision {
 
     /**
-     * Id de pista SPU a activar. `-1` = apagados.
+     * SPU track id to activate. `-1` = off.
      *
-     * [spuClassifier] se puede sobrescribir para las pistas externas cuyo nombre no delata el idioma
-     * (las de una fuente web, que llegan como una URL opaca del CDN pero con su idioma declarado
-     * aparte).
+     * [spuClassifier] can be overridden for external tracks whose name doesn't give away the
+     * language (the ones from a web source, which arrive as an opaque CDN URL but with their
+     * language declared separately).
      */
     fun decide(
         audioTrackName: String?,
@@ -28,21 +28,21 @@ object SubtitleDecision {
         prefs: PlaybackPrefs,
         spuClassifier: (String) -> TrackLang = LangTokens::classifyFileName,
     ): Int {
-        if (prefs.subtitleMode == SubtitleMode.OFF) return APAGADO
+        if (prefs.subtitleMode == SubtitleMode.OFF) return OFF
         val audioLang = audioTrackName?.let { LangTokens.classify(it) } ?: TrackLang.UNKNOWN
-        // Pista sin etiqueta ("Track 1"): asumir que es tu idioma. Lo contrario haría aparecer
-        // subtítulos en cualquier película normal cuyo MKV no etiquete el audio.
-        if (audioLang == TrackLang.UNKNOWN) return APAGADO
-        if (LangTokens.satisfies(audioLang, prefs.understoodLangs)) return APAGADO
-        // Audio extranjero → buscar subtítulo. requireChoice=false: un único subtítulo en tu idioma
-        // hay que prenderlo igual, aunque no haya nada más entre qué elegir.
+        // Untagged track ("Track 1"): assume it's your language. The alternative would show
+        // subtitles on any normal film whose MKV doesn't tag its audio.
+        if (audioLang == TrackLang.UNKNOWN) return OFF
+        if (LangTokens.satisfies(audioLang, prefs.understoodLangs)) return OFF
+        // Foreign audio -> look for a subtitle. requireChoice=false: a single subtitle in your
+        // language must be turned on regardless, even with nothing else to choose between.
         return TrackSelector.select(
             tracks = spuTracks,
             order = prefs.subtitleLangs,
             requireChoice = false,
             classifier = spuClassifier,
-        ) ?: APAGADO
+        ) ?: OFF
     }
 
-    const val APAGADO = -1
+    const val OFF = -1
 }

@@ -4,13 +4,13 @@ import android.content.Context
 import android.net.wifi.WifiManager
 
 /**
- * IP del dispositivo en la LAN, para servers HTTP locales que un renderer (TV/Chromecast/DLNA)
- * tenga que poder alcanzar (el proxy de canal en vivo, el cast transcodificado).
+ * The device's IP on the LAN, for local HTTP servers that a renderer (TV/Chromecast/DLNA) needs
+ * to reach (the live channel proxy, transcoded cast).
  *
- * Antes vivía como `TorrentEngine.lanIp()` (torrent se borró en la poda de esta rama); es un
- * helper genérico que nunca dependió de nada de torrent, así que se porta tal cual. Wi-Fi primero
- * (la interfaz que suele compartir LAN con el renderer); si no hay (p. ej. Fire TV cableado),
- * escanea las interfaces por una IPv4 site-local.
+ * Used to live as `TorrentEngine.lanIp()` (torrent was removed in this branch's pruning); it's a
+ * generic helper that never depended on anything torrent-specific, so it carried over as-is.
+ * Wi-Fi first (the interface that usually shares a LAN with the renderer); if there is none (e.g.
+ * a wired Fire TV), it scans the interfaces for a site-local IPv4.
  */
 object LanIp {
     fun current(context: Context): String? = wifiIp(context) ?: siteLocalIp()
@@ -24,8 +24,9 @@ object LanIp {
         return "${ip and 0xff}.${(ip shr 8) and 0xff}.${(ip shr 16) and 0xff}.${(ip shr 24) and 0xff}"
     }
 
-    /** IPv4 privada de una interfaz activa (fallback de [wifiIp]); descarta loopback/virtuales, VPN
-     *  (tun) y datos móviles (rmnet) para no anunciar una IP inalcanzable desde el renderer. */
+    /** Private IPv4 of an active interface (fallback for [wifiIp]); discards loopback/virtual, VPN
+     *  (tun) and mobile data (rmnet) interfaces so it doesn't announce an IP unreachable from the
+     *  renderer. */
     private fun siteLocalIp(): String? = runCatching {
         java.net.NetworkInterface.getNetworkInterfaces().toList()
             .filter { it.isUp && !it.isLoopback && !it.isVirtual }

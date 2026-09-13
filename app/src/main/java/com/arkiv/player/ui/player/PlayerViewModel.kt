@@ -9,9 +9,9 @@ import com.arkiv.player.data.db.LiveRecentEntity
 import com.arkiv.player.data.ditu.FalloDeCaracol
 import com.arkiv.player.data.gateway.LiveChannel
 import com.arkiv.player.playback.ArchiveCacheProxy
-import com.arkiv.player.playback.ContenidoDeAdultos
-import com.arkiv.player.playback.DituVivo
-import com.arkiv.player.playback.MagisEfimero
+import com.arkiv.player.playback.AdultContent
+import com.arkiv.player.playback.DituLive
+import com.arkiv.player.playback.MagisEphemeral
 import com.arkiv.player.playback.PlayerSource
 import com.arkiv.player.playback.SourceKind
 import com.arkiv.player.ui.live.LiveController
@@ -45,7 +45,7 @@ data class PlayerData(
     val preferirSoftware: Boolean = false, // HEVC de magis: el hardware falla y deja sin pistas. Ver PlayerSourceTag.
     /**
      * Si esto vino de una sección de adultos: nada de lo que suene con esta marca se anota en el
-     * historial. Ver [com.arkiv.player.playback.ContenidoDeAdultos] y [hayQueAnotarHistorial].
+     * historial. Ver [com.arkiv.player.playback.AdultContent] y [hayQueAnotarHistorial].
      *
      * Viaja en el ÍTEM y no se consulta al vuelo por dos motivos. Uno, el ítem es lo único que
      * llega hasta acá: `saveProgress` recibe un `episodeId` pelado y no tiene de dónde deducir de
@@ -69,7 +69,7 @@ data class PlayerData(
  *
  * La pregunta se contesta contra la playlist que está sonando porque `saveProgress` recibe un
  * `episodeId` pelado, no un ítem. Vive acá afuera —y no dentro del ViewModel— por lo mismo que
- * [com.arkiv.player.playback.ContenidoDeAdultos] vive afuera de `savePlayback`: es donde se pueden
+ * [com.arkiv.player.playback.AdultContent] vive afuera de `savePlayback`: es donde se pueden
  * fijar sus bordes con tests.
  *
  * El borde que importa es el episodio que NO está en la playlist, y se resuelve ANOTANDO. No es un
@@ -78,26 +78,26 @@ data class PlayerData(
  * así que hay ventanas de segundos donde el episodio preguntado todavía no está. Leer eso como "es
  * adulto" dejaría de guardar el progreso de contenido normal en silencio.
  *
- * Un canal en vivo de Caracol ([DituVivo]) no se anota nunca: no tiene fila en la biblioteca ni nada
+ * Un canal en vivo de Caracol ([DituLive]) no se anota nunca: no tiene fila en la biblioteca ni nada
  * que reanudar. `PlayerScreen` ya no le guarda la posición (su `enVivo` sale de
  * `PlayerSource.esCanalEnVivo`, que lo incluye), pero su captura al pausar no mira `enVivo`, y en
  * `saveProgress`/`capturarFrame` no entra por la rama de `_magisItem`: esta sigue siendo la guarda
  * que lo frena en los dos.
  */
 internal fun PlaylistData?.hayQueAnotarHistorial(episodeId: String): Boolean =
-    !DituVivo.esVivo(episodeId) &&
-        ContenidoDeAdultos.hayQueAnotar(this?.items?.firstOrNull { it.episodeId == episodeId }?.adulto)
+    !DituLive.isLive(episodeId) &&
+        AdultContent.shouldLog(this?.items?.firstOrNull { it.episodeId == episodeId }?.adulto)
 
 /**
  * ¿Hay que marcar [episodeId] como "en curso" al abrirlo (`ArkivRepository.marcarEnCurso`)?
  *
  * Es la decisión de `PlayerViewModel.load`, acá afuera para poder fijarla con tests. [adulto] es el
- * del pendiente efímero ([MagisEfimero]), lo único que se sabe antes de resolver la fuente, y lo que
- * no se sabe se anota, igual que en [ContenidoDeAdultos.hayQueAnotar]. Un canal en vivo de Caracol no
+ * del pendiente efímero ([MagisEphemeral]), lo único que se sabe antes de resolver la fuente, y lo que
+ * no se sabe se anota, igual que en [AdultContent.shouldLog]. Un canal en vivo de Caracol no
  * se marca: `marcarEnCurso` escribiría una fila en `playback` con su id aunque no haya episodio.
  */
 internal fun hayQueMarcarEnCurso(episodeId: String, adulto: Boolean?): Boolean =
-    !DituVivo.esVivo(episodeId) && ContenidoDeAdultos.hayQueAnotar(adulto)
+    !DituLive.isLive(episodeId) && AdultContent.shouldLog(adulto)
 
 /**
  * The section as a playlist: every episode + where/how to start. archive.org (removed in this
@@ -323,7 +323,7 @@ class PlayerViewModel internal constructor(
             // esta altura es el pendiente efímero, que la pantalla dejó antes de navegar.
             //
             // Un canal en vivo de Caracol tampoco se marca: ver [hayQueMarcarEnCurso].
-            if (hayQueMarcarEnCurso(episodeId, MagisEfimero.tomar(episodeId)?.adulto)) {
+            if (hayQueMarcarEnCurso(episodeId, MagisEphemeral.take(episodeId)?.adulto)) {
                 runCatching { repo.marcarEnCurso(episodeId) }
             }
             _error.value = null
@@ -520,10 +520,10 @@ class PlayerViewModel internal constructor(
             // device's own screens (above) is still reason enough not to write it. Filtering on
             // read leaves the data sitting there, waiting for the first place that forgets to
             // filter.
-            // Por [ContenidoDeAdultos] y no por un `!canal.adulto` suelto: la regla es la misma que
+            // Por [AdultContent] y no por un `!canal.adulto` suelto: la regla es la misma que
             // la del progreso y la de los frames, y tenerla escrita en un solo lugar es lo que
             // evita que mañana una de las tres se corrija y las otras dos no.
-            if (ContenidoDeAdultos.hayQueAnotar(canal.adulto)) {
+            if (AdultContent.shouldLog(canal.adulto)) {
                 runCatching {
                     liveRecentDao.anotar(LiveRecentEntity(canal.code, canal.nombre, System.currentTimeMillis()))
                 }
@@ -793,8 +793,8 @@ class PlayerViewModel internal constructor(
      */
     private suspend fun loadMagis(episodeId: String) {
         // El contenido de adultos NO tiene fila en la biblioteca —esa es toda la idea, ver
-        // [MagisEfimero]—, así que su `ref` no se puede leer de ahí: viaja por afuera.
-        val efimero = MagisEfimero.tomar(episodeId)
+        // [MagisEphemeral]—, así que su `ref` no se puede leer de ahí: viaja por afuera.
+        val efimero = MagisEphemeral.take(episodeId)
         val ref = efimero?.ref ?: repo.magisRefForEpisode(episodeId)
         Log.w(PLAY, "loadMagis() episodeId=$episodeId ephemeral=${efimero != null} ref=${ref?.take(12)}…")
         if (ref.isNullOrBlank()) { _error.value = "No se encontró la fuente de Magis"; return }
@@ -972,10 +972,10 @@ class PlayerViewModel internal constructor(
      * El `ref` sale de [ArkivRepository.magisRefForEpisode], que pese al nombre lee el ref guardado
      * en la fila del episodio (o, si no tiene, en la de su ítem) sin mirar de qué fuente es.
      *
-     * Un canal en vivo ([DituVivo.esVivo]) no tiene fila en la biblioteca ni `ref`: se resuelve el
+     * Un canal en vivo ([DituLive.isLive]) no tiene fila en la biblioteca ni `ref`: se resuelve el
      * canal que dejó la sección de Caracol, con `DituFuente.resolverCanal`, y pasa por las mismas
      * guardas de [EstadoDeDitu] que el VOD. Una recarga ([onDituExoError]) vuelve a entrar por acá
-     * con el mismo `episodeId` y resuelve el canal otra vez: por eso [DituVivo.tomar] no lo vacía.
+     * con el mismo `episodeId` y resuelve el canal otra vez: por eso [DituLive.take] no lo vacía.
      *
      * [arrancarEnMs] es para las recargas: se retoma donde iba y no desde la posición guardada. Sin
      * él, la misma reanudación que Magis. Un vivo arranca siempre en 0, y con 0 [DituExoPlayer] no
@@ -984,8 +984,8 @@ class PlayerViewModel internal constructor(
      * [arrancarSolo] también es de las recargas: ver [DituReproducible.arrancarSolo].
      */
     private suspend fun loadDitu(episodeId: String, arrancarEnMs: Long? = null, arrancarSolo: Boolean = true) {
-        val vivo = DituVivo.esVivo(episodeId)
-        val canal = if (vivo) DituVivo.tomar(episodeId) else null
+        val vivo = DituLive.isLive(episodeId)
+        val canal = if (vivo) DituLive.take(episodeId) else null
         val ref = if (vivo) null else repo.magisRefForEpisode(episodeId)
         Log.w(
             PLAY,
@@ -1125,7 +1125,7 @@ class PlayerViewModel internal constructor(
         // `repo.savePlayback` escribiría la fila aunque no haya episodio en la biblioteca.
         val magisIt = _magisItem.value?.takeIf { it.episodeId == episodeId }
         if (magisIt != null) {
-            if (!ContenidoDeAdultos.hayQueAnotar(magisIt.adulto)) return
+            if (!AdultContent.shouldLog(magisIt.adulto)) return
         } else {
             if (!_playlist.value.hayQueAnotarHistorial(episodeId)) return
         }
@@ -1148,7 +1148,7 @@ class PlayerViewModel internal constructor(
         // locally-saved frame of adult content is still exactly the leak this guard exists to stop.)
         val magisIt = _magisItem.value?.takeIf { it.episodeId == episodeId }
         if (magisIt != null) {
-            if (!ContenidoDeAdultos.hayQueAnotar(magisIt.adulto)) return
+            if (!AdultContent.shouldLog(magisIt.adulto)) return
         } else {
             if (!_playlist.value.hayQueAnotarHistorial(episodeId)) return
         }

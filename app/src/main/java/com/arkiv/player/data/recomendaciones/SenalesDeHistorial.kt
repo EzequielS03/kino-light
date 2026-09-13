@@ -18,7 +18,7 @@ internal data class Vista(val titulo: String, val tipo: String, val estado: Stri
  * **Se pierde *repetido***: la app guarda solo la última reproducción de cada capítulo, no un
  * historial de reproducciones. El contenido de adultos no aparece por construcción: `saveProgress`
  * en `PlayerViewModel` nunca escribe su progreso en `playback` (ver `hayQueAnotarHistorial` y
- * `ContenidoDeAdultos.hayQueAnotar`), así que no hay fila que esta consulta pueda leer.
+ * `AdultContent.shouldLog`), así que no hay fila que esta consulta pueda leer.
  */
 internal object SenalesDeHistorial {
     const val UMBRAL_ABANDONO = 0.10

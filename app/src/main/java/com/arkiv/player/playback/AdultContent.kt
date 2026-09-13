@@ -14,15 +14,15 @@ package com.arkiv.player.playback
  * can't slip through some screen we forgot to filter, and — back when sync existed — couldn't be
  * uploaded either.
  */
-object ContenidoDeAdultos {
+object AdultContent {
 
     /**
-     * Lo que NO se sabe, se anota — y esa dirección es deliberada.
+     * What ISN'T known gets logged — and that direction is deliberate.
      *
-     * Un `null` es "no tengo el dato", no "es adulto". Tratarlo como adulto dejaría de guardar el
-     * progreso de contenido normal sin que nadie se entere, que es un daño silencioso y difícil de
-     * rastrear. El riesgo opuesto ya está cubierto por otro lado: al contenido de adultos solo se
-     * llega por una sección que no existe sin el código de este aparato.
+     * A `null` means "I don't have the data", not "it's adult". Treating it as adult would stop
+     * saving normal content's progress without anyone noticing, which is silent damage that's hard
+     * to trace. The opposite risk is already covered elsewhere: adult content is only reachable
+     * through a section that doesn't exist without this device's code.
      */
-    fun hayQueAnotar(esAdulto: Boolean?): Boolean = esAdulto != true
+    fun shouldLog(isAdult: Boolean?): Boolean = isAdult != true
 }

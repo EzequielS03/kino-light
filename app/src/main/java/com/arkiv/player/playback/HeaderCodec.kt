@@ -23,7 +23,7 @@ object HeaderCodec {
             .encodeToString(json.toByteArray(Charsets.UTF_8))
     }
 
-    /** Nunca lanza: una URL manipulada o vieja simplemente no aporta headers. */
+    /** Never throws: a tampered or old URL simply contributes no headers. */
     fun decode(blob: String): Map<String, String> {
         if (blob.isBlank()) return emptyMap()
         return runCatching {

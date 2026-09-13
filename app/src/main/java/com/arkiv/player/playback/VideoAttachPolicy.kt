@@ -18,14 +18,14 @@ class VideoAttachPolicy(
 ) {
     private var detached = false
 
-    /** La app se fue al fondo: soltar el video (el audio sigue). */
+    /** The app went to the background: release the video (audio keeps going). */
     fun onStop() {
         if (detached) return
         detached = true
         detach()
     }
 
-    /** La app volvió al frente: reconstruir la salida de video si la habíamos soltado. */
+    /** The app came back to the foreground: rebuild the video output if it had been released. */
     fun onStart() {
         if (!detached) return
         detached = false

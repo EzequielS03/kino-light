@@ -74,8 +74,8 @@ object TriviaDelPlayer {
      * no llegan acá: [PlayerViewModel.load] los desvía antes a `loadLocal`.
      */
     fun pideDatos(episodeId: String, kind: com.arkiv.player.playback.SourceKind): Boolean = when (kind) {
-        com.arkiv.player.playback.SourceKind.MAGIS -> !com.arkiv.player.playback.MagisEfimero.esEfimero(episodeId)
-        com.arkiv.player.playback.SourceKind.DITU -> !com.arkiv.player.playback.DituVivo.esVivo(episodeId)
+        com.arkiv.player.playback.SourceKind.MAGIS -> !com.arkiv.player.playback.MagisEphemeral.isEphemeral(episodeId)
+        com.arkiv.player.playback.SourceKind.DITU -> !com.arkiv.player.playback.DituLive.isLive(episodeId)
         else -> false
     }
 }

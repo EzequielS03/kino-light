@@ -135,7 +135,7 @@ import com.arkiv.player.cast.localVideoFormat
 import com.arkiv.player.data.MarcadorDeCapitulo
 import com.arkiv.player.ui.tv.library.SAFE_H
 import com.arkiv.player.ui.tv.library.SAFE_V
-import com.arkiv.player.playback.AutoAvance
+import com.arkiv.player.playback.AutoAdvance
 import com.arkiv.player.playback.DecoderWatchdog
 import com.arkiv.player.playback.EsperaDePrimeraImagen
 import com.arkiv.player.playback.LoadedMedia
@@ -1615,8 +1615,8 @@ private fun PlayerContent(
         val actual = playlistRef.value?.items?.getOrNull(controller.currentMediaItemIndex)?.episodeId
             ?: episodeId
         if (finAtendido == actual) return
-        // Un stream cortado avisa igual que un capítulo terminado: ver AutoAvance.
-        if (!AutoAvance.esFinDeCapitulo(espejo.posicionMs, espejo.duracionMs)) {
+        // Un stream cortado avisa igual que un capítulo terminado: ver AutoAdvance.
+        if (!AutoAdvance.isEndOfChapter(espejo.posicionMs, espejo.duracionMs)) {
             android.util.Log.w("ArkivPlay", "end at pos=${espejo.posicionMs} of ${espejo.duracionMs} → not actually the end, not advancing")
             return
         }

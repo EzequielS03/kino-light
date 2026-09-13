@@ -26,7 +26,7 @@ class PlayerSourceTest {
 
     /** El caso que faltaba: un canal de Caracol salía con la barra de avance de una película. */
     @Test fun el_vivo_de_caracol_es_un_canal_en_vivo() {
-        assertTrue(PlayerSource.esCanalEnVivo("${DituVivo.PREFIX}12345"))
+        assertTrue(PlayerSource.esCanalEnVivo("${DituLive.PREFIX}12345"))
     }
 
     @Test fun el_vod_de_caracol_no_es_un_canal_en_vivo() {

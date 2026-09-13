@@ -73,7 +73,7 @@ import kotlinx.coroutines.delay
  * Elegir un ítem REPRODUCE, por dos caminos distintos según de dónde salga: uno normal, que lo
  * guarda en la biblioteca como cualquier cosa que se reproduce (y así tiene "seguir viendo"), y uno
  * efímero para el contenido de adultos, que no escribe una sola fila — ver
- * [com.arkiv.player.playback.MagisEfimero]. The separation isn't cosmetic: on 2026-08-14 two 18+
+ * [com.arkiv.player.playback.MagisEphemeral]. The separation isn't cosmetic: on 2026-08-14 two 18+
  * channels leaked into the main screen, and deleting them from the device wasn't enough, because
  * at the time that table synced and they'd already traveled to the cloud (cloud sync was removed
  * entirely in this branch's pruning, so that specific risk is gone -- but an adult-content row

@@ -49,7 +49,7 @@ import com.arkiv.player.data.ditu.DituFuente
 import com.arkiv.player.data.ditu.DituItem
 import com.arkiv.player.data.ditu.FalloDeCaracol
 import com.arkiv.player.data.gateway.GatewayResult
-import com.arkiv.player.playback.DituVivo
+import com.arkiv.player.playback.DituLive
 import com.arkiv.player.ui.columnasDeGrilla
 import com.arkiv.player.ui.components.EmptyState
 import com.arkiv.player.ui.components.PosterCard
@@ -82,7 +82,7 @@ private enum class CaracolSection(val label: String) {
  * [SearchPlayback.playDituSeason] once a chapter is picked. Caracol is Widevine (can't be
  * downloaded), so the dialog opens without save checkboxes (`onSave = null`), same as search.
  *
- * A live channel never touches the library: it travels through [DituVivo.dejar], same as the TV
+ * A live channel never touches the library: it travels through [DituLive.leave], same as the TV
  * screen.
  */
 @Composable
@@ -198,7 +198,7 @@ fun CaracolScreen(onPlay: (episodeId: String) -> Unit, contentPadding: PaddingVa
                 section == CaracolSection.LIVE -> CaracolChannels(
                     channels = channels,
                     contentPadding = gridPadding,
-                    onOpen = { channel -> onPlay(DituVivo.dejar(channel)) },
+                    onOpen = { channel -> onPlay(DituLive.leave(channel)) },
                 )
                 else -> CaracolGrid(
                     titles = if (section == CaracolSection.SERIES) catalog.series else catalog.movies,

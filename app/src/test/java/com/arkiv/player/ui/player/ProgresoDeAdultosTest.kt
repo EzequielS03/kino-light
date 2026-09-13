@@ -1,18 +1,18 @@
 package com.arkiv.player.ui.player
 
-import com.arkiv.player.playback.ContenidoDeAdultos
+import com.arkiv.player.playback.AdultContent
 import com.arkiv.player.playback.SourceKind
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * El guarda de [ContenidoDeAdultos] aplicado al progreso de reproducción.
+ * El guarda de [AdultContent] aplicado al progreso de reproducción.
  *
  * `saveProgress` recibe un `episodeId` pelado —lo que el reproductor sabe de sí mismo cada ~5 s— y
  * no un ítem, así que la pregunta "¿esto es de adultos?" hay que contestarla contra la playlist que
  * está sonando. Esa búsqueda vive acá afuera, y no dentro del ViewModel, por lo mismo que
- * [ContenidoDeAdultos] vive afuera de `savePlayback`: es donde se pueden fijar sus bordes, y el
+ * [AdultContent] vive afuera de `savePlayback`: es donde se pueden fijar sus bordes, y el
  * borde que importa es el que NO se ve —qué pasa cuando el episodio ni siquiera está en la playlist.
  */
 class ProgresoDeAdultosTest {
@@ -57,7 +57,7 @@ class ProgresoDeAdultosTest {
     }
 
     /**
-     * EL BORDE QUE IMPORTA, y va en la misma dirección que [ContenidoDeAdultos.hayQueAnotar]: si el
+     * EL BORDE QUE IMPORTA, y va en la misma dirección que [AdultContent.shouldLog]: si el
      * episodio no está en la playlist, no se sabe, y lo que no se sabe SE ANOTA.
      *
      * Pasa de verdad y todo el tiempo: el ViewModel sobrevive a la navegación entre capítulos y
