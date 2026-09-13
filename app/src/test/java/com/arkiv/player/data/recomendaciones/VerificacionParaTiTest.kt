@@ -2,7 +2,7 @@ package com.arkiv.player.data.recomendaciones
 
 import com.arkiv.player.data.catalog.TmdbItem
 import com.arkiv.player.data.gateway.GatewayResult
-import com.arkiv.player.data.ia.RespuestaDeIa
+import com.arkiv.player.data.ia.AiResponse
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -143,21 +143,21 @@ class VerificacionParaTiTest {
     }
 
     @Test fun `el arbitro lee los numeros y descarta los que no existen`() = runTest {
-        val a = ArbitroDeIa { RespuestaDeIa.Texto("[0, 5, true, 1]", "m") }
+        val a = ArbitroDeIa { AiResponse.Text("[0, 5, true, 1]", "m") }
         assertEquals(listOf(0, 1), a.cuales("Coco", "2017", "movie", listOf(resultado("x"), resultado("y"))))
     }
 
     @Test fun `el arbitro que no contesta es null`() = runTest {
-        assertNull(ArbitroDeIa { RespuestaDeIa.NoPude }.cuales("Coco", "", "movie", listOf(resultado("x"))))
+        assertNull(ArbitroDeIa { AiResponse.Unable }.cuales("Coco", "", "movie", listOf(resultado("x"))))
     }
 
     @Test fun `el arbitro ilegible es null`() = runTest {
-        assertNull(ArbitroDeIa { RespuestaDeIa.Texto("no sé", "m") }.cuales("Coco", "", "movie", listOf(resultado("x"))))
+        assertNull(ArbitroDeIa { AiResponse.Text("no sé", "m") }.cuales("Coco", "", "movie", listOf(resultado("x"))))
     }
 
     @Test fun `el arbitro manda el prompt del gateway con la lista numerada`() = runTest {
         var instruccion = ""
-        ArbitroDeIa { instruccion = it; RespuestaDeIa.Texto("[]", "m") }
+        ArbitroDeIa { instruccion = it; AiResponse.Text("[]", "m") }
             .cuales("Coco", "2017", "movie", listOf(GatewayResult(source = "magis", title = "Coco.2017.1080p", ref = "r", year = "2017")))
         assertTrue(instruccion.startsWith("Busco: Coco (2017) (película)."))
         assertTrue(instruccion.endsWith("\n\n0. [magis] Coco.2017.1080p (2017, movie)"))

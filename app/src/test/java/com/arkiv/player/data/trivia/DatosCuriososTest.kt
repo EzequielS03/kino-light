@@ -1,6 +1,6 @@
 package com.arkiv.player.data.trivia
 
-import com.arkiv.player.data.ia.RespuestaDeIa
+import com.arkiv.player.data.ia.AiResponse
 import kotlinx.coroutines.test.runTest
 import org.json.JSONArray
 import org.junit.Assert.assertEquals
@@ -122,7 +122,7 @@ class DatosCuriososTest {
 
     @Test fun `una respuesta buena se limpia y se guarda`() = runTest {
         val cache = CacheEnMemoria()
-        val datos = DatosCuriosos(ia = { RespuestaDeIa.Texto("""["a","b"]""", "m") }, cache = cache)
+        val datos = DatosCuriosos(ia = { AiResponse.Text("""["a","b"]""", "m") }, cache = cache)
         assertEquals(listOf("a", "b"), datos.de(pelicula) { fichaCoco })
         assertEquals(listOf("a", "b"), cache.datos[pelicula.clave])
     }
@@ -132,7 +132,7 @@ class DatosCuriososTest {
         val cache = CacheEnMemoria().apply { datos[pelicula.clave] = listOf("guardado") }
         var preguntas = 0
         var fichas = 0
-        val datos = DatosCuriosos(ia = { preguntas++; RespuestaDeIa.NoPude }, cache = cache)
+        val datos = DatosCuriosos(ia = { preguntas++; AiResponse.Unable }, cache = cache)
         assertEquals(listOf("guardado"), datos.de(pelicula) { fichas++; fichaCoco })
         assertEquals(0, preguntas)
         assertEquals(0, fichas)
@@ -140,7 +140,7 @@ class DatosCuriososTest {
 
     @Test fun `sin ficha no se pregunta`() = runTest {
         var preguntas = 0
-        val datos = DatosCuriosos(ia = { preguntas++; RespuestaDeIa.NoPude }, cache = CacheEnMemoria())
+        val datos = DatosCuriosos(ia = { preguntas++; AiResponse.Unable }, cache = CacheEnMemoria())
         assertTrue(datos.de(pelicula) { null }.isEmpty())
         assertEquals(0, preguntas)
     }
@@ -148,14 +148,14 @@ class DatosCuriososTest {
     /** Sellar un fallo dejaría a la obra sin trivia un mes por una caída de treinta segundos. */
     @Test fun `un fallo no se guarda`() = runTest {
         val cache = CacheEnMemoria()
-        val datos = DatosCuriosos(ia = { RespuestaDeIa.NoPude }, cache = cache)
+        val datos = DatosCuriosos(ia = { AiResponse.Unable }, cache = cache)
         assertTrue(datos.de(pelicula) { fichaCoco }.isEmpty())
         assertNull(cache.datos[pelicula.clave])
     }
 
     @Test fun `una respuesta ilegible no se guarda`() = runTest {
         val cache = CacheEnMemoria()
-        val datos = DatosCuriosos(ia = { RespuestaDeIa.Texto("no sé", "m") }, cache = cache)
+        val datos = DatosCuriosos(ia = { AiResponse.Text("no sé", "m") }, cache = cache)
         assertTrue(datos.de(pelicula) { fichaCoco }.isEmpty())
         assertNull(cache.datos[pelicula.clave])
     }
@@ -164,7 +164,7 @@ class DatosCuriososTest {
     @Test fun `un arreglo vacio del modelo se guarda y en la segunda llamada no se pregunta`() = runTest {
         val cache = CacheEnMemoria()
         var preguntas = 0
-        val datos = DatosCuriosos(ia = { preguntas++; RespuestaDeIa.Texto("[]", "m") }, cache = cache)
+        val datos = DatosCuriosos(ia = { preguntas++; AiResponse.Text("[]", "m") }, cache = cache)
         assertTrue(datos.de(pelicula) { fichaCoco }.isEmpty())
         assertEquals(1, preguntas)
         assertEquals(emptyList<String>(), cache.datos[pelicula.clave])
@@ -178,7 +178,7 @@ class DatosCuriososTest {
     @Test fun `un arreglo que queda vacio tras limpiar no se guarda`() = runTest {
         val cache = CacheEnMemoria()
         val largo = "x".repeat(221)
-        val datos = DatosCuriosos(ia = { RespuestaDeIa.Texto("""["$largo"]""", "m") }, cache = cache)
+        val datos = DatosCuriosos(ia = { AiResponse.Text("""["$largo"]""", "m") }, cache = cache)
         assertTrue(datos.de(pelicula) { fichaCoco }.isEmpty())
         assertNull(cache.datos[pelicula.clave])
     }
@@ -194,7 +194,7 @@ class DatosCuriososTest {
         val serieDegradada = ObraDeDatos(tipo = "tv", tmdbId = 46260, tituloCanonico = null, temporada = 1, episodio = 2)
         val fichaDegradada = FichaDeObra(tipo = "tv", nombre = "Naruto", degradada = true)
         var preguntas = 0
-        val datos = DatosCuriosos(ia = { preguntas++; RespuestaDeIa.Texto("""["a","b"]""", "m") }, cache = cache)
+        val datos = DatosCuriosos(ia = { preguntas++; AiResponse.Text("""["a","b"]""", "m") }, cache = cache)
         assertEquals(listOf("a", "b"), datos.de(serieDegradada) { fichaDegradada })
         assertEquals(1, preguntas)
         assertNull(cache.datos[serieDegradada.clave])

@@ -2,9 +2,9 @@ package com.arkiv.player.data.recomendaciones
 
 import com.arkiv.player.data.catalog.TmdbItem
 import com.arkiv.player.data.gateway.GatewayResult
-import com.arkiv.player.data.ia.JsonDelModelo
-import com.arkiv.player.data.ia.JsonIlegible
-import com.arkiv.player.data.ia.RespuestaDeIa
+import com.arkiv.player.data.ia.ModelJson
+import com.arkiv.player.data.ia.UnreadableJson
+import com.arkiv.player.data.ia.AiResponse
 import java.text.Normalizer
 
 internal data class Candidato(val titulo: String, val anio: String, val tipo: String, val porque: String)
@@ -50,19 +50,19 @@ internal object NormalizarTitulo {
  * apuntando a un podcast. Comparar el título exacto tampoco sirve (los releases se llaman
  * `Titulo.2022.1080p-dual-lat`); un modelo comparando es lo único que cubre los dos casos.
  */
-internal class ArbitroDeIa(private val ia: suspend (String) -> RespuestaDeIa) : Arbitro {
+internal class ArbitroDeIa(private val ia: suspend (String) -> AiResponse) : Arbitro {
 
     override suspend fun cuales(titulo: String, anio: String, tipo: String, resultados: List<GatewayResult>): List<Int>? {
         val lista = resultados.take(TOPE_RESULTADOS)
         val filas = lista.mapIndexed { i, r -> fila(i, r) }.joinToString("\n")
         val r = ia("${instruccion(titulo, anio, tipo)}\n\n$filas")
-        if (r !is RespuestaDeIa.Texto) return null
+        if (r !is AiResponse.Text) return null
         return try {
-            val arr = JsonDelModelo.arreglo(r.texto)
+            val arr = ModelJson.array(r.text)
             // Un modelo que contesta índices inventados no puede sacar a nadie de la lista: solo
             // sobreviven enteros de verdad (un `true` no es un índice) dentro del rango.
             (0 until arr.length()).mapNotNull { arr.opt(it) as? Int }.filter { it in lista.indices }
-        } catch (e: JsonIlegible) {
+        } catch (e: UnreadableJson) {
             null
         }
     }

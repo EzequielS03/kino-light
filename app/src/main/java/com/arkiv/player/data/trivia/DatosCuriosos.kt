@@ -1,9 +1,9 @@
 package com.arkiv.player.data.trivia
 
 import android.util.Log
-import com.arkiv.player.data.ia.JsonDelModelo
-import com.arkiv.player.data.ia.JsonIlegible
-import com.arkiv.player.data.ia.RespuestaDeIa
+import com.arkiv.player.data.ia.ModelJson
+import com.arkiv.player.data.ia.UnreadableJson
+import com.arkiv.player.data.ia.AiResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -156,7 +156,7 @@ internal class CacheDeDatosEnDisco(private val dir: File, private val ahoraMs: (
  * por una falla que la próxima apertura podría no repetir.
  */
 internal class DatosCuriosos(
-    private val ia: suspend (String) -> RespuestaDeIa,
+    private val ia: suspend (String) -> AiResponse,
     private val cache: CacheDeDatos,
 ) {
     suspend fun de(obra: ObraDeDatos, ficha: suspend () -> FichaDeObra?): List<String> {
@@ -165,11 +165,11 @@ internal class DatosCuriosos(
         withContext(Dispatchers.IO) { cache.leer(obra.clave) }?.let { return it }
         val cual = ficha() ?: return emptyList()
         val r = ia(PreguntaDeDatos.instruccion(cual, obra.temporada, obra.episodio))
-        if (r !is RespuestaDeIa.Texto) return emptyList()
+        if (r !is AiResponse.Text) return emptyList()
         val crudo = try {
-            JsonDelModelo.arreglo(r.texto)
-        } catch (e: JsonIlegible) {
-            Log.w(TAG, "unreadable response from ${r.modelo}: ${e.message}")
+            ModelJson.array(r.text)
+        } catch (e: UnreadableJson) {
+            Log.w(TAG, "unreadable response from ${r.model}: ${e.message}")
             return emptyList()
         }
         if (crudo.length() == 0) {

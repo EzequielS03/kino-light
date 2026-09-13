@@ -2,9 +2,9 @@ package com.arkiv.player.data.recomendaciones
 
 import android.util.Log
 import com.arkiv.player.data.db.RecomendacionEntity
-import com.arkiv.player.data.ia.JsonDelModelo
-import com.arkiv.player.data.ia.JsonIlegible
-import com.arkiv.player.data.ia.RespuestaDeIa
+import com.arkiv.player.data.ia.ModelJson
+import com.arkiv.player.data.ia.UnreadableJson
+import com.arkiv.player.data.ia.AiResponse
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 
@@ -40,9 +40,9 @@ internal object PreguntaParaTi {
             "relación con lo que vio. Nada de contenido para adultos." +
             "\n\n$renglones"
 
-    /** `_parsear` del gateway. Lanza [JsonIlegible] si no vino ningún arreglo. */
+    /** `_parsear` del gateway. Lanza [UnreadableJson] si no vino ningún arreglo. */
     fun candidatos(texto: String): List<Candidato> {
-        val arr = JsonDelModelo.arreglo(texto)
+        val arr = ModelJson.array(texto)
         return (0 until arr.length()).mapNotNull { i ->
             val o = arr.optJSONObject(i) ?: return@mapNotNull null
             val titulo = o.optString("titulo").trim().takeIf { it.isNotEmpty() } ?: return@mapNotNull null
@@ -75,7 +75,7 @@ internal object PreguntaParaTi {
  *    excepción inesperada se anota como fallo (reintento a los 15 min) y se traga.
  */
 internal class GeneradorParaTi(
-    private val ia: suspend (String) -> RespuestaDeIa,
+    private val ia: suspend (String) -> AiResponse,
     private val historial: suspend () -> List<Vista>,
     private val yaVistos: suspend () -> Set<String>,
     private val verificar: suspend (List<Candidato>, Set<String>) -> List<Verificada>,
@@ -98,8 +98,8 @@ internal class GeneradorParaTi(
             escribirMarcas(ahora, false)
 
             val r = ia(PreguntaParaTi.instruccion(SenalesDeHistorial.renglones(vistas)))
-            val candidatos = (r as? RespuestaDeIa.Texto)?.let {
-                try { PreguntaParaTi.candidatos(it.texto) } catch (e: JsonIlegible) { null }
+            val candidatos = (r as? AiResponse.Text)?.let {
+                try { PreguntaParaTi.candidatos(it.text) } catch (e: UnreadableJson) { null }
             }
             if (candidatos.isNullOrEmpty()) {
                 Log.w(TAG, "the model gave no candidates: keeping the previous recommendations")

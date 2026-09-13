@@ -422,10 +422,10 @@ class AppGraph(context: Context) {
     val applicationScope: CoroutineScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
 
     /** El cliente de los modelos gratis de Kilo (sub-proyecto 4). Sin llave: ver su KDoc. */
-    internal val clienteDeIa: com.arkiv.player.data.ia.ClienteDeIa by lazy {
-        com.arkiv.player.data.ia.ClienteDeIa(
-            memoria = com.arkiv.player.data.ia.MemoriaDeModelos(
-                com.arkiv.player.data.ia.AlmacenEnPreferencias(appContext),
+    internal val clienteDeIa: com.arkiv.player.data.ia.AiClient by lazy {
+        com.arkiv.player.data.ia.AiClient(
+            memory = com.arkiv.player.data.ia.ModelMemory(
+                com.arkiv.player.data.ia.PreferencesStore(appContext),
             ) { System.currentTimeMillis() },
         )
     }
@@ -433,7 +433,7 @@ class AppGraph(context: Context) {
     /** El dato curioso del reproductor (sub-proyecto 4): Kilo, desde el aparato, un mes de caché. */
     internal val datosCuriosos: com.arkiv.player.data.trivia.DatosCuriosos by lazy {
         com.arkiv.player.data.trivia.DatosCuriosos(
-            ia = { clienteDeIa.preguntar(it) },
+            ia = { clienteDeIa.ask(it) },
             cache = com.arkiv.player.data.trivia.CacheDeDatosEnDisco(
                 java.io.File(appContext.filesDir, "datos-curiosos"),
             ) { System.currentTimeMillis() },
@@ -472,10 +472,10 @@ class AppGraph(context: Context) {
                     emptyList()
                 }
             },
-            arbitro = ArbitroDeIa { clienteDeIa.preguntar(it) },
+            arbitro = ArbitroDeIa { clienteDeIa.ask(it) },
         )
         GeneradorParaTi(
-            ia = { clienteDeIa.preguntar(it) },
+            ia = { clienteDeIa.ask(it) },
             historial = { SenalesDeHistorial.de(database.playbackDao().historialReciente(100)) },
             yaVistos = {
                 database.itemDao().getAllItems().filter { !it.deleted }.flatMap { item ->

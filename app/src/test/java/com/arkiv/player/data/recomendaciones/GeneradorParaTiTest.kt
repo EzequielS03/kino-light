@@ -1,7 +1,7 @@
 package com.arkiv.player.data.recomendaciones
 
 import com.arkiv.player.data.db.RecomendacionEntity
-import com.arkiv.player.data.ia.RespuestaDeIa
+import com.arkiv.player.data.ia.AiResponse
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -57,7 +57,7 @@ class GeneradorParaTiTest {
     private class Guardado { var ultima: List<RecomendacionEntity>? = null }
 
     private fun generador(
-        ia: (String) -> RespuestaDeIa,
+        ia: (String) -> AiResponse,
         vistas: List<Vista> = listOf(Vista("Encanto", "movie", "terminado")),
         verificar: (List<Candidato>) -> List<Verificada> = { candidatos ->
             candidatos.mapIndexed { i, c -> Verificada(c, i + 1, c.tipo, c.titulo, "p$i", "magis1:${c.tipo}:0:C$i") }
@@ -75,7 +75,7 @@ class GeneradorParaTiTest {
         ahoraMs = { 10 * HORA },
     )
 
-    private val respuestaBuena = RespuestaDeIa.Texto(
+    private val respuestaBuena = AiResponse.Text(
         """[{"titulo":"Coco","anio":"2017","tipo":"movie","porque":"porque viste Encanto"}]""", "m",
     )
 
@@ -103,14 +103,14 @@ class GeneradorParaTiTest {
     @Test fun `si el modelo no contesta no se borra nada y se marca el fallo`() = runTest {
         val g = Guardado()
         val marcas = mutableMapOf<String, Any>()
-        generador(ia = { RespuestaDeIa.NoPude }, guardado = g, marcas = marcas).generarSiToca()
+        generador(ia = { AiResponse.Unable }, guardado = g, marcas = marcas).generarSiToca()
         assertNull(g.ultima)
         assertEquals(true, marcas["f"])
     }
 
     @Test fun `si el modelo contesta algo ilegible es un fallo del modelo`() = runTest {
         val marcas = mutableMapOf<String, Any>()
-        generador(ia = { RespuestaDeIa.Texto("no sé", "m") }, marcas = marcas).generarSiToca()
+        generador(ia = { AiResponse.Text("no sé", "m") }, marcas = marcas).generarSiToca()
         assertEquals(true, marcas["f"])
     }
 
