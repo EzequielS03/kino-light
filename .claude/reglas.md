@@ -95,7 +95,9 @@ completo. Si vas a agregar una llamada de red, una dependencia o una feature, le
   **tuteo**, nunca voseo. "Podés" está mal; "puedes" está bien.
 - **Lo que ve quien programa** (código, identificadores, comentarios, KDoc, logs, mensajes de
   commit, specs y planes): **inglés**.
-- Regla de transición: solo el código NUEVO va en inglés. No traducir archivos existentes.
+- Ya no hay regla de transición. El código existente en español (clases, funciones, comentarios,
+  KDoc) es una deuda a saldar, no algo para dejar en paz — se audita y se traduce, no se deja como
+  está solo por ser viejo. (Decidido 2026-09-14.)
 
 ## Commits
 

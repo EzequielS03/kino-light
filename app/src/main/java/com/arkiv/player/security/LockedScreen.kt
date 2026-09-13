@@ -1,4 +1,4 @@
-package com.arkiv.player.seguridad
+package com.arkiv.player.security
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -18,13 +18,14 @@ import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 
 /**
- * Lo único que se ve cuando el aparato no pasa los controles. No hay botón de continuar a propósito.
+ * The only thing shown when the device fails the checks. No continue button, on purpose.
  *
- * Se listan los motivos: un aviso que no explica nada es indistinguible de un bug, y quien vea esto
- * en un aparato que cree limpio necesita saber qué se encontró para poder discutirlo.
+ * The reasons are listed: a warning that explains nothing is indistinguishable from a bug, and
+ * whoever sees this on a device they believe is clean needs to know what was found to be able to
+ * argue about it.
  */
 @Composable
-fun PantallaBloqueada(motivos: List<String>) {
+fun LockedScreen(reasons: List<String>) {
     Column(
         modifier = Modifier.fillMaxSize().background(ArkivBlack).padding(48.dp),
         verticalArrangement = Arrangement.Center,
@@ -43,9 +44,9 @@ fun PantallaBloqueada(motivos: List<String>) {
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 12.dp),
         )
-        if (motivos.isNotEmpty()) {
+        if (reasons.isNotEmpty()) {
             Text(
-                motivos.joinToString("\n") { "· $it" },
+                reasons.joinToString("\n") { "· $it" },
                 style = MaterialTheme.typography.bodySmall,
                 color = ArkivTextSecondary,
                 textAlign = TextAlign.Center,

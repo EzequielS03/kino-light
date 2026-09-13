@@ -18,10 +18,10 @@ import androidx.compose.ui.Modifier
 import com.arkiv.player.playback.ACTION_OPEN_PLAYER
 import com.arkiv.player.playback.EXTRA_EPISODE_ID
 import com.arkiv.player.playback.NowPlaying
-import com.arkiv.player.seguridad.DeteccionDeRoot
-import com.arkiv.player.seguridad.FirmaDelApk
-import com.arkiv.player.seguridad.PantallaBloqueada
-import com.arkiv.player.seguridad.RecolectorDeSenales
+import com.arkiv.player.security.RootDetection
+import com.arkiv.player.security.ApkSignature
+import com.arkiv.player.security.LockedScreen
+import com.arkiv.player.security.RootSignalCollector
 import com.arkiv.player.ui.ArkivRoot
 import com.arkiv.player.ui.ArkivSplash
 import com.arkiv.player.ui.theme.ArkivTheme
@@ -44,17 +44,17 @@ private val INTRO_HEAD_START_MS = com.arkiv.player.ui.DURACION_DE_LA_INTRO_MS.to
 private const val CONTENT_SETTLE_MS = 400L
 
 /**
- * Si el aparato rooteado se bloquea o no. **Apagado a propósito**: hoy queremos que un aparato con
- * root pueda usar la app igual.
+ * Whether a rooted device gets blocked. **Off on purpose**: today we want a device with root to
+ * still be able to use the app.
  *
- * Se apaga con un interruptor en vez de borrar [com.arkiv.player.seguridad.DeteccionDeRoot] porque
- * la detección en sí quedó hecha y probada (tests incluidos); volver a prenderla es cambiar este
- * `false` por `true`, no reescribirla.
+ * It's turned off with a switch instead of deleting [com.arkiv.player.security.RootDetection]
+ * because the detection itself is already built and tested (tests included); turning it back on
+ * is flipping this `false` to `true`, not rewriting it.
  *
- * Ojo con lo que este interruptor NO cambia: la comprobación de firma del APK sigue viva, y es la
- * que hay que dejar en pie —sin ella cualquier control futuro se quita decompilando y re-firmando.
+ * Note what this switch does NOT change: the APK signature check stays live, and it's the one
+ * that must be kept -- without it any future check gets removed by decompiling and re-signing.
  */
-private const val BLOQUEAR_POR_ROOT = false
+private const val BLOCK_ON_ROOT = false
 
 class MainActivity : AppCompatActivity() {
 
@@ -67,12 +67,12 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         handleIntent(intent)
 
-        // Controles de integridad ANTES de armar nada: ni servicios, ni Room. Si el aparato
-        // no pasa, lo único que se compone es el aviso. Ver `DeteccionDeRoot` para qué detecta y,
-        // sobre todo, para qué NO puede detectar.
-        val motivosDeBloqueo = motivosParaNoArrancar()
-        if (motivosDeBloqueo.isNotEmpty()) {
-            setContent { ArkivTheme { PantallaBloqueada(motivosDeBloqueo) } }
+        // Integrity checks BEFORE building anything: no services, no Room. If the device fails
+        // them, the only thing composed is the warning. See `RootDetection` for what it detects
+        // and, above all, for what it CANNOT detect.
+        val blockingReasons = reasonsNotToStart()
+        if (blockingReasons.isNotEmpty()) {
+            setContent { ArkivTheme { LockedScreen(blockingReasons) } }
             return
         }
 
@@ -159,21 +159,21 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Por qué este aparato no puede ejecutar la app. Vacío = puede.
+     * Why this device cannot run the app. Empty = it can.
      *
-     * Dos controles, en el orden en que importan:
+     * Two checks, in the order they matter:
      *
-     * 1. **Firma del APK.** Si no la comprobamos, el bloqueo por root no vale nada: se decompila,
-     *    se le quita y se vuelve a firmar. Solo se exige en release (ver [FirmaDelApk]).
-     * 2. **Root.** Ver [DeteccionDeRoot], que también explica sus límites. Hoy NO bloquea: está
-     *    detrás de [BLOQUEAR_POR_ROOT], apagado.
+     * 1. **APK signature.** If we don't check it, the root block is worthless: decompile, strip
+     *    it, re-sign. Only enforced in release (see [ApkSignature]).
+     * 2. **Root.** See [RootDetection], which also explains its limits. Today it does NOT block:
+     *    it's behind [BLOCK_ON_ROOT], turned off.
      */
-    private fun motivosParaNoArrancar(): List<String> {
-        if (!FirmaDelApk.esNuestra(this, BuildConfig.DEBUG)) {
+    private fun reasonsNotToStart(): List<String> {
+        if (!ApkSignature.isOurs(this, BuildConfig.DEBUG)) {
             return listOf("el APK no está firmado con el certificado de Kino")
         }
-        if (!BLOQUEAR_POR_ROOT) return emptyList()
-        return DeteccionDeRoot.motivos(RecolectorDeSenales.recoger(this))
+        if (!BLOCK_ON_ROOT) return emptyList()
+        return RootDetection.reasons(RootSignalCollector.collect(this))
     }
 
     private fun isTelevision(): Boolean = DeviceType.isTelevision(this)
