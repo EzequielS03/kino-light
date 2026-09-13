@@ -6,48 +6,49 @@ import java.net.SocketException
 import java.net.UnknownHostException
 import javax.net.ssl.SSLException
 
-/** Un código HTTP que no fue 2xx. Tipada para poder clasificarla sin parsear el mensaje. */
+/** An HTTP code that wasn't 2xx. Typed so it can be classified without parsing the message. */
 class HttpStatusException(val code: Int) : IOException("HTTP $code")
 
-/** La respuesta se cortó antes de completar el `Content-Length` declarado. */
+/** The response cut off before completing the declared `Content-Length`. */
 class IncompleteDownloadException(val written: Long, val total: Long) :
     IOException("descarga incompleta: $written de $total bytes")
 
 /**
- * Qué fallos vale la pena reintentar solos y cuántas veces.
+ * Which failures are worth retrying on their own, and how many times.
  *
- * La distinción es entre "el mundo se movió y en un rato puede andar" (red) y "esto va a fallar
- * igual mañana" (fuente no soportada, sin espacio, película web). Reintentar lo segundo gasta datos
- * y batería sin ninguna chance de éxito; NO reintentar lo primero deja una descarga de 4 GB al 80%
- * en `failed` porque el WiFi parpadeó 30 segundos, con el `.part` intacto y nadie que lo retome.
+ * The distinction is between "the world shifted and it might work again in a bit" (network) and
+ * "this is going to fail the same way tomorrow" (unsupported source, no space, web movie).
+ * Retrying the second kind burns data and battery with zero chance of success; NOT retrying the
+ * first leaves a 4 GB download at 80% stuck in `failed` because WiFi flickered for 30 seconds,
+ * with the `.part` intact and nobody to pick it back up.
  *
- * Puro a propósito (no toca WorkManager ni Room): así se testea en la JVM sin device.
+ * Pure on purpose (doesn't touch WorkManager or Room): so it's tested on the JVM with no device.
  */
 object DownloadRetryPolicy {
 
     /**
-     * Tope de intentos automáticos de UNA fila. Sin tope, una fuente que devuelve 503 para siempre
-     * reintentaría en bucle hasta que el usuario borre la fila. Agotado el tope la fila queda en
-     * `failed` con su motivo y el botón "Reintentar" de la pantalla sigue disponible.
+     * Cap on a SINGLE row's automatic attempts. Without a cap, a source that returns 503 forever
+     * would retry in a loop until the user deletes the row. Once the cap is exhausted the row stays
+     * in `failed` with its reason and the screen's "Reintentar" button is still available.
      */
     const val MAX_ATTEMPTS = 4
 
     /**
-     * Códigos HTTP que sí vale reintentar: 408 (timeout del request), 429 (nos frenaron) y todo 5xx
-     * (el server está mal ahora). Un 403/404 en cambio significa que el enlace caducó o no existe:
-     * reintentarlo con el mismo `Range` va a fallar exactamente igual.
+     * HTTP codes that ARE worth retrying: 408 (request timeout), 429 (we got throttled) and every
+     * 5xx (the server is having a bad time right now). A 403/404 instead means the link expired or
+     * doesn't exist: retrying it with the same `Range` will fail exactly the same way.
      */
     fun isTransientStatus(code: Int): Boolean = code == 408 || code == 429 || code >= 500
 
     /**
-     * Fallo de red o de servidor (reintentable) vs fallo de contenido/entorno (definitivo).
+     * Network or server failure (retryable) vs content/environment failure (definitive).
      *
-     * Todo lo que no sea una `IOException` cuenta como definitivo: una excepción inesperada de
-     * lógica no se arregla esperando 30 segundos.
+     * Anything that isn't an `IOException` counts as definitive: an unexpected logic exception
+     * doesn't get fixed by waiting 30 seconds.
      */
     fun isTransient(t: Throwable): Boolean = when (t) {
         is HttpStatusException -> isTransientStatus(t.code)
-        // Corte a mitad de la transferencia: es exactamente el caso del `.part` + `Range`.
+        // Cutoff mid-transfer: this is exactly the `.part` + `Range` case.
         is IncompleteDownloadException -> true
         is UnknownHostException, is SocketException, is InterruptedIOException, is SSLException -> true
         is IOException -> true
@@ -55,8 +56,8 @@ object DownloadRetryPolicy {
     }
 
     /**
-     * [attempt] es el número de intentos YA hechos de esta fila (0 en el primero). WorkManager lo
-     * expone como `runAttemptCount` y aplica el backoff exponencial entre uno y otro.
+     * [attempt] is the number of attempts ALREADY made for this row (0 on the first). WorkManager
+     * exposes it as `runAttemptCount` and applies exponential backoff between one and the next.
      */
     fun shouldRetry(transient: Boolean, attempt: Int): Boolean = transient && attempt + 1 < MAX_ATTEMPTS
 }

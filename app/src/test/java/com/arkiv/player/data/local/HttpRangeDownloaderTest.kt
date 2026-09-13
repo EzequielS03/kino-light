@@ -31,9 +31,9 @@ class HttpRangeDownloaderTest {
     @After fun tearDown() { server.shutdown() }
 
     /**
-     * Deja un parcial "legítimo": los bytes + la marca de origen que escribe el propio descargador.
-     * Sin la marca el parcial se descarta (ver `un parcial sin marca de origen no se reanuda`), que
-     * es justamente lo que protege contra reanudar un archivo contra otro.
+     * Leaves a "legitimate" partial: the bytes + the origin mark the downloader itself writes.
+     * Without the mark the partial gets discarded (see `a partial with no origin mark doesn't get
+     * resumed`), which is exactly what protects against resuming one file against another.
      */
     private fun writePart(target: File, bytes: String, origin: String) {
         LocalFilePaths.partOf(target).writeText(bytes)
@@ -41,23 +41,23 @@ class HttpRangeDownloaderTest {
     }
 
     @Test
-    fun `sin parcial previo no manda Range`() {
+    fun `with no prior partial, no Range is sent`() {
         assertNull(RangeMath.rangeHeaderFor(0))
     }
 
     @Test
-    fun `con parcial previo pide desde donde quedo`() {
+    fun `with a prior partial, it asks from where it left off`() {
         assertEquals("bytes=1024-", RangeMath.rangeHeaderFor(1024))
     }
 
     @Test
-    fun `el total es lo que falta mas lo ya escrito`() {
+    fun `the total is what's left plus what's already written`() {
         assertEquals(5000, RangeMath.totalBytesOf(contentLength = 4000, startByte = 1000))
         assertEquals(4000, RangeMath.totalBytesOf(contentLength = 4000, startByte = 0))
     }
 
     @Test
-    fun `descarga completa y renombra el parcial`() = runBlocking {
+    fun `downloads completely and renames the partial`() = runBlocking {
         val body = "0123456789".repeat(100)   // 1000 bytes
         server.enqueue(MockResponse().setBody(Buffer().writeUtf8(body)))
         val target = File(tmp.root, "peli.mp4")
@@ -71,10 +71,10 @@ class HttpRangeDownloaderTest {
     }
 
     @Test
-    fun `reanuda desde el parcial existente`() = runBlocking {
+    fun `resumes from the existing partial`() = runBlocking {
         val target = File(tmp.root, "peli.mp4")
         val url = server.url("/f").toString()
-        writePart(target, "AAAA", origin = url)                   // 4 bytes ya bajados, mismo origen
+        writePart(target, "AAAA", origin = url)                   // 4 bytes already downloaded, same origin
         server.enqueue(MockResponse().setResponseCode(206).setBody("BBBB"))
 
         val result = downloader.download(url, target, emptyMap()) { _, _ -> }
@@ -82,19 +82,20 @@ class HttpRangeDownloaderTest {
         assertTrue(result.isSuccess)
         assertEquals("AAAABBBB", target.readText())
         assertEquals("bytes=4-", server.takeRequest().getHeader("Range"))
-        // Ya no hay parcial que identificar: la marca se limpia con el renombre.
+        // No more partial left to identify: the mark gets cleaned up on rename.
         assertFalse(LocalFilePaths.originOf(target).exists())
     }
 
     /**
-     * El escenario del bug: se baja la variante `derivative` de un episodio de archive y falla al
-     * 40%; el usuario cambia la calidad a ORIGINAL y reencola. `variantFor()` elige otra URL y otro
-     * tamaño, se pedía `Range: bytes=<40% del derivative>-` sobre el original, llegaba un 206 y se
-     * appendeaba la cola de un archivo al prefijo del otro. La verificación `written < total` no lo
-     * detectaba (las cuentas cerraban), se renombraba y quedaba marcado "Listo" siendo basura.
+     * The bug's scenario: an archive episode's `derivative` variant downloads and fails at 40%; the
+     * user switches quality to ORIGINAL and re-queues. `variantFor()` picks another URL and another
+     * size, `Range: bytes=<40% of the derivative>-` was requested against the original, a 206 came
+     * back, and one file's tail got appended to the other's prefix. The `written < total` check
+     * didn't catch it (the numbers added up), it got renamed and ended up marked "Listo" while being
+     * garbage.
      */
     @Test
-    fun `no reanuda un parcial de otro origen y baja el archivo entero`() = runBlocking {
+    fun `doesn't resume a partial from another origin and downloads the whole file`() = runBlocking {
         val target = File(tmp.root, "peli.mp4")
         val derivative = server.url("/peli_derivative.mp4").toString()
         val original = server.url("/peli_original.mp4").toString()
@@ -104,17 +105,17 @@ class HttpRangeDownloaderTest {
         val result = downloader.download(original, target, emptyMap()) { _, _ -> }
 
         assertTrue(result.isSuccess)
-        // Ni rastro del prefijo de la otra variante.
+        // Not a trace of the other variant's prefix.
         assertEquals("ORIGINAL-ENTERO", target.readText())
-        // Y ni siquiera se pidió reanudar: el parcial se descartó ANTES de armar el request.
+        // And a resume wasn't even requested: the partial was discarded BEFORE building the request.
         assertNull(server.takeRequest().getHeader("Range"))
         assertFalse(LocalFilePaths.partOf(target).exists())
     }
 
     @Test
-    fun `un parcial sin marca de origen no se reanuda`() = runBlocking {
+    fun `a partial with no origin mark doesn't get resumed`() = runBlocking {
         val target = File(tmp.root, "peli.mp4")
-        // Parcial que dejó una versión anterior de la app: no se puede afirmar de qué URL vino.
+        // Partial left by an earlier version of the app: which URL it came from can't be asserted.
         LocalFilePaths.partOf(target).writeText("VIEJO")
         server.enqueue(MockResponse().setResponseCode(200).setBody("NUEVO-COMPLETO"))
 
@@ -126,9 +127,10 @@ class HttpRangeDownloaderTest {
     }
 
     @Test
-    fun `el mismo resumeKey reanuda aunque cambie la URL`() = runBlocking {
-        // La NUC se sirve por LAN o por túnel según dónde esté el celular: la URL cambia pero el
-        // contenido es el mismo, así que con la URL como clave se tiraría un parcial válido.
+    fun `the same resumeKey resumes even if the URL changes`() = runBlocking {
+        // The NUC gets served over LAN or through a tunnel depending on where the phone is: the URL
+        // changes but the content is the same, so with the URL as the key a valid partial would get
+        // thrown away.
         val target = File(tmp.root, "peli.mp4")
         writePart(target, "AAAA", origin = "nuc:item:42")
         server.enqueue(MockResponse().setResponseCode(206).setBody("BBBB"))
@@ -143,11 +145,11 @@ class HttpRangeDownloaderTest {
     }
 
     @Test
-    fun `si el server no soporta Range y responde 200 descarta el parcial y no duplica`() = runBlocking {
+    fun `if the server doesn't support Range and answers 200 it discards the partial and doesn't duplicate`() = runBlocking {
         val target = File(tmp.root, "peli.mp4")
         val url = server.url("/f").toString()
-        writePart(target, "AAAA", origin = url)                    // 4 bytes ya bajados, mismo origen
-        server.enqueue(MockResponse().setResponseCode(200).setBody("XXXXYYYY"))   // archivo completo, ignora el Range
+        writePart(target, "AAAA", origin = url)                    // 4 bytes already downloaded, same origin
+        server.enqueue(MockResponse().setResponseCode(200).setBody("XXXXYYYY"))   // whole file, ignores the Range
 
         val result = downloader.download(url, target, emptyMap()) { _, _ -> }
 
@@ -157,7 +159,7 @@ class HttpRangeDownloaderTest {
     }
 
     @Test
-    fun `manda los headers que le pasan`() = runBlocking {
+    fun `sends the headers it's passed`() = runBlocking {
         server.enqueue(MockResponse().setBody("x"))
         val target = File(tmp.root, "peli.mp4")
 
@@ -170,7 +172,7 @@ class HttpRangeDownloaderTest {
     }
 
     @Test
-    fun `un 403 falla y no deja archivo final`() = runBlocking {
+    fun `a 403 fails and leaves no final file`() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(403))
         val target = File(tmp.root, "peli.mp4")
 
@@ -178,14 +180,14 @@ class HttpRangeDownloaderTest {
 
         assertTrue(result.isFailure)
         assertFalse(target.exists())
-        // Tipada, para que la política de reintentos pueda distinguir un 403 (definitivo) de un 503.
+        // Typed, so the retry policy can tell a 403 (definitive) apart from a 503.
         val error = result.exceptionOrNull()
         assertTrue(error is HttpStatusException)
         assertEquals(403, (error as HttpStatusException).code)
     }
 
     @Test
-    fun `informa progreso creciente`() = runBlocking {
+    fun `reports increasing progress`() = runBlocking {
         server.enqueue(MockResponse().setBody(Buffer().writeUtf8("x".repeat(200_000))))
         val target = File(tmp.root, "peli.mp4")
         val seen = mutableListOf<Long>()

@@ -10,19 +10,19 @@ import java.net.UnknownHostException
 class DownloadRetryPolicyTest {
 
     @Test
-    fun `un corte de red es transitorio`() {
+    fun `a network cutoff is transient`() {
         assertTrue(DownloadRetryPolicy.isTransient(UnknownHostException("sin DNS")))
         assertTrue(DownloadRetryPolicy.isTransient(SocketTimeoutException("timeout")))
         assertTrue(DownloadRetryPolicy.isTransient(IOException("connection reset")))
     }
 
     @Test
-    fun `una descarga cortada a mitad es transitoria`() {
+    fun `a download cut off halfway is transient`() {
         assertTrue(DownloadRetryPolicy.isTransient(IncompleteDownloadException(written = 400, total = 1000)))
     }
 
     @Test
-    fun `5xx y frenadas del server se reintentan`() {
+    fun `5xx and server throttling get retried`() {
         assertTrue(DownloadRetryPolicy.isTransient(HttpStatusException(500)))
         assertTrue(DownloadRetryPolicy.isTransient(HttpStatusException(503)))
         assertTrue(DownloadRetryPolicy.isTransient(HttpStatusException(429)))
@@ -30,31 +30,31 @@ class DownloadRetryPolicyTest {
     }
 
     @Test
-    fun `un enlace caducado o inexistente no se reintenta`() {
+    fun `an expired or nonexistent link doesn't get retried`() {
         assertFalse(DownloadRetryPolicy.isTransient(HttpStatusException(403)))
         assertFalse(DownloadRetryPolicy.isTransient(HttpStatusException(404)))
         assertFalse(DownloadRetryPolicy.isTransient(HttpStatusException(410)))
     }
 
     @Test
-    fun `lo que no es de red es definitivo`() {
-        // "Fuente no soportada", "sin espacio", "película web no soportada": errores de lógica y de
-        // entorno que van a fallar exactamente igual dentro de 30 segundos.
+    fun `whatever isn't network-related is definitive`() {
+        // "Fuente no soportada", "sin espacio", "película web no soportada": logic and environment
+        // errors that are going to fail exactly the same way 30 seconds from now.
         assertFalse(DownloadRetryPolicy.isTransient(IllegalStateException("Fuente no soportada")))
         assertFalse(DownloadRetryPolicy.isTransient(IllegalArgumentException("sin espacio")))
     }
 
     @Test
-    fun `lo definitivo nunca se reintenta aunque haya intentos de sobra`() {
+    fun `what's definitive never gets retried even with attempts to spare`() {
         assertFalse(DownloadRetryPolicy.shouldRetry(transient = false, attempt = 0))
     }
 
     @Test
-    fun `lo transitorio se reintenta hasta el tope y no mas`() {
+    fun `what's transient gets retried up to the cap and no more`() {
         assertTrue(DownloadRetryPolicy.shouldRetry(transient = true, attempt = 0))
         assertTrue(DownloadRetryPolicy.shouldRetry(transient = true, attempt = DownloadRetryPolicy.MAX_ATTEMPTS - 2))
-        // Con MAX_ATTEMPTS intentos ya hechos la fila se da por perdida: queda `failed` con su
-        // motivo y el botón "Reintentar" de la pantalla sigue disponible.
+        // With MAX_ATTEMPTS attempts already made the row is given up as lost: it stays `failed`
+        // with its reason and the screen's "Reintentar" button is still available.
         assertFalse(DownloadRetryPolicy.shouldRetry(transient = true, attempt = DownloadRetryPolicy.MAX_ATTEMPTS - 1))
         assertFalse(DownloadRetryPolicy.shouldRetry(transient = true, attempt = DownloadRetryPolicy.MAX_ATTEMPTS))
     }

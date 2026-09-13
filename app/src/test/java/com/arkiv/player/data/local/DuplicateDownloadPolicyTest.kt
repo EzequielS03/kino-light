@@ -6,93 +6,93 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * El caso real que motivó todo esto (verificado en el celular): DAN DA DAN quedó guardada bajo dos
- * ítems distintos y el MISMO capítulo (mismo hash de pageUrl, `31fe74c5`) aparecía `completed` en
- * uno y `queued` en el otro — 461 MB a punto de bajarse por segunda vez.
+ * The real case that motivated all of this (verified on the phone): DAN DA DAN ended up saved
+ * under two different items and the SAME chapter (same pageUrl hash, `31fe74c5`) showed up
+ * `completed` in one and `queued` in the other — 461 MB about to be downloaded a second time.
  */
 class DuplicateDownloadPolicyTest {
 
-    private val yaBajado = EpisodeOrigin("web:series:tt30217403::31fe74c5", torrentFileIndex = null)
-    private val elDuplicado = EpisodeOrigin("web:series:anilist171018::31fe74c5", torrentFileIndex = null)
+    private val alreadyDownloaded = EpisodeOrigin("web:series:tt30217403::31fe74c5", torrentFileIndex = null)
+    private val theDuplicate = EpisodeOrigin("web:series:anilist171018::31fe74c5", torrentFileIndex = null)
 
     @Test
-    fun `el mismo capitulo web bajo otro item es duplicado`() {
+    fun `the same web chapter under another item is a duplicate`() {
         assertEquals(
-            yaBajado.episodeId,
-            DuplicateDownloadPolicy.completedDuplicateOf(elDuplicado, listOf(yaBajado)),
+            alreadyDownloaded.episodeId,
+            DuplicateDownloadPolicy.completedDuplicateOf(theDuplicate, listOf(alreadyDownloaded)),
         )
     }
 
     @Test
-    fun `otro capitulo de la misma serie no es duplicado`() {
-        val otroCapitulo = EpisodeOrigin("web:series:anilist171018::aa11bb22", torrentFileIndex = null)
-        assertNull(DuplicateDownloadPolicy.completedDuplicateOf(otroCapitulo, listOf(yaBajado)))
+    fun `another chapter of the same series isn't a duplicate`() {
+        val anotherChapter = EpisodeOrigin("web:series:anilist171018::aa11bb22", torrentFileIndex = null)
+        assertNull(DuplicateDownloadPolicy.completedDuplicateOf(anotherChapter, listOf(alreadyDownloaded)))
     }
 
     @Test
-    fun `sin nada descargado no hay duplicado`() {
-        assertNull(DuplicateDownloadPolicy.completedDuplicateOf(elDuplicado, emptyList()))
+    fun `with nothing downloaded there's no duplicate`() {
+        assertNull(DuplicateDownloadPolicy.completedDuplicateOf(theDuplicate, emptyList()))
     }
 
-    /** Que ESTE episodio ya esté bajado lo resuelve la cola, no esta detección entre ítems. */
+    /** Whether THIS episode is already downloaded is the queue's business, not this cross-item detection. */
     @Test
-    fun `no se considera duplicado de si mismo`() {
-        assertNull(DuplicateDownloadPolicy.completedDuplicateOf(yaBajado, listOf(yaBajado)))
+    fun `it's not considered a duplicate of itself`() {
+        assertNull(DuplicateDownloadPolicy.completedDuplicateOf(alreadyDownloaded, listOf(alreadyDownloaded)))
     }
 
-    // --- Torrent: el sufijo es el infohash, y el archivo elegido va aparte -----------------------
+    // --- Torrent: the suffix is the infohash, and the chosen file goes separately -----------------------
 
     @Test
-    fun `el mismo torrent y archivo bajo otro item es duplicado`() {
-        val bajado = EpisodeOrigin("torrent:series:tt30217403::abc123", torrentFileIndex = 4)
-        val duplicado = EpisodeOrigin("torrent:anime:171018::abc123", torrentFileIndex = 4)
+    fun `the same torrent and file under another item is a duplicate`() {
+        val downloaded = EpisodeOrigin("torrent:series:tt30217403::abc123", torrentFileIndex = 4)
+        val duplicate = EpisodeOrigin("torrent:anime:171018::abc123", torrentFileIndex = 4)
         assertEquals(
-            bajado.episodeId,
-            DuplicateDownloadPolicy.completedDuplicateOf(duplicado, listOf(bajado)),
+            downloaded.episodeId,
+            DuplicateDownloadPolicy.completedDuplicateOf(duplicate, listOf(downloaded)),
         )
     }
 
-    /** Mismo pack, archivo distinto = capítulo distinto: bajar de más antes que bloquear de menos. */
+    /** Same pack, different file = different chapter: downloading too much beats blocking too much. */
     @Test
-    fun `el mismo torrent con otro archivo no es duplicado`() {
-        val bajado = EpisodeOrigin("torrent:series:tt30217403::abc123", torrentFileIndex = 4)
-        val otro = EpisodeOrigin("torrent:anime:171018::abc123", torrentFileIndex = 7)
-        assertNull(DuplicateDownloadPolicy.completedDuplicateOf(otro, listOf(bajado)))
+    fun `the same torrent with a different file isn't a duplicate`() {
+        val downloaded = EpisodeOrigin("torrent:series:tt30217403::abc123", torrentFileIndex = 4)
+        val other = EpisodeOrigin("torrent:anime:171018::abc123", torrentFileIndex = 7)
+        assertNull(DuplicateDownloadPolicy.completedDuplicateOf(other, listOf(downloaded)))
     }
 
-    /** Los magnet no guardan índice de archivo (es null en los dos): siguen siendo el mismo capítulo. */
+    /** Magnets don't carry a file index (it's null on both): they're still the same chapter. */
     @Test
-    fun `dos magnet del mismo infohash son duplicado`() {
-        val bajado = EpisodeOrigin("torrent:series:tt30217403::abc123", torrentFileIndex = null)
-        val duplicado = EpisodeOrigin("torrent:series:tmdb240411::abc123", torrentFileIndex = null)
-        assertNotNull(DuplicateDownloadPolicy.completedDuplicateOf(duplicado, listOf(bajado)))
+    fun `two magnets of the same infohash are a duplicate`() {
+        val downloaded = EpisodeOrigin("torrent:series:tt30217403::abc123", torrentFileIndex = null)
+        val duplicate = EpisodeOrigin("torrent:series:tmdb240411::abc123", torrentFileIndex = null)
+        assertNotNull(DuplicateDownloadPolicy.completedDuplicateOf(duplicate, listOf(downloaded)))
     }
 
-    // --- Fuentes donde el mismo contenido NO puede estar bajo dos ítems --------------------------
+    // --- Sources where the same content CAN'T end up under two items --------------------------
 
     /**
-     * Estos ids no tienen clave a propósito: en archive.org el itemId ES el identifier (único) y en
-     * las películas web/torrent sueltas el itemId ya es el hash del origen, así que el mismo
-     * contenido da siempre el mismo episodeId. Y compararlos sería peor que no hacer nada: en
-     * `torrent:<hash>::<índice>` el sufijo es un índice de archivo, que colisiona entre torrents
-     * distintos (todos tienen un archivo 0) y haría pasar por "ya descargado" a otra película.
+     * These ids deliberately have no key: on archive.org the itemId IS the (unique) identifier, and
+     * on standalone web/torrent movies the itemId is already the origin's hash, so the same content
+     * always yields the same episodeId. And comparing them would be worse than doing nothing: in
+     * `torrent:<hash>::<index>` the suffix is a file index, which collides between different
+     * torrents (they all have a file 0) and would pass off another movie as "already downloaded".
      */
     @Test
-    fun `archive y las peliculas sueltas no entran en la deteccion`() {
+    fun `archive and standalone movies aren't part of the detection`() {
         assertNull(DuplicateDownloadPolicy.originKeyOf(EpisodeOrigin("dragon-ball-gt::ep01.mp4", null)))
         assertNull(DuplicateDownloadPolicy.originKeyOf(EpisodeOrigin("web:9f2a1b::0", null)))
         assertNull(DuplicateDownloadPolicy.originKeyOf(EpisodeOrigin("torrent:abc123::0", 0)))
     }
 
     @Test
-    fun `un id sin sufijo no tiene clave`() {
+    fun `an id with no suffix has no key`() {
         assertNull(DuplicateDownloadPolicy.originKeyOf(EpisodeOrigin("web:series:tt30217403", null)))
         assertNull(DuplicateDownloadPolicy.originKeyOf(EpisodeOrigin("", null)))
     }
 
-    /** Web y torrent no se cruzan aunque el sufijo coincidiera por casualidad. */
+    /** Web and torrent don't cross even if the suffix happened to match. */
     @Test
-    fun `las claves de web y torrent no colisionan`() {
+    fun `web and torrent keys don't collide`() {
         val web = DuplicateDownloadPolicy.originKeyOf(EpisodeOrigin("web:series:tt1::abc", null))
         val torrent = DuplicateDownloadPolicy.originKeyOf(EpisodeOrigin("torrent:series:tt1::abc", null))
         assertNotNull(web)
@@ -101,74 +101,74 @@ class DuplicateDownloadPolicyTest {
     }
 
     /**
-     * El caso EXACTO del dispositivo: la fila duplicada ya estaba `queued` desde antes del fix, así
-     * que ningún `enqueue` la va a volver a evaluar. La compuerta del worker la agarra justo antes
-     * de marcarla `downloading`, que es la última oportunidad de no bajar 461 MB de nuevo.
+     * The device's EXACT case: the duplicate row was already `queued` from before the fix, so no
+     * `enqueue` will ever evaluate it again. The worker's gate catches it right before marking it
+     * `downloading`, which is the last chance not to download 461 MB all over again.
      */
     @Test
-    fun `la fila que ya estaba encolada tambien se detecta`() {
-        val yaEnCola = EpisodeOrigin("web:series:anilist171018::31fe74c5", torrentFileIndex = null)
+    fun `a row that was already queued gets detected too`() {
+        val alreadyQueued = EpisodeOrigin("web:series:anilist171018::31fe74c5", torrentFileIndex = null)
         assertEquals(
             "web:series:tt30217403::31fe74c5",
-            DuplicateDownloadPolicy.completedDuplicateOf(yaEnCola, listOf(yaBajado)),
+            DuplicateDownloadPolicy.completedDuplicateOf(alreadyQueued, listOf(alreadyDownloaded)),
         )
     }
 
-    // --- Borrado del archivo compartido ---------------------------------------------------------
+    // --- Deleting the shared file ---------------------------------------------------------
     //
-    // Al adoptar el archivo del gemelo, dos filas apuntan al MISMO `filePath`. `remove()` borra por
-    // dos caminos (la ruta explícita de la fila y un barrido por nombre) y los DOS tienen que
-    // respetar eso, o la fila que sobrevive queda diciendo "Listo" sobre algo que ya no está.
+    // When adopting the twin's file, two rows point at the SAME `filePath`. `remove()` deletes
+    // through two paths (the row's explicit path and a sweep by name) and BOTH have to respect
+    // that, or the surviving row ends up saying "Listo" over something that's no longer there.
 
-    /** El archivo real, nombrado con el episodeId del gemelo ORIGINAL (el que sí lo descargó). */
-    private val archivoCompartido = "/data/Movies/web_series_tt30217403__31fe74c5.mkv"
+    /** The real file, named after the ORIGINAL twin's episodeId (the one that actually downloaded it). */
+    private val sharedFile = "/data/Movies/web_series_tt30217403__31fe74c5.mkv"
 
     @Test
-    fun `no se borra el archivo si otra fila lo referencia`() {
-        assertEquals(true, DuplicateDownloadPolicy.canDeleteFile(archivoCompartido, emptySet()))
-        assertEquals(false, DuplicateDownloadPolicy.canDeleteFile(archivoCompartido, setOf(archivoCompartido)))
+    fun `the file isn't deleted if another row references it`() {
+        assertEquals(true, DuplicateDownloadPolicy.canDeleteFile(sharedFile, emptySet()))
+        assertEquals(false, DuplicateDownloadPolicy.canDeleteFile(sharedFile, setOf(sharedFile)))
     }
 
     /**
-     * El agujero que hubo que tapar: quitar al gemelo ORIGINAL (A) salteaba bien el borrado
-     * explícito, pero el barrido por prefijo borra por NOMBRE y el archivo se llama justamente con
-     * el episodeId de A — así que se lo llevaba igual y el adoptante (B) quedaba mintiendo. El
-     * filtro por ruta cubre los dos caminos con la misma regla.
+     * The hole that had to be patched: removing the ORIGINAL twin (A) correctly skipped the
+     * explicit delete, but the prefix sweep deletes by NAME and the file happens to be named after
+     * A's episodeId — so it took it anyway and the adopter (B) was left lying. The path filter
+     * covers both paths with the same rule.
      */
     @Test
-    fun `el barrido por prefijo tampoco borra el archivo que adopto otra fila`() {
-        val candidatos = listOf(archivoCompartido)
+    fun `the prefix sweep doesn't delete the file another row adopted either`() {
+        val candidates = listOf(sharedFile)
         assertEquals(
             emptyList<String>(),
-            DuplicateDownloadPolicy.deletablePaths(candidatos, referencedByOthers = setOf(archivoCompartido)),
+            DuplicateDownloadPolicy.deletablePaths(candidates, referencedByOthers = setOf(sharedFile)),
         )
     }
 
-    /** Los parciales del barrido nunca son el filePath de otra fila: se siguen borrando. */
+    /** The sweep's partials are never another row's filePath: they keep getting deleted. */
     @Test
-    fun `el barrido sigue limpiando los parciales`() {
+    fun `the sweep keeps cleaning up the partials`() {
         val part = "/data/Movies/web_series_tt30217403__31fe74c5.mkv.part"
         val src = "$part.src"
         assertEquals(
             listOf(part, src),
             DuplicateDownloadPolicy.deletablePaths(
-                listOf(archivoCompartido, part, src),
-                referencedByOthers = setOf(archivoCompartido),
+                listOf(sharedFile, part, src),
+                referencedByOthers = setOf(sharedFile),
             ),
         )
     }
 
-    /** Sin nadie más referenciando, `remove` borra todo lo que barrió, como siempre. */
+    /** With nobody else referencing it, `remove` deletes everything it swept, as always. */
     @Test
-    fun `sin filas que lo compartan se borra todo`() {
-        val candidatos = listOf(archivoCompartido, "$archivoCompartido.part")
-        assertEquals(candidatos, DuplicateDownloadPolicy.deletablePaths(candidatos, emptySet()))
+    fun `with no rows sharing it, everything gets deleted`() {
+        val candidates = listOf(sharedFile, "$sharedFile.part")
+        assertEquals(candidates, DuplicateDownloadPolicy.deletablePaths(candidates, emptySet()))
     }
 
-    // --- Aviso al usuario -----------------------------------------------------------------------
+    // --- Notice to the user -----------------------------------------------------------------------
 
     @Test
-    fun `el aviso solo aparece si se salteo algo`() {
+    fun `the notice only shows up if something got skipped`() {
         assertNull(DuplicateDownloadPolicy.skippedNotice(0))
         assertNull(DuplicateDownloadPolicy.skippedNotice(-1))
         assertEquals("Ya lo tenés descargado en el dispositivo", DuplicateDownloadPolicy.skippedNotice(1))

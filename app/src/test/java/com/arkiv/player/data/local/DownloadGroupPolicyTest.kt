@@ -46,7 +46,7 @@ class DownloadGroupPolicyTest {
     // --- buildGroups -----------------------------------------------------------------------
 
     @Test
-    fun `el grupo trae TODOS los episodios del item, no solo los encolados`() {
+    fun `the group carries ALL of the item's episodes, not just the queued ones`() {
         val episodes = listOf(episode("s::1", "s", 0), episode("s::2", "s", 1), episode("s::3", "s", 2))
         val downloads = listOf(row("s::2", "s", LocalDownloadState.COMPLETED))
 
@@ -61,7 +61,7 @@ class DownloadGroupPolicyTest {
     }
 
     @Test
-    fun `los episodios quedan ordenados por orderIndex sin importar el orden de entrada`() {
+    fun `episodes end up ordered by orderIndex regardless of input order`() {
         val episodes = listOf(episode("s::3", "s", 2), episode("s::1", "s", 0), episode("s::2", "s", 1))
         val downloads = listOf(row("s::1", "s", LocalDownloadState.QUEUED))
 
@@ -71,14 +71,14 @@ class DownloadGroupPolicyTest {
     }
 
     @Test
-    fun `un item sin metadata (borrado de la biblioteca) se excluye del listado`() {
+    fun `an item with no metadata (deleted from the library) is excluded from the listing`() {
         val downloads = listOf(row("s::1", "s", LocalDownloadState.COMPLETED))
         val groups = DownloadGroupPolicy.buildGroups(downloads, mapOf("s" to listOf(episode("s::1", "s", 0))), itemMeta = emptyMap())
         assertTrue(groups.isEmpty())
     }
 
     @Test
-    fun `un item sin cache de episodios todavia cae a los tracked de downloads`() {
+    fun `an item with no episode cache yet still falls back to downloads' tracked rows`() {
         val downloads = listOf(
             row("s::1", "s", LocalDownloadState.DOWNLOADING),
             row("s::2", "s", LocalDownloadState.QUEUED),
@@ -91,7 +91,7 @@ class DownloadGroupPolicyTest {
     }
 
     @Test
-    fun `el orden de los grupos sigue el orden de aparicion en downloads`() {
+    fun `the groups' order follows their order of appearance in downloads`() {
         val downloads = listOf(
             row("b::1", "b", LocalDownloadState.QUEUED),
             row("a::1", "a", LocalDownloadState.QUEUED),
@@ -109,14 +109,14 @@ class DownloadGroupPolicyTest {
     }
 
     @Test
-    fun `pelicula (un solo episodio) es de fila simple`() {
+    fun `a movie (a single episode) is a plain row`() {
         val downloads = listOf(row("m::1", "m", LocalDownloadState.COMPLETED))
         val groups = DownloadGroupPolicy.buildGroups(downloads, mapOf("m" to listOf(episode("m::1", "m", 0))), meta("m"))
         assertTrue(groups[0].isSingleEpisode)
     }
 
     @Test
-    fun `serie con un solo episodio trackeado pero varios en total NO es de fila simple`() {
+    fun `a series with a single tracked episode but several total is NOT a plain row`() {
         val episodes = listOf(episode("s::1", "s", 0), episode("s::2", "s", 1))
         val downloads = listOf(row("s::1", "s", LocalDownloadState.COMPLETED))
         val groups = DownloadGroupPolicy.buildGroups(downloads, mapOf("s" to episodes), meta("s"))
@@ -126,7 +126,7 @@ class DownloadGroupPolicyTest {
     // --- summarize ---------------------------------------------------------------------------
 
     @Test
-    fun `resumen base sin actividad extra`() {
+    fun `base summary with no extra activity`() {
         val episodes = (1..24).map {
             val state = if (it <= 3) LocalDownloadState.COMPLETED else null
             GroupedEpisode(
@@ -138,7 +138,7 @@ class DownloadGroupPolicyTest {
     }
 
     @Test
-    fun `resumen con una descarga en curso, igual al ejemplo del pedido`() {
+    fun `summary with one download in progress, same as the request's example`() {
         val episodes = mutableListOf<GroupedEpisode>()
         repeat(3) { i -> episodes += GroupedEpisode(episode("s::c$i", "s", i), EpisodeDownloadStatus.Tracked(row("s::c$i", "s", LocalDownloadState.COMPLETED))) }
         episodes += GroupedEpisode(episode("s::d", "s", 3), EpisodeDownloadStatus.Tracked(row("s::d", "s", LocalDownloadState.DOWNLOADING)))
@@ -148,7 +148,7 @@ class DownloadGroupPolicyTest {
     }
 
     @Test
-    fun `resumen encadena todas las clausulas no vacias en orden fijo`() {
+    fun `summary chains every non-empty clause in a fixed order`() {
         val episodes = listOf(
             GroupedEpisode(episode("s::1", "s", 0), EpisodeDownloadStatus.Tracked(row("s::1", "s", LocalDownloadState.COMPLETED))),
             GroupedEpisode(episode("s::2", "s", 1), EpisodeDownloadStatus.Tracked(row("s::2", "s", LocalDownloadState.DOWNLOADING))),
@@ -165,14 +165,14 @@ class DownloadGroupPolicyTest {
     }
 
     @Test
-    fun `sin episodios el resumen es 0 de 0`() {
+    fun `with no episodes the summary is 0 de 0`() {
         assertEquals("0 de 0 guardados", DownloadGroupPolicy.summarize(emptyList()))
     }
 
-    // --- filtros de acciones de grupo -------------------------------------------------------
+    // --- group action filters -------------------------------------------------------
 
     @Test
-    fun `activeEpisodeIds toma encolados, bajando y preparando, y descarta el resto`() {
+    fun `activeEpisodeIds takes queued, downloading and staging, and discards the rest`() {
         val group = DownloadGroup(
             itemId = "s", itemTitle = "Serie", itemThumbnailUrl = "", source = "archive",
             episodes = listOf(
@@ -188,7 +188,7 @@ class DownloadGroupPolicyTest {
     }
 
     @Test
-    fun `failedEpisodeIds toma solo failed, no needs_confirmation`() {
+    fun `failedEpisodeIds takes only failed, not needs_confirmation`() {
         val group = DownloadGroup(
             itemId = "s", itemTitle = "Serie", itemThumbnailUrl = "", source = "archive",
             episodes = listOf(
@@ -200,7 +200,7 @@ class DownloadGroupPolicyTest {
     }
 
     @Test
-    fun `trackedEpisodeIds toma todo lo que tiene fila, sin importar el estado`() {
+    fun `trackedEpisodeIds takes everything that has a row, regardless of state`() {
         val group = DownloadGroup(
             itemId = "s", itemTitle = "Serie", itemThumbnailUrl = "", source = "archive",
             episodes = listOf(
@@ -215,7 +215,7 @@ class DownloadGroupPolicyTest {
     // --- firstPlayableEpisodeId ---------------------------------------------------------------
 
     @Test
-    fun `firstPlayableEpisodeId toma el primer completado en el orden del grupo, no el primero en terminar`() {
+    fun `firstPlayableEpisodeId takes the first completed one in the group's order, not the first to finish`() {
         val group = DownloadGroup(
             itemId = "s", itemTitle = "Serie", itemThumbnailUrl = "", source = "archive",
             episodes = listOf(
@@ -228,7 +228,7 @@ class DownloadGroupPolicyTest {
     }
 
     @Test
-    fun `firstPlayableEpisodeId es null si ningun episodio esta completado`() {
+    fun `firstPlayableEpisodeId is null if no episode is completed`() {
         val group = DownloadGroup(
             itemId = "s", itemTitle = "Serie", itemThumbnailUrl = "", source = "archive",
             episodes = listOf(

@@ -9,23 +9,23 @@ class FreeSpacePolicyTest {
     private val gb = 1024L * 1024 * 1024
 
     @Test
-    fun `entra si sobra espacio con margen`() {
+    fun `fits if there's space left over with margin`() {
         assertTrue(FreeSpacePolicy.fits(availableBytes = 10 * gb, neededBytes = 2 * gb))
     }
 
     @Test
-    fun `no entra si el archivo es mas grande que lo disponible`() {
+    fun `doesn't fit if the file is bigger than what's available`() {
         assertFalse(FreeSpacePolicy.fits(availableBytes = 2 * gb, neededBytes = 4 * gb))
     }
 
-    /** Justo-justo tampoco: dejar el sistema sin un byte libre rompe otras cosas antes que a Arkiv. */
+    /** Right at the edge doesn't fit either: leaving the system with zero free bytes breaks other things before it breaks Arkiv. */
     @Test
-    fun `no entra si cabe pero se come el margen`() {
+    fun `doesn't fit if it would fit but eats into the margin`() {
         assertFalse(FreeSpacePolicy.fits(availableBytes = 2 * gb, neededBytes = 2 * gb - 1))
     }
 
     @Test
-    fun `tamano desconocido siempre entra`() {
+    fun `unknown size always fits`() {
         assertTrue(FreeSpacePolicy.fits(availableBytes = 0, neededBytes = 0))
         assertTrue(FreeSpacePolicy.fits(availableBytes = 0, neededBytes = -1))
     }

@@ -27,7 +27,7 @@ data class EpisodeOrigin(val episodeId: String, val torrentFileIndex: Int?)
  * library BEFORE this branch; no equivalent path is needed for Magis/Ditu/archive.org because none
  * of the three can end up duplicated under two different items (see the last bullet):
  *
- * - `web:series:<seriesId>::<hash de la pageUrl>` (legacy). The suffix depends ONLY on the
+ * - `web:series:<seriesId>::<pageUrl hash>` (legacy). The suffix depends ONLY on the
  *   pageUrl, so two different items of the same chapter share a suffix. This is the real case that
  *   motivated all of this.
  * - `torrent:series:<seriesId>::<infohash>` and `torrent:anime:<anilistId>::<infohash>` (legacy).

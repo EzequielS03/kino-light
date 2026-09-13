@@ -9,7 +9,7 @@ import org.junit.Test
 class DownloadQueuePolicyTest {
 
     @Test
-    fun `toma la fila encolada mas vieja`() {
+    fun `picks the oldest queued row`() {
         val rows = listOf(
             QueueRow("b", LocalDownloadState.QUEUED, createdAt = 200),
             QueueRow("a", LocalDownloadState.QUEUED, createdAt = 100),
@@ -19,7 +19,7 @@ class DownloadQueuePolicyTest {
     }
 
     @Test
-    fun `una fila a medio bajar tiene prioridad sobre las encoladas`() {
+    fun `a row half-downloaded takes priority over queued ones`() {
         val rows = listOf(
             QueueRow("a", LocalDownloadState.QUEUED, createdAt = 100),
             QueueRow("b", LocalDownloadState.DOWNLOADING, createdAt = 900),
@@ -28,7 +28,7 @@ class DownloadQueuePolicyTest {
     }
 
     @Test
-    fun `staging tambien se retoma antes que lo encolado`() {
+    fun `staging also gets picked back up before what's queued`() {
         val rows = listOf(
             QueueRow("a", LocalDownloadState.QUEUED, createdAt = 100),
             QueueRow("b", LocalDownloadState.STAGING, createdAt = 900),
@@ -37,7 +37,7 @@ class DownloadQueuePolicyTest {
     }
 
     @Test
-    fun `no toma completadas fallidas ni pendientes de confirmacion`() {
+    fun `doesn't pick completed, failed, or awaiting-confirmation rows`() {
         val rows = listOf(
             QueueRow("a", LocalDownloadState.COMPLETED, createdAt = 100),
             QueueRow("b", LocalDownloadState.FAILED, createdAt = 200),
@@ -47,12 +47,12 @@ class DownloadQueuePolicyTest {
     }
 
     @Test
-    fun `cola vacia no da nada`() {
+    fun `an empty queue gives nothing`() {
         assertNull(DownloadQueuePolicy.nextToProcess(emptyList()))
     }
 
     @Test
-    fun `estados terminales`() {
+    fun `terminal states`() {
         assertTrue(DownloadQueuePolicy.isTerminal(LocalDownloadState.COMPLETED))
         assertTrue(DownloadQueuePolicy.isTerminal(LocalDownloadState.FAILED))
         assertFalse(DownloadQueuePolicy.isTerminal(LocalDownloadState.QUEUED))
@@ -60,7 +60,7 @@ class DownloadQueuePolicyTest {
     }
 
     @Test
-    fun `solo falla y pendiente de confirmacion se pueden reintentar`() {
+    fun `only failed and awaiting-confirmation can be retried`() {
         assertTrue(DownloadQueuePolicy.isRetryable(LocalDownloadState.FAILED))
         assertTrue(DownloadQueuePolicy.isRetryable(LocalDownloadState.NEEDS_CONFIRMATION))
         assertFalse(DownloadQueuePolicy.isRetryable(LocalDownloadState.COMPLETED))
