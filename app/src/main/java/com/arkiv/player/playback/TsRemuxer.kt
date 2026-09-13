@@ -220,8 +220,32 @@ class TsRemuxer(
                     _progreso.value = -1
                 }
 
+                // Clipped when the key says so, so the result BEGINS where playback should.
+                // The remux is cast as a live stream and a live stream has no timeline to seek
+                // along, so a file that starts at the right place is the only way to land there.
+                val desdeMs = PoliticaDeRemux.desdeDeLaClave(clave)
+                val entrada = if (desdeMs > 0L) {
+                    Log.w(TAG, "remux starts at ${desdeMs}ms, so nothing has to seek")
+                    MediaItem.Builder()
+                        .setUri(uriDeEntrada)
+                        .setClippingConfiguration(
+                            MediaItem.ClippingConfiguration.Builder()
+                                .setStartPositionMs(desdeMs)
+                                // On a KEYFRAME. Video can only begin at one while audio can begin
+                                // anywhere, so an arbitrary cut point starts the tracks at
+                                // different instants -- heard on device as the sound running ahead
+                                // of the picture. It is also what keeps the clip a sample copy
+                                // rather than a re-encode.
+                                .setStartsAtKeyFrame(true)
+                                .build(),
+                        )
+                        .build()
+                } else {
+                    MediaItem.fromUri(uriDeEntrada)
+                }
+
                 runCatching {
-                    transformer.start(MediaItem.fromUri(uriDeEntrada), parcial.absolutePath)
+                    transformer.start(entrada, parcial.absolutePath)
                 }.onFailure {
                     runCatching { parcial.delete() }
                     Log.w(TAG, "remux could not start: ${it.message}")

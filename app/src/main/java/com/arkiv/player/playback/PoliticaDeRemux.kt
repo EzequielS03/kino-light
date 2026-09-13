@@ -79,6 +79,39 @@ object PoliticaDeRemux {
     fun trozosDe(duracionMs: Long): Int =
         if (duracionMs <= 0L) 0 else Math.ceil(duracionMs / 1000.0 / TROZO_SEG).toInt()
 
+    /**
+     * Cache key for a remux that starts at [desdeMs] instead of at the beginning.
+     *
+     * Starting somewhere other than zero is done by remuxing FROM that point, not by seeking into
+     * the result. The remux is cast as a LIVE stream -- that is what stopped the receiver inventing
+     * an end and stalling against it -- and a live stream has no timeline to seek along. A file
+     * that begins where you left off needs none: it plays from its own zero.
+     *
+     * Rounded to [GRANO_SEG] so reopening a title seconds later reuses the remux instead of paying
+     * for another. The rounding goes BACKWARDS on purpose: starting a few seconds early is
+     * harmless, starting late skips content.
+     */
+    fun claveDesde(claveDeOrigen: String, desdeMs: Long): String {
+        if (desdeMs <= 0L) return claveDeOrigen
+        // EXACT milliseconds, no rounding. Rounding here was a real bug: the keyframe is found to
+        // the millisecond and then this filed it under the nearest 30 s, so the remux was clipped
+        // 583 ms away from the keyframe and the tracks went back to starting at different instants
+        // -- the very desync the search exists to remove. Reuse comes from rounding the REQUEST
+        // before the search instead, which lands on the same keyframe and so the same key.
+        return "$claveDeOrigen#$desdeMs"
+    }
+
+    /** Rounds a resume point down to [GRANO_SEG], so nearby ones look for the same keyframe. */
+    fun redondearPeticion(desdeMs: Long): Long =
+        if (desdeMs < GRANO_SEG * 1000L) 0L else desdeMs / 1000 / GRANO_SEG * GRANO_SEG * 1000L
+
+    /** How coarsely a resume point is rounded when keying a remux. */
+    const val GRANO_SEG = 30L
+
+    /** Where a remux keyed by [claveDesde] actually begins, in ms. */
+    fun desdeDeLaClave(clave: String): Long =
+        clave.substringAfterLast('#', "").toLongOrNull() ?: 0L
+
     /** Cache name for chunk [indice] of [claveDeOrigen]. */
     fun nombreDeTrozo(claveDeOrigen: String, indice: Int): String =
         "${claveDeOrigen.hashCode().toUInt().toString(16)}-$indice.$EXTENSION"

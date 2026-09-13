@@ -782,6 +782,52 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         return null
     }
 
+    /**
+     * The instant of a real keyframe at or near [objetivoMs], in ms from the start of the title.
+     *
+     * Clipping a remux anywhere else desynchronises the tracks: video can only begin at a keyframe
+     * so the muxer moves it back to one, while audio begins at the instant asked for, and the two
+     * no longer line up. Measured in the bytes of a clipped remux -- the first fragment carried
+     * 8.363 s of audio against 6.792 s of video, 1.57 s of audio with no picture to go with it,
+     * and it never recovered because the fragments carry no `tfdt` to re-anchor them. Starting
+     * from zero was fine precisely because nothing was clipped.
+     *
+     * Asking to cut where a keyframe already is removes the mismatch at the source.
+     *
+     * Returns [objetivoMs] unchanged when the stream cannot be probed -- a slightly misaligned
+     * start is better than refusing to cast.
+     */
+    fun msDeKeyframeCercaDe(origin: String, headers: Map<String, String>, objetivoMs: Long): Long {
+        if (objetivoMs <= 0L) return 0L
+        val total = totalDelOrigen(origin, headers, PoliticaOrigen.Perfil.MAGIS)
+        val durMs = duracionDelOrigen(origin, headers)
+        if (total <= 0L || durMs <= 0L) {
+            android.util.Log.w("ArchiveCacheProxy", "keyframe search: no size or duration, using ${objetivoMs}ms as asked")
+            return objetivoMs
+        }
+        // The clock the whole title is measured against.
+        val cabeza = rangoCrudo(origin, headers, "bytes=0-${MARGEN_GOP - 1}") ?: return objetivoMs
+        val pcrInicial = MpegTs.firstPcr(cabeza)?.pcr?.base90k ?: return objetivoMs
+
+        // Aim a GOP early so the keyframe found is at or before the point asked for: starting a
+        // moment early is harmless, starting late skips content.
+        val byteObjetivo = (total * (objetivoMs.toDouble() / durMs)).toLong()
+            .minus(MARGEN_GOP)
+            .coerceIn(0L, (total - 1).coerceAtLeast(0L))
+        val idr = buscarIdr(origin, headers, byteObjetivo, total) ?: return objetivoMs
+
+        // Its PCR is the answer: the instant that keyframe sits at.
+        val bloque = rangoCrudo(origin, headers, "bytes=$idr-${minOf(total, idr + MpegTs.PACKET * 400L) - 1}")
+            ?: return objetivoMs
+        val pcr = MpegTs.firstPcr(bloque)?.pcr?.base90k ?: return objetivoMs
+        val ms = MpegTs.deltaTicks(pcrInicial, pcr) * 1000 / MpegTs.PCR_HZ
+        android.util.Log.w(
+            "ArchiveCacheProxy",
+            "keyframe for ${objetivoMs}ms is at ${ms}ms (byte $idr) → clipping there so the tracks line up",
+        )
+        return ms.coerceAtLeast(0L)
+    }
+
     /** Duration of an origin, remembered: the receiver asks for the playlist more than once. */
     private fun duracionDelOrigen(origin: String, headers: Map<String, String>): Long {
         duraciones[origin]?.let { return it }

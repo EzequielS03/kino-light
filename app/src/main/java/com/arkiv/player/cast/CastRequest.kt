@@ -27,6 +27,14 @@ data class CastRequest(
      * has no end to reach, which is the truth here and also what stops the chase.
      */
     val comoEnVivo: Boolean = false,
+    /**
+     * Where this media BEGINS inside the title, in ms.
+     *
+     * A remux is clipped to start where playback was, so the receiver counts from its own zero
+     * while the title is minutes further along. Everything that records a position -- the progress
+     * the app saves, the bar -- has to add this back or it files minute 62 as minute 0.
+     */
+    val desfaseMs: Long = 0,
 )
 
 /**
@@ -71,6 +79,7 @@ object CastRequestBuilder {
         requiresLanUrl: Boolean = false,
         durationMs: Long = 0,
         comoEnVivo: Boolean = false,
+        desfaseMs: Long = 0,
     ): CastRequest? {
         val uri = when {
             isLive || requiresLanUrl -> lanUrl
@@ -96,6 +105,7 @@ object CastRequestBuilder {
             // A live channel has no length to state; anything else passes through what it knows.
             durationMs = if (isLive) 0L else durationMs.coerceAtLeast(0),
             comoEnVivo = comoEnVivo,
+            desfaseMs = desfaseMs.coerceAtLeast(0),
         )
     }
 

@@ -302,7 +302,16 @@ class CastSessionManager(
                 if (mediaId != epId) continue
                 // Without a transcoder the receiver reports the real position and duration; the
                 // only reason not to save is a live stream, which sends TIME_UNSET.
-                val progress = CastProgress.toSave(reportedPosMs = pos, reportedDurMs = dur)
+                // The receiver reports no duration for a stream announced as live, and a remux
+                // being written is announced exactly that way -- so without this, casting a title
+                // saved nothing at all and "continue watching" quietly stopped working. The phone
+                // knows the duration (it has been drawing the bar with it) and knows where the
+                // remux was clipped, so both are supplied here rather than trusted from the TV.
+                val durReal = if (dur > 0L) dur else request.durationMs
+                val progress = CastProgress.toSave(
+                    reportedPosMs = pos + request.desfaseMs,
+                    reportedDurMs = durReal,
+                )
                 if (progress == null) {
                     // Loud on purpose -- born diagnosing "torrent always restarts from zero" (a
                     // source removed in this branch's pruning); if this shows up for VOD, progress

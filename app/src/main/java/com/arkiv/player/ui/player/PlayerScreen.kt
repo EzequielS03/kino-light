@@ -70,6 +70,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -495,6 +496,15 @@ private fun PlayerContent(
     val remuxImposible = remember { mutableStateListOf<String>() }
 
     /**
+     * Where each title's remux is clipped, in ms, already snapped to a real keyframe.
+     *
+     * Computed once per title because finding it costs a couple of reads from the CDN, and read
+     * back everywhere the remux is looked up so the key always matches the one it was filed under.
+     */
+    val puntoDeArranque: androidx.compose.runtime.snapshots.SnapshotStateMap<String, Long> =
+        remember { mutableStateMapOf() }
+
+    /**
      * Which episode is on the receiver AS A REMUX, as opposed to as HLS segments.
      *
      * Separate from [casteadoAlReceptor] because they answer different questions, and conflating
@@ -525,7 +535,25 @@ private fun PlayerContent(
      * negative number instead of "no duration". The translation lives in CastProgress (with tests)
      * so there isn't a second copy that can drift.
      */
-    fun contentPositionMs(): Long = CastProgress.contentPosition(activePlayer.currentPosition)
+    /**
+     * Where the remux being cast BEGINS inside the title, in ms, or 0.
+     *
+     * A remux is clipped to start where playback was, so the receiver counts from ITS zero while
+     * the title is minutes further along. Without adding this back, the phone's bar mixes two
+     * different clocks.
+     */
+    fun desfaseDelRemux(): Long {
+        if (!casting) return 0L
+        val ep = magisItem?.episodeId ?: return 0L
+        val cdn = magisItem?.castUrl?.takeIf { it.isNotBlank() } ?: return 0L
+        // From the stored, keyframe-aligned point -- NOT from the local player's live position,
+        // which keeps moving and would make the bar jump every time it was read.
+        val clave = com.arkiv.player.playback.PoliticaDeRemux.claveDesde(cdn, puntoDeArranque[ep] ?: 0L)
+        return com.arkiv.player.playback.PoliticaDeRemux.desdeDeLaClave(clave)
+    }
+
+    fun contentPositionMs(): Long =
+        CastProgress.contentPosition(activePlayer.currentPosition) + desfaseDelRemux()
 
     /**
      * ¿La posición que reporta el player habla de lo que ESTA pantalla abrió?
@@ -543,7 +571,30 @@ private fun PlayerContent(
         dituPlay != null ||
         loaded || runCatching { controller.currentMediaItem?.mediaId }.getOrNull() == episodeId
 
-    fun contentDurationMs(): Long = CastProgress.contentDuration(activePlayer.duration)
+    /**
+     * How long the title runs, for the bar.
+     *
+     * Casting a remux, the receiver reports no duration at all: the file is announced as a live
+     * stream, which is what stopped it inventing an end and stalling against it, and a live stream
+     * has none. The bar then had a position and nothing to divide it by, so it filled and emptied
+     * at random. The phone does know the real duration -- the local player has been showing it all
+     * along -- so it uses that instead of the receiver's non-answer.
+     */
+    fun contentDurationMs(): Long {
+        // Casting a REMUX, the receiver's duration is never usable and "is it greater than zero"
+        // is not a good enough test of that. It reports nothing at all for a file announced as
+        // live, and when it does report something it is whatever it worked out from the fragments
+        // that had arrived -- measured at 6592 ms for a title running one hour fifty, which drew
+        // the bar at 55077% and is exactly the "bar goes crazy" being chased here. The phone knows
+        // the real figure and has been drawing its own bar with it all along.
+        val local = runCatching {
+            (magisPlayer ?: controller).duration.takeIf { it > 0 } ?: 0L
+        }.getOrDefault(0L)
+        if (casting && local > 0L && desfaseDelRemux() >= 0L && magisItem != null) return local
+        val delReceptor = CastProgress.contentDuration(activePlayer.duration)
+        if (delReceptor > 0L) return delReceptor
+        return local
+    }
 
     // Controles custom (estilo torrent): visibles al tocar, se auto-ocultan mientras reproduce.
     // Arranca OCULTO: al abrir se ve el spinner de carga y luego el video limpio, sin el overlay de
@@ -810,7 +861,15 @@ private fun PlayerContent(
                 // moving just ahead of it, reaches it, stalls, gets more, resumes -- the "loading"
                 // that came back no matter how large the head start was, 64 s of cushion included.
                 // A finished file has one duration and stays still.
-                graph.tsRemuxer.enProgreso(cdn)?.let { (archivo, completo) ->
+                // The same key the remux was filed under: the one that says where it begins.
+                // The SAME key the remux was filed under: the keyframe-aligned point, not the
+                // raw position, which drifts as the local player keeps its own time.
+                graph.tsRemuxer.enProgreso(
+                    com.arkiv.player.playback.PoliticaDeRemux.claveDesde(
+                        cdn,
+                        puntoDeArranque[item.episodeId] ?: 0L,
+                    ),
+                )?.let { (archivo, completo) ->
                     // ALWAYS chunked, finished or not. Measured 2026-09-12, and it is the
                     // difference between playing and not: served while it grew -- chunked, no
                     // Content-Length, no ranges -- the receiver had nothing to do but play from
@@ -960,6 +1019,17 @@ private fun PlayerContent(
             // While the remux is still being written it IS a live stream, and saying so is what
             // keeps the receiver from inventing an end and stalling against it.
             comoEnVivo = remuxMagisCreciendo,
+            // Where the remux begins, so a saved position lands on the right minute of the title.
+            desfaseMs = if (item.kind == SourceKind.MAGIS) {
+                com.arkiv.player.playback.PoliticaDeRemux.desdeDeLaClave(
+                    com.arkiv.player.playback.PoliticaDeRemux.claveDesde(
+                        item.castUrl.orEmpty(),
+                        puntoDeArranque[item.episodeId] ?: 0L,
+                    ),
+                )
+            } else {
+                0L
+            },
             // The local player already knows how long this runs -- it has been showing it on the
             // bar. A remux still being written cannot state it, so without this the receiver
             // invents one from the fragments it has (5 s for a two-hour film) and stalls on that
@@ -1064,7 +1134,36 @@ private fun PlayerContent(
             }
             SourceKind.MAGIS -> {
                 val cdn = item.castUrl?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
-                Triple(item.mediaUrl, cdn, com.arkiv.player.cast.CastRequestBuilder.mimeForUrl(cdn))
+                // Where it must start, SNAPPED TO A KEYFRAME. Clipping anywhere else leaves the
+                // tracks misaligned -- measured at 1.57 s of audio with no picture -- because the
+                // muxer moves video back to a keyframe while audio begins exactly where asked.
+                // Where playback actually is. NOT `magisPlayer ?: controller`: when this runs the
+                // Magis player may not exist yet -- it is created from the item and the cast can
+                // beat it -- and `controller` is the service player, which for Magis holds nothing
+                // and answers 0. That silently cast from the beginning every time the race went
+                // that way. `startPositionMs` is where the item was told to open, which is the
+                // right answer whenever the live position is not available yet.
+                val vivo = runCatching { magisPlayer?.currentPosition }.getOrNull()?.takeIf { it > 0 }
+                val pedido = (vivo ?: item.startPositionMs).coerceAtLeast(0L)
+                android.util.Log.w(
+                    "ArkivCast",
+                    "resume point: ${pedido}ms (${if (vivo != null) "live position" else "the item's startPosition, player not ready"})",
+                )
+                val alineado = puntoDeArranque[item.episodeId] ?: withContext(Dispatchers.IO) {
+                    graph.archiveCacheProxy.msDeKeyframeCercaDe(
+                        origin = cdn,
+                        headers = (webExtras?.takeIf { it.episodeId == item.episodeId }?.headers).orEmpty(),
+                        // Rounded BEFORE the search, never after: a nearby resume point then looks
+                        // for the same keyframe and reuses the same remux, while the keyframe
+                        // itself is used to the millisecond.
+                        objetivoMs = com.arkiv.player.playback.PoliticaDeRemux.redondearPeticion(pedido),
+                    )
+                }.also { puntoDeArranque[item.episodeId] = it }
+                Triple(
+                    item.mediaUrl,
+                    com.arkiv.player.playback.PoliticaDeRemux.claveDesde(cdn, alineado),
+                    com.arkiv.player.cast.CastRequestBuilder.mimeForUrl(cdn),
+                )
             }
             else -> return@LaunchedEffect
         }
@@ -1113,7 +1212,13 @@ private fun PlayerContent(
                     if (!casting || castSession == null) return@launch
                     if (casteadoComoRemux == item.episodeId) return@launch
                     val parcial = graph.tsRemuxer.enProgreso(clave) ?: return@repeat
-                    if (parcial.first.length() < 12_000_000L) return@repeat
+                    // 40 MB, not 12. Measured 2026-09-12: casting at 14 MB stalled seven times
+                    // in the first forty-five seconds and then never again -- the remux is still
+                    // getting up to speed at that point, so playback catches it repeatedly, and
+                    // once it is running (about 22x faster than playback consumes) it pulls away
+                    // and the problem disappears on its own. Waiting for a bigger head start
+                    // spends a few more seconds once and skips that whole stretch.
+                    if (parcial.first.length() < 40_000_000L) return@repeat
                     val plr = PlaylistData(listOf(item), 0, 0L, pedido = item.episodeId)
                     val reqr = castRequestFor(plr, 0, 0L) ?: return@repeat
                     android.util.Log.w(
@@ -1193,6 +1298,37 @@ private fun PlayerContent(
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
+        }
+    }
+
+    /**
+     * What the progress bar is being drawn from, while casting.
+     *
+     * The bar is computed from three numbers that come from different places, and when it goes
+     * wrong it is never obvious which one is lying: the position comes from the RECEIVER (counting
+     * from its own zero, because a remux is clipped), the offset says where that zero sits inside
+     * the title, and the duration comes from the PHONE when the receiver reports none -- which it
+     * does for anything announced as a live stream. Printing all three together is what tells
+     * "the receiver reset" from "the offset is wrong" from "there is no duration to divide by".
+     *
+     * Every two seconds and only while casting: enough to see a bar jump, quiet the rest of the time.
+     */
+    LaunchedEffect(casting) {
+        if (!casting) return@LaunchedEffect
+        while (true) {
+            val crudo = runCatching { activePlayer.currentPosition }.getOrDefault(0L)
+            val desfase = runCatching { desfaseDelRemux() }.getOrDefault(0L)
+            val pos = runCatching { contentPositionMs() }.getOrDefault(0L)
+            val dur = runCatching { contentDurationMs() }.getOrDefault(0L)
+            val delReceptor = runCatching { activePlayer.duration }.getOrDefault(0L)
+            android.util.Log.i(
+                "ArkivBarra",
+                "receiver=${crudo}ms + offset=${desfase}ms = ${pos}ms · dur=${dur}ms " +
+                    "(receiver said ${delReceptor}ms) → ${
+                        if (dur > 0) "%.1f%%".format(pos * 100.0 / dur) else "NO FRACTION (no duration)"
+                    }",
+            )
+            delay(2000)
         }
     }
 
@@ -2248,7 +2384,31 @@ private fun PlayerContent(
      * While casting, `activePlayer` is already the `CastPlayer`: the seek goes straight to the
      * receiver, with no transcoder in between (removed -- see `castRequestFor`'s KDoc).
      */
+    /**
+     * Is the thing on the TV a remux being written, and therefore unseekable?
+     *
+     * It is announced as a live stream -- the only framing that stopped the receiver inventing an
+     * end and stalling against it -- and a live stream has no timeline to move along. The seek
+     * still had to be BLOCKED rather than simply failing: letting it through sent the receiver a
+     * position it could not honour, the bar drew the destination, nothing arrived, and the bar
+     * ended up further from the truth than before the attempt. Reported as "the bar goes crazy,
+     * and trying to skip forward made it worse".
+     */
+    fun castEsUnDirecto(): Boolean =
+        casting && magisItem != null && magisEsTs(magisItem!!) &&
+            magisItem!!.castUrl?.let { graph.tsRemuxer.yaHecho(it) == null } == true
+
     fun seekTo(targetMs: Long) {
+        if (castEsUnDirecto()) {
+            android.util.Log.w("ArkivCast", "seek ignored: the remux is still being written, so it is cast as live")
+            android.widget.Toast.makeText(
+                context,
+                "Mientras se prepara para la TV no se puede adelantar",
+                android.widget.Toast.LENGTH_SHORT,
+            ).show()
+            bump()
+            return
+        }
         val dur = contentDurationMs()
         val target = targetMs.coerceIn(0L, if (dur > 0) dur else Long.MAX_VALUE)
         activePlayer.seekTo(target)
