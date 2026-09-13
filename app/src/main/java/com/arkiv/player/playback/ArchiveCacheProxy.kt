@@ -162,14 +162,14 @@ class ArchiveCacheProxy(private val cacheDir: File) {
      *
      * Used to hold an already-complete `ByteArray` here, and that's why [preWarm] had to wait for
      * the whole 2 MB before letting the video open: measured on the Fire TV, 0.5 to 5 s of spinner
-     * on every playback. Now it's a [BufferQueCrece] and gets read while it fills -- the player
+     * on every playback. Now it's a [GrowingBuffer] and gets read while it fills -- the player
      * opens as soon as there's something and never runs dry because the buffer keeps growing
      * behind it.
      *
      * Only magis uses it: nobody else calls `preWarm`, so for every other source this map is
      * always empty and the path is exactly the usual one.
      */
-    private val hotBuffers = ConcurrentHashMap<String, BufferQueCrece>()
+    private val hotBuffers = ConcurrentHashMap<String, GrowingBuffer>()
 
     /**
      * How much of the startup has to have arrived before letting the video open.
@@ -198,7 +198,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
 
     /**
      * The END of each file, by cache key: (absolute byte where it starts, bytes). Filled by
-     * [preWarm] and consumed by [ColaCaliente], which is where the reasoning lives.
+     * [preWarm] and consumed by [HotTail], which is where the reasoning lives.
      *
      * Unlike [hotBuffers], this one is NOT consumed on use: libVLC probed the end SEVERAL times in
      * a row with different offsets, and all of those are what has to be answered without the
@@ -212,9 +212,9 @@ class ArchiveCacheProxy(private val cacheDir: File) {
      * Without this [tails] emptied on every startup and libVLC's EOF probing paid for the network
      * again -- measured on the Fire TV on 2026-08-14: 6205 ms to fetch 256 KB with two CDN
      * rejections, and 5376 ms to the first frame. On a Fire TV, which kills the app as soon as it
-     * goes to the background, that "first time" is almost always. See [ColaEnDisco].
+     * goes to the background, that "first time" is almost always. See [TailOnDisk].
      */
-    private val tailOnDisk = ColaEnDisco(File(cacheDir, "colas"))
+    private val tailOnDisk = TailOnDisk(File(cacheDir, "colas"))
 
     /**
      * Tails STILL being downloaded, by cache key.
@@ -227,7 +227,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
      * the third, in 167 ms. VLC took 7719 ms to open waiting on its own tail.
      *
      * With this, whoever arrives second waits on the one already in flight instead of opening a
-     * competing connection. It's the same idea as [BufferQueCrece] for the head: one download,
+     * competing connection. It's the same idea as [GrowingBuffer] for the head: one download,
      * several readers.
      */
     private val tailsInFlight = ConcurrentHashMap<String, java.util.concurrent.CountDownLatch>()
@@ -261,10 +261,10 @@ class ArchiveCacheProxy(private val cacheDir: File) {
      * connection the player already opened, **continuing after it cuts off**. That way sequential
      * playback -which never cuts- pays nothing extra, not a connection, not a single byte.
      */
-    private class SeekWindow(val start: Long, val buffer: BufferQueCrece) {
+    private class SeekWindow(val start: Long, val buffer: GrowingBuffer) {
         /** Whether [requested] falls inside what's ALREADY saved. */
         fun covers(requested: Long): Boolean =
-            requested >= start && requested < start + buffer.disponible
+            requested >= start && requested < start + buffer.available
     }
 
     private val seekWindows = ConcurrentHashMap<String, MutableList<SeekWindow>>()
@@ -409,7 +409,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
     companion object {
         /**
          * The same proxy URL, but asking to serve from [fraction] of the file onward as if that
-         * stretch were the whole file. See [VentanaDeArchivo] for the why.
+         * stretch were the whole file. See [FileWindow] for the why.
          *
          * `f` goes before `u` like the rest of the parameters: there's code that pulls out the
          * origin with `substringAfter("u=")` and anything after it would leak in.
@@ -519,7 +519,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                 // branch's pruning along with the rest of that source.
                 val direct = path.contains("d=1")
                 // Window: serve from this fraction of the file onward as if it were the whole file,
-                // to be able to RESUME without the player having to seek. See VentanaDeArchivo.
+                // to be able to RESUME without the player having to seek. See FileWindow.
                 val fraction = path.substringAfter("f=", "").substringBefore('&')
                     .toFloatOrNull()?.takeIf { it > 0f } ?: 0f
                 val rangeHeader = lines.firstOrNull { it.startsWith("Range:", true) }
@@ -897,7 +897,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                 val cr = conn.getHeaderField("Content-Range")
                 runCatching { conn.inputStream.use { it.readBytes() } }
                 runCatching { conn.disconnect() }
-                VentanaDeArchivo.totalDelContentRange(cr)
+                FileWindow.totalFromContentRange(cr)
             }.getOrDefault(0L)
             if (total > 0) { totals[origin] = total; return total }
             if (attempt < PoliticaOrigen.attempts(profile) - 1) {
@@ -1090,13 +1090,13 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         waitForTail: Boolean = true,
         /**
          * Container declared by the source ("ts", "mp4"…), to decide whether the tail is needed.
-         * Empty = unknown, and it gets pre-warmed anyway. See [ColaCaliente.hayQuePrecalentar].
+         * Empty = unknown, and it gets pre-warmed anyway. See [HotTail.needsPreWarming].
          */
         container: String = "",
     ): Boolean = withContext(Dispatchers.IO) {
         val key = keyFor(originUrl)
         val start = if (fraction > 0f) {
-            VentanaDeArchivo.inicio(totalOfOrigin(originUrl, headers, profile), fraction)
+            FileWindow.start(totalOfOrigin(originUrl, headers, profile), fraction)
         } else 0L
         val t0 = System.currentTimeMillis()
         // BOTH ENDS AT ONCE. They used to run in series and that was the most expensive phase of
@@ -1107,21 +1107,21 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         // IS THE TAIL EVEN NEEDED? Not for mp4: measured on the Fire TV, three titles downloaded it
         // and never used it once, and one of them cost 8284 ms with three CDN rejections in
         // parallel with opening the video. When in doubt, it's downloaded anyway. See
-        // [ColaCaliente.hayQuePrecalentar].
-        val tailNeeded = ColaCaliente.hayQuePrecalentar(container)
+        // [HotTail.needsPreWarming].
+        val tailNeeded = HotTail.needsPreWarming(container)
         if (!tailNeeded) {
             android.util.Log.w(
                 "ArchiveCacheProxy",
                 "tail skipped: the '$container' container opens without reading the end of the file",
             )
         }
-        val buffer = BufferQueCrece(HOT_STARTUP_SIZE)
+        val buffer = GrowingBuffer(HOT_STARTUP_SIZE)
         hotBuffers["$key@$start"] = buffer
         // Filling it is NOT waited on: it's published in the map right away and keeps going on its
         // own. The proxy serves the player from this same buffer while it grows (see serveArranque).
         Thread {
             runCatching { downloadStartup(originUrl, headers, start, profile, buffer) }
-            buffer.cerrar()
+            buffer.close()
         }.apply { isDaemon = true; name = "arkiv-prewarm" }.start()
         // The tail ALWAYS runs on a Thread, never on an `async`, and that isn't a style preference:
         // `withContext` doesn't return until its children finish. An `async` is a child, so the
@@ -1152,7 +1152,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         // The ONLY thing always waited on: that the startup has started flowing. That's enough for
         // the player's first read to get answered instantly, which is what prevented the
         // black-and-mute.
-        val started = buffer.esperarHasta(MIN_STARTUP, STARTUP_WAIT_MS)
+        val started = buffer.waitUntil(MIN_STARTUP, STARTUP_WAIT_MS)
         // The wait on the tail is BOUNDED. Measured on 2026-08-11 on the Fire TV: when the CDN gets
         // dense, that 256 KB takes 8 s -and it isn't per-connection bad luck, because a second
         // connection in parallel took just as long too: it's the link or the CDN throttling the
@@ -1170,9 +1170,9 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         android.util.Log.w(
             "ArchiveCacheProxy",
             "startup servable after ${System.currentTimeMillis() - t0}ms " +
-                "(${buffer.disponible / 1024}KB of ${HOT_STARTUP_SIZE / 1024}KB, still downloading)",
+                "(${buffer.available / 1024}KB of ${HOT_STARTUP_SIZE / 1024}KB, still downloading)",
         )
-        if (!started && buffer.disponible == 0) {
+        if (!started && buffer.available == 0) {
             android.util.Log.w("ArchiveCacheProxy", "preWarm: no bytes arrived")
             hotBuffers.remove("$key@$start")
             return@withContext false
@@ -1189,7 +1189,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         headers: Map<String, String>,
         start: Long,
         profile: PoliticaOrigen.Profile,
-        destination: BufferQueCrece,
+        destination: GrowingBuffer,
     ) {
         val (conn, _) =
             openAtOrigin(originUrl, "bytes=$start-", headers, uniqueKey = null, profile = profile)
@@ -1209,7 +1209,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                     val read = ins.read(buf, 0, minOf(buf.size, HOT_STARTUP_SIZE - total))
                     if (read < 0) break
                     // Each block becomes available RIGHT AWAY for whoever is serving the player.
-                    destination.escribir(buf, read)
+                    destination.write(buf, read)
                     total += read
                 }
             }
@@ -1231,14 +1231,14 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         val key = keyFor(originUrl)
         // Whatever arrived from the startup is enough: the FIRST PCR is in the first packets, and
         // by here it already waited for the buffer to pass MIN_STARTUP. It doesn't need to be complete.
-        val head = hotBuffers["$key@0"]?.porcion(0)?.takeIf { it.isNotEmpty() } ?: return 0L
+        val head = hotBuffers["$key@0"]?.slice(0)?.takeIf { it.isNotEmpty() } ?: return 0L
         val tail = tails[key]?.second ?: return 0L
         return TsDurationProbe.durationMs(head, tail)
     }
 
     /**
      * Saves the end of the file so the player's EOF probes don't touch the network. See
-     * [ColaCaliente] for the measurement that justifies this.
+     * [HotTail] for the measurement that justifies this.
      *
      * Goes by SUFFIX range (`bytes=-N`) for the same reason as the duration probe: there's no need
      * to ask the size first, and the response carries the `Content-Range` with the total and the
@@ -1255,12 +1255,12 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         // DO WE ALREADY HAVE IT FROM ANOTHER SESSION? It's the first thing tried: a file's tail
         // never changes, and fetching it from disk costs microseconds against the seconds the CDN
         // costs.
-        tailOnDisk.leer(key)?.let { saved ->
-            tails[key] = saved.inicio to saved.bytes
+        tailOnDisk.read(key)?.let { saved ->
+            tails[key] = saved.start to saved.bytes
             totals[originUrl] = saved.total
             android.util.Log.w(
                 "ArchiveCacheProxy",
-                "tail from disk: ${saved.bytes.size / 1024}KB from ${saved.inicio} " +
+                "tail from disk: ${saved.bytes.size / 1024}KB from ${saved.start} " +
                     "(total=${saved.total}) without touching the network",
             )
             return
@@ -1396,7 +1396,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         totals[originUrl] = total
         tails[key] = start to bytes
         // And to disk, so the next time this title opens it doesn't need fetching again.
-        tailOnDisk.guardar(key, start, total, bytes)
+        tailOnDisk.save(key, start, total, bytes)
         android.util.Log.w(
             "ArchiveCacheProxy",
             "tail pre-warmed: ${bytes.size / 1024}KB from $start (total=$total) " +
@@ -1411,7 +1411,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
      * Only serves the stretch it can deliver WHOLE, and that's why the `Content-Length` it sends is
      * that stretch's and not the rest of the file's: a body shorter than the announced length
      * leaves the player waiting on bytes that will never arrive, with no visible error -- the same
-     * care [ColaCaliente] already documents. If the player wants more, it asks with another range,
+     * care [HotTail] already documents. If the player wants more, it asks with another range,
      * which is exactly what it does while bisecting.
      *
      * WATCH who's asking. That last part holds for libVLC, which bisected and asked again;
@@ -1435,7 +1435,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         profile: PoliticaOrigen.Profile,
     ): Boolean {
         val from = (requested - v.start).toInt()
-        val chunk = runCatching { v.buffer.porcion(from) }.getOrNull() ?: return false
+        val chunk = runCatching { v.buffer.slice(from) }.getOrNull() ?: return false
         if (chunk.isEmpty()) return false
 
         // Open range (`bytes=N-`): the rest of the file has to be covered. That length is
@@ -1564,28 +1564,28 @@ class ArchiveCacheProxy(private val cacheDir: File) {
             val target = (total * fraction.toDouble()).toLong()
             val start = (target - SEEK_MARGIN).coerceAtLeast(0L)
             val t0 = System.currentTimeMillis()
-            val buffer = BufferQueCrece(PREWARMED_SEEK_WINDOW_SIZE)
+            val buffer = GrowingBuffer(PREWARMED_SEEK_WINDOW_SIZE)
             registerWindow(key, start, buffer)
             val opened = openAtOrigin(originUrl, "bytes=$start-", headers, null, profile)
             if (opened == null) {
-                buffer.cerrar()
+                buffer.close()
                 android.util.Log.w("ArchiveCacheProxy", "seek: the origin didn't give the range at $start")
                 return@Thread
             }
             runCatching {
                 opened.first.inputStream.use { ins ->
                     val buf = ByteArray(64 * 1024)
-                    while (buffer.disponible < PREWARMED_SEEK_WINDOW_SIZE) {
+                    while (buffer.available < PREWARMED_SEEK_WINDOW_SIZE) {
                         val n = ins.read(buf); if (n < 0) break
-                        buffer.escribir(buf, n)
+                        buffer.write(buf, n)
                     }
                 }
             }
-            buffer.cerrar()
+            buffer.close()
             runCatching { opened.first.disconnect() }
             android.util.Log.w(
                 "ArchiveCacheProxy",
-                "seek pre-warmed: ${buffer.disponible / 1024}KB from $start " +
+                "seek pre-warmed: ${buffer.available / 1024}KB from $start " +
                     "(estimated target $target) in ${System.currentTimeMillis() - t0}ms",
             )
         }.apply { isDaemon = true; name = "arkiv-prewarm-seek" }.start()
@@ -1614,7 +1614,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
     }
 
     /** Records a new window for [key], dropping the oldest one if there are already too many. */
-    private fun registerWindow(key: String, start: Long, buffer: BufferQueCrece) {
+    private fun registerWindow(key: String, start: Long, buffer: GrowingBuffer) {
         val list = seekWindows.computeIfAbsent(key) { java.util.Collections.synchronizedList(mutableListOf()) }
         synchronized(list) {
             list.add(SeekWindow(start, buffer))
@@ -1636,14 +1636,14 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         // translated to the real file's. If the size couldn't be found, `start` stays at 0 and this
         // behaves like the usual passthrough: worse without a duration, but it plays.
         val start = if (fraction > 0f) {
-            VentanaDeArchivo.inicio(totalOfOrigin(origin, extraHeaders, profile), fraction)
+            FileWindow.start(totalOfOrigin(origin, extraHeaders, profile), fraction)
         } else 0L
         val clientRange = RangeHeader.parse(rangeHeader)
         val rangeToOrigin = if (start > 0L) {
-            VentanaDeArchivo.rangoAlOrigen(clientRange, start)
+            FileWindow.rangeToOrigin(clientRange, start)
         } else rangeHeader
         // END PROBE: answered from memory, without touching the network. It's the request that used
-        // to swallow the startup — see ColaCaliente for the measurement. Only applies without a
+        // to swallow the startup — see HotTail for the measurement. Only applies without a
         // window: with `f=` the bytes the player sees are shifted and these are NOT its bytes.
         if (start == 0L && uniqueKey != null) {
             // If the tail is STILL downloading, it gets waited on instead of opening a connection
@@ -1681,7 +1681,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
             val saved = tails[uniqueKey]
             val total = totals[origin] ?: 0L
             val chunk = saved?.let { (from, tail) ->
-                ColaCaliente.servir(from, tail, clientRange, total)
+                HotTail.serve(from, tail, clientRange, total)
             }
             if (chunk != null) {
                 val end = clientRange!!.start + chunk.size - 1
@@ -1736,7 +1736,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         // player as-is would make it think its file starts at a byte that, for it, doesn't exist.
         // Content-Length is left untouched: the body being relayed is the same.
         val contentRange = if (start > 0L) {
-            VentanaDeArchivo.contentRangeVisible(conn.getHeaderField("Content-Range"), start)
+            FileWindow.visibleContentRange(conn.getHeaderField("Content-Range"), start)
         } else conn.getHeaderField("Content-Range")
         // 206 only if the PLAYER asked for a range: with a window the origin is always asked for
         // one, but for whoever opened the whole file that's a normal 200.
@@ -1756,7 +1756,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         val window = if (
             uniqueKey != null && start == 0L && hot == null && (clientRange?.start ?: 0L) > 0L
         ) {
-            BufferQueCrece(SEEK_WINDOW_SIZE).also { registerWindow(uniqueKey, clientRange!!.start, it) }
+            GrowingBuffer(SEEK_WINDOW_SIZE).also { registerWindow(uniqueKey, clientRange!!.start, it) }
         } else null
         var written = 0L
         val t0 = System.currentTimeMillis()
@@ -1776,13 +1776,13 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                 if (hot != null) {
                     var served = 0
                     while (true) {
-                        val chunk = hot.porcion(served)
+                        val chunk = hot.slice(served)
                         if (chunk.isNotEmpty()) {
                             out.write(chunk); out.flush()
                             served += chunk.size; written += chunk.size
-                        } else if (hot.cerrado) {
+                        } else if (hot.closed) {
                             break
-                        } else if (!hot.esperarHasta(served + 1, STARTUP_WAIT_MS)) {
+                        } else if (!hot.waitUntil(served + 1, STARTUP_WAIT_MS)) {
                             // It closed or stopped flowing: whatever's missing keeps getting read
                             // from the origin, which is where it all came from before this existed.
                             break
@@ -1807,14 +1807,14 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                 var clientCutOff = false
                 while (true) {
                     val n = ins.read(buf); if (n < 0) break
-                    window?.escribir(buf, n)
+                    window?.write(buf, n)
                     if (!clientCutOff) {
                         val delivered = runCatching { out.write(buf, 0, n) }.isSuccess
                         if (delivered) written += n else clientCutOff = true
                     }
                     // With no window there's nothing to gain reading a file nobody's watching.
                     if (clientCutOff && window == null) break
-                    if (clientCutOff && (window?.disponible ?: 0) >= SEEK_WINDOW_SIZE) break
+                    if (clientCutOff && (window?.available ?: 0) >= SEEK_WINDOW_SIZE) break
                 }
                 // Only if there really was a window: cutting off with no window is normal on the
                 // main read, and reporting it as "0KB saved" made it look like the window had
@@ -1823,13 +1823,13 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                     android.util.Log.w(
                         "ArchiveCacheProxy",
                         "seek window at ${clientRange?.start}: " +
-                            "${window.disponible / 1024}KB saved after the player cut off",
+                            "${window.available / 1024}KB saved after the player cut off",
                     )
                 }
             }
             out.flush()
         } finally {
-            window?.cerrar()
+            window?.close()
             uniqueKey?.let { releaseLive(it) }
             liveConnections.release(closer)
             // disconnect() ALWAYS, even when the player cuts the connection off mid-way (seek →
