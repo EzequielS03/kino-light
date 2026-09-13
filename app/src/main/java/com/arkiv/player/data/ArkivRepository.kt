@@ -1234,7 +1234,7 @@ class ArkivRepository(
         val temporada = ep.season?.takeIf { it > 0 }
             ?: com.arkiv.player.data.model.EpisodeNumbering.seasonOf(ep.section)
         return com.arkiv.player.data.trivia.ObraDeDatos.de(
-            tipo = com.arkiv.player.data.model.TipoDeObra.de(item.tipo, item.categoryOverride, episodio),
+            tipo = com.arkiv.player.data.model.WorkKind.of(item.tipo, item.categoryOverride, episodio),
             tmdbId = item.tmdbId,
             tituloCanonico = item.tituloCanonico,
             temporada = temporada,

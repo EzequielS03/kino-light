@@ -2,13 +2,13 @@ package com.arkiv.player.data.model
 
 /** A logical episode/video. */
 data class Episode(
-    val id: String,          // estable: "<identifier>::<claveBase>"
-    val itemId: String,      // identifier del ítem
-    val section: String,     // carpeta (vacío si está en la raíz)
-    val displayName: String, // nombre limpio para mostrar
-    val orderIndex: Int,     // orden natural dentro del ítem
+    val id: String,          // stable: "<identifier>::<baseKey>"
+    val itemId: String,      // the item's identifier
+    val section: String,     // folder (empty if at the root)
+    val displayName: String, // clean name to display
+    val orderIndex: Int,     // natural order within the item
     val durationSeconds: Double,
-    val thumbPath: String?,  // ruta de miniatura en .thumbs (o null)
+    val thumbPath: String?,  // thumbnail path in .thumbs (or null)
     /**
      * Where this episode came from, when the source records it: today Magis and Caracol write
      * their `ref` here (see [com.arkiv.player.data.ditu.DituRef]); legacy rows may still hold the
@@ -30,41 +30,41 @@ data class Episode(
 )
 
 /**
- * Temporada/capítulo de un episodio de serie, deducidos de los textos con los que se guardó
- * (`section` = "Temporada N", `displayName` = "TN · EM …" — ver `ArkivRepository.addWebSeriesEpisode`
- * y `addSeriesEpisodeMagnet`). `section`/`displayName` no tienen columna int propia, así que este
- * parseo es la fuente de esos dos números cuando hace falta mostrarlos.
+ * Season/episode of a series episode, deduced from the texts it was saved with (`section` =
+ * "Temporada N", `displayName` = "TN · EM …" — see `ArkivRepository.addWebSeriesEpisode` and
+ * `addSeriesEpisodeMagnet`). `section`/`displayName` have no int column of their own, so this
+ * parsing is where those two numbers come from when they need to be shown.
  *
- * Verificado con `grep -rn "seasonOf(\|episodeOf(" app/src/main/java`: además de [displayLabel] (vía
- * `ArkivRepository.headerInfo`, para el rótulo "T1 · E3" del encabezado del player, que reusa
- * [seasonOf] como uno de sus fallbacks de temporada), hoy los llama directo
- * `ArkivRepository.obraParaDatos`, para deducir la temporada y el capítulo de un episodio cuando
- * `EpisodeEntity.season`/`.episode` no los trae.
+ * Verified with `grep -rn "seasonOf(\|episodeOf(" app/src/main/java`: besides [displayLabel] (via
+ * `ArkivRepository.headerInfo`, for the player header's "T1 · E3" label, which reuses [seasonOf]
+ * as one of its season fallbacks), today they're called directly by
+ * `ArkivRepository.obraParaDatos`, to deduce an episode's season and number when
+ * `EpisodeEntity.season`/`.episode` don't carry them.
  */
 object EpisodeNumbering {
-    /** Primer número de la sección ("Temporada 2" → 2). Null si la sección no es de serie. */
+    /** First number in the section ("Temporada 2" → 2). Null if the section isn't a series one. */
     fun seasonOf(section: String): Int? = Regex("\\d+").find(section)?.value?.toIntOrNull()
 
-    /** Número tras la "E" del nombre ("T1 · E7  Título" → 7). Null si no hay marca de capítulo. */
+    /** Number after the "E" in the name ("T1 · E7  Title" → 7). Null if there's no episode mark. */
     fun episodeOf(displayName: String): Int? =
         Regex("(?i)E(\\d+)").find(displayName)?.groupValues?.get(1)?.toIntOrNull()
 
     private val SXE = Regex("(?i)s(\\d+)\\s*e(\\d+)")
-    private val TEMPORADA = Regex("(?i)\\bT\\s*(\\d+)")
-    private val CAPITULO = Regex("(?i)\\bE(?:pisodio|p)?\\.?\\s*(\\d+)")
+    private val SEASON = Regex("(?i)\\bT\\s*(\\d+)")
+    private val EPISODE = Regex("(?i)\\bE(?:pisodio|p)?\\.?\\s*(\\d+)")
 
     /**
-     * Rótulo de temporada/capítulo para MOSTRAR en el player ("T1 · E3", o "E7" cuando no hay
-     * temporada). Null si el nombre no declara capítulo: preferimos no mostrar nada antes que
-     * inventar o volcar texto sucio — en la base real hay displayName con la sinopsis entera y la
-     * fecha pegadas, y otros que son puro ruido ("TPO Neon Genesis Evangelion 04 · Trapo2019 …").
+     * Season/episode label to SHOW in the player ("T1 · E3", or "E7" when there's no season).
+     * Null if the name declares no episode: showing nothing is preferred over making something up
+     * or dumping dirty text — the real database has displayNames with the whole synopsis and date
+     * glued on, and others that are pure noise ("TPO Neon Genesis Evangelion 04 · Trapo2019 …").
      *
-     * Tiene sus propios regexes (SXE/TEMPORADA/CAPITULO) para el capítulo y para la temporada
-     * cuando el nombre la trae pegada; solo cae a [seasonOf] como último recurso, cuando ninguno
-     * de esos encuentra temporada y `section` sí trae algo. Por eso no conviene ensancharle el
-     * regex a [seasonOf] para que trague más formatos: sería tocar también este fallback, no solo
-     * un consumidor externo — acá el peor caso de equivocarse es un rótulo raro, no perder o
-     * inventar el número real.
+     * Has its own regexes (SXE/SEASON/EPISODE) for the episode and for the season when the name
+     * carries it glued on; it only falls back to [seasonOf] as a last resort, when none of those
+     * find a season and `section` does carry something. That's why [seasonOf]'s regex shouldn't be
+     * widened to swallow more formats: that would also touch this fallback, not just an external
+     * consumer — here the worst case of getting it wrong is a weird label, not losing or making up
+     * the real number.
      */
     fun displayLabel(section: String?, displayName: String): String? {
         SXE.find(displayName)?.let { m ->
@@ -74,9 +74,9 @@ object EpisodeNumbering {
                 return if (s != null) "T$s · E$e" else "E$e"
             }
         }
-        val episodio = CAPITULO.find(displayName)?.groupValues?.get(1)?.toIntOrNull() ?: return null
-        val temporada = TEMPORADA.find(displayName)?.groupValues?.get(1)?.toIntOrNull()
+        val episode = EPISODE.find(displayName)?.groupValues?.get(1)?.toIntOrNull() ?: return null
+        val season = SEASON.find(displayName)?.groupValues?.get(1)?.toIntOrNull()
             ?: section?.takeIf { it.isNotBlank() }?.let { seasonOf(it) }
-        return if (temporada != null) "T$temporada · E$episodio" else "E$episodio"
+        return if (season != null) "T$season · E$episode" else "E$episode"
     }
 }

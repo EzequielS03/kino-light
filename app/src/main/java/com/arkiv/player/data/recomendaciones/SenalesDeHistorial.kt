@@ -1,7 +1,7 @@
 package com.arkiv.player.data.recomendaciones
 
 import com.arkiv.player.data.db.FilaDeHistorial
-import com.arkiv.player.data.model.TipoDeObra
+import com.arkiv.player.data.model.WorkKind
 
 /** Lo que el modelo necesita saber de algo que viste. [tipo] es `"tv"` o `"movie"`. */
 internal data class Vista(val titulo: String, val tipo: String, val estado: String)
@@ -36,7 +36,7 @@ internal object SenalesDeHistorial {
             }
             decididos += f.itemId
             val titulo = f.tituloCanonico?.takeIf { it.isNotBlank() } ?: f.titulo
-            salida += Vista(titulo, TipoDeObra.de(f.tipo, f.categoryOverride, f.episodio), estado)
+            salida += Vista(titulo, WorkKind.of(f.tipo, f.categoryOverride, f.episodio), estado)
             if (salida.size >= TOPE) break
         }
         return salida

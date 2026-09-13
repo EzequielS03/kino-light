@@ -55,7 +55,7 @@ data class ItemEntity(
      * usa "series", no "tv"-: esto es el tipo que trajo la fuente, no una corrección de la persona.
      *
      * Lets the library tell with certainty whether it already has something (see
-     * [com.arkiv.player.data.model.TipoDeObra]) instead of comparing by title, which is fuzzy.
+     * [com.arkiv.player.data.model.WorkKind]) instead of comparing by title, which is fuzzy.
      * Null when the source doesn't know it: better a gap than a made-up type.
      */
     val tipo: String? = null,
