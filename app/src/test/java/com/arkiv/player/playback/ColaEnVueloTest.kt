@@ -17,29 +17,29 @@ import java.net.URL
 import java.util.concurrent.TimeUnit
 
 /**
- * El final del archivo se pide UNA sola vez, aunque lo quieran dos a la vez.
+ * The end of the file is requested ONE single time, even if two want it at once.
  *
- * Desde que el arranque dejó de esperar a la cola, el precalentado y el sondeo de EOF de libVLC
- * dejaron de ir en fila y pasaron a ir a la vez — dos conexiones pidiendo los MISMOS bytes. Medido
- * en el Fire TV el 2026-08-13, con el CDN en una mala racha, se rechazaron una a la otra durante
- * 7 s y VLC tardó 7719 ms en abrir esperando su propia cola.
+ * Since startup stopped waiting on the tail, the pre-warm and libVLC's EOF probe stopped going one
+ * after another and started going at the same time -- two connections asking for the SAME bytes.
+ * Measured on the Fire TV on 2026-08-13, with the CDN on a bad streak, they rejected each other for
+ * 7 s and VLC took 7719 ms to open waiting on its own tail.
  *
- * Acá se comprueba lo único que impide que eso vuelva: que el segundo en llegar ESPERE al primero
- * en vez de abrir su propia conexión.
+ * This checks the one thing that keeps that from coming back: that the second one to arrive WAITS
+ * on the first instead of opening its own connection.
  */
 class ColaEnVueloTest {
 
     @get:Rule
     val temp = TemporaryFolder()
 
-    private lateinit var origen: MockWebServer
+    private lateinit var origin: MockWebServer
     private lateinit var proxy: ArchiveCacheProxy
 
-    /** Lo que tarda el origen en soltar la cola: suficiente para que el sondeo llegue en el medio. */
-    private val COLA_MS = 2_000L
+    /** How long the origin takes to release the tail: enough for the probe to land in the middle. */
+    private val TAIL_MS = 2_000L
 
     private val TOTAL = 3 * 1024 * 1024
-    private val archivo: ByteArray by lazy {
+    private val file: ByteArray by lazy {
         ByteArray(TOTAL).also { out ->
             val p = ByteArray(188) { 0xFF.toByte() }.also { it[0] = 0x47; it[3] = 0x10 }
             for (i in 0 until out.size / 188) p.copyInto(out, i * 188)
@@ -47,45 +47,45 @@ class ColaEnVueloTest {
     }
 
     /**
-     * Se cuentan por SEPARADO las dos formas de pedir el final, porque significan cosas opuestas:
+     * The two ways of requesting the end are counted SEPARATELY, because they mean opposite things:
      *
-     * - por SUFIJO (`bytes=-N`) pide el precalentado, y ese puede salir duplicado a propósito cuando
-     *   el origen se demora (ver ColaDuplicadaTest). Que sean dos ahí es la conducta buscada.
-     * - por rango ABSOLUTO cerca del final pide el reproductor, y ese es el que NO tiene que llegar
-     *   nunca a la red: para eso se le hace esperar la cola que ya viene bajando.
+     * - by SUFFIX (`bytes=-N`) is the pre-warm asking, and that one can legitimately come out
+     *   duplicated when the origin is slow (see ColaDuplicadaTest). Two of those is the intended behaviour.
+     * - by ABSOLUTE range near the end is the player asking, and that one must NEVER reach the
+     *   network: that's the whole point of making it wait on the tail already downloading.
      *
-     * Contarlos juntos —como se hacía— convertía el duplicado en un falso fallo de este test.
+     * Counting them together -like it used to- turned the duplicate into a false failure for this test.
      */
-    private val precalentados = java.util.concurrent.atomic.AtomicInteger(0)
-    private val sondeosDelReproductor = java.util.concurrent.atomic.AtomicInteger(0)
+    private val preWarmed = java.util.concurrent.atomic.AtomicInteger(0)
+    private val playerProbes = java.util.concurrent.atomic.AtomicInteger(0)
 
     @Before
     fun setUp() {
-        origen = MockWebServer().also { it.start() }
-        origen.dispatcher = object : Dispatcher() {
+        origin = MockWebServer().also { it.start() }
+        origin.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
-                val rango = request.getHeader("Range").orEmpty()
-                val esSufijo = rango.startsWith("bytes=-")
-                val (desde, hasta) = when {
-                    esSufijo -> (TOTAL - rango.removePrefix("bytes=-").toInt()) to (TOTAL - 1)
-                    rango.startsWith("bytes=") -> {
-                        val p = rango.removePrefix("bytes=").split("-")
+                val range = request.getHeader("Range").orEmpty()
+                val isSuffix = range.startsWith("bytes=-")
+                val (from, until) = when {
+                    isSuffix -> (TOTAL - range.removePrefix("bytes=-").toInt()) to (TOTAL - 1)
+                    range.startsWith("bytes=") -> {
+                        val p = range.removePrefix("bytes=").split("-")
                         p[0].toInt() to (p.getOrNull(1)?.toIntOrNull() ?: (TOTAL - 1))
                     }
                     else -> 0 to (TOTAL - 1)
                 }
-                // El precalentado pide un rango CERRADO al final (ver ColaPorRangoAbsolutoTest);
-                // el reproductor pide ABIERTO desde donde quiere leer. Esa es la diferencia que
-                // separa "la cola bajando" de "el sondeo que no tiene que tocar la red".
-                val cerrado = Regex("""bytes=\d+-\d+""").matches(rango)
-                if (esSufijo || (cerrado && desde > TOTAL / 2)) precalentados.incrementAndGet()
-                else if (!cerrado && desde > TOTAL / 2) sondeosDelReproductor.incrementAndGet()
-                val trozo = archivo.copyOfRange(desde, hasta + 1)
+                // The pre-warm asks for a CLOSED range at the end (see ColaPorRangoAbsolutoTest); the
+                // player asks OPEN from wherever it wants to read. That's the difference that tells
+                // "the tail downloading" apart from "the probe that must not touch the network".
+                val closed = Regex("""bytes=\d+-\d+""").matches(range)
+                if (isSuffix || (closed && from > TOTAL / 2)) preWarmed.incrementAndGet()
+                else if (!closed && from > TOTAL / 2) playerProbes.incrementAndGet()
+                val chunk = file.copyOfRange(from, until + 1)
                 return MockResponse().setResponseCode(206)
-                    .setHeader("Content-Range", "bytes $desde-$hasta/$TOTAL")
-                    .setHeader("Content-Length", trozo.size.toString())
-                    .setBody(okio.Buffer().write(trozo))
-                    .apply { if (esSufijo || (cerrado && desde > TOTAL / 2)) setHeadersDelay(COLA_MS, TimeUnit.MILLISECONDS) }
+                    .setHeader("Content-Range", "bytes $from-$until/$TOTAL")
+                    .setHeader("Content-Length", chunk.size.toString())
+                    .setBody(okio.Buffer().write(chunk))
+                    .apply { if (isSuffix || (closed && from > TOTAL / 2)) setHeadersDelay(TAIL_MS, TimeUnit.MILLISECONDS) }
             }
         }
         proxy = ArchiveCacheProxy(temp.newFolder("cache"))
@@ -94,43 +94,43 @@ class ColaEnVueloTest {
     @After
     fun tearDown() {
         runCatching { proxy.stop() }
-        runCatching { origen.shutdown() }
+        runCatching { origin.shutdown() }
     }
 
     @Test
-    fun `el sondeo del final espera a la cola que ya se esta bajando, no abre otra conexion`() = runBlocking {
+    fun `the end-of-file probe waits on the tail already downloading, does not open another connection`() = runBlocking {
         proxy.start()
-        val url = origen.url("/v.ts").toString()
-        // Como en el arranque real: se precalienta sin esperar la cola…
-        proxy.precalentar(url, esperarCola = false)
-        val proxyUrl = proxy.proxyUrl(url, emptyMap(), directo = true)
+        val url = origin.url("/v.ts").toString()
+        // Like on a real startup: pre-warms without waiting on the tail…
+        proxy.preWarm(url, waitForTail = false)
+        val proxyUrl = proxy.proxyUrl(url, emptyMap(), direct = true)
 
-        // …y enseguida llega el sondeo de EOF de libVLC, con la cola todavía en vuelo.
-        val pedido = TOTAL - 40_000L
+        // …and right away libVLC's EOF probe arrives, with the tail still in flight.
+        val requested = TOTAL - 40_000L
         val conn = (URL(proxyUrl).openConnection() as HttpURLConnection).apply {
-            setRequestProperty("Range", "bytes=$pedido-")
+            setRequestProperty("Range", "bytes=$requested-")
             connectTimeout = 15_000
             readTimeout = 30_000
         }
-        val cuerpo = conn.inputStream.use { it.readBytes() }
+        val body = conn.inputStream.use { it.readBytes() }
         conn.disconnect()
 
-        assertEquals("tiene que entregar el tramo entero", (TOTAL - pedido).toInt(), cuerpo.size)
+        assertEquals("has to deliver the whole stretch", (TOTAL - requested).toInt(), body.size)
         assertEquals(
-            "el sondeo del reproductor abrió su propia conexión en vez de esperar la que ya bajaba",
-            0, sondeosDelReproductor.get(),
+            "the player's probe opened its own connection instead of waiting on the one already downloading",
+            0, playerProbes.get(),
         )
     }
 
     @Test
-    fun `la cabeza no espera a la cola`() = runBlocking {
+    fun `the head does not wait on the tail`() = runBlocking {
         proxy.start()
-        val url = origen.url("/v.ts").toString()
-        proxy.precalentar(url, esperarCola = false)
-        val proxyUrl = proxy.proxyUrl(url, emptyMap(), directo = true)
+        val url = origin.url("/v.ts").toString()
+        proxy.preWarm(url, waitForTail = false)
+        val proxyUrl = proxy.proxyUrl(url, emptyMap(), direct = true)
 
-        // `bytes=0-` es la PRIMERA lectura de libVLC y la contesta el arranque caliente. Si esperara
-        // a la cola, el arreglo de la carrera se comería el arranque que vino a proteger.
+        // `bytes=0-` is libVLC's FIRST read and gets answered by the hot startup. If it waited on
+        // the tail, the race fix would eat into the very startup it came to protect.
         val t0 = System.currentTimeMillis()
         val conn = (URL(proxyUrl).openConnection() as HttpURLConnection).apply {
             setRequestProperty("Range", "bytes=0-")
@@ -141,6 +141,6 @@ class ColaEnVueloTest {
         conn.disconnect()
         val ms = System.currentTimeMillis() - t0
 
-        assertTrue("la cabeza tardó ${ms}ms: se quedó esperando la cola", ms < COLA_MS)
+        assertTrue("the head took ${ms}ms: it was left waiting on the tail", ms < TAIL_MS)
     }
 }

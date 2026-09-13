@@ -14,8 +14,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * El proxy local es la única vía para mandarle headers arbitrarios al origen: libVLC solo expone
- * `:http-referrer` y `:http-user-agent`, y magis sirve el VOD detrás de `Content-Auth` y
+ * The local proxy is the only way to send arbitrary headers to the origin: libVLC only exposes
+ * `:http-referrer` and `:http-user-agent`, and magis serves the VOD behind `Content-Auth` and
  * `Content-License`.
  */
 class ArchiveCacheProxyHeadersTest {
@@ -23,12 +23,12 @@ class ArchiveCacheProxyHeadersTest {
     @get:Rule
     val temp = TemporaryFolder()
 
-    private lateinit var origen: MockWebServer
+    private lateinit var origin: MockWebServer
     private lateinit var proxy: ArchiveCacheProxy
 
     @Before
     fun setUp() {
-        origen = MockWebServer().also { it.start() }
+        origin = MockWebServer().also { it.start() }
         proxy = ArchiveCacheProxy(temp.newFolder("cache"))
         proxy.start()
     }
@@ -36,107 +36,107 @@ class ArchiveCacheProxyHeadersTest {
     @After
     fun tearDown() {
         proxy.stop()
-        origen.shutdown()
+        origin.shutdown()
     }
 
-    private fun cuerpo(n: Int) = ByteArray(n) { (it % 251).toByte() }
+    private fun body(n: Int) = ByteArray(n) { (it % 251).toByte() }
 
-    private fun pedir(url: String): Pair<Int, ByteArray> {
+    private fun request(url: String): Pair<Int, ByteArray> {
         val c = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 5000; readTimeout = 5000
         }
         val code = c.responseCode
-        val datos = runCatching { c.inputStream.use { it.readBytes() } }.getOrDefault(ByteArray(0))
+        val data = runCatching { c.inputStream.use { it.readBytes() } }.getOrDefault(ByteArray(0))
         c.disconnect()
-        return code to datos
+        return code to data
     }
 
     @Test
-    fun `sin headers la url del proxy no cambia de forma`() {
+    fun `with no headers the proxy url's shape does not change`() {
         val u = proxy.proxyUrl("https://ejemplo/video.mp4")
         assertTrue(u.startsWith("http://127.0.0.1:${proxy.port}/s?u="))
-        assertTrue("no deberia agregar el parametro h", !u.contains("h="))
+        assertTrue("should not add the h parameter", !u.contains("h="))
     }
 
     @Test
-    fun `los headers extra llegan al origen`() {
-        val datos = cuerpo(4096)
-        origen.enqueue(
-            MockResponse().setBody(okio.Buffer().write(datos))
-                .setHeader("Content-Length", datos.size.toString()),
+    fun `the extra headers reach the origin`() {
+        val data = body(4096)
+        origin.enqueue(
+            MockResponse().setBody(okio.Buffer().write(data))
+                .setHeader("Content-Length", data.size.toString()),
         )
         val url = proxy.proxyUrl(
-            origen.url("/v.ts").toString(),
+            origin.url("/v.ts").toString(),
             mapOf("Content-Auth" to "TOKEN-AUTH", "Content-License" to "LIC"),
         )
-        val (code, _) = pedir(url)
+        val (code, _) = request(url)
         assertEquals(200, code)
 
-        val recibido = origen.takeRequest()
-        assertEquals("TOKEN-AUTH", recibido.getHeader("Content-Auth"))
-        assertEquals("LIC", recibido.getHeader("Content-License"))
+        val received = origin.takeRequest()
+        assertEquals("TOKEN-AUTH", received.getHeader("Content-Auth"))
+        assertEquals("LIC", received.getHeader("Content-License"))
     }
 
     @Test
-    fun `el origen se decodifica bien aunque haya headers en la url`() {
-        val datos = cuerpo(2048)
-        origen.enqueue(
-            MockResponse().setBody(okio.Buffer().write(datos))
-                .setHeader("Content-Length", datos.size.toString()),
+    fun `the origin decodes fine even with headers in the url`() {
+        val data = body(2048)
+        origin.enqueue(
+            MockResponse().setBody(okio.Buffer().write(data))
+                .setHeader("Content-Length", data.size.toString()),
         )
-        val url = proxy.proxyUrl(origen.url("/con%20espacio.ts").toString(), mapOf("X-Uno" to "1"))
-        val (code, _) = pedir(url)
+        val url = proxy.proxyUrl(origin.url("/con%20espacio.ts").toString(), mapOf("X-Uno" to "1"))
+        val (code, _) = request(url)
         assertEquals(200, code)
-        // Lo que se verifica es que el origen sobreviva al parametro extra en la URL. NO se afirma
-        // el tamaño del cuerpo: el proxy sirve el archivo MIENTRAS lo descarga, asi que cuanto
-        // alcanzo a escribir depende del timing y haria el test intermitente.
-        assertEquals("/con%20espacio.ts", origen.takeRequest().path)
+        // What's verified is that the origin survives the extra URL parameter. The body's SIZE is
+        // NOT asserted: the proxy serves the file WHILE downloading it, so how much it managed to
+        // write depends on timing and would make the test flaky.
+        assertEquals("/con%20espacio.ts", origin.takeRequest().path)
     }
 
     @Test
-    fun `bufferedFraction sigue leyendo el origen con headers en la url`() {
-        // Parseaba con substringAfter("u="), que se tragaba cualquier parametro posterior.
+    fun `bufferedFraction still reads the origin with headers in the url`() {
+        // It used to parse with substringAfter("u="), which swallowed any parameter that followed.
         val url = proxy.proxyUrl("https://ejemplo/video.mp4", mapOf("A" to "b"))
         assertEquals(0f, proxy.bufferedFraction(url), 0.0001f)
     }
 
     @Test
-    fun `un header con caracteres raros sobrevive el viaje`() {
-        val datos = cuerpo(1024)
-        origen.enqueue(
-            MockResponse().setBody(okio.Buffer().write(datos))
-                .setHeader("Content-Length", datos.size.toString()),
+    fun `a header with odd characters survives the trip`() {
+        val data = body(1024)
+        origin.enqueue(
+            MockResponse().setBody(okio.Buffer().write(data))
+                .setHeader("Content-Length", data.size.toString()),
         )
-        val valor = "sign=abc/def+ghi=&t=123"
-        val url = proxy.proxyUrl(origen.url("/v.ts").toString(), mapOf("Content-Auth" to valor))
-        pedir(url)
-        assertEquals(valor, origen.takeRequest().getHeader("Content-Auth"))
+        val value = "sign=abc/def+ghi=&t=123"
+        val url = proxy.proxyUrl(origin.url("/v.ts").toString(), mapOf("Content-Auth" to value))
+        request(url)
+        assertEquals(value, origin.takeRequest().getHeader("Content-Auth"))
     }
 
     @Test
-    fun `sirve el cuerpo sin morir por la carrera de creacion del archivo`() {
-        // El que sirve abre el archivo de caché para leer apenas arranca la descarga. Si el
-        // escritor no lo creó todavía, la lectura moría con ENOENT y el player se quedaba en
-        // "buffering 0%" para siempre.
+    fun `serves the body without dying on the cache-file creation race`() {
+        // The server opens the cache file to read as soon as the download starts. If the writer
+        // hadn't created it yet, the read died with ENOENT and the player was stuck at "buffering
+        // 0%" forever.
         repeat(5) {
-            val datos = cuerpo(64 * 1024)
-            origen.enqueue(
-                MockResponse().setBody(okio.Buffer().write(datos))
-                    .setHeader("Content-Length", datos.size.toString()),
+            val data = body(64 * 1024)
+            origin.enqueue(
+                MockResponse().setBody(okio.Buffer().write(data))
+                    .setHeader("Content-Length", data.size.toString()),
             )
-            val (code, _) = pedir(proxy.proxyUrl(origen.url("/v$it.ts").toString(), mapOf("A" to "b")))
+            val (code, _) = request(proxy.proxyUrl(origin.url("/v$it.ts").toString(), mapOf("A" to "b")))
             assertEquals(200, code)
         }
     }
 
     @Test
-    fun `sin headers no se manda ninguno extra`() {
-        val datos = cuerpo(512)
-        origen.enqueue(
-            MockResponse().setBody(okio.Buffer().write(datos))
-                .setHeader("Content-Length", datos.size.toString()),
+    fun `with no headers, none extra get sent`() {
+        val data = body(512)
+        origin.enqueue(
+            MockResponse().setBody(okio.Buffer().write(data))
+                .setHeader("Content-Length", data.size.toString()),
         )
-        pedir(proxy.proxyUrl(origen.url("/v.ts").toString()))
-        assertNull(origen.takeRequest().getHeader("Content-Auth"))
+        request(proxy.proxyUrl(origin.url("/v.ts").toString()))
+        assertNull(origin.takeRequest().getHeader("Content-Auth"))
     }
 }

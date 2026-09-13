@@ -16,63 +16,63 @@ import java.util.Collections
 import java.util.concurrent.TimeUnit
 
 /**
- * El final del archivo se pide por rango ABSOLUTO, nunca por sufijo.
+ * The end of the file is requested by an ABSOLUTE range, never by suffix.
  *
- * Es lo más caro que se encontró midiendo. En el Fire TV, el 2026-08-13, sobre 31 peticiones al CDN
- * de magis:
+ * It's the most expensive thing found while measuring. On the Fire TV, on 2026-08-13, over 31
+ * requests to magis's CDN:
  *
  * ```
- *   forma del rango          rechazos   respuestas OK
- *   bytes=-262144 (sufijo)      19            0
- *   bytes=N-      (absoluto)     0           12
+ *   range shape              rejections   OK responses
+ *   bytes=-262144 (suffix)      19            0
+ *   bytes=N-      (absolute)     0           12
  * ```
  *
- * Los diecinueve rechazos fueron del sufijo y ninguno del absoluto. Y no es que el tramo no esté:
- * en el mismo arranque, tras seis rechazos seguidos de `bytes=-262144` (dos conexiones en paralelo,
- * tres intentos cada una, 8,8 s tirados), el reproductor pidió ese mismo final por
- * `bytes=322515168-` y el CDN lo sirvió en 267 ms.
+ * The nineteen rejections were all suffix and none were absolute. And it's not that the stretch
+ * isn't there: in the same startup, after six rejections in a row of `bytes=-262144` (two parallel
+ * connections, three attempts each, 8.8 s thrown away), the player requested that same end via
+ * `bytes=322515168-` and the CDN served it in 267 ms.
  *
- * Como libVLC no abre el video hasta tener el final del archivo, esos segundos se pagaban enteros
- * en spinner.
+ * Since libVLC doesn't open the video until it has the end of the file, those seconds were paid for
+ * in full as spinner.
  */
 class ColaPorRangoAbsolutoTest {
 
     @get:Rule
     val temp = TemporaryFolder()
 
-    private lateinit var origen: MockWebServer
+    private lateinit var origin: MockWebServer
     private lateinit var proxy: ArchiveCacheProxy
 
     private val TOTAL = 3 * 1024 * 1024
-    private val archivo: ByteArray by lazy {
+    private val file: ByteArray by lazy {
         ByteArray(TOTAL).also { out ->
             val p = ByteArray(188) { 0xFF.toByte() }.also { it[0] = 0x47; it[3] = 0x10 }
             for (i in 0 until out.size / 188) p.copyInto(out, i * 188)
         }
     }
 
-    private val rangosPedidos = Collections.synchronizedList(mutableListOf<String>())
+    private val rangesRequested = Collections.synchronizedList(mutableListOf<String>())
 
     @Before
     fun setUp() {
-        origen = MockWebServer().also { it.start() }
-        origen.dispatcher = object : Dispatcher() {
+        origin = MockWebServer().also { it.start() }
+        origin.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
-                val rango = request.getHeader("Range").orEmpty()
-                rangosPedidos.add(rango)
-                // Como el CDN real: el sufijo NO se contesta nunca. Si el proxy lo pide, se cuelga
-                // hasta el plazo, que es exactamente lo que costaba los segundos.
-                if (rango.startsWith("bytes=-")) {
+                val range = request.getHeader("Range").orEmpty()
+                rangesRequested.add(range)
+                // Like the real CDN: the suffix is NEVER answered. If the proxy requests it, it
+                // hangs until the deadline, which is exactly what cost the seconds.
+                if (range.startsWith("bytes=-")) {
                     return MockResponse().setSocketPolicy(okhttp3.mockwebserver.SocketPolicy.NO_RESPONSE)
                 }
-                val p = rango.removePrefix("bytes=").split("-")
-                val desde = p[0].toIntOrNull() ?: 0
-                val hasta = p.getOrNull(1)?.toIntOrNull() ?: (TOTAL - 1)
-                val trozo = archivo.copyOfRange(desde, hasta + 1)
+                val p = range.removePrefix("bytes=").split("-")
+                val from = p[0].toIntOrNull() ?: 0
+                val until = p.getOrNull(1)?.toIntOrNull() ?: (TOTAL - 1)
+                val chunk = file.copyOfRange(from, until + 1)
                 return MockResponse().setResponseCode(206)
-                    .setHeader("Content-Range", "bytes $desde-$hasta/$TOTAL")
-                    .setHeader("Content-Length", trozo.size.toString())
-                    .setBody(okio.Buffer().write(trozo))
+                    .setHeader("Content-Range", "bytes $from-$until/$TOTAL")
+                    .setHeader("Content-Length", chunk.size.toString())
+                    .setBody(okio.Buffer().write(chunk))
                     .setBodyDelay(0, TimeUnit.MILLISECONDS)
             }
         }
@@ -81,34 +81,34 @@ class ColaPorRangoAbsolutoTest {
 
     @After
     fun tearDown() {
-        runCatching { origen.shutdown() }
+        runCatching { origin.shutdown() }
     }
 
     @Test
-    fun `la cola no se pide por sufijo`() = runBlocking {
-        proxy.precalentar(origen.url("/v.ts").toString(), esperarCola = true)
+    fun `the tail is not requested by suffix`() = runBlocking {
+        proxy.preWarm(origin.url("/v.ts").toString(), waitForTail = true)
 
-        val sufijos = rangosPedidos.filter { it.startsWith("bytes=-") }
+        val suffixes = rangesRequested.filter { it.startsWith("bytes=-") }
         assertTrue(
-            "se pidió el final por sufijo, que este CDN no contesta: $sufijos",
-            sufijos.isEmpty(),
+            "the end was requested by suffix, which this CDN doesn't answer: $suffixes",
+            suffixes.isEmpty(),
         )
     }
 
     @Test
-    fun `la cola pide exactamente el ultimo tramo, por rango absoluto`() = runBlocking {
-        val url = origen.url("/v.ts").toString()
-        proxy.precalentar(url, esperarCola = true)
+    fun `the tail requests exactly the last stretch, by absolute range`() = runBlocking {
+        val url = origin.url("/v.ts").toString()
+        proxy.preWarm(url, waitForTail = true)
 
-        val esperado = "bytes=${TOTAL - TsDurationProbe.PROBE_BYTES}-${TOTAL - 1}"
+        val expected = "bytes=${TOTAL - TsDurationProbe.PROBE_BYTES}-${TOTAL - 1}"
         assertTrue(
-            "no se pidió el final por rango absoluto. Pedidos: $rangosPedidos",
-            rangosPedidos.any { it == esperado },
+            "the end wasn't requested by absolute range. Requests: $rangesRequested",
+            rangesRequested.any { it == expected },
         )
-        // Y con eso la cola queda en memoria, que es para lo que se la bajaba.
+        // And with that the tail stays in memory, which is what it was downloaded for.
         assertEquals(
-            "el final no quedó guardado pese a que el origen lo sirvió",
-            true, proxy.duracionDelPrecalentado(url) >= 0L,
+            "the end wasn't saved even though the origin served it",
+            true, proxy.durationOfPreWarmed(url) >= 0L,
         )
     }
 }

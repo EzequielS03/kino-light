@@ -834,7 +834,7 @@ class PlayerViewModel internal constructor(
         // archive) la descarga de ~1 GB se corta, el proxy borra el archivo y vuelve a empezar en 0
         // mientras el player sigue leyendo por el offset viejo → el TS le llega con huecos, el tiempo salta
         // de a minutos y el video se muere. Sin caché no hay nada que truncar.
-        val urlLocal = archiveCacheProxy.proxyUrl(play.url, play.headers, directo = true)
+        val urlLocal = archiveCacheProxy.proxyUrl(play.url, play.headers, direct = true)
         // THE DURATION IS NO LONGER PROBED BEFORE STARTING. The player reports it on its own once
         // it opens.
         //
@@ -863,17 +863,17 @@ class PlayerViewModel internal constructor(
         // SIN PISTAS para siempre (negro y mudo, con el reloj disparado).
         //
         // La COLA sigue bajándose por detrás —para los sondeos de EOF del player, que quiere el final
-        // del archivo apenas abre— pero ya nunca frena el arranque: `esperarCola=false` sin
-        // condiciones. Ver ArchiveCacheProxy.precalentar y PrecalentadoNoBloqueaTest.
+        // del archivo apenas abre— pero ya nunca frena el arranque: `waitForTail=false` sin
+        // condiciones. Ver ArchiveCacheProxy.preWarm y PrecalentadoNoBloqueaTest.
         val tArranque = System.currentTimeMillis()
         withContext(Dispatchers.IO) {
             runCatching {
-                archiveCacheProxy.precalentar(
-                    play.url, play.headers, fraccion = 0f, esperarCola = false,
+                archiveCacheProxy.preWarm(
+                    play.url, play.headers, fraction = 0f, waitForTail = false,
                     // El contenedor decide si hace falta traer la cola del archivo: un mp4 abre sin
                     // leer el final y bajarla es gasto puro contra el CDN. Si el gateway no lo
                     // manda, la extensión de la URL lo dice igual para magis.
-                    contenedor = play.container.ifBlank {
+                    container = play.container.ifBlank {
                         com.arkiv.player.playback.ContenedorDeVideo.extensionDeVideo(play.url).orEmpty()
                     },
                 )
@@ -934,7 +934,7 @@ class PlayerViewModel internal constructor(
         // zona mientras el video abre. El player abre siempre en el byte 0 y recién después busca
         // el minuto guardado: medido en el Fire TV, entre una cosa y la otra se bajaban 2,5 MB del
         // principio de la película que después se tiraban, y eso costaba 3,4 s con la imagen
-        // congelada en el segundo 0. Ver ArchiveCacheProxy.precalentarSalto.
+        // congelada en el segundo 0. Ver ArchiveCacheProxy.preWarmSeek.
         //
         // La duración sale del progreso GUARDADO y no del gateway: acá el gateway suele mandar 0
         // (la duración la calcula el player al abrir, que es demasiado tarde para esto), mientras que
@@ -943,7 +943,7 @@ class PlayerViewModel internal constructor(
             val guardado = runCatching { repo.getPlayback(episodeId) }.getOrNull()
             val duracionGuardada = guardado?.durationMs ?: 0L
             if (duracionGuardada > 0L) {
-                archiveCacheProxy.precalentarSalto(
+                archiveCacheProxy.preWarmSeek(
                     play.url, play.headers, startPos.toFloat() / duracionGuardada,
                 )
             }

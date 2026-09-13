@@ -415,7 +415,7 @@ class AppGraph(context: Context) {
         com.arkiv.player.playback.ArchiveCacheProxy(java.io.File(appContext.cacheDir, "archive-cache"))
             .also { proxy ->
                 vigilanteDeRed = com.arkiv.player.playback.VigilanteDeRed(appContext) { motivo ->
-                    proxy.abandonarConexiones(motivo)
+                    proxy.abandonConnections(motivo)
                 }.apply { empezar() }
             }
     }

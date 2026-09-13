@@ -15,65 +15,65 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Cuando la primera conexión a la cola se cuelga, la segunda salva el arranque.
+ * When the first connection for the tail hangs, the second one saves startup.
  *
- * Medido en el Fire TV el 2026-08-13 con un capítulo nuevo: el CDN no contestó la cola dos veces
- * seguidas —sin decir nada, que es como falla este CDN— y cada silencio cuesta los 3 s de plazo del
- * perfil MAGIS. Como libVLC necesita el final del archivo para abrir, se quedó esperando 7,3 s antes
- * de dar la primera imagen.
+ * Measured on the Fire TV on 2026-08-13 with a new chapter: the CDN didn't answer the tail twice in
+ * a row -saying nothing at all, which is how this CDN fails- and each silence costs the MAGIS
+ * profile's 3 s deadline. Since libVLC needs the end of the file to open, it was left waiting 7.3 s
+ * before showing the first frame.
  *
- * Reintentar EN SERIE no arregla eso: hay que esperar a que el intento anterior se dé por vencido
- * para recién ahí volver a tirar los dados. Por eso el segundo pedido sale en PARALELO.
+ * Retrying IN SERIES doesn't fix that: it has to wait for the previous attempt to give up before
+ * rolling the dice again. That's why the second request goes out IN PARALLEL.
  */
 class ColaDuplicadaTest {
 
     @get:Rule
     val temp = TemporaryFolder()
 
-    private lateinit var origen: MockWebServer
+    private lateinit var origin: MockWebServer
     private lateinit var proxy: ArchiveCacheProxy
 
-    /** Lo que tarda el PRIMER pedido de cola. Más que el plazo del duplicado, a propósito. */
-    private val PRIMERA_COLA_MS = 5_000L
+    /** How long the FIRST tail request takes. Longer than the duplicate's deadline, on purpose. */
+    private val FIRST_TAIL_MS = 5_000L
 
     private val TOTAL = 3 * 1024 * 1024
-    private val archivo: ByteArray by lazy {
+    private val file: ByteArray by lazy {
         ByteArray(TOTAL).also { out ->
             val p = ByteArray(188) { 0xFF.toByte() }.also { it[0] = 0x47; it[3] = 0x10 }
             for (i in 0 until out.size / 188) p.copyInto(out, i * 188)
         }
     }
 
-    private val colasPedidas = AtomicInteger(0)
+    private val tailsRequested = AtomicInteger(0)
 
     @Before
     fun setUp() {
-        origen = MockWebServer().also { it.start() }
-        origen.dispatcher = object : Dispatcher() {
+        origin = MockWebServer().also { it.start() }
+        origin.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
-                val rango = request.getHeader("Range").orEmpty()
-                // La cola se pide por rango CERRADO al final del archivo (ver
-                // ColaPorRangoAbsolutoTest: este CDN no contesta los sufijos). Lo que llega abierto
-                // —`bytes=N-`— es el reproductor leyendo, no el precalentado.
-                val esCola = Regex("""bytes=(\d+)-(\d+)""").find(rango)
+                val range = request.getHeader("Range").orEmpty()
+                // The tail is requested by a CLOSED range at the end of the file (see
+                // ColaPorRangoAbsolutoTest: this CDN doesn't answer suffixes). What arrives open
+                // -`bytes=N-`- is the player reading, not the pre-warm.
+                val isTail = Regex("""bytes=(\d+)-(\d+)""").find(range)
                     ?.let { it.groupValues[1].toInt() > TOTAL / 2 } == true
-                val (desde, hasta) = when {
-                    rango.startsWith("bytes=-") -> (TOTAL - rango.removePrefix("bytes=-").toInt()) to (TOTAL - 1)
-                    rango.startsWith("bytes=") -> {
-                        val p = rango.removePrefix("bytes=").split("-")
+                val (from, until) = when {
+                    range.startsWith("bytes=-") -> (TOTAL - range.removePrefix("bytes=-").toInt()) to (TOTAL - 1)
+                    range.startsWith("bytes=") -> {
+                        val p = range.removePrefix("bytes=").split("-")
                         p[0].toInt() to (p.getOrNull(1)?.toIntOrNull() ?: (TOTAL - 1))
                     }
                     else -> 0 to (TOTAL - 1)
                 }
-                val trozo = archivo.copyOfRange(desde, hasta + 1)
+                val chunk = file.copyOfRange(from, until + 1)
                 val r = MockResponse().setResponseCode(206)
-                    .setHeader("Content-Range", "bytes $desde-$hasta/$TOTAL")
-                    .setHeader("Content-Length", trozo.size.toString())
-                    .setBody(okio.Buffer().write(trozo))
-                // SOLO la primera cola se cuelga; la segunda contesta al toque. Es el caso medido:
-                // el mismo rango que no contestaba por una conexión, contestó por otra.
-                if (esCola && colasPedidas.incrementAndGet() == 1) {
-                    r.setHeadersDelay(PRIMERA_COLA_MS, TimeUnit.MILLISECONDS)
+                    .setHeader("Content-Range", "bytes $from-$until/$TOTAL")
+                    .setHeader("Content-Length", chunk.size.toString())
+                    .setBody(okio.Buffer().write(chunk))
+                // ONLY the first tail request hangs; the second answers right away. It's the
+                // measured case: the same range that a connection didn't answer, answered over another.
+                if (isTail && tailsRequested.incrementAndGet() == 1) {
+                    r.setHeadersDelay(FIRST_TAIL_MS, TimeUnit.MILLISECONDS)
                 }
                 return r
             }
@@ -83,38 +83,38 @@ class ColaDuplicadaTest {
 
     @After
     fun tearDown() {
-        runCatching { origen.shutdown() }
+        runCatching { origin.shutdown() }
     }
 
     @Test
-    fun `si la primera cola se cuelga, el duplicado la trae sin esperar al plazo entero`() = runBlocking {
-        val url = origen.url("/v.ts").toString()
+    fun `if the first tail hangs, the duplicate brings it without waiting out the whole deadline`() = runBlocking {
+        val url = origin.url("/v.ts").toString()
         val t0 = System.currentTimeMillis()
-        // `esperarCola=true` para poder medir acá cuándo estuvo la cola. En producción el arranque no
-        // la espera (ver PrecalentadoNoBloqueaTest); quien la espera es libVLC, y es a él a quien
-        // este duplicado le ahorra los segundos.
-        proxy.precalentar(url, esperarCola = true)
+        // `waitForTail=true` so this test can measure when the tail was ready. In production
+        // startup doesn't wait on it (see PrecalentadoNoBloqueaTest); libVLC is the one waiting on
+        // it, and it's libVLC this duplicate saves the seconds for.
+        proxy.preWarm(url, waitForTail = true)
         val ms = System.currentTimeMillis() - t0
 
         assertTrue(
-            "se esperó a la primera conexión colgada: ${ms}ms de ${PRIMERA_COLA_MS}ms",
-            ms < PRIMERA_COLA_MS - 1_500,
+            "waited out the first hung connection: ${ms}ms of ${FIRST_TAIL_MS}ms",
+            ms < FIRST_TAIL_MS - 1_500,
         )
-        assertTrue("el duplicado tenía que haber salido", colasPedidas.get() >= 2)
-        assertTrue("la cola tenía que quedar en memoria", proxy.duracionDelPrecalentado(url) >= 0L)
+        assertTrue("the duplicate should have gone out", tailsRequested.get() >= 2)
+        assertTrue("the tail should be in memory", proxy.durationOfPreWarmed(url) >= 0L)
     }
 
     @Test
-    fun `cuando la primera contesta a tiempo, no se pide dos veces`() = runBlocking {
-        // El duplicado no puede ser gratis para el CDN en el caso normal: sale tarde justamente para
-        // que, cuando la primera anda bien, este hilo se despierte y no toque la red.
-        colasPedidas.set(1) // el dispatcher solo demora la nº1: así la próxima ya contesta rápido
-        val url = origen.url("/rapida.ts").toString()
-        proxy.precalentar(url, esperarCola = true)
+    fun `when the first answers in time, it isn't requested twice`() = runBlocking {
+        // The duplicate can't be free for the CDN in the normal case: it goes out late precisely so
+        // that, when the first one is doing fine, this thread wakes up and doesn't touch the network.
+        tailsRequested.set(1) // the dispatcher only delays request #1: so the next one already answers fast
+        val url = origin.url("/rapida.ts").toString()
+        proxy.preWarm(url, waitForTail = true)
 
         assertTrue(
-            "se pidió la cola de más: ${colasPedidas.get() - 1} pedidos",
-            colasPedidas.get() - 1 == 1,
+            "the tail was requested extra: ${tailsRequested.get() - 1} requests",
+            tailsRequested.get() - 1 == 1,
         )
     }
 }

@@ -59,7 +59,7 @@ class ArchiveCacheProxyLanUrlTest {
     }
 
     /**
-     * Null rather than the input unchanged, deliberately — unlike [ArchiveCacheProxy.conFraccion],
+     * Null rather than the input unchanged, deliberately — unlike [ArchiveCacheProxy.withFraction],
      * whose caller can live with a no-op. Here handing back a loopback URL would be cast to the TV
      * and fail there, with nothing in our logs to say why; null is a case the cast path already
      * knows how to report ("la TV no puede alcanzar este stream").

@@ -19,7 +19,7 @@ package com.arkiv.player.playback
  * someone who was about to answer, a long one waits for someone who won't.
  *
  * That's why this doesn't roll the dice: the tail is downloaded ONCE together with startup (see
- * [ArchiveCacheProxy.precalentar]) and from there the player's probes are answered without
+ * [ArchiveCacheProxy.preWarm]) and from there the player's probes are answered without
  * touching the network. It's the same idea as the hot startup at byte 0, applied to the other end.
  *
  * It's a pure function so the edges can be pinned by test, which is where this would be dangerous:
@@ -43,7 +43,7 @@ object ColaCaliente {
      * a ese fallo.
      *
      * Ojo con el riesgo residual: un mp4 SIN faststart lleva el `moov` al final y sí necesitaría la
-     * cola. Los de magis —los únicos que pasan por acá, [ArchiveCacheProxy.precalentar] tiene un
+     * cola. Los de magis —los únicos que pasan por acá, [ArchiveCacheProxy.preWarm] tiene un
      * solo llamador— no lo hacen. Si alguno lo hiciera, se vería en el log como un
      * `pide rango=bytes=<cerca del final>` sobre un mp4, y lo peor que pasa es que ese rango va al
      * origen como iba antes de que la cola existiera.

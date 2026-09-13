@@ -14,65 +14,65 @@ import org.junit.rules.TemporaryFolder
 import java.util.concurrent.TimeUnit
 
 /**
- * El plazo para esperar la cola tiene que ser un plazo de verdad.
+ * The deadline for waiting on the tail has to be a real deadline.
  *
- * Medido en el Fire TV el 2026-08-13, reproduciendo un capítulo de serie de magis: el log decía
- * `la cola no llegó en 2000ms → se reproduce sin duración` y aun así la fase de precalentado tardó
- * **9218 ms**. El plazo se cumplía y nadie seguía adelante.
+ * Measured on the Fire TV on 2026-08-13, playing a magis series chapter: the log said `tail didn't
+ * arrive in 2000ms → playing without duration` and the pre-warm phase still took **9218 ms**. The
+ * deadline was being honoured and nobody moved on.
  *
- * La razón es de corrutinas, no de red: la cola se lanzaba con `async` DENTRO del
- * `withContext(Dispatchers.IO)` de `precalentar`. `withTimeoutOrNull { cola.await() }` cancela la
- * ESPERA, no el trabajo — y un `withContext` no vuelve hasta que todos sus hijos terminan. O sea que
- * al vencer el plazo se imprimía el aviso, se salía del bloque… y ahí el `withContext` se quedaba
- * quieto esperando a la misma cola de la que acababa de desentenderse.
+ * The reason is about coroutines, not the network: the tail used to be launched with `async` INSIDE
+ * `preWarm`'s `withContext(Dispatchers.IO)`. `withTimeoutOrNull { tail.await() }` cancels the WAIT,
+ * not the work -- and a `withContext` doesn't return until all its children finish. So once the
+ * deadline expired, the notice got printed, the block was left… and there the `withContext` sat
+ * still waiting on the very tail it had just walked away from.
  *
- * El síntoma sale caro dos veces: primero porque son segundos de spinner, y segundo porque son
- * segundos gastados en un dato que libVLC calcula solo (medido en el mismo aparato: `dur=3831168ms`
- * contra los 3831000 ms de la sonda).
+ * The symptom is expensive twice over: first because it's seconds of spinner, and second because
+ * they're seconds spent on data libVLC calculates on its own anyway (measured on the same device:
+ * `dur=3831168ms` against the probe's 3831000 ms).
  */
 class PrecalentadoNoBloqueaTest {
 
     @get:Rule
     val temp = TemporaryFolder()
 
-    private lateinit var origen: MockWebServer
+    private lateinit var origin: MockWebServer
     private lateinit var proxy: ArchiveCacheProxy
 
-    /** Cuánto tarda el origen en soltar la COLA. Más que el plazo de espera, a propósito. */
-    private val COLA_LENTA_MS = 6_000L
+    /** How long the origin takes to release the TAIL. Longer than the wait deadline, on purpose. */
+    private val SLOW_TAIL_MS = 6_000L
 
-    private fun paqueteTs(): ByteArray = ByteArray(188) { 0xFF.toByte() }.also { it[0] = 0x47; it[3] = 0x10 }
+    private fun tsPacket(): ByteArray = ByteArray(188) { 0xFF.toByte() }.also { it[0] = 0x47; it[3] = 0x10 }
 
-    private val archivo: ByteArray by lazy {
+    private val file: ByteArray by lazy {
         ByteArray(3 * 1024 * 1024).also { out ->
-            val p = paqueteTs()
+            val p = tsPacket()
             for (i in 0 until out.size / 188) p.copyInto(out, i * 188)
         }
     }
 
     @Before
     fun setUp() {
-        origen = MockWebServer().also { it.start() }
-        origen.dispatcher = object : Dispatcher() {
+        origin = MockWebServer().also { it.start() }
+        origin.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
-                val rango = request.getHeader("Range").orEmpty()
-                val total = archivo.size
-                val esCola = rango.startsWith("bytes=-")
-                val (desde, hasta) = when {
-                    esCola -> (total - rango.removePrefix("bytes=-").toInt()) to (total - 1)
-                    rango.startsWith("bytes=") -> {
-                        val p = rango.removePrefix("bytes=").split("-")
+                val range = request.getHeader("Range").orEmpty()
+                val total = file.size
+                val isTail = range.startsWith("bytes=-")
+                val (from, until) = when {
+                    isTail -> (total - range.removePrefix("bytes=-").toInt()) to (total - 1)
+                    range.startsWith("bytes=") -> {
+                        val p = range.removePrefix("bytes=").split("-")
                         p[0].toInt() to (p.getOrNull(1)?.toIntOrNull() ?: (total - 1))
                     }
                     else -> 0 to (total - 1)
                 }
-                val trozo = archivo.copyOfRange(desde, hasta + 1)
+                val chunk = file.copyOfRange(from, until + 1)
                 return MockResponse().setResponseCode(206)
-                    .setHeader("Content-Range", "bytes $desde-$hasta/$total")
-                    .setHeader("Content-Length", trozo.size.toString())
-                    .setBody(okio.Buffer().write(trozo))
-                    // La CABEZA llega al toque; la COLA es la que se hace esperar.
-                    .apply { if (esCola) setHeadersDelay(COLA_LENTA_MS, TimeUnit.MILLISECONDS) }
+                    .setHeader("Content-Range", "bytes $from-$until/$total")
+                    .setHeader("Content-Length", chunk.size.toString())
+                    .setBody(okio.Buffer().write(chunk))
+                    // The HEAD arrives right away; the TAIL is the one that takes its time.
+                    .apply { if (isTail) setHeadersDelay(SLOW_TAIL_MS, TimeUnit.MILLISECONDS) }
             }
         }
         proxy = ArchiveCacheProxy(temp.newFolder("cache"))
@@ -80,38 +80,38 @@ class PrecalentadoNoBloqueaTest {
 
     @After
     fun tearDown() {
-        // `runCatching` y no un shutdown a secas: cuando el test termina, la cola TODAVÍA está
-        // bajando —es exactamente lo que estos dos casos vinieron a comprobar— y MockWebServer se
-        // queja de no poder cerrar la cola de peticiones. Que ese hilo sobreviva al test es la
-        // conducta buscada, no una fuga: es lo que deja la cola en memoria para los sondeos de EOF
-        // de libVLC sin frenar el arranque. Es un servidor por test, así que no se pisan.
-        runCatching { origen.shutdown() }
+        // `runCatching` and not a bare shutdown: when the test ends, the tail is STILL downloading
+        // -that's exactly what these two cases came to check- and MockWebServer complains about not
+        // being able to close the request queue. That thread surviving the test is the intended
+        // behaviour, not a leak: it's what leaves the tail in memory for libVLC's EOF probes without
+        // holding up startup. It's one server per test, so they don't step on each other.
+        runCatching { origin.shutdown() }
     }
 
     @Test
-    fun `con una cola lenta el precalentado vuelve igual, en cuanto la cabeza sirve`() = runBlocking {
+    fun `with a slow tail, the pre-warm still returns as soon as the head serves`() = runBlocking {
         val t0 = System.currentTimeMillis()
-        proxy.precalentar(origen.url("/v.ts").toString(), esperarCola = false)
+        proxy.preWarm(origin.url("/v.ts").toString(), waitForTail = false)
         val ms = System.currentTimeMillis() - t0
 
         assertTrue(
-            "esperarCola=false no puede tardar lo que tarda la cola; tardó ${ms}ms de ${COLA_LENTA_MS}ms",
-            ms < COLA_LENTA_MS / 2,
+            "waitForTail=false can't take as long as the tail does; took ${ms}ms of ${SLOW_TAIL_MS}ms",
+            ms < SLOW_TAIL_MS / 2,
         )
     }
 
     @Test
-    fun `esperar la cola tiene un plazo y el plazo se cumple`() = runBlocking {
-        // Con `esperarCola=true` se le da a la cola su oportunidad, pero ACOTADA: pasado el plazo se
-        // reproduce sin duración. Que el aviso salga y la función siga esperando es lo mismo que no
-        // tener plazo.
+    fun `waiting on the tail has a deadline and the deadline is honoured`() = runBlocking {
+        // With `waitForTail=true` the tail gets its chance, but a BOUNDED one: past the deadline it
+        // plays without duration. The notice printing while the function keeps waiting is the same
+        // as having no deadline at all.
         val t0 = System.currentTimeMillis()
-        proxy.precalentar(origen.url("/v.ts").toString(), esperarCola = true)
+        proxy.preWarm(origin.url("/v.ts").toString(), waitForTail = true)
         val ms = System.currentTimeMillis() - t0
 
         assertTrue(
-            "el plazo de espera de la cola no se respetó: tardó ${ms}ms, la cola tardaba ${COLA_LENTA_MS}ms",
-            ms < COLA_LENTA_MS - 1_000,
+            "the tail's wait deadline wasn't honoured: took ${ms}ms, the tail took ${SLOW_TAIL_MS}ms",
+            ms < SLOW_TAIL_MS - 1_000,
         )
     }
 }

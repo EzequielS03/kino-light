@@ -14,34 +14,34 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * El precalentado baja las DOS puntas y de ahí sale la duración, sin pedir nada más.
+ * The pre-warm downloads BOTH ends and the duration comes from that, without asking for anything more.
  *
- * Antes eran cuatro viajes al CDN para arrancar: la sonda de duración pedía cabeza y cola por su
- * lado, y `precalentar` pedía otra vez esas mismas dos puntas — los 256 KB del final DUPLICADOS y
- * compitiendo entre sí. Medido el 2026-08-11 en el Fire TV sobre ocho arranques, `precalentado` era
- * la fase dominante en 6 de 8 (1443-6647 ms) y en dos corridas la sonda perdió su lotería y la
- * película salió sin duración.
+ * It used to be four trips to the CDN to start: the duration probe asked for the head and tail on
+ * its own, and `preWarm` asked again for those same two ends -- the 256 KB at the end DUPLICATED and
+ * competing with itself. Measured on 2026-08-11 on the Fire TV over eight startups, `pre-warm` was
+ * the dominant phase in 6 of 8 (1443-6647 ms) and in two runs the probe lost its race and the film
+ * came out with no duration.
  *
- * Los bytes que la sonda necesita son EXACTAMENTE los que el precalentado ya tiene en la mano.
+ * The bytes the probe needs are EXACTLY the ones the pre-warm already has in hand.
  */
 class PrecalentadoConDuracionTest {
 
     @get:Rule
     val temp = TemporaryFolder()
 
-    private lateinit var origen: MockWebServer
+    private lateinit var origin: MockWebServer
     private lateinit var proxy: ArchiveCacheProxy
 
-    /** Paquete TS de 188 bytes, con PCR opcional (base a 90 kHz) en el campo de adaptación. */
-    private fun paquete(pid: Int, base90k: Long?): ByteArray {
+    /** 188-byte TS packet, with optional PCR (90 kHz base) in the adaptation field. */
+    private fun packet(pid: Int, base90k: Long?): ByteArray {
         val p = ByteArray(188) { 0xFF.toByte() }
         p[0] = 0x47
         p[1] = ((pid shr 8) and 0x1F).toByte()
         p[2] = (pid and 0xFF).toByte()
-        if (base90k == null) { p[3] = 0x10; return p }   // solo payload, sin PCR
-        p[3] = 0x20                                       // solo campo de adaptación
+        if (base90k == null) { p[3] = 0x10; return p }   // payload only, no PCR
+        p[3] = 0x20                                       // adaptation field only
         p[4] = 183.toByte()
-        p[5] = 0x10                                       // flag de PCR presente
+        p[5] = 0x10                                       // PCR-present flag
         p[6] = ((base90k shr 25) and 0xFF).toByte()
         p[7] = ((base90k shr 17) and 0xFF).toByte()
         p[8] = ((base90k shr 9) and 0xFF).toByte()
@@ -52,47 +52,47 @@ class PrecalentadoConDuracionTest {
     }
 
     /**
-     * Un TS de ~3 MB con PCR SOLO en el primer paquete y en el último: así la duración esperada no
-     * depende de en qué byte exacto cae el corte de la cola.
+     * A ~3 MB TS with a PCR ONLY on the first packet and the last: that way the expected duration
+     * doesn't depend on exactly which byte the tail gets cut at.
      */
-    private val PAQUETES = 15_958
-    private val PCR_FINAL = 900_000L                      // 10 s a 90 kHz
-    private val archivo: ByteArray by lazy {
-        val out = ByteArray(PAQUETES * 188)
-        for (i in 0 until PAQUETES) {
+    private val PACKETS = 15_958
+    private val FINAL_PCR = 900_000L                      // 10 s at 90 kHz
+    private val file: ByteArray by lazy {
+        val out = ByteArray(PACKETS * 188)
+        for (i in 0 until PACKETS) {
             val base = when (i) {
                 0 -> 0L
-                PAQUETES - 1 -> PCR_FINAL
+                PACKETS - 1 -> FINAL_PCR
                 else -> null
             }
-            paquete(0x100, base).copyInto(out, i * 188)
+            packet(0x100, base).copyInto(out, i * 188)
         }
         out
     }
 
     @Before
     fun setUp() {
-        origen = MockWebServer().also { it.start() }
-        // Por Range, no por orden de llegada: cabeza y cola se piden EN PARALELO, así que con
-        // `enqueue` (FIFO) cada una podría llevarse la respuesta de la otra.
-        origen.dispatcher = object : Dispatcher() {
+        origin = MockWebServer().also { it.start() }
+        // By Range, not by arrival order: head and tail are requested IN PARALLEL, so with
+        // `enqueue` (FIFO) either one could get the other's response.
+        origin.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
-                val rango = request.getHeader("Range").orEmpty()
-                val total = archivo.size
-                val (desde, hasta) = when {
-                    rango.startsWith("bytes=-") ->
-                        (total - rango.removePrefix("bytes=-").toInt()) to (total - 1)
-                    rango.startsWith("bytes=") -> {
-                        val p = rango.removePrefix("bytes=").split("-")
+                val range = request.getHeader("Range").orEmpty()
+                val total = file.size
+                val (from, until) = when {
+                    range.startsWith("bytes=-") ->
+                        (total - range.removePrefix("bytes=-").toInt()) to (total - 1)
+                    range.startsWith("bytes=") -> {
+                        val p = range.removePrefix("bytes=").split("-")
                         p[0].toInt() to (p.getOrNull(1)?.toIntOrNull() ?: (total - 1))
                     }
                     else -> 0 to (total - 1)
                 }
-                val trozo = archivo.copyOfRange(desde, hasta + 1)
+                val chunk = file.copyOfRange(from, until + 1)
                 return MockResponse().setResponseCode(206)
-                    .setHeader("Content-Range", "bytes $desde-$hasta/$total")
-                    .setHeader("Content-Length", trozo.size.toString())
-                    .setBody(okio.Buffer().write(trozo))
+                    .setHeader("Content-Range", "bytes $from-$until/$total")
+                    .setHeader("Content-Length", chunk.size.toString())
+                    .setBody(okio.Buffer().write(chunk))
             }
         }
         proxy = ArchiveCacheProxy(temp.newFolder("cache"))
@@ -100,30 +100,30 @@ class PrecalentadoConDuracionTest {
 
     @After
     fun tearDown() {
-        origen.shutdown()
+        origin.shutdown()
     }
 
     @Test
-    fun `la duracion sale del precalentado sin pedir nada extra`() = runBlocking {
-        val url = origen.url("/v.ts").toString()
+    fun `the duration comes from the pre-warm without requesting anything extra`() = runBlocking {
+        val url = origin.url("/v.ts").toString()
 
-        assertTrue("el precalentado tenía que funcionar", proxy.precalentar(url))
+        assertTrue("the pre-warm had to work", proxy.preWarm(url))
 
-        assertEquals(10_000L, proxy.duracionDelPrecalentado(url))
+        assertEquals(10_000L, proxy.durationOfPreWarmed(url))
     }
 
     @Test
-    fun `precalentar hace exactamente dos viajes al origen`() = runBlocking {
-        // Uno por punta. Tres significaría que alguien volvió a pedir lo que ya estaba en memoria,
-        // que es justo lo que esto vino a borrar.
-        proxy.precalentar(origen.url("/v.ts").toString())
+    fun `preWarm makes exactly two trips to the origin`() = runBlocking {
+        // One per end. Three would mean someone re-requested what was already in memory, which is
+        // exactly what this came to erase.
+        proxy.preWarm(origin.url("/v.ts").toString())
 
-        assertEquals(2, origen.requestCount)
+        assertEquals(2, origin.requestCount)
     }
 
     @Test
-    fun `sin precalentado no hay duracion que dar`() = runBlocking {
-        // No es un error: quien llama tiene que poder distinguirlo para caer a la sonda por red.
-        assertEquals(0L, proxy.duracionDelPrecalentado(origen.url("/otra.ts").toString()))
+    fun `with no pre-warm there is no duration to give`() = runBlocking {
+        // Not an error: the caller has to be able to tell it apart to fall back to the network probe.
+        assertEquals(0L, proxy.durationOfPreWarmed(origin.url("/otra.ts").toString()))
     }
 }

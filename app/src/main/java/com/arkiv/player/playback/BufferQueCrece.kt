@@ -3,12 +3,12 @@ package com.arkiv.player.playback
 /**
  * A buffer that fills on one end while it's read from the other.
  *
- * Exists so magis's startup stops BLOCKING. Until 2026-08-11, `precalentar` downloaded the whole
+ * Exists so magis's startup stops BLOCKING. Until 2026-08-11, `preWarm` downloaded the whole
  * 2 MB startup chunk before publishing the playlist: measured on the Fire TV, that cost 0.5 to 5s
  * of spinner on every playback, and was the dominant phase of startup.
  *
  * But what libVLC needed to avoid giving up on identifying the stream was never the 2 MB itself:
- * it was that its FIRST READ didn't wait (see [ArchiveCacheProxy.precalentar]). With this, the
+ * it was that its FIRST READ didn't wait (see [ArchiveCacheProxy.preWarm]). With this, the
  * proxy hands out bytes as they arrive from the origin: the player opens as soon as there's
  * something, and never runs out of data because the buffer keeps growing behind it. It's what any
  * player that "starts right away" does -- start and keep downloading -- instead of fetching a

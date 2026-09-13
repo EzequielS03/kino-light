@@ -17,54 +17,54 @@ import java.net.URL
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Reanudar no puede costar diez conexiones al CDN.
+ * Resuming can't cost ten connections to the CDN.
  *
- * Medido en el Fire TV el 2026-08-13 reanudando una película en 13:26: libVLC no salta de una,
- * **bisecta**. Pidió diez rangos seguidos —`bytes=62148288-`, `63899508-`, `63533848-`,
- * `63443420-`…— leyendo unos cientos de KB de cada uno y cortando la conexión enseguida, cada uno
- * con su propia conexión a ~300 ms. Y los diez caían adentro de 1,8 MB del archivo.
+ * Measured on the Fire TV on 2026-08-13 resuming a film at 13:26: libVLC doesn't seek once, it
+ * **bisects**. It requested ten ranges in a row -`bytes=62148288-`, `63899508-`, `63533848-`,
+ * `63443420-`…- reading a few hundred KB from each and cutting the connection right away, each with
+ * its own connection at ~300 ms. And all ten landed within 1.8 MB of the file.
  *
- * Acá se reproduce esa forma de leer —pedir, leer poco, cortar, volver a pedir cerca— y se comprueba
- * que la segunda vuelta ya no toque la red.
+ * This reproduces that read pattern -request, read a little, cut, request again nearby- and checks
+ * that the second round no longer touches the network.
  */
 class VentanaDeSaltoTest {
 
     @get:Rule
     val temp = TemporaryFolder()
 
-    private lateinit var origen: MockWebServer
+    private lateinit var origin: MockWebServer
     private lateinit var proxy: ArchiveCacheProxy
 
     private val TOTAL = 32 * 1024 * 1024
-    private val archivo: ByteArray by lazy {
-        // Contenido no uniforme: si el proxy sirviera bytes de OTRO lado del archivo, un relleno
-        // constante lo dejaría pasar. Cada byte depende de su posición.
+    private val file: ByteArray by lazy {
+        // Non-uniform content: if the proxy served bytes from ANOTHER spot in the file, constant
+        // filler would let it slide. Every byte depends on its position.
         ByteArray(TOTAL) { (it % 251).toByte() }
     }
 
-    private val pedidosAlOrigen = AtomicInteger(0)
+    private val requestsToOrigin = AtomicInteger(0)
 
     @Before
     fun setUp() {
-        origen = MockWebServer().also { it.start() }
-        origen.dispatcher = object : Dispatcher() {
+        origin = MockWebServer().also { it.start() }
+        origin.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
-                val rango = request.getHeader("Range").orEmpty()
-                val esSufijo = rango.startsWith("bytes=-")
-                if (!esSufijo) pedidosAlOrigen.incrementAndGet()
-                val (desde, hasta) = when {
-                    esSufijo -> (TOTAL - rango.removePrefix("bytes=-").toInt()) to (TOTAL - 1)
-                    rango.startsWith("bytes=") -> {
-                        val p = rango.removePrefix("bytes=").split("-")
+                val range = request.getHeader("Range").orEmpty()
+                val isSuffix = range.startsWith("bytes=-")
+                if (!isSuffix) requestsToOrigin.incrementAndGet()
+                val (from, until) = when {
+                    isSuffix -> (TOTAL - range.removePrefix("bytes=-").toInt()) to (TOTAL - 1)
+                    range.startsWith("bytes=") -> {
+                        val p = range.removePrefix("bytes=").split("-")
                         p[0].toInt() to (p.getOrNull(1)?.toIntOrNull() ?: (TOTAL - 1))
                     }
                     else -> 0 to (TOTAL - 1)
                 }
-                val trozo = archivo.copyOfRange(desde, hasta + 1)
+                val chunk = file.copyOfRange(from, until + 1)
                 return MockResponse().setResponseCode(206)
-                    .setHeader("Content-Range", "bytes $desde-$hasta/$TOTAL")
-                    .setHeader("Content-Length", trozo.size.toString())
-                    .setBody(okio.Buffer().write(trozo))
+                    .setHeader("Content-Range", "bytes $from-$until/$TOTAL")
+                    .setHeader("Content-Length", chunk.size.toString())
+                    .setBody(okio.Buffer().write(chunk))
             }
         }
         proxy = ArchiveCacheProxy(temp.newFolder("cache"))
@@ -73,97 +73,97 @@ class VentanaDeSaltoTest {
     @After
     fun tearDown() {
         runCatching { proxy.stop() }
-        runCatching { origen.shutdown() }
+        runCatching { origin.shutdown() }
     }
 
     /**
-     * Pide un rango, lee [leer] bytes y CORTA — igual que libVLC bisecando.
+     * Requests a range, reads [toRead] bytes and CUTS OFF -- same as libVLC bisecting.
      *
-     * Falla FUERTE si el sondeo no sale bien, y eso es el arreglo de una intermitencia real: antes
-     * el `runCatching` se tragaba cualquier problema y devolvia lo que hubiera leido. Un sondeo que
-     * reventaba quedaba indistinguible de uno servido de memoria —los dos dejan el contador del
-     * origen en cero—, asi que el test fallaba con "el primer sondeo tenia que ir al origen una
-     * sola vez, expected 1 but was 0" señalando al proxy cuando el que se habia roto era el sondeo.
-     * Visto 1 de 4 corridas de la suite completa (nunca aislado), el 2026-08-14.
+     * Fails LOUDLY if the probe itself doesn't go well, and that's the fix for a real flake: the
+     * `runCatching` used to swallow any problem and return whatever had been read. A probe that blew
+     * up was indistinguishable from one served from memory -both leave the origin counter at zero-,
+     * so the test failed with "the first probe had to hit the origin exactly once, expected 1 but
+     * was 0", pointing at the proxy when the probe itself was what had broken. Seen in 1 of 4 full
+     * suite runs (never in isolation), on 2026-08-14.
      */
-    private fun sondear(proxyUrl: String, desde: Long, leer: Int): ByteArray {
+    private fun probe(proxyUrl: String, from: Long, toRead: Int): ByteArray {
         val conn = (URL(proxyUrl).openConnection() as HttpURLConnection).apply {
-            setRequestProperty("Range", "bytes=$desde-")
+            setRequestProperty("Range", "bytes=$from-")
             connectTimeout = 15_000
             readTimeout = 30_000
         }
-        val codigo = runCatching { conn.responseCode }
-            .getOrElse { throw AssertionError("el sondeo desde $desde no tuvo respuesta del proxy", it) }
-        assertEquals("el proxy no sirvio el rango desde $desde", 206, codigo)
-        val buf = ByteArray(leer)
+        val code = runCatching { conn.responseCode }
+            .getOrElse { throw AssertionError("the probe from $from got no response from the proxy", it) }
+        assertEquals("the proxy didn't serve the range from $from", 206, code)
+        val buf = ByteArray(toRead)
         var n = 0
         runCatching {
             conn.inputStream.use { ins ->
-                while (n < leer) {
-                    val l = ins.read(buf, n, leer - n)
+                while (n < toRead) {
+                    val l = ins.read(buf, n, toRead - n)
                     if (l < 0) break
                     n += l
                 }
             }
-        }.getOrElse { throw AssertionError("el sondeo desde $desde corto leyendo ($n de $leer bytes)", it) }
+        }.getOrElse { throw AssertionError("the probe from $from cut off while reading ($n of $toRead bytes)", it) }
         conn.disconnect()
-        assertEquals("el sondeo desde $desde leyo de menos", leer, n)
+        assertEquals("the probe from $from read short", toRead, n)
         return buf.copyOf(n)
     }
 
     @Test
-    fun `los saltos cercanos al primero se contestan de memoria`() = runBlocking {
+    fun `seeks near the first one are answered from memory`() = runBlocking {
         proxy.start()
-        val url = origen.url("/v.ts").toString()
-        // El total lo aprende el proxy del precalentado de la cola, y sin él no puede armar el
-        // Content-Range de una respuesta desde memoria.
-        proxy.precalentar(url, esperarCola = true)
-        val proxyUrl = proxy.proxyUrl(url, emptyMap(), directo = true)
-        pedidosAlOrigen.set(0)
+        val url = origin.url("/v.ts").toString()
+        // The proxy learns the total from the tail's pre-warm, and without it can't build the
+        // Content-Range of a response served from memory.
+        proxy.preWarm(url, waitForTail = true)
+        val proxyUrl = proxy.proxyUrl(url, emptyMap(), direct = true)
+        requestsToOrigin.set(0)
 
         val base = 20L * 1024 * 1024
-        // Primer sondeo: este SÍ va al origen, y de paso deja la ventana.
-        sondear(proxyUrl, base, 64 * 1024)
-        val trasElPrimero = pedidosAlOrigen.get()
+        // First probe: this one DOES go to the origin, and leaves the window as a side effect.
+        probe(proxyUrl, base, 64 * 1024)
+        val afterTheFirst = requestsToOrigin.get()
 
-        // La ventana se llena en el mismo hilo que atendió el sondeo; hay que darle su momento.
+        // The window fills on the same thread that handled the probe; it needs a moment.
         Thread.sleep(2_000)
 
-        // Los siguientes, cerca del primero, como en la bisección medida.
-        val leidos = listOf(1_500_000L, 900_000L, 400_000L, 120_000L).map { d ->
-            d to sondear(proxyUrl, base + d, 32 * 1024)
+        // The next ones, near the first, like in the measured bisection.
+        val results = listOf(1_500_000L, 900_000L, 400_000L, 120_000L).map { d ->
+            d to probe(proxyUrl, base + d, 32 * 1024)
         }
 
         assertEquals(
-            "el primer sondeo tenía que ir al origen una sola vez", 1, trasElPrimero,
+            "the first probe had to hit the origin exactly once", 1, afterTheFirst,
         )
         assertEquals(
-            "los sondeos cercanos volvieron a la red en vez de salir de la ventana",
-            trasElPrimero, pedidosAlOrigen.get(),
+            "the nearby probes went back to the network instead of coming from the window",
+            afterTheFirst, requestsToOrigin.get(),
         )
-        // Y lo que entregó tiene que ser el tramo CORRECTO, no bytes de cualquier parte.
-        for ((d, bytes) in leidos) {
-            assertTrue("el sondeo en +$d vino vacío", bytes.isNotEmpty())
-            val esperado = ((base + d) % 251).toByte()
-            assertEquals("el sondeo en +$d entregó bytes de otro lado", esperado, bytes[0])
+        // And what it delivered has to be the CORRECT stretch, not bytes from just anywhere.
+        for ((d, bytes) in results) {
+            assertTrue("the probe at +$d came back empty", bytes.isNotEmpty())
+            val expected = ((base + d) % 251).toByte()
+            assertEquals("the probe at +$d delivered bytes from somewhere else", expected, bytes[0])
         }
     }
 
     @Test
-    fun `la lectura principal no gasta ventana`() = runBlocking {
-        // `bytes=0-` es la lectura secuencial y esa NUNCA la corta el reproductor: guardarle una
-        // ventana serían 4 MB de RAM por reproducción a cambio de nada.
+    fun `the main read does not spend a window`() = runBlocking {
+        // `bytes=0-` is the sequential read and the player NEVER cuts that one off: saving it a
+        // window would be 4 MB of RAM per playback for nothing.
         proxy.start()
-        val url = origen.url("/w.ts").toString()
-        proxy.precalentar(url, esperarCola = true)
-        val proxyUrl = proxy.proxyUrl(url, emptyMap(), directo = true)
+        val url = origin.url("/w.ts").toString()
+        proxy.preWarm(url, waitForTail = true)
+        val proxyUrl = proxy.proxyUrl(url, emptyMap(), direct = true)
 
-        sondear(proxyUrl, 0L, 64 * 1024)
+        probe(proxyUrl, 0L, 64 * 1024)
         Thread.sleep(500)
 
-        // Si hubiera guardado ventana desde 0, este pedido saldría de memoria y no tocaría el origen.
-        pedidosAlOrigen.set(0)
-        sondear(proxyUrl, 100_000L, 16 * 1024)
-        assertEquals("la lectura principal dejó una ventana que no le sirve a nadie", 1, pedidosAlOrigen.get())
+        // If it had saved a window from 0, this request would come from memory and not touch the origin.
+        requestsToOrigin.set(0)
+        probe(proxyUrl, 100_000L, 16 * 1024)
+        assertEquals("the main read left a window that's of no use to anyone", 1, requestsToOrigin.get())
     }
 }

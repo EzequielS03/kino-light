@@ -21,112 +21,113 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Local HTTP proxy for magis's CDN: this was originally built because VLC couldn't send
  * `Content-Auth`/`Content-License` or put them on a Range request, so the stream goes through
  * here instead, which can add them to the request to the origin. It also pre-warms the startup
- * chunk and the tail of the file (see [precalentar]) and serves seek windows (see
- * [precalentarSalto]) to paper over the CDN's variable latency (0.2-20s per range) so the player
+ * chunk and the tail of the file (see [preWarm]) and serves seek windows (see
+ * [preWarmSeek]) to paper over the CDN's variable latency (0.2-20s per range) so the player
  * never runs out of tracks or data.
  *
  * Until this branch's (light-magis) archive.org pruning, this proxy had a SECOND mode -- a
  * disk cache that downloaded once into a growing file, exclusive to archive.org -- that was
- * deleted along with the rest of that source: magis never used it (its path is `directo=true`,
+ * deleted along with the rest of that source: magis never used it (its path is `direct=true`,
  * see [serve]'s dispatcher). What's left here is exactly what magis needed.
  */
 class ArchiveCacheProxy(private val cacheDir: File) {
     /**
-     * Clave de caché estable por URL de origen (SHA-1), para las tablas en memoria/disco de acá
-     * abajo (`calientes`, `colas`, `saltos`, [colaEnDisco], `vivasPorClave`). Antes salía de
-     * `DiskLruCache.keyFor`, borrado junto con el resto de la caché en disco (era exclusiva de
-     * archive.org); el hash en sí no era parte de eso y se conserva para no invalidar las colas ya
-     * guardadas en disco de instalaciones existentes.
+     * Stable cache key per origin URL (SHA-1), for the in-memory/disk tables below ([hotBuffers],
+     * [tails], [seekWindows], [tailOnDisk], [liveByKey]). Used to come from `DiskLruCache.keyFor`,
+     * deleted along with the rest of the disk cache (it was exclusive to archive.org); the hash
+     * itself wasn't part of that and is kept so it doesn't invalidate tails already saved on disk
+     * by existing installs.
      */
     private fun keyFor(url: String): String {
         val md = MessageDigest.getInstance("SHA-1").digest(url.toByteArray())
         return md.joinToString("") { "%02x".format(it) }
     }
 
-    // El socket se crea en start(), NO en el constructor: este proxy es singleton y vive todo el
-    // proceso, así que un socket de construcción se cerraba en el primer stop() y ya no había forma
-    // de reabrirlo (un ServerSocket cerrado no se reabre). Como el botón de parar de la barra llama
-    // a stop(), eso dejaba archive cargando para siempre hasta matar la app.
+    // The socket is created in start(), NOT in the constructor: this proxy is a singleton and
+    // lives the whole process, so a constructor-time socket got closed on the first stop() with no
+    // way to reopen it (a closed ServerSocket doesn't reopen). Since the bar's stop button calls
+    // stop(), that left archive loading forever until the app was killed.
     @Volatile private var server: ServerSocket? = null
     val port: Int get() = server?.localPort ?: -1
     @Volatile private var running = false
 
     /**
-     * Cuántas conexiones al origen hay vivas por archivo. Solo para diagnóstico: ya NO se cierra
-     * ninguna a la fuerza (ver la nota en [abrirEnOrigen]), pero si este número crece sin volver a
-     * bajar hay conexiones que quedaron colgadas y se ve acá antes de que se note reproduciendo.
+     * How many connections to the origin are live per file. Diagnostics only: none get forcibly
+     * closed anymore (see the note in [openAtOrigin]), but if this number grows without ever
+     * coming back down there are connections stuck hanging, and it shows up here before it's
+     * noticed while playing.
      */
-    private val vivasPorClave = ConcurrentHashMap<String, Int>()
+    private val liveByKey = ConcurrentHashMap<String, Int>()
 
-    private fun soltarViva(clave: String) {
-        vivasPorClave.computeIfPresent(clave) { _, n -> if (n <= 1) null else n - 1 }
+    private fun releaseLive(key: String) {
+        liveByKey.computeIfPresent(key) { _, n -> if (n <= 1) null else n - 1 }
     }
 
     /**
-     * Qué rango pidió cada conexión abierta AHORA, y desde cuándo. Es puro diagnóstico y existe por
-     * una pregunta concreta: cuando el origen rechaza, ¿es porque le estamos pidiendo varias cosas
-     * a la vez? Contar conexiones no alcanza para responderla — hace falta ver QUÉ se está pidiendo
-     * en paralelo y desde hace cuánto, que es lo que distingue "el CDN nos limita por concurrencia"
-     * de "esta petición concreta salió mal".
+     * Which range each currently open connection requested, and since when. Pure diagnostics,
+     * existing for one concrete question: when the origin rejects, is it because we're asking for
+     * several things at once? Counting connections isn't enough to answer that -- it takes seeing
+     * WHAT is being requested in parallel and for how long, which is what tells apart "the CDN is
+     * throttling us by concurrency" from "this particular request just went wrong".
      */
-    private val rangosEnVuelo = ConcurrentHashMap<String, Long>()
+    private val rangesInFlight = ConcurrentHashMap<String, Long>()
 
-    /** Los rangos abiertos ahora mismo, con su antigüedad, para meterlos en una línea de log. */
-    private fun fotoDeRangosEnVuelo(): String {
-        val ahora = System.currentTimeMillis()
-        if (rangosEnVuelo.isEmpty()) return "ninguno"
-        return rangosEnVuelo.entries
+    /** The ranges open right now, with their age, to drop into a log line. */
+    private fun snapshotOfRangesInFlight(): String {
+        val now = System.currentTimeMillis()
+        if (rangesInFlight.isEmpty()) return "none"
+        return rangesInFlight.entries
             .sortedBy { it.value }
-            .joinToString(" | ") { (r, t) -> "$r hace ${ahora - t}ms" }
+            .joinToString(" | ") { (r, t) -> "$r ${now - t}ms ago" }
     }
 
     /**
-     * Las conexiones al origen abiertas AHORA, para poder abandonarlas cuando la red cambia debajo.
-     * A diferencia de [vivasPorClave] —que solo cuenta, para diagnóstico— esto guarda con qué
-     * cerrarlas. Ver [abandonarConexiones] y [CambioDeRed].
+     * The connections to the origin open RIGHT NOW, so they can be abandoned when the network
+     * changes underneath. Unlike [liveByKey] -which only counts, for diagnostics- this holds what
+     * to close them with. See [abandonConnections] and [CambioDeRed].
      */
-    private val conexionesVivas = LiveConnections()
+    private val liveConnections = LiveConnections()
 
     /**
-     * Cierra todas las conexiones al origen que haya abiertas. Lo llama el vigilante de red cuando
-     * el aparato cambia de red: esos sockets quedaron atados a una interfaz que ya no existe y sin
-     * esto la lectura se queda esperando hasta el plazo del CUERPO de [PoliticaOrigen] —90 s en
-     * archive, 30 s en magis— ANTES de que empiece siquiera el primer reintento.
+     * Closes every open connection to the origin. Called by the network watchdog when the device
+     * switches networks: those sockets were left tied to an interface that no longer exists, and
+     * without this the read just waits until [PoliticaOrigen]'s BODY deadline -90 s in archive,
+     * 30 s in magis- before even the first retry begins.
      *
-     * No hace falta avisarle a nadie más: cerrar el socket hace que la lectura falle en el acto, y
-     * de ahí en adelante se encarga la política de reintentos de siempre, que ya sabe abrir de nuevo
-     * — esta vez por la red nueva.
+     * No need to notify anyone else: closing the socket makes the read fail on the spot, and from
+     * there the usual retry policy takes over, which already knows how to open again -- this time
+     * over the new network.
      */
-    fun abandonarConexiones(motivo: String) {
-        val cerradas = conexionesVivas.closeAll()
-        if (cerradas > 0) {
-            android.util.Log.w("ArchiveCacheProxy", "$motivo → abandoning $cerradas connection(s) to the origin")
+    fun abandonConnections(reason: String) {
+        val closed = liveConnections.closeAll()
+        if (closed > 0) {
+            android.util.Log.w("ArchiveCacheProxy", "$reason → abandoning $closed connection(s) to the origin")
         }
     }
-    // Tamaño real de cada origen, para poder ventanear. Ver totalDelOrigen.
-    private val totales = ConcurrentHashMap<String, Long>()
+    // Real size of each origin, to be able to window. See totalOfOrigin.
+    private val totals = ConcurrentHashMap<String, Long>()
 
-    // Duración de cada origen, para el playlist de cast. Ver duracionDelOrigen.
-    private val duraciones = ConcurrentHashMap<String, Long>()
+    // Duration of each origin, for the cast playlist. See durationOfOrigin.
+    private val durations = ConcurrentHashMap<String, Long>()
 
-    // Tabla de segmentos de cada origen, para el playlist de cast. Ver segmentosDe.
-    private val segmentos = ConcurrentHashMap<String, List<TsSegmenter.Segment>>()
+    // Segment table of each origin, for the cast playlist. See segmentsFor.
+    private val segments = ConcurrentHashMap<String, List<TsSegmenter.Segment>>()
 
-    // Dónde empieza DE VERDAD cada segmento (el IDR más cercano a la frontera estimada), por
-    // origen y por índice. Se aprende al servir, ver serveSegment.
-    private val idrPorOrigen = ConcurrentHashMap<String, ConcurrentHashMap<Int, Long>>()
+    // Where each segment REALLY starts (the IDR closest to the estimated boundary), by origin and
+    // by index. Learned while serving, see serveSegment.
+    private val idrByOrigin = ConcurrentHashMap<String, ConcurrentHashMap<Int, Long>>()
 
-    /** Cuánto se mira más allá de la frontera estimada buscando el keyframe real. Un GOP típico
-     *  son 2-5 s, que a los bitrates de magis es medio mega largo. */
-    private val MARGEN_GOP = 1_500_000L
+    /** How far past the estimated boundary to look for the real keyframe. A typical GOP is 2-5s,
+     *  which at magis's bitrates is around half a meg long. */
+    private val GOP_MARGIN = 1_500_000L
 
-    /** Cuántas ventanas de [MARGEN_GOP] se recorren buscando un IDR tras un salto. */
-    private val VENTANAS_IDR = 6
+    /** How many [GOP_MARGIN] windows are walked looking for an IDR after a jump. */
+    private val IDR_WINDOWS = 6
 
     /**
      * Segment length aimed for in the cast playlist, in seconds.
      *
-     * Thirty. Ten was too fine once each segment carries [MARGEN_GOP] of overlap while the real
+     * Thirty. Ten was too fine once each segment carries [GOP_MARGIN] of overlap while the real
      * keyframe is found -- 1.5 MB of slack on a 1.35 MB segment is more overlap than segment. At
      * thirty the slack is a third of the fetch, and sixty was MEASURED to be worse (2026-09-12). Longer segments were tried as a way
      * to reduce how often a mid-GOP boundary can stall the receiver -- ~120 boundaries instead of
@@ -138,224 +139,236 @@ class ArchiveCacheProxy(private val cacheDir: File) {
      * The stalls were never about how MANY boundaries there are; they are about WHERE each one
      * lands. See [TsSegmenter.segmentByBitrate].
      */
-    private val SEGMENTO_OBJETIVO_SEG = 30.0
+    private val TARGET_SEGMENT_SEC = 30.0
 
     /**
-     * Último código HTTP que dio cada origen. Existe porque el reproductor NO puede distinguir por
-     * qué falló: pase lo que pase acá, el player ve un 502 del proxy. Y la diferencia importa — un 404
-     * significa "archive renombró el archivo" y se puede arreglar solo (ver CoincidenciaDeArchivo),
-     * mientras que un 503 o un timeout solo se pueden reintentar. Guardarlo acá es la forma más
-     * barata de que esa distinción sobreviva hasta quien sabe qué hacer con ella.
+     * Last HTTP code each origin gave. Exists because the player CANNOT tell why something failed:
+     * no matter what happens here, the player sees a 502 from the proxy. And the difference
+     * matters -- a 404 means "archive renamed the file" and can fix itself (see
+     * CoincidenciaDeArchivo), while a 503 or a timeout can only be retried. Saving it here is the
+     * cheapest way for that distinction to survive until whoever knows what to do with it.
      */
-    private val ultimosCodigos = ConcurrentHashMap<String, Int>()
+    private val lastCodes = ConcurrentHashMap<String, Int>()
 
-    /** Qué contestó [originUrl] la última vez, o null si nunca se le pidió nada. */
-    fun ultimoCodigoDe(originUrl: String): Int? = ultimosCodigos[originUrl]
+    /** What [originUrl] answered last time, or null if it was never asked anything. */
+    fun lastCodeFor(originUrl: String): Int? = lastCodes[originUrl]
 
-    private fun anotarCodigo(origin: String, code: Int) {
-        ultimosCodigos[origin] = code
+    private fun recordCode(origin: String, code: Int) {
+        lastCodes[origin] = code
     }
 
     /**
-     * Arranque BAJÁNDOSE en memoria, por clave de caché. Ver [precalentar].
+     * Startup DOWNLOADING in memory, by cache key. See [preWarm].
      *
-     * Antes acá había un `ByteArray` ya completo, y por eso [precalentar] tenía que esperar los 2 MB
-     * enteros antes de dejar abrir el video: medido en el Fire TV, 0,5 a 5 s de spinner en cada
-     * reproducción. Ahora es un [BufferQueCrece] y se lee mientras se llena — el player abre apenas
-     * hay algo y no se queda sin datos porque el buffer sigue creciendo detrás.
+     * Used to hold an already-complete `ByteArray` here, and that's why [preWarm] had to wait for
+     * the whole 2 MB before letting the video open: measured on the Fire TV, 0.5 to 5 s of spinner
+     * on every playback. Now it's a [BufferQueCrece] and gets read while it fills -- the player
+     * opens as soon as there's something and never runs dry because the buffer keeps growing
+     * behind it.
      *
-     * Solo lo usa magis: nadie más llama a `precalentar`, así que para el resto de las fuentes este
-     * mapa está siempre vacío y el camino es exactamente el de siempre.
+     * Only magis uses it: nobody else calls `preWarm`, so for every other source this map is
+     * always empty and the path is exactly the usual one.
      */
-    private val calientes = ConcurrentHashMap<String, BufferQueCrece>()
+    private val hotBuffers = ConcurrentHashMap<String, BufferQueCrece>()
 
     /**
-     * Cuánto del arranque tiene que haber llegado antes de dejar abrir el video.
+     * How much of the startup has to have arrived before letting the video open.
      *
-     * No es "cuánto se precalienta" (eso sigue siendo [ARRANQUE_CALIENTE]): es solo cuánto se
-     * ESPERA. Alcanza con que haya empezado a fluir — lo que hundía a libVLC era que su primera
-     * lectura se quedara colgada, no el tamaño del colchón.
+     * Not "how much gets pre-warmed" (that's still [HOT_STARTUP_SIZE]): it's only how much gets
+     * WAITED FOR. It's enough that it started flowing -- what sank libVLC was its first read
+     * hanging, not the size of the cushion.
      */
-    private val ARRANQUE_MINIMO = 64 * 1024
+    private val MIN_STARTUP = 64 * 1024
 
     /**
-     * Tope de espera para que el arranque empiece a fluir. Si en este tiempo no llegó ni el primer
-     * bloque, el origen está muerto y se reproduce sin garantía (mejor eso que un spinner eterno).
+     * Wait ceiling for the startup to start flowing. If not even the first block arrived within
+     * this time, the origin is dead and it plays with no guarantee (better that than an endless
+     * spinner).
      */
-    private val ESPERA_ARRANQUE_MS = 8_000L
+    private val STARTUP_WAIT_MS = 8_000L
 
     /**
-     * Tope de espera de la COLA, y solo cuando de ella tiene que salir la duración.
+     * Wait ceiling for the TAIL, and only when the duration has to come from it.
      *
-     * Corto a propósito: la duración es una mejora de la barra, nunca un motivo para no reproducir.
-     * El camino bueno es que la mande el gateway (ya lo hace para películas y, desde 2026-08-11,
-     * también para capítulos de serie); esto es el respaldo del respaldo.
+     * Short on purpose: the duration is a nicety for the bar, never a reason not to play. The good
+     * path is the gateway sending it (it already does for films and, since 2026-08-11, for series
+     * chapters too); this is the backup's backup.
      */
-    private val ESPERA_COLA_MS = 2_000L
+    private val TAIL_WAIT_MS = 2_000L
 
     /**
-     * El FINAL de cada archivo, por clave de caché: (byte absoluto donde arranca, bytes). Lo llena
-     * [precalentar] y lo consume [ColaCaliente], que es donde está el porqué.
+     * The END of each file, by cache key: (absolute byte where it starts, bytes). Filled by
+     * [preWarm] and consumed by [ColaCaliente], which is where the reasoning lives.
      *
-     * A diferencia de [calientes], esta NO se consume al usarla: libVLC sondeaba el final VARIAS
-     * veces seguidas y con offsets distintos, y todas esas son las que hay que contestar sin red.
+     * Unlike [hotBuffers], this one is NOT consumed on use: libVLC probed the end SEVERAL times in
+     * a row with different offsets, and all of those are what has to be answered without the
+     * network.
      */
-    private val colas = ConcurrentHashMap<String, Pair<Long, ByteArray>>()
+    private val tails = ConcurrentHashMap<String, Pair<Long, ByteArray>>()
 
     /**
-     * La misma cola, pero en disco, para que sobreviva al reinicio de la app.
+     * The same tail, but on disk, so it survives the app restarting.
      *
-     * Sin esto [colas] se vaciaba en cada arranque y el sondeo de EOF de libVLC volvía a pagar la
-     * red — medido en el Fire TV el 2026-08-14: 6205 ms para traer 256 KB con dos rechazos del CDN,
-     * y 5376 ms hasta la primera imagen. En un Fire TV, que mata la app apenas se va al fondo, esa
-     * "primera vez" es casi siempre. Ver [ColaEnDisco].
+     * Without this [tails] emptied on every startup and libVLC's EOF probing paid for the network
+     * again -- measured on the Fire TV on 2026-08-14: 6205 ms to fetch 256 KB with two CDN
+     * rejections, and 5376 ms to the first frame. On a Fire TV, which kills the app as soon as it
+     * goes to the background, that "first time" is almost always. See [ColaEnDisco].
      */
-    private val colaEnDisco = ColaEnDisco(File(cacheDir, "colas"))
+    private val tailOnDisk = ColaEnDisco(File(cacheDir, "colas"))
 
     /**
-     * Colas que TODAVÍA se están bajando, por clave de caché.
+     * Tails STILL being downloaded, by cache key.
      *
-     * Existe porque desde que el arranque dejó de esperar a la cola, el precalentado de la cola y el
-     * sondeo de EOF de libVLC dejaron de ir en fila y pasaron a ir a la vez: dos conexiones pidiendo
-     * LOS MISMOS bytes del final. Medido en el Fire TV el 2026-08-13, con el CDN en una mala racha,
-     * se rechazaron una a la otra durante 7 s —`origen rechazó bytes=-262144`, `origen rechazó
-     * bytes=632603872-`, dos intentos cada una— y recién al tercero contestó, en 167 ms. VLC tardó
-     * 7719 ms en abrir esperando su propia cola.
+     * Exists because once startup stopped waiting on the tail, pre-warming the tail and libVLC's
+     * EOF probing stopped going one after another and started going at the SAME time: two
+     * connections asking for THE SAME end-of-file bytes. Measured on the Fire TV on 2026-08-13,
+     * with the CDN on a bad streak, they rejected each other for 7 s -`origin rejected
+     * bytes=-262144`, `origin rejected bytes=632603872-`, two attempts each- and only answered on
+     * the third, in 167 ms. VLC took 7719 ms to open waiting on its own tail.
      *
-     * Con esto, quien llega segundo espera a la que ya está en vuelo en vez de abrir una conexión
-     * que compite. Es la misma idea de [BufferQueCrece] para la cabeza: una sola descarga, varios
-     * lectores.
+     * With this, whoever arrives second waits on the one already in flight instead of opening a
+     * competing connection. It's the same idea as [BufferQueCrece] for the head: one download,
+     * several readers.
      */
-    private val colasEnVuelo = ConcurrentHashMap<String, java.util.concurrent.CountDownLatch>()
+    private val tailsInFlight = ConcurrentHashMap<String, java.util.concurrent.CountDownLatch>()
 
     /**
-     * Cuánto se le espera a una cola en vuelo antes de ir al origen igual.
+     * How long a tail in flight gets waited on before going to the origin anyway.
      *
-     * Generoso a propósito: acá esperar NO es tiempo perdido —la descarga que se espera es la que va
-     * a contestar— y el plazo solo existe para que un precalentado que murió sin avisar no deje al
-     * reproductor colgado. Pasado el plazo se pide al origen, que es lo que se hacía siempre.
+     * Generous on purpose: here waiting is NOT wasted time -the download being waited on is the
+     * one that's going to answer- and the deadline only exists so a pre-warm that died without
+     * notice doesn't leave the player hanging. Past the deadline, the origin gets asked, which is
+     * what always used to happen.
      */
-    private val ESPERA_COLA_EN_VUELO_MS = 10_000L
+    private val TAIL_IN_FLIGHT_WAIT_MS = 10_000L
 
     /**
-     * Un tramo del archivo alrededor de un punto de SALTO, guardado en memoria.
+     * A stretch of the file around a SEEK point, kept in memory.
      *
-     * El porqué, medido en el Fire TV el 2026-08-13 reanudando una película en 13:26: libVLC no
-     * saltaba de una: **bisectaba**. Pidió diez rangos seguidos —`bytes=62148288-`, `63899508-`, `63533848-`,
-     * `63443420-`…— leyendo unos cientos de KB de cada uno y cortando la conexión enseguida. Cada uno
-     * abría su propia conexión al CDN a ~300 ms. Y los diez caían adentro de **1,8 MB** del archivo.
+     * The why, measured on the Fire TV on 2026-08-13 resuming a film at 13:26: libVLC didn't seek
+     * once -- it **bisected**. It requested ten ranges in a row -`bytes=62148288-`, `63899508-`,
+     * `63533848-`, `63443420-`…- reading a few hundred KB from each and cutting the connection
+     * right away. Each one opened its own connection to the CDN at ~300 ms. And all ten landed
+     * within **1.8 MB** of the file.
      *
-     * Con esto, el primero de esos rangos deja una ventana en memoria y los otros nueve se contestan
-     * sin tocar la red. Es lo mismo que hace la app original por otro camino: su reproductor nunca le
-     * pide bytes al CDN, le avisa al motor de descarga a qué punto va (`Seek {moment, offset}`, ver
-     * `yc/C6280e.java` en la decompilada) y el motor prepara la zona.
+     * With this, the first of those ranges leaves a window in memory and the other nine get
+     * answered without touching the network. It's the same thing the original app does another
+     * way: its player never asks the CDN for bytes, it tells the download engine which point it's
+     * going to (`Seek {moment, offset}`, see `yc/C6280e.java` in the decompiled app) and the engine
+     * prepares the area.
      *
-     * La ventana NO se baja por adelantado, y esa es la parte importante: se llena con la conexión
-     * que el reproductor ya abrió, **siguiendo después de que él corta**. Así la reproducción
-     * secuencial —que nunca corta— no paga nada, ni una conexión ni un byte de más.
+     * The window is NOT downloaded ahead of time, and that's the important part: it fills from the
+     * connection the player already opened, **continuing after it cuts off**. That way sequential
+     * playback -which never cuts- pays nothing extra, not a connection, not a single byte.
      */
-    private class VentanaDeSalto(val inicio: Long, val buffer: BufferQueCrece) {
-        /** Si [pedido] cae dentro de lo que YA hay guardado. */
-        fun cubre(pedido: Long): Boolean =
-            pedido >= inicio && pedido < inicio + buffer.disponible
+    private class SeekWindow(val start: Long, val buffer: BufferQueCrece) {
+        /** Whether [requested] falls inside what's ALREADY saved. */
+        fun covers(requested: Long): Boolean =
+            requested >= start && requested < start + buffer.disponible
     }
 
-    private val saltos = ConcurrentHashMap<String, MutableList<VentanaDeSalto>>()
+    private val seekWindows = ConcurrentHashMap<String, MutableList<SeekWindow>>()
 
     /**
-     * Cuánto se guarda alrededor de un salto. 4 MB cubre con margen los 1,8 MB que abarcó la
-     * bisección medida, y es plata: son 4 MB de RAM en un Fire Stick.
+     * How much is saved around a seek. 4 MB covers the 1.8 MB the measured bisection spanned with
+     * margin, and it's money: that's 4 MB of RAM on a Fire Stick.
      */
-    private val VENTANA_SALTO = 4 * 1024 * 1024
+    private val SEEK_WINDOW_SIZE = 4 * 1024 * 1024
 
-    /** Cuántas ventanas por archivo. Dos: la del salto de ahora y la del anterior, nada más. */
-    private val VENTANAS_POR_ARCHIVO = 2
+    /** How many windows per file. Two: the current seek's and the previous one's, nothing more. */
+    private val WINDOWS_PER_FILE = 2
 
     /**
-     * Cuánto ANTES del byte estimado arranca la ventana del salto precalentado, y cuánto abarca.
+     * How far BEFORE the estimated byte the pre-warmed seek window starts, and how much it covers.
      *
-     * Salen de medir, no de elegir un número redondo: en dos reanudaciones reales el desvío entre el
-     * byte que estima la tasa constante y los que el reproductor terminó pidiendo fue de **-2,7 MB a
-     * +3,7 MB**. Arrancar 4 MB antes y cubrir 8 abarca ese rango entero con algo de aire.
+     * These come from measuring, not from picking a round number: across two real resumes the gap
+     * between the byte the constant rate estimates and the ones the player ended up requesting was
+     * **-2.7 MB to +3.7 MB**. Starting 4 MB early and covering 8 spans that whole range with some
+     * room to spare.
      */
-    private val MARGEN_SALTO = 4L * 1024 * 1024
-    private val VENTANA_SALTO_PRECALENTADA = 8 * 1024 * 1024
+    private val SEEK_MARGIN = 4L * 1024 * 1024
+    private val PREWARMED_SEEK_WINDOW_SIZE = 8 * 1024 * 1024
 
     /**
-     * Cuánto se le da a la primera conexión antes de pedir la cola por una segunda en paralelo.
+     * How much time the first connection gets before the tail is also requested over a second one
+     * in parallel.
      *
-     * 1,2 s: más que el caso bueno del CDN (0,2-0,8 s medidos) y bastante menos que el plazo de
-     * 3 s con el que se da por muerta. Ahí es donde este duplicado gana: cuando la primera va camino
-     * a no contestar, no hay que esperar a que se rinda para volver a tirar los dados.
+     * 1.2 s: more than the CDN's good case (0.2-0.8 s measured) and well under the 3 s deadline
+     * that gives it up for dead. That's where this duplicate wins: when the first one is on its
+     * way to not answering, there's no need to wait for it to give up before rolling the dice
+     * again.
      */
-    private val DUPLICAR_TRAS_MS = 1_200L
+    private val DUPLICATE_AFTER_MS = 1_200L
 
-    /** Cuántas conexiones como mucho para la cola. Dos: el duplicado, no una ráfaga. */
-    private val TIROS_A_LA_COLA = 2
+    /** How many connections at most for the tail. Two: the duplicate, not a burst. */
+    private val TAIL_SHOTS = 2
 
     /**
-     * Cuánto espera la cola a saber el tamaño del archivo antes de rendirse y pedir por sufijo.
+     * How long the tail waits to know the file's size before giving up and asking by suffix
+     * instead.
      *
-     * Corto porque el dato viene de la respuesta de la CABEZA, que se está bajando en paralelo y
-     * cuyo primer byte es justo lo que el arranque ya estaba esperando: si a los 2 s no llegó, el
-     * problema es el CDN y no este plazo.
+     * Short because the data comes from the HEAD's response, which is downloading in parallel and
+     * whose first byte is exactly what the startup was already waiting on: if it hasn't arrived by
+     * 2 s, the problem is the CDN and not this deadline.
      */
-    private val ESPERA_TOTAL_MS = 2_000L
+    private val TOTAL_WAIT_MS = 2_000L
 
-    /** Cuánto del final se guarda. Igual que la sonda de duración: 256 KB alcanzan y sobran. */
-    private val COLA_CALIENTE = TsDurationProbe.PROBE_BYTES
+    /** How much of the tail is saved. Same as the duration probe: 256 KB is plenty. */
+    private val HOT_TAIL_SIZE = TsDurationProbe.PROBE_BYTES
 
     /**
-     * El que le corta la conexión al origen que no contesta a tiempo. Ver [codigoConFechaLimite].
+     * The one that cuts the connection to an origin that doesn't answer in time. See
+     * [codeWithDeadline].
      *
-     * Un solo hilo alcanza: solo programa `disconnect()`, que no bloquea. Daemon para que no impida
-     * que el proceso muera.
+     * A single thread is enough: it only schedules `disconnect()`, which doesn't block. Daemon so
+     * it doesn't stop the process from dying.
      */
-    private val verdugo = Executors.newSingleThreadScheduledExecutor { r ->
-        Thread(r, "arkiv-origen-verdugo").apply { isDaemon = true }
+    private val executioner = Executors.newSingleThreadScheduledExecutor { r ->
+        Thread(r, "arkiv-origin-executioner").apply { isDaemon = true }
     }
 
     /**
-     * Cuánto se precalienta del arranque. Es el número que hay que mover si esto se vuelve lento, y
-     * también el primero que hay que revisar si vuelve el negro-y-mudo.
+     * How much of the startup gets pre-warmed. It's the number to move if this gets slow, and also
+     * the first one to check if the black-and-mute comes back.
      *
-     * Empezó en 2 MB, elegido con holgura para que el player identifique programas y pistas sin
-     * depender de la latencia del CDN. Medido el 2026-08-11 en el Fire TV sobre ocho arranques, esa
-     * holgura pasó a ser LA fase dominante: bajar la cabeza costaba entre 917 y 9210 ms, contra
-     * 246-511 ms de la cola de 256 KB en las mismas corridas — o sea que manda el tamaño.
+     * Started at 2 MB, chosen with slack so the player can identify programs and tracks without
+     * depending on the CDN's latency. Measured on 2026-08-11 on the Fire TV over eight startups,
+     * that slack became THE dominant phase: fetching the head cost between 917 and 9210 ms,
+     * against 246-511 ms for the 256 KB tail in the same runs -- so the size is what dictates it.
      *
-     * **Bajarlo a 512 KB ya se probó, el 2026-08-11 en el Fire TV, y NO conviene.** El razonamiento
-     * era bueno —estos TS van a ~152 KB/s reales, así que 2 MB son ~13 s de video precargados solo
-     * para identificar pistas— pero lo que se ahorra de un lado se paga del otro:
+     * **Dropping it to 512 KB was already tried, on 2026-08-11 on the Fire TV, and it does NOT pay
+     * off.** The reasoning was sound -these TS run at ~152 KB/s in practice, so 2 MB is ~13 s of
+     * video preloaded just to identify tracks- but what's saved on one side is paid on the other:
      *
-     * | | 2 MB (9 arranques) | 512 KB (6 arranques) |
+     * | | 2 MB (9 startups) | 512 KB (6 startups) |
      * |---|---|---|
-     * | bajar la cabeza (corridas buenas) | 917-1828 ms | 515-911 ms |
-     * | VLC → primera imagen (mediana) | 795 ms | 823 ms |
-     * | heartbeats con `pistas=v0/a0` | 1 de 9 | 2 de 6 |
+     * | fetching the head (good runs) | 917-1828 ms | 515-911 ms |
+     * | VLC → first frame (median) | 795 ms | 823 ms |
+     * | heartbeats with `pistas=v0/a0` | 1 of 9 | 2 of 6 |
      *
-     * Y el detalle que lo decide: los DOS arranques con `v0/a0` fueron justo los dos de peor
-     * apertura (1782 ms y 2018 ms, contra 513-1027 ms del resto). Con menos datos calientes libVLC
-     * no terminaba de identificar el stream con lo que tenía en memoria y salía a la red en mitad
-     * del arranque, que es precisamente lo que este precalentado existe para evitar. No llegó a fallar
-     * —cero rescates, las dos se recuperaron— pero el final de ese camino es el negro-y-mudo
-     * documentado en [precalentar], y el ahorro no lo justifica.
+     * And the detail that settles it: the TWO startups with `v0/a0` were exactly the two with the
+     * worst opening (1782 ms and 2018 ms, against 513-1027 ms for the rest). With less hot data
+     * libVLC never finished identifying the stream with what it had in memory and went out to the
+     * network mid-startup, which is precisely what this pre-warm exists to prevent. It didn't
+     * actually fail -zero rescues, both recovered- but the end of that road is the black-and-mute
+     * documented in [preWarm], and the savings don't justify it.
      *
-     * Lo que sí domina cuando esto se pone lento no es el tamaño: en las corridas malas la cabeza
-     * de 2 MB y la cola de 256 KB terminan en el MISMO milisegundo (5205/5212, 5264/5266), o sea
-     * que el cuello está en el enlace o en el CDN, y ningún recorte de payload lo arregla.
+     * What actually dominates when this gets slow isn't the size: on the bad runs the 2 MB head and
+     * the 256 KB tail finish in the SAME millisecond (5205/5212, 5264/5266), meaning the bottleneck
+     * is the link or the CDN, and no payload trim fixes that.
      */
-    private val ARRANQUE_CALIENTE = 2 * 1024 * 1024
+    private val HOT_STARTUP_SIZE = 2 * 1024 * 1024
 
-    /** Idempotente: si ya hay un socket vivo devuelve su puerto; si no, abre uno nuevo. */
+    /** Idempotent: if a socket is already live, returns its port; otherwise opens a new one. */
     @Synchronized
     fun start(): Int {
         server?.let { if (running && !it.isClosed) return it.localPort }
         val sock = ServerSocket(0)
         server = sock
         running = true
-        // El loop captura ESTE socket en vez de leer el campo: si mientras tanto hubo un stop()+start(),
-        // el thread viejo muere con el suyo y no se queda aceptando sobre el del proxy nuevo.
+        // The loop captures THIS socket instead of reading the field: if a stop()+start() happened
+        // meanwhile, the old thread dies with its own and doesn't end up accepting over the new
+        // proxy's.
         Thread {
             while (running && !sock.isClosed) {
                 val s = try { sock.accept() } catch (_: Exception) { break }
@@ -384,10 +397,10 @@ class ArchiveCacheProxy(private val cacheDir: File) {
     fun proxyUrl(
         originUrl: String,
         headers: Map<String, String> = emptyMap(),
-        directo: Boolean = false,
+        direct: Boolean = false,
     ): String {
         val u = URLEncoder.encode(originUrl, "UTF-8")
-        val d = if (directo) "d=1&" else ""
+        val d = if (direct) "d=1&" else ""
         if (headers.isEmpty()) return "http://127.0.0.1:$port/s?${d}u=$u"
         val h = URLEncoder.encode(HeaderCodec.encode(headers), "UTF-8")
         return "http://127.0.0.1:$port/s?h=$h&${d}u=$u"
@@ -395,24 +408,25 @@ class ArchiveCacheProxy(private val cacheDir: File) {
 
     companion object {
         /**
-         * La misma URL de proxy, pero pidiendo que sirva desde [fraccion] del archivo como si ese
-         * tramo fuera el archivo entero. Ver [VentanaDeArchivo] para el porqué.
+         * The same proxy URL, but asking to serve from [fraction] of the file onward as if that
+         * stretch were the whole file. See [VentanaDeArchivo] for the why.
          *
-         * `f` va antes de `u` como el resto de los parámetros: hay código que saca el origen con
-         * `substringAfter("u=")` y todo lo que vaya después se le colaría dentro.
+         * `f` goes before `u` like the rest of the parameters: there's code that pulls out the
+         * origin with `substringAfter("u=")` and anything after it would leak in.
          */
-        fun conFraccion(proxyUrl: String, fraccion: Float): String {
-            if (fraccion <= 0f) return proxyUrl
-            val limpia = proxyUrl.replace(Regex("""[?&]f=[^&]*"""), "")
-            val i = limpia.indexOf("u=")
-            if (i < 0) return limpia
-            return limpia.substring(0, i) + "f=$fraccion&" + limpia.substring(i)
+        fun withFraction(proxyUrl: String, fraction: Float): String {
+            if (fraction <= 0f) return proxyUrl
+            val clean = proxyUrl.replace(Regex("""[?&]f=[^&]*"""), "")
+            val i = clean.indexOf("u=")
+            if (i < 0) return clean
+            return clean.substring(0, i) + "f=$fraction&" + clean.substring(i)
         }
 
-        // `conVentanaDesde(proxyUrl, desde)` vivía acá: armaba una URL con `w=$desde&` para que la
-        // descarga a caché empezara lejos del byte 0 al reanudar. Se borró junto con el resto de la
-        // caché en disco (exclusiva de archive.org, ver [VentanaDeDescarga] en el historial) — el
-        // dispatcher de [serve] ya no lee `w=`, así que dejar la URL armaría un parámetro sin efecto.
+        // `conVentanaDesde(proxyUrl, desde)` used to live here: it built a URL with `w=$desde&` so
+        // the disk-cache download would start far from byte 0 when resuming. Deleted along with the
+        // rest of the disk cache (exclusive to archive.org, see `VentanaDeDescarga` in history) --
+        // [serve]'s dispatcher no longer reads `w=`, so leaving the URL builder would set up a
+        // parameter with no effect.
 
         /** Loopback authority that [proxyUrl] writes, and the only thing [lanUrl] replaces. */
         private const val LOOPBACK = "http://127.0.0.1:"
@@ -428,7 +442,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
          *
          * No socket is widened here, and none needs to be: [start] opens `ServerSocket(0)` with no
          * bind address, which already listens on every interface — the same convention
-         * `LiveHlsProxy` documents in `urlPara` and `LocalFileServer` relies on. Loopback keeps
+         * `LiveHlsProxy` documents in `urlFor` and `LocalFileServer` relies on. Loopback keeps
          * working for the local player exactly as before.
          *
          * It rewrites an EXISTING url instead of rebuilding one from `originUrl`+`headers` so the
@@ -446,12 +460,12 @@ class ArchiveCacheProxy(private val cacheDir: File) {
             if (ip.isBlank() || !proxyUrl.startsWith(LOOPBACK)) return null
             // Everything after "http://127.0.0.1:" is "<port>/<path>?<query>"; the first '/' ends
             // the authority, and the query is never touched.
-            val tras = proxyUrl.substring(LOOPBACK.length)
-            val corte = tras.indexOf('/')
-            if (corte <= 0) return null
-            val puerto = tras.substring(0, corte)
-            if (puerto.any { !it.isDigit() }) return null
-            return "http://$ip:$puerto${tras.substring(corte)}"
+            val after = proxyUrl.substring(LOOPBACK.length)
+            val cut = after.indexOf('/')
+            if (cut <= 0) return null
+            val proxyPort = after.substring(0, cut)
+            if (proxyPort.any { !it.isDigit() }) return null
+            return "http://$ip:$proxyPort${after.substring(cut)}"
         }
 
         /**
@@ -470,18 +484,18 @@ class ArchiveCacheProxy(private val cacheDir: File) {
     }
 
     /**
-     * Fracción [0..1] "buffereada" para la barra de progreso. SIEMPRE 0f: medía el avance de la
-     * caché en disco de descarga única a archivo que crece, exclusiva de archive.org y borrada en
-     * la poda de esta rama. El camino de magis (`directo=true`) nunca pasó por esa caché —no tenía
-     * de dónde sacar esta fracción— así que para el único llamador que queda esto no cambia nada:
-     * ya devolvía 0f siempre. Se deja la función (no el cálculo) para no tocar el call site de
-     * PlayerScreen.
+     * "Buffered" fraction [0..1] for the progress bar. ALWAYS 0f: it used to measure the progress
+     * of the single-download-into-a-growing-file disk cache, exclusive to archive.org and deleted
+     * in this branch's pruning. Magis's path (`direct=true`) never went through that cache -it had
+     * nowhere to pull this fraction from- so for the only caller left this changes nothing: it
+     * already always returned 0f. The function is kept (not the calculation) so PlayerScreen's
+     * call site doesn't need touching.
      */
     fun bufferedFraction(proxyUrl: String): Float = 0f
 
     private fun serve(socket: Socket) {
-        // socket.use{} cierra el socket al salir; runCatching traga excepciones de red/IO (p.ej. el
-        // player cierra el socket al hacer seek → escribir tira broken pipe) para no matar el thread.
+        // socket.use{} closes the socket on exit; runCatching swallows network/IO exceptions (e.g.
+        // the player closes the socket on seek → writing throws broken pipe) so the thread doesn't die.
         socket.use { s ->
             runCatching {
                 val input = s.getInputStream()
@@ -500,13 +514,13 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                 val extraHeaders = HeaderCodec.decode(
                     path.substringAfter("h=", "").substringBefore('&'),
                 )
-                // Modo de servicio. Lo elige quien arma la URL (magis → directo). Es el ÚNICO camino
-                // que queda: la caché en disco de archive.org (rutas `w=`/sin `d=1`) se borró en la
-                // poda de esta rama junto con el resto de esa fuente.
-                val directo = path.contains("d=1")
-                // Ventana: servir desde esta fracción del archivo como si fuera el archivo entero,
-                // para poder REANUDAR sin que el reproductor tenga que saltar. Ver VentanaDeArchivo.
-                val fraccion = path.substringAfter("f=", "").substringBefore('&')
+                // Service mode. Chosen by whoever builds the URL (magis → direct). It's the ONLY
+                // path left: archive.org's disk cache (`w=`/no-`d=1` routes) was deleted in this
+                // branch's pruning along with the rest of that source.
+                val direct = path.contains("d=1")
+                // Window: serve from this fraction of the file onward as if it were the whole file,
+                // to be able to RESUME without the player having to seek. See VentanaDeArchivo.
+                val fraction = path.substringAfter("f=", "").substringBefore('&')
                     .toFloatOrNull()?.takeIf { it > 0f } ?: 0f
                 val rangeHeader = lines.firstOrNull { it.startsWith("Range:", true) }
                     ?.substringAfter(':')?.trim()
@@ -514,12 +528,12 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                 val key = keyFor(origin)
                 val out = s.getOutputStream()
 
-                // Toda petición que entra queda registrada: el proxy es la frontera entre "el
-                // reproductor no pide" y "el proxy no entrega", que desde afuera se ven igual (el
-                // player buffereando al 0% para siempre).
+                // Every incoming request gets logged: the proxy is the border between "the player
+                // isn't asking" and "the proxy isn't delivering", which from outside look identical
+                // (the player buffering at 0% forever).
                 android.util.Log.w(
                     "ArchiveCacheProxy",
-                    "← requests range=${rangeHeader ?: "(all)"} direct=$directo window=$fraccion path=${path.substringBefore('?')}",
+                    "← requests range=${rangeHeader ?: "(all)"} direct=$direct window=$fraction path=${path.substringBefore('?')}",
                 )
 
                 // HLS playlist over the SAME stream, for the Cast receiver. It refuses a bare
@@ -548,18 +562,18 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                     return@runCatching
                 }
 
-                // Camino DIRECTO (magis): cada Range va tal cual al origen y su cuerpo se devuelve
-                // sin tocar el disco.
+                // DIRECT path (magis): every Range goes to the origin as-is and its body is
+                // returned without touching disk.
                 //
-                // `d=1` es también de dónde sale el PERFIL de aguante: hoy este camino lo usa
-                // solo magis (`proxyUrl(directo = true)` no tiene otro llamador), y magis y
-                // archive fallan de formas opuestas — ver PoliticaOrigen.Perfil. Si algún día
-                // otra fuente pide `d=1`, el perfil tiene que viajar en la URL, no deducirse.
-                if (directo) {
+                // `d=1` is also where the ENDURANCE PROFILE comes from: today only magis uses this
+                // path (`proxyUrl(direct = true)` has no other caller), and magis and archive fail
+                // in opposite ways -- see PoliticaOrigen.Perfil. If some other source ever asks for
+                // `d=1`, the profile has to travel in the URL, not be inferred.
+                if (direct) {
                     if (!passthrough(
                             origin, rangeHeader, out, extraHeaders,
-                            claveUnica = key, fraccion = fraccion,
-                            perfil = PoliticaOrigen.Perfil.MAGIS,
+                            uniqueKey = key, fraction = fraction,
+                            profile = PoliticaOrigen.Perfil.MAGIS,
                         )
                     ) {
                         android.util.Log.w("ArchiveCacheProxy", "direct: the origin didn't serve the range")
@@ -569,8 +583,8 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                     return@runCatching
                 }
 
-                // Sin `d=1` no hay caché a la que caer (era exclusiva de archive.org, borrada en
-                // esta poda): último recurso, el mismo passthrough simple de siempre.
+                // With no `d=1` there's no cache to fall back to (it was exclusive to archive.org,
+                // deleted in this pruning): last resort, the same plain passthrough as always.
                 if (!passthrough(origin, rangeHeader, out, extraHeaders)) {
                     out.write("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n".toByteArray())
                     out.flush()
@@ -585,7 +599,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
      * Answers `/hls.m3u8` with a playlist of byte ranges over the same origin.
      *
      * Two facts are needed and both are cheap: the total size (one 1-byte ranged request, already
-     * remembered per origin by [totalDelOrigen]) and the duration (two 256 KB ends, which
+     * remembered per origin by [totalOfOrigin]) and the duration (two 256 KB ends, which
      * [TsDurationProbe] already knows how to read and which the app pays for anyway to draw the
      * progress bar). Both are cached, so a receiver that re-fetches the playlist -- it does, several
      * times -- costs nothing after the first.
@@ -602,12 +616,12 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         headers: Map<String, String>,
         out: java.io.OutputStream,
     ) {
-        val segments = segmentosDe(origin, headers)
+        val segs = segmentsFor(origin, headers)
         // Relative URIs: same host, same port, same query -- only the path and the added `n=`
         // differ. Relative keeps the LAN ip out of the playlist, so whatever URL the receiver used
         // to fetch it is the one it keeps using.
         val query = path.substringAfter('?', "")
-        val body = TsSegmenter.playlist(segments) { i ->
+        val body = TsSegmenter.playlist(segs) { i ->
             "/seg?n=$i" + if (query.isEmpty()) "" else "&$query"
         }
         if (body.isEmpty()) {
@@ -622,7 +636,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         val bytes = body.toByteArray()
         android.util.Log.w(
             "ArchiveCacheProxy",
-            "playlist → ${segments.size} segments, one URI each (${bytes.size}B)",
+            "playlist → ${segs.size} segments, one URI each (${bytes.size}B)",
         )
         out.write(
             (
@@ -643,26 +657,21 @@ class ArchiveCacheProxy(private val cacheDir: File) {
      * and the duration -- two CDN round trips each, against an origin that answers between 0.2 s
      * and 20 s.
      */
-    private fun segmentosDe(origin: String, headers: Map<String, String>): List<TsSegmenter.Segment> {
-        segmentos[origin]?.let { return it }
-        val total = totalDelOrigen(origin, headers, PoliticaOrigen.Perfil.MAGIS)
-        val durMs = duracionDelOrigen(origin, headers)
-        val out = TsSegmenter.segmentByBitrate(total, durMs / 1000.0, SEGMENTO_OBJETIVO_SEG)
+    private fun segmentsFor(origin: String, headers: Map<String, String>): List<TsSegmenter.Segment> {
+        segments[origin]?.let { return it }
+        val total = totalOfOrigin(origin, headers, PoliticaOrigen.Perfil.MAGIS)
+        val durMs = durationOfOrigin(origin, headers)
+        val out = TsSegmenter.segmentByBitrate(total, durMs / 1000.0, TARGET_SEGMENT_SEC)
         if (out.isNotEmpty()) {
-            segmentos[origin] = out
+            segments[origin] = out
             android.util.Log.w(
                 "ArchiveCacheProxy",
-                "segment table: ${out.size} of ~${SEGMENTO_OBJETIVO_SEG}s over $total bytes / ${durMs}ms",
+                "segment table: ${out.size} of ~${TARGET_SEGMENT_SEC}s over $total bytes / ${durMs}ms",
             )
         }
         return out
     }
 
-    /**
-     * Serves segment [n] as a resource of its own: a plain 200 with its real `Content-Length`,
-     * which is all the receiver knows how to consume (it ignores `EXT-X-BYTERANGE`). The range
-     * itself is fetched from the origin exactly as any other ranged read.
-     */
     /**
      * Serves segment [n], starting at a REAL random access point.
      *
@@ -677,7 +686,7 @@ class ArchiveCacheProxy(private val cacheDir: File) {
      * whole GOP, and at ~700 boundaries that is ~280 MB before a single playlist could be answered.
      * Instead each boundary is discovered WHILE the segment around it is served -- bytes this proxy
      * has to move anyway -- and remembered. Sequential playback therefore pays nothing beyond
-     * [MARGEN_GOP] of overlap per segment; only a seek into a segment never visited costs a probe.
+     * [GOP_MARGIN] of overlap per segment; only a seek into a segment never visited costs a probe.
      */
     private fun serveSegment(
         n: Int,
@@ -685,36 +694,36 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         headers: Map<String, String>,
         out: java.io.OutputStream,
     ) {
-        val segments = segmentosDe(origin, headers)
-        val seg = segments.getOrNull(n)
+        val segs = segmentsFor(origin, headers)
+        val seg = segs.getOrNull(n)
         if (seg == null) {
-            android.util.Log.w("ArchiveCacheProxy", "segment $n out of range (there are ${segments.size})")
+            android.util.Log.w("ArchiveCacheProxy", "segment $n out of range (there are ${segs.size})")
             out.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n".toByteArray())
             out.flush()
             return
         }
-        val total = totalDelOrigen(origin, headers, PoliticaOrigen.Perfil.MAGIS)
-        val inicios = idrPorOrigen.getOrPut(origin) { ConcurrentHashMap() }
+        val total = totalOfOrigin(origin, headers, PoliticaOrigen.Perfil.MAGIS)
+        val starts = idrByOrigin.getOrPut(origin) { ConcurrentHashMap() }
         // Segment 0 starts at byte 0: the file's own first packet is a random access point.
-        if (n == 0) inicios.putIfAbsent(0, 0L)
+        if (n == 0) starts.putIfAbsent(0, 0L)
 
-        val inicio = inicios[n] ?: buscarIdr(origin, headers, seg.start, total)
-        if (inicio == null) {
+        val start = starts[n] ?: findIdr(origin, headers, seg.start, total)
+        if (start == null) {
             android.util.Log.w("ArchiveCacheProxy", "segment $n: no random access point near ${seg.start}")
             out.write("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n".toByteArray())
             out.flush()
             return
         }
-        inicios.putIfAbsent(n, inicio)
+        starts.putIfAbsent(n, start)
 
         // Where the NEXT segment should begin, by the playlist's arithmetic, plus a GOP of slack to
         // look for the real keyframe. The last segment simply runs to EOF.
-        val esUltimo = n >= segments.size - 1
-        val finEstimado = if (esUltimo) total else segments[n + 1].start
-        val hasta = if (esUltimo) total else minOf(total, finEstimado + MARGEN_GOP)
-        val cuerpo = rangoCrudo(origin, headers, "bytes=$inicio-${hasta - 1}")
-        if (cuerpo == null || cuerpo.isEmpty()) {
-            android.util.Log.w("ArchiveCacheProxy", "segment $n ($inicio-${hasta - 1}): the origin didn't serve it")
+        val isLast = n >= segs.size - 1
+        val estimatedEnd = if (isLast) total else segs[n + 1].start
+        val until = if (isLast) total else minOf(total, estimatedEnd + GOP_MARGIN)
+        val body = rawRange(origin, headers, "bytes=$start-${until - 1}")
+        if (body == null || body.isEmpty()) {
+            android.util.Log.w("ArchiveCacheProxy", "segment $n ($start-${until - 1}): the origin didn't serve it")
             out.write("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n".toByteArray())
             out.flush()
             return
@@ -722,44 +731,44 @@ class ArchiveCacheProxy(private val cacheDir: File) {
 
         // Cut at the first random access point at or after the estimated boundary, and remember it
         // as where segment n+1 begins -- learned for free from bytes already in hand.
-        var largo = cuerpo.size
-        if (!esUltimo) {
-            val desde = (finEstimado - inicio).coerceIn(0L, cuerpo.size.toLong()).toInt()
-            val corte = primerIdrEn(cuerpo, desde)
-            if (corte != null) {
-                largo = corte
-                inicios.putIfAbsent(n + 1, inicio + corte)
+        var length = body.size
+        if (!isLast) {
+            val from = (estimatedEnd - start).coerceIn(0L, body.size.toLong()).toInt()
+            val cut = firstIdrIn(body, from)
+            if (cut != null) {
+                length = cut
+                starts.putIfAbsent(n + 1, start + cut)
             } else {
                 // No keyframe within the margin: serve up to the estimate and let the next segment
                 // probe for itself. Rare, and better than a segment that runs long.
-                largo = desde.coerceAtLeast(1)
+                length = from.coerceAtLeast(1)
             }
         }
 
         android.util.Log.w(
             "ArchiveCacheProxy",
-            "segment $n → ${largo}B from $inicio (estimate was ${seg.start}, " +
-                "next starts ${inicios[n + 1] ?: -1})",
+            "segment $n → ${length}B from $start (estimate was ${seg.start}, " +
+                "next starts ${starts[n + 1] ?: -1})",
         )
         out.write(
             (
                 "HTTP/1.1 200 OK\r\n" +
                     "Content-Type: video/mp2t\r\n" +
-                    "Content-Length: $largo\r\n" +
+                    "Content-Length: $length\r\n" +
                     "Access-Control-Allow-Origin: *\r\n" +
                     "Connection: close\r\n\r\n"
                 ).toByteArray(),
         )
-        out.write(cuerpo, 0, largo)
+        out.write(body, 0, length)
         out.flush()
     }
 
-    /** First random access point at or after [desde] inside [buf], or null. */
-    private fun primerIdrEn(buf: ByteArray, desde: Int): Int? {
+    /** First random access point at or after [from] inside [buf], or null. */
+    private fun firstIdrIn(buf: ByteArray, from: Int): Int? {
         val base = MpegTs.alignment(buf)
         if (base < 0) return null
-        // Walk packets from the first one at or after `desde`.
-        var i = base + ((desde - base).coerceAtLeast(0) + MpegTs.PACKET - 1) / MpegTs.PACKET * MpegTs.PACKET
+        // Walk packets from the first one at or after `from`.
+        var i = base + ((from - base).coerceAtLeast(0) + MpegTs.PACKET - 1) / MpegTs.PACKET * MpegTs.PACKET
         while (i + MpegTs.PACKET <= buf.size) {
             if (MpegTs.isRandomAccess(buf, i)) return i
             i += MpegTs.PACKET
@@ -767,23 +776,23 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         return null
     }
 
-    /** Probes the origin for the first random access point at or after [desde]. Used only when a
+    /** Probes the origin for the first random access point at or after [from]. Used only when a
      *  segment is reached without having served the one before it -- that is, after a seek. */
-    private fun buscarIdr(origin: String, headers: Map<String, String>, desde: Long, total: Long): Long? {
-        var at = desde.coerceIn(0L, total)
-        repeat(VENTANAS_IDR) {
-            val fin = minOf(total, at + MARGEN_GOP)
-            if (fin <= at) return null
-            val bloque = rangoCrudo(origin, headers, "bytes=$at-${fin - 1}") ?: return null
-            primerIdrEn(bloque, 0)?.let { return at + it }
-            at = fin
+    private fun findIdr(origin: String, headers: Map<String, String>, from: Long, total: Long): Long? {
+        var at = from.coerceIn(0L, total)
+        repeat(IDR_WINDOWS) {
+            val end = minOf(total, at + GOP_MARGIN)
+            if (end <= at) return null
+            val block = rawRange(origin, headers, "bytes=$at-${end - 1}") ?: return null
+            firstIdrIn(block, 0)?.let { return at + it }
+            at = end
         }
-        android.util.Log.w("ArchiveCacheProxy", "no random access point within ${VENTANAS_IDR} windows of $desde")
+        android.util.Log.w("ArchiveCacheProxy", "no random access point within ${IDR_WINDOWS} windows of $from")
         return null
     }
 
     /**
-     * The instant of a real keyframe at or near [objetivoMs], in ms from the start of the title.
+     * The instant of a real keyframe at or near [targetMs], in ms from the start of the title.
      *
      * Clipping a remux anywhere else desynchronises the tracks: video can only begin at a keyframe
      * so the muxer moves it back to one, while audio begins at the instant asked for, and the two
@@ -794,53 +803,53 @@ class ArchiveCacheProxy(private val cacheDir: File) {
      *
      * Asking to cut where a keyframe already is removes the mismatch at the source.
      *
-     * Returns [objetivoMs] unchanged when the stream cannot be probed -- a slightly misaligned
+     * Returns [targetMs] unchanged when the stream cannot be probed -- a slightly misaligned
      * start is better than refusing to cast.
      */
-    fun msDeKeyframeCercaDe(origin: String, headers: Map<String, String>, objetivoMs: Long): Long {
-        if (objetivoMs <= 0L) return 0L
-        val total = totalDelOrigen(origin, headers, PoliticaOrigen.Perfil.MAGIS)
-        val durMs = duracionDelOrigen(origin, headers)
+    fun msOfKeyframeNear(origin: String, headers: Map<String, String>, targetMs: Long): Long {
+        if (targetMs <= 0L) return 0L
+        val total = totalOfOrigin(origin, headers, PoliticaOrigen.Perfil.MAGIS)
+        val durMs = durationOfOrigin(origin, headers)
         if (total <= 0L || durMs <= 0L) {
-            android.util.Log.w("ArchiveCacheProxy", "keyframe search: no size or duration, using ${objetivoMs}ms as asked")
-            return objetivoMs
+            android.util.Log.w("ArchiveCacheProxy", "keyframe search: no size or duration, using ${targetMs}ms as asked")
+            return targetMs
         }
         // The clock the whole title is measured against.
-        val cabeza = rangoCrudo(origin, headers, "bytes=0-${MARGEN_GOP - 1}") ?: return objetivoMs
-        val pcrInicial = MpegTs.firstPcr(cabeza)?.pcr?.base90k ?: return objetivoMs
+        val head = rawRange(origin, headers, "bytes=0-${GOP_MARGIN - 1}") ?: return targetMs
+        val initialPcr = MpegTs.firstPcr(head)?.pcr?.base90k ?: return targetMs
 
         // Aim a GOP early so the keyframe found is at or before the point asked for: starting a
         // moment early is harmless, starting late skips content.
-        val byteObjetivo = (total * (objetivoMs.toDouble() / durMs)).toLong()
-            .minus(MARGEN_GOP)
+        val targetByte = (total * (targetMs.toDouble() / durMs)).toLong()
+            .minus(GOP_MARGIN)
             .coerceIn(0L, (total - 1).coerceAtLeast(0L))
-        val idr = buscarIdr(origin, headers, byteObjetivo, total) ?: return objetivoMs
+        val idr = findIdr(origin, headers, targetByte, total) ?: return targetMs
 
         // Its PCR is the answer: the instant that keyframe sits at.
-        val bloque = rangoCrudo(origin, headers, "bytes=$idr-${minOf(total, idr + MpegTs.PACKET * 400L) - 1}")
-            ?: return objetivoMs
-        val pcr = MpegTs.firstPcr(bloque)?.pcr?.base90k ?: return objetivoMs
-        val ms = MpegTs.deltaTicks(pcrInicial, pcr) * 1000 / MpegTs.PCR_HZ
+        val block = rawRange(origin, headers, "bytes=$idr-${minOf(total, idr + MpegTs.PACKET * 400L) - 1}")
+            ?: return targetMs
+        val pcr = MpegTs.firstPcr(block)?.pcr?.base90k ?: return targetMs
+        val ms = MpegTs.deltaTicks(initialPcr, pcr) * 1000 / MpegTs.PCR_HZ
         android.util.Log.w(
             "ArchiveCacheProxy",
-            "keyframe for ${objetivoMs}ms is at ${ms}ms (byte $idr) → clipping there so the tracks line up",
+            "keyframe for ${targetMs}ms is at ${ms}ms (byte $idr) → clipping there so the tracks line up",
         )
         return ms.coerceAtLeast(0L)
     }
 
     /** Duration of an origin, remembered: the receiver asks for the playlist more than once. */
-    private fun duracionDelOrigen(origin: String, headers: Map<String, String>): Long {
-        duraciones[origin]?.let { return it }
-        val cabeza = rangoCrudo(origin, headers, "bytes=0-${TsDurationProbe.PROBE_BYTES - 1}")
-        val cola = rangoCrudo(origin, headers, "bytes=-${TsDurationProbe.PROBE_BYTES}")
-        if (cabeza == null || cola == null) return 0L
-        val ms = TsDurationProbe.durationMs(cabeza, cola)
-        if (ms > 0L) duraciones[origin] = ms
+    private fun durationOfOrigin(origin: String, headers: Map<String, String>): Long {
+        durations[origin]?.let { return it }
+        val head = rawRange(origin, headers, "bytes=0-${TsDurationProbe.PROBE_BYTES - 1}")
+        val tail = rawRange(origin, headers, "bytes=-${TsDurationProbe.PROBE_BYTES}")
+        if (head == null || tail == null) return 0L
+        val ms = TsDurationProbe.durationMs(head, tail)
+        if (ms > 0L) durations[origin] = ms
         return ms
     }
 
     /** One ranged read straight from the origin, for the playlist's own bookkeeping. */
-    private fun rangoCrudo(origin: String, headers: Map<String, String>, range: String): ByteArray? =
+    private fun rawRange(origin: String, headers: Map<String, String>, range: String): ByteArray? =
         runCatching {
             val conn = (URL(origin).openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = true
@@ -859,39 +868,40 @@ class ArchiveCacheProxy(private val cacheDir: File) {
         }.getOrNull()
 
     /**
-     * Tamaño real de un origen, leído del `Content-Range` de una petición de 1 byte.
+     * An origin's real size, read from the `Content-Range` of a 1-byte request.
      *
-     * Hace falta para poder ventanear: la fracción que pide el reproductor solo se puede convertir
-     * a byte sabiendo el total. Se recuerda por origen porque cada salto vuelve a abrir el stream
-     * con otra fracción y este viaje al CDN, aunque sea de un byte, también paga su latencia.
+     * Needed to be able to window: the fraction the player asks for can only be converted to a
+     * byte once the total is known. Remembered per origin because every seek reopens the stream
+     * with a different fraction, and this trip to the CDN, even for one byte, also pays its
+     * latency.
      */
-    private fun totalDelOrigen(
+    private fun totalOfOrigin(
         origin: String,
         extraHeaders: Map<String, String>,
-        perfil: PoliticaOrigen.Perfil = PoliticaOrigen.Perfil.ARCHIVE,
+        profile: PoliticaOrigen.Perfil = PoliticaOrigen.Perfil.ARCHIVE,
     ): Long {
-        totales[origin]?.let { return it }
-        repeat(PoliticaOrigen.intentos(perfil)) { intento ->
+        totals[origin]?.let { return it }
+        repeat(PoliticaOrigen.intentos(profile)) { attempt ->
             val total = runCatching {
                 val conn = (URL(origin).openConnection() as HttpURLConnection).apply {
                     instanceFollowRedirects = true
                     setRequestProperty("User-Agent", "Arkiv/0.1 (personal)")
                     extraHeaders.forEach { (k, v) -> setRequestProperty(k, v) }
                     setRequestProperty("Range", "bytes=0-0")
-                    if (!perfil.reusaSockets) setRequestProperty("Connection", "close")
-                    // Antes 8 s fijos. Es un solo byte, pero lo que se paga acá es la latencia del
-                    // nodo, no el tamaño: contra los 72 s medidos, 8 s no alcanzaban nunca.
-                    connectTimeout = perfil.conectarMs
-                    readTimeout = PoliticaOrigen.respuestaMs(intento, perfil)
+                    if (!profile.reusaSockets) setRequestProperty("Connection", "close")
+                    // Used to be a fixed 8 s. It's a single byte, but what's being paid for here is
+                    // the node's latency, not the size: against the measured 72 s, 8 s was never enough.
+                    connectTimeout = profile.conectarMs
+                    readTimeout = PoliticaOrigen.respuestaMs(attempt, profile)
                 }
                 val cr = conn.getHeaderField("Content-Range")
                 runCatching { conn.inputStream.use { it.readBytes() } }
                 runCatching { conn.disconnect() }
                 VentanaDeArchivo.totalDelContentRange(cr)
             }.getOrDefault(0L)
-            if (total > 0) { totales[origin] = total; return total }
-            if (intento < PoliticaOrigen.intentos(perfil) - 1) {
-                Thread.sleep(PoliticaOrigen.esperaMs(intento, perfil))
+            if (total > 0) { totals[origin] = total; return total }
+            if (attempt < PoliticaOrigen.intentos(profile) - 1) {
+                Thread.sleep(PoliticaOrigen.esperaMs(attempt, profile))
             }
         }
         android.util.Log.w("ArchiveCacheProxy", "window: couldn't find out the origin's size")
@@ -899,128 +909,128 @@ class ArchiveCacheProxy(private val cacheDir: File) {
     }
 
     /**
-     * `conn.responseCode` con fecha límite PROPIA, distinta de la de leer el cuerpo.
+     * `conn.responseCode` with its OWN deadline, separate from reading the body's.
      *
-     * `HttpURLConnection` tiene un solo `readTimeout` y rige las dos cosas, y por eso no alcanzaba
-     * con bajar el número: esperar la respuesta y aguantar un hueco a mitad del cuerpo necesitan
-     * plazos opuestos (ver [PoliticaOrigen.Perfil]). Acá el plazo corto lo aplica un temporizador
-     * que le corta la conexión por debajo: un `disconnect()` desde otro hilo hace que el
-     * `responseCode` bloqueado tire excepción, que es exactamente lo que se busca.
+     * `HttpURLConnection` has a single `readTimeout` governing both, and that's why lowering the
+     * number wasn't enough: waiting for the response and riding out a stall mid-body need opposite
+     * deadlines (see [PoliticaOrigen.Perfil]). Here the short deadline is enforced by a timer that
+     * cuts the connection out from under it: a `disconnect()` from another thread makes the blocked
+     * `responseCode` throw, which is exactly what's wanted.
      *
-     * El `AtomicBoolean` es lo que evita la carrera fea —que el temporizador desconecte JUSTO
-     * después de que la respuesta llegó y le rompa el stream a un pedido que había salido bien—:
-     * gana el primero que lo marque, y si gana el temporizador esto devuelve
-     * [PoliticaOrigen.SIN_RESPUESTA] para que el que llama reintente en vez de leer una conexión
-     * ya muerta.
+     * The `AtomicBoolean` is what avoids the ugly race -the timer disconnecting RIGHT after the
+     * response arrived and breaking the stream for a request that had gone fine-: whichever marks
+     * it first wins, and if the timer wins this returns [PoliticaOrigen.SIN_RESPUESTA] so the
+     * caller retries instead of reading an already-dead connection.
      */
-    private fun codigoConFechaLimite(conn: HttpURLConnection, limiteMs: Int): Int {
-        val resuelto = AtomicBoolean(false)
-        val corte = verdugo.schedule(
-            { if (resuelto.compareAndSet(false, true)) runCatching { conn.disconnect() } },
-            limiteMs.toLong(),
+    private fun codeWithDeadline(conn: HttpURLConnection, deadlineMs: Int): Int {
+        val resolved = AtomicBoolean(false)
+        val cutoff = executioner.schedule(
+            { if (resolved.compareAndSet(false, true)) runCatching { conn.disconnect() } },
+            deadlineMs.toLong(),
             TimeUnit.MILLISECONDS,
         )
         val code = runCatching { conn.responseCode }.getOrDefault(PoliticaOrigen.SIN_RESPUESTA)
-        val loMatoElTemporizador = !resuelto.compareAndSet(false, true)
-        corte.cancel(false)
-        return if (loMatoElTemporizador) PoliticaOrigen.SIN_RESPUESTA else code
+        val killedByTheTimer = !resolved.compareAndSet(false, true)
+        cutoff.cancel(false)
+        return if (killedByTheTimer) PoliticaOrigen.SIN_RESPUESTA else code
     }
 
     /**
-     * Abre el tramo en el origen, reintentando: el CDN de magis rechaza peticiones al azar (visto
-     * en device: un salto perfectamente válido devolvió no-206 dos veces seguidas y la película se
-     * murió ahí). Antes esto se rendía al primer no, y como la cabecera de respuesta ya había
-     * salido, el reproductor se quedaba esperando un cuerpo que no llegaba nunca.
+     * Opens the range at the origin, retrying: magis's CDN rejects requests at random (seen on
+     * device: a perfectly valid seek returned non-206 twice in a row and the film died right
+     * there). Used to give up on the first no, and since the response header had already gone out,
+     * the player was left waiting on a body that never arrived.
      *
-     * Registra la conexión buena en [conexiones] antes de devolverla: la anterior del mismo archivo
-     * tiene que morir en el acto o el CDN deja colgada a la nueva.
+     * Registers the good connection in [conexiones] before returning it: the previous one for the
+     * same file has to die on the spot or the CDN leaves the new one hanging.
      */
-    private fun abrirEnOrigen(
+    private fun openAtOrigin(
         origin: String,
-        rango: String?,
+        range: String?,
         extraHeaders: Map<String, String>,
-        claveUnica: String?,
-        perfil: PoliticaOrigen.Perfil = PoliticaOrigen.Perfil.ARCHIVE,
+        uniqueKey: String?,
+        profile: PoliticaOrigen.Perfil = PoliticaOrigen.Perfil.ARCHIVE,
     ): Pair<HttpURLConnection, SingleConnection.Closer>? {
-        var ultimoCodigo = PoliticaOrigen.SIN_RESPUESTA
-        val intentos = PoliticaOrigen.intentos(perfil)
-        repeat(intentos) { intento ->
+        var lastCode = PoliticaOrigen.SIN_RESPUESTA
+        val attempts = PoliticaOrigen.intentos(profile)
+        repeat(attempts) { attempt ->
             val conn = runCatching {
                 (URL(origin).openConnection() as HttpURLConnection).apply {
                     instanceFollowRedirects = true
                     setRequestProperty("User-Agent", "Arkiv/0.1 (personal)")
                     extraHeaders.forEach { (k, v) -> setRequestProperty(k, v) }
-                    if (rango != null) setRequestProperty("Range", rango)
-                    // Socket nuevo para los orígenes que no toleran el pool. Ver Perfil.reusaSockets.
-                    if (!perfil.reusaSockets) setRequestProperty("Connection", "close")
-                    connectTimeout = perfil.conectarMs
-                    // El plazo del CUERPO, que es el largo. El de la RESPUESTA —el corto, el que
-                    // corta a una conexión muerta— lo aplica codigoConFechaLimite() más abajo,
-                    // porque HttpURLConnection no distingue los dos y acá hacen falta distintos.
-                    readTimeout = PoliticaOrigen.cuerpoMs(perfil)
+                    if (range != null) setRequestProperty("Range", range)
+                    // A new socket for origins that don't tolerate the pool. See Perfil.reusaSockets.
+                    if (!profile.reusaSockets) setRequestProperty("Connection", "close")
+                    connectTimeout = profile.conectarMs
+                    // The BODY's deadline, the long one. The RESPONSE's -the short one, the one that
+                    // cuts a dead connection- is applied by codeWithDeadline() below, because
+                    // HttpURLConnection doesn't tell the two apart and here they need to differ.
+                    readTimeout = PoliticaOrigen.cuerpoMs(profile)
                 }
             }.getOrNull()
             if (conn != null) {
-                val cerrable = SingleConnection.Closer { runCatching { conn.disconnect() } }
-                // Desde ACÁ y no desde el `return` de más abajo: entre medio está la espera de las
-                // cabeceras (`codigoConFechaLimite`), que contra una red muerta se cuelga hasta 90 s.
-                conexionesVivas.register(cerrable)
-                // NO se mata la conexión anterior, y esto es lo contrario de lo que hacía antes.
+                val closer = SingleConnection.Closer { runCatching { conn.disconnect() } }
+                // From HERE and not from the `return` further down: in between is the wait for the
+                // headers (`codeWithDeadline`), which against a dead network hangs for up to 90 s.
+                liveConnections.register(closer)
+                // The previous connection is NOT killed, and this is the opposite of what it used to do.
                 //
-                // `SingleConnection` se puso creyendo que el CDN atendía de a una conexión por archivo.
-                // Medido en su momento: es falso — sirve dos simultáneas al mismo archivo sin quejarse (206 en
-                // 0,77 s la segunda, con la primera todavía descargando). Y al abrir, libVLC hacía
-                // VARIAS peticiones seguidas para sondear el stream (visto: bytes=0-, 216576-,
-                // 1115160- en 800 ms): matarle la anterior en cada una le cortaba justo las lecturas
-                // con las que identifica programas y pistas, y terminaba sin ninguna (`pistas=v0/a0`),
-                // negro y mudo. O sea: la protección estaba causando el problema que decía evitar.
+                // `SingleConnection` was put in place believing the CDN served one connection per
+                // file at a time. Measured at the time: it's false — it serves two simultaneous ones
+                // to the same file without complaint (206 in 0.77 s for the second, with the first
+                // still downloading). And on opening, libVLC made SEVERAL requests in a row to probe
+                // the stream (seen: bytes=0-, 216576-, 1115160- in 800 ms): killing the previous one
+                // on each cut off exactly the reads it uses to identify programs and tracks, and it
+                // ended up with none (`pistas=v0/a0`), black and mute. In other words: the safeguard
+                // was causing the problem it claimed to prevent.
                 //
-                // Lo que sí hacía falta —que una conexión abandonada no siga drenando— ya está
-                // resuelto por el `disconnect()` del finally de passthrough, que corre también
-                // cuando el reproductor corta de golpe ("broken pipe").
-                val vivas = claveUnica?.let { vivasPorClave.merge(it, 1) { a, b -> a + b } } ?: 1
-                val etiquetaRango = "${rango ?: "(todo)"}#${intento + 1}"
+                // What DID need fixing -that an abandoned connection doesn't keep draining- is
+                // already handled by the `disconnect()` in passthrough's finally, which also runs
+                // when the player cuts off abruptly ("broken pipe").
+                val live = uniqueKey?.let { liveByKey.merge(it, 1) { a, b -> a + b } } ?: 1
+                val rangeLabel = "${range ?: "(all)"}#${attempt + 1}"
                 android.util.Log.w(
                     "ArchiveCacheProxy",
-                    "opening ${rango ?: "(all)"} → live connections for this file: $vivas · " +
-                        "in flight: ${fotoDeRangosEnVuelo()}",
+                    "opening ${range ?: "(all)"} → live connections for this file: $live · " +
+                        "in flight: ${snapshotOfRangesInFlight()}",
                 )
-                rangosEnVuelo[etiquetaRango] = System.currentTimeMillis()
-                val plazoMs = PoliticaOrigen.respuestaMs(intento, perfil)
-                val t0Respuesta = System.currentTimeMillis()
-                val code = codigoConFechaLimite(conn, plazoMs)
-                val tardoMs = System.currentTimeMillis() - t0Respuesta
-                anotarCodigo(origin, code)
-                ultimoCodigo = code
+                rangesInFlight[rangeLabel] = System.currentTimeMillis()
+                val deadlineMs = PoliticaOrigen.respuestaMs(attempt, profile)
+                val responseT0 = System.currentTimeMillis()
+                val code = codeWithDeadline(conn, deadlineMs)
+                val tookMs = System.currentTimeMillis() - responseT0
+                recordCode(origin, code)
+                lastCode = code
                 if (code == HttpURLConnection.HTTP_OK || code == HttpURLConnection.HTTP_PARTIAL) {
                     // The time to the HEADER, which is what decides whether the deadline is
                     // enough. Without this only the total for the body was visible, which mixes
                     // the wait for the CDN with how long it takes to download the bytes: two
                     // different things.
-                    rangosEnVuelo.remove(etiquetaRango)
+                    rangesInFlight.remove(rangeLabel)
                     android.util.Log.w(
                         "ArchiveCacheProxy",
-                        "origin answered ${rango ?: "(all)"} with $code in ${tardoMs}ms " +
-                            "(deadline ${plazoMs}ms, attempt ${intento + 1}, $vivas connection(s) at once)",
+                        "origin answered ${range ?: "(all)"} with $code in ${tookMs}ms " +
+                            "(deadline ${deadlineMs}ms, attempt ${attempt + 1}, $live connection(s) at once)",
                     )
-                    return conn to cerrable
+                    return conn to closer
                 }
                 // `code=-1` + a time right up against the deadline = OUR timer expired, not the
                 // CDN's. The distinction matters and wasn't visible: it read "origin rejected" and
                 // looked like the origin's fault when it was the deadline choking a request that
                 // was going to answer.
-                val vencioElPlazo = code == -1 && tardoMs >= plazoMs - 150
-                rangosEnVuelo.remove(etiquetaRango)
+                val deadlineExpired = code == -1 && tookMs >= deadlineMs - 150
+                rangesInFlight.remove(rangeLabel)
                 android.util.Log.w(
                     "ArchiveCacheProxy",
-                    "origin rejected ${rango ?: "(all)"} with $code in ${tardoMs}ms " +
-                        "(deadline ${plazoMs}ms, attempt ${intento + 1}/$intentos, " +
-                        "$vivas connection(s) at once)" +
-                        (if (vencioElPlazo) " ← OUR DEADLINE EXPIRED, not the CDN" else "") +
-                        " · in flight: ${fotoDeRangosEnVuelo()}",
+                    "origin rejected ${range ?: "(all)"} with $code in ${tookMs}ms " +
+                        "(deadline ${deadlineMs}ms, attempt ${attempt + 1}/$attempts, " +
+                        "$live connection(s) at once)" +
+                        (if (deadlineExpired) " ← OUR DEADLINE EXPIRED, not the CDN" else "") +
+                        " · in flight: ${snapshotOfRangesInFlight()}",
                 )
-                claveUnica?.let { soltarViva(it) }
-                conexionesVivas.release(cerrable)
+                uniqueKey?.let { releaseLive(it) }
+                liveConnections.release(closer)
                 runCatching { conn.disconnect() }
                 // A 404 doesn't improve by insisting: the file isn't where we have it recorded.
                 // Cutting here saves two timeouts and, above all, lets the 404 arrive clean all the
@@ -1029,177 +1039,178 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                 if (!PoliticaOrigen.valeReintentar(code)) {
                     android.util.Log.w(
                         "ArchiveCacheProxy",
-                        "origin: $code isn't retried, giving up on ${rango ?: "(all)"}",
+                        "origin: $code isn't retried, giving up on ${range ?: "(all)"}",
                     )
                     return null
                 }
             }
-            if (intento < intentos - 1) Thread.sleep(PoliticaOrigen.esperaMs(intento, perfil))
+            if (attempt < attempts - 1) Thread.sleep(PoliticaOrigen.esperaMs(attempt, profile))
         }
-        // Se acabaron los intentos contra la puerta de entrada. Antes acá había un plan B para
-        // archive.org (hablarle directo al nodo que tiene el archivo, salteando `download.php` —
-        // ver NodoDeArchive, borrado en la poda de esta rama junto con el resto de esa fuente):
-        // magis sirve desde un CDN propio y nunca tuvo un nodo alternativo al que ir.
+        // Out of attempts against the front door. There used to be a plan B here for archive.org
+        // (talking directly to the node holding the file, skipping `download.php` — see
+        // NodoDeArchive, deleted in this branch's pruning along with the rest of that source): magis
+        // serves from its own CDN and never had an alternate node to fall back to.
         return null
     }
 
     /**
-     * Deja el arranque del stream listo en memoria ANTES de que el reproductor abra la URL.
+     * Gets the stream's startup ready in memory BEFORE the player opens the URL.
      *
-     * El porqué, medido: el CDN de magis tarda entre 0,2 s y 20 s en soltar el primer byte, y
-     * cuando la primera lectura se demoraba **libVLC se rendía identificando el stream**. No falla ni
-     * avisa: se queda sin pistas (`pistas=v0/a0`, ni imagen ni sonido) y desde ahí traga el archivo
-     * a toda velocidad sin volver a intentarlo — la película queda negra para siempre aunque los
-     * datos lleguen dos segundos después. Es la explicación de "la primera vez anda y la segunda
-     * no": no era el decodificador ni la vista sin destruir, era quién ganaba esa carrera.
+     * The why, measured: magis's CDN takes between 0.2 s and 20 s to release the first byte, and
+     * when the first read stalled **libVLC gave up identifying the stream**. It doesn't fail or
+     * warn: it ends up with no tracks (`pistas=v0/a0`, no picture, no sound) and from then on
+     * swallows the file at full speed without ever trying again -- the film stays black forever
+     * even if the data arrives two seconds later. It's the explanation for "the first time it works
+     * and the second it doesn't": it was never the decoder or the undestroyed view, it was who won
+     * that race.
      *
-     * Con el arranque ya en la mano, la primera lectura del player se responde al instante y siempre
-     * llega a identificar las pistas. Lo que tarde el CDN pasa a ser espera ANTES de abrir el
-     * video, que es recuperable, en vez de un fallo silencioso del que no se vuelve.
+     * With the startup already in hand, the player's first read gets answered instantly and always
+     * manages to identify the tracks. Whatever the CDN takes becomes a wait BEFORE opening the
+     * video, which is recoverable, instead of a silent failure with no way back.
      *
-     * Devuelve false si no se pudo (sin red, el origen no colabora): el que llama reproduce igual,
-     * solo que sin la garantía.
+     * Returns false if it couldn't (no network, the origin doesn't cooperate): the caller still
+     * plays, just without the guarantee.
      */
-    suspend fun precalentar(
+    suspend fun preWarm(
         originUrl: String,
         headers: Map<String, String> = emptyMap(),
-        fraccion: Float = 0f,
-        perfil: PoliticaOrigen.Perfil = PoliticaOrigen.Perfil.MAGIS,
+        fraction: Float = 0f,
+        profile: PoliticaOrigen.Perfil = PoliticaOrigen.Perfil.MAGIS,
         /**
-         * Si hay que ESPERAR a la cola antes de volver. Solo hace falta cuando la duración se saca
-         * de ella ([duracionDelPrecalentado]); cuando la manda el gateway, la cola únicamente sirve
-         * para los sondeos de EOF del player, que ocurren DESPUÉS de abrir y por lo tanto se pueden
-         * dejar corriendo por detrás.
+         * Whether to WAIT for the tail before returning. Only needed when the duration comes from
+         * it ([durationOfPreWarmed]); when the gateway sends it, the tail is only for the player's
+         * EOF probes, which happen AFTER opening and so can be left running in the background.
          *
-         * Medido el 2026-08-11 en el Fire TV, y es la razón de que este parámetro exista: con la
-         * cabeza ya sin bloquear, la cola pasó a ser el freno. Tres arranques del mismo capítulo,
-         * los tres con la duración ya en la mano: cola de 281 ms → total 1050 ms; colas de 3398 y
-         * 3446 ms → totales de 3883 y 4083 ms. Se estaban esperando 3,4 s por unos bytes que en ese
-         * momento no le hacían falta a nadie.
+         * Measured on 2026-08-11 on the Fire TV, and it's the reason this parameter exists: with
+         * the head no longer blocking, the tail became the brake. Three startups of the same
+         * chapter, all three with the duration already in hand: 281 ms tail → 1050 ms total; 3398
+         * and 3446 ms tails → 3883 and 4083 ms totals. 3.4 s were being spent waiting on bytes
+         * nobody needed at that point.
          */
-        esperarCola: Boolean = true,
+        waitForTail: Boolean = true,
         /**
-         * Contenedor que declara la fuente ("ts", "mp4"…), para decidir si la cola hace falta.
-         * Vacío = no se sabe, y ahí se precalienta igual. Ver [ColaCaliente.hayQuePrecalentar].
+         * Container declared by the source ("ts", "mp4"…), to decide whether the tail is needed.
+         * Empty = unknown, and it gets pre-warmed anyway. See [ColaCaliente.hayQuePrecalentar].
          */
-        contenedor: String = "",
+        container: String = "",
     ): Boolean = withContext(Dispatchers.IO) {
         val key = keyFor(originUrl)
-        val inicio = if (fraccion > 0f) {
-            VentanaDeArchivo.inicio(totalDelOrigen(originUrl, headers, perfil), fraccion)
+        val start = if (fraction > 0f) {
+            VentanaDeArchivo.inicio(totalOfOrigin(originUrl, headers, profile), fraction)
         } else 0L
         val t0 = System.currentTimeMillis()
-        // LAS DOS PUNTAS A LA VEZ. Iban en serie y eso era la fase más cara del arranque: medido en
-        // el Fire TV sobre ocho reproducciones, `precalentado` dominaba en 6 de 8 con 1443-6647 ms.
-        // Piden tramos distintos del archivo y el CDN atiende varias conexiones sin degradarse
-        // (medido: con tres drenando, un rango de cola seguía contestando en 0,44-0,82 s), así que
-        // el costo pasa a ser el MÁXIMO de las dos en vez de la suma.
-        // ¿HACE FALTA LA COLA? En mp4 no: medido en el Fire TV, tres títulos la bajaron y no la
-        // usaron ni una vez, y uno de ellos costó 8284 ms con tres rechazos del CDN en paralelo con
-        // la apertura del video. Ante la duda se baja igual. Ver [ColaCaliente.hayQuePrecalentar].
-        val colaHaceFalta = ColaCaliente.hayQuePrecalentar(contenedor)
-        if (!colaHaceFalta) {
+        // BOTH ENDS AT ONCE. They used to run in series and that was the most expensive phase of
+        // startup: measured on the Fire TV over eight playbacks, `pre-warm` dominated in 6 of 8 at
+        // 1443-6647 ms. They ask for different stretches of the file and the CDN serves several
+        // connections without degrading (measured: with three draining, a tail range still
+        // answered in 0.44-0.82 s), so the cost becomes the MAX of the two instead of the sum.
+        // IS THE TAIL EVEN NEEDED? Not for mp4: measured on the Fire TV, three titles downloaded it
+        // and never used it once, and one of them cost 8284 ms with three CDN rejections in
+        // parallel with opening the video. When in doubt, it's downloaded anyway. See
+        // [ColaCaliente.hayQuePrecalentar].
+        val tailNeeded = ColaCaliente.hayQuePrecalentar(container)
+        if (!tailNeeded) {
             android.util.Log.w(
                 "ArchiveCacheProxy",
-                "tail skipped: the '$contenedor' container opens without reading the end of the file",
+                "tail skipped: the '$container' container opens without reading the end of the file",
             )
         }
-        val buffer = BufferQueCrece(ARRANQUE_CALIENTE)
-        calientes["$key@$inicio"] = buffer
-        // El llenado NO se espera: se publica en el mapa ya mismo y sigue por su cuenta. El proxy le
-        // sirve al player de este mismo buffer mientras crece (ver serveArranque).
+        val buffer = BufferQueCrece(HOT_STARTUP_SIZE)
+        hotBuffers["$key@$start"] = buffer
+        // Filling it is NOT waited on: it's published in the map right away and keeps going on its
+        // own. The proxy serves the player from this same buffer while it grows (see serveArranque).
         Thread {
-            runCatching { bajarArranque(originUrl, headers, inicio, perfil, buffer) }
+            runCatching { downloadStartup(originUrl, headers, start, profile, buffer) }
             buffer.cerrar()
-        }.apply { isDaemon = true; name = "arkiv-precalentar" }.start()
-        // La cola SIEMPRE va en un Thread, nunca en un `async`, y esto no es una preferencia de
-        // estilo: `withContext` no vuelve hasta que sus hijos terminan. Un `async` es hijo, así que
-        // el `withTimeoutOrNull` de abajo cancelaba la ESPERA y no el trabajo, y al salir del bloque
-        // esta misma función se quedaba quieta aguardando a la cola de la que acababa de
-        // desentenderse. Medido en el Fire TV el 2026-08-13 con un capítulo de serie: el log decía
-        // «la cola no llegó en 2000ms» y el precalentado igual tardó 9218 ms. El hilo SÍ escapa del
-        // scope, y por eso el plazo pasa a ser un plazo. Ver PrecalentadoNoBloqueaTest.
+        }.apply { isDaemon = true; name = "arkiv-prewarm" }.start()
+        // The tail ALWAYS runs on a Thread, never on an `async`, and that isn't a style preference:
+        // `withContext` doesn't return until its children finish. An `async` is a child, so the
+        // `withTimeoutOrNull` below used to cancel the WAIT and not the work, and on leaving the
+        // block this same function sat still waiting on the tail it had just walked away from.
+        // Measured on the Fire TV on 2026-08-13 with a series chapter: the log said "tail didn't
+        // arrive in 2000ms" and pre-warming still took 9218 ms. The thread DOES escape the scope,
+        // and that's why the deadline becomes an actual deadline. See PrecalentadoNoBloqueaTest.
         //
-        // `esperarCola` ya solo decide si alguien mira el resultado; el trabajo se lanza igual,
-        // porque los sondeos de EOF del player quieren esa cola en memoria en los dos casos.
-        val cola = CompletableDeferred<Unit>()
-        if (colaHaceFalta) {
+        // `waitForTail` now only decides whether anyone looks at the result; the work launches
+        // either way, because the player's EOF probes want that tail in memory in both cases.
+        val tail = CompletableDeferred<Unit>()
+        if (tailNeeded) {
             Thread {
-                runCatching { precalentarCola(originUrl, headers, key, perfil) }
-                cola.complete(Unit)
-            }.apply { isDaemon = true; name = "arkiv-precalentar-cola" }.start()
+                runCatching { preWarmTail(originUrl, headers, key, profile) }
+                tail.complete(Unit)
+            }.apply { isDaemon = true; name = "arkiv-prewarm-tail" }.start()
         } else {
-            // Nadie la va a esperar, pero el tamaño del archivo SÍ hace falta para el precalentado
-            // del salto ([precalentarSalto] lo lee de `totales`). Se pide con un rango de UN byte
-            // en vez de con los 256 KB de la cola.
-            cola.complete(Unit)
+            // Nobody is going to wait on it, but the file's size IS needed for the seek pre-warm
+            // ([preWarmSeek] reads it off `totals`). Requested with a ONE-byte range instead of the
+            // tail's 256 KB.
+            tail.complete(Unit)
             Thread {
-                runCatching { totalDelOrigen(originUrl, headers, perfil) }
-            }.apply { isDaemon = true; name = "arkiv-tamano" }.start()
+                runCatching { totalOfOrigin(originUrl, headers, profile) }
+            }.apply { isDaemon = true; name = "arkiv-size" }.start()
         }
 
-        // Lo ÚNICO que se espera siempre: que el arranque haya empezado a fluir. Con eso alcanza
-        // para que la primera lectura del player se responda al instante, que es lo que evitaba el
-        // negro-y-mudo.
-        val arranco = buffer.esperarHasta(ARRANQUE_MINIMO, ESPERA_ARRANQUE_MS)
-        // La espera de la cola va ACOTADA. Medido el 2026-08-11 en el Fire TV: cuando el CDN se
-        // pone denso, esos 256 KB tardan 8 s —y no es lotería por conexión, porque una segunda
-        // conexión en paralelo también tardó lo mismo: es el enlace o el CDN frenando al cliente
-        // entero. Dos reproducciones de seis salieron en 10,3 s y 13,8 s esperando ese dato.
+        // The ONLY thing always waited on: that the startup has started flowing. That's enough for
+        // the player's first read to get answered instantly, which is what prevented the
+        // black-and-mute.
+        val started = buffer.esperarHasta(MIN_STARTUP, STARTUP_WAIT_MS)
+        // The wait on the tail is BOUNDED. Measured on 2026-08-11 on the Fire TV: when the CDN gets
+        // dense, that 256 KB takes 8 s -and it isn't per-connection bad luck, because a second
+        // connection in parallel took just as long too: it's the link or the CDN throttling the
+        // whole client. Two playbacks out of six came out at 10.3 s and 13.8 s waiting on that data.
         //
-        // Pasado este plazo se reproduce SIN duración: la barra queda fea, pero el video arranca.
-        // Al revés no — nunca frenar el video por una barra de progreso. La cola sigue bajando
-        // igual por detrás, así que los sondeos de EOF del player la encuentran cuando llegue.
-        if (esperarCola && withTimeoutOrNull(ESPERA_COLA_MS) { cola.await() } == null) {
+        // Past this deadline it plays WITHOUT duration: the bar looks bad, but the video starts.
+        // Never the other way around -- never hold up the video for a progress bar. The tail keeps
+        // downloading in the background regardless, so the player's EOF probes find it once it arrives.
+        if (waitForTail && withTimeoutOrNull(TAIL_WAIT_MS) { tail.await() } == null) {
             android.util.Log.w(
                 "ArchiveCacheProxy",
-                "the tail didn't arrive within ${ESPERA_COLA_MS}ms → playing without duration",
+                "the tail didn't arrive within ${TAIL_WAIT_MS}ms → playing without duration",
             )
         }
         android.util.Log.w(
             "ArchiveCacheProxy",
             "startup servable after ${System.currentTimeMillis() - t0}ms " +
-                "(${buffer.disponible / 1024}KB of ${ARRANQUE_CALIENTE / 1024}KB, still downloading)",
+                "(${buffer.disponible / 1024}KB of ${HOT_STARTUP_SIZE / 1024}KB, still downloading)",
         )
-        if (!arranco && buffer.disponible == 0) {
-            android.util.Log.w("ArchiveCacheProxy", "precalentar: no bytes arrived")
-            calientes.remove("$key@$inicio")
+        if (!started && buffer.disponible == 0) {
+            android.util.Log.w("ArchiveCacheProxy", "preWarm: no bytes arrived")
+            hotBuffers.remove("$key@$start")
             return@withContext false
         }
         true
     }
 
     /**
-     * Vuelca los primeros [ARRANQUE_CALIENTE] bytes desde [inicio] en [destino], a medida que
-     * llegan. Corre en su propio hilo: quien lo lanza NO lo espera (ver [precalentar]).
+     * Streams the first [HOT_STARTUP_SIZE] bytes from [start] into [destination], as they arrive.
+     * Runs on its own thread: whoever launches it does NOT wait on it (see [preWarm]).
      */
-    private fun bajarArranque(
+    private fun downloadStartup(
         originUrl: String,
         headers: Map<String, String>,
-        inicio: Long,
-        perfil: PoliticaOrigen.Perfil,
-        destino: BufferQueCrece,
+        start: Long,
+        profile: PoliticaOrigen.Perfil,
+        destination: BufferQueCrece,
     ) {
         val (conn, _) =
-            abrirEnOrigen(originUrl, "bytes=$inicio-", headers, claveUnica = null, perfil = perfil)
+            openAtOrigin(originUrl, "bytes=$start-", headers, uniqueKey = null, profile = profile)
                 ?: run {
-                    android.util.Log.w("ArchiveCacheProxy", "precalentar: the origin didn't give the startup chunk")
+                    android.util.Log.w("ArchiveCacheProxy", "preWarm: the origin didn't give the startup chunk")
                     return
                 }
-        // El TAMAÑO del archivo sale gratis de esta misma respuesta, y hace falta enseguida: es lo
-        // que le permite a [precalentarCola] pedir el final por rango ABSOLUTO en vez de por sufijo.
-        // Ver ahí por qué esa diferencia vale segundos.
-        anotarTotal(originUrl, conn, inicio)
+        // The file's SIZE comes free from this same response, and it's needed right away: it's
+        // what lets [preWarmTail] ask for the end by an ABSOLUTE range instead of by suffix. See
+        // there for why that difference is worth seconds.
+        recordTotal(originUrl, conn, start)
         runCatching {
             conn.inputStream.use { ins ->
                 val buf = ByteArray(64 * 1024)
                 var total = 0
-                while (total < ARRANQUE_CALIENTE) {
-                    val leidos = ins.read(buf, 0, minOf(buf.size, ARRANQUE_CALIENTE - total))
-                    if (leidos < 0) break
-                    // Cada bloque queda disponible EN EL ACTO para quien esté sirviendo al player.
-                    destino.escribir(buf, leidos)
-                    total += leidos
+                while (total < HOT_STARTUP_SIZE) {
+                    val read = ins.read(buf, 0, minOf(buf.size, HOT_STARTUP_SIZE - total))
+                    if (read < 0) break
+                    // Each block becomes available RIGHT AWAY for whoever is serving the player.
+                    destination.escribir(buf, read)
+                    total += read
                 }
             }
         }
@@ -1207,267 +1218,271 @@ class ArchiveCacheProxy(private val cacheDir: File) {
     }
 
     /**
-     * Cuánto dura el archivo, deducido de lo que [precalentar] YA se bajó. 0 = no hay con qué.
+     * How long the file runs, worked out from what [preWarm] has ALREADY downloaded. 0 = nothing
+     * to work with.
      *
-     * Es el mismo cálculo de PCR que hacía [TsDurationProbe.probeRemote], pero sin red: la sonda
-     * pedía cabeza y cola por su cuenta —los mismos 256 KB del final que el precalentado ya tenía—
-     * y las dos peticiones competían entre sí contra el mismo CDN. Medido el 2026-08-11 en el Fire
-     * TV, en dos de ocho arranques la sonda perdió esa pelea y la película salió sin duración.
+     * It's the same PCR calculation [TsDurationProbe.probeRemote] used to do, just without the
+     * network: the probe asked for the head and tail on its own -the same 256 KB at the end the
+     * pre-warm already had- and the two requests raced each other against the same CDN. Measured
+     * on 2026-08-11 on the Fire TV, in two of eight startups the probe lost that race and the film
+     * came out with no duration.
      */
-    fun duracionDelPrecalentado(originUrl: String): Long {
+    fun durationOfPreWarmed(originUrl: String): Long {
         val key = keyFor(originUrl)
-        // Lo que haya llegado del arranque alcanza: el PRIMER PCR está en los primeros paquetes, y
-        // acá ya se esperó a que el buffer pasara ARRANQUE_MINIMO. No hace falta que esté completo.
-        val cabeza = calientes["$key@0"]?.porcion(0)?.takeIf { it.isNotEmpty() } ?: return 0L
-        val cola = colas[key]?.second ?: return 0L
-        return TsDurationProbe.durationMs(cabeza, cola)
+        // Whatever arrived from the startup is enough: the FIRST PCR is in the first packets, and
+        // by here it already waited for the buffer to pass MIN_STARTUP. It doesn't need to be complete.
+        val head = hotBuffers["$key@0"]?.porcion(0)?.takeIf { it.isNotEmpty() } ?: return 0L
+        val tail = tails[key]?.second ?: return 0L
+        return TsDurationProbe.durationMs(head, tail)
     }
 
     /**
-     * Se guarda el final del archivo para que los sondeos de EOF del player no toquen la red.
-     * Ver [ColaCaliente] para la medición que justifica esto.
+     * Saves the end of the file so the player's EOF probes don't touch the network. See
+     * [ColaCaliente] for the measurement that justifies this.
      *
-     * Va por rango-SUFIJO (`bytes=-N`) por la misma razón que la sonda de duración: no hace falta
-     * preguntar antes el tamaño, y la respuesta trae el `Content-Range` con el total y el byte donde
-     * arranca, que es justo lo que hay que guardar para poder responder rangos absolutos después.
+     * Goes by SUFFIX range (`bytes=-N`) for the same reason as the duration probe: there's no need
+     * to ask the size first, and the response carries the `Content-Range` with the total and the
+     * byte it starts at, which is exactly what needs to be saved to be able to answer absolute
+     * ranges afterward.
      */
-    private fun precalentarCola(
+    private fun preWarmTail(
         originUrl: String,
         headers: Map<String, String>,
         key: String,
-        perfil: PoliticaOrigen.Perfil,
+        profile: PoliticaOrigen.Perfil,
     ) {
         val t0 = System.currentTimeMillis()
-        // ¿YA LA TENEMOS DE OTRA SESIÓN? Es lo primero que se prueba: la cola de un archivo no
-        // cambia, y traerla del disco cuesta microsegundos contra los segundos que cuesta el CDN.
-        colaEnDisco.leer(key)?.let { guardada ->
-            colas[key] = guardada.inicio to guardada.bytes
-            totales[originUrl] = guardada.total
+        // DO WE ALREADY HAVE IT FROM ANOTHER SESSION? It's the first thing tried: a file's tail
+        // never changes, and fetching it from disk costs microseconds against the seconds the CDN
+        // costs.
+        tailOnDisk.leer(key)?.let { saved ->
+            tails[key] = saved.inicio to saved.bytes
+            totals[originUrl] = saved.total
             android.util.Log.w(
                 "ArchiveCacheProxy",
-                "tail from disk: ${guardada.bytes.size / 1024}KB from ${guardada.inicio} " +
-                    "(total=${guardada.total}) without touching the network",
+                "tail from disk: ${saved.bytes.size / 1024}KB from ${saved.inicio} " +
+                    "(total=${saved.total}) without touching the network",
             )
             return
         }
-        // Se avisa ANTES de abrir, no después: la carrera que esto evita empieza en cuanto el player
-        // abre el media, que es milisegundos después de que arranque este hilo.
-        val enVuelo = java.util.concurrent.CountDownLatch(1)
-        colasEnVuelo[key] = enVuelo
+        // Reported BEFORE opening, not after: the race this avoids begins the instant the player
+        // opens the media, which is milliseconds after this thread starts.
+        val inFlight = java.util.concurrent.CountDownLatch(1)
+        tailsInFlight[key] = inFlight
         try {
-            precalentarColaAdentro(originUrl, headers, key, perfil, t0)
+            preWarmTailInner(originUrl, headers, key, profile, t0)
         } finally {
-            colasEnVuelo.remove(key)
-            enVuelo.countDown()
+            tailsInFlight.remove(key)
+            inFlight.countDown()
         }
     }
 
     /**
-     * Pide [rango] al origen y, si a los [DUPLICAR_TRAS_MS] todavía no contestó, vuelve a pedirlo por
-     * OTRA conexión y se queda con la que llegue primero.
+     * Asks the origin for [range] and, if it hasn't answered by [DUPLICATE_AFTER_MS], asks again
+     * over ANOTHER connection and keeps whichever arrives first.
      *
-     * El porqué, medido en el Fire TV el 2026-08-13 con un capítulo nuevo: el CDN rechazó la cola dos
-     * veces seguidas —sin contestar nada, que es como falla este CDN— y cada rechazo cuesta los 3 s
-     * de plazo de [PoliticaOrigen.Perfil.MAGIS]. VLC, que necesitaba el final del archivo para
-     * abrir, se quedó esperando **7,3 s**. El reintento en serie no ayuda: espera a que el anterior se dé
-     * por vencido para recién ahí volver a tirar los dados.
+     * The why, measured on the Fire TV on 2026-08-13 with a new chapter: the CDN rejected the tail
+     * twice in a row -answering nothing at all, which is how this CDN fails- and each rejection
+     * costs [PoliticaOrigen.Perfil.MAGIS]'s 3 s deadline. VLC, which needed the end of the file to
+     * open, was left waiting **7.3 s**. Retrying in series doesn't help: it waits for the previous
+     * attempt to give up before rolling the dice again.
      *
-     * Que el CDN aguante conexiones simultáneas no es una suposición: está medido (dos al mismo
-     * archivo conviven, la segunda contestó en 0,77 s con la primera descargando). Y el costo del
-     * duplicado es acotado — como mucho una petición de más, y solo cuando la primera ya se está
-     * demorando más de lo normal.
+     * That the CDN tolerates simultaneous connections isn't an assumption: it's measured (two to
+     * the same file coexist, the second answered in 0.77 s with the first still downloading). And
+     * the duplicate's cost is bounded -- at most one extra request, and only when the first is
+     * already taking longer than normal.
      *
-     * La app original resuelve esto por otro lado: su motor nativo tiene VARIOS nodos de CDN con su
-     * latencia medida (`Status.links`, `Status.latency`) y elige. Nosotros tenemos un solo nodo, así
-     * que lo que se puede variar es la conexión, no el destino.
+     * The original app solves this another way: its native engine has SEVERAL CDN nodes with their
+     * latency measured (`Status.links`, `Status.latency`) and picks. We have a single node, so what
+     * can be varied is the connection, not the destination.
      */
-    private fun abrirConDuplicado(
+    private fun openWithDuplicate(
         origin: String,
-        rango: String?,
+        range: String?,
         headers: Map<String, String>,
-        perfil: PoliticaOrigen.Perfil,
+        profile: PoliticaOrigen.Perfil,
     ): Pair<HttpURLConnection, SingleConnection.Closer>? {
-        val ganador = java.util.concurrent.atomic.AtomicReference<Pair<HttpURLConnection, SingleConnection.Closer>?>()
-        val terminados = java.util.concurrent.atomic.AtomicInteger(0)
-        val listo = java.util.concurrent.CountDownLatch(1)
-        repeat(TIROS_A_LA_COLA) { i ->
+        val winner = java.util.concurrent.atomic.AtomicReference<Pair<HttpURLConnection, SingleConnection.Closer>?>()
+        val finished = java.util.concurrent.atomic.AtomicInteger(0)
+        val ready = java.util.concurrent.CountDownLatch(1)
+        repeat(TAIL_SHOTS) { i ->
             Thread {
-                // El duplicado sale TARDE a propósito: si la primera contesta a tiempo —el caso
-                // normal— este hilo se despierta, ve que ya hay ganador y no toca la red.
-                if (i > 0) runCatching { Thread.sleep(DUPLICAR_TRAS_MS) }
-                if (ganador.get() == null) {
-                    val r = runCatching { abrirEnOrigen(origin, rango, headers, null, perfil) }.getOrNull()
+                // The duplicate goes out LATE on purpose: if the first answers in time -the normal
+                // case- this thread wakes up, sees there's already a winner, and doesn't touch the network.
+                if (i > 0) runCatching { Thread.sleep(DUPLICATE_AFTER_MS) }
+                if (winner.get() == null) {
+                    val r = runCatching { openAtOrigin(origin, range, headers, null, profile) }.getOrNull()
                     if (r != null) {
-                        if (ganador.compareAndSet(null, r)) {
+                        if (winner.compareAndSet(null, r)) {
                             if (i > 0) {
                                 android.util.Log.w(
                                     "ArchiveCacheProxy",
-                                    "the DUPLICATE request for ${rango ?: "(all)"} won",
+                                    "the DUPLICATE request for ${range ?: "(all)"} won",
                                 )
                             }
-                            listo.countDown()
+                            ready.countDown()
                         } else {
-                            // Llegó segunda: su conexión no le sirve a nadie y hay que soltarla, o
-                            // se queda drenando el archivo contra el mismo CDN que estamos apurando.
+                            // Arrived second: its connection is of no use to anyone and has to be
+                            // released, or it sits draining the file against the same CDN we're rushing.
                             runCatching { r.first.disconnect() }
                         }
                     }
                 }
-                if (terminados.incrementAndGet() == TIROS_A_LA_COLA) listo.countDown()
-            }.apply { isDaemon = true; name = "arkiv-cola-$i" }.start()
+                if (finished.incrementAndGet() == TAIL_SHOTS) ready.countDown()
+            }.apply { isDaemon = true; name = "arkiv-tail-$i" }.start()
         }
-        runCatching { listo.await() }
-        return ganador.get()
+        runCatching { ready.await() }
+        return winner.get()
     }
 
-    private fun precalentarColaAdentro(
+    private fun preWarmTailInner(
         originUrl: String,
         headers: Map<String, String>,
         key: String,
-        perfil: PoliticaOrigen.Perfil,
+        profile: PoliticaOrigen.Perfil,
         t0: Long,
     ) {
-        // EL FINAL SE PIDE POR RANGO ABSOLUTO, NO POR SUFIJO. Esto no es una preferencia de estilo:
-        // es lo más caro que se encontró midiendo. En el Fire TV, el 2026-08-13, sobre 31 peticiones
-        // al CDN de magis:
+        // THE END IS REQUESTED BY ABSOLUTE RANGE, NOT BY SUFFIX. This isn't a style preference:
+        // it's the most expensive thing found while measuring. On the Fire TV, on 2026-08-13, over
+        // 31 requests to magis's CDN:
         //
-        //   forma del rango        rechazos   respuestas OK
-        //   bytes=-262144 (sufijo)    19            0
-        //   bytes=N-    (absoluto)     0           12
+        //   range shape            rejections   OK responses
+        //   bytes=-262144 (suffix)     19            0
+        //   bytes=N-    (absolute)      0           12
         //
-        // Los DIECINUEVE rechazos fueron del sufijo y ninguno del absoluto. Y no es que el tramo no
-        // esté: en el mismo arranque, tras seis rechazos seguidos de `bytes=-262144` —dos conexiones
-        // en paralelo, tres intentos cada una, 8,8 s tirados— el reproductor pidió ese mismo final
-        // por `bytes=322515168-` y el CDN lo sirvió en 267 ms. Cada rechazo cuesta los 3 s de plazo
-        // del perfil MAGIS, y libVLC no abría hasta tener el final: de ahí salían colas de 7036,
-        // 8485 y 9435 ms.
+        // The NINETEEN rejections were all suffix and none were absolute. And it's not that the
+        // stretch isn't there: in the same startup, after six rejections in a row of
+        // `bytes=-262144` -two parallel connections, three attempts each, 8.8 s thrown away- the
+        // player requested that same end via `bytes=322515168-` and the CDN served it in 267 ms.
+        // Each rejection costs the MAGIS profile's 3 s deadline, and libVLC wouldn't open until it
+        // had the end: that's where the 7036, 8485 and 9435 ms tails came from.
         //
-        // El tamaño no cuesta una petición extra: lo anotó [anotarTotal] de la respuesta de la
-        // cabeza, que se está bajando en paralelo. Se le da un momento para que llegue; si no llega,
-        // se cae al sufijo de siempre, que es peor pero funciona a veces.
-        val limite = System.currentTimeMillis() + ESPERA_TOTAL_MS
-        var totalConocido = totales[originUrl] ?: 0L
-        while (totalConocido <= 0L && System.currentTimeMillis() < limite) {
+        // The size doesn't cost an extra request: [recordTotal] noted it from the head's response,
+        // which is downloading in parallel. It's given a moment to arrive; if it doesn't, it falls
+        // back to the usual suffix, which is worse but works sometimes.
+        val deadline = System.currentTimeMillis() + TOTAL_WAIT_MS
+        var knownTotal = totals[originUrl] ?: 0L
+        while (knownTotal <= 0L && System.currentTimeMillis() < deadline) {
             Thread.sleep(50)
-            totalConocido = totales[originUrl] ?: 0L
+            knownTotal = totals[originUrl] ?: 0L
         }
-        val rangoCola = if (totalConocido > COLA_CALIENTE) {
-            "bytes=${totalConocido - COLA_CALIENTE}-${totalConocido - 1}"
+        val tailRange = if (knownTotal > HOT_TAIL_SIZE) {
+            "bytes=${knownTotal - HOT_TAIL_SIZE}-${knownTotal - 1}"
         } else {
             android.util.Log.w("ArchiveCacheProxy", "tail: no size in time, falling back to suffix")
-            "bytes=-$COLA_CALIENTE"
+            "bytes=-$HOT_TAIL_SIZE"
         }
-        val (conn, _) = abrirConDuplicado(
-            originUrl, rangoCola, headers, perfil,
+        val (conn, _) = openWithDuplicate(
+            originUrl, tailRange, headers, profile,
         ) ?: run {
-            android.util.Log.w("ArchiveCacheProxy", "precalentar tail: the origin didn't give it")
+            android.util.Log.w("ArchiveCacheProxy", "preWarm tail: the origin didn't give it")
             return
         }
         val contentRange = conn.getHeaderField("Content-Range")
         val bytes = runCatching { conn.inputStream.use { it.readBytes() } }.getOrNull()
         runCatching { conn.disconnect() }
-        // `bytes <inicio>-<fin>/<total>`: sin esto no se puede traducir un rango absoluto a un
-        // offset dentro de lo guardado, y servir a ciegas sería peor que ir al origen.
+        // `bytes <start>-<end>/<total>`: without this an absolute range can't be translated to an
+        // offset inside what's saved, and serving blind would be worse than going to the origin.
         val m = Regex("""bytes (\d+)-(\d+)/(\d+)""").find(contentRange.orEmpty())
         if (bytes == null || bytes.isEmpty() || m == null) {
             android.util.Log.w(
                 "ArchiveCacheProxy",
-                "precalentar tail: no usable Content-Range (${contentRange ?: "none"})",
+                "preWarm tail: no usable Content-Range (${contentRange ?: "none"})",
             )
             return
         }
-        val inicio = m.groupValues[1].toLong()
+        val start = m.groupValues[1].toLong()
         val total = m.groupValues[3].toLong()
-        totales[originUrl] = total
-        colas[key] = inicio to bytes
-        // Y al disco, para que la próxima vez que se abra este título no haya que volver a pedirla.
-        colaEnDisco.guardar(key, inicio, total, bytes)
+        totals[originUrl] = total
+        tails[key] = start to bytes
+        // And to disk, so the next time this title opens it doesn't need fetching again.
+        tailOnDisk.guardar(key, start, total, bytes)
         android.util.Log.w(
             "ArchiveCacheProxy",
-            "tail pre-warmed: ${bytes.size / 1024}KB from $inicio (total=$total) " +
+            "tail pre-warmed: ${bytes.size / 1024}KB from $start (total=$total) " +
                 "in ${System.currentTimeMillis() - t0}ms",
         )
     }
 
     /**
-     * Contesta [pedido] con lo que hay en [v], sin tocar la red. Devuelve false si no alcanzó y hay
-     * que ir al origen como siempre.
+     * Answers [requested] with what's in [v], without touching the network. Returns false if it
+     * wasn't enough and the origin has to be asked as usual.
      *
-     * Solo sirve el tramo que puede entregar ENTERO, y por eso el `Content-Length` que manda es el
-     * de ese tramo y no el del resto del archivo: un cuerpo más corto que el largo anunciado deja al
-     * reproductor esperando bytes que no van a llegar, sin error visible — el mismo cuidado que ya
-     * documenta [ColaCaliente]. Si el reproductor quiere más, lo pide con otro rango, que es
-     * exactamente lo que hace al bisecar.
+     * Only serves the stretch it can deliver WHOLE, and that's why the `Content-Length` it sends is
+     * that stretch's and not the rest of the file's: a body shorter than the announced length
+     * leaves the player waiting on bytes that will never arrive, with no visible error -- the same
+     * care [ColaCaliente] already documents. If the player wants more, it asks with another range,
+     * which is exactly what it does while bisecting.
      *
-     * OJO con quién pregunta. Eso último vale para libVLC, que bisectaba y volvía a pedir;
-     * ExoPlayer NO: pide `bytes=N-` —de ahí al final— y un cuerpo más corto se lo come como fin de los datos.
-     * Su ProgressiveMediaPeriod da la carga por terminada y deja de pedir, se acaba lo que tenía en
-     * cola —se midieron 512000 frames de audio, 10,7 s exactos, justo el tramo servido—, para el
-     * AudioTrack y detiene los renderers sin declarar BUFFERING: la imagen se congela y el reloj
-     * sigue corriendo solo. Por eso un rango abierto se sirve de memoria y SE SIGUE con la red en la
-     * misma respuesta, en vez de cortar. Medido: los tramos servidos de red nunca colgaron; los de
-     * memoria colgaban siempre.
+     * WATCH who's asking. That last part holds for libVLC, which bisected and asked again;
+     * ExoPlayer does NOT: it asks for `bytes=N-` -from there to the end- and eats a shorter body as
+     * the end of the data. Its ProgressiveMediaPeriod calls the load done and stops asking, what it
+     * had queued runs out -measured at 512000 audio frames, exactly 10.7 s, precisely the stretch
+     * served-, the AudioTrack pauses and the renderers stop without declaring BUFFERING: the picture
+     * freezes and the clock keeps running on its own. That's why an open range is served from
+     * memory and THEN CONTINUES over the network in the same response, instead of cutting off.
+     * Measured: stretches served from the network never hung; the ones from memory always did.
      */
-    private fun servirDeVentana(
-        v: VentanaDeSalto,
-        pedido: Long,
+    private fun serveFromWindow(
+        v: SeekWindow,
+        requested: Long,
         total: Long,
         out: java.io.OutputStream,
         rangeHeader: String?,
         origin: String,
         extraHeaders: Map<String, String>,
-        claveUnica: String?,
-        perfil: PoliticaOrigen.Perfil,
+        uniqueKey: String?,
+        profile: PoliticaOrigen.Perfil,
     ): Boolean {
-        val desde = (pedido - v.inicio).toInt()
-        val trozo = runCatching { v.buffer.porcion(desde) }.getOrNull() ?: return false
-        if (trozo.isEmpty()) return false
+        val from = (requested - v.start).toInt()
+        val chunk = runCatching { v.buffer.porcion(from) }.getOrNull() ?: return false
+        if (chunk.isEmpty()) return false
 
-        // Rango abierto (`bytes=N-`): hay que cubrir hasta el final del archivo. Se anuncia ese
-        // largo y después de la memoria se sigue con la red, para no cortarle el cuerpo a un
-        // cliente que no va a volver a pedir.
-        val abierto = RangeHeader.parse(rangeHeader)?.let { it.end == null } ?: false
-        val hasta = if (abierto) total - 1 else pedido + trozo.size - 1
-        val largo = hasta - pedido + 1
+        // Open range (`bytes=N-`): the rest of the file has to be covered. That length is
+        // announced and the network takes over after memory, so a client that isn't going to ask
+        // again doesn't get its body cut short.
+        val open = RangeHeader.parse(rangeHeader)?.let { it.end == null } ?: false
+        val until = if (open) total - 1 else requested + chunk.size - 1
+        val length = until - requested + 1
 
-        // DESDE ACÁ NO SE PUEDE VOLVER. En cuanto la cabecera sale por el socket, la respuesta está
-        // comprometida: devolver false haría que el passthrough escribiera OTRA respuesta HTTP
-        // encima de esta, por la misma conexión. Se descubrió por test —un sondeo servía bien y el
-        // de al lado no, sin patrón— y el motivo era justo ese: el reproductor corta a mitad del
-        // cuerpo (lee lo que quiere y se va), el `write` fallaba y esto caía al origen habiendo ya
-        // contestado. Que el cliente se vaya no es un fallo: es lo normal cuando bisecta.
-        val salioLaCabecera = runCatching {
+        // NO GOING BACK FROM HERE. As soon as the header goes out over the socket, the response is
+        // committed: returning false would make passthrough write ANOTHER HTTP response on top of
+        // this one, over the same connection. Found by testing -one probe served fine and the one
+        // right next to it didn't, with no pattern- and the reason was exactly this: the player cuts
+        // off mid-body (reads what it wants and leaves), the `write` failed and this fell through to
+        // the origin having already answered. The client leaving isn't a failure: it's normal while bisecting.
+        val headerWentOut = runCatching {
             out.write(
                 (
                     "HTTP/1.1 206 Partial Content\r\nAccept-Ranges: bytes\r\n" +
-                        "Content-Length: $largo\r\n" +
-                        "Content-Range: bytes $pedido-$hasta/$total\r\n" +
+                        "Content-Length: $length\r\n" +
+                        "Content-Range: bytes $requested-$until/$total\r\n" +
                         "Content-Type: application/octet-stream\r\n\r\n"
                     ).toByteArray(),
             )
-            out.write(trozo)
+            out.write(chunk)
             out.flush()
         }.isSuccess
         android.util.Log.w(
             "ArchiveCacheProxy",
-            "seek window: $rangeHeader served from memory (${trozo.size / 1024}KB, no network)" +
-                if (abierto) " · continuing over the network from ${pedido + trozo.size}" else "",
+            "seek window: $rangeHeader served from memory (${chunk.size / 1024}KB, no network)" +
+                if (open) " · continuing over the network from ${requested + chunk.size}" else "",
         )
-        if (!abierto || !salioLaCabecera) return true
+        if (!open || !headerWentOut) return true
 
-        // El resto del cuerpo, desde donde se acabó la memoria. Si esto falla no se puede hacer
-        // nada más: la cabecera ya salió y el cliente verá un cuerpo corto, igual que antes de este
-        // cambio. Se devuelve true siempre para que nadie escriba otra respuesta encima.
-        val restante = largo - trozo.size
-        if (restante <= 0L) return true
-        val (conn, cerrable) = abrirEnOrigen(
+        // The rest of the body, from where memory ran out. If this fails there's nothing more to
+        // do: the header already went out and the client will see a short body, same as before this
+        // change. Always returns true so nobody writes another response on top.
+        val remaining = length - chunk.size
+        if (remaining <= 0L) return true
+        val (conn, closer) = openAtOrigin(
             origin,
-            "bytes=${pedido + trozo.size}-$hasta",
+            "bytes=${requested + chunk.size}-$until",
             extraHeaders,
-            claveUnica,
-            perfil,
+            uniqueKey,
+            profile,
         ) ?: return true
-        var escritos = 0L
+        var written = 0L
         val t0 = System.currentTimeMillis()
         try {
             conn.inputStream.use { ins ->
@@ -1475,19 +1490,20 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                 while (true) {
                     val n = ins.read(buf); if (n < 0) break
                     if (runCatching { out.write(buf, 0, n) }.isFailure) break
-                    escritos += n
+                    written += n
                 }
             }
             runCatching { out.flush() }
         } catch (_: Throwable) {
-            // El cliente cortó o el origen se cayó: lo dice el log de abajo y no hay más que hacer.
+            // The client cut off or the origin dropped: the log below says so and there's nothing
+            // more to do.
         } finally {
-            claveUnica?.let { soltarViva(it) }
-            conexionesVivas.release(cerrable)
+            uniqueKey?.let { releaseLive(it) }
+            liveConnections.release(closer)
             runCatching { conn.disconnect() }
             android.util.Log.w(
                 "ArchiveCacheProxy",
-                "seek window: tail from the network ${escritos / 1024}KB of ${restante / 1024}KB " +
+                "seek window: tail from the network ${written / 1024}KB of ${remaining / 1024}KB " +
                     "in ${System.currentTimeMillis() - t0}ms",
             )
         }
@@ -1495,94 +1511,95 @@ class ArchiveCacheProxy(private val cacheDir: File) {
     }
 
     /**
-     * Prepara la zona a la que el reproductor va a SALTAR al reanudar, antes de que la pida.
+     * Prepares the area the player is going to SEEK to on resume, before it asks for it.
      *
-     * El porqué, medido en el Fire TV el 2026-08-13 reanudando una película en 13:29: libVLC abría
-     * SIEMPRE en el byte 0 y recién después buscaba el minuto guardado. Entre una cosa y la otra se
-     * bajó **2,5 MB del principio de la película que después tiró**, y eso costó 3,4 s con el
-     * reproductor clavado en `pos=0` — casi un tercio de los 10,8 s que tardó en arrancar.
+     * The why, measured on the Fire TV on 2026-08-13 resuming a film at 13:29: libVLC ALWAYS
+     * opened at byte 0 and only afterward looked for the saved minute. Between one thing and the
+     * other **2.5 MB of the start of the film that then got thrown away** got downloaded, and that
+     * cost 3.4 s with the player stuck at `pos=0` -- almost a third of the 10.8 s it took to start.
      *
-     * Es la pieza que le faltaba a nuestra copia del diseño de la app original: ella le manda a su
-     * motor de descarga `Seek {moment}` **antes** de saltar, con callback, justamente para que la
-     * zona esté lista cuando el reproductor llegue (ver `yc/C6280e.java` en la decompilada).
+     * It's the piece our copy of the original app's design was missing. It sends its download
+     * engine `Seek {moment}` **before** seeking, with a callback, for exactly this reason: so the
+     * area is ready by the time the player gets there (see `yc/C6280e.java` in the decompiled app).
      *
-     * El byte se estima suponiendo tasa constante, y eso NO es una licencia: se comprobó contra dos
-     * reanudaciones reales antes de escribirlo. Estimado 119,4 MB → pedidos en 116,7 y 120,5 MB;
-     * estimado 76,1 MB → pedidos entre 76,2 y 79,8 MB. O sea un desvío de -2,7 a +3,7 MB, que es de
-     * dónde salen [MARGEN_SALTO] y el tamaño de esta ventana: empezar antes del estimado y cubrir
-     * para los dos lados. Si aun así se erra, no se pierde nada — la ventana reactiva de siempre
-     * sigue estando.
+     * The byte is estimated assuming a constant rate, and that is NOT a liberty taken: it was
+     * checked against two real resumes before writing it. Estimated 119.4 MB → requested at 116.7
+     * and 120.5 MB; estimated 76.1 MB → requested between 76.2 and 79.8 MB. So a gap of -2.7 to
+     * +3.7 MB, which is where [SEEK_MARGIN] and this window's size come from: start before the
+     * estimate and cover both sides. If it still misses, nothing is lost -- the usual reactive
+     * window is still there.
      *
-     * No bloquea a nadie: se va a un hilo y el arranque sigue. Si no llega a tiempo, el reproductor
-     * pide por red como hacía antes.
+     * Blocks nobody: it goes to a thread and startup continues. If it doesn't arrive in time, the
+     * player requests over the network like it used to.
      */
-    fun precalentarSalto(
+    fun preWarmSeek(
         originUrl: String,
         headers: Map<String, String> = emptyMap(),
-        fraccion: Float,
-        perfil: PoliticaOrigen.Perfil = PoliticaOrigen.Perfil.MAGIS,
+        fraction: Float,
+        profile: PoliticaOrigen.Perfil = PoliticaOrigen.Perfil.MAGIS,
     ) {
-        if (fraccion <= 0f || fraccion >= 1f) return
+        if (fraction <= 0f || fraction >= 1f) return
         val key = keyFor(originUrl)
         Thread {
-            // El tamaño lo trae la cola, que va bajando en paralelo. Se la espera acá —en un hilo
-            // que no frena nada— en vez de pedir el tamaño por separado, que sería otra petición al
-            // mismo CDN al que estamos tratando de no molestar.
-            val limite = System.currentTimeMillis() + ESPERA_COLA_EN_VUELO_MS
-            var total = totales[originUrl] ?: 0L
-            while (total <= 0L && System.currentTimeMillis() < limite) {
+            // The size comes from the tail, which is downloading in parallel. It's waited on here
+            // -on a thread that holds nothing up- instead of asking for the size separately, which
+            // would be yet another request to the same CDN we're trying not to bother.
+            val deadline = System.currentTimeMillis() + TAIL_IN_FLIGHT_WAIT_MS
+            var total = totals[originUrl] ?: 0L
+            while (total <= 0L && System.currentTimeMillis() < deadline) {
                 Thread.sleep(100)
-                total = totales[originUrl] ?: 0L
+                total = totals[originUrl] ?: 0L
             }
             if (total <= 0L) {
-                // La cola es la vía normal para saber el tamaño, pero puede no haberse pedido
-                // (contenedor que no la necesita) o no haber llegado. Un rango de un byte lo
-                // resuelve por su cuenta; sin esto el salto se quedaba sin precalentar en silencio.
-                total = runCatching { totalDelOrigen(originUrl, headers, perfil) }.getOrDefault(0L)
+                // The tail is the normal way to learn the size, but it might not have been
+                // requested (a container that doesn't need it) or might not have arrived. A
+                // one-byte range resolves it on its own; without this the seek silently went
+                // un-pre-warmed.
+                total = runCatching { totalOfOrigin(originUrl, headers, profile) }.getOrDefault(0L)
             }
             if (total <= 0L) {
                 android.util.Log.w("ArchiveCacheProxy", "seek: no file size, not pre-warming")
                 return@Thread
             }
-            val destino = (total * fraccion.toDouble()).toLong()
-            val inicio = (destino - MARGEN_SALTO).coerceAtLeast(0L)
+            val target = (total * fraction.toDouble()).toLong()
+            val start = (target - SEEK_MARGIN).coerceAtLeast(0L)
             val t0 = System.currentTimeMillis()
-            val buffer = BufferQueCrece(VENTANA_SALTO_PRECALENTADA)
-            registrarVentana(key, inicio, buffer)
-            val abierta = abrirEnOrigen(originUrl, "bytes=$inicio-", headers, null, perfil)
-            if (abierta == null) {
+            val buffer = BufferQueCrece(PREWARMED_SEEK_WINDOW_SIZE)
+            registerWindow(key, start, buffer)
+            val opened = openAtOrigin(originUrl, "bytes=$start-", headers, null, profile)
+            if (opened == null) {
                 buffer.cerrar()
-                android.util.Log.w("ArchiveCacheProxy", "seek: the origin didn't give the range at $inicio")
+                android.util.Log.w("ArchiveCacheProxy", "seek: the origin didn't give the range at $start")
                 return@Thread
             }
             runCatching {
-                abierta.first.inputStream.use { ins ->
+                opened.first.inputStream.use { ins ->
                     val buf = ByteArray(64 * 1024)
-                    while (buffer.disponible < VENTANA_SALTO_PRECALENTADA) {
+                    while (buffer.disponible < PREWARMED_SEEK_WINDOW_SIZE) {
                         val n = ins.read(buf); if (n < 0) break
                         buffer.escribir(buf, n)
                     }
                 }
             }
             buffer.cerrar()
-            runCatching { abierta.first.disconnect() }
+            runCatching { opened.first.disconnect() }
             android.util.Log.w(
                 "ArchiveCacheProxy",
-                "seek pre-warmed: ${buffer.disponible / 1024}KB from $inicio " +
-                    "(estimated target $destino) in ${System.currentTimeMillis() - t0}ms",
+                "seek pre-warmed: ${buffer.disponible / 1024}KB from $start " +
+                    "(estimated target $target) in ${System.currentTimeMillis() - t0}ms",
             )
-        }.apply { isDaemon = true; name = "arkiv-precalentar-salto" }.start()
+        }.apply { isDaemon = true; name = "arkiv-prewarm-seek" }.start()
     }
 
     /**
-     * Guarda el tamaño del archivo leyéndolo de una respuesta que ya teníamos en la mano.
+     * Saves the file's size by reading it off a response already in hand.
      *
-     * Del `Content-Range` si vino (trae el total explícito) y si no del `Content-Length` sumado al
-     * byte donde arrancaba el tramo. No pide nada: el objetivo es justamente no gastar una petición
-     * de más contra este CDN.
+     * From the `Content-Range` if it came with one (it carries the explicit total) and otherwise
+     * from `Content-Length` added to the byte the stretch started at. Asks for nothing: the goal is
+     * precisely not to spend one more request against this CDN.
      */
-    private fun anotarTotal(originUrl: String, conn: HttpURLConnection, inicio: Long) {
-        if ((totales[originUrl] ?: 0L) > 0L) return
+    private fun recordTotal(originUrl: String, conn: HttpURLConnection, start: Long) {
+        if ((totals[originUrl] ?: 0L) > 0L) return
         val total = runCatching {
             val cr = conn.getHeaderField("Content-Range")
             val m = Regex("""/(\d+)""").find(cr.orEmpty())
@@ -1590,239 +1607,241 @@ class ArchiveCacheProxy(private val cacheDir: File) {
                 m.groupValues[1].toLong()
             } else {
                 val len = conn.getHeaderField("Content-Length")?.toLongOrNull() ?: 0L
-                if (len > 0L) inicio + len else 0L
+                if (len > 0L) start + len else 0L
             }
         }.getOrDefault(0L)
-        if (total > 0L) totales[originUrl] = total
+        if (total > 0L) totals[originUrl] = total
     }
 
-    /** Anota una ventana nueva para [clave], tirando la más vieja si ya hay demasiadas. */
-    private fun registrarVentana(clave: String, inicio: Long, buffer: BufferQueCrece) {
-        val lista = saltos.computeIfAbsent(clave) { java.util.Collections.synchronizedList(mutableListOf()) }
-        synchronized(lista) {
-            lista.add(VentanaDeSalto(inicio, buffer))
-            while (lista.size > VENTANAS_POR_ARCHIVO) lista.removeAt(0)
+    /** Records a new window for [key], dropping the oldest one if there are already too many. */
+    private fun registerWindow(key: String, start: Long, buffer: BufferQueCrece) {
+        val list = seekWindows.computeIfAbsent(key) { java.util.Collections.synchronizedList(mutableListOf()) }
+        synchronized(list) {
+            list.add(SeekWindow(start, buffer))
+            while (list.size > WINDOWS_PER_FILE) list.removeAt(0)
         }
     }
 
-    /** Passthrough directo origen→reproductor (sin cachear), último recurso si no se pudo iniciar la descarga. */
+    /** Direct origin→player passthrough (no caching), last resort if the download couldn't be started. */
     private fun passthrough(
         origin: String,
         rangeHeader: String?,
         out: java.io.OutputStream,
         extraHeaders: Map<String, String> = emptyMap(),
-        claveUnica: String? = null,
-        fraccion: Float = 0f,
-        perfil: PoliticaOrigen.Perfil = PoliticaOrigen.Perfil.ARCHIVE,
+        uniqueKey: String? = null,
+        fraction: Float = 0f,
+        profile: PoliticaOrigen.Perfil = PoliticaOrigen.Perfil.ARCHIVE,
     ): Boolean {
-        // Ventana: el reproductor pide en coordenadas de un archivo que empieza en 0, y acá se
-        // traducen a las del archivo real. Si no se pudo saber el tamaño, `inicio` queda en 0 y
-        // esto se comporta como el passthrough de siempre: sin duración es peor, pero reproduce.
-        val inicio = if (fraccion > 0f) {
-            VentanaDeArchivo.inicio(totalDelOrigen(origin, extraHeaders, perfil), fraccion)
+        // Window: the player asks in the coordinates of a file that starts at 0, and here they get
+        // translated to the real file's. If the size couldn't be found, `start` stays at 0 and this
+        // behaves like the usual passthrough: worse without a duration, but it plays.
+        val start = if (fraction > 0f) {
+            VentanaDeArchivo.inicio(totalOfOrigin(origin, extraHeaders, profile), fraction)
         } else 0L
-        val rangoCliente = RangeHeader.parse(rangeHeader)
-        val rangoAlOrigen = if (inicio > 0L) {
-            VentanaDeArchivo.rangoAlOrigen(rangoCliente, inicio)
+        val clientRange = RangeHeader.parse(rangeHeader)
+        val rangeToOrigin = if (start > 0L) {
+            VentanaDeArchivo.rangoAlOrigen(clientRange, start)
         } else rangeHeader
-        // SONDEO DEL FINAL: contestado desde memoria, sin tocar la red. Es la petición que se
-        // llevaba el arranque — ver ColaCaliente para la medición. Solo aplica sin ventana: con
-        // `f=` los bytes que ve el reproductor están corridos y estos NO son los suyos.
-        if (inicio == 0L && claveUnica != null) {
-            // Si la cola TODAVÍA se está bajando, se la espera en vez de abrir una conexión que le
-            // compita por los mismos bytes (ver [colasEnVuelo] para la medición). Solo para rangos
-            // que no empiezan en 0: `bytes=0-` es la primera lectura del player —la cabeza— y esa la
-            // contesta el arranque caliente, no la cola.
-            val enVuelo = colasEnVuelo[claveUnica]
-            if (enVuelo != null && colas[claveUnica] == null && (rangoCliente?.start ?: 0L) > 0L) {
+        // END PROBE: answered from memory, without touching the network. It's the request that used
+        // to swallow the startup — see ColaCaliente for the measurement. Only applies without a
+        // window: with `f=` the bytes the player sees are shifted and these are NOT its bytes.
+        if (start == 0L && uniqueKey != null) {
+            // If the tail is STILL downloading, it gets waited on instead of opening a connection
+            // that competes for the same bytes (see [tailsInFlight] for the measurement). Only for
+            // ranges that don't start at 0: `bytes=0-` is the player's first read -the head- and
+            // that one gets answered by the hot startup, not the tail.
+            val inFlight = tailsInFlight[uniqueKey]
+            if (inFlight != null && tails[uniqueKey] == null && (clientRange?.start ?: 0L) > 0L) {
                 val t = System.currentTimeMillis()
-                val llego = enVuelo.await(ESPERA_COLA_EN_VUELO_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+                val arrived = inFlight.await(TAIL_IN_FLIGHT_WAIT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
                 android.util.Log.w(
                     "ArchiveCacheProxy",
                     "tail in flight: $rangeHeader waited ${System.currentTimeMillis() - t}ms " +
-                        "(${if (llego) "arrived" else "deadline expired, going to the origin"})",
+                        "(${if (arrived) "arrived" else "deadline expired, going to the origin"})",
                 )
             }
-            // SALTO YA GUARDADO: si este rango cae en una ventana de un salto anterior, se contesta
-            // de memoria. Es el caso de los nueve rangos que siguen al primero de una bisección.
-            val pedido = rangoCliente?.start ?: 0L
-            val totalConocido = totales[origin] ?: 0L
-            if (pedido > 0L && totalConocido > 0L) {
-                // `synchronized` y no `firstOrNull` a secas: la lista la escribe cualquier hilo que
-                // esté atendiendo otro rango del mismo archivo, y recorrerla sin el candado es
-                // exactamente la carrera que hace que un salto se sirva bien y el de al lado no.
-                val lista = saltos[claveUnica]
-                val v = if (lista != null) synchronized(lista) { lista.firstOrNull { it.cubre(pedido) } } else null
-                if (v != null && servirDeVentana(
-                        v, pedido, totalConocido, out, rangeHeader,
-                        origin, extraHeaders, claveUnica, perfil,
+            // ALREADY-SAVED SEEK: if this range falls inside a previous seek's window, it's
+            // answered from memory. This is the case for the nine ranges that follow the first one
+            // of a bisection.
+            val requested = clientRange?.start ?: 0L
+            val knownTotal = totals[origin] ?: 0L
+            if (requested > 0L && knownTotal > 0L) {
+                // `synchronized` and not a bare `firstOrNull`: the list is written by whichever
+                // thread is handling another range of the same file, and walking it without the
+                // lock is exactly the race that makes one seek serve fine and the one right next to
+                // it fail.
+                val list = seekWindows[uniqueKey]
+                val v = if (list != null) synchronized(list) { list.firstOrNull { it.covers(requested) } } else null
+                if (v != null && serveFromWindow(
+                        v, requested, knownTotal, out, rangeHeader,
+                        origin, extraHeaders, uniqueKey, profile,
                     )
                 ) return true
             }
-            val guardada = colas[claveUnica]
-            val total = totales[origin] ?: 0L
-            val trozo = guardada?.let { (desde, cola) ->
-                ColaCaliente.servir(desde, cola, rangoCliente, total)
+            val saved = tails[uniqueKey]
+            val total = totals[origin] ?: 0L
+            val chunk = saved?.let { (from, tail) ->
+                ColaCaliente.servir(from, tail, clientRange, total)
             }
-            if (trozo != null) {
-                val fin = rangoCliente!!.start + trozo.size - 1
+            if (chunk != null) {
+                val end = clientRange!!.start + chunk.size - 1
                 out.write(
                     (
                         "HTTP/1.1 206 Partial Content\r\nAccept-Ranges: bytes\r\n" +
-                            "Content-Length: ${trozo.size}\r\n" +
-                            "Content-Range: bytes ${rangoCliente.start}-$fin/$total\r\n" +
+                            "Content-Length: ${chunk.size}\r\n" +
+                            "Content-Range: bytes ${clientRange.start}-$end/$total\r\n" +
                             "Content-Type: application/octet-stream\r\n\r\n"
                         ).toByteArray(),
                 )
-                out.write(trozo)
+                out.write(chunk)
                 out.flush()
                 android.util.Log.w(
                     "ArchiveCacheProxy",
-                    "hot tail: $rangeHeader served from memory (${trozo.size}B, no network)",
+                    "hot tail: $rangeHeader served from memory (${chunk.size}B, no network)",
                 )
                 return true
             }
         }
-        // El arranque precalentado sirve UNA vez y solo para la petición que empieza en el byte 0
-        // (la primera que hace el reproductor al abrir): es ahí donde se juega la identificación
-        // del stream. Se consume del mapa para que un salto posterior no reciba bytes del principio.
-        // La clave incluye el BYTE de arranque, no solo el archivo. Sin eso, un precalentado hecho
-        // para otro punto se le pegaba igual al principio del stream: 2 MB de otra parte de la
-        // película empalmados en la cabecera, que es basura para el demuxer y deja al player sin
-        // pistas — o sea, causando exactamente el fallo que este precalentado venía a evitar. Los offsets
-        // NO siempre coinciden: la posición guardada sigue avanzando entre que se precalienta y que
-        // el reproductor abre.
-        val caliente = if ((rangoCliente?.start ?: 0L) == 0L && claveUnica != null) {
-            calientes.remove("$claveUnica@$inicio").also {
-                if (it == null && calientes.isNotEmpty()) {
+        // The pre-warmed startup serves ONCE and only for the request that starts at byte 0 (the
+        // first one the player makes on opening): that's where identifying the stream is at stake.
+        // It's consumed from the map so a later seek doesn't receive bytes from the start.
+        // The key includes the STARTING BYTE, not just the file. Without that, a pre-warm done for
+        // a different point would get glued to the start of the stream regardless: 2 MB from
+        // somewhere else in the film spliced onto the header, which is garbage to the demuxer and
+        // leaves the player with no tracks -- causing exactly the failure this pre-warm exists to
+        // prevent. The offsets do NOT always match: the saved position keeps advancing between when
+        // it's pre-warmed and when the player opens.
+        val hot = if ((clientRange?.start ?: 0L) == 0L && uniqueKey != null) {
+            hotBuffers.remove("$uniqueKey@$start").also {
+                if (it == null && hotBuffers.isNotEmpty()) {
                     // There WAS a pre-warmed startup but for ANOTHER point: the player opened at a
                     // different spot than the one that was prepared. It's not fatal (it's served
                     // from the origin), but it's a wasted pre-warm and needs to be visible: it used
                     // to be the silent failure.
                     android.util.Log.w(
                         "ArchiveCacheProxy",
-                        "hot startup DOESN'T MATCH: opened at $inicio and had ${calientes.keys}",
+                        "hot startup DOESN'T MATCH: opened at $start and had ${hotBuffers.keys}",
                     )
                 }
             }
         } else null
-        // Cada intento mata el tramo anterior de ESTE mismo archivo antes de hablarle al origen: si
-        // la conexión vieja sigue viva, la nueva queda colgada hasta el timeout.
-        val (conn, cerrable) =
-            abrirEnOrigen(origin, rangoAlOrigen, extraHeaders, claveUnica, perfil)
+        // Every attempt kills the previous stretch of THIS SAME file before talking to the origin:
+        // if the old connection is still alive, the new one hangs until the timeout.
+        val (conn, closer) =
+            openAtOrigin(origin, rangeToOrigin, extraHeaders, uniqueKey, profile)
             ?: return false
         val code = runCatching { conn.responseCode }.getOrDefault(-1)
         val contentLength = conn.getHeaderField("Content-Length")
-        // Con ventana el Content-Range del origen viene en coordenadas REALES: mandárselo al
-        // reproductor tal cual le haría creer que su archivo empieza en un byte que para él no
-        // existe. El Content-Length no se toca: el cuerpo que se reenvía es el mismo.
-        val contentRange = if (inicio > 0L) {
-            VentanaDeArchivo.contentRangeVisible(conn.getHeaderField("Content-Range"), inicio)
+        // With a window the origin's Content-Range comes in REAL coordinates: sending it to the
+        // player as-is would make it think its file starts at a byte that, for it, doesn't exist.
+        // Content-Length is left untouched: the body being relayed is the same.
+        val contentRange = if (start > 0L) {
+            VentanaDeArchivo.contentRangeVisible(conn.getHeaderField("Content-Range"), start)
         } else conn.getHeaderField("Content-Range")
-        // 206 solo si el REPRODUCTOR pidió un rango: con ventana siempre se le pide uno al origen,
-        // pero para quien abrió el archivo entero eso es un 200 normal.
-        val esParcial = rangeHeader != null && code == HttpURLConnection.HTTP_PARTIAL
-        val statusLine = if (esParcial) "206 Partial Content" else "200 OK"
+        // 206 only if the PLAYER asked for a range: with a window the origin is always asked for
+        // one, but for whoever opened the whole file that's a normal 200.
+        val isPartial = rangeHeader != null && code == HttpURLConnection.HTTP_PARTIAL
+        val statusLine = if (isPartial) "206 Partial Content" else "200 OK"
         val resp = buildString {
             append("HTTP/1.1 $statusLine\r\n")
             append("Accept-Ranges: bytes\r\n")
             if (contentLength != null) append("Content-Length: $contentLength\r\n")
-            if (esParcial && contentRange != null) append("Content-Range: $contentRange\r\n")
+            if (isPartial && contentRange != null) append("Content-Range: $contentRange\r\n")
             append("Content-Type: application/octet-stream\r\n\r\n")
         }
         out.write(resp.toByteArray())
-        // Se guarda ventana solo para los SALTOS: `bytes=0-` es la lectura principal, esa nunca la
-        // corta el reproductor y guardarla sería 4 MB de RAM a cambio de nada. Tampoco si el tramo
-        // ya lo estaba sirviendo el arranque caliente, que tiene su propio buffer.
-        val ventana = if (
-            claveUnica != null && inicio == 0L && caliente == null && (rangoCliente?.start ?: 0L) > 0L
+        // A window is only saved for SEEKS: `bytes=0-` is the main read, the player never cuts that
+        // one off, and saving it would be 4 MB of RAM for nothing. Same if the stretch was already
+        // being served by the hot startup, which has its own buffer.
+        val window = if (
+            uniqueKey != null && start == 0L && hot == null && (clientRange?.start ?: 0L) > 0L
         ) {
-            BufferQueCrece(VENTANA_SALTO).also { registrarVentana(claveUnica, rangoCliente!!.start, it) }
+            BufferQueCrece(SEEK_WINDOW_SIZE).also { registerWindow(uniqueKey, clientRange!!.start, it) }
         } else null
-        var escritos = 0L
+        var written = 0L
         val t0 = System.currentTimeMillis()
         try {
             conn.inputStream.use { ins ->
                 val buf = ByteArray(64 * 1024)
-                // ARRANQUE CALIENTE: si este tramo empieza justo donde se precalentó, los bytes se
-                // le entregan al player A MEDIDA QUE LLEGAN del precalentado, sin esperar a que
-                // estén los 2 MB completos. Eso era lo único que le importaba a libVLC para no
-                // rendirse identificando el stream (ver precalentar), y es lo que permite que el arranque
-                // deje de bloquear: antes había que tener el bloque entero antes de publicar la
-                // playlist, y eso costaba 0,5-5 s de spinner por reproducción.
+                // HOT STARTUP: if this stretch starts exactly where the pre-warm did, the bytes are
+                // handed to the player AS THEY ARRIVE from the pre-warm, without waiting for the
+                // full 2 MB. That was the only thing libVLC cared about to avoid giving up on
+                // identifying the stream (see preWarm), and it's what lets the startup stop
+                // blocking: it used to need the whole block before publishing the playlist, and that
+                // cost 0.5-5 s of spinner per playback.
                 //
-                // Los mismos bytes se descartan después del origen para no tener que tocar las
-                // cabeceras ya enviadas: son 2 MB de más una vez por reproducción, a cambio de que
-                // nunca quede en negro.
-                if (caliente != null) {
-                    var servidos = 0
+                // The same bytes are then discarded from the origin so the headers already sent
+                // don't need touching: 2 extra MB once per playback, in exchange for it never going
+                // black.
+                if (hot != null) {
+                    var served = 0
                     while (true) {
-                        val trozo = caliente.porcion(servidos)
-                        if (trozo.isNotEmpty()) {
-                            out.write(trozo); out.flush()
-                            servidos += trozo.size; escritos += trozo.size
-                        } else if (caliente.cerrado) {
+                        val chunk = hot.porcion(served)
+                        if (chunk.isNotEmpty()) {
+                            out.write(chunk); out.flush()
+                            served += chunk.size; written += chunk.size
+                        } else if (hot.cerrado) {
                             break
-                        } else if (!caliente.esperarHasta(servidos + 1, ESPERA_ARRANQUE_MS)) {
-                            // Se cerró o dejó de fluir: lo que falte se sigue leyendo del origen,
-                            // que es de donde salía todo antes de que esto existiera.
+                        } else if (!hot.esperarHasta(served + 1, STARTUP_WAIT_MS)) {
+                            // It closed or stopped flowing: whatever's missing keeps getting read
+                            // from the origin, which is where it all came from before this existed.
                             break
                         }
                     }
                     android.util.Log.w(
                         "ArchiveCacheProxy",
-                        "hot startup: ${servidos / 1024}KB served while they were downloading",
+                        "hot startup: ${served / 1024}KB served while they were downloading",
                     )
-                    var porDescartar = servidos
-                    while (porDescartar > 0) {
-                        val n = ins.read(buf, 0, minOf(porDescartar, buf.size))
+                    var toDiscard = served
+                    while (toDiscard > 0) {
+                        val n = ins.read(buf, 0, minOf(toDiscard, buf.size))
                         if (n < 0) break
-                        porDescartar -= n
+                        toDiscard -= n
                     }
                 }
-                // VENTANA DE SALTO. Este tramo se copia a memoria MIENTRAS se le manda al
-                // reproductor, y si él corta —que es lo que hace al bisecar un salto— se sigue
-                // leyendo hasta llenarla. Los bytes que se guardan son los que esta conexión iba a
-                // traer igual: antes se tiraban con el `disconnect()` de acá abajo. Ver
-                // [VentanaDeSalto] para la medición de los diez rangos.
-                var cortoElCliente = false
+                // SEEK WINDOW. This stretch gets copied to memory WHILE it's sent to the player, and
+                // if it cuts off -which is what happens while bisecting a seek- reading continues
+                // until it's full. The bytes saved are the ones this connection was going to fetch
+                // anyway: they used to be thrown away by the `disconnect()` further below. See
+                // [SeekWindow] for the ten-ranges measurement.
+                var clientCutOff = false
                 while (true) {
                     val n = ins.read(buf); if (n < 0) break
-                    ventana?.escribir(buf, n)
-                    if (!cortoElCliente) {
-                        val entregado = runCatching { out.write(buf, 0, n) }.isSuccess
-                        if (entregado) escritos += n else cortoElCliente = true
+                    window?.escribir(buf, n)
+                    if (!clientCutOff) {
+                        val delivered = runCatching { out.write(buf, 0, n) }.isSuccess
+                        if (delivered) written += n else clientCutOff = true
                     }
-                    // Sin ventana no hay nada que ganar leyendo un archivo que nadie mira.
-                    if (cortoElCliente && ventana == null) break
-                    if (cortoElCliente && (ventana?.disponible ?: 0) >= VENTANA_SALTO) break
+                    // With no window there's nothing to gain reading a file nobody's watching.
+                    if (clientCutOff && window == null) break
+                    if (clientCutOff && (window?.disponible ?: 0) >= SEEK_WINDOW_SIZE) break
                 }
-                // Solo si de verdad hubo ventana: cortar sin ventana es lo normal en la lectura
-                // principal, y anunciarlo como "0KB guardados" hacía parecer que la ventana había
-                // fallado cuando ni siquiera correspondía abrir una.
-                if (cortoElCliente && ventana != null) {
+                // Only if there really was a window: cutting off with no window is normal on the
+                // main read, and reporting it as "0KB saved" made it look like the window had
+                // failed when opening one wasn't even called for.
+                if (clientCutOff && window != null) {
                     android.util.Log.w(
                         "ArchiveCacheProxy",
-                        "seek window at ${rangoCliente?.start}: " +
-                            "${ventana.disponible / 1024}KB saved after the player cut off",
+                        "seek window at ${clientRange?.start}: " +
+                            "${window.disponible / 1024}KB saved after the player cut off",
                     )
                 }
             }
             out.flush()
         } finally {
-            ventana?.cerrar()
-            claveUnica?.let { soltarViva(it) }
-            conexionesVivas.release(cerrable)
-            // disconnect() SIEMPRE, también cuando el reproductor corta la conexión a mitad (seek →
-            // "broken pipe"). Antes la excepción se saltaba esta línea y la conexión al CDN quedaba
-            // viva en el pool de HttpURLConnection drenando el resto del archivo: el origen veía dos
-            // conexiones a la vez y la NUEVA (la del punto al que se saltó) se quedaba sin datos.
+            window?.cerrar()
+            uniqueKey?.let { releaseLive(it) }
+            liveConnections.release(closer)
+            // disconnect() ALWAYS, even when the player cuts the connection off mid-way (seek →
+            // "broken pipe"). Used to skip this line on exception and the CDN connection stayed
+            // alive in HttpURLConnection's pool draining the rest of the file: the origin saw two
+            // connections at once and the NEW one (for the point seeked to) was starved of data.
             runCatching { conn.disconnect() }
             android.util.Log.w(
                 "ArchiveCacheProxy",
                 "direct ${rangeHeader ?: "(all)"}" +
-                    (if (inicio > 0L) " [window from $inicio → requested $rangoAlOrigen]" else "") +
-                    " → code=$code ${escritos / 1024}KB in ${System.currentTimeMillis() - t0}ms",
+                    (if (start > 0L) " [window from $start → requested $rangeToOrigin]" else "") +
+                    " → code=$code ${written / 1024}KB in ${System.currentTimeMillis() - t0}ms",
             )
         }
         return true
