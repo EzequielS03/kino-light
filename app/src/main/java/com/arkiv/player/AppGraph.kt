@@ -264,14 +264,14 @@ class AppGraph(context: Context) {
      */
     private val framesDir: java.io.File by lazy { java.io.File(appContext.filesDir, "frames") }
 
-    val almacenDeFrames: com.arkiv.player.miniaturas.AlmacenDeFrames by lazy {
-        com.arkiv.player.miniaturas.AlmacenDeFrames(framesDir)
+    val almacenDeFrames: com.arkiv.player.thumbnails.FrameStore by lazy {
+        com.arkiv.player.thumbnails.FrameStore(framesDir)
     }
 
     /** Captura best-effort del frame que se está viendo, para la miniatura de cada capítulo. */
-    val frameCapturer: com.arkiv.player.miniaturas.FrameCapturer by lazy {
-        com.arkiv.player.miniaturas.FrameCapturer(
-            almacen = almacenDeFrames,
+    val frameCapturer: com.arkiv.player.thumbnails.FrameCapturer by lazy {
+        com.arkiv.player.thumbnails.FrameCapturer(
+            store = almacenDeFrames,
             dao = database.episodeFrameDao(),
             playbackDao = database.playbackDao(),
         )
@@ -283,8 +283,8 @@ class AppGraph(context: Context) {
      * biblioteca) -antes también a `LibraryWiper` (logout), borrado en la Task 9 junto con el resto
      * de las cuentas- — mismo [almacenDeFrames], mismo `episodeFrameDao` que [frameCapturer].
      */
-    val destructorDeFrames: com.arkiv.player.miniaturas.DestructorDeFrames by lazy {
-        com.arkiv.player.miniaturas.DestructorDeFrames(almacenDeFrames, database.episodeFrameDao())
+    val destructorDeFrames: com.arkiv.player.thumbnails.FrameDestroyer by lazy {
+        com.arkiv.player.thumbnails.FrameDestroyer(almacenDeFrames, database.episodeFrameDao())
     }
 
     /** Sirve el archivo local por HTTP para poder castearlo (un file:// no le llega al Chromecast). */

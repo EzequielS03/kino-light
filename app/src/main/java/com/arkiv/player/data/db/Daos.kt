@@ -57,7 +57,7 @@ data class ContinueRow(
     val categoryOverride: String? = null,
     /**
      * Ruta en disco del frame capturado, o null si el capítulo todavía no tiene uno. Gana sobre
-     * `stillUrl` y el resto: ver [com.arkiv.player.miniaturas.EleccionDeMiniatura].
+     * `stillUrl` y el resto: ver [com.arkiv.player.thumbnails.ThumbnailChoice].
      *
      * NO sale de la query: el nombre del archivo se deriva del episodeId por hash, así que la
      * única fuente de verdad es el disco. Lo llena el repositorio al mapear.
@@ -730,7 +730,7 @@ interface EpisodeFrameDao {
     suspend fun get(episodeId: String): EpisodeFrameEntity?
 
     /**
-     * Same as [get] but WITHOUT the `deleted = 0` filter: needed by `DestructorDeFrames.destruir`
+     * Same as [get] but WITHOUT the `deleted = 0` filter: needed by `FrameDestroyer.destroy`
      * to be idempotent -- it needs to know whether the row is ALREADY a tombstone (and skip
      * rewriting it) or is only now going from live to deleted.
      *
@@ -753,7 +753,7 @@ interface EpisodeFrameDao {
      *
      * Exists because of a hole in the home screen: `PlaybackDao.observeContinueWatching` touches
      * `playback`, `episodes`, `items` and `episode_still`, but not `episode_frame`. Since Room
-     * invalidates by table, the frame that [com.arkiv.player.miniaturas.FrameCapturer] saves (file
+     * invalidates by table, the frame that [com.arkiv.player.thumbnails.FrameCapturer] saves (file
      * + `episode_frame` row) never notified that query: the card stayed on the TMDB still until
      * something else changed.
      *

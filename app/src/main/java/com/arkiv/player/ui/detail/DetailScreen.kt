@@ -81,7 +81,7 @@ import com.arkiv.player.data.local.EstadoDeDescargaDeCapitulo
 import com.arkiv.player.data.local.EtiquetaDeDescarga
 import com.arkiv.player.data.local.FuenteDeDescarga
 import com.arkiv.player.data.local.LocalDownloadState
-import com.arkiv.player.miniaturas.EleccionDeMiniatura
+import com.arkiv.player.thumbnails.ThumbnailChoice
 import com.arkiv.player.ui.esTabletHorizontal
 import com.arkiv.player.ui.formatDuration
 import com.arkiv.player.ui.EtiquetaDeCapitulo
@@ -131,7 +131,7 @@ fun DetailScreen(
     val tmdbStills by graph.repository.observeEpisodeStills(identifier)
         .collectAsStateWithLifecycle(emptyMap())
     // Frames capturados durante la reproducción: la escena real del capítulo, cuando existe le
-    // gana al still de TMDB (ver EleccionDeMiniatura). Solo tiene entrada si el capítulo se
+    // gana al still de TMDB (ver ThumbnailChoice). Solo tiene entrada si el capítulo se
     // empezó a ver, así que "gana solo en lo empezado" sale solo de que la clave no esté.
     val tmdbFrames by graph.repository.observeEpisodeFrames(identifier)
         .collectAsStateWithLifecycle(emptyMap())
@@ -514,7 +514,7 @@ private fun DetailContent(
                         // Real chapter title and image (TMDB). Only show up when it could tell which
                         // series/number this row is; otherwise the row falls back to the filename and
                         // to the on-device captured frame (or the series poster, if there's no frame
-                        // either) -- see EleccionDeMiniatura further down.
+                        // either) -- see ThumbnailChoice further down.
                         tmdbTitle = tmdbTitles[ep.id],
                         tmdbStill = tmdbStills[ep.id],
                         tmdbFrame = tmdbFrames[ep.id],
@@ -782,7 +782,7 @@ private fun EpisodeRow(
     fallbackThumb: String?,
     tmdbTitle: String?,
     tmdbStill: String?,
-    /** Ruta en disco del frame capturado. Le gana a [tmdbStill]; ver [EleccionDeMiniatura]. */
+    /** Ruta en disco del frame capturado. Le gana a [tmdbStill]; ver [ThumbnailChoice]. */
     tmdbFrame: String?,
     /** Sinopsis del capítulo (TMDB). Null si no se pudo resolver; la fila simplemente no la muestra. */
     tmdbOverview: String?,
@@ -827,9 +827,9 @@ private fun EpisodeRow(
                 // El frame capturado primero (la escena real de donde vas), después el still de TMDB
                 // (la foto del capítulo) y por último el respaldo de la serie. El fotograma de
                 // archive.org que iba acá se borró en la poda de esta rama junto con esa fuente.
-                // Cadena armada con EleccionDeMiniatura -- no a mano -- para no desalinearse del
+                // Cadena armada con ThumbnailChoice -- no a mano -- para no desalinearse del
                 // resto de las pantallas.
-                val thumb = EleccionDeMiniatura.elegir(
+                val thumb = ThumbnailChoice.choose(
                     tmdbFrame,
                     tmdbStill,
                     null,

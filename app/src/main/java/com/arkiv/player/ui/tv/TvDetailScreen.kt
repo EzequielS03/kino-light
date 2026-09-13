@@ -41,7 +41,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.arkiv.player.data.model.Episode
-import com.arkiv.player.miniaturas.EleccionDeMiniatura
+import com.arkiv.player.thumbnails.ThumbnailChoice
 import com.arkiv.player.ui.detail.DetailViewModel
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivBlack
@@ -102,7 +102,7 @@ fun TvDetailScreen(
     val stills by graph.repository.observeEpisodeStills(identifier)
         .collectAsStateWithLifecycle(initialValue = emptyMap())
     // Frames capturados durante la reproducción: la escena real del capítulo, cuando existe le
-    // gana al still de TMDB (ver EleccionDeMiniatura). Solo tiene entrada si el capítulo se
+    // gana al still de TMDB (ver ThumbnailChoice). Solo tiene entrada si el capítulo se
     // empezó a ver, así que "gana solo en lo empezado" sale solo de que la clave no esté.
     val frames by graph.repository.observeEpisodeFrames(identifier)
         .collectAsStateWithLifecycle(initialValue = emptyMap())
@@ -170,7 +170,7 @@ fun TvDetailScreen(
         val heroImage = focused?.let { ep ->
             // El frame capturado manda sobre el still de TMDB. El thumb de archive.org que iba
             // después se borró en la poda de esta rama junto con esa fuente.
-            EleccionDeMiniatura.elegir(
+            ThumbnailChoice.choose(
                 frames[ep.id],
                 stills[ep.id],
                 null,
@@ -342,7 +342,7 @@ fun TvDetailScreen(
                             // that used to live inside TvEpisodeChip after these two was removed
                             // with the rest of that source; with neither of these, the chip just
                             // shows a plain black background (see TvEpisodeChip's own comment).
-                            stillUrl = EleccionDeMiniatura.elegir(frames[ep.id], stills[ep.id]),
+                            stillUrl = ThumbnailChoice.choose(frames[ep.id], stills[ep.id]),
                             onClick = { onPlayEpisode(ep.id) },
                             onFocus = { focusedEpisode = ep },
                             modifier = Modifier.then(

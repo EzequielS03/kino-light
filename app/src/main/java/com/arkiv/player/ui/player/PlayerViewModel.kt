@@ -204,7 +204,7 @@ class PlayerViewModel internal constructor(
     private val archiveCacheProxy: ArchiveCacheProxy,
     private val localLibrary: com.arkiv.player.data.local.LocalLibrary,
     private val localFileServer: com.arkiv.player.playback.LocalFileServer,
-    private val frameCapturer: com.arkiv.player.miniaturas.FrameCapturer,
+    private val frameCapturer: com.arkiv.player.thumbnails.FrameCapturer,
     // Tarea 14 (modo vivo): pegados al final para no reordenar los parámetros posicionales de
     // arriba (el callsite en PlayerScreen los pasa por posición, no por nombre).
     private val liveController: LiveController,
@@ -1152,7 +1152,7 @@ class PlayerViewModel internal constructor(
         } else {
             if (!_playlist.value.hayQueAnotarHistorial(episodeId)) return
         }
-        viewModelScope.launch { frameCapturer.capturar(episodeId, positionMs, textureView) }
+        viewModelScope.launch { frameCapturer.capture(episodeId, positionMs, textureView) }
     }
 
     private companion object {

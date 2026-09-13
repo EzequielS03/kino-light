@@ -293,7 +293,7 @@ data class EpisodeStillEntity(
 
 /**
  * El frame capturado de un capítulo. El JPEG NO está acá: vive en `filesDir/frames/` (ver
- * [com.arkiv.player.miniaturas.AlmacenDeFrames]) y esta fila es el índice.
+ * [com.arkiv.player.thumbnails.FrameStore]) y esta fila es el índice.
  *
  * `updatedAt` y `deleted` existen desde el día uno aunque la fase 1 no sincronice: son el reloj y
  * el tombstone que va a usar la fase 2, y agregarlos después obligaría a otra migración.
@@ -316,7 +316,7 @@ data class EpisodeFrameEntity(
     /**
      * 1 = this row was adopted from ANOTHER device (written by `CloudSyncManager.mergeFrame`, in
      * this branch's now-removed cloud sync); 0 = it was born here (captured by
-     * [com.arkiv.player.miniaturas.FrameCapturer] or sealed by the destructor).
+     * [com.arkiv.player.thumbnails.FrameCapturer] or sealed by the destructor).
      *
      * Exists so that whoever RECEIVES a frame doesn't upload it again. An adopted row kept the
      * `updatedAt` of the other device, which was past this device's push cursor, so the next pass

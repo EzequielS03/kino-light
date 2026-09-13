@@ -89,7 +89,7 @@ import com.arkiv.player.data.db.LibraryRow
 import com.arkiv.player.data.db.LiveChannelCacheEntity
 import com.arkiv.player.data.db.RecomendacionEntity
 import com.arkiv.player.data.gateway.LiveChannel
-import com.arkiv.player.miniaturas.EleccionDeMiniatura
+import com.arkiv.player.thumbnails.ThumbnailChoice
 import com.arkiv.player.ui.home.HomeViewModel
 import com.arkiv.player.ui.home.searchShortcutRoute
 import com.arkiv.player.ui.heroFallback
@@ -371,7 +371,7 @@ fun TvHomeScreen(
         return Featured(
             row.itemTitle,
             heroSubtitle(row.itemTitle, row.itemDescription, fallback),
-            EleccionDeMiniatura.elegir(row.framePath, heroArt(row.itemId, thumb)),
+            ThumbnailChoice.choose(row.framePath, heroArt(row.itemId, thumb)),
             meta = meta,
         )
     }
@@ -665,7 +665,7 @@ fun TvHomeScreen(
                                             // `cardArt` prueba primero `backdropsOf(itemId)`, y backdrop tienen
                                             // todos —los de Magis del portal, los demás de TMDB—, así que el
                                             // still solo entraba como respaldo de algo que jamás faltaba.
-                                            imageUrl = EleccionDeMiniatura.elegir(row.framePath, row.stillUrl, cardArt(row.itemId, thumb)),
+                                            imageUrl = ThumbnailChoice.choose(row.framePath, row.stillUrl, cardArt(row.itemId, thumb)),
                                             progress = progress,
                                             cardHeight = cardHeight,
                                             modifier = if (isFirst) Modifier.focusRequester(firstCardFocus) else Modifier,

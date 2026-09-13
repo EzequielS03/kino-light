@@ -39,7 +39,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.arkiv.player.data.db.LibraryRow
 import com.arkiv.player.data.local.LocalDownloadState
-import com.arkiv.player.miniaturas.EleccionDeMiniatura
+import com.arkiv.player.thumbnails.ThumbnailChoice
 import com.arkiv.player.ui.components.ContinueCard
 import com.arkiv.player.ui.components.EmptyState
 import com.arkiv.player.ui.components.PosterCard
@@ -137,7 +137,7 @@ fun LibraryScreen(
                             row.positionMs.toFloat() / row.durationMs
                         } else 0f
                         // El thumb de archive.org que iba en medio se borró en la poda de esta rama.
-                        val thumb = EleccionDeMiniatura.elegir(
+                        val thumb = ThumbnailChoice.choose(
                             row.framePath,
                             null,
                             row.itemThumbnailUrl,

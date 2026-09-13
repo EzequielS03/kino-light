@@ -60,7 +60,7 @@ import coil.compose.AsyncImage
 import com.arkiv.player.data.db.LibraryRow
 import com.arkiv.player.data.db.LiveChannelCacheEntity
 import com.arkiv.player.data.gateway.LiveChannel
-import com.arkiv.player.miniaturas.EleccionDeMiniatura
+import com.arkiv.player.thumbnails.ThumbnailChoice
 import com.arkiv.player.ui.components.ContinueCard
 import com.arkiv.player.ui.components.SectionHeader
 import com.arkiv.player.data.SettingsStore
@@ -279,7 +279,7 @@ fun HomeScreen(
         item(key = "hero") {
             val heroContinue = continueWatching.firstOrNull()
             if (heroContinue != null) {
-                val backdrop = EleccionDeMiniatura.elegir(
+                val backdrop = ThumbnailChoice.choose(
                     heroContinue.framePath,
                     artwork[heroContinue.itemId]?.backdrops?.firstOrNull(),
                     heroContinue.itemThumbnailUrl,
@@ -347,7 +347,7 @@ fun HomeScreen(
                             // El frame capturado manda si existe; si no, el still de TMDB y por
                             // último la carátula del ítem. El thumb de archive.org que iba en medio
                             // se borró en la poda de esta rama junto con esa fuente.
-                            val thumb = EleccionDeMiniatura.elegir(
+                            val thumb = ThumbnailChoice.choose(
                                 row.framePath,
                                 row.stillUrl,
                                 null,
