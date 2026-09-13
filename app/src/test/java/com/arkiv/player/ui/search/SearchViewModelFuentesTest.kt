@@ -11,7 +11,7 @@ import com.arkiv.player.data.db.RecentTitleDao
 import com.arkiv.player.data.db.RecentTitleEntity
 import com.arkiv.player.data.db.SearchHistoryDao
 import com.arkiv.player.data.db.SearchHistoryEntity
-import com.arkiv.player.data.gateway.FuenteDeContenido
+import com.arkiv.player.data.gateway.ContentSource
 import com.arkiv.player.data.gateway.GatewayEpisode
 import com.arkiv.player.data.gateway.GatewayException
 import com.arkiv.player.data.gateway.GatewayPlayable
@@ -55,7 +55,7 @@ class SearchViewModelFuentesTest {
         Dispatchers.resetMain()
     }
 
-    private fun vm(fuente: FuenteDeContenido) = SearchViewModel(
+    private fun vm(fuente: ContentSource) = SearchViewModel(
         tmdbApi = TmdbApi(apiKey = "x"),
         aniListApi = AniListApi(),
         settings = SettingsStore(ContextoDePrueba()),
@@ -138,20 +138,20 @@ class SearchViewModelFuentesTest {
 }
 
 /** Una fuente cuyo flujo arma el test, para poder dejar una fuente a mitad de camino. */
-private class FuenteConFlujo(private val flujo: () -> Flow<SearchEvent>) : FuenteDeContenido {
-    override fun reconoce(ref: String) = false
+private class FuenteConFlujo(private val flujo: () -> Flow<SearchEvent>) : ContentSource {
+    override fun recognizes(ref: String) = false
     override fun search(ctx: GatewaySearchQuery): Flow<SearchEvent> = flujo()
     override suspend fun resolve(ref: String): GatewayPlayable = throw GatewayException("sin uso en el test")
-    override suspend fun episodesConSerie(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?> =
+    override suspend fun episodesWithSeries(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?> =
         emptyList<GatewayEpisode>() to null
 }
 
 /** Una fuente que devuelve, en cada búsqueda, los eventos que diga el test. */
-private class FuenteDePrueba(private val eventos: () -> List<SearchEvent>) : FuenteDeContenido {
-    override fun reconoce(ref: String) = false
+private class FuenteDePrueba(private val eventos: () -> List<SearchEvent>) : ContentSource {
+    override fun recognizes(ref: String) = false
     override fun search(ctx: GatewaySearchQuery): Flow<SearchEvent> = eventos().asFlow()
     override suspend fun resolve(ref: String): GatewayPlayable = throw GatewayException("sin uso en el test")
-    override suspend fun episodesConSerie(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?> =
+    override suspend fun episodesWithSeries(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?> =
         emptyList<GatewayEpisode>() to null
 }
 

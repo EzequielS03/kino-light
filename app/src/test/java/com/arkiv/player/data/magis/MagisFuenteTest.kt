@@ -76,15 +76,15 @@ class MagisFuenteTest {
     fun `reconoce refs propios y viejos del gateway, y rechaza los de otra fuente`() {
         val f = fuente(FakePortalClient())
 
-        assertTrue(f.reconoce(MagisRef("C1", "movie").codificar()))
+        assertTrue(f.recognizes(MagisRef("C1", "movie").codificar()))
 
         // Ref viejo del gateway (`base64url(json).hmac`), mismo formato que arma MagisRefTest.
         val json = """{"s":"magis","p":{"content_id":"C1","program_type":"movie"}}"""
         val datos = java.util.Base64.getUrlEncoder().withoutPadding()
             .encodeToString(json.toByteArray(Charsets.UTF_8))
-        assertTrue(f.reconoce("$datos.firmaquenadievalida"))
+        assertTrue(f.recognizes("$datos.firmaquenadievalida"))
 
-        assertFalse(f.reconoce("ditu1:VOD:42"))
+        assertFalse(f.recognizes("ditu1:VOD:42"))
     }
 
     // --- búsqueda -------------------------------------------------------------
@@ -335,7 +335,7 @@ class MagisFuenteTest {
         val fake = FakePortalClient()
         fake.encolarRespuesta("v4/getItemData", detalleDeSerie(imdb = ""))
 
-        val (caps, serie) = fuente(fake).episodesConSerie(MagisRef("SERIE", "teleplay", 0).codificar())
+        val (caps, serie) = fuente(fake).episodesWithSeries(MagisRef("SERIE", "teleplay", 0).codificar())
 
         assertEquals(listOf(1, 2), caps.map { it.number })
         assertEquals("Uno", caps[0].title)
@@ -357,7 +357,7 @@ class MagisFuenteTest {
         val fake = FakePortalClient()
         fake.encolarRespuesta("v4/getItemData", detalleDeSerie())
 
-        val (caps, serie) = fuente(fake).episodesConSerie(MagisRef("SERIE", "teleplay", 0).codificar())
+        val (caps, serie) = fuente(fake).episodesWithSeries(MagisRef("SERIE", "teleplay", 0).codificar())
 
         assertEquals("El secreto", caps[0].tmdbTitle)
         assertEquals("Sinopsis 1", caps[0].overview)
@@ -381,7 +381,7 @@ class MagisFuenteTest {
         val fake = FakePortalClient()
         fake.encolarRespuesta("v4/getItemData", detalleDeSerie())
 
-        val (caps, serie) = fuente(fake).episodesConSerie(MagisRef("SERIE", "teleplay", 0).codificar())
+        val (caps, serie) = fuente(fake).episodesWithSeries(MagisRef("SERIE", "teleplay", 0).codificar())
 
         assertNull(caps[0].still)
         assertNull(caps[0].tmdbTitle)
@@ -401,7 +401,7 @@ class MagisFuenteTest {
         // Declara 3 (el total de la temporada) pero solo publicó 2.
         fake.encolarRespuesta("v4/getItemData", detalleDeSerie(volumnCount = """"3""""))
 
-        val (caps, _) = fuente(fake).episodesConSerie(MagisRef("SERIE", "teleplay", 0).codificar())
+        val (caps, _) = fuente(fake).episodesWithSeries(MagisRef("SERIE", "teleplay", 0).codificar())
 
         assertEquals(2, caps.size)
         assertEquals("A", caps[0].tmdbTitle)
@@ -422,7 +422,7 @@ class MagisFuenteTest {
         val fake = FakePortalClient()
         fake.encolarRespuesta("v4/getItemData", detalleDeSerie())
 
-        val (caps, _) = fuente(fake).episodesConSerie(MagisRef("SERIE", "teleplay", 0).codificar())
+        val (caps, _) = fuente(fake).episodesWithSeries(MagisRef("SERIE", "teleplay", 0).codificar())
 
         assertEquals("The english one", caps[0].overview)
         // El que ya tenía sinopsis en español NO se pisa.
@@ -441,7 +441,7 @@ class MagisFuenteTest {
             detalleDeSerie(temporadas = """[{"contentId":"OTRA","seasonNumber":5}]"""),
         )
 
-        val (caps, serie) = fuente(fake).episodesConSerie(MagisRef("SERIE", "teleplay", 0).codificar())
+        val (caps, serie) = fuente(fake).episodesWithSeries(MagisRef("SERIE", "teleplay", 0).codificar())
 
         assertNull(caps[0].tmdbTitle)
         assertEquals(0, serie!!.tmdbId)
@@ -458,7 +458,7 @@ class MagisFuenteTest {
         fake.encolarRespuesta("v10/startPlayVOD", playDeUnaPelicula("EP2"))
         val f = fuente(fake)
 
-        f.episodesConSerie(MagisRef("SERIE", "teleplay", 0).codificar())
+        f.episodesWithSeries(MagisRef("SERIE", "teleplay", 0).codificar())
         f.resolve(MagisRef("SERIE", "teleplay", 1).codificar())
         f.resolve(MagisRef("SERIE", "teleplay", 2).codificar())
 
@@ -471,7 +471,7 @@ class MagisFuenteTest {
         val fake = FakePortalClient()
         fake.encolarRespuesta("v4/getItemData", detalleDeSerie())
 
-        val (caps, serie) = fuente(fake).episodesConSerie(MagisRef("SERIE", "teleplay", 0).codificar())
+        val (caps, serie) = fuente(fake).episodesWithSeries(MagisRef("SERIE", "teleplay", 0).codificar())
 
         assertEquals(2, caps.size)
         assertNull(caps[0].still)

@@ -3,7 +3,7 @@ package com.arkiv.player.data.recomendaciones
 import android.util.Log
 import com.arkiv.player.data.ArkivRepository
 import com.arkiv.player.data.db.RecomendacionEntity
-import com.arkiv.player.data.gateway.FuenteDeContenido
+import com.arkiv.player.data.gateway.ContentSource
 import kotlinx.coroutines.CancellationException
 
 /**
@@ -21,7 +21,7 @@ import kotlinx.coroutines.CancellationException
  */
 class AgregadorDeRecomendaciones(
     private val repo: ArkivRepository,
-    private val gateway: FuenteDeContenido,
+    private val gateway: ContentSource,
 ) {
 
     /**
@@ -119,7 +119,7 @@ class AgregadorDeRecomendaciones(
 
     /** Los capítulos de una serie de Caracol, o null si no se pudieron listar. */
     private suspend fun capitulosDe(rec: RecomendacionEntity) = try {
-        gateway.episodesConSerie(rec.ref)
+        gateway.episodesWithSeries(rec.ref)
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
@@ -132,12 +132,12 @@ class AgregadorDeRecomendaciones(
      *
      * Only [agregarDeMagis] calls this. A failure here is NOT terminal: the portal listing can fail
      * or come back empty, and an old row whose ref could not be read falls back to `Magis(rec.id)`,
-     * where `MagisFuente.episodesConSerie` throws "ese ref no es de magis". Neither may leave
+     * where `MagisFuente.episodesWithSeries` throws "ese ref no es de magis". Neither may leave
      * unsaved something that can still be played. [CancellationException] is rethrown: swallowing
      * it would keep running a coroutine its scope already considers dead.
      */
     private suspend fun temporadaDelGateway(rec: RecomendacionEntity): TemporadaDeRecomendacion? = try {
-        val (capitulos, serie) = gateway.episodesConSerie(rec.ref)
+        val (capitulos, serie) = gateway.episodesWithSeries(rec.ref)
         GuardadoDeRecomendacion.temporadaDe(capitulos, serie)
     } catch (e: CancellationException) {
         throw e

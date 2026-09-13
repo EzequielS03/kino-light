@@ -69,9 +69,9 @@ class DituFuenteTest {
 
     @Test fun `reconoce sus refs y no los ajenos`() {
         val f = fuente(FakeDituCliente())
-        assertTrue(f.reconoce("ditu1:VOD:42"))
-        assertFalse(f.reconoce("magis1:movie:0:C42"))
-        assertFalse(f.reconoce(""))
+        assertTrue(f.recognizes("ditu1:VOD:42"))
+        assertFalse(f.recognizes("magis1:movie:0:C42"))
+        assertFalse(f.recognizes(""))
     }
 
     @Test fun `la busqueda emite arranque, resultados y fin`() = runTest {
@@ -138,7 +138,7 @@ class DituFuenteTest {
         ]}]}}
         """)
 
-        val (eps, serie) = fuente(fake).episodesConSerie("ditu1:BUNDLE:99")
+        val (eps, serie) = fuente(fake).episodesWithSeries("ditu1:BUNDLE:99")
 
         assertEquals(1, eps.single().number)
         assertEquals("Uno", eps.single().title)
@@ -167,7 +167,7 @@ class DituFuenteTest {
             """)
         }
 
-        val (eps, _) = fuente(fake).episodesConSerie("ditu1:GROUP_OF_BUNDLES:g9")
+        val (eps, _) = fuente(fake).episodesWithSeries("ditu1:GROUP_OF_BUNDLES:g9")
 
         assertEquals(listOf(1, 1), eps.map { it.number })
         assertEquals(listOf(1, 2), eps.map { it.season })
@@ -178,7 +178,7 @@ class DituFuenteTest {
      * `TmdbApi` con un servidor real que se cae ANTES de la llamada (mismo patrón que
      * `MagisFuenteTest."si TMDB se cae, los capitulos salen igual"`): a diferencia de `tmdb = null`,
      * acá sí se intenta cruzar contra TMDB y la llamada falla de verdad — es la garantía central de
-     * `episodesConSerie` (que un TMDB caído no cueste los capítulos) y hasta ahora ningún test la
+     * `episodesWithSeries` (que un TMDB caído no cueste los capítulos) y hasta ahora ningún test la
      * ejercitaba, porque todos usaban `tmdb = null`.
      */
     @Test fun `si TMDB se cae, los capitulos salen igual`() = runTest {
@@ -194,7 +194,7 @@ class DituFuenteTest {
         ]}]}}
         """)
 
-        val (eps, serie) = fuente(fake, tmdb).episodesConSerie("ditu1:BUNDLE:99")
+        val (eps, serie) = fuente(fake, tmdb).episodesWithSeries("ditu1:BUNDLE:99")
 
         assertEquals(1, eps.size)
         assertEquals("Uno", eps.single().title)
@@ -226,7 +226,7 @@ class DituFuenteTest {
             """{"results":[{"id":77,"name":"Café con aroma de mujer","original_name":"Café con aroma de mujer"}]}""",
         )
         try {
-            val (_, serie) = fuente(serieLlamada("¡CAFE, con aroma de Mujer!"), tmdb).episodesConSerie("ditu1:BUNDLE:99")
+            val (_, serie) = fuente(serieLlamada("¡CAFE, con aroma de Mujer!"), tmdb).episodesWithSeries("ditu1:BUNDLE:99")
 
             assertEquals(77, serie!!.tmdbId)
         } finally {
@@ -243,7 +243,7 @@ class DituFuenteTest {
             """{"results":[{"id":55,"name":"Rigoberta","original_name":"Rigoberta","poster_path":"/otra.jpg"}]}""",
         )
         try {
-            val (_, serie) = fuente(serieLlamada("Rigo"), tmdb).episodesConSerie("ditu1:BUNDLE:99")
+            val (_, serie) = fuente(serieLlamada("Rigo"), tmdb).episodesWithSeries("ditu1:BUNDLE:99")
 
             assertEquals(0, serie!!.tmdbId)
             assertEquals("Rigo", serie.titulo)

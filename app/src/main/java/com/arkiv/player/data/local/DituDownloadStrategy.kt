@@ -15,7 +15,7 @@ import com.arkiv.player.data.caracol.CalidadDeCaracol
 import com.arkiv.player.data.caracol.ClaveDePista
 import com.arkiv.player.data.caracol.DescargaDeCaracol
 import com.arkiv.player.data.caracol.PistaDeCaracol
-import com.arkiv.player.data.gateway.FuenteDeContenido
+import com.arkiv.player.data.gateway.ContentSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
@@ -42,7 +42,7 @@ import java.io.File
 @androidx.annotation.OptIn(UnstableApi::class)
 class DituDownloadStrategy(
     private val repo: ArkivRepository,
-    private val gateway: FuenteDeContenido,
+    private val gateway: ContentSource,
     private val almacen: AlmacenDeCaracol,
     /** Techo de calidad. Inyectado para poder probar la decisión sin tocar la constante global. */
     private val altoObjetivo: Int = CalidadDeCaracol.ALTO_OBJETIVO,

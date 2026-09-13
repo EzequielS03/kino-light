@@ -212,7 +212,7 @@ class PlayerViewModel internal constructor(
     // ¿Este proceso corre en un Android TV? Lo leen las pantallas que se dibujan distinto.
     private val esTelevision: Boolean = false,
     // Sub-proyecto 2A: de acá sale lo reproducible, directo del portal.
-    private val fuente: com.arkiv.player.data.gateway.FuenteDeContenido,
+    private val fuente: com.arkiv.player.data.gateway.ContentSource,
     // Caracol aparte de [fuente]: sus canales en vivo no son parte del contrato común (ver
     // `AppGraph.dituFuente`). [loadDitu] los resuelve con `DituFuente.resolverCanal`.
     private val dituFuente: com.arkiv.player.data.ditu.DituFuente,

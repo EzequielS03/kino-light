@@ -374,7 +374,7 @@ fun SearchScreen(
     dituSeason?.let { serieDeCaracol ->
         com.arkiv.player.ui.catalog.MagisSeasonDialog(
             season = serieDeCaracol,
-            // La fuente compuesta: con un ref de Caracol, `episodesConSerie` llega a `DituFuente`.
+            // La fuente compuesta: con un ref de Caracol, `episodesWithSeries` llega a `DituFuente`.
             client = graph.fuenteDeContenido,
             onDismiss = { dituSeason = null },
             // Guarda en la biblioteca todos los capítulos que la ventana ya cargó, y reproduce el tocado.

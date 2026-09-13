@@ -25,9 +25,9 @@ import kotlinx.coroutines.flow.onEach
  * Para resolver y para listar capítulos no hay mezcla: el `ref` decide. Cada fuente sabe leer los
  * suyos (`reconoce`), incluidos los viejos del gateway, que no llevan un prefijo visible.
  */
-internal class FuenteCompuesta(private val fuentes: List<FuenteDeContenido>) : FuenteDeContenido {
+internal class FuenteCompuesta(private val fuentes: List<ContentSource>) : ContentSource {
 
-    override fun reconoce(ref: String): Boolean = fuentes.any { it.reconoce(ref) }
+    override fun recognizes(ref: String): Boolean = fuentes.any { it.recognizes(ref) }
 
     override fun search(ctx: GatewaySearchQuery): Flow<SearchEvent> = flow {
         val t0 = System.currentTimeMillis()
@@ -68,10 +68,10 @@ internal class FuenteCompuesta(private val fuentes: List<FuenteDeContenido>) : F
 
     override suspend fun resolve(ref: String): GatewayPlayable = para(ref).resolve(ref)
 
-    override suspend fun episodesConSerie(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?> =
-        para(ref).episodesConSerie(ref)
+    override suspend fun episodesWithSeries(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?> =
+        para(ref).episodesWithSeries(ref)
 
-    private fun para(ref: String): FuenteDeContenido =
-        fuentes.firstOrNull { it.reconoce(ref) }
+    private fun para(ref: String): ContentSource =
+        fuentes.firstOrNull { it.recognizes(ref) }
             ?: throw GatewayException("No hay ninguna fuente que sepa abrir esto")
 }

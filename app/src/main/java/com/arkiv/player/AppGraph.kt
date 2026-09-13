@@ -144,7 +144,7 @@ class AppGraph(context: Context) {
     }
 
     /** Los títulos de Magis, directo del portal. Afuera solo se ve a través de [fuenteDeContenido]. */
-    private val magisFuente: com.arkiv.player.data.gateway.FuenteDeContenido by lazy {
+    private val magisFuente: com.arkiv.player.data.gateway.ContentSource by lazy {
         com.arkiv.player.data.magis.MagisFuente(
             catalogo = magisCatalog,
             resolucion = com.arkiv.player.data.magis.MagisResolve(magisPortal, magisSession),
@@ -177,7 +177,7 @@ class AppGraph(context: Context) {
      * objeto. Para resolver y listar capítulos reparte por el `ref` (cada fuente reconoce los
      * suyos); para buscar, mezcla las dos. Ver [com.arkiv.player.data.gateway.FuenteCompuesta].
      */
-    val fuenteDeContenido: com.arkiv.player.data.gateway.FuenteDeContenido by lazy {
+    val fuenteDeContenido: com.arkiv.player.data.gateway.ContentSource by lazy {
         com.arkiv.player.data.gateway.FuenteCompuesta(listOf(magisFuente, dituFuente))
     }
 

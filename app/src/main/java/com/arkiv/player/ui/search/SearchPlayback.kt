@@ -112,7 +112,7 @@ class SearchPlayback(private val graph: AppGraph) {
      * Same idea that `playPackRow` (torrent) and `saveWebPack` (web) used to follow, before this
      * branch's pruning removed both: touching a chapter brings the whole season into the library,
      * not just that chapter. The list AND the series were already loaded by the screen
-     * with `client.episodesConSerie` when it opened, so this costs no network call.
+     * with `client.episodesWithSeries` when it opened, so this costs no network call.
      * **No descarga nada**: eso lo sigue haciendo el botón "Guardar".
      *
      * [serie] es el bloque `series` de esa misma respuesta (null si el gateway no pudo resolver la
@@ -185,7 +185,7 @@ class SearchPlayback(private val graph: AppGraph) {
      *
      * Es el camino de Caracol de la ventana de capítulos, calcado de [playMagisSeason]: tocar un
      * capítulo trae a la biblioteca todos los de la lista que la ventana ya cargó con
-     * `episodesConSerie` al abrirse, así que no cuesta ninguna llamada de red. Solo escribe por
+     * `episodesWithSeries` al abrirse, así que no cuesta ninguna llamada de red. Solo escribe por
      * `ArkivRepository.addDituSeason` —id `ditu:`, nunca por [playMagisSeason] ni
      * [magisEpisodeIdDe], que arman ids `magis:`—.
      *

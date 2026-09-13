@@ -1270,7 +1270,7 @@ internal fun TvCapitulosDeCaracol(
     val playback = remember { SearchPlayback(graph) }
     TvMagisSeasonContent(
         season = serie,
-        // La fuente compuesta: con un ref de Caracol, `episodesConSerie` llega a `DituFuente`.
+        // La fuente compuesta: con un ref de Caracol, `episodesWithSeries` llega a `DituFuente`.
         client = graph.fuenteDeContenido,
         posterUrl = posterUrl,
         preparing = preparing,
@@ -1299,7 +1299,7 @@ internal fun TvCapitulosDeCaracol(
 @Composable
 private fun TvMagisSeasonContent(
     season: com.arkiv.player.data.gateway.GatewayResult,
-    client: com.arkiv.player.data.gateway.FuenteDeContenido,
+    client: com.arkiv.player.data.gateway.ContentSource,
     posterUrl: String,
     preparing: Boolean,
     onPlayOne: (List<com.arkiv.player.data.gateway.GatewayEpisode>, com.arkiv.player.data.gateway.GatewayEpisode, com.arkiv.player.data.gateway.GatewaySerie?) -> Unit,
@@ -1324,7 +1324,7 @@ private fun TvMagisSeasonContent(
             "season TV: requesting chapters title=${season.title} type=${season.extra["program_type"]} " +
                 "expected=${season.extra["episode_count"]} kind=${season.kind} ref=${season.ref.take(24)}…",
         )
-        runCatching { client.episodesConSerie(season.ref) }
+        runCatching { client.episodesWithSeries(season.ref) }
             .onSuccess { (caps, s) -> capitulos = caps; serie = s }
             .onFailure {
                 android.util.Log.w("ArkivGw", "season TV: failed ${it.javaClass.simpleName}: ${it.message}", it)

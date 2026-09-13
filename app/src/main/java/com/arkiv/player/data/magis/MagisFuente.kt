@@ -1,7 +1,7 @@
 package com.arkiv.player.data.magis
 
 import com.arkiv.player.data.catalog.TmdbApi
-import com.arkiv.player.data.gateway.FuenteDeContenido
+import com.arkiv.player.data.gateway.ContentSource
 import com.arkiv.player.data.gateway.GatewayEpisode
 import com.arkiv.player.data.gateway.GatewayException
 import com.arkiv.player.data.gateway.GatewayPlayable
@@ -32,9 +32,9 @@ internal class MagisFuente(
     private val resolucion: MagisResolve,
     private val tmdb: TmdbApi,
     private val ahoraMs: () -> Long = { System.currentTimeMillis() },
-) : FuenteDeContenido {
+) : ContentSource {
 
-    override fun reconoce(ref: String): Boolean = MagisRef.decodificar(ref) != null
+    override fun recognizes(ref: String): Boolean = MagisRef.decodificar(ref) != null
 
     private val candado = Mutex()
     private val busquedas = CacheConVencimiento<String, List<JSONObject>>(TTL_MS, tope = 32)
@@ -173,7 +173,7 @@ internal class MagisFuente(
 
     // --- capítulos ------------------------------------------------------------
 
-    override suspend fun episodesConSerie(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?> {
+    override suspend fun episodesWithSeries(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?> {
         val magis = MagisRef.decodificar(ref)
             ?: throw GatewayException("ese ref no es de magis: no se pueden listar capítulos")
         val crudos = capitulosDelPortal(magis.contentId)

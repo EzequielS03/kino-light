@@ -15,10 +15,10 @@ class FuenteCompuestaTest {
         val prefijo: String,
         val resultados: List<String> = emptyList(),
         val error: String? = null,
-    ) : FuenteDeContenido {
+    ) : ContentSource {
         var resolvio: String? = null
 
-        override fun reconoce(ref: String) = ref.startsWith(prefijo)
+        override fun recognizes(ref: String) = ref.startsWith(prefijo)
 
         override fun search(ctx: GatewaySearchQuery): Flow<SearchEvent> = flow {
             emit(SearchEvent.SourceStart(nombre))
@@ -38,7 +38,7 @@ class FuenteCompuestaTest {
             return GatewayPlayable(kind = nombre, url = "http://$nombre")
         }
 
-        override suspend fun episodesConSerie(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?> {
+        override suspend fun episodesWithSeries(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?> {
             resolvio = ref
             return listOf(GatewayEpisode(1, "Cap", ref)) to null
         }
@@ -94,7 +94,7 @@ class FuenteCompuestaTest {
         val a = FuenteDeMentira("a", "a:")
         val b = FuenteDeMentira("b", "b:")
 
-        FuenteCompuesta(listOf(a, b)).episodesConSerie("a:9")
+        FuenteCompuesta(listOf(a, b)).episodesWithSeries("a:9")
 
         assertEquals("a:9", a.resolvio)
         assertEquals(null, b.resolvio)
@@ -110,15 +110,15 @@ class FuenteCompuestaTest {
     @Test fun `reconoce si cualquiera de sus fuentes reconoce`() {
         val compuesta = FuenteCompuesta(listOf(FuenteDeMentira("a", "a:"), FuenteDeMentira("b", "b:")))
 
-        assertTrue(compuesta.reconoce("b:1"))
-        assertTrue(!compuesta.reconoce("z:1"))
+        assertTrue(compuesta.recognizes("b:1"))
+        assertTrue(!compuesta.recognizes("z:1"))
     }
 
     private class FuenteQueLanza(
         val nombre: String,
         val prefijo: String,
-    ) : FuenteDeContenido {
-        override fun reconoce(ref: String) = ref.startsWith(prefijo)
+    ) : ContentSource {
+        override fun recognizes(ref: String) = ref.startsWith(prefijo)
 
         override fun search(ctx: GatewaySearchQuery): Flow<SearchEvent> = flow {
             emit(SearchEvent.SourceStart(nombre))
@@ -129,7 +129,7 @@ class FuenteCompuestaTest {
             return GatewayPlayable(kind = nombre, url = "http://$nombre")
         }
 
-        override suspend fun episodesConSerie(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?> {
+        override suspend fun episodesWithSeries(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?> {
             return listOf(GatewayEpisode(1, "Cap", ref)) to null
         }
     }

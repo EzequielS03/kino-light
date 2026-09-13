@@ -4,7 +4,7 @@ import android.util.Log
 import com.arkiv.player.data.ArkivRepository
 import com.arkiv.player.data.DituEntities
 import com.arkiv.player.data.db.ItemDao
-import com.arkiv.player.data.gateway.FuenteDeContenido
+import com.arkiv.player.data.gateway.ContentSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -25,7 +25,7 @@ import kotlinx.coroutines.withContext
 class BuscadorDeCapitulos(
     private val repo: ArkivRepository,
     private val itemDao: ItemDao,
-    private val gateway: FuenteDeContenido,
+    private val gateway: ContentSource,
     private val ahora: () -> Long = { System.currentTimeMillis() },
 ) {
 
@@ -64,7 +64,7 @@ class BuscadorDeCapitulos(
      * el nuestro puede estar vencido. Que esto falle es esperable y no es un error del usuario: se
      * registra a nivel info y se sigue.
      *
-     * Pide `episodesConSerie` (no `episodes`) para que un capítulo agregado acá salga enriquecido
+     * Pide `episodesWithSeries` (no `episodes`) para que un capítulo agregado acá salga enriquecido
      * igual que si se hubiera tocado a mano: still, nombre real, sinopsis y la temporada real del
      * `GatewaySerie`. Esto último no es cosmético — es lo que evita el bug que originó este bloque de
      * parámetros: un capítulo agregado sin `season` deja el ítem con episodios mezclados (unos con
@@ -76,7 +76,7 @@ class BuscadorDeCapitulos(
     private suspend fun revisarMagis(serie: SerieCandidata): Int {
         val ref = itemDao.getItem(serie.itemId)?.torrentData.orEmpty()
         if (ref.isBlank()) return 0
-        val (enLaFuente, gatewaySerie) = gateway.episodesConSerie(ref)
+        val (enLaFuente, gatewaySerie) = gateway.episodesWithSeries(ref)
         if (enLaFuente.isEmpty()) {
             Log.i(TAG, "magis ${serie.itemId}: no chapters (stale ref?)")
             return 0
@@ -110,7 +110,7 @@ class BuscadorDeCapitulos(
     }
 
     /**
-     * Caracol chapters, the same shape as [revisarMagis] but season-aware: `gateway.episodesConSerie`
+     * Caracol chapters, the same shape as [revisarMagis] but season-aware: `gateway.episodesWithSeries`
      * (routed to `DituFuente` by `FuenteCompuesta`, since [ref] is a Caracol ref) lists what's on
      * the source today, and [CapitulosFaltantes.toFetchBySeason] decides what's actually new.
      *
@@ -130,7 +130,7 @@ class BuscadorDeCapitulos(
         val item = itemDao.getItem(serie.itemId) ?: return 0
         val ref = item.torrentData.orEmpty()
         if (ref.isBlank()) return 0
-        val (enLaFuente, gatewaySerie) = gateway.episodesConSerie(ref)
+        val (enLaFuente, gatewaySerie) = gateway.episodesWithSeries(ref)
         if (enLaFuente.isEmpty()) {
             Log.i(TAG, "ditu ${serie.itemId}: no chapters (stale ref?)")
             return 0

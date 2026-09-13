@@ -20,11 +20,11 @@ import com.arkiv.player.data.CapituloDeTemporada
  */
 suspend fun repararIdentidadDeMagis(
     repository: ArkivRepository,
-    api: FuenteDeContenido,
+    api: ContentSource,
     itemId: String,
 ): Boolean {
     val ref = repository.refDeMagisParaReparar(itemId) ?: return false
-    val (capitulos, serie) = runCatching { api.episodesConSerie(ref) }.getOrElse { return false }
+    val (capitulos, serie) = runCatching { api.episodesWithSeries(ref) }.getOrElse { return false }
 
     val tmdbId = serie?.tmdbId?.takeIf { it > 0 }
     val enriquecidos = capitulos.filter {

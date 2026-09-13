@@ -115,7 +115,7 @@ class PruebaDeDescargaDeCaracol : BroadcastReceiver() {
         serieId: String,
     ): Triple<GatewayResult, List<com.arkiv.player.data.gateway.GatewayEpisode>, com.arkiv.player.data.gateway.GatewaySerie?>? {
         val ref = "ditu1:BUNDLE:$serieId"
-        val (capitulos, serie) = runCatching { graph.fuenteDeContenido.episodesConSerie(ref) }
+        val (capitulos, serie) = runCatching { graph.fuenteDeContenido.episodesWithSeries(ref) }
             .getOrElse { Log.e(TAG, "couldn't list the season", it); return null }
         if (capitulos.isEmpty()) { Log.e(TAG, "that season has no chapters"); return null }
         val temporada = GatewayResult(

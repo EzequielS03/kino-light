@@ -2,7 +2,7 @@ package com.arkiv.player.data.ditu
 
 import com.arkiv.player.data.catalog.TmdbApi
 import com.arkiv.player.data.pickTmdbMatch
-import com.arkiv.player.data.gateway.FuenteDeContenido
+import com.arkiv.player.data.gateway.ContentSource
 import com.arkiv.player.data.gateway.GatewayEpisode
 import com.arkiv.player.data.gateway.GatewayException
 import com.arkiv.player.data.gateway.GatewayPlayable
@@ -23,7 +23,7 @@ import kotlinx.coroutines.flow.flowOn
  * cruzar con TMDB— vive acá.
  *
  * TMDB se usa SOLO para el `tmdbId` y el título canónico, y solo cuando el título coincide (ver
- * [episodesConSerie]). Las imágenes las pone Caracol, que las tiene siempre; las de TMDB entran
+ * [episodesWithSeries]). Las imágenes las pone Caracol, que las tiene siempre; las de TMDB entran
  * únicamente si Caracol no trajo ninguna.
  */
 internal class DituFuente(
@@ -32,9 +32,9 @@ internal class DituFuente(
     private val resolucion: DituResolve,
     private val tmdb: TmdbApi? = null,
     private val ahoraMs: () -> Long = { System.currentTimeMillis() },
-) : FuenteDeContenido {
+) : ContentSource {
 
-    override fun reconoce(ref: String): Boolean = DituRef.decodificar(ref) != null
+    override fun recognizes(ref: String): Boolean = DituRef.decodificar(ref) != null
 
     override fun search(ctx: GatewaySearchQuery): Flow<SearchEvent> = flow {
         val t0 = ahoraMs()
@@ -91,7 +91,7 @@ internal class DituFuente(
     @Volatile
     private var catalogoGuardado: CatalogoGuardado? = null
 
-    override suspend fun episodesConSerie(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?> {
+    override suspend fun episodesWithSeries(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?> {
         val propio = DituRef.decodificar(ref) ?: throw GatewayException("Ese enlace no es de Caracol")
         val temporada = runCatching { episodios.de(propio) }
             .getOrElse { throw GatewayException(it.message ?: "No se pudieron leer los capítulos", it) }

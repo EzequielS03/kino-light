@@ -1,7 +1,7 @@
 package com.arkiv.player.data.local
 
 import com.arkiv.player.data.ArkivRepository
-import com.arkiv.player.data.gateway.FuenteDeContenido
+import com.arkiv.player.data.gateway.ContentSource
 import java.io.File
 
 /**
@@ -16,7 +16,7 @@ import java.io.File
  */
 class MagisDownloadStrategy(
     private val repo: ArkivRepository,
-    private val gateway: FuenteDeContenido,
+    private val gateway: ContentSource,
     private val http: HttpRangeDownloader,
 ) : DownloadStrategy {
 
