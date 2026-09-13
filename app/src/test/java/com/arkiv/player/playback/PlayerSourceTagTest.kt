@@ -48,7 +48,7 @@ class PlayerSourceTagTest {
      * takes it apart into the extras `PlayerScreen.localMediaItems` builds, and puts it back together
      * in `PlaybackService.MediaItemResolverCallback`. A field added here and not there arrives on the
      * other side with its default value, SILENTLY -- no error, no log, nothing. It happened once
-     * already: `preferirSoftware` stayed false and magis HEVC kept opening on hardware, which is
+     * already: `preferSoftware` stayed false and magis HEVC kept opening on hardware, which is
      * exactly what that field exists to prevent.
      *
      * [TRAVELS] is what `PlayerSourceTagIpc.encode` really writes; [STAYS_BEHIND] is what it leaves
@@ -73,7 +73,7 @@ class PlayerSourceTagTest {
         /** The nine keys `PlayerSourceTagIpc.encode` writes, in its own order. */
         val TRAVELS = setOf(
             "kind", "openingStartMs", "openingEndMs", "endingStartMs", "castUrl",
-            "referer", "userAgent", "proxyUrl", "preferirSoftware",
+            "referer", "userAgent", "proxyUrl", "preferSoftware",
         )
 
         /**

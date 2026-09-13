@@ -6,19 +6,18 @@ import java.net.ServerSocket
 import java.net.Socket
 
 /**
- * Sirve UN archivo del almacenamiento local por HTTP con soporte de Range, para que el Chromecast y
- * el DLNA puedan reproducir lo que se guardó en el dispositivo (no pueden abrir un `file://`).
+ * Serves ONE file from local storage over HTTP with Range support, so Chromecast and DLNA can
+ * play back what got saved on the device (they can't open a `file://`).
  *
- * Un archivo a la vez: [serve] reemplaza al anterior. Same pattern as the torrent HTTP server
+ * One file at a time: [serve] replaces the previous one. Same pattern as the torrent HTTP server
  * (source removed in this branch's pruning), with one key difference: here the server RESTARTS
  * (a new `ServerSocket`, a new port) every time the served file changes, instead of reusing the
- * same port for different files. Motivo: si dos archivos compartieran URL, una
- * conexión que ya hizo HEAD sobre el archivo viejo (con su Content-Length) podría mandar el GET
- * DESPUÉS del cambio y terminar leyendo el archivo nuevo con la cabecera vieja — un escenario real
- * en el flujo de "cambiar de episodio mientras se castea". Con un puerto nuevo por archivo, una
- * conexión vieja sigue sirviendo lo suyo sin verse afectada (`ServerSocket.close()` no toca los
- * sockets ya aceptados) y cualquier conexión nueva fuerza al cliente a reconectar de cero contra el
- * archivo correcto.
+ * same port for different files. Why: if two files shared a URL, a connection that already did a
+ * HEAD on the old file (with its Content-Length) could send the GET AFTER the change and end up
+ * reading the new file with the old header — a real scenario in the "change episode while
+ * casting" flow. With a new port per file, an old connection keeps serving what's its own
+ * unaffected (`ServerSocket.close()` doesn't touch already-accepted sockets), and any new
+ * connection forces the client to reconnect from scratch against the correct file.
  */
 class LocalFileServer(private val lanIp: () -> String?) {
 
@@ -34,9 +33,9 @@ class LocalFileServer(private val lanIp: () -> String?) {
      * frame reached the TV.
      */
     @Volatile
-    var creciendo: Boolean = false
+    var growing: Boolean = false
 
-    /** Devuelve la URL alcanzable desde la LAN, o null si no hay IP (sin red) o el archivo no está. */
+    /** Returns the URL reachable from the LAN, or null if there's no IP (no network) or the file isn't there. */
     @Synchronized
     fun serve(file: File): String? {
         if (!file.exists()) return null
@@ -78,16 +77,16 @@ class LocalFileServer(private val lanIp: () -> String?) {
         server = null
     }
 
-    /** Arranca un ServerSocket nuevo atado a [file]: esa es la única generación de conexiones que va
-     *  a aceptar hasta el próximo [closeServer] (ver KDoc de la clase). */
+    /** Starts a new ServerSocket bound to [file]: that's the only generation of connections it
+     *  will accept until the next [closeServer] (see the class's KDoc). */
     private fun start(file: File) {
         val s = ServerSocket(0)
         server = s
         Thread {
             while (!s.isClosed) {
                 val socket = runCatching { s.accept() }.getOrNull() ?: break
-                // [file] se captura acá, no se relee `current`: un cambio de archivo durante una
-                // conexión en vuelo (o mientras se espera el accept) no la afecta.
+                // [file] is captured here, `current` is not re-read: a file change during an
+                // in-flight connection (or while waiting on accept) doesn't affect it.
                 Thread { runCatching { handle(socket, file) }.onFailure { Log.w(TAG, "handle: $it") } }
                     .apply { isDaemon = true }.start()
             }
@@ -98,13 +97,13 @@ class LocalFileServer(private val lanIp: () -> String?) {
     // otherwise infer this function as Int and break the bare `return`s inside it.
     private fun handle(socket: Socket, file: File): Unit = socket.use { sock ->
         val sockIn = sock.getInputStream()
-        // Lectura byte a byte hasta la línea en blanco que cierra las cabeceras — mismo enfoque que
-        // TorrentStreamServer.serve(), no un BufferedReader sobre el InputStream del socket. Un
-        // BufferedReader tira hacia su buffer interno más bytes de los que consume readLine(), lo
-        // cual acá no llegaría a corromper nada (no hay body HTTP que leer después de las cabeceras),
-        // pero preferimos el patrón ya probado del proyecto antes que introducir uno nuevo. El cap de
-        // 8KB evita quedar bloqueados leyendo para siempre si un cliente abre la conexión y nunca
-        // termina de mandar las cabeceras.
+        // Byte-by-byte read up to the blank line that closes the headers — same approach as
+        // TorrentStreamServer.serve(), not a BufferedReader over the socket's InputStream. A
+        // BufferedReader pulls more bytes than readLine() consumes into its internal buffer, which
+        // wouldn't actually corrupt anything here (there's no HTTP body to read after the headers),
+        // but the project's already-proven pattern is preferred over introducing a new one. The
+        // 8KB cap avoids being stuck reading forever if a client opens the connection and never
+        // finishes sending the headers.
         val header = StringBuilder()
         val one = ByteArray(1)
         while (sockIn.read(one) == 1) {
@@ -183,7 +182,7 @@ class LocalFileServer(private val lanIp: () -> String?) {
         // and no Range to satisfy: it goes out chunked, and the reader blocks at the end of what
         // exists until more is written or the writer finishes. Anything else would hand the
         // receiver a length that is a lie and get the stream cut short.
-        if (creciendo) {
+        if (growing) {
             val out = sock.getOutputStream()
             out.write(
                 ("HTTP/1.1 200 OK\r\n" +
@@ -193,34 +192,34 @@ class LocalFileServer(private val lanIp: () -> String?) {
                     "Connection: close\r\n\r\n").toByteArray(),
             )
             if (method == "HEAD") { out.flush(); return }
-            var enviado = 0L
-            var quietoDesde = System.currentTimeMillis()
+            var sentSoFar = 0L
+            var quietSince = System.currentTimeMillis()
             val buf = ByteArray(64 * 1024)
             java.io.RandomAccessFile(file, "r").use { raf ->
                 while (true) {
-                    val disponible = file.length() - enviado
-                    if (disponible <= 0L) {
+                    val available = file.length() - sentSoFar
+                    if (available <= 0L) {
                         // Caught up with the writer. Give it a moment; give up only after it has
                         // stopped producing for long enough that it is finished or dead -- cutting
                         // early would truncate the title mid-playback.
-                        if (System.currentTimeMillis() - quietoDesde > ESPERA_ESCRITOR_MS) break
+                        if (System.currentTimeMillis() - quietSince > WRITER_WAIT_MS) break
                         Thread.sleep(200)
                         continue
                     }
-                    quietoDesde = System.currentTimeMillis()
-                    raf.seek(enviado)
-                    val n = raf.read(buf, 0, minOf(buf.size.toLong(), disponible).toInt())
+                    quietSince = System.currentTimeMillis()
+                    raf.seek(sentSoFar)
+                    val n = raf.read(buf, 0, minOf(buf.size.toLong(), available).toInt())
                     if (n <= 0) { Thread.sleep(200); continue }
                     out.write("${Integer.toHexString(n)}\r\n".toByteArray())
                     out.write(buf, 0, n)
                     out.write("\r\n".toByteArray())
                     out.flush()
-                    enviado += n
+                    sentSoFar += n
                 }
             }
             out.write("0\r\n\r\n".toByteArray())
             out.flush()
-            Log.i(TAG, "-> $client growing stream ended after ${enviado}B")
+            Log.i(TAG, "-> $client growing stream ended after ${sentSoFar}B")
             return
         }
 
@@ -228,10 +227,10 @@ class LocalFileServer(private val lanIp: () -> String?) {
         val maxIndex = (size - 1).coerceAtLeast(0)
         var start = 0L
         var end = maxIndex
-        // Soporta "bytes=START-" (lo más común: Chromecast/DLNA arrancando o retomando desde un
-        // punto) Y "bytes=START-END" (rango cerrado). El brief original solo leía el inicio; parsear
-        // también el final es barato (ya teníamos el tamaño completo del archivo a mano) y evita
-        // servir de más si algún cliente sí pide un rango cerrado.
+        // Supports "bytes=START-" (the most common case: Chromecast/DLNA starting or resuming from
+        // a point) AND "bytes=START-END" (closed range). The original brief only read the start;
+        // parsing the end too is cheap (the file's full size was already at hand) and avoids
+        // over-serving if some client does ask for a closed range.
         val rangeValue = lines.firstOrNull { it.startsWith("Range:", ignoreCase = true) }
             ?.substringAfter(':')?.trim()
         val hasRange = rangeValue != null && rangeValue.startsWith("bytes=")
@@ -260,7 +259,7 @@ class LocalFileServer(private val lanIp: () -> String?) {
         )
         val out = sock.getOutputStream()
         out.write(responseHeader.toByteArray())
-        // HEAD: el Chromecast lo manda antes del GET para conocer tamaño y tipo.
+        // HEAD: Chromecast sends it before the GET to learn size and type.
         if (method == "HEAD") { out.flush(); return }
 
         var sent = 0L
@@ -290,15 +289,15 @@ class LocalFileServer(private val lanIp: () -> String?) {
     }
 
     /**
-     * El `Content-Type` sale de los BYTES, no de la extensión. Ver [ContenedorDeVideo].
+     * The `Content-Type` comes from the BYTES, not the extension. See [VideoContainer].
      *
-     * Acá el nombre miente sistemáticamente: `LocalFilePaths.fileNameFor` guarda como `.mp4` todo
-     * lo que no traiga una extensión de video reconocible en el origen, y a la descarga de la NUC
-     * le llega una URL de página web —sin extensión— aunque yt-dlp haya producido un mkv. Como
-     * este servidor es el que alimenta al Chromecast, ese `.mp4` inventado se convertía en un
-     * `video/mp4` que el receptor no podía cumplir.
+     * The name lies systematically here: `LocalFilePaths.fileNameFor` saves as `.mp4` anything
+     * that doesn't come with a recognizable video extension at the source, and the NUC download
+     * gets a web page URL —with no extension— even when yt-dlp produced an mkv. Since this server
+     * is the one feeding Chromecast, that made-up `.mp4` used to turn into a `video/mp4` the
+     * receiver couldn't honor.
      */
-    private fun mimeOf(file: File): String = ContenedorDeVideo.deArchivo(file).mime
+    private fun mimeOf(file: File): String = VideoContainer.ofFile(file).mime
 
     /**
      * The file cut into HLS segments by BYTE RANGE -- nothing is copied or converted, each segment
@@ -353,7 +352,7 @@ class LocalFileServer(private val lanIp: () -> String?) {
         const val TAG = "ArkivLocalServer"
 
         /** How long the writer may produce nothing before a growing stream is considered over. */
-        const val ESPERA_ESCRITOR_MS = 20_000L
+        const val WRITER_WAIT_MS = 20_000L
 
         /** Segment length aimed for. Ten seconds is the usual HLS default and what the live proxy,
          *  which already casts fine to this same TV, ends up serving. */

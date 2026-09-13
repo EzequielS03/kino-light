@@ -45,7 +45,7 @@ class LocalFilePathsTest {
     /**
      * `m2ts` faltaba en la lista de acá pero no en la de `TorrentEngine`: un Blu-ray remuxeado se
      * podía elegir para bajar y después se guardaba con el nombre cambiado a `.mp4`. Con una sola
-     * lista compartida (`ContenedorDeVideo`) esa clase de hueco desaparece.
+     * lista compartida (`VideoContainer`) esa clase de hueco desaparece.
      */
     @Test
     fun `conserva la extension de los contenedores que sabemos reproducir`() {

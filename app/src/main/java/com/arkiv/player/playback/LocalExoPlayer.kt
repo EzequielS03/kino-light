@@ -23,7 +23,7 @@ import androidx.media3.exoplayer.source.MediaSource
  * - Audio focus, "becoming noisy" (headphones unplugged) and a local wake lock, because this one
  *   plays with the screen off.
  * - Decoder fallback, plus a software-first decoder order when the item asks for it
- *   (`PlayerSourceTag.preferirSoftware`). That flag already crosses the controller→session IPC in the
+ *   (`PlayerSourceTag.preferSoftware`). That flag already crosses the controller→session IPC in the
  *   item extras, so the screen's decoder watchdog ([DecoderWatchdog]) can reload in software through
  *   its `MediaController` alone.
  */
@@ -58,7 +58,7 @@ object LocalExoPlayer {
         decoders.sortedBy { isHardware(it) }
 
     /** Whether the item's tag asks for a software decoder. */
-    fun prefersSoftware(tag: Any?): Boolean = (tag as? PlayerSourceTag)?.preferirSoftware == true
+    fun prefersSoftware(tag: Any?): Boolean = (tag as? PlayerSourceTag)?.preferSoftware == true
 
     /**
      * Carries the current item's decoder preference from where the item enters the player to where

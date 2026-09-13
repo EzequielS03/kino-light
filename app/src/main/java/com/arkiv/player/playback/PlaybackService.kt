@@ -11,36 +11,36 @@ import com.arkiv.player.MainActivity
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 
-/** Referencia al capítulo que se está reproduciendo (para el deep-link de la notificación). */
+/** Reference to the episode currently playing (for the notification's deep-link). */
 object NowPlaying {
     @Volatile
     var episodeId: String? = null
 
     /**
-     * ¿Está abierta la pantalla del reproductor en ESTE dispositivo?
+     * Is the player screen open on THIS device?
      *
-     * Existe aparte de [episodeId] a propósito: ese valor no se limpia nunca —lo leen el deep-link
-     * de la notificación y la resolución de siguiente/anterior, que lo necesitan DESPUÉS de cerrar
-     * el reproductor—. Sin esta señal el publisher del TV seguía anunciando el último capítulo en
-     * pausa para siempre, y la barra del celu mostraba algo que hacía rato no sonaba.
+     * Exists apart from [episodeId] on purpose: that value is never cleared —the notification's
+     * deep-link and next/previous resolution read it, and they need it AFTER the player closes—.
+     * Without this signal the TV publisher kept announcing the last episode as paused forever, and
+     * the phone's bar showed something that hadn't been playing for a while.
      */
     @Volatile
     var playerOpen: Boolean = false
 
-    /** Instante en que se abrió el reproductor; el celu lo usa para distinguir "volvió a arrancar
-     *  lo mismo" de "sigue lo mismo" (ver `NowPlayingCoordinator`). Solo tiene sentido mientras
-     *  [playerOpen] es true — no se limpia al cerrar porque no hace falta. */
+    /** Instant the player was opened; the phone uses it to tell "started over playing the same
+     *  thing" apart from "still playing the same thing" (see `NowPlayingCoordinator`). Only makes
+     *  sense while [playerOpen] is true — not cleared on close because there's no need. */
     @Volatile
     var playerOpenedAtMs: Long = 0L
 
     /**
-     * Nombre del canal en vivo actual (Tarea 15), o null fuera de modo vivo.
+     * Current live channel's name (Task 15), or null outside live mode.
      *
-     * Existe porque un canal en vivo NO es un episodio de la biblioteca: `episodeId` vale
-     * `"live:<code>"`, y `NowPlayingPublisher.metaFor()` no tiene de dónde sacar un título si busca
-     * eso en `ArkivRepository` (headerInfo/getEpisode devuelven vacío, la barra del celu quedaría en
-     * blanco al enviar un canal al TV). `PlayerScreen` lo actualiza con cada zap, igual que
-     * [episodeId]; no se limpia al salir por el mismo motivo que ese campo no se limpia.
+     * Exists because a live channel is NOT a library episode: `episodeId` holds
+     * `"live:<code>"`, and `NowPlayingPublisher.metaFor()` has nowhere to get a title from if it
+     * looks that up in `ArkivRepository` (headerInfo/getEpisode return empty, the phone's bar would
+     * be left blank when sending a channel to the TV). `PlayerScreen` updates it on every zap, same
+     * as [episodeId]; not cleared on exit for the same reason that field isn't cleared.
      */
     @Volatile
     var liveChannelName: String? = null
@@ -89,7 +89,7 @@ class PlaybackService : MediaSessionService() {
         val player = LocalExoPlayer.build(this)
         PlaybackEngine.player = player
 
-        // Al tocar la notificación se abre la app en el capítulo actual.
+        // Tapping the notification opens the app on the current episode.
         val openIntent = Intent(this, MainActivity::class.java).apply {
             action = ACTION_OPEN_PLAYER
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -105,11 +105,12 @@ class PlaybackService : MediaSessionService() {
     }
 
     /**
-     * Al enviar MediaItems desde un MediaController a la MediaSession, media3 **descarta el
-     * `localConfiguration` (la URI)** al cruzar el límite controller→session, y sin este callback
-     * el comando `setMediaItems` se ignora en silencio (el player nunca recibe los ítems → pantalla
-     * negra, no reproduce). Acá reconstruimos cada MediaItem con su URI, que la UI preserva en
-     * `requestMetadata.mediaUri` (ese campo SÍ sobrevive el IPC). Es el patrón recomendado de media3.
+     * When sending MediaItems from a MediaController to the MediaSession, media3 **drops the
+     * `localConfiguration` (the URI)** crossing the controller→session boundary, and without this
+     * callback the `setMediaItems` command is silently ignored (the player never gets the items →
+     * black screen, no playback). Here each MediaItem is rebuilt with its URI, which the UI
+     * preserves in `requestMetadata.mediaUri` (that field DOES survive the IPC). This is media3's
+     * recommended pattern.
      */
     private object MediaItemResolverCallback : MediaSession.Callback {
         override fun onAddMediaItems(
@@ -135,15 +136,15 @@ class PlaybackService : MediaSessionService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
 
     override fun onTaskRemoved(rootIntent: android.content.Intent?) {
-        // OJO: casteando, el reproductor local queda con playWhenReady=false A PROPÓSITO (para no
-        // competirle el stream al receptor), que es justo la condición que acá se lee como "no hay
-        // nada reproduciendo". It's fine for the service to stop —the magis proxy and the live one
-        // live in the graph, not here—; what CANNOT happen is for it to let go of the network, and
-        // that's what the releaseNetworkResources() guard takes care of.
+        // HEADS UP: while casting, the local player is left with playWhenReady=false ON PURPOSE
+        // (so it doesn't compete with the receiver for the stream), which is exactly the condition
+        // read here as "nothing is playing". It's fine for the service to stop —the magis proxy and
+        // the live one live in the graph, not here—; what CANNOT happen is for it to let go of the
+        // network, and that's what the releaseNetworkResources() guard takes care of.
         val player = mediaSession?.player
         if (player == null || !player.playWhenReady || player.mediaItemCount == 0) {
-            // El usuario sacó la app de recientes sin reproducción activa: cortar recursos de red
-            // (proxy de magis + proxy de vivo) antes de frenar el service.
+            // The user swiped the app away from recents with no active playback: cut network
+            // resources (magis proxy + live proxy) before stopping the service.
             releaseNetworkResources()
             stopSelf()
         }
@@ -163,13 +164,13 @@ class PlaybackService : MediaSessionService() {
         super.onDestroy()
     }
 
-    /** Cierra el proxy de archive y el de vivo (idempotente y a prueba de nulls). */
+    /** Closes the archive proxy and the live one (idempotent and null-safe). */
     private fun releaseNetworkResources() {
-        // Con una sesión de Chromecast viva NO se sueltan: el receptor está jalando bytes del server
-        // LAN de este proceso. Pasa de verdad en el camino "abrir la app casteando y mandar el
-        // capítulo directo a la TV": ahí nunca hubo reproducción local, el service quedó solo
-        // BINDEADO, y al soltar el MediaController (salir de la pantalla) el service se destruye y
-        // llega acá.
+        // With a live Chromecast session they are NOT released: the receiver is pulling bytes from
+        // this process's LAN server. This genuinely happens on the "open the app already casting
+        // and send the episode straight to the TV" path: there was never local playback there, the
+        // service was only BOUND, and releasing the MediaController (leaving the screen) destroys
+        // the service and lands here.
         if (isCasting()) {
             android.util.Log.i("ArkivCast", "not releasing network resources: a Chromecast session is alive")
             return
@@ -177,22 +178,22 @@ class PlaybackService : MediaSessionService() {
         runCatching {
             val graph = (application as com.arkiv.player.ArkivApp).graph
             runCatching { graph.archiveCacheProxy.stop() }
-            // Tarea 14 (canal en vivo) creaba liveHlsProxy/liveController en el grafo pero nunca los
-            // cerraba: el ServerSocket en 127.0.0.1 y su hilo accept() quedaban vivos el resto del
-            // proceso después de salir de un canal. Mismo hermano que archiveCacheProxy: se cierra
-            // acá, con la MISMA guarda de casteo de arriba -desde la Tarea 18 esa guarda protege DE
-            // VERDAD una sesión de Chromecast en curso: el receptor jala los segmentos de ESTE
-            // proxy (ver PlayerScreen.castRequestFor/LiveHlsProxy.lanUrl), así que cerrarlo con la
-            // TV todavía reproduciendo le cortaría el canal en seco.
+            // Task 14 (live channel) created liveHlsProxy/liveController in the graph but never
+            // closed them: the ServerSocket on 127.0.0.1 and its accept() thread stayed alive for
+            // the rest of the process after leaving a channel. Same sibling as archiveCacheProxy:
+            // closed here, with the SAME casting guard above -since Task 18 that guard REALLY
+            // protects an ongoing Chromecast session: the receiver pulls segments from THIS proxy
+            // (see PlayerScreen.castRequestFor/LiveHlsProxy.lanUrl), so closing it with the TV
+            // still playing would cut the channel dead.
             runCatching { graph.liveHlsProxy.stop() }
-            // cerrar() solo invalida la caché de sesiones resueltas (no hay socket que soltar acá,
-            // eso ya lo hizo stop() arriba) para que el próximo canal que se abra no reutilice una
-            // sesión vieja del gateway después de un corte largo de red/proceso en pausa.
+            // close() only invalidates the cache of resolved sessions (there's no socket to release
+            // here, stop() above already did that) so the next channel opened doesn't reuse a stale
+            // gateway session after a long network cut or the process being paused.
             runCatching { graph.liveController.cerrar() }
         }
     }
 
-    /** ¿Hay sesión de Chromecast viva? Sin Google Play Services el manager no existe → false. */
+    /** Is there a live Chromecast session? Without Google Play Services the manager doesn't exist → false. */
     private fun isCasting(): Boolean = runCatching {
         (application as com.arkiv.player.ArkivApp).graph.castSession?.casting?.value == true
     }.getOrDefault(false)

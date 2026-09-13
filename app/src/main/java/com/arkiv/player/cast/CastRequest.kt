@@ -116,8 +116,8 @@ object CastRequestBuilder {
      * Here the bytes can't be inspected (the URL is remote, there's no file to open), so the
      * extension is all there is; what IS shared with the rest of the app is the TABLE, so there
      * aren't three different versions of "what MIME does a .ts have" floating around. See
-     * [com.arkiv.player.playback.ContenedorDeVideo].
+     * [com.arkiv.player.playback.VideoContainer].
      */
     internal fun mimeForUrl(url: String): String =
-        com.arkiv.player.playback.ContenedorDeVideo.mimePorNombre(url)
+        com.arkiv.player.playback.VideoContainer.mimeByName(url)
 }

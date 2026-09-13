@@ -31,7 +31,7 @@ object PoliticaDeRemux {
      * the segmenter path still exists for it, and a remux that fails is worse than a cast that
      * works imperfectly.
      */
-    fun hayQueRemuxear(mime: String?): Boolean = mime == Contenedor.MPEGTS.mime
+    fun hayQueRemuxear(mime: String?): Boolean = mime == Container.MPEGTS.mime
 
     /**
      * Name of the remuxed copy for [claveDeOrigen].

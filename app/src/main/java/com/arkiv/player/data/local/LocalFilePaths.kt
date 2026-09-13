@@ -1,6 +1,6 @@
 package com.arkiv.player.data.local
 
-import com.arkiv.player.playback.ContenedorDeVideo
+import com.arkiv.player.playback.VideoContainer
 import java.io.File
 
 /**
@@ -24,7 +24,7 @@ object LocalFilePaths {
         // corte por el último punto: a la descarga de la NUC le llega una URL de página como
         // nombre de origen, y sobre `https://sitio.com/peli` ese corte devuelve `"com/peli"`.
         // Todo lo demás después de un punto es parte del título.
-        val ext = sourceName?.let { ContenedorDeVideo.extensionDeVideo(it) } ?: DEFAULT_EXT
+        val ext = sourceName?.let { VideoContainer.videoExtension(it) } ?: DEFAULT_EXT
         return "${sanitize(episodeId)}.$ext"
     }
 

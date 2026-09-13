@@ -80,7 +80,7 @@ data class PlayerData(
  *
  * Un canal en vivo de Caracol ([DituLive]) no se anota nunca: no tiene fila en la biblioteca ni nada
  * que reanudar. `PlayerScreen` ya no le guarda la posición (su `enVivo` sale de
- * `PlayerSource.esCanalEnVivo`, que lo incluye), pero su captura al pausar no mira `enVivo`, y en
+ * `PlayerSource.isLiveChannel`, que lo incluye), pero su captura al pausar no mira `enVivo`, y en
  * `saveProgress`/`capturarFrame` no entra por la rama de `_magisItem`: esta sigue siendo la guarda
  * que lo frena en los dos.
  */
@@ -874,7 +874,7 @@ class PlayerViewModel internal constructor(
                     // leer el final y bajarla es gasto puro contra el CDN. Si el gateway no lo
                     // manda, la extensión de la URL lo dice igual para magis.
                     container = play.container.ifBlank {
-                        com.arkiv.player.playback.ContenedorDeVideo.extensionDeVideo(play.url).orEmpty()
+                        com.arkiv.player.playback.VideoContainer.videoExtension(play.url).orEmpty()
                     },
                 )
             }

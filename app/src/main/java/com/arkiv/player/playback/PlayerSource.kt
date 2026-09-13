@@ -10,9 +10,9 @@ data class PlayerSourceTag(
     val openingEndMs: Long?,
     val endingStartMs: Long?,
     val castUrl: String?,
-    val referer: String? = null,      // headers para streams web (algunos hosts exigen Referer)
+    val referer: String? = null,      // headers for web streams (some hosts require Referer)
     val userAgent: String? = null,
-    val proxyUrl: String? = null,     // web: URL proxeada de respaldo si la directa falla (403/geo/anti-leech)
+    val proxyUrl: String? = null,     // web: proxied fallback URL if the direct one fails (403/geo/anti-leech)
     /**
      * Extra headers the origin requires, beyond Referer and User-Agent.
      *
@@ -31,9 +31,9 @@ data class PlayerSourceTag(
      * software. Knowing this ahead of time skips the failed attempt and the ~10s of black screen
      * the automatic rescue used to take to kick in.
      */
-    val preferirSoftware: Boolean = false,
+    val preferSoftware: Boolean = false,
 ) {
-    /** Todos los headers del origen en un solo mapa, para quien pueda mandarlos completos. */
+    /** All of the origin's headers in a single map, for whoever can send them all at once. */
     val allHeaders: Map<String, String>
         get() = buildMap {
             referer?.takeIf { it.isNotBlank() }?.let { put("Referer", it) }
@@ -44,29 +44,29 @@ data class PlayerSourceTag(
 
 object PlayerSource {
     /**
-     * Prefijo de un canal en vivo (Tarea 14): `episodeId = "live:<code>"`, el mismo `code` que
-     * [com.arkiv.player.ui.live.LiveController.abrir] recibe. Vive acá (y no repetido como string
-     * literal en cada callsite) porque tanto quien arma la ruta de navegación
-     * (ArkivRoot/ArkivTvRoot) como quien la interpreta (PlayerViewModel) tienen que coincidir.
+     * Prefix of a live channel (Task 14): `episodeId = "live:<code>"`, the same `code` that
+     * [com.arkiv.player.ui.live.LiveController.abrir] receives. Lives here (instead of repeated as
+     * a string literal at each call site) because both whoever builds the navigation route
+     * (ArkivRoot/ArkivTvRoot) and whoever reads it (PlayerViewModel) have to agree.
      */
     const val LIVE_PREFIX = "live:"
 
     /**
-     * ¿[episodeId] es un canal en vivo, de cualquier fuente? El de Magis (`live:`, ver [LIVE_PREFIX])
-     * o el de Caracol ([DituLive]).
+     * Is [episodeId] a live channel, from any source? Magis's (`live:`, see [LIVE_PREFIX])
+     * or Caracol's ([DituLive]).
      *
-     * `PlayerScreen` cuelga de acá lo que es de cualquier directo: sin barra de avance ni seek, sin
-     * posición que guardar, sin "siguiente capítulo" al terminar. Lo que es solo del vivo de Magis
-     * (zapeo, cajón y ficha de canales, reapertura por cortes) sigue preguntando por [SourceKind.LIVE].
+     * `PlayerScreen` hangs off this whatever is common to any live stream: no progress bar or
+     * seek, no position to save, no "next episode" on finish. What's specific to Magis's live
+     * (zapping, drawer and channel sheet, reopening on cuts) still asks for [SourceKind.LIVE].
      */
-    fun esCanalEnVivo(episodeId: String): Boolean =
+    fun isLiveChannel(episodeId: String): Boolean =
         kindFor(episodeId) == SourceKind.LIVE || DituLive.isLive(episodeId)
 
     fun kindFor(episodeId: String): SourceKind = when {
         episodeId.startsWith("magis:") -> SourceKind.MAGIS
-        // Caracol (Ditu). Los ids con este prefijo los arman `DituEntities`, al guardar un título de
-        // Caracol en la biblioteca, y `DituLive`, para un canal en vivo: sus `PREFIX` tienen que
-        // empezar con este.
+        // Caracol (Ditu). Ids with this prefix are built by `DituEntities`, when saving a Caracol
+        // title to the library, and `DituLive`, for a live channel: their `PREFIX` has to
+        // start with this.
         episodeId.startsWith("ditu:") -> SourceKind.DITU
         episodeId.startsWith(LIVE_PREFIX) -> SourceKind.LIVE
         // UNKNOWN covers ids from sources removed from this branch (torrent, archive.org, web): the
@@ -95,7 +95,7 @@ internal object PlayerSourceTagIpc {
         tag.openingStartMs?.let { put("openingStartMs", it) }
         tag.openingEndMs?.let { put("openingEndMs", it) }
         tag.endingStartMs?.let { put("endingStartMs", it) }
-        if (tag.preferirSoftware) put("preferirSoftware", true)
+        if (tag.preferSoftware) put("preferSoftware", true)
     }
 
     /**
@@ -115,9 +115,9 @@ internal object PlayerSourceTagIpc {
             proxyUrl = extras["proxyUrl"] as? String,
             // If a field gets added to the tag, it has to be wired HERE and in [encode]: the tag
             // doesn't cross the IPC boundary itself, and whatever is missing arrives at its default,
-            // in silence. This happened once: preferirSoftware stayed false and magis's HEVC kept
+            // in silence. This happened once: preferSoftware stayed false and magis's HEVC kept
             // opening in hardware.
-            preferirSoftware = extras["preferirSoftware"] as? Boolean ?: false,
+            preferSoftware = extras["preferSoftware"] as? Boolean ?: false,
         )
     }
 }

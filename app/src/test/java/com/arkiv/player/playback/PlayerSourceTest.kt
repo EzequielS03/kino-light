@@ -21,20 +21,20 @@ class PlayerSourceTest {
     // --- ¿es un canal en vivo? ----------------------------------------------------------------
 
     @Test fun el_vivo_de_magis_es_un_canal_en_vivo() {
-        assertTrue(PlayerSource.esCanalEnVivo("${PlayerSource.LIVE_PREFIX}caracoltv"))
+        assertTrue(PlayerSource.isLiveChannel("${PlayerSource.LIVE_PREFIX}caracoltv"))
     }
 
     /** El caso que faltaba: un canal de Caracol salía con la barra de avance de una película. */
     @Test fun el_vivo_de_caracol_es_un_canal_en_vivo() {
-        assertTrue(PlayerSource.esCanalEnVivo("${DituLive.PREFIX}12345"))
+        assertTrue(PlayerSource.isLiveChannel("${DituLive.PREFIX}12345"))
     }
 
     @Test fun el_vod_de_caracol_no_es_un_canal_en_vivo() {
-        assertFalse(PlayerSource.esCanalEnVivo("ditu:12345::e1"))
+        assertFalse(PlayerSource.isLiveChannel("ditu:12345::e1"))
     }
 
     @Test fun el_vod_de_magis_no_es_un_canal_en_vivo() {
-        assertFalse(PlayerSource.esCanalEnVivo("magis:2AD2591D4242471D96B68FF04FFD2784::e6"))
-        assertFalse(PlayerSource.esCanalEnVivo("someitem::3"))
+        assertFalse(PlayerSource.isLiveChannel("magis:2AD2591D4242471D96B68FF04FFD2784::e6"))
+        assertFalse(PlayerSource.isLiveChannel("someitem::3"))
     }
 }

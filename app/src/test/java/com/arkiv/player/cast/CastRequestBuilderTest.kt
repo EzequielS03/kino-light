@@ -66,7 +66,7 @@ class CastRequestBuilderTest {
      * The MIME-by-URL table used to cover four extensions (mp4/m4v/mkv/webm) and sent EVERYTHING
      * else to `video/mp4`. A magis `.ts` or an archive `.avi` got announced to the receiver as
      * mp4, which is exactly the string it uses to decide whether to open the stream. See
-     * `ContenedorDeVideo`.
+     * `VideoContainer`.
      */
     @Test
     fun `mime by URL covers the containers we actually serve, not just four`() {

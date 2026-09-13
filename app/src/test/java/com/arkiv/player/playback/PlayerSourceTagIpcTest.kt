@@ -7,7 +7,7 @@ import org.junit.Test
 /**
  * The IPC round trip's VALUES, not just its field LIST (see the "todo campo del tag..." guard in
  * [PlayerSourceTagTest]): a tag with every field populated has to survive encode→decode exactly. A
- * `preferirSoftware` bug already slipped through exactly here once -- it stayed false and magis's
+ * `preferSoftware` bug already slipped through exactly here once -- it stayed false and magis's
  * HEVC kept opening in hardware -- and nothing short of round-tripping the real values would have
  * caught it.
  *
@@ -32,7 +32,7 @@ class PlayerSourceTagIpcTest {
         referer = "https://serieskao.top/",
         userAgent = "Ranger/4.9.4-17294ac0",
         proxyUrl = "http://127.0.0.1:8080/proxy",
-        preferirSoftware = true,
+        preferSoftware = true,
     )
 
     @Test
@@ -41,11 +41,11 @@ class PlayerSourceTagIpcTest {
     }
 
     @Test
-    fun `preferirSoftware false round-trips as false, not as a stray true`() {
-        val tag = fullTag.copy(preferirSoftware = false)
+    fun `preferSoftware false round-trips as false, not as a stray true`() {
+        val tag = fullTag.copy(preferSoftware = false)
         val decoded = PlayerSourceTagIpc.decode(PlayerSourceTagIpc.encode(tag))
         assertEquals(tag, decoded)
-        assertEquals(false, decoded?.preferirSoftware)
+        assertEquals(false, decoded?.preferSoftware)
     }
 
     @Test

@@ -26,12 +26,12 @@ class LocalExoPlayerTest {
         assertEquals(listOf(hw1, hw2), LocalExoPlayer.softwareFirst(listOf(hw1, hw2)) { it.hardware })
     }
 
-    @Test fun `an item tagged preferirSoftware prefers software`() {
-        assertTrue(LocalExoPlayer.prefersSoftware(tag(preferirSoftware = true)))
+    @Test fun `an item tagged preferSoftware prefers software`() {
+        assertTrue(LocalExoPlayer.prefersSoftware(tag(preferSoftware = true)))
     }
 
     @Test fun `an item without the flag keeps the platform order`() {
-        assertFalse(LocalExoPlayer.prefersSoftware(tag(preferirSoftware = false)))
+        assertFalse(LocalExoPlayer.prefersSoftware(tag(preferSoftware = false)))
     }
 
     @Test fun `an item with no tag, or a foreign tag, keeps the platform order`() {
@@ -39,9 +39,9 @@ class LocalExoPlayerTest {
         assertFalse(LocalExoPlayer.prefersSoftware("not a PlayerSourceTag"))
     }
 
-    private fun tag(preferirSoftware: Boolean) = PlayerSourceTag(
+    private fun tag(preferSoftware: Boolean) = PlayerSourceTag(
         kind = SourceKind.LOCAL,
         openingStartMs = null, openingEndMs = null, endingStartMs = null, castUrl = null,
-        preferirSoftware = preferirSoftware,
+        preferSoftware = preferSoftware,
     )
 }

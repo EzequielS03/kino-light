@@ -208,7 +208,7 @@ private fun localMediaItems(items: List<PlayerData>): List<MediaItem> = items.ma
         referer = d.referer,
         userAgent = d.userAgent,
         proxyUrl = d.proxyUrl,
-        preferirSoftware = d.preferirSoftware,
+        preferSoftware = d.preferirSoftware,
     )
     MediaItem.Builder()
         .setUri(d.mediaUrl)
@@ -417,12 +417,12 @@ private fun PlayerContent(
     // quedar obsoletas durante la sesión de vivo.
     //
     // Son dos. `enVivo` es CUALQUIER canal en vivo, el de Magis o el de Caracol
-    // ([PlayerSource.esCanalEnVivo]): de ella cuelga lo que no tiene sentido en un directo (la barra
+    // ([PlayerSource.isLiveChannel]): de ella cuelga lo que no tiene sentido en un directo (la barra
     // de avance y el overlay de VOD, el seek por gestos y por D-pad, guardar la posición, el
     // auto-avance al terminar). `vivoDeMagis` es solo el de Magis: el zapeo, el cajón y la ficha de
     // canales, la reapertura por cortes y el "Cambiando de canal…". Un canal de Caracol no tiene nada
     // de eso: se abre desde su sección, y `loadDitu` no arma ningún zapeo.
-    val enVivo = remember(episodeId) { PlayerSource.esCanalEnVivo(episodeId) }
+    val enVivo = remember(episodeId) { PlayerSource.isLiveChannel(episodeId) }
     val vivoDeMagis = remember(episodeId) { PlayerSource.kindFor(episodeId) == SourceKind.LIVE }
 
     // Índice del ítem que suena DENTRO de la playlist del ViewModel. Vive acá arriba —y no con el
@@ -894,7 +894,7 @@ private fun PlayerContent(
                     // (`range=bytes=308510720-`, 4 MB, broken pipe, a slightly later range, over
                     // and over) and never produced a frame. Withholding the ability to seek is
                     // what makes it work, which is backwards but it is what the device does.
-                    graph.localFileServer.creciendo = true
+                    graph.localFileServer.growing = true
                     remuxMagisCreciendo = !completo
                     android.util.Log.w(
                         "ArkivCast",
@@ -945,7 +945,7 @@ private fun PlayerContent(
         // function stays synchronous because every cast path calls it.
         val remuxLocal = if (item.kind == SourceKind.LOCAL) {
             graph.tsRemuxer.alreadyDone(item.mediaUrl)?.let {
-                graph.localFileServer.creciendo = true
+                graph.localFileServer.growing = true
                 graph.localFileServer.serve(it)
             }
         } else {
@@ -964,8 +964,8 @@ private fun PlayerContent(
         }
         val mimeLocal = if (item.kind == SourceKind.LOCAL) {
             runCatching {
-                com.arkiv.player.playback.ContenedorDeVideo
-                    .deArchivo(java.io.File(item.mediaUrl.removePrefix("file://"))).mime
+                com.arkiv.player.playback.VideoContainer
+                    .ofFile(java.io.File(item.mediaUrl.removePrefix("file://"))).mime
             }.getOrNull()
         } else {
             null
@@ -1145,7 +1145,7 @@ private fun PlayerContent(
                 Triple(
                     item.mediaUrl,
                     item.mediaUrl,
-                    runCatching { com.arkiv.player.playback.ContenedorDeVideo.deArchivo(archivo).mime }.getOrNull(),
+                    runCatching { com.arkiv.player.playback.VideoContainer.ofFile(archivo).mime }.getOrNull(),
                 )
             }
             SourceKind.MAGIS -> {
@@ -1727,7 +1727,7 @@ private fun PlayerContent(
     /**
      * Decoder watchdog for downloaded files (see [DecoderWatchdog]): a load that never painted gets
      * ONE reload preferring a software decoder, at the same position. The preference travels in the
-     * item's `preferirSoftware` extra, which the service player's codec selector honours; the
+     * item's `preferSoftware` extra, which the service player's codec selector honours; the
      * `software-first decoders for …` line it logs is the proof the rescue actually took effect.
      */
     fun watchLocalDecoder() {
