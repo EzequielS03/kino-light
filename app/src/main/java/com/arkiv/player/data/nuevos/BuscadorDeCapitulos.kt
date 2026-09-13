@@ -19,7 +19,7 @@ import kotlinx.coroutines.withContext
  * haya red al abrir la app no es un error que reportarle a nadie — se reintenta en el próximo
  * arranque. Por eso ningún fallo de acá sube: se registran y se sigue con la serie que sigue.
  *
- * A quién preguntarle lo decide [SeriesPorRevisar] y qué pedirle [CapitulosFaltantes]; las cotas
+ * A quién preguntarle lo decide [SeriesPorRevisar] y qué pedirle [MissingChapters]; las cotas
  * viven ahí porque son lo que hace barato correr esto siempre.
  */
 class BuscadorDeCapitulos(
@@ -82,7 +82,7 @@ class BuscadorDeCapitulos(
             return 0
         }
         val tengo = itemDao.getEpisodesOf(serie.itemId).mapNotNull { it.episode }
-        val aPedir = CapitulosFaltantes.aPedir(tengo, enLaFuente.map { it.number })
+        val aPedir = MissingChapters.toFetch(tengo, enLaFuente.map { it.number })
         if (aPedir.isEmpty()) return 0
 
         val item = itemDao.getItem(serie.itemId) ?: return 0
@@ -112,9 +112,9 @@ class BuscadorDeCapitulos(
     /**
      * Caracol chapters, the same shape as [revisarMagis] but season-aware: `gateway.episodesWithSeries`
      * (routed to `DituFuente` by `FuenteCompuesta`, since [ref] is a Caracol ref) lists what's on
-     * the source today, and [CapitulosFaltantes.toFetchBySeason] decides what's actually new.
+     * the source today, and [MissingChapters.toFetchBySeason] decides what's actually new.
      *
-     * Season-aware on purpose, unlike [revisarMagis]'s plain [CapitulosFaltantes.aPedir]: Caracol
+     * Season-aware on purpose, unlike [revisarMagis]'s plain [MissingChapters.toFetch]: Caracol
      * numbers chapters PER SEASON, so comparing against the highest NUMBER stored would make season
      * 2's chapter 1 look like it's already covered by a season 1 with ten chapters.
      *
@@ -149,7 +149,7 @@ class BuscadorDeCapitulos(
         val have = itemDao.getEpisodesOf(serie.itemId)
             .mapNotNull { ep -> ep.episode?.let { DituEntities.temporadaGuardada(ep.season) to it } }
         val inSource = saveable.map { DituEntities.temporadaGuardada(it.season) to it.number }
-        val missing = CapitulosFaltantes.toFetchBySeason(have, inSource).toSet()
+        val missing = MissingChapters.toFetchBySeason(have, inSource).toSet()
         if (missing.isEmpty()) return 0
 
         var added = 0

@@ -24,7 +24,7 @@ data class ItemEntity(
     /**
      * How many episodes this series had the last time its detail was opened. It's the base of
      * the "new chapters" badge: the difference against the current count is what appeared since
-     * then. See [com.arkiv.player.data.nuevos.ContadorDeNuevos] for why it's counted this way and
+     * then. See [com.arkiv.player.data.nuevos.NewEpisodeCounter] for why it's counted this way and
      * not by date.
      *
      * `null` = never opened since this counter exists, and does NOT paint a badge.

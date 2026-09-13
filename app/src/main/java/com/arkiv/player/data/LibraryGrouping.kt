@@ -35,7 +35,7 @@ data class LibraryGroup(
      * mentiría igual que sumaba 794 episodios para una serie de 220.
      */
     val nuevos: Int get() = members.maxOf {
-        com.arkiv.player.data.nuevos.ContadorDeNuevos.cuantos(it.episodeCount, it.episodiosVistosEnLista)
+        com.arkiv.player.data.nuevos.NewEpisodeCounter.count(it.episodeCount, it.episodiosVistosEnLista)
     }
 }
 

@@ -104,7 +104,7 @@ object MagisEntities {
         derivativeFormat = null,
         derivativeSize = 0,
         season = season,
-        // Numerado a propósito: es con esto que `CapitulosFaltantes` sabe cuál falta.
+        // Numerado a propósito: es con esto que `MissingChapters` sabe cuál falta.
         episode = number,
         torrentFileIndex = null,
         torrentData = ref,

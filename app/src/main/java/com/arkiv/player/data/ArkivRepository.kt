@@ -592,7 +592,7 @@ class ArkivRepository(
      * the "new chapters" badge.
      *
      * Called when the detail screen opens, as soon as the identifier to show is resolved. See
-     * `ContadorDeNuevos`.
+     * `NewEpisodeCounter`.
      */
     suspend fun marcarCapitulosVistos(identifier: String) {
         val cuantos = itemDao.getEpisodesOf(identifier).count { !it.deleted }
@@ -759,7 +759,7 @@ class ArkivRepository(
         // se re-sella al total que va a quedar tras el upsert (lo que ya había, más lo que llega).
         val vivos = itemDao.getEpisodesOf(id).map { it.id }.toSet()
         val idsNuevos = guardables.map { DituEntities.idDelCapitulo(id, it.season, it.number) }.toSet()
-        val episodiosVistosEnLista = com.arkiv.player.data.nuevos.ContadorDeNuevos.reSellar(
+        val episodiosVistosEnLista = com.arkiv.player.data.nuevos.NewEpisodeCounter.reseal(
             existente?.episodiosVistosEnLista,
             (vivos + idsNuevos).size,
         )
@@ -924,7 +924,7 @@ class ArkivRepository(
         val idsExistentes = vivos - setOfNotNull(fantasma)
         val idsNuevos = capitulos.map { MagisEntities.episodioIdDe(id, it.number) }.toSet()
         val totalTrasGuardar = (idsExistentes + idsNuevos).size
-        val episodiosVistosEnLista = com.arkiv.player.data.nuevos.ContadorDeNuevos.reSellar(
+        val episodiosVistosEnLista = com.arkiv.player.data.nuevos.NewEpisodeCounter.reseal(
             existente?.episodiosVistosEnLista,
             totalTrasGuardar,
         )

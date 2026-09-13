@@ -122,7 +122,7 @@ data class LibraryRow(
     val addedAt: Long,
     val categoryOverride: String?,
     val source: String,
-    /** Cuántos episodios se le mostraron al usuario la última vez. Null = nunca. Ver `ContadorDeNuevos`. */
+    /** Cuántos episodios se le mostraron al usuario la última vez. Null = nunca. Ver `NewEpisodeCounter`. */
     val episodiosVistosEnLista: Int? = null,
     /**
      * The work this item IS, according to TMDB. Filled in when it's added from search, or by

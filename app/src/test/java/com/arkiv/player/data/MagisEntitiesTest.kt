@@ -159,7 +159,7 @@ class MagisEntitiesTest {
         seriesRef: String = "ref-temporada",
         existente: ItemEntity? = null,
         // Null por default: en la app real lo calcula `ArkivRepository.addMagisSeason` contra la
-        // base (ver ContadorDeNuevos.reSellar) y se lo pasa ya resuelto. Acá, sin DB, cada test que
+        // base (see NewEpisodeCounter.reseal) y se lo pasa ya resuelto. Acá, sin DB, cada test que
         // le importe el badge lo fija a mano.
         episodiosVistosEnLista: Int? = null,
         tmdbId: Int? = null,
@@ -218,7 +218,7 @@ class MagisEntitiesTest {
     }
 
     @Test fun el_badge_sigue_null_si_nunca_se_habia_sellado() {
-        // `ContadorDeNuevos.reSellar` devuelve null cuando `vistos` es null (nunca se abrió el
+        // `NewEpisodeCounter.reseal` devuelve null cuando `vistos` es null (nunca se abrió el
         // detalle): sellarlo acá prendería el badge de novedades sobre capítulos que en realidad
         // nunca se mostraron como "nuevos". `buildSeason` no debe inventar un valor por su cuenta.
         val previo = temporada().first.copy(episodiosVistosEnLista = null)
