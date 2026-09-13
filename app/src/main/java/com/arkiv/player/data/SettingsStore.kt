@@ -88,7 +88,7 @@ class SettingsStore(context: Context) {
         prefs.edit().putBoolean(KEY_RECIENTES_PURGADOS, v).apply()
     }
 
-    /** Cuándo se intentó generar "Para ti" por última vez (0 = nunca). Ver `PuertaDeParaTi`. */
+    /** Cuándo se intentó generar "Para ti" por última vez (0 = nunca). Ver `ForYouGate`. */
     val paraTiUltimoIntentoMs: Long get() = prefs.getLong(KEY_PARA_TI_ULTIMO_INTENTO, 0L)
 
     /** Si ese intento falló en el modelo: entonces se reintenta a los 15 min, no a las 24 h. */

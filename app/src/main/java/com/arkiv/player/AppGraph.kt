@@ -8,14 +8,14 @@ import com.arkiv.player.data.catalog.TmdbApi
 import com.arkiv.player.data.SearchHistoryRepo
 import com.arkiv.player.data.SettingsStore
 import com.arkiv.player.data.db.ArkivDatabase
-import com.arkiv.player.data.recomendaciones.ArbitroDeIa
-import com.arkiv.player.data.recomendaciones.BuscadorEnFuentes
-import com.arkiv.player.data.recomendaciones.BuscadorEnTmdb
-import com.arkiv.player.data.recomendaciones.GeneradorParaTi
-import com.arkiv.player.data.recomendaciones.conKindReal
-import com.arkiv.player.data.recomendaciones.NormalizarTitulo
-import com.arkiv.player.data.recomendaciones.SenalesDeHistorial
-import com.arkiv.player.data.recomendaciones.VerificacionParaTi
+import com.arkiv.player.data.recomendaciones.AiReferee
+import com.arkiv.player.data.recomendaciones.SourceSearcher
+import com.arkiv.player.data.recomendaciones.TmdbSearcher
+import com.arkiv.player.data.recomendaciones.ForYouGenerator
+import com.arkiv.player.data.recomendaciones.withRealKind
+import com.arkiv.player.data.recomendaciones.NormalizeTitle
+import com.arkiv.player.data.recomendaciones.HistorySignals
+import com.arkiv.player.data.recomendaciones.ForYouVerification
 import com.arkiv.player.data.update.ApkDownloader
 import com.arkiv.player.data.update.UpdateChecker
 import com.arkiv.player.data.update.UpdateInfo
@@ -380,7 +380,7 @@ class AppGraph(context: Context) {
             // "Para ti" solo existe en el home del TV: en el celular no hay fila que llenar, y cada
             // generación le pregunta a Kilo varias veces.
             if (DeviceType.isTelevision(appContext)) {
-                repo.alTerminarAlgo = { applicationScope.launch { generadorParaTi.generarSiToca() } }
+                repo.alTerminarAlgo = { applicationScope.launch { generadorParaTi.generateIfDue() } }
             }
         }
     }
@@ -445,9 +445,9 @@ class AppGraph(context: Context) {
      * fuente compuesta (Magis y Caracol). Cada paso con red atrapa sus fallos para que un candidato
      * roto no tumbe a los otros; la cancelación siempre se relanza.
      */
-    internal val generadorParaTi: GeneradorParaTi by lazy {
-        val verificacion = VerificacionParaTi(
-            tmdb = BuscadorEnTmdb { tipo, titulo ->
+    internal val generadorParaTi: ForYouGenerator by lazy {
+        val verificacion = ForYouVerification(
+            tmdb = TmdbSearcher { tipo, titulo ->
                 try {
                     tmdbApi.search(tipo, titulo).firstOrNull()
                 } catch (e: kotlinx.coroutines.CancellationException) {
@@ -456,14 +456,14 @@ class AppGraph(context: Context) {
                     null
                 }
             },
-            fuentes = BuscadorEnFuentes { titulo, tipo, _, tmdbId ->
+            sources = SourceSearcher { titulo, tipo, _, tmdbId ->
                 try {
                     fuenteDeContenido
                         .search(com.arkiv.player.data.gateway.GatewaySearchQuery(q = titulo, type = tipo, tmdbId = tmdbId))
                         .filterIsInstance<com.arkiv.player.data.gateway.SearchEvent.ResultEvent>()
                         // El `kind` que arma la fuente es el tipo que se BUSCÓ, no el del ítem (ver
-                        // KDoc de `conKindReal`): se corrige acá, antes de que el árbitro vea la lista.
-                        .map { conKindReal(it.item) }
+                        // KDoc de `withRealKind`): se corrige acá, antes de que el árbitro vea la lista.
+                        .map { withRealKind(it.item) }
                         .take(25)
                         .toList()
                 } catch (e: kotlinx.coroutines.CancellationException) {
@@ -472,24 +472,24 @@ class AppGraph(context: Context) {
                     emptyList()
                 }
             },
-            arbitro = ArbitroDeIa { clienteDeIa.ask(it) },
+            referee = AiReferee { clienteDeIa.ask(it) },
         )
-        GeneradorParaTi(
+        ForYouGenerator(
             ia = { clienteDeIa.ask(it) },
-            historial = { SenalesDeHistorial.de(database.playbackDao().historialReciente(100)) },
-            yaVistos = {
+            history = { HistorySignals.of(database.playbackDao().historialReciente(100)) },
+            alreadySeen = {
                 database.itemDao().getAllItems().filter { !it.deleted }.flatMap { item ->
                     listOfNotNull(
                         item.tmdbId?.takeIf { it > 0 }?.let { "tmdb:$it" },
-                        NormalizarTitulo.de(item.title).takeIf { it.isNotEmpty() },
-                        item.tituloCanonico?.let { NormalizarTitulo.de(it) }?.takeIf { it.isNotEmpty() },
+                        NormalizeTitle.of(item.title).takeIf { it.isNotEmpty() },
+                        item.tituloCanonico?.let { NormalizeTitle.of(it) }?.takeIf { it.isNotEmpty() },
                     )
                 }.toSet()
             },
-            verificar = { candidatos, vistos -> verificacion.verificar(candidatos, vistos) },
-            guardar = { database.recomendacionDao().reemplazar(it, System.currentTimeMillis()) },
-            leerMarcas = { settings.paraTiUltimoIntentoMs to settings.paraTiUltimoFueFalloDelModelo },
-            escribirMarcas = { t, f -> settings.marcarIntentoDeParaTi(t, f) },
+            verify = { candidatos, vistos -> verificacion.verify(candidatos, vistos) },
+            save = { database.recomendacionDao().reemplazar(it, System.currentTimeMillis()) },
+            readMarks = { settings.paraTiUltimoIntentoMs to settings.paraTiUltimoFueFalloDelModelo },
+            writeMarks = { t, f -> settings.marcarIntentoDeParaTi(t, f) },
         )
     }
 
@@ -499,7 +499,7 @@ class AppGraph(context: Context) {
      * temporada, y los capítulos hay que pedírselos al portal (`MagisCatalog.detail`).
      */
     val agregadorDeRecomendaciones by lazy {
-        com.arkiv.player.data.recomendaciones.AgregadorDeRecomendaciones(
+        com.arkiv.player.data.recomendaciones.RecommendationAggregator(
             repo = repository,
             gateway = fuenteDeContenido,
         )

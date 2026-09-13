@@ -270,7 +270,7 @@ fun TvHomeScreen(
     // -- a read-only row that doesn't need its own ViewModel. Until Task 5 these arrived through
     // cloud sync (CloudSyncManager, removed in that pruning along with the rest of pairing/sync),
     // which left the `recomendaciones` table empty in practice for a while. Since sub-project 4 it
-    // gets repopulated again by a completely different, on-device path: `GeneradorParaTi`
+    // gets repopulated again by a completely different, on-device path: `ForYouGenerator`
     // (`data/recomendaciones`) asks Kilo directly and writes here through
     // `AppGraph.generadorParaTi`, triggered from `repo.alTerminarAlgo` whenever something finishes
     // playing -- no server of its own involved.
@@ -681,7 +681,7 @@ fun TvHomeScreen(
 
                     // Recomendaciones ("Para ti"): va ACÁ, DESPUÉS de "Continuar viendo" y no antes,
                     // y no es estético. Esta fila llega async -- generada en el dispositivo por
-                    // `GeneradorParaTi` con Kilo, que puede tardar (ver su KDoc) -- y puede aparecer
+                    // `ForYouGenerator` con Kilo, que puede tardar (ver su KDoc) -- y puede aparecer
                     // TARDE, con el home ya dibujado y el foco puesto (ver el LaunchedEffect de
                     // `firstFocusKey` más arriba). "Continuar viendo" es el ancla de ese foco
                     // inicial; poniendo "Para ti" DEBAJO de ella, si aparece de golpe no empuja lo de
@@ -709,7 +709,7 @@ fun TvHomeScreen(
                                                 // TvSeccionesDeCatalogo: si la recomendación es una
                                                 // serie, la persona tiene que poder elegir el capítulo.
                                                 //
-                                                // El guardado lo decide [AgregadorDeRecomendaciones]:
+                                                // El guardado lo decide [RecommendationAggregator]:
                                                 // una serie entra como TEMPORADA con todos sus
                                                 // capítulos, no como el ref suelto que antes la dejaba
                                                 // con uno solo y en la fila de Películas. Y la fuente
@@ -721,11 +721,11 @@ fun TvHomeScreen(
                                                 // devuelve. `null` significa que no hay a qué navegar,
                                                 // pero no siempre que no se guardó nada: en el borde
                                                 // en que ni el capítulo elegido se pudo guardar solo
-                                                // (ver AgregadorDeRecomendaciones.agregar), la serie
+                                                // (ver RecommendationAggregator.add), la serie
                                                 // puede haber quedado igual en la biblioteca, solo que
                                                 // sin ese capítulo listo para reproducir.
                                                 scope.launch {
-                                                    agregador.agregar(rec)?.let(onOpenItem)
+                                                    agregador.add(rec)?.let(onOpenItem)
                                                 }
                                             },
                                         )

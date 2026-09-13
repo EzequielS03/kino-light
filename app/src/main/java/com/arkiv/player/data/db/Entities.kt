@@ -339,13 +339,13 @@ data class EpisodeFrameEntity(
 
 /**
  * Una recomendación generada EN EL APARATO por
- * [com.arkiv.player.data.recomendaciones.GeneradorParaTi], con los modelos gratis de Kilo, a partir
+ * [com.arkiv.player.data.recomendaciones.ForYouGenerator], con los modelos gratis de Kilo, a partir
  * del historial local, para la fila "Para ti" del inicio. La app SÍ escribe acá directamente
  * (`RecomendacionDao.reemplazar`, llamado desde `AppGraph.generadorParaTi`): no hay PocketBase ni
  * sync detrás -- `CloudSyncManager` no existe en esta rama.
  *
  * La clave local es [id] (el id de la fuente ya resuelta, ver
- * `com.arkiv.player.data.recomendaciones.GuardadoDeRecomendacion.itemIdDe`) y **NO** [orden]: cada
+ * `com.arkiv.player.data.recomendaciones.RecommendationSaving.itemIdFor`) y **NO** [orden]: cada
  * generación RECREA la lista entera en vez de reusar identidad entre tandas (port de
  * `arkiv-api/src/arkiv_api/recomendaciones/almacen.py::guardar`) -- `RecomendacionDao.reemplazar`
  * entierra (`deleted=true`) las vigentes con el MISMO `updatedAt` y recién después inserta las
@@ -367,7 +367,7 @@ data class RecomendacionEntity(
     val porque: String,
     /**
      * La fuente ya resuelta para reproducir, armada en el aparato por la cascada de verificación
-     * (ver [com.arkiv.player.data.recomendaciones.VerificacionParaTi]).
+     * (ver [com.arkiv.player.data.recomendaciones.ForYouVerification]).
      */
     val ref: String,
     /** Posición 0..9 para ordenar la fila. NO es identidad -- ver el KDoc de la clase. */

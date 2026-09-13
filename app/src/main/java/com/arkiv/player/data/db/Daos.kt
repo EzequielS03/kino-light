@@ -798,7 +798,7 @@ interface RecomendacionDao {
 
     /**
      * Las recomendaciones vigentes, en el orden que armó
-     * [com.arkiv.player.data.recomendaciones.GeneradorParaTi], sin lo que ya se marcó como
+     * [com.arkiv.player.data.recomendaciones.ForYouGenerator], sin lo que ya se marcó como
      * tombstone. Es la fuente de la fila "Para ti" del inicio.
      */
     @Query(QUERY_RECOMENDACIONES_VIGENTES)
