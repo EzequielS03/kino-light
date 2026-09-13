@@ -33,7 +33,7 @@ import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import com.arkiv.player.data.biblioteca.EspacioEnDisco
+import com.arkiv.player.data.biblioteca.DiskSpace
 import com.arkiv.player.data.local.DownloadGroup
 import com.arkiv.player.data.local.DownloadGroupPolicy
 import com.arkiv.player.ui.downloads.DownloadsViewModel
@@ -75,7 +75,7 @@ fun TvDownloadsSection(onPlayEpisode: (String) -> Unit, modifier: Modifier = Mod
     var accionesId by remember { mutableStateOf<String?>(null) }
     val grupoAcciones = accionesId?.let { id -> grupos.firstOrNull { it.itemId == id } }
 
-    val ocupado = EspacioEnDisco.ocupadoPorDescargas(grupos)
+    val ocupado = DiskSpace.usedByDownloads(grupos)
     // Se remide cada vez que cambia lo ocupado (una descarga terminó, se borró algo). `StatFs` toca
     // el filesystem, así que va fuera del hilo principal.
     // Nullable a propósito: antes de la primera medición arrancaba en 0L y ese 0L se pintaba como
@@ -91,7 +91,7 @@ fun TvDownloadsSection(onPlayEpisode: (String) -> Unit, modifier: Modifier = Mod
         Text("Descargas", style = MaterialTheme.typography.headlineSmall, color = ArkivTextPrimary)
         libres?.let { bytesLibres ->
             Text(
-                EspacioEnDisco.resumen(bytesLibres, ocupado),
+                DiskSpace.summary(bytesLibres, ocupado),
                 style = MaterialTheme.typography.labelLarge,
                 color = ArkivTextSecondary,
                 modifier = Modifier.padding(top = 4.dp, bottom = 20.dp),

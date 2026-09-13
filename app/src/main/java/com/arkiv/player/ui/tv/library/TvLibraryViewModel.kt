@@ -4,8 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.arkiv.player.data.ArkivRepository
 import com.arkiv.player.data.LibraryGroup
-import com.arkiv.player.data.biblioteca.GrupoVisto
-import com.arkiv.player.data.biblioteca.VistosDeLaBiblioteca
+import com.arkiv.player.data.biblioteca.WatchedGroup
+import com.arkiv.player.data.biblioteca.LibraryWatched
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -29,9 +29,9 @@ class TvLibraryViewModel(private val repo: ArkivRepository) : ViewModel() {
     val grupos: StateFlow<List<LibraryGroup>> = repo.observeLibraryGroups()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val vistos: StateFlow<List<GrupoVisto>> =
+    val vistos: StateFlow<List<WatchedGroup>> =
         combine(grupos, repo.observeVistos()) { grupos, vistos ->
-            VistosDeLaBiblioteca.cruzar(grupos, vistos)
+            LibraryWatched.cross(grupos, vistos)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**

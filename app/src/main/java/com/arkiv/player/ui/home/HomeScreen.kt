@@ -128,7 +128,7 @@ fun HomeScreen(
     // Esta pantalla no colecciona `vm.library` (orden por addedAt): esa suscripción vive solo en
     // el `init` del VM, para el `ensureArtwork`/hero del TV. La fila "Mi biblioteca" usa
     // `bibliotecaOrdenada` para coincidir con el orden de la grilla (misma regla, ver
-    // OrdenDeBiblioteca).
+    // LibraryOrder).
     val bibliotecaOrdenada by vm.bibliotecaOrdenada.collectAsStateWithLifecycle()
     val continueWatching by vm.continueWatching.collectAsStateWithLifecycle()
     val artwork by vm.artwork.collectAsStateWithLifecycle()

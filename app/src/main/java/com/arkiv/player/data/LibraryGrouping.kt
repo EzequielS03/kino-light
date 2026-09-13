@@ -97,7 +97,7 @@ object LibraryGrouping {
      * Arma los grupos preservando el orden de entrada por lo más reciente de cada grupo: agrupar no
      * debe reordenar la lista, que ya viene ordenada por `addedAt DESC`. Ese orden es el de
      * DESEMPATE: quien muestra los grupos los reordena después por lo último visto (ver
-     * `ArkivRepository.observeLibraryGroups` y `biblioteca.OrdenDeBiblioteca`), y como el orden de
+     * `ArkivRepository.observeLibraryGroups` y `biblioteca.LibraryOrder`), y como el orden de
      * Kotlin es estable, dos grupos con la misma recencia conservan este.
      *
      * El representante es el de MÁS capítulos (con más capítulos = la adquisición más completa; es

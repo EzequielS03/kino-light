@@ -9,12 +9,12 @@ import com.arkiv.player.data.model.Episode
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-class EspacioEnDiscoTest {
+class DiskSpaceTest {
 
     private val GB = 1L shl 30
 
-    // Ojo: es `data.model.Episode` (el del dominio), NO `db.EpisodeEntity`.
-    private fun episodio(id: String) = Episode(
+    // Heads up: this is `data.model.Episode` (the domain one), NOT `db.EpisodeEntity`.
+    private fun episode(id: String) = Episode(
         id = id,
         itemId = "item",
         section = "",
@@ -24,8 +24,8 @@ class EspacioEnDiscoTest {
         thumbPath = null,
     )
 
-    private fun bajado(id: String, bytesDone: Long) = GroupedEpisode(
-        episode = episodio(id),
+    private fun downloaded(id: String, bytesDone: Long) = GroupedEpisode(
+        episode = episode(id),
         status = EpisodeDownloadStatus.Tracked(
             DownloadRow(
                 episodeId = id,
@@ -45,35 +45,35 @@ class EspacioEnDiscoTest {
         ),
     )
 
-    private fun sinBajar(id: String) =
-        GroupedEpisode(episode = episodio(id), status = EpisodeDownloadStatus.NotDownloaded)
+    private fun notDownloaded(id: String) =
+        GroupedEpisode(episode = episode(id), status = EpisodeDownloadStatus.NotDownloaded)
 
-    private fun grupo(vararg eps: GroupedEpisode) =
+    private fun group(vararg eps: GroupedEpisode) =
         DownloadGroup("item", "Serie", "", "web", eps.toList())
 
     @Test
-    fun `suma los bytes de todos los grupos`() {
-        val grupos = listOf(grupo(bajado("a", 2 * GB)), grupo(bajado("b", 1 * GB)))
-        assertEquals(3 * GB, EspacioEnDisco.ocupadoPorDescargas(grupos))
+    fun `sums the bytes of every group`() {
+        val groups = listOf(group(downloaded("a", 2 * GB)), group(downloaded("b", 1 * GB)))
+        assertEquals(3 * GB, DiskSpace.usedByDownloads(groups))
     }
 
     @Test
-    fun `los episodios sin descargar no suman`() {
-        assertEquals(GB, EspacioEnDisco.ocupadoPorDescargas(listOf(grupo(bajado("a", GB), sinBajar("b")))))
+    fun `episodes not downloaded do not add up`() {
+        assertEquals(GB, DiskSpace.usedByDownloads(listOf(group(downloaded("a", GB), notDownloaded("b")))))
     }
 
     @Test
-    fun `sin descargas el ocupado es cero`() {
-        assertEquals(0L, EspacioEnDisco.ocupadoPorDescargas(emptyList()))
+    fun `with no downloads the used amount is zero`() {
+        assertEquals(0L, DiskSpace.usedByDownloads(emptyList()))
     }
 
     @Test
-    fun `el resumen muestra libres y ocupado`() {
-        assertEquals("12.0 GB libres  ·  3.0 GB en descargas", EspacioEnDisco.resumen(12 * GB, 3 * GB))
+    fun `the summary shows free and used`() {
+        assertEquals("12.0 GB libres  ·  3.0 GB en descargas", DiskSpace.summary(12 * GB, 3 * GB))
     }
 
     @Test
-    fun `sin nada ocupado el resumen solo dice libres`() {
-        assertEquals("12.0 GB libres", EspacioEnDisco.resumen(12 * GB, 0L))
+    fun `with nothing used the summary only says free`() {
+        assertEquals("12.0 GB libres", DiskSpace.summary(12 * GB, 0L))
     }
 }

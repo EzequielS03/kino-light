@@ -43,9 +43,9 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.arkiv.player.data.LibraryGroup
-import com.arkiv.player.data.biblioteca.FiltroDeBiblioteca
-import com.arkiv.player.data.biblioteca.SeccionDeBiblioteca
-import com.arkiv.player.data.biblioteca.VistosDeLaBiblioteca
+import com.arkiv.player.data.biblioteca.LibraryFilter
+import com.arkiv.player.data.biblioteca.LibrarySection
+import com.arkiv.player.data.biblioteca.LibraryWatched
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.tv.arkivTvButtonBorder
 import com.arkiv.player.ui.tv.arkivTvButtonColors
@@ -94,7 +94,7 @@ fun TvLibraryScreen(
     val vistos by vm.vistos.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
 
-    var seccion by remember { mutableStateOf(SeccionDeBiblioteca.TODO_LO_GUARDADO) }
+    var seccion by remember { mutableStateOf(LibrarySection.ALL_SAVED) }
     var menuDe by remember { mutableStateOf<LibraryGroup?>(null) }
 
     BackHandler(enabled = menuDe == null) { onBack() }
@@ -141,9 +141,9 @@ fun TvLibraryScreen(
                 fontWeight = FontWeight.Black,
                 modifier = Modifier.padding(start = SAFE_H, bottom = 28.dp),
             )
-            SeccionDeBiblioteca.entries.forEachIndexed { i, s ->
+            LibrarySection.entries.forEachIndexed { i, s ->
                 TvMenuItem(
-                    etiqueta = s.etiqueta,
+                    etiqueta = s.label,
                     seleccionada = s == seccion,
                     modifier = if (i == 0) Modifier.focusRequester(menuFocus) else Modifier,
                     // La sección cambia con el FOCO, no con el click: es lo que se espera en un
@@ -157,25 +157,25 @@ fun TvLibraryScreen(
         // --- Contenido ---
         Box(Modifier.weight(1f).fillMaxHeight()) {
             when (seccion) {
-                SeccionDeBiblioteca.DESCARGAS -> TvDownloadsSection(onPlayEpisode = onPlayEpisode)
-                SeccionDeBiblioteca.VISTOS -> TvPosterGrid(
+                LibrarySection.DOWNLOADS -> TvDownloadsSection(onPlayEpisode = onPlayEpisode)
+                LibrarySection.WATCHED -> TvPosterGrid(
                     titulo = "Ya visto",
                     conteo = vistos.size,
-                    grupos = vistos.map { it.grupo },
+                    grupos = vistos.map { it.group },
                     subtituloDe = { g ->
-                        vistos.firstOrNull { it.grupo.key == g.key }
-                            ?.let { VistosDeLaBiblioteca.etiquetaDeVistos(it.capitulosVistos) }
+                        vistos.firstOrNull { it.group.key == g.key }
+                            ?.let { LibraryWatched.watchedLabel(it.episodesWatched) }
                     },
                     vacio = "Todavía no terminaste nada.\nLo que veas hasta el final va a aparecer acá.",
                     onClick = ::abrir,
                     onLongClick = { menuDe = it },
                 )
                 else -> {
-                    // `grupos(...)` devuelve null solo para VISTOS/DESCARGAS, que ya se manejaron
-                    // arriba: acá nunca es null.
-                    val filtrados = FiltroDeBiblioteca.grupos(seccion, grupos).orEmpty()
+                    // `groups(...)` returns null only for WATCHED/DOWNLOADS, already handled
+                    // above: here it's never null.
+                    val filtrados = LibraryFilter.groups(seccion, grupos).orEmpty()
                     TvPosterGrid(
-                        titulo = seccion.etiqueta,
+                        titulo = seccion.label,
                         conteo = filtrados.size,
                         grupos = filtrados,
                         subtituloDe = { g -> subtituloDeSerie(g) },

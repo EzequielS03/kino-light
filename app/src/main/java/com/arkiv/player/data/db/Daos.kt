@@ -362,7 +362,7 @@ interface PlaybackDao {
      * viendo" al terminarlo tiene que aterrizar en algún lado, y hasta ahora no aterrizaba en
      * ninguno.
      *
-     * NO hace `JOIN items`: el filtro por ítem vivo lo aplica `VistosDeLaBiblioteca.cruzar`, que ya
+     * NO hace `JOIN items`: el filtro por ítem vivo lo aplica `LibraryWatched.cross`, que ya
      * recibe los grupos (y los grupos ya excluyen los borrados). Sumar el join acá duplicaría esa
      * regla en dos lugares.
      */
@@ -379,7 +379,7 @@ interface PlaybackDao {
 
     /**
      * Cuándo se reprodujo por última vez CUALQUIER capítulo de cada ítem, para el orden de la
-     * biblioteca (ver [com.arkiv.player.data.biblioteca.OrdenDeBiblioteca]).
+     * biblioteca (ver [com.arkiv.player.data.biblioteca.LibraryOrder]).
      *
      * Gemela de [observeVistos] pero SIN el filtro `watched = 1`: acá cuenta igual el capítulo
      * terminado que el que quedó a medias. Si solo contara lo terminado, una serie que estás viendo

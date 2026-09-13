@@ -156,7 +156,7 @@ class ArkivRepository(
 
     /**
      * La biblioteca ordenada por lo último que viste (ver
-     * [com.arkiv.player.data.biblioteca.OrdenDeBiblioteca]). La consume la grilla del teléfono.
+     * [com.arkiv.player.data.biblioteca.LibraryOrder]). La consume la grilla del teléfono.
      *
      * Es un flow aparte y NO el orden de [observeLibrary] a propósito: esa consulta cruda la usan
      * `ensureArtwork`, la pantalla de descargas y el héroe del home del TV, a los que el reorden no
@@ -166,7 +166,7 @@ class ArkivRepository(
      */
     fun observeLibraryOrdenada(): Flow<List<LibraryRow>> =
         combine(observeLibrary(), observeUltimaReproduccion()) { rows, ultimas ->
-            com.arkiv.player.data.biblioteca.OrdenDeBiblioteca.filas(rows, ultimas)
+            com.arkiv.player.data.biblioteca.LibraryOrder.sortedRows(rows, ultimas)
         }
 
     /**
@@ -187,7 +187,7 @@ class ArkivRepository(
      * `observeLibrary()` sigue existiendo para quien necesite las filas crudas (la pantalla de
      * biblioteca del teléfono, el sync).
      *
-     * El orden final es por lo último visto ([com.arkiv.player.data.biblioteca.OrdenDeBiblioteca]),
+     * El orden final es por lo último visto ([com.arkiv.player.data.biblioteca.LibraryOrder]),
      * no por fecha de agregado: el `sortedByDescending` de [LibraryGrouping.group] queda como
      * desempate, porque el orden de Kotlin es estable.
      */
@@ -196,7 +196,7 @@ class ArkivRepository(
             observeLibraryGroupsSinOrden(),
             observeUltimaReproduccion(),
         ) { grupos, ultimas ->
-            com.arkiv.player.data.biblioteca.OrdenDeBiblioteca.grupos(grupos, ultimas)
+            com.arkiv.player.data.biblioteca.LibraryOrder.sortedGroups(grupos, ultimas)
         }
 
     /**
@@ -277,11 +277,11 @@ class ArkivRepository(
 
     /**
      * Lo ya visto, por ítem. El cruce contra los grupos de la biblioteca lo hace
-     * [com.arkiv.player.data.biblioteca.VistosDeLaBiblioteca], que es la parte pura y testeada.
+     * [com.arkiv.player.data.biblioteca.LibraryWatched], que es la parte pura y testeada.
      */
-    fun observeVistos(): Flow<List<com.arkiv.player.data.biblioteca.VistoDeItem>> =
+    fun observeVistos(): Flow<List<com.arkiv.player.data.biblioteca.ItemWatched>> =
         playbackDao.observeVistos().map { filas ->
-            filas.map { com.arkiv.player.data.biblioteca.VistoDeItem(it.itemId, it.episodios, it.ultimoVistoMs) }
+            filas.map { com.arkiv.player.data.biblioteca.ItemWatched(it.itemId, it.episodios, it.ultimoVistoMs) }
         }
 
     // --- Arte de TMDB (local, no sincronizado) -----------------------------------------------
@@ -1122,10 +1122,10 @@ class ArkivRepository(
      * para volver a mirar una escena de un capítulo terminado (desde `DetailScreen`/`EpisodeRow`
      * o el carrusel de `TvDetailScreen`), y ese re-play no puede pisar `lastPlayedAt`. Esa columna
      * alimenta tres consumidores que no distinguen "recién visto" de "reabrí algo viejo":
-     * [PlaybackDao.observeVistos] (vía `VistosDeLaBiblioteca.cruzar`, ordena "Ya visto" de la
+     * [PlaybackDao.observeVistos] (vía `LibraryWatched.cross`, ordena "Ya visto" de la
      * biblioteca), [PlaybackDao.seriesConProgreso] (vía `SeriesPorRevisar.elegir`, decide qué
      * series barrer contra la red buscando capítulo nuevo) y [PlaybackDao.observeUltimaReproduccion]
-     * (vía `OrdenDeBiblioteca`, decide qué tarjeta sube al tope de "Mi biblioteca"). Sin este corte,
+     * (vía `LibraryOrder`, decide qué tarjeta sube al tope de "Mi biblioteca"). Sin este corte,
      * reabrir tres segundos un capítulo viejo subía esa serie al tope de "Ya visto" y la metía otra
      * vez en el barrido de red por hasta 30 días, sin que se haya visto nada nuevo.
      *
