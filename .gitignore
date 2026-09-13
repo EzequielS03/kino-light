@@ -33,5 +33,11 @@ graft/
 
 # Estado local de las herramientas: .claude trae worktrees completos (1 GB) y
 # .superpowers las bitácoras de sesión (12 MB). Nada de eso pertenece al repo.
-.claude/
+#
+# Pero la DOCUMENTACIÓN sí: `.claude/*.md` explica el proyecto a quien lo abre por primera vez y
+# tiene que viajar con el repo. Se ignora el CONTENIDO (`.claude/*`) y no la carpeta, porque git no
+# deja re-incluir un archivo cuyo directorio padre está excluido -- con `.claude/` el `!` de abajo
+# no haría nada.
+.claude/*
+!.claude/*.md
 .superpowers/
