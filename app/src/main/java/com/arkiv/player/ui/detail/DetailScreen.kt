@@ -75,10 +75,10 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import coil.compose.AsyncImage
 import com.arkiv.player.data.ItemDetail
 import com.arkiv.player.data.model.Episode
-import com.arkiv.player.data.local.AccionDeDescarga
-import com.arkiv.player.data.local.EstadoDeDescarga
-import com.arkiv.player.data.local.EstadoDeDescargaDeCapitulo
-import com.arkiv.player.data.local.EtiquetaDeDescarga
+import com.arkiv.player.data.local.DownloadAction
+import com.arkiv.player.data.local.DownloadDisplayState
+import com.arkiv.player.data.local.ChapterDownloadState
+import com.arkiv.player.data.local.DownloadLabel
 import com.arkiv.player.data.local.FuenteDeDescarga
 import com.arkiv.player.data.local.LocalDownloadState
 import com.arkiv.player.thumbnails.ThumbnailChoice
@@ -157,9 +157,9 @@ fun DetailScreen(
     }
     // Estado de descarga POR capítulo, no un simple "hace algo / no hace nada": la fila necesita
     // saber si está esperando turno, en qué porcentaje va, o por qué falló. Ver
-    // [EstadoDeDescargaDeCapitulo].
+    // [ChapterDownloadState].
     val estadosDeDescarga = remember(downloadRows) {
-        downloadRows.associate { it.episodeId to EstadoDeDescargaDeCapitulo.de(it) }
+        downloadRows.associate { it.episodeId to ChapterDownloadState.of(it) }
     }
 
     // Guarda capítulos en el DISPOSITIVO. El permiso de notificaciones se pide UNA vez por acción
@@ -183,11 +183,11 @@ fun DetailScreen(
     // Arrepentirse también vive en la fila, por el mismo motivo. `cancel` conserva el parcial (la
     // descarga reanuda desde ahí); `remove` borra fila y archivo, que es lo que corresponde tanto a
     // lo que nunca empezó como a lo que ya no se quiere tener guardado.
-    val onAccionDeDescarga: (Episode, AccionDeDescarga) -> Unit = { ep, accion ->
+    val onDownloadAction: (Episode, DownloadAction) -> Unit = { ep, accion ->
         scope.launch {
             when (accion) {
-                AccionDeDescarga.CANCELAR -> graph.localDownloads.cancel(ep.id)
-                AccionDeDescarga.SACAR_DE_LA_COLA, AccionDeDescarga.BORRAR ->
+                DownloadAction.CANCEL -> graph.localDownloads.cancel(ep.id)
+                DownloadAction.REMOVE_FROM_QUEUE, DownloadAction.DELETE ->
                     graph.localDownloads.remove(ep.id)
             }
         }
@@ -336,7 +336,7 @@ fun DetailScreen(
             onDownloadEpisode = onDownloadEpisode,
             sePuedeBajar = sePuedeBajar,
             onRetryEpisode = onRetryEpisode,
-            onAccionDeDescarga = onAccionDeDescarga,
+            onDownloadAction = onDownloadAction,
             onToggleWatched = vm::toggleWatched,
             tmdbTitles = tmdbTitles,
             tmdbStills = tmdbStills,
@@ -357,14 +357,14 @@ fun DetailScreen(
 private fun DetailContent(
     data: ItemDetail,
     /** episodeId -> en qué va su descarga al dispositivo. Ver [DetailScreen]. */
-    estadosDeDescarga: Map<String, EstadoDeDescarga>,
+    estadosDeDescarga: Map<String, DownloadDisplayState>,
     onPlayEpisode: (String) -> Unit,
     onDownloadEpisode: (Episode) -> Unit,
     /** Si hay con qué bajar ese capítulo. Sin eso, su fila no ofrece guardarlo. Ver [DetailScreen]. */
     sePuedeBajar: (Episode) -> Boolean,
     onRetryEpisode: (Episode) -> Unit,
     /** Sacar de la cola / cancelar / borrar. Ya viene confirmada por el usuario. */
-    onAccionDeDescarga: (Episode, AccionDeDescarga) -> Unit,
+    onDownloadAction: (Episode, DownloadAction) -> Unit,
     onToggleWatched: (String, Boolean) -> Unit,
     /** episodeId -> título / imagen / sinopsis del capítulo según TMDB. Vacíos si no se sabe la serie. Ver [DetailScreen]. */
     tmdbTitles: Map<String, String>,
@@ -378,9 +378,9 @@ private fun DetailContent(
     topInset: androidx.compose.ui.unit.Dp,
 ) {
     // Capítulo + acción que el usuario pidió deshacer y que todavía no confirmó. Ver
-    // [ConfirmacionDeDescarga]: las tres acciones se preguntan porque el control es chiquito y todas
+    // [DownloadConfirmation]: las tres acciones se preguntan porque el control es chiquito y todas
     // cuestan caro si se tocan sin querer.
-    var porConfirmar by remember { mutableStateOf<Pair<Episode, AccionDeDescarga>?>(null) }
+    var porConfirmar by remember { mutableStateOf<Pair<Episode, DownloadAction>?>(null) }
 
     // Sitios detectados entre TODOS los episodios de la serie (no de la lista ya filtrada): el
     // set de chips no puede encogerse cuando el usuario elige un filtro, o desaparecería la forma
@@ -524,7 +524,7 @@ private fun DetailContent(
                         // the removed web source's `addWebSeriesEpisode` used to; only the series
                         // poster is known, and without this the row was left with an empty box.
                         fallbackThumb = data.thumbnailUrl,
-                        estado = estadosDeDescarga[ep.id] ?: EstadoDeDescarga.SinDescargar,
+                        estado = estadosDeDescarga[ep.id] ?: DownloadDisplayState.NotDownloaded,
                         onPlay = { onPlayEpisode(ep.id) },
                         onDownload = if (sePuedeBajar(ep)) { { onDownloadEpisode(ep) } } else null,
                         onRetry = { onRetryEpisode(ep) },
@@ -560,7 +560,7 @@ private fun DetailContent(
         accion = porConfirmar?.second,
         nombreDelCapitulo = porConfirmar?.first?.let { tmdbTitles[it.id] ?: it.displayName },
         onConfirmar = {
-            porConfirmar?.let { (episodio, accion) -> onAccionDeDescarga(episodio, accion) }
+            porConfirmar?.let { (episodio, accion) -> onDownloadAction(episodio, accion) }
             porConfirmar = null
         },
         onCerrar = { porConfirmar = null },
@@ -787,13 +787,13 @@ private fun EpisodeRow(
     /** Sinopsis del capítulo (TMDB). Null si no se pudo resolver; la fila simplemente no la muestra. */
     tmdbOverview: String?,
     /** En qué va su descarga al dispositivo: manda el ícono de la derecha y la barra de abajo. */
-    estado: EstadoDeDescarga,
+    estado: DownloadDisplayState,
     onPlay: () -> Unit,
     /** Null = no hay con qué bajar este capítulo (ver `FuenteDeDescarga.sePuedeBajar`). */
     onDownload: (() -> Unit)?,
     onRetry: () -> Unit,
     /** El usuario pidió deshacer algo de la descarga; quien recibe esto se encarga de confirmarlo. */
-    onPedirAccion: (AccionDeDescarga) -> Unit,
+    onPedirAccion: (DownloadAction) -> Unit,
     onToggleWatched: (String, Boolean) -> Unit,
 ) {
     val watched = progress?.watched == true
@@ -892,13 +892,13 @@ private fun EpisodeRow(
                 // En qué va la descarga, EN PALABRAS. La barra y el ícono ya lo dicen en colores y
                 // formas, pero eso solo se entiende sabiendo de antemano qué significan: "Bajando 42%"
                 // o el motivo real del fallo se leen sin traducir nada.
-                EtiquetaDeDescarga.para(estado)?.let { etiqueta ->
+                DownloadLabel.of(estado)?.let { etiqueta ->
                     Text(
                         etiqueta,
                         style = MaterialTheme.typography.bodyMedium,
                         color = when (estado) {
-                            is EstadoDeDescarga.Fallida, EstadoDeDescarga.PideConfirmacion -> ArkivRed
-                            EstadoDeDescarga.Lista -> NucDownloadedGreen
+                            is DownloadDisplayState.Failed, DownloadDisplayState.NeedsConfirmation -> ArkivRed
+                            DownloadDisplayState.Done -> NucDownloadedGreen
                             else -> ArkivTextPrimary
                         },
                         maxLines = 1,
@@ -932,7 +932,7 @@ private fun EpisodeRow(
             //
             // Sin con qué bajarlo, el botón de guardar no se muestra. Si ya hay una descarga suya en
             // la tabla (de antes), el control sigue, para poder borrarla.
-            if (onDownload != null || estado != EstadoDeDescarga.SinDescargar) {
+            if (onDownload != null || estado != DownloadDisplayState.NotDownloaded) {
                 ControlDeDescarga(
                     estado = estado,
                     onDownload = onDownload ?: {},

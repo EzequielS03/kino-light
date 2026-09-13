@@ -3,9 +3,9 @@ package com.arkiv.player.data.local
 import java.util.Locale
 
 /**
- * Formato legible de un tamaño en bytes ("4.2 GB" / "480 MB"). Antes vivía en `TorrentSizeGate`
- * (torrent se borró en la poda de esta rama); lo usan por igual las descargas de archive, magis y
- * el resumen de espacio libre en disco, así que se porta como utilidad genérica.
+ * Human-readable size format ("4.2 GB" / "480 MB"). Used to live in `TorrentSizeGate` (torrent was
+ * removed in this branch's pruning); archive and magis downloads use it just the same, as does the
+ * free-disk-space summary, so it's carried as a generic utility.
  */
 object FileSizeFormat {
     fun formatSize(bytes: Long): String = when {

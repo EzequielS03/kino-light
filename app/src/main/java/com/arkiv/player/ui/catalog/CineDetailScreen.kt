@@ -39,7 +39,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.arkiv.player.data.db.DownloadRow
-import com.arkiv.player.data.local.AccionDeDescarga
+import com.arkiv.player.data.local.DownloadAction
 import com.arkiv.player.ui.components.DialogoDeDescarga
 import com.arkiv.player.data.catalog.TmdbDetail
 import com.arkiv.player.data.catalog.TmdbEpisode
@@ -84,7 +84,7 @@ fun CineDetailScreen(
     // the rest of that source in this branch's pruning; `DescargasPorFuente` itself was deleted as
     // dead code in the cleanup. `porConfirmar` stays wired to the dialog below, but nothing sets
     // it anymore.
-    var porConfirmar by remember { mutableStateOf<Pair<DownloadRow, AccionDeDescarga>?>(null) }
+    var porConfirmar by remember { mutableStateOf<Pair<DownloadRow, DownloadAction>?>(null) }
 
     var detail by remember { mutableStateOf<TmdbDetail?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -191,8 +191,8 @@ fun CineDetailScreen(
             porConfirmar?.let { (fila, accion) ->
                 scope.launch {
                     when (accion) {
-                        AccionDeDescarga.CANCELAR -> graph.localDownloads.cancel(fila.episodeId)
-                        AccionDeDescarga.SACAR_DE_LA_COLA, AccionDeDescarga.BORRAR ->
+                        DownloadAction.CANCEL -> graph.localDownloads.cancel(fila.episodeId)
+                        DownloadAction.REMOVE_FROM_QUEUE, DownloadAction.DELETE ->
                             graph.localDownloads.remove(fila.episodeId)
                     }
                 }

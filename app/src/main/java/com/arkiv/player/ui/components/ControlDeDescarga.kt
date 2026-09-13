@@ -26,10 +26,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.arkiv.player.data.local.AccionDeDescarga
-import com.arkiv.player.data.local.ConfirmacionDeDescarga
-import com.arkiv.player.data.local.EstadoDeDescarga
-import com.arkiv.player.data.local.EtiquetaDeDescarga
+import com.arkiv.player.data.local.DownloadAction
+import com.arkiv.player.data.local.DownloadConfirmation
+import com.arkiv.player.data.local.DownloadDisplayState
+import com.arkiv.player.data.local.DownloadLabel
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivTextPrimary
 import com.arkiv.player.ui.theme.ArkivTextSecondary
@@ -43,10 +43,10 @@ import com.arkiv.player.ui.theme.NucDownloadedGreen
  */
 @Immutable
 data class DescargaDeFila(
-    val estado: EstadoDeDescarga,
+    val estado: DownloadDisplayState,
     val onDownload: () -> Unit,
     val onRetry: () -> Unit,
-    val onPedirAccion: (AccionDeDescarga) -> Unit,
+    val onPedirAccion: (DownloadAction) -> Unit,
 )
 
 /** Ver [ControlDeDescarga]. */
@@ -69,18 +69,18 @@ fun ControlDeDescarga(descarga: DescargaDeFila, enabled: Boolean = true) = Contr
  */
 @Composable
 fun ControlDeDescarga(
-    estado: EstadoDeDescarga,
+    estado: DownloadDisplayState,
     onDownload: () -> Unit,
     onRetry: () -> Unit,
     /** Cancelar / sacar de la cola / borrar. Quien reciba esto tiene que CONFIRMARLO antes de hacerlo. */
-    onPedirAccion: (AccionDeDescarga) -> Unit,
+    onPedirAccion: (DownloadAction) -> Unit,
     enabled: Boolean = true,
 ) {
     when (estado) {
         // Papelera VERDE, no un tilde: el verde sigue diciendo "ya lo tienes" y el ícono dice qué se
         // puede hacer con eso. Un tilde ocupaba el slot sin ofrecer nada.
-        EstadoDeDescarga.Lista -> IconButton(
-            onClick = { onPedirAccion(AccionDeDescarga.BORRAR) },
+        DownloadDisplayState.Done -> IconButton(
+            onClick = { onPedirAccion(DownloadAction.DELETE) },
             enabled = enabled,
         ) {
             Icon(
@@ -91,14 +91,14 @@ fun ControlDeDescarga(
         }
         // Anillo de progreso con una X ADENTRO: la X es el control, el anillo es el estado. Con solo
         // el porcentaje, nada en pantalla decía que ese número fuera un botón.
-        is EstadoDeDescarga.Bajando -> IconButton(
-            onClick = { onPedirAccion(AccionDeDescarga.CANCELAR) },
+        is DownloadDisplayState.Downloading -> IconButton(
+            onClick = { onPedirAccion(DownloadAction.CANCEL) },
             enabled = enabled,
         ) {
-            AnilloConEquis(estado.fraccion, ArkivRed, "Bajando. Tocar para cancelar la descarga")
+            AnilloConEquis(estado.fraction, ArkivRed, "Bajando. Tocar para cancelar la descarga")
         }
-        EstadoDeDescarga.EnCola -> IconButton(
-            onClick = { onPedirAccion(AccionDeDescarga.SACAR_DE_LA_COLA) },
+        DownloadDisplayState.Queued -> IconButton(
+            onClick = { onPedirAccion(DownloadAction.REMOVE_FROM_QUEUE) },
             enabled = enabled,
         ) {
             AnilloConEquis(null, ArkivTextSecondary, "En cola. Tocar para sacarla de la cola")
@@ -106,17 +106,17 @@ fun ControlDeDescarga(
         // Un fallo tiene que verse Y poder deshacerse acá mismo. Antes volvía a mostrar el botón de
         // bajar, idéntico a no haberlo intentado nunca: se tocaba de nuevo, fallaba por lo mismo, y
         // nada en pantalla lo decía.
-        is EstadoDeDescarga.Fallida -> IconButton(onClick = onRetry, enabled = enabled) {
+        is DownloadDisplayState.Failed -> IconButton(onClick = onRetry, enabled = enabled) {
             Icon(
                 Icons.Default.Refresh,
-                contentDescription = estado.motivo?.let { "Falló: $it. Tocar para reintentar" }
+                contentDescription = estado.reason?.let { "Falló: $it. Tocar para reintentar" }
                     ?: "Falló la descarga. Tocar para reintentar",
                 tint = ArkivRed,
             )
         }
         // No es un fallo ni está bajando: espera que el usuario acepte el tamaño en Descargas, que es
         // donde vive esa confirmación.
-        EstadoDeDescarga.PideConfirmacion -> Box(
+        DownloadDisplayState.NeedsConfirmation -> Box(
             modifier = Modifier.size(48.dp),
             contentAlignment = Alignment.Center,
         ) {
@@ -127,7 +127,7 @@ fun ControlDeDescarga(
                 modifier = Modifier.size(18.dp),
             )
         }
-        EstadoDeDescarga.SinDescargar -> IconButton(onClick = onDownload, enabled = enabled) {
+        DownloadDisplayState.NotDownloaded -> IconButton(onClick = onDownload, enabled = enabled) {
             Icon(
                 Icons.Default.Download,
                 contentDescription = "Guardar en el dispositivo",
@@ -173,15 +173,15 @@ private fun AnilloConEquis(fraccion: Float?, color: Color, descripcion: String) 
  * aparato y rojo lleno para lo que falló — los mismos colores que la pantalla de Descargas.
  */
 @Composable
-fun BarraDeDescarga(estado: EstadoDeDescarga) {
+fun BarraDeDescarga(estado: DownloadDisplayState) {
     val forma = Modifier.fillMaxWidth().height(3.dp)
     val fondo = Color(0x33FFFFFF)
     when (estado) {
-        EstadoDeDescarga.SinDescargar -> Unit
-        EstadoDeDescarga.EnCola ->
+        DownloadDisplayState.NotDownloaded -> Unit
+        DownloadDisplayState.Queued ->
             LinearProgressIndicator(color = ArkivTextSecondary, trackColor = fondo, modifier = forma)
-        is EstadoDeDescarga.Bajando -> {
-            val fraccion = estado.fraccion
+        is DownloadDisplayState.Downloading -> {
+            val fraccion = estado.fraction
             if (fraccion == null) {
                 LinearProgressIndicator(color = ArkivRed, trackColor = fondo, modifier = forma)
             } else {
@@ -193,11 +193,11 @@ fun BarraDeDescarga(estado: EstadoDeDescarga) {
                 )
             }
         }
-        EstadoDeDescarga.Lista ->
+        DownloadDisplayState.Done ->
             LinearProgressIndicator(progress = { 1f }, color = NucDownloadedGreen, trackColor = fondo, modifier = forma)
-        is EstadoDeDescarga.Fallida ->
+        is DownloadDisplayState.Failed ->
             LinearProgressIndicator(progress = { 1f }, color = ArkivRed, trackColor = fondo, modifier = forma)
-        EstadoDeDescarga.PideConfirmacion ->
+        DownloadDisplayState.NeedsConfirmation ->
             LinearProgressIndicator(progress = { 1f }, color = ArkivRed.copy(alpha = 0.45f), trackColor = fondo, modifier = forma)
     }
 }
@@ -211,17 +211,17 @@ fun BarraDeDescarga(estado: EstadoDeDescarga) {
  */
 @Composable
 fun LineaDeEstadoDeDescarga(
-    estado: EstadoDeDescarga,
+    estado: DownloadDisplayState,
     style: TextStyle = MaterialTheme.typography.labelSmall,
     modifier: Modifier = Modifier,
 ) {
-    val etiqueta = EtiquetaDeDescarga.para(estado) ?: return
+    val etiqueta = DownloadLabel.of(estado) ?: return
     Text(
         etiqueta,
         style = style,
         color = when (estado) {
-            is EstadoDeDescarga.Fallida, EstadoDeDescarga.PideConfirmacion -> ArkivRed
-            EstadoDeDescarga.Lista -> NucDownloadedGreen
+            is DownloadDisplayState.Failed, DownloadDisplayState.NeedsConfirmation -> ArkivRed
+            DownloadDisplayState.Done -> NucDownloadedGreen
             else -> ArkivTextPrimary
         },
         maxLines = 1,
@@ -230,21 +230,21 @@ fun LineaDeEstadoDeDescarga(
     )
 }
 
-/** El diálogo que confirma una [AccionDeDescarga]. `accion` null = no hay nada que confirmar. */
+/** El diálogo que confirma una [DownloadAction]. `accion` null = no hay nada que confirmar. */
 @Composable
 fun DialogoDeDescarga(
-    accion: AccionDeDescarga?,
+    accion: DownloadAction?,
     nombreDelCapitulo: String?,
     onConfirmar: () -> Unit,
     onCerrar: () -> Unit,
 ) {
     if (accion == null) return
-    val texto = ConfirmacionDeDescarga.texto(accion, nombreDelCapitulo)
+    val texto = DownloadConfirmation.text(accion, nombreDelCapitulo)
     AlertDialog(
         onDismissRequest = onCerrar,
-        title = { Text(texto.titulo) },
-        text = { Text(texto.cuerpo) },
-        confirmButton = { TextButton(onClick = onConfirmar) { Text(texto.confirmar) } },
-        dismissButton = { TextButton(onClick = onCerrar) { Text(texto.descartar) } },
+        title = { Text(texto.title) },
+        text = { Text(texto.body) },
+        confirmButton = { TextButton(onClick = onConfirmar) { Text(texto.confirm) } },
+        dismissButton = { TextButton(onClick = onCerrar) { Text(texto.dismiss) } },
     )
 }
