@@ -11,9 +11,9 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Cubre cómo [TmdbApi] autentica ahora que habla DIRECTO con TMDB (sub-proyecto 2A): la llave va
- * como parámetro de query y ya no viaja ninguna cabecera de sesión, porque no hay gateway del otro
- * lado al que autenticarse. No pretende ser una suite completa de [TmdbApi].
+ * Covers how [TmdbApi] authenticates now that it talks DIRECTLY to TMDB (sub-project 2A): the key
+ * goes as a query parameter and no session header travels anymore, because there's no gateway on
+ * the other end to authenticate against. Not meant to be a complete suite for [TmdbApi].
  */
 class TmdbApiTest {
     private lateinit var server: MockWebServer
@@ -27,50 +27,50 @@ class TmdbApiTest {
     fun tearDown() = server.shutdown()
 
     private fun api() = TmdbApi(
-        apiKey = "llave-de-test",
+        apiKey = "test-key",
         baseUrl = server.url("/3").toString().trimEnd('/'),
         client = OkHttpClient(),
     )
 
     @Test
-    fun `la llave y el idioma van en la query`() = runBlocking {
+    fun `the key and the language go in the query`() = runBlocking {
         server.enqueue(MockResponse().setBody("""{"results":[]}"""))
 
         api().browse("movie", 1)
 
-        val pedido = server.takeRequest()
-        assertEquals("llave-de-test", pedido.requestUrl?.queryParameter("api_key"))
-        assertEquals("es-MX", pedido.requestUrl?.queryParameter("language"))
-        assertEquals("/3/movie/popular", pedido.requestUrl?.encodedPath)
+        val request = server.takeRequest()
+        assertEquals("test-key", request.requestUrl?.queryParameter("api_key"))
+        assertEquals("es-MX", request.requestUrl?.queryParameter("language"))
+        assertEquals("/3/movie/popular", request.requestUrl?.encodedPath)
     }
 
     @Test
-    fun `no viaja ninguna cabecera de sesion del gateway`() = runBlocking {
+    fun `no gateway session header travels`() = runBlocking {
         server.enqueue(MockResponse().setBody("""{"results":[]}"""))
 
         api().browse("movie", 1)
 
-        val pedido = server.takeRequest()
-        assertNull(pedido.getHeader("Authorization"))
-        assertNull(pedido.getHeader("X-Arkiv-Device"))
-        assertNull(pedido.getHeader("X-Arkiv-Key"))
+        val request = server.takeRequest()
+        assertNull(request.getHeader("Authorization"))
+        assertNull(request.getHeader("X-Arkiv-Device"))
+        assertNull(request.getHeader("X-Arkiv-Key"))
     }
 
     @Test
-    fun `la busqueda manda la llave y no pide contenido adulto`() = runBlocking {
+    fun `search sends the key and does not ask for adult content`() = runBlocking {
         server.enqueue(MockResponse().setBody("""{"results":[]}"""))
 
         api().search("movie", "batman")
 
         val url = server.takeRequest().requestUrl!!
-        assertEquals("llave-de-test", url.queryParameter("api_key"))
+        assertEquals("test-key", url.queryParameter("api_key"))
         assertEquals("batman", url.queryParameter("query"))
         assertEquals("false", url.queryParameter("include_adult"))
     }
 
     @Test
-    fun `por defecto apunta a TMDB, no a ningun servidor propio`() {
-        // La base se fija en el build y no es configurable desde Ajustes, como la llave.
+    fun `by default it points at TMDB, not at any server of our own`() {
+        // The base is fixed at build time and isn't configurable from Settings, same as the key.
         assertEquals("https://api.themoviedb.org/3", TmdbApi.BASE_TMDB)
     }
 }

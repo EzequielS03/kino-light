@@ -1275,7 +1275,7 @@ class ArkivRepository(
         }
         if (obra.tipo == "movie") {
             return try {
-                tmdb.crudo("movie/$id", append = "credits")?.let { com.arkiv.player.data.trivia.fichaDePelicula(it) }
+                tmdb.raw("movie/$id", append = "credits")?.let { com.arkiv.player.data.trivia.fichaDePelicula(it) }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1283,7 +1283,7 @@ class ArkivRepository(
             }
         }
         val serie = try {
-            tmdb.crudo("tv/$id", append = "aggregate_credits")?.let { com.arkiv.player.data.trivia.fichaDeSerie(it) }
+            tmdb.raw("tv/$id", append = "aggregate_credits")?.let { com.arkiv.player.data.trivia.fichaDeSerie(it) }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -1291,7 +1291,7 @@ class ArkivRepository(
         } ?: return null
         if (obra.temporada == null || obra.episodio == null) return serie
         val capitulo = try {
-            tmdb.crudo("tv/$id/season/${obra.temporada}/episode/${obra.episodio}", append = "credits")
+            tmdb.raw("tv/$id/season/${obra.temporada}/episode/${obra.episodio}", append = "credits")
                 ?.let { com.arkiv.player.data.trivia.capituloDeFicha(it) }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e

@@ -10,7 +10,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
-/** Arma el query GraphQL de `browse` (top-level, pura, testeable). */
+/** Builds `browse`'s GraphQL query (top-level, pure, testable). */
 fun buildAnimeBrowseQuery(sort: String, hasSearch: Boolean, hasGenre: Boolean): String {
     val searchParam = if (hasSearch) ",${'$'}search:String" else ""
     val genreParam = if (hasGenre) ",${'$'}genre:String" else ""
@@ -28,7 +28,7 @@ fun buildAnimeBrowseQuery(sort: String, hasSearch: Boolean, hasGenre: Boolean): 
     """.trimIndent()
 }
 
-/** Una serie de anime (metadata de AniList). */
+/** An anime series (AniList metadata). */
 data class AnimeShow(
     val id: Long,
     val title: String,
@@ -45,8 +45,8 @@ data class AnimeShow(
 )
 
 /**
- * Metadata de anime vía AniList (GraphQL público, sin API key). Da pósters, populares,
- * búsqueda y episodios. Los magnets salen aparte de AnimeTosho, buscando por título.
+ * Anime metadata via AniList (public GraphQL, no API key). Gives posters, popular titles,
+ * search and episodes. Magnets come separately from AnimeTosho, searching by title.
  */
 class AniListApi(
     private val client: OkHttpClient = OkHttpClient.Builder()
@@ -76,7 +76,7 @@ class AniListApi(
         runCatching { parse(json) }.getOrDefault(emptyList())
     }
 
-    /** Lista de géneros de AniList (GenreCollection). */
+    /** AniList's genre list (GenreCollection). */
     suspend fun genres(): List<String> = withContext(Dispatchers.IO) {
         val body = JSONObject().put("query", "query{GenreCollection}").toString()
         val json = runCatching {
@@ -92,7 +92,7 @@ class AniListApi(
         }.getOrDefault(emptyList())
     }
 
-    /** Detalle de un anime por su id de AniList. */
+    /** Detail of an anime by its AniList id. */
     suspend fun details(id: Long): AnimeShow? = withContext(Dispatchers.IO) {
         val query = """
             query(${'$'}id:Int){
@@ -115,9 +115,9 @@ class AniListApi(
     }
 
     /**
-     * Nº de episodios ACUMULADOS antes de este anime en su cadena de precuelas TV. Sumado al nº de
-     * episodio de la entrada da el nº ABSOLUTO de serie (ej. Shingeki Final Season ep 1 → abs 60).
-     * Camina una sola cadena PREQUEL de formato TV; corta en ciclos o profundidad 12. 0 si falla.
+     * ACCUMULATED episode count before this anime in its chain of TV prequels. Added to the
+     * entry's episode number gives the series' ABSOLUTE number (e.g. Shingeki Final Season ep 1
+     * → abs 60). Walks a single PREQUEL chain of TV format; stops on cycles or depth 12. 0 on failure.
      */
     suspend fun absoluteOffset(anilistId: Long): Int = withContext(Dispatchers.IO) {
         val seen = HashSet<Long>()
@@ -132,7 +132,7 @@ class AniListApi(
         total
     }
 
-    // (idPrecuela, episodiosDePrecuela) del PREQUEL TV directo, o null.
+    // (prequelId, prequelEpisodes) of the direct TV PREQUEL, or null.
     private fun prequelOf(id: Long): Pair<Long, Int>? {
         val query = """
             query(${'$'}id:Int){
@@ -171,35 +171,35 @@ class AniListApi(
     }
 
     /**
-     * Texto del JSON, con el null de verdad convertido en vacío.
+     * JSON text, with a real null converted to empty.
      *
-     * `optString` de Android devuelve el STRING "null" cuando el valor del JSON es `null` (el
-     * org.json del JVM devuelve "", así que esto NO se reproduce en un test unitario: hay que
-     * verlo en el aparato). AniList manda `english: null` en casi todo lo que no tiene título en
-     * inglés, así que la grilla mostraba la palabra "null" como nombre del anime en vez de caer al
-     * romaji, que sí estaba.
+     * Android's `optString` returns the STRING "null" when the JSON value is `null` (the JVM's
+     * org.json returns "", so this does NOT reproduce in a unit test: it has to be seen on the
+     * device). AniList sends `english: null` for almost everything with no English title, so the
+     * grid showed the word "null" as the anime's name instead of falling back to the romaji,
+     * which was there.
      */
-    private fun JSONObject.texto(name: String): String = if (isNull(name)) "" else optString(name)
+    private fun JSONObject.text(name: String): String = if (isNull(name)) "" else optString(name)
 
     private fun parseMedia(o: JSONObject): AnimeShow? {
         val t = o.optJSONObject("title")
-        val english = t?.texto("english").orEmpty()
-        val romaji = t?.texto("romaji").orEmpty()
+        val english = t?.text("english").orEmpty()
+        val romaji = t?.text("romaji").orEmpty()
         val display = english.ifBlank { romaji }
         if (display.isBlank()) return null
         return AnimeShow(
             id = o.optLong("id"),
             title = display,
-            // Para buscar en AnimeTosho conviene el romaji (así nombran los releases).
+            // The romaji works better for searching AnimeTosho (that's how releases are named).
             searchTitle = romaji.ifBlank { english },
-            posterUrl = o.optJSONObject("coverImage")?.texto("large").orEmpty(),
-            bannerUrl = o.texto("bannerImage"),
+            posterUrl = o.optJSONObject("coverImage")?.text("large").orEmpty(),
+            bannerUrl = o.text("bannerImage"),
             scorePct = o.optInt("averageScore"),
             episodes = o.optInt("episodes"),
             year = o.optInt("seasonYear"),
             genres = o.optJSONArray("genres")?.let { g -> (0 until g.length()).map { g.getString(it) } } ?: emptyList(),
-            description = stripHtml(o.texto("description")),
-            format = o.texto("format"),
+            description = stripHtml(o.text("description")),
+            format = o.text("format"),
         )
     }
 

@@ -12,9 +12,9 @@ import java.nio.file.StandardCopyOption
 import java.util.concurrent.TimeUnit
 
 /**
- * Dataset de mapeo de anime (Fribb/anime-lists). Se descarga a disco (TTL semanal) y se parsea a
- * un mapa en memoria bajo demanda. Si el refresh falla, se sirve lo cacheado; si no hay nada,
- * devuelve null (el resolver degrada a heurístico).
+ * Anime mapping dataset (Fribb/anime-lists). Downloaded to disk (weekly TTL) and parsed into an
+ * in-memory map on demand. If the refresh fails, what's cached is served; if there's nothing,
+ * returns null (the resolver falls back to heuristics).
  */
 class AnimeMappingRepository(
     private val cacheDir: File,
@@ -36,8 +36,8 @@ class AnimeMappingRepository(
         withContext(Dispatchers.IO) {
             val existing = readExisting()
             val existingValid = existing.isNotEmpty()
-            // Un archivo que existe pero parsea vacío (corrupto/truncado) NO cuenta como fresco:
-            // forzamos re-descarga, siempre respetando el gate anti-martilleo de abajo.
+            // A file that exists but parses empty (corrupted/truncated) does NOT count as fresh:
+            // a re-download is forced, always respecting the anti-hammering gate below.
             val fresh = existingValid && isFresh(file.lastModified(), System.currentTimeMillis())
 
             val parsed = if (fresh) {
@@ -46,7 +46,7 @@ class AnimeMappingRepository(
                 val now = System.currentTimeMillis()
                 val gated = !existingValid && (now - lastAttemptMs < RETRY_GATE_MS)
                 if (gated) {
-                    existing   // best-effort; degrada a heurístico sin martillar la red
+                    existing   // best-effort; falls back to heuristics without hammering the network
                 } else {
                     lastAttemptMs = now
                     download() ?: existing
@@ -63,9 +63,9 @@ class AnimeMappingRepository(
             .orEmpty()
 
     /**
-     * Descarga a un archivo temporal, valida que parsee a un mapa no vacío y solo entonces lo
-     * promueve atómicamente al archivo final. Si algo falla o el resultado es inválido/vacío, NO
-     * toca el archivo bueno existente (ni su lastModified) y devuelve null.
+     * Downloads to a temporary file, checks that it parses into a non-empty map and only then
+     * atomically promotes it to the final file. If anything fails or the result is invalid/empty,
+     * the existing good file is NOT touched (nor its lastModified) and null is returned.
      */
     private fun download(): Map<Long, AnimeMapping>? {
         val tmp = tmpFile
@@ -106,10 +106,10 @@ class AnimeMappingRepository(
         private const val CACHE_FILE_NAME = "anime-list-full.json"
         private const val TTL_MS = 7L * 24 * 60 * 60 * 1000
 
-        /** Gate anti-martilleo: si no hay archivo válido, no reintentar descarga más de 1 vez cada 5 min. */
+        /** Anti-hammering gate: with no valid file, don't retry the download more than once every 5 min. */
         private const val RETRY_GATE_MS = 5L * 60 * 1000
 
-        /** ¿El cache descargado en [fetchedAtMs] sigue vigente en [nowMs]? (0 = sin descarga). */
+        /** Is the cache downloaded at [fetchedAtMs] still valid at [nowMs]? (0 = never downloaded). */
         fun isFresh(fetchedAtMs: Long, nowMs: Long): Boolean =
             fetchedAtMs > 0 && nowMs - fetchedAtMs < TTL_MS
     }

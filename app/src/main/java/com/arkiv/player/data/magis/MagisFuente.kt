@@ -277,7 +277,7 @@ internal class MagisFuente(
         val temporada = crudos.temporada
         if (!IMDB.matches(crudos.imdb) || temporada == null) return emptyMap<Int, DeTmdb>() to null
         return runCatching {
-            val serie = tmdb.seriePorImdb(crudos.imdb)
+            val serie = tmdb.seriesByImdb(crudos.imdb)
                 ?: return@runCatching emptyMap<Int, DeTmdb>() to null
             val deTmdb = tmdb.seasonEpisodes(serie.tmdbId, temporada)
                 ?: return@runCatching emptyMap<Int, DeTmdb>() to serie.paraMagis()
@@ -311,7 +311,7 @@ internal class MagisFuente(
             val faltan = filas.filterValues { it.sinopsis == null }.keys
             if (faltan.isEmpty()) return@runCatching filas to serie.paraMagis()
             val enIngles = runCatching {
-                tmdb.seasonEpisodes(serie.tmdbId, temporada, idioma = "en-US").orEmpty()
+                tmdb.seasonEpisodes(serie.tmdbId, temporada, languageOverride = "en-US").orEmpty()
             }.getOrDefault(emptyList())
             val completadas = filas.toMutableMap()
             enIngles.forEach { c ->
@@ -331,8 +331,8 @@ internal class MagisFuente(
         val backdropUrl: String,
     )
 
-    private fun com.arkiv.player.data.catalog.TmdbSerieDeImdb.paraMagis() =
-        TmdbSerieParaMagis(tmdbId, titulo, posterUrl, backdropUrl)
+    private fun com.arkiv.player.data.catalog.TmdbSeriesByImdb.paraMagis() =
+        TmdbSerieParaMagis(tmdbId, title, posterUrl, backdropUrl)
 
     private fun explicar(que: String, r: MagisResult<*>): String = when (r) {
         is MagisResult.PortalError -> "magis rechazó la $que (${r.codigo}${r.msg?.let { ": $it" }.orEmpty()})"
