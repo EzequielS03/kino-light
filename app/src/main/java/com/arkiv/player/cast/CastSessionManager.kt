@@ -16,65 +16,67 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Dueño del [CastPlayer] y de la sesión de Chromecast, con vida de aplicación.
+ * Owner of the [CastPlayer] and the Chromecast session, with application lifetime.
  *
- * Vive acá y no en el composable del reproductor porque `CastPlayer.release()` llama a
- * `SessionManager.endCurrentSession(false)` (verificado en el bytecode de media3-cast 1.5.1): al
- * liberarlo se corta el casteo. Mientras estuvo dentro de la pantalla, salir del reproductor
- * mataba la sesión.
+ * Lives here and not in the player's composable because `CastPlayer.release()` calls
+ * `SessionManager.endCurrentSession(false)` (verified in media3-cast 1.5.1's bytecode): releasing
+ * it cuts the cast. While it lived inside the screen, leaving the player killed the session.
  *
- * Como el CastPlayer se construye UNA sola vez, el listener recibe todas las sesiones y desaparece
- * de paso un problema viejo: media3 no re-dispara `onCastSessionAvailable` para una sesión que ya
- * estaba abierta al construirlo.
+ * Since the CastPlayer is built ONCE, the listener receives every session, which also gets rid of
+ * an old problem: media3 doesn't re-fire `onCastSessionAvailable` for a session that was already
+ * open when it was built.
  */
 class CastSessionManager(
     private val castContext: CastContext,
     private val repository: ArkivRepository,
     private val scope: CoroutineScope,
 ) {
-    // Falla rápido y con causa explícita si algo construye esto fuera del hilo principal, en vez de
-    // un crash oscuro dentro del SDK de Cast (CastPlayer/CastContext lo exigen, ver clase doc).
+    // Fails fast and with an explicit cause if something builds this off the main thread, instead
+    // of an obscure crash inside the Cast SDK (CastPlayer/CastContext require it, see class doc).
     init {
         check(android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
-            "CastSessionManager debe construirse en el hilo principal: CastPlayer y CastContext lo exigen"
+            "CastSessionManager must be built on the main thread: CastPlayer and CastContext require it"
         }
     }
 
     // Custom converter, because the default one never states the duration -- see
-    // [ConversorConDuracion] for what that costs on a fragmented MP4 still being written.
-    val player: CastPlayer = CastPlayer(castContext, ConversorConDuracion())
+    // [DurationAwareMediaItemConverter] for what that costs on a fragmented MP4 still being written.
+    val player: CastPlayer = CastPlayer(castContext, DurationAwareMediaItemConverter())
 
     private val _casting = MutableStateFlow(false)
     val casting: StateFlow<Boolean> = _casting.asStateFlow()
 
-    /** Lo último que se pidió castear; se (re)carga en cuanto haya sesión. */
+    /** The last thing requested to cast; gets (re)loaded as soon as there's a session. */
     @Volatile private var pending: CastRequest? = null
 
     /**
-     * Generación de [pending]: sube con cada [setMedia] genuinamente NUEVO, nunca con una
-     * reconexión que recarga el mismo pedido (el listener de `onCastSessionAvailable`, más abajo,
-     * llama a `load()` directo sin pasar por acá). Sin esto, re-castear el MISMO episodio no se
-     * distingue de "sigue sonando lo de antes" y el Chromecast no podría recuperar la barra en ese
-     * caso (ver MarcaFuente/sellarMarca en NowPlayingCoordinator).
+     * [pending]'s generation: increases with every genuinely NEW [setMedia], never with a
+     * reconnection that reloads the same request (the `onCastSessionAvailable` listener, below,
+     * calls `load()` directly without going through here). Without this, re-casting the SAME
+     * episode is indistinguishable from "what was playing before is still going", and the
+     * Chromecast bar couldn't be restored in that case (see MarcaFuente/sellarMarca in
+     * NowPlayingCoordinator).
      */
-    @Volatile private var generacion = 0
+    @Volatile private var generation = 0
 
-    /** Lo que se le pidió al receptor: de acá salen título, carátula y episodio para la barra. */
+    /** What was requested from the receiver: title, artwork and episode for the bar come from here. */
     val currentRequest: CastRequest? get() = pending
 
-    /** Generación de [currentRequest] — ver el comentario junto a `generacion`. */
-    val mediaGeneracion: Int get() = generacion
+    /** [currentRequest]'s generation -- see the comment next to `generation`. */
+    val mediaGeneration: Int get() = generation
 
     /**
-     * Diagnóstico del receptor. Sin esto, una TV que RECHAZA el medio (contenedor o códec que no
-     * soporta) falla en silencio absoluto: en el celu no pasa nada y en la TV no se ve ni se oye,
-     * sin una sola pista de por qué. Es el punto ciego que ya nos hizo diagnosticar mal una vez.
+     * Receiver diagnostics. Without this, a TV that REJECTS the media (a container or codec it
+     * doesn't support) fails in absolute silence: nothing happens on the phone and there's nothing
+     * to see or hear on the TV, with not a single clue why. It's the blind spot that already made
+     * us misdiagnose something once.
      *
-     * Vive acá y no en la pantalla porque el CastPlayer es de la app: así los logs siguen saliendo
-     * cuando se castea con el reproductor cerrado, que es justo lo que este feature habilitó.
+     * Lives here and not on the screen because the CastPlayer belongs to the app: this way the
+     * logs keep coming out when casting with the player closed, which is exactly what this feature
+     * enabled.
      *
-     * Se declara ANTES del `init` a propósito: las propiedades se inicializan en orden de
-     * declaración, así que un `val` puesto después quedaría en null al engancharlo.
+     * Declared BEFORE `init` on purpose: properties are initialized in declaration order, so a
+     * `val` placed after it would still be null when hooking it up.
      */
     private val diagnostics = object : androidx.media3.common.Player.Listener {
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
@@ -138,17 +140,18 @@ class CastSessionManager(
                 _casting.value = false
             }
         })
-        // El único caso que el listener NO cubre: arrancar la app con una sesión ya viva (se mató y
-        // se reabrió casteando). Ocurrió antes de que existiéramos, así que se adopta a mano.
+        // The one case the listener does NOT cover: starting the app with a session already alive
+        // (it was killed and reopened while casting). It happened before we existed, so it's
+        // adopted by hand.
         if (runCatching { castContext.sessionManager.currentCastSession?.isConnected }.getOrNull() == true) {
             _casting.value = true
         }
         startProgressLoop()
     }
 
-    /** Pide castear esto. Si ya hay sesión se carga ya; si no, queda pendiente para cuando la haya. */
+    /** Requests casting this. Loads right away if there's already a session; otherwise stays pending until there is one. */
     fun setMedia(request: CastRequest) {
-        generacion++
+        generation++
         pending = request
         // Without this line "nothing was ever asked of the receiver" and "it was asked and refused"
         // look identical from a log: both end up as a session with an idle player.
@@ -163,49 +166,50 @@ class CastSessionManager(
     }
 
     /**
-     * ¿La última sesión terminó porque el usuario pulsó "parar"?
+     * Did the last session end because the user pressed "stop"?
      *
-     * Existe porque el camino de desconexión reanuda la reproducción local donde llegó el receptor
-     * —lo correcto al desconectar desde el botón de cast— pero sería absurdo tras pulsar parar: el
-     * usuario pidió silencio y el teléfono se pondría a reproducir. Se consume una sola vez.
+     * Exists because the disconnection path resumes local playback where the receiver left off --
+     * correct when disconnecting from the cast button -- but that would be absurd after pressing
+     * stop: the user asked for silence and the phone would start playing. Consumed exactly once.
      */
-    @Volatile private var paradaIntencionalAtMs = 0L
+    @Volatile private var intentionalStopAtMs = 0L
 
     fun stopIntentionally() {
-        paradaIntencionalAtMs = System.currentTimeMillis()
+        intentionalStopAtMs = System.currentTimeMillis()
         pending = null
-        // El estado se apaga acá y no se espera al listener: si por lo que sea no llegara
-        // onCastSessionUnavailable, la barra del celu se quedaría colgada mostrando un casteo muerto.
+        // The state turns off here instead of waiting for the listener: if onCastSessionUnavailable
+        // somehow didn't arrive, the phone's bar would be left hanging, showing a dead cast.
         _casting.value = false
         scope.launch {
             withContext(Dispatchers.Main) {
-                // NO se llama a player.stop() acá: endCurrentSession(true) —abajo— ya apaga la app
-                // receptora (para eso es el `true`), así que el stop() era redundante. Y peor que
-                // redundante: el CastPlayer se deja adrede sin parar NUNCA, porque PlayerScreen.kt
-                // depende de que `currentPosition` siga devolviendo para siempre la última posición
-                // reportada para poder reanudar el local en el punto correcto (ver el comentario
-                // ahí). Pararlo acá además corría una carrera con startProgressLoop: si el stop caía
-                // justo entre que ese loop lee `_casting`/`pending` en IO y salta a Main a leer el
-                // player, podía terminar persistiendo una posición en cero o retrocedida encima del
-                // punto real de reanudación del usuario.
-                // Termina la sesión SIN destruir el CastPlayer: release() lo dejaría inservible y no
-                // se podría volver a castear hasta reiniciar la app. Además `true` apaga la app
-                // receptora, que es lo que hace que la TV vuelva a lo suyo — release() usa `false`.
+                // player.stop() is NOT called here: endCurrentSession(true) -- below -- already
+                // turns off the receiver app (that's what the `true` is for), so stop() would be
+                // redundant. And worse than redundant: the CastPlayer is deliberately left to NEVER
+                // stop, because PlayerScreen.kt depends on `currentPosition` forever returning the
+                // last reported position so it can resume the local player at the right spot (see
+                // the comment there). Stopping it here would also race startProgressLoop: if the
+                // stop landed exactly between that loop reading `_casting`/`pending` on IO and
+                // jumping to Main to read the player, it could end up persisting a position of zero
+                // or a rolled-back one over the user's real resume point.
+                // Ends the session WITHOUT destroying the CastPlayer: release() would leave it
+                // unusable and casting again would require restarting the app. `true` also turns
+                // off the receiver app, which is what makes the TV go back to its own thing --
+                // release() uses `false`.
                 runCatching { castContext.sessionManager.endCurrentSession(true) }
             }
         }
     }
 
-    /** Consume la marca: la siguiente desconexión vuelve a reanudar normalmente. */
-    fun consumirParadaIntencional(): Boolean {
-        val at = paradaIntencionalAtMs
-        paradaIntencionalAtMs = 0L
-        // Con ventana, porque quien la pone y quien la consume no siempre coinciden: el botón de
-        // parar vive en la barra y en "Reproduciendo ahora", y en ninguna de las dos está compuesto
-        // el reproductor, así que lo normal es que NADIE la consuma. Sin cota quedaría encendida
-        // para siempre y se la comería la próxima desconexión legítima desde el botón de cast,
-        // salteando la reanudación local que re-hornea el :start-time.
-        return at != 0L && System.currentTimeMillis() - at < VENTANA_PARADA_MS
+    /** Consumes the flag: the next disconnection resumes normally again. */
+    fun consumeIntentionalStop(): Boolean {
+        val at = intentionalStopAtMs
+        intentionalStopAtMs = 0L
+        // With a window, because whoever sets it and whoever consumes it don't always match: the
+        // stop button lives on the bar and on "Now Playing", and the player isn't composed in
+        // either of those, so normally NOBODY consumes it. Without a bound it would stay on
+        // forever and get eaten by the next legitimate disconnection from the cast button,
+        // skipping the local resume that re-bakes the :start-time.
+        return at != 0L && System.currentTimeMillis() - at < STOP_WINDOW_MS
     }
 
     /**
@@ -215,7 +219,7 @@ class CastSessionManager(
      * its own duration and never changes, so the receiver has nothing to recompute. See
      * `TsRemuxer.remuxearTrozo` for why a single growing file could not work.
      */
-    fun encolar(uri: String, episodeId: String, titulo: String) {
+    fun enqueue(uri: String, episodeId: String, title: String) {
         // The duration rides along so the converter can set autoplay and preload on the queue item
         // -- without them the receiver announces each entry with a countdown.
         scope.launch(Dispatchers.Main) {
@@ -225,7 +229,7 @@ class CastSessionManager(
                         .setUri(uri)
                         .setMimeType("video/mp4")
                         .setMediaId(episodeId)
-                        .setMediaMetadata(MediaMetadata.Builder().setTitle(titulo).build())
+                        .setMediaMetadata(MediaMetadata.Builder().setTitle(title).build())
                         .build(),
                 )
                 android.util.Log.i(TAG, "queued one more chunk · ${player.mediaItemCount} in the queue")
@@ -247,8 +251,8 @@ class CastSessionManager(
                     MediaItem.RequestMetadata.Builder()
                         .setExtras(
                             android.os.Bundle().apply {
-                                putLong(ConversorConDuracion.CLAVE_DURACION, r.durationMs)
-                                putBoolean(ConversorConDuracion.CLAVE_EN_VIVO, r.comoEnVivo)
+                                putLong(DurationAwareMediaItemConverter.KEY_DURATION_MS, r.durationMs)
+                                putBoolean(DurationAwareMediaItemConverter.KEY_LIVE, r.asLive)
                             },
                         )
                         .build(),
@@ -274,9 +278,9 @@ class CastSessionManager(
     }
 
     /**
-     * Persiste el progreso mientras se castea, INCLUSO con el reproductor cerrado. Sin esto, ver un
-     * capítulo entero desde el home guardaría la posición solo hasta el instante en que se salió de
-     * la pantalla: la misma pérdida silenciosa que el resto del feature vino a evitar.
+     * Persists progress while casting, EVEN WITH the player closed. Without this, watching a whole
+     * episode from the home screen would only save the position up to the moment the screen was
+     * left: the same silent loss the rest of this feature exists to avoid.
      */
     private fun startProgressLoop() {
         scope.launch {
@@ -292,10 +296,10 @@ class CastSessionManager(
                     continue
                 }
                 val epId = request.episodeId
-                // mediaId, posición y duración se leen juntos en el mismo tick del hilo principal:
-                // setMedia() actualiza `pending` en sync pero el receptor tarda (red) en cargar el
-                // nuevo item, así que sin este chequeo se podría guardar la posición/duración del
-                // episodio viejo bajo el id del nuevo.
+                // mediaId, position and duration are read together in the same main-thread tick:
+                // setMedia() updates `pending` synchronously but the receiver takes (network) time
+                // to load the new item, so without this check the old episode's position/duration
+                // could get saved under the new one's id.
                 val (mediaId, pos, dur) = withContext(Dispatchers.Main) {
                     Triple(player.currentMediaItem?.mediaId, player.currentPosition, player.duration)
                 }
@@ -309,7 +313,7 @@ class CastSessionManager(
                 // remux was clipped, so both are supplied here rather than trusted from the TV.
                 val durReal = if (dur > 0L) dur else request.durationMs
                 val progress = CastProgress.toSave(
-                    reportedPosMs = pos + request.desfaseMs,
+                    reportedPosMs = pos + request.offsetMs,
                     reportedDurMs = durReal,
                 )
                 if (progress == null) {
@@ -329,6 +333,6 @@ class CastSessionManager(
     private companion object {
         const val TAG = "ArkivCast"
         const val PROGRESS_MS = 5_000L
-        const val VENTANA_PARADA_MS = 15_000L
+        const val STOP_WINDOW_MS = 15_000L
     }
 }

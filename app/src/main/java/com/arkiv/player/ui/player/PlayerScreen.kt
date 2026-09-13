@@ -1034,9 +1034,9 @@ private fun PlayerContent(
             requiresLanUrl = item.kind == SourceKind.MAGIS,
             // While the remux is still being written it IS a live stream, and saying so is what
             // keeps the receiver from inventing an end and stalling against it.
-            comoEnVivo = remuxMagisCreciendo,
+            asLive = remuxMagisCreciendo,
             // Where the remux begins, so a saved position lands on the right minute of the title.
-            desfaseMs = if (item.kind == SourceKind.MAGIS) {
+            offsetMs = if (item.kind == SourceKind.MAGIS) {
                 com.arkiv.player.playback.PoliticaDeRemux.desdeDeLaClave(
                     com.arkiv.player.playback.PoliticaDeRemux.claveDesde(
                         item.castUrl.orEmpty(),
@@ -2136,7 +2136,7 @@ private fun PlayerContent(
             // (rama de arriba) — reanudarlo sería justo lo contrario de lo que pidió ese botón. Se
             // consume una sola vez: la próxima desconexión (la del botón de cast, no la de parar)
             // vuelve a reanudar normal.
-            if (graph.castSession?.consumirParadaIntencional() != true) {
+            if (graph.castSession?.consumeIntentionalStop() != true) {
                 if (enVivo) {
                     // Vivo (Tarea 18): sin "dónde ibas" que reanudar -- sería la posición que
                     // reporta el receptor sobre un HLS en vivo, que no significa nada como offset

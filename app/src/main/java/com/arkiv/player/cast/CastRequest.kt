@@ -1,6 +1,6 @@
 package com.arkiv.player.cast
 
-/** Lo que se le manda al receptor de Chromecast. */
+/** What gets sent to the Chromecast receiver. */
 data class CastRequest(
     val uri: String,
     val mimeType: String,
@@ -14,7 +14,7 @@ data class CastRequest(
      *
      * Needed because a fragmented MP4 served WHILE it is written cannot state its own length, and
      * the receiver then reads one off the fragments it happens to have -- five seconds for a
-     * two-hour film. See [ConversorConDuracion].
+     * two-hour film. See [DurationAwareMediaItemConverter].
      */
     val durationMs: Long = 0,
     /**
@@ -26,7 +26,7 @@ data class CastRequest(
      * second or two -- and every time playback caught that moving end it stalled. A live stream
      * has no end to reach, which is the truth here and also what stops the chase.
      */
-    val comoEnVivo: Boolean = false,
+    val asLive: Boolean = false,
     /**
      * Where this media BEGINS inside the title, in ms.
      *
@@ -34,11 +34,11 @@ data class CastRequest(
      * while the title is minutes further along. Everything that records a position -- the progress
      * the app saves, the bar -- has to add this back or it files minute 62 as minute 0.
      */
-    val desfaseMs: Long = 0,
+    val offsetMs: Long = 0,
 )
 
 /**
- * Deriva la petición de cast según la fuente. Pura: testeable sin Android.
+ * Derives the cast request from the source. Pure: testable without Android.
  *
  * Local and magis: `castUrl` (mp4 h.264, compatible with the receiver) is preferred over
  * `mediaUrl` when it's set -- archive.org and web, which were the origin of this case, were
@@ -61,7 +61,7 @@ data class CastRequest(
  */
 object CastRequestBuilder {
 
-    /** El Default Media Receiver de Chromecast decide por esto si abrir el stream como HLS. */
+    /** The Chromecast Default Media Receiver decides whether to open the stream as HLS from this. */
     private const val MIME_HLS = "application/vnd.apple.mpegurl"
 
     @Suppress("LongParameterList")
@@ -78,8 +78,8 @@ object CastRequestBuilder {
         mimeOverride: String? = null,
         requiresLanUrl: Boolean = false,
         durationMs: Long = 0,
-        comoEnVivo: Boolean = false,
-        desfaseMs: Long = 0,
+        asLive: Boolean = false,
+        offsetMs: Long = 0,
     ): CastRequest? {
         val uri = when {
             isLive || requiresLanUrl -> lanUrl
@@ -104,8 +104,8 @@ object CastRequestBuilder {
             startPositionMs = if (isLive) 0L else startPositionMs.coerceAtLeast(0),
             // A live channel has no length to state; anything else passes through what it knows.
             durationMs = if (isLive) 0L else durationMs.coerceAtLeast(0),
-            comoEnVivo = comoEnVivo,
-            desfaseMs = desfaseMs.coerceAtLeast(0),
+            asLive = asLive,
+            offsetMs = offsetMs.coerceAtLeast(0),
         )
     }
 

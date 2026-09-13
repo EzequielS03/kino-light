@@ -26,11 +26,11 @@ import com.google.android.gms.cast.framework.SessionProvider
  */
 class CastOptionsProvider : OptionsProvider {
     override fun getCastOptions(context: Context): CastOptions {
-        val propio = BuildConfig.CAST_RECEIVER_ID.trim()
-        val id = propio.ifEmpty { CastMediaControlIntent.DEFAULT_MEDIA_RECEIVER_APPLICATION_ID }
+        val ownReceiverId = BuildConfig.CAST_RECEIVER_ID.trim()
+        val id = ownReceiverId.ifEmpty { CastMediaControlIntent.DEFAULT_MEDIA_RECEIVER_APPLICATION_ID }
         android.util.Log.w(
             "ArkivCast",
-            "receiver app id = $id" + if (propio.isEmpty()) " (Google's default: MPEG-TS will judder)" else " (Kino's own)",
+            "receiver app id = $id" + if (ownReceiverId.isEmpty()) " (Google's default: MPEG-TS will judder)" else " (Kino's own)",
         )
         return CastOptions.Builder()
             .setReceiverApplicationId(id)

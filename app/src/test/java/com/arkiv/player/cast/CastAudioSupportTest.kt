@@ -6,53 +6,53 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * El receptor de Chromecast decodifica un conjunto chico de códecs de audio. Lo que no está en él
- * se cae en SILENCIO: la TV muestra el video y no suena nada, sin un solo error. Estos tests fijan
- * qué se manda directo y qué no -- mismas decisiones que el gate anterior basado en fourcc de
- * libVLC, ahora leídas directo del `Format` de ExoPlayer.
+ * The Chromecast receiver decodes a small set of audio codecs. Whatever isn't in it fails in
+ * SILENCE: the TV shows the video and nothing sounds, with not a single error. These tests pin
+ * what gets sent through as-is and what doesn't -- the same decisions the previous fourcc-based
+ * libVLC gate made, now read straight off ExoPlayer's `Format`.
  */
 class CastAudioSupportTest {
 
     @Test
-    fun `AC-3 no lo decodifica el receptor`() {
-        // El caso del Avatar: se veía la imagen y no sonaba.
+    fun `AC-3 is not decoded by the receiver`() {
+        // The Avatar case: the picture showed up and there was no sound.
         assertFalse(CastAudioSupport.receiverDecodes(MimeTypes.AUDIO_AC3, channelCount = 6))
     }
 
     @Test
-    fun `E-AC-3 tampoco`() {
+    fun `neither is E-AC-3`() {
         assertFalse(CastAudioSupport.receiverDecodes(MimeTypes.AUDIO_E_AC3, channelCount = 6))
         assertFalse(CastAudioSupport.receiverDecodes(MimeTypes.AUDIO_E_AC3_JOC, channelCount = 6))
     }
 
     @Test
-    fun `DTS tampoco, ni por pasarela`() {
-        // El caso del Naruto. Cast no lo soporta de ninguna forma.
+    fun `neither is DTS, not even passthrough`() {
+        // The Naruto case. Cast doesn't support it in any form.
         assertFalse(CastAudioSupport.receiverDecodes(MimeTypes.AUDIO_DTS, channelCount = 6))
         assertFalse(CastAudioSupport.receiverDecodes(MimeTypes.AUDIO_DTS_HD, channelCount = 6))
         assertFalse(CastAudioSupport.receiverDecodes(MimeTypes.AUDIO_DTS_EXPRESS, channelCount = 6))
     }
 
     @Test
-    fun `TrueHD tampoco`() {
+    fun `neither is TrueHD`() {
         assertFalse(CastAudioSupport.receiverDecodes(MimeTypes.AUDIO_TRUEHD, channelCount = 8))
     }
 
     @Test
-    fun `AAC estereo va directo`() {
+    fun `stereo AAC goes direct`() {
         // AAC stereo -the shape Magis downloads carry today- decodes on the receiver directly.
         assertTrue(CastAudioSupport.receiverDecodes(MimeTypes.AUDIO_AAC, channelCount = 2))
     }
 
     @Test
-    fun `AAC multicanal hay que avisar que puede sonar mudo`() {
-        // Cast lista AAC como soportado pero falla con 5.1: el módulo de Chromecast de VLC lo
-        // prohíbe explícitamente y Jellyfin tuvo que arreglar lo mismo.
+    fun `multichannel AAC needs the might-play-mute warning`() {
+        // Cast lists AAC as supported but fails with 5.1: VLC's own Chromecast module forbids it
+        // explicitly, and Jellyfin had to fix that exact same thing.
         assertFalse(CastAudioSupport.receiverDecodes(MimeTypes.AUDIO_AAC, channelCount = 6))
     }
 
     @Test
-    fun `MP3, Opus, Vorbis, FLAC y PCM van directo`() {
+    fun `MP3, Opus, Vorbis, FLAC and PCM go direct`() {
         listOf(
             MimeTypes.AUDIO_MPEG,
             MimeTypes.AUDIO_MPEG_L1,
@@ -67,15 +67,15 @@ class CastAudioSupportTest {
     }
 
     @Test
-    fun `un codec desconocido se marca como que puede sonar mudo`() {
-        // Un mime que el gate nunca vio (por ejemplo un códec nuevo). No hay transcode al que
-        // caer: se castea igual, pero la lista blanca decide que puede sonar mudo.
+    fun `an unknown codec is marked as might play mute`() {
+        // A mime the gate has never seen (a new codec, say). There's no transcode to fall back
+        // to: it still gets cast, but the whitelist decides it might play mute.
         assertFalse(CastAudioSupport.receiverDecodes("audio/x-something-new", channelCount = 2))
     }
 
     @Test
-    fun `sin informacion de pista se mantiene el camino de hoy`() {
-        // mime null = no pudimos leer la pista todavía. Mantiene "no sé → mando directo".
+    fun `with no track information yet, today's path is kept`() {
+        // mime null = the track couldn't be read yet. Keeps "don't know -> send direct".
         assertTrue(CastAudioSupport.receiverDecodes(sampleMimeType = null, channelCount = 0))
     }
 }

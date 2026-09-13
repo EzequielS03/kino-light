@@ -1,6 +1,6 @@
 package com.arkiv.player.cast
 
-/** Posición y duración que corresponde persistir para un episodio que se está casteando. */
+/** Position and duration that should be persisted for an episode currently being cast. */
 data class SavedProgress(val positionMs: Long, val durationMs: Long)
 
 /**
@@ -14,21 +14,21 @@ data class SavedProgress(val positionMs: Long, val durationMs: Long)
 object CastProgress {
 
     /**
-     * Posición del CONTENIDO para mostrar en la barra. A diferencia de [toSave], acá siempre hay que
-     * devolver algo: la barra se dibuja igual.
+     * CONTENT position to show on the bar. Unlike [toSave], something always has to be returned
+     * here: the bar gets drawn either way.
      */
     fun contentPosition(receiverPosMs: Long): Long = receiverPosMs.coerceAtLeast(0)
 
     /**
-     * Duración del CONTENIDO para la barra. Devuelve 0 cuando el receptor no la sabe (un directo en
-     * vivo manda `TIME_UNSET`), que es lo que la barra ya interpreta como "sin duración".
+     * CONTENT duration for the bar. Returns 0 when the receiver doesn't know it (a live stream
+     * sends `TIME_UNSET`), which is what the bar already interprets as "no duration".
      */
     fun contentDuration(receiverDurMs: Long): Long = receiverDurMs.coerceAtLeast(0)
 
     /**
-     * @param reportedPosMs posición según el receptor.
-     * @param reportedDurMs duración según el receptor (0 o negativa si es un directo en vivo).
-     * @return qué guardar, o null si no hay nada confiable que guardar.
+     * @param reportedPosMs position as reported by the receiver.
+     * @param reportedDurMs duration as reported by the receiver (0 or negative for a live stream).
+     * @return what to save, or null if there's nothing reliable to save.
      */
     fun toSave(reportedPosMs: Long, reportedDurMs: Long): SavedProgress? {
         if (reportedDurMs <= 0) return null

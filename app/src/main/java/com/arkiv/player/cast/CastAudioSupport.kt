@@ -27,8 +27,8 @@ object CastAudioSupport {
      */
     private val AAC = setOf(MimeTypes.AUDIO_AAC)
 
-    /** Lo que el receptor decodifica sin importar cuántos canales traiga. */
-    private val DECODIFICABLE = setOf(
+    /** What the receiver decodes no matter how many channels it carries. */
+    private val DECODABLE = setOf(
         MimeTypes.AUDIO_MPEG,
         MimeTypes.AUDIO_MPEG_L1,
         MimeTypes.AUDIO_MPEG_L2,
@@ -50,7 +50,7 @@ object CastAudioSupport {
     fun receiverDecodes(sampleMimeType: String?, channelCount: Int): Boolean = when (sampleMimeType) {
         null -> true
         in AAC -> channelCount <= 2
-        in DECODIFICABLE -> true
+        in DECODABLE -> true
         else -> false
     }
 }
