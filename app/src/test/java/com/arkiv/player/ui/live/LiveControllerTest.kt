@@ -104,7 +104,7 @@ class LiveControllerTest {
         // compartir candado, pero el MISMO canal pedido a la vez por varias corrutinas -en
         // hilos reales, no solo interleaving cooperativo- sí debe resolverse una sola vez.
         // CyclicBarrier alinea a los hilos para maximizar la superposición real (igual patrón
-        // que FirmaDeSegmentosTest).
+        // que SegmentSignatureTest).
         val resoluciones = AtomicInteger(0)
         val ctrl = LiveController(
             resolver = { code ->

@@ -1,68 +1,68 @@
 package com.arkiv.player.playback
 
 /**
- * Cuánto aguantarle a archive.org y cuándo vale la pena volver a preguntar.
+ * How much to put up with archive.org, and when it's worth asking again.
  *
- * El porqué, medido el 2026-08-10 contra el ítem `tpo-neon-genesis-evangelion-05-…`:
- * el nodo tardó **72,3 s hasta el primer byte** y después sirvió un 206 perfecto. Con el
- * `readTimeout = 20000` fijo que había, los tres intentos morían por timeout mucho antes de que el
- * nodo llegara a contestar, el proxy devolvía 502 y la película no arrancaba nunca — aunque estaba
- * entera y disponible del otro lado. No era un fallo de red ni del reproductor: era la app
- * rindiéndose antes de tiempo.
+ * The why, measured on 2026-08-10 against the item `tpo-neon-genesis-evangelion-05-…`:
+ * the node took **72.3 s to the first byte** and then served a perfect 206. With the fixed
+ * `readTimeout = 20000` that existed, all three attempts died by timeout well before the node got
+ * to answer, the proxy returned 502 and the film never started -- even though it was whole and
+ * available on the other end. It wasn't a network failure or the player's: it was the app giving
+ * up too early.
  *
- * De ahí las dos ideas de este objeto:
+ * Hence this object's two ideas:
  *
- * 1. **El timeout de lectura crece con cada intento.** Contra un origen lento, insistir con la misma
- *    fecha límite corta es repetir el mismo fracaso tres veces. Cada intento le da más aire, y el
- *    último cubre el peor caso medido. El primero se mantiene corto para que un origen realmente
- *    muerto no tenga a nadie mirando la pantalla varios minutos.
+ * 1. **The read timeout grows with each attempt.** Against a slow origin, insisting with the same
+ *    short deadline is repeating the same failure three times. Each attempt gets more room, and
+ *    the last covers the worst measured case. The first stays short so a genuinely dead origin
+ *    doesn't leave anyone staring at the screen for several minutes.
  *
- * 2. **Un timeout NO es un rechazo.** El código trataba igual "me contestó que no" (503) y "no llegó
- *    a contestar" (-1), y peor: reintentaba también los 404. Un 404 no cambia por insistir — el
- *    archivo no está — así que reintentarlo es tirar tres timeouts para llegar al mismo lugar. Y es
- *    justo la señal de que archive renombró el archivo y hay que revalidar la metadata.
+ * 2. **A timeout is NOT a rejection.** The code used to treat "it answered no" (503) and "it never
+ *    got to answer" (-1) the same, and worse: it also retried 404s. A 404 doesn't change by
+ *    insisting -the file isn't there- so retrying it is throwing away three timeouts to land in
+ *    the same place. And it's exactly the signal that archive renamed the file and the metadata
+ *    needs revalidating.
  */
 object PoliticaOrigen {
 
     /**
-     * Cuánto aguantarle a CADA origen, porque no fallan igual.
+     * How much to put up with EACH origin, because they don't fail the same way.
      *
-     * Este objeto nació midiendo archive.org y por un tiempo su calibración se le aplicó a todo. El
-     * 2026-08-11, diagnosticando por qué magis tardaba ~15 s en arrancar, se midió el CDN de magis
-     * (`yuwc.swzablvpm.com`) y resultó ser el origen OPUESTO:
+     * This object was born measuring archive.org and for a while its calibration got applied to
+     * everything. On 2026-08-11, while diagnosing why magis took ~15 s to start, magis's CDN
+     * (`yuwc.swzablvpm.com`) got measured and turned out to be the OPPOSITE kind of origin:
      *
      * | | archive.org | magis |
      * |---|---|---|
-     * | peor caso sano | 72,3 s hasta el primer byte | 0,82 s (3 conexiones a la vez) |
-     * | cómo falla | tarda muchísimo, pero llega | no contesta NADA, nunca |
+     * | healthy worst case | 72.3 s to first byte | 0.82 s (3 connections at once) |
+     * | how it fails | takes forever, but arrives | answers NOTHING, ever |
      *
-     * En magis el caso "lento pero llega" no existe: contesta en menos de un segundo o está muerto.
-     * Con la calibración de archive, cada conexión muerta costaba **20,1 s de espera** — medido en
-     * device, con el reintento contestando en 101 ms justo después.
+     * On magis the "slow but it arrives" case doesn't exist: it answers in under a second or it's
+     * dead. With archive's calibration, every dead connection cost **20.1 s of waiting** -measured
+     * on device, with the retry answering in 101 ms right after.
      *
-     * [respuesta] y [cuerpo] son dos cosas distintas metidas en el mismo `readTimeout` de
-     * `HttpURLConnection`, y separarlas es lo que permite bajar la primera sin romper la segunda:
-     * un origen que no contesta en 2 s está muerto, pero un stream que se queda 2 s sin datos a
-     * mitad de película es un bache de WiFi de lo más normal.
+     * [response] and [body] are two different things stuffed into `HttpURLConnection`'s single
+     * `readTimeout`, and separating them is what allows lowering the first without breaking the
+     * second: an origin that doesn't answer in 2 s is dead, but a stream that goes 2 s without data
+     * mid-film is a perfectly normal WiFi hiccup.
      */
-    enum class Perfil(
+    enum class Profile(
         val conectarMs: Int,
-        internal val respuesta: IntArray,
-        internal val cuerpo: Int,
-        internal val esperaBase: Long,
+        internal val response: IntArray,
+        internal val body: Int,
+        internal val waitBase: Long,
         /**
-         * Si se le pueden reciclar sockets del pool de keep-alive.
+         * Whether sockets from the keep-alive pool can be recycled for it.
          *
-         * Magis dice que no, y el motivo es la hipótesis que explica por qué `curl` nunca reprodujo
-         * el cuelgue (socket nuevo cada vez, 26 tiros sin colgar) mientras en device colgaba
-         * siempre la conexión abierta justo después de que `precalentar` abandonara un `bytes=0-`
-         * de 209 MB habiendo leído 2 MB: un cuerpo sin drenar volviendo al pool deja el siguiente
-         * pedido leyendo restos en vez de cabeceras. Reusar le ahorra un apretón de manos de
-         * ~100 ms; el cuelgue cuesta segundos.
+         * Magis says no, and the reason is the hypothesis that explains why `curl` never
+         * reproduced the hang (a new socket every time, 26 shots with no hang) while on device the
+         * open connection always hung right after `preWarm` abandoned a 209 MB `bytes=0-` having
+         * read 2 MB: an undrained body going back into the pool leaves the next request reading
+         * leftovers instead of headers. Reusing saves a ~100 ms handshake; the hang costs seconds.
          */
         val reusaSockets: Boolean,
     ) {
-        /** 20 s → 45 s → 90 s. El último cubre con margen los 72,3 s medidos. */
+        /** 20 s → 45 s → 90 s. The last one covers the measured 72.3 s with margin. */
         ARCHIVE(15_000, intArrayOf(20_000, 45_000, 90_000), 90_000, 400L, true),
 
         /**
@@ -86,76 +86,76 @@ object PoliticaOrigen {
         MAGIS(5_000, intArrayOf(4_000, 10_000, 20_000), 30_000, 50L, false),
 
         /**
-         * El mismo CDN, pero para la SONDA DE DURACIÓN, que juega otro juego.
+         * The same CDN, but for the DURATION PROBE, which plays a different game.
          *
-         * Compartían perfil —"una sola fuente de verdad"— y tenía sentido mientras los dos querían
-         * lo mismo. Ya no: el proxy está sirviendo la reproducción y le conviene insistir, mientras
-         * que la sonda BLOQUEA EL ARRANQUE (cada segundo suyo es un segundo de spinner) y lo que
-         * busca es una duración que, si no llega, solo cuesta una barra sin total. Al alargar los
-         * plazos de [MAGIS] su peor caso pasó de 12,1 s a 28,1 s, o sea se salía del presupuesto y
-         * se cancelaba: la barra se quedaba sin duración justo en el caso que sí tenía arreglo.
+         * They used to share a profile -"one single source of truth"- and that made sense while
+         * both wanted the same thing. Not anymore: the proxy is serving playback and benefits from
+         * insisting, while the probe BLOCKS STARTUP (every second of it is a second of spinner) and
+         * what it's after is a duration that, if it doesn't arrive, only costs a bar with no total.
+         * Stretching out [MAGIS]'s deadlines pushed its worst case from 12.1 s to 28.1 s, i.e. it
+         * blew its budget and got cancelled: the bar was left with no duration in exactly the case
+         * that did have a fix.
          *
-         * Así que se queda con los 3 s planos de siempre, que es lo que cabe en su presupuesto (ver
-         * TsDurationProbeTest). Contra este CDN abandonar rápido y volver a tirar los dados gana.
+         * So it keeps the same flat 3 s as always, which is what fits its budget (see
+         * TsDurationProbeTest). Against this CDN, giving up fast and rolling the dice again wins.
          */
-        MAGIS_SONDA(5_000, intArrayOf(3_000, 3_000, 3_000), 30_000, 50L, false),
+        MAGIS_PROBE(5_000, intArrayOf(3_000, 3_000, 3_000), 30_000, 50L, false),
     }
 
-    /** Intentos contra el origen antes de rendirse. */
-    const val INTENTOS = 3
+    /** Attempts against the origin before giving up. */
+    const val ATTEMPTS = 3
 
     /**
-     * Timeout de conexión, igual en todos los intentos: lo lento no es el apretón de manos.
-     * Medido en el mismo caso: conexión 4,28 s contra 72,3 s hasta el primer byte.
+     * Connect timeout, the same across every attempt: what's slow isn't the handshake.
+     * Measured in the same case: 4.28 s to connect against 72.3 s to the first byte.
      */
-    const val CONECTAR_MS = 15_000
+    const val CONNECT_MS = 15_000
 
-    fun intentos(perfil: Perfil = Perfil.ARCHIVE): Int = perfil.respuesta.size
+    fun attempts(profile: Profile = Profile.ARCHIVE): Int = profile.response.size
 
     /**
-     * Cuánto esperar LA RESPUESTA (las cabeceras) en este intento.
+     * How long to wait for THE RESPONSE (the headers) on this attempt.
      *
-     * Crece con cada intento: contra un origen lento, repetir la misma fecha límite corta es
-     * repetir el mismo fracaso. El presupuesto completo de archive queda en ~160 s: es mucho para
-     * una pantalla en blanco, pero es el precio de no descartar un origen que sí iba a contestar, y
-     * solo se paga entero cuando el origen acepta la conexión y después se queda mudo.
+     * Grows with each attempt: against a slow origin, repeating the same short deadline is
+     * repeating the same failure. Archive's full budget lands at ~160 s: a lot for a blank screen,
+     * but it's the price of not discarding an origin that was going to answer, and it's only paid
+     * in full when the origin accepts the connection and then goes silent.
      */
-    fun respuestaMs(intento: Int, perfil: Perfil = Perfil.ARCHIVE): Int =
-        perfil.respuesta[intento.coerceIn(0, perfil.respuesta.lastIndex)]
+    fun responseMs(attempt: Int, profile: Profile = Profile.ARCHIVE): Int =
+        profile.response[attempt.coerceIn(0, profile.response.lastIndex)]
 
     /**
-     * Cuánto se aguanta un hueco LEYENDO EL CUERPO, ya con la respuesta en la mano.
+     * How long a stall is tolerated WHILE READING THE BODY, with the response already in hand.
      *
-     * Es generoso a propósito y no tiene nada que ver con [respuestaMs]: acá ya sabemos que el
-     * origen está vivo y sirviendo, y un bache de red a mitad de reproducción se recupera solo.
-     * Cortar rápido acá no arregla nada — rompe la película.
+     * Generous on purpose and unrelated to [responseMs]: by here we already know the origin is
+     * alive and serving, and a network hiccup mid-playback recovers on its own. Cutting off fast
+     * here fixes nothing -- it breaks the film.
      */
-    fun cuerpoMs(perfil: Perfil = Perfil.ARCHIVE): Int = perfil.cuerpo
+    fun bodyMs(profile: Profile = Profile.ARCHIVE): Int = profile.body
 
     /**
-     * Espera antes del siguiente intento: en archive 400 ms → 1,2 s → 3,6 s.
+     * Wait before the next attempt: on archive 400 ms → 1.2 s → 3.6 s.
      *
-     * Antes eran 400 ms fijos. Contra un nodo saturado —que es precisamente el que devuelve 503—
-     * tres intentos en 1,2 s son tres golpes seguidos al que ya avisó que no da abasto. El primero
-     * sigue siendo corto porque un "no" esporádico se recupera enseguida y no hay que castigar el
-     * caso bueno.
+     * Used to be a flat 400 ms. Against a saturated node -exactly the one answering 503- three
+     * attempts in 1.2 s is three quick blows at one that already said it can't keep up. The first
+     * stays short because an occasional "no" recovers right away and the good case shouldn't be punished.
      */
-    fun esperaMs(intento: Int, perfil: Perfil = Perfil.ARCHIVE): Long {
-        var ms = perfil.esperaBase
-        repeat(intento.coerceIn(0, perfil.respuesta.lastIndex)) { ms *= 3 }
+    fun waitMs(attempt: Int, profile: Profile = Profile.ARCHIVE): Long {
+        var ms = profile.waitBase
+        repeat(attempt.coerceIn(0, profile.response.lastIndex)) { ms *= 3 }
         return ms
     }
 
     /**
-     * Si este código merece otro intento.
+     * Whether this code deserves another attempt.
      *
-     * Solo se reintenta lo que puede cambiar solo: que no haya contestado (-1), que el servidor
-     * esté con problemas (5xx) o que nos esté frenando (429). Todo lo demás —404 y 410 porque el
-     * recurso no está, 4xx de permisos porque no se arreglan en 400 ms, y los éxitos— se responde
-     * en el acto sin gastar intentos.
+     * Only what can change on its own gets retried: no answer at all (-1), the server having
+     * trouble (5xx), or it throttling us (429). Everything else -404 and 410 because the resource
+     * isn't there, permission 4xxs because they don't fix themselves in 400 ms, and successes- gets
+     * answered on the spot without spending attempts.
      */
-    fun valeReintentar(code: Int): Boolean = code == SIN_RESPUESTA || code == 429 || code in 500..599
+    fun worthRetrying(code: Int): Boolean = code == NO_RESPONSE || code == 429 || code in 500..599
 
-    /** Código que usa el proxy cuando la conexión murió sin llegar a dar una respuesta. */
-    const val SIN_RESPUESTA = -1
+    /** Code the proxy uses when the connection died without ever giving a response. */
+    const val NO_RESPONSE = -1
 }

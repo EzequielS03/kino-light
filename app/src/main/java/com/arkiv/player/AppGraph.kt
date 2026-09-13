@@ -198,7 +198,7 @@ class AppGraph(context: Context) {
      */
     val liveHlsProxy: com.arkiv.player.playback.LiveHlsProxy by lazy {
         com.arkiv.player.playback.LiveHlsProxy(
-            com.arkiv.player.playback.FirmaLocal(),
+            com.arkiv.player.playback.LocalSignature(),
             // Tras un doble 403 irrecuperable (sesión caducada, no firma): invalida la sesión
             // cacheada de ESE canal para que el próximo abrir()/precalentar() vuelva a resolver
             // contra el gateway en vez de reusar la que ya sabemos muerta hasta 300s más.
@@ -407,16 +407,16 @@ class AppGraph(context: Context) {
      * Vigila los cambios de red para que [archiveCacheProxy] abandone las conexiones que quedaron
      * atadas a la red anterior. Se guarda la referencia aunque nadie la use: el vigilante vive lo
      * que vive el proceso, igual que el proxy, y tenerlo a mano deja poder pararlo si algún día
-     * hace falta. Ver [com.arkiv.player.playback.CambioDeRed].
+     * hace falta. Ver [com.arkiv.player.playback.NetworkChange].
      */
-    private var vigilanteDeRed: com.arkiv.player.playback.VigilanteDeRed? = null
+    private var vigilanteDeRed: com.arkiv.player.playback.NetworkWatchdog? = null
 
     val archiveCacheProxy: com.arkiv.player.playback.ArchiveCacheProxy by lazy {
         com.arkiv.player.playback.ArchiveCacheProxy(java.io.File(appContext.cacheDir, "archive-cache"))
             .also { proxy ->
-                vigilanteDeRed = com.arkiv.player.playback.VigilanteDeRed(appContext) { motivo ->
+                vigilanteDeRed = com.arkiv.player.playback.NetworkWatchdog(appContext) { motivo ->
                     proxy.abandonConnections(motivo)
-                }.apply { empezar() }
+                }.apply { start() }
             }
     }
     val applicationScope: CoroutineScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.IO) }

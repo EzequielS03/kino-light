@@ -137,7 +137,7 @@ import com.arkiv.player.ui.tv.library.SAFE_H
 import com.arkiv.player.ui.tv.library.SAFE_V
 import com.arkiv.player.playback.AutoAdvance
 import com.arkiv.player.playback.DecoderWatchdog
-import com.arkiv.player.playback.EsperaDePrimeraImagen
+import com.arkiv.player.playback.FirstFrameWait
 import com.arkiv.player.playback.LoadedMedia
 import com.arkiv.player.playback.MediaReusePolicy
 import com.arkiv.player.playback.NowPlaying
@@ -699,7 +699,7 @@ private fun PlayerContent(
 
     // Distinto de [esperandoVideo], que es "HABÍA imagen y se perdió al volver del fondo". Esto es
     // "todavía no hubo ninguna": el arranque negro con sonido. For the local player it is decided by
-    // [EsperaDePrimeraImagen] from [localVideo] and the controller's tracks (see the polling loop).
+    // [FirstFrameWait] from [localVideo] and the controller's tracks (see the polling loop).
     var sinPrimeraImagen by remember { mutableStateOf(false) }
 
     // Identidad de ESTA composición del reproductor. Al recrearse la pantalla (volver del segundo
@@ -1451,22 +1451,22 @@ private fun PlayerContent(
             // the origin URL can change from one load to the next even if the episode is the same
             // (it used to be torrent's case, now removed; today it's the live server's and Magis's
             // token's).
-            cargado = (0 until controller.mediaItemCount).map { i ->
+            loaded = (0 until controller.mediaItemCount).map { i ->
                 val mi = controller.getMediaItemAt(i)
                 LoadedMedia(mi.mediaId, mi.requestMetadata.mediaUri?.toString().orEmpty())
             },
-            actualMediaId = actualMediaId,
-            fresco = pl.items.map { LoadedMedia(it.episodeId, it.mediaUrl) },
-            pedido = pl.pedido,
+            currentMediaId = actualMediaId,
+            fresh = pl.items.map { LoadedMedia(it.episodeId, it.mediaUrl) },
+            requested = pl.pedido,
             // Did we land back on a NEW screen? Reusing the media with a new surface kills the
             // decoder (see MediaReusePolicy.decide for the measured numbers). The loaded media
             // already painted (the service player's decoder counters) but not on THIS screen, so it
             // painted on another screen's surface: the same question libVLC's
             // `superficieDistintaALaDelVideo` used to answer. False while it never painted.
-            pantallaNueva = (serviceExo.videoDecoderCounters?.renderedOutputBufferCount ?: 0) > 0 &&
+            newScreen = (serviceExo.videoDecoderCounters?.renderedOutputBufferCount ?: 0) > 0 &&
                 !localVideo.renderedFirstFrame,
         )
-        if (decision == MediaReusePolicy.Decision.ESPERAR) {
+        if (decision == MediaReusePolicy.Decision.WAIT) {
             android.util.Log.w("ArkivPlay", "playlist for ANOTHER episode (requested=${pl.pedido} ≠ $episodeId) → waiting for mine")
             return@LaunchedEffect
         }
@@ -1515,9 +1515,9 @@ private fun PlayerContent(
         when (decision) {
             // Inalcanzable: se corta arriba, apenas se calcula la decisión. La rama existe porque el
             // `when` sobre Decision es exhaustivo.
-            MediaReusePolicy.Decision.ESPERAR -> Unit
+            MediaReusePolicy.Decision.WAIT -> Unit
             // Mismo episodio ya en curso Y con la misma URL: re-enganchar (aprovecha el buffer).
-            MediaReusePolicy.Decision.REUSAR_ACTUAL -> {
+            MediaReusePolicy.Decision.REUSE_CURRENT -> {
                 android.util.Log.w("ArkivPlay", "branch=REUSE_CURRENT → controller.play() (does NOT reload media)")
                 currentIndex = controller.currentMediaItemIndex
                 // El controller puede llegar acá cebado-pero-no-preparado: la rama CAST de arriba lo
@@ -1533,7 +1533,7 @@ private fun PlayerContent(
                 controller.play()
             }
             // Misma sección ya cargada (mismas URLs), otro episodio: saltar dentro de la playlist.
-            MediaReusePolicy.Decision.SALTAR_EN_PLAYLIST -> {
+            MediaReusePolicy.Decision.SKIP_IN_PLAYLIST -> {
                 // `actualMediaId` is guaranteed different from `episodeId` here -- decide() would
                 // have returned REUSAR_ACTUAL/RECARGAR otherwise -- so this always resolves to
                 // Source.PLAYLIST. Routed through the same policy as RECARGAR below anyway: it's
@@ -1561,7 +1561,7 @@ private fun PlayerContent(
             // New content, or the URL changed under the same episodeId (before: torrent re-served
             // on another port, source now removed; today: magis token renewed on re-resolution):
             // load the playlist with the fresh URL.
-            MediaReusePolicy.Decision.RECARGAR -> {
+            MediaReusePolicy.Decision.RELOAD -> {
                 // The stale-playlist race (see ReloadPositionPolicy's KDoc): the screen can reach
                 // RECARGAR on a re-mount whose `playlist` StateFlow value is minutes old while the
                 // controller kept playing THIS episode in the background the whole time. Resuming
@@ -1707,20 +1707,20 @@ private fun PlayerContent(
     /**
      * Local counterpart of `exoYaPintoAlgo`: the first-frame spinner rule, fed by [localVideo].
      *
-     * `pedidoMs`/`posicionMs` keep [EsperaDePrimeraImagen]'s resume-landing branch wired: this may
+     * `requestedMs`/`positionMs` keep [FirstFrameWait]'s resume-landing branch wired: this may
      * well be a no-op today, because ExoPlayer's `setMediaItems(…, startPositionMs)` opens straight
      * at the requested position instead of opening at 0 and seeking there the way libVLC did (an
      * upcoming device test will settle that) -- but the rule is cheap insurance meanwhile.
      */
     fun localWaitsForFirstFrame(): Boolean {
         val tracks = controller.currentTracks
-        return EsperaDePrimeraImagen.hayQueEsperar(
-            cargadoHaceMs = localVideo.msSinceLoad(android.os.SystemClock.elapsedRealtime()),
-            huboImagen = localVideo.renderedFirstFrame,
-            pistasDeVideo = tracks.groups.count { it.type == C.TRACK_TYPE_VIDEO },
-            pistasDeAudio = tracks.groups.count { it.type == C.TRACK_TYPE_AUDIO },
-            pedidoMs = playlistRef.value?.startPositionMs ?: 0L,
-            posicionMs = controller.currentPosition.coerceAtLeast(0L),
+        return FirstFrameWait.shouldWait(
+            loadedMsAgo = localVideo.msSinceLoad(android.os.SystemClock.elapsedRealtime()),
+            hadFrame = localVideo.renderedFirstFrame,
+            videoTracks = tracks.groups.count { it.type == C.TRACK_TYPE_VIDEO },
+            audioTracks = tracks.groups.count { it.type == C.TRACK_TYPE_AUDIO },
+            requestedMs = playlistRef.value?.startPositionMs ?: 0L,
+            positionMs = controller.currentPosition.coerceAtLeast(0L),
         )
     }
 

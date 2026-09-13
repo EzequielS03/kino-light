@@ -24,111 +24,111 @@ object TsDurationProbe {
     private const val TAG = "ArkivTsDur"
 
 
-    /** Cuánto se baja de cada punta para buscar PCR. 256 KB ≈ 1400 paquetes: de sobra (el PCR se
-     *  repite como mínimo cada 100 ms por norma). */
+    /** How much is downloaded from each end looking for a PCR. 256 KB ≈ 1400 packets: plenty (a
+     *  PCR repeats at least every 100 ms by spec). */
     const val PROBE_BYTES = 256 * 1024
 
     /**
-     * Cuánto puede tardar la sonda ENTERA antes de que se la dé por perdida y se reproduzca sin
-     * duración. Lo aplica quien llama (el video no arranca hasta que esto termina).
+     * How long the WHOLE probe can take before it's given up for lost and playback starts with no
+     * duration. Applied by the caller (the video doesn't start until this finishes).
      *
-     * Eran 30 s, que es una barbaridad para algo que solo pinta una barra de progreso: la duración
-     * es una mejora, nunca un motivo para dejar al usuario mirando un spinner. El número de ahora
-     * sale de [TsDurationProbeTest]: tiene que entrar el caso MEDIDO —una conexión muerta por
-     * tramo, recuperada en el segundo intento— y poco más.
+     * It used to be 30 s, which is excessive for something that only paints a progress bar: the
+     * duration is a nicety, never a reason to leave the user staring at a spinner. Today's number
+     * comes from [TsDurationProbeTest]: it has to fit the MEASURED case -one dead connection per
+     * stretch, recovered on the second attempt- and little more.
      */
-    const val PRESUPUESTO_MS = 13_000L
+    const val BUDGET_MS = 13_000L
 
     /**
-     * Intentos por tramo, y cuánto se le aguanta a cada uno.
+     * Attempts per stretch, and how long each one gets.
      *
-     * Contra este CDN **abandonar rápido y volver a intentar gana**: una conexión nueva vuelve a
-     * jugar la lotería, mientras que esperar a la mala solo gasta el presupuesto. Antes era un
-     * intento de 15 s + uno de repuesto, y perdía cuando el CDN se ponía denso (visto en device:
-     * los dos tramos vencidos y la película sin duración).
+     * Against this CDN **giving up fast and trying again wins**: a new connection rolls the dice
+     * again, while waiting out a bad one only spends the budget. It used to be one 15 s attempt
+     * plus a spare, and lost whenever the CDN got dense (seen on device: both stretches timed out
+     * and the film came out with no duration).
      *
-     * Los NÚMEROS ya no viven acá. Esta sonda le pega exactamente al mismo CDN que
-     * [ArchiveCacheProxy], así que tener su propia calibración solo servía para que las dos se
-     * fueran separando: el 2026-08-11 el proxy esperaba 20 s y la sonda 8 s a la misma conexión
-     * muerta, y las dos de más (el reintento contestaba en ~1 s). Fuente única:
-     * [PoliticaOrigen.Perfil.MAGIS].
+     * The NUMBERS no longer live here. This probe hits exactly the same CDN as
+     * [ArchiveCacheProxy], so keeping its own calibration only let the two drift apart: on
+     * 2026-08-11 the proxy waited 20 s and the probe 8 s on the same dead connection, both too
+     * long (the retry answered in ~1 s). Single source: [PoliticaOrigen.Profile.MAGIS].
      */
-    // Perfil propio y no el de la reproducción: ver [PoliticaOrigen.Perfil.MAGIS_SONDA]. Acá lo que
-    // se juega es un spinner, no que la película se corte, así que se abandona antes.
-    private val PERFIL = PoliticaOrigen.Perfil.MAGIS_SONDA
-    private val INTENTOS = PoliticaOrigen.intentos(PERFIL)
+    // Its own profile, not playback's: see [PoliticaOrigen.Profile.MAGIS_PROBE]. What's at stake
+    // here is a spinner, not the film cutting out, so it gives up sooner.
+    private val PROFILE = PoliticaOrigen.Profile.MAGIS_PROBE
+    private val ATTEMPTS = PoliticaOrigen.attempts(PROFILE)
 
-    fun timeoutLecturaMs(intento: Int): Int = PoliticaOrigen.respuestaMs(intento, PERFIL)
+    fun readTimeoutMs(attempt: Int): Int = PoliticaOrigen.responseMs(attempt, PROFILE)
 
-    /** Respiro entre intentos: corto a propósito, la gracia es volver a tirar los dados ya. */
-    fun esperaEntreIntentosMs(intento: Int): Long = PoliticaOrigen.esperaMs(intento, PERFIL)
+    /** Breather between attempts: short on purpose, the point is to roll the dice again right away. */
+    fun waitBetweenAttemptsMs(attempt: Int): Long = PoliticaOrigen.waitMs(attempt, PROFILE)
 
-    /** Por encima de esto el parseo se fue a la basura: mejor sin duración que con una inventada. */
-    private const val MAX_CREIBLE_MS = 24L * 60 * 60 * 1000
+    /** Above this the parsing went haywire: better no duration than a made-up one. */
+    private const val MAX_BELIEVABLE_MS = 24L * 60 * 60 * 1000
 
     /**
-     * Duración en ms entre el primer PCR de [cabeza] y el último de [cola] del MISMO pid, o 0 si no
-     * se puede determinar. Exigir el mismo pid evita mezclar relojes de programas distintos, que
-     * darían un número disparatado.
+     * Duration in ms between [head]'s first PCR and [tail]'s last one of the SAME pid, or 0 if it
+     * can't be determined. Requiring the same pid avoids mixing clocks from different programs,
+     * which would give a nonsensical number.
      *
-     * El parseo de paquetes vive en [MpegTs] desde que [TsSegmenter] necesitó exactamente lo mismo:
-     * dos copias acabarían respondiendo distinto sobre una vuelta del contador o sobre dónde
-     * empieza un paquete, y eso se vería como una barra que no cuadra con el playlist.
+     * Packet parsing lives in [MpegTs] since [TsSegmenter] needed exactly the same thing: two
+     * copies would end up disagreeing about a counter wraparound or where a packet starts, and
+     * that would show up as a bar that doesn't line up with the playlist.
      */
-    fun durationMs(cabeza: ByteArray, cola: ByteArray): Long {
-        val primero = MpegTs.pcrs(cabeza).firstOrNull() ?: return 0L
-        val ultimo = MpegTs.pcrs(cola).lastOrNull { it.pid == primero.pid } ?: return 0L
-        val ms = MpegTs.deltaTicks(primero.base90k, ultimo.base90k) * 1000 / MpegTs.PCR_HZ
-        return if (ms in 1..MAX_CREIBLE_MS) ms else 0L
+    fun durationMs(head: ByteArray, tail: ByteArray): Long {
+        val first = MpegTs.pcrs(head).firstOrNull() ?: return 0L
+        val last = MpegTs.pcrs(tail).lastOrNull { it.pid == first.pid } ?: return 0L
+        val ms = MpegTs.deltaTicks(first.base90k, last.base90k) * 1000 / MpegTs.PCR_HZ
+        return if (ms in 1..MAX_BELIEVABLE_MS) ms else 0L
     }
 
     /**
-     * Baja las dos puntas del stream y calcula la duración. Devuelve 0 si algo falla: es una mejora
-     * de la barra, nunca un motivo para no reproducir.
+     * Downloads both ends of the stream and calculates the duration. Returns 0 if anything fails:
+     * it's a nicety for the bar, never a reason not to play.
      *
-     * [headers] son los del origen (magis sirve detrás de `Content-Auth` y `Content-License`).
+     * [headers] are the origin's (magis serves behind `Content-Auth` and `Content-License`).
      */
     suspend fun probeRemote(url: String, headers: Map<String, String>): Long = withContext(Dispatchers.IO) {
         val t0 = System.currentTimeMillis()
-        // UNA PUNTA A LA VEZ, y la cola primero. Medido después: el CDN SÍ atiende dos conexiones
-        // al mismo archivo (la teoría vieja de "una por archivo" era falsa), pero responde cada
-        // rango cuando quiere —entre 0,2 s y 20 s— así que pedir las dos juntas no acorta nada y
-        // duplica las chances de comerse una mala. La cola va por rango-sufijo (`bytes=-N`) para
-        // no tener que preguntar antes el tamaño, y va primera porque es la que más falla: si no
-        // hay cola no hay duración, y así no se gasta el presupuesto bajando una cabeza inútil.
-        val cola = fetchRange(url, headers, "bytes=-$PROBE_BYTES")
+        // ONE END AT A TIME, and the tail first. Measured afterward: the CDN DOES serve two
+        // connections to the same file (the old "one per file" theory was false), but answers each
+        // range whenever it feels like it -between 0.2 s and 20 s- so requesting both together
+        // shortens nothing and doubles the chances of hitting a bad one. The tail goes by
+        // suffix-range (`bytes=-N`) so as not to have to ask the size first, and goes first because
+        // it's the one that fails most: no tail means no duration, so no point spending the budget
+        // downloading a useless head.
+        val tail = fetchRange(url, headers, "bytes=-$PROBE_BYTES")
             ?: return@withContext 0L
-        val cabeza = fetchRange(url, headers, "bytes=0-${PROBE_BYTES - 1}")
+        val head = fetchRange(url, headers, "bytes=0-${PROBE_BYTES - 1}")
             ?: return@withContext 0L
-        val ms = durationMs(cabeza, cola)
+        val ms = durationMs(head, tail)
         android.util.Log.w(
             TAG,
-            "PCR probe: head=${cabeza.size}B tail=${cola.size}B → duration=${ms}ms " +
+            "PCR probe: head=${head.size}B tail=${tail.size}B → duration=${ms}ms " +
                 "(${System.currentTimeMillis() - t0}ms)",
         )
         ms
     }
 
-    /** Un tramo, reintentando: ver [INTENTOS] para por qué son varios y cortos. */
+    /** One stretch, retrying: see [ATTEMPTS] for why there are several, short ones. */
     private fun fetchRange(url: String, headers: Map<String, String>, range: String): ByteArray? {
-        repeat(INTENTOS) { i ->
-            intentarTramo(url, headers, range, i)?.let { return it }
-            if (i < INTENTOS - 1) Thread.sleep(esperaEntreIntentosMs(i))
+        repeat(ATTEMPTS) { i ->
+            tryRange(url, headers, range, i)?.let { return it }
+            if (i < ATTEMPTS - 1) Thread.sleep(waitBetweenAttemptsMs(i))
         }
-        android.util.Log.w(TAG, "range $range: exhausted all $INTENTOS attempts")
+        android.util.Log.w(TAG, "range $range: exhausted all $ATTEMPTS attempts")
         return null
     }
 
-    private fun intentarTramo(
+    private fun tryRange(
         url: String,
         headers: Map<String, String>,
         range: String,
-        intento: Int,
+        attempt: Int,
     ): ByteArray? =
         runCatching {
-            val conn = abrir(url, headers, range, intento)
-            // Sin 206 el servidor ignoró el Range y estaría mandando el archivo ENTERO (cientos de
-            // MB por una sonda). Se corta antes de leer nada.
+            val conn = open(url, headers, range, attempt)
+            // No 206 means the server ignored the Range and would be sending the WHOLE file
+            // (hundreds of MB for a probe). Cut off before reading anything.
             if (conn.responseCode != HttpURLConnection.HTTP_PARTIAL) {
                 android.util.Log.w(TAG, "range $range: the origin ignored the Range (${conn.responseCode})")
                 conn.disconnect()
@@ -142,20 +142,20 @@ object TsDurationProbe {
             null
         }
 
-    private fun abrir(
+    private fun open(
         url: String,
         headers: Map<String, String>,
         range: String,
-        intento: Int,
+        attempt: Int,
     ): HttpURLConnection =
         (URL(url).openConnection() as HttpURLConnection).apply {
             instanceFollowRedirects = true
             setRequestProperty("User-Agent", "Arkiv/0.1 (personal)")
             headers.forEach { (k, v) -> setRequestProperty(k, v) }
             setRequestProperty("Range", range)
-            // Socket nuevo, sin reciclar del pool: ver PoliticaOrigen.Perfil.reusaSockets.
-            if (!PERFIL.reusaSockets) setRequestProperty("Connection", "close")
-            connectTimeout = PERFIL.conectarMs
-            readTimeout = timeoutLecturaMs(intento)
+            // A new socket, not recycled from the pool: see PoliticaOrigen.Profile.reusaSockets.
+            if (!PROFILE.reusaSockets) setRequestProperty("Connection", "close")
+            connectTimeout = PROFILE.conectarMs
+            readTimeout = readTimeoutMs(attempt)
         }
 }

@@ -10,7 +10,7 @@ package com.arkiv.player.playback
  * `LaunchedEffect(playlist, generacionVivo)` re-ran with whatever `PlaylistData` the ViewModel's
  * StateFlow still held in memory -- which was the one from the *previous* mount, published
  * minutes earlier, because the fresh one (from the `LaunchedEffect(episodeId)` that calls
- * `vm.load` right after) hadn't landed yet. `MediaReusePolicy.decide` correctly said RECARGAR --
+ * `vm.load` right after) hadn't landed yet. `MediaReusePolicy.decide` correctly said RELOAD --
  * the screen is new, see its KDoc for why that reload stays -- but reloading at that stale
  * playlist's `startPositionMs` threw away eleven minutes of real progress the controller had
  * already made while the screen was gone.
@@ -46,7 +46,7 @@ object ReloadPositionPolicy {
      * `startPositionMs` is always a snapshot of a past instant, so it can only lag the live clock,
      * never lead it, for one continuous playback session. An explicit "start over" action reaches
      * the player through a new episodeId or a new screen (`pantallaNueva`), i.e. through
-     * `MediaReusePolicy.decide` returning RECARGAR with `actualMediaId != episodeId` or a genuinely
+     * `MediaReusePolicy.decide` returning RELOAD with `actualMediaId != episodeId` or a genuinely
      * new surface -- not through this race -- so it isn't affected by always trusting the live
      * clock here.
      *

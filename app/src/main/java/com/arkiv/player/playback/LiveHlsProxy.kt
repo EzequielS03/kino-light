@@ -39,7 +39,7 @@ import java.net.URLEncoder
  * the final review).
  */
 class LiveHlsProxy(
-    private val signatures: FirmaDeSegmentos,
+    private val signatures: SegmentSignature,
     private val onSessionDead: (channel: String) -> Unit = {},
 ) {
 
@@ -89,7 +89,7 @@ class LiveHlsProxy(
         activeCdn ?: s.cdns.firstOrNull() ?: CdnDeCanal(s.cflHost, s.authBase)
 
     private suspend fun contentAuth(s: LiveSession, cdn: CdnDeCanal = cdnFor(s)): String {
-        val f = signatures.firmar(cdn.token)
+        val f = signatures.sign(cdn.token)
         return "${cdn.authBase}&sign2_method=sign_o3&instance=0" +
             "&start_moment=${f.moment}&sign2=${f.sign2}"
     }
@@ -253,7 +253,7 @@ class LiveHlsProxy(
      * (`session!!.license` with `session` already null).
      *
      * A single 403 counts as ONE rejection, no matter how many HTTP attempts this function makes
-     * to resolve it: it used to call `signatures.rechazada()` once PER ATTEMPT (up to two, in here),
+     * to resolve it: it used to call `signatures.rejected()` once PER ATTEMPT (up to two, in here),
      * so a single "real" 403 -e.g. the "session expired, not the signature" case- was already
      * pushing [FirmaConRespaldo]'s counter two steps at once, triggering the fallback with only
      * HALF the real rejections it should take to see (finding F1 from the final review).
@@ -282,8 +282,8 @@ class LiveHlsProxy(
             val ms = System.currentTimeMillis() - t0
             // Both 401 and 403: this CDN uses 401 and only checking 403 left the signature
             // considered good, the backup never switching, and the channel dead with a 502. See
-            // [esRechazoDeFirma].
-            if (!esRechazoDeFirma(code)) {
+            // [isSignatureRejection].
+            if (!isSignatureRejection(code)) {
                 android.util.Log.w(
                     "LiveHlsProxy",
                     "$kind → $code in ${ms}ms" + (if (attempt > 0) " (2nd attempt)" else "") +
@@ -300,7 +300,7 @@ class LiveHlsProxy(
                 )
                 // Reports that the signature used in THIS request was accepted: it's the signal
                 // FirmaConRespaldo needs to reset its consecutive-rejections counter.
-                signatures.aceptada()
+                signatures.accepted()
                 return c
             }
             // 401/403 = the signature didn't work. Logged separately because it's the EXPENSIVE
@@ -309,7 +309,7 @@ class LiveHlsProxy(
             android.util.Log.w("LiveHlsProxy", "$kind → $code SIGNATURE REJECTED in ${ms}ms (attempt ${attempt + 1}/2)")
             // The report is what lets FirmaConRespaldo detect that the algorithm stopped working
             // and switch to the gateway. Without this, the backup never kicks in.
-            if (!notified) { signatures.rechazada(); notified = true }
+            if (!notified) { signatures.rejected(); notified = true }
             c.disconnect()
         }
         android.util.Log.w(

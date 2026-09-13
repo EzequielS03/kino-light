@@ -1,75 +1,77 @@
 package com.arkiv.player.playback
 
-/** Un media cargado (o por cargar) visto como lo que importa para decidir: qué es y de dónde sale. */
+/** A media that's loaded (or about to be) seen as what matters for deciding: what it is and where it comes from. */
 data class LoadedMedia(val mediaId: String, val uri: String)
 
 /**
- * Si el media que ya está en el player sirve para lo que se pide, o hay que recargarlo.
+ * Whether the media already in the player works for what's being asked, or it has to reload.
  *
- * Vive aparte de la pantalla para poder probarse: es la regla que decide si aprovechás el buffer o
- * empezás de cero, y no debería depender de Compose ni de media3.
+ * Lives apart from the screen so it can be tested: it's the rule that decides whether you get to
+ * keep the buffer or start from zero, and it shouldn't depend on Compose or media3.
  */
 object MediaReusePolicy {
 
-    enum class Decision { REUSAR_ACTUAL, SALTAR_EN_PLAYLIST, RECARGAR, ESPERAR }
+    enum class Decision { REUSE_CURRENT, SKIP_IN_PLAYLIST, RELOAD, WAIT }
 
     /**
-     * @param pedido el episodeId con el que se armó la playlist `fresco` (ver `PlaylistData.pedido`).
-     *   No siempre es [episodeId]: el ViewModel sobrevive a la navegación entre capítulos, así que
-     *   apenas la pantalla entra al capítulo nuevo lo que hay publicado sigue siendo la playlist del
-     *   ANTERIOR hasta que la fuente termine de resolver (segundos, en magis/web).
+     * @param requested the episodeId `fresh` playlist was built with (see `PlaylistData.pedido`).
+     *   Not always [episodeId]: the ViewModel survives navigation between chapters, so as soon as
+     *   the screen enters the new chapter what's published is still the PREVIOUS one's playlist
+     *   until the source finishes resolving (seconds, on magis/web).
      */
     fun decide(
         episodeId: String,
-        cargado: List<LoadedMedia>,
-        actualMediaId: String?,
-        fresco: List<LoadedMedia>,
-        pedido: String,
+        loaded: List<LoadedMedia>,
+        currentMediaId: String?,
+        fresh: List<LoadedMedia>,
+        requested: String,
         /**
-         * Si esta pantalla del reproductor es OTRA que la que dejó ese media reproduciendo — o sea si
-         * la superficie de video es nueva.
+         * Whether this player screen is a DIFFERENT one than the one that left that media playing
+         * -- i.e. whether the video surface is new.
          *
-         * Existe porque reusar un media con una superficie nueva MATA al decodificador. Medido en el
-         * Fire TV el 2026-08-13, contando sobre cuatro capturas de logcat:
+         * Exists because reusing a media with a new surface KILLS the decoder. Measured on the
+         * Fire TV on 2026-08-13, counting over four logcat captures:
          *
          * ```
-         *   REUSAR_ACTUAL   RECARGAR   decodificador muerto
+         *   REUSE_CURRENT   RELOAD   dead decoder
          *        0              7                0
          *        4              6                6
          *        2              2                2
          *        1              3                2
          * ```
          *
-         * Cero reusos, cero muertes; y en las demás, dos fatales por cada reuso. El decodificador
-         * HEVC de este aparato contesta `err 0x80001005` (OMX_ErrorBadParameter), se marca
-         * `DecoderErrorFatal = 1` y hay que crear uno nuevo — mientras tanto el audio sigue y la
-         * pantalla queda NEGRA entre 2 y 6 s, sin spinner, porque para la app el video "ya tenía
-         * imagen". Recargar, en cambio, no falló ni una vez en 18 pruebas.
+         * Zero reuses, zero deaths; and in the rest, two fatal errors for every reuse. This
+         * device's HEVC decoder answers `err 0x80001005` (OMX_ErrorBadParameter), gets marked
+         * `DecoderErrorFatal = 1` and a new one has to be created -- meanwhile the audio keeps
+         * going and the screen stays BLACK for 2 to 6 s, with no spinner, because as far as the app
+         * is concerned the video "already had a picture". Reloading, on the other hand, didn't fail
+         * once in 18 trials.
          *
-         * No se saca el reuso entero: sigue siendo lo correcto cuando la pantalla es la MISMA (volver
-         * del overlay, cambiar de pista), donde no hay superficie nueva y recargar seria tirar el
-         * buffer al pedo.
+         * The whole reuse path isn't removed: it's still correct when the screen is the SAME one
+         * (coming back from the overlay, switching tracks), where there's no new surface and
+         * reloading would throw the buffer away for nothing.
          */
-        pantallaNueva: Boolean = false,
+        newScreen: Boolean = false,
     ): Decision {
         // What arrived is for another episode: nothing to decide yet. Checked first, because
         // loading it would play the wrong episode from any source. See the test
         // `playlist_del_capitulo_anterior_espera`.
-        if (pedido != episodeId) return Decision.ESPERAR
-        // La identidad del episodio NO alcanza para reusar: hay que mirar de dónde sale. Un torrent
-        // se sirve en 127.0.0.1:<puerto efímero>, y `startStream()` mata el servidor anterior y abre
-        // otro en un puerto nuevo — el mismo episodeId puede estar cargado apuntando a un puerto ya
-        // muerto. Reusarlo dejaba al player sin abrir nada: pantalla negra con el torrent bajando bien.
-        val urlCargada = cargado.firstOrNull { it.mediaId == episodeId }?.uri
-        val urlFresca = fresco.firstOrNull { it.mediaId == episodeId }?.uri
-        if (urlCargada != null && urlCargada != urlFresca) return Decision.RECARGAR
-        // Con superficie nueva se recarga aunque sea el mismo media: ver [pantallaNueva].
-        if (actualMediaId == episodeId) {
-            return if (pantallaNueva) Decision.RECARGAR else Decision.REUSAR_ACTUAL
+        if (requested != episodeId) return Decision.WAIT
+        // The episode's identity is NOT enough to reuse: where it comes from has to be checked too.
+        // A torrent is served on 127.0.0.1:<ephemeral port>, and `startStream()` kills the previous
+        // server and opens another on a new port -- the same episodeId can be loaded pointing at a
+        // port that's already dead. Reusing it left the player with nothing open: black screen with
+        // the torrent downloading fine.
+        val loadedUrl = loaded.firstOrNull { it.mediaId == episodeId }?.uri
+        val freshUrl = fresh.firstOrNull { it.mediaId == episodeId }?.uri
+        if (loadedUrl != null && loadedUrl != freshUrl) return Decision.RELOAD
+        // With a new surface it reloads even if it's the same media: see [newScreen].
+        if (currentMediaId == episodeId) {
+            return if (newScreen) Decision.RELOAD else Decision.REUSE_CURRENT
         }
-        if (cargado.isNotEmpty() && cargado.map { it.mediaId } == fresco.map { it.mediaId }) {
-            return Decision.SALTAR_EN_PLAYLIST
+        if (loaded.isNotEmpty() && loaded.map { it.mediaId } == fresh.map { it.mediaId }) {
+            return Decision.SKIP_IN_PLAYLIST
         }
-        return Decision.RECARGAR
+        return Decision.RELOAD
     }
 }

@@ -5,20 +5,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Un MPEG-TS no dice cuánto dura en ninguna cabecera: la duración se deduce restando el reloj (PCR)
- * del final menos el del principio. Estos tests fijan ese cálculo con paquetes TS sintéticos.
+ * An MPEG-TS doesn't say how long it runs in any header: the duration is deduced by subtracting
+ * the clock (PCR) at the start from the one at the end. These tests pin that calculation with
+ * synthetic TS packets.
  */
 class TsDurationProbeTest {
 
-    /** Paquete TS de 188 bytes con un PCR (base a 90 kHz) en el campo de adaptación. */
-    private fun paqueteConPcr(pid: Int, base90k: Long): ByteArray {
+    /** 188-byte TS packet with a PCR (90 kHz base) in the adaptation field. */
+    private fun packetWithPcr(pid: Int, base90k: Long): ByteArray {
         val p = ByteArray(188) { 0xFF.toByte() }
         p[0] = 0x47
         p[1] = ((pid shr 8) and 0x1F).toByte()
         p[2] = (pid and 0xFF).toByte()
-        p[3] = 0x20                              // solo campo de adaptación, sin payload
-        p[4] = 183.toByte()                      // longitud del campo de adaptación
-        p[5] = 0x10                              // flag de PCR presente
+        p[3] = 0x20                              // adaptation field only, no payload
+        p[4] = 183.toByte()                      // adaptation field length
+        p[5] = 0x10                              // PCR-present flag
         p[6] = ((base90k shr 25) and 0xFF).toByte()
         p[7] = ((base90k shr 17) and 0xFF).toByte()
         p[8] = ((base90k shr 9) and 0xFF).toByte()
@@ -28,125 +29,125 @@ class TsDurationProbeTest {
         return p
     }
 
-    /** Paquete TS sin PCR (solo payload), del mismo pid. */
-    private fun paqueteSinPcr(pid: Int): ByteArray {
+    /** TS packet with no PCR (payload only), same pid. */
+    private fun packetWithoutPcr(pid: Int): ByteArray {
         val p = ByteArray(188) { 0xFF.toByte() }
         p[0] = 0x47
         p[1] = ((pid shr 8) and 0x1F).toByte()
         p[2] = (pid and 0xFF).toByte()
-        p[3] = 0x10                              // solo payload
+        p[3] = 0x10                              // payload only
         return p
     }
 
-    private fun bloque(vararg paquetes: ByteArray): ByteArray =
-        paquetes.fold(ByteArray(0)) { acc, p -> acc + p }
+    private fun block(vararg packets: ByteArray): ByteArray =
+        packets.fold(ByteArray(0)) { acc, p -> acc + p }
 
-    @Test fun duracion_es_el_ultimo_pcr_de_la_cola_menos_el_primero_de_la_cabeza() {
-        val cabeza = bloque(
-            paqueteConPcr(0x100, 90_000L),        // 1 s
-            paqueteSinPcr(0x100),
-            paqueteConPcr(0x100, 180_000L),
+    @Test fun duration_is_the_tail_s_last_pcr_minus_the_head_s_first() {
+        val head = block(
+            packetWithPcr(0x100, 90_000L),        // 1 s
+            packetWithoutPcr(0x100),
+            packetWithPcr(0x100, 180_000L),
         )
-        val cola = bloque(
-            paqueteConPcr(0x100, 900_000_000L),
-            paqueteConPcr(0x100, 913_050_000L),   // 10 145 s
+        val tail = block(
+            packetWithPcr(0x100, 900_000_000L),
+            packetWithPcr(0x100, 913_050_000L),   // 10,145 s
         )
         // (913050000 - 90000) / 90 = 10144000 ms
-        assertEquals(10_144_000L, TsDurationProbe.durationMs(cabeza, cola))
+        assertEquals(10_144_000L, TsDurationProbe.durationMs(head, tail))
     }
 
-    @Test fun se_alinea_cuando_la_cola_arranca_a_mitad_de_paquete() {
-        val cabeza = bloque(paqueteConPcr(0x100, 0L))
-        // Una petición Range cae en cualquier byte: la cola llega desalineada y hay que
-        // encontrar el sincronismo antes de parsear.
-        val cola = ByteArray(57) { 0x11 } + bloque(
-            paqueteConPcr(0x100, 90_000L),
-            paqueteConPcr(0x100, 180_000L),
-            paqueteConPcr(0x100, 270_000L),
+    @Test fun aligns_when_the_tail_starts_mid_packet() {
+        val head = block(packetWithPcr(0x100, 0L))
+        // A Range request can land on any byte: the tail arrives misaligned and sync has to be
+        // found before parsing.
+        val tail = ByteArray(57) { 0x11 } + block(
+            packetWithPcr(0x100, 90_000L),
+            packetWithPcr(0x100, 180_000L),
+            packetWithPcr(0x100, 270_000L),
         )
-        assertEquals(3_000L, TsDurationProbe.durationMs(cabeza, cola))
+        assertEquals(3_000L, TsDurationProbe.durationMs(head, tail))
     }
 
-    @Test fun ignora_los_pcr_de_otro_pid() {
-        val cabeza = bloque(paqueteConPcr(0x100, 90_000L))
-        val cola = bloque(
-            paqueteConPcr(0x100, 90_090_000L),    // el bueno: 1000 s después
-            paqueteConPcr(0x200, 500_000_000L),   // otro programa, no debe contar
+    @Test fun ignores_pcrs_from_another_pid() {
+        val head = block(packetWithPcr(0x100, 90_000L))
+        val tail = block(
+            packetWithPcr(0x100, 90_090_000L),    // the right one: 1000 s later
+            packetWithPcr(0x200, 500_000_000L),   // another program, must not count
         )
-        assertEquals(1_000_000L, TsDurationProbe.durationMs(cabeza, cola))
+        assertEquals(1_000_000L, TsDurationProbe.durationMs(head, tail))
     }
 
-    @Test fun cero_cuando_la_cola_no_trae_pcr_del_mismo_pid() {
-        val cabeza = bloque(paqueteConPcr(0x100, 90_000L))
-        val cola = bloque(paqueteConPcr(0x200, 90_090_000L))
-        assertEquals(0L, TsDurationProbe.durationMs(cabeza, cola))
+    @Test fun zero_when_the_tail_carries_no_pcr_of_the_same_pid() {
+        val head = block(packetWithPcr(0x100, 90_000L))
+        val tail = block(packetWithPcr(0x200, 90_090_000L))
+        assertEquals(0L, TsDurationProbe.durationMs(head, tail))
     }
 
-    @Test fun cero_cuando_no_hay_ningun_pcr() {
-        val cabeza = bloque(paqueteSinPcr(0x100), paqueteSinPcr(0x100))
-        val cola = bloque(paqueteSinPcr(0x100))
-        assertEquals(0L, TsDurationProbe.durationMs(cabeza, cola))
+    @Test fun zero_when_there_is_no_pcr_at_all() {
+        val head = block(packetWithoutPcr(0x100), packetWithoutPcr(0x100))
+        val tail = block(packetWithoutPcr(0x100))
+        assertEquals(0L, TsDurationProbe.durationMs(head, tail))
     }
 
-    @Test fun contempla_el_giro_del_contador_de_33_bits() {
-        // El PCR es de 33 bits a 90 kHz: da la vuelta cada ~26,5 h. Un archivo que arranca cerca
-        // del tope termina con un PCR MENOR que el del principio.
-        val tope = 1L shl 33
-        val cabeza = bloque(paqueteConPcr(0x100, tope - 90_000L))   // 1 s antes del giro
-        val cola = bloque(paqueteConPcr(0x100, 180_000L))           // 2 s después del giro
-        assertEquals(3_000L, TsDurationProbe.durationMs(cabeza, cola))
+    @Test fun handles_the_33_bit_counter_wraparound() {
+        // The PCR is 33 bits at 90 kHz: it wraps around every ~26.5 h. A file that starts near the
+        // cap ends with a PCR SMALLER than the one at the start.
+        val cap = 1L shl 33
+        val head = block(packetWithPcr(0x100, cap - 90_000L))   // 1 s before the wrap
+        val tail = block(packetWithPcr(0x100, 180_000L))        // 2 s after the wrap
+        assertEquals(3_000L, TsDurationProbe.durationMs(head, tail))
     }
 
-    @Test fun cero_cuando_el_resultado_no_es_creible() {
-        // Más de 24 h = el parseo se fue a la basura (PCR de otro programa, basura en el buffer).
-        // Vale más no mostrar duración que mostrar una inventada.
-        val cabeza = bloque(paqueteConPcr(0x100, 0L))
-        val cola = bloque(paqueteConPcr(0x100, 90_000L * 60 * 60 * 25))
-        assertEquals(0L, TsDurationProbe.durationMs(cabeza, cola))
+    @Test fun zero_when_the_result_is_not_believable() {
+        // More than 24 h = the parsing went haywire (a PCR from another program, garbage in the
+        // buffer). Better to show no duration than a made-up one.
+        val head = block(packetWithPcr(0x100, 0L))
+        val tail = block(packetWithPcr(0x100, 90_000L * 60 * 60 * 25))
+        assertEquals(0L, TsDurationProbe.durationMs(head, tail))
     }
 
-    // ─── cuánto puede tardar la sonda ──────────────────────────────────────
-    // El video NO arranca hasta que esto termina, así que cada segundo de acá es un segundo de
-    // spinner. Medido el 2026-08-11 en el Fire TV: un tramo se comió su timeout de 8 s y la sonda
-    // entera costó 9,01 s de un arranque de 13,4 s. El reintento contestó en ~1 s — el problema no
-    // era el CDN, era cuánto se le esperaba a una conexión que ya estaba muerta.
+    // ─── how long the probe can take ──────────────────────────────────────
+    // The video does NOT start until this finishes, so every second here is a second of spinner.
+    // Measured on 2026-08-11 on the Fire TV: one stretch ate its 8 s timeout and the whole probe
+    // cost 9.01 s of a 13.4 s startup. The retry answered in ~1 s -- the problem wasn't the CDN, it
+    // was how long a connection that was already dead got waited on.
 
-    @Test fun la_sonda_no_le_aguanta_mas_que_el_proxy_a_la_misma_conexion_muerta() {
-        // Le pega al MISMO CDN que ArchiveCacheProxy y los plazos salen del mismo sitio
-        // —PoliticaOrigen—, pero por un perfil propio: la sonda bloquea el arranque y lo que se
-        // juega es una barra sin duración, mientras que el proxy se juega que la película se corte.
-        // Lo que se exige es que NUNCA espere más que la reproducción.
+    @Test fun the_probe_does_not_hold_out_longer_than_the_proxy_on_the_same_dead_connection() {
+        // It hits the SAME CDN as ArchiveCacheProxy and the deadlines come from the same place
+        // -PoliticaOrigen-, but through its own profile: the probe blocks startup and what's at
+        // stake is a bar with no duration, while the proxy risks the film cutting out. What's
+        // required is that it NEVER waits longer than playback does.
         assertTrue(
-            "la sonda no puede aguantar más que el proxy",
-            TsDurationProbe.timeoutLecturaMs(0) <=
-                PoliticaOrigen.respuestaMs(0, PoliticaOrigen.Perfil.MAGIS),
+            "the probe cannot hold out longer than the proxy",
+            TsDurationProbe.readTimeoutMs(0) <=
+                PoliticaOrigen.responseMs(0, PoliticaOrigen.Profile.MAGIS),
         )
         assertEquals(
-            PoliticaOrigen.respuestaMs(0, PoliticaOrigen.Perfil.MAGIS_SONDA),
-            TsDurationProbe.timeoutLecturaMs(0),
+            PoliticaOrigen.responseMs(0, PoliticaOrigen.Profile.MAGIS_PROBE),
+            TsDurationProbe.readTimeoutMs(0),
         )
     }
 
-    @Test fun el_presupuesto_de_la_sonda_cabe_en_lo_que_un_humano_espera() {
-        // Eran 30 s: media hora de spinner por una barra de progreso. La duración es una mejora,
-        // nunca un motivo para no reproducir. El tope de acá no sale de un número redondo sino del
-        // caso medido (el test de abajo): lo que se le exige es cubrirlo sin pasarse de largo.
+    @Test fun the_probe_s_budget_fits_what_a_human_will_wait() {
+        // It used to be 30 s: half a minute of spinner for a progress bar. The duration is a
+        // nicety, never a reason not to play. This cap doesn't come from a round number but from
+        // the measured case (the test below): what's required is covering it without overshooting.
         assertTrue(
-            "presupuesto = ${TsDurationProbe.PRESUPUESTO_MS}ms",
-            TsDurationProbe.PRESUPUESTO_MS <= 15_000,
+            "budget = ${TsDurationProbe.BUDGET_MS}ms",
+            TsDurationProbe.BUDGET_MS <= 15_000,
         )
     }
 
-    @Test fun el_caso_medido_una_conexion_muerta_por_tramo_entra_en_el_presupuesto() {
-        // Es el caso REAL, no el peor teórico: cada tramo se come una conexión muerta y se recupera
-        // en el segundo intento. Si eso no entra en el presupuesto, la sonda se cancela y la barra
-        // queda sin duración justo en el caso que sí tenía arreglo.
-        val porTramo = TsDurationProbe.timeoutLecturaMs(0) +
-            TsDurationProbe.esperaEntreIntentosMs(0) +
-            TsDurationProbe.timeoutLecturaMs(1)
+    @Test fun the_measured_case_one_dead_connection_per_stretch_fits_the_budget() {
+        // It's the REAL case, not the theoretical worst one: each stretch eats one dead connection
+        // and recovers on the second attempt. If that doesn't fit the budget, the probe gets
+        // cancelled and the bar is left with no duration in exactly the case that did have a fix.
+        val perStretch = TsDurationProbe.readTimeoutMs(0) +
+            TsDurationProbe.waitBetweenAttemptsMs(0) +
+            TsDurationProbe.readTimeoutMs(1)
         assertTrue(
-            "dos tramos en serie = ${2 * porTramo}ms contra ${TsDurationProbe.PRESUPUESTO_MS}ms",
-            2 * porTramo <= TsDurationProbe.PRESUPUESTO_MS,
+            "two stretches in series = ${2 * perStretch}ms against ${TsDurationProbe.BUDGET_MS}ms",
+            2 * perStretch <= TsDurationProbe.BUDGET_MS,
         )
     }
 }

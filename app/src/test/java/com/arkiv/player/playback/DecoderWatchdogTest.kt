@@ -79,6 +79,6 @@ class DecoderWatchdogTest {
      * the black-with-audio gap this whole thing exists to hide.
      */
     @Test fun `the bound is shorter than the first-frame spinner cap`() {
-        assertTrue(DecoderWatchdog.NO_FRAME_MS < EsperaDePrimeraImagen.TOPE_MS)
+        assertTrue(DecoderWatchdog.NO_FRAME_MS < FirstFrameWait.CAP_MS)
     }
 }

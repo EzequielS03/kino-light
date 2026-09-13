@@ -9,7 +9,7 @@ import org.json.JSONObject
  * Canal en vivo directo del portal. Devuelve la misma [LiveSession] que hasta ahora armaba
  * `LiveApi.resolver` contra el gateway, así que `LiveHlsProxy` no cambia: sigue pidiéndole
  * `http://<cflHost>/live/<playCode>.m3u8` al CDN y firmando cada segmento en el aparato
- * ([com.arkiv.player.playback.FirmaLocal]).
+ * ([com.arkiv.player.playback.LocalSignature]).
  *
  * Son dos llamadas al portal y NO se cachean: el `main_addr` rota en cada respuesta, y un host
  * viejo contesta 403.

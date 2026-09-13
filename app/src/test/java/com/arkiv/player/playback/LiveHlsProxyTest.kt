@@ -19,16 +19,16 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 class LiveHlsProxyTest {
     /** Predictable signature, so the test can assert which `Content-Auth` went out on each request. */
-    private class FakeSignatures : FirmaDeSegmentos {
+    private class FakeSignatures : SegmentSignature {
         var issued = 0
         var rejections = 0
         var acceptances = 0
-        override suspend fun firmar(token: String): LiveSignature {
+        override suspend fun sign(token: String): LiveSignature {
             issued++
             return LiveSignature(1000L, "sig%02d".format(issued))
         }
-        override fun rechazada() { rejections++ }
-        override fun aceptada() { acceptances++ }
+        override fun rejected() { rejections++ }
+        override fun accepted() { acceptances++ }
     }
 
     private fun read(url: String): Pair<Int, String> {
@@ -111,7 +111,7 @@ class LiveHlsProxyTest {
     }
 
     /**
-     * Finding F1 from the final review: before, `requestFromOrigin` called `signatures.rechazada()`
+     * Finding F1 from the final review: before, `requestFromOrigin` called `signatures.rejected()`
      * ONCE PER HTTP ATTEMPT (up to two, in here) -- so a single "real" 403 (the "session expired,
      * not the signature" case, where the retry also 403s without the algorithm being broken) was
      * already pushing `FirmaConRespaldo`'s counter TWO steps at once, half the real threshold.
@@ -189,7 +189,7 @@ class LiveHlsProxyTest {
      * uncaught exception on ANY thread kills the whole process.
      *
      * To avoid depending on real timing (which would be a flaky test), the signature source itself
-     * is used as a hook: `firmar()` is the last thing that runs INSIDE `contentAuth()` before
+     * is used as a hook: `sign()` is the last thing that runs INSIDE `contentAuth()` before
      * `requestFromOrigin` reads `session` again for `Content-License` -- so calling `stop()` right
      * there reproduces the exact window the review flagged, every time, with no randomness.
      */
@@ -200,8 +200,8 @@ class LiveHlsProxyTest {
         upstream.start()
 
         lateinit var proxy: LiveHlsProxy
-        val signatureThatKillsTheSession = object : FirmaDeSegmentos {
-            override suspend fun firmar(token: String): LiveSignature {
+        val signatureThatKillsTheSession = object : SegmentSignature {
+            override suspend fun sign(token: String): LiveSignature {
                 proxy.stop()  // simulates: the user leaves the player mid-request
                 return LiveSignature(1000L, "evil-sig")
             }
