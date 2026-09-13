@@ -1,45 +1,43 @@
-# Arkiv Light (rama `light-magis`)
+# Kino Light
 
-Esta rama es un fork permanente de Arkiv — **no se vuelve a mergear a `main`**. `main` sigue
-siendo la app completa (torrent+web+archive+Magis+Ditu+RCN, con login PocketBase y el gateway
-`arkiv-api`) y no se toca desde acá.
+App Android para ver video. Repo propio desde 2026-09-13: nació como la rama `light-magis` de
+`lordmacu/arkiv` y se separó cuando dejó de tener sentido cargar con la app completa.
 
-## You are in the right tree — this is where the work happens
+## `lordmacu/arkiv` NO es una referencia
 
-If you got here from `/Users/cristian/archive` (branch `main`), good: this is the active tree. Run
-`git branch --show-current` and confirm it prints `light-magis` before editing anything. Anything
-Cristian asks about Magis, Caracol/Ditu, cast, the player, the catalog or the TV UI belongs here,
-not on `main`.
+Ese repo sigue vivo y tiene la app completa (torrent + web + archive.org + NUC + Magis + Ditu, con
+login PocketBase y el gateway `arkiv-api`). **Son codebases distintos, no dos versiones de uno.**
+Acá se borró casi todo eso: su `SourceKind` tiene ocho valores, este tiene cinco; su helper de IP
+es `graph.torrentEngine.lanIp()`, el de acá es `graph.lanIp()` y no existe `TorrentEngine`.
 
-**Never diagnose a bug in this branch by reading `main`'s sources.** They are different codebases:
-`main` still has torrent, web, archive.org, NUC, libVLC, PocketBase and the `arkiv-api` gateway,
-all of which were deleted here. Its `SourceKind` has eight values, this one has five; its LAN-IP
-helper is `graph.torrentEngine.lanIp()`, this one is `graph.lanIp()` and has no `TorrentEngine`.
-Code read over there is confidently wrong over here.
+Código leído allá es **confiadamente incorrecto** acá. Si hace falta mirarlo, que sea para
+entender una decisión vieja, nunca para copiar una firma o un nombre de clase.
 
-### Traps measured in this tree
+La historia de este repo sí sirve: los 960 commits son los de verdad de este código, filtrados para
+que solo quede lo que existe hoy (`git filter-repo` borró de la historia el backend en Python
+`alfa-api`, `balandro-addon` y unos informes sueltos). `git blame` y `git log` de cualquier archivo
+de `app/` dicen la verdad.
 
-- **graft's index is stale for this branch** — it lists deleted files as live. Verify with
-  `command grep`, never with the graph alone.
-- **The `rtk` hook truncates `cat` and `grep` with no warning.** When exact content matters, use
-  the Read tool or `command cat` / `command grep`.
-- **The git stash stack is shared** with `main` and every other worktree and session. Never bare
-  `git stash` / `git stash pop` — prefer a WIP commit.
-- **Other Claude sessions share these trees.** Never `git add -A`; stage only the files you
-  changed, and re-check the branch before committing — it can change under you.
-- **Commits go as `lordmacu`**, never the work account, and never with a `Co-Authored-By: Claude`
-  footer — check the footer of every commit a subagent makes.
-- **adb:** use only the SDK one (`~/Library/Android/sdk/platform-tools/adb`, v37). Mixing it with
-  `/opt/homebrew/bin/adb` (v36) restarts the server and drops every connection.
-- **Installing:** this app is debuggable — `assembleDebug`. The `.env` here has no `RELEASE_*`
-  keys, so `assembleRelease` silently produces an unsigned APK.
+### Traps medidas en este repo
+
+- **El hook `rtk` recorta `cat` y `grep` sin avisar.** Cuando el contenido exacto importa, usar la
+  herramienta Read o `command cat` / `command grep`.
+- **Varias sesiones de Claude pueden compartir este árbol.** Nunca `git add -A`; stagear solo los
+  archivos que tocaste.
+- **Los commits van como `lordmacu`**, nunca la cuenta de trabajo, y nunca con un pie
+  `Co-Authored-By: Claude` — revisar el pie de cada commit que haga un subagente.
+- **adb:** usar solo el del SDK (`~/Library/Android/sdk/platform-tools/adb`, v37). Mezclarlo con
+  `/opt/homebrew/bin/adb` (v36) reinicia el server y tumba todas las conexiones.
+- **Instalar:** esta app es debuggable — `assembleDebug`.
+- **El `.env` no está en git** (nunca lo estuvo, verificado contra toda la historia). Sin él el
+  build NO falla: sale un APK sin llaves y sin firmar, en silencio. Ver `.env.example`.
 
 ### Language
 
 Lo que ve la persona usuaria: español de Bogotá, tuteo, nunca voseo. Lo que ve un desarrollador
 —código, identificadores, comentarios, KDoc, logs, mensajes de commit, specs y planes—: **inglés**.
 
-## Regla del branch (no negociable)
+## Regla del proyecto (no negociable)
 
 **Todo corre dentro de la app. Cero servidor propio.**
 
