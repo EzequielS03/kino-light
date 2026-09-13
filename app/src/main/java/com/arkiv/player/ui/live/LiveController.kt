@@ -98,7 +98,7 @@ class LiveController(
 
     /**
      * Invalida la sesión cacheada de UN solo canal -p.ej. tras un doble 403 irrecuperable en
-     * `LiveHlsProxy` (ver su [com.arkiv.player.playback.LiveHlsProxy] `onSesionMuerta`)-: el
+     * `LiveHlsProxy` (ver su [com.arkiv.player.playback.LiveHlsProxy] `onSessionDead`)-: el
      * próximo `abrir()`/`precalentar()` de ESE canal vuelve a resolver contra el gateway, en vez
      * de servir la copia cacheada -que [vigente] seguiría considerando viva hasta 300s más- que
      * ya sabemos que el CDN está rechazando. A diferencia de [cerrar], no toca las sesiones de

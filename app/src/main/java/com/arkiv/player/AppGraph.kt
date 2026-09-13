@@ -202,7 +202,7 @@ class AppGraph(context: Context) {
             // Tras un doble 403 irrecuperable (sesión caducada, no firma): invalida la sesión
             // cacheada de ESE canal para que el próximo abrir()/precalentar() vuelva a resolver
             // contra el gateway en vez de reusar la que ya sabemos muerta hasta 300s más.
-            onSesionMuerta = { canal -> liveController.invalidar(canal) },
+            onSessionDead = { canal -> liveController.invalidar(canal) },
         )
     }
 
@@ -211,7 +211,7 @@ class AppGraph(context: Context) {
     val liveController: com.arkiv.player.ui.live.LiveController by lazy {
         com.arkiv.player.ui.live.LiveController(
             resolver = { code -> magisLive.resolverOLanzar(code) },
-            urlPara = { sesion -> liveHlsProxy.urlPara(sesion) },
+            urlPara = { sesion -> liveHlsProxy.urlFor(sesion) },
         )
     }
 

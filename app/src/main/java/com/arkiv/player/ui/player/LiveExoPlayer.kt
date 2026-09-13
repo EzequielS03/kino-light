@@ -66,9 +66,9 @@ internal fun LiveExoPlayer(
     /**
      * Forces the ExoPlayer to be recreated even when [mediaUrl] doesn't change.
      *
-     * [com.arkiv.player.playback.LiveHlsProxy.urlPara] ALWAYS returns the same URL
+     * [com.arkiv.player.playback.LiveHlsProxy.urlFor] ALWAYS returns the same URL
      * (`http://127.0.0.1:<port>/live.m3u8?t=<token>`) for the whole life of the proxy: the active
-     * channel is decided by the proxy behind closed doors (its `sesion` field), not by the URL.
+     * channel is decided by the proxy behind closed doors (its `session` field), not by the URL.
      * Switching to another channel, or reopening the same one after a cut, does NOT change
      * `mediaUrl` -- it only changes which playlist the proxy answers on that same route. Without
      * this key, `remember` would see the same URL and never recreate/re-prepare the player: the

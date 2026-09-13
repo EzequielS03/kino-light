@@ -23,89 +23,89 @@ import java.net.URLEncoder
  * The proxy downloads the playlist, rewrites the `.ts` absolute URLs to point at itself, and sets
  * the headers on every request to the origin. The local player sees `127.0.0.1`; Chromecast/DLNA
  * see the phone's LAN IP (see [lanUrl]) because, from the first channel that opens, the socket
- * listens on ALL interfaces, not just loopback (see the KDoc of [start]/[urlPara]). That alone,
+ * listens on ALL interfaces, not just loopback (see the KDoc of [start]/[urlFor]). That alone,
  * with nothing else, would leave the channel -- Magis's paid content -- visible to any device on
  * the same WiFi that scans the ephemeral port: that's why every URL the proxy hands out
- * ([urlPara], [lanUrl], and the segment URLs the proxy itself rewrites inside the m3u8) carries
- * [generarToken]'s random token as a query param, and [atender] requires it before resolving any
+ * ([urlFor], [lanUrl], and the segment URLs the proxy itself rewrites inside the m3u8) carries
+ * [generateToken]'s random token as a query param, and [handle] requires it before resolving any
  * route.
  *
- * [onSesionMuerta] fires when a request gives up after two 403s in a row ([pedirAlOrigen]): that
+ * [onSessionDead] fires when a request gives up after two 403s in a row ([requestFromOrigin]): that
  * means the channel's session (token/license) expired, not the signature -- see the KDoc of
- * [pedirAlOrigen] -- so whoever resolved it (`LiveController`) must ask the gateway for it again
+ * [requestFromOrigin] -- so whoever resolved it (`LiveController`) must ask the gateway for it again
  * next time, instead of serving the cached copy that's already known to be dead until it expires
  * on its own (up to 300s; see `LiveController.vigente`). Without this notice the channel stays
  * broken that whole time even if the user zaps away and back (a finding from "the same wave" of
  * the final review).
  */
 class LiveHlsProxy(
-    private val firmas: FirmaDeSegmentos,
-    private val onSesionMuerta: (canal: String) -> Unit = {},
+    private val signatures: FirmaDeSegmentos,
+    private val onSessionDead: (channel: String) -> Unit = {},
 ) {
 
     @Volatile private var server: ServerSocket? = null
     @Volatile private var running = false
-    @Volatile private var sesion: LiveSession? = null
+    @Volatile private var session: LiveSession? = null
 
     /**
-     * Token aleatorio de la sesión de reproducción actual (ver [generarToken]). Vive tanto como
-     * el `ServerSocket`: nace en [start] y muere en [stop], NO en cada [urlPara] -- si cambiara
-     * en cada zapeo de canal, la URL que YA quedó grabada en el reproductor local o en el media
-     * cargado en Chromecast (mismo puerto, ver el KDoc de [urlPara]) empezaría a dar 403 a mitad de
-     * reproducción.
+     * Random token for the current playback session (see [generateToken]). Lives as long as the
+     * `ServerSocket`: born in [start], dies in [stop], NOT on every [urlFor] -- if it changed on
+     * every channel zap, the URL already recorded in the local player or in the media loaded on
+     * Chromecast (same port, see [urlFor]'s KDoc) would start returning 403 mid-playback.
      */
     @Volatile private var token: String? = null
 
     val port: Int get() = server?.localPort ?: -1
 
     /**
-     * El CDN que está sirviendo este canal ahora mismo. Cambia cuando el primero rechaza y se
-     * cae al siguiente (ver [servirPlaylist]).
+     * The CDN currently serving this channel. Changes when the first one rejects and it falls
+     * back to the next (see [servePlaylist]).
      *
-     * Los SEGMENTOS lo necesitan tanto como el playlist: sus urls salen del playlist, así que
-     * apuntan al host que lo sirvió, y firmarlas con el `authBase` de otro CDN sería el mismo par
-     * cruzado —token de uno, host de otro— que el CDN rechaza con 401.
+     * The SEGMENTS need it as much as the playlist does: their urls come from the playlist, so
+     * they point at the host that served it, and signing them with another CDN's `authBase` would
+     * be the same crossed pair -one's token, another's host- that the CDN rejects with 401.
      */
-    @Volatile private var cdnActivo: CdnDeCanal? = null
+    @Volatile private var activeCdn: CdnDeCanal? = null
 
     /**
-     * Nombres de los segmentos del último playlist servido, en orden. Existe SOLO para el log.
+     * Segment names of the last playlist served, in order. Exists ONLY for the log.
      *
-     * Sin esto, un `segmento → 404` no dice en qué parte de la ventana estaba, y esa es justo la
-     * pregunta que no pudimos contestar en toda la noche del 2026-08-14: si el que falta es
-     * siempre el último —el borde que el origen anuncia antes de escribir— o si son salteados. Un
-     * "posición 6/6" repetido significa una cosa y un "3/6" otra completamente distinta.
+     * Without this, a `segment -> 404` doesn't say where in the window it was, and that's exactly
+     * the question that couldn't be answered all through the night of 2026-08-14: whether the
+     * missing one is always the last -the edge the origin announces before writing- or whether
+     * they're scattered. A repeated "position 6/6" means one thing and a "3/6" a completely
+     * different one.
      */
-    @Volatile private var ultimosSegmentos: List<String> = emptyList()
+    @Volatile private var lastSegments: List<String> = emptyList()
 
-    /** "4/6" si el segmento está en el último playlist servido, "?/N" si ya no. Para el log. */
-    private fun posicionEnPlaylist(nombre: String): String {
-        val lista = ultimosSegmentos
-        val i = lista.indexOf(nombre)
-        return if (i >= 0) "${i + 1}/${lista.size}" else "?/${lista.size}"
+    /** "4/6" if the segment is in the last playlist served, "?/N" if it no longer is. For the log. */
+    private fun positionInPlaylist(name: String): String {
+        val list = lastSegments
+        val i = list.indexOf(name)
+        return if (i >= 0) "${i + 1}/${list.size}" else "?/${list.size}"
     }
 
-    private fun cdnDe(s: LiveSession): CdnDeCanal =
-        cdnActivo ?: s.cdns.firstOrNull() ?: CdnDeCanal(s.cflHost, s.authBase)
+    private fun cdnFor(s: LiveSession): CdnDeCanal =
+        activeCdn ?: s.cdns.firstOrNull() ?: CdnDeCanal(s.cflHost, s.authBase)
 
-    private suspend fun contentAuth(s: LiveSession, cdn: CdnDeCanal = cdnDe(s)): String {
-        val f = firmas.firmar(cdn.token)
+    private suspend fun contentAuth(s: LiveSession, cdn: CdnDeCanal = cdnFor(s)): String {
+        val f = signatures.firmar(cdn.token)
         return "${cdn.authBase}&sign2_method=sign_o3&instance=0" +
             "&start_moment=${f.moment}&sign2=${f.sign2}"
     }
 
-    /** Idempotente, igual que [ArchiveCacheProxy.start]. [bindLan] es para el Chromecast. */
+    /** Idempotent, same as [ArchiveCacheProxy.start]. [bindLan] is for Chromecast. */
     @Synchronized
     fun start(bindLan: Boolean = false): Int {
         server?.let { if (running && !it.isClosed) return it.localPort }
         val sock = if (bindLan) ServerSocket(0) else ServerSocket(0, 50, java.net.InetAddress.getByName("127.0.0.1"))
         server = sock
         running = true
-        token = generarToken()
+        token = generateToken()
         Thread {
             while (running && !sock.isClosed) {
                 val s = try { sock.accept() } catch (_: Exception) { break }
-                Thread { atender(s) }.apply { isDaemon = true }.start()
+                Thread { handle(s) }.apply { isDaemon = true }.start()
             }
         }.apply { isDaemon = true }.start()
         return sock.localPort
@@ -116,23 +116,23 @@ class LiveHlsProxy(
         running = false
         runCatching { server?.close() }
         server = null
-        sesion = null
+        session = null
         token = null
     }
 
     /**
-     * Token aleatorio por sesión de reproducción, de fuente criptográficamente segura -no fijo,
-     * no derivado de nada predecible (ni del canal, ni del puerto, ni de la hora)-. Es el único
-     * control de acceso desde que [start] pasó a escuchar en toda la LAN (`0.0.0.0`) en vez de
-     * solo loopback: sin esto, cualquier equipo en la misma WiFi que escanee el puerto efímero
-     * mira el canal -contenido pago de Magis- sin más.
+     * Random per-playback-session token, from a cryptographically secure source -not fixed, not
+     * derived from anything predictable (not the channel, not the port, not the time)-. It's the
+     * only access control since [start] started listening on the whole LAN (`0.0.0.0`) instead of
+     * loopback only: without this, any device on the same WiFi that scans the ephemeral port
+     * watches the channel -Magis's paid content- with nothing else needed.
      *
-     * Hex de 24 bytes de [java.security.SecureRandom] en vez de `java.util.Base64`/
-     * `android.util.Base64`: ni depende de desugaring para el primero, ni revienta en los tests
-     * JVM puros (que no mockean `android.util.*` salvo que algo lo atrape, como sí se hace con
-     * `Log.w` en [atender]) para el segundo.
+     * 24 bytes of hex from [java.security.SecureRandom] instead of `java.util.Base64`/
+     * `android.util.Base64`: doesn't depend on desugaring for the first, and doesn't blow up in
+     * pure JVM tests (which don't mock `android.util.*` unless something traps it, like `Log.w`
+     * does in [handle]) for the second.
      */
-    private fun generarToken(): String {
+    private fun generateToken(): String {
         val bytes = ByteArray(24)
         java.security.SecureRandom().nextBytes(bytes)
         return bytes.joinToString("") { "%02x".format(it) }
@@ -151,31 +151,31 @@ class LiveHlsProxy(
      * keeps working the same with the socket on all interfaces, so this changes nothing for local
      * playback.
      */
-    fun urlPara(nueva: LiveSession): String {
+    fun urlFor(newSession: LiveSession): String {
         // ZAPPING starts here. It's the mark everything about live playback gets measured against:
         // from this instant to the first frame actually painted is what the user waits looking at
         // black when switching channels, and without this line the log would only start once the
         // player requests the playlist.
-        val anterior = sesion?.channel
+        val previous = session?.channel
         android.util.Log.w(
             "LiveHlsProxy",
-            "channel → ${nueva.channel}" + (if (anterior != null && anterior != nueva.channel) " (came from $anterior)" else "") +
-                " cdn=${nueva.cflHost}" + (if (nueva.cdns.size > 1) " (+${nueva.cdns.size - 1} backup)" else ""),
+            "channel → ${newSession.channel}" + (if (previous != null && previous != newSession.channel) " (came from $previous)" else "") +
+                " cdn=${newSession.cflHost}" + (if (newSession.cdns.size > 1) " (+${newSession.cdns.size - 1} backup)" else ""),
         )
-        sesion = nueva
-        // El CDN elegido es de la sesión ANTERIOR: sus tokens no valen para este canal, y peor,
-        // el host podría ni servirlo. Cada canal vuelve a elegir desde el principio.
-        cdnActivo = null
+        session = newSession
+        // The chosen CDN is from the PREVIOUS session: its tokens don't work for this channel, and
+        // worse, the host might not even serve it. Every channel picks again from the start.
+        activeCdn = null
         if (port <= 0) start(bindLan = true)
         return "http://127.0.0.1:$port/live.m3u8?t=$token"
     }
 
     /**
-     * URL del canal que el proxy sirve AHORA MISMO, alcanzable por la LAN (Chromecast/DLNA) --
-     * mismo host:puerto que ya usa localmente el reproductor, solo que con la IP del celu en vez de loopback
-     * (ver el KDoc de [urlPara]: el socket escucha en todas las interfaces desde el primer canal
-     * abierto, así que no hace falta "ensanchar" nada acá). `null` si todavía no se abrió ningún
-     * canal -no hay nada que castear-.
+     * URL of the channel the proxy is serving RIGHT NOW, reachable over the LAN (Chromecast/DLNA)
+     * -- same host:port the player already uses locally, just with the phone's IP instead of
+     * loopback (see [urlFor]'s KDoc: the socket listens on every interface from the first channel
+     * opened, so there's nothing to "widen" here). `null` if no channel has been opened yet -there
+     * is nothing to cast-.
      */
     fun lanUrl(ip: String): String? {
         if (port <= 0) return null
@@ -183,89 +183,90 @@ class LiveHlsProxy(
         return "http://$ip:$port/live.m3u8?t=$t"
     }
 
-    private fun atender(socket: Socket) = socket.use { s ->
-        // Igual que ArchiveCacheProxy.serve() (mismo paquete, mismo patrón): CUALQUIER excepción
-        // acá —red, o una sesión que desaparece a mitad de una petición porque el usuario salió
-        // del reproductor justo cuando un segmento está a mitad de descarga (ver stop())— se
-        // traga y se loguea en vez de dejarla escapar. En Android una excepción sin atrapar en
-        // CUALQUIER hilo mata el proceso ENTERO, no solo esta conexión.
+    private fun handle(socket: Socket) = socket.use { s ->
+        // Same as ArchiveCacheProxy.serve() (same package, same pattern): ANY exception here
+        // -network, or a session that disappears mid-request because the user left the player
+        // right as a segment was halfway through downloading (see stop())- is swallowed and
+        // logged instead of left to escape. On Android an uncaught exception on ANY thread kills
+        // the WHOLE process, not just this connection.
         runCatching {
-            // Host por el que ESTE cliente llegó al proxy: la dirección local del socket ya
-            // aceptado, no la cabecera `Host` del request. Se prefiere esto a parsear `Host`
-            // porque `socket.localAddress` es un hecho de la conexión TCP -qué interfaz recibió
-            // el paquete-, no un dato que declara el cliente: no hace falta validarlo ni
-            // sanitizarlo antes de meterlo en una URL de respuesta, y no depende de que el
-            // reproductor local, Chromecast o el cliente DLNA manden una cabecera Host bien
-            // formada (algunos reproductores HLS no la mandan). Es lo mismo que resolvería a mano
-            // leyendo cabeceras, pero sin el riesgo de header injection ni el parsing extra.
-            // `hostAddress` es un tipo plataforma (String! de Java): en la práctica nunca es null
-            // para una InetAddress ya resuelta como esta, pero el fallback deja el camino local
-            // intacto ante cualquier corner case en vez de reventar la conexión.
-            val miHost = s.localAddress.hostAddress ?: "127.0.0.1"
-            val entrada = s.getInputStream().bufferedReader()
-            val linea = entrada.readLine() ?: return@runCatching
-            val ruta = linea.split(" ").getOrNull(1) ?: return@runCatching
-            val salida = s.getOutputStream()
-            // Control de acceso: desde que start() escucha en toda la LAN (ver su KDoc), CUALQUIER
-            // ruta -playlist o segmento- tiene que traer el token de esta sesión ANTES de que se
-            // resuelva nada. Rechazo limpio y genérico (403, sin cuerpo): no hay que darle a quien
-            // escanea el puerto ninguna pista de qué rutas existen o por qué falló.
-            if (!tokenValido(ruta)) {
-                salida.write("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n".toByteArray())
+            // Host through which THIS client reached the proxy: the already-accepted socket's own
+            // local address, not the request's `Host` header. Preferred over parsing `Host`
+            // because `socket.localAddress` is a fact of the TCP connection -which interface
+            // received the packet-, not something the client declares: no need to validate or
+            // sanitize it before putting it into a response URL, and it doesn't depend on the
+            // local player, Chromecast or the DLNA client sending a well-formed Host header (some
+            // HLS players don't send one). It's the same thing manually resolving headers would
+            // get, without the header-injection risk or the extra parsing.
+            // `hostAddress` is a platform type (Java's String!): in practice it's never null for
+            // an already-resolved InetAddress like this one, but the fallback leaves the local
+            // path intact against any corner case instead of blowing up the connection.
+            val myHost = s.localAddress.hostAddress ?: "127.0.0.1"
+            val reader = s.getInputStream().bufferedReader()
+            val line = reader.readLine() ?: return@runCatching
+            val path = line.split(" ").getOrNull(1) ?: return@runCatching
+            val output = s.getOutputStream()
+            // Access control: since start() started listening on the whole LAN (see its KDoc), ANY
+            // route -playlist or segment- must carry this session's token before anything gets
+            // resolved. Clean, generic rejection (403, no body): whoever is scanning the port
+            // shouldn't get a single hint about what routes exist or why it failed.
+            if (!isTokenValid(path)) {
+                output.write("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n".toByteArray())
                 return@runCatching
             }
             when {
-                ruta.startsWith("/live.m3u8") -> servirPlaylist(salida, miHost)
-                ruta.startsWith("/seg?") -> servirSegmento(ruta, salida)
-                else -> salida.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n".toByteArray())
+                path.startsWith("/live.m3u8") -> servePlaylist(output, myHost)
+                path.startsWith("/seg?") -> serveSegment(path, output)
+                else -> output.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n".toByteArray())
             }
         }.onFailure { e ->
-            runCatching { android.util.Log.w("LiveHlsProxy", "atender() failed: ${e.message}") }
+            runCatching { android.util.Log.w("LiveHlsProxy", "handle() failed: ${e.message}") }
         }
     }
 
-    /** Extrae el valor de un parámetro de query de una ruta tipo `/live.m3u8?t=...&otro=...`. */
-    private fun valorDeQuery(ruta: String, clave: String): String? {
-        val query = ruta.substringAfter('?', "")
+    /** Extracts the value of a query param from a path like `/live.m3u8?t=...&other=...`. */
+    private fun queryValue(path: String, key: String): String? {
+        val query = path.substringAfter('?', "")
         if (query.isEmpty()) return null
-        return query.split('&').firstOrNull { it.startsWith("$clave=") }?.substringAfter('=')
+        return query.split('&').firstOrNull { it.startsWith("$key=") }?.substringAfter('=')
     }
 
     /**
-     * Compara el token recibido contra el de la sesión actual. `MessageDigest.isEqual` en vez de
-     * `==`: comparación en tiempo constante, para no filtrar por timing cuánto del token acertó
-     * quien está probando a ciegas.
+     * Compares the received token against the current session's. `MessageDigest.isEqual` instead
+     * of `==`: constant-time comparison, so timing doesn't leak how much of the token a blind
+     * guesser got right.
      */
-    private fun tokenValido(ruta: String): Boolean {
-        val esperado = token ?: return false
-        val recibido = valorDeQuery(ruta, "t") ?: return false
-        return java.security.MessageDigest.isEqual(recibido.toByteArray(), esperado.toByteArray())
+    private fun isTokenValid(path: String): Boolean {
+        val expected = token ?: return false
+        val received = queryValue(path, "t") ?: return false
+        return java.security.MessageDigest.isEqual(received.toByteArray(), expected.toByteArray())
     }
 
     /**
-     * Pide al origen con la firma vigente y, ante un 403, refresca la firma y reintenta
-     * **una** vez. Un 403 que sobrevive al reintento significa que caducó la sesión del
-     * canal, no la firma: se avisa por [onSesionMuerta] para que quien reproduce re-resuelva.
+     * Asks the origin with the current signature and, on a 403, refreshes the signature and
+     * retries **once**. A 403 that survives the retry means the channel's session expired, not the
+     * signature: [onSessionDead] fires so whoever is playing re-resolves it.
      *
-     * Recibe [s] ya resuelta (no relee el campo `sesion`): así toda la petición usa la MISMA
-     * sesión de punta a punta aunque [stop] (u otro [urlPara]) la cambie desde otro hilo a mitad
-     * de camino — es lo que cierra la ventana de carrera del hallazgo C2 (`sesion!!.license` con
-     * `sesion` ya nula).
+     * Receives [s] already resolved (doesn't re-read the `session` field): that way the whole
+     * request uses the SAME session end to end even if [stop] (or another [urlFor]) changes it from
+     * another thread partway through -- that's what closes the race window from finding C2
+     * (`session!!.license` with `session` already null).
      *
-     * Un solo 403 cuenta como UN rechazo, sin importar cuántos intentos de HTTP haga esta función
-     * para resolverlo: antes se llamaba a `firmas.rechazada()` una vez POR INTENTO (hasta dos
-     * veces acá dentro), así que un único 403 -por ejemplo el caso "caducó la sesión, no la
-     * firma"- ya empujaba el contador de [FirmaConRespaldo] dos pasos de una, disparando el
-     * respaldo con solo la MITAD de los rechazos reales que haría falta ver (hallazgo F1 de la
-     * revisión final). [avisado] evita eso.
+     * A single 403 counts as ONE rejection, no matter how many HTTP attempts this function makes
+     * to resolve it: it used to call `signatures.rechazada()` once PER ATTEMPT (up to two, in here),
+     * so a single "real" 403 -e.g. the "session expired, not the signature" case- was already
+     * pushing [FirmaConRespaldo]'s counter two steps at once, triggering the fallback with only
+     * HALF the real rejections it should take to see (finding F1 from the final review).
+     * [notified] avoids that.
      */
-    private fun pedirAlOrigen(url: String, s: LiveSession, cdn: CdnDeCanal = cdnDe(s)): HttpURLConnection? {
-        var avisado = false
-        // El QUÉ del log: de este CDN no sabemos nada todavía (el de VOD tarda entre 0,2 s y 20 s
-        // por rango, medido; el de vivo nunca se midió). Sin la latencia por petición no hay forma
-        // de saber si un corte es del CDN, del proxy o del reproductor -- las tres se ven igual.
-        val queEs = if (url.endsWith(".m3u8")) "playlist" else "segmento"
-        repeat(2) { intento ->
+    private fun requestFromOrigin(url: String, s: LiveSession, cdn: CdnDeCanal = cdnFor(s)): HttpURLConnection? {
+        var notified = false
+        // The WHAT of the log: we don't know anything about this CDN yet (the VOD one takes
+        // between 0.2s and 20s per range, measured; the live one was never measured). Without the
+        // per-request latency there's no way to tell whether a cutoff is the CDN's, the proxy's or
+        // the player's -- all three look the same.
+        val kind = if (url.endsWith(".m3u8")) "playlist" else "segment"
+        repeat(2) { attempt ->
             val t0 = System.currentTimeMillis()
             val c = (URL(url).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 12_000
@@ -285,7 +286,7 @@ class LiveHlsProxy(
             if (!esRechazoDeFirma(code)) {
                 android.util.Log.w(
                     "LiveHlsProxy",
-                    "$queEs → $code in ${ms}ms" + (if (intento > 0) " (2nd attempt)" else "") +
+                    "$kind → $code in ${ms}ms" + (if (attempt > 0) " (2nd attempt)" else "") +
                         // The WHY of the rejection, which used to get thrown away. A bare "→ 409"
                         // doesn't tell apart "the signal doesn't exist" from "this session is no
                         // longer valid", and without that there's nothing to do but guess: on
@@ -293,27 +294,27 @@ class LiveHlsProxy(
                         // while the other four were running fine, and the log wasn't enough to say
                         // why.
                         // Nobody else reads the body of a non-200 (the playlist cuts with
-                        // error502 and [pedirOk] discards the connection), so consuming it here
+                        // error502 and [requestOk] discards the connection), so consuming it here
                         // doesn't take anything away from anyone.
-                        (if (code != 200) " · ${motivoDelOrigen(c)}" else ""),
+                        (if (code != 200) " · ${originReason(c)}" else ""),
                 )
-                // Avisa que la firma usada en ESTA petición fue aceptada: es la señal que
-                // FirmaConRespaldo necesita para reiniciar su contador de rechazos seguidos.
-                firmas.aceptada()
+                // Reports that the signature used in THIS request was accepted: it's the signal
+                // FirmaConRespaldo needs to reset its consecutive-rejections counter.
+                signatures.aceptada()
                 return c
             }
             // 401/403 = the signature didn't work. Logged separately because it's the EXPENSIVE
             // failure: two attempts and then the session is given up for dead, meaning the channel
             // cuts out.
-            android.util.Log.w("LiveHlsProxy", "$queEs → $code SIGNATURE REJECTED in ${ms}ms (attempt ${intento + 1}/2)")
-            // El aviso es lo que permite a FirmaConRespaldo detectar que el algoritmo
-            // dejó de servir y conmutar al gateway. Sin esto, el respaldo nunca entra.
-            if (!avisado) { firmas.rechazada(); avisado = true }
+            android.util.Log.w("LiveHlsProxy", "$kind → $code SIGNATURE REJECTED in ${ms}ms (attempt ${attempt + 1}/2)")
+            // The report is what lets FirmaConRespaldo detect that the algorithm stopped working
+            // and switch to the gateway. Without this, the backup never kicks in.
+            if (!notified) { signatures.rechazada(); notified = true }
             c.disconnect()
         }
         android.util.Log.w(
             "LiveHlsProxy",
-            "$queEs: two rejections in a row on ${cdn.cflHost} (channel=${s.channel})",
+            "$kind: two rejections in a row on ${cdn.cflHost} (channel=${s.channel})",
         )
         return null
     }
@@ -326,10 +327,10 @@ class LiveHlsProxy(
      * Never throws: this runs on the rejection path, and breaking here would turn a channel that
      * merely fails into one that also loses the connection.
      */
-    private fun motivoDelOrigen(c: HttpURLConnection): String = runCatching {
-        val cuerpo = c.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty().trim()
-        val dice = if (cuerpo.isNotEmpty()) {
-            cuerpo.take(300).replace('\n', ' ')
+    private fun originReason(c: HttpURLConnection): String = runCatching {
+        val body = c.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty().trim()
+        val says = if (body.isNotEmpty()) {
+            body.take(300).replace('\n', ' ')
         } else {
             c.responseMessage ?: "no body"
         }
@@ -338,273 +339,277 @@ class LiveHlsProxy(
         // edge. The difference decides everything: if a 404 arrives `HIT`, it's a CACHED negative
         // response and retrying the same URL can't work no matter how many times it's asked --
         // you'd have to dodge the cache, not insist.
-        "$dice [cf-cache=${c.getHeaderField("cf-cache-status") ?: "-"}" +
+        "$says [cf-cache=${c.getHeaderField("cf-cache-status") ?: "-"}" +
             " age=${c.getHeaderField("age") ?: "-"} ray=${c.getHeaderField("cf-ray") ?: "-"}]"
     }.getOrDefault("couldn't read the reason")
 
-    private fun error502(salida: java.io.OutputStream, motivo: String = "") {
+    private fun error502(output: java.io.OutputStream, reason: String = "") {
         // The 502 is the ONLY thing the player sees no matter what happens in here, so the reason
         // has to stay on the proxy's side or it's lost. It's the same problem ArchiveCacheProxy
         // solved by recording the last HTTP code per origin.
-        if (motivo.isNotEmpty()) android.util.Log.w("LiveHlsProxy", "502 to the player: $motivo")
-        salida.write("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n".toByteArray())
+        if (reason.isNotEmpty()) android.util.Log.w("LiveHlsProxy", "502 to the player: $reason")
+        output.write("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n".toByteArray())
     }
 
-    private fun servirPlaylist(salida: java.io.OutputStream, miHost: String) {
-        // Una sola lectura de los campos volátiles para TODA la petición: si stop() (o un
-        // urlPara() nuevo) cambia `sesion`/`server` desde otro hilo a mitad de camino, esta
-        // petición sigue con los valores que tenía al empezar. Ver la nota de [pedirAlOrigen].
+    private fun servePlaylist(output: java.io.OutputStream, myHost: String) {
+        // A single read of the volatile fields for the WHOLE request: if stop() (or a new
+        // urlFor()) changes `session`/`server` from another thread partway through, this request
+        // keeps going with whatever values it had at the start. See the note on [requestFromOrigin].
         val t0 = System.currentTimeMillis()
-        val s = sesion ?: return error502(salida, "no channel session")
-        val miPuerto = port
-        val miToken = token ?: return error502(salida, "no proxy token")
-        // `playCode`, NO `channel`: así se llama la señal en el CDN, y no siempre son lo mismo
-        // (ver el KDoc de [LiveSession.playCode] — `cyx-RCNHD` se sirve con otro nombre). Con el
-        // código del canal acá, el CDN recibía un pedido por una señal distinta de la que
-        // autoriza la licencia que le mandamos y contestaba 401: el canal cargaba para siempre.
-        // Se prueban los CDN en orden hasta que uno sirva. Medido el 2026-08-14: el portal da
-        // TRES hosts de vivo y usábamos solo el primero; ese día contestó 401 dos veces y el canal
-        // se terminó teniendo otro disponible en la misma respuesta. El que gana queda como
-        // [cdnActivo] para que los segmentos —cuyas urls salen de ESTE playlist— se firmen con su
-        // mismo `authBase`.
+        val s = session ?: return error502(output, "no channel session")
+        val myPort = port
+        val myToken = token ?: return error502(output, "no proxy token")
+        // `playCode`, NOT `channel`: that's what the signal is called on the CDN, and they aren't
+        // always the same (see [LiveSession.playCode]'s KDoc -- `cyx-RCNHD` is served under
+        // another name). With the channel's code here, the CDN received a request for a different
+        // signal than the one the license we sent authorizes, and answered 401: the channel loaded
+        // forever.
+        // The CDNs are tried in order until one serves. Measured on 2026-08-14: the portal gives
+        // THREE live hosts and only the first was being used; that day it answered 401 twice and
+        // the channel ended up having another one available in the same response. The winner is
+        // kept as [activeCdn] so the segments -whose urls come from THIS playlist- get signed with
+        // its same `authBase`.
         //
-        // Empieza por el que ya estaba andando, si hay: reordenar en cada petición haría que un
-        // hipo del primero mandara todo el canal de vuelta a él en el siguiente refresco.
-        // Y se REINTENTA, igual que los segmentos. Un playlist que no llega no es una sesión
-        // muerta: el 2026-08-14 el origen de `cyx-RCNHD` contestó 404 al playlist cuatro veces
-        // seguidas durante 9 s —con el canal reproduciendo perfecto hasta el segundo 39— y volvió
-        // solo después. La app original hace exactamente esto: su ffmpeg recarga un playlist
-        // insuficiente hasta `max_reload` veces (1000 por defecto; el literal está en
-        // `libijkffmpeg.so`) en vez de dar el canal por terminado al primer tropiezo.
+        // Starts with whichever was already working, if any: reordering on every request would
+        // send the whole channel back to the first one's hiccups on the very next refresh.
+        // And it's RETRIED, same as the segments. A playlist that doesn't arrive isn't a dead
+        // session: on 2026-08-14 `cyx-RCNHD`'s origin answered 404 to the playlist four times in a
+        // row over 9s -with the channel playing perfectly until second 39- and came back on its
+        // own. The original app does exactly this: its ffmpeg reloads an insufficient playlist up
+        // to `max_reload` times (1000 by default; the literal is in `libijkffmpeg.so`) instead of
+        // giving up on the channel at the first stumble.
         //
-        // Y un código != 200 ahora también hace pasar al siguiente CDN. Antes no: `pedirAlOrigen`
-        // devuelve la conexión ante cualquier código que no sea rechazo de firma, así que un 404
-        // cortaba el bucle en el primer CDN y se contestaba 502 sin haber probado el respaldo —el
-        // mismo agujero que tenían los segmentos—.
-        val enOrden = (listOfNotNull(cdnActivo) + s.cdns).distinctBy { it.cflHost }
+        // And a code != 200 now also moves on to the next CDN. It didn't before: `requestFromOrigin`
+        // returns the connection on any code that isn't a signature rejection, so a 404 cut the
+        // loop at the first CDN and answered 502 without ever trying the backup -the same hole the
+        // segments had-.
+        val inOrder = (listOfNotNull(activeCdn) + s.cdns).distinctBy { it.cflHost }
         var c: java.net.HttpURLConnection? = null
-        var elegido: CdnDeCanal? = null
-        var algunoContesto = false
-        var ultimoCodigo = -1
-        bucle@ for (vuelta in 0 until INTENTOS_PLAYLIST) {
-            var contestoAlguno = false
-            for (cdn in enOrden) {
-                val r = pedirAlOrigen("http://${cdn.cflHost}/live/${s.playCode}.m3u8", s, cdn)
+        var chosen: CdnDeCanal? = null
+        var anyAnswered = false
+        var lastCode = -1
+        loop@ for (round in 0 until PLAYLIST_ATTEMPTS) {
+            var answeredThisRound = false
+            for (cdn in inOrder) {
+                val r = requestFromOrigin("http://${cdn.cflHost}/live/${s.playCode}.m3u8", s, cdn)
                 if (r == null) {
-                    if (cdn !== enOrden.last()) {
+                    if (cdn !== inOrder.last()) {
                         android.util.Log.w("LiveHlsProxy", "playlist: ${cdn.cflHost} rejected → trying the next CDN")
                     }
                     continue
                 }
-                contestoAlguno = true
-                algunoContesto = true
-                ultimoCodigo = r.responseCode
-                if (ultimoCodigo == 200) { c = r; elegido = cdn; break@bucle }
+                answeredThisRound = true
+                anyAnswered = true
+                lastCode = r.responseCode
+                if (lastCode == 200) { c = r; chosen = cdn; break@loop }
                 runCatching { r.disconnect() }
             }
-            // Si NADIE contestó, fueron rechazos de firma en todos los CDN: reintentar no lo va a
-            // arreglar —la credencial no mejora sola— y además inflaría el contador de rechazos de
-            // [FirmaConRespaldo], que cuenta UN rechazo por petición del proxy y no por intento
-            // HTTP (hallazgo F1; ver el KDoc de [pedirAlOrigen]). Se sale con el comportamiento de
-            // siempre: sesión muerta.
-            if (!contestoAlguno) break@bucle
-            if (vuelta < INTENTOS_PLAYLIST - 1) {
+            // If NOBODY answered, every CDN rejected the signature: retrying won't fix that -the
+            // credential doesn't improve on its own- and would also inflate [FirmaConRespaldo]'s
+            // rejection counter, which counts ONE rejection per proxy request, not per HTTP attempt
+            // (finding F1; see [requestFromOrigin]'s KDoc). Falls through to the usual behaviour:
+            // dead session.
+            if (!answeredThisRound) break@loop
+            if (round < PLAYLIST_ATTEMPTS - 1) {
                 android.util.Log.w(
                     "LiveHlsProxy",
-                    "playlist for ${s.channel} not served (last $ultimoCodigo) → " +
-                        "retry ${vuelta + 2}/$INTENTOS_PLAYLIST in ${ESPERA_SEGMENTO_MS}ms",
+                    "playlist for ${s.channel} not served (last $lastCode) → " +
+                        "retry ${round + 2}/$PLAYLIST_ATTEMPTS in ${SEGMENT_WAIT_MS}ms",
                 )
-                Thread.sleep(ESPERA_SEGMENTO_MS)
+                Thread.sleep(SEGMENT_WAIT_MS)
             }
         }
-        if (c == null || elegido == null) {
-            // La sesión se da por muerta SOLO si nadie llegó a contestar: eso es rechazo de firma
-            // en todos los CDN. Un 404 es otra cosa —el CDN habló, y dijo que ahora no— y volver a
-            // pedir la sesión al gateway por eso sería tratar un bache como una credencial vencida.
-            if (!algunoContesto) {
+        if (c == null || chosen == null) {
+            // The session is given up for dead ONLY if nobody ever answered: that's a signature
+            // rejection on every CDN. A 404 is something else -the CDN spoke, and said not right
+            // now- and asking the gateway for the session again over that would treat a pothole
+            // like an expired credential.
+            if (!anyAnswered) {
                 android.util.Log.w(
                     "LiveHlsProxy",
-                    "playlist: all ${enOrden.size} CDNs rejected → giving up the session for dead (channel=${s.channel})",
+                    "playlist: all ${inOrder.size} CDNs rejected → giving up the session for dead (channel=${s.channel})",
                 )
-                onSesionMuerta(s.channel)
+                onSessionDead(s.channel)
             }
-            return error502(salida, "no CDN served the playlist for ${s.channel} (last code $ultimoCodigo)")
+            return error502(output, "no CDN served the playlist for ${s.channel} (last code $lastCode)")
         }
-        if (cdnActivo?.cflHost != elegido.cflHost) {
-            android.util.Log.w("LiveHlsProxy", "active CDN → ${elegido.cflHost} (channel=${s.channel})")
+        if (activeCdn?.cflHost != chosen.cflHost) {
+            android.util.Log.w("LiveHlsProxy", "active CDN → ${chosen.cflHost} (channel=${s.channel})")
         }
-        cdnActivo = elegido
-        val urlPlaylist = "http://${elegido.cflHost}/live/${s.playCode}.m3u8"
-        val base = URL(urlPlaylist)
-        val crudo = c.inputStream.bufferedReader().readText()
-        val cuerpo = crudo.lineSequence()
-            .joinToString("\n") { ln -> reescribirLinea(ln, base, miHost, miPuerto, miToken) } + "\n"
-        val bytes = cuerpo.toByteArray()
-        // Cuántos segmentos anuncia el playlist es EL dato del vivo: define cuánto colchón hay antes
-        // de que el reproductor alcance el borde. Si baja de 2-3, cualquier hipo del CDN corta.
-        // `MEDIA-SEQUENCE` dice si la ventana avanza o si estamos releyendo la misma.
-        val nombres = crudo.lineSequence().filter { it.isNotBlank() && !it.startsWith("#") }
+        activeCdn = chosen
+        val playlistUrl = "http://${chosen.cflHost}/live/${s.playCode}.m3u8"
+        val base = URL(playlistUrl)
+        val raw = c.inputStream.bufferedReader().readText()
+        val body = raw.lineSequence()
+            .joinToString("\n") { ln -> rewriteLine(ln, base, myHost, myPort, myToken) } + "\n"
+        val bytes = body.toByteArray()
+        // How many segments the playlist announces IS the live data point: it defines how much
+        // cushion there is before the player reaches the edge. Below 2-3, any CDN hiccup cuts it.
+        // `MEDIA-SEQUENCE` says whether the window is advancing or we're re-reading the same one.
+        val names = raw.lineSequence().filter { it.isNotBlank() && !it.startsWith("#") }
             .map { it.substringAfterLast('/').substringBefore('?') }.toList()
-        ultimosSegmentos = nombres
-        val segmentos = nombres.size
-        val secuencia = crudo.lineSequence()
+        lastSegments = names
+        val segmentCount = names.size
+        val sequence = raw.lineSequence()
             .firstOrNull { it.startsWith("#EXT-X-MEDIA-SEQUENCE") }?.substringAfter(':') ?: "?"
         android.util.Log.w(
             "LiveHlsProxy",
-            "playlist served channel=${s.channel} segments=$segmentos seq=$secuencia " +
+            "playlist served channel=${s.channel} segments=$segmentCount seq=$sequence " +
                 "${bytes.size}B in ${System.currentTimeMillis() - t0}ms",
         )
-        salida.write(
+        output.write(
             ("HTTP/1.1 200 OK\r\nContent-Type: application/vnd.apple.mpegurl\r\n" +
                 "Content-Length: ${bytes.size}\r\n\r\n").toByteArray()
         )
-        salida.write(bytes)
+        output.write(bytes)
     }
 
     /**
-     * Un segmento del vivo.
+     * One live segment.
      *
-     * **Nunca contesta un cuerpo vacío detrás de una cabecera de éxito.** Antes se escribía la
-     * cabecera con el código del CDN tal cual (`HTTP/1.1 404 OK`) y recién después se intentaba
-     * copiar `inputStream`, que en un 404 tira excepción: al reproductor le llegaban CERO bytes,
-     * que es exactamente como se ve el final de un stream. Medido en el Fire TV el 2026-08-14 con
-     * RCN FHD: un único 404 y VLC drenó el decoder y emitió `EndReached` a los 19 s, con el canal
-     * perfectamente vivo (el playlist seguía refrescando, seq 2080 → 2082). Un 502 en cambio es un
-     * ERROR, y un error el reproductor lo reintenta.
+     * **Never answers an empty body behind a success header.** It used to write the header with
+     * the CDN's code as-is (`HTTP/1.1 404 OK`) and only then try to copy `inputStream`, which
+     * throws on a 404: the player received ZERO bytes, which looks exactly like the end of a
+     * stream. Measured on the Fire TV on 2026-08-14 with RCN FHD: a single 404 and VLC drained the
+     * decoder and fired `EndReached` at 19s, with the channel perfectly alive (the playlist kept
+     * refreshing, seq 2080 → 2082). A 502, on the other hand, is an ERROR, and the player retries
+     * an error.
      *
-     * Es la resiliencia que la app original tiene de arriba: va DIRECTO al CDN, así que un 404 le
-     * llega como error y ffmpeg reconecta (`reconnect=1`, `reconnect_delay_max=5` en su
-     * configuración de ijkplayer). Con un proxy en el medio, eso hay que reponerlo a mano.
+     * It's the resilience the original app has for free: it goes STRAIGHT to the CDN, so a 404
+     * reaches it as an error and ffmpeg reconnects (`reconnect=1`, `reconnect_delay_max=5` in its
+     * ijkplayer config). With a proxy in the middle, that has to be put back by hand.
      */
-    private fun servirSegmento(ruta: String, salida: java.io.OutputStream) {
+    private fun serveSegment(path: String, output: java.io.OutputStream) {
         val t0 = System.currentTimeMillis()
-        val s = sesion ?: return error502(salida, "segment with no channel session")
-        val u = URLDecoder.decode(ruta.substringAfter("u=").substringBefore("&"), "UTF-8")
-        val nombre = u.substringAfterLast('/')
-        val c = conseguirSegmento(u, s)
-            ?: return error502(salida, "no CDN served the segment $nombre (position ${posicionEnPlaylist(nombre)})")
-        // La cabecera se escribe RECIÉN ACÁ, con un 200 en la mano. Una vez escrita ya no se puede
-        // convertir en error: por eso no puede salir antes de saber que hay cuerpo.
-        salida.write("HTTP/1.1 200 OK\r\nContent-Type: video/mp2t\r\n\r\n".toByteArray())
-        // Los bytes se cuentan al copiar, no del Content-Length: el CDN puede cortar a mitad y eso
-        // se ve como un segmento corto, que es justo lo que deja al reproductor sin datos.
-        val copiados = runCatching { c.inputStream.copyTo(salida, 64 * 1024) }.getOrDefault(-1L)
+        val s = session ?: return error502(output, "segment with no channel session")
+        val u = URLDecoder.decode(path.substringAfter("u=").substringBefore("&"), "UTF-8")
+        val name = u.substringAfterLast('/')
+        val c = getSegment(u, s)
+            ?: return error502(output, "no CDN served the segment $name (position ${positionInPlaylist(name)})")
+        // The header is written ONLY HERE, with a 200 in hand. Once written it can't be turned
+        // into an error: that's why this can't happen before knowing there's a body.
+        output.write("HTTP/1.1 200 OK\r\nContent-Type: video/mp2t\r\n\r\n".toByteArray())
+        // Bytes are counted while copying, not from Content-Length: the CDN can cut off partway
+        // and that looks like a short segment, which is exactly what leaves the player starved.
+        val copied = runCatching { c.inputStream.copyTo(output, 64 * 1024) }.getOrDefault(-1L)
         android.util.Log.w(
             "LiveHlsProxy",
-            "segment served ${copiados / 1024}KB in ${System.currentTimeMillis() - t0}ms" +
-                (if (copiados < 0) " (CUT OFF)" else "") + " $nombre",
+            "segment served ${copied / 1024}KB in ${System.currentTimeMillis() - t0}ms" +
+                (if (copied < 0) " (CUT OFF)" else "") + " $name",
         )
     }
 
     /**
-     * El segmento pedido, ya con código 200, o `null` si de verdad no está en ninguna parte.
+     * The requested segment, already with a 200, or `null` if it's truly nowhere to be found.
      *
-     * Dos escalones, en este orden:
-     *  1. **reintentos contra el CDN activo**, que es el caso normal: en el borde del vivo el
-     *     reproductor pide el segmento ANTES de que el CDN lo publique. El 2026-08-14 VLC pidió
-     *     tres segmentos de ~5 s de video con 1,3 s de diferencia entre sí — venía corriendo hacia
-     *     el borde — y el tercero dio 404 sencillamente porque todavía no existía;
-     *  2. **los otros CDN del canal**, por si el que estamos usando se quedó atrás. El camino del
-     *     playlist ya los recorre así ([servirPlaylist]); el de segmentos no lo hacía y el
-     *     respaldo quedaba ahí sin usarse.
+     * Two tiers, in this order:
+     *  1. **retries against the active CDN**, the normal case: at the live edge the player asks
+     *     for the segment BEFORE the CDN publishes it. On 2026-08-14 VLC requested three ~5s video
+     *     segments 1.3s apart -it was running toward the edge- and the third gave 404 simply
+     *     because it didn't exist yet;
+     *  2. **the channel's other CDNs**, in case the one being used fell behind. The playlist path
+     *     already walks them this way ([servePlaylist]); the segment path didn't, and the backup
+     *     sat there unused.
      *
-     * Las esperas salen del tamaño del segmento: duran ~5 s y el playlist anuncia 6, o sea ~30 s
-     * de colchón. Gastar hasta ~1 s esperando a que se publique no vacía nada; darlo por perdido
-     * de una, sí.
+     * The waits come from the segment's size: they last ~5s and the playlist announces 6, i.e.
+     * ~30s of cushion. Spending up to ~1s waiting for it to be published doesn't empty anything;
+     * giving up on it right away does.
      */
-    private fun conseguirSegmento(url: String, s: LiveSession): HttpURLConnection? {
-        val nombre = url.substringAfterLast('/')
-        repeat(INTENTOS_SEGMENTO) { intento ->
-            val c = pedirOk(url, s)
+    private fun getSegment(url: String, s: LiveSession): HttpURLConnection? {
+        val name = url.substringAfterLast('/')
+        repeat(SEGMENT_ATTEMPTS) { attempt ->
+            val c = requestOk(url, s)
             if (c != null) return c
-            if (intento < INTENTOS_SEGMENTO - 1) {
+            if (attempt < SEGMENT_ATTEMPTS - 1) {
                 android.util.Log.w(
                     "LiveHlsProxy",
-                    "segment $nombre (position ${posicionEnPlaylist(nombre)} in the playlist) isn't " +
-                        "there yet → retry ${intento + 2}/$INTENTOS_SEGMENTO in ${ESPERA_SEGMENTO_MS}ms",
+                    "segment $name (position ${positionInPlaylist(name)} in the playlist) isn't " +
+                        "there yet → retry ${attempt + 2}/$SEGMENT_ATTEMPTS in ${SEGMENT_WAIT_MS}ms",
                 )
-                Thread.sleep(ESPERA_SEGMENTO_MS)
+                Thread.sleep(SEGMENT_WAIT_MS)
             }
         }
-        // El CDN activo no lo tiene. Los segmentos vienen del playlist de ESE host, así que para
-        // pedírselo a otro hay que cambiarle el host a la url (la firma ya va por CDN, que es el
-        // parámetro `cdn` de [pedirAlOrigen]).
+        // The active CDN doesn't have it. Segments come from THAT host's playlist, so asking
+        // another one means swapping the host in the url (the signature already goes per CDN,
+        // which is [requestFromOrigin]'s `cdn` parameter).
         //
-        // Se reemplaza la AUTORIDAD entera, no el host: `cflHost` trae el puerto pegado cuando lo
-        // hay (por eso el playlist se arma como "http://${cdn.cflHost}/live/..."), así que pasarlo
-        // como `host` al constructor de URL deja una url con dos puertos y no resuelve.
-        val otros = s.cdns.filter { it.cflHost != cdnDe(s).cflHost }
-        for (cdn in otros) {
-            val alterna = runCatching {
+        // The whole AUTHORITY is replaced, not just the host: `cflHost` carries the port glued on
+        // when there is one (that's why the playlist is built as "http://${cdn.cflHost}/live/..."),
+        // so passing it as `host` to URL's constructor would leave a url with two ports and fail
+        // to resolve.
+        val others = s.cdns.filter { it.cflHost != cdnFor(s).cflHost }
+        for (cdn in others) {
+            val alternate = runCatching {
                 url.replaceFirst("://${URL(url).authority}", "://${cdn.cflHost}")
             }.getOrNull() ?: continue
-            android.util.Log.w("LiveHlsProxy", "segment $nombre → trying CDN ${cdn.cflHost}")
-            val c = pedirOk(alterna, s, cdn)
+            android.util.Log.w("LiveHlsProxy", "segment $name → trying CDN ${cdn.cflHost}")
+            val c = requestOk(alternate, s, cdn)
             if (c != null) return c
         }
         return null
     }
 
     /**
-     * [pedirAlOrigen] pero devolviendo solo respuestas 200 servibles, y sin dejar escapar
-     * excepciones.
+     * [requestFromOrigin] but only returning servable 200 responses, without letting exceptions
+     * escape.
      *
-     * Las dos cosas apuntan a lo mismo: que un fallo del CDN llegue al reproductor como ERROR y
-     * nunca como fin de stream. `pedirAlOrigen` devuelve la conexión ante CUALQUIER código que no
-     * sea rechazo de firma —404 incluido—, y un CDN caído tira excepción al conectar, que sin este
-     * `runCatching` se lleva puesta la respuesta entera y el reproductor ve la conexión cortada.
+     * Both things point at the same thing: a CDN failure has to reach the player as an ERROR and
+     * never as the end of the stream. `requestFromOrigin` returns the connection on ANY code that
+     * isn't a signature rejection -404 included-, and a CDN that's down throws on connect, which
+     * without this `runCatching` takes the whole response down with it and the player sees the
+     * connection cut.
      */
-    private fun pedirOk(url: String, s: LiveSession, cdn: CdnDeCanal = cdnDe(s)): HttpURLConnection? {
-        val c = runCatching { pedirAlOrigen(url, s, cdn) }.getOrNull() ?: return null
+    private fun requestOk(url: String, s: LiveSession, cdn: CdnDeCanal = cdnFor(s)): HttpURLConnection? {
+        val c = runCatching { requestFromOrigin(url, s, cdn) }.getOrNull() ?: return null
         if (runCatching { c.responseCode }.getOrDefault(-1) == 200) return c
         runCatching { c.disconnect() }
         return null
     }
 
     /**
-     * Reescribe una línea del playlist para que cualquier URI que traiga (segmento o clave de
-     * cifrado) pase por el proxy en vez de ir directo al CDN.
+     * Rewrites one playlist line so any URI it carries (a segment or an encryption key) goes
+     * through the proxy instead of straight to the CDN.
      *
-     * Antes solo se tocaban líneas que empezaban literalmente con `"http"` y contenían `".ts"`.
-     * Eso dejaba afuera (hallazgo I1):
-     * - segmentos RELATIVOS (`c_1.ts`): el reproductor los resuelve contra `127.0.0.1`, una ruta que el
-     *   proxy no maneja → 404 y la reproducción se corta;
-     * - segmentos protocol-relative (`//cdn.host/c_1.ts`): se resuelven DIRECTO contra el CDN,
-     *   sin firma;
-     * - la URI de `#EXT-X-KEY` (si el stream viene cifrado): la línea empieza con `#`, nunca
-     *   matcheaba, y la clave se hubiera pedido al CDN sin firmar.
+     * It used to only touch lines that literally started with `"http"` and contained `".ts"`.
+     * That left out (finding I1):
+     * - RELATIVE segments (`c_1.ts`): the player resolves them against `127.0.0.1`, a path the
+     *   proxy doesn't handle -> 404 and playback cuts out;
+     * - protocol-relative segments (`//cdn.host/c_1.ts`): resolved DIRECTLY against the CDN, with
+     *   no signature;
+     * - the `#EXT-X-KEY` URI (if the stream is encrypted): the line starts with `#`, never
+     *   matched, and the key would have been requested from the CDN unsigned.
      *
-     * `URL(base, spec)` resuelve las tres formas de URI (absoluta, protocol-relative, relativa)
-     * exactamente como lo haría un navegador, así que no hace falta reinventar esa lógica a mano.
+     * `URL(base, spec)` resolves all three URI forms (absolute, protocol-relative, relative)
+     * exactly like a browser would, so there's no need to reinvent that logic by hand.
      *
-     * [miHost] es el host por el que ESTE cliente pidió el playlist (ver [atender]), no un
-     * `127.0.0.1` fijo (hallazgo del agente anterior, Tarea 20): si las URLs de segmento SIEMPRE
-     * quedaran en loopback, Chromecast/DLNA -que piden el playlist por la IP LAN del celu, ver
-     * [lanUrl]- recibirían segmentos apuntando a `127.0.0.1`, que para ELLOS es su propio
-     * dispositivo, no el celu. Pantalla negra sin ningún error. El reproductor local sigue
-     * sirviéndose de `127.0.0.1` igual que antes porque pide el playlist por loopback (ver [urlPara]), así que
-     * `miHost` le llega como `"127.0.0.1"` sin cambiar nada.
+     * [myHost] is the host THIS client used to request the playlist (see [handle]), not a fixed
+     * `127.0.0.1` (a finding from a previous agent, Task 20): if segment URLs ALWAYS stayed on
+     * loopback, Chromecast/DLNA -which request the playlist over the phone's LAN IP, see
+     * [lanUrl]- would receive segments pointing at `127.0.0.1`, which for THEM is their own
+     * device, not the phone. Black screen with no error at all. The local player keeps being
+     * served from `127.0.0.1` same as before because it requests the playlist over loopback (see
+     * [urlFor]), so `myHost` arrives as `"127.0.0.1"` for it, changing nothing.
      */
-    private fun reescribirLinea(ln: String, base: URL, miHost: String, miPuerto: Int, miToken: String): String {
+    private fun rewriteLine(ln: String, base: URL, myHost: String, myPort: Int, myToken: String): String {
         val t = ln.trim()
         if (t.isEmpty()) return ln
         if (t.startsWith("#EXT-X-KEY") && t.contains("URI=")) {
-            return reescribirUriEnTag(ln, base, miHost, miPuerto, miToken)
+            return rewriteUriInTag(ln, base, myHost, myPort, myToken)
         }
-        if (t.startsWith("#")) return ln  // el resto de los tags no llevan URI propia
-        val absoluta = runCatching { URL(base, t) }.getOrNull() ?: return ln
-        // El token va DESPUÉS de u= (nunca antes): servirSegmento() extrae u con
-        // `substringBefore("&")`, así que cualquier parámetro nuevo tiene que ir a continuación.
-        return "http://$miHost:$miPuerto/seg?u=${URLEncoder.encode(absoluta.toString(), "UTF-8")}&t=$miToken"
+        if (t.startsWith("#")) return ln  // the rest of the tags don't carry their own URI
+        val absolute = runCatching { URL(base, t) }.getOrNull() ?: return ln
+        // The token goes AFTER u= (never before): serveSegment() extracts u with
+        // `substringBefore("&")`, so any new parameter has to go after it.
+        return "http://$myHost:$myPort/seg?u=${URLEncoder.encode(absolute.toString(), "UTF-8")}&t=$myToken"
     }
 
-    /** Reescribe SOLO la URI entre comillas de un tag `#EXT-X-KEY:...,URI="..."`, dejando el resto igual. */
-    private fun reescribirUriEnTag(ln: String, base: URL, miHost: String, miPuerto: Int, miToken: String): String {
+    /** Rewrites ONLY the quoted URI in an `#EXT-X-KEY:...,URI="..."` tag, leaving the rest untouched. */
+    private fun rewriteUriInTag(ln: String, base: URL, myHost: String, myPort: Int, myToken: String): String {
         val m = Regex("URI=\"([^\"]*)\"").find(ln) ?: return ln
-        val grupo = m.groups[1] ?: return ln
-        val absoluta = runCatching { URL(base, grupo.value) }.getOrNull() ?: return ln
-        val nueva = "http://$miHost:$miPuerto/seg?u=${URLEncoder.encode(absoluta.toString(), "UTF-8")}&t=$miToken"
-        return ln.replaceRange(grupo.range, nueva)
+        val group = m.groups[1] ?: return ln
+        val absolute = runCatching { URL(base, group.value) }.getOrNull() ?: return ln
+        val rewritten = "http://$myHost:$myPort/seg?u=${URLEncoder.encode(absolute.toString(), "UTF-8")}&t=$myToken"
+        return ln.replaceRange(group.range, rewritten)
     }
 
     companion object {
@@ -613,33 +618,35 @@ class LiveHlsProxy(
         private const val APP_VERSION = "49902"
 
         /**
-         * Cuántas veces se le pide el MISMO segmento al CDN activo antes de buscar en otro, y
-         * cuánto se espera entre intentos.
+         * How many times the SAME segment is requested from the active CDN before trying another
+         * one, and how long to wait between attempts.
          *
-         * El tope sale de MEDIR, no del presupuesto de la app original. Ella le da a ffmpeg
-         * `reconnect_delay_max=5` (ver `yc/C6276a.java` del decompilado) y por un rato esto estuvo
-         * en seis intentos para igualarlo — pero ese número es para **reconectar una red que se
-         * cayó**, no para esperar bytes que no existen, y acá el fallo es lo segundo.
+         * The cap comes from MEASURING, not from the original app's budget. It gives ffmpeg
+         * `reconnect_delay_max=5` (see the decompiled `yc/C6276a.java`) and for a while this was
+         * set to six attempts to match it -- but that number is for **reconnecting a network that
+         * dropped**, not for waiting on bytes that don't exist, and here the failure is the second
+         * kind.
          *
-         * Lo medido en el Fire TV el 2026-08-14, con cinco segmentos que dieron 404: **ninguno**
-         * llegó dentro de la ventana de 5 s. Cuatro no aparecieron nunca —pedidos de nuevo 30 s
-         * después seguían en 404— y el quinto tardó 13 s, inalcanzable con cualquier tope sensato.
-         * O sea que estirar la ventana no compra nada: o el segmento está enseguida, o no está.
+         * Measured on the Fire TV on 2026-08-14, with five segments that gave 404: **none**
+         * arrived within the 5s window. Four never showed up at all -requested again 30s later
+         * they were still 404- and the fifth took 13s, unreachable with any sane cap. So
+         * stretching the window buys nothing: either the segment is there right away, or it isn't.
          *
-         * Quedan tres intentos porque siguen cubriendo lo único que la espera puede arreglar —un
-         * segmento que se publica con un pestañeo de retraso— y porque el que de verdad rescata el
-         * canal es otro: [PlayerViewModel.reabrirVivoPorCorte], que reengancha en el borde del
-         * vivo en 2 s. Cuanto antes se le devuelva el control, antes vuelve la imagen.
+         * Three attempts remain because they still cover the only thing the wait can fix -a
+         * segment published with a blink's worth of delay- and because what actually rescues the
+         * channel is something else: [PlayerViewModel.reabrirVivoPorCorte], which reconnects at
+         * the live edge in 2s. The sooner control is handed back to it, the sooner the picture
+         * returns.
          */
-        private const val INTENTOS_SEGMENTO = 3
-        private const val ESPERA_SEGMENTO_MS = 800L
+        private const val SEGMENT_ATTEMPTS = 3
+        private const val SEGMENT_WAIT_MS = 800L
 
         /**
-         * Vueltas completas a TODOS los CDN buscando el playlist. Menos que las de un segmento a
-         * propósito: el reproductor reintenta el playlist por su cuenta (VLC lo pidió cada ~3 s el
-         * 2026-08-14), así que acá alcanza con cubrir el bache corto y devolverle el control antes
-         * de que se canse.
+         * Full rounds through ALL the CDNs looking for the playlist. Fewer than a segment's, on
+         * purpose: the player retries the playlist on its own (VLC requested it every ~3s on
+         * 2026-08-14), so here it's enough to cover the short gap and hand control back before it
+         * gives up.
          */
-        private const val INTENTOS_PLAYLIST = 3
+        private const val PLAYLIST_ATTEMPTS = 3
     }
 }

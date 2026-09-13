@@ -18,60 +18,60 @@ import java.net.URLEncoder
 import java.util.concurrent.CopyOnWriteArrayList
 
 class LiveHlsProxyTest {
-    /** Firma predecible, para poder afirmar qué `Content-Auth` salió en cada petición. */
-    private class FirmasFalsas : FirmaDeSegmentos {
-        var entregadas = 0
-        var rechazos = 0
-        var aceptaciones = 0
+    /** Predictable signature, so the test can assert which `Content-Auth` went out on each request. */
+    private class FakeSignatures : FirmaDeSegmentos {
+        var issued = 0
+        var rejections = 0
+        var acceptances = 0
         override suspend fun firmar(token: String): LiveSignature {
-            entregadas++
-            return LiveSignature(1000L, "firma%02d".format(entregadas))
+            issued++
+            return LiveSignature(1000L, "sig%02d".format(issued))
         }
-        override fun rechazada() { rechazos++ }
-        override fun aceptada() { aceptaciones++ }
+        override fun rechazada() { rejections++ }
+        override fun aceptada() { acceptances++ }
     }
 
-    private fun leer(url: String): Pair<Int, String> {
+    private fun read(url: String): Pair<Int, String> {
         val c = URL(url).openConnection() as HttpURLConnection
-        val cuerpo = runCatching { c.inputStream.bufferedReader().readText() }.getOrDefault("")
-        return c.responseCode to cuerpo
+        val body = runCatching { c.inputStream.bufferedReader().readText() }.getOrDefault("")
+        return c.responseCode to body
     }
 
     @Test
-    fun `reescribe los segmentos absolutos hacia el propio proxy`() = runBlocking {
+    fun `rewrites absolute segments toward the proxy itself`() = runBlocking {
         val upstream = MockWebServer()
         upstream.enqueue(MockResponse().setBody(
             "#EXTM3U\n#EXTINF:6,\nhttp://seg1.cdn/live/c/c_1.ts\n#EXTINF:6,\nhttp://seg2.cdn/live/c/c_2.ts\n"
         ))
         upstream.start()
 
-        val proxy = LiveHlsProxy(FirmasFalsas())
-        val puerto = proxy.start()
-        val sesion = LiveSession(
+        val proxy = LiveHlsProxy(FakeSignatures())
+        val port = proxy.start()
+        val session = LiveSession(
             cflHost = "${upstream.hostName}:${upstream.port}",
             authBase = "http://x/?a=1&token=${"A".repeat(32)}",
             license = "LIC", channel = "c", expiresAt = 0,
         )
-        val (codigo, cuerpo) = leer(proxy.urlPara(sesion))
+        val (code, body) = read(proxy.urlFor(session))
 
-        assertEquals(200, codigo)
-        assertTrue(cuerpo.contains("http://127.0.0.1:$puerto/seg?u="))
-        assertTrue("no debe quedar ninguna URL del CDN sin reescribir", !cuerpo.contains("seg1.cdn/live"))
-        assertEquals(2, cuerpo.lines().count { it.startsWith("http://127.0.0.1") })
+        assertEquals(200, code)
+        assertTrue(body.contains("http://127.0.0.1:$port/seg?u="))
+        assertTrue("no CDN URL should be left unrewritten", !body.contains("seg1.cdn/live"))
+        assertEquals(2, body.lines().count { it.startsWith("http://127.0.0.1") })
         proxy.stop(); upstream.shutdown()
     }
 
     @Test
-    fun `pone las tres cabeceras al pedir el playlist`() = runBlocking {
+    fun `sets all three headers when requesting the playlist`() = runBlocking {
         val upstream = MockWebServer()
         upstream.enqueue(MockResponse().setBody("#EXTM3U\n"))
         upstream.start()
 
-        val proxy = LiveHlsProxy(FirmasFalsas())
+        val proxy = LiveHlsProxy(FakeSignatures())
         proxy.start()
-        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+        val session = LiveSession("${upstream.hostName}:${upstream.port}",
             "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
-        leer(proxy.urlPara(sesion))
+        read(proxy.urlFor(session))
 
         val req = upstream.takeRequest()
         assertEquals("LIC", req.getHeader("Content-License"))
@@ -79,205 +79,205 @@ class LiveHlsProxyTest {
         val auth = req.getHeader("Content-Auth")!!
         assertTrue(auth.contains("sign2_method=sign_o3"))
         assertTrue(auth.contains("start_moment=1000"))
-        assertTrue(auth.contains("sign2=firma01"))
+        assertTrue(auth.contains("sign2=sig01"))
         proxy.stop(); upstream.shutdown()
     }
 
     @Test
-    fun `ante un 403 pide firma fresca y reintenta exactamente una vez`() = runBlocking {
+    fun `on a 403 it asks for a fresh signature and retries exactly once`() = runBlocking {
         val upstream = MockWebServer()
-        var pedidos = 0
+        var requests = 0
         upstream.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
-                pedidos++
-                return if (pedidos == 1) MockResponse().setResponseCode(403)
+                requests++
+                return if (requests == 1) MockResponse().setResponseCode(403)
                 else MockResponse().setBody("#EXTM3U\n")
             }
         }
         upstream.start()
 
-        val firmas = FirmasFalsas()
-        val proxy = LiveHlsProxy(firmas)
+        val signatures = FakeSignatures()
+        val proxy = LiveHlsProxy(signatures)
         proxy.start()
-        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+        val session = LiveSession("${upstream.hostName}:${upstream.port}",
             "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
-        val (codigo, _) = leer(proxy.urlPara(sesion))
+        val (code, _) = read(proxy.urlFor(session))
 
-        assertEquals(200, codigo)
-        assertEquals("un 403 y su reintento, nada mas", 2, pedidos)
-        assertEquals("el 403 se le avisa a la fuente de firmas", 1, firmas.rechazos)
-        assertEquals("el reintento que si funciono se avisa como aceptado", 1, firmas.aceptaciones)
+        assertEquals(200, code)
+        assertEquals("one 403 and its retry, nothing more", 2, requests)
+        assertEquals("the 403 is reported to the signature source", 1, signatures.rejections)
+        assertEquals("the retry that did work is reported as accepted", 1, signatures.acceptances)
         proxy.stop(); upstream.shutdown()
     }
 
     /**
-     * Hallazgo F1 de la revisión final: antes, `pedirAlOrigen` llamaba a `firmas.rechazada()` UNA
-     * VEZ POR INTENTO HTTP (hasta dos, acá dentro) -- así que un solo 403 "de verdad" (el caso
-     * "caducó la sesión, no la firma", donde el reintento también 403 sin que el algoritmo esté
-     * roto) ya empujaba el contador de `FirmaConRespaldo` DOS pasos de una, la mitad del umbral
-     * real. `dos 403 seguidos` acá son UNA sola petición de `LiveHlsProxy` (con su reintento
-     * interno) rindiéndose: eso tiene que contar como UN rechazo, no dos.
+     * Finding F1 from the final review: before, `requestFromOrigin` called `signatures.rechazada()`
+     * ONCE PER HTTP ATTEMPT (up to two, in here) -- so a single "real" 403 (the "session expired,
+     * not the signature" case, where the retry also 403s without the algorithm being broken) was
+     * already pushing `FirmaConRespaldo`'s counter TWO steps at once, half the real threshold.
+     * "two 403s in a row" here is ONE `LiveHlsProxy` request (with its internal retry) giving up:
+     * that has to count as ONE rejection, not two.
      */
     @Test
-    fun `dos 403 seguidos se rinden en vez de reintentar para siempre, y cuentan como UN solo rechazo`() = runBlocking {
+    fun `two 403s in a row give up instead of retrying forever, and count as a SINGLE rejection`() = runBlocking {
         val upstream = MockWebServer()
         upstream.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest) = MockResponse().setResponseCode(403)
         }
         upstream.start()
 
-        val firmas = FirmasFalsas()
-        val proxy = LiveHlsProxy(firmas)
+        val signatures = FakeSignatures()
+        val proxy = LiveHlsProxy(signatures)
         proxy.start()
-        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+        val session = LiveSession("${upstream.hostName}:${upstream.port}",
             "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
-        val (codigo, _) = leer(proxy.urlPara(sesion))
-        assertEquals(502, codigo)
-        assertEquals("un 403 y su reintento -tambien 403- cuentan como UN solo rechazo", 1, firmas.rechazos)
-        assertEquals(0, firmas.aceptaciones)
+        val (code, _) = read(proxy.urlFor(session))
+        assertEquals(502, code)
+        assertEquals("a 403 and its retry -also 403- count as a SINGLE rejection", 1, signatures.rejections)
+        assertEquals(0, signatures.acceptances)
         proxy.stop(); upstream.shutdown()
     }
 
     /**
-     * "En la misma ola" de la revisión final: un 403 que sobrevive al reintento significa que
-     * caducó la SESIÓN del canal (token/license), no la firma -ver el KDoc de `pedirAlOrigen`-.
-     * Antes nadie avisaba de esto: `LiveController` seguía sirviendo esa sesión cacheada hasta
-     * 300s más, así que zapear e ir y volver a un canal roto lo dejaba roto todo ese rato.
+     * "In the same wave" of the final review: a 403 that survives the retry means the channel's
+     * SESSION (token/license) expired, not the signature -see `requestFromOrigin`'s KDoc-. Nobody
+     * used to report this: `LiveController` kept serving that cached session for up to 300s more,
+     * so zapping away and back to a broken channel left it broken that whole time.
      */
     @Test
-    fun `dos 403 seguidos avisan que la sesion del canal murio`() = runBlocking {
+    fun `two 403s in a row report that the channel's session died`() = runBlocking {
         val upstream = MockWebServer()
         upstream.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest) = MockResponse().setResponseCode(403)
         }
         upstream.start()
 
-        val canalesMuertos = CopyOnWriteArrayList<String>()
-        val proxy = LiveHlsProxy(FirmasFalsas(), onSesionMuerta = { canalesMuertos.add(it) })
+        val deadChannels = CopyOnWriteArrayList<String>()
+        val proxy = LiveHlsProxy(FakeSignatures(), onSessionDead = { deadChannels.add(it) })
         proxy.start()
-        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+        val session = LiveSession("${upstream.hostName}:${upstream.port}",
             "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "canal-x", 0)
-        leer(proxy.urlPara(sesion))
+        read(proxy.urlFor(session))
 
-        assertEquals(listOf("canal-x"), canalesMuertos)
+        assertEquals(listOf("canal-x"), deadChannels)
         proxy.stop(); upstream.shutdown()
     }
 
-    /** El camino feliz (sin 403) no debe avisar sesión muerta -sería un false positive. */
+    /** The happy path (no 403) must not report a dead session -- that would be a false positive. */
     @Test
-    fun `sin 403 no avisa sesion muerta`() = runBlocking {
+    fun `no 403 means no dead-session report`() = runBlocking {
         val upstream = MockWebServer()
         upstream.enqueue(MockResponse().setBody("#EXTM3U\n"))
         upstream.start()
 
-        val canalesMuertos = CopyOnWriteArrayList<String>()
-        val proxy = LiveHlsProxy(FirmasFalsas(), onSesionMuerta = { canalesMuertos.add(it) })
+        val deadChannels = CopyOnWriteArrayList<String>()
+        val proxy = LiveHlsProxy(FakeSignatures(), onSessionDead = { deadChannels.add(it) })
         proxy.start()
-        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+        val session = LiveSession("${upstream.hostName}:${upstream.port}",
             "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
-        leer(proxy.urlPara(sesion))
+        read(proxy.urlFor(session))
 
-        assertTrue(canalesMuertos.isEmpty())
+        assertTrue(deadChannels.isEmpty())
         proxy.stop(); upstream.shutdown()
     }
 
     /**
-     * Hallazgo C2 de la revisión: `atender()` no atrapaba excepciones, y `stop()` puede poner
-     * `sesion = null` mientras OTRA conexión ya en curso todavía la está usando (el usuario sale
-     * del reproductor justo cuando un segmento está a mitad de descarga). Antes de este test, eso
-     * terminaba en un NPE (`sesion!!.license`) que escapaba del hilo de la conexión — y en
-     * Android una excepción sin atrapar en CUALQUIER hilo mata el proceso entero.
+     * Finding C2 from the review: `handle()` didn't catch exceptions, and `stop()` can set
+     * `session = null` while ANOTHER connection already in flight is still using it (the user
+     * leaves the player right as a segment is halfway through downloading). Before this test, that
+     * ended in an NPE (`session!!.license`) escaping the connection's thread -- and on Android an
+     * uncaught exception on ANY thread kills the whole process.
      *
-     * Para no depender de timing real (que sería un test frágil), la propia fuente de firmas se
-     * usa de gancho: `firmar()` es lo último que corre DENTRO de `contentAuth()` antes de que
-     * `pedirAlOrigen` vuelva a leer `sesion` para `Content-License` — así que llamar `stop()`
-     * justo ahí reproduce la ventana exacta que señaló la revisión, siempre, sin azar.
+     * To avoid depending on real timing (which would be a flaky test), the signature source itself
+     * is used as a hook: `firmar()` is the last thing that runs INSIDE `contentAuth()` before
+     * `requestFromOrigin` reads `session` again for `Content-License` -- so calling `stop()` right
+     * there reproduces the exact window the review flagged, every time, with no randomness.
      */
     @Test
-    fun `una sesion que desaparece a mitad de una peticion no revienta el hilo con NPE`() {
+    fun `a session that disappears mid-request does not crash the thread with an NPE`() {
         val upstream = MockWebServer()
         upstream.enqueue(MockResponse().setBody("#EXTM3U\n"))
         upstream.start()
 
         lateinit var proxy: LiveHlsProxy
-        val firmaQueMataLaSesion = object : FirmaDeSegmentos {
+        val signatureThatKillsTheSession = object : FirmaDeSegmentos {
             override suspend fun firmar(token: String): LiveSignature {
-                proxy.stop()  // simula: el usuario sale del reproductor a mitad de esta petición
-                return LiveSignature(1000L, "firma-evil")
+                proxy.stop()  // simulates: the user leaves the player mid-request
+                return LiveSignature(1000L, "evil-sig")
             }
         }
-        proxy = LiveHlsProxy(firmaQueMataLaSesion)
+        proxy = LiveHlsProxy(signatureThatKillsTheSession)
         proxy.start()
-        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+        val session = LiveSession("${upstream.hostName}:${upstream.port}",
             "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
-        // Hay que usar la URL que devuelve urlPara() (con el token de sesión, ver Tarea 19), no
-        // reconstruirla a mano con el puerto: sin el token, atender() la rechazaría con 403 ANTES
-        // de llegar siquiera a la ventana de carrera que este test quiere reproducir.
-        val url = proxy.urlPara(sesion)
+        // The URL returned by urlFor() has to be used (with the session token, see Task 19), not
+        // rebuilt by hand with the port: without the token, handle() would reject it with 403
+        // BEFORE ever reaching the race window this test wants to reproduce.
+        val url = proxy.urlFor(session)
 
-        val excepciones = CopyOnWriteArrayList<Throwable>()
-        val previo = Thread.getDefaultUncaughtExceptionHandler()
-        Thread.setDefaultUncaughtExceptionHandler { _, e -> excepciones.add(e) }
+        val exceptions = CopyOnWriteArrayList<Throwable>()
+        val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { _, e -> exceptions.add(e) }
         try {
-            runCatching { leer(url) }
-            // atender() corre en un hilo daemon aparte: darle margen a que termine (con o sin
-            // excepción) antes de revisar qué quedó capturado.
+            runCatching { read(url) }
+            // handle() runs on a separate daemon thread: give it room to finish (with or without
+            // an exception) before checking what got captured.
             Thread.sleep(300)
         } finally {
-            Thread.setDefaultUncaughtExceptionHandler(previo)
+            Thread.setDefaultUncaughtExceptionHandler(previousHandler)
         }
         assertTrue(
-            "una sesion que desaparece a mitad de una peticion no deberia tirar una excepcion " +
-                "sin atrapar (mataria el proceso en Android): $excepciones",
-            excepciones.isEmpty(),
+            "a session disappearing mid-request should not throw an uncaught exception " +
+                "(would kill the process on Android): $exceptions",
+            exceptions.isEmpty(),
         )
         upstream.shutdown()
     }
 
     /**
-     * Hallazgo I1 de la revisión: la reescritura original solo tocaba líneas que empezaban
-     * literalmente con `"http"` y contenían `".ts"`. Una URL relativa (`c_1.ts`) se hubiera
-     * resuelto contra el proxy en una ruta que no maneja (404), y una protocol-relative
-     * (`//otro.cdn/...`) se hubiera ido derecho al CDN sin firma.
+     * Finding I1 from the review: the original rewrite only touched lines that literally started
+     * with `"http"` and contained `".ts"`. A relative URL (`c_1.ts`) would have resolved against
+     * the proxy on a path it doesn't handle (404), and a protocol-relative one (`//other.cdn/...`)
+     * would have gone straight to the CDN unsigned.
      */
     @Test
-    fun `reescribe tambien segmentos relativos y protocol-relative`() = runBlocking {
+    fun `also rewrites relative and protocol-relative segments`() = runBlocking {
         val upstream = MockWebServer()
         upstream.enqueue(MockResponse().setBody(
             "#EXTM3U\n#EXTINF:6,\nc_1.ts\n#EXTINF:6,\n//otro.cdn/live/c/c_2.ts\n"
         ))
         upstream.start()
 
-        val proxy = LiveHlsProxy(FirmasFalsas())
+        val proxy = LiveHlsProxy(FakeSignatures())
         proxy.start()
-        val sesion = LiveSession(
+        val session = LiveSession(
             cflHost = "${upstream.hostName}:${upstream.port}",
             authBase = "http://x/?a=1&token=${"A".repeat(32)}",
             license = "LIC", channel = "c", expiresAt = 0,
         )
-        val (codigo, cuerpo) = leer(proxy.urlPara(sesion))
+        val (code, body) = read(proxy.urlFor(session))
 
-        assertEquals(200, codigo)
-        // la relativa se resuelve contra el directorio del playlist (/live/) y sale reescrita
-        val relativaEsperada = "http://${upstream.hostName}:${upstream.port}/live/c_1.ts"
+        assertEquals(200, code)
+        // the relative one resolves against the playlist's directory (/live/) and comes out rewritten
+        val expectedRelative = "http://${upstream.hostName}:${upstream.port}/live/c_1.ts"
         assertTrue(
-            "la URL relativa deberia resolverse contra /live/ y reescribirse: $cuerpo",
-            cuerpo.contains("seg?u=" + URLEncoder.encode(relativaEsperada, "UTF-8")),
+            "the relative URL should resolve against /live/ and get rewritten: $body",
+            body.contains("seg?u=" + URLEncoder.encode(expectedRelative, "UTF-8")),
         )
-        // la protocol-relative nunca debe quedar apuntando DIRECTO al CDN, sin firma — "otro.cdn"
-        // sí puede aparecer codificado DENTRO del parámetro u= del proxy, así que lo que importa
-        // es que ninguna línea empiece apuntando directo ahí.
+        // the protocol-relative one must never be left pointing DIRECTLY at the CDN, unsigned --
+        // "otro.cdn" CAN appear encoded INSIDE the proxy's u= parameter, so what matters is that no
+        // line starts out pointing straight there.
         assertTrue(
-            "la protocol-relative no debe quedar sin reescribir: $cuerpo",
-            cuerpo.lines().none { it.trim().let { l -> l.startsWith("//otro.cdn") || l.startsWith("http://otro.cdn") } },
+            "the protocol-relative one must not be left unrewritten: $body",
+            body.lines().none { it.trim().let { l -> l.startsWith("//otro.cdn") || l.startsWith("http://otro.cdn") } },
         )
-        assertEquals(2, cuerpo.lines().count { it.startsWith("http://127.0.0.1") })
+        assertEquals(2, body.lines().count { it.startsWith("http://127.0.0.1") })
         proxy.stop(); upstream.shutdown()
     }
 
-    /** Una `#EXT-X-KEY` con URI absoluta también tiene que salir reescrita hacia el proxy. */
+    /** An `#EXT-X-KEY` with an absolute URI also has to come out rewritten toward the proxy. */
     @Test
-    fun `reescribe la URI de EXT-X-KEY para que tambien salga firmada`() = runBlocking {
+    fun `rewrites the EXT-X-KEY URI so it also comes out signed`() = runBlocking {
         val upstream = MockWebServer()
         upstream.enqueue(MockResponse().setBody(
             "#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"http://cdn.key/live/c/key.bin\"\n" +
@@ -285,244 +285,243 @@ class LiveHlsProxyTest {
         ))
         upstream.start()
 
-        val proxy = LiveHlsProxy(FirmasFalsas())
+        val proxy = LiveHlsProxy(FakeSignatures())
         proxy.start()
-        val sesion = LiveSession(
+        val session = LiveSession(
             cflHost = "${upstream.hostName}:${upstream.port}",
             authBase = "http://x/?a=1&token=${"A".repeat(32)}",
             license = "LIC", channel = "c", expiresAt = 0,
         )
-        val (codigo, cuerpo) = leer(proxy.urlPara(sesion))
+        val (code, body) = read(proxy.urlFor(session))
 
-        assertEquals(200, codigo)
-        val lineaKey = cuerpo.lines().first { it.startsWith("#EXT-X-KEY") }
+        assertEquals(200, code)
+        val keyLine = body.lines().first { it.startsWith("#EXT-X-KEY") }
         assertTrue(
-            "la URI de la clave deberia salir reescrita hacia el proxy, no directo al CDN: $lineaKey",
-            lineaKey.contains("URI=\"http://127.0.0.1"),
+            "the key's URI should come out rewritten toward the proxy, not straight to the CDN: $keyLine",
+            keyLine.contains("URI=\"http://127.0.0.1"),
         )
-        // igual que arriba: "cdn.key" puede aparecer codificado dentro del u= del proxy, lo que
-        // no debe pasar es que la URI del tag siga apuntando DIRECTO ahí.
-        assertTrue(!lineaKey.contains("URI=\"http://cdn.key"))
+        // same as above: "cdn.key" can appear encoded inside the proxy's u=, what must not happen
+        // is the tag's URI still pointing DIRECTLY there.
+        assertTrue(!keyLine.contains("URI=\"http://cdn.key"))
         proxy.stop(); upstream.shutdown()
     }
 
     /**
-     * Fuga de la Tarea 14: `AppGraph` creaba `liveHlsProxy` pero nada lo cerraba al salir del
-     * canal en vivo, así que el `ServerSocket` en 127.0.0.1 (y su hilo `accept()`) quedaban vivos
-     * el resto del proceso. El fix real vive en `PlaybackService.releaseNetworkResources()` (no
-     * testeable sin Robolectric: es un `android.app.Service`), así que este test verifica la
-     * parte que SÍ se puede probar en JVM pura: que `stop()` de verdad suelta el socket, no solo
-     * que pone en null una referencia.
+     * Leak from Task 14: `AppGraph` created `liveHlsProxy` but nothing closed it on leaving the
+     * live channel, so the `ServerSocket` on 127.0.0.1 (and its `accept()` thread) stayed alive for
+     * the rest of the process. The real fix lives in `PlaybackService.releaseNetworkResources()`
+     * (not testable without Robolectric: it's an `android.app.Service`), so this test verifies the
+     * part that CAN be tested in pure JVM: that `stop()` really does release the socket, not just
+     * null out a reference.
      */
     @Test
-    fun `stop cierra el ServerSocket y libera el puerto`() {
-        val proxy = LiveHlsProxy(FirmasFalsas())
-        val puerto = proxy.start()
-        assertEquals(puerto, proxy.port)
+    fun `stop closes the ServerSocket and releases the port`() {
+        val proxy = LiveHlsProxy(FakeSignatures())
+        val port = proxy.start()
+        assertEquals(port, proxy.port)
 
         proxy.stop()
 
-        assertEquals("port debe volver a -1: el ServerSocket ya no existe", -1, proxy.port)
-        // El puerto viejo ya no debe aceptar conexiones: si el hilo accept() siguiera vivo
-        // (el ServerSocket no se cerró de verdad) esta conexión se establecería igual.
-        val seConectaTodavia = runCatching { Socket("127.0.0.1", puerto).close(); true }.getOrDefault(false)
-        assertTrue("el puerto viejo no debería aceptar conexiones tras stop()", !seConectaTodavia)
+        assertEquals("port must go back to -1: the ServerSocket no longer exists", -1, proxy.port)
+        // The old port must no longer accept connections: if the accept() thread were still alive
+        // (the ServerSocket wasn't really closed) this connection would succeed anyway.
+        val stillConnects = runCatching { Socket("127.0.0.1", port).close(); true }.getOrDefault(false)
+        assertTrue("the old port should not accept connections after stop()", !stillConnects)
     }
 
-    /** `stop()` sin haber llamado `start()`, y llamarlo dos veces seguidas, no deben tirar. */
+    /** `stop()` without ever calling `start()`, and calling it twice in a row, must not throw. */
     @Test
-    fun `stop es idempotente`() {
-        val proxy = LiveHlsProxy(FirmasFalsas())
-        proxy.stop() // nunca arrancó: no debe explotar
+    fun `stop is idempotent`() {
+        val proxy = LiveHlsProxy(FakeSignatures())
+        proxy.stop() // never started: must not blow up
         assertEquals(-1, proxy.port)
 
-        val puerto = proxy.start()
-        assertTrue(puerto > 0)
+        val port = proxy.start()
+        assertTrue(port > 0)
         proxy.stop()
-        proxy.stop() // segunda vez sobre un server ya cerrado: tampoco debe explotar
+        proxy.stop() // a second time over an already-closed server: must not blow up either
         assertEquals(-1, proxy.port)
     }
 
     /**
-     * Tarea 18 (Chromecast/DLNA para vivo): sin ningún canal abierto todavía no hay nada que
-     * castear -- `lanUrl` no debe inventar una URL con un puerto que ni siquiera existe.
+     * Task 18 (Chromecast/DLNA for live): with no channel open yet there's nothing to cast --
+     * `lanUrl` must not invent a URL with a port that doesn't even exist.
      */
     @Test
-    fun `lanUrl sin ningun canal abierto devuelve null`() {
-        val proxy = LiveHlsProxy(FirmasFalsas())
+    fun `lanUrl with no channel open returns null`() {
+        val proxy = LiveHlsProxy(FakeSignatures())
         assertEquals(null, proxy.lanUrl("192.168.1.50"))
     }
 
     /**
-     * `urlPara` (el camino real por el que se abre un canal) tiene que dejar el proxy alcanzable
-     * por la LAN desde el primer canal -- `lanUrl` refleja el MISMO puerto que ya quedó grabado en
-     * la URL local que consume VLC (ver el KDoc de `urlPara`: no hay "ensanchar" a mitad de
-     * reproducción, cambiaría el puerto y rompería lo que ya está reproduciendo).
+     * `urlFor` (the real path that opens a channel) has to leave the proxy reachable over the LAN
+     * from the first channel -- `lanUrl` reflects the SAME port already recorded in the local URL
+     * VLC is consuming (see `urlFor`'s KDoc: there's no "widening" mid-playback, that would change
+     * the port and break what's already playing).
      */
     @Test
-    fun `lanUrl coincide en puerto con la url local que ya usa VLC`() = runBlocking {
+    fun `lanUrl matches the port of the local url VLC is already using`() = runBlocking {
         val upstream = MockWebServer()
         upstream.enqueue(MockResponse().setBody("#EXTM3U\n"))
         upstream.start()
 
-        val proxy = LiveHlsProxy(FirmasFalsas())
-        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+        val proxy = LiveHlsProxy(FakeSignatures())
+        val session = LiveSession("${upstream.hostName}:${upstream.port}",
             "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
-        val local = proxy.urlPara(sesion)
+        val local = proxy.urlFor(session)
 
-        // El token (Tarea 19) es el mismo en ambas URLs -misma sesión de proxy-, solo cambia el
-        // host: se extrae de `local` en vez de fijarlo a mano, porque es aleatorio por corrida.
+        // The token (Task 19) is the same in both URLs -same proxy session-, only the host
+        // changes: extracted from `local` instead of hardcoded, since it's random per run.
         val token = local.substringAfter("?t=")
         val lan = proxy.lanUrl("192.168.1.50")
         assertEquals("http://192.168.1.50:${proxy.port}/live.m3u8?t=$token", lan)
         assertTrue(
-            "misma ruta, puerto y token que la URL local, solo cambia el host",
+            "same path, port and token as the local URL, only the host changes",
             local.endsWith(":${proxy.port}/live.m3u8?t=$token"),
         )
         proxy.stop(); upstream.shutdown()
     }
 
     /**
-     * El socket que abre `urlPara` (bindLan=true, ver su KDoc) tiene que seguir aceptando
-     * conexiones por loopback igual que antes -- 127.0.0.1 conecta igual con el socket escuchando
-     * en todas las interfaces, así que esto no le cambia nada a la reproducción local.
+     * The socket `urlFor` opens (bindLan=true, see its KDoc) has to keep accepting loopback
+     * connections just like before -- 127.0.0.1 connects the same with the socket listening on
+     * every interface, so this changes nothing for local playback.
      */
     @Test
-    fun `urlPara sigue siendo alcanzable por loopback tras pasar a escuchar en toda la LAN`() = runBlocking {
+    fun `urlFor stays reachable over loopback after switching to listen on the whole LAN`() = runBlocking {
         val upstream = MockWebServer()
         upstream.enqueue(MockResponse().setBody("#EXTM3U\n"))
         upstream.start()
 
-        val proxy = LiveHlsProxy(FirmasFalsas())
-        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+        val proxy = LiveHlsProxy(FakeSignatures())
+        val session = LiveSession("${upstream.hostName}:${upstream.port}",
             "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
-        val (codigo, _) = leer(proxy.urlPara(sesion))
+        val (code, _) = read(proxy.urlFor(session))
 
-        assertEquals(200, codigo)
+        assertEquals(200, code)
         proxy.stop(); upstream.shutdown()
     }
 
     // ---------------------------------------------------------------------------------------
-    // Tarea 19 (mitigación del hallazgo de exposición en LAN): desde que start() escucha en
-    // toda la LAN en vez de solo loopback (Tarea 18, Chromecast/DLNA), el token de sesión es el
-    // único control de acceso. Estos tests cubren: 403 sin token / con token equivocado, 200 con
-    // el token correcto (tanto en el playlist como en el segmento reescrito), y que el rechazo no
-    // tira ninguna excepción sin atrapar.
+    // Task 19 (mitigating the LAN-exposure finding): since start() started listening on the
+    // whole LAN instead of loopback only (Task 18, Chromecast/DLNA), the session token is the
+    // only access control. These tests cover: 403 with no token / with the wrong token, 200 with
+    // the right token (both on the playlist and on the rewritten segment), and that a rejection
+    // never throws an uncaught exception.
     // ---------------------------------------------------------------------------------------
 
-    /** Pedir el playlist sin el query param `t` tiene que rebotar con 403, no servir nada. */
+    /** Requesting the playlist without the `t` query param has to bounce with 403, serving nothing. */
     @Test
-    fun `playlist sin token responde 403`() = runBlocking {
+    fun `playlist with no token answers 403`() = runBlocking {
         val upstream = MockWebServer()
         upstream.enqueue(MockResponse().setBody("#EXTM3U\n"))
         upstream.start()
 
-        val proxy = LiveHlsProxy(FirmasFalsas())
-        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+        val proxy = LiveHlsProxy(FakeSignatures())
+        val session = LiveSession("${upstream.hostName}:${upstream.port}",
             "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
-        proxy.urlPara(sesion) // arranca el server y fija la sesión; se ignora la URL con token
+        proxy.urlFor(session) // starts the server and sets the session; the URL with the token is ignored
 
-        val (codigo, cuerpo) = leer("http://127.0.0.1:${proxy.port}/live.m3u8")
+        val (code, body) = read("http://127.0.0.1:${proxy.port}/live.m3u8")
 
-        assertEquals(403, codigo)
-        assertTrue("el 403 no debe filtrar nada en el cuerpo", cuerpo.isEmpty())
+        assertEquals(403, code)
+        assertTrue("a 403 must not leak anything in the body", body.isEmpty())
         proxy.stop(); upstream.shutdown()
     }
 
-    /** Un token que NO es el de la sesión actual (adivinado, viejo, de otro proceso) también rebota. */
+    /** A token that is NOT the current session's (guessed, old, from another process) bounces too. */
     @Test
-    fun `playlist con token equivocado responde 403`() = runBlocking {
+    fun `playlist with the wrong token answers 403`() = runBlocking {
         val upstream = MockWebServer()
         upstream.enqueue(MockResponse().setBody("#EXTM3U\n"))
         upstream.start()
 
-        val proxy = LiveHlsProxy(FirmasFalsas())
-        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+        val proxy = LiveHlsProxy(FakeSignatures())
+        val session = LiveSession("${upstream.hostName}:${upstream.port}",
             "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
-        proxy.urlPara(sesion)
+        proxy.urlFor(session)
 
-        val (codigo, _) = leer("http://127.0.0.1:${proxy.port}/live.m3u8?t=token-que-no-es")
+        val (code, _) = read("http://127.0.0.1:${proxy.port}/live.m3u8?t=not-the-token")
 
-        assertEquals(403, codigo)
+        assertEquals(403, code)
         proxy.stop(); upstream.shutdown()
     }
 
-    /** Pedir un segmento sin token tampoco debe pasar, aunque la URL del segmento sea válida. */
+    /** Requesting a segment with no token must not pass either, even if the segment URL is valid. */
     @Test
-    fun `segmento sin token responde 403 aunque la URL del segmento exista`() = runBlocking {
+    fun `segment with no token answers 403 even if the segment URL exists`() = runBlocking {
         val upstream = MockWebServer()
         upstream.enqueue(MockResponse().setBody(
             "#EXTM3U\n#EXTINF:6,\nhttp://seg1.cdn/live/c/c_1.ts\n"
         ))
         upstream.start()
 
-        val proxy = LiveHlsProxy(FirmasFalsas())
-        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+        val proxy = LiveHlsProxy(FakeSignatures())
+        val session = LiveSession("${upstream.hostName}:${upstream.port}",
             "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
-        val (_, cuerpo) = leer(proxy.urlPara(sesion))
-        // saca la ruta /seg?u=...&t=... que el propio proxy generó, y le quita el token a mano
-        val rutaSegmentoConToken = cuerpo.lineSequence().first { it.startsWith("http://127.0.0.1") }
-        val sinToken = rutaSegmentoConToken.substringBefore("&t=")
+        val (_, body) = read(proxy.urlFor(session))
+        // pulls out the /seg?u=...&t=... path the proxy itself generated, and strips the token by hand
+        val segmentPathWithToken = body.lineSequence().first { it.startsWith("http://127.0.0.1") }
+        val withoutToken = segmentPathWithToken.substringBefore("&t=")
 
-        val (codigo, _) = leer(sinToken)
+        val (code, _) = read(withoutToken)
 
-        assertEquals(403, codigo)
+        assertEquals(403, code)
         proxy.stop(); upstream.shutdown()
     }
 
     /**
-     * Camino feliz de punta a punta: el playlist reescribe los segmentos CON el token, y pedir
-     * esa URL reescrita (tal cual la entrega el proxy, sin tocarla) sirve el segmento real.
+     * End-to-end happy path: the playlist rewrites the segments WITH the token, and requesting
+     * that rewritten URL (exactly as the proxy handed it out, untouched) serves the real segment.
      */
     @Test
-    fun `el token correcto sirve tanto el playlist como el segmento reescrito`() = runBlocking {
+    fun `the right token serves both the playlist and the rewritten segment`() = runBlocking {
         val upstream = MockWebServer()
         upstream.start()
-        // El segmento "absoluto" del playlist apunta al MISMO upstream (no a un CDN inventado):
-        // así, cuando el proxy vuelva a pedirle al origen la URL que decodificó de `u=`, es una
-        // petición real que el MockWebServer puede responder con el segundo enqueue.
+        // The playlist's "absolute" segment points at the SAME upstream (not a made-up CDN): that
+        // way, when the proxy asks the origin again for the URL it decoded from `u=`, it's a real
+        // request the MockWebServer can answer with its second enqueue.
         upstream.enqueue(MockResponse().setBody(
             "#EXTM3U\n#EXTINF:6,\nhttp://${upstream.hostName}:${upstream.port}/live/c/c_1.ts\n"
         ))
-        upstream.enqueue(MockResponse().setBody("contenido-del-segmento"))
+        upstream.enqueue(MockResponse().setBody("segment-content"))
 
-        val proxy = LiveHlsProxy(FirmasFalsas())
-        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+        val proxy = LiveHlsProxy(FakeSignatures())
+        val session = LiveSession("${upstream.hostName}:${upstream.port}",
             "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
-        val (codigoPlaylist, cuerpo) = leer(proxy.urlPara(sesion))
-        assertEquals(200, codigoPlaylist)
+        val (playlistCode, body) = read(proxy.urlFor(session))
+        assertEquals(200, playlistCode)
 
-        val rutaSegmento = cuerpo.lineSequence().first { it.startsWith("http://127.0.0.1") }
-        val (codigoSegmento, cuerpoSegmento) = leer(rutaSegmento)
+        val segmentPath = body.lineSequence().first { it.startsWith("http://127.0.0.1") }
+        val (segmentCode, segmentBody) = read(segmentPath)
 
-        assertEquals(200, codigoSegmento)
-        assertEquals("contenido-del-segmento", cuerpoSegmento)
+        assertEquals(200, segmentCode)
+        assertEquals("segment-content", segmentBody)
         proxy.stop(); upstream.shutdown()
     }
 
     /**
-     * Hallazgo de la revisión (Tarea 19): los tests de "LAN" que ya existían (`lanUrl coincide
-     * en puerto...`, `urlPara sigue siendo alcanzable por loopback...`) solo prueban el FORMATO
-     * del string de `lanUrl()` o que loopback sigue andando -- ninguno de los dos demuestra que
-     * el `ServerSocket` esté REALMENTE escuchando en una interfaz que no sea loopback. El propio
-     * revisor lo demostró: forzó el bind a loopback SIEMPRE (ignorando `bindLan`) y la suite
-     * completa (1068 tests) siguió en verde.
+     * Finding from the review (Task 19): the "LAN" tests that already existed (`lanUrl matches the
+     * port...`, `urlFor stays reachable over loopback...`) only test the FORMAT of `lanUrl()`'s
+     * string or that loopback still works -- neither one proves the `ServerSocket` is REALLY
+     * listening on a non-loopback interface. The reviewer proved it themselves: forced the bind to
+     * loopback ALWAYS (ignoring `bindLan`) and the whole suite (1068 tests) stayed green.
      *
-     * Este test pide el playlist por la IP real de una interfaz NO-loopback de la máquina
-     * (`NetworkInterface`, la misma fuente que consultaría un Chromecast/DLNA de la LAN) en vez
-     * de por `127.0.0.1`. Si el bind fuera solo a loopback, esta conexión se cae con
-     * "Connection refused" -el puerto existe, pero no escucha en esa interfaz-. Si la máquina no
-     * tiene ninguna interfaz no-loopback activa (algunos sandboxes de CI), el test se salta: no
-     * hay red real contra la que probar nada, y fallar por eso sería un motivo ajeno a lo que
-     * se quiere verificar.
+     * This test requests the playlist over a real non-loopback interface's IP on the machine
+     * (`NetworkInterface`, the same source a LAN Chromecast/DLNA device would query) instead of
+     * `127.0.0.1`. If the bind were loopback-only, this connection fails with "Connection
+     * refused" -the port exists, but doesn't listen on that interface-. If the machine has no
+     * active non-loopback interface (some CI sandboxes), the test skips itself: there's no real
+     * network to test anything against, and failing over that would be for a reason unrelated to
+     * what's being verified.
      */
     @Test
-    fun `el proxy es alcanzable por una IP de LAN real, no solo por el string de lanUrl`() = runBlocking {
-        val ipLan = direccionNoLoopbackAlcanzable() ?: run {
-            // android.util.Log revienta en este entorno de test JVM puro (por eso atender() lo
-            // atrapa con runCatching); un println alcanza para dejar rastro de que el test se
-            // saltó por falta de red, sin arriesgar una excepción sin atrapar acá.
-            println("LiveHlsProxyTest: sin interfaz de LAN alcanzable en esta maquina, se salta el test de alcanzabilidad real")
+    fun `the proxy is reachable over a real LAN IP, not just lanUrl's string`() = runBlocking {
+        val lanIp = reachableNonLoopbackAddress() ?: run {
+            // android.util.Log blows up in this pure-JVM test environment (that's why handle()
+            // traps it with runCatching); a println is enough to leave a trace that the test
+            // skipped for lack of network, without risking an uncaught exception here.
+            println("LiveHlsProxyTest: no reachable LAN interface on this machine, skipping the real-reachability test")
             return@runBlocking
         }
 
@@ -530,39 +529,38 @@ class LiveHlsProxyTest {
         upstream.enqueue(MockResponse().setBody("#EXTM3U\n"))
         upstream.start()
 
-        val proxy = LiveHlsProxy(FirmasFalsas())
-        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+        val proxy = LiveHlsProxy(FakeSignatures())
+        val session = LiveSession("${upstream.hostName}:${upstream.port}",
             "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
-        val local = proxy.urlPara(sesion) // bindLan=true adentro, ver su KDoc
+        val local = proxy.urlFor(session) // bindLan=true inside, see its KDoc
 
-        val urlPorLan = local.replaceFirst("127.0.0.1", ipLan.hostAddress!!)
-        val (codigo, _) = leer(urlPorLan)
+        val urlOverLan = local.replaceFirst("127.0.0.1", lanIp.hostAddress!!)
+        val (code, _) = read(urlOverLan)
 
         assertEquals(
-            "el proxy tiene que ser alcanzable por una IP no-loopback (para Chromecast/DLNA " +
-                "en la LAN), no solo por el string que arma lanUrl()",
-            200, codigo,
+            "the proxy has to be reachable over a non-loopback IP (for Chromecast/DLNA on the " +
+                "LAN), not only through the string lanUrl() builds",
+            200, code,
         )
         proxy.stop(); upstream.shutdown()
     }
 
     /**
-     * Hallazgo del agente anterior (Tarea 20), confirmado acá: `reescribirLinea` fijaba el host
-     * de las URLs de segmento a `127.0.0.1` SIEMPRE, sin importar por qué interfaz llegó la
-     * petición del playlist. Eso rompe Chromecast/DLNA: al castear, el receptor pide el playlist
-     * por la IP LAN del celu (`lanUrl`), pero las URLs de segmento que recibe adentro apuntan a
-     * `127.0.0.1` -- que para el Chromecast es EL PROPIO CHROMECAST, no el celu. Pantalla negra,
-     * sin ningún error que lo explique.
+     * Finding from a previous agent (Task 20), confirmed here: `rewriteLine` always pinned segment
+     * URLs' host to `127.0.0.1`, no matter which interface the playlist request came in on. That
+     * breaks Chromecast/DLNA: when casting, the receiver requests the playlist over the phone's LAN
+     * IP (`lanUrl`), but the segment URLs it gets inside point at `127.0.0.1` -- which for the
+     * Chromecast IS ITSELF, not the phone. Black screen, with no error explaining why.
      *
-     * Este test pide el playlist por una IP de LAN real (no loopback, mismo helper que el test de
-     * alcanzabilidad de arriba) y comprueba que las URLs de segmento reescritas usan ESA IP, no
-     * `127.0.0.1`. Con el bug, esta aserción falla: las URLs siguen apuntando a loopback aunque la
-     * petición haya entrado por la LAN.
+     * This test requests the playlist over a real LAN IP (non-loopback, same helper as the
+     * reachability test above) and checks that the rewritten segment URLs use THAT IP, not
+     * `127.0.0.1`. With the bug, this assertion fails: the URLs keep pointing at loopback even
+     * though the request came in over the LAN.
      */
     @Test
-    fun `las URLs de segmento apuntan al host por el que se pidio el playlist, no siempre a loopback`() = runBlocking {
-        val ipLan = direccionNoLoopbackAlcanzable() ?: run {
-            println("LiveHlsProxyTest: sin interfaz de LAN alcanzable en esta maquina, se salta el test de host por LAN")
+    fun `segment URLs point at the host the playlist was requested through, not always loopback`() = runBlocking {
+        val lanIp = reachableNonLoopbackAddress() ?: run {
+            println("LiveHlsProxyTest: no reachable LAN interface on this machine, skipping the LAN-host test")
             return@runBlocking
         }
 
@@ -573,84 +571,84 @@ class LiveHlsProxyTest {
         ))
         upstream.start()
 
-        val proxy = LiveHlsProxy(FirmasFalsas())
-        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+        val proxy = LiveHlsProxy(FakeSignatures())
+        val session = LiveSession("${upstream.hostName}:${upstream.port}",
             "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
-        val local = proxy.urlPara(sesion) // bindLan=true adentro, ver su KDoc
+        val local = proxy.urlFor(session) // bindLan=true inside, see its KDoc
 
-        val urlPorLan = local.replaceFirst("127.0.0.1", ipLan.hostAddress!!)
-        val (codigo, cuerpo) = leer(urlPorLan)
+        val urlOverLan = local.replaceFirst("127.0.0.1", lanIp.hostAddress!!)
+        val (code, body) = read(urlOverLan)
 
-        assertEquals(200, codigo)
+        assertEquals(200, code)
         assertTrue(
-            "el segmento reescrito deberia apuntar a la IP LAN por la que se pidio el playlist, " +
-                "no a loopback (rompe Chromecast/DLNA): $cuerpo",
-            cuerpo.contains("http://${ipLan.hostAddress}:${proxy.port}/seg?u="),
+            "the rewritten segment should point at the LAN IP the playlist was requested through, " +
+                "not loopback (breaks Chromecast/DLNA): $body",
+            body.contains("http://${lanIp.hostAddress}:${proxy.port}/seg?u="),
         )
         assertTrue(
-            "no deberia quedar ninguna URL de segmento fija a 127.0.0.1 cuando se pidio por LAN: $cuerpo",
-            !cuerpo.contains("http://127.0.0.1"),
+            "no segment URL should be left fixed to 127.0.0.1 when requested over the LAN: $body",
+            !body.contains("http://127.0.0.1"),
         )
-        val lineaKey = cuerpo.lines().first { it.startsWith("#EXT-X-KEY") }
+        val keyLine = body.lines().first { it.startsWith("#EXT-X-KEY") }
         assertTrue(
-            "la URI de EXT-X-KEY tiene el mismo problema: tambien deberia usar la IP LAN: $lineaKey",
-            lineaKey.contains("URI=\"http://${ipLan.hostAddress}:${proxy.port}/seg?u="),
+            "the EXT-X-KEY URI has the same problem: it should also use the LAN IP: $keyLine",
+            keyLine.contains("URI=\"http://${lanIp.hostAddress}:${proxy.port}/seg?u="),
         )
         proxy.stop(); upstream.shutdown()
     }
 
     /**
-     * IPv4 no-loopback REALMENTE alcanzable de esta máquina (no simplemente "la primera que
-     * enumera `NetworkInterface`"). Máquinas de desarrollo o CI suelen tener de más: bridges de
-     * Docker/VMs, túneles VPN (`utunN`), interfaces con la dirección DE RED en vez de una de
-     * host (p.ej. `172.20.0.0/16` reportando `172.20.0.0`) -- todas aparecen "up" y "no loopback"
-     * pero un `connect()` real contra ellas revienta con `BindException: Can't assign requested
-     * address`, que NO tiene nada que ver con lo que este test quiere probar (si el proxy
-     * escucha en 0.0.0.0 o no). Por eso cada candidata se prueba con una conexión real corta
-     * contra un socket de prueba (mismo patrón `ServerSocket(0)` sin IP que usa el proxio real) y
-     * se descarta si falla, en vez de confiar a ciegas en el orden de enumeración del SO.
+     * A non-loopback IPv4 that is REALLY reachable from this machine (not just "the first one
+     * `NetworkInterface` enumerates"). Dev or CI machines often have extras: Docker/VM bridges, VPN
+     * tunnels (`utunN`), interfaces reporting the NETWORK address instead of a host one (e.g.
+     * `172.20.0.0/16` reporting `172.20.0.0`) -- all of them show up "up" and "non-loopback" but a
+     * real `connect()` against them blows up with `BindException: Can't assign requested address`,
+     * which has NOTHING to do with what this test wants to prove (whether the proxy listens on
+     * 0.0.0.0 or not). That's why each candidate is tried with a short real connection against a
+     * test socket (the same `ServerSocket(0)` with no IP pattern the real proxy uses) and dropped
+     * if it fails, instead of blindly trusting the OS's enumeration order.
      */
-    private fun direccionNoLoopbackAlcanzable(): java.net.Inet4Address? {
-        val candidatas = java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())
+    private fun reachableNonLoopbackAddress(): java.net.Inet4Address? {
+        val candidates = java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())
             .filter { it.isUp && !it.isLoopback }
             .flatMap { java.util.Collections.list(it.inetAddresses) }
             .filterIsInstance<java.net.Inet4Address>()
             .filter { !it.isLoopbackAddress }
-        val prueba = java.net.ServerSocket(0)
+        val probe = java.net.ServerSocket(0)
         return try {
-            candidatas.firstOrNull { candidata ->
+            candidates.firstOrNull { candidate ->
                 runCatching {
                     Socket().use { s ->
-                        s.connect(java.net.InetSocketAddress(candidata, prueba.localPort), 300)
+                        s.connect(java.net.InetSocketAddress(candidate, probe.localPort), 300)
                     }
                 }.isSuccess
             }
         } finally {
-            prueba.close()
+            probe.close()
         }
     }
     /**
-     * EL BUG DEL 2026-08-14. La señal no siempre se llama en el CDN como el canal: `cyx-RCNHD` se
-     * sirve como `cyx-2EF7E10E40C1ac19D6A9F3ED4CD2`. Pidiéndole al CDN el código del canal, la
-     * ruta no correspondía a la señal que autoriza la licencia que le mandábamos, y contestaba
-     * 401 — el canal se quedaba cargando para siempre. Los que funcionaban eran justamente
-     * aquellos donde `playCode` y `channel` coinciden, que es lo que lo disimuló.
+     * THE 2026-08-14 BUG. The signal isn't always called on the CDN the same as the channel:
+     * `cyx-RCNHD` is served as `cyx-2EF7E10E40C1ac19D6A9F3ED4CD2`. Asking the CDN for the channel's
+     * code, the path didn't match the signal the license we sent authorizes, and it answered 401 --
+     * the channel stayed loading forever. The ones that worked were exactly those where `playCode`
+     * and `channel` coincide, which is what hid it.
      */
     @Test
-    fun `el playlist se le pide al CDN por playCode, no por el codigo del canal`() {
+    fun `the playlist is requested from the CDN by playCode, not by the channel's code`() {
         val upstream = MockWebServer()
         upstream.enqueue(MockResponse().setBody("#EXTM3U\n#EXTINF:6,\nseg1.ts\n"))
         upstream.start()
 
-        val proxy = LiveHlsProxy(FirmasFalsas())
+        val proxy = LiveHlsProxy(FakeSignatures())
         proxy.start()
-        val sesion = LiveSession(
+        val session = LiveSession(
             cflHost = "${upstream.hostName}:${upstream.port}",
             authBase = "http://x/?a=1&token=${"A".repeat(32)}",
             license = "LIC", channel = "cyx-RCNHD", expiresAt = 0,
             playCode = "cyx-2EF7E10E40C1ac19D6A9F3ED4CD2",
         )
-        leer(proxy.urlPara(sesion))
+        read(proxy.urlFor(session))
 
         assertEquals(
             "/live/cyx-2EF7E10E40C1ac19D6A9F3ED4CD2.m3u8",
@@ -660,84 +658,84 @@ class LiveHlsProxyTest {
     }
 
     /**
-     * EL CANAL NO SE MUERE SI UN CDN RECHAZA. Medido el 2026-08-14: `getSlbInfo` devuelve TRES
-     * CDN de vivo y usábamos solo el primero; ese día contestó 401 dos veces seguidas y el canal
-     * se terminó (`EndReached`) teniendo otro host disponible en la misma respuesta del portal.
+     * THE CHANNEL DOESN'T DIE IF ONE CDN REJECTS. Measured on 2026-08-14: `getSlbInfo` returns
+     * THREE live CDNs and only the first was being used; that day it answered 401 twice in a row
+     * and the channel ended up (`EndReached`) with another host available in that same portal
+     * response.
      *
-     * Cada CDN va con SU `authBase`, porque el token viaja dentro de esa url: firmar con el token
-     * de uno contra el host de otro es exactamente el par que el CDN rechaza.
+     * Each CDN goes with ITS OWN `authBase`, because the token travels inside that url: signing
+     * with one's token against another's host is exactly the crossed pair the CDN rejects.
      */
     @Test
-    fun `si el primer CDN rechaza, el playlist se le pide al siguiente`() {
-        val malo = MockWebServer()
-        repeat(4) { malo.enqueue(MockResponse().setResponseCode(401)) }
-        malo.start()
-        val bueno = MockWebServer()
-        bueno.enqueue(MockResponse().setBody("#EXTM3U\n#EXTINF:6,\nseg1.ts\n"))
-        bueno.start()
+    fun `if the first CDN rejects, the playlist is requested from the next one`() {
+        val bad = MockWebServer()
+        repeat(4) { bad.enqueue(MockResponse().setResponseCode(401)) }
+        bad.start()
+        val good = MockWebServer()
+        good.enqueue(MockResponse().setBody("#EXTM3U\n#EXTINF:6,\nseg1.ts\n"))
+        good.start()
 
-        val proxy = LiveHlsProxy(FirmasFalsas())
+        val proxy = LiveHlsProxy(FakeSignatures())
         proxy.start()
-        val sesion = LiveSession(
-            cflHost = "${malo.hostName}:${malo.port}",
+        val session = LiveSession(
+            cflHost = "${bad.hostName}:${bad.port}",
             authBase = "http://x/?a=1&token=${"A".repeat(32)}",
             license = "LIC", channel = "c", expiresAt = 0,
             cdns = listOf(
-                CdnDeCanal("${malo.hostName}:${malo.port}", "http://x/?a=1&token=${"A".repeat(32)}"),
-                CdnDeCanal("${bueno.hostName}:${bueno.port}", "http://x/?a=2&token=${"B".repeat(32)}"),
+                CdnDeCanal("${bad.hostName}:${bad.port}", "http://x/?a=1&token=${"A".repeat(32)}"),
+                CdnDeCanal("${good.hostName}:${good.port}", "http://x/?a=2&token=${"B".repeat(32)}"),
             ),
         )
-        val (codigo, cuerpo) = leer(proxy.urlPara(sesion))
+        val (code, body) = read(proxy.urlFor(session))
 
-        assertEquals("el segundo CDN sirvió el playlist, no puede salir 502", 200, codigo)
-        assertTrue("el cuerpo tiene que venir del CDN bueno", cuerpo.contains("127.0.0.1"))
-        assertTrue("el CDN bueno tuvo que recibir el pedido", bueno.requestCount >= 1)
-        proxy.stop(); malo.shutdown(); bueno.shutdown()
+        assertEquals("the second CDN served the playlist, this can't come out 502", 200, code)
+        assertTrue("the body has to come from the good CDN", body.contains("127.0.0.1"))
+        assertTrue("the good CDN had to receive the request", good.requestCount >= 1)
+        proxy.stop(); bad.shutdown(); good.shutdown()
     }
 
-    /** Con un solo CDN todo sigue igual que siempre: un rechazo es un 502 al reproductor. */
+    /** With a single CDN, everything stays the same as always: a rejection is a 502 to the player. */
     @Test
-    fun `con un solo CDN un rechazo sigue siendo 502`() {
-        val malo = MockWebServer()
-        repeat(4) { malo.enqueue(MockResponse().setResponseCode(401)) }
-        malo.start()
+    fun `with a single CDN, a rejection is still a 502`() {
+        val bad = MockWebServer()
+        repeat(4) { bad.enqueue(MockResponse().setResponseCode(401)) }
+        bad.start()
 
-        val proxy = LiveHlsProxy(FirmasFalsas())
+        val proxy = LiveHlsProxy(FakeSignatures())
         proxy.start()
-        val sesion = LiveSession(
-            cflHost = "${malo.hostName}:${malo.port}",
+        val session = LiveSession(
+            cflHost = "${bad.hostName}:${bad.port}",
             authBase = "http://x/?a=1&token=${"A".repeat(32)}",
             license = "LIC", channel = "c", expiresAt = 0,
         )
-        val (codigo, _) = leer(proxy.urlPara(sesion))
+        val (code, _) = read(proxy.urlFor(session))
 
-        assertEquals(502, codigo)
-        proxy.stop(); malo.shutdown()
+        assertEquals(502, code)
+        proxy.stop(); bad.shutdown()
     }
 
     // -----------------------------------------------------------------------------------------
-    // Segmentos que el CDN todavía no publicó (404 en el borde del vivo).
+    // Segments the CDN hasn't published yet (404 at the live edge).
     //
-    // Medido en el Fire TV el 2026-08-14 con RCN FHD: VLC pidió tres segmentos de ~5 s de video
-    // con 1,3 s de diferencia -- venía corriendo hacia el borde del vivo -- y el tercero dio 404
-    // porque todavía no existía. El proxy escribía la cabecera con el código del CDN tal cual y
-    // después intentaba copiar `inputStream`, que en un 404 tira excepción: al reproductor le
-    // llegaban CERO bytes. Un cuerpo vacío es exactamente como se ve el final de un stream, así
-    // que VLC drenó el decoder y emitió EndReached a los 19 s con el canal perfectamente vivo
-    // (el playlist seguía refrescando, seq 2080 -> 2082).
+    // Measured on the Fire TV on 2026-08-14 with RCN FHD: VLC requested three ~5s video segments
+    // 1.3s apart -- it was running toward the live edge -- and the third gave 404 because it didn't
+    // exist yet. The proxy used to write the header with the CDN's code as-is and then try to copy
+    // `inputStream`, which throws on a 404: the player received ZERO bytes. An empty body looks
+    // exactly like the end of a stream, so VLC drained the decoder and fired EndReached at 19s with
+    // the channel perfectly alive (the playlist kept refreshing, seq 2080 -> 2082).
     // -----------------------------------------------------------------------------------------
 
-    /** Devuelve la URL del segmento ya reescrita por el proxy (con su token), a partir del playlist. */
-    private fun urlDelSegmento(proxy: LiveHlsProxy, sesion: LiveSession): String {
-        val (codigo, cuerpo) = leer(proxy.urlPara(sesion))
-        assertEquals(200, codigo)
-        return cuerpo.lineSequence().first { it.startsWith("http://127.0.0.1") }
+    /** Returns the segment URL already rewritten by the proxy (with its token), from the playlist. */
+    private fun segmentUrl(proxy: LiveHlsProxy, session: LiveSession): String {
+        val (code, body) = read(proxy.urlFor(session))
+        assertEquals(200, code)
+        return body.lineSequence().first { it.startsWith("http://127.0.0.1") }
     }
 
     @Test
-    fun `un segmento que aun no se publico se reintenta y termina sirviendose`() = runBlocking {
+    fun `a segment not published yet gets retried and ends up served`() = runBlocking {
         val upstream = MockWebServer()
-        var pedidosDelSegmento = 0
+        var segmentRequests = 0
         upstream.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 if (request.path!!.endsWith(".m3u8")) {
@@ -745,36 +743,36 @@ class LiveHlsProxyTest {
                         "#EXTM3U\n#EXTINF:6,\nhttp://${upstream.hostName}:${upstream.port}/live/c/c_1.ts\n"
                     )
                 }
-                pedidosDelSegmento++
-                // Todavía no está en el primer pedido; el CDN lo publica un instante después.
-                return if (pedidosDelSegmento < 2) {
+                segmentRequests++
+                // Not there on the first request; the CDN publishes it a moment later.
+                return if (segmentRequests < 2) {
                     MockResponse().setResponseCode(404)
                 } else {
-                    MockResponse().setBody("contenido-del-segmento")
+                    MockResponse().setBody("segment-content")
                 }
             }
         }
         upstream.start()
 
-        val proxy = LiveHlsProxy(FirmasFalsas())
+        val proxy = LiveHlsProxy(FakeSignatures())
         proxy.start()
-        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+        val session = LiveSession("${upstream.hostName}:${upstream.port}",
             "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
-        val (codigo, cuerpo) = leer(urlDelSegmento(proxy, sesion))
+        val (code, body) = read(segmentUrl(proxy, session))
 
-        assertEquals(200, codigo)
-        assertEquals("contenido-del-segmento", cuerpo)
-        assertEquals("tiene que haber reintentado", 2, pedidosDelSegmento)
+        assertEquals(200, code)
+        assertEquals("segment-content", body)
+        assertEquals("it had to have retried", 2, segmentRequests)
         proxy.stop(); upstream.shutdown()
     }
 
     /**
-     * EL test de esta corrección: pase lo que pase, el reproductor NUNCA recibe un cuerpo vacío
-     * detrás de una cabecera que no sea de error. Un 502 se reintenta; cero bytes se interpretan
-     * como el fin del stream y el canal se muere.
+     * THE test for this fix: no matter what happens, the player NEVER receives an empty body
+     * behind a non-error header. A 502 gets retried; zero bytes are read as the end of the stream
+     * and the channel dies.
      */
     @Test
-    fun `un segmento que nunca aparece contesta 502 y no un cuerpo vacio`() = runBlocking {
+    fun `a segment that never shows up answers 502, not an empty body`() = runBlocking {
         val upstream = MockWebServer()
         upstream.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse =
@@ -788,142 +786,142 @@ class LiveHlsProxyTest {
         }
         upstream.start()
 
-        val proxy = LiveHlsProxy(FirmasFalsas())
+        val proxy = LiveHlsProxy(FakeSignatures())
         proxy.start()
-        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+        val session = LiveSession("${upstream.hostName}:${upstream.port}",
             "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
-        val (codigo, cuerpo) = leer(urlDelSegmento(proxy, sesion))
+        val (code, body) = read(segmentUrl(proxy, session))
 
-        assertEquals(502, codigo)
-        assertTrue("un 200 con cuerpo vacío es indistinguible del fin del stream", cuerpo.isEmpty())
+        assertEquals(502, code)
+        assertTrue("a 200 with an empty body is indistinguishable from the end of the stream", body.isEmpty())
         proxy.stop(); upstream.shutdown()
     }
 
     /**
-     * El respaldo estaba ahí y no se usaba: el camino del playlist recorre todos los CDN, pero el
-     * de segmentos se quedaba con el activo y un solo 404 mataba el canal.
+     * The backup was there and unused: the playlist path walks every CDN, but the segment path
+     * stuck to the active one and a single 404 killed the channel.
      */
     @Test
-    fun `si el CDN activo no tiene el segmento lo busca en el otro CDN del canal`() = runBlocking {
-        val primero = MockWebServer()
-        primero.dispatcher = object : Dispatcher() {
+    fun `if the active CDN doesn't have the segment, it's looked up on the channel's other CDN`() = runBlocking {
+        val first = MockWebServer()
+        first.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse =
                 if (request.path!!.endsWith(".m3u8")) {
                     MockResponse().setBody(
-                        "#EXTM3U\n#EXTINF:6,\nhttp://${primero.hostName}:${primero.port}/live/c/c_1.ts\n"
+                        "#EXTM3U\n#EXTINF:6,\nhttp://${first.hostName}:${first.port}/live/c/c_1.ts\n"
                     )
                 } else {
                     MockResponse().setResponseCode(404)
                 }
         }
-        primero.start()
-        val segundo = MockWebServer()
-        segundo.dispatcher = object : Dispatcher() {
+        first.start()
+        val second = MockWebServer()
+        second.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest) =
-                MockResponse().setBody("segmento-del-respaldo")
+                MockResponse().setBody("backup-segment")
         }
-        segundo.start()
+        second.start()
 
-        val proxy = LiveHlsProxy(FirmasFalsas())
+        val proxy = LiveHlsProxy(FakeSignatures())
         proxy.start()
         val auth = "http://x/?a=1&token=${"A".repeat(32)}"
-        val sesion = LiveSession(
-            cflHost = "${primero.hostName}:${primero.port}",
+        val session = LiveSession(
+            cflHost = "${first.hostName}:${first.port}",
             authBase = auth, license = "LIC", channel = "c", expiresAt = 0,
             cdns = listOf(
-                CdnDeCanal("${primero.hostName}:${primero.port}", auth),
-                CdnDeCanal("${segundo.hostName}:${segundo.port}", auth),
+                CdnDeCanal("${first.hostName}:${first.port}", auth),
+                CdnDeCanal("${second.hostName}:${second.port}", auth),
             ),
         )
-        val (codigo, cuerpo) = leer(urlDelSegmento(proxy, sesion))
+        val (code, body) = read(segmentUrl(proxy, session))
 
-        assertEquals(200, codigo)
-        assertEquals("segmento-del-respaldo", cuerpo)
-        proxy.stop(); primero.shutdown(); segundo.shutdown()
+        assertEquals(200, code)
+        assertEquals("backup-segment", body)
+        proxy.stop(); first.shutdown(); second.shutdown()
     }
 
     // -----------------------------------------------------------------------------------------
-    // El playlist también se reintenta. El 2026-08-14 el origen de `cyx-RCNHD` contestó 404 al
-    // playlist cuatro veces en 9 s, con el canal reproduciendo bien hasta el segundo 39, y volvió
-    // solo. Antes eso era 502 al primer intento y sin probar el CDN de respaldo.
+    // The playlist gets retried too. On 2026-08-14 `cyx-RCNHD`'s origin answered 404 to the
+    // playlist four times over 9s, with the channel playing fine until second 39, and came back on
+    // its own. Before, that was a 502 on the first attempt and without ever trying the backup CDN.
     // -----------------------------------------------------------------------------------------
 
     @Test
-    fun `un playlist que falla y despues vuelve se sirve igual`() = runBlocking {
+    fun `a playlist that fails and then comes back is still served`() = runBlocking {
         val upstream = MockWebServer()
-        var pedidos = 0
+        var requests = 0
         upstream.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
-                pedidos++
-                return if (pedidos < 3) MockResponse().setResponseCode(404)
+                requests++
+                return if (requests < 3) MockResponse().setResponseCode(404)
                 else MockResponse().setBody("#EXTM3U\n#EXTINF:5,\nhttp://cdn/live/c/c_1.ts\n")
             }
         }
         upstream.start()
 
-        val proxy = LiveHlsProxy(FirmasFalsas())
+        val proxy = LiveHlsProxy(FakeSignatures())
         proxy.start()
-        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+        val session = LiveSession("${upstream.hostName}:${upstream.port}",
             "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "c", 0)
-        val (codigo, cuerpo) = leer(proxy.urlPara(sesion))
+        val (code, body) = read(proxy.urlFor(session))
 
-        assertEquals(200, codigo)
-        assertTrue(cuerpo.contains("#EXTM3U"))
-        assertEquals("dos 404 y el bueno", 3, pedidos)
+        assertEquals(200, code)
+        assertTrue(body.contains("#EXTM3U"))
+        assertEquals("two 404s and then the good one", 3, requests)
         proxy.stop(); upstream.shutdown()
     }
 
-    /** Un 404 no es una firma rechazada: pedirle la sesión de nuevo al gateway sería tratar un bache como credencial vencida. */
+    /** A 404 is not a rejected signature: asking the gateway for the session again would treat a pothole as an expired credential. */
     @Test
-    fun `un playlist con 404 no da la sesion por muerta`() = runBlocking {
+    fun `a playlist with 404 does not give the session up for dead`() = runBlocking {
         val upstream = MockWebServer()
         upstream.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest) = MockResponse().setResponseCode(404)
         }
         upstream.start()
 
-        val muertos = CopyOnWriteArrayList<String>()
-        val proxy = LiveHlsProxy(FirmasFalsas(), onSesionMuerta = { muertos.add(it) })
+        val dead = CopyOnWriteArrayList<String>()
+        val proxy = LiveHlsProxy(FakeSignatures(), onSessionDead = { dead.add(it) })
         proxy.start()
-        val sesion = LiveSession("${upstream.hostName}:${upstream.port}",
+        val session = LiveSession("${upstream.hostName}:${upstream.port}",
             "http://x/?a=1&token=${"A".repeat(32)}", "LIC", "canal-x", 0)
-        val (codigo, _) = leer(proxy.urlPara(sesion))
+        val (code, _) = read(proxy.urlFor(session))
 
-        assertEquals(502, codigo)
-        assertEquals("un 404 del CDN no es una sesión vencida", emptyList<String>(), muertos)
+        assertEquals(502, code)
+        assertEquals("a 404 from the CDN is not an expired session", emptyList<String>(), dead)
         proxy.stop(); upstream.shutdown()
     }
 
-    /** Un 404 del CDN activo tiene que hacer pasar al siguiente, igual que un rechazo de firma. */
+    /** A 404 from the active CDN has to move on to the next one, same as a signature rejection. */
     @Test
-    fun `si el CDN activo da 404 en el playlist, se prueba el otro`() = runBlocking {
-        val malo = MockWebServer()
-        malo.dispatcher = object : Dispatcher() {
+    fun `if the active CDN gives a 404 on the playlist, the other one is tried`() = runBlocking {
+        val bad = MockWebServer()
+        bad.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest) = MockResponse().setResponseCode(404)
         }
-        malo.start()
-        val bueno = MockWebServer()
-        bueno.dispatcher = object : Dispatcher() {
+        bad.start()
+        val good = MockWebServer()
+        good.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest) =
                 MockResponse().setBody("#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:7\n")
         }
-        bueno.start()
+        good.start()
 
         val auth = "http://x/?a=1&token=${"A".repeat(32)}"
-        val proxy = LiveHlsProxy(FirmasFalsas())
+        val proxy = LiveHlsProxy(FakeSignatures())
         proxy.start()
-        val sesion = LiveSession(
-            cflHost = "${malo.hostName}:${malo.port}", authBase = auth,
+        val session = LiveSession(
+            cflHost = "${bad.hostName}:${bad.port}", authBase = auth,
             license = "LIC", channel = "c", expiresAt = 0,
             cdns = listOf(
-                CdnDeCanal("${malo.hostName}:${malo.port}", auth),
-                CdnDeCanal("${bueno.hostName}:${bueno.port}", auth),
+                CdnDeCanal("${bad.hostName}:${bad.port}", auth),
+                CdnDeCanal("${good.hostName}:${good.port}", auth),
             ),
         )
-        val (codigo, cuerpo) = leer(proxy.urlPara(sesion))
+        val (code, body) = read(proxy.urlFor(session))
 
-        assertEquals(200, codigo)
-        assertTrue(cuerpo.contains("#EXT-X-MEDIA-SEQUENCE:7"))
-        proxy.stop(); malo.shutdown(); bueno.shutdown()
+        assertEquals(200, code)
+        assertTrue(body.contains("#EXT-X-MEDIA-SEQUENCE:7"))
+        proxy.stop(); bad.shutdown(); good.shutdown()
     }
 }
