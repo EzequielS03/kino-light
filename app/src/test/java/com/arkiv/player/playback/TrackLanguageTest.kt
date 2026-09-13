@@ -60,7 +60,7 @@ class TrackLanguageTest {
         assertEquals(1, TrackSelector.select(tracks, listOf(TrackLang.CASTELLANO, TrackLang.LATINO)))
     }
 
-    // --- NUEVO: recorre la lista completa hasta encontrar algo que exista ---
+    // --- walks the whole list until it finds something that exists ---
 
     @Test fun selectFallsThroughOrderUntilAMatchExists() {
         val tracks = listOf(0 to "Japanese", 1 to "English")
@@ -68,7 +68,7 @@ class TrackLanguageTest {
         assertEquals(1, TrackSelector.select(tracks, order))
     }
 
-    // --- NUEVO: una sola pista SÍ se puede elegir cuando no se exige que haya opciones ---
+    // --- a single track CAN be chosen when having options isn't required ---
 
     @Test fun selectWithoutRequireChoicePicksTheOnlyTrack() {
         val tracks = listOf(0 to "Spanish")
@@ -76,7 +76,7 @@ class TrackLanguageTest {
         assertEquals(0, TrackSelector.select(tracks, listOf(TrackLang.SPANISH), requireChoice = false))
     }
 
-    // --- NUEVO: clasificación por nombre de archivo (los .srt inyectados) ---
+    // --- classification by file name (the injected .srt files) ---
 
     @Test fun classifyFileNameReadsTheLanguageSuffix() {
         assertEquals(TrackLang.SPANISH, LangTokens.classifyFileName("movie.es.srt"))
@@ -85,18 +85,18 @@ class TrackLanguageTest {
         assertEquals(TrackLang.JAPANESE, LangTokens.classifyFileName("movie.jpn.ass"))
     }
 
-    /** El agujero que motivó este clasificador: `classify()` NO reconoce "en" suelto. */
+    /** The gap that motivated this classifier: `classify()` does NOT recognize a lone "en". */
     @Test fun classifyFileNameCatchesTwoLetterEnglishThatClassifyMisses() {
         assertEquals(TrackLang.UNKNOWN, LangTokens.classify("movie.en.srt"))
         assertEquals(TrackLang.ENGLISH, LangTokens.classifyFileName("movie.en.srt"))
     }
 
-    /** Y no debe inventar inglés donde solo hay la preposición "en". */
+    /** And it must not make up English where there's only the Spanish preposition "en" (in). */
     @Test fun classifyFileNameDoesNotFalsePositiveOnSpanishProse() {
         assertEquals(TrackLang.SPANISH, LangTokens.classifyFileName("Audio en español"))
     }
 
-    /** libVLC decora el nombre de la pista externa; igual hay que encontrar el sufijo. */
+    /** libVLC decorates the external track's name; the suffix still has to be found. */
     @Test fun classifyFileNameSurvivesVlcDecoration() {
         assertEquals(TrackLang.SPANISH, LangTokens.classifyFileName("Track 1 - [/data/x/movie.es.srt]"))
     }
@@ -106,7 +106,7 @@ class TrackLanguageTest {
         assertEquals(TrackLang.UNKNOWN, LangTokens.classifyFileName("subtitulo1.srt"))
     }
 
-    // --- NUEVO: el código suelto que declaran las fuentes web junto a la URL del subtítulo ---
+    // --- the lone code that web sources declare next to the subtitle URL ---
 
     @Test fun classifyCodeReadsAnIsolatedLanguageCode() {
         assertEquals(TrackLang.SPANISH, LangTokens.classifyCode("es"))
@@ -115,14 +115,14 @@ class TrackLanguageTest {
         assertEquals(TrackLang.JAPANESE, LangTokens.classifyCode(" jpn "))
     }
 
-    /** La fuente a veces manda el nombre escrito en vez del código. */
+    /** The source sometimes sends the written-out name instead of the code. */
     @Test fun classifyCodeFallsBackToFreeTextForWrittenNames() {
         assertEquals(TrackLang.LATINO, LangTokens.classifyCode("Español Latino"))
         assertEquals(TrackLang.UNKNOWN, LangTokens.classifyCode(""))
         assertEquals(TrackLang.UNKNOWN, LangTokens.classifyCode("zz"))
     }
 
-    // --- NUEVO: "¿está en mi lista?" con el español como familia ---
+    // --- "is it on my list?" with Spanish as a family ---
 
     @Test fun satisfiesTreatsAllSpanishVariantsAsOneFamily() {
         val order = listOf(TrackLang.LATINO, TrackLang.CASTELLANO)
