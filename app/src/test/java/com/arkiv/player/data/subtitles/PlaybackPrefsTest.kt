@@ -19,10 +19,10 @@ class PlaybackPrefsTest {
         assertEquals(p, PlaybackPrefs.fromJson(p.toJson()))
     }
 
-    /** Una build vieja manda un JSON sin los campos nuevos: hay que caer a los defaults. */
+    /** An old build sends a JSON with no new fields: it has to fall back to the defaults. */
     @Test fun oldJsonWithoutNewFieldsFallsBackToDefaults() {
-        val viejo = """{"language":"es","sizePercent":120,"textColor":4294967295,"backgroundColor":2147483648,"edge":1}"""
-        val p = PlaybackPrefs.fromJson(viejo)!!
+        val old = """{"language":"es","sizePercent":120,"textColor":4294967295,"backgroundColor":2147483648,"edge":1}"""
+        val p = PlaybackPrefs.fromJson(old)!!
         assertEquals(PlaybackPrefs().audioLangs, p.audioLangs)
         assertEquals(PlaybackPrefs().understoodLangs, p.understoodLangs)
         assertEquals(PlaybackPrefs().subtitleLangs, p.subtitleLangs)
@@ -30,18 +30,18 @@ class PlaybackPrefsTest {
         assertEquals(120, p.sizePercent)
     }
 
-    // --- "idiomas que entiendo": migración desde audioLangs ---
+    // --- "languages I understand": migration from audioLangs ---
 
     /**
-     * Antes de separar las dos listas, `audioLangs` cargaba también el significado de "los entiendo".
-     * Al leer unas prefs guardadas con esa forma hay que sembrar desde ahí, no desde los defaults: si
-     * no, alguien que tenía `[INGLÉS]` configurado empezaría a ver subtítulos sobre su audio inglés.
+     * Before the two lists were split, `audioLangs` also carried the "I understand these" meaning.
+     * Reading prefs saved in that shape has to seed from there, not from the defaults: otherwise
+     * someone who had `[ENGLISH]` configured would start seeing subtitles over their English audio.
      */
     @Test fun understoodLangsIsSeededFromAudioLangsWhenAbsent() {
-        val guardado = """{"language":"es","audioLangs":["ENGLISH","LATINO"],"subtitleLangs":["LATINO"]}"""
+        val saved = """{"language":"es","audioLangs":["ENGLISH","LATINO"],"subtitleLangs":["LATINO"]}"""
         assertEquals(
             listOf(TrackLang.ENGLISH, TrackLang.LATINO),
-            PlaybackPrefs.fromJson(guardado)!!.understoodLangs,
+            PlaybackPrefs.fromJson(saved)!!.understoodLangs,
         )
     }
 
@@ -52,15 +52,15 @@ class PlaybackPrefsTest {
         )
     }
 
-    /** Con el campo propio presente manda él, aunque audioLangs diga otra cosa. */
+    /** With its own field present, that wins, even if audioLangs says something else. */
     @Test fun understoodLangsWinsOverTheSeedWhenItIsPresent() {
         val json = """{"audioLangs":["JAPANESE"],"understoodLangs":["LATINO"]}"""
         assertEquals(listOf(TrackLang.LATINO), PlaybackPrefs.fromJson(json)!!.understoodLangs)
     }
 
     /**
-     * Una build futura que agregue un `TrackLang` manda nombres que este binario no conoce. Quedarse
-     * con la lista vacía sería "nunca auto-seleccionar audio" y "siempre poner subtítulos".
+     * A future build that adds a `TrackLang` sends names this binary doesn't know. Keeping the
+     * empty list would mean "never auto-select audio" and "always turn subtitles on".
      */
     @Test fun anArrayOfUnknownNamesFallsBackInsteadOfEmptyingTheList() {
         val json = """{"audioLangs":["KOREAN"],"subtitleLangs":[],"understoodLangs":["KOREAN"]}"""
@@ -75,7 +75,7 @@ class PlaybackPrefsTest {
         assertEquals(SubtitleMode.OFF, p.subtitleMode)
     }
 
-    /** Y al revés: una build vieja tiene que seguir entendiendo lo que escribimos. */
+    /** And the other way around: an old build has to keep understanding what we write. */
     @Test fun toJsonStillWritesTheLegacyLanguageField() {
         assertEquals("off", org.json.JSONObject(PlaybackPrefs(subtitleMode = SubtitleMode.OFF).toJson()).getString("language"))
         assertEquals("es", org.json.JSONObject(PlaybackPrefs(subtitleMode = SubtitleMode.AUTO).toJson()).getString("language"))
@@ -85,28 +85,28 @@ class PlaybackPrefsTest {
         assertEquals(null, PlaybackPrefs.fromJson("no soy json"))
     }
 
-    // --- que un cambio de estilo no cuente como cambio de idioma ---
+    // --- a style change must not count as a language change ---
 
     @Test fun styleOnlyChangesDoNotCountAsALanguageChange() {
         val base = PlaybackPrefs()
-        assertTrue(base.mismosIdiomasQue(base.copy(sizePercent = 180)))
-        assertTrue(base.mismosIdiomasQue(base.copy(textColor = 0xFFFFEB3B)))
-        assertTrue(base.mismosIdiomasQue(base.copy(backgroundColor = 0xCC000000)))
-        assertTrue(base.mismosIdiomasQue(base.copy(edge = PlaybackPrefs.EDGE_SHADOW)))
+        assertTrue(base.sameLanguagesAs(base.copy(sizePercent = 180)))
+        assertTrue(base.sameLanguagesAs(base.copy(textColor = 0xFFFFEB3B)))
+        assertTrue(base.sameLanguagesAs(base.copy(backgroundColor = 0xCC000000)))
+        assertTrue(base.sameLanguagesAs(base.copy(edge = PlaybackPrefs.EDGE_SHADOW)))
     }
 
     @Test fun everyLanguageFieldCountsAsAChange() {
         val base = PlaybackPrefs()
-        assertFalse(base.mismosIdiomasQue(base.copy(audioLangs = listOf(TrackLang.JAPANESE))))
-        assertFalse(base.mismosIdiomasQue(base.copy(understoodLangs = listOf(TrackLang.LATINO))))
-        assertFalse(base.mismosIdiomasQue(base.copy(subtitleLangs = listOf(TrackLang.ENGLISH))))
-        assertFalse(base.mismosIdiomasQue(base.copy(subtitleMode = SubtitleMode.OFF)))
+        assertFalse(base.sameLanguagesAs(base.copy(audioLangs = listOf(TrackLang.JAPANESE))))
+        assertFalse(base.sameLanguagesAs(base.copy(understoodLangs = listOf(TrackLang.LATINO))))
+        assertFalse(base.sameLanguagesAs(base.copy(subtitleLangs = listOf(TrackLang.ENGLISH))))
+        assertFalse(base.sameLanguagesAs(base.copy(subtitleMode = SubtitleMode.OFF)))
     }
 
-    /** El orden importa: reordenar la preferencia ES un cambio, aunque el conjunto sea el mismo. */
+    /** Order matters: reordering the preference IS a change, even if the set is the same. */
     @Test fun reorderingIsAChangeEvenWithTheSameLanguages() {
         val base = PlaybackPrefs(audioLangs = listOf(TrackLang.LATINO, TrackLang.JAPANESE))
-        assertFalse(base.mismosIdiomasQue(base.copy(audioLangs = listOf(TrackLang.JAPANESE, TrackLang.LATINO))))
+        assertFalse(base.sameLanguagesAs(base.copy(audioLangs = listOf(TrackLang.JAPANESE, TrackLang.LATINO))))
     }
 
 }

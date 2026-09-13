@@ -8,51 +8,51 @@ import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Qué hacer con los subtítulos al arrancar. Ver [PlaybackPrefs.subtitleLangs]. */
+/** What to do with subtitles on startup. See [PlaybackPrefs.subtitleLangs]. */
 enum class SubtitleMode { AUTO, OFF }
 
 /**
- * Preferencias de reproducción: idioma de audio, idioma y estilo de subtítulos. Se persiste local
- * (el sync a la TV que esto tenía se borró junto con el control remoto TV↔celu). Los idiomas son
- * LISTAS ORDENADAS: el reproductor las recorre y toma la primera pista que exista, en vez de
- * quedarse con la primera del archivo.
+ * Playback preferences: audio language, subtitle language and style. Persisted locally (the sync
+ * to the TV this used to have was removed along with the TV↔phone remote). The languages are
+ * ORDERED LISTS: the player walks them and takes the first track that exists, instead of settling
+ * for the file's first one.
  */
 data class PlaybackPrefs(
-    /** En qué ORDEN elegir la pista de audio. Solo eso: no dice nada sobre qué idiomas entendés. */
+    /** In what ORDER to pick the audio track. That's all: it says nothing about what languages you understand. */
     val audioLangs: List<TrackLang> = listOf(TrackLang.LATINO, TrackLang.CASTELLANO, TrackLang.SPANISH, TrackLang.DUAL),
     /**
-     * Los idiomas que entendés lo bastante como para no necesitar subtítulos. Es un CONJUNTO: el
-     * orden no significa nada acá, se guarda como lista solo para serializarla con el mismo helper
-     * que las otras dos. Va separado de [audioLangs] a propósito: elegir a mano el audio japonés de
-     * un anime lo sube al tope de [audioLangs] (ver `LangPromotion`), y si esa misma lista decidiera
-     * los subtítulos, esa elección te dejaría el anime en japonés y SIN subtítulos para siempre.
+     * The languages you understand well enough to not need subtitles. It's a SET: order means
+     * nothing here, it's kept as a list only to serialize it with the same helper as the other
+     * two. Kept separate from [audioLangs] on purpose: hand-picking a title's Japanese audio moves
+     * it to the top of [audioLangs] (see `LangPromotion`), and if that same list decided
+     * subtitles, that choice would leave the anime in Japanese and with NO subtitles forever.
      */
     val understoodLangs: List<TrackLang> = listOf(TrackLang.LATINO, TrackLang.CASTELLANO, TrackLang.SPANISH, TrackLang.DUAL),
     val subtitleLangs: List<TrackLang> = listOf(TrackLang.LATINO, TrackLang.CASTELLANO, TrackLang.SPANISH),
-    /** AUTO = prenderlos solo si el audio quedó FUERA de [understoodLangs]. OFF = nunca solos. */
+    /** AUTO = turn them on only if the audio ended up OUTSIDE [understoodLangs]. OFF = never on their own. */
     val subtitleMode: SubtitleMode = SubtitleMode.AUTO,
     val sizePercent: Int = 100,        // 60..200
     val textColor: Long = 0xFFFFFFFF,  // ARGB
-    val backgroundColor: Long = 0x80000000, // ARGB (fondo de la caja)
+    val backgroundColor: Long = 0x80000000, // ARGB (box background)
     val edge: Int = EDGE_OUTLINE,      // 0 none, 1 outline, 2 drop shadow
 ) {
     /**
-     * ¿Estas prefs eligen los mismos idiomas que [otro]? Ignora el estilo (tamaño, colores, borde).
+     * Do these prefs pick the same languages as [other]? Ignores style (size, colors, edge).
      *
-     * Sirve para no re-aplicar la selección de pista cuando lo único que cambió es cosmético: el
-     * estilo vive en este mismo objeto y el slider de tamaño persiste en CADA paso del arrastre, así
-     * que sin este filtro mover el tamaño dispararía decenas de re-aplicaciones — y como el pase de
-     * audio no corta por elección manual, le revertiría al usuario la pista que hubiera elegido a
-     * mano.
+     * Used to avoid re-applying track selection when the only thing that changed is cosmetic: the
+     * style lives in this same object and the size slider persists on EVERY step of the drag, so
+     * without this filter moving the size would fire dozens of re-applications — and since the
+     * audio pass doesn't short-circuit on a manual choice, it would revert the user's hand-picked
+     * track.
      */
-    fun mismosIdiomasQue(otro: PlaybackPrefs): Boolean =
-        audioLangs == otro.audioLangs &&
-            understoodLangs == otro.understoodLangs &&
-            subtitleLangs == otro.subtitleLangs &&
-            subtitleMode == otro.subtitleMode
+    fun sameLanguagesAs(other: PlaybackPrefs): Boolean =
+        audioLangs == other.audioLangs &&
+            understoodLangs == other.understoodLangs &&
+            subtitleLangs == other.subtitleLangs &&
+            subtitleMode == other.subtitleMode
 
     fun toJson(): String = JSONObject()
-        // Campo legacy: una build vieja lee SOLO esto y tiene que seguir funcionando.
+        // Legacy field: an old build reads ONLY this and it has to keep working.
         .put("language", if (subtitleMode == SubtitleMode.OFF) "off" else "es")
         .put("audioLangs", JSONArray(audioLangs.map { it.name }))
         .put("understoodLangs", JSONArray(understoodLangs.map { it.name }))
@@ -67,19 +67,19 @@ data class PlaybackPrefs(
         const val EDGE_OUTLINE = 1
         const val EDGE_SHADOW = 2
 
-        /** Cualquier campo que el JSON no traiga cae a un [PlaybackPrefs] recién hecho. */
+        /** Any field the JSON doesn't carry falls back to a freshly-made [PlaybackPrefs]. */
         fun fromJson(s: String): PlaybackPrefs? = runCatching {
             val o = JSONObject(s)
             val base = PlaybackPrefs()
             PlaybackPrefs(
                 audioLangs = langs(o, "audioLangs") ?: base.audioLangs,
-                // Migración: sin el campo nuevo se siembra desde audioLangs, que hasta ahora cargaba
-                // los dos significados. Así un usuario que ya tenía su lista armada sigue viendo
-                // exactamente lo mismo que antes, en vez de volver de golpe a los defaults.
+                // Migration: with no new field it's seeded from audioLangs, which used to carry
+                // both meanings. So a user who already had their list set up keeps seeing exactly
+                // the same thing as before, instead of snapping back to the defaults.
                 understoodLangs = langs(o, "understoodLangs") ?: langs(o, "audioLangs")
                     ?: base.understoodLangs,
                 subtitleLangs = langs(o, "subtitleLangs") ?: base.subtitleLangs,
-                // Sin campo nuevo, se migra el legacy: "off" → OFF, cualquier otra cosa → AUTO.
+                // With no new field, the legacy one is migrated: "off" → OFF, anything else → AUTO.
                 subtitleMode = o.optString("subtitleMode").takeIf { it.isNotBlank() }
                     ?.let { name -> runCatching { SubtitleMode.valueOf(name) }.getOrNull() }
                     ?: if (o.optString("language") == "off") SubtitleMode.OFF else SubtitleMode.AUTO,
@@ -91,10 +91,10 @@ data class PlaybackPrefs(
         }.getOrNull()
 
         /**
-         * null cuando no hay nada utilizable en [key] → el que llama cae a su valor de respaldo. Se
-         * devuelve null también con una lista vacía o con puros nombres desconocidos (una build
-         * futura que agregue un `TrackLang`): quedarse con la lista vacía sería "nunca elegir audio"
-         * y "siempre poner subtítulos", que es peor que ignorar lo que no se entiende.
+         * null when there's nothing usable in [key] → the caller falls back to its default. Also
+         * returns null for an empty list or one made entirely of unknown names (a future build
+         * adding a `TrackLang`): keeping the empty list would mean "never pick audio" and "always
+         * turn subtitles on", which is worse than ignoring what isn't understood.
          */
         private fun langs(o: JSONObject, key: String): List<TrackLang>? {
             val arr = o.optJSONArray(key) ?: return null
@@ -105,7 +105,7 @@ data class PlaybackPrefs(
     }
 }
 
-/** Preferencias persistidas localmente (SharedPreferences), observables. */
+/** Preferences persisted locally (SharedPreferences), observable. */
 class SubtitlePrefs(context: Context) {
     private val store = context.applicationContext.getSharedPreferences("arkiv_subs", Context.MODE_PRIVATE)
 
