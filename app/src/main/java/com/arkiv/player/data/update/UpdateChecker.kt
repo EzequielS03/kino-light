@@ -29,14 +29,14 @@ class UpdateChecker(
     }
 
     /**
-     * La URL del APK, haya o no una versión más nueva que la instalada.
+     * The APK's URL, whether or not there's a newer version than the installed one.
      *
-     * [check] devuelve `null` cuando ya estás al día, que es lo correcto para el aviso de
-     * actualización pero inservible para el QR de descarga de la pantalla de entrada del TV: ahí
-     * hace falta la URL siempre, y sale del mismo `latest.json` para que no envejezca cuando se
-     * publique una versión nueva (la URL lleva el número adentro).
+     * [check] returns `null` when you're already up to date, which is right for the update notice
+     * but useless for the TV entry screen's download QR: there the URL is needed always, and it
+     * comes from the same `latest.json` so it doesn't go stale once a new version is published
+     * (the URL carries the number inside).
      */
-    suspend fun urlDeDescarga(): String? = withContext(Dispatchers.IO) {
+    suspend fun downloadUrl(): String? = withContext(Dispatchers.IO) {
         runCatching {
             val raw = client.newCall(Request.Builder().url(url).cacheControl(CacheControl.FORCE_NETWORK).build()).execute()
                 .use { if (it.isSuccessful) it.body?.string() else null } ?: return@withContext null
