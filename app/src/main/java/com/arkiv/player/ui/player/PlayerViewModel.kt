@@ -220,7 +220,7 @@ class PlayerViewModel internal constructor(
      *  un canal en vivo no abre (ver [mensajeErrorVivo]): el vivo la exige, el VOD no. */
     private val hayCuentaDeMagis: () -> Boolean = { false },
     /** El dato curioso (sub-proyecto 4). Null en los tests que no lo usan: sin él no hay botón. */
-    private val datosCuriosos: com.arkiv.player.data.trivia.DatosCuriosos? = null,
+    private val datosCuriosos: com.arkiv.player.data.trivia.TriviaFacts? = null,
 ) : ViewModel() {
 
     private val _playlist = MutableStateFlow<PlaylistData?>(null)
@@ -391,8 +391,8 @@ class PlayerViewModel internal constructor(
                 return@launch
             }
             _trivia.value = try {
-                fuenteDeDatos.de(obra) { repo.fichaDeObra(obra) }
-                    .also { Log.w(PLAY, "trivia: ${it.size} facts for ${obra.clave}") }
+                fuenteDeDatos.of(obra) { repo.fichaDeObra(obra) }
+                    .also { Log.w(PLAY, "trivia: ${it.size} facts for ${obra.key}") }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {

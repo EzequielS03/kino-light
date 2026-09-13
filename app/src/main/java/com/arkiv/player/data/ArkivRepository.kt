@@ -1220,25 +1220,25 @@ class ArkivRepository(
 
     /**
      * La identidad de la obra de la que pedir datos curiosos, o null si no hay forma de nombrarla
-     * bien (ver [com.arkiv.player.data.trivia.ObraDeDatos.de]). Sin red: la ficha se busca aparte
+     * bien (ver [com.arkiv.player.data.trivia.TriviaSubject.of]). Sin red: la ficha se busca aparte
      * en [fichaDeObra], y solo si no hay caché.
      *
      * Temporada y capítulo salen primero de los campos que escriben Magis y Caracol al guardar
      * (`EpisodeEntity.season` / `.episode`), y si no, del nombre y la sección, como antes.
      */
-    internal suspend fun obraParaDatos(episodeId: String): com.arkiv.player.data.trivia.ObraDeDatos? {
+    internal suspend fun obraParaDatos(episodeId: String): com.arkiv.player.data.trivia.TriviaSubject? {
         val ep = itemDao.getEpisode(episodeId) ?: return null
         val item = itemDao.getItem(ep.itemId) ?: return null
         val episodio = ep.episode?.takeIf { it > 0 }
             ?: com.arkiv.player.data.model.EpisodeNumbering.episodeOf(ep.displayName)
         val temporada = ep.season?.takeIf { it > 0 }
             ?: com.arkiv.player.data.model.EpisodeNumbering.seasonOf(ep.section)
-        return com.arkiv.player.data.trivia.ObraDeDatos.de(
-            tipo = com.arkiv.player.data.model.WorkKind.of(item.tipo, item.categoryOverride, episodio),
+        return com.arkiv.player.data.trivia.TriviaSubject.of(
+            kind = com.arkiv.player.data.model.WorkKind.of(item.tipo, item.categoryOverride, episodio),
             tmdbId = item.tmdbId,
-            tituloCanonico = item.tituloCanonico,
-            temporada = temporada,
-            episodio = episodio,
+            canonicalTitle = item.tituloCanonico,
+            season = temporada,
+            episode = episodio,
         )
     }
 
@@ -1256,8 +1256,8 @@ class ArkivRepository(
      * apertura reintenta solo.
      *
      * Si la serie sí llegó pero falló la llamada del capítulo (pedido con temporada y episodio), la
-     * ficha queda [com.arkiv.player.data.trivia.FichaDeObra.degradada]: se pregunta igual con los
-     * hechos de la serie, pero [com.arkiv.player.data.trivia.DatosCuriosos] no guarda esa respuesta
+     * ficha queda [com.arkiv.player.data.trivia.WorkSheet.degraded]: se pregunta igual con los
+     * hechos de la serie, pero [com.arkiv.player.data.trivia.TriviaFacts] no guarda esa respuesta
      * bajo la clave del capítulo.
      *
      * La cancelación se relanza; lo demás se traga, como antes en `nombreDeObra`.
@@ -1265,17 +1265,17 @@ class ArkivRepository(
      * **Esto solo corre si no hay caché** (igual que antes con el nombre): puede costar hasta 2
      * llamadas a TMDB (película, o serie + capítulo).
      */
-    internal suspend fun fichaDeObra(obra: com.arkiv.player.data.trivia.ObraDeDatos): com.arkiv.player.data.trivia.FichaDeObra? {
+    internal suspend fun fichaDeObra(obra: com.arkiv.player.data.trivia.TriviaSubject): com.arkiv.player.data.trivia.WorkSheet? {
         val tmdb = tmdbApi
         val id = obra.tmdbId
         if (tmdb == null || id == null) {
-            return obra.tituloCanonico?.trim()?.takeIf { it.isNotEmpty() }?.let {
-                com.arkiv.player.data.trivia.FichaDeObra(tipo = obra.tipo, nombre = it)
+            return obra.canonicalTitle?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                com.arkiv.player.data.trivia.WorkSheet(kind = obra.kind, name = it)
             }
         }
-        if (obra.tipo == "movie") {
+        if (obra.kind == "movie") {
             return try {
-                tmdb.raw("movie/$id", append = "credits")?.let { com.arkiv.player.data.trivia.fichaDePelicula(it) }
+                tmdb.raw("movie/$id", append = "credits")?.let { com.arkiv.player.data.trivia.movieSheet(it) }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1283,22 +1283,22 @@ class ArkivRepository(
             }
         }
         val serie = try {
-            tmdb.raw("tv/$id", append = "aggregate_credits")?.let { com.arkiv.player.data.trivia.fichaDeSerie(it) }
+            tmdb.raw("tv/$id", append = "aggregate_credits")?.let { com.arkiv.player.data.trivia.seriesSheet(it) }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
             null
         } ?: return null
-        if (obra.temporada == null || obra.episodio == null) return serie
+        if (obra.season == null || obra.episode == null) return serie
         val capitulo = try {
-            tmdb.raw("tv/$id/season/${obra.temporada}/episode/${obra.episodio}", append = "credits")
-                ?.let { com.arkiv.player.data.trivia.capituloDeFicha(it) }
+            tmdb.raw("tv/$id/season/${obra.season}/episode/${obra.episode}", append = "credits")
+                ?.let { com.arkiv.player.data.trivia.chapterSheet(it) }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
             null
         }
-        return if (capitulo != null) serie.copy(capitulo = capitulo) else serie.copy(degradada = true)
+        return if (capitulo != null) serie.copy(chapter = capitulo) else serie.copy(degraded = true)
     }
 }
 

@@ -38,7 +38,7 @@ import kotlinx.coroutines.delay
 /**
  * Qué dato curioso toca mostrar, según cuántas veces se pidió el siguiente.
  *
- * Los datos se piden TODOS DE UNA al arrancar (ver [com.arkiv.player.data.trivia.DatosCuriosos],
+ * Los datos se piden TODOS DE UNA al arrancar (ver [com.arkiv.player.data.trivia.TriviaFacts],
  * que le habla a Kilo desde el aparato) y acá solo se rota entre ellos. Por eso esto es aritmética
  * pura y no una petición: cambiar de dato no puede costar los ~20 segundos que tarda el modelo, ni
  * fallar a mitad de una película.
@@ -164,7 +164,7 @@ internal fun rememberEstadoDeTrivia(): EstadoDeTrivia = remember { EstadoDeTrivi
  * Los dos temporizadores: el cartel se va a los 5 s de aparecer, y el panel a los 10 s de la
  * última pulsación (cada avance reinicia la cuenta, así que leer varios seguidos no lo cierra).
  *
- * [cantidad] dispara el anuncio: cambia de 0 a N cuando responde [com.arkiv.player.data.trivia.DatosCuriosos]
+ * [cantidad] dispara el anuncio: cambia de 0 a N cuando responde [com.arkiv.player.data.trivia.TriviaFacts]
  * (Kilo, sin gateway).
  */
 @Composable

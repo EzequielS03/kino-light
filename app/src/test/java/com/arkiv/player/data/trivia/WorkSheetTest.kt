@@ -7,12 +7,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * JSON de ejemplo escrito a mano con los campos reales de TMDB (`append_to_response=credits` para
- * película y capítulo, `aggregate_credits` para serie). El `overview` de cada uno lleva una palabra
- * única que no debe aparecer nunca en [FichaDeObra.renglones]: el dato curioso no puede tener
- * spoilers.
+ * Sample JSON written by hand with TMDB's real fields (`append_to_response=credits` for a movie
+ * and a chapter, `aggregate_credits` for a series). Each one's `overview` carries a unique word
+ * that must never show up in [WorkSheet.lines]: a trivia fact can't have spoilers.
  */
-class FichaDeObraTest {
+class WorkSheetTest {
 
     private val peliculaJson = """
         {
@@ -82,74 +81,74 @@ class FichaDeObraTest {
         }
     """.trimIndent()
 
-    @Test fun `la ficha de una pelicula saca director, guionistas, reparto, productoras, fecha y duracion`() {
-        val f = fichaDePelicula(peliculaJson)!!
-        assertEquals("movie", f.tipo)
-        assertEquals("Coco", f.nombre)
-        assertEquals("2017-10-27", f.fechaEstreno)
-        assertEquals(105, f.duracionMinutos)
-        // Solo "Director" exacto: "Co-Director" no cuenta como director.
-        assertEquals(listOf("Lee Unkrich"), f.directores)
-        assertEquals(listOf("Adrian Molina", "Matthew Aldrich"), f.guionistas)
-        assertEquals(listOf("Pixar Animation Studios"), f.productoras)
-        // Los primeros 5 por `order`: Jaime Camil (order 5) queda afuera.
+    @Test fun `a movie sheet pulls director, writers, cast, production companies, date and runtime`() {
+        val f = movieSheet(peliculaJson)!!
+        assertEquals("movie", f.kind)
+        assertEquals("Coco", f.name)
+        assertEquals("2017-10-27", f.releaseDate)
+        assertEquals(105, f.runtimeMinutes)
+        // Only exact "Director": "Co-Director" doesn't count as a director.
+        assertEquals(listOf("Lee Unkrich"), f.directors)
+        assertEquals(listOf("Adrian Molina", "Matthew Aldrich"), f.writers)
+        assertEquals(listOf("Pixar Animation Studios"), f.productionCompanies)
+        // The first 5 by `order`: Jaime Camil (order 5) is left out.
         assertEquals(
             listOf("Anthony Gonzalez", "Gael García Bernal", "Benjamin Bratt", "Alanna Ubach", "Renée Victor"),
-            f.reparto,
+            f.cast,
         )
     }
 
-    @Test fun `la ficha de una serie saca creadores, cadena, primera emision y reparto`() {
-        val f = fichaDeSerie(serieJson)!!
-        assertEquals("tv", f.tipo)
-        assertEquals("Naruto", f.nombre)
-        assertEquals("2002-10-03", f.fechaEstreno)
-        assertEquals(listOf("Masashi Kishimoto"), f.creadores)
-        assertEquals(listOf("TV Tokyo"), f.cadenas)
+    @Test fun `a series sheet pulls creators, network, first air date and cast`() {
+        val f = seriesSheet(serieJson)!!
+        assertEquals("tv", f.kind)
+        assertEquals("Naruto", f.name)
+        assertEquals("2002-10-03", f.releaseDate)
+        assertEquals(listOf("Masashi Kishimoto"), f.creators)
+        assertEquals(listOf("TV Tokyo"), f.networks)
         assertEquals(
             listOf("Junko Takeuchi", "Chie Nakamura", "Noriaki Sugiyama", "Kazuhiko Inoue", "Hidekatsu Shibata"),
-            f.reparto,
+            f.cast,
         )
     }
 
-    @Test fun `el capitulo saca nombre, fecha, director, guionista e invitados`() {
-        val c = capituloDeFicha(capituloJson)!!
-        assertEquals(1, c.temporada)
-        assertEquals(2, c.episodio)
-        assertEquals("¡Soy Konohamaru!", c.nombre)
-        assertEquals("2002-10-10", c.fecha)
-        assertEquals(listOf("Hayato Date"), c.directores)
-        assertEquals(listOf("Junki Takegami"), c.guionistas)
-        // Los primeros 5: "Invitado Seis" queda afuera.
-        assertEquals(listOf("Invitado Uno", "Invitado Dos", "Invitado Tres", "Invitado Cuatro", "Invitado Cinco"), c.invitados)
+    @Test fun `the chapter pulls name, date, director, writer and guest stars`() {
+        val c = chapterSheet(capituloJson)!!
+        assertEquals(1, c.season)
+        assertEquals(2, c.episode)
+        assertEquals("¡Soy Konohamaru!", c.name)
+        assertEquals("2002-10-10", c.date)
+        assertEquals(listOf("Hayato Date"), c.directors)
+        assertEquals(listOf("Junki Takegami"), c.writers)
+        // The first 5: "Invitado Seis" is left out.
+        assertEquals(listOf("Invitado Uno", "Invitado Dos", "Invitado Tres", "Invitado Cuatro", "Invitado Cinco"), c.guestStars)
     }
 
-    @Test fun `un null o un campo ausente no aparece en renglones`() {
+    @Test fun `a null or missing field does not show up in lines`() {
         val json = """{"title": "Sin datos", "release_date": null}"""
-        val f = fichaDePelicula(json)!!
-        assertNull(f.fechaEstreno)
-        assertTrue(f.directores.isEmpty())
-        assertTrue(f.productoras.isEmpty())
-        // Sin ningún hecho más allá del nombre, no hay bloque que mostrar.
-        assertEquals("", f.renglones())
+        val f = movieSheet(json)!!
+        assertNull(f.releaseDate)
+        assertTrue(f.directors.isEmpty())
+        assertTrue(f.productionCompanies.isEmpty())
+        // With no fact beyond the name, there's no block to show.
+        assertEquals("", f.lines())
     }
 
-    @Test fun `ningun campo overview llega a renglones`() {
-        val pelicula = fichaDePelicula(peliculaJson)!!.renglones()
-        val serie = fichaDeSerie(serieJson)!!.renglones()
-        val serieConCapitulo = fichaDeSerie(serieJson)!!.copy(capitulo = capituloDeFicha(capituloJson))
+    @Test fun `no overview field ever reaches lines`() {
+        val pelicula = movieSheet(peliculaJson)!!.lines()
+        val serie = seriesSheet(serieJson)!!.lines()
+        val serieConCapitulo = seriesSheet(serieJson)!!.copy(chapter = chapterSheet(capituloJson))
         assertFalse(pelicula.contains("PALABRAUNICATRAMAPELICULA"))
         assertFalse(serie.contains("PALABRAUNICATRAMASERIE"))
-        assertFalse(serieConCapitulo.renglones().contains("PALABRAUNICATRAMACAPITULO"))
+        assertFalse(serieConCapitulo.lines().contains("PALABRAUNICATRAMACAPITULO"))
     }
 
-    @Test fun `un json roto da null`() {
-        assertNull(fichaDePelicula("{esto no es json"))
-        assertNull(fichaDeSerie("{esto no es json"))
-        assertNull(capituloDeFicha("{esto no es json"))
+    @Test fun `broken json gives null`() {
+        assertNull(movieSheet("{esto no es json"))
+        assertNull(seriesSheet("{esto no es json"))
+        assertNull(chapterSheet("{esto no es json"))
     }
 
-    @Test fun `un actor sin letras latinas no aparece en el reparto`() {
+    @Test fun `an actor with no latin letters does not show up in the cast`() {
         val json = """
             {
               "title": "Naruto la película",
@@ -161,11 +160,11 @@ class FichaDeObraTest {
               }
             }
         """.trimIndent()
-        val f = fichaDePelicula(json)!!
-        assertEquals(listOf("Junko Takeuchi"), f.reparto)
+        val f = movieSheet(json)!!
+        assertEquals(listOf("Junko Takeuchi"), f.cast)
     }
 
-    @Test fun `un director solo en kanji no aparece`() {
+    @Test fun `a director only in kanji does not show up`() {
         val json = """
             {
               "title": "Naruto la película",
@@ -176,11 +175,11 @@ class FichaDeObraTest {
               }
             }
         """.trimIndent()
-        val f = fichaDePelicula(json)!!
-        assertTrue(f.directores.isEmpty())
+        val f = movieSheet(json)!!
+        assertTrue(f.directors.isEmpty())
     }
 
-    @Test fun `un nombre mixto con letras latinas se queda`() {
+    @Test fun `a mixed name with latin letters stays`() {
         val json = """
             {
               "title": "Naruto la película",
@@ -191,11 +190,11 @@ class FichaDeObraTest {
               }
             }
         """.trimIndent()
-        val f = fichaDePelicula(json)!!
-        assertEquals(listOf("Haruko 春子"), f.directores)
+        val f = movieSheet(json)!!
+        assertEquals(listOf("Haruko 春子"), f.directors)
     }
 
-    @Test fun `un guionista solo en kanji no aparece`() {
+    @Test fun `a writer only in kanji does not show up`() {
         val json = """
             {
               "title": "Naruto la película",
@@ -206,22 +205,22 @@ class FichaDeObraTest {
               }
             }
         """.trimIndent()
-        val f = fichaDePelicula(json)!!
-        assertTrue(f.guionistas.isEmpty())
+        val f = movieSheet(json)!!
+        assertTrue(f.writers.isEmpty())
     }
 
-    @Test fun `un creador solo en kanji no aparece en la ficha de serie`() {
+    @Test fun `a creator only in kanji does not show up in the series sheet`() {
         val json = """
             {
               "name": "Naruto",
               "created_by": [{"name": "岸本斉史"}, {"name": "Masashi Kishimoto"}]
             }
         """.trimIndent()
-        val f = fichaDeSerie(json)!!
-        assertEquals(listOf("Masashi Kishimoto"), f.creadores)
+        val f = seriesSheet(json)!!
+        assertEquals(listOf("Masashi Kishimoto"), f.creators)
     }
 
-    @Test fun `un invitado solo en kanji no aparece en el capitulo`() {
+    @Test fun `a guest star only in kanji does not show up in the chapter`() {
         val json = """
             {
               "season_number": 1,
@@ -229,13 +228,13 @@ class FichaDeObraTest {
               "guest_stars": [{"name": "竹内順子"}, {"name": "Invitado Uno"}]
             }
         """.trimIndent()
-        val c = capituloDeFicha(json)!!
-        assertEquals(listOf("Invitado Uno"), c.invitados)
+        val c = chapterSheet(json)!!
+        assertEquals(listOf("Invitado Uno"), c.guestStars)
     }
 
-    @Test fun `renglones arma serie y capitulo como en el ejemplo del brief`() {
-        val ficha = fichaDeSerie(serieJson)!!.copy(capitulo = capituloDeFicha(capituloJson))
-        val r = ficha.renglones()
+    @Test fun `lines builds the series and chapter as in the brief's example`() {
+        val ficha = seriesSheet(serieJson)!!.copy(chapter = chapterSheet(capituloJson))
+        val r = ficha.lines()
         assertTrue(r.contains("Serie: Naruto (primera emisión 2002-10-03; creada por Masashi Kishimoto; canal TV Tokyo; reparto:"))
         assertTrue(
             r.contains(

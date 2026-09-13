@@ -431,10 +431,10 @@ class AppGraph(context: Context) {
     }
 
     /** El dato curioso del reproductor (sub-proyecto 4): Kilo, desde el aparato, un mes de caché. */
-    internal val datosCuriosos: com.arkiv.player.data.trivia.DatosCuriosos by lazy {
-        com.arkiv.player.data.trivia.DatosCuriosos(
+    internal val datosCuriosos: com.arkiv.player.data.trivia.TriviaFacts by lazy {
+        com.arkiv.player.data.trivia.TriviaFacts(
             ia = { clienteDeIa.ask(it) },
-            cache = com.arkiv.player.data.trivia.CacheDeDatosEnDisco(
+            cache = com.arkiv.player.data.trivia.DiskTriviaCache(
                 java.io.File(appContext.filesDir, "datos-curiosos"),
             ) { System.currentTimeMillis() },
         )
