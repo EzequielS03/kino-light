@@ -458,7 +458,7 @@ interface SkipMarkerDao {
     @Query("SELECT * FROM skip_markers WHERE itemId = :itemId AND episodeId = ''")
     fun observe(itemId: String): Flow<SkipMarkerEntity?>
 
-    /** El del capítulo y el de la serie, en una sola consulta. `MarcadorDeCapitulo.elegir` decide cuál manda. */
+    /** El del capítulo y el de la serie, en una sola consulta. `ChapterMarker.choose` decide cuál manda. */
     @Query("SELECT * FROM skip_markers WHERE itemId = :itemId AND episodeId IN (:episodeId, '') AND deleted = 0")
     fun observeDeCapitulo(itemId: String, episodeId: String): Flow<List<SkipMarkerEntity>>
 

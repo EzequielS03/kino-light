@@ -1056,8 +1056,8 @@ class PlayerViewModel internal constructor(
     }
 
     /** La corrección a mano de los tiempos, del capítulo en curso o de la serie. Ver su KDoc. */
-    private val editorDeMarcadores by lazy {
-        com.arkiv.player.data.marcadores.EditorDeMarcadores(dao = repo.skipMarkerDao())
+    private val markerEditor by lazy {
+        com.arkiv.player.data.marcadores.MarkerEditor(dao = repo.skipMarkerDao())
     }
 
     override fun onCleared() {
@@ -1071,20 +1071,20 @@ class PlayerViewModel internal constructor(
      * [episodeId] dice a QUÉ se le pone: un capítulo, o `""` = la serie entera (lo que hacía
      * siempre este camino). Poder marcar UN capítulo es lo que hace usable la corrección: con
      * marcadores automáticos por capítulo, un manual de serie le pisa el automático correcto a
-     * todos los demás (ver [EditorDeMarcadores]).
+     * todos los demás (ver [MarkerEditor]).
      */
     fun setOpeningEnd(ms: Long, episodeId: String = "") = editarMarcador(episodeId) { itemId ->
-        editorDeMarcadores.finDelOpening(itemId, episodeId, ms)
+        markerEditor.setOpeningEnd(itemId, episodeId, ms)
     }
 
     /** Marca a mano el inicio del ending en [ms]. Ver [setOpeningEnd] para [episodeId]. */
     fun setEndingStart(ms: Long, episodeId: String = "") = editarMarcador(episodeId) { itemId ->
-        editorDeMarcadores.inicioDelEnding(itemId, episodeId, ms)
+        markerEditor.setEndingStart(itemId, episodeId, ms)
     }
 
     /** "Esto no tiene intro ni outro". Ver [setOpeningEnd] para [episodeId]. */
     fun clearMarkers(episodeId: String = "") = editarMarcador(episodeId) { itemId ->
-        editorDeMarcadores.quitar(itemId, episodeId)
+        markerEditor.clear(itemId, episodeId)
     }
 
     private fun editarMarcador(episodeId: String, bloque: suspend (String) -> Unit) {

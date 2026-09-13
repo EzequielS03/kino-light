@@ -132,7 +132,7 @@ import androidx.media3.session.SessionToken
 import com.arkiv.player.cast.CastProgress
 import com.arkiv.player.cast.localAudioFormat
 import com.arkiv.player.cast.localVideoFormat
-import com.arkiv.player.data.MarcadorDeCapitulo
+import com.arkiv.player.data.ChapterMarker
 import com.arkiv.player.ui.tv.library.SAFE_H
 import com.arkiv.player.ui.tv.library.SAFE_V
 import com.arkiv.player.playback.AutoAdvance
@@ -2967,7 +2967,7 @@ private fun PlayerContent(
         }
 
         // Marcador vigente del capítulo que suena: capítulo o serie, según la precedencia de
-        // MarcadorDeCapitulo.elegir (manual-capítulo > manual-serie > auto-capítulo >
+        // ChapterMarker.choose (manual-capítulo > manual-serie > auto-capítulo >
         // auto-serie). Reactivo y NO el que quedó horneado en `d` al armar la playlist (Tarea 6
         // pide el automático al gateway en segundo plano y lo guarda DESPUÉS de que este overlay
         // ya se dibujó -- con una lectura estática el botón nunca aparecería para ese capítulo).
@@ -2977,9 +2977,9 @@ private fun PlayerContent(
         val marcadoresDelCapitulo by remember(d?.itemId, episodioEnCurso) {
             graph.repository.skipMarkerDao().observeDeCapitulo(d?.itemId ?: "", episodioEnCurso)
         }.collectAsStateWithLifecycle(initialValue = emptyList())
-        val marcadorVigente = MarcadorDeCapitulo.elegir(
-            delCapitulo = marcadoresDelCapitulo.firstOrNull { it.episodeId == episodioEnCurso },
-            deLaSerie = marcadoresDelCapitulo.firstOrNull { it.episodeId.isEmpty() },
+        val marcadorVigente = ChapterMarker.choose(
+            fromChapter = marcadoresDelCapitulo.firstOrNull { it.episodeId == episodioEnCurso },
+            fromSeries = marcadoresDelCapitulo.firstOrNull { it.episodeId.isEmpty() },
         )
 
         // Botones flotantes de saltar intro/outro. Antes solo salían en el teléfono y fuera de
@@ -3000,8 +3000,8 @@ private fun PlayerContent(
         val botonDeSalto = when {
             marcadorVigente == null || marcadores.marcando || estadoDlna.activo != null -> null
             else -> BotonDeSalto.cual(
-                enOpening = MarcadorDeCapitulo.enOpening(marcadorVigente, espejo.posicionMs),
-                enEnding = MarcadorDeCapitulo.enEnding(marcadorVigente, espejo.posicionMs),
+                enOpening = ChapterMarker.inOpening(marcadorVigente, espejo.posicionMs),
+                enEnding = ChapterMarker.inEnding(marcadorVigente, espejo.posicionMs),
                 accionDelOutro = accionDelOutro,
                 casting = casting,
             )

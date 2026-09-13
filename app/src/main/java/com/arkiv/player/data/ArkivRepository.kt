@@ -1067,9 +1067,9 @@ class ArkivRepository(
      * El DAO crudo de `skip_markers`, sin pasar por las vistas ya armadas de acá abajo
      * (`getSkipMarker`, que solo ve el marcador de TODA la serie: `episodeId` vacío).
      *
-     * Lo necesita [com.arkiv.player.data.marcadores.EditorDeMarcadores]: hace `getById`/`upsert`
+     * Lo necesita [com.arkiv.player.data.marcadores.MarkerEditor]: hace `getById`/`upsert`
      * puntuales POR CAPÍTULO. `PlayerViewModel` no recibe `AppGraph` por constructor (son ~15
-     * dependencias sueltas, ver su propio KDoc), así que arma su propio `EditorDeMarcadores` --
+     * dependencias sueltas, ver su propio KDoc), así que arma su propio `MarkerEditor` --
      * y esto es lo que le falta para poder hacerlo sin agregar un parámetro nuevo que obligara a
      * tocar el callsite en `PlayerScreen.kt`.
      */
@@ -1080,10 +1080,10 @@ class ArkivRepository(
     /**
      * El marcador de un ámbito EXACTO: el del capítulo [episodeId], o el de la serie entera
      * (`""`, el default). No cae de uno al otro a propósito -- quien quiera la precedencia
-     * completa usa `MarcadorDeCapitulo.elegir` sobre `observeDeCapitulo`.
+     * completa usa `ChapterMarker.choose` sobre `observeDeCapitulo`.
      */
     suspend fun getSkipMarker(itemId: String, episodeId: String = "") =
-        skipMarkerDao.getById(com.arkiv.player.data.MarcadorDeCapitulo.idDe(itemId, episodeId))
+        skipMarkerDao.getById(com.arkiv.player.data.ChapterMarker.idFor(itemId, episodeId))
 
     suspend fun saveSkipMarker(
         itemId: String,
@@ -1098,7 +1098,7 @@ class ArkivRepository(
                 com.arkiv.player.data.db.SkipMarkerEntity(
                     // El diálogo de marcadores edita el de la SERIE (episodeId vacío): `origen`
                     // queda en su default MANUAL, que es justamente lo que es esto.
-                    id = com.arkiv.player.data.MarcadorDeCapitulo.idDe(itemId, ""),
+                    id = com.arkiv.player.data.ChapterMarker.idFor(itemId, ""),
                     itemId = itemId,
                     episodeId = "",
                     openingStartMs = openingStartMs,
