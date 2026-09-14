@@ -9,8 +9,11 @@ English" line in `.claude/reglas.md`.
 Order chosen by the user: **módulo por módulo, de menor a mayor riesgo** (module by module,
 lowest to highest risk).
 
-## Overall completion: **`ui/` is 100% done.** `data/` is substantially further along than before
-this session but genuinely NOT fully done — a full sweep turned up ~27 more files. See below.
+## Overall completion: **`ui/` is 100% done. `data/` is now genuinely done too** — every file with
+a Spanish hit has been individually read and either fixed or confirmed as legitimately Spanish
+(UI text, LLM prompt data, or a classification-coupled error string). Two items remain
+**deliberately deferred** with documented reasons (see "Deliberately deferred" below); everything
+else is real.
 
 - `playback/`, `security/`, `dlna/`, `cast/`, `thumbnails/`: **100% done.**
 - `ui/` (159 main files across 14 subpackages, plus 6 top-level files, plus tests): **100% done.**
@@ -32,14 +35,36 @@ this session but genuinely NOT fully done — a full sweep turned up ~27 more fi
   `SettingsStore.kt`'s public API (`adultosDesbloqueado`, `setDimLevel`, etc.) and every
   SharedPreferences `KEY_*` constant are deliberately left untouched this pass — see "Deliberately
   deferred".
-- **NOT yet started — found via a full accented-character sweep of every `.kt` file under
-  `app/src/main/java/.../data/`** (the same technique that found the gateway files, now applied to
-  the WHOLE package, which is what should have happened before ever declaring `data/` "done"):
-  ~27 files, hit counts from 1–11 each (much smaller per-file than the gateway files were), listed
-  in the `data/` section below. Most of these are probably comment-only (given the low counts) but
-  NONE have been read yet to confirm — do not assume from the count alone; `SeriesItemIds.kt`
-  looked large (26 hits) but turned out to be 100% comment-only with zero ripple, while a 1-hit
-  file could still be a real identifier needing a ripple check. Read each one before touching it.
+- **`SearchHistoryRepo.kt`, `SearchHistoryPolicy.kt`** — **done, `cfe4fb51`.** Locals translated
+  (`filas`→`rows`, `limpio`/`texto`→`clean`/`text`); `KIND`'s literal value `"buscar"` left frozen
+  (persisted in the `search_history` table). Test file's Spanish test names rewritten to English.
+- **`DownloadConfirmation.kt`, `RecommendationAggregator.kt`** — **done, `e38c9e04`.** One genuine
+  leftover dev comment each, fixed.
+- **The rest of the ~27-file list found by the full sweep — all individually read and confirmed to
+  need NO changes**, commit `e38c9e04`'s message has the full list. Every remaining hit is one of:
+  UI-facing strings (`CaracolFailure.kt`'s whole job IS translating errors for the user;
+  `DownloadOutcome.Failed`/`DownloadDisplayState.Failed` messages shown in the Downloads screen;
+  `DituEntitlement`'s block reasons which "already come written for the person" per
+  `CaracolFailure.kt`'s own KDoc; `LibrarySection.MOVIES("Películas")`'s enum label;
+  `DownloadNotificationText.kt`'s Android notification text), LLM prompt/data text
+  (`ForYouVerification.kt`, `ForYouGenerator.kt`, `TriviaFacts.kt`'s `TriviaPrompt`,
+  `WorkSheet.kt`'s TMDB-fact lines fed into that prompt — exception e), or exception messages that
+  surface to the user unfiltered by Magis's own convention (`MagisFuente.kt`, `MagisSession.kt`,
+  `MagisResolve.kt`, `MagisLive.kt`, `MagisAccount.kt`) or feed `CaracolFailure.classify`'s text
+  matching (`DituFuente.kt`, `DituClient.kt`, `DituResolve.kt`, `DituDownloadStrategy.kt`,
+  `MagisDownloadStrategy.kt` — note `DituClient.kt`'s `"Caracol respondió ${it.code}"` format is
+  literally required to match `CaracolFailure.SERVER_DOWN`'s regex, so it's frozen by coupling,
+  not just convention). `ArkivRepository.kt`'s one hit is a filename-noise regex matching real
+  release-tag text (`latino`/`castellano`/`español`), also exception-e-shaped data.
+- **`CacheConVencimiento`→`ExpiringCache`** (commit `412bae87`) — found by a NON-accented
+  identifier sweep (`\b(fun|val|var|class|object|interface) \w*(De[A-Z]|Con[A-Z]|...)`) run across
+  all of `data/` after the accented-char sweep came up clean, per the established lesson that
+  accents alone miss identifiers like this. `internal class`, two named-arg call sites in
+  `MagisFuente.kt`/`MagisLiveCatalog.kt` (`tope`→`cap`). A second, broader suffix sweep
+  (`cion|dad|miento|torio|ador|able|ible`) after this rename turned up only false positives
+  (English words like "saveable", "Playable", "reproducible" — the last already a known deferral).
+  **`data/` is now considered genuinely, thoroughly done** — every accented hit reviewed
+  individually, plus two rounds of non-accented identifier heuristics with no further gaps found.
 
 ## Hard-won lesson this session: bare-name imports break silently after a rename
 
@@ -540,26 +565,29 @@ f. Two `ContentSource` implementations — **`MagisFuente`** and **`DituFuente`*
 
 ## Next steps
 
-**`ui/` is entirely done as of `4e5ce086`. `data/gateway/` and `data/nuevos/` are entirely done
-(modulo the "Deliberately deferred" items above) as of `e1176a60`. Everything below is what's left.**
+**`ui/` is entirely done as of `4e5ce086`. `data/` is entirely done as of `412bae87`, modulo the
+two "Deliberately deferred" items above. This is now the ONLY thing left in the whole sweep.**
 
-1. **Work through the ~27-file list in the `data/` section's "Correction" note above, one file at
-   a time, same rigor as every file this whole sweep**: read fully, grep every real usage
-   (including `app/src/debug/`), rename + ripple + compile + full test + verify exact test count +
-   commit. Do NOT batch multiple files into one commit — some of these may turn out to need real
-   ripple work (like `MagisEntities.kt`/`DituEntities.kt` did) even though their hit counts are
-   small; a low count only means few Spanish COMMENT/string hits, not necessarily low risk.
-   `ditu/CaracolFailure.kt` (11 hits) and `magis/MagisFuente.kt`'s remaining 9 (comments only,
-   confirmed) are natural next ones given they sit next to files already touched this session.
-2. **Before declaring ANY package "done" ever again, run this across literally every `.kt` file
-   in it, not just the subpackages that were the original focus**:
-   `find <dir> -name "*.kt" | while read -r f; do n=$(command grep -c "[áéíóúñÁÉÍÓÚÑ]" "$f"); [ "$n" != "0" ] && echo "$n $f"; done | sort -rn`
-   (the earlier `xargs -I{} sh -c` one-liner is unreliable with `{}` inside quotes — use the `find
-   | while read` form above instead, confirmed working). This is now the FIFTH time in this
-   session a "done" declaration turned out to have missed files.
-3. Once `data/` is genuinely, fully done (including this ~27-file tail), revisit the two
-   "Deliberately deferred" items — `MagisFuente`/`DituFuente` class names and `LiveModels.kt`'s
-   field names — as their own dedicated passes, each touching many already-"done" files elsewhere.
+1. **`MagisFuente`/`DituFuente` class names** (exception f) — revisit whether renaming them is now
+   cheap enough. Both files' internals/params/comments are already fully translated (confirmed
+   this session); only the class names themselves (and their constructor call sites, imports, and
+   any doc cross-references) would need touching. Grep every real usage first — this ripples into
+   10+ files per the original exception-f note, so treat it with the same rigor as any other
+   rename: read, grep, rename + ripple, compile, full test, verify exact count, commit.
+2. **`LiveModels.kt`'s data-class field names** (`LiveChannel.nombre`/`.numero`/`.adulto`,
+   `LiveProgram.titulo`/`.inicio`/`.fin`/`.sinopsis`, `ItemDeCatalogo`, `SeccionDeCatalogo`,
+   `CdnDeCanal`, `LiveCatalogGateway.categorias`/`.canales`) — traced to ~19 files across
+   `ui/live/`, `ui/tv/`, `ui/player/`, `playback/` last time this was checked (re-verify the list
+   is current, ripple sizes shift as files change). This is its own dedicated pass, not a
+   gap-closing one — budget for it accordingly, and expect to touch many already-"done" files.
+3. **After 1 and 2, the entire sweep should be complete.** Do one final full-codebase
+   accented-character sweep before declaring the whole thing done — every previous "done"
+   declaration this session turned out to be wrong on the first check, five separate times:
+   `find app/src/main/java app/src/debug/java -name "*.kt" | while read -r f; do n=$(command grep -c "[áéíóúñÁÉÍÓÚÑ]" "$f"); [ "$n" != "0" ] && echo "$n $f"; done | sort -rn`
+   (the older `xargs -I{} sh -c '...{}...'` form is unreliable when `{}` sits inside quotes — use
+   this `find | while read` form). Read every hit before judging it — many will be legitimate
+   UI-facing text, LLM prompt data, or Room/DAO-frozen fields, same as most of `data/`'s tail
+   turned out to be; a hit is a thing to check, not automatically a gap.
 4. **Whenever a bare top-level `fun`/`val` gets renamed** (not a class/object member), grep
    separately for `^import .*\.<oldName>$` — a call-site-anchored sed pattern will not catch a bare
    import line, and that's a real, previously-hit compile break (see the lesson noted near the top
