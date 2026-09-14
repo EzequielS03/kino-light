@@ -69,60 +69,62 @@ import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 import kotlinx.coroutines.delay
 
-/** Alto de cada fila de canal -- grande a propósito, para que se reconozca a tres metros. */
-private val ALTO_FILA = 76.dp
+/** Height of each channel row -- large on purpose, so it's recognizable from three meters away. */
+private val ROW_HEIGHT = 76.dp
 
-/** Ancho fijo del panel de búsqueda (teclado), igual criterio que la columna del teclado en TvSearchScreen. */
-private val ANCHO_BUSCADOR = 340.dp
+/** Fixed width of the search panel (keyboard), same criterion as the keyboard column in TvSearchScreen. */
+private val SEARCH_WIDTH = 340.dp
 
-/** Vistas locales que no vienen del gateway -- mismo patrón que `LiveScreen` (mobile). */
-private enum class TvVistaLocal { NINGUNA, RECIENTES }
+/** Local views that don't come from the gateway -- same pattern as `LiveScreen` (mobile). */
+private enum class TvLocalView { NONE, RECENT }
 
 /**
- * Pantalla de "En vivo" del televisor: encontrar un canal y ponerlo. Es una lista de canales
- * (chips de categoría + buscador + filas), no una guía de programación.
+ * The TV's "Live" screen: find a channel and put it on. It's a list of channels (category chips
+ * + search box + rows), not a programming guide.
  *
- * CAUSA RAÍZ del rediseño (verificada contra el portal real y contra el APK decompilado de Magis,
- * incluida la petición equivalente a la de la app oficial): `programList` viene SIEMPRE vacío --
- * la plataforma no sirve programación, solo agenda deportiva (que es otra cosa). La versión
- * anterior de esta pantalla era una guía canal×hora con el foco y el click puestos en los bloques
- * de programa (`TvBloquePrograma`); sin programación esos bloques nunca existían, así que no había
- * nada que enfocar ni nada que reproducir con OK, y las filas se veían todas iguales porque el
- * foco vivía en un elemento que nunca se pintaba. El dueño lo pidió explícito: "si no hay
- * programación no nos desgastemos en eso ni en el tv ni el celular". Acá se sacó timeline, cabecera
- * de horas, línea de "ahora" y el pedido de EPG por fila -- todo era, en la práctica, código muerto
- * (nunca tenía datos que mostrar). El celular NO se toca: su guía (`LiveGuideList.kt`) ya maneja
- * "sin programación" con un texto y sigue andando por su propio botón "Ver ahora", así que no
- * comparte el problema de foco/click de esta pantalla y no había nada que arreglarle ahí.
- * `currentProgram`/`progressOf` (`LiveGuideList.kt`) siguen usándose ahí sin cambios; `anchoDp`/`ventanaDe`
- * (los helpers del timeline, solo usados por ESTA pantalla) se borraron junto con sus tests.
+ * ROOT CAUSE of the redesign (verified against the real portal and against Magis's decompiled
+ * APK, including the request equivalent to the official app's): `programList` ALWAYS comes back
+ * empty -- the platform doesn't serve programming, only a sports schedule (which is a different
+ * thing). This screen's previous version was a channel×hour guide with focus and click placed on
+ * the program blocks (`TvBloquePrograma`); with no programming those blocks never existed, so
+ * there was nothing to focus and nothing to play with OK, and the rows all looked the same
+ * because focus lived on an element that never got painted. The owner asked for it explicitly:
+ * "if there's no programming let's not waste effort on it, not on the TV or the phone". The
+ * timeline, hour header, "now" line, and per-row EPG request were removed here -- all of it was,
+ * in practice, dead code (it never had data to show). The phone is NOT touched: its guide
+ * (`LiveGuideList.kt`) already handles "no programming" with a text and keeps working through its
+ * own "Ver ahora" button, so it doesn't share this screen's focus/click problem and there was
+ * nothing to fix there. `currentProgram`/`progressOf` (`LiveGuideList.kt`) are still used there
+ * unchanged; `anchoDp`/`ventanaDe` (the timeline's helpers, used only by THIS screen) were removed
+ * along with their tests.
  *
- * Foco con el mando -- las CUATRO direcciones quedan cubiertas por la navegación estándar de
- * Compose entre elementos `focusable`/`Surface`, sin escapes a mano (no hace falta: ya no hay
- * timelines horizontales de las que "escapar"):
- * - Arriba/Abajo: dentro del teclado (grilla), dentro de los chips (una sola fila, no se mueve) y
- *   entre chips ↔ primera fila de canal ↔ resto de filas del `LazyColumn` -- Compose busca el
- *   foco más cercano en esa dirección, y como todo está apilado verticalmente en una columna
- *   angosta el resultado es predecible.
- * - Izquierda/Derecha: entre el panel del teclado (columna fija a la izquierda) y el panel de
- *   chips+filas (a la derecha) -- mismo mecanismo de búsqueda 2D que ya usa `TvSearchScreen` para
- *   moverse entre su teclado y su grilla de resultados, sin código extra.
- * El foco inicial es el primer chip ("Favoritos"): entrar a la pantalla debe mostrar algo para
- * navegar de una, no arrancar parado en el teclado.
+ * Focus with the remote -- all FOUR directions are covered by Compose's standard navigation
+ * between `focusable`/`Surface` elements, with no manual escapes (not needed: there are no more
+ * horizontal timelines to "escape" from):
+ * - Up/Down: inside the keyboard (grid), inside the chips (a single row, doesn't move), and
+ *   between chips ↔ first channel row ↔ the rest of the `LazyColumn`'s rows -- Compose looks for
+ *   the closest focus in that direction, and since everything is stacked vertically in a narrow
+ *   column the result is predictable.
+ * - Left/Right: between the keyboard panel (fixed column on the left) and the chips+rows panel
+ *   (on the right) -- same 2D search mechanism `TvSearchScreen` already uses to move between its
+ *   keyboard and its results grid, with no extra code.
+ * The initial focus is the first chip ("Favoritos"): entering the screen must show something
+ * navigable right away, not start parked on the keyboard.
  *
- * Reproducir: la FILA es el elemento enfocable y clicable (no un sub-bloque adentro). Pulsar OK
- * sobre una fila llama a `onVerCanal` directo -- funciona haya o no programación, porque ya no
- * depende de que exista programación.
+ * Playing: the ROW is the focusable and clickable element (not a sub-block inside it). Pressing
+ * OK on a row calls `onWatchChannel` directly -- works whether there's programming or not,
+ * because it no longer depends on programming existing.
  *
- * Buscador: reusa `TvKeyboard` (mismo patrón visual y de foco que `TvSearchScreen`) y `filterChannels`
- * (`LiveViewModel.kt`, ya filtra por nombre sin tildes/mayúsculas y por número exacto -- la misma
- * función que usa la guía del celular). A diferencia de `TvSearchScreen` (que busca en TMDB por
- * red y por eso espera al botón "Buscar"), acá el filtro es sobre la lista de canales YA cargada
- * en memoria -- filtra en cada tecla, sin ida y vuelta de red que justifique un botón.
+ * Search: reuses `TvKeyboard` (same visual and focus pattern as `TvSearchScreen`) and
+ * `filterChannels` (`LiveViewModel.kt`, already filters by name without accents/case and by exact
+ * number -- the same function the phone's guide uses). Unlike `TvSearchScreen` (which searches
+ * TMDB over the network and so waits for the "Buscar" button), here the filter is over the
+ * ALREADY loaded in-memory channel list -- it filters on every key, with no network round trip to
+ * justify a button.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun TvLiveGuideScreen(onVerCanal: (LiveChannel) -> Unit, onVolver: () -> Unit) {
+fun TvLiveGuideScreen(onWatchChannel: (LiveChannel) -> Unit, onBack: () -> Unit) {
     val graph = rememberGraph()
     val vm: LiveViewModel = viewModel(
         factory = viewModelFactory {
@@ -130,48 +132,48 @@ fun TvLiveGuideScreen(onVerCanal: (LiveChannel) -> Unit, onVolver: () -> Unit) {
                 LiveViewModel(
                     graph.catalogoDeVivo, graph.database.liveFavoriteDao(),
                     graph.database.liveChannelCacheDao(),
-                    // Se lee en CADA carga, no una vez: destrabar 18+ desde Ajustes tiene
-                    // que verse al volver a entrar, sin reiniciar la app.
+                    // Read on EVERY load, not once: unlocking 18+ from Settings has to show up
+                    // on returning to the screen, without restarting the app.
                     adultsUnlocked = { graph.settings.adultosDesbloqueado.value },
                 )
             }
         },
     )
-    val estado by vm.state.collectAsStateWithLifecycle()
+    val state by vm.state.collectAsStateWithLifecycle()
 
-    var vista by remember { mutableStateOf(TvVistaLocal.NINGUNA) }
+    var view by remember { mutableStateOf(TvLocalView.NONE) }
 
-    BackHandler { onVolver() }
+    BackHandler { onBack() }
 
-    // Recientes: igual que LiveScreen (mobile) -- se lee directo de Room, sin numero/logo propios,
-    // enriquecido con lo que ya esté cargado en estado.channels si el canal aparece ahí.
+    // Recent: same as LiveScreen (mobile) -- read directly from Room, with no number/logo of its
+    // own, enriched with whatever's already loaded in state.channels if the channel shows up there.
     val recentDao = remember { graph.database.liveRecentDao() }
-    val recientesCrudo by recentDao.flowRecent().collectAsStateWithLifecycle(initialValue = emptyList())
-    val recientes = remember(recientesCrudo, estado.channels) {
-        recientesCrudo.map { r ->
-            estado.channels.find { it.code == r.code }?.copy(nombre = r.nombre)
+    val rawRecents by recentDao.flowRecent().collectAsStateWithLifecycle(initialValue = emptyList())
+    val recents = remember(rawRecents, state.channels) {
+        rawRecents.map { r ->
+            state.channels.find { it.code == r.code }?.copy(nombre = r.nombre)
                 ?: LiveChannel(r.code, r.nombre, 0, null)
         }
     }
 
-    val canalesBase = if (vista == TvVistaLocal.RECIENTES) recientes else estado.channels
+    val baseChannels = if (view == TvLocalView.RECENT) recents else state.channels
 
-    // El buscador filtra por encima de la categoría/vista activa, igual que LiveScreen (mobile):
-    // buscar no reemplaza la categoría elegida, la acota.
-    var busqueda by remember { mutableStateOf("") }
-    val canales = remember(canalesBase, busqueda) { filterChannels(canalesBase, busqueda) }
+    // Search filters on top of the active category/view, same as LiveScreen (mobile): searching
+    // doesn't replace the chosen category, it narrows it.
+    var search by remember { mutableStateOf("") }
+    val channels = remember(baseChannels, search) { filterChannels(baseChannels, search) }
 
-    // Ver el canal ahora: fija en LiveZappingSource la lista FILTRADA (con la que el usuario está
-    // mirando ahora mismo) ANTES de delegar a `onVerCanal` -- es la que el zapping del reproductor
-    // recorre. Mismo criterio que `LiveScreen.open` (mobile): si hay una búsqueda activa, el
-    // zapping recorre los resultados de la búsqueda, no la categoría entera.
-    fun verCanal(canal: LiveChannel) {
-        LiveZappingSource.list = canales
-        onVerCanal(canal)
+    // Watch the channel now: sets in LiveZappingSource the FILTERED list (the one the user is
+    // looking at right now) BEFORE delegating to `onWatchChannel` -- it's the one the player's
+    // zapping goes through. Same criterion as `LiveScreen.open` (mobile): if there's an active
+    // search, zapping goes through the search results, not the whole category.
+    fun watchChannel(channel: LiveChannel) {
+        LiveZappingSource.list = channels
+        onWatchChannel(channel)
     }
 
-    // Foco inicial de la pantalla: el primer chip ("Favoritos"), para que entrar a la pantalla
-    // muestre algo navegable de una en vez de arrancar parado en el teclado.
+    // Screen's initial focus: the first chip ("Favoritos"), so entering the screen shows
+    // something navigable right away instead of starting parked on the keyboard.
     val chipsFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         var landed = false
@@ -194,21 +196,21 @@ fun TvLiveGuideScreen(onVerCanal: (LiveChannel) -> Unit, onVolver: () -> Unit) {
         )
 
         Row(Modifier.fillMaxSize()) {
-            // --- Panel izquierdo: buscador (mismo patrón visual que TvSearchScreen). ---
-            Column(modifier = Modifier.fillMaxHeight().width(ANCHO_BUSCADOR).padding(end = 24.dp)) {
+            // --- Left panel: search box (same visual pattern as TvSearchScreen). ---
+            Column(modifier = Modifier.fillMaxHeight().width(SEARCH_WIDTH).padding(end = 24.dp)) {
                 Text(
-                    busqueda.ifBlank { "Buscar canal por nombre o número…" },
+                    search.ifBlank { "Buscar canal por nombre o número…" },
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (busqueda.isBlank()) ArkivTextSecondary else Color.White,
+                    color = if (search.isBlank()) ArkivTextSecondary else Color.White,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(bottom = 12.dp),
                 )
-                TvKeyboard(text = busqueda, onTextChange = { busqueda = it })
-                if (busqueda.isNotBlank()) {
+                TvKeyboard(text = search, onTextChange = { search = it })
+                if (search.isNotBlank()) {
                     Spacer(Modifier.height(12.dp))
                     Surface(
-                        onClick = { busqueda = "" },
+                        onClick = { search = "" },
                         modifier = Modifier.fillMaxWidth().height(48.dp),
                         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
                         colors = arkivTvSurfaceColors(),
@@ -221,35 +223,35 @@ fun TvLiveGuideScreen(onVerCanal: (LiveChannel) -> Unit, onVolver: () -> Unit) {
                 }
             }
 
-            // --- Panel derecho: chips de categoría + lista de canales. ---
+            // --- Right panel: category chips + channel list. ---
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 LazyRow(
                     contentPadding = PaddingValues(end = 24.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     item {
-                        TvCategoriaChip(
+                        TvCategoryChip(
                             label = "Favoritos",
                             icon = Icons.Default.Star,
-                            selected = vista == TvVistaLocal.NINGUNA && estado.activeCategory == CATEGORY_FAVORITES,
-                            onClick = { vista = TvVistaLocal.NINGUNA; vm.chooseCategory(CATEGORY_FAVORITES) },
+                            selected = view == TvLocalView.NONE && state.activeCategory == CATEGORY_FAVORITES,
+                            onClick = { view = TvLocalView.NONE; vm.chooseCategory(CATEGORY_FAVORITES) },
                             modifier = Modifier.focusRequester(chipsFocus),
                         )
                     }
                     item {
-                        TvCategoriaChip(
+                        TvCategoryChip(
                             label = "Recientes",
                             icon = Icons.Default.History,
-                            selected = vista == TvVistaLocal.RECIENTES,
-                            onClick = { vista = TvVistaLocal.RECIENTES },
+                            selected = view == TvLocalView.RECENT,
+                            onClick = { view = TvLocalView.RECENT },
                         )
                     }
-                    items(estado.categories, key = { it.id }) { cat ->
-                        TvCategoriaChip(
+                    items(state.categories, key = { it.id }) { cat ->
+                        TvCategoryChip(
                             label = cat.nombre,
                             icon = null,
-                            selected = vista == TvVistaLocal.NINGUNA && estado.activeCategory == cat.id,
-                            onClick = { vista = TvVistaLocal.NINGUNA; vm.chooseCategory(cat.id) },
+                            selected = view == TvLocalView.NONE && state.activeCategory == cat.id,
+                            onClick = { view = TvLocalView.NONE; vm.chooseCategory(cat.id) },
                         )
                     }
                 }
@@ -257,26 +259,26 @@ fun TvLiveGuideScreen(onVerCanal: (LiveChannel) -> Unit, onVolver: () -> Unit) {
                 Spacer(Modifier.height(16.dp))
 
                 when {
-                    vista == TvVistaLocal.RECIENTES && canalesBase.isEmpty() ->
-                        TvGuiaMensaje("Sin canales recientes", "Los canales que abras van a aparecer acá.")
-                    estado.error != null && estado.channels.isEmpty() ->
-                        TvGuiaMensaje(estado.error!!, "Presioná OK para reintentar.") { vm.chooseCategory(estado.activeCategory) }
-                    estado.loading && estado.channels.isEmpty() ->
-                        TvGuiaMensaje("Cargando canales…", null)
-                    busqueda.isNotBlank() && canales.isEmpty() ->
-                        TvGuiaMensaje("Sin resultados", "Probá con otro nombre o número de canal.")
-                    canalesBase.isEmpty() ->
-                        TvGuiaMensaje("Sin canales", "No encontramos canales en esta categoría.")
+                    view == TvLocalView.RECENT && baseChannels.isEmpty() ->
+                        TvGuideMessage("Sin canales recientes", "Los canales que abras van a aparecer acá.")
+                    state.error != null && state.channels.isEmpty() ->
+                        TvGuideMessage(state.error!!, "Presioná OK para reintentar.") { vm.chooseCategory(state.activeCategory) }
+                    state.loading && state.channels.isEmpty() ->
+                        TvGuideMessage("Cargando canales…", null)
+                    search.isNotBlank() && channels.isEmpty() ->
+                        TvGuideMessage("Sin resultados", "Probá con otro nombre o número de canal.")
+                    baseChannels.isEmpty() ->
+                        TvGuideMessage("Sin canales", "No encontramos canales en esta categoría.")
                     else -> LazyColumn(
                         modifier = Modifier.weight(1f).fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                         contentPadding = PaddingValues(end = 24.dp, bottom = 16.dp),
                     ) {
-                        items(canales, key = { it.code }) { canal ->
-                            TvCanalRow(
-                                canal = canal,
-                                onClick = { verCanal(canal) },
-                                modifier = Modifier.height(ALTO_FILA),
+                        items(channels, key = { it.code }) { channel ->
+                            TvChannelRow(
+                                channel = channel,
+                                onClick = { watchChannel(channel) },
+                                modifier = Modifier.height(ROW_HEIGHT),
                             )
                         }
                     }
@@ -287,16 +289,17 @@ fun TvLiveGuideScreen(onVerCanal: (LiveChannel) -> Unit, onVolver: () -> Unit) {
 }
 
 /**
- * Una fila de canal: el elemento enfocable y clicable de la pantalla (ya no un sub-bloque de
- * programa adentro de ella). Pulsar OK reproduce el canal directo, haya o no programación.
+ * A channel row: the screen's focusable and clickable element (no longer a program sub-block
+ * inside it). Pressing OK plays the channel directly, whether there's programming or not.
  *
- * `Surface` (tv-material3), no `Box` + `clickable` + `focusable` a mano como tenía el bloque de
- * programa anterior: es el mismo componente que ya usan `TvRefineRow`/`TvSeasonChip` para filas
- * navegables, y el foco (fondo rojo + borde blanco de 3dp) se ve con claridad a tres metros.
+ * `Surface` (tv-material3), not a `Box` + `clickable` + `focusable` by hand like the previous
+ * program block had: it's the same component `TvRefineRow`/`TvSeasonChip` already use for
+ * navigable rows, and the focus (red background + 3dp white border) reads clearly from three
+ * meters away.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun TvCanalRow(canal: LiveChannel, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun TvChannelRow(channel: LiveChannel, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Surface(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
@@ -315,23 +318,23 @@ private fun TvCanalRow(canal: LiveChannel, onClick: () -> Unit, modifier: Modifi
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            // Logo -- ya funciona (posterList[].fileUrl): es la forma más rápida de reconocer un
-            // canal de un vistazo. Si no hay logo, el número hace de reemplazo (mismo criterio que
-            // ChannelCard/GuideChannelRow, que ya resuelven este fallback).
+            // Logo -- already works (posterList[].fileUrl): it's the fastest way to recognize a
+            // channel at a glance. With no logo, the number acts as a stand-in (same criterion as
+            // ChannelCard/GuideChannelRow, which already handle this fallback).
             Box(
                 modifier = Modifier.size(52.dp).clip(RoundedCornerShape(8.dp)).background(ArkivSurfaceHigh),
                 contentAlignment = Alignment.Center,
             ) {
-                if (canal.logo != null) {
+                if (channel.logo != null) {
                     AsyncImage(
-                        model = canal.logo,
-                        contentDescription = canal.nombre,
+                        model = channel.logo,
+                        contentDescription = channel.nombre,
                         contentScale = ContentScale.Fit,
                         modifier = Modifier.fillMaxSize().padding(6.dp),
                     )
                 } else {
                     Text(
-                        canal.numero.toString(),
+                        channel.numero.toString(),
                         style = MaterialTheme.typography.titleMedium,
                         color = Color.White.copy(alpha = 0.6f),
                     )
@@ -339,16 +342,16 @@ private fun TvCanalRow(canal: LiveChannel, onClick: () -> Unit, modifier: Modifi
             }
             Column {
                 Text(
-                    canal.nombre,
+                    channel.nombre,
                     style = MaterialTheme.typography.titleMedium,
                     color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                // Número siempre visible, no solo como fallback del logo: es lo que el buscador
-                // matchea por número exacto, así que conviene verlo también cuando el logo sí está.
+                // Number always visible, not just as the logo's fallback: it's what the search
+                // box matches by exact number, so it's worth seeing even when the logo is there too.
                 Text(
-                    "Canal ${canal.numero}",
+                    "Canal ${channel.numero}",
                     style = MaterialTheme.typography.labelSmall,
                     color = ArkivTextSecondary,
                 )
@@ -357,24 +360,24 @@ private fun TvCanalRow(canal: LiveChannel, onClick: () -> Unit, modifier: Modifi
     }
 }
 
-/** Chip de categoría con el mismo tratamiento visual manual que `TvSourceChip` (TvEpisodeChip.kt). */
+/** Category chip with the same manual visual treatment as `TvSourceChip` (TvEpisodeChip.kt). */
 @Composable
-private fun TvCategoriaChip(
+private fun TvCategoryChip(
     label: String,
     icon: ImageVector?,
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var enfocado by remember { mutableStateOf(false) }
+    var focused by remember { mutableStateOf(false) }
     Row(
         modifier = modifier
-            .onFocusChanged { enfocado = it.isFocused }
+            .onFocusChanged { focused = it.isFocused }
             .clip(RoundedCornerShape(20.dp))
-            .background(if (selected) ArkivRed else if (enfocado) ArkivSurfaceHigh else ArkivSurface)
+            .background(if (selected) ArkivRed else if (focused) ArkivSurfaceHigh else ArkivSurface)
             .border(
-                width = if (enfocado) 2.dp else 0.dp,
-                color = if (enfocado) Color.White else Color.Transparent,
+                width = if (focused) 2.dp else 0.dp,
+                color = if (focused) Color.White else Color.Transparent,
                 shape = RoundedCornerShape(20.dp),
             )
             .clickable(onClick = onClick)
@@ -390,26 +393,26 @@ private fun TvCategoriaChip(
     }
 }
 
-/** Mensaje centrado simple, con reintentar opcional -- para "sin canales"/"cargando"/error/búsqueda vacía. */
+/** Simple centered message, with an optional retry -- for "no channels"/"loading"/error/empty search. */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun TvGuiaMensaje(titulo: String, subtitulo: String?, onReintentar: (() -> Unit)? = null) {
+private fun TvGuideMessage(title: String, subtitle: String?, onRetry: (() -> Unit)? = null) {
     Column(
         modifier = Modifier.fillMaxSize().padding(top = 48.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(titulo, style = MaterialTheme.typography.titleMedium, color = Color.White)
-        if (subtitulo != null) {
+        Text(title, style = MaterialTheme.typography.titleMedium, color = Color.White)
+        if (subtitle != null) {
             Text(
-                subtitulo,
+                subtitle,
                 style = MaterialTheme.typography.bodyMedium,
                 color = ArkivTextSecondary,
                 modifier = Modifier.padding(top = 8.dp),
             )
         }
-        if (onReintentar != null) {
+        if (onRetry != null) {
             Button(
-                onClick = onReintentar,
+                onClick = onRetry,
                 colors = arkivTvButtonColors(),
                 border = arkivTvButtonBorder(),
                 modifier = Modifier.padding(top = 16.dp),

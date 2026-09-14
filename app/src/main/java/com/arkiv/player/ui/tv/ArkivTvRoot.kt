@@ -233,13 +233,13 @@ fun ArkivTvRoot(
         composable("live") {
             TvLiveGuideScreen(
                 // Task 14: the player's live mode already exists (`enVivo` flag in
-                // PlayerViewModel/PlayerScreen). `TvLiveGuideScreen.verCanal()` already left in
-                // LiveZappingSource the list it was entered with -- here it only needs to
+                // PlayerViewModel/PlayerScreen). `TvLiveGuideScreen.watchChannel()` already left
+                // in LiveZappingSource the list it was entered with -- here it only needs to
                 // navigate with the prefix PlayerSource.kindFor() recognizes as live.
-                onVerCanal = { canal ->
+                onWatchChannel = { canal ->
                     goToPlayer("${com.arkiv.player.playback.PlayerSource.LIVE_PREFIX}${canal.code}")
                 },
-                onVolver = { navController.popBackStack() },
+                onBack = { navController.popBackStack() },
             )
         }
         composable("caracol") {
