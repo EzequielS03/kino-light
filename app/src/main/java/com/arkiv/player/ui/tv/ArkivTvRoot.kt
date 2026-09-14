@@ -187,7 +187,7 @@ fun ArkivTvRoot(
                 includeAdults = unlocked,
                 onPlay = { item ->
                     scope.launch {
-                        if (item.adulto) {
+                        if (item.adult) {
                             // Doesn't go through the library. `addMagisSource` would write a row
                             // that shows up right here on this device -- and, until cloud sync was
                             // removed with the rest of this branch's pruning, would also have
@@ -195,7 +195,7 @@ fun ArkivTvRoot(
                             // leak. The ref travels around it instead; see [MagisEphemeral].
                             val id = MagisEphemeral.idFor(item.id)
                             MagisEphemeral.leave(
-                                MagisEphemeral.Pending(id, item.ref, item.titulo, adulto = true),
+                                MagisEphemeral.Pending(id, item.ref, item.title, adulto = true),
                             )
                             goToPlayer(id)
                         } else {
@@ -204,7 +204,7 @@ fun ArkivTvRoot(
                             val epId = graph.repository.addMagisSource(
                                 ref = item.ref,
                                 contentId = item.id,
-                                title = item.titulo,
+                                title = item.title,
                                 posterUrl = item.poster.orEmpty(),
                             )
                             if (epId != null) goToPlayer(epId)

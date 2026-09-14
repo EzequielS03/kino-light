@@ -14,12 +14,12 @@ class LiveGuideListTest {
 
     @Test
     fun `the current program is the one containing the instant`() {
-        assertEquals("Ahora", currentProgram(progs, 250)?.titulo)
+        assertEquals("Ahora", currentProgram(progs, 250)?.title)
     }
 
     @Test
     fun `the end boundary already belongs to the next one`() {
-        assertEquals("Después", currentProgram(progs, 300)?.titulo)
+        assertEquals("Después", currentProgram(progs, 300)?.title)
     }
 
     @Test

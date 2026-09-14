@@ -8,8 +8,8 @@ import org.junit.Test
 
 class CountryChannelsTest {
 
-    private fun channel(code: String, nombre: String = code) =
-        LiveChannel(code = code, nombre = nombre, numero = 0, logo = null)
+    private fun channel(code: String, name: String = code) =
+        LiveChannel(code = code, name = name, number = 0, logo = null)
 
     // --- country detection ---
 
@@ -81,7 +81,7 @@ class CountryChannelsTest {
         assertEquals(listOf("caracol", "rcn", "citytv", "win"), row.map { it.code })
         assertEquals(1, row.count { it.code == "caracol" })
         // And the recents' version wins, with the name it was seen under.
-        assertEquals("Caracol", row.first { it.code == "caracol" }.nombre)
+        assertEquals("Caracol", row.first { it.code == "caracol" }.name)
     }
 
     @Test

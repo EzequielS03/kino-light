@@ -4,8 +4,8 @@ import com.arkiv.player.data.gateway.LiveCatalogGateway
 import com.arkiv.player.data.gateway.LiveCategory
 import com.arkiv.player.data.gateway.LiveChannel
 import com.arkiv.player.data.gateway.LiveProgram
-import com.arkiv.player.data.gateway.ItemDeCatalogo
-import com.arkiv.player.data.gateway.SeccionDeCatalogo
+import com.arkiv.player.data.gateway.CatalogItem
+import com.arkiv.player.data.gateway.CatalogSection
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
@@ -33,19 +33,15 @@ internal class MagisLiveCatalog(
     private var categoriesCache: List<PortalCategory> = emptyList()
     private var categoriesExpireAt = 0L
     private val channelsCache = mutableMapOf<Int, Pair<Long, List<LiveChannel>>>()
-    private val trees = ExpiringCache<String, List<SeccionDeCatalogo>>(TTL_MS, cap = 8)
+    private val trees = ExpiringCache<String, List<CatalogSection>>(TTL_MS, cap = 8)
 
     /** A category as the portal understands it, with the adult flag it doesn't carry. */
     private data class PortalCategory(val id: Int, val name: String, val isAdult: Boolean)
 
-    // NOTE: `incluirAdultos`/`categoria` keep their Spanish names here because they're overrides of
-    // `LiveCatalogGateway`'s own parameter names (data/gateway/, not yet translated) — several call
-    // sites (`ArkivTvRoot.kt`, `LiveViewModel.kt`, this file's own tests) use them as named
-    // arguments through that interface type, so diverging here would break them.
-    override suspend fun categorias(incluirAdultos: Boolean): List<LiveCategory> =
+    override suspend fun categories(includeAdults: Boolean): List<LiveCategory> =
         allCategories()
-            .filter { incluirAdultos || !it.isAdult }
-            .map { LiveCategory(id = it.id, nombre = it.name) }
+            .filter { includeAdults || !it.isAdult }
+            .map { LiveCategory(id = it.id, name = it.name) }
 
     /**
      * ALL of the category's channels, not the first page. Measured against the portal on
@@ -53,15 +49,15 @@ internal class MagisLiveCatalog(
      * repeated code — 1040 real channels. Asking for a single one, the guide, the drawer and
      * zapping worked with 48% of the catalog and search couldn't find what never loaded.
      */
-    override suspend fun canales(categoria: Int): List<LiveChannel> {
+    override suspend fun channels(category: Int): List<LiveChannel> {
         lock.withLock {
-            channelsCache[categoria]?.takeIf { nowMs() < it.first }?.let { return it.second }
+            channelsCache[category]?.takeIf { nowMs() < it.first }?.let { return it.second }
         }
-        val isAdult = allCategories().any { it.id == categoria && it.isAdult }
+        val isAdult = allCategories().any { it.id == category && it.isAdult }
         val all = mutableListOf<LiveChannel>()
         val seen = mutableSetOf<String>()
         for (page in 1..MAX_PAGES) {
-            val batch = onePage(categoria, page, isAdult) ?: break
+            val batch = onePage(category, page, isAdult) ?: break
             val new = batch.filter { seen.add(it.code) }
             all.addAll(new)
             // An incomplete page is the last one. Without this cutoff it would keep asking up to
@@ -69,7 +65,7 @@ internal class MagisLiveCatalog(
             if (batch.size < PAGE_SIZE || new.isEmpty()) break
         }
         if (all.isNotEmpty()) {
-            lock.withLock { channelsCache[categoria] = (nowMs() + TTL_MS) to all }
+            lock.withLock { channelsCache[category] = (nowMs() + TTL_MS) to all }
         }
         return all
     }
@@ -89,7 +85,7 @@ internal class MagisLiveCatalog(
      * The roots' codes were found by trying them against the portal: the "obvious" ones
      * (`masnew_vod`, `masnew_movie`, `masnew_home`, `masnew`) get rejected.
      */
-    suspend fun tree(root: String, includeAdults: Boolean = false): List<SeccionDeCatalogo> {
+    suspend fun tree(root: String, includeAdults: Boolean = false): List<CatalogSection> {
         val code = ROOTS[root] ?: throw IllegalArgumentException("no such root: $root")
         val isAdultRoot = root in ADULT_ROOTS
         // Same as the channels' 18+ category: the default has to be the safe one, so no path that
@@ -100,35 +96,35 @@ internal class MagisLiveCatalog(
         val r = catalog.nextColumns(code, pageSize = 60)
         val columns = r.getOrNull()?.optJSONArray("recommendList") ?: return emptyList()
 
-        val sections = mutableListOf<SeccionDeCatalogo>()
+        val sections = mutableListOf<CatalogSection>()
         columns.forEachObject { c ->
             val name = c.optString("name").takeIf { it.isNotBlank() } ?: return@forEachObject
-            val items = mutableListOf<ItemDeCatalogo>()
+            val items = mutableListOf<CatalogItem>()
             c.optJSONArray("assetList")?.forEachObject { a ->
                 val id = a.optString("contentId").takeIf { it.isNotBlank() } ?: return@forEachObject
                 val type = a.optString("programType").ifBlank { "movie" }
                 items.add(
-                    ItemDeCatalogo(
+                    CatalogItem(
                         id = id,
-                        titulo = a.optString("name"),
+                        title = a.optString("name"),
                         poster = logoFrom(a),
-                        duracionS = a.opt("duration")?.toString()?.toIntOrNull() ?: 0,
+                        durationS = a.opt("duration")?.toString()?.toIntOrNull() ?: 0,
                         // Marked ITEM BY ITEM and not only on the section: the item travels alone
                         // up to the player, and there the "this doesn't get logged in history"
                         // rule has to be applicable without knowing which section it came from.
-                        adulto = isAdultRoot,
+                        adult = isAdultRoot,
                         // This used to be signed by the gateway and expire at 24h; now it's a
                         // local descriptor, so the section is always usable for playback.
                         ref = MagisRef(id, type, 0).encode(),
-                        tipo = type,
+                        type = type,
                     ),
                 )
             }
             sections.add(
-                SeccionDeCatalogo(
+                CatalogSection(
                     id = c.opt("columnId")?.toString()?.toIntOrNull() ?: 0,
-                    nombre = name,
-                    adulto = isAdultRoot,
+                    name = name,
+                    adult = isAdultRoot,
                     items = items,
                 ),
             )
@@ -189,13 +185,13 @@ internal class MagisLiveCatalog(
             output.add(
                 LiveChannel(
                     code = code,
-                    nombre = c.optString("name"),
-                    numero = c.opt("channelNumber")?.toString()?.toIntOrNull() ?: 0,
+                    name = c.optString("name"),
+                    number = c.opt("channelNumber")?.toString()?.toIntOrNull() ?: 0,
                     logo = logoFrom(c),
                     // Marked on the CHANNEL and not only on the category: the channel travels
                     // alone up to the player (zapping, deep link, recents) and there's no category
                     // at hand there anymore.
-                    adulto = isAdult,
+                    adult = isAdult,
                 ),
             )
         }

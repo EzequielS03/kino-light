@@ -34,7 +34,7 @@ class RecentLiveChannelsTest {
             ),
         )
         val channel = recentChannelsForHome(recent, cache).single()
-        assertEquals(5, channel.numero)
+        assertEquals(5, channel.number)
         assertEquals("https://logo/a.png", channel.logo)
     }
 
@@ -42,7 +42,7 @@ class RecentLiveChannelsTest {
     fun `a channel missing from the cache falls back to number 0 and logo null, doesn't break`() {
         val recent = listOf(LiveRecentEntity(code = "a", nombre = "Canal A", vistoAt = 100))
         val channel = recentChannelsForHome(recent, emptyMap()).single()
-        assertEquals(0, channel.numero)
+        assertEquals(0, channel.number)
         assertNull(channel.logo)
     }
 
@@ -56,6 +56,6 @@ class RecentLiveChannelsTest {
             ),
         )
         val channel = recentChannelsForHome(recent, cache).single()
-        assertEquals("Nombre actual", channel.nombre)
+        assertEquals("Nombre actual", channel.name)
     }
 }

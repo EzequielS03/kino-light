@@ -61,13 +61,13 @@ import java.time.format.DateTimeFormatter
  * (TV timeline) to highlight the current cell.
  */
 fun currentProgram(progs: List<LiveProgram>, now: Long): LiveProgram? =
-    progs.firstOrNull { now >= it.inicio && now < it.fin }
+    progs.firstOrNull { now >= it.start && now < it.end }
 
 /** How far along a program is, from 0 to 1. Also used by Task 13. */
 fun progressOf(p: LiveProgram, now: Long): Float {
-    val total = (p.fin - p.inicio).toFloat()
+    val total = (p.end - p.start).toFloat()
     if (total <= 0f) return 0f
-    return ((now - p.inicio).toFloat() / total).coerceIn(0f, 1f)
+    return ((now - p.start).toFloat() / total).coerceIn(0f, 1f)
 }
 
 private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
@@ -161,12 +161,12 @@ private fun GuideChannelRow(
                 if (channel.logo != null) {
                     AsyncImage(
                         model = channel.logo,
-                        contentDescription = channel.nombre,
+                        contentDescription = channel.name,
                         modifier = Modifier.fillMaxSize().padding(6.dp),
                     )
                 } else {
                     Text(
-                        text = channel.numero.toString(),
+                        text = channel.number.toString(),
                         style = MaterialTheme.typography.titleMedium,
                         color = Color.White.copy(alpha = 0.6f),
                     )
@@ -174,7 +174,7 @@ private fun GuideChannelRow(
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = channel.nombre,
+                    text = channel.name,
                     style = MaterialTheme.typography.bodyLarge,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -183,7 +183,7 @@ private fun GuideChannelRow(
                 // never like an empty hole or an error -- see the brief.
                 Text(
                     text = when {
-                        current != null -> current.titulo
+                        current != null -> current.title
                         programs != null -> "Sin programación por ahora"
                         else -> "Cargando programación…"
                     },
@@ -241,13 +241,13 @@ private fun GuideProgramRow(p: LiveProgram, isCurrent: Boolean) {
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
-            text = timeOf(p.inicio),
+            text = timeOf(p.start),
             style = MaterialTheme.typography.bodySmall,
             color = if (isCurrent) ArkivRed else ArkivTextSecondary,
             modifier = Modifier.width(44.dp),
         )
         Text(
-            text = p.titulo,
+            text = p.title,
             style = MaterialTheme.typography.bodyMedium,
             color = if (isCurrent) ArkivRed else MaterialTheme.colorScheme.onSurface,
             fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,

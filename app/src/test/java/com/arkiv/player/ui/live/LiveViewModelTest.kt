@@ -52,19 +52,19 @@ class LiveViewModelTest {
 
     @Test
     fun `progress is zero right when the program starts`() {
-        val p = LiveProgram("Noticias", inicio = 1000L, fin = 2000L, sinopsis = "")
+        val p = LiveProgram("Noticias", start = 1000L, end = 2000L, synopsis = "")
         assertEquals(0f, programProgress(p, nowSeconds = 1000L))
     }
 
     @Test
     fun `progress is half at the halfway point`() {
-        val p = LiveProgram("Noticias", inicio = 1000L, fin = 2000L, sinopsis = "")
+        val p = LiveProgram("Noticias", start = 1000L, end = 2000L, synopsis = "")
         assertEquals(0.5f, programProgress(p, nowSeconds = 1500L))
     }
 
     @Test
     fun `progress doesn't go past one even if the program already ended`() {
-        val p = LiveProgram("Noticias", inicio = 1000L, fin = 2000L, sinopsis = "")
+        val p = LiveProgram("Noticias", start = 1000L, end = 2000L, synopsis = "")
         assertEquals(1f, programProgress(p, nowSeconds = 5000L))
     }
 
@@ -72,7 +72,7 @@ class LiveViewModelTest {
     fun `progress doesn't go below zero with inconsistent duration data`() {
         // end <= start shouldn't happen in practice, but if the portal sends something odd,
         // the bar must not break or show a negative number or NaN.
-        val p = LiveProgram("Raro", inicio = 2000L, fin = 2000L, sinopsis = "")
+        val p = LiveProgram("Raro", start = 2000L, end = 2000L, synopsis = "")
         assertEquals(0f, programProgress(p, nowSeconds = 2000L))
     }
 }
@@ -89,12 +89,12 @@ class LiveViewModelTest {
 // LiveFavoriteDao/LiveChannelCacheDao were already interfaces and get implemented the same way,
 // with in-memory storage.
 private class FakeLiveApi : LiveCatalogGateway {
-    var categoriasResult: List<LiveCategory> = emptyList()
-    val canalesPorCategoria = mutableMapOf<Int, List<LiveChannel>>()
+    var categoriesResult: List<LiveCategory> = emptyList()
+    val channelsByCategory = mutableMapOf<Int, List<LiveChannel>>()
 
-    /** Category -> gate that holds canales(categoria) until the test completes it by hand. */
+    /** Category -> gate that holds channels(category) until the test completes it by hand. */
     val gates = mutableMapOf<Int, CompletableDeferred<Unit>>()
-    val canalesCalls = mutableListOf<Int>()
+    val channelsCalls = mutableListOf<Int>()
     val epgCalls = mutableListOf<List<String>>()
 
     /**
@@ -105,12 +105,12 @@ private class FakeLiveApi : LiveCatalogGateway {
     var epgResponder: (List<String>) -> Pair<Map<String, List<LiveProgram>>, List<String>> =
         { emptyMap<String, List<LiveProgram>>() to emptyList() }
 
-    override suspend fun categorias(incluirAdultos: Boolean): List<LiveCategory> = categoriasResult
+    override suspend fun categories(includeAdults: Boolean): List<LiveCategory> = categoriesResult
 
-    override suspend fun canales(categoria: Int): List<LiveChannel> {
-        canalesCalls.add(categoria)
-        gates[categoria]?.await()
-        return canalesPorCategoria[categoria].orEmpty()
+    override suspend fun channels(category: Int): List<LiveChannel> {
+        channelsCalls.add(category)
+        gates[category]?.await()
+        return channelsByCategory[category].orEmpty()
     }
 
     override suspend fun epg(codes: List<String>): Pair<Map<String, List<LiveProgram>>, List<String>> {
@@ -136,8 +136,8 @@ private class FakeCacheDao : LiveChannelCacheDao {
     private val store = mutableMapOf<Int, List<LiveChannelCacheEntity>>()
 
     /** Direct test setup, without going through save()/replace(). */
-    fun preload(categoria: Int, filas: List<LiveChannelCacheEntity>) {
-        store[categoria] = filas
+    fun preload(category: Int, filas: List<LiveChannelCacheEntity>) {
+        store[category] = filas
     }
 
     override suspend fun byCategory(category: Int): List<LiveChannelCacheEntity> = store[category].orEmpty()
@@ -173,9 +173,9 @@ class LiveViewModelAsyncTest {
     @Test
     fun `an old response doesn't overwrite the newer active category`() = runTest(dispatcher) {
         val api = FakeLiveApi()
-        api.canalesPorCategoria[1] = listOf(LiveChannel("a1", "Canal A", 1, null))
-        api.canalesPorCategoria[2] = listOf(LiveChannel("b1", "Canal B", 2, null))
-        // Category 1 (A) is left waiting on this gate INSIDE canales(1) -- simulates the gateway
+        api.channelsByCategory[1] = listOf(LiveChannel("a1", "Canal A", 1, null))
+        api.channelsByCategory[2] = listOf(LiveChannel("b1", "Canal B", 2, null))
+        // Category 1 (A) is left waiting on this gate INSIDE channels(1) -- simulates the gateway
         // taking a while to respond to the first category the user tapped.
         val gateA = CompletableDeferred<Unit>()
         api.gates[1] = gateA
@@ -204,18 +204,18 @@ class LiveViewModelAsyncTest {
     @Test
     fun `doesn't duplicate the EPG request between the painted cache and the fresh response`() = runTest(dispatcher) {
         val api = FakeLiveApi()
-        val categoria = 5
-        api.canalesPorCategoria[categoria] = listOf(LiveChannel("c1", "Canal 1", 1, null))
+        val category = 5
+        api.channelsByCategory[category] = listOf(LiveChannel("c1", "Canal 1", 1, null))
         val cacheDao = FakeCacheDao().apply {
             // "c1" is already in the cache AND in the fresh response -- exactly the case that
             // duplicated the EPG request before the fix (same channel, two different load steps).
-            preload(categoria, listOf(LiveChannelCacheEntity("c1", categoria, "Canal 1", 1, null, 0L)))
+            preload(category, listOf(LiveChannelCacheEntity("c1", category, "Canal 1", 1, null, 0L)))
         }
 
         val vm = LiveViewModel(api, FakeFavoriteDao(), cacheDao)
         advanceUntilIdle() // init: CATEGORY_ALL, no cache or channels -> doesn't request EPG, doesn't pollute the count
 
-        vm.chooseCategory(categoria)
+        vm.chooseCategory(category)
         advanceUntilIdle()
 
         assertEquals(1, api.epgCalls.size)
@@ -230,8 +230,8 @@ class LiveViewModelAsyncTest {
     @Test
     fun `the EPG that came back in missing is retried once after 10s`() = runTest(dispatcher) {
         val api = FakeLiveApi()
-        val categoria = 7
-        api.canalesPorCategoria[categoria] = listOf(LiveChannel("c1", "Canal 1", 1, null))
+        val category = 7
+        api.channelsByCategory[category] = listOf(LiveChannel("c1", "Canal 1", 1, null))
         var call = 0
         api.epgResponder = { codes ->
             call++
@@ -241,7 +241,7 @@ class LiveViewModelAsyncTest {
 
         val vm = LiveViewModel(api, FakeFavoriteDao(), FakeCacheDao())
         advanceUntilIdle()
-        vm.chooseCategory(categoria)
+        vm.chooseCategory(category)
         // runCurrent(), not advanceUntilIdle(): the latter does NOT stop at the retry's 10s
         // delay() -it advances the virtual clock until draining EVERYTHING scheduled, sleeping
         // coroutines included-, so it would already have fired the retry before this check.
@@ -255,19 +255,19 @@ class LiveViewModelAsyncTest {
         runCurrent()
 
         assertEquals("the retry bounded to ~10s", 2, api.epgCalls.size)
-        assertEquals(listOf("Partido"), vm.state.value.programming["c1"]?.map { it.titulo })
+        assertEquals(listOf("Partido"), vm.state.value.programming["c1"]?.map { it.title })
     }
 
     @Test
     fun `if the retry also comes back missing a third request isn't chained`() = runTest(dispatcher) {
         val api = FakeLiveApi()
-        val categoria = 8
-        api.canalesPorCategoria[categoria] = listOf(LiveChannel("c1", "Canal 1", 1, null))
+        val category = 8
+        api.channelsByCategory[category] = listOf(LiveChannel("c1", "Canal 1", 1, null))
         api.epgResponder = { codes -> emptyMap<String, List<LiveProgram>>() to codes }  // never has it
 
         val vm = LiveViewModel(api, FakeFavoriteDao(), FakeCacheDao())
         advanceUntilIdle()
-        vm.chooseCategory(categoria)
+        vm.chooseCategory(category)
         runCurrent()
         assertEquals(1, api.epgCalls.size)
 
@@ -287,13 +287,13 @@ class LiveViewModelAsyncTest {
     @Test
     fun `the retry doesn't fight the duplicate-request guard`() = runTest(dispatcher) {
         val api = FakeLiveApi()
-        val categoria = 9
-        api.canalesPorCategoria[categoria] = listOf(LiveChannel("c1", "Canal 1", 1, null))
+        val category = 9
+        api.channelsByCategory[category] = listOf(LiveChannel("c1", "Canal 1", 1, null))
         api.epgResponder = { codes -> emptyMap<String, List<LiveProgram>>() to codes }
 
         val vm = LiveViewModel(api, FakeFavoriteDao(), FakeCacheDao())
         advanceUntilIdle()
-        vm.chooseCategory(categoria)
+        vm.chooseCategory(category)
         runCurrent()
         assertEquals(1, api.epgCalls.size)
 
@@ -303,7 +303,7 @@ class LiveViewModelAsyncTest {
         vm.requestEpg(listOf("c1"))
         runCurrent()
         assertEquals(2, api.epgCalls.size)
-        assertEquals(listOf("Ya llego"), vm.state.value.programming["c1"]?.map { it.titulo })
+        assertEquals(listOf("Ya llego"), vm.state.value.programming["c1"]?.map { it.title })
 
         // The retry scheduled by the original load fires anyway, but since "c1" is already in
         // `programming`, requestEpg() discards it on its own -without fighting epgInFlight or

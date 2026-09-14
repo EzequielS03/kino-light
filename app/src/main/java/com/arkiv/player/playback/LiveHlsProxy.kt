@@ -1,6 +1,6 @@
 package com.arkiv.player.playback
 
-import com.arkiv.player.data.gateway.CdnDeCanal
+import com.arkiv.player.data.gateway.ChannelCdn
 import com.arkiv.player.data.gateway.LiveSession
 import kotlinx.coroutines.runBlocking
 import java.net.HttpURLConnection
@@ -65,7 +65,7 @@ class LiveHlsProxy(
      * they point at the host that served it, and signing them with another CDN's `authBase` would
      * be the same crossed pair -one's token, another's host- that the CDN rejects with 401.
      */
-    @Volatile private var activeCdn: CdnDeCanal? = null
+    @Volatile private var activeCdn: ChannelCdn? = null
 
     /**
      * Segment names of the last playlist served, in order. Exists ONLY for the log.
@@ -85,10 +85,10 @@ class LiveHlsProxy(
         return if (i >= 0) "${i + 1}/${list.size}" else "?/${list.size}"
     }
 
-    private fun cdnFor(s: LiveSession): CdnDeCanal =
-        activeCdn ?: s.cdns.firstOrNull() ?: CdnDeCanal(s.cflHost, s.authBase)
+    private fun cdnFor(s: LiveSession): ChannelCdn =
+        activeCdn ?: s.cdns.firstOrNull() ?: ChannelCdn(s.cflHost, s.authBase)
 
-    private suspend fun contentAuth(s: LiveSession, cdn: CdnDeCanal = cdnFor(s)): String {
+    private suspend fun contentAuth(s: LiveSession, cdn: ChannelCdn = cdnFor(s)): String {
         val f = signatures.sign(cdn.token)
         return "${cdn.authBase}&sign2_method=sign_o3&instance=0" +
             "&start_moment=${f.moment}&sign2=${f.sign2}"
@@ -259,7 +259,7 @@ class LiveHlsProxy(
      * HALF the real rejections it should take to see (finding F1 from the final review).
      * [notified] avoids that.
      */
-    private fun requestFromOrigin(url: String, s: LiveSession, cdn: CdnDeCanal = cdnFor(s)): HttpURLConnection? {
+    private fun requestFromOrigin(url: String, s: LiveSession, cdn: ChannelCdn = cdnFor(s)): HttpURLConnection? {
         var notified = false
         // The WHAT of the log: we don't know anything about this CDN yet (the VOD one takes
         // between 0.2s and 20s per range, measured; the live one was never measured). Without the
@@ -385,7 +385,7 @@ class LiveHlsProxy(
         // segments had-.
         val inOrder = (listOfNotNull(activeCdn) + s.cdns).distinctBy { it.cflHost }
         var c: java.net.HttpURLConnection? = null
-        var chosen: CdnDeCanal? = null
+        var chosen: ChannelCdn? = null
         var anyAnswered = false
         var lastCode = -1
         loop@ for (round in 0 until PLAYLIST_ATTEMPTS) {
@@ -559,7 +559,7 @@ class LiveHlsProxy(
      * without this `runCatching` takes the whole response down with it and the player sees the
      * connection cut.
      */
-    private fun requestOk(url: String, s: LiveSession, cdn: CdnDeCanal = cdnFor(s)): HttpURLConnection? {
+    private fun requestOk(url: String, s: LiveSession, cdn: ChannelCdn = cdnFor(s)): HttpURLConnection? {
         val c = runCatching { requestFromOrigin(url, s, cdn) }.getOrNull() ?: return null
         if (runCatching { c.responseCode }.getOrDefault(-1) == 200) return c
         runCatching { c.disconnect() }

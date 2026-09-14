@@ -551,7 +551,7 @@ private fun LiveChannelCard(channel: LiveChannel, width: Dp = 140.dp, onClick: (
             if (channel.logo != null) {
                 AsyncImage(
                     model = channel.logo,
-                    contentDescription = channel.nombre,
+                    contentDescription = channel.name,
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize().padding(10.dp),
                 )
@@ -563,7 +563,7 @@ private fun LiveChannelCard(channel: LiveChannel, width: Dp = 140.dp, onClick: (
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = if (channel.numero > 0) channel.numero.toString() else channel.nombre.take(2).uppercase(),
+                        text = if (channel.number > 0) channel.number.toString() else channel.name.take(2).uppercase(),
                         style = MaterialTheme.typography.headlineMedium,
                         color = Color.White.copy(alpha = 0.6f),
                     )
@@ -571,7 +571,7 @@ private fun LiveChannelCard(channel: LiveChannel, width: Dp = 140.dp, onClick: (
             }
         }
         Text(
-            text = channel.nombre,
+            text = channel.name,
             style = MaterialTheme.typography.bodyMedium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,

@@ -1,7 +1,7 @@
 package com.arkiv.player.data.magis
 
 import com.arkiv.player.BuildConfig
-import com.arkiv.player.data.gateway.CdnDeCanal
+import com.arkiv.player.data.gateway.ChannelCdn
 import com.arkiv.player.data.gateway.LiveSession
 import org.json.JSONObject
 
@@ -144,15 +144,15 @@ internal class MagisLive(
      * another host in the SAME response. Each with ITS OWN `authBase`, because the token travels
      * inside that url and signing with one against another's host is the same failure mode.
      */
-    private fun liveCdns(slb: JSONObject): List<CdnDeCanal> {
-        val output = mutableListOf<CdnDeCanal>()
+    private fun liveCdns(slb: JSONObject): List<ChannelCdn> {
+        val output = mutableListOf<ChannelCdn>()
         slb.optJSONArray("cdn_list")?.forEachObject { cdn ->
             if (cdn.optString("tag") != "live") return@forEachObject
             cdn.optJSONArray("url_list")?.forEachObject { u ->
                 val url = u.optString("url")
                 if (!isCfl(url) && u.optString("sign_type") != "cfl") return@forEachObject
                 val host = bareHost(cdn.optString("main_addr"))
-                if (host.isNotBlank()) output.add(CdnDeCanal(cflHost = host, authBase = url))
+                if (host.isNotBlank()) output.add(ChannelCdn(cflHost = host, authBase = url))
             }
         }
         return output

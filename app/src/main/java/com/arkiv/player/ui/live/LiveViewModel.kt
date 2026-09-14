@@ -36,7 +36,7 @@ fun filterChannels(channels: List<LiveChannel>, text: String): List<LiveChannel>
     val q = text.trim()
     if (q.isEmpty()) return channels
     val normalized = q.normalized()
-    return channels.filter { it.nombre.normalized().contains(normalized) || it.numero.toString() == q }
+    return channels.filter { it.name.normalized().contains(normalized) || it.number.toString() == q }
 }
 
 /**
@@ -45,9 +45,9 @@ fun filterChannels(channels: List<LiveChannel>, text: String): List<LiveChannel>
  * denominator paints a negative/NaN width instead of simply not advancing.
  */
 fun programProgress(p: LiveProgram, nowSeconds: Long = System.currentTimeMillis() / 1000): Float {
-    val total = (p.fin - p.inicio).toFloat()
+    val total = (p.end - p.start).toFloat()
     if (total <= 0f) return 0f
-    return ((nowSeconds - p.inicio).toFloat() / total).coerceIn(0f, 1f)
+    return ((nowSeconds - p.start).toFloat() / total).coerceIn(0f, 1f)
 }
 
 data class LiveUiState(
@@ -174,14 +174,14 @@ class LiveViewModel(
 
             runCatching {
                 if (_state.value.categories.isEmpty()) {
-                    val cats = api.categorias(incluirAdultos = adultsUnlocked())
+                    val cats = api.categories(includeAdults = adultsUnlocked())
                     _state.update { it.copy(categories = cats) }
                 }
-                api.canales(category)
+                api.channels(category)
             }.onSuccess { fresh ->
                 val nowMs = System.currentTimeMillis()
                 cacheDao.replace(category, fresh.map {
-                    LiveChannelCacheEntity(it.code, category, it.nombre, it.numero, it.logo, nowMs)
+                    LiveChannelCacheEntity(it.code, category, it.name, it.number, it.logo, nowMs)
                 })
                 if (_state.value.activeCategory == category) {
                     _state.update { it.copy(channels = fresh, loading = false, error = null) }
@@ -238,7 +238,7 @@ class LiveViewModel(
                     stillMissing = notFound
                     val now = System.currentTimeMillis() / 1000
                     val current = programsByChannel.mapValues { (_, progs) ->
-                        progs.firstOrNull { p -> now >= p.inicio && now < p.fin }
+                        progs.firstOrNull { p -> now >= p.start && now < p.end }
                     }
                     _state.update {
                         it.copy(programming = it.programming + programsByChannel, current = it.current + current)
@@ -260,7 +260,7 @@ class LiveViewModel(
     fun toggleFavorite(c: LiveChannel) {
         viewModelScope.launch {
             if (c.code in _state.value.favorites) favoriteDao.delete(c.code)
-            else favoriteDao.save(LiveFavoriteEntity(c.code, c.nombre, c.numero, c.logo))
+            else favoriteDao.save(LiveFavoriteEntity(c.code, c.name, c.number, c.logo))
         }
     }
 }

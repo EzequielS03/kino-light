@@ -613,8 +613,8 @@ private fun PlayerContent(
     // nothing to have it also set here on the phone). Without this the remote miniplayer's bar, on
     // sending a channel to the TV, stays blank: "live:<code>" isn't a library episodeId, so
     // ArkivRepository.headerInfo() has no title to return.
-    LaunchedEffect(liveChannel?.nombre) {
-        com.arkiv.player.playback.NowPlaying.liveChannelName = liveChannel?.nombre
+    LaunchedEffect(liveChannel?.name) {
+        com.arkiv.player.playback.NowPlaying.liveChannelName = liveChannel?.name
     }
 
     // ExoPlayer (Magis): NowPlaying isn't updated by onMediaItemTransition.

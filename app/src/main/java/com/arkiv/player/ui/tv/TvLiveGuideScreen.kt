@@ -151,7 +151,7 @@ fun TvLiveGuideScreen(onWatchChannel: (LiveChannel) -> Unit, onBack: () -> Unit)
     val rawRecents by recentDao.flowRecent().collectAsStateWithLifecycle(initialValue = emptyList())
     val recents = remember(rawRecents, state.channels) {
         rawRecents.map { r ->
-            state.channels.find { it.code == r.code }?.copy(nombre = r.nombre)
+            state.channels.find { it.code == r.code }?.copy(name = r.nombre)
                 ?: LiveChannel(r.code, r.nombre, 0, null)
         }
     }
@@ -248,7 +248,7 @@ fun TvLiveGuideScreen(onWatchChannel: (LiveChannel) -> Unit, onBack: () -> Unit)
                     }
                     items(state.categories, key = { it.id }) { cat ->
                         TvCategoryChip(
-                            label = cat.nombre,
+                            label = cat.name,
                             icon = null,
                             selected = view == TvLocalView.NONE && state.activeCategory == cat.id,
                             onClick = { view = TvLocalView.NONE; vm.chooseCategory(cat.id) },
@@ -328,13 +328,13 @@ private fun TvChannelRow(channel: LiveChannel, onClick: () -> Unit, modifier: Mo
                 if (channel.logo != null) {
                     AsyncImage(
                         model = channel.logo,
-                        contentDescription = channel.nombre,
+                        contentDescription = channel.name,
                         contentScale = ContentScale.Fit,
                         modifier = Modifier.fillMaxSize().padding(6.dp),
                     )
                 } else {
                     Text(
-                        channel.numero.toString(),
+                        channel.number.toString(),
                         style = MaterialTheme.typography.titleMedium,
                         color = Color.White.copy(alpha = 0.6f),
                     )
@@ -342,7 +342,7 @@ private fun TvChannelRow(channel: LiveChannel, onClick: () -> Unit, modifier: Mo
             }
             Column {
                 Text(
-                    channel.nombre,
+                    channel.name,
                     style = MaterialTheme.typography.titleMedium,
                     color = Color.White,
                     maxLines = 1,
@@ -351,7 +351,7 @@ private fun TvChannelRow(channel: LiveChannel, onClick: () -> Unit, modifier: Mo
                 // Number always visible, not just as the logo's fallback: it's what the search
                 // box matches by exact number, so it's worth seeing even when the logo is there too.
                 Text(
-                    "Canal ${channel.numero}",
+                    "Canal ${channel.number}",
                     style = MaterialTheme.typography.labelSmall,
                     color = ArkivTextSecondary,
                 )

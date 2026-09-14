@@ -146,7 +146,7 @@ internal class LiveState {
         val now = System.currentTimeMillis() / 1000
         val currentNow = currentProgram(progs, now)
         current = currentNow
-        next = progs.firstOrNull { it.inicio >= (currentNow?.fin ?: now) }
+        next = progs.firstOrNull { it.start >= (currentNow?.end ?: now) }
     }
 }
 
@@ -239,12 +239,12 @@ internal fun BoxScope.ChannelCard(
                 if (logo != null) {
                     AsyncImage(
                         model = logo,
-                        contentDescription = channel.nombre,
+                        contentDescription = channel.name,
                         modifier = Modifier.fillMaxSize().padding(6.dp),
                     )
                 } else {
                     Text(
-                        (channel?.numero ?: 0).toString(),
+                        (channel?.number ?: 0).toString(),
                         color = Color.White.copy(alpha = 0.7f),
                         style = MaterialTheme.typography.titleMedium,
                     )
@@ -252,7 +252,7 @@ internal fun BoxScope.ChannelCard(
             }
             Column(modifier = Modifier.padding(start = 12.dp).weight(1f)) {
                 Text(
-                    channel?.nombre.orEmpty(),
+                    channel?.name.orEmpty(),
                     color = Color.White,
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
@@ -260,8 +260,8 @@ internal fun BoxScope.ChannelCard(
                 )
                 // Nothing if there's no EPG for this channel yet -- same criterion as the
                 // grid/guide (LiveScreen/TvLiveGuideScreen): no fixed placeholder, no "loading".
-                state.current?.let { p -> ProgramLine("Ahora: ${p.titulo}", Color.White.copy(alpha = 0.85f)) }
-                state.next?.let { p -> ProgramLine("A continuación: ${p.titulo}", ArkivTextSecondary) }
+                state.current?.let { p -> ProgramLine("Ahora: ${p.title}", Color.White.copy(alpha = 0.85f)) }
+                state.next?.let { p -> ProgramLine("A continuación: ${p.title}", ArkivTextSecondary) }
             }
         }
     }

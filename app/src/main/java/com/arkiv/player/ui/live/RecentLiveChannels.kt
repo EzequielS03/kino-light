@@ -34,8 +34,8 @@ fun recentChannelsForHome(
         code = r.code,
         // The name comes from `recent`, not from the cache: it's the one the user saw when
         // opening the channel, and stays valid even if that category's cache is stale or absent.
-        nombre = r.nombre,
-        numero = cached?.numero ?: 0,
+        name = r.nombre,
+        number = cached?.numero ?: 0,
         logo = cached?.logo,
     )
 }

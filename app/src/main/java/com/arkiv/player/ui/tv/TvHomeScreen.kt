@@ -775,7 +775,7 @@ fun TvHomeScreen(
                                             cardHeight = cardHeight,
                                             onFocus = {
                                                 navSound()
-                                                featured = Featured(channel.nombre, "Canal en vivo", channel.logo)
+                                                featured = Featured(channel.name, "Canal en vivo", channel.logo)
                                             },
                                             onClick = { playChannel(channel) },
                                         )
@@ -911,7 +911,7 @@ private fun TvLiveChannelCard(
             if (channel.logo != null) {
                 AsyncImage(
                     model = channel.logo,
-                    contentDescription = channel.nombre,
+                    contentDescription = channel.name,
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize().padding(12.dp),
                 )
@@ -923,7 +923,7 @@ private fun TvLiveChannelCard(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = if (channel.numero > 0) channel.numero.toString() else channel.nombre.take(2).uppercase(),
+                        text = if (channel.number > 0) channel.number.toString() else channel.name.take(2).uppercase(),
                         style = MaterialTheme.typography.headlineSmall,
                         color = Color.White.copy(alpha = 0.6f),
                     )

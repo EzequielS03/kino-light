@@ -483,7 +483,7 @@ class PlayerViewModel internal constructor(
             val url = runCatching { liveController.open(channel.code) }.getOrElse {
                 Log.w(PLAY, "openCurrentChannel() failed for ${channel.code}: ${it.message}")
                 if (zapping?.current?.code == channel.code) {
-                    _error.value = liveErrorMessage(hasMagisAccount(), channel.nombre)
+                    _error.value = liveErrorMessage(hasMagisAccount(), channel.name)
                 }
                 return@launch
             }
@@ -495,7 +495,7 @@ class PlayerViewModel internal constructor(
             val item = PlayerData(
                 episodeId = "${PlayerSource.LIVE_PREFIX}${channel.code}",
                 itemId = "${PlayerSource.LIVE_PREFIX}${channel.code}",
-                title = channel.nombre,
+                title = channel.name,
                 subtitle = "",
                 mediaUrl = url,
                 // A live channel never has an h.264 mp4 backup -it's a live stream, not a file-, so
@@ -526,12 +526,12 @@ class PlayerViewModel internal constructor(
             // device's own screens (above) is still reason enough not to write it. Filtering on
             // read leaves the data sitting there, waiting for the first place that forgets to
             // filter.
-            // Through [AdultContent] and not a standalone `!canal.adulto`: the rule is the same as
+            // Through [AdultContent] and not a standalone `!canal.adult`: the rule is the same as
             // progress's and frames', and keeping it written in one single place is what stops one
             // of the three from being fixed tomorrow while the other two aren't.
-            if (AdultContent.shouldLog(channel.adulto)) {
+            if (AdultContent.shouldLog(channel.adult)) {
                 runCatching {
-                    liveRecentDao.record(LiveRecentEntity(channel.code, channel.nombre, System.currentTimeMillis()))
+                    liveRecentDao.record(LiveRecentEntity(channel.code, channel.name, System.currentTimeMillis()))
                 }
             }
             preheatNeighbors()
@@ -583,7 +583,7 @@ class PlayerViewModel internal constructor(
         }
         if (liveReopens >= MAX_LIVE_REOPENS) {
             Log.w(PLAY, "live: ${channel.code} didn't come back after $MAX_LIVE_REOPENS reopens → warning")
-            _error.value = "Se cortó la señal de ${channel.nombre} y no volvió. " +
+            _error.value = "Se cortó la señal de ${channel.name} y no volvió. " +
                 "Puede ser un problema del canal: prueba de nuevo o mira otro."
             return
         }

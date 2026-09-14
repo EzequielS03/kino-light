@@ -28,7 +28,7 @@ import com.arkiv.player.ui.theme.ArkivTextSecondary
  * tv-material3 with D-pad focus, here it's Material3 with an on-screen keyboard.
  *
  * The consumer existed and the door was missing: `LiveViewModel` already asked for categories
- * with `incluirAdultos` per this preference, and its own comment said unlocking it "from Ajustes"
+ * with `includeAdults` per this preference, and its own comment said unlocking it "from Ajustes"
  * had to show on re-entry -- but on the phone there was nowhere to do it. It unlocked on the TV
  * or it didn't unlock at all.
  *

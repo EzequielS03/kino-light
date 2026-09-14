@@ -85,7 +85,7 @@ internal fun TvSettingsApp() {
  * not the account): the living-room TV doesn't inherit what was unlocked on the phone, and
  * uninstalling the app turns it off.
  *
- * What unlocking does is make the app request categories with `incluirAdultos = true`; the
+ * What unlocking does is make the app request categories with `includeAdults = true`; the
  * client itself (`MagisLiveCatalog`) filters them out by default otherwise. So `18+` shows up as
  * just another category in the Live guide and the channel drawer, exactly where the portal puts
  * it.

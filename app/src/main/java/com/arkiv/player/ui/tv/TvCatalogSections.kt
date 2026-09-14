@@ -48,8 +48,8 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
-import com.arkiv.player.data.gateway.ItemDeCatalogo
-import com.arkiv.player.data.gateway.SeccionDeCatalogo
+import com.arkiv.player.data.gateway.CatalogItem
+import com.arkiv.player.data.gateway.CatalogSection
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivBlack
 import com.arkiv.player.ui.theme.ArkivRed
@@ -94,7 +94,7 @@ fun TvCatalogSections(
     /** Whether this device has the code set: adds the 18+ root at the end of the list. */
     includeAdults: Boolean = false,
     /** Play a movie. Series and anything with no `ref` don't get here. */
-    onPlay: (ItemDeCatalogo) -> Unit,
+    onPlay: (CatalogItem) -> Unit,
     onBack: () -> Unit,
 ) {
     val graph = rememberGraph()
@@ -111,7 +111,7 @@ fun TvCatalogSections(
     }
     var rootIdx by remember { mutableStateOf(0) }
     val root = roots[rootIdx].first
-    var sections by remember { mutableStateOf<List<SeccionDeCatalogo>>(emptyList()) }
+    var sections by remember { mutableStateOf<List<CatalogSection>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
 
@@ -193,7 +193,7 @@ fun TvCatalogSections(
     // The item that has focus RIGHT NOW. It's what makes a poster grid legible from three meters
     // away: a small card's full title doesn't fit, and without this there's no way to know where
     // you're standing without entering. Same role as the home's `featured`.
-    var focused by remember { mutableStateOf<ItemDeCatalogo?>(null) }
+    var focused by remember { mutableStateOf<CatalogItem?>(null) }
     // Which section the focused item is from. Goes in the hero and not over each row: there it
     // split a same-section row pair in two, which is exactly what needs to be read together.
     var focusedSection by remember { mutableStateOf("") }
@@ -266,7 +266,7 @@ fun TvCatalogSections(
         // measures the same, which is the other half of the condition.
         val rows = remember(withItems) {
             withItems.flatMap { s ->
-                rowsOf(s.items).mapIndexed { i, f -> CatalogRow("${s.id}:$i", s.nombre, f) }
+                rowsOf(s.items).mapIndexed { i, f -> CatalogRow("${s.id}:$i", s.name, f) }
             }
         }
 
@@ -360,7 +360,7 @@ private fun HeroBackground(imageUrl: String?) {
  * jump every time focus enters or leaves a card.
  */
 @Composable
-private fun HeroText(item: ItemDeCatalogo?, section: String, notice: String?) {
+private fun HeroText(item: CatalogItem?, section: String, notice: String?) {
     Column(Modifier.fillMaxWidth(0.55f).height(96.dp).padding(start = 48.dp, bottom = 12.dp)) {
         // The notice COVERS the focused item for as long as it lasts: it's the response to
         // something the person just did, so it has to be where they're already looking. It takes
@@ -387,7 +387,7 @@ private fun HeroText(item: ItemDeCatalogo?, section: String, notice: String?) {
             )
         }
         Text(
-            item.titulo,
+            item.title,
             style = MaterialTheme.typography.headlineMedium,
             color = Color.White,
             fontWeight = FontWeight.Bold,
@@ -415,19 +415,19 @@ private fun HeroText(item: ItemDeCatalogo?, section: String, notice: String?) {
  * two different, badly labeled sections. It's set at double what fits across a TV's width (about
  * 6-7 cards), so it only splits when there's genuinely more than what's visible.
  */
-private fun rowsOf(items: List<ItemDeCatalogo>): List<List<ItemDeCatalogo>> =
+private fun rowsOf(items: List<CatalogItem>): List<List<CatalogItem>> =
     if (items.size < 2) listOf(items)
     else items.chunked((items.size + 1) / 2)
 
 /** "Película · 1 h 52 min". What isn't known isn't painted: no "0 min" or loose separators. */
-private fun metadataFor(item: ItemDeCatalogo): String = buildList {
-    add(if (item.esSerie) "Serie" else "Película")
-    if (item.duracionS > 0) {
-        val h = item.duracionS / 3600
-        val m = (item.duracionS % 3600) / 60
+private fun metadataFor(item: CatalogItem): String = buildList {
+    add(if (item.isSeries) "Serie" else "Película")
+    if (item.durationS > 0) {
+        val h = item.durationS / 3600
+        val m = (item.durationS % 3600) / 60
         add(if (h > 0) "$h h $m min" else "$m min")
     }
-    if (!item.reproducible) add("No disponible")
+    if (!item.playable) add("No disponible")
 }.joinToString(" · ")
 
 /**
@@ -437,10 +437,10 @@ private fun metadataFor(item: ItemDeCatalogo): String = buildList {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ItemsRow(
-    items: List<ItemDeCatalogo>,
+    items: List<CatalogItem>,
     cardHeight: androidx.compose.ui.unit.Dp,
-    onPlay: (ItemDeCatalogo) -> Unit,
-    onFocus: (ItemDeCatalogo) -> Unit,
+    onPlay: (CatalogItem) -> Unit,
+    onFocus: (CatalogItem) -> Unit,
     onNotice: (String) -> Unit,
 ) {
     CompositionLocalProvider(LocalBringIntoViewSpec provides TvPivot) {
@@ -458,12 +458,12 @@ private fun ItemsRow(
                 // there's nothing to resolve (the gateway serves the catalog with no refs when it
                 // has no signing key, on purpose, so it doesn't send a broken one).
                 val badge = when {
-                    item.esSerie -> "Serie"
-                    !item.reproducible -> "No disponible"
+                    item.isSeries -> "Serie"
+                    !item.playable -> "No disponible"
                     else -> null
                 }
                 TvLandscapeCard(
-                    title = item.titulo,
+                    title = item.title,
                     imageUrl = item.poster,
                     cardHeight = cardHeight,
                     badge = badge,
@@ -473,7 +473,7 @@ private fun ItemsRow(
                     // nothing reads as the app having hung -- and that's exactly what happened.
                     onClick = {
                         if (badge == null) onPlay(item)
-                        else if (item.esSerie) onNotice("Las series todavía no se reproducen desde acá. Buscala por nombre.")
+                        else if (item.isSeries) onNotice("Las series todavía no se reproducen desde acá. Buscala por nombre.")
                         else onNotice("Este título no está disponible para reproducir.")
                     },
                 )
@@ -499,5 +499,5 @@ private fun Message(text: String) {
 private data class CatalogRow(
     val key: String,
     val section: String,
-    val items: List<ItemDeCatalogo>,
+    val items: List<CatalogItem>,
 )

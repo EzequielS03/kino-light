@@ -1,6 +1,6 @@
 package com.arkiv.player.playback
 
-import com.arkiv.player.data.gateway.CdnDeCanal
+import com.arkiv.player.data.gateway.ChannelCdn
 import com.arkiv.player.data.gateway.LiveSession
 import com.arkiv.player.data.gateway.LiveSignature
 import kotlinx.coroutines.runBlocking
@@ -682,8 +682,8 @@ class LiveHlsProxyTest {
             authBase = "http://x/?a=1&token=${"A".repeat(32)}",
             license = "LIC", channel = "c", expiresAt = 0,
             cdns = listOf(
-                CdnDeCanal("${bad.hostName}:${bad.port}", "http://x/?a=1&token=${"A".repeat(32)}"),
-                CdnDeCanal("${good.hostName}:${good.port}", "http://x/?a=2&token=${"B".repeat(32)}"),
+                ChannelCdn("${bad.hostName}:${bad.port}", "http://x/?a=1&token=${"A".repeat(32)}"),
+                ChannelCdn("${good.hostName}:${good.port}", "http://x/?a=2&token=${"B".repeat(32)}"),
             ),
         )
         val (code, body) = read(proxy.urlFor(session))
@@ -829,8 +829,8 @@ class LiveHlsProxyTest {
             cflHost = "${first.hostName}:${first.port}",
             authBase = auth, license = "LIC", channel = "c", expiresAt = 0,
             cdns = listOf(
-                CdnDeCanal("${first.hostName}:${first.port}", auth),
-                CdnDeCanal("${second.hostName}:${second.port}", auth),
+                ChannelCdn("${first.hostName}:${first.port}", auth),
+                ChannelCdn("${second.hostName}:${second.port}", auth),
             ),
         )
         val (code, body) = read(segmentUrl(proxy, session))
@@ -914,8 +914,8 @@ class LiveHlsProxyTest {
             cflHost = "${bad.hostName}:${bad.port}", authBase = auth,
             license = "LIC", channel = "c", expiresAt = 0,
             cdns = listOf(
-                CdnDeCanal("${bad.hostName}:${bad.port}", auth),
-                CdnDeCanal("${good.hostName}:${good.port}", auth),
+                ChannelCdn("${bad.hostName}:${bad.port}", auth),
+                ChannelCdn("${good.hostName}:${good.port}", auth),
             ),
         )
         val (code, body) = read(proxy.urlFor(session))

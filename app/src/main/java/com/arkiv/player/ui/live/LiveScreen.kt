@@ -130,7 +130,7 @@ fun LiveScreen(
     val rawRecents by recentDao.flowRecent().collectAsStateWithLifecycle(initialValue = emptyList())
     val recents = remember(rawRecents, state.channels) {
         rawRecents.map { r ->
-            state.channels.find { it.code == r.code }?.copy(nombre = r.nombre)
+            state.channels.find { it.code == r.code }?.copy(name = r.nombre)
                 ?: LiveChannel(r.code, r.nombre, 0, null)
         }
     }
@@ -207,7 +207,7 @@ fun LiveScreen(
             }
             items(state.categories, key = { it.id }) { cat ->
                 CategoryChip(
-                    label = cat.nombre,
+                    label = cat.name,
                     icon = null,
                     selected = view == LocalView.NONE && state.activeCategory == cat.id,
                     onClick = { view = LocalView.NONE; vm.chooseCategory(cat.id) },
@@ -369,7 +369,7 @@ private fun ChannelCard(
             if (channel.logo != null) {
                 AsyncImage(
                     model = channel.logo,
-                    contentDescription = channel.nombre,
+                    contentDescription = channel.name,
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize().padding(10.dp),
                 )
@@ -385,7 +385,7 @@ private fun ChannelCard(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = channel.numero.toString(),
+                        text = channel.number.toString(),
                         style = MaterialTheme.typography.headlineMedium,
                         color = Color.White.copy(alpha = 0.6f),
                     )
@@ -401,7 +401,7 @@ private fun ChannelCard(
             }
         }
         Text(
-            text = channel.nombre,
+            text = channel.name,
             style = MaterialTheme.typography.bodyMedium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -411,7 +411,7 @@ private fun ChannelCard(
         // a per-card blinking "loading" -- see the brief).
         if (currentProgram != null) {
             Text(
-                text = "Ahora: ${currentProgram.titulo}",
+                text = "Ahora: ${currentProgram.title}",
                 style = MaterialTheme.typography.bodySmall,
                 color = ArkivTextSecondary,
                 maxLines = 1,

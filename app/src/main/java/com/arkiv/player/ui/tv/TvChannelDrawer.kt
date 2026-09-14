@@ -175,7 +175,7 @@ fun TvChannelDrawer(
                     }
                     items(state.categories, key = { it.id }) { cat ->
                         DrawerItem(
-                            label = cat.nombre,
+                            label = cat.name,
                             selected = state.activeCategory == cat.id,
                             onClick = { vm.chooseCategory(cat.id) },
                         )
@@ -296,16 +296,16 @@ private fun DrawerChannelRow(
             Modifier.fillMaxSize().padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (channel.numero > 0) {
+            if (channel.number > 0) {
                 Text(
-                    channel.numero.toString(),
+                    channel.number.toString(),
                     style = MaterialTheme.typography.labelMedium,
                     color = ArkivTextSecondary,
                     modifier = Modifier.width(44.dp),
                 )
             }
             Text(
-                channel.nombre,
+                channel.name,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = if (onScreen) FontWeight.Bold else FontWeight.Normal,
                 maxLines = 1,

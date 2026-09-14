@@ -43,20 +43,20 @@ class MagisLiveCatalogTest {
         val fake = FakePortalClient()
         fake.queueResponse("getNextColumns", portalCategories())
 
-        val cats = liveCatalog(fake).categorias()
+        val cats = liveCatalog(fake).categories()
 
-        assertEquals(listOf("Todos", "Deportes"), cats.map { it.nombre })
+        assertEquals(listOf("Todos", "Deportes"), cats.map { it.name })
         assertEquals(listOf(76182, 76183), cats.map { it.id })
     }
 
     @Test
-    fun `with incluirAdultos, the adult one comes out too`() = runTest {
+    fun `with includeAdults, the adult one comes out too`() = runTest {
         val fake = FakePortalClient()
         fake.queueResponse("getNextColumns", portalCategories())
 
-        val cats = liveCatalog(fake).categorias(incluirAdultos = true)
+        val cats = liveCatalog(fake).categories(includeAdults = true)
 
-        assertEquals(listOf("Todos", "Deportes", "18+"), cats.map { it.nombre })
+        assertEquals(listOf("Todos", "Deportes", "18+"), cats.map { it.name })
     }
 
     @Test
@@ -64,7 +64,7 @@ class MagisLiveCatalogTest {
         val fake = FakePortalClient()
         fake.queueResponse("getNextColumns", portalCategories())
 
-        liveCatalog(fake).categorias()
+        liveCatalog(fake).categories()
 
         val (_, bean) = fake.calls.first { it.first == "getNextColumns" }
         assertEquals("masnew_live", bean["columnCode"])
@@ -77,11 +77,11 @@ class MagisLiveCatalogTest {
         fake.queueResponse("getNextColumns", portalCategories())
         fake.queueResponse("v6/getLiveData", portalChannels("A"))
 
-        val channels = liveCatalog(fake).canales(76183)
+        val channels = liveCatalog(fake).channels(76183)
 
         assertEquals("https://i/A.png", channels.single().logo)
-        assertEquals("Canal A", channels.single().nombre)
-        assertEquals(7, channels.single().numero)
+        assertEquals("Canal A", channels.single().name)
+        assertEquals(7, channels.single().number)
     }
 
     @Test
@@ -101,7 +101,7 @@ class MagisLiveCatalogTest {
             ),
         )
 
-        val channels = liveCatalog(fake).canales(76183)
+        val channels = liveCatalog(fake).channels(76183)
 
         assertEquals("https://suelta/b.png", channels[0].logo)
         assertNull(channels[1].logo)
@@ -113,9 +113,9 @@ class MagisLiveCatalogTest {
         fake.queueResponse("getNextColumns", portalCategories())
         fake.queueResponse("v6/getLiveData", portalChannels("X"))
 
-        val channels = liveCatalog(fake).canales(76184)
+        val channels = liveCatalog(fake).channels(76184)
 
-        assertTrue(channels.single().adulto)
+        assertTrue(channels.single().adult)
     }
 
     @Test
@@ -124,7 +124,7 @@ class MagisLiveCatalogTest {
         fake.queueResponse("getNextColumns", portalCategories())
         fake.queueResponse("v6/getLiveData", portalChannels("X"))
 
-        assertTrue(!liveCatalog(fake).canales(76183).single().adulto)
+        assertTrue(!liveCatalog(fake).channels(76183).single().adult)
     }
 
     @Test
@@ -134,7 +134,7 @@ class MagisLiveCatalogTest {
         fake.queueResponse("v6/getLiveData", portalChannels(*(1..500).map { "p1-$it" }.toTypedArray()))
         fake.queueResponse("v6/getLiveData", portalChannels(*(1..40).map { "p2-$it" }.toTypedArray()))
 
-        val channels = liveCatalog(fake).canales(76183)
+        val channels = liveCatalog(fake).channels(76183)
 
         assertEquals(540, channels.size)
         assertEquals(2, fake.timesCalled("v6/getLiveData"))
@@ -149,7 +149,7 @@ class MagisLiveCatalogTest {
         fake.queueResponse("v6/getLiveData", page)
         fake.queueResponse("v6/getLiveData", page)
 
-        val channels = liveCatalog(fake).canales(76183)
+        val channels = liveCatalog(fake).channels(76183)
 
         assertEquals(500, channels.size)
         assertEquals(2, fake.timesCalled("v6/getLiveData"))
@@ -163,9 +163,9 @@ class MagisLiveCatalogTest {
         var now = 0L
         val catalog = liveCatalog(fake) { now }
 
-        catalog.canales(76183)
-        catalog.canales(76183)
-        catalog.categorias()
+        catalog.channels(76183)
+        catalog.channels(76183)
+        catalog.categories()
 
         assertEquals(1, fake.timesCalled("v6/getLiveData"))
         assertEquals(1, fake.timesCalled("getNextColumns"))
@@ -174,7 +174,7 @@ class MagisLiveCatalogTest {
         now = 7 * 60 * 60 * 1000L
         fake.queueResponse("getNextColumns", portalCategories())
         fake.queueResponse("v6/getLiveData", portalChannels("A"))
-        catalog.canales(76183)
+        catalog.channels(76183)
 
         assertEquals(2, fake.timesCalled("v6/getLiveData"))
     }
@@ -186,10 +186,10 @@ class MagisLiveCatalogTest {
         fake.queueResponse("getNextColumns", MagisResult.RedError(java.io.IOException("sin red")))
         val catalog = liveCatalog(fake)
 
-        assertTrue(catalog.categorias().isEmpty())
+        assertTrue(catalog.categories().isEmpty())
         fake.queueResponse("getNextColumns", portalCategories())
 
-        assertEquals(listOf("Todos", "Deportes"), catalog.categorias().map { it.nombre })
+        assertEquals(listOf("Todos", "Deportes"), catalog.categories().map { it.name })
     }
 
     // --- catalog tree (sections with their first items) --------------------------------
@@ -217,16 +217,16 @@ class MagisLiveCatalogTest {
         val sections = liveCatalog(fake).tree("peliculas")
 
         // The unnamed section is discarded: an empty header can't be drawn.
-        assertEquals(listOf("Estrenos", "Recomendadas"), sections.map { it.nombre })
+        assertEquals(listOf("Estrenos", "Recomendadas"), sections.map { it.name })
         assertEquals(listOf(91, 92), sections.map { it.id })
         val items = sections.first().items
-        assertEquals(listOf("Una pelicula", "Una serie"), items.map { it.titulo })
+        assertEquals(listOf("Una pelicula", "Una serie"), items.map { it.title })
         assertEquals("https://i/p1.jpg", items[0].poster)
-        assertEquals(5400, items[0].duracionS)
+        assertEquals(5400, items[0].durationS)
         assertEquals(MagisRef("P1", "movie", 0), MagisRef.decode(items[0].ref))
-        assertTrue(items[0].reproducible)
+        assertTrue(items[0].playable)
         // The type lets it branch without opening the ref: a series asks for its chapters first.
-        assertTrue(items[1].esSerie)
+        assertTrue(items[1].isSeries)
         assertEquals(MagisRef("S1", "teleplay", 0), MagisRef.decode(items[1].ref))
     }
 
@@ -264,8 +264,8 @@ class MagisLiveCatalogTest {
         assertTrue(fake.calls.isEmpty())
 
         val sections = catalog.tree("adultos", includeAdults = true)
-        assertTrue("los items tienen que quedar marcados", sections.first().items.all { it.adulto })
-        assertTrue(sections.all { it.adulto })
+        assertTrue("los items tienen que quedar marcados", sections.first().items.all { it.adult })
+        assertTrue(sections.all { it.adult })
     }
 
     @Test

@@ -10,12 +10,12 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class LiveCategory(val id: Int, val nombre: String)
+data class LiveCategory(val id: Int, val name: String)
 
 data class LiveChannel(
     val code: String,
-    val nombre: String,
-    val numero: Int,
+    val name: String,
+    val number: Int,
     val logo: String?,
     /**
      * Whether the channel comes from an adults category.
@@ -29,11 +29,11 @@ data class LiveChannel(
      * `LiveChannel` with no category on hand (favorites, `CountryChannels`' cache, recents,
      * `PlayerViewModel.loadLive`'s zapping fallback) don't pass it and are left with the default.
      */
-    val adulto: Boolean = false,
+    val adult: Boolean = false,
 )
 
 /** Times in epoch **seconds**, as the portal sends them. */
-data class LiveProgram(val titulo: String, val inicio: Long, val fin: Long, val sinopsis: String)
+data class LiveProgram(val title: String, val start: Long, val end: Long, val synopsis: String)
 
 /**
  * A CDN where the signal can be requested, with ITS OWN `authBase`.
@@ -45,7 +45,7 @@ data class LiveProgram(val titulo: String, val inicio: Long, val fin: Long, val 
  * The signing token travels inside that url, so they go together: signing with one CDN's token
  * against another one's host is exactly the pair a CDN rejects with a 401.
  */
-data class CdnDeCanal(val cflHost: String, val authBase: String) {
+data class ChannelCdn(val cflHost: String, val authBase: String) {
     /** The `token=<32 hex>` inside `authBase`; it's the only thing the signature needs. */
     val token: String get() = Regex("token=([0-9A-Fa-f]{32})").find(authBase)?.groupValues?.get(1).orEmpty()
 }
@@ -82,59 +82,59 @@ data class LiveSession(
      * Defaults to the first one alone -- what there was before -- for a gateway that doesn't send
      * the list yet.
      */
-    val cdns: List<CdnDeCanal> = listOf(CdnDeCanal(cflHost, authBase)),
+    val cdns: List<ChannelCdn> = listOf(ChannelCdn(cflHost, authBase)),
 ) {
     /** The `token=<32 hex>` inside `authBase`; it's the only thing the signature needs. */
     val token: String get() = Regex("token=([0-9A-Fa-f]{32})").find(authBase)?.groupValues?.get(1).orEmpty()
 }
 
 /** An item from the Magis catalog (a section's movie/video). */
-data class ItemDeCatalogo(
+data class CatalogItem(
     val id: String,
-    val titulo: String,
+    val title: String,
     val poster: String?,
-    val duracionS: Int,
+    val durationS: Int,
     /**
      * Whether it came from an adults section. Lives on the ITEM and not only on the section
      * because the item travels on its own all the way to the player, and by then the "this
      * doesn't get logged to history" rule has to be applicable with no knowledge of where it came
      * from. Same thing done with [LiveChannel].
      */
-    val adulto: Boolean = false,
+    val adult: Boolean = false,
     /**
      * The ref the stream is requested from the portal with on playback (`MagisLive`/`MagisResolve`).
      * It's the ONLY playable thing the item carries: resolution does NOT take [id] (the portal's
-     * contentId), it takes this string. It's a LOCAL descriptor -`MagisRef(id, tipo, 0).encode()`,
+     * contentId), it takes this string. It's a LOCAL descriptor -`MagisRef(id, type, 0).encode()`,
      * see `MagisLiveCatalog.kt`-: nobody signs or mints it, so it doesn't expire either (it used
      * to, after 24h, back when the gateway built it -see `MagisRef`'s KDoc-). The app still treats
      * it as opaque and never interprets it, but no longer for cryptographic reasons -- by contract.
      *
      * The `""` default is defensive, not something that happens today: the only place that builds
-     * an [ItemDeCatalogo] (`MagisLiveCatalog`) already discards any blank `contentId`, so in
+     * a [CatalogItem] (`MagisLiveCatalog`) already discards any blank `contentId`, so in
      * practice this field never comes out empty. If it ever were, the item is still listed -- it
-     * can be seen -- but doesn't play; see [reproducible].
+     * can be seen -- but doesn't play; see [playable].
      */
     val ref: String = "",
-    /** What the portal says it is: "movie", "teleplay"… See [esSerie]. */
-    val tipo: String = "movie",
+    /** What the portal says it is: "movie", "teleplay"… See [isSeries]. */
+    val type: String = "movie",
 ) {
     /**
      * Whether its chapters have to be requested before playing, instead of playing it directly.
      *
-     * Decided by [tipo] and not by opening [ref] on purpose: the ref is opaque to the app, and
+     * Decided by [type] and not by opening [ref] on purpose: the ref is opaque to the app, and
      * keeping it that way is what lets the gateway change its shape without shipping a new APK.
      */
-    val esSerie: Boolean get() = tipo == "teleplay"
+    val isSeries: Boolean get() = type == "teleplay"
 
-    val reproducible: Boolean get() = ref.isNotBlank()
+    val playable: Boolean get() = ref.isNotBlank()
 }
 
 /** A catalog section, with its first items (the portal sends them in the same response). */
-data class SeccionDeCatalogo(
+data class CatalogSection(
     val id: Int,
-    val nombre: String,
-    val adulto: Boolean,
-    val items: List<ItemDeCatalogo>,
+    val name: String,
+    val adult: Boolean,
+    val items: List<CatalogItem>,
 )
 
 data class LiveSignature(val moment: Long, val sign2: String)
@@ -151,11 +151,11 @@ data class LiveSignature(val moment: Long, val sign2: String)
  */
 interface LiveCatalogGateway {
     /**
-     * @param incluirAdultos also asks for the 18+ category. The gateway filters it out by
+     * @param includeAdults also asks for the 18+ category. The gateway filters it out by
      *   DEFAULT, so without this it doesn't come -- see `AdultsLock`. It's a remote-control lock,
      *   not a security boundary: whoever builds the request by hand can set it either way.
      */
-    suspend fun categorias(incluirAdultos: Boolean = false): List<LiveCategory>
-    suspend fun canales(categoria: Int): List<LiveChannel>
+    suspend fun categories(includeAdults: Boolean = false): List<LiveCategory>
+    suspend fun channels(category: Int): List<LiveChannel>
     suspend fun epg(codes: List<String>): Pair<Map<String, List<LiveProgram>>, List<String>>
 }

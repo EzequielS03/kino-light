@@ -116,7 +116,7 @@ const val HOME_ROW_LIMIT = 24
  * catalog, not something that changes within the day, and this function runs on **every home opening**.
  *
  * The category's id is saved in [prefs] alongside the ISO that produced it. Without that,
- * `categorias()` would have to be requested from the gateway just to know what to read from the
+ * `categories()` would have to be requested from the gateway just to know what to read from the
  * local cache, and the home's shortcut would stop working with no network. It goes in
  * SharedPreferences and not in `SettingsStore` because it isn't a user setting: it's derived
  * cache, reconstructible by asking the gateway for the categories.
@@ -145,12 +145,12 @@ suspend fun countryChannelsForHome(
 
     val freshOnes = runCatching {
         val id = savedId
-            ?: api.categorias().firstOrNull { it.nombre == categoryName }?.id
+            ?: api.categories().firstOrNull { it.name == categoryName }?.id
             ?: return emptyList()
-        val channels = api.canales(id)
+        val channels = api.channels(id)
         if (channels.isNotEmpty()) {
             cacheDao.replace(id, channels.map {
-                LiveChannelCacheEntity(it.code, id, it.nombre, it.numero, it.logo, nowMs)
+                LiveChannelCacheEntity(it.code, id, it.name, it.number, it.logo, nowMs)
             })
             prefs.edit().putString(KEY_COUNTRY_ISO, iso).putInt(KEY_COUNTRY_CATEGORY, id).apply()
         }
