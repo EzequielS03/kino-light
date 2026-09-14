@@ -506,7 +506,7 @@ class AppGraph(context: Context) {
     }
 
     private val buscadorDeCapitulos by lazy {
-        com.arkiv.player.data.nuevos.BuscadorDeCapitulos(
+        com.arkiv.player.data.nuevos.NewChapterFinder(
             repo = repository,
             itemDao = database.itemDao(),
             gateway = fuenteDeContenido,
@@ -529,7 +529,7 @@ class AppGraph(context: Context) {
         // Se sella ANTES de buscar: si la búsqueda tarda y el usuario cierra y reabre la app en el
         // medio, no arrancan dos pasadas pisándose contra las mismas fuentes.
         prefs.edit().putLong(KEY_ULTIMA_BUSQUEDA, ahora).apply()
-        buscadorDeCapitulos.buscar()
+        buscadorDeCapitulos.findNewChapters()
     }
 
     /**

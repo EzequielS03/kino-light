@@ -142,7 +142,7 @@ fun DetailScreen(
     LaunchedEffect(identifier) {
         // Same fix as in the TV detail screen: Magis items saved with no `tmdbId` have nothing to
         // ask stills with, so the gateway gets asked first (only once).
-        com.arkiv.player.data.gateway.repararIdentidadDeMagis(
+        com.arkiv.player.data.gateway.repairMagisIdentity(
             graph.repository, graph.fuenteDeContenido, identifier,
         )
         runCatching { graph.repository.ensureEpisodeStills(identifier) }

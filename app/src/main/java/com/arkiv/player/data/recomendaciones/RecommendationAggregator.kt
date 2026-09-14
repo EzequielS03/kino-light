@@ -10,7 +10,7 @@ import kotlinx.coroutines.CancellationException
  * Adds a "For you" row's card to the library.
  *
  * The networked, writing part of the save; every decision comes from [RecommendationSaving],
- * which is pure and does get tested. Same split as `BuscadorDeCapitulos`, which also joins the
+ * which is pure and does get tested. Same split as `NewChapterFinder`, which also joins the
  * repository and the gateway for a single background task.
  *
  * A Magis series comes in as a SEASON (`addMagisSeason`, one episode per chapter) and not as a
@@ -45,7 +45,7 @@ class RecommendationAggregator(
                 title = rec.titulo,
                 chapters = season.chapters,
                 // El ref de la recomendación ES el de la temporada: queda guardado en el ítem y
-                // `BuscadorDeCapitulos` puede preguntar por capítulos nuevos más adelante.
+                // `NewChapterFinder` puede preguntar por capítulos nuevos más adelante.
                 seriesRef = rec.ref,
                 posterUrl = rec.posterUrl,
                 tmdbId = season.tmdbId,

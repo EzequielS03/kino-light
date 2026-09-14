@@ -127,7 +127,7 @@ class MissingChaptersTest {
     }
 
     /**
-     * Regression for fix round 1: `BuscadorDeCapitulos.revisarDitu` keyed the STORED side with the
+     * Regression for fix round 1: `NewChapterFinder.checkDitu` keyed the STORED side with the
      * season Room already has (always written through [DituEntities.savedSeason], so never
      * null/0) but the SOURCE side with the raw, unresolved season. A chapter arriving with no
      * season of its own keyed as `0`, which read as "older" than a stored high-water mark of `1` --

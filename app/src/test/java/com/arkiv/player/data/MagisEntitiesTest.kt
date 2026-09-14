@@ -55,7 +55,7 @@ class MagisEntitiesTest {
     }
 
     @Test fun `the chapter is numbered so it's known which one is missing`() {
-        // `BuscadorDeCapitulos` compares these numbers against the portal's; without them it can't
+        // `NewChapterFinder` compares these numbers against the portal's; without them it can't
         // know which chapter to download.
         val (_, ep) = chapter(episode = 7)
         assertEquals(7, ep.episode)
@@ -124,7 +124,7 @@ class MagisEntitiesTest {
     }
 
     @Test fun `a standalone added chapter can carry its real season`() {
-        // `BuscadorDeCapitulos.revisarMagis`'s path: adds a new chapter in the background and, if
+        // `NewChapterFinder.checkMagis`'s path: adds a new chapter in the background and, if
         // the gateway resolved TMDB, already knows the real season. Without this, that chapter
         // would be left with `season = null` mixed in with ones that do have it, and
         // `ensureEpisodeStills` would flatten the whole season instead of cross-referencing by

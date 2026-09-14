@@ -144,7 +144,7 @@ object MagisEntities {
      * [seriesRef] is the season's ref (the one `MagisCatalog.detail` resolves). Blank doesn't
      * overwrite what was saved: refs expire and an expired one is better than none. Unlike
      * [build], this does NOT fall back to a chapter's ref as a last resort -- a chapter's ref on
-     * the item would make `BuscadorDeCapitulos` ask a chapter for its list of chapters.
+     * the item would make `NewChapterFinder` ask a chapter for its list of chapters.
      *
      * [watchedInListCount] arrives COMPLETE, already computed by the caller, and not read in here
      * as `existing?.episodiosVistosEnLista`. It used to be saved untouched and the repository
@@ -253,7 +253,7 @@ object MagisEntities {
      *
      * Who passes the season today, and where they get it from:
      *  - `SearchPlayback.magisEpisodeIdFor` (the season dialog's "Save" button, phone and TV) and
-     *    `BuscadorDeCapitulos.revisarMagis` (new chapters in the background): from the
+     *    `NewChapterFinder.checkMagis` (new chapters in the background): from the
      *    `series` block's (`GatewaySerie`) `season_number`, returned by `MagisCatalog.detail`.
      *  - `SearchPlayback.magisEpisodeId` and `CineDetailScreen.playMagis` (a lone search result,
      *    no chapter list): from the `GatewayResult`'s own `season`.

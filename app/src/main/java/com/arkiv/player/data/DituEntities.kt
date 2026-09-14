@@ -91,7 +91,7 @@ object DituEntities {
      * as season 1's chapter 1 and overwrite its row (see [chapterEpisodeId]).
      *
      * Moved here from `ui/search/SearchPlayback.kt` once a second data-layer caller
-     * (`BuscadorDeCapitulos.revisarDitu`) needed it too, alongside `RecommendationAggregator`.
+     * (`NewChapterFinder.checkDitu`) needed it too, alongside `RecommendationAggregator`.
      */
     fun seasonForChapter(
         chapter: GatewayEpisode,

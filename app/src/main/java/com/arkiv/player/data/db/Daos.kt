@@ -89,7 +89,7 @@ data class ProgresoConSiguienteRow(
     val siguienteEpisodeId: String?,
 )
 
-/** Raw row to decide which series to ask about new chapters. See `SeriesPorRevisar`. */
+/** Raw row to decide which series to ask about new chapters. See `SeriesToCheck`. */
 data class SerieConProgresoRow(
     val itemId: String,
     val source: String,
@@ -126,7 +126,7 @@ data class LibraryRow(
     val episodiosVistosEnLista: Int? = null,
     /**
      * The work this item IS, according to TMDB. Filled in when it's added from search, or by
-     * [com.arkiv.player.data.gateway.repararIdentidadDeMagis]'s title canonization for Magis items
+     * [com.arkiv.player.data.gateway.repairMagisIdentity]'s title canonization for Magis items
      * that came in without it (0 is treated the same as absent).
      *
      * Exists here because it's the key the library is missing to group by: a standalone chapter
@@ -231,7 +231,7 @@ interface ItemDao {
      * The `MAX(lastPlayedAt)` is that of ANY episode of the series: whichever one you're on
      * doesn't matter, what matters is that you're watching it. `LEFT JOIN` so a series with no
      * progress shows up with 0 and the pure filter discards it, instead of disappearing here
-     * (see [SeriesPorRevisar]).
+     * (see [SeriesToCheck]).
      */
     @Query(
         """

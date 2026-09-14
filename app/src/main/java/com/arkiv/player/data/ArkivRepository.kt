@@ -622,7 +622,7 @@ class ArkivRepository(
      * different from the [ref] of the chapter that's about to play.
      *
      * [season], [tmdbId], [still], [tmdbTitle] and [overview] are what `GatewaySerie`/
-     * `GatewayEpisode` bring when the caller has them on hand (today, `BuscadorDeCapitulos.revisarMagis`
+     * `GatewayEpisode` bring when the caller has them on hand (today, `NewChapterFinder.checkMagis`
      * when adding a new chapter in the background): a chapter that comes out this way ends up
      * enriched the same as if it had been opened by hand, with nobody having to open the season.
      * All optional for the other callers, which don't know them.
@@ -1139,7 +1139,7 @@ class ArkivRepository(
      * re-play can't overwrite `lastPlayedAt`. That column feeds three consumers that don't tell
      * "just watched" apart from "reopened something old":
      * [PlaybackDao.observeWatched] (via `LibraryWatched.cross`, orders the library's "Ya visto"),
-     * [ItemDao.seriesWithProgress] (via `SeriesPorRevisar.elegir`, decides which series to sweep
+     * [ItemDao.seriesWithProgress] (via `SeriesToCheck.choose`, decides which series to sweep
      * against the network looking for a new chapter) and [PlaybackDao.observeLastPlayed] (via
      * `LibraryOrder`, decides which card rises to the top of "Mi biblioteca"). Without this cutoff,
      * reopening an old chapter for three seconds would bump that series to the top of "Ya visto"

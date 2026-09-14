@@ -20,7 +20,7 @@ import org.junit.Test
  * for them: the row was saved with `addMagisSource` with no `episode`, which is `MagisEntities.build`'s
  * MOVIE branch (one item, one episode, no `categoryOverride = "series"`).
  *
- * And it didn't fix itself: `SeriesPorRevisar.elegir` filters `episodios > 1`, so the background
+ * And it didn't fix itself: `SeriesToCheck.choose` filters `episodeCount > 1`, so the background
  * new-chapters searcher would never look at it either.
  */
 class RecommendationSavingTest {
