@@ -31,7 +31,7 @@ class BuscadorDeCapitulos(
 
     /** Corre una pasada completa. Devuelve cuántos capítulos nuevos aparecieron. */
     suspend fun buscar(): Int = withContext(Dispatchers.IO) {
-        val candidatas = runCatching { itemDao.seriesConProgreso() }.getOrNull()
+        val candidatas = runCatching { itemDao.seriesWithProgress() }.getOrNull()
             ?.map { SerieCandidata(it.itemId, it.source, it.ultimoVistoMs, it.episodios) }
             ?: return@withContext 0
         val elegidas = SeriesPorRevisar.elegir(candidatas, ahora())

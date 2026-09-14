@@ -42,19 +42,19 @@ class FrameCapturerWatchedTest {
         override suspend fun upsert(playback: PlaybackEntity) { rows[playback.episodeId] = playback }
         override suspend fun get(episodeId: String): PlaybackEntity? = rows[episodeId]
         override fun observe(episodeId: String): Flow<PlaybackEntity?> = MutableStateFlow(rows[episodeId])
-        override fun observeProgresoConSiguiente(): Flow<List<ProgresoConSiguienteRow>> =
+        override fun observeProgressWithNext(): Flow<List<ProgresoConSiguienteRow>> =
             MutableStateFlow(emptyList())
-        override suspend fun filasParaContinuar(episodeIds: List<String>): List<ContinueRow> = emptyList()
-        override fun observeVistos(): Flow<List<VistoRow>> = MutableStateFlow(emptyList())
+        override suspend fun continueWatchingRows(episodeIds: List<String>): List<ContinueRow> = emptyList()
+        override fun observeWatched(): Flow<List<VistoRow>> = MutableStateFlow(emptyList())
         override fun observePlaybackForItem(itemId: String): Flow<List<PlaybackEntity>> =
             MutableStateFlow(emptyList())
         // Another branch added this (library ordering by last watched) while this one was open.
         // FrameCapturer doesn't use it; it's here only so the fake keeps implementing the DAO.
-        override fun observeUltimaReproduccion(): Flow<List<UltimaReproduccionRow>> =
+        override fun observeLastPlayed(): Flow<List<UltimaReproduccionRow>> =
             MutableStateFlow(emptyList())
         // Task 7 added this (local history for "For you"). FrameCapturer doesn't use it; it's here
         // only so the fake keeps implementing the DAO.
-        override suspend fun historialReciente(tope: Int): List<FilaDeHistorial> = emptyList()
+        override suspend fun recentHistory(limit: Int): List<FilaDeHistorial> = emptyList()
     }
 
     private fun progress(episodeId: String, watched: Boolean) = PlaybackEntity(

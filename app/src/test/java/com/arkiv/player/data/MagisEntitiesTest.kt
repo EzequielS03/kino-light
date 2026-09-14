@@ -206,7 +206,7 @@ class MagisEntitiesTest {
 
     @Test fun el_badge_lo_deja_buildSeason_en_lo_que_le_pasan_no_en_lo_que_tenia_el_existente() {
         // Antes `buildSeason` copiaba `existente?.episodiosVistosEnLista` sin tocar, y el
-        // repositorio lo corregía después con un segundo UPDATE (`marcarEpisodiosVistos`) -- la
+        // repositorio lo corregía después con un segundo UPDATE (`markEpisodesSeen`) -- la
         // segunda escritura que hacía recursar el trigger de sync si caía en el mismo segundo que
         // el `upsertItem`. Ahora quien llama (el repositorio, que sí tiene la base para calcular la
         // unión) ya le pasa el total re-sellado, y `buildSeason` solo lo guarda: si acá adentro

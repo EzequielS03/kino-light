@@ -134,7 +134,7 @@ class SyncTriggersTest {
     @Test fun dos_escrituras_en_el_mismo_segundo_el_reloj_siempre_avanza() {
         // El crash real (Fire TV, 2026-08-10): `ArkivRepository.addMagisSeason` hacía `upsertItem`
         // (el INSERT sella con AHORA) y, en el mismo segundo, un UPDATE que no mueve el reloj
-        // (`marcarEpisodiosVistos`, el badge). `AHORA` tiene resolución de SEGUNDO: el UPDATE de
+        // (`markEpisodesSeen`, el badge). `AHORA` tiene resolución de SEGUNDO: el UPDATE de
         // adentro del trigger volvía a escribir el mismo número, `NEW.updatedAt = OLD.updatedAt`
         // daba verdadero otra vez, y el trigger se disparaba a sí mismo hasta que SQLite cortaba
         // con "too many levels of trigger recursion" -- la app moría después de guardar pero antes

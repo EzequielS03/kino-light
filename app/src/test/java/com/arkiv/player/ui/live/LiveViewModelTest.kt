@@ -120,35 +120,35 @@ private class FakeLiveApi : LiveCatalogGateway {
 
 private class FakeFavoriteDao : LiveFavoriteDao {
     private val flow = MutableStateFlow<List<LiveFavoriteEntity>>(emptyList())
-    override fun flowTodos(): Flow<List<LiveFavoriteEntity>> = flow
-    override suspend fun guardar(f: LiveFavoriteEntity) {
+    override fun flowAll(): Flow<List<LiveFavoriteEntity>> = flow
+    override suspend fun save(f: LiveFavoriteEntity) {
         flow.value = flow.value.filterNot { it.code == f.code } + f
     }
-    override suspend fun borrar(code: String) {
+    override suspend fun delete(code: String) {
         flow.value = flow.value.filterNot { it.code == code }
     }
-    override suspend fun esFavorito(code: String): Boolean = flow.value.any { it.code == code }
+    override suspend fun isFavorite(code: String): Boolean = flow.value.any { it.code == code }
     override suspend fun getAll(): List<LiveFavoriteEntity> = flow.value
 }
 
 private class FakeCacheDao : LiveChannelCacheDao {
     private val store = mutableMapOf<Int, List<LiveChannelCacheEntity>>()
 
-    /** Setup directo del test, sin pasar por guardar()/reemplazar(). */
-    fun prellenar(categoria: Int, filas: List<LiveChannelCacheEntity>) {
+    /** Direct test setup, without going through save()/replace(). */
+    fun preload(categoria: Int, filas: List<LiveChannelCacheEntity>) {
         store[categoria] = filas
     }
 
-    override suspend fun deCategoria(categoria: Int): List<LiveChannelCacheEntity> = store[categoria].orEmpty()
-    // No lo ejercita ningún test de este archivo (son todos sobre elegirCategoria/deCategoria);
-    // implementación mínima para satisfacer la interfaz.
-    override suspend fun deCodigos(codes: List<String>): List<LiveChannelCacheEntity> =
+    override suspend fun byCategory(category: Int): List<LiveChannelCacheEntity> = store[category].orEmpty()
+    // No test in this file exercises this (they're all about elegirCategoria/byCategory);
+    // minimal implementation to satisfy the interface.
+    override suspend fun byCodes(codes: List<String>): List<LiveChannelCacheEntity> =
         store.values.flatten().filter { it.code in codes }
-    override suspend fun limpiar(categoria: Int) { store.remove(categoria) }
-    override suspend fun guardar(filas: List<LiveChannelCacheEntity>) {
-        filas.groupBy { it.categoria }.forEach { (cat, rows) -> store[cat] = rows }
+    override suspend fun clear(category: Int) { store.remove(category) }
+    override suspend fun save(rows: List<LiveChannelCacheEntity>) {
+        rows.groupBy { it.categoria }.forEach { (cat, rows) -> store[cat] = rows }
     }
-    // reemplazar() usa el body por default de la interfaz (limpiar + guardar), no hace falta acá.
+    // replace() uses the interface's default body (clear + save), not needed here.
 }
 
 // --- Comportamiento dinámico del ViewModel ----------------------------------------------------
@@ -207,7 +207,7 @@ class LiveViewModelAsyncTest {
         val cacheDao = FakeCacheDao().apply {
             // "c1" ya está en caché Y en la respuesta fresca -- exactamente el caso que duplicaba
             // el pedido de EPG antes del fix (mismo canal, dos pasos de carga distintos).
-            prellenar(categoria, listOf(LiveChannelCacheEntity("c1", categoria, "Canal 1", 1, null, 0L)))
+            preload(categoria, listOf(LiveChannelCacheEntity("c1", categoria, "Canal 1", 1, null, 0L)))
         }
 
         val vm = LiveViewModel(api, FakeFavoriteDao(), cacheDao)

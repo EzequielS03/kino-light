@@ -150,7 +150,7 @@ class ArkivRepository(
      * biblioteca. Un ítem que nunca se reprodujo no está en el mapa.
      */
     fun observeUltimaReproduccion(): Flow<Map<String, Long>> =
-        playbackDao.observeUltimaReproduccion().map { filas ->
+        playbackDao.observeLastPlayed().map { filas ->
             filas.associate { it.itemId to it.ultimaMs }
         }
 
@@ -236,7 +236,7 @@ class ArkivRepository(
      */
     fun observeContinueWatching(): Flow<List<ContinueRow>> =
         combine(
-            playbackDao.observeProgresoConSiguiente(),
+            playbackDao.observeProgressWithNext(),
             episodeFrameDao.observeTodos(),
         ) { rows, _ -> rows }.map { rows ->
             // Qué capítulo va por cada serie lo decide PorDondeVas, que es la parte pura y testeada
@@ -263,7 +263,7 @@ class ArkivRepository(
             // playback, así que se reordena acá y se pisa lastPlayedAt con el del ancla: el
             // capítulo ofrecido puede no haberse reproducido nunca, pero la serie sí, y es la
             // serie la que tiene que estar arriba en la fila.
-            val porId = playbackDao.filasParaContinuar(elecciones.map { it.episodeId })
+            val porId = playbackDao.continueWatchingRows(elecciones.map { it.episodeId })
                 .associateBy { it.episodeId }
             elecciones.mapNotNull { eleccion ->
                 porId[eleccion.episodeId]?.copy(lastPlayedAt = eleccion.lastPlayedAt)
@@ -280,7 +280,7 @@ class ArkivRepository(
      * [com.arkiv.player.data.biblioteca.LibraryWatched], que es la parte pura y testeada.
      */
     fun observeVistos(): Flow<List<com.arkiv.player.data.biblioteca.ItemWatched>> =
-        playbackDao.observeVistos().map { filas ->
+        playbackDao.observeWatched().map { filas ->
             filas.map { com.arkiv.player.data.biblioteca.ItemWatched(it.itemId, it.episodios, it.ultimoVistoMs) }
         }
 
@@ -596,7 +596,7 @@ class ArkivRepository(
      */
     suspend fun marcarCapitulosVistos(identifier: String) {
         val cuantos = itemDao.getEpisodesOf(identifier).count { !it.deleted }
-        itemDao.marcarEpisodiosVistos(identifier, cuantos)
+        itemDao.markEpisodesSeen(identifier, cuantos)
     }
 
     /**
@@ -873,7 +873,7 @@ class ArkivRepository(
      * llamar en cada reproducción.
      *
      * UNA sola escritura sobre el ítem (`upsertItem`), no dos. Antes iba `upsertItem` y después un
-     * UPDATE puntual (`marcarEpisodiosVistos`) para corregir el badge — dos escrituras a la misma
+     * UPDATE puntual (`markEpisodesSeen`) para corregir el badge — dos escrituras a la misma
      * fila en la misma llamada, y si caían en el mismo segundo el trigger de sync (`SyncTriggers`)
      * recursaba hasta "too many levels of trigger recursion": la app se caía después de guardar la
      * temporada pero antes de navegar al reproductor. El trigger ya no recursa (ver `SyncTriggers`),
@@ -1080,7 +1080,7 @@ class ArkivRepository(
     /**
      * El marcador de un ámbito EXACTO: el del capítulo [episodeId], o el de la serie entera
      * (`""`, el default). No cae de uno al otro a propósito -- quien quiera la precedencia
-     * completa usa `ChapterMarker.choose` sobre `observeDeCapitulo`.
+     * completa usa `ChapterMarker.choose` sobre `observeForChapter`.
      */
     suspend fun getSkipMarker(itemId: String, episodeId: String = "") =
         skipMarkerDao.getById(com.arkiv.player.data.ChapterMarker.idFor(itemId, episodeId))
@@ -1122,9 +1122,9 @@ class ArkivRepository(
      * para volver a mirar una escena de un capítulo terminado (desde `DetailScreen`/`EpisodeRow`
      * o el carrusel de `TvDetailScreen`), y ese re-play no puede pisar `lastPlayedAt`. Esa columna
      * alimenta tres consumidores que no distinguen "recién visto" de "reabrí algo viejo":
-     * [PlaybackDao.observeVistos] (vía `LibraryWatched.cross`, ordena "Ya visto" de la
-     * biblioteca), [PlaybackDao.seriesConProgreso] (vía `SeriesPorRevisar.elegir`, decide qué
-     * series barrer contra la red buscando capítulo nuevo) y [PlaybackDao.observeUltimaReproduccion]
+     * [PlaybackDao.observeWatched] (vía `LibraryWatched.cross`, ordena "Ya visto" de la
+     * biblioteca), [ItemDao.seriesWithProgress] (vía `SeriesPorRevisar.elegir`, decide qué
+     * series barrer contra la red buscando capítulo nuevo) y [PlaybackDao.observeLastPlayed]
      * (vía `LibraryOrder`, decide qué tarjeta sube al tope de "Mi biblioteca"). Sin este corte,
      * reabrir tres segundos un capítulo viejo subía esa serie al tope de "Ya visto" y la metía otra
      * vez en el barrido de red por hasta 30 días, sin que se haya visto nada nuevo.
@@ -1185,7 +1185,7 @@ class ArkivRepository(
                 // Marcar como visto SÍ es una interacción con el capítulo: pisa lastPlayedAt.
                 // Desmarcar NO lo es (es corregir un error, no "reproducir"), así que se preserva
                 // lo que ya había; si no, la tarjeta saltaría al tope de la biblioteca sin que se
-                // haya visto nada. Ver observeUltimaReproduccion, que ya no filtra por watched.
+                // haya visto nada. Ver observeLastPlayed, que ya no filtra por watched.
                 lastPlayedAt = if (watched) clock() else (existing?.lastPlayedAt ?: clock()),
             )
         )

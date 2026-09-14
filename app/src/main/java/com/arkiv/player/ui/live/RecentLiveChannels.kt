@@ -6,7 +6,7 @@ import com.arkiv.player.data.gateway.LiveChannel
 
 /**
  * Arma la fila de "canales en vivo recientes" del home (celular y TV): cruza lo último visto
- * ([recientes], YA ordenado por `vistoAt DESC` -- ver `LiveRecentDao.flowUltimos`, esta función NO
+ * ([recientes], YA ordenado por `vistoAt DESC` -- ver `LiveRecentDao.flowRecent`, esta función NO
  * reordena) con la caché local de canales ([cache], indexada por `code`) para completar logo y
  * número, que `live_recents` no guarda.
  *

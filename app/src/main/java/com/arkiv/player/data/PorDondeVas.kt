@@ -11,7 +11,7 @@ data class ProgresoDeCapitulo(
 /**
  * El progreso de un capítulo junto al ítem al que pertenece y al capítulo que le sigue, que es la
  * forma en que sale de la base para armar la fila del home de una sola pasada (ver
- * `PlaybackDao.observeProgresoConSiguiente`).
+ * `PlaybackDao.observeProgressWithNext`).
  */
 data class ProgresoEnItem(
     val itemId: String,

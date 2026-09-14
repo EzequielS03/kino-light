@@ -283,11 +283,11 @@ fun TvHomeScreen(
     // gateway) solo para esta fila. Tope de 10: acceso rápido, no el historial completo.
     val liveRecentDao = remember { graph.database.liveRecentDao() }
     val liveCacheDao = remember { graph.database.liveChannelCacheDao() }
-    val liveRecientesCrudo by liveRecentDao.flowUltimos(10).collectAsStateWithLifecycle(initialValue = emptyList())
+    val liveRecientesCrudo by liveRecentDao.flowRecent(10).collectAsStateWithLifecycle(initialValue = emptyList())
     var liveCachePorCodigo by remember { mutableStateOf<Map<String, LiveChannelCacheEntity>>(emptyMap()) }
     LaunchedEffect(liveRecientesCrudo) {
         if (liveRecientesCrudo.isNotEmpty()) {
-            liveCachePorCodigo = liveCacheDao.deCodigos(liveRecientesCrudo.map { it.code }).associateBy { it.code }
+            liveCachePorCodigo = liveCacheDao.byCodes(liveRecientesCrudo.map { it.code }).associateBy { it.code }
         }
     }
     val canalesRecientes = remember(liveRecientesCrudo, liveCachePorCodigo) {

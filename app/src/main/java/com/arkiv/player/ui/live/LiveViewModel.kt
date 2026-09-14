@@ -126,7 +126,7 @@ class LiveViewModel(
 
     init {
         viewModelScope.launch {
-            favoritosDao.flowTodos().collect { favs ->
+            favoritosDao.flowAll().collect { favs ->
                 _estado.update { it.copy(favoritos = favs.map { f -> f.code }.toSet()) }
             }
         }
@@ -156,7 +156,7 @@ class LiveViewModel(
             _estado.update { it.copy(cargando = true, error = null, categoriaActiva = categoria) }
 
             if (categoria == CATEGORIA_FAVORITOS) {
-                val favs = favoritosDao.flowTodos().first()
+                val favs = favoritosDao.flowAll().first()
                 if (_estado.value.categoriaActiva != categoria) return@launch
                 val canales = favs.map { LiveChannel(it.code, it.nombre, it.numero, it.logo) }
                 _estado.update { it.copy(canales = canales, cargando = false) }
@@ -164,7 +164,7 @@ class LiveViewModel(
                 return@launch
             }
 
-            val cacheados = cacheDao.deCategoria(categoria)
+            val cacheados = cacheDao.byCategory(categoria)
                 .map { LiveChannel(it.code, it.nombre, it.numero, it.logo) }
             if (cacheados.isNotEmpty() && _estado.value.categoriaActiva == categoria) {
                 _estado.update { it.copy(canales = cacheados, cargando = false) }
@@ -179,7 +179,7 @@ class LiveViewModel(
                 api.canales(categoria)
             }.onSuccess { frescos ->
                 val ahoraMs = System.currentTimeMillis()
-                cacheDao.reemplazar(categoria, frescos.map {
+                cacheDao.replace(categoria, frescos.map {
                     LiveChannelCacheEntity(it.code, categoria, it.nombre, it.numero, it.logo, ahoraMs)
                 })
                 if (_estado.value.categoriaActiva == categoria) {
@@ -257,8 +257,8 @@ class LiveViewModel(
 
     fun alternarFavorito(c: LiveChannel) {
         viewModelScope.launch {
-            if (c.code in _estado.value.favoritos) favoritosDao.borrar(c.code)
-            else favoritosDao.guardar(LiveFavoriteEntity(c.code, c.nombre, c.numero, c.logo))
+            if (c.code in _estado.value.favoritos) favoritosDao.delete(c.code)
+            else favoritosDao.save(LiveFavoriteEntity(c.code, c.nombre, c.numero, c.logo))
         }
     }
 }

@@ -7,7 +7,7 @@ import androidx.room.Query
 import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 
-/** Fila combinada para la fila "Continuar viendo" del inicio. */
+/** Combined row for the home's "Continue watching" row. */
 data class ContinueRow(
     val episodeId: String,
     val itemId: String,
@@ -15,7 +15,7 @@ data class ContinueRow(
     val displayName: String,
     val thumbPath: String?,
     val itemThumbnailUrl: String,
-    /** Sinopsis del ítem (no del episodio); null en los ítems que se agregaron sin metadata. */
+    /** The item's synopsis (not the episode's); null on items added with no metadata. */
     val itemDescription: String?,
     val positionMs: Long,
     val durationMs: Long,
@@ -31,40 +31,40 @@ data class ContinueRow(
     val stillUrl: String? = null,
     val episodeTitle: String? = null,
     /**
-     * Numeración del capítulo, para la línea de datos del héroe del home (ver
-     * [com.arkiv.player.ui.EtiquetaDeCapitulo.lineaDeHeroe]). `season`/`episode` son null cuando el
-     * nombre del archivo no declaraba numeración; ahí manda `orderIndex`, que NO significa lo mismo
-     * en todas las fuentes — de eso se encarga [com.arkiv.player.data.NumeracionCodificada], que
-     * para decidirlo necesita también `itemId` (ya está arriba) y `section`.
+     * Chapter numbering, for the home hero's data line (see
+     * [com.arkiv.player.ui.EtiquetaDeCapitulo.lineaDeHeroe]). `season`/`episode` are null when the
+     * file name declared no numbering; then `orderIndex` decides, which does NOT mean the same
+     * thing across every source — [com.arkiv.player.data.NumeracionCodificada] handles that, and
+     * to decide it also needs `itemId` (already above) and `section`.
      */
     val season: Int? = null,
     val episode: Int? = null,
     val orderIndex: Int = 0,
-    /** La sección del episodio ("Temporada 1" en las fuentes que numeran, "" o la carpeta si no). */
+    /** The episode's section ("Temporada 1" on sources that number, "" or the folder if not). */
     val section: String = "",
     /**
-     * Cuántos episodios vivos tiene el ítem. Entra en [isMovie] junto con [categoryOverride]; no
-     * se usa solo, porque un capítulo suelto recién agregado (Magis, web, torrent de catálogo,
-     * anime) también da 1 y NO es una película (ver [categoryOverride]).
+     * How many live episodes the item has. Feeds into [isMovie] together with [categoryOverride];
+     * not used alone, because a freshly added standalone chapter (Magis, web, catalog torrent,
+     * anime) also gives 1 and is NOT a movie (see [categoryOverride]).
      */
     val episodeCount: Int = 0,
     /**
-     * Override manual del ítem ("movie"/"series"/null), igual que en `items.categoryOverride`.
-     * Todas las fuentes con capítulos lo escriben como "series" desde el primer capítulo (ver
-     * `MagisEntities`), justamente para que [isMovie] no confunda ese primer capítulo con una
-     * película mientras `episodeCount` todavía vale 1.
+     * The item's manual override ("movie"/"series"/null), same as `items.categoryOverride`.
+     * Every source with chapters writes it as "series" from the first chapter on (see
+     * `MagisEntities`), precisely so [isMovie] doesn't mistake that first chapter for a movie
+     * while `episodeCount` is still 1.
      */
     val categoryOverride: String? = null,
     /**
-     * Ruta en disco del frame capturado, o null si el capítulo todavía no tiene uno. Gana sobre
-     * `stillUrl` y el resto: ver [com.arkiv.player.thumbnails.ThumbnailChoice].
+     * On-disk path of the captured frame, or null if the chapter doesn't have one yet. Wins over
+     * `stillUrl` and the rest: see [com.arkiv.player.thumbnails.ThumbnailChoice].
      *
-     * NO sale de la query: el nombre del archivo se deriva del episodeId por hash, así que la
-     * única fuente de verdad es el disco. Lo llena el repositorio al mapear.
+     * Does NOT come from the query: the file name is derived from the episodeId by hash, so the
+     * only source of truth is the disk. The repository fills it in when mapping.
      */
     val framePath: String? = null,
 ) {
-    /** Misma regla que [LibraryRow.isMovie]: override manual si existe, si no, detección por cantidad. */
+    /** Same rule as [LibraryRow.isMovie]: manual override if it exists, otherwise detection by count. */
     val isMovie: Boolean get() = when (categoryOverride) {
         "movie" -> true
         "series" -> false
@@ -73,11 +73,11 @@ data class ContinueRow(
 }
 
 /**
- * Progreso de un capítulo con el ítem al que pertenece y el capítulo que le SIGUE en la lista.
+ * A chapter's progress with the item it belongs to and the chapter that comes NEXT in the list.
  *
- * El "siguiente" viene resuelto desde SQL porque [com.arkiv.player.data.PorDondeVas] lo necesita
- * para ofrecer el capítulo que va después del último que terminaste, y traerse la lista completa de
- * capítulos de cada serie a memoria para averiguarlo sería traer miles de filas para usar una.
+ * The "next" one comes resolved from SQL because [com.arkiv.player.data.PorDondeVas] needs it to
+ * offer the chapter that follows the last one you finished, and pulling each series' whole
+ * chapter list into memory to figure it out would mean fetching thousands of rows to use one.
  */
 data class ProgresoConSiguienteRow(
     val episodeId: String,
@@ -85,12 +85,11 @@ data class ProgresoConSiguienteRow(
     val positionMs: Long,
     val watched: Boolean,
     val lastPlayedAt: Long,
-    /** El capítulo siguiente del mismo ítem, o null si este es el último. */
+    /** The same item's next chapter, or null if this is the last one. */
     val siguienteEpisodeId: String?,
 )
 
-/** Resumen de un ítem para la grilla de la biblioteca. */
-/** Fila cruda para decidir a qué series preguntarles por capítulos nuevos. Ver `SeriesPorRevisar`. */
+/** Raw row to decide which series to ask about new chapters. See `SeriesPorRevisar`. */
 data class SerieConProgresoRow(
     val itemId: String,
     val source: String,
@@ -98,19 +97,20 @@ data class SerieConProgresoRow(
     val ultimoVistoMs: Long,
 )
 
-/** Lo visto de un ítem, para la sección "Ya visto" de la biblioteca del TV. */
+/** What's been watched of an item, for the TV library's "Ya visto" section. */
 data class VistoRow(
     val itemId: String,
     val episodios: Int,
     val ultimoVistoMs: Long,
 )
 
-/** Cuándo se reprodujo por última vez algo de un ítem, para ordenar la biblioteca. */
+/** When something from an item was last played, to order the library. */
 data class UltimaReproduccionRow(
     val itemId: String,
     val ultimaMs: Long,
 )
 
+/** Summary of an item for the library grid. */
 data class LibraryRow(
     val identifier: String,
     val title: String,
@@ -175,12 +175,12 @@ interface ItemDao {
     suspend fun upsertItem(item: ItemEntity)
 
     /**
-     * Deja registrado cuántos episodios se le mostraron al usuario, que es lo que apaga el badge
-     * de "hay capítulos nuevos". Se hace con UPDATE puntual y no con `upsertItem` a propósito: el
-     * upsert es REPLACE y pisaría el resto de la fila con lo que tenga en memoria quien llame.
+     * Records how many episodes were shown to the user, which is what turns off the "new
+     * chapters" badge. Done with a point UPDATE and not with `upsertItem` on purpose: the upsert
+     * is a REPLACE and would overwrite the rest of the row with whatever the caller has in memory.
      */
-    @Query("UPDATE items SET episodiosVistosEnLista = :cuantos WHERE identifier = :itemId")
-    suspend fun marcarEpisodiosVistos(itemId: String, cuantos: Int)
+    @Query("UPDATE items SET episodiosVistosEnLista = :count WHERE identifier = :itemId")
+    suspend fun markEpisodesSeen(itemId: String, count: Int)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertEpisodes(episodes: List<EpisodeEntity>)
@@ -202,9 +202,9 @@ interface ItemDao {
     suspend fun updateCategoryOverride(itemId: String, value: String?)
 
     /**
-     * Renombrar a mano. Limpia `tituloCanonico` a propósito: lo que escribió la persona es lo que
-     * se muestra, y si quedara el canónico puesto la consulta de la biblioteca (que lo prefiere)
-     * seguiría mostrando el nombre de TMDB — el renombre no se vería por ningún lado.
+     * Rename by hand. Clears `tituloCanonico` on purpose: what the person wrote is what's shown,
+     * and if the canonical one were left set, the library's query (which prefers it) would keep
+     * showing TMDB's name — the rename wouldn't show up anywhere.
      */
     @Query(
         "UPDATE items SET title = :title, tituloCanonico = NULL, updatedAt = :updatedAt " +
@@ -226,13 +226,13 @@ interface ItemDao {
     fun observeLibrary(): Flow<List<LibraryRow>>
 
     /**
-     * Las series de la biblioteca con lo justo para decidir a cuáles preguntarles si salió un
-     * capítulo nuevo: fuente, cuántos episodios tienen y cuándo se reprodujo algo de ellas por
-     * última vez.
+     * The library's series with just enough to decide which ones to ask whether a new chapter
+     * came out: source, how many episodes they have and when something of theirs last played.
      *
-     * El `MAX(lastPlayedAt)` es el de CUALQUIER episodio de la serie: da igual por cuál vas, lo
-     * que importa es que la estés viendo. `LEFT JOIN` para que una serie sin progreso aparezca con
-     * 0 y la descarte el filtro puro, en vez de desaparecer acá (ver [SeriesPorRevisar]).
+     * The `MAX(lastPlayedAt)` is that of ANY episode of the series: whichever one you're on
+     * doesn't matter, what matters is that you're watching it. `LEFT JOIN` so a series with no
+     * progress shows up with 0 and the pure filter discards it, instead of disappearing here
+     * (see [SeriesPorRevisar]).
      */
     @Query(
         """
@@ -245,14 +245,14 @@ interface ItemDao {
         WHERE i.deleted = 0
         """
     )
-    suspend fun seriesConProgreso(): List<SerieConProgresoRow>
+    suspend fun seriesWithProgress(): List<SerieConProgresoRow>
 
     @Query("SELECT * FROM items WHERE identifier = :itemId")
     fun observeItem(itemId: String): Flow<ItemEntity?>
 
-    // deleted = 0 en las dos: un episodio borrado sigue en la tabla como tombstone (para que el
-    // borrado se propague por el sync), pero no es parte de la serie que el usuario importó — ni
-    // para listarlo, ni para contarlo, ni para navegar al siguiente.
+    // deleted = 0 on both: a deleted episode stays in the table as a tombstone (so the deletion
+    // propagates through sync), but it isn't part of the series the user imported — not to list
+    // it, not to count it, not to navigate to the next one.
     @Query("SELECT * FROM episodes WHERE itemId = :itemId AND deleted = 0 ORDER BY orderIndex ASC")
     fun observeEpisodes(itemId: String): Flow<List<EpisodeEntity>>
 
@@ -265,7 +265,7 @@ interface ItemDao {
     @Query("SELECT * FROM items")
     suspend fun getAllItems(): List<ItemEntity>
 
-    /** Borrado suave: marca el tombstone; el trigger sube updatedAt para que se propague. */
+    /** Soft delete: sets the tombstone; the trigger bumps updatedAt so it propagates. */
     @Query("UPDATE items SET deleted = 1 WHERE identifier = :itemId")
     suspend fun softDeleteItem(itemId: String)
 
@@ -273,8 +273,8 @@ interface ItemDao {
     suspend fun softDeleteEpisodesOf(itemId: String)
 
     /**
-     * Un solo episodio. Lo usa `ArkivRepository.addMagisSeason` para barrer el que dejó un guardado
-     * con forma de película sobre una serie (ver `MagisEntities.episodioIdDePelicula`).
+     * A single episode. Used by `ArkivRepository.addMagisSeason` to sweep the one a save shaped
+     * as a movie left over a series (see `MagisEntities.episodioIdDePelicula`).
      */
     @Query("UPDATE episodes SET deleted = 1 WHERE id = :episodeId")
     suspend fun softDeleteEpisode(episodeId: String)
@@ -292,19 +292,19 @@ interface PlaybackDao {
     fun observe(episodeId: String): Flow<PlaybackEntity?>
 
     /**
-     * Todo el progreso vivo, con el capítulo siguiente de cada uno, para que
-     * [com.arkiv.player.data.PorDondeVas] arme la fila "Continuar viendo".
+     * All live progress, with each one's next chapter, for
+     * [com.arkiv.player.data.PorDondeVas] to build the "Continue watching" row.
      *
-     * NO filtra por `watched` ni por posición, a propósito: filtrar acá fue exactamente el bug. La
-     * consulta vieja pedía `watched = 0`, así que de una serie vista al día solo sobrevivían los
-     * capítulos ABANDONADOS y la fila terminaba ofreciendo un capítulo de treinta atrás (Dragon Ball
-     * en device, 2026-08-13: e136 terminado anoche, la tarjeta mostraba el e104). Para saber por
-     * dónde vas hay que ver TAMBIÉN lo terminado, que es lo que dice dónde quedaste; el filtrado lo
-     * hace la regla, que tiene el contexto de toda la serie, no la consulta fila por fila.
+     * Does NOT filter by `watched` or by position, on purpose: filtering here was exactly the
+     * bug. The old query asked for `watched = 0`, so of a series watched daily only the ABANDONED
+     * chapters survived and the row ended up offering a chapter from thirty back (Dragon Ball on
+     * device, 2026-08-13: e136 finished last night, the card showed e104). To know where you're
+     * at you also have to see what's finished, which is what says where you left off; the
+     * filtering is done by the rule, which has the whole series' context, not the row-by-row query.
      *
-     * El desempate por `id` en el subselect del siguiente NO es cosmético: dos capítulos con el
-     * mismo `orderIndex` (pasa cuando la fuente no numera) harían que `> orderIndex` se saltara al
-     * hermano.
+     * The tiebreak by `id` in the next-chapter subselect is NOT cosmetic: two chapters with the
+     * same `orderIndex` (happens when the source doesn't number) would make `> orderIndex` skip
+     * over the sibling.
      */
     @Query(
         """
@@ -322,17 +322,17 @@ interface PlaybackDao {
         WHERE p.deleted = 0 AND e.deleted = 0 AND i.deleted = 0
         """
     )
-    fun observeProgresoConSiguiente(): Flow<List<ProgresoConSiguienteRow>>
+    fun observeProgressWithNext(): Flow<List<ProgresoConSiguienteRow>>
 
     /**
-     * Los datos de pantalla de los capítulos que ya eligió [com.arkiv.player.data.PorDondeVas].
+     * The screen data of the chapters [com.arkiv.player.data.PorDondeVas] already chose.
      *
-     * Cuelga de `episodes` y NO de `playback`, con el progreso en LEFT JOIN, porque el capítulo
-     * elegido puede ser uno que nunca tocaste (el siguiente al que terminaste): ahí no hay fila de
-     * `playback` y la tarjeta va con la barra en cero.
+     * Hangs off `episodes` and NOT `playback`, with the progress in a LEFT JOIN, because the
+     * chosen chapter can be one you never touched (the one after what you finished): there's no
+     * `playback` row there and the card goes with the bar at zero.
      *
-     * `lastPlayedAt` sale en 0 en ese caso; el repositorio lo pisa con el del ancla, que es lo que
-     * ordena la fila (ver `observeContinueWatching`).
+     * `lastPlayedAt` comes out as 0 in that case; the repository overwrites it with the anchor's,
+     * which is what orders the row (see `observeContinueWatching`).
      */
     @Query(
         """
@@ -353,18 +353,17 @@ interface PlaybackDao {
         WHERE e.id IN (:episodeIds) AND e.deleted = 0 AND i.deleted = 0
         """
     )
-    suspend fun filasParaContinuar(episodeIds: List<String>): List<ContinueRow>
+    suspend fun continueWatchingRows(episodeIds: List<String>): List<ContinueRow>
 
     /**
-     * Los ítems con capítulos ya vistos, con cuántos y cuándo fue el último.
+     * Items with already-watched chapters, with how many and when the last one was.
      *
-     * Gemela de [observeContinueWatching] pero al revés (`watched = 1`): lo que sale de "Continuar
-     * viendo" al terminarlo tiene que aterrizar en algún lado, y hasta ahora no aterrizaba en
-     * ninguno.
+     * Twin of [observeContinueWatching] but backwards (`watched = 1`): what comes out of
+     * "Continue watching" on finishing it has to land somewhere, and until now it landed nowhere.
      *
-     * NO hace `JOIN items`: el filtro por ítem vivo lo aplica `LibraryWatched.cross`, que ya
-     * recibe los grupos (y los grupos ya excluyen los borrados). Sumar el join acá duplicaría esa
-     * regla en dos lugares.
+     * Doesn't do a `JOIN items`: the live-item filter is applied by `LibraryWatched.cross`, which
+     * already receives the groups (and the groups already exclude the deleted ones). Adding the
+     * join here would duplicate that rule in two places.
      */
     @Query(
         """
@@ -375,19 +374,19 @@ interface PlaybackDao {
         GROUP BY e.itemId
         """
     )
-    fun observeVistos(): Flow<List<VistoRow>>
+    fun observeWatched(): Flow<List<VistoRow>>
 
     /**
-     * Cuándo se reprodujo por última vez CUALQUIER capítulo de cada ítem, para el orden de la
-     * biblioteca (ver [com.arkiv.player.data.biblioteca.LibraryOrder]).
+     * When ANY chapter of each item was last played, for the library's order (see
+     * [com.arkiv.player.data.biblioteca.LibraryOrder]).
      *
-     * Gemela de [observeVistos] pero SIN el filtro `watched = 1`: acá cuenta igual el capítulo
-     * terminado que el que quedó a medias. Si solo contara lo terminado, una serie que estás viendo
-     * ahora mismo no subiría hasta que termines el capítulo; si solo contara lo de a medias, se caería
-     * del tope justo al terminarlo.
+     * Twin of [observeWatched] but WITHOUT the `watched = 1` filter: here a finished chapter
+     * counts the same as one left halfway. If it only counted the finished ones, a series you're
+     * watching right now wouldn't move up until you finish the chapter; if it only counted the
+     * halfway ones, it would fall off the top right as you finish it.
      *
-     * NO hace `JOIN items`: el filtro por ítem vivo lo aplica quien cruza este mapa contra la
-     * biblioteca, que ya excluye los borrados. Mismo criterio que [observeVistos].
+     * Doesn't do a `JOIN items`: the live-item filter is applied by whoever crosses this map
+     * against the library, which already excludes the deleted ones. Same criterion as [observeWatched].
      */
     @Query(
         """
@@ -398,12 +397,12 @@ interface PlaybackDao {
         GROUP BY e.itemId
         """
     )
-    fun observeUltimaReproduccion(): Flow<List<UltimaReproduccionRow>>
+    fun observeLastPlayed(): Flow<List<UltimaReproduccionRow>>
 
     @Query("SELECT * FROM playback WHERE episodeId IN (SELECT id FROM episodes WHERE itemId = :itemId)")
     fun observePlaybackForItem(itemId: String): Flow<List<PlaybackEntity>>
 
-    /** Lo último que se reprodujo, con su ítem, del más reciente al más viejo. Para "Para ti". */
+    /** The last things played, with their item, from most recent to oldest. For "Para ti". */
     @Query(
         """
         SELECT p.episodeId AS episodeId, p.positionMs AS positionMs, p.durationMs AS durationMs,
@@ -415,10 +414,10 @@ interface PlaybackDao {
         JOIN items i ON i.identifier = e.itemId
         WHERE p.deleted = 0 AND e.deleted = 0 AND i.deleted = 0
         ORDER BY p.lastPlayedAt DESC
-        LIMIT :tope
+        LIMIT :limit
         """
     )
-    suspend fun historialReciente(tope: Int): List<FilaDeHistorial>
+    suspend fun recentHistory(limit: Int): List<FilaDeHistorial>
 }
 
 /** Descarga combinada con datos del episodio para mostrar en pantalla. */
@@ -451,22 +450,22 @@ interface SkipMarkerDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(marker: SkipMarkerEntity)
 
-    /** El marcador de TODA la serie (el que se pone a mano en el diálogo): `episodeId` vacío. */
+    /** The WHOLE series' marker (the one set by hand in the dialog): empty `episodeId`. */
     @Query("SELECT * FROM skip_markers WHERE itemId = :itemId AND episodeId = ''")
     suspend fun get(itemId: String): SkipMarkerEntity?
 
     @Query("SELECT * FROM skip_markers WHERE itemId = :itemId AND episodeId = ''")
     fun observe(itemId: String): Flow<SkipMarkerEntity?>
 
-    /** El del capítulo y el de la serie, en una sola consulta. `ChapterMarker.choose` decide cuál manda. */
+    /** The chapter's and the series', in a single query. `ChapterMarker.choose` decides which wins. */
     @Query("SELECT * FROM skip_markers WHERE itemId = :itemId AND episodeId IN (:episodeId, '') AND deleted = 0")
-    fun observeDeCapitulo(itemId: String, episodeId: String): Flow<List<SkipMarkerEntity>>
+    fun observeForChapter(itemId: String, episodeId: String): Flow<List<SkipMarkerEntity>>
 
     /** One row by its own key (PK). Used by [com.arkiv.player.data.ArkivRepository.getSkipMarker] to read the marker for an exact scope (chapter or whole series). */
     @Query("SELECT * FROM skip_markers WHERE id = :id")
     suspend fun getById(id: String): SkipMarkerEntity?
 
-    /** Borra el marcador puesto a mano de la SERIE (`episodeId` vacío); los de capítulo no se tocan. */
+    /** Deletes the SERIES' marker set by hand (empty `episodeId`); chapter ones aren't touched. */
     @Query("DELETE FROM skip_markers WHERE itemId = :itemId AND episodeId = ''")
     suspend fun delete(itemId: String)
 
@@ -477,77 +476,77 @@ interface SkipMarkerDao {
 @Dao
 interface LiveFavoriteDao {
     @Query("SELECT * FROM live_favorites WHERE deleted = 0 ORDER BY numero")
-    fun flowTodos(): Flow<List<LiveFavoriteEntity>>
+    fun flowAll(): Flow<List<LiveFavoriteEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun guardar(f: LiveFavoriteEntity)
+    suspend fun save(f: LiveFavoriteEntity)
 
     // Doesn't touch `updatedAt` here: leaving it alone is what lets the SyncTriggers UPDATE
     // trigger's guard (`WHEN NEW.updatedAt = OLD.updatedAt`) fire and reseal it with a fresh clock
     // -- same pattern as `softDeleteItem`. Nothing reads that clock anymore (see SyncTriggers),
     // but the trigger still runs on every local write.
     @Query("UPDATE live_favorites SET deleted = 1 WHERE code = :code")
-    suspend fun borrar(code: String)
+    suspend fun delete(code: String)
 
     @Query("SELECT EXISTS(SELECT 1 FROM live_favorites WHERE code = :code AND deleted = 0)")
-    suspend fun esFavorito(code: String): Boolean
+    suspend fun isFavorite(code: String): Boolean
 
-    // --- Sync (mismo patrón que skip_markers) ---
+    // --- Sync (same pattern as skip_markers) ---
     @Query("SELECT * FROM live_favorites")
     suspend fun getAll(): List<LiveFavoriteEntity>
 }
 
 @Dao
 interface LiveRecentDao {
-    @Query("SELECT * FROM live_recents ORDER BY vistoAt DESC LIMIT :limite")
-    fun flowUltimos(limite: Int = 20): Flow<List<LiveRecentEntity>>
+    @Query("SELECT * FROM live_recents ORDER BY vistoAt DESC LIMIT :limit")
+    fun flowRecent(limit: Int = 20): Flow<List<LiveRecentEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun anotar(r: LiveRecentEntity)
+    suspend fun record(r: LiveRecentEntity)
 
-    // --- Sync (mismo patrón que skip_markers) ---
+    // --- Sync (same pattern as skip_markers) ---
     @Query("SELECT * FROM live_recents")
     suspend fun getAll(): List<LiveRecentEntity>
 
     /**
-     * Purga única del 2026-08-14: canales de adultos que quedaron anotados ANTES de que
-     * `abrirCanalActual` dejara de anotarlos. Aparecían en la fila "Canales en vivo" del inicio,
-     * a la vista de cualquiera.
+     * One-time 2026-08-14 purge: adult channels that stayed recorded from BEFORE
+     * `abrirCanalActual` stopped recording them. They showed up in the home's "Canales en vivo"
+     * row, in plain sight of anyone.
      *
-     * Se borra TODO y no solo los de adultos porque el aparato no tiene forma de saber cuáles lo
-     * eran: los recientes guardan código y nombre, no la categoría. Y no cuesta nada — la nube ya
-     * quedó limpia, así que el próximo sync repuebla la lista con los legítimos.
+     * Deletes EVERYTHING and not just the adult ones because the device has no way to know which
+     * ones were: the recents store code and name, not the category. And it costs nothing — the
+     * cloud was already left clean, so the next sync repopulates the list with the legitimate ones.
      */
     @Query("DELETE FROM live_recents")
-    suspend fun borrarTodos()
+    suspend fun deleteAll()
 }
 
 @Dao
 interface LiveChannelCacheDao {
-    @Query("SELECT * FROM live_channels_cache WHERE categoria = :categoria ORDER BY numero")
-    suspend fun deCategoria(categoria: Int): List<LiveChannelCacheEntity>
+    @Query("SELECT * FROM live_channels_cache WHERE categoria = :category ORDER BY numero")
+    suspend fun byCategory(category: Int): List<LiveChannelCacheEntity>
 
     /**
-     * Filas cacheadas de una lista puntual de canales (por `code`), sin filtrar por categoría --
-     * para enriquecer con logo/número datos que llegan de otra fuente que no trae categoría propia
-     * (los "recientes" de la fila del home, ver
-     * `canalesRecientesParaHome` en `ui/live/RecentLiveChannels.kt`). Puede devolver más de una
-     * fila por `code` (un canal puede estar cacheado en varias categorías del portal): logo/numero
-     * no cambian entre categorías, así que a quien llama le da igual cuál le llegue.
+     * Cached rows of a specific list of channels (by `code`), with no category filter -- to
+     * enrich with logo/number data that arrives from another source that carries no category of
+     * its own (the home row's "recents", see `canalesRecientesParaHome` in
+     * `ui/live/RecentLiveChannels.kt`). Can return more than one row per `code` (a channel can be
+     * cached in several of the portal's categories): logo/number don't change between categories,
+     * so the caller doesn't care which one it gets.
      */
     @Query("SELECT * FROM live_channels_cache WHERE code IN (:codes)")
-    suspend fun deCodigos(codes: List<String>): List<LiveChannelCacheEntity>
+    suspend fun byCodes(codes: List<String>): List<LiveChannelCacheEntity>
 
-    @Query("DELETE FROM live_channels_cache WHERE categoria = :categoria")
-    suspend fun limpiar(categoria: Int)
+    @Query("DELETE FROM live_channels_cache WHERE categoria = :category")
+    suspend fun clear(category: Int)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun guardar(filas: List<LiveChannelCacheEntity>)
+    suspend fun save(rows: List<LiveChannelCacheEntity>)
 
     @Transaction
-    suspend fun reemplazar(categoria: Int, filas: List<LiveChannelCacheEntity>) {
-        limpiar(categoria)
-        guardar(filas)
+    suspend fun replace(category: Int, rows: List<LiveChannelCacheEntity>) {
+        clear(category)
+        save(rows)
     }
 }
 

@@ -125,7 +125,7 @@ fun LiveScreen(
     // directo de Room. Sin numero/logo propios (Tarea 10 no los guarda para "recientes"), así que se
     // enriquecen con lo que ya esté cargado en `estado.canales`, si el canal aparece ahí.
     val recentDao = remember { graph.database.liveRecentDao() }
-    val recientesCrudo by recentDao.flowUltimos().collectAsStateWithLifecycle(initialValue = emptyList())
+    val recientesCrudo by recentDao.flowRecent().collectAsStateWithLifecycle(initialValue = emptyList())
     val recientes = remember(recientesCrudo, estado.canales) {
         recientesCrudo.map { r ->
             estado.canales.find { it.code == r.code }?.copy(nombre = r.nombre)

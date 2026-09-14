@@ -12,13 +12,13 @@ data class ItemEntity(
     val description: String?,
     val thumbnailUrl: String,
     val addedAt: Long,
-    /** Override manual de tipo: "movie" | "series" | null (= detección automática). */
+    /** Manual type override: "movie" | "series" | null (= automatic detection). */
     val categoryOverride: String? = null,
-    /** Origen: "archive" (default) | "torrent". */
+    /** Origin: "archive" (default) | "torrent". */
     val source: String = "archive",
-    /** Para torrents: bytes del .torrent en base64 (para re-streamear). Null si es archive. */
+    /** For torrents: the .torrent's bytes in base64 (to re-stream it). Null if it's archive. */
     val torrentData: String? = null,
-    /** Sync: reloj de última modificación (LWW) y tombstone de borrado. */
+    /** Sync: last-modification clock (LWW) and delete tombstone. */
     val updatedAt: Long = 0,
     val deleted: Boolean = false,
     /**
@@ -31,28 +31,28 @@ data class ItemEntity(
      */
     val episodiosVistosEnLista: Int? = null,
     /**
-     * Serie de TMDB a la que corresponde este ítem, cuando se sabe. Se guarda al agregarlo desde
-     * la búsqueda; sin esto el vínculo se pierde y la pantalla de detalle no tiene a quién pedirle
-     * los títulos de los capítulos. Null para ítems agregados a mano por identificador/URL.
+     * The TMDB series this item corresponds to, when known. Saved when it gets added from
+     * search; without this the link is lost and the detail screen has nobody to ask for the
+     * chapters' titles. Null for items added by hand via identifier/URL.
      */
     val tmdbId: Int? = null,
     /**
-     * El nombre con el que TMDB conoce esta obra, cuando se pudo identificar. Es lo que la
-     * biblioteca MUESTRA; [title] queda con lo que dijo la fuente.
+     * The name TMDB knows this work by, when it could be identified. It's what the library
+     * SHOWS; [title] is left with whatever the source said.
      *
-     * Al lado y no encima: [title] guarda el nombre del portal ("Shin seiki evangerion Temp.1") o
-     * el renombre manual de la persona, y los dos se perderían si el canónico los pisara — el día
-     * que TMDB se equivoque no habría con qué volver atrás, y un renombre manual no podría ganarle
-     * a la identificación automática. Renombrar a mano lo pone en null, para que lo que escribió
-     * la persona sea lo que se vea.
+     * Alongside and not overwriting it: [title] holds the portal's name ("Shin seiki evangerion
+     * Temp.1") or the person's manual rename, and both would be lost if the canonical one
+     * overwrote them — the day TMDB gets it wrong there would be no way back, and a manual
+     * rename couldn't win over automatic identification. Renaming by hand sets this to null, so
+     * what the person wrote is what's shown.
      *
-     * Null = no se identificó (o no se preguntó todavía). Ver `MagisEntities.buildSeason`.
+     * Null = not identified (or not asked yet). See `MagisEntities.buildSeason`.
      */
     val tituloCanonico: String? = null,
     /**
-     * "movie" | "tv" (mismo vocabulario que [com.arkiv.player.data.catalog.TmdbItem.type]), cuando
-     * se sabe con certeza al agregar. Distinto de [categoryOverride] -que es un override MANUAL y
-     * usa "series", no "tv"-: esto es el tipo que trajo la fuente, no una corrección de la persona.
+     * "movie" | "tv" (same vocabulary as [com.arkiv.player.data.catalog.TmdbItem.type]), when
+     * known for certain on add. Different from [categoryOverride] -which is a MANUAL override and
+     * uses "series", not "tv"-: this is the type the source brought, not a person's correction.
      *
      * Lets the library tell with certainty whether it already has something (see
      * [com.arkiv.player.data.model.WorkKind]) instead of comparing by title, which is fuzzy.
@@ -87,14 +87,14 @@ data class EpisodeEntity(
      */
     val season: Int? = null,
     val episode: Int? = null,
-    /** Para torrents: índice del archivo dentro del torrent. Null si es archive. */
+    /** For torrents: the file's index inside the torrent. Null if it's archive. */
     val torrentFileIndex: Int? = null,
     /**
-     * Para series donde cada episodio es su propio torrent (ej. anime del catálogo):
-     * bytes del .torrent de ESTE episodio en base64. Null = usar el torrent del ítem.
+     * For series where each episode is its own torrent (e.g. catalog anime):
+     * THIS episode's .torrent bytes in base64. Null = use the item's torrent.
      */
     val torrentData: String? = null,
-    /** Sync: reloj de última modificación (LWW) y tombstone de borrado. */
+    /** Sync: last-modification clock (LWW) and delete tombstone. */
     val updatedAt: Long = 0,
     val deleted: Boolean = false,
 )
@@ -106,21 +106,21 @@ data class PlaybackEntity(
     val durationMs: Long,
     val watched: Boolean,
     val lastPlayedAt: Long,
-    /** Sync: reloj de última modificación (LWW) y tombstone de borrado. */
+    /** Sync: last-modification clock (LWW) and delete tombstone. */
     val updatedAt: Long = 0,
     val deleted: Boolean = false,
 )
 
 /**
- * Tiempos de intro/outro. La llave es derivada (`"<itemId>|<episodeId>"`, ver
- * [com.arkiv.player.data.ChapterMarker.idFor]) porque el sync empuja cada colección por UN
- * campo natural y una clave compuesta rompería ese mecanismo.
+ * Intro/outro times. The key is derived (`"<itemId>|<episodeId>"`, see
+ * [com.arkiv.player.data.ChapterMarker.idFor]) because sync pushes each collection by ONE
+ * natural field and a composite key would break that mechanism.
  *
- * [episodeId] vacío = vale para toda la serie: es el marcador que se pone a mano en el diálogo.
+ * Empty [episodeId] = applies to the whole series: it's the marker set by hand in the dialog.
  *
- * [origen] distingue lo puesto A MANO de lo que trajo AniSkip solo: ver
- * [com.arkiv.player.data.ChapterMarker.choose]. El default es MANUAL a propósito -- lo que ya
- * existe y lo que escriba una persona vale como manual sin tener que acordarse de ponerlo.
+ * [origen] tells apart what was set BY HAND from what AniSkip brought on its own: see
+ * [com.arkiv.player.data.ChapterMarker.choose]. The default is MANUAL on purpose -- what already
+ * exists and whatever a person writes counts as manual without having to remember to set it.
  */
 @Entity(tableName = "skip_markers")
 data class SkipMarkerEntity(
@@ -136,9 +136,9 @@ data class SkipMarkerEntity(
 )
 
 /**
- * Arte de TMDB por ítem (local, no se sincroniza). `backdropsJson` es una lista JSON de URLs de
- * backdrops apaisados; el home usa la 1ª para la tarjeta y una al azar para el hero. Un ítem sin
- * match queda con backdrops vacíos (`"[]"`) pero con fila, para no re-buscar en cada carga.
+ * TMDB art per item (local, not synced). `backdropsJson` is a JSON list of landscape backdrop
+ * URLs; the home uses the 1st for the card and a random one for the hero. An item with no match
+ * is left with empty backdrops (`"[]"`) but with a row, so as not to re-search on every load.
  */
 @Entity(tableName = "artwork")
 data class ArtworkEntity(
@@ -156,8 +156,8 @@ data class ArtworkEntity(
 }
 
 /**
- * Historial de búsquedas del catálogo (anime/películas). PK compuesta (query, kind): el mismo
- * texto buscado en pestañas distintas (movie/tv/anime) no se pisa entre sí.
+ * Catalog search history (anime/movies). Composite PK (query, kind): the same text searched in
+ * different tabs (movie/tv/anime) doesn't overwrite itself.
  */
 @Entity(tableName = "search_history", primaryKeys = ["query", "kind"])
 data class SearchHistoryEntity(
@@ -167,10 +167,10 @@ data class SearchHistoryEntity(
 )
 
 /**
- * Un título abierto desde el buscador, para poder volver a él sin buscarlo de nuevo.
+ * A title opened from the search, to be able to come back to it without searching again.
  *
- * La PK es el id derivado que arma [com.arkiv.player.data.SearchHistoryPolicy.titleId]: encierra
- * la regla de identidad en un solo lugar y deja que REPLACE haga el dedupe.
+ * The PK is the derived id [com.arkiv.player.data.SearchHistoryPolicy.titleId] builds: it locks
+ * the identity rule into one place and lets REPLACE do the dedup.
  */
 @Entity(tableName = "recent_titles")
 data class RecentTitleEntity(
@@ -198,28 +198,28 @@ data class RecentTitleEntity(
 data class DownloadEntity(
     @PrimaryKey val episodeId: String,
     val variant: String,              // always "" today; only archive.org ever filled it, and that source is gone
-    val state: String,                // ver LocalDownloadState
+    val state: String,                // see LocalDownloadState
     val progress: Float,              // 0..1
-    val localUri: String?,            // histórico: file:// que dejó el DownloadManager del sistema
-    val bytes: Long,                  // tamaño total conocido (0 si aún no se sabe)
+    val localUri: String?,            // historical: the file:// the system's DownloadManager left
+    val bytes: Long,                  // known total size (0 if not known yet)
     val source: String = "archive",   // "magis" | "ditu" | "archive" (fallback) | legacy "torrent"/"web"
-    val filePath: String? = null,     // ruta absoluta del archivo final
+    val filePath: String? = null,     // final file's absolute path
     val bytesDone: Long = 0,
-    // Huérfana desde la poda de NUC (Task 8): nada la lee ni la escribe más (era el puente
-    // web->NUC, borrado en esa misma tarea). Se deja el campo -y la columna física- tal cual,
-    // sin migración que la elimine: en SQLite eso exige recrear toda la tabla `downloads` (que sí
-    // tiene datos reales de usuario), a diferencia de las tres tablas 100% huérfanas que si se
-    // dropearon en MIGRATION_28_29. Ver el reporte de la ronda de fix de Task 8 (follow-up
-    // disclosed, no intentado por ser más riesgoso que el drop de las tres tablas).
+    // Orphaned since the NUC pruning (Task 8): nothing reads or writes it anymore (it was the
+    // web->NUC bridge, deleted in that same task). The field -and the physical column- is left
+    // as-is, with no migration to remove it: in SQLite that requires rebuilding the whole
+    // `downloads` table (which does have real user data), unlike the three fully-orphaned tables
+    // that did get dropped in MIGRATION_28_29. See the Task 8 fix round's report (a disclosed
+    // follow-up, not attempted since it's riskier than dropping the three tables).
     val stagingItemId: Long? = null,
     val error: String? = null,
     val createdAt: Long = 0,
-    val sizeConfirmed: Boolean = false, // el usuario ya aceptó la compuerta de tamaño
+    val sizeConfirmed: Boolean = false, // the user already accepted the size gate
 )
 
 /**
  * A live TV channel marked as a favorite. `deleted` is the live un-favorite mechanism: unfavoriting
- * sets it (`LiveFavoriteDao.borrar`), and every read filters on it (`flowTodos`, `esFavorito`).
+ * sets it (`LiveFavoriteDao.delete`), and every read filters on it (`flowAll`, `isFavorite`).
  * `updatedAt` is left over from this branch's two removed cloud-sync paths (see
  * [com.arkiv.player.data.db.SyncTriggers]) and has no reader today.
  */
@@ -233,7 +233,7 @@ data class LiveFavoriteEntity(
     val deleted: Boolean = false,
 )
 
-/** Últimos canales vistos. No lleva tombstone: se poda por antigüedad, no se borra a mano. */
+/** Last channels watched. Carries no tombstone: it's pruned by age, not deleted by hand. */
 @Entity(tableName = "live_recents")
 data class LiveRecentEntity(
     @PrimaryKey val code: String,
@@ -243,17 +243,17 @@ data class LiveRecentEntity(
 )
 
 /**
- * Caché local del catálogo de canales, para que la sección abra al instante y siga
- * mostrando la grilla aunque el gateway esté lento o caído. **No viaja por el sync**:
- * es caché reconstruible, no datos del usuario, y meterla al snapshot sería mandar
- * 1.000 filas entre dispositivos para nada.
+ * Local cache of the channel catalog, so the section opens instantly and keeps showing the
+ * grid even when the gateway is slow or down. **Doesn't travel through sync**: it's rebuildable
+ * cache, not user data, and putting it in the snapshot would mean sending 1,000 rows between
+ * devices for nothing.
  *
- * PK compuesta `(code, categoria)`, NO solo `code`: un mismo canal puede estar en varias
- * categorías del portal (p.ej. "Deportes" y "Todos"). Con PK por `code` solo, cachear la
- * categoría B reescribía (`REPLACE`) las filas de los canales que también están en A, dejándolas
- * con `categoria = B` -- y al volver a A desde caché (gateway caído), esos canales desaparecían
- * de la grilla (hallazgo F5 de la revisión final). Se autocuraba en cuanto el gateway volvía a
- * responder, pero la caché existe justo para cuando NO responde.
+ * Composite PK `(code, categoria)`, NOT just `code`: the same channel can be in several of the
+ * portal's categories (e.g. "Deportes" and "Todos"). With a PK on `code` alone, caching category
+ * B would overwrite (`REPLACE`) the rows of channels also in A, leaving them with `categoria = B`
+ * -- and going back to A from cache (gateway down), those channels would disappear from the grid
+ * (finding F5 of the final review). It self-healed as soon as the gateway answered again, but the
+ * cache exists precisely for when it does NOT answer.
  */
 @Entity(tableName = "live_channels_cache", primaryKeys = ["code", "categoria"])
 data class LiveChannelCacheEntity(
@@ -266,12 +266,12 @@ data class LiveChannelCacheEntity(
 )
 
 /**
- * Still (fotograma oficial) de un capítulo, resuelto desde TMDB. Local y NO sincronizado, igual
- * que [ArtworkEntity]: es caché derivable, no datos del usuario. Va en su propia tabla y no como
- * columna de `episodes` a propósito — esa tabla tiene triggers de sync, y tocar 49 filas por serie
- * las empujaría a la nube sin necesidad.
+ * A chapter's still (official frame), resolved from TMDB. Local and NOT synced, same as
+ * [ArtworkEntity]: it's derivable cache, not user data. Goes in its own table and not as a
+ * column of `episodes` on purpose — that table has sync triggers, and touching 49 rows per
+ * series would push them to the cloud for no reason.
  *
- * [stillUrl] null = ya se consultó y TMDB no tenía imagen; la fila igual queda para no repreguntar.
+ * [stillUrl] null = already queried and TMDB had no image; the row stays anyway so as not to re-ask.
  */
 @Entity(tableName = "episode_still")
 data class EpisodeStillEntity(
@@ -279,29 +279,29 @@ data class EpisodeStillEntity(
     val stillUrl: String? = null,
     val fetchedAt: Long = 0,
     /**
-     * Título del capítulo según TMDB. Se cachea acá y no en `episodes` por lo mismo que
-     * [stillUrl]: es dato derivable, y esa tabla tiene triggers de sync.
-     * Null = ya se consultó y no había título (o la fila es anterior a la v16).
+     * The chapter's title per TMDB. Cached here and not in `episodes` for the same reason as
+     * [stillUrl]: it's derivable data, and that table has sync triggers.
+     * Null = already queried and there was no title (or the row predates v16).
      */
     val title: String? = null,
     /**
-     * Sinopsis del capítulo según TMDB. Vive acá y no en `episodes` por lo mismo que [stillUrl] y
-     * [title]: es dato derivable y esa tabla tiene triggers de sync. Null = no se pudo resolver.
+     * The chapter's synopsis per TMDB. Lives here and not in `episodes` for the same reason as
+     * [stillUrl] and [title]: it's derivable data and that table has sync triggers. Null = couldn't be resolved.
      */
     val overview: String? = null,
 )
 
 /**
- * El frame capturado de un capítulo. El JPEG NO está acá: vive en `filesDir/frames/` (ver
- * [com.arkiv.player.thumbnails.FrameStore]) y esta fila es el índice.
+ * The captured frame of a chapter. The JPEG is NOT here: it lives in `filesDir/frames/` (see
+ * [com.arkiv.player.thumbnails.FrameStore]) and this row is the index.
  *
- * `updatedAt` y `deleted` existen desde el día uno aunque la fase 1 no sincronice: son el reloj y
- * el tombstone que va a usar la fase 2, y agregarlos después obligaría a otra migración.
+ * `updatedAt` and `deleted` exist since day one even though phase 1 doesn't sync: they're the
+ * clock and the tombstone phase 2 will use, and adding them later would force another migration.
  */
 @Entity(tableName = "episode_frame")
 data class EpisodeFrameEntity(
     @PrimaryKey val episodeId: String,
-    /** De qué punto del capítulo es el frame. */
+    /** Which point of the chapter the frame is from. */
     val positionMs: Long,
     val capturedAt: Long,
     val updatedAt: Long = 0,
@@ -338,42 +338,42 @@ data class EpisodeFrameEntity(
 )
 
 /**
- * Una recomendación generada EN EL APARATO por
- * [com.arkiv.player.data.recomendaciones.ForYouGenerator], con los modelos gratis de Kilo, a partir
- * del historial local, para la fila "Para ti" del inicio. La app SÍ escribe acá directamente
- * (`RecomendacionDao.reemplazar`, llamado desde `AppGraph.generadorParaTi`): no hay PocketBase ni
- * sync detrás -- `CloudSyncManager` no existe en esta rama.
+ * A recommendation generated ON THE DEVICE by
+ * [com.arkiv.player.data.recomendaciones.ForYouGenerator], with Kilo's free models, from the
+ * local history, for the home's "Para ti" row. The app DOES write here directly
+ * (`RecomendacionDao.reemplazar`, called from `AppGraph.generadorParaTi`): there's no PocketBase
+ * or sync behind it -- `CloudSyncManager` doesn't exist in this branch.
  *
- * La clave local es [id] (el id de la fuente ya resuelta, ver
- * `com.arkiv.player.data.recomendaciones.RecommendationSaving.itemIdFor`) y **NO** [orden]: cada
- * generación RECREA la lista entera en vez de reusar identidad entre tandas (port de
+ * The local key is [id] (the already-resolved source's id, see
+ * `com.arkiv.player.data.recomendaciones.RecommendationSaving.itemIdFor`) and **NOT** [orden]:
+ * each generation RECREATES the whole list instead of reusing identity across batches (a port of
  * `arkiv-api/src/arkiv_api/recomendaciones/almacen.py::guardar`) -- `RecomendacionDao.reemplazar`
- * entierra (`deleted=true`) las vigentes con el MISMO `updatedAt` y recién después inserta las
- * nuevas. Dos generaciones distintas pueden compartir el mismo `orden` (0..9) con `id`s distintos;
- * si `orden` fuera la PK, el `upsert` (`OnConflictStrategy.REPLACE`) de la fila nueva pisaría la
- * fila vieja que tuviera ese mismo `orden` aunque fueran obras completamente distintas.
+ * buries (`deleted=true`) the current ones with the SAME `updatedAt` and only then inserts the
+ * new ones. Two different generations can share the same `orden` (0..9) with different `id`s; if
+ * `orden` were the PK, the new row's `upsert` (`OnConflictStrategy.REPLACE`) would overwrite the
+ * old row with that same `orden` even if they were completely different works.
  */
 @Entity(tableName = "recomendaciones")
 data class RecomendacionEntity(
     @PrimaryKey val id: String,
-    /** Puede venir en 0 (candidato sin `tmdbId` confirmado): es un valor legítimo, no una ausencia. */
+    /** Can come in as 0 (a candidate with no confirmed `tmdbId`): a legitimate value, not an absence. */
     val tmdbId: Int,
     /** "movie" | "tv". */
     val tipo: String,
     val titulo: String,
-    /** Puede venir vacío, igual que [tmdbId]. */
+    /** Can come in empty, same as [tmdbId]. */
     val posterUrl: String,
-    /** La frase que explica por qué se recomienda (p. ej. "porque terminaste Dragon Ball"). */
+    /** The phrase explaining why it's recommended (e.g. "porque terminaste Dragon Ball"). */
     val porque: String,
     /**
-     * La fuente ya resuelta para reproducir, armada en el aparato por la cascada de verificación
-     * (ver [com.arkiv.player.data.recomendaciones.ForYouVerification]).
+     * The source already resolved for playback, built on the device by the verification cascade
+     * (see [com.arkiv.player.data.recomendaciones.ForYouVerification]).
      */
     val ref: String,
-    /** Posición 0..9 para ordenar la fila. NO es identidad -- ver el KDoc de la clase. */
+    /** 0..9 position to order the row. NOT identity -- see the class's KDoc. */
     val orden: Int,
     val generadoAt: Long,
-    /** Sync: reloj de última modificación (LWW) y tombstone de borrado. */
+    /** Sync: last-modification clock (LWW) and delete tombstone. */
     val updatedAt: Long = 0,
     val deleted: Boolean = false,
 )

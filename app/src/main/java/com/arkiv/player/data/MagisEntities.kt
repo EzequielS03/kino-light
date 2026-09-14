@@ -144,7 +144,7 @@ object MagisEntities {
      *
      * [episodiosVistosEnLista] va COMPLETO, ya calculado por quien llama, y no `existente
      * ?.episodiosVistosEnLista` leído acá adentro. Antes se guardaba sin tocar y el repositorio lo
-     * corregía después con un segundo UPDATE puntual (`marcarEpisodiosVistos`) — dos escrituras a la
+     * corregía después con un segundo UPDATE puntual (`markEpisodesSeen`) — dos escrituras a la
      * misma fila en la misma llamada, que es justo lo que hacía recursar el trigger de sync cuando
      * caían en el mismo segundo (ver `SyncTriggers`). Acá adentro no se puede calcular solo: el
      * total post-guardado es la UNIÓN de los capítulos que ya estaban en la base con los que traen

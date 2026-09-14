@@ -136,7 +136,7 @@ suspend fun canalesDelPaisParaHome(
     }
 
     if (idGuardado != null) {
-        val cacheados = cacheDao.deCategoria(idGuardado)
+        val cacheados = cacheDao.byCategory(idGuardado)
         val fresca = cacheados.isNotEmpty() && cacheados.all { ahoraMs - it.guardadoAt < FRESCURA_MS }
         if (fresca) return cacheados.map { LiveChannel(it.code, it.nombre, it.numero, it.logo) }
     }
@@ -147,7 +147,7 @@ suspend fun canalesDelPaisParaHome(
             ?: return emptyList()
         val canales = api.canales(id)
         if (canales.isNotEmpty()) {
-            cacheDao.reemplazar(id, canales.map {
+            cacheDao.replace(id, canales.map {
                 LiveChannelCacheEntity(it.code, id, it.nombre, it.numero, it.logo, ahoraMs)
             })
             prefs.edit().putString(KEY_PAIS_ISO, iso).putInt(KEY_PAIS_CATEGORIA, id).apply()
@@ -160,7 +160,7 @@ suspend fun canalesDelPaisParaHome(
     // Sin red: la caché vieja sirve igual -- un catálogo de canales desactualizado es mejor que una
     // fila a medias, y los canales que ya no existan fallarán al abrirse, como cualquier otro.
     val id = idGuardado ?: return emptyList()
-    return cacheDao.deCategoria(id).map { LiveChannel(it.code, it.nombre, it.numero, it.logo) }
+    return cacheDao.byCategory(id).map { LiveChannel(it.code, it.nombre, it.numero, it.logo) }
 }
 
 private const val KEY_PAIS_ISO = "live_pais_iso"

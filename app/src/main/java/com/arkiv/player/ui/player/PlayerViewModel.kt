@@ -525,7 +525,7 @@ class PlayerViewModel internal constructor(
             // evita que mañana una de las tres se corrija y las otras dos no.
             if (AdultContent.shouldLog(canal.adulto)) {
                 runCatching {
-                    liveRecentDao.anotar(LiveRecentEntity(canal.code, canal.nombre, System.currentTimeMillis()))
+                    liveRecentDao.record(LiveRecentEntity(canal.code, canal.nombre, System.currentTimeMillis()))
                 }
             }
             precalentarVecinos()

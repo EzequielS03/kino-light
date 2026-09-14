@@ -161,11 +161,11 @@ fun HomeScreen(
     // eso está la pestaña "Recientes" de "En vivo", sin tope).
     val liveRecentDao = remember { graph.database.liveRecentDao() }
     val liveCacheDao = remember { graph.database.liveChannelCacheDao() }
-    val recientesCrudo by liveRecentDao.flowUltimos(10).collectAsStateWithLifecycle(initialValue = emptyList())
+    val recientesCrudo by liveRecentDao.flowRecent(10).collectAsStateWithLifecycle(initialValue = emptyList())
     var cachePorCodigo by remember { mutableStateOf<Map<String, LiveChannelCacheEntity>>(emptyMap()) }
     LaunchedEffect(recientesCrudo) {
         if (recientesCrudo.isNotEmpty()) {
-            cachePorCodigo = liveCacheDao.deCodigos(recientesCrudo.map { it.code }).associateBy { it.code }
+            cachePorCodigo = liveCacheDao.byCodes(recientesCrudo.map { it.code }).associateBy { it.code }
         }
     }
     val canalesRecientes = remember(recientesCrudo, cachePorCodigo) {

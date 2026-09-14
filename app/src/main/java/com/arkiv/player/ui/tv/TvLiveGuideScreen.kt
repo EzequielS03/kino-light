@@ -146,7 +146,7 @@ fun TvLiveGuideScreen(onVerCanal: (LiveChannel) -> Unit, onVolver: () -> Unit) {
     // Recientes: igual que LiveScreen (mobile) -- se lee directo de Room, sin numero/logo propios,
     // enriquecido con lo que ya esté cargado en estado.canales si el canal aparece ahí.
     val recentDao = remember { graph.database.liveRecentDao() }
-    val recientesCrudo by recentDao.flowUltimos().collectAsStateWithLifecycle(initialValue = emptyList())
+    val recientesCrudo by recentDao.flowRecent().collectAsStateWithLifecycle(initialValue = emptyList())
     val recientes = remember(recientesCrudo, estado.canales) {
         recientesCrudo.map { r ->
             estado.canales.find { it.code == r.code }?.copy(nombre = r.nombre)

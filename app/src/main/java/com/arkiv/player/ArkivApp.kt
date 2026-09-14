@@ -48,7 +48,7 @@ class ArkivApp : Application(), ImageLoaderFactory {
         graph.applicationScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             runCatching {
                 if (!graph.settings.recientesPurgados) {
-                    graph.database.liveRecentDao().borrarTodos()
+                    graph.database.liveRecentDao().deleteAll()
                     graph.settings.setRecientesPurgados(true)
                     android.util.Log.w("ArkivCuenta", "recent items purged (adult channel leak)")
                 }

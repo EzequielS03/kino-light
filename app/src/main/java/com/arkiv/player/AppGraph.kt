@@ -476,7 +476,7 @@ class AppGraph(context: Context) {
         )
         ForYouGenerator(
             ia = { clienteDeIa.ask(it) },
-            history = { HistorySignals.of(database.playbackDao().historialReciente(100)) },
+            history = { HistorySignals.of(database.playbackDao().recentHistory(100)) },
             alreadySeen = {
                 database.itemDao().getAllItems().filter { !it.deleted }.flatMap { item ->
                     listOfNotNull(

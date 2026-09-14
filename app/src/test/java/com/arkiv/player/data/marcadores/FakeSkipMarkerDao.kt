@@ -17,7 +17,7 @@ class FakeSkipMarkerDao : SkipMarkerDao {
     override fun observe(itemId: String) =
         MutableStateFlow(rows.values.firstOrNull { it.itemId == itemId && it.episodeId == "" })
 
-    override fun observeDeCapitulo(itemId: String, episodeId: String) =
+    override fun observeForChapter(itemId: String, episodeId: String) =
         MutableStateFlow(
             rows.values.filter {
                 it.itemId == itemId && (it.episodeId == episodeId || it.episodeId == "") && !it.deleted

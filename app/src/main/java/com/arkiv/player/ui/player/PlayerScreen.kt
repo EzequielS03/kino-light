@@ -2975,7 +2975,7 @@ private fun PlayerContent(
         // cambien: sin esto, cada recomposición (la barra de progreso recompone con cada tick)
         // pediría un Flow nuevo y reiniciaría la consulta a Room todo el tiempo.
         val marcadoresDelCapitulo by remember(d?.itemId, episodioEnCurso) {
-            graph.repository.skipMarkerDao().observeDeCapitulo(d?.itemId ?: "", episodioEnCurso)
+            graph.repository.skipMarkerDao().observeForChapter(d?.itemId ?: "", episodioEnCurso)
         }.collectAsStateWithLifecycle(initialValue = emptyList())
         val marcadorVigente = ChapterMarker.choose(
             fromChapter = marcadoresDelCapitulo.firstOrNull { it.episodeId == episodioEnCurso },
