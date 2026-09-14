@@ -689,6 +689,25 @@ planning prose, much of it describing removed architecture) — see the auto-mem
 `code-must-be-english.md` for the full reasoning and the user's explicit decision to leave it.
 Do not re-open that question from scratch in a future session.
 
+**Update, same session, one more angle checked: logcat TAG literals.** A targeted sweep of every
+`Log.d/w/e/i/v`/`println` call and every `throw`-style exception message across `app/src/main`+
+`app/src/debug` (325+ call sites) found the message text was already all English, but seven
+`const val TAG = "..."` / inline tag literals were still Spanish — pure debug identifiers, no
+persistence role, so not covered by any frozen-literal exception: `PistasExo`→`ExoTracks`,
+`ArkivRed`→`ArkivNetwork`, `ArkivCuenta`→`ArkivAccount`, `ArkivArranque`→`ArkivStartup`,
+`ArkivRecom`→`ArkivRecs`, `ArkivParaTi`→`ArkivForYou`, `ArkivNuevos`→`ArkivNewContent` (commit
+`ba156135`). **Important counter-example found while checking these**: two Spanish
+`IOException(...)` messages in `HttpRangeDownloader.kt` ("respuesta sin cuerpo", "no se pudo
+renombrar el parcial") looked like the same kind of developer-only text at first glance, but
+tracing the call chain showed they propagate through `LocalDownloadWorker`'s generic
+`catch (t: Throwable)` into `DownloadOutcome.Failed(t.message ...)`, which `DownloadControl.kt`
+renders directly as the download failure text the user sees — same pattern as the sibling
+Spanish `DownloadOutcome.Failed("...")` literals already present in `DituDownloadStrategy.kt`/
+`MagisDownloadStrategy.kt`. Left untouched, correctly. **Lesson: an exception message that LOOKS
+like an internal-only string still needs its call chain traced before translating** — `throw
+Exception("...")` is not on its own evidence of being developer-facing, unlike a `Log.*` tag or
+message, which never flows into UI by construction.
+
 **Lessons worth keeping for any future rename/translation work in this repo:**
 
 1. **Before any blanket regex rename touching a file with `const val KEY_* = "literal"`-style
