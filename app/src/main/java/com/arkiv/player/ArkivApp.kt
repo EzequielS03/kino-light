@@ -19,7 +19,7 @@ class ArkivApp : Application(), ImageLoaderFactory {
      */
     override fun attachBaseContext(base: Context?) {
         super.attachBaseContext(base)
-        com.arkiv.player.crash.Crash.instalar(this)
+        com.arkiv.player.crash.Crash.install(this)
     }
 
     override fun onCreate() {
@@ -100,7 +100,7 @@ class ArkivApp : Application(), ImageLoaderFactory {
      */
     private fun reportar(error: Throwable, etiqueta: String) {
         android.util.Log.w("ArkivArranque", "$etiqueta: ${error.message}", error)
-        com.arkiv.player.crash.Crash.reportar(error, etiqueta)
+        com.arkiv.player.crash.Crash.report(error, etiqueta)
     }
 
     override fun newImageLoader(): ImageLoader {

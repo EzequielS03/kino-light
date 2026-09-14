@@ -6,57 +6,57 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * El payload del reporte de error local (ver el KDoc de `CrashReport`: tiene la forma que tenía la
- * colección `crash_logs` de PocketBase, aunque ya no sube a ningún lado).
+ * The local error report's payload (see `CrashReport`'s KDoc: it's shaped like PocketBase's
+ * `crash_logs` collection used to be, even though it no longer uploads anywhere).
  *
- * Lo importante acá es la CAUSA encadenada: casi todo lo que revienta en el app llega envuelto
- * (`RuntimeException` alrededor de la de verdad), así que un stacktrace que corte en la de afuera
- * no dice nada de por qué falló.
+ * What matters here is the chained CAUSE: almost everything that crashes in the app arrives
+ * wrapped (a `RuntimeException` around the real one), so a stacktrace that cuts off at the outer
+ * one says nothing about why it actually failed.
  */
 class CrashReportTest {
-    private fun reporte(
+    private fun report(
         stacktrace: String = "java.lang.RuntimeException: algo",
-        mensaje: String = "java.lang.RuntimeException: algo",
+        message: String = "java.lang.RuntimeException: algo",
         logcat: String = "",
     ) = CrashReport(
         kind = "phone",
         appVersion = "1.4.2 (142) release",
-        sistema = "Android 14 (SDK 34) · samsung SM-S926B",
+        system = "Android 14 (SDK 34) · samsung SM-S926B",
         fatal = true,
-        contexto = "main",
-        mensaje = mensaje,
+        context = "main",
+        message = message,
         stacktrace = stacktrace,
         logcat = logcat,
-        ocurridoEn = "2026-08-19T21:00:00Z",
+        occurredAt = "2026-08-19T21:00:00Z",
     )
 
     @Test
-    fun `el stacktrace lleva la excepcion de afuera y su causa`() {
-        val raiz = IllegalStateException("no habia stream")
-        val envuelta = RuntimeException("se cayo el player", raiz)
+    fun `the stacktrace carries the outer exception and its cause`() {
+        val root = IllegalStateException("no habia stream")
+        val wrapped = RuntimeException("se cayo el player", root)
 
-        val texto = CrashReport.stacktraceDe(envuelta)
+        val text = CrashReport.stacktraceOf(wrapped)
 
-        assertTrue(texto, texto.contains("java.lang.RuntimeException: se cayo el player"))
-        assertTrue(texto, texto.contains("Caused by: java.lang.IllegalStateException: no habia stream"))
-        assertTrue("falta el marco de la pila", texto.contains("CrashReportTest"))
+        assertTrue(text, text.contains("java.lang.RuntimeException: se cayo el player"))
+        assertTrue(text, text.contains("Caused by: java.lang.IllegalStateException: no habia stream"))
+        assertTrue("missing stack frame", text.contains("CrashReportTest"))
     }
 
     @Test
-    fun `el mensaje resume la excepcion en una linea`() {
+    fun `the message summarizes the exception in one line`() {
         val t = IllegalArgumentException("tmdbId vacio")
 
-        assertEquals("java.lang.IllegalArgumentException: tmdbId vacio", CrashReport.mensajeDe(t))
+        assertEquals("java.lang.IllegalArgumentException: tmdbId vacio", CrashReport.messageOf(t))
     }
 
     @Test
-    fun `el mensaje de una excepcion sin texto igual dice de que clase es`() {
-        assertEquals("java.lang.NullPointerException", CrashReport.mensajeDe(NullPointerException()))
+    fun `an exception with no text still says what class it is`() {
+        assertEquals("java.lang.NullPointerException", CrashReport.messageOf(NullPointerException()))
     }
 
     @Test
-    fun `toJson escribe los campos con los nombres de la coleccion`() {
-        val json = JSONObject(reporte(logcat = "linea de log").toJson())
+    fun `toJson writes the fields with the collection's names`() {
+        val json = JSONObject(report(logcat = "linea de log").toJson())
 
         assertEquals("phone", json.getString("kind"))
         assertEquals("1.4.2 (142) release", json.getString("app_version"))
@@ -70,32 +70,32 @@ class CrashReportTest {
     }
 
     /**
-     * El recorte de emergencia: si el reporte entero no entra, el logcat es lo primero que se
-     * suelta. El stacktrace es lo único que no se puede reconstruir después.
+     * The emergency cutback: if the whole report doesn't fit, the logcat is the first thing let
+     * go. The stacktrace is the one thing that can't be reconstructed afterward.
      */
     @Test
-    fun `sinLogcat vacia el logcat y deja el resto intacto`() {
-        val recortado = JSONObject(CrashReport.sinLogcat(reporte(logcat = "cuarenta mil lineas").toJson()))
+    fun `withoutLogcat empties the logcat and leaves the rest intact`() {
+        val trimmed = JSONObject(CrashReport.withoutLogcat(report(logcat = "cuarenta mil lineas").toJson()))
 
-        assertEquals("", recortado.getString("logcat"))
-        assertEquals("java.lang.RuntimeException: algo", recortado.getString("stacktrace"))
-        assertEquals("phone", recortado.getString("kind"))
+        assertEquals("", trimmed.getString("logcat"))
+        assertEquals("java.lang.RuntimeException: algo", trimmed.getString("stacktrace"))
+        assertEquals("phone", trimmed.getString("kind"))
     }
 
     @Test
-    fun `sinLogcat sobre algo que no es json lo devuelve tal cual`() {
-        assertEquals("esto no es json", CrashReport.sinLogcat("esto no es json"))
+    fun `withoutLogcat on something that isn't json returns it as-is`() {
+        assertEquals("esto no es json", CrashReport.withoutLogcat("esto no es json"))
     }
 
     /**
-     * Mismo tope que tenía la colección `crash_logs` de PocketBase (ver el KDoc de
-     * `CrashReport.toJson`). Ya pasó una vez con el logcat sin recortar.
+     * Same cap PocketBase's `crash_logs` collection used to have (see `CrashReport.toJson`'s
+     * KDoc). It already happened once, with the logcat untrimmed.
      */
     @Test
-    fun `toJson recorta los campos que no entrarian en la coleccion`() {
+    fun `toJson trims the fields that wouldn't fit in the collection`() {
         val json = JSONObject(
-            reporte(
-                mensaje = "x".repeat(9_000),
+            report(
+                message = "x".repeat(9_000),
                 stacktrace = "y".repeat(90_000),
                 logcat = "z".repeat(400_000),
             ).toJson(),
@@ -106,18 +106,18 @@ class CrashReportTest {
         assertEquals(200_000, json.getString("logcat").length)
     }
 
-    /** Del logcat interesa lo ÚLTIMO que pasó, no lo primero: se recorta por delante. */
+    /** What matters about the logcat is the LAST thing that happened, not the first: it's trimmed from the front. */
     @Test
-    fun `al recortar el logcat se queda con el final`() {
-        val json = JSONObject(reporte(logcat = "viejo".padEnd(400_000, 'x') + "LO ULTIMO").toJson())
+    fun `trimming the logcat keeps the end`() {
+        val json = JSONObject(report(logcat = "viejo".padEnd(400_000, 'x') + "LO ULTIMO").toJson())
 
         assertTrue(json.getString("logcat").endsWith("LO ULTIMO"))
     }
 
-    /** Del stacktrace interesa la cabeza: la excepción y los marcos de arriba. */
+    /** What matters about the stacktrace is the head: the exception and the top frames. */
     @Test
-    fun `al recortar el stacktrace se queda con el principio`() {
-        val json = JSONObject(reporte(stacktrace = "LA EXCEPCION" + "y".repeat(90_000)).toJson())
+    fun `trimming the stacktrace keeps the beginning`() {
+        val json = JSONObject(report(stacktrace = "LA EXCEPCION" + "y".repeat(90_000)).toJson())
 
         assertTrue(json.getString("stacktrace").startsWith("LA EXCEPCION"))
     }

@@ -12,87 +12,88 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 /**
- * Punto de entrada del reporte de errores. Se instala desde `ArkivApp.attachBaseContext`, que es
- * lo más temprano que existe en el proceso: antes que los ContentProviders (WorkManager y compañía)
- * y antes de `onCreate`, así que un crash armando el `AppGraph` también queda capturado.
+ * Entry point of crash reporting. Installed from `ArkivApp.attachBaseContext`, which is the
+ * earliest point there is in the process: before the ContentProviders (WorkManager and company)
+ * and before `onCreate`, so a crash while building the `AppGraph` is also caught.
  *
- * Todo lo específico de Android vive acá; la lógica está en [CrashGuard]/[CrashStore], que se
- * prueban en la JVM.
+ * Everything Android-specific lives here; the logic is in [CrashGuard]/[CrashStore], which are
+ * tested on the JVM.
  *
- * NACIÓ TEMPORAL, para cazar el error de un usuario mandando cada reporte a la colección
- * `crash_logs` de PocketBase. Task 9 (sub-proyecto 2B) se llevó esa subida junto con el resto de
- * las cuentas -no queda una sola línea que hable con PocketBase-: lo que sigue acá es puro local,
- * se guarda a disco y se lee por `adb logcat`.
+ * BORN TEMPORARY, to hunt down a user's bug by sending every report to PocketBase's `crash_logs`
+ * collection. Task 9 (sub-project 2B) took that upload away along with the rest of the accounts
+ * -not a single line talking to PocketBase is left-: what remains here is purely local, saved to
+ * disk and read via `adb logcat`.
  */
 object Crash {
-    private const val CARPETA = "crashes"
-    private const val LINEAS_DE_LOGCAT = 400
-    private const val TOPE_DE_LOGCAT = 64_000
+    private const val FOLDER = "crashes"
+    private const val LOGCAT_LINES = 400
+    private const val LOGCAT_CAP = 64_000
 
     @Volatile
     private var guard: CrashGuard? = null
 
     @Volatile
-    private var cacheDeDatos: DatosDelAparato? = null
+    private var deviceDataCache: DeviceData? = null
 
-    private val alcance = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    /** Arma el handler. Idempotente por descuido. */
-    fun instalar(app: Context) {
+    /** Builds the handler. Idempotent by neglect. */
+    fun install(app: Context) {
         runCatching {
-            val store = CrashStore(dir = File(app.filesDir, CARPETA))
-            val armado = CrashGuard(
+            val store = CrashStore(dir = File(app.filesDir, FOLDER))
+            val installed = CrashGuard(
                 store = store,
-                datos = { datosDe(app) },
-                logcat = { logcatDelProceso() },
+                data = { dataFor(app) },
+                logcat = { processLogcat() },
             )
-            guard = armado
+            guard = installed
             Thread.setDefaultUncaughtExceptionHandler(
-                CrashHandler(previo = Thread.getDefaultUncaughtExceptionHandler(), guard = armado),
+                CrashHandler(previous = Thread.getDefaultUncaughtExceptionHandler(), guard = installed),
             )
-            // La identidad se calienta aparte, fuera del camino del crash: si `DeviceType`
-            // tardara en resolver (consulta el PackageManager), que no sea justo cuando menos
-            // tiempo queda.
-            alcance.launch { runCatching { cacheDeDatos = leerDatos(app) } }
+            // The identity is warmed up separately, out of the crash's path: if `DeviceType` took
+            // a while to resolve (it queries the PackageManager), better not right when there's
+            // the least time left.
+            scope.launch { runCatching { deviceDataCache = readData(app) } }
         }
     }
 
     /**
-     * Reporta un error atrapado a mano, con el proceso vivo. Para los `runCatching` que hoy se
-     * tragan la excepción en silencio. No revienta nunca ni bloquea a quien la llama.
+     * Reports an error caught by hand, with the process alive. For the `runCatching`s that today
+     * swallow the exception silently. Never throws nor blocks whoever calls it.
      */
-    fun reportar(error: Throwable, etiqueta: String) {
-        guard?.reportar(error, etiqueta)
+    fun report(error: Throwable, tag: String) {
+        guard?.report(error, tag)
     }
 
-    private fun datosDe(app: Context): DatosDelAparato =
-        cacheDeDatos ?: leerDatos(app).also { cacheDeDatos = it }
+    private fun dataFor(app: Context): DeviceData =
+        deviceDataCache ?: readData(app).also { deviceDataCache = it }
 
     /**
-     * Task 9 (sub-proyecto 2B) se llevó `accountId`/`deviceId` del todo -sin cuentas ni identidad
-     * de aparato no había de dónde sacarlos-: lo único que sigue distinguiendo un reporte de otro
-     * es [kind] (celular o TV), que no depende de ningún store, solo de [DeviceType].
+     * Task 9 (sub-project 2B) took `accountId`/`deviceId` away entirely -with no accounts or
+     * device identity there was nowhere to pull them from-: the only thing still telling one
+     * report apart from another is [kind] (phone or TV), which doesn't depend on any store, only
+     * on [DeviceType].
      */
-    private fun leerDatos(app: Context): DatosDelAparato = DatosDelAparato(
+    private fun readData(app: Context): DeviceData = DeviceData(
         kind = runCatching { if (DeviceType.isTelevision(app)) "tv" else "phone" }.getOrDefault(""),
         appVersion = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) ${BuildConfig.BUILD_TYPE}",
-        sistema = "Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT}) · " +
+        system = "Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT}) · " +
             "${Build.MANUFACTURER} ${Build.MODEL}",
     )
 
     /**
-     * Las últimas líneas del log de ESTE proceso (`--pid`), que es lo que de verdad dice qué venía
-     * pasando antes de reventar. Un app solo puede leer su propio logcat, así que no hay forma de
-     * que se cuele nada de otras apps.
+     * The last lines of THIS process's log (`--pid`), which is what really says what was
+     * happening before it crashed. An app can only read its own logcat, so there's no way
+     * anything from another app can slip in.
      */
-    private fun logcatDelProceso(): String {
-        val proceso = Runtime.getRuntime().exec(
-            arrayOf("logcat", "-d", "-v", "time", "-t", "$LINEAS_DE_LOGCAT", "--pid=${Process.myPid()}"),
+    private fun processLogcat(): String {
+        val process = Runtime.getRuntime().exec(
+            arrayOf("logcat", "-d", "-v", "time", "-t", "$LOGCAT_LINES", "--pid=${Process.myPid()}"),
         )
         return try {
-            proceso.inputStream.bufferedReader().use { it.readText() }.takeLast(TOPE_DE_LOGCAT)
+            process.inputStream.bufferedReader().use { it.readText() }.takeLast(LOGCAT_CAP)
         } finally {
-            runCatching { proceso.destroy() }
+            runCatching { process.destroy() }
         }
     }
 }

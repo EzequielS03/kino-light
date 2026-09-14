@@ -5,52 +5,52 @@ import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Cola de reportes locales en disco.
+ * Queue of local reports on disk.
  *
- * Existe por una sola razón: cuando salta una excepción no atrapada, el proceso se está muriendo, y
- * escribir un archivo es lo único que alcanza a terminar antes de que se vaya. Ya no hay subida a
- * ningún lado (Task 9, sub-proyecto 2B: se fue el `CrashUploader` que mandaba esto a PocketBase) --
- * el reporte se queda acá y se lee por `adb logcat`.
+ * Exists for one single reason: when an uncaught exception fires, the process is dying, and
+ * writing a file is the only thing that can finish before it's gone. There's no upload anywhere
+ * anymore (Task 9, sub-project 2B: `CrashUploader`, which sent this to PocketBase, is gone) --
+ * the report stays here and is read via `adb logcat`.
  */
 class CrashStore(
     private val dir: File,
-    /** Tope de reportes guardados. Pasado el tope se van los más viejos: si el app entró en un
-     *  bucle de crashes, lo último que pasó es lo que sirve para debuguear. */
-    private val maxPendientes: Int = 20,
-    private val ahora: () -> Long = System::currentTimeMillis,
+    /** Cap on saved reports. Past the cap, the oldest ones go: if the app got stuck in a crash
+     *  loop, the most recent one is what's useful for debugging. */
+    private val maxPending: Int = 20,
+    private val now: () -> Long = System::currentTimeMillis,
 ) {
-    /** Desempata dos reportes del mismo milisegundo (un crash que arrastra a otro hilo). */
-    private val secuencia = AtomicInteger(0)
+    /** Breaks ties between two reports from the same millisecond (a crash that drags another thread down). */
+    private val sequence = AtomicInteger(0)
 
-    fun guardar(json: String): File {
+    fun save(json: String): File {
         dir.mkdirs()
-        val nombre = String.format(
+        val name = String.format(
             Locale.US,
             "%013d-%04d.json",
-            ahora(),
-            secuencia.getAndIncrement() % 10_000,
+            now(),
+            sequence.getAndIncrement() % 10_000,
         )
         // Write aside and rename: a cut mid-write this way leaves a `.json.tmp` the queue ignores,
         // instead of a broken `.json` that whoever reads this locally (adb logcat) couldn't parse.
-        val temporal = File(dir, "$nombre.tmp")
-        temporal.writeText(json)
-        val destino = File(dir, nombre)
-        if (!temporal.renameTo(destino)) {
-            destino.writeText(json)
-            temporal.delete()
+        val temp = File(dir, "$name.tmp")
+        temp.writeText(json)
+        val destination = File(dir, name)
+        if (!temp.renameTo(destination)) {
+            destination.writeText(json)
+            temp.delete()
         }
-        podar()
-        return destino
+        prune()
+        return destination
     }
 
-    /** Los pendientes del más viejo al más nuevo (el nombre está zero-padded a propósito). */
-    fun pendientes(): List<File> =
+    /** The pending ones from oldest to newest (the name is zero-padded on purpose). */
+    fun pending(): List<File> =
         (dir.listFiles { f: File -> f.isFile && f.name.endsWith(".json") } ?: emptyArray())
             .sortedBy { it.name }
 
-    private fun podar() {
-        val actuales = pendientes()
-        if (actuales.size <= maxPendientes) return
-        actuales.take(actuales.size - maxPendientes).forEach { it.delete() }
+    private fun prune() {
+        val current = pending()
+        if (current.size <= maxPending) return
+        current.take(current.size - maxPending).forEach { it.delete() }
     }
 }

@@ -3,78 +3,78 @@ package com.arkiv.player.crash
 import java.time.Instant
 
 /**
- * Lo que va en cada reporte además del error en sí: si es celu o TV, y la versión del app y del
- * sistema. Vacío si no se pudo averiguar.
+ * What goes in every report besides the error itself: whether it's a phone or TV, and the app
+ * and system version. Empty if it couldn't be figured out.
  */
-data class DatosDelAparato(
+data class DeviceData(
     val kind: String,
     val appVersion: String,
-    val sistema: String,
+    val system: String,
 ) {
     companion object {
-        val DESCONOCIDO = DatosDelAparato(kind = "", appVersion = "", sistema = "")
+        val UNKNOWN = DeviceData(kind = "", appVersion = "", system = "")
     }
 }
 
 /**
- * Arma el reporte y lo deja en la cola.
+ * Builds the report and leaves it in the queue.
  *
- * Regla de la casa: **nada de acá adentro puede impedir que se guarde el stacktrace**. Si falla
- * leer la identidad, o el logcat, o el reloj, el reporte sale igual con lo que se pueda — porque
- * el stacktrace es lo único que no se puede reconstruir después.
+ * House rule: **nothing in here can stop the stacktrace from being saved**. If reading the
+ * identity fails, or the logcat, or the clock, the report still goes out with whatever's
+ * available -- because the stacktrace is the one thing that can't be reconstructed afterward.
  *
- * Sin dependencias de Android a propósito: lo específico del sistema entra por [datos] y [logcat]
- * (ver `CrashAndroid.kt`), así que todo esto se prueba en la JVM.
+ * No Android dependencies on purpose: what's system-specific comes in through [data] and [logcat]
+ * (see `CrashAndroid.kt`), so all of this is tested on the JVM.
  */
 class CrashGuard(
     private val store: CrashStore,
-    private val datos: () -> DatosDelAparato,
+    private val data: () -> DeviceData,
     private val logcat: () -> String,
-    private val ahora: () -> String = { Instant.now().toString() },
+    private val now: () -> String = { Instant.now().toString() },
 ) {
-    /** Un error que mató el proceso. Lo llama [CrashHandler]. Devuelve el archivo encolado. */
-    fun atajar(hilo: Thread, error: Throwable): java.io.File =
-        escribir(error, contexto = hilo.name, fatal = true)
+    /** An error that killed the process. Called by [CrashHandler]. Returns the queued file. */
+    fun catch(thread: Thread, error: Throwable): java.io.File =
+        write(error, context = thread.name, fatal = true)
 
     /**
-     * Un error atrapado a mano, con el proceso vivo. Para los `runCatching` que hoy se tragan la
-     * excepción en silencio. Nunca revienta: convertir un error ya atrapado en un crash nuevo
-     * sería exactamente lo contrario de lo que vino a hacer.
+     * An error caught by hand, with the process alive. For the `runCatching`s that today swallow
+     * the exception silently. Never throws: turning an already-caught error into a new crash
+     * would be exactly the opposite of what this came here to do.
      */
-    fun reportar(error: Throwable, etiqueta: String) {
-        runCatching { escribir(error, contexto = etiqueta, fatal = false) }
+    fun report(error: Throwable, tag: String) {
+        runCatching { write(error, context = tag, fatal = false) }
     }
 
-    private fun escribir(error: Throwable, contexto: String, fatal: Boolean): java.io.File {
-        val aparato = runCatching { datos() }.getOrDefault(DatosDelAparato.DESCONOCIDO)
-        val reporte = CrashReport(
-            kind = aparato.kind,
-            appVersion = aparato.appVersion,
-            sistema = aparato.sistema,
+    private fun write(error: Throwable, context: String, fatal: Boolean): java.io.File {
+        val device = runCatching { data() }.getOrDefault(DeviceData.UNKNOWN)
+        val report = CrashReport(
+            kind = device.kind,
+            appVersion = device.appVersion,
+            system = device.system,
             fatal = fatal,
-            contexto = contexto,
-            mensaje = CrashReport.mensajeDe(error),
-            stacktrace = CrashReport.stacktraceDe(error),
+            context = context,
+            message = CrashReport.messageOf(error),
+            stacktrace = CrashReport.stacktraceOf(error),
             logcat = runCatching { logcat() }.getOrDefault(""),
-            ocurridoEn = runCatching { ahora() }.getOrDefault(""),
+            occurredAt = runCatching { now() }.getOrDefault(""),
         )
-        return store.guardar(reporte.toJson())
+        return store.save(report.toJson())
     }
 }
 
 /**
- * El handler de excepciones no atrapadas.
+ * The uncaught-exception handler.
  *
- * Guarda el reporte y **le pasa la pelota al handler anterior**: sin eso, el app dejaría de
- * morirse como se muere hoy y un crash pasaría a ser un cuelgue mudo. Si guardar falla, se ignora
- * y se delega igual — la excepción original manda.
+ * Saves the report and **passes the ball to the previous handler**: without that, the app would
+ * stop dying the way it dies today and a crash would turn into a silent hang. If saving fails,
+ * it's ignored and delegated anyway -- the original exception wins.
  */
 class CrashHandler(
-    private val previo: Thread.UncaughtExceptionHandler?,
+    private val previous: Thread.UncaughtExceptionHandler?,
     private val guard: CrashGuard,
 ) : Thread.UncaughtExceptionHandler {
-    override fun uncaughtException(hilo: Thread, error: Throwable) {
-        runCatching { guard.atajar(hilo, error) }
-        previo?.uncaughtException(hilo, error)
+    override fun uncaughtException(thread: Thread, error: Throwable) {
+        runCatching { guard.catch(thread, error) }
+        previous?.uncaughtException(thread, error)
     }
 }

@@ -9,41 +9,42 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * El pegamento: agarra la excepción, arma el reporte y lo deja en la cola.
+ * The glue: catches the exception, builds the report and leaves it in the queue.
  *
- * La regla que gobierna todo este archivo: **nada de lo que pase acá adentro puede impedir que el
- * stacktrace se guarde, ni cambiar cómo muere el app**. Si falla leer la identidad, o el logcat, o
- * el disco, el reporte sale igual (con lo que se pueda) y el crash sigue su curso normal.
+ * The rule governing this whole file: **nothing that happens in here can stop the stacktrace from
+ * being saved, or change how the app dies**. If reading the identity fails, or the logcat, or the
+ * disk, the report still goes out (with whatever's available) and the crash follows its normal
+ * course.
  */
 class CrashGuardTest {
     @get:Rule
     val tmp = TemporaryFolder()
 
-    private val datos = DatosDelAparato(
+    private val data = DeviceData(
         kind = "tv",
         appVersion = "1.4.2 (142) release",
-        sistema = "Android 14 (SDK 34) · samsung SM-S926B",
+        system = "Android 14 (SDK 34) · samsung SM-S926B",
     )
 
     private fun guard(
         store: CrashStore,
-        datos: () -> DatosDelAparato = { this.datos },
+        data: () -> DeviceData = { this.data },
         logcat: () -> String = { "linea de logcat" },
-    ) = CrashGuard(store = store, datos = datos, logcat = logcat, ahora = { "2026-08-19T21:00:00Z" })
+    ) = CrashGuard(store = store, data = data, logcat = logcat, now = { "2026-08-19T21:00:00Z" })
 
-    private var carpetas = 0
+    private var folders = 0
 
-    private fun store() = CrashStore(dir = tmp.newFolder("cola-${carpetas++}"), maxPendientes = 20)
+    private fun store() = CrashStore(dir = tmp.newFolder("cola-${folders++}"), maxPending = 20)
 
-    private fun unicoReporte(store: CrashStore) = JSONObject(store.pendientes().single().readText())
+    private fun onlyReport(store: CrashStore) = JSONObject(store.pending().single().readText())
 
     @Test
-    fun `reportar deja en la cola un reporte con los datos del aparato`() {
+    fun `report leaves a report with the device's data in the queue`() {
         val store = store()
 
-        guard(store).reportar(IllegalStateException("no habia stream"), "resolviendo el capitulo")
+        guard(store).report(IllegalStateException("no habia stream"), "resolviendo el capitulo")
 
-        val json = unicoReporte(store)
+        val json = onlyReport(store)
         assertEquals("tv", json.getString("kind"))
         assertEquals("1.4.2 (142) release", json.getString("app_version"))
         assertEquals("resolviendo el capitulo", json.getString("contexto"))
@@ -52,117 +53,118 @@ class CrashGuardTest {
     }
 
     @Test
-    fun `lo reportado a mano no es fatal y lo del handler si`() {
-        val aMano = store()
-        guard(aMano).reportar(RuntimeException("atrapada"), "un runCatching")
-        assertFalse(unicoReporte(aMano).getBoolean("fatal"))
+    fun `what's reported by hand isn't fatal and the handler's is`() {
+        val byHand = store()
+        guard(byHand).report(RuntimeException("atrapada"), "un runCatching")
+        assertFalse(onlyReport(byHand).getBoolean("fatal"))
 
         val fatal = store()
-        guard(fatal).atajar(Thread.currentThread(), RuntimeException("no atrapada"))
-        assertTrue(unicoReporte(fatal).getBoolean("fatal"))
+        guard(fatal).catch(Thread.currentThread(), RuntimeException("no atrapada"))
+        assertTrue(onlyReport(fatal).getBoolean("fatal"))
     }
 
     @Test
-    fun `el reporte fatal dice en que hilo revento`() {
+    fun `the fatal report says which thread it crashed on`() {
         val store = store()
-        val hilo = Thread(null, {}, "hilo-del-player")
+        val thread = Thread(null, {}, "hilo-del-player")
 
-        guard(store).atajar(hilo, RuntimeException("revento"))
+        guard(store).catch(thread, RuntimeException("revento"))
 
-        assertEquals("hilo-del-player", unicoReporte(store).getString("contexto"))
+        assertEquals("hilo-del-player", onlyReport(store).getString("contexto"))
     }
 
     @Test
-    fun `el stacktrace guardado lleva la causa encadenada`() {
+    fun `the saved stacktrace carries the chained cause`() {
         val store = store()
-        val envuelta = RuntimeException("se cayo el player", IllegalStateException("no habia stream"))
+        val wrapped = RuntimeException("se cayo el player", IllegalStateException("no habia stream"))
 
-        guard(store).atajar(Thread.currentThread(), envuelta)
+        guard(store).catch(Thread.currentThread(), wrapped)
 
-        val stacktrace = unicoReporte(store).getString("stacktrace")
+        val stacktrace = onlyReport(store).getString("stacktrace")
         assertTrue(stacktrace, stacktrace.contains("Caused by: java.lang.IllegalStateException: no habia stream"))
     }
 
     @Test
-    fun `si no se pueden leer los datos del aparato, el stacktrace se guarda igual`() {
+    fun `if the device's data can't be read, the stacktrace is still saved`() {
         val store = store()
 
-        guard(store, datos = { error("no se pudo leer DeviceType") })
-            .atajar(Thread.currentThread(), IllegalStateException("lo que de verdad importa"))
+        guard(store, data = { error("no se pudo leer DeviceType") })
+            .catch(Thread.currentThread(), IllegalStateException("lo que de verdad importa"))
 
-        val json = unicoReporte(store)
+        val json = onlyReport(store)
         assertTrue(json.getString("stacktrace").contains("lo que de verdad importa"))
         assertEquals("", json.getString("kind"))
     }
 
     @Test
-    fun `si no se puede leer el logcat, el stacktrace se guarda igual`() {
+    fun `if the logcat can't be read, the stacktrace is still saved`() {
         val store = store()
 
         guard(store, logcat = { error("logcat no disponible") })
-            .atajar(Thread.currentThread(), IllegalStateException("lo que de verdad importa"))
+            .catch(Thread.currentThread(), IllegalStateException("lo que de verdad importa"))
 
-        val json = unicoReporte(store)
+        val json = onlyReport(store)
         assertTrue(json.getString("stacktrace").contains("lo que de verdad importa"))
         assertEquals("", json.getString("logcat"))
     }
 
     /**
-     * Lo más importante del archivo: instalar esto NO puede cambiar cómo muere el app. Si el
-     * handler se comiera la excepción, un crash pasaría a ser un cuelgue mudo.
+     * The most important thing in the file: installing this can NOT change how the app dies. If
+     * the handler ate the exception, a crash would turn into a silent hang.
      */
     @Test
-    fun `el handler guarda y le pasa la pelota al handler anterior`() {
+    fun `the handler saves and passes the ball to the previous handler`() {
         val store = store()
-        var recibida: Throwable? = null
-        val previo = Thread.UncaughtExceptionHandler { _, e -> recibida = e }
+        var received: Throwable? = null
+        val previous = Thread.UncaughtExceptionHandler { _, e -> received = e }
         val explosion = RuntimeException("boom")
 
-        CrashHandler(previo = previo, guard = guard(store)).uncaughtException(Thread.currentThread(), explosion)
+        CrashHandler(previous = previous, guard = guard(store)).uncaughtException(Thread.currentThread(), explosion)
 
-        assertTrue(unicoReporte(store).getString("stacktrace").contains("boom"))
-        assertEquals(explosion, recibida)
+        assertTrue(onlyReport(store).getString("stacktrace").contains("boom"))
+        assertEquals(explosion, received)
     }
 
     @Test
-    fun `si guardar revienta, igual le pasa la pelota al handler anterior`() {
-        var recibida: Throwable? = null
-        val previo = Thread.UncaughtExceptionHandler { _, e -> recibida = e }
-        val discoRoto = CrashStore(dir = tmp.newFile("no-es-carpeta"), maxPendientes = 20)
+    fun `if saving blows up, it still passes the ball to the previous handler`() {
+        var received: Throwable? = null
+        val previous = Thread.UncaughtExceptionHandler { _, e -> received = e }
+        val brokenDisk = CrashStore(dir = tmp.newFile("no-es-carpeta"), maxPending = 20)
         val explosion = RuntimeException("boom")
 
-        CrashHandler(previo = previo, guard = guard(discoRoto)).uncaughtException(Thread.currentThread(), explosion)
+        CrashHandler(previous = previous, guard = guard(brokenDisk)).uncaughtException(Thread.currentThread(), explosion)
 
-        assertEquals(explosion, recibida)
+        assertEquals(explosion, received)
     }
 
     @Test
-    fun `sin handler anterior no revienta`() {
+    fun `with no previous handler it doesn't blow up`() {
         val store = store()
 
-        CrashHandler(previo = null, guard = guard(store)).uncaughtException(Thread.currentThread(), RuntimeException("boom"))
+        CrashHandler(previous = null, guard = guard(store)).uncaughtException(Thread.currentThread(), RuntimeException("boom"))
 
-        assertTrue(unicoReporte(store).getString("stacktrace").contains("boom"))
+        assertTrue(onlyReport(store).getString("stacktrace").contains("boom"))
     }
 
     /**
-     * `reportar` se llama desde `runCatching` repartidos por el app. Si reventara, convertiría un
-     * error ya atrapado en un crash nuevo — el reportero matando al app que vino a diagnosticar.
+     * `report` is called from `runCatching`s scattered around the app. If it blew up, it would
+     * turn an already-caught error into a new crash -- the reporter killing the app it came to
+     * diagnose.
      */
     @Test
-    fun `reportar no revienta aunque el disco falle`() {
-        val discoRoto = CrashStore(dir = tmp.newFile("tampoco-es-carpeta"), maxPendientes = 20)
+    fun `report doesn't blow up even if the disk fails`() {
+        val brokenDisk = CrashStore(dir = tmp.newFile("tampoco-es-carpeta"), maxPending = 20)
 
-        guard(discoRoto).reportar(RuntimeException("atrapada"), "un runCatching")
+        guard(brokenDisk).report(RuntimeException("atrapada"), "un runCatching")
     }
 
-    /** El archivo que dejó en la cola, para quien quiera hacer algo con él después de guardarlo. */
+    /** The file it left in the queue, for whoever wants to do something with it after saving. */
     @Test
-    fun `atajar devuelve el archivo que dejo en la cola`() {
+    fun `catch returns the file it left in the queue`() {
         val store = store()
 
-        val archivo = store.let { guard(it).atajar(Thread.currentThread(), RuntimeException("boom")) }
+        val file = store.let { guard(it).catch(Thread.currentThread(), RuntimeException("boom")) }
 
-        assertEquals(store.pendientes().single(), archivo)
+        assertEquals(store.pending().single(), file)
     }
 }

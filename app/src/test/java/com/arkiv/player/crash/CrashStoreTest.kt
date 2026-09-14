@@ -8,115 +8,115 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * La cola en disco es lo que hace que el reporte llegue "sí o sí": mandar la petición desde el
- * handler de crash pierde la carrera contra el proceso muriéndose, así que ahí solo se escribe un
- * archivo y el envío queda para el arranque siguiente.
+ * The disk queue is what makes the report arrive "no matter what": sending the request from the
+ * crash handler loses the race against the dying process, so there only a file gets written and
+ * the send is left for the next launch.
  */
 class CrashStoreTest {
     @get:Rule
     val tmp = TemporaryFolder()
 
-    private var reloj = 1_000L
+    private var clock = 1_000L
 
-    private fun store(maxPendientes: Int = 20) =
-        CrashStore(dir = tmp.newFolder("crashes-${reloj}-${maxPendientes}"), maxPendientes = maxPendientes, ahora = { reloj })
+    private fun store(maxPending: Int = 20) =
+        CrashStore(dir = tmp.newFolder("crashes-${clock}-${maxPending}"), maxPending = maxPending, now = { clock })
 
     @Test
-    fun `guardar deja un pendiente con el contenido intacto`() {
+    fun `save leaves a pending report with the content intact`() {
         val store = store()
 
-        store.guardar("""{"mensaje":"se cayo"}""")
+        store.save("""{"mensaje":"se cayo"}""")
 
-        val pendientes = store.pendientes()
-        assertEquals(1, pendientes.size)
-        assertEquals("""{"mensaje":"se cayo"}""", pendientes.single().readText())
+        val pending = store.pending()
+        assertEquals(1, pending.size)
+        assertEquals("""{"mensaje":"se cayo"}""", pending.single().readText())
     }
 
     @Test
-    fun `los pendientes salen del mas viejo al mas nuevo`() {
+    fun `pending reports come out from oldest to newest`() {
         val store = store()
-        store.guardar("viejo")
-        reloj = 2_000L
-        store.guardar("nuevo")
+        store.save("viejo")
+        clock = 2_000L
+        store.save("nuevo")
 
-        assertEquals(listOf("viejo", "nuevo"), store.pendientes().map { it.readText() })
+        assertEquals(listOf("viejo", "nuevo"), store.pending().map { it.readText() })
     }
 
     @Test
-    fun `dos reportes en el mismo milisegundo no se pisan`() {
+    fun `two reports in the same millisecond don't overwrite each other`() {
         val store = store()
 
-        store.guardar("primero")
-        store.guardar("segundo")
+        store.save("primero")
+        store.save("segundo")
 
-        assertEquals(listOf("primero", "segundo"), store.pendientes().map { it.readText() })
+        assertEquals(listOf("primero", "segundo"), store.pending().map { it.readText() })
     }
 
     @Test
-    fun `pasado el tope se descarta el mas viejo`() {
-        val store = store(maxPendientes = 2)
-        store.guardar("uno")
-        reloj = 2_000L
-        store.guardar("dos")
-        reloj = 3_000L
+    fun `past the cap the oldest one is discarded`() {
+        val store = store(maxPending = 2)
+        store.save("uno")
+        clock = 2_000L
+        store.save("dos")
+        clock = 3_000L
 
-        store.guardar("tres")
+        store.save("tres")
 
-        assertEquals(listOf("dos", "tres"), store.pendientes().map { it.readText() })
+        assertEquals(listOf("dos", "tres"), store.pending().map { it.readText() })
     }
 
     @Test
-    fun `guardar crea la carpeta si todavia no existe`() {
-        val store = CrashStore(dir = tmp.root.resolve("sin/crear"), maxPendientes = 20, ahora = { reloj })
+    fun `save creates the folder if it doesn't exist yet`() {
+        val store = CrashStore(dir = tmp.root.resolve("sin/crear"), maxPending = 20, now = { clock })
 
-        store.guardar("uno")
+        store.save("uno")
 
-        assertEquals("uno", store.pendientes().single().readText())
+        assertEquals("uno", store.pending().single().readText())
     }
 
     @Test
-    fun `un archivo ajeno en la carpeta no se toma como pendiente`() {
+    fun `an unrelated file in the folder isn't treated as pending`() {
         val dir = tmp.newFolder("mezclada")
         dir.resolve("basura.txt").writeText("no es un reporte")
-        val store = CrashStore(dir = dir, maxPendientes = 20, ahora = { reloj })
+        val store = CrashStore(dir = dir, maxPending = 20, now = { clock })
 
-        store.guardar("uno")
+        store.save("uno")
 
-        assertEquals(listOf("uno"), store.pendientes().map { it.readText() })
+        assertEquals(listOf("uno"), store.pending().map { it.readText() })
         assertTrue(dir.resolve("basura.txt").exists())
     }
 
     @Test
-    fun `pendientes en una carpeta que no existe es lista vacia`() {
-        val store = CrashStore(dir = tmp.root.resolve("nunca/creada"), maxPendientes = 20, ahora = { reloj })
+    fun `pending on a folder that doesn't exist is an empty list`() {
+        val store = CrashStore(dir = tmp.root.resolve("nunca/creada"), maxPending = 20, now = { clock })
 
-        assertTrue(store.pendientes().isEmpty())
+        assertTrue(store.pending().isEmpty())
         assertFalse(tmp.root.resolve("nunca/creada").exists())
     }
 
     /**
-     * Un `.json.tmp` es lo que deja un proceso muerto a mitad de escritura. Ese pedazo NO puede
-     * entrar a la cola: el servidor lo rechazaría por JSON inválido y el drenador lo reintentaría
-     * en cada arranque para siempre.
+     * A `.json.tmp` is what a process dead mid-write leaves behind. That fragment must NOT enter
+     * the queue: the server would reject it as invalid JSON and the drainer would retry it on
+     * every launch forever.
      */
     @Test
-    fun `un resto a medio escribir de un crash anterior no entra a la cola`() {
+    fun `a half-written leftover from an earlier crash doesn't enter the queue`() {
         val dir = tmp.newFolder("a-medias")
         dir.resolve("0000000000999-0000.json.tmp").writeText("""{"mensaje":"corta""")
-        val store = CrashStore(dir = dir, maxPendientes = 20, ahora = { reloj })
+        val store = CrashStore(dir = dir, maxPending = 20, now = { clock })
 
-        store.guardar("entero")
+        store.save("entero")
 
-        assertEquals(listOf("entero"), store.pendientes().map { it.readText() })
+        assertEquals(listOf("entero"), store.pending().map { it.readText() })
     }
 
-    /** Que el temporal se renombre y no quede al lado del bueno ocupando disco para siempre. */
+    /** That the temp file gets renamed and doesn't sit next to the good one taking up disk forever. */
     @Test
-    fun `guardar no deja restos temporales`() {
+    fun `save leaves no temp leftovers`() {
         val dir = tmp.newFolder("sin-restos")
-        val store = CrashStore(dir = dir, maxPendientes = 20, ahora = { reloj })
+        val store = CrashStore(dir = dir, maxPending = 20, now = { clock })
 
-        store.guardar("uno")
+        store.save("uno")
 
         assertEquals(1, dir.listFiles()!!.size)
         assertTrue(dir.listFiles()!!.single().name.endsWith(".json"))
