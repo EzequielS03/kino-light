@@ -66,7 +66,7 @@ import kotlinx.coroutines.launch
  *
  * Opening a title goes through the SAME path as search (`playResult` from [TvSearchScreen]), not
  * its own: [DituFuente.resultFrom] turns it into the same result search gives, a movie gets saved
- * and opened with [SearchPlayback.playDitu], and a series opens [TvCapitulosDeCaracol], which on
+ * and opened with [SearchPlayback.playDitu], and a series opens [TvCaracolChapters], which on
  * tapping a chapter saves the whole series. Both save with a `ditu:` id: the movie via
  * `ArkivRepository.addDituSource`, the series via `ArkivRepository.addDituSeason`.
  *
@@ -138,11 +138,11 @@ internal fun TvCaracolScreen(onPlay: (episodeId: String) -> Unit) {
     val series = openSeries
     if (series != null) {
         Box(Modifier.fillMaxSize().background(ArkivBlack)) {
-            TvCapitulosDeCaracol(
-                serie = series,
+            TvCaracolChapters(
+                series = series,
                 posterUrl = series.extra["poster"].orEmpty(),
                 preparing = preparing,
-                alElegir = { save ->
+                onChoose = { save ->
                     openSeries = null
                     preparing = true
                     notice = null

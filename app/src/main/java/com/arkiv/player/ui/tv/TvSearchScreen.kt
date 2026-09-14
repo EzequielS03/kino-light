@@ -91,21 +91,21 @@ import com.arkiv.player.ui.theme.ArkivTextSecondary
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** Clave del historial de búsquedas del TV (separado del catálogo del teléfono). */
+/** TV search history's kind (separate from the phone's catalog). */
 private const val SEARCH_HISTORY_KIND = "tv"
 
 /**
- * Buscador del TV: dos columnas navegables por control remoto — teclado en pantalla a la
- * izquierda, y a la derecha las búsquedas recientes (antes de buscar) o la grilla de títulos
- * (TMDB/anime). Nada se dispara al teclear: con el control cada letra costaba una vuelta de red.
+ * TV's search box: two remote-navigable columns — on-screen keyboard on the left, and on the
+ * right the recent searches (before searching) or the title grid (TMDB/anime). Nothing fires on
+ * typing: with the remote, each letter cost a network round trip.
  *
- * Debajo del teclado hay dos botones. "Autocompletar" trae la grilla de títulos del catálogo, que
- * funciona como sugerencias: al elegir una card se puede escribir su nombre en el buscador (y
- * editarlo) en vez de arrancar una búsqueda. "Buscar" manda el texto —autocompletado o tecleado a
- * mano— derecho a las fuentes, sin atarse al título exacto del catálogo.
+ * Below the keyboard there are two buttons. "Autocompletar" brings the catalog's title grid,
+ * which works as suggestions: picking a card lets you write its name in the search box (and edit
+ * it) instead of starting a search. "Buscar" sends the text —autocompleted or typed by hand—
+ * straight to the sources, without tying it to the catalog's exact title.
  *
- * REFINE agrega el selector visual de temporada/capítulo; RESULTS muestra las fuentes (packs
- * primero) con reproducción inmediata, y la lista de capítulos cuando se elige un pack.
+ * REFINE adds the visual season/chapter selector; RESULTS shows the sources (packs first) with
+ * immediate playback, and the chapter list when a pack is chosen.
  */
 @Composable
 fun TvSearchScreen(
@@ -136,32 +136,32 @@ fun TvSearchScreen(
     val vmDetail by vm.detail.collectAsStateWithLifecycle()
     val vmAnimeShow by vm.animeShow.collectAsStateWithLifecycle()
     val sources by vm.sources.collectAsStateWithLifecycle()
-    val fuentesBuscando by vm.searchingSources.collectAsStateWithLifecycle()
-    val estadoDeFuentes by vm.sourcesState.collectAsStateWithLifecycle()
+    val searchingSources by vm.searchingSources.collectAsStateWithLifecycle()
+    val sourcesState by vm.sourcesState.collectAsStateWithLifecycle()
     val refineSeason by vm.refineSeason.collectAsStateWithLifecycle()
     val refineEpisode by vm.refineEpisode.collectAsStateWithLifecycle()
 
     var text by remember { mutableStateOf("") }
 
-    // Reproducción/guardado de la fuente elegida en RESULTS: reusa SearchPlayback (Task 2) tal cual
-    // lo hace el celu, para no duplicar la lógica de resolución/guardado. `packFor` es el sub-estado
-    // "eligió un pack" dentro de la misma fase RESULTS (lista de capítulos en vez de lista de fuentes).
+    // Playback/saving of the source chosen in RESULTS: reuses SearchPlayback (Task 2) exactly like
+    // the phone does, to avoid duplicating the resolve/save logic. `packFor` is the "picked a pack"
+    // sub-state within the same RESULTS phase (chapter list instead of source list).
     val scope = rememberCoroutineScope()
     val playback = remember { SearchPlayback(graph) }
-    // Serie tocada que todavía no eligió cómo verse (completa o por temporada). null = sin diálogo.
-    var preguntarModo by remember { mutableStateOf<TitleCard?>(null) }
+    // Tapped card that hasn't chosen how to watch yet (whole thing or by season). null = no dialog.
+    var askModeFor by remember { mutableStateOf<TitleCard?>(null) }
     var preparing by remember { mutableStateOf(false) }
     var playError by remember { mutableStateOf<String?>(null) }
-    // Temporada de Magis elegida: un resultado de serie del portal ES una temporada entera, así
-    // que abre la lista de capítulos en vez de reproducir el primero.
+    // Chosen Magis season: a series result from the portal IS a whole season, so it opens the
+    // chapter list instead of playing the first one.
     var magisSeasonFor by remember { mutableStateOf<com.arkiv.player.data.gateway.GatewayResult?>(null) }
-    // Serie de Caracol elegida: igual que Magis, abre sus capítulos. Es un estado APARTE a
-    // propósito: su lista de capítulos solo llama a `playback.playDituSeason`, así que un capítulo
-    // de Caracol nunca cae en el guardado de Magis.
+    // Chosen Caracol series: same as Magis, opens its chapters. A SEPARATE state on purpose: its
+    // chapter list only calls `playback.playDituSeason`, so a Caracol chapter never falls into
+    // Magis's save path.
     var dituSeasonFor by remember { mutableStateOf<com.arkiv.player.data.gateway.GatewayResult?>(null) }
 
-    // Metadata "enriquecida" de la card elegida, para guardar título/póster reales — mismo
-    // criterio que SearchScreen (teléfono).
+    // The chosen card's "enriched" metadata, to save the real title/poster — same criterion as
+    // SearchScreen (phone).
     val resultTitle = vmDetail?.title ?: vmAnimeShow?.title ?: selected?.title ?: ""
     val resultPoster = vmDetail?.posterUrl ?: vmAnimeShow?.posterUrl ?: selected?.posterUrl ?: ""
 
@@ -183,30 +183,30 @@ fun TvSearchScreen(
         scope.launch { applyResult(playback.playDitu(r)) }
     }
 
-    // Guarda una temporada entera de Magis. Capítulo por capítulo, igual que el celu: cada uno es
-    // un archivo aparte en el CDN y la cola ya los agrupa por serie en Descargas.
+    // Saves a whole Magis season. Chapter by chapter, same as the phone: each one is a separate
+    // file on the CDN and the queue already groups them by series in Descargas.
     fun saveMagisSeason(
-        temporada: com.arkiv.player.data.gateway.GatewayResult,
-        capitulos: List<com.arkiv.player.data.gateway.GatewayEpisode>,
-        // Igual que en el celu: la serie viaja también en el guardado, porque guardar reescribe la
-        // fila del episodio entera. Ver `SearchPlayback.magisEpisodeIdFor`.
-        serie: com.arkiv.player.data.gateway.GatewaySerie?,
+        season: com.arkiv.player.data.gateway.GatewayResult,
+        chapters: List<com.arkiv.player.data.gateway.GatewayEpisode>,
+        // Same as on the phone: the series travels along in the save too, because saving rewrites
+        // the whole episode row. See `SearchPlayback.magisEpisodeIdFor`.
+        series: com.arkiv.player.data.gateway.GatewaySerie?,
     ) {
         preparing = true; playError = null
         scope.launch {
-            var encolados = 0
-            for (capitulo in capitulos) {
-                val epId = playback.magisEpisodeIdFor(temporada, capitulo, serie) ?: continue
+            var queued = 0
+            for (chapter in chapters) {
+                val epId = playback.magisEpisodeIdFor(season, chapter, series) ?: continue
                 if (graph.localDownloads.enqueue(epId, "magis") ==
                     com.arkiv.player.data.local.EnqueueOutcome.QUEUED
-                ) encolados++
+                ) queued++
             }
             preparing = false
             magisSeasonFor = null
             playError = when {
-                encolados == 0 -> "Esos capítulos ya estaban guardados."
-                encolados == capitulos.size -> null
-                else -> "Se encolaron $encolados de ${capitulos.size} (el resto ya estaba)."
+                queued == 0 -> "Esos capítulos ya estaban guardados."
+                queued == chapters.size -> null
+                else -> "Se encolaron $queued de ${chapters.size} (el resto ya estaba)."
             }
         }
     }
@@ -228,12 +228,13 @@ fun TvSearchScreen(
 
     // Search does NOT fire on every keystroke: with the remote, each letter cost a full network
     // round-trip (TMDB + AniList) that was almost always discarded. Search happens on the button.
-    // `searched` distingue "todavía no buscó nada" (mostramos recientes) de "buscó y no hubo nada".
+    // `searched` distinguishes "hasn't searched anything yet" (we show recents) from "searched and
+    // there was nothing".
     var searched by remember { mutableStateOf(false) }
-    // Sube en cada búsqueda ejecutada. Es la llave para devolver la grilla al principio:
-    // sin esto, una lista lazy conserva el scroll de la búsqueda anterior y la nueva
-    // aparece empezada por la mitad, con las primeras cards fuera de pantalla.
-    var busquedaNro by remember { mutableStateOf(0) }
+    // Goes up on every search run. It's the key that resets the grid to the top: without this, a
+    // lazy list keeps the previous search's scroll and the new one shows up starting halfway down,
+    // with the first cards off screen.
+    var searchNumber by remember { mutableStateOf(0) }
     var recents by remember { mutableStateOf(emptyList<String>()) }
     val historyDao = remember { graph.database.searchHistoryDao() }
 
@@ -244,20 +245,20 @@ fun TvSearchScreen(
     LaunchedEffect(Unit) { refreshRecents() }
 
     /**
-     * Vuelve a la pantalla de recientes sin salir del buscador.
+     * Goes back to the recents screen without leaving the search box.
      *
-     * Antes esto era un callejón sin salida: una vez buscado algo no había forma de volver a la
-     * lista de recientes. Borrar todo el texto tampoco servía — el botón se apagaba y los
-     * resultados seguían en pantalla.
+     * This used to be a dead end: once something was searched there was no way back to the recents
+     * list. Deleting all the text didn't work either — the button turned off and the results stayed
+     * on screen.
      */
-    fun nuevaBusqueda() {
+    fun newSearch() {
         text = ""
         searched = false
         vm.search("")
         scope.launch { refreshRecents() }
     }
 
-    fun recordarConsulta(query: String) {
+    fun recordQuery(query: String) {
         scope.launch {
             runCatching {
                 historyDao.upsert(SearchHistoryEntity(query, SEARCH_HISTORY_KIND, System.currentTimeMillis()))
@@ -266,63 +267,63 @@ fun TvSearchScreen(
         }
     }
 
-    fun buscarTitulos(q: String) {
+    fun searchTitles(q: String) {
         val query = q.trim()
         if (query.isBlank()) return
         val match = if (onBrowseRow != null) matchCategoryRow(query, fixedRows) else null
         if (match != null) { onBrowseRow?.invoke(match.id, match.title); return }
         text = query
         searched = true
-        busquedaNro++
+        searchNumber++
         vm.search(query)
-        recordarConsulta(query)
+        recordQuery(query)
     }
 
-    fun buscarFuentes() {
+    fun searchSources() {
         val query = text.trim()
         if (query.isBlank()) return
         val match = if (onBrowseRow != null) matchCategoryRow(query, fixedRows) else null
         if (match != null) { onBrowseRow?.invoke(match.id, match.title); return }
         text = query
         vm.searchSourcesByText(query)
-        recordarConsulta(query)
+        recordQuery(query)
     }
 
     /**
-     * Botón "Buscar": manda el texto tal cual a las fuentes, sin pasar por la ficha del catálogo.
+     * "Buscar" button: sends the text as-is to the sources, without going through the catalog entry.
      *
-     * El camino por card ata la búsqueda al título EXACTO de TMDB; acá va lo que haya en el
-     * buscador, venga de una sugerencia o del teclado.
+     * The card path ties the search to TMDB's EXACT title; here it's whatever's in the search box,
+     * whether it came from a suggestion or the keyboard.
      *
-     * A propósito no toca `searched`: la columna derecha se queda como estaba, así que volver de
-     * las fuentes no deja la pantalla en "Sin resultados" por una búsqueda de títulos que nunca
-     * corrió.
+     * Deliberately doesn't touch `searched`: the right column stays as it was, so coming back from
+     * the sources doesn't leave the screen on "Sin resultados" for a title search that never ran.
      */
 
     /**
-     * "Usar este nombre" de una sugerencia: escribe el título de la card en el buscador y deja el
-     * foco en "Buscar", que es lo único que falta hacer. Sin esto el foco se queda en la grilla y
-     * hay que cruzar toda la columna con el D-pad para rematar la búsqueda.
+     * A suggestion's "Usar este nombre": writes the card's title in the search box and leaves focus
+     * on "Buscar", the only thing left to do. Without this, focus stays on the grid and you have to
+     * cross the whole column with the D-pad to finish the search.
      */
-    val buscarFuentesFocus = remember { FocusRequester() }
-    fun usarNombre(nombre: String) {
-        text = nombre
+    val searchSourcesFocus = remember { FocusRequester() }
+    fun useName(name: String) {
+        text = name
         scope.launch {
             delay(150)
-            runCatching { buscarFuentesFocus.requestFocus() }
+            runCatching { searchSourcesFocus.requestFocus() }
         }
     }
 
-    // Atajo desde el home: entra ya posicionado en un título (mismo patrón que el teléfono).
+    // Shortcut from the home: enters already positioned on a title (same pattern as the phone).
     LaunchedEffect(shortcutKind, shortcutTmdbId, shortcutAnilistId) {
         val k = shortcutKind ?: return@LaunchedEffect
         vm.startFromShortcut(k, shortcutTmdbId, shortcutAnilistId)
     }
 
-    // Foco inicial en la primera tecla del teclado. Clave en `phase` (no `Unit`): REFINE/RESULTS/
-    // PACK reenfocan solos al entrar, pero volver a QUERY con vm.back() destruye el nodo que
-    // tenía el foco y, si esto corriera una sola vez al entrar a la pantalla, nada lo devolvería
-    // — el D-pad quedaría "muerto". Repetir el efecto cada vez que se vuelve a QUERY lo evita.
+    // Initial focus on the keyboard's first key. Keyed on `phase` (not `Unit`): REFINE/RESULTS/
+    // PACK refocus themselves on entry, but going back to QUERY with vm.back() destroys the node
+    // that held focus, and if this only ran once on entering the screen, nothing would bring it
+    // back — the D-pad would end up "dead". Repeating the effect every time QUERY is returned to
+    // avoids that.
     val firstKeyFocus = remember { FocusRequester() }
     LaunchedEffect(phase) {
         if (phase == SearchPhase.QUERY) {
@@ -331,9 +332,9 @@ fun TvSearchScreen(
         }
     }
 
-    // En REFINE/RESULTS atrás retrocede una fase dentro del wizard; en la fase de títulos, atrás
-    // sale de la pantalla. Con los capítulos de una serie abiertos dentro de RESULTS (de Magis o de
-    // Caracol), atrás vuelve primero a la lista de fuentes (no sale de la fase).
+    // In REFINE/RESULTS, back steps one phase back within the wizard; in the titles phase, back
+    // exits the screen. With a series' chapters open inside RESULTS (from Magis or Caracol), back
+    // goes to the source list first (doesn't exit the phase).
     BackHandler {
         when {
             phase == SearchPhase.RESULTS && magisSeasonFor != null -> magisSeasonFor = null
@@ -347,8 +348,8 @@ fun TvSearchScreen(
         when (phase) {
             SearchPhase.QUERY -> Row(Modifier.fillMaxSize()) {
                 Column(
-                    // 380dp: con 24dp de padding a cada lado quedan ~332 útiles, así las 6 teclas
-                    // por fila salen de ~48dp (cómodas de ver a distancia) sin cortarse.
+                    // 380dp: with 24dp of padding on each side, ~332 usable remain, so the 6 keys
+                    // per row come out at ~48dp (comfortable to see from a distance) without clipping.
                     modifier = Modifier.fillMaxHeight().width(380.dp).padding(24.dp),
                 ) {
                     Text(
@@ -359,24 +360,24 @@ fun TvSearchScreen(
                     )
                     TvKeyboard(
                         text = text,
-                        // Borrar hasta dejarlo vacío vuelve a las recientes. Es el gesto que ya
-                        // existía (⌫) y que hasta ahora no llevaba a ningún lado.
+                        // Deleting down to empty goes back to recents. It's the gesture that already
+                        // existed (⌫) and that until now led nowhere.
                         onTextChange = {
                             text = it
-                            if (it.isBlank() && searched) nuevaBusqueda()
+                            if (it.isBlank() && searched) newSearch()
                         },
                         firstKeyFocus = firstKeyFocus,
                     )
                     Spacer(Modifier.height(16.dp))
-                    // Izquierda a derecha, el orden del flujo: "Autocompletar" trae las sugerencias
-                    // del catálogo y "Buscar" remata con el texto que quedó. Mitad y mitad porque
-                    // los dos se usan, y se navegan entre sí con izquierda/derecha.
+                    // Left to right, the flow's order: "Autocompletar" brings the catalog's
+                    // suggestions and "Buscar" finishes with whatever text is left. Half and half
+                    // because both get used, and they're navigated between with left/right.
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         Surface(
-                            onClick = { buscarTitulos(text) },
+                            onClick = { searchTitles(text) },
                             enabled = text.isNotBlank(),
                             modifier = Modifier.weight(1f).height(52.dp),
                             shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
@@ -388,9 +389,9 @@ fun TvSearchScreen(
                             }
                         }
                         Surface(
-                            onClick = { buscarFuentes() },
+                            onClick = { searchSources() },
                             enabled = text.isNotBlank(),
-                            modifier = Modifier.weight(1f).height(52.dp).focusRequester(buscarFuentesFocus),
+                            modifier = Modifier.weight(1f).height(52.dp).focusRequester(searchSourcesFocus),
                             shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
                             colors = arkivTvSurfaceColors(),
                             border = arkivTvSurfaceBorder(),
@@ -400,12 +401,12 @@ fun TvSearchScreen(
                             }
                         }
                     }
-                    // No depende de borrar el texto letra por letra: con el control eso son diez
-                    // clics. Aparece recién cuando hay algo que descartar.
+                    // Doesn't depend on deleting the text letter by letter: with the remote that's
+                    // ten clicks. Only shows up once there's something to discard.
                     if (searched) {
                         Spacer(Modifier.height(10.dp))
                         Surface(
-                            onClick = { nuevaBusqueda() },
+                            onClick = { newSearch() },
                             modifier = Modifier.fillMaxWidth().height(52.dp),
                             shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
                             colors = arkivTvSurfaceColors(),
@@ -419,9 +420,9 @@ fun TvSearchScreen(
                 }
 
                 Column(Modifier.fillMaxSize().padding(top = 24.dp, end = 24.dp)) {
-                    // Antes de buscar, este espacio (que si no queda vacío) muestra lo último que
-                    // se buscó: con el control, volver a una búsqueda anterior es mucho más barato
-                    // que volver a teclearla letra por letra.
+                    // Before searching, this space (as long as it isn't empty) shows the last thing
+                    // searched: with the remote, going back to a previous search is much cheaper
+                    // than retyping it letter by letter.
                     if (!searched && recents.isNotEmpty()) {
                         Text(
                             "Búsquedas recientes",
@@ -436,7 +437,7 @@ fun TvSearchScreen(
                         ) {
                             items(recents, key = { it }) { q ->
                                 Surface(
-                                    onClick = { buscarTitulos(q) },
+                                    onClick = { searchTitles(q) },
                                     modifier = Modifier.fillMaxWidth().height(52.dp),
                                     shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
                                     colors = arkivTvSurfaceColors(),
@@ -462,21 +463,21 @@ fun TvSearchScreen(
                     if (titleResults.isEmpty() && !loadingTitles && searched) {
                         Text("Sin resultados", color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall)
                     }
-                    val gridTitulos = rememberLazyGridState()
-                    // Los resultados llegan en dos tandas y el ViewModel publica `tmdb + anime`:
-                    // si el anime llega primero, la tanda de TMDB se INSERTA ARRIBA. Con keys, la
-                    // grilla se ancla a lo que ya estabas viendo y lo nuevo queda fuera de
-                    // pantalla, por encima — se ve igual que si hubiera quedado scrolleada.
-                    // Mientras no hayas movido el foco a la grilla, la mantenemos arriba.
-                    var grillaTocada by remember(busquedaNro) { mutableStateOf(false) }
-                    LaunchedEffect(busquedaNro, titleResults) {
-                        if (!grillaTocada) gridTitulos.scrollToItem(0)
+                    val titlesGrid = rememberLazyGridState()
+                    // Results arrive in two batches and the ViewModel publishes `tmdb + anime`: if
+                    // anime arrives first, the TMDB batch gets INSERTED ABOVE. With keys, the grid
+                    // anchors to what was already being viewed and the new stuff ends up off screen,
+                    // above — it looks the same as if it had scrolled on its own. As long as focus
+                    // hasn't moved to the grid, we keep it at the top.
+                    var gridTouched by remember(searchNumber) { mutableStateOf(false) }
+                    LaunchedEffect(searchNumber, titleResults) {
+                        if (!gridTouched) titlesGrid.scrollToItem(0)
                     }
                     LazyVerticalGrid(
-                        state = gridTitulos,
+                        state = titlesGrid,
                         columns = GridCells.Fixed(5),
-                        // Aire alrededor para que el zoom al enfocar (1.1x) no se recorte contra
-                        // los bordes de la grilla ni contra las cards vecinas.
+                        // Room all around so the focus zoom (1.1x) doesn't clip against the grid's
+                        // edges or against neighboring cards.
                         contentPadding = PaddingValues(top = 12.dp, bottom = 32.dp, end = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(24.dp),
                         verticalArrangement = Arrangement.spacedBy(24.dp),
@@ -487,17 +488,18 @@ fun TvSearchScreen(
                                 title = card.title,
                                 posterUrl = card.posterUrl,
                                 cardHeight = 180.dp,
-                                onFocus = { grillaTocada = true },
-                                // Ninguna card arranca una búsqueda sola: las pelis también
-                                // preguntan. La grilla es tanto el catálogo como el autocompletador
-                                // del buscador, y cuál de las dos cosas querés no se puede adivinar.
-                                onClick = { preguntarModo = card },
+                                onFocus = { gridTouched = true },
+                                // No card ever starts a search on its own: movies ask too. The grid
+                                // is both the catalog and the search box's autocompleter, and which
+                                // of the two you want can't be guessed.
+                                onClick = { askModeFor = card },
                             )
                         }
                     }
                 }
             }
-            // Task 5: selector visual de temporada/capítulo. Task 6 reemplaza el placeholder de RESULTS.
+
+            // Task 5: visual season/chapter selector. Task 6 replaces RESULTS' placeholder.
             SearchPhase.REFINE -> selected?.let { card ->
                 TvRefineContent(
                     card = card,
@@ -509,8 +511,8 @@ fun TvSearchScreen(
                     onPickEpisode = { season, episode -> vm.runSourceSearch(season, episode) },
                 )
             }
-            // Lista de fuentes con reproducción inmediata al elegir una; una temporada de Magis o una
-            // serie de Caracol abre TvMagisSeasonContent (lista de capítulos) en vez de reproducir.
+            // Source list with immediate playback on picking one; a Magis season or a Caracol
+            // series opens TvMagisSeasonContent (chapter list) instead of playing.
             SearchPhase.RESULTS -> {
                 val currentMagis = magisSeasonFor
                 val currentDitu = dituSeasonFor
@@ -520,24 +522,24 @@ fun TvSearchScreen(
                         client = graph.fuenteDeContenido,
                         posterUrl = resultPoster,
                         preparing = preparing,
-                        onPlayOne = { capitulos, capitulo, serie ->
+                        onPlayOne = { chapters, chapter, series ->
                             magisSeasonFor = null
                             preparing = true; playError = null
                             scope.launch {
-                                applyResult(playback.playMagisSeason(currentMagis, capitulos, capitulo, serie))
+                                applyResult(playback.playMagisSeason(currentMagis, chapters, chapter, series))
                             }
                         },
-                        onSaveAll = { capitulos, serie -> saveMagisSeason(currentMagis, capitulos, serie) },
+                        onSaveAll = { chapters, series -> saveMagisSeason(currentMagis, chapters, series) },
                     )
                 } else if (currentDitu != null) {
-                    TvCapitulosDeCaracol(
-                        serie = currentDitu,
+                    TvCaracolChapters(
+                        series = currentDitu,
                         posterUrl = currentDitu.extra["poster"].orEmpty().ifBlank { resultPoster },
                         preparing = preparing,
-                        alElegir = { guardar ->
+                        onChoose = { save ->
                             dituSeasonFor = null
                             preparing = true; playError = null
-                            scope.launch { applyResult(guardar()) }
+                            scope.launch { applyResult(save()) }
                         },
                     )
                 } else {
@@ -547,8 +549,8 @@ fun TvSearchScreen(
                         season = refineSeason,
                         episode = refineEpisode,
                         sources = sources,
-                        fuentesBuscando = fuentesBuscando,
-                        estadoDeFuentes = estadoDeFuentes,
+                        searchingSources = searchingSources,
+                        sourcesState = sourcesState,
                         preparing = preparing,
                         playError = playError,
                         onSelect = { source -> playResult(source) },
@@ -558,59 +560,58 @@ fun TvSearchScreen(
         }
     }
 
-    preguntarModo?.let { card ->
-        TvQueHacerConLaCardDialog(
-            titulo = card.title,
-            esSerie = card.kind != "movie",
-            onUsarNombre = {
-                preguntarModo = null
-                usarNombre(card.title)
+    askModeFor?.let { card ->
+        TvWhatToDoWithCardDialog(
+            title = card.title,
+            isSeries = card.kind != "movie",
+            onUseName = {
+                askModeFor = null
+                useName(card.title)
             },
-            onSerieCompleta = {
-                preguntarModo = null
-                // pickTitle deja la card como `selected` (y la guarda en el historial); recién
-                // entonces runSourceSearch puede buscar sus fuentes. Sin S/E se surfacean los packs.
+            onFullSeries = {
+                askModeFor = null
+                // pickTitle leaves the card as `selected` (and saves it in history); only then can
+                // runSourceSearch look up its sources. With no S/E, packs get surfaced.
                 vm.pickTitle(card)
                 vm.runSourceSearch(null, null)
             },
-            // Una peli no tiene temporadas que elegir: pickTitle la manda derecho a RESULTS.
-            onPorTemporada = {
-                preguntarModo = null
+            // A movie has no seasons to choose: pickTitle sends it straight to RESULTS.
+            onBySeason = {
+                askModeFor = null
                 vm.pickTitle(card)
             },
-            onDismiss = { preguntarModo = null },
+            onDismiss = { askModeFor = null },
         )
     }
 }
 
 /**
- * Qué hacer con la card recién elegida: usar su nombre como autocompletado del buscador, o buscar
- * sus fuentes por la ficha del catálogo.
+ * What to do with the just-chosen card: use its name as the search box's autocomplete, or search
+ * its sources through the catalog entry.
  *
- * La grilla hace dos trabajos a la vez —es el catálogo y es el autocompletador— y cuál de los dos
- * querés no se puede adivinar desde el click, así que se pregunta. "Usar este nombre" va primero
- * y con el foco porque es la razón de ser de la grilla cuando uno solo se acuerda de un pedazo del
- * nombre: TMDB completa el título y de ahí la búsqueda sigue por texto, sin atarse al `tmdb_id`
- * (que es justo lo que a veces no encuentra nada en el mirror).
+ * The grid does two jobs at once —it's the catalog and it's the autocompleter— and which of the
+ * two is wanted can't be guessed from the click, so it asks. "Usar este nombre" goes first and
+ * with focus because it's the grid's reason for being when someone only remembers a piece of the
+ * name: TMDB completes the title and from there the search continues by text, without tying
+ * itself to the `tmdb_id` (which is exactly what sometimes finds nothing on the mirror).
  *
- * Para las series se conservan las dos entradas de siempre: la serie entera (donde salen los packs)
- * y el selector de temporada/capítulo. Una película no tiene nada que elegir, así que su único
- * camino por catálogo es "Ver fuentes".
+ * For series the usual two entries are kept: the whole series (where the packs show up) and the
+ * season/chapter selector. A movie has nothing to choose, so its only catalog path is "Ver fuentes".
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun TvQueHacerConLaCardDialog(
-    titulo: String,
-    esSerie: Boolean,
-    onUsarNombre: () -> Unit,
-    onSerieCompleta: () -> Unit,
-    onPorTemporada: () -> Unit,
+private fun TvWhatToDoWithCardDialog(
+    title: String,
+    isSeries: Boolean,
+    onUseName: () -> Unit,
+    onFullSeries: () -> Unit,
+    onBySeason: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val primero = remember { FocusRequester() }
+    val first = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         delay(150)
-        runCatching { primero.requestFocus() }
+        runCatching { first.requestFocus() }
     }
     Dialog(onDismissRequest = onDismiss) {
         Column(
@@ -618,7 +619,7 @@ private fun TvQueHacerConLaCardDialog(
                 .background(ArkivSurfaceHigh).padding(32.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text(titulo, style = MaterialTheme.typography.headlineSmall, color = Color.White, maxLines = 2)
+            Text(title, style = MaterialTheme.typography.headlineSmall, color = Color.White, maxLines = 2)
             Text(
                 "¿Qué quieres hacer?",
                 style = MaterialTheme.typography.bodyLarge,
@@ -626,19 +627,19 @@ private fun TvQueHacerConLaCardDialog(
                 modifier = Modifier.padding(bottom = 6.dp),
             )
             Button(
-                onClick = onUsarNombre,
+                onClick = onUseName,
                 colors = arkivTvButtonColors(),
                 border = arkivTvButtonBorder(),
-                modifier = Modifier.fillMaxWidth().focusRequester(primero),
+                modifier = Modifier.fillMaxWidth().focusRequester(first),
             ) { Text("Usar este nombre") }
             Text(
                 "Lo escribe en el buscador para que lo edites si quieres, y con \"Buscar\" va tal cual a las fuentes.",
                 style = MaterialTheme.typography.labelLarge,
                 color = ArkivTextSecondary,
             )
-            if (esSerie) {
+            if (isSeries) {
                 Button(
-                    onClick = onSerieCompleta,
+                    onClick = onFullSeries,
                     colors = arkivTvButtonColors(),
                     border = arkivTvButtonBorder(),
                     modifier = Modifier.fillMaxWidth(),
@@ -649,7 +650,7 @@ private fun TvQueHacerConLaCardDialog(
                     color = ArkivTextSecondary,
                 )
                 Button(
-                    onClick = onPorTemporada,
+                    onClick = onBySeason,
                     colors = arkivTvButtonColors(),
                     border = arkivTvButtonBorder(),
                     modifier = Modifier.fillMaxWidth(),
@@ -661,7 +662,7 @@ private fun TvQueHacerConLaCardDialog(
                 )
             } else {
                 Button(
-                    onClick = onPorTemporada,
+                    onClick = onBySeason,
                     colors = arkivTvButtonColors(),
                     border = arkivTvButtonBorder(),
                     modifier = Modifier.fillMaxWidth(),
@@ -677,15 +678,15 @@ private fun TvQueHacerConLaCardDialog(
 }
 
 /**
- * Fase REFINE del TV: selector visual navegable por control remoto — temporadas en fila
- * horizontal (series TMDB) o lista de episodios (anime), con "Toda la serie" siempre arriba
- * para saltar directo a los packs. Nada de teclado numérico: en el control, escribir un número
- * es tedioso, así que todo se elige con foco/click.
+ * TV's REFINE phase: remote-navigable visual selector — seasons in a horizontal row (TMDB
+ * series) or an episode list (anime), with "Toda la serie" always on top to jump straight to the
+ * packs. No numeric keyboard: on the remote, typing a number is tedious, so everything gets
+ * picked with focus/click.
  *
- * Reutiliza `vm.detail`/`vm.animeShow` cuando el ViewModel ya los cargó (p. ej. al volver de
- * RESULTS con `back()`); si todavía están vacíos —primera vez que se entra a REFINE, porque
- * [SearchViewModel.runSourceSearch] recién los llena cuando se dispara la búsqueda de fuentes—
- * los pide acá mismo con `tmdbApi.detail`/`aniListApi.details` para no bloquear el selector.
+ * Reuses `vm.detail`/`vm.animeShow` when the ViewModel already loaded them (e.g. on coming back
+ * from RESULTS with `back()`); if they're still empty —first time entering REFINE, because
+ * [SearchViewModel.runSourceSearch] only fills them once the source search fires— they're
+ * requested right here with `tmdbApi.detail`/`aniListApi.details` so as not to block the selector.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -704,7 +705,7 @@ private fun TvRefineContent(
     val effectiveDetail = vmDetail?.takeIf { it.id == card.tmdbId } ?: localDetail
     val effectiveAnimeShow = vmAnimeShow?.takeIf { it.id == card.anilistId } ?: localAnimeShow
 
-    // Solo pide lo que el VM no tenga ya (evita refetch al volver de RESULTS con back()).
+    // Only requests what the VM doesn't already have (avoids a refetch on returning from RESULTS with back()).
     LaunchedEffect(card.tmdbId, vmDetail) {
         val tmdbId = card.tmdbId ?: return@LaunchedEffect
         if (card.kind != "series") return@LaunchedEffect
@@ -722,7 +723,7 @@ private fun TvRefineContent(
     var episodesBySeason by remember(card) { mutableStateOf<Map<Int, List<TmdbEpisode>>>(emptyMap()) }
     var loadingEpisodes by remember(card) { mutableStateOf(false) }
 
-    // Preselecciona la primera temporada "real" (salta especiales = temporada 0) apenas se conocen.
+    // Preselects the first "real" season (skips specials = season 0) as soon as they're known.
     LaunchedEffect(effectiveDetail) {
         if (selectedSeason == null) {
             val seasons = effectiveDetail?.seasons.orEmpty()
@@ -731,17 +732,17 @@ private fun TvRefineContent(
         }
     }
 
-    // Carga los capítulos de la temporada enfocada/elegida; cachea por temporada para no repetir
-    // el fetch al ir y volver entre temporadas ya vistas.
-    // `selectedSeason` cambia con el FOCO (onFocus del chip), así que recorrer las temporadas con
-    // el D-pad reinicia este efecto una vez por chip. Dos fixes acá:
-    //  - delay(250) al principio, ANTES de tocar `loadingEpisodes` o el caché: si el usuario sigue
-    //    scrubbeando, cada reinicio cancela la corrutina anterior durante el delay y nunca llega a
-    //    disparar el fetch de TMDB — evita una llamada por chip.
-    //  - `loadingEpisodes` solo se pone en true DESPUÉS del chequeo de caché, y el fetch va en
-    //    try/finally: si la temporada ya estaba cacheada, nunca se toca el flag; si el fetch se
-    //    cancela a mitad de camino (foco se movió a otra temporada), el finally lo vuelve a false
-    //    igual, así nunca queda pegado en "Cargando…".
+    // Loads the focused/chosen season's chapters; caches per season to avoid repeating the fetch
+    // when going back and forth between already-seen seasons.
+    // `selectedSeason` changes with FOCUS (the chip's onFocus), so going through the seasons with
+    // the D-pad restarts this effect once per chip. Two fixes here:
+    //  - delay(250) at the start, BEFORE touching `loadingEpisodes` or the cache: if the user keeps
+    //    scrubbing, every restart cancels the previous coroutine during the delay and it never gets
+    //    to fire the TMDB fetch — avoids one call per chip.
+    //  - `loadingEpisodes` only gets set to true AFTER the cache check, and the fetch goes in a
+    //    try/finally: if the season was already cached, the flag never gets touched; if the fetch
+    //    gets cancelled halfway (focus moved to another season), the finally sets it back to false
+    //    all the same, so it never gets stuck on "Cargando…".
     LaunchedEffect(selectedSeason, card.tmdbId) {
         val season = selectedSeason ?: return@LaunchedEffect
         val tmdbId = card.tmdbId ?: return@LaunchedEffect
@@ -749,8 +750,8 @@ private fun TvRefineContent(
         if (episodesBySeason.containsKey(season)) return@LaunchedEffect
         loadingEpisodes = true
         try {
-            // `.orEmpty()`: esto solo pinta la lista de capítulos; un fallo de red se ve igual que
-            // una temporada vacía y se reintenta con solo volver a entrar.
+            // `.orEmpty()`: this only paints the chapter list; a network failure looks the same as
+            // an empty season and gets retried just by entering again.
             val eps = runCatching { tmdbApi.seasonEpisodes(tmdbId, season) }.getOrNull().orEmpty()
             episodesBySeason = episodesBySeason + (season to eps)
         } finally {
@@ -758,7 +759,7 @@ private fun TvRefineContent(
         }
     }
 
-    // Foco inicial en "Toda la serie" (Step 2 del brief).
+    // Initial focus on "Toda la serie" (Step 2 of the brief).
     val allSeriesFocus = remember(card) { FocusRequester() }
     LaunchedEffect(card) {
         delay(200)
@@ -770,9 +771,9 @@ private fun TvRefineContent(
     val animeTotal = effectiveAnimeShow?.episodes ?: 0
 
     LazyColumn(
-        // El margen va DENTRO de la lista (contentPadding), no como padding externo: al enfocar,
-        // las filas hacen zoom (1.1x) y con el margen por fuera la lista las recortaba contra su
-        // propio borde. Así el zoom se dibuja sobre ese margen en vez de cortarse.
+        // The margin goes INSIDE the list (contentPadding), not as external padding: on focus,
+        // rows zoom (1.1x) and with the margin outside, the list clipped them against its own
+        // edge. This way the zoom draws over that margin instead of getting cut off.
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 48.dp, vertical = 28.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -894,22 +895,22 @@ private fun TvRefineContent(
                     }
                 }
             }
-            else -> Unit // "movie" no llega a REFINE: pickTitle() la manda directo a RESULTS.
+            else -> Unit // "movie" doesn't reach REFINE: pickTitle() sends it straight to RESULTS.
         }
     }
 }
 
 /**
- * Fila de chips por origen ("Todo 12 · Magis 12"), equivalente a la de la app de móvil
+ * Row of chips by source ("Todo 12 · Magis 12"), equivalent to the phone app's
  * ([com.arkiv.player.ui.search.SourceTabRow]).
  *
- * Con un solo origen real (Magis) el filtro ya no separa nada, pero se mantiene por si vuelve a
- * haber más de una fuente a la vez.
+ * With a single real source (Magis), the filter no longer separates anything, but it's kept in
+ * case there's more than one source at once again.
  *
- * Siempre se pintan los dos chips, incluso en 0: si aparecieran y desaparecieran según van
- * llegando los resultados, el foco saltaría de chip mientras el usuario navega. Por lo mismo, un
- * origen que todavía está buscando muestra un spinner en vez de "0" — un cero prematuro se lee
- * como "no hay nada acá" cuando en realidad todavía no terminó.
+ * Both chips are always painted, even at 0: if they appeared and disappeared as results arrived,
+ * focus would jump chips while the user navigates. For the same reason, a source that's still
+ * searching shows a spinner instead of "0" — a premature zero reads as "there's nothing here"
+ * when really it just hasn't finished yet.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -935,8 +936,8 @@ private fun TvSourceTabRow(
                 onClick = { onSelect(t) },
                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(20.dp)),
                 colors = ClickableSurfaceDefaults.colors(
-                    // El seleccionado se tiñe con el color del origen; el foco siempre gana en
-                    // contraste, que es lo que el usuario necesita ver desde el sofá.
+                    // The selected one tints with the source's color; focus always wins on
+                    // contrast, which is what the user needs to see from the couch.
                     containerColor = if (on) accent.copy(alpha = 0.28f) else ArkivSurfaceHigh,
                     focusedContainerColor = accent.copy(alpha = 0.55f),
                 ),
@@ -975,7 +976,7 @@ private fun TvSourceTabRow(
     }
 }
 
-/** Chip de temporada de la fila horizontal ("T1", "T2"… o "Especiales" para la temporada 0). */
+/** Season chip in the horizontal row ("T1", "T2"… or "Especiales" for season 0). */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TvSeasonChip(
@@ -1005,7 +1006,7 @@ private fun TvSeasonChip(
     }
 }
 
-/** Fila navegable de un capítulo/episodio elegible ("E3 · Nombre" o "Episodio 12"). */
+/** Navigable row for a selectable chapter/episode ("E3 · Nombre" or "Episodio 12"). */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TvRefineRow(label: String, onClick: () -> Unit) {
@@ -1033,11 +1034,11 @@ private fun TvRefineRow(label: String, onClick: () -> Unit) {
 }
 
 /**
- * Fase RESULTS del TV: lista vertical ÚNICA de fuentes de Magis — a diferencia del
- * teléfono, que las agrupa en secciones colapsables por tipo, acá van todas juntas porque el
- * D-pad navega mejor una sola lista que saltar entre secciones. Elegir una fuente reproduce YA
- * (SearchPlayback vía onSelect, sin diálogo de "dónde ver"); una temporada de Magis la maneja el
- * padre (TvSearchScreen) mostrando TvMagisSeasonContent en su lugar.
+ * TV's RESULTS phase: a SINGLE vertical list of Magis sources — unlike the phone, which groups
+ * them into collapsible sections by type, here they all go together because the D-pad navigates a
+ * single list better than jumping between sections. Picking a source plays it RIGHT AWAY
+ * (SearchPlayback via onSelect, no "where to watch" dialog); a Magis season is handled by the
+ * parent (TvSearchScreen) showing TvMagisSeasonContent in its place.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -1047,27 +1048,27 @@ private fun TvResultsContent(
     season: Int?,
     episode: Int?,
     sources: List<PlaySource>,
-    fuentesBuscando: SearchingSources,
-    estadoDeFuentes: SourcesState,
+    searchingSources: SearchingSources,
+    sourcesState: SourcesState,
     preparing: Boolean,
     playError: String?,
     onSelect: (PlaySource) -> Unit,
 ) {
-    // distinctBy(sourceKey) es belt-and-braces: el pipeline de arriba ya debería llegar sin
-    // duplicados, pero esto evita el crash de Compose por keys repetidas si algo se cuela.
+    // distinctBy(sourceKey) is belt-and-braces: the pipeline above should already arrive with no
+    // duplicates, but this avoids a Compose crash from repeated keys if something slips through.
     val ordered = remember(sources) { sources.distinctBy { sourceKey(it) } }
-    val anyLoading = fuentesBuscando.any
+    val anyLoading = searchingSources.any
 
-    // Filtro por origen. Los contadores salen de `ordered` (ya deduplicado), no de `sources`, para
-    // que el número del chip sea exactamente el de filas que se van a ver al elegirlo.
+    // Filter by source. The counters come from `ordered` (already deduplicated), not `sources`, so
+    // the chip's number is exactly the count of rows that'll be seen on picking it.
     var tab by remember { mutableStateOf(SourceTab.TODO) }
     val counts = countsByTab(ordered)
-    // Cada pestaña gira mientras su fuente siga buscando, y "Todo" mientras falte cualquiera: ver
+    // Each tab spins while its source is still searching, and "Todo" while any is missing: see
     // [SearchingSources].
-    val loadingOf = SourceTab.entries.associateWith { fuentesBuscando.isSearching(it) }
+    val loadingOf = SourceTab.entries.associateWith { searchingSources.isSearching(it) }
 
-    // Foco inicial en la primera fuente apenas aparece la primera tanda (progresiva: no le vuelve
-    // a robar el foco al usuario cuando llegan más resultados después).
+    // Initial focus on the first source as soon as the first batch shows up (progressive: doesn't
+    // steal focus back from the user when more results arrive later).
     val firstFocus = remember { FocusRequester() }
     var focusedOnce by remember { mutableStateOf(false) }
     LaunchedEffect(ordered.isNotEmpty()) {
@@ -1078,37 +1079,38 @@ private fun TvResultsContent(
         }
     }
 
-    // Un intento de reproducción fallido deja `preparing` en false pero, como `focusedOnce` ya es
-    // true, el efecto de arriba no vuelve a disparar: la fila queda deshabilitada durante
-    // `preparing` (Surface no-focusable) y al reactivarse nada pide el foco de nuevo — el usuario
-    // ve el error y el D-pad no responde. Reenfocar acá cuando aparece un error nuevo lo arregla.
+    // A failed playback attempt leaves `preparing` at false but, since `focusedOnce` is already
+    // true, the effect above doesn't fire again: the row stays disabled during `preparing`
+    // (non-focusable Surface) and on re-enabling, nothing requests focus again — the user sees the
+    // error and the D-pad doesn't respond. Refocusing here when a new error shows up fixes it.
     LaunchedEffect(playError) {
         if (playError != null && ordered.isNotEmpty()) {
             runCatching { firstFocus.requestFocus() }
         }
     }
 
-    // Al entrar a las fuentes de OTRO título la lista tiene que arrancar arriba, no donde había
-    // quedado la anterior. La llave es el título + el capítulo: es lo que cambia entre búsquedas.
-    val listaFuentes = rememberLazyListState()
-    LaunchedEffect(title, season, episode) { listaFuentes.scrollToItem(0) }
+    // On entering ANOTHER title's sources, the list has to start at the top, not where the
+    // previous one left off. The key is the title + the chapter: that's what changes between
+    // searches.
+    val sourcesList = rememberLazyListState()
+    LaunchedEffect(title, season, episode) { sourcesList.scrollToItem(0) }
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
-            state = listaFuentes,
-            // El margen va DENTRO de la lista (contentPadding), no como padding externo: al enfocar,
-            // las filas hacen zoom (1.1x) y con el margen por fuera la lista las recortaba contra su
-            // propio borde. Así el zoom se dibuja sobre ese margen en vez de cortarse.
+            state = sourcesList,
+            // The margin goes INSIDE the list (contentPadding), not as external padding: on focus,
+            // rows zoom (1.1x) and with the margin outside, the list clipped them against its own
+            // edge. This way the zoom draws over that margin instead of getting cut off.
             modifier = Modifier.fillMaxSize(),
-            // Sin margen horizontal en la LISTA: cada item pone el suyo, y las filas de fuente
-            // ponen el suyo como contentPadding del LazyRow, para que las tarjetas scrolleen
-            // hasta el borde de la pantalla en vez de cortarse contra el margen de la lista.
+            // No horizontal margin on the LIST: each item sets its own, and source rows set theirs
+            // as the LazyRow's contentPadding, so cards scroll all the way to the screen's edge
+            // instead of clipping against the list's margin.
             contentPadding = PaddingValues(vertical = 28.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             item {
-                // Encabezado compacto: con filas horizontales abajo, cada dp que ocupa acá es una
-                // fuente menos que se ve sin scrollear. Antes eran 140 dp de póster y dos líneas.
+                // Compact header: with horizontal rows below, every dp it takes here is one fewer
+                // source visible without scrolling. Used to be a 140 dp poster and two lines.
                 Row(modifier = Modifier.padding(horizontal = 48.dp)) {
                     Box(
                         modifier = Modifier.height(90.dp).width(90.dp * 2f / 3f)
@@ -1131,8 +1133,9 @@ private fun TvResultsContent(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        // Una sola línea de contexto: capítulo, cuántas fuentes hay y si sigue buscando.
-                        // El "Fuentes / Buscando…" que estaba aparte se fusionó acá.
+                        // A single line of context: chapter, how many sources there are, and
+                        // whether it's still searching. The separate "Fuentes / Buscando…" got
+                        // merged into it here.
                         val meta = buildString {
                             if (season != null && episode != null) append("T").append(season).append(" · E").append(episode)
                             if (ordered.isNotEmpty()) {
@@ -1177,11 +1180,12 @@ private fun TvResultsContent(
                 )
             }
 
-            // Una línea por fuente caída, haya o no resultados: no tapa lo que las otras trajeron.
-            downSourceNotices(estadoDeFuentes, tab).forEach { aviso ->
+            // One line per down source, whether or not there are results: doesn't cover what the
+            // others brought.
+            downSourceNotices(sourcesState, tab).forEach { notice ->
                 item {
                     Text(
-                        aviso,
+                        notice,
                         color = ArkivRed,
                         style = MaterialTheme.typography.bodyMedium,
                         maxLines = 2,
@@ -1191,25 +1195,26 @@ private fun TvResultsContent(
                 }
             }
 
-            val filas = visibleRows(ordered, tab)
+            val rows = visibleRows(ordered, tab)
 
             if (ordered.isEmpty() && !anyLoading) {
                 item {
                     Text(
-                        noSourcesText(estadoDeFuentes),
+                        noSourcesText(sourcesState),
                         color = ArkivTextSecondary,
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(horizontal = 48.dp, vertical = 8.dp),
                     )
                 }
-            } else if (filas.isEmpty()) {
-                // Hay resultados, pero no de este origen. Sin este aviso la lista queda en blanco y
-                // parece que la app se colgó, cuando en realidad basta con volver a "Todo". Si la
-                // fuente de esta pestaña se cayó, no va: ya lo dice su línea de arriba.
-                emptyTabText(tab, loadingOf[tab] == true, estadoDeFuentes)?.let { vacia ->
+            } else if (rows.isEmpty()) {
+                // There are results, but not from this source. Without this notice the list stays
+                // blank and it looks like the app hung, when really going back to "Todo" is
+                // enough. If this tab's source is down, this doesn't show: its line above already
+                // says so.
+                emptyTabText(tab, loadingOf[tab] == true, sourcesState)?.let { empty ->
                     item {
                         Text(
-                            vacia,
+                            empty,
                             color = ArkivTextSecondary,
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.padding(horizontal = 48.dp, vertical = 8.dp),
@@ -1218,15 +1223,15 @@ private fun TvResultsContent(
                 }
             }
 
-            // Una fila horizontal por fuente. El foco inicial va a la primera tarjeta de la PRIMERA
-            // fila: si cada fila pidiera el foco, se lo robarían entre ellas al ir llegando.
-            filas.forEach { (fuente, deLaFuente) ->
+            // One horizontal row per source. Initial focus goes to the FIRST row's first card: if
+            // every row asked for focus, they'd steal it from each other as they arrive.
+            rows.forEach { (source, sourceItems) ->
                 tvSourceRow(
-                    source = fuente,
-                    items = deLaFuente,
+                    source = source,
+                    items = sourceItems,
                     enabled = !preparing,
-                    loading = loadingOf[fuente] == true,
-                    firstCard = if (fuente == filas.first().first) firstFocus else null,
+                    loading = loadingOf[source] == true,
+                    firstCard = if (source == rows.first().first) firstFocus else null,
                     onPlay = { onSelect(it) },
                 )
             }
@@ -1240,61 +1245,62 @@ private fun TvResultsContent(
     }
 }
 
-/** Key estable y ÚNICA para la lista de fuentes (evita "saltos" de foco al llegar resultados
- *  nuevos, y evita el crash de Compose por keys duplicadas en un lazy list).
- *  Magis: `content_id` del portal, o el `ref` si no lo trae. Caracol: su `ref`, que ya es único por
- *  contenido (`ditu1:<contentType>:<contentId>`). */
+/** Stable and UNIQUE key for the source list (avoids focus "jumps" as new results arrive, and
+ *  avoids a Compose crash from duplicate keys in a lazy list).
+ *  Magis: the portal's `content_id`, or the `ref` if it doesn't bring one. Caracol: its `ref`,
+ *  already unique per content (`ditu1:<contentType>:<contentId>`). */
 internal fun sourceKey(s: PlaySource): String = when (s) {
     is PlaySource.Magis -> "magis-${s.result.extra["content_id"] ?: s.result.ref}"
     is PlaySource.Ditu -> "ditu-${s.result.ref}"
 }
 
 /**
- * Los capítulos de una serie de Caracol, para elegir cuál ver. La abren la búsqueda y la sección de
- * Caracol ([TvCaracolScreen]), y es una sola a propósito: tocar un capítulo guarda siempre por
- * [SearchPlayback.playDituSeason] —la serie entera, id `ditu:`, nunca el guardado de Magis— y
- * reproduce el tocado. Sin "Guardar toda la temporada": ahí guardar es bajar al dispositivo, y
- * Caracol no se baja (Widevine, ver `DownloadSource`). A la biblioteca entra al reproducir.
+ * A Caracol series' chapters, to choose which one to watch. Opened by search and by Caracol's
+ * section ([TvCaracolScreen]), and it's a single one on purpose: tapping a chapter always saves
+ * via [SearchPlayback.playDituSeason] —the whole series, `ditu:` id, never Magis's save path— and
+ * plays the tapped one. No "Guardar toda la temporada": there, saving means downloading to the
+ * device, and Caracol doesn't download (Widevine, see `DownloadSource`). It enters the library on
+ * playing.
  *
- * [alElegir] recibe ese guardado ya armado y lo corre en el alcance de la pantalla que llama: las
- * dos cierran esta lista al elegir, así que no puede correr en uno de acá adentro.
+ * [onChoose] receives that save already built and runs it in the calling screen's scope: both
+ * close this list on picking, so it can't run in one from inside here.
  */
 @Composable
-internal fun TvCapitulosDeCaracol(
-    serie: com.arkiv.player.data.gateway.GatewayResult,
+internal fun TvCaracolChapters(
+    series: com.arkiv.player.data.gateway.GatewayResult,
     posterUrl: String,
     preparing: Boolean,
-    alElegir: (guardar: suspend () -> PlaybackResult) -> Unit,
+    onChoose: (save: suspend () -> PlaybackResult) -> Unit,
 ) {
     val graph = rememberGraph()
     val playback = remember { SearchPlayback(graph) }
     TvMagisSeasonContent(
-        season = serie,
-        // La fuente compuesta: con un ref de Caracol, `episodesWithSeries` llega a `DituFuente`.
+        season = series,
+        // The composed source: with a Caracol ref, `episodesWithSeries` reaches `DituFuente`.
         client = graph.fuenteDeContenido,
         posterUrl = posterUrl,
         preparing = preparing,
-        // Con la lista entera que ya cargó la pantalla: se guardan todos, se reproduce el tocado.
-        onPlayOne = { capitulos, capitulo, datos ->
-            alElegir { playback.playDituSeason(serie, capitulos, capitulo, datos) }
+        // With the whole list the screen already loaded: all get saved, the tapped one plays.
+        onPlayOne = { chapters, chapter, data ->
+            onChoose { playback.playDituSeason(series, chapters, chapter, data) }
         },
         onSaveAll = null,
-        etiqueta = "Caracol",
+        label = "Caracol",
     )
 }
 
 /**
- * Fase RESULTS · temporada de Magis elegida.
+ * RESULTS phase · chosen Magis season.
  *
- * Los capítulos NO vienen en el resultado de búsqueda —el portal los entrega en otra llamada—, así
- * que se piden al abrir. Mientras cargan se muestra el conteo que sí trae el resultado, para dar
- * idea del tamaño de la temporada.
+ * Chapters do NOT come in the search result —the portal delivers them in a separate call—, so
+ * they're requested on opening. While they load, the count the result DOES bring is shown, to
+ * give a sense of the season's size.
  *
- * Sin checkboxes, a diferencia del celu: en el control remoto marcar 16 casillas es un suplicio.
- * "Guardar toda la temporada" baja todo y elegir un capítulo lo reproduce.
+ * No checkboxes, unlike the phone: on the remote, checking 16 boxes is torture. "Guardar toda la
+ * temporada" downloads everything and picking a chapter plays it.
  *
- * También abre las series de Caracol, a través de [TvCapitulosDeCaracol]: sin el botón de guardar
- * ([onSaveAll] en null) y con su [etiqueta].
+ * Also opens Caracol series, through [TvCaracolChapters]: with no save button ([onSaveAll] null)
+ * and with its [label].
  */
 @Composable
 private fun TvMagisSeasonContent(
@@ -1303,16 +1309,16 @@ private fun TvMagisSeasonContent(
     posterUrl: String,
     preparing: Boolean,
     onPlayOne: (List<com.arkiv.player.data.gateway.GatewayEpisode>, com.arkiv.player.data.gateway.GatewayEpisode, com.arkiv.player.data.gateway.GatewaySerie?) -> Unit,
-    // Null = sin botón de guardar (Caracol: no se baja al dispositivo, ver `DownloadSource`).
+    // Null = no save button (Caracol: doesn't download to the device, see `DownloadSource`).
     onSaveAll: ((List<com.arkiv.player.data.gateway.GatewayEpisode>, com.arkiv.player.data.gateway.GatewaySerie?) -> Unit)?,
-    // El nombre de la fuente, en la línea de datos de arriba.
-    etiqueta: String = "Magis",
+    // The source's name, in the data line above.
+    label: String = "Magis",
 ) {
-    var capitulos by remember(season.ref) { mutableStateOf<List<com.arkiv.player.data.gateway.GatewayEpisode>?>(null) }
-    // El bloque `series` de la misma respuesta: de ahí sale el `tmdbId` que necesita
-    // `SearchPlayback.playMagisSeason` para guardarlo en el ítem, sin pedirlo de nuevo al tocar un
-    // capítulo (ver su KDoc).
-    var serie by remember(season.ref) { mutableStateOf<com.arkiv.player.data.gateway.GatewaySerie?>(null) }
+    var chapters by remember(season.ref) { mutableStateOf<List<com.arkiv.player.data.gateway.GatewayEpisode>?>(null) }
+    // The `series` block from the same response: that's where the `tmdbId` comes from that
+    // `SearchPlayback.playMagisSeason` needs to save it on the item, without requesting it again
+    // on tapping a chapter (see its KDoc).
+    var series by remember(season.ref) { mutableStateOf<com.arkiv.player.data.gateway.GatewaySerie?>(null) }
     var error by remember(season.ref) { mutableStateOf<String?>(null) }
     val saveAllFocus = remember { FocusRequester() }
 
@@ -1325,20 +1331,20 @@ private fun TvMagisSeasonContent(
                 "expected=${season.extra["episode_count"]} kind=${season.kind} ref=${season.ref.take(24)}…",
         )
         runCatching { client.episodesWithSeries(season.ref) }
-            .onSuccess { (caps, s) -> capitulos = caps; serie = s }
+            .onSuccess { (caps, s) -> chapters = caps; series = s }
             .onFailure {
                 android.util.Log.w("ArkivGw", "season TV: failed ${it.javaClass.simpleName}: ${it.message}", it)
                 error = "No se pudieron cargar los capítulos."
             }
     }
-    LaunchedEffect(capitulos) {
-        if (!capitulos.isNullOrEmpty()) {
+    LaunchedEffect(chapters) {
+        if (!chapters.isNullOrEmpty()) {
             delay(150)
             runCatching { saveAllFocus.requestFocus() }
         }
     }
 
-    val esperados = season.extra["episode_count"]?.toIntOrNull() ?: 0
+    val expected = season.extra["episode_count"]?.toIntOrNull() ?: 0
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
@@ -1371,9 +1377,9 @@ private fun TvMagisSeasonContent(
                         )
                         Text(
                             listOfNotNull(
-                                etiqueta,
+                                label,
                                 season.year.ifBlank { null },
-                                (capitulos?.size ?: esperados).takeIf { it > 0 }?.let { "$it capítulos" },
+                                (chapters?.size ?: expected).takeIf { it > 0 }?.let { "$it capítulos" },
                             ).joinToString("  ·  "),
                             style = MaterialTheme.typography.labelMedium,
                             color = ArkivTextSecondary,
@@ -1382,22 +1388,22 @@ private fun TvMagisSeasonContent(
                 }
             }
 
-            val caps = capitulos
+            val loadedChapters = chapters
             when {
                 error != null -> item {
                     Text(error!!, color = ArkivTextSecondary, modifier = Modifier.padding(top = 24.dp))
                 }
-                caps == null -> item {
+                loadedChapters == null -> item {
                     Text("Cargando capítulos…", color = ArkivTextSecondary, modifier = Modifier.padding(top = 24.dp))
                 }
-                caps.isEmpty() -> item {
+                loadedChapters.isEmpty() -> item {
                     Text("Esta temporada no trae capítulos.", color = ArkivTextSecondary, modifier = Modifier.padding(top = 24.dp))
                 }
                 else -> {
-                    onSaveAll?.let { guardar ->
+                    onSaveAll?.let { save ->
                         item {
                             Button(
-                                onClick = { guardar(caps, serie) },
+                                onClick = { save(loadedChapters, series) },
                                 enabled = !preparing,
                                 colors = arkivTvButtonColors(),
                                 border = arkivTvButtonBorder(),
@@ -1405,24 +1411,24 @@ private fun TvMagisSeasonContent(
                             ) { Text("Guardar toda la temporada") }
                         }
                     }
-                    // Con varias temporadas (una serie de Caracol), por temporada y número, y cada fila
-                    // dice la suya. Sin temporada —Magis— queda como llegó. Ver [ChaptersBySeason].
-                    val enOrden = ChaptersBySeason.sorted(caps)
-                    val variasTemporadas = ChaptersBySeason.hasMultipleSeasons(caps)
-                    items(enOrden, key = { it.ref }) { cap ->
-                        // Sin botón de guardar, el foco inicial va al primer capítulo: si nadie lo
-                        // pidiera, el control no tendría dónde arrancar.
-                        val foco = if (onSaveAll == null && cap === enOrden.first()) {
+                    // With several seasons (a Caracol series), by season and number, and each row
+                    // says its own. With no season —Magis— it stays as it arrived. See [ChaptersBySeason].
+                    val ordered = ChaptersBySeason.sorted(loadedChapters)
+                    val multipleSeasons = ChaptersBySeason.hasMultipleSeasons(loadedChapters)
+                    items(ordered, key = { it.ref }) { chapter ->
+                        // With no save button, initial focus goes to the first chapter: if nobody
+                        // requested it, the remote would have nowhere to start.
+                        val focus = if (onSaveAll == null && chapter === ordered.first()) {
                             Modifier.focusRequester(saveAllFocus)
                         } else {
                             Modifier
                         }
                         TvMagisEpisodeRow(
-                            cap = cap,
-                            etiqueta = ChaptersBySeason.label(cap, variasTemporadas, noSeason = "E"),
+                            chapter = chapter,
+                            label = ChaptersBySeason.label(chapter, multipleSeasons, noSeason = "E"),
                             enabled = !preparing,
-                            modifier = foco,
-                            onClick = { onPlayOne(caps, cap, serie) },
+                            modifier = focus,
+                            onClick = { onPlayOne(loadedChapters, chapter, series) },
                         )
                     }
                 }
@@ -1437,13 +1443,13 @@ private fun TvMagisSeasonContent(
     }
 }
 
-/** Fila navegable de un capítulo de Magis o de Caracol ("E3 · Título"). */
+/** Navigable row for a Magis or Caracol chapter ("E3 · Título"). */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TvMagisEpisodeRow(
-    cap: com.arkiv.player.data.gateway.GatewayEpisode,
-    // "E3", o "T2 · E3" con varias temporadas: ver [ChaptersBySeason].
-    etiqueta: String = "E${cap.number}",
+    chapter: com.arkiv.player.data.gateway.GatewayEpisode,
+    // "E3", or "T2 · E3" with several seasons: see [ChaptersBySeason].
+    label: String = "E${chapter.number}",
     enabled: Boolean,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
@@ -1462,13 +1468,13 @@ private fun TvMagisEpisodeRow(
         ),
     ) {
         Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (!cap.still.isNullOrBlank()) {
+            if (!chapter.still.isNullOrBlank()) {
                 Box(
                     modifier = Modifier.height(56.dp).width(56.dp * 16f / 9f)
                         .clip(RoundedCornerShape(6.dp)).background(Color.Black),
                 ) {
                     AsyncImage(
-                        model = cap.still,
+                        model = chapter.still,
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
@@ -1477,15 +1483,15 @@ private fun TvMagisEpisodeRow(
                 Spacer(Modifier.width(12.dp))
             }
             Text(
-                // El número del portal MANDA: identifica el capítulo que se va a reproducir, y si
-                // el cruce con TMDB quedara corrido para esta temporada, sigue siendo el dato cierto.
-                // El nombre va al lado, nunca en su lugar. Prioridad: título de TMDB (el real) ->
-                // título del portal (salvo que solo repita el nombre de la temporada, ver más abajo)
-                // -> "Capítulo N" como último respaldo.
-                "$etiqueta  " + (
-                    cap.tmdbTitle?.takeIf { it.isNotBlank() }
-                        ?: cap.title.takeIf { it.isNotBlank() && it != cap.number.toString() }
-                        ?: "Capítulo ${cap.number}"
+                // The portal's number RULES: it identifies the chapter that's about to play, and
+                // if the TMDB cross-reference drifted for this season, it's still the trustworthy
+                // datum. The name goes alongside, never in its place. Priority: TMDB's title (the
+                // real one) -> the portal's title (unless it just repeats the season's name, see
+                // below) -> "Capítulo N" as the last resort.
+                "$label  " + (
+                    chapter.tmdbTitle?.takeIf { it.isNotBlank() }
+                        ?: chapter.title.takeIf { it.isNotBlank() && it != chapter.number.toString() }
+                        ?: "Capítulo ${chapter.number}"
                     ),
                 color = Color.White,
                 style = MaterialTheme.typography.bodyMedium,
