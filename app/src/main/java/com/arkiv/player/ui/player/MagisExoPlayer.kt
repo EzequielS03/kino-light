@@ -52,7 +52,7 @@ private const val TAG = "MagisExo"
  * CDN's authentication headers transparently. ExoPlayer downloads it as plain HTTP.
  *
  * [DefaultMediaSourceFactory] auto-detects HLS, DASH or progressive (MP4/TS) based on the content
- * type. For the progress bar and controls it uses the same [EspejoDelPlayer] VLC used to.
+ * type. For the progress bar and controls it uses the same [PlayerMirror] VLC used to.
  *
  * Uses [TextureView] directly so [onTextureViewReady] exposes the surface and `capturarFrame`
  * works the same way it did with VLC. The aspect ratio is kept in sync by listening to
@@ -66,7 +66,7 @@ private const val TAG = "MagisExo"
 @Composable
 internal fun MagisExoPlayer(
     mediaUrl: String,
-    espejo: EspejoDelPlayer,
+    espejo: PlayerMirror,
     startPositionMs: Long = 0L,
     subtitleConfigs: List<MediaItem.SubtitleConfiguration> = emptyList(),
     onPlayerReady: (Player?) -> Unit = {},
@@ -167,10 +167,10 @@ internal fun MagisExoPlayer(
         exoPlayer.setVideoTextureView(textureView)
         onPlayerReady(exoPlayer)
         onTextureViewReady(textureView)
-        espejo.sincronizarTransporte(
-            buffereando = exoPlayer.playbackState == Player.STATE_BUFFERING,
-            reproduciendo = exoPlayer.isPlaying,
-            quiereReproducir = exoPlayer.playWhenReady,
+        espejo.syncTransport(
+            buffering = exoPlayer.playbackState == Player.STATE_BUFFERING,
+            playing = exoPlayer.isPlaying,
+            wantsToPlay = exoPlayer.playWhenReady,
         )
         Log.i(TAG, "DisposableEffect hooked · state=${exoPlayer.playbackState} isPlaying=${exoPlayer.isPlaying}")
 
@@ -220,7 +220,7 @@ internal fun MagisExoPlayer(
                     else                  -> "?"
                 }
                 Log.i(TAG, "onPlaybackStateChanged → $nombre · isPlaying=${exoPlayer.isPlaying} pos=${exoPlayer.currentPosition}ms dur=${exoPlayer.duration}ms")
-                espejo.cambioElBuffering(state == Player.STATE_BUFFERING)
+                espejo.updateBuffering(state == Player.STATE_BUFFERING)
                 if (state == Player.STATE_ENDED) {
                     Log.w(TAG, "episode ended at ${exoPlayer.currentPosition}ms of ${exoPlayer.duration}ms")
                     onFinDelCapitulo()
@@ -229,12 +229,12 @@ internal fun MagisExoPlayer(
 
             override fun onIsPlayingChanged(playing: Boolean) {
                 Log.i(TAG, "onIsPlayingChanged → playing=$playing · pos=${exoPlayer.currentPosition}ms playWhenReady=${exoPlayer.playWhenReady}")
-                espejo.cambioElPlaying(playing)
+                espejo.updatePlaying(playing)
             }
 
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                 Log.i(TAG, "onPlayWhenReadyChanged → playWhenReady=$playWhenReady reason=$reason · isPlaying=${exoPlayer.isPlaying}")
-                espejo.cambioLaIntencion(playWhenReady)
+                espejo.updateWantsToPlay(playWhenReady)
             }
 
             override fun onRenderedFirstFrame() {
@@ -255,8 +255,8 @@ internal fun MagisExoPlayer(
             exoPlayer.removeListener(listener)
             exoPlayer.clearVideoTextureView(textureView)
             exoPlayer.release()
-            espejo.reiniciarElReloj()
-            espejo.sincronizarTransporte(buffereando = false, reproduciendo = false, quiereReproducir = false)
+            espejo.resetClock()
+            espejo.syncTransport(buffering = false, playing = false, wantsToPlay = false)
             onPlayerReady(null)
             onTextureViewReady(null)
             onPrimeraImagen(false)
@@ -352,9 +352,9 @@ internal fun MagisExoPlayer(
             lastPos = pos
             lastFrames = frames
 
-            espejo.leyoElReloj(
-                posicionMs = pos,
-                duracionMs = if (dur > 0) dur else 0L,
+            espejo.readClock(
+                positionMs = pos,
+                durationMs = if (dur > 0) dur else 0L,
             )
         }
     }

@@ -51,7 +51,7 @@ private fun esRecuperable(error: PlaybackException): Boolean =
 /**
  * The Caracol player: MPEG-DASH with Widevine.
  *
- * ExoPlayer, same as [MagisExoPlayer] and [LiveExoPlayer], feeding the same [EspejoDelPlayer] they
+ * ExoPlayer, same as [MagisExoPlayer] and [LiveExoPlayer], feeding the same [PlayerMirror] they
  * do. libVLC never negotiated Widevine licenses, so Caracol was always going to need ExoPlayer even
  * before the rest of the app dropped VLC.
  *
@@ -100,7 +100,7 @@ internal fun DituExoPlayer(
     mediaUrl: String,
     drmLicenseUrl: String,
     drmLicenseHeaders: Map<String, String>,
-    espejo: EspejoDelPlayer,
+    espejo: PlayerMirror,
     /**
      * El capítulo está bajado al dispositivo: los segmentos salen del caché y no del CDN.
      *
@@ -225,19 +225,19 @@ internal fun DituExoPlayer(
 
     DisposableEffect(exoPlayer) {
         onPlayerReady(exoPlayer)
-        espejo.sincronizarTransporte(
-            buffereando = exoPlayer.playbackState == Player.STATE_BUFFERING,
-            reproduciendo = exoPlayer.isPlaying,
-            quiereReproducir = exoPlayer.playWhenReady,
+        espejo.syncTransport(
+            buffering = exoPlayer.playbackState == Player.STATE_BUFFERING,
+            playing = exoPlayer.isPlaying,
+            wantsToPlay = exoPlayer.playWhenReady,
         )
 
         val escucha = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
-                espejo.cambioElBuffering(state == Player.STATE_BUFFERING)
+                espejo.updateBuffering(state == Player.STATE_BUFFERING)
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
-                espejo.cambioElPlaying(isPlaying)
+                espejo.updatePlaying(isPlaying)
             }
 
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
@@ -248,7 +248,7 @@ internal fun DituExoPlayer(
                     Log.i(TAG, "play/pause while waiting for the first frame (playWhenReady=$playWhenReady): the person decides")
                     arranque.laPersonaDecidio()
                 }
-                espejo.cambioLaIntencion(playWhenReady)
+                espejo.updateWantsToPlay(playWhenReady)
             }
 
             override fun onTracksChanged(tracks: Tracks) {
@@ -283,8 +283,8 @@ internal fun DituExoPlayer(
             Log.i(TAG, "onDispose · pos=${exoPlayer.currentPosition}ms")
             exoPlayer.removeListener(escucha)
             exoPlayer.release()
-            espejo.reiniciarElReloj()
-            espejo.sincronizarTransporte(buffereando = false, reproduciendo = false, quiereReproducir = false)
+            espejo.resetClock()
+            espejo.syncTransport(buffering = false, playing = false, wantsToPlay = false)
             onPlayerReady(null)
             onPrimeraImagen(false)
         }
@@ -303,9 +303,9 @@ internal fun DituExoPlayer(
             }
             val dur = exoPlayer.duration
             val pos = exoPlayer.currentPosition
-            espejo.leyoElReloj(
-                posicionMs = pos,
-                duracionMs = if (dur > 0) dur else 0L,
+            espejo.readClock(
+                positionMs = pos,
+                durationMs = if (dur > 0) dur else 0L,
             )
             onPosicion(pos, exoPlayer.isPlaying)
         }
