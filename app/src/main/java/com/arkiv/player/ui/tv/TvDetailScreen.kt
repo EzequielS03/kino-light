@@ -49,9 +49,9 @@ import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 
 /**
- * Detalle de un ítem, estilo Prime Video: backdrop a pantalla completa con degradado, info
- * (título/cantidad de episodios/descripción/reproducir) sobre la izquierda, y abajo un carrusel
- * horizontal de episodios — el mismo [TvEpisodeChip] que usa el overlay de pausa del player.
+ * An item's detail, Prime Video style: full-screen backdrop with gradient, info (title/episode
+ * count/description/play) over the left side, and a horizontal episode carousel below — the same
+ * [TvEpisodeChip] the player's pause overlay uses.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -69,11 +69,11 @@ fun TvDetailScreen(
     val detail by vm.detail.collectAsStateWithLifecycle()
     val data = detail
     if (data == null) {
-        // Antes esto era `?: return`: pantalla en negro sin ningún aviso, tanto mientras el
-        // detalle está cargando como cuando la llave de grupo dejó de existir (ver el bug de
-        // LibraryGrouping.resolveMembers/observeGroupMembers — un grupo que se movía de llave
-        // bajo el usuario y esto no avisaba, se veía IDÉNTICO a un crash). Un mensaje simple
-        // alcanza: no hace falta distinguir "todavía cargando" de "no se encontró".
+        // This used to be `?: return`: a black screen with no notice at all, both while the
+        // detail is loading and when the group key stopped existing (see the
+        // LibraryGrouping.resolveMembers/observeGroupMembers bug — a group whose key moved out
+        // from under the user, and this gave no notice, looked IDENTICAL to a crash). A simple
+        // message is enough: no need to distinguish "still loading" from "not found".
         Box(Modifier.fillMaxSize().background(ArkivBlack), contentAlignment = Alignment.Center) {
             Text(
                 "No se pudo cargar este contenido",
@@ -83,101 +83,102 @@ fun TvDetailScreen(
         }
         return
     }
-    // Identifier REAL de la fuente que se está mostrando (no la llave de grupo de la ruta): lo
-    // que trae `data` ya resolvió `groupKey` a un ítem concreto. Stills/títulos de TMDB y el
-    // caché de capítulos enfocados se indexan por ese identifier, no por la llave.
+    // REAL identifier of the source being shown (not the route's group key): what `data` brings
+    // already resolved `groupKey` to a concrete item. TMDB stills/titles and the focused-chapter
+    // cache are indexed by that identifier, not the key.
     val identifier = data.identifier
 
     val playFR = remember { FocusRequester() }
     val resumeEpisodeFR = remember { FocusRequester() }
-    // Ancla del primer chip de "Fuentes": sin esto, el salto directo Reproducir<->capítulo
-    // resumible (de abajo) se saltaba la fila entera y la dejaba inalcanzable con el D-pad.
+    // Anchor for the first "Fuentes" chip: without this, the direct Play<->resumable-chapter jump
+    // (below) skipped the whole row and left it unreachable with the D-pad.
     val firstSourceFR = remember { FocusRequester() }
     val episodesListState = rememberLazyListState()
 
-    // El carrusel abre posicionado en el capítulo que se venía viendo (el mismo que reproduce el
-    // botón Reproducir). En series largas quedaba fuera de pantalla y había que buscarlo a mano.
-    // Stills de TMDB por capítulo: se resuelven una vez y quedan cacheados en la base; Coil
-    // se encarga del caché de las imágenes en disco.
+    // The carousel opens positioned on the chapter that was being watched (the same one the Play
+    // button plays). On long series it ended up off-screen and had to be found by hand.
+    // Per-chapter TMDB stills: resolved once and cached in the database; Coil handles the images'
+    // on-disk cache.
     val stills by graph.repository.observeEpisodeStills(identifier)
         .collectAsStateWithLifecycle(initialValue = emptyMap())
-    // Frames capturados durante la reproducción: la escena real del capítulo, cuando existe le
-    // gana al still de TMDB (ver ThumbnailChoice). Solo tiene entrada si el capítulo se
-    // empezó a ver, así que "gana solo en lo empezado" sale solo de que la clave no esté.
+    // Frames captured during playback: the chapter's real scene, when it exists it beats the TMDB
+    // still (see ThumbnailChoice). Only has an entry if the chapter was started, so "only wins on
+    // what was started" falls straight out of the key not being there.
     val frames by graph.repository.observeEpisodeFrames(identifier)
         .collectAsStateWithLifecycle(initialValue = emptyMap())
-    // Títulos reales del capítulo (TMDB). El nombre del archivo suele ser inútil ("s01e03"), y en
-    // el hero —que es texto grande— se nota mucho más que en la lista.
+    // The chapter's real titles (TMDB). The filename is usually useless ("s01e03"), and it shows
+    // much more in the hero —which is large text— than in the list.
     val episodeTitles by graph.repository.observeEpisodeTitles(identifier)
         .collectAsStateWithLifecycle(initialValue = emptyMap())
-    // Sinopsis por capítulo (TMDB), para el bloque de descripción de más abajo cuando hay uno
-    // enfocado en el carrusel.
+    // Per-chapter synopsis (TMDB), for the description block below when one is focused in the
+    // carousel.
     val episodeOverviews by graph.repository.observeEpisodeOverviews(identifier)
         .collectAsStateWithLifecycle(initialValue = emptyMap())
     LaunchedEffect(identifier) {
-        // Antes de pedir stills: un ítem de Magis guardado sin `tmdbId` no tiene con qué pedirlos,
-        // y `ensureEpisodeStills` se iría en su primera línea. Esto le pregunta al gateway una sola
-        // vez (se salta solo si ya tiene identidad). Ver [repararIdentidadDeMagis].
+        // Before requesting stills: a Magis item saved with no `tmdbId` has nothing to request
+        // them with, and `ensureEpisodeStills` would bail on its first line. This asks the
+        // gateway once (skips itself if it already has an identity). See [repararIdentidadDeMagis].
         com.arkiv.player.data.gateway.repararIdentidadDeMagis(
             graph.repository, graph.fuenteDeContenido, identifier,
         )
         runCatching { graph.repository.ensureEpisodeStills(identifier) }
     }
 
-    // Capítulo enfocado en el carrusel: el fondo y los textos de arriba lo siguen, igual que el
-    // hero del Home sigue a la card enfocada. Null = foco fuera del carrusel (p. ej. en
-    // "Reproducir"), y entonces se muestra la info de la serie. También se resetea al cambiar de
-    // fuente (chip de "Fuentes"): el capítulo enfocado pertenece a la lista vieja.
+    // Chapter focused in the carousel: the background and the texts above follow it, same as the
+    // Home's hero follows the focused card. Null = focus outside the carousel (e.g. on "Play"),
+    // and then the series' info is shown. Also resets on switching sources (the "Fuentes" chip):
+    // the focused chapter belongs to the old list.
     var focusedEpisode by remember(identifier) { mutableStateOf<Episode?>(null) }
 
     val resumeId = data.resumeEpisode?.id
-    // Reposiciona el carrusel SOLO al cambiar de fuente (chip de "Fuentes"), no en cada cambio
-    // de `resumeId`. `episodesListState` no lleva `key` por `identifier`, así que sobrevive el
-    // cambio de fuente; sin este reset el carrusel se quedaba scrolleado al offset de la fuente
-    // vieja cuando el capítulo a resumir de la fuente nueva caía en el índice 0 — y con eso el
-    // chip resumible (y `resumeEpisodeFR`, que ancla el foco desde el primer chip de fuentes)
-    // fuera de la ventana que compone el LazyRow.
+    // Repositions the carousel ONLY on switching sources (the "Fuentes" chip), not on every
+    // `resumeId` change. `episodesListState` carries no `key` by `identifier`, so it survives the
+    // source switch; without this reset the carousel stayed scrolled to the old source's offset
+    // when the new source's chapter to resume landed at index 0 — leaving the resumable chip (and
+    // `resumeEpisodeFR`, which anchors focus from the first source chip) outside the LazyRow's
+    // composed window.
     //
-    // OJO: la key es `identifier` solo, NO `resumeId`. `resumeId` también cambia dentro de la
-    // MISMA fuente cuando el capítulo en curso pasa el 60% y `savePlayback` lo marca visto
-    // (ArkivRepository.resumeEpisode pasa a ofrecer el SIGUIENTE capítulo): ese es el flujo más
-    // común de volver al detalle, y si el effect corriera con esa key el carrusel le pegaba un
-    // salto lejos de donde estaba el usuario cada vez que terminaba algo. Al depender solo de
-    // `identifier`, este LaunchedEffect no se reinicia en ese caso — seguimos leyendo `data` y
-    // `resumeId` "de tras el cierre" de la composición donde `identifier` cambió, que es
-    // exactamente la fuente nueva recién elegida.
+    // NOTE: the key is `identifier` alone, NOT `resumeId`. `resumeId` also changes WITHIN the
+    // SAME source when the current chapter passes 60% and `savePlayback` marks it watched
+    // (ArkivRepository.resumeEpisode moves on to offering the NEXT chapter): that's the most
+    // common flow for returning to the detail, and if the effect ran on that key the carousel
+    // would jump far from where the user was every time something finished. By depending only on
+    // `identifier`, this LaunchedEffect doesn't restart in that case — we keep reading `data` and
+    // `resumeId` "from behind the closure" of the composition where `identifier` changed, which is
+    // exactly the newly chosen source.
     LaunchedEffect(identifier) {
         val idx = data.episodes.indexOfFirst { it.id == resumeId }
         episodesListState.scrollToItem(idx.coerceAtLeast(0))
     }
 
     Box(Modifier.fillMaxSize().background(ArkivBlack)) {
-        // El fondo sigue al capítulo enfocado. Cae al backdrop de la serie cuando ese capítulo no
-        // tiene still (TMDB no siempre los trae) o cuando el foco no está en el carrusel.
-        // El hero describe SIEMPRE lo que va a pasar si apretás el botón: con el foco en el
-        // carrusel, el capítulo enfocado; con el foco fuera (en "Reproducir"), el capítulo que ESE
-        // botón reanuda. Antes, sacar el foco del carrusel caía a la info de la SERIE y se veía
-        // incoherente: el botón decía "Reproducir T1 · E8" mientras el fondo cambiaba de imagen y
-        // la descripción del capítulo desaparecía.
+        // The background follows the focused chapter. Falls back to the series' backdrop when
+        // that chapter has no still (TMDB doesn't always bring them) or when focus isn't in the
+        // carousel.
+        // The hero ALWAYS describes what's going to happen if you press the button: with focus in
+        // the carousel, the focused chapter; with focus outside (on "Play"), the chapter THAT
+        // button resumes. Before, moving focus off the carousel fell back to the SERIES' info and
+        // looked incoherent: the button said "Reproducir T1 · E8" while the background changed
+        // image and the chapter's description disappeared.
         //
-        // Esto NO contradice el `focusedEpisode = null` del botón, lo completa: ese null está para
-        // que no quede describiendo el último capítulo que recorriste (que no es el que se
-        // reproduce). El respaldo pone en su lugar el que SÍ se reproduce.
+        // This does NOT contradict the button's `focusedEpisode = null`, it completes it: that
+        // null exists so it doesn't stay describing the last chapter you scrolled through (which
+        // isn't the one that plays). This fallback puts in its place the one that DOES play.
         //
-        // Solo en series: en una película `resumeEpisode` es el único "capítulo", y describirla
-        // como capítulo perdería la sinopsis y la etiqueta de "Película".
+        // Series only: in a movie `resumeEpisode` is the only "chapter", and describing it as a
+        // chapter would lose the synopsis and the "Película" label.
         val focused = focusedEpisode ?: data.resumeEpisode?.takeIf { data.episodes.size > 1 }
         val heroImage = focused?.let { ep ->
-            // El frame capturado manda sobre el still de TMDB. El thumb de archive.org que iba
-            // después se borró en la poda de esta rama junto con esa fuente.
+            // The captured frame outranks the TMDB still. The archive.org thumb that used to
+            // follow was removed in this branch's pruning along with that source.
             ThumbnailChoice.choose(
                 frames[ep.id],
                 stills[ep.id],
                 null,
             )
         } ?: data.thumbnailUrl
-        // Crossfade: sin esto, recorrer el carrusel con el D-pad hace parpadear el fondo entero en
-        // cada chip. Con el fundido el cambio se lee como continuo.
+        // Crossfade: without this, scrolling the carousel with the D-pad makes the whole
+        // background flicker on every chip. With the fade the change reads as continuous.
         Crossfade(targetState = heroImage, label = "hero") { img ->
             AsyncImage(
                 model = img,
@@ -186,13 +187,13 @@ fun TvDetailScreen(
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        // Degradado horizontal: negro a la izquierda para leer el texto (igual que el hero del Home).
+        // Horizontal gradient: black on the left to read the text (same as the Home's hero).
         Box(
             Modifier.fillMaxSize().background(
                 Brush.horizontalGradient(listOf(ArkivBlack, ArkivBlack, ArkivBlack.copy(alpha = 0.15f), Color.Transparent)),
             ),
         )
-        // Degradado vertical: negro abajo para fundir con el carrusel.
+        // Vertical gradient: black at the bottom to blend into the carousel.
         Box(
             Modifier.fillMaxSize().background(
                 Brush.verticalGradient(listOf(Color.Transparent, ArkivBlack.copy(alpha = 0.4f), ArkivBlack)),
@@ -200,13 +201,14 @@ fun TvDetailScreen(
         )
 
         Column(Modifier.fillMaxSize()) {
-            // --- Info (título, cantidad, descripción, reproducir) ---
+            // --- Info (title, count, description, play) ---
             Column(
                 modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 48.dp, vertical = 28.dp),
                 verticalArrangement = Arrangement.Bottom,
             ) {
-                // Con un capítulo enfocado el hero pasa a describir ESE capítulo; el nombre de la
-                // serie baja a la línea de arriba para no perder el contexto de dónde estás.
+                // With a chapter focused, the hero switches to describing THAT chapter; the
+                // series' name moves down to the line above so the context of where you are isn't
+                // lost.
                 if (focused != null) {
                     Text(
                         data.title,
@@ -234,9 +236,9 @@ fun TvDetailScreen(
                     color = ArkivTextSecondary,
                     modifier = Modifier.padding(top = 6.dp),
                 )
-                // Con capítulo enfocado, SU sinopsis (TMDB, guardada por Task 5) si la hay; si no
-                // hay, nada — la de la serie no describe ESE capítulo puntual. Sin capítulo
-                // enfocado, la sinopsis de la serie, como siempre.
+                // With a chapter focused, ITS synopsis (TMDB, saved by Task 5) if there is one; if
+                // not, nothing — the series' doesn't describe THAT specific chapter. With no
+                // chapter focused, the series' synopsis, as always.
                 (if (focused != null) episodeOverviews[focused.id] else data.description)
                     ?.takeIf { it.isNotBlank() }?.let { desc ->
                     Text(
@@ -256,13 +258,13 @@ fun TvDetailScreen(
                         modifier = Modifier
                             .padding(top = 16.dp)
                             .focusRequester(playFR)
-                            // Al volver arriba desde el carrusel, el hero vuelve a la serie: si
-                            // quedara el último capítulo enfocado, el botón "Reproducir" (que
-                            // reanuda otro) estaría describiendo algo que no va a reproducir.
+                            // On returning up from the carousel, the hero goes back to the series:
+                            // if the last chapter stayed focused, the "Play" button (which resumes
+                            // a different one) would be describing something it isn't going to play.
                             .onFocusChanged { if (it.isFocused) focusedEpisode = null }
-                            // Si hay selector de fuente, bajar cae ahí primero; si no, directo al
-                            // capítulo resumible (como antes). Sin este condicional el salto
-                            // explícito se saltaba la fila de "Fuentes" enterita.
+                            // If there's a source selector, going down lands there first; if not,
+                            // straight to the resumable chapter (as before). Without this
+                            // conditional the explicit jump skipped the whole "Fuentes" row.
                             .focusProperties { down = if (sources.size > 1) firstSourceFR else resumeEpisodeFR },
                     ) {
                         Text("▶  ${com.arkiv.player.ui.ChapterLabel.playButtonLabel(data)}")
@@ -270,7 +272,7 @@ fun TvDetailScreen(
                 }
             }
 
-            // --- Selector de fuente: solo aparece si la misma serie entró por más de una vía ---
+            // --- Source selector: only shows up if the same series entered through more than one path ---
             if (sources.size > 1) {
                 Column(modifier = Modifier.padding(bottom = 16.dp)) {
                     Text(
@@ -292,21 +294,21 @@ fun TvDetailScreen(
                                 label = "${src.source} · ${src.episodeCount} ep.",
                                 selected = src.identifier == selectedId,
                                 onClick = { vm.selectSource(src.identifier) },
-                                // Solo el primer chip ancla el salto explícito Reproducir<->carrusel:
-                                // es al que aterrizan esos atajos, así que tiene que poder
-                                // devolverlos a ambos lados.
+                                // Only the first chip anchors the explicit Play<->carousel jump:
+                                // it's where those shortcuts land, so it has to be able to send
+                                // them back both ways.
                                 modifier = if (index == 0) {
                                     Modifier.focusRequester(firstSourceFR)
                                         .focusProperties {
-                                            // playFR y resumeEpisodeFR solo tienen nodo adjunto
-                                            // cuando la fuente actual tiene un capítulo para
-                                            // resumir (el botón "Reproducir" y el chip resumible
-                                            // se renderizan condicionados a eso). Una fuente recién
-                                            // agregada con 0 episodios (fetch fallido) deja ambos
-                                            // sin adjuntar: seguir apuntándoles ahí hace que Compose
-                                            // tire IllegalStateException al mover el foco. Con
-                                            // FocusRequester.Default el D-pad usa el algoritmo por
-                                            // defecto en vez de crashear.
+                                            // playFR and resumeEpisodeFR only have an attached node
+                                            // when the current source has a chapter to resume (the
+                                            // "Play" button and the resumable chip render
+                                            // conditioned on that). A newly added source with 0
+                                            // episodes (failed fetch) leaves both unattached:
+                                            // continuing to point at them there makes Compose throw
+                                            // IllegalStateException when moving focus. With
+                                            // FocusRequester.Default the D-pad uses the default
+                                            // algorithm instead of crashing.
                                             up = if (data.resumeEpisode != null) playFR else FocusRequester.Default
                                             down = if (data.resumeEpisode != null) resumeEpisodeFR else FocusRequester.Default
                                         }
@@ -319,7 +321,7 @@ fun TvDetailScreen(
                 }
             }
 
-            // --- Carrusel de episodios (mismo componente que el overlay de pausa del player) ---
+            // --- Episode carousel (same component as the player's pause overlay) ---
             Column(modifier = Modifier.padding(bottom = 32.dp)) {
                 Text(
                     if (data.episodes.size > 1) "Episodios" else "Detalles",
@@ -347,8 +349,8 @@ fun TvDetailScreen(
                             onFocus = { focusedEpisode = ep },
                             modifier = Modifier.then(
                                 if (isResume) {
-                                    // Simétrico al `down` de Reproducir: si hay selector de fuente,
-                                    // subir cae ahí; si no, directo a Reproducir (como antes).
+                                    // Symmetric to Play's `down`: if there's a source selector,
+                                    // going up lands there; if not, straight to Play (as before).
                                     Modifier.focusRequester(resumeEpisodeFR)
                                         .focusProperties { up = if (sources.size > 1) firstSourceFR else playFR }
                                 } else {
