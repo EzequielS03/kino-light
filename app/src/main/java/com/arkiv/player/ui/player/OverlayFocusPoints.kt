@@ -46,7 +46,7 @@ internal class OverlayFocusPoints {
     /**
      * The floating "Saltar intro"/"Saltar outro" button. The only one in this list that lives
      * OUTSIDE the pause overlay —it shows with the controls hidden, which is when it's needed— and
-     * the only one that grabs focus on its own on appearing (see [FocoDelSalto]).
+     * the only one that grabs focus on its own on appearing (see [SkipButtonFocus]).
      */
     val skip = FocusRequester()
 }

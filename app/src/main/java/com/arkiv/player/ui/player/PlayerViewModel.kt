@@ -103,7 +103,7 @@ internal fun hayQueMarcarEnCurso(episodeId: String, adulto: Boolean?): Boolean =
  * The section as a playlist: every episode + where/how to start. archive.org (removed in this
  * branch's pruning) was the only source that ever produced more than one item here -- every source
  * today (Magis, Ditu, live, local, and the legacy torrent/web rows) publishes a single-item
- * `PlaylistData(listOf(item), …)`. See `SaltoDeOutro`'s KDoc in PlayerSaltos.kt.
+ * `PlaylistData(listOf(item), …)`. See `OutroSkip`'s KDoc in OutroSkip.kt.
  */
 data class PlaylistData(
     val items: List<PlayerData>,

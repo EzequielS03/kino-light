@@ -436,7 +436,7 @@ private fun PlayerContent(
      * ended the player advanced to the next one internally —or "Skip outro" did it with its
      * `seekToNextMediaItem()`— without navigating to a new route. The navigation argument was left
      * with the old chapter forever. No current source builds a playlist with more than one item
-     * (see [SaltoDeOutro]), but the read-by-index stays: it's the same source of truth that avoids
+     * (see [OutroSkip]), but the read-by-index stays: it's the same source of truth that avoids
      * this whole class of bug if it's ever needed again.
      *
      * Colgar los vecinos y el encabezado de ese argumento tenía consecuencias visibles: tras el
@@ -2987,10 +2987,10 @@ private fun PlayerContent(
         // la identidad de la obra (tmdbId + capítulo), así que valen igual en el Fire TV -- que es
         // donde se ve el anime, el caso que motivó todo esto -- y en un capítulo bajado por
         // torrent.
-        val accionDelOutro = SaltoDeOutro.decidir(
-            indiceActual = currentIndex,
-            itemsEnLaPlaylist = playlist?.items?.size ?: 0,
-            siguienteCapitulo = cabecera.siguiente,
+        val accionDelOutro = OutroSkip.decide(
+            currentIndex = currentIndex,
+            playlistItems = playlist?.items?.size ?: 0,
+            nextChapter = cabecera.siguiente,
         )
         // Cuál de los dos botones va, si va alguno. Se calcula acá arriba, lejos de donde se
         // dibuja, por dos motivos: el efecto de foco tiene que ver también el instante en que
@@ -2999,10 +2999,10 @@ private fun PlayerContent(
         // necesita saber si hay botón para mandar su ARRIBA ahí.
         val botonDeSalto = when {
             marcadorVigente == null || marcadores.marcando || estadoDlna.activo != null -> null
-            else -> BotonDeSalto.cual(
-                enOpening = ChapterMarker.inOpening(marcadorVigente, espejo.posicionMs),
-                enEnding = ChapterMarker.inEnding(marcadorVigente, espejo.posicionMs),
-                accionDelOutro = accionDelOutro,
+            else -> SkipButtonKind.which(
+                inOpening = ChapterMarker.inOpening(marcadorVigente, espejo.posicionMs),
+                inEnding = ChapterMarker.inEnding(marcadorVigente, espejo.posicionMs),
+                outroAction = accionDelOutro,
                 casting = casting,
             )
         }
@@ -3665,33 +3665,33 @@ private fun PlayerContent(
         // devolverlo acá abajo, y cuando la persona se va con una flecha.
         var saltoTeniaElFoco by remember { mutableStateOf(false) }
         // Y si lo tiene AHORA. Es la señal con la que el reintento sabe si el foco llegó: pedirlo
-        // no informa de nada (ver `insistirConElFoco`), así que lo único fiable es que el propio
+        // no informa de nada (ver `retryFocus`), así que lo único fiable es que el propio
         // botón avise por `onFocusChanged`.
         var saltoEnfocado by remember { mutableStateOf(false) }
-        val focoDelSalto = remember { FocoDelSalto() }
+        val focoDelSalto = remember { SkipButtonFocus() }
         LaunchedEffect(botonDeSalto, isTv) {
             if (!isTv) return@LaunchedEffect
-            when (focoDelSalto.alCambiar(botonDeSalto, saltoTeniaElFoco, controles.visible)) {
+            when (focoDelSalto.onChange(botonDeSalto, saltoTeniaElFoco, controles.visible)) {
                 // El botón acaba de aparecer y se lleva el foco: con el capítulo sonando, un solo
                 // OK salta el opening. Sin esto, OK caía en el transporte y PAUSABA el video.
                 // Se insiste un rato corto (~320 ms) porque el nodo puede no estar colocado
                 // todavía en el frame en que aparece, y porque el foco hay que quitárselo al
-                // `videoView` por la interop de Compose. Ver `insistirConElFoco`: la señal de
+                // `videoView` por la interop de Compose. Ver `retryFocus`: la señal de
                 // éxito es que el botón avise que lo tiene, NO que pedirlo no haya lanzado.
-                FocoDelSalto.Accion.PEDIR -> insistirConElFoco(
-                    yaEstaEnfocado = { saltoEnfocado },
-                    esperar = { delay(ESPERA_ENTRE_INTENTOS_DE_FOCO_MS) },
-                    pedir = { focos.skip.requestFocus() },
+                SkipButtonFocus.Action.REQUEST -> retryFocus(
+                    isAlreadyFocused = { saltoEnfocado },
+                    wait = { delay(WAIT_BETWEEN_FOCUS_ATTEMPTS_MS) },
+                    request = { focos.skip.requestFocus() },
                 )
-                FocoDelSalto.Accion.DEVOLVER_A_LOS_CONTROLES -> {
+                SkipButtonFocus.Action.RETURN_TO_CONTROLS -> {
                     saltoTeniaElFoco = false
                     runCatching { focos.bar.requestFocus() }
                 }
-                FocoDelSalto.Accion.DEVOLVER_AL_VIDEO -> {
+                SkipButtonFocus.Action.RETURN_TO_VIDEO -> {
                     saltoTeniaElFoco = false
                     runCatching { videoView?.requestFocus() }
                 }
-                FocoDelSalto.Accion.NADA -> Unit
+                SkipButtonFocus.Action.NONE -> Unit
             }
         }
 
@@ -3715,8 +3715,8 @@ private fun PlayerContent(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 SkipButton(
-                    text = if (botonDeSalto == BotonDeSalto.INTRO) "Saltar intro" else "Saltar outro",
-                    icon = botonDeSalto == BotonDeSalto.OUTRO,
+                    text = if (botonDeSalto == SkipButtonKind.INTRO) "Saltar intro" else "Saltar outro",
+                    icon = botonDeSalto == SkipButtonKind.OUTRO,
                     modifier = Modifier
                         .focusRequester(focos.skip)
                         .onFocusChanged {
@@ -3729,7 +3729,7 @@ private fun PlayerContent(
                                 when (e.key) {
                                     // Ignorar el botón: cualquier flecha lleva el foco a los
                                     // controles y el botón NO se lo vuelve a robar mientras siga
-                                    // en pantalla (`FocoDelSalto` solo actúa cuando cambia cuál
+                                    // en pantalla (`SkipButtonFocus` solo actúa cuando cambia cuál
                                     // botón hay). Hay que interceptarlas: con el foco en Compose,
                                     // el listener del video —el que abre el overlay con cualquier
                                     // tecla— ya no recibe nada, así que sin esto las flechas no
@@ -3753,14 +3753,14 @@ private fun PlayerContent(
                         ),
                 ) {
                     when (botonDeSalto) {
-                        BotonDeSalto.INTRO -> marcadorVigente.openingEndMs?.let { activePlayer.seekTo(it) }
-                        // A dónde salta lo decide `SaltoDeOutro` (ver su KDoc):
+                        SkipButtonKind.INTRO -> marcadorVigente.openingEndMs?.let { activePlayer.seekTo(it) }
+                        // A dónde salta lo decide `OutroSkip` (ver su KDoc):
                         // `seekToNextMediaItem()` on its own only worked on archive.org (source
                         // removed in this branch's pruning), the only multi-item source, and on
                         // magis/Ditu/local -and the legacy web/torrent/NUC- which publish ONE item,
                         // the button still showed up and did NOTHING.
-                        BotonDeSalto.OUTRO -> when (accionDelOutro) {
-                            SaltoDeOutro.Accion.AVANZAR_EN_LA_PLAYLIST -> controller.seekToNextMediaItem()
+                        SkipButtonKind.OUTRO -> when (accionDelOutro) {
+                            OutroSkip.Action.PLAYLIST_ADVANCE -> controller.seekToNextMediaItem()
                             // El mismo camino que `alTerminarElCapitulo()`: navegar a la ruta del
                             // capítulo nuevo es lo que re-arranca la resolución de la fuente.
                             else -> cabecera.siguiente?.let(onNextEpisode)
@@ -3990,7 +3990,7 @@ private fun SkipButton(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    // En TV este botón nace enfocado (ver FocoDelSalto), así que tiene que VERSE enfocado: si no,
+    // En TV este botón nace enfocado (ver SkipButtonFocus), así que tiene que VERSE enfocado: si no,
     // el borde rojo del resto de los controles desaparece de la pantalla y no se entiende a quién
     // le va a llegar el OK.
     var enfocado by remember { mutableStateOf(false) }
