@@ -172,7 +172,7 @@ private fun Context.findActivity(): Activity? {
 
 /** Pasos de velocidad de reproducción (portado de TorrentPlayerScreen). */
 
-/** Pasos de zoom: 0 = ajustar a pantalla; >0 = crop que recorta las barras negras (ver PlayerGestos). */
+/** Pasos de zoom: 0 = ajustar a pantalla; >0 = crop que recorta las barras negras (ver PlayerGestures). */
 
 /** Swipe vertical mínimo (px) para que el modo vivo (Tarea 14) lo tome como zapping en el teléfono. */
 private const val UMBRAL_ZAP_PX = 80f
@@ -1360,12 +1360,12 @@ private fun PlayerContent(
 
     fun bump() = controles.bump()
 
-    // Velocidad, zoom, modo noche y el HUD central: todo en `PlayerGestos.kt`. El `bump()` que
+    // Velocidad, zoom, modo noche y el HUD central: todo en `PlayerGestures.kt`. El `bump()` que
     // recibe es lo único que los ata a esta pantalla — cada ajuste cuenta como actividad y
     // reinicia el auto-ocultado de los controles. Va acá abajo, y no con el resto del estado,
     // porque necesita que `bump` ya esté declarado.
-    val gestos = rememberEstadoDeGestos(controller, graph.settings) { bump() }
-    EfectoDelHudDeBrillo(gestos)
+    val gestos = rememberGesturesState(controller, graph.settings) { bump() }
+    BrightnessHudEffect(gestos)
 
 
 
@@ -2538,7 +2538,7 @@ private fun PlayerContent(
                     // place and the aspect transform has to follow its new size.
                     tv.addOnLayoutChangeListener { v, l, t, r, b, oldL, oldT, oldR, oldB ->
                         if (r - l != oldR - oldL || b - t != oldB - oldT) {
-                            (v as android.view.TextureView).ajustarAlAspecto(localVideo.aspect, gestos.zoomParaExo)
+                            (v as android.view.TextureView).ajustarAlAspecto(localVideo.aspect, gestos.zoomForExo)
                         }
                     }
                     if (isTv) {
@@ -2611,7 +2611,7 @@ private fun PlayerContent(
                 }
             },
             // Aspect and zoom through the TextureView transform, same as the in-screen players.
-            update = { it.ajustarAlAspecto(localVideo.aspect, gestos.zoomParaExo) },
+            update = { it.ajustarAlAspecto(localVideo.aspect, gestos.zoomForExo) },
             // A no-op when the incoming screen already bound its own view: ExoPlayer only clears the
             // view it is using. That's the ordering problem (outgoing release after incoming attach)
             // the libVLC code had to log around.
@@ -2661,7 +2661,7 @@ private fun PlayerContent(
                 onFinDelCapitulo = { alTerminarElCapitulo() },
                 onTracksChanged = { tracks -> estadoPistas.actualizarPistasExo(tracks) },
                 onPrimeraImagen = { hay -> exoYaPintoAlgo = hay },
-                zoom = gestos.zoomParaExo,
+                zoom = gestos.zoomForExo,
             )
         }
 
@@ -2695,7 +2695,7 @@ private fun PlayerContent(
                 onPosicion = { pos, reproduciendo -> vm.dituAvanzo(pos, reproduciendo) },
                 onTracksChanged = { tracks -> estadoPistas.actualizarPistasExo(tracks) },
                 onPrimeraImagen = { hay -> exoYaPintoAlgo = hay },
-                zoom = gestos.zoomParaExo,
+                zoom = gestos.zoomForExo,
             )
         }
 
@@ -2718,7 +2718,7 @@ private fun PlayerContent(
                 },
                 onError = { msg -> vm.onLiveExoError(msg) },
                 onPrimeraImagen = { hay -> exoYaPintoAlgo = hay },
-                zoom = gestos.zoomParaExo,
+                zoom = gestos.zoomForExo,
             )
         }
 
@@ -2767,7 +2767,7 @@ private fun PlayerContent(
                                 // es lo que reproduce el Chromecast — el gesto queda inerte. Tampoco en
                                 // vivo: un 2x temporal sobre un directo no tiene "adelante" al que volver.
                                 if (!enVivo && !casting) {
-                                    gestos.empezarAAcelerar()
+                                    gestos.startAccelerating()
                                 }
                             },
                             onPress = {
@@ -2776,7 +2776,7 @@ private fun PlayerContent(
                                 // gesto: si no, la velocidad local queda pegada en 2× y al terminar
                                 // la sesión de cast la reproducción local resume rápida. Restaurarla
                                 // no hace daño mientras castea (el motor local está pausado igual).
-                                gestos.terminarDeAcelerar()
+                                gestos.stopAccelerating()
                             },
                         )
                     }
@@ -2815,7 +2815,7 @@ private fun PlayerContent(
                                 } else if (totalDy > 240f && totalDy > kotlin.math.abs(totalDx) * 1.5f) {
                                     onOpenEpisodesState.value()
                                 }
-                                gestos.limpiarHud()
+                                gestos.clearHud()
                             },
                             onDrag = { change, drag ->
                                 change.consume()
@@ -2827,21 +2827,21 @@ private fun PlayerContent(
                                 if (horizontal) {
                                     val dur = activePlayer.duration.coerceAtLeast(1)
                                     seekTarget = (seekTarget + (drag.x / size.width * 90_000f).toLong()).coerceIn(0L, dur)
-                                    gestos.mostrarHud("⏱ ${formatDuration(seekTarget)}")
+                                    gestos.showHud("⏱ ${formatDuration(seekTarget)}")
                                 } else if (startX > size.width / 2) {
                                     // Casteando no: el volumen se lee/ajusta sobre el reproductor
                                     // local, que no es lo que suena en el receptor Chromecast —
                                     // gesto inerte.
                                     if (!casting) {
-                                        val v = (gestos.volumenActual() - (drag.y / size.height * 150f).toInt()).coerceIn(0, 100)
-                                        gestos.ponerVolumen(v); gestos.mostrarHud("🔊 $v%")
+                                        val v = (gestos.currentVolume() - (drag.y / size.height * 150f).toInt()).coerceIn(0, 100)
+                                        gestos.setVolume(v); gestos.showHud("🔊 $v%")
                                     }
                                 } else {
                                     activity?.window?.let { w ->
                                         val cur = w.attributes.screenBrightness.let { if (it < 0f) 0.5f else it }
                                         val nb = (cur - drag.y / size.height).coerceIn(0.02f, 1f)
                                         w.attributes = w.attributes.apply { screenBrightness = nb }
-                                        gestos.mostrarHud("☀ ${(nb * 100).toInt()}%")
+                                        gestos.showHud("☀ ${(nb * 100).toInt()}%")
                                     }
                                 }
                             },
@@ -3142,17 +3142,17 @@ private fun PlayerContent(
                     // Casteando no: siguienteVelocidad()/siguienteZoom() actúan sobre el reproductor local, que
                     // no es lo que reproduce el Chromecast.
                     if (MOSTRAR_VELOCIDAD_Y_ZOOM_EN_TELEFONO && !isTv && !casting) {
-                        TextButton(onClick = { gestos.siguienteVelocidad() }) {
+                        TextButton(onClick = { gestos.nextSpeed() }) {
                             Text(
-                                gestos.etiquetaDeVelocidad,
-                                color = if (gestos.velocidadEsNormal) Color.White else ArkivRed,
+                                gestos.speedLabel,
+                                color = if (gestos.speedIsNormal) Color.White else ArkivRed,
                                 style = MaterialTheme.typography.labelLarge,
                             )
                         }
-                        TextButton(onClick = { gestos.siguienteZoom() }) {
+                        TextButton(onClick = { gestos.nextZoom() }) {
                             Text(
-                                gestos.etiquetaDeZoom,
-                                color = if (gestos.zoomEsAjustar) Color.White else ArkivRed,
+                                gestos.zoomLabel,
+                                color = if (gestos.zoomIsFit) Color.White else ArkivRed,
                                 style = MaterialTheme.typography.labelMedium,
                             )
                         }
@@ -3351,14 +3351,14 @@ private fun PlayerContent(
                             // MODO NOCHE (los mismos dos botones que en TV; acá el gesto de
                             // brillo del borde izquierdo sigue existiendo y es independiente:
                             // ese baja el backlight real, estos ponen el velo sobre el video).
-                            IconButton(onClick = { gestos.pasoDeBrillo(+1, dimNivel) }) {
+                            IconButton(onClick = { gestos.brightnessStep(+1, dimNivel) }) {
                                 Icon(
                                     Icons.Default.Brightness2,
                                     contentDescription = "Bajar brillo",
                                     tint = if (dimNivel > 0) ArkivRed else Color.White,
                                 )
                             }
-                            IconButton(onClick = { gestos.pasoDeBrillo(-1, dimNivel) }) {
+                            IconButton(onClick = { gestos.brightnessStep(-1, dimNivel) }) {
                                 Icon(
                                     Icons.Default.BrightnessHigh,
                                     contentDescription = "Subir brillo",
@@ -3527,7 +3527,7 @@ private fun PlayerContent(
                                 TvTransportButton(
                                     icon = Icons.Default.Brightness2,
                                     contentDescription = "Bajar brillo",
-                                    onClick = { gestos.pasoDeBrillo(+1, dimNivel) },
+                                    onClick = { gestos.brightnessStep(+1, dimNivel) },
                                     iconSize = 24.dp,
                                     tint = if (dimNivel > 0) ArkivRed else Color.White,
                                     modifier = Modifier
@@ -3542,7 +3542,7 @@ private fun PlayerContent(
                                 TvTransportButton(
                                     icon = Icons.Default.BrightnessHigh,
                                     contentDescription = "Subir brillo",
-                                    onClick = { gestos.pasoDeBrillo(-1, dimNivel) },
+                                    onClick = { gestos.brightnessStep(-1, dimNivel) },
                                     iconSize = 24.dp,
                                     tint = if (dimNivel > 0) ArkivRed else Color.White,
                                     modifier = Modifier
