@@ -73,7 +73,7 @@ internal fun MagisExoPlayer(
     onTextureViewReady: (TextureView?) -> Unit = {},
     onError: (String) -> Unit = {},
     onTracksChanged: ((Tracks) -> Unit)? = null,
-    onPrimeraImagen: (Boolean) -> Unit = {},
+    onFirstFrame: (Boolean) -> Unit = {},
     /**
      * The episode reached its end.
      *
@@ -83,7 +83,7 @@ internal fun MagisExoPlayer(
      * it simply stopped at the last frame and the next one had to be started by hand. The comment
      * excusing it said "the ExoPlayer handles its own end"; it never did.
      */
-    onFinDelCapitulo: () -> Unit = {},
+    onChapterEnd: () -> Unit = {},
     zoom: Float = 1f,
 ) {
     val context = LocalContext.current
@@ -100,21 +100,21 @@ internal fun MagisExoPlayer(
             .setSubtitleConfigurations(subtitleConfigs)
             .build()
 
-        // El CDN de magis entrega a 70–230 KB/s y sus ficheros traen 8 pistas de audio mal
-        // intercaladas: el video vive en una zona y el audio a 13 MB de distancia, así que el
-        // player salta entre las dos y cada salto le cuesta entre 1,6 s y 3,9 s de espera. Con el
-        // buffer de fábrica —50 s de techo y 2,5 s para arrancar— se queda seco cada dos o tres
-        // segundos y la imagen tartamudea, así que se le da margen de sobra por delante.
+        // Magis's CDN delivers at 70–230 KB/s and its files carry 8 badly interleaved audio
+        // tracks: the video lives in one zone and the audio 13 MB away, so the player jumps
+        // between the two and each jump costs between 1.6 s and 3.9 s of waiting. With the
+        // factory buffer —50 s ceiling and 2.5 s to start— it runs dry every two or three
+        // seconds and the picture stutters, so it's given ample margin ahead.
         //
-        // Pero solo hasta donde entra en un teléfono. Se probó con 300 s y 96 MB de techo y fue
-        // peor que el mal original: a 236 KB/s de bitrate eso son ~70 MB retenidos, el heap se fue
-        // de 107 MB a 142 MB, el GC entró en bucle y la imagen se congelaba cada 15 s como un
-        // reloj. 60 s de techo son unos 14 MB, que cubren de sobra el salto más lento medido.
-        // Lo que se acumula ANTES de reanudar tras un corte son 4 s y no 8: con este CDN esos
-        // segundos de más se pagan carísimos. Medido en el Fire Stick con el origen a 36 KB/s —una
-        // sexta parte de lo que pide el video— un rebuffer costó 85 s de espera, porque juntar 8 s
-        // de contenido a ese caudal son casi 2 MB. Con 4 s la espera se parte por la mitad y sigue
-        // habiendo colchón para un bache normal.
+        // But only as far as it fits on a phone. Tested at 300 s and a 96 MB ceiling and it was
+        // worse than the original problem: at 236 KB/s bitrate that's ~70 MB retained, the heap
+        // went from 107 MB to 142 MB, the GC looped, and the picture froze every 15 s like
+        // clockwork. A 60 s ceiling is about 14 MB, which comfortably covers the slowest jump
+        // measured. What accumulates BEFORE resuming after a cut is 4 s and not 8: with this CDN
+        // those extra seconds cost dearly. Measured on the Fire Stick with the source at
+        // 36 KB/s —a sixth of what the video asks for— a rebuffer cost 85 s of waiting, because
+        // gathering 8 s of content at that rate is almost 2 MB. At 4 s the wait is cut in half and
+        // there's still cushion for a normal hiccup.
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
                 /* minBufferMs = */ 30_000,
@@ -123,8 +123,8 @@ internal fun MagisExoPlayer(
                 /* bufferForPlaybackAfterRebufferMs = */ 4_000,
             )
             .setTargetBufferBytes(24 * 1024 * 1024)
-            // Manda la duración y no el tamaño: con 8 pistas de audio el techo en bytes se alcanza
-            // mucho antes que los segundos de video que hacen falta para cubrir un salto.
+            // Sends duration and not size: with 8 audio tracks the byte ceiling is reached well
+            // before the seconds of video needed to cover a jump.
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
@@ -143,13 +143,13 @@ internal fun MagisExoPlayer(
 
     val textureView = remember(exoPlayer) {
         TextureView(context).apply {
-            // Sin opacidad, para que lo que no tenga imagen deje ver el fondo. Por sí solo NO quitó
-            // la franja verde —se probó— pero es lo correcto para una vista que no llena su hueco,
-            // y no cuesta nada.
+            // No opacity, so whatever has no picture lets the background show through. On its own
+            // it did NOT remove the green stripe —tested— but it's correct for a view that doesn't
+            // fill its slot, and it costs nothing.
             isOpaque = false
-            // Dónde queda colocado. Fue lo que destapó que la vista se encogía a mitad de camino
-            // (1920x1080 al montarse, 1920x800 al llegar la proporción del video), y sigue acá por
-            // si algún aparato vuelve a hacer algo raro con el tamaño.
+            // Where it ends up placed. This uncovered that the view was shrinking halfway through
+            // (1920x1080 on mount, 1920x800 once the video's ratio arrives), and stays here in case
+            // some device does something odd with the size again.
             addOnLayoutChangeListener { _, l, t, r, b, _, _, _, _ ->
                 Log.i(TAG, "TextureView placed at [$l,$t]-[$r,$b] · ${r - l}x${b - t}")
             }
@@ -212,18 +212,18 @@ internal fun MagisExoPlayer(
             }
 
             override fun onPlaybackStateChanged(state: Int) {
-                val nombre = when (state) {
+                val name = when (state) {
                     Player.STATE_IDLE     -> "IDLE"
                     Player.STATE_BUFFERING -> "BUFFERING"
                     Player.STATE_READY    -> "READY"
                     Player.STATE_ENDED    -> "ENDED"
                     else                  -> "?"
                 }
-                Log.i(TAG, "onPlaybackStateChanged → $nombre · isPlaying=${exoPlayer.isPlaying} pos=${exoPlayer.currentPosition}ms dur=${exoPlayer.duration}ms")
+                Log.i(TAG, "onPlaybackStateChanged → $name · isPlaying=${exoPlayer.isPlaying} pos=${exoPlayer.currentPosition}ms dur=${exoPlayer.duration}ms")
                 espejo.updateBuffering(state == Player.STATE_BUFFERING)
                 if (state == Player.STATE_ENDED) {
                     Log.w(TAG, "episode ended at ${exoPlayer.currentPosition}ms of ${exoPlayer.duration}ms")
-                    onFinDelCapitulo()
+                    onChapterEnd()
                 }
             }
 
@@ -239,7 +239,7 @@ internal fun MagisExoPlayer(
 
             override fun onRenderedFirstFrame() {
                 Log.i(TAG, "onRenderedFirstFrame · pos=${exoPlayer.currentPosition}ms")
-                onPrimeraImagen(true)
+                onFirstFrame(true)
             }
 
             override fun onPlayerError(error: PlaybackException) {
@@ -259,29 +259,30 @@ internal fun MagisExoPlayer(
             espejo.syncTransport(buffering = false, playing = false, wantsToPlay = false)
             onPlayerReady(null)
             onTextureViewReady(null)
-            onPrimeraImagen(false)
+            onFirstFrame(false)
         }
     }
 
-    // Sondeo de posición. Además vigila dos patologías que el reloj solo no delata:
-    //  · la posición avanza mientras !isPlaying (bug de transporte);
-    //  · el reloj avanza pero el renderer no saca ni un frame — la imagen se queda congelada con la
-    //    barra corriendo. Pasa cuando la red cambia debajo: el proxy abandona sus conexiones al
-    //    origen, la respuesta que le sirve a ExoPlayer se corta a media descarga y ExoPlayer la lee
-    //    como fin de stream legítimo. Se queda en READY sin pedir más datos, el AudioTrack se para
-    //    y media3 cae a su reloj interno, que corre libre aunque no llegue un solo byte.
+    // Position polling. Also watches for two pathologies the clock alone doesn't reveal:
+    //  · the position advances while !isPlaying (transport bug);
+    //  · the clock advances but the renderer doesn't produce a single frame — the picture stays
+    //    frozen with the bar running. Happens when the network changes underneath: the proxy
+    //    abandons its connections to the origin, the response feeding ExoPlayer cuts off mid-
+    //    download, and ExoPlayer reads it as a legitimate end of stream. It stays in READY without
+    //    requesting more data, the AudioTrack stops, and media3 falls back to its internal clock,
+    //    which runs free even though not a single byte arrives.
     //
-    //    Se mide con los contadores del decoder, no con el reloj: son la única prueba de que un
-    //    frame llegó a la pantalla. El rescate va escalonado porque las dos causas piden remedios
-    //    distintos: primero un seek (barato, destraba un decoder atascado), y si el contador sigue
-    //    clavado, prepare(), que es lo único que reconstruye la fuente y reabre el HTTP — un seek
-    //    no reabre nada cuando el player cree que el stream ya terminó.
+    //    Measured with the decoder's counters, not the clock: they're the only proof a frame
+    //    actually reached the screen. The rescue is staggered because the two causes call for
+    //    different remedies: first a seek (cheap, unsticks a stuck decoder), and if the counter is
+    //    still pinned, prepare(), the only thing that rebuilds the source and reopens the HTTP
+    //    connection — a seek reopens nothing when the player thinks the stream already ended.
     LaunchedEffect(exoPlayer) {
         var lastPos = -1L
         var lastFrames = -1L
-        var congeladoDesdeMs = 0L
-        var ultimoRescateMs = 0L
-        var rescatesSeguidos = 0
+        var frozenSinceMs = 0L
+        var lastRescueMs = 0L
+        var consecutiveRescues = 0
 
         while (true) {
             delay(500)
@@ -296,42 +297,44 @@ internal fun MagisExoPlayer(
                 Log.w(TAG, "POSITION ADVANCES WHILE PAUSED · pos=$pos lastPos=$lastPos state=$state")
             }
 
-            // El reloj corre de verdad (no es un seek ni una pausa) pero no entró ningún frame.
-            val relojAvanzo = lastPos >= 0 && pos > lastPos
-            val sinFrames = lastFrames >= 0 && frames == lastFrames
-            val ahora = SystemClock.elapsedRealtime()
+            // The clock is genuinely running (not a seek, not a pause) but no frame came in.
+            val clockAdvanced = lastPos >= 0 && pos > lastPos
+            val noFrames = lastFrames >= 0 && frames == lastFrames
+            val now = SystemClock.elapsedRealtime()
 
-            if (playing && state == Player.STATE_READY && relojAvanzo && sinFrames && frames >= 0) {
-                if (congeladoDesdeMs == 0L) {
-                    congeladoDesdeMs = ahora
+            if (playing && state == Player.STATE_READY && clockAdvanced && noFrames && frames >= 0) {
+                if (frozenSinceMs == 0L) {
+                    frozenSinceMs = now
                     Log.w(TAG, "VIDEO WITHOUT FRAMES · starts · pos=${pos}ms frames=$frames")
                 }
-                val congeladoMs = ahora - congeladoDesdeMs
-                // 5 s de margen: por debajo se confunde con los tirones normales del CDN, que
-                // llegan a durar 4 s y se recuperan solos.
+                val frozenMs = now - frozenSinceMs
+                // 5 s margin: below that it's indistinguishable from the CDN's normal hiccups,
+                // which can last up to 4 s and recover on their own.
                 //
-                // El rescate ataca los tres puntos donde se midió el atasco, del más barato al más
-                // caro, porque cada uno cura un caso que el anterior no:
-                //  1. seekTo — destraba un decodificador atascado. A veces basta (se midió una
-                //     recuperación en 190 ms), pero en el atasco duro el contador de frames se
-                //     queda clavado en el mismo número tras un seek perfectamente exitoso.
-                //  2. prepare() — reconstruye la fuente y reabre el HTTP. Cura cuando el player
-                //     leyó el corte del proxy como fin de stream y dejó de pedir datos.
-                //  3. reenganchar el TextureView — la superficie dejó de drenar y el decodificador
-                //     se quedó sin buffers de salida. Se midió una tanda en la que ni el prepare()
-                //     movía el contador: ahí no falta ni fuente ni decodificador, falta a dónde
-                //     pintar, y solo soltar y volver a poner la superficie lo arregla.
-                if (congeladoMs >= 5_000 && ahora - ultimoRescateMs >= 8_000) {
-                    ultimoRescateMs = ahora
-                    congeladoDesdeMs = 0L
-                    rescatesSeguidos++
-                    if (rescatesSeguidos <= 1) {
-                        Log.w(TAG, "VIDEO FROZEN ${congeladoMs}ms · rescue 1: prepare() at $pos")
+                // The rescue attacks the three points where the freeze was measured, from
+                // cheapest to costliest, because each one cures a case the previous one doesn't:
+                //  1. seekTo — unsticks a stuck decoder. Sometimes it's enough (a recovery was
+                //     measured at 190 ms), but in the hard freeze the frame counter stays pinned
+                //     at the same number after a perfectly successful seek.
+                //  2. prepare() — rebuilds the source and reopens the HTTP connection. Cures it
+                //     when the player read the proxy's cut as end of stream and stopped
+                //     requesting data.
+                //  3. re-hooking the TextureView — the surface stopped draining and the decoder
+                //     ran out of output buffers. A run was measured where not even prepare()
+                //     moved the counter: neither the source nor the decoder was missing there,
+                //     what was missing was somewhere to paint, and only detaching and re-setting
+                //     the surface fixed it.
+                if (frozenMs >= 5_000 && now - lastRescueMs >= 8_000) {
+                    lastRescueMs = now
+                    frozenSinceMs = 0L
+                    consecutiveRescues++
+                    if (consecutiveRescues <= 1) {
+                        Log.w(TAG, "VIDEO FROZEN ${frozenMs}ms · rescue 1: prepare() at $pos")
                         exoPlayer.seekTo(pos)
                         exoPlayer.prepare()
                         exoPlayer.playWhenReady = true
                     } else {
-                        Log.w(TAG, "VIDEO FROZEN ${congeladoMs}ms · rescue $rescatesSeguidos: re-hooking the surface at $pos")
+                        Log.w(TAG, "VIDEO FROZEN ${frozenMs}ms · rescue $consecutiveRescues: re-hooking the surface at $pos")
                         exoPlayer.clearVideoTextureView(textureView)
                         exoPlayer.setVideoTextureView(textureView)
                         exoPlayer.seekTo(pos)
@@ -340,13 +343,13 @@ internal fun MagisExoPlayer(
                     }
                 }
             } else {
-                if (congeladoDesdeMs != 0L) {
-                    Log.i(TAG, "VIDEO WITHOUT FRAMES · recovered after ${ahora - congeladoDesdeMs}ms · frames=$frames")
+                if (frozenSinceMs != 0L) {
+                    Log.i(TAG, "VIDEO WITHOUT FRAMES · recovered after ${now - frozenSinceMs}ms · frames=$frames")
                 }
-                congeladoDesdeMs = 0L
-                // Solo cuenta como recuperado si de verdad entraron frames nuevos, no por un
-                // pantallazo de BUFFERING entre dos tramos congelados.
-                if (frames > lastFrames && lastFrames >= 0) rescatesSeguidos = 0
+                frozenSinceMs = 0L
+                // Only counts as recovered if new frames genuinely came in, not from a BUFFERING
+                // flash between two frozen stretches.
+                if (frames > lastFrames && lastFrames >= 0) consecutiveRescues = 0
             }
 
             lastPos = pos
@@ -359,19 +362,19 @@ internal fun MagisExoPlayer(
         }
     }
 
-    // El ratio se aplica en el Box contenedor, NO en el AndroidView: si el Modifier del
-    // AndroidView cambiara (fillMaxSize → aspectRatio), Compose puede reattachar el TextureView
-    // brevemente, destruyendo su SurfaceTexture y dejando el video en negro con audio.
-    // Con un Box wrapper el TextureView siempre tiene fillMaxSize() → superficie estable.
-    // El TextureView NO cambia nunca de tamaño: ocupa siempre la pantalla entera y la proporción se
-    // consigue transformando su contenido (ver [ajustarAlAspecto]).
+    // The ratio is applied on the containing Box, NOT on the AndroidView: if the AndroidView's
+    // Modifier changed (fillMaxSize → aspectRatio), Compose may briefly reattach the TextureView,
+    // destroying its SurfaceTexture and leaving the video black with audio.
+    // With a Box wrapper the TextureView always has fillMaxSize() → a stable surface.
+    // The TextureView NEVER changes size: it always fills the whole screen and the ratio is
+    // achieved by transforming its content (see [fitAspect]).
     //
-    // Antes se le daba el aspecto al Box de alrededor, y eso encogía la vista a mitad de camino: se
-    // colocaba a 1920x1080 —hasta que el decodificador no arranca no se sabe la proporción— y al
-    // llegar el onVideoSizeChanged pasaba a 1920x800. Pero su SurfaceTexture se había creado con
-    // 1080, y los 280 px que sobraban seguían ahí con el búfer sin estrenar: una franja VERDE bajo
-    // el video en toda película panorámica. Medido en el Fire Stick con una 2.4:1, y sin salir en
-    // las 16:9 justamente porque ahí la vista ya llenaba la pantalla y nunca se encogía.
+    // The surrounding Box used to be given the aspect, and that shrank the view halfway through:
+    // it was placed at 1920x1080 —the ratio isn't known until the decoder starts— and once
+    // onVideoSizeChanged arrived it switched to 1920x800. But its SurfaceTexture had been created
+    // at 1080, and the leftover 280 px stayed there with an unused buffer: a GREEN stripe under
+    // the video in every widescreen movie. Measured on the Fire Stick with a 2.4:1, and it never
+    // showed on 16:9 precisely because there the view already filled the screen and never shrank.
     BoxWithConstraints(
         Modifier.fillMaxSize().background(Color.Black),
         contentAlignment = Alignment.Center,
@@ -379,92 +382,93 @@ internal fun MagisExoPlayer(
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { textureView },
-            update = { it.ajustarAlAspecto(videoAspectRatio, zoom) },
+            update = { it.fitAspect(videoAspectRatio, zoom) },
         )
 
-        // BANDAS NEGRAS ENCIMA, tapando lo que sobra del video.
+        // BLACK BARS ON TOP, covering what's left over from the video.
         //
-        // Es un parche y conviene saberlo: en una película panorámica la mitad de abajo del hueco
-        // salía VERDE —el búfer sin estrenar de la superficie— y no se encontró la causa. Se
-        // descartaron, midiendo cada vez en el Fire Stick: la capa de composición del zoom, la
-        // opacidad del TextureView, que la vista cambiara de tamaño a mitad de camino, y la
-        // transformación del contenido. Con todas ellas el video quedaba EXACTAMENTE donde debía
-        // (medido: y=138..941 para una 2.4:1 en 1080) y la franja seguía igual. Lo más raro es que
-        // la banda de ARRIBA siempre salió negra y solo la de abajo verde, con la misma superficie.
+        // It's a patch and worth knowing that: in a widescreen movie the bottom half of the gap
+        // came out GREEN —the surface's unused buffer— and the cause was never found. These were
+        // ruled out, each measured on the Fire Stick: the zoom's composition layer, the
+        // TextureView's opacity, the view changing size halfway through, and the content
+        // transform. With all of those the video landed EXACTLY where it should (measured:
+        // y=138..941 for a 2.4:1 on 1080) and the stripe stayed the same. The strangest part is
+        // that the TOP bar always came out black and only the bottom one green, with the same
+        // surface.
         //
-        // Así que se pinta negro encima de las dos bandas. No arregla el búfer, pero el hueco de una
-        // panorámica tiene que ser negro y así lo es.
-        // Las bandas van donde toque: arriba y abajo si el video es más ANCHO que la pantalla (una
-        // panorámica en la tele), a los lados si es más ESTRECHO (un 4:3 en la tele, o cualquier
-        // cosa en el móvil de pie). Solo una de las dos ramas puede darse a la vez, y con el video
-        // justo del mismo formato no se pinta ninguna.
-        val alto = maxHeight
-        val ancho = maxWidth
-        if (videoAspectRatio > 0f && alto > 0.dp && ancho > 0.dp) {
-            val aspectoDeLaPantalla = ancho / alto
-            if (videoAspectRatio > aspectoDeLaPantalla) {
-                val banda = (alto - ancho / videoAspectRatio) / 2
-                if (banda > 0.dp) {
-                    Box(Modifier.align(Alignment.TopCenter).fillMaxWidth().height(banda).background(Color.Black))
-                    Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(banda).background(Color.Black))
+        // So black gets painted on top of both bars. It doesn't fix the buffer, but a widescreen
+        // movie's gap has to be black and this way it is.
+        // The bars go wherever they belong: top and bottom if the video is WIDER than the screen
+        // (a widescreen movie on TV), on the sides if it's NARROWER (a 4:3 on TV, or anything on a
+        // phone held upright). Only one of the two branches can happen at a time, and with video
+        // in exactly the same format neither one is painted.
+        val boxHeight = maxHeight
+        val boxWidth = maxWidth
+        if (videoAspectRatio > 0f && boxHeight > 0.dp && boxWidth > 0.dp) {
+            val screenAspect = boxWidth / boxHeight
+            if (videoAspectRatio > screenAspect) {
+                val bar = (boxHeight - boxWidth / videoAspectRatio) / 2
+                if (bar > 0.dp) {
+                    Box(Modifier.align(Alignment.TopCenter).fillMaxWidth().height(bar).background(Color.Black))
+                    Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(bar).background(Color.Black))
                 }
-            } else if (videoAspectRatio < aspectoDeLaPantalla) {
-                val banda = (ancho - alto * videoAspectRatio) / 2
-                if (banda > 0.dp) {
-                    Box(Modifier.align(Alignment.CenterStart).fillMaxHeight().width(banda).background(Color.Black))
-                    Box(Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(banda).background(Color.Black))
+            } else if (videoAspectRatio < screenAspect) {
+                val bar = (boxWidth - boxHeight * videoAspectRatio) / 2
+                if (bar > 0.dp) {
+                    Box(Modifier.align(Alignment.CenterStart).fillMaxHeight().width(bar).background(Color.Black))
+                    Box(Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(bar).background(Color.Black))
                 }
             }
         }
 
-        // SubtitleView superpuesto: renderiza cues VTT/SRT cargados via SubtitleConfiguration.
+        // Overlaid SubtitleView: renders VTT/SRT cues loaded via SubtitleConfiguration.
         AndroidView(modifier = Modifier.matchParentSize(), factory = { subtitleView })
     }
 }
 
 /**
- * Encaja el video en la vista sin deformarlo, moviendo el CONTENIDO y no la vista.
+ * Fits the video into the view without distorting it, moving the CONTENT and not the view.
  *
- * ExoPlayer estira el video hasta llenar el TextureView, así que una película 2.4:1 en una pantalla
- * 16:9 sale achatada. Se corrige con la matriz de la superficie: se calcula cuánto sobra en el eje
- * que no encaja y se encoge por ahí, dejando el resto en negro como cualquier letterbox. Es lo mismo
- * que hace el PlayerView de media3 con TextureView.
+ * ExoPlayer stretches the video to fill the TextureView, so a 2.4:1 movie on a 16:9 screen comes
+ * out squashed. Fixed with the surface's matrix: how much overflows on the axis that doesn't fit
+ * is calculated and shrunk there, leaving the rest black like any letterbox. Same as what media3's
+ * PlayerView does with a TextureView.
  *
- * [zoom] multiplica al final, para que el gesto de zoom siga funcionando sobre el resultado.
+ * [zoom] multiplies at the end, so the zoom gesture keeps working on top of the result.
  *
- * `internal` (no `private`): [LiveExoPlayer] la reusa tal cual para el mismo letterbox del vivo.
+ * `internal` (not `private`): [LiveExoPlayer] reuses it as-is for live's same letterbox.
  */
-internal fun TextureView.ajustarAlAspecto(aspectoDelVideo: Float, zoom: Float) {
+internal fun TextureView.fitAspect(videoAspect: Float, zoom: Float) {
     val w = width.toFloat()
     val h = height.toFloat()
-    if (aspectoDelVideo <= 0f || w <= 0f || h <= 0f) return
+    if (videoAspect <= 0f || w <= 0f || h <= 0f) return
 
-    val aspectoDeLaVista = w / h
-    // Solo se ENCOGE el eje que sobra: agrandar el otro recortaría imagen.
-    val escalaX = if (aspectoDelVideo > aspectoDeLaVista) 1f else aspectoDelVideo / aspectoDeLaVista
-    val escalaY = if (aspectoDelVideo > aspectoDeLaVista) aspectoDeLaVista / aspectoDelVideo else 1f
+    val viewAspect = w / h
+    // Only the axis that overflows gets SHRUNK: enlarging the other would crop the picture.
+    val scaleX = if (videoAspect > viewAspect) 1f else videoAspect / viewAspect
+    val scaleY = if (videoAspect > viewAspect) viewAspect / videoAspect else 1f
 
     setTransform(
         android.graphics.Matrix().apply {
-            setScale(escalaX * zoom, escalaY * zoom, w / 2f, h / 2f)
+            setScale(scaleX * zoom, scaleY * zoom, w / 2f, h / 2f)
         },
     )
 }
 
 /**
- * Tipo de un subtítulo a partir de su ruta. VTT por defecto: es lo que sirve el portal de magis;
- * el caso .srt queda por si algún día una fuente lo nombra así con su extensión.
+ * A subtitle's type from its path. VTT by default: what magis's portal serves; the .srt case is
+ * there in case some source ever names one that way with that extension.
  */
-private fun mimeDeSubtitulo(ruta: String): String = when {
-    ruta.contains(".srt", ignoreCase = true) -> MimeTypes.APPLICATION_SUBRIP
+private fun subtitleMimeType(path: String): String = when {
+    path.contains(".srt", ignoreCase = true) -> MimeTypes.APPLICATION_SUBRIP
     else -> MimeTypes.TEXT_VTT
 }
 
-/** Convierte la lista de subtítulos del portal a SubtitleConfiguration de ExoPlayer. */
+/** Converts the portal's subtitle list to ExoPlayer's SubtitleConfiguration. */
 internal fun List<ResolvedSub>.toExoSubtitleConfigs(): List<MediaItem.SubtitleConfiguration> =
     map { sub ->
         MediaItem.SubtitleConfiguration.Builder(Uri.parse(sub.url))
-            .setMimeType(mimeDeSubtitulo(sub.url))
+            .setMimeType(subtitleMimeType(sub.url))
             .setLanguage(sub.lang)
             .build()
     }

@@ -240,7 +240,7 @@ internal fun LiveExoPlayer(
 
     // Same letterbox scheme as MagisExoPlayer: the ratio is applied by transforming the
     // TextureView's CONTENT (which always fills the whole screen), not the view's size -- see the
-    // KDoc of [ajustarAlAspecto] for why (avoids the Fire Stick's green stripe).
+    // KDoc of [fitAspect] for why (avoids the Fire Stick's green stripe).
     BoxWithConstraints(
         Modifier.fillMaxSize().background(Color.Black),
         contentAlignment = Alignment.Center,
@@ -256,7 +256,7 @@ internal fun LiveExoPlayer(
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { textureView },
-                update = { it.ajustarAlAspecto(videoAspectRatio, zoom) },
+                update = { it.fitAspect(videoAspectRatio, zoom) },
             )
         }
 

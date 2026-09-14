@@ -2538,7 +2538,7 @@ private fun PlayerContent(
                     // place and the aspect transform has to follow its new size.
                     tv.addOnLayoutChangeListener { v, l, t, r, b, oldL, oldT, oldR, oldB ->
                         if (r - l != oldR - oldL || b - t != oldB - oldT) {
-                            (v as android.view.TextureView).ajustarAlAspecto(localVideo.aspect, gestos.zoomForExo)
+                            (v as android.view.TextureView).fitAspect(localVideo.aspect, gestos.zoomForExo)
                         }
                     }
                     if (isTv) {
@@ -2611,7 +2611,7 @@ private fun PlayerContent(
                 }
             },
             // Aspect and zoom through the TextureView transform, same as the in-screen players.
-            update = { it.ajustarAlAspecto(localVideo.aspect, gestos.zoomForExo) },
+            update = { it.fitAspect(localVideo.aspect, gestos.zoomForExo) },
             // A no-op when the incoming screen already bound its own view: ExoPlayer only clears the
             // view it is using. That's the ordering problem (outgoing release after incoming attach)
             // the libVLC code had to log around.
@@ -2658,9 +2658,9 @@ private fun PlayerContent(
                 // Nobody else watches for the end of a Magis episode: the screen's listener stays
                 // quiet while an ExoPlayer is active, on the grounds that its STATE_ENDED belongs
                 // to a local player holding nothing. True, but it left the end unhandled entirely.
-                onFinDelCapitulo = { alTerminarElCapitulo() },
+                onChapterEnd = { alTerminarElCapitulo() },
                 onTracksChanged = { tracks -> estadoPistas.updateExoTracks(tracks) },
-                onPrimeraImagen = { hay -> exoYaPintoAlgo = hay },
+                onFirstFrame = { hay -> exoYaPintoAlgo = hay },
                 zoom = gestos.zoomForExo,
             )
         }

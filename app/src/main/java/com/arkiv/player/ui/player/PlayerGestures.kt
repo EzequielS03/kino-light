@@ -120,7 +120,7 @@ internal class GesturesState(
      * The zoom whoever draws the video has to apply, or 1 if nothing needs to be touched.
      *
      * ExoPlayer has no zoom of its own, so whoever draws the video scales its TextureView transform
-     * by this (see `ajustarAlAspecto`): the view keeps its size and what overflows is cropped. That
+     * by this (see `fitAspect`): the view keeps its size and what overflows is cropped. That
      * includes the local player, whose TextureView lives in PlayerScreen.
      */
     val zoomForExo: Float get() = if (exoRef != null) ZOOM_STEPS[zoomIndex].let { if (it <= 0f) 1f else it } else 1f
