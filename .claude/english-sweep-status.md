@@ -9,18 +9,17 @@ English" line in `.claude/reglas.md`.
 Order chosen by the user: **módulo por módulo, de menor a mayor riesgo** (module by module,
 lowest to highest risk).
 
-## Overall completion: roughly **97-98%** of the whole sweep
+## Overall completion: roughly **99%** of the whole sweep — ONE FILE LEFT
 
 - `playback/`, `security/`, `dlna/`, `cast/`, `thumbnails/`: **100% done.**
 - `data/`: **~98% done** — three files left now: `MagisEntities.kt`, `DituEntities.kt`, and
   `LibraryGrouping.kt` (found in an earlier session — `LibraryGroup.nuevos` and other content still
   Spanish; see below).
-- `ui/` (159 main files across 14 subpackages, plus 6 top-level files, plus tests): roughly
-  **97-98% done**. Fully finished packages: `detail/`, `downloads/`, `components/`, `offline/`,
-  `library/`, `theme/`, `update/`, `settings/`, `home/`, `search/`, `catalog/`, `live/`, `tv/`,
-  plus all 6 top-level `ui/*.kt` files. `player/` (23 files, the single largest package in `ui/`)
-  has **21 of 23 main files done** — only the two giants (`PlayerViewModel.kt` 65K,
-  `PlayerScreen.kt` 234K) are left untouched, in the whole `ui/` tree. See below for what's done.
+- `ui/` (159 main files across 14 subpackages, plus 6 top-level files, plus tests): **22 of 23
+  `ui/player/` main files done, every other package 100% done.** `PlayerViewModel.kt` (65K) is now
+  fully translated. **`PlayerScreen.kt` (234K, the single largest file in the entire codebase) is
+  the ONLY file left untouched in the whole `ui/` tree, and the whole sweep.** See below for what's
+  done in `player/`.
 
 `ui/` is far bigger than `data/` was (159 main files vs. roughly 90 in `data/`), so raw file count
 means the overall codebase is still under most-of-the-way-done even though `data/` is essentially
@@ -256,10 +255,10 @@ Also fully translated (finished the package):
 
 **`ui/tv/` is now 100% done — every one of its 26 main files (+ tests) is translated.**
 
-### `ui/player/` — 21 of 23 main files done; only the two giants remain
+### `ui/player/` — 22 of 23 main files done; only `PlayerScreen.kt` remains
 
-Every file except `PlayerScreen.kt` and `PlayerViewModel.kt` is now translated, each rippled with
-minimal targeted fixes into those two giants (still untouched) as they were processed:
+Every file except `PlayerScreen.kt` is now translated, each rippled with minimal targeted fixes
+into that one remaining giant as they were processed:
 
 - `PlayerFoco.kt`→`OverlayFocusPoints.kt` (`OverlayFocusPoints` class, `rememberOverlayFocusPoints`).
 - `PlayerSaltos.kt`→`OutroSkip.kt` (`OutroSkip.Action`, `SkipButtonKind` — named `Kind` not
@@ -337,15 +336,37 @@ parameter with name 'onFirstFrame' found". Fixed by reverting those two and late
 line-number-targeted `sed 'N s/.../.../'  ` instead of a global replace once contents diverge
 across near-duplicate call sites.
 
-Only two files left in the ENTIRE `ui/` tree, and in the whole sweep: **`PlayerViewModel.kt`
-(65K)** and **`PlayerScreen.kt`** (234K, by far the largest file in the entire codebase, and the
-one every other file in `ui/player/` has been rippling minimal fixes into this whole time). Three
-test-only files remain deliberately deferred to `PlayerViewModel.kt`'s own turn (they test
-functions living there: `mensajeErrorVivo`, `PlaylistData?.hayQueAnotarHistorial`,
-`hayQueMarcarEnCurso`): `MensajeErrorVivoTest.kt`, `ProgresoDeAdultosTest.kt`,
-`VivoDeCaracolNoSeAnotaTest.kt`. `SoftwareReloadTest.kt` was checked and found **already fully
-English** (tests `PlayerScreen.kt`'s already-English `reloadInSoftware`/`SoftwareReloadPlayer`) —
-no action needed, don't re-check it.
+- `PlayerViewModel.kt` (65K) — **DONE.** The whole file translated: data classes `PlayerData`
+  (`.adult`/`.prefersSoftware`, was `.adulto`/`.preferirSoftware`), `PlaylistData` (`.requested`,
+  was `.pedido`), `DituReproducible` (`.generation`/`.autoStart`/`.localDownload`, was
+  `.generacion`/`.arrancarSolo`/`.descargaLocal`); top-level `shouldLogHistory()`/
+  `shouldMarkInProgress()`/`liveErrorMessage()` (was `hayQueAnotarHistorial()`/
+  `hayQueMarcarEnCurso()`/`mensajeErrorVivo()`); constructor params `isTv`/`source`/
+  `hasMagisAccount`/`triviaFacts` (was `esTelevision`/`fuente`/`hayCuentaDeMagis`/
+  `datosCuriosos` — `dituFuente` kept, parallel to the deliberately-Spanish `DituFuente` class
+  name); live-mode `liveChannel`/`liveGeneration` StateFlows and `openCurrentChannel()`/
+  `zapNext()`/`zapPrevious()`/`reopenLiveAfterCut()`/`liveIsPlaying()`/`goToChannel()`/
+  `preheatNeighbors()` methods (was `liveCanal`/`generacionVivo`/`abrirCanalActual()`/
+  `zapSiguiente()`/`zapAnterior()`/`reabrirVivoPorCorte()`/`vivoAndando()`/`irACanal()`/
+  `precalentarVecinos()`); `captureFrame()`/`dituCanReprepare()`/`dituAdvanced()`/
+  `onPlaybackHealthy()`/`editMarker()` and every local variable. Rippled the constructor call site
+  and ~30 `vm.<method>()` call sites plus every data-class field access into `PlayerScreen.kt`
+  (minimal targeted ripple, not yet processed itself), and fixed stale KDoc cross-references in
+  `LiveExoPlayer.kt`, `PauseOnExit.kt`, `LiveHlsProxy.kt`, `HistorySignals.kt`, `DrawerDpad.kt`/
+  `DrawerDpadTest.kt`, `MediaReusePolicy.kt`, `DituState.kt`/`DituStateTest.kt`. Left two verbatim
+  historical purge notes in `ArkivApp.kt`/`Daos.kt` referencing the old `abrirCanalActual` name
+  untouched (they document a specific 2026-08-14 commit's real function name). Rewrote the three
+  deferred test files: `MensajeErrorVivoTest.kt`→`LiveErrorMessageTest.kt`,
+  `ProgresoDeAdultosTest.kt`→`AdultProgressTest.kt`,
+  `VivoDeCaracolNoSeAnotaTest.kt`→`LiveCaracolNotLoggedTest.kt`.
+
+**`PlayerScreen.kt` (234K, by far the largest file in the entire codebase) is the ONLY file left
+untouched in the whole sweep.** Every other file in `ui/player/` (and all of `ui/`, and virtually
+all of `data/`) has been rippling minimal targeted fixes into it this whole time, so it's carrying
+a long tail of already-English symbol references waiting for its own turn. `SoftwareReloadTest.kt`
+was checked earlier and found **already fully English** (tests `PlayerScreen.kt`'s already-English
+`reloadInSoftware`/`SoftwareReloadPlayer`) — no action needed there when `PlayerScreen.kt`'s turn
+comes.
 
 ## Workflow to follow (established over 45+ commits this session)
 
@@ -408,33 +429,37 @@ f. Two `ContentSource` implementations — **`MagisFuente`** and **`DituFuente`*
 
 ## Next steps
 
-1. **Finish `ui/player/`: only `PlayerViewModel.kt` (65K) and `PlayerScreen.kt` (234K) are left in
-   the whole sweep.** Tackle `PlayerViewModel.kt` first (it's less than a third the size, and
-   `PlayerScreen.kt` consumes a lot of what it exposes, so translating the ViewModel first means
-   fewer double-ripples). Both need the full-file `Read` (in chunks for `PlayerScreen.kt`) →
-   comprehensive `Write` rewrite approach used successfully for `TvHomeScreen.kt`/
-   `TvSearchScreen.kt` in an earlier session, NOT piecemeal `Edit` calls — these are large enough
-   that a full rewrite in one `Write` per file is more reliable than hundreds of small edits.
-   `PlayerScreen.kt` is where every other file in `ui/player/` has been rippling minimal fixes into
-   all session — expect it to be the highest-risk, most time-consuming file in the entire sweep.
-   Once both are done, `ui/player/` is 100% and so is all of `ui/`.
-2. The three deferred test files (`MensajeErrorVivoTest.kt`, `ProgresoDeAdultosTest.kt`,
-   `VivoDeCaracolNoSeAnotaTest.kt`) get translated alongside `PlayerViewModel.kt`, since they test
-   its `mensajeErrorVivo`/`PlaylistData?.hayQueAnotarHistorial`/`hayQueMarcarEnCurso` functions.
-3. After `ui/` is fully done, circle back to close the three remaining `data/` gaps
+1. **Translate `PlayerScreen.kt` (234K) — the ONLY file left in the entire sweep.** Use the
+   full-file `Read` (in chunks — it's ~3x bigger than `TvSearchScreen.kt`, the previous largest at
+   72K) → comprehensive `Write` rewrite approach used successfully for `TvHomeScreen.kt`/
+   `TvSearchScreen.kt` earlier, NOT piecemeal `Edit` calls. Given its size, doing it as several
+   `Edit` passes over logical sections (rather than one giant `Write`) may be more manageable and
+   safer to verify incrementally — use judgment once the full content is in hand. It receives
+   ripple ends from EVERY other file in `ui/player/` (all already English now), so expect a long
+   tail of symbol names that are already correct and only need their surrounding Spanish
+   identifiers/locals/comments translated, not the imported types themselves. This is the last,
+   highest-risk, most time-consuming file in the entire codebase sweep. Once done, `ui/` is 100%
+   and the sweep is effectively complete (modulo the two items below).
+2. After `PlayerScreen.kt` is done, circle back to close the three remaining `data/` gaps
    (`MagisEntities.kt`, `DituEntities.kt`, `LibraryGrouping.kt`) with the same careful treatment as
-   the original `data/magis/`/`data/ditu/` sweeps — these are self-contained enough that they
-   don't block `ui/` progress, but the sweep isn't truly 100% without them.
-4. Once both `data/` and `ui/` are 100%, revisit whether `MagisFuente`/`DituFuente` class names are
-   now cheap enough to rename too (exception f above).
-5. **Whenever a bare top-level `fun`/`val` gets renamed** (not a class/object member), grep
+   the original `data/magis/`/`data/ditu/` sweeps.
+3. Then revisit whether `MagisFuente`/`DituFuente` class names are now cheap enough to rename too
+   (exception f above) — now that literally everything else is done, this is the last deferred item.
+4. **Whenever a bare top-level `fun`/`val` gets renamed** (not a class/object member), grep
    separately for `^import .*\.<oldName>$` — a call-site-anchored sed pattern will not catch a bare
    import line, and that's a real, previously-hit compile break (see the lesson noted near the top
    of this doc).
-6. **When a rename's sed pattern could match multiple near-identical call sites to DIFFERENT
+5. **When a rename's sed pattern could match multiple near-identical call sites to DIFFERENT
    functions** (e.g. `MagisExoPlayer`/`DituExoPlayer`/`LiveExoPlayer` calls in `PlayerScreen.kt`
    that share a lambda body like `{ hay -> exoYaPintoAlgo = hay },`), a blanket sed will rename the
    wrong one too. Check the compile error carefully (it names the exact line) and use a
    line-number-targeted `sed 'N s/.../.../''` to fix only the intended call site.
+6. **After every rename, grep the WHOLE repo (not just the package) for stale KDoc/comment
+   cross-references** — this session repeatedly found stale mentions in already-processed files
+   several packages away (`playback/LiveHlsProxy.kt`, `data/recomendaciones/HistorySignals.kt`,
+   `ui/live/DrawerDpad.kt`) that a package-scoped grep would have missed. Two exceptions:
+   verbatim historical notes tied to a specific past commit (e.g. `ArkivApp.kt`/`Daos.kt`'s
+   2026-08-14 purge comments naming `abrirCanalActual`) document what the code was ACTUALLY called
+   at that commit and should stay as-is.
 7. Update this document and the auto-memory file `code-must-be-english.md` again at the next
    natural pause point — it drifts fast given how many files this sweep touches per session.
