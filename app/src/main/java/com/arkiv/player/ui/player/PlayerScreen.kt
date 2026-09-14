@@ -2323,10 +2323,10 @@ private fun PlayerContent(
     // y si el proceso muere después la posición se perdería.
     //
     // Después de guardar, pausa: con Home los ExoPlayer de esta pantalla (Magis, el vivo, Caracol)
-    // seguían sonando afuera. Qué se pausa y cómo lo decide [alIrseAlFondo]; `isTv` es el que pasa
+    // seguían sonando afuera. Qué se pausa y cómo lo decide [onBackground]; `isTv` es el que pasa
     // `ArkivTvRoot`, la raíz que `MainActivity` elige con `DeviceType.isTelevision`. Al volver, un
     // video queda en pausa donde iba y un canal en vivo vuelve al directo: sonando si sonaba, en pausa
-    // si estaba en pausa ([alVolverAlDirecto]).
+    // si estaba en pausa ([onReturnToLive]).
     DisposableEffect(lifecycleOwner) {
         // El directo que se detuvo al irse al fondo y si sonaba en ese momento, para decidir al volver.
         // Solo si al volver sigue siendo el reproductor activo: si mientras tanto se armó otro, ese no
@@ -2338,14 +2338,14 @@ private fun PlayerContent(
                 val detenido = directoDetenido
                 directoDetenido = null
                 if (detenido != null && detenido === currentPlayer) {
-                    val alVolver = alVolverAlDirecto(sonabaAlSalir)
+                    val alVolver = onReturnToLive(sonabaAlSalir)
                     android.util.Log.w("ArkivPlay", "app back in foreground → the live stream primes at the edge · $alVolver")
                     runCatching {
                         // Detenido no tiene nada cargado: sin `prepare()` quedaría quieto aunque la
                         // persona le diera play.
                         detenido.seekToDefaultPosition()
                         detenido.prepare()
-                        if (alVolver == AlVolverAlDirecto.REANUDAR_EN_EL_DIRECTO) detenido.play()
+                        if (alVolver == OnReturnToLive.RESUME_LIVE) detenido.play()
                     }
                 }
             }
@@ -2367,15 +2367,15 @@ private fun PlayerContent(
                 val jugador = currentPlayer
                 // `controller` IS the local player: downloaded files play on the ExoPlayer hosted by
                 // PlaybackService, and this screen reaches it only through `controller`. So for a
-                // local file `jugador === controller`, `esExoPlayer` is false and the phone gets SEGUIR:
+                // local file `jugador === controller`, `isExoPlayer` is false and the phone gets KEEP_PLAYING:
                 // it keeps playing in the background, with the media notification. Never route local
                 // files to an in-screen player, or this rule starts pausing them. Pinned by
-                // PausaAlSalirTest.
-                val accion = alIrseAlFondo(
-                    esTv = isTv,
-                    esExoPlayer = jugador !== controller,
-                    casteando = casting,
-                    enVivo = currentEnVivo,
+                // PauseOnExitTest.
+                val accion = onBackground(
+                    isTv = isTv,
+                    isExoPlayer = jugador !== controller,
+                    casting = casting,
+                    isLive = currentEnVivo,
                 )
                 android.util.Log.w(
                     "ArkivPlay",
@@ -2383,9 +2383,9 @@ private fun PlayerContent(
                         "player=${jugador::class.simpleName}",
                 )
                 when (accion) {
-                    AlIrseAlFondo.SEGUIR -> Unit
-                    AlIrseAlFondo.PAUSAR -> runCatching { jugador.pause() }
-                    AlIrseAlFondo.DETENER_EL_DIRECTO -> {
+                    OnBackground.KEEP_PLAYING -> Unit
+                    OnBackground.PAUSE -> runCatching { jugador.pause() }
+                    OnBackground.STOP_LIVE -> {
                         // Antes de pausarlo: si la persona ya lo tenía en pausa, al volver sigue así.
                         sonabaAlSalir = jugador.playWhenReady
                         runCatching {

@@ -204,9 +204,9 @@ internal fun DituExoPlayer(
     // salida de seguridad del reloj de abajo no mira si la app está a la vista, y podría darle play en
     // el fondo. Al volver se retoma con su plazo contado de nuevo, así que nunca queda esperando sin
     // plazo: arranca con la imagen o con la salida de seguridad. Con un canal en vivo es igual:
-    // `PlayerScreen` lo detiene al irse y lo prepara en el directo al volver (ver `alVolverAlDirecto`),
+    // `PlayerScreen` lo detiene al irse y lo prepara en el directo al volver (ver `onReturnToLive`),
     // y el arranque le da play. Lo que ya había arrancado no pasa por acá: eso lo decide
-    // `alIrseAlFondo`.
+    // `onBackground`.
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, arranque) {
         val observador = LifecycleEventObserver { _, evento ->
