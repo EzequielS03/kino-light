@@ -90,8 +90,8 @@ fun TvLibraryScreen(
     val vm: TvLibraryViewModel = viewModel(
         factory = viewModelFactory { initializer { TvLibraryViewModel(graph.repository) } },
     )
-    val grupos by vm.grupos.collectAsStateWithLifecycle()
-    val vistos by vm.vistos.collectAsStateWithLifecycle()
+    val grupos by vm.groups.collectAsStateWithLifecycle()
+    val vistos by vm.watched.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
 
     var seccion by remember { mutableStateOf(LibrarySection.ALL_SAVED) }
@@ -193,7 +193,7 @@ fun TvLibraryScreen(
             grupo = grupo,
             onOpenDetail = { onOpenItem(grupo.key); menuDe = null },
             onSetCategory = { isMovie -> vm.setCategory(grupo.primary.identifier, isMovie); menuDe = null },
-            onQuitar = { vm.quitarGrupo(grupo); menuDe = null },
+            onQuitar = { vm.removeGroup(grupo); menuDe = null },
             onDismiss = { menuDe = null },
         )
     }
