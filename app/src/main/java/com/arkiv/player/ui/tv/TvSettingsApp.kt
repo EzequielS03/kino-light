@@ -35,7 +35,7 @@ import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 import com.arkiv.player.ui.update.UpdateDialog
 
-/** Lo que es de la app en este televisor: actualizaciones y el candado 18+. */
+/** What belongs to the app on this TV: updates and the 18+ lock. */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 internal fun TvSettingsApp() {
@@ -45,8 +45,8 @@ internal fun TvSettingsApp() {
     var checking by remember { mutableStateOf(false) }
     var manualUpdate by remember { mutableStateOf<UpdateInfo?>(null) }
 
-    // Chequeo manual: independiente del diálogo global de MainActivity, así funciona aunque
-    // este último ya haya sido descartado por el usuario en esta sesión.
+    // Manual check: independent of MainActivity's global dialog, so it works even if the user
+    // already dismissed that one this session.
     fun checkForUpdatesNow() {
         checking = true
         scope.launch {
@@ -71,34 +71,34 @@ internal fun TvSettingsApp() {
         onClick = { if (!checking) checkForUpdatesNow() },
     )
 
-    TvSeccionAdultos(graph.settings)
+    TvAdultsSection(graph.settings)
 }
 
 /**
- * El candado de la sección 18+.
+ * The 18+ section's lock.
  *
- * Sin destrabar se ve UN renglón que pide un código, y nada más: ni el nombre de la sección, ni
- * un botón en gris, ni un candado. Anunciar que existe algo es la mitad del problema — quien no
- * sabe el código no tiene por qué enterarse de que hay una puerta.
+ * Unlocked, it shows ONE row asking for a code, and nothing else: not the section's name, not a
+ * grayed-out button, not a lock icon. Announcing that something exists is half the problem —
+ * whoever doesn't know the code has no reason to learn there's a door.
  *
- * Destraba SOLO este aparato ([SettingsStore.setAdultosDesbloqueado] va a los ajustes del aparato,
- * no a la cuenta): el televisor del living no hereda lo que se destrabó en el celular, y
- * desinstalar la app lo apaga.
+ * Unlocks ONLY this device ([SettingsStore.setAdultosDesbloqueado] goes to the device's settings,
+ * not the account): the living-room TV doesn't inherit what was unlocked on the phone, and
+ * uninstalling the app turns it off.
  *
- * Lo que hace al destrabarse es que la app pida las categorías con `incluirAdultos = true`; el
- * propio cliente (`MagisLiveCatalog`) las filtra por defecto cuando no. O sea que `18+` aparece
- * como una categoría más en la guía de En vivo y en el cajón de canales, que es exactamente donde
- * el portal la pone.
+ * What unlocking does is make the app request categories with `incluirAdultos = true`; the
+ * client itself (`MagisLiveCatalog`) filters them out by default otherwise. So `18+` shows up as
+ * just another category in the Live guide and the channel drawer, exactly where the portal puts
+ * it.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun TvSeccionAdultos(store: SettingsStore) {
-    var desbloqueado by remember { mutableStateOf(store.adultosDesbloqueado.value) }
-    var guardado by remember { mutableStateOf(store.codigoAdultos.value) }
-    var codigo by remember { mutableStateOf("") }
+private fun TvAdultsSection(store: SettingsStore) {
+    var unlocked by remember { mutableStateOf(store.adultosDesbloqueado.value) }
+    var saved by remember { mutableStateOf(store.codigoAdultos.value) }
+    var code by remember { mutableStateOf("") }
     var error by remember { mutableStateOf(false) }
 
-    if (AdultsLock.shouldShowSection(desbloqueado)) {
+    if (AdultsLock.shouldShowSection(unlocked)) {
         Text("Adultos", style = MaterialTheme.typography.titleMedium, color = Color.White)
         Text(
             "La categoría 18+ está visible en En vivo y en el cajón de canales de este aparato.",
@@ -107,41 +107,42 @@ private fun TvSeccionAdultos(store: SettingsStore) {
         )
         TvActionOption(label = "Ocultar 18+ en este aparato") {
             store.setAdultosDesbloqueado(false)
-            desbloqueado = false
-            codigo = ""
+            unlocked = false
+            code = ""
         }
-        TvCambiarCodigoDeAdultos(store) { guardado = it }
+        TvChangeAdultsCode(store) { saved = it }
         return
     }
-    if (!AdultsLock.shouldShowField(desbloqueado)) return
+    if (!AdultsLock.shouldShowField(unlocked)) return
 
     val focusManager = LocalFocusManager.current
 
-    fun intentar() {
-        // El reseteo se mira ANTES de abrir: es la salida para quien olvidó el código que puso, y
-        // por eso no hay ninguna otra pista de que exista. La señal de que funcionó es que el
-        // aviso del código por defecto vuelve a aparecer solo.
-        if (AdultsLock.requestsReset(codigo)) {
+    fun attempt() {
+        // The reset is checked BEFORE unlocking: it's the way out for whoever forgot the code
+        // they set, and that's why there's no other hint that it exists. The signal that it
+        // worked is that the default-code notice reappears on its own.
+        if (AdultsLock.requestsReset(code)) {
             store.setCodigoAdultos(null)
-            guardado = null
-            codigo = ""
+            saved = null
+            code = ""
             error = false
             return
         }
-        if (AdultsLock.unlocks(codigo, AdultsLock.effectiveCode(guardado))) {
+        if (AdultsLock.unlocks(code, AdultsLock.effectiveCode(saved))) {
             store.setAdultosDesbloqueado(true)
-            desbloqueado = true
+            unlocked = true
             error = false
         } else {
             error = true
         }
     }
 
-    // Sin etiquetar como "adultos": el renglón dice "Código" y nada más.
+    // Not labeled as "adults": the row just says "Código" and nothing else.
     Text("Código", style = MaterialTheme.typography.titleMedium, color = Color.White)
-    // Mientras el código sea el que sabe cualquiera, se dice. Es lo que hace que la sección sea
-    // usable por quien instala el APK sin haberlo compilado; desaparece con un código propio.
-    if (AdultsLock.isDefault(guardado)) {
+    // As long as the code is the one anyone knows, it's shown. That's what makes the section
+    // usable by whoever installs the APK without having built it themselves; it disappears once
+    // a real code is set.
+    if (AdultsLock.isDefault(saved)) {
         Text(
             "Por defecto: ${AdultsLock.DEFAULT_CODE}",
             style = MaterialTheme.typography.bodySmall,
@@ -149,18 +150,18 @@ private fun TvSeccionAdultos(store: SettingsStore) {
         )
     }
     OutlinedTextField(
-        value = codigo,
-        onValueChange = { codigo = it; error = false },
+        value = code,
+        onValueChange = { code = it; error = false },
         singleLine = true,
-        // `Done` que APLICA, no que solo cierra el teclado. En un televisor, cerrar el IME deja el
-        // foco atrapado en el campo -- el D-pad no lo suelta y no se llega al botón de abajo. Con
-        // esto el código se aplica sin tener que salir del campo, que es el camino natural: se
-        // termina de escribir y se confirma en el mismo teclado.
+        // `Done` that APPLIES, not one that only closes the keyboard. On a TV, closing the IME
+        // leaves focus trapped in the field -- the D-pad won't release it and the button below is
+        // unreachable. This applies the code without having to leave the field, which is the
+        // natural path: finish typing and confirm on the same keyboard.
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done),
-        keyboardActions = KeyboardActions(onDone = { intentar(); focusManager.moveFocus(FocusDirection.Down) }),
-        // Y la salida de emergencia: abajo sale del campo aunque el IME no coopere. Sin esto, un
-        // teclado que se cierra sin disparar `onDone` deja el foco encerrado y no hay forma de
-        // llegar al botón con el control.
+        keyboardActions = KeyboardActions(onDone = { attempt(); focusManager.moveFocus(FocusDirection.Down) }),
+        // And the emergency exit: down leaves the field even if the IME doesn't cooperate.
+        // Without this, a keyboard that closes without firing `onDone` leaves focus locked in
+        // with no way to reach the button with the remote.
         modifier = Modifier
             .fillMaxWidth(0.4f)
             .onPreviewKeyEvent { e ->
@@ -175,56 +176,56 @@ private fun TvSeccionAdultos(store: SettingsStore) {
     if (error) {
         Text("Código incorrecto", style = MaterialTheme.typography.bodySmall, color = ArkivRed)
     }
-    TvActionOption(label = "Aplicar código") { intentar() }
+    TvActionOption(label = "Aplicar código") { attempt() }
 }
 
 /**
- * Cambiar el código, solo desde adentro de la sección ya desbloqueada. No pide el código actual:
- * para llegar hasta acá ya hubo que escribirlo.
+ * Change the code, only from inside the already-unlocked section. Doesn't ask for the current
+ * code: getting here already required typing it.
  *
- * [alGuardar] avisa a [TvSeccionAdultos] cuál quedó, para que su aviso de "por defecto" refleje
- * el cambio sin releer el store.
+ * [onSave] tells [TvAdultsSection] what it ended up being, so its "default" notice reflects the
+ * change without re-reading the store.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun TvCambiarCodigoDeAdultos(store: SettingsStore, alGuardar: (String) -> Unit) {
-    var nuevo by remember { mutableStateOf("") }
-    var mensaje by remember { mutableStateOf<String?>(null) }
-    var listo by remember { mutableStateOf(false) }
+private fun TvChangeAdultsCode(store: SettingsStore, onSave: (String) -> Unit) {
+    var newCode by remember { mutableStateOf("") }
+    var message by remember { mutableStateOf<String?>(null) }
+    var done by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
 
-    fun guardar() {
-        val limpio = nuevo.trim()
+    fun save() {
+        val trimmed = newCode.trim()
         when {
-            !AdultsLock.isValidFormat(limpio) -> {
-                mensaje = "Usa 4 dígitos"
-                listo = false
+            !AdultsLock.isValidFormat(trimmed) -> {
+                message = "Usa 4 dígitos"
+                done = false
             }
-            // Sin explicar por qué: decir "ese es el de reseteo" sería anunciar la salida que el
-            // reseteo existe para no anunciar.
-            AdultsLock.isReserved(limpio) -> {
-                mensaje = "Ese código no está disponible, elige otro"
-                listo = false
+            // Without explaining why: saying "that's the reset one" would announce the exit the
+            // reset exists to not announce.
+            AdultsLock.isReserved(trimmed) -> {
+                message = "Ese código no está disponible, elige otro"
+                done = false
             }
             else -> {
-                store.setCodigoAdultos(limpio)
-                alGuardar(limpio)
-                nuevo = ""
-                mensaje = null
-                listo = true
+                store.setCodigoAdultos(trimmed)
+                onSave(trimmed)
+                newCode = ""
+                message = null
+                done = true
             }
         }
     }
 
     Text("Cambiar código", style = MaterialTheme.typography.titleMedium, color = Color.White)
     OutlinedTextField(
-        value = nuevo,
-        onValueChange = { nuevo = it; mensaje = null; listo = false },
+        value = newCode,
+        onValueChange = { newCode = it; message = null; done = false },
         singleLine = true,
-        // Mismo trato de foco que el campo de arriba: `Done` aplica y baja, y el D-pad hacia abajo
-        // suelta el campo aunque el IME no dispare `onDone`.
+        // Same focus treatment as the field above: `Done` applies and moves down, and D-pad down
+        // releases the field even if the IME doesn't fire `onDone`.
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done),
-        keyboardActions = KeyboardActions(onDone = { guardar(); focusManager.moveFocus(FocusDirection.Down) }),
+        keyboardActions = KeyboardActions(onDone = { save(); focusManager.moveFocus(FocusDirection.Down) }),
         modifier = Modifier
             .fillMaxWidth(0.4f)
             .onPreviewKeyEvent { e ->
@@ -236,9 +237,9 @@ private fun TvCambiarCodigoDeAdultos(store: SettingsStore, alGuardar: (String) -
                 }
             },
     )
-    mensaje?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = ArkivRed) }
-    if (listo) {
+    message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = ArkivRed) }
+    if (done) {
         Text("Código actualizado", style = MaterialTheme.typography.bodySmall, color = ArkivTextSecondary)
     }
-    TvActionOption(label = "Guardar código") { guardar() }
+    TvActionOption(label = "Guardar código") { save() }
 }

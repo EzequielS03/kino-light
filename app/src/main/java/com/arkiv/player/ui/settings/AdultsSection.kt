@@ -23,7 +23,7 @@ import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 
 /**
- * The 18+ lock on the phone. Same section as the TV's (`TvSeccionAdultos`), with the same logic
+ * The 18+ lock on the phone. Same section as the TV's (`TvAdultsSection`), with the same logic
  * --[AdultsLock] and [SettingsStore] are the same-- and a different visual layer: there it's
  * tv-material3 with D-pad focus, here it's Material3 with an on-screen keyboard.
  *
