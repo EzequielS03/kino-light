@@ -60,7 +60,7 @@ private const val TAG = "MagisExo"
  *
  * The portal's external subtitles are passed as [subtitleConfigs] and ExoPlayer loads them
  * automatically; the overlaid [SubtitleView] renders them on screen. Detected audio and subtitle
- * tracks are reported via [onTracksChanged] so [EstadoDePistas] can expose them in the menu.
+ * tracks are reported via [onTracksChanged] so [TracksState] can expose them in the menu.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable

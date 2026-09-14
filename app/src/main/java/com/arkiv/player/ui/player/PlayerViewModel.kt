@@ -822,7 +822,7 @@ class PlayerViewModel internal constructor(
         // Los idiomas que declara el portal son lo ÚNICO que permite elegir subtítulo por idioma en
         // magis: sus pistas embebidas llegan sin idioma en ningún campo (medido en device,
         // `language=null` en `IMedia.Track` y nombre pelado "Track 1", mientras las de audio sí traen
-        // spa/eng/jpn). They travel through [webExtras]; PlayerPistas cross-references them with
+        // spa/eng/jpn). They travel through [webExtras]; PlayerTracks cross-references them with
         // the source via SubtitleDecision.decide.
         Log.w(PLAY, "loadMagis() portal subtitles=${play.subtitles.size} langs=${play.subtitles.map { it.lang }}")
 

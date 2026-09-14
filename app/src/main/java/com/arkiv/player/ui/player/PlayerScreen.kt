@@ -637,9 +637,9 @@ private fun PlayerContent(
     val marcadores = rememberMarkersState()
 
     // Audio/subtitle picker. Tracks come from the bound in-screen ExoPlayer or, by default, from the
-    // local (service) player through `controller`. Todo el bloque vive en `PlayerPistas.kt`; de acá
+    // local (service) player through `controller`. Todo el bloque vive en `PlayerTracks.kt`; de acá
     // solo se consulta `haySubtitulo`, para el ícono de CC.
-    val estadoPistas = rememberEstadoDePistas(controller, graph, episodeId)
+    val estadoPistas = rememberTracksState(controller, graph, episodeId)
 
 
     // Modo noche: nivel del velo negro sobre el video, 0..DIM_MAX_LEVEL. Persistido en
@@ -1854,7 +1854,7 @@ private fun PlayerContent(
                 // is what distinguishes "it recovered" from "it reopened and died again".
                 if (vivoDeMagis) vm.vivoAndando(espejo.positionMs)
             }
-            estadoPistas.sincronizarSubsOn()
+            estadoPistas.syncSubsOn()
             // "Arranca negro y con sonido": mientras el reproductor ya suelta el audio pero todavía no dio
             // la primera imagen, `playbackState` NO es BUFFERING y la pantalla se quedaba sin
             // spinner y sin imagen. Casteando no aplica: la imagen la pone la TV, no nosotros.
@@ -1996,9 +1996,9 @@ private fun PlayerContent(
     // Va en un efecto y no en el onDismiss: cubre cualquier forma en que se cierre el picker
     // (dismiss o el botón Cerrar), sin depender de por dónde salió.
     var subPickerWasOpen by remember { mutableStateOf(false) }
-    LaunchedEffect(estadoPistas.pickerAbierto, isTv) {
+    LaunchedEffect(estadoPistas.pickerOpen, isTv) {
         if (!isTv) return@LaunchedEffect
-        if (estadoPistas.pickerAbierto) {
+        if (estadoPistas.pickerOpen) {
             subPickerWasOpen = true
             return@LaunchedEffect
         }
@@ -2659,7 +2659,7 @@ private fun PlayerContent(
                 // quiet while an ExoPlayer is active, on the grounds that its STATE_ENDED belongs
                 // to a local player holding nothing. True, but it left the end unhandled entirely.
                 onFinDelCapitulo = { alTerminarElCapitulo() },
-                onTracksChanged = { tracks -> estadoPistas.actualizarPistasExo(tracks) },
+                onTracksChanged = { tracks -> estadoPistas.updateExoTracks(tracks) },
                 onPrimeraImagen = { hay -> exoYaPintoAlgo = hay },
                 zoom = gestos.zoomForExo,
             )
@@ -2693,7 +2693,7 @@ private fun PlayerContent(
                 },
                 pedirRepreparado = { vm.dituPuedeRepreparar() },
                 onPosicion = { pos, reproduciendo -> vm.dituAvanzo(pos, reproduciendo) },
-                onTracksChanged = { tracks -> estadoPistas.actualizarPistasExo(tracks) },
+                onTracksChanged = { tracks -> estadoPistas.updateExoTracks(tracks) },
                 onPrimeraImagen = { hay -> exoYaPintoAlgo = hay },
                 zoom = gestos.zoomForExo,
             )
@@ -3341,11 +3341,11 @@ private fun PlayerContent(
                                     onQuitar = { quitarLosMarcadoresDelCapitulo() },
                                 )
                             }
-                            IconButton(onClick = { estadoPistas.abrirPicker() }) {
+                            IconButton(onClick = { estadoPistas.openPicker() }) {
                                 Icon(
-                                    if (estadoPistas.haySubtitulo) Icons.Default.ClosedCaption else Icons.Default.ClosedCaptionOff,
+                                    if (estadoPistas.hasSubtitle) Icons.Default.ClosedCaption else Icons.Default.ClosedCaptionOff,
                                     contentDescription = "Subtítulos y audio",
-                                    tint = if (estadoPistas.haySubtitulo) ArkivRed else Color.White,
+                                    tint = if (estadoPistas.hasSubtitle) ArkivRed else Color.White,
                                 )
                             }
                             // MODO NOCHE (los mismos dos botones que en TV; acá el gesto de
@@ -3506,11 +3506,11 @@ private fun PlayerContent(
                                 // los subtítulos estén activos se sigue distinguiendo por el ícono
                                 // (ClosedCaption vs ClosedCaptionOff), no solo por el tinte rojo.
                                 TvTransportButton(
-                                    icon = if (estadoPistas.haySubtitulo) Icons.Default.ClosedCaption else Icons.Default.ClosedCaptionOff,
+                                    icon = if (estadoPistas.hasSubtitle) Icons.Default.ClosedCaption else Icons.Default.ClosedCaptionOff,
                                     contentDescription = "Subtítulos y audio",
-                                    onClick = { estadoPistas.abrirPicker() },
+                                    onClick = { estadoPistas.openPicker() },
                                     iconSize = 24.dp,
-                                    tint = if (estadoPistas.haySubtitulo) ArkivRed else Color.White,
+                                    tint = if (estadoPistas.hasSubtitle) ArkivRed else Color.White,
                                     modifier = Modifier
                                         .focusRequester(focos.subtitles)
                                         .focusProperties {
@@ -3844,11 +3844,11 @@ private fun PlayerContent(
 
     // Diálogo de audio y subtítulos (las pistas que trae el archivo/stream, vía ExoPlayer).
     // Los dos datos que recibe son solo para etiquetar las pistas que magis entrega sin idioma; ver
-    // `etiquetaDeSpu`.
-    DialogoDeAudioYSubtitulos(
-        estado = estadoPistas,
-        esMagis = PlayerSource.kindFor(episodeId) == SourceKind.MAGIS,
-        idiomasDeclarados = webExtras?.subtitles?.map { it.lang }.orEmpty(),
+    // `spuLabel`.
+    AudioAndSubtitlesDialog(
+        state = estadoPistas,
+        isMagis = PlayerSource.kindFor(episodeId) == SourceKind.MAGIS,
+        declaredLanguages = webExtras?.subtitles?.map { it.lang }.orEmpty(),
     )
 }
 

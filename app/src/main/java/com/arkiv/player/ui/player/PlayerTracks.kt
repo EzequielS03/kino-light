@@ -38,18 +38,18 @@ import com.arkiv.player.ui.theme.ArkivTextSecondary
 import kotlinx.coroutines.delay
 
 /**
- * Audio y subtítulos del reproductor. The tracks come from ExoPlayer: the in-screen player that is
+ * Player audio and subtitles. The tracks come from ExoPlayer: the in-screen player that is
  * bound ([setExoPlayer]) or, by default, the local player `PlaybackService` hosts for downloaded
  * files, reached through the screen's `MediaController` ([local]).
  *
- * Sale de [PlayerContent] porque son varias variables que no lee nadie más de esa pantalla: el
- * único cruce con el resto es el ícono de CC de los controles, que pregunta si hay algún subtítulo
- * puesto. De paso, las dos reglas que sí tenían lógica —cómo se etiqueta una pista sin idioma y
- * cuándo elegir a mano cambia tu preferencia— quedan como funciones puras acá abajo, fuera del
- * composable y por fin alcanzables desde un test.
+ * Split out of [PlayerContent] because it's several variables that nobody else on that screen
+ * reads: the only crossover with the rest is the controls' CC icon, which asks whether any
+ * subtitle is on. While at it, the two rules that did carry logic —how a track with no language
+ * gets labeled and when picking by hand changes your preference— end up as pure functions down
+ * below, outside the composable and finally reachable from a test.
  */
 @Stable
-internal class EstadoDePistas(
+internal class TracksState(
     private val graph: AppGraph,
     /**
      * The local (service-hosted) player, through the screen's `MediaController`: what tracks are
@@ -64,15 +64,15 @@ internal class EstadoDePistas(
      */
     private val episodeId: String,
 ) {
-    /** El menú de audio/subtítulos está abierto. */
-    var pickerAbierto by mutableStateOf(false)
+    /** The audio/subtitles menu is open. */
+    var pickerOpen by mutableStateOf(false)
         private set
 
-    /** Pistas de subtítulo embebidas en el archivo, como (id, nombre). */
+    /** Subtitle tracks embedded in the file, as (id, name). */
     var spuTracks by mutableStateOf<List<Pair<Int, String>>>(emptyList())
         private set
 
-    /** Pistas de audio embebidas (releases dual: latino / inglés). */
+    /** Embedded audio tracks (dual releases: Latin American / English). */
     var audioTracks by mutableStateOf<List<Pair<Int, String>>>(emptyList())
         private set
 
@@ -85,37 +85,37 @@ internal class EstadoDePistas(
     // The player tracks are read from and chosen on: an in-screen ExoPlayer while one is bound,
     // otherwise [local]. Updated from PlayerScreen.
     private var exoRef: Player? = local
-    // TrackGroups detectados por ExoPlayer para poder seleccionar con setOverrideForType.
+    // TrackGroups ExoPlayer detected, to select with setOverrideForType.
     private var exoAudioGroups: List<TrackGroup> = emptyList()
     private var exoSubGroups: List<TrackGroup> = emptyList()
 
-    /** Ya se aplicó el idioma preferido en esta reproducción. Ver [autoElegirIdiomaExo]. */
-    private var yaAutoElegiExo = false
+    /** The preferred language was already applied for this playback. See [autoPickLanguageExo]. */
+    private var alreadyAutoPickedExo = false
 
-    /** Hay un subtítulo embebido puesto. Lo consulta el ícono de CC de los controles. */
+    /** An embedded subtitle is on. Read by the controls' CC icon. */
     var subsOn by mutableStateOf(false)
         private set
 
-    /** Hay algún subtítulo puesto. Es lo único que mira el ícono de CC de los controles. */
-    val haySubtitulo: Boolean get() = subsOn
+    /** Whether any subtitle is on. The only thing the controls' CC icon looks at. */
+    val hasSubtitle: Boolean get() = subsOn
 
-    fun abrirPicker() {
-        refrescar()
-        pickerAbierto = true
+    fun openPicker() {
+        refresh()
+        pickerOpen = true
     }
 
-    fun cerrarPicker() {
-        pickerAbierto = false
+    fun closePicker() {
+        pickerOpen = false
     }
 
     /** Binds the in-screen ExoPlayer that is playing. Null = back to the local (service) player. */
     fun setExoPlayer(player: Player?) {
         exoRef = player ?: local
-        // Cada reproducción vuelve a decidir el idioma: lo que se eligió a mano en la anterior no
-        // se arrastra a la siguiente (ver [autoElegirIdiomaExo]).
-        yaAutoElegiExo = false
+        // Every playback decides the language again: what was hand-picked in the previous one
+        // doesn't carry over to the next (see [autoPickLanguageExo]).
+        alreadyAutoPickedExo = false
         if (player == null) {
-            olvidarPistas()
+            forgetTracks()
             // Back on the local player: its tracks replace the in-screen player's in the menu.
             local?.let { onLocalTracksChanged(it.currentTracks) }
         }
@@ -126,12 +126,12 @@ internal class EstadoDePistas(
      * again. Without this the one-shot auto-pick is spent on whatever the service player was holding.
      */
     fun onLocalItemLoad() {
-        yaAutoElegiExo = false
-        olvidarPistas()
+        alreadyAutoPickedExo = false
+        forgetTracks()
     }
 
     /** Empties the menu. The tracks on screen must never describe an item that isn't playing. */
-    private fun olvidarPistas() {
+    private fun forgetTracks() {
         exoAudioGroups = emptyList()
         exoSubGroups = emptyList()
         audioTracks = emptyList()
@@ -150,37 +150,37 @@ internal class EstadoDePistas(
         // While this screen resolves its own item, the service player is still playing the previous
         // download and reporting ITS tracks: they must neither fill this menu nor spend the auto-pick.
         if (tracksBelongToEpisode(local.currentMediaItem?.mediaId, episodeId)) {
-            actualizarPistasExo(tracks)
+            updateExoTracks(tracks)
         } else {
-            olvidarPistas()
+            forgetTracks()
         }
     }
 
     /**
-     * Popula audio y subtítulo desde las pistas que reporta ExoPlayer vía onTracksChanged.
-     * Llama a esto desde el callback onTracksChanged de MagisExoPlayer.
+     * Populates audio and subtitle from the tracks ExoPlayer reports via onTracksChanged.
+     * Called from MagisExoPlayer's onTracksChanged callback.
      */
-    fun actualizarPistasExo(tracks: Tracks) {
-        val audioGrupos = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
-        val subGrupos   = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
-        exoAudioGroups = audioGrupos.map { it.mediaTrackGroup }
-        exoSubGroups   = subGrupos.map { it.mediaTrackGroup }
+    fun updateExoTracks(tracks: Tracks) {
+        val audioGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+        val subGroups   = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+        exoAudioGroups = audioGroups.map { it.mediaTrackGroup }
+        exoSubGroups   = subGroups.map { it.mediaTrackGroup }
 
-        // Usar el índice como id (para setOverrideForType).
-        audioTracks = audioGrupos.mapIndexed { i, group ->
-            i to etiquetaDePistaExo(group.getTrackFormat(0), "A${i + 1}")
+        // Use the index as the id (for setOverrideForType).
+        audioTracks = audioGroups.mapIndexed { i, group ->
+            i to exoTrackLabel(group.getTrackFormat(0), "A${i + 1}")
         }
-        spuTracks = subGrupos.mapIndexed { i, group ->
-            i to etiquetaDePistaExo(group.getTrackFormat(0), "S${i + 1}")
+        spuTracks = subGroups.mapIndexed { i, group ->
+            i to exoTrackLabel(group.getTrackFormat(0), "S${i + 1}")
         }
-        curAudio = audioGrupos.indexOfFirst { it.isSelected }.coerceAtLeast(-1)
-        curSpu   = subGrupos.indexOfFirst   { it.isSelected }.coerceAtLeast(-1)
+        curAudio = audioGroups.indexOfFirst { it.isSelected }.coerceAtLeast(-1)
+        curSpu   = subGroups.indexOfFirst   { it.isSelected }.coerceAtLeast(-1)
         android.util.Log.i("PistasExo", "tracks updated: audio=${audioTracks.size} subs=${spuTracks.size} curAudio=$curAudio curSpu=$curSpu")
-        autoElegirIdiomaExo()
+        autoPickLanguageExo()
     }
 
     /**
-     * Aplica tu idioma preferido de audio y subtítulo, una sola vez por reproducción.
+     * Applies your preferred audio and subtitle language, once per playback.
      *
      * [TrackSelector] decides the audio and [SubtitleDecision] the subtitle (it turns them off when
      * the audio is already understood); without this ExoPlayer chose on its own and the preference
@@ -190,39 +190,39 @@ internal class EstadoDePistas(
      * there would overwrite what you just picked by hand. The flag is cleared for each new playback:
      * [setExoPlayer] when an in-screen player takes over, [onLocalItemLoad] for each local item.
      */
-    private fun autoElegirIdiomaExo() {
-        if (yaAutoElegiExo) return
+    private fun autoPickLanguageExo() {
+        if (alreadyAutoPickedExo) return
         if (audioTracks.isEmpty() && spuTracks.isEmpty()) return
-        yaAutoElegiExo = true
+        alreadyAutoPickedExo = true
 
         val prefs = graph.subtitlePrefs.prefs.value
-        // NO se usan elegirAudio/elegirSpu: esos promueven el idioma elegido en tus preferencias, y
-        // eso solo lo puede hacer una elección TUYA. Que el automático se auto-confirmara dejaría
-        // la preferencia clavada en lo que hubiera elegido la primera vez.
+        // elegirAudio/elegirSpu are NOT used: those promote the language picked into your
+        // preferences, and only a pick FROM YOU can do that. Letting the automatic one
+        // self-confirm would leave the preference pinned to whatever it chose the first time.
         //
-        // Los nombres ya vienen traducidos ("Español (genérico)", "Japonés"), así que se clasifican
-        // como texto libre y no como código ISO.
+        // The names already arrive translated ("Español (genérico)", "Japonés"), so they're
+        // classified as free text and not as an ISO code.
         TrackSelector.select(audioTracks, prefs.audioLangs, requireChoice = true)
             ?.takeIf { it != curAudio }
-            ?.let { elegido ->
-                android.util.Log.i("PistasExo", "auto-audio: ${nombreDe(audioTracks, elegido)} (was ${nombreDe(audioTracks, curAudio)})")
-                aplicarAudioExo(elegido)
+            ?.let { picked ->
+                android.util.Log.i("PistasExo", "auto-audio: ${nameOf(audioTracks, picked)} (was ${nameOf(audioTracks, curAudio)})")
+                applyAudioExo(picked)
             }
 
         val spu = SubtitleDecision.decide(
-            audioTrackName = nombreDe(audioTracks, curAudio),
+            audioTrackName = nameOf(audioTracks, curAudio),
             spuTracks = spuTracks,
             prefs = prefs,
             spuClassifier = LangTokens::classify,
         )
         if (spu != curSpu) {
-            android.util.Log.i("PistasExo", "auto-subtitle: ${if (spu < 0) "off" else nombreDe(spuTracks, spu)}")
-            aplicarSpuExo(spu)
+            android.util.Log.i("PistasExo", "auto-subtitle: ${if (spu < 0) "off" else nameOf(spuTracks, spu)}")
+            applySpuExo(spu)
         }
     }
 
-    /** Pone la pista en ExoPlayer y actualiza el estado, sin tocar tus preferencias de idioma. */
-    private fun aplicarAudioExo(id: Int) {
+    /** Sets the track on ExoPlayer and updates the state, without touching your language preferences. */
+    private fun applyAudioExo(id: Int) {
         val exo = exoRef ?: return
         exoAudioGroups.getOrNull(id)?.let { group ->
             exo.trackSelectionParameters = exo.trackSelectionParameters
@@ -233,7 +233,7 @@ internal class EstadoDePistas(
         }
     }
 
-    private fun aplicarSpuExo(id: Int) {
+    private fun applySpuExo(id: Int) {
         val exo = exoRef ?: return
         if (id < 0) {
             exo.trackSelectionParameters = exo.trackSelectionParameters
@@ -254,56 +254,56 @@ internal class EstadoDePistas(
     }
 
     /**
-     * Cómo se llama una pista de ExoPlayer en el menú.
+     * What an ExoPlayer track is called in the menu.
      *
-     * Se prueba en tres pasos porque ninguno solo alcanza:
-     *  1. La etiqueta que trae el propio archivo, si la trae — nadie describe la pista mejor.
-     *  2. [LangTokens], que es el que sabe distinguir latino de castellano. Esa distinción importa
-     *     y `Locale` no la hace: para él todo es "español".
-     *  3. [java.util.Locale], para lo que a [TrackLang] se le sale del mapa. Ese enum se escribió
-     *     para torrents en español —solo contempla latino, castellano, inglés y japonés— y magis
-     *     sirve ocho idiomas: sin este paso, portugués, alemán, francés e italiano salían todos
-     *     como "Desconocido" en la misma lista.
+     * Tried in three steps because none alone is enough:
+     *  1. The label the file itself carries, if it has one — nobody describes the track better.
+     *  2. [LangTokens], the one that knows how to tell Latin American Spanish from Castilian.
+     *     That distinction matters and `Locale` doesn't make it: to it, everything is "español".
+     *  3. [java.util.Locale], for whatever falls off [TrackLang]'s map. That enum was written for
+     *     Spanish-language torrents —it only covers Latin American, Castilian, English, and
+     *     Japanese— and magis serves eight languages: without this step, Portuguese, German,
+     *     French, and Italian all came out as "Desconocido" in the same list.
      *
-     * Ojo con el código que manda ExoPlayer: es ISO 639-1, así que el japonés viene como `ja` y la
-     * tabla de [LangTokens] solo tiene `jp` y `jpn`. Lo cubre el paso 3.
+     * Watch the code ExoPlayer sends: it's ISO 639-1, so Japanese comes as `ja` and [LangTokens]'s
+     * table only has `jp` and `jpn`. Step 3 covers it.
      */
-    private fun etiquetaDePistaExo(fmt: Format, respaldo: String): String {
+    private fun exoTrackLabel(fmt: Format, fallback: String): String {
         fmt.label?.takeIf { it.isNotBlank() }?.let { return it }
-        val codigo = fmt.language?.trim()?.takeIf { it.isNotEmpty() } ?: return respaldo
-        LangTokens.classifyCode(codigo)
+        val code = fmt.language?.trim()?.takeIf { it.isNotEmpty() } ?: return fallback
+        LangTokens.classifyCode(code)
             .takeIf { it != TrackLang.UNKNOWN }
             ?.label()
             ?.takeIf { it.isNotBlank() }
             ?.let { return it }
-        // `forLanguageTag` se traga cualquier cosa y devuelve vacío si no la entiende, así que el
-        // respaldo sigue haciendo falta.
-        val nombre = java.util.Locale.forLanguageTag(codigo)
+        // `forLanguageTag` swallows anything and returns empty if it doesn't understand it, so the
+        // fallback is still needed.
+        val name = java.util.Locale.forLanguageTag(code)
             .getDisplayLanguage(java.util.Locale("es"))
-        return nombre.takeIf { it.isNotBlank() && !it.equals(codigo, ignoreCase = true) }
+        return name.takeIf { it.isNotBlank() && !it.equals(code, ignoreCase = true) }
             ?.replaceFirstChar { it.uppercase() }
-            ?: codigo.uppercase()
+            ?: code.uppercase()
     }
 
     /**
      * Re-reads the local player's tracks before opening the menu, in case an `onTracksChanged` was
      * missed (re-entering an item that was already playing). In-screen players push theirs through
-     * [actualizarPistasExo] and are not polled.
+     * [updateExoTracks] and are not polled.
      */
-    fun refrescar() {
+    fun refresh() {
         val exo = exoRef ?: return
         if (exo === local) onLocalTracksChanged(exo.currentTracks)
     }
 
     /**
-     * Sincroniza [subsOn] con lo que tiene puesto. Lo llama el sondeo de reproducción de la
-     * pantalla, que es quien sabe cada cuánto conviene mirar.
+     * Syncs [subsOn] with what's on. Called by the screen's playback polling loop, which is the
+     * one that knows how often it's worth checking.
      */
-    fun sincronizarSubsOn() {
+    fun syncSubsOn() {
         subsOn = curSpu >= 0
     }
 
-    fun elegirAudio(id: Int) {
+    fun chooseAudio(id: Int) {
         val exo = exoRef ?: return
         val group = exoAudioGroups.getOrNull(id)
         if (group != null) {
@@ -313,10 +313,10 @@ internal class EstadoDePistas(
                 .build()
         }
         curAudio = id
-        promoverIdioma(nombreDe(audioTracks, id) ?: return, audioTracks.nombresReales(), esAudio = true)
+        promoteLanguage(nameOf(audioTracks, id) ?: return, audioTracks.realNames(), isAudio = true)
     }
 
-    fun elegirSpu(id: Int) {
+    fun chooseSpu(id: Int) {
         val exo = exoRef ?: return
         if (id < 0) {
             exo.trackSelectionParameters = exo.trackSelectionParameters
@@ -335,32 +335,33 @@ internal class EstadoDePistas(
                 .build()
         }
         curSpu = id
-        promoverIdioma(nombreDe(spuTracks, id) ?: return, spuTracks.nombresReales(), esAudio = false)
+        promoteLanguage(nameOf(spuTracks, id) ?: return, spuTracks.realNames(), isAudio = false)
     }
 
     /**
-     * Elegir una pista a mano sube ese idioma al tope de la preferencia — pero solo si el archivo
-     * tenía más de un idioma (ver LangPromotion: sin alternativa, elegir no expresa preferencia).
+     * Picking a track by hand promotes that language to the top of the preference — but only if
+     * the file had more than one language (see LangPromotion: with no alternative, picking
+     * expresses no preference).
      */
-    private fun promoverIdioma(pickedName: String, allNames: List<String>, esAudio: Boolean) {
+    private fun promoteLanguage(pickedName: String, allNames: List<String>, isAudio: Boolean) {
         val prefs = graph.subtitlePrefs.prefs.value
-        val nuevo = LangPromotion.promote(
-            order = if (esAudio) prefs.audioLangs else prefs.subtitleLangs,
+        val updatedOrder = LangPromotion.promote(
+            order = if (isAudio) prefs.audioLangs else prefs.subtitleLangs,
             pickedName = pickedName,
             allNames = allNames,
-            classifier = if (esAudio) LangTokens::classify else LangTokens::classifyFileName,
+            classifier = if (isAudio) LangTokens::classify else LangTokens::classifyFileName,
         ) ?: return
-        val actualizado = if (esAudio) prefs.copy(audioLangs = nuevo) else prefs.copy(subtitleLangs = nuevo)
-        graph.subtitlePrefs.update(actualizado)
+        val updated = if (isAudio) prefs.copy(audioLangs = updatedOrder) else prefs.copy(subtitleLangs = updatedOrder)
+        graph.subtitlePrefs.update(updated)
     }
 
-    private fun nombreDe(tracks: List<Pair<Int, String>>, id: Int): String? =
+    private fun nameOf(tracks: List<Pair<Int, String>>, id: Int): String? =
         tracks.firstOrNull { it.first == id }?.second
 }
 
 @Composable
-internal fun rememberEstadoDePistas(local: Player?, graph: AppGraph, episodeId: String): EstadoDePistas {
-    return remember(local, graph, episodeId) { EstadoDePistas(graph, local, episodeId) }
+internal fun rememberTracksState(local: Player?, graph: AppGraph, episodeId: String): TracksState {
+    return remember(local, graph, episodeId) { TracksState(graph, local, episodeId) }
 }
 
 /**
@@ -371,13 +372,13 @@ internal fun rememberEstadoDePistas(local: Player?, graph: AppGraph, episodeId: 
  * Taking them would fill the menu with the previous episode's tracks and, worse, spend the one-shot
  * language auto-pick on them, leaving the real item with whatever ExoPlayer chose by itself.
  */
-internal fun tracksBelongToEpisode(mediaIdEnElPlayer: String?, episodeId: String): Boolean =
-    mediaIdEnElPlayer != null && mediaIdEnElPlayer == episodeId
+internal fun tracksBelongToEpisode(mediaIdOnThePlayer: String?, episodeId: String): Boolean =
+    mediaIdOnThePlayer != null && mediaIdOnThePlayer == episodeId
 
-/** Las pistas reales del contenedor: los ids negativos son las entradas sintéticas del menú. */
-internal fun List<Pair<Int, String>>.pistasReales(): List<Pair<Int, String>> = filter { it.first >= 0 }
+/** The container's real tracks: negative ids are the menu's synthetic entries. */
+internal fun List<Pair<Int, String>>.realTracks(): List<Pair<Int, String>> = filter { it.first >= 0 }
 
-internal fun List<Pair<Int, String>>.nombresReales(): List<String> = pistasReales().map { it.second }
+internal fun List<Pair<Int, String>>.realNames(): List<String> = realTracks().map { it.second }
 
 /**
  * Display name of a subtitle track. The Magis MPEG-TS carries them without a language, so their
@@ -385,75 +386,75 @@ internal fun List<Pair<Int, String>>.nombresReales(): List<String> = pistasReale
  * is prefixed; otherwise the raw name stays.
  *
  * It covers the first N tracks by id, which are the container's; past that it doesn't guess.
- * Outside Magis ([esMagis] false) the language list doesn't describe these tracks, and labeling
+ * Outside Magis ([isMagis] false) the language list doesn't describe these tracks, and labeling
  * them with it would be lying in the menu.
  */
-internal fun etiquetaDeSpu(
+internal fun spuLabel(
     id: Int,
-    nombre: String,
-    esMagis: Boolean,
-    idiomasDeclarados: List<String>,
+    name: String,
+    isMagis: Boolean,
+    declaredLanguages: List<String>,
     spuTracks: List<Pair<Int, String>>,
 ): String {
-    if (id < 0 || !esMagis) return nombre
-    val reales = spuTracks.pistasReales().sortedBy { it.first }
-    val i = reales.indexOfFirst { it.first == id }
-    if (i < 0 || i >= idiomasDeclarados.size) return nombre
-    val lang = LangTokens.classifyCode(idiomasDeclarados[i])
-    if (lang == TrackLang.UNKNOWN) return nombre
-    return "${lang.label()} · $nombre"
+    if (id < 0 || !isMagis) return name
+    val real = spuTracks.realTracks().sortedBy { it.first }
+    val i = real.indexOfFirst { it.first == id }
+    if (i < 0 || i >= declaredLanguages.size) return name
+    val lang = LangTokens.classifyCode(declaredLanguages[i])
+    if (lang == TrackLang.UNKNOWN) return name
+    return "${lang.label()} · $name"
 }
 
 /**
- * Menú de audio y subtítulos: las pistas que trae el contenedor (archivo o stream).
+ * Audio and subtitles menu: the tracks the container (file or stream) carries.
  *
- * [esMagis] e [idiomasDeclarados] son lo único que el diálogo necesita saber de la fuente, y solo
- * para etiquetar pistas sin idioma (ver [etiquetaDeSpu]).
+ * [isMagis] and [declaredLanguages] are the only things the dialog needs to know about the
+ * source, and only to label tracks with no language (see [spuLabel]).
  */
 @Composable
-internal fun DialogoDeAudioYSubtitulos(
-    estado: EstadoDePistas,
-    esMagis: Boolean,
-    idiomasDeclarados: List<String>,
+internal fun AudioAndSubtitlesDialog(
+    state: TracksState,
+    isMagis: Boolean,
+    declaredLanguages: List<String>,
 ) {
-    if (!estado.pickerAbierto) return
-    // Solo apaga la bandera: del foco se encarga el LaunchedEffect(pickerAbierto) de la pantalla,
-    // que es el mismo camino que sigue elegir una pista.
-    val cerrar = { estado.cerrarPicker() }
+    if (!state.pickerOpen) return
+    // Only turns off the flag: focus is handled by the screen's LaunchedEffect(pickerOpen), the
+    // same path picking a track follows.
+    val close = { state.closePicker() }
     AlertDialog(
-        onDismissRequest = { cerrar() },
+        onDismissRequest = { close() },
         title = { Text("Audio y subtítulos") },
         text = {
             Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
-                // AUDIO (releases dual: latino / inglés).
-                if (estado.audioTracks.pistasReales().size > 1) {
-                    TituloDeSeccion("Audio", primera = true)
-                    estado.audioTracks.pistasReales().forEach { (id, name) ->
-                        TextButton(onClick = { estado.elegirAudio(id) }) {
+                // AUDIO (dual releases: Latin American / English).
+                if (state.audioTracks.realTracks().size > 1) {
+                    SectionTitle("Audio", first = true)
+                    state.audioTracks.realTracks().forEach { (id, name) ->
+                        TextButton(onClick = { state.chooseAudio(id) }) {
                             Text(
-                                (if (id == estado.curAudio) "✓ " else "") + name,
+                                (if (id == state.curAudio) "✓ " else "") + name,
                                 color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis,
                             )
                         }
                     }
                 }
 
-                // SUBTÍTULOS DEL ARCHIVO (embebidos).
-                TituloDeSeccion("Subtítulos del archivo")
-                if (estado.spuTracks.pistasReales().isEmpty()) {
+                // FILE SUBTITLES (embedded).
+                SectionTitle("Subtítulos del archivo")
+                if (state.spuTracks.realTracks().isEmpty()) {
                     Text(
                         "Este archivo no trae subtítulos embebidos.",
                         color = ArkivTextSecondary, modifier = Modifier.padding(8.dp),
                     )
-                    TextButton(onClick = { estado.elegirSpu(-1) }) {
-                        Text((if (estado.curSpu < 0) "✓ " else "") + "Desactivar", color = Color.White)
+                    TextButton(onClick = { state.chooseSpu(-1) }) {
+                        Text((if (state.curSpu < 0) "✓ " else "") + "Desactivar", color = Color.White)
                     }
                 } else {
-                    (listOf(-1 to "Desactivar") + estado.spuTracks.pistasReales()).forEach { (id, name) ->
-                        TextButton(onClick = { estado.elegirSpu(id) }) {
+                    (listOf(-1 to "Desactivar") + state.spuTracks.realTracks()).forEach { (id, name) ->
+                        TextButton(onClick = { state.chooseSpu(id) }) {
                             Text(
-                                (if (id == estado.curSpu) "✓ " else "") +
-                                    etiquetaDeSpu(id, name, esMagis, idiomasDeclarados, estado.spuTracks),
+                                (if (id == state.curSpu) "✓ " else "") +
+                                    spuLabel(id, name, isMagis, declaredLanguages, state.spuTracks),
                                 color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis,
                             )
                         }
@@ -461,16 +462,16 @@ internal fun DialogoDeAudioYSubtitulos(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { cerrar() }) { Text("Cerrar") } },
+        confirmButton = { TextButton(onClick = { close() }) { Text("Cerrar") } },
     )
 }
 
 @Composable
-private fun TituloDeSeccion(texto: String, primera: Boolean = false) {
+private fun SectionTitle(text: String, first: Boolean = false) {
     Text(
-        texto,
+        text,
         style = MaterialTheme.typography.titleSmall,
         color = ArkivRed,
-        modifier = Modifier.padding(top = if (primera) 8.dp else 12.dp, bottom = 2.dp),
+        modifier = Modifier.padding(top = if (first) 8.dp else 12.dp, bottom = 2.dp),
     )
 }

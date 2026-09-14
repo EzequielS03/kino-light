@@ -59,7 +59,7 @@ internal class GesturesState(
 
     /**
      * The player in charge: an in-screen ExoPlayer while one is bound, otherwise [local]. Same
-     * treatment as in [EstadoDePistas]: the screen plugs it in when it creates the player, and speed
+     * treatment as in [TracksState]: the screen plugs it in when it creates the player, and speed
      * and volume go to whichever is playing.
      */
     private var exoRef: Player? = local
