@@ -9,7 +9,8 @@ English" line in `.claude/reglas.md`.
 Order chosen by the user: **módulo por módulo, de menor a mayor riesgo** (module by module,
 lowest to highest risk).
 
-## Overall completion: **`ui/` is 100% done.** `data/` is NOT yet fully done — see below.
+## Overall completion: **`ui/` is 100% done.** `data/` is substantially further along than before
+this session but genuinely NOT fully done — a full sweep turned up ~27 more files. See below.
 
 - `playback/`, `security/`, `dlna/`, `cast/`, `thumbnails/`: **100% done.**
 - `ui/` (159 main files across 14 subpackages, plus 6 top-level files, plus tests): **100% done.**
@@ -17,17 +18,28 @@ lowest to highest risk).
   was the last file in the entire `ui/` tree — done and committed at `4e5ce086`.
 - `data/`'s three known gaps — `MagisEntities.kt` (`791a5988`), `DituEntities.kt` (`a2a1d073`),
   `LibraryGrouping.kt` (`5900c67d`) — are **all done.**
-- **`data/nuevos/` package and `data/gateway/ReparacionDeMagis.kt`** (discovered while closing
-  the three gaps above, same pattern) — **also done, commit `f127153b`.**
+- **`data/nuevos/` package and `data/gateway/ReparacionDeMagis.kt`** — **done, `f127153b`.**
   `BuscadorDeCapitulos.kt`→`NewChapterFinder.kt`, `SeriesPorRevisar.kt`→`SeriesToCheck.kt`,
   `ReparacionDeMagis.kt`→`MagisIdentityRepair.kt`. `SerieConProgresoRow` (in `Daos.kt`) and its
   fields (`episodios`/`ultimoVistoMs`) were deliberately left untouched — a Room DAO row bound to
   `SELECT ... AS alias`, same frozen-DTO rule as `ProgresoConSiguienteRow`/`FilaDeHistorial`.
-- **NOT yet done, discovered right after the above**: three more files in `data/gateway/` —
-  `FuenteCompuesta.kt`, `GatewayModels.kt`, `LiveModels.kt` — are still substantially Spanish. See
-  the "Correction" note in the `data/` section below and "Next steps".
-- After those: revisit whether `MagisFuente`/`DituFuente` class names are now cheap enough to
-  rename (exception f) — the last already-known deferred item.
+- **The rest of `data/gateway/`** — `GatewayModels.kt` (`2b413184`), `LiveModels.kt` comments
+  (`1da03944`), `FuenteCompuesta.kt`→`CompositeSource.kt` (`d3e872b0`) — **done**, modulo two
+  explicit, documented deferrals (see "Deliberately deferred" below): `MagisFuente`/`DituFuente`'s
+  class names (exception f) and `LiveModels.kt`'s data-class field names (`LiveChannel.nombre`
+  etc. — large ripple into already-"done" `ui/live/`/`ui/tv/`/`ui/player/`/`playback/`).
+- **`SeriesItemIds.kt`, `SettingsStore.kt`** — comments translated (`e1176a60`).
+  `SettingsStore.kt`'s public API (`adultosDesbloqueado`, `setDimLevel`, etc.) and every
+  SharedPreferences `KEY_*` constant are deliberately left untouched this pass — see "Deliberately
+  deferred".
+- **NOT yet started — found via a full accented-character sweep of every `.kt` file under
+  `app/src/main/java/.../data/`** (the same technique that found the gateway files, now applied to
+  the WHOLE package, which is what should have happened before ever declaring `data/` "done"):
+  ~27 files, hit counts from 1–11 each (much smaller per-file than the gateway files were), listed
+  in the `data/` section below. Most of these are probably comment-only (given the low counts) but
+  NONE have been read yet to confirm — do not assume from the count alone; `SeriesItemIds.kt`
+  looked large (26 hits) but turned out to be 100% comment-only with zero ripple, while a 1-hit
+  file could still be a real identifier needing a ripple check. Read each one before touching it.
 
 ## Hard-won lesson this session: bare-name imports break silently after a rename
 
@@ -96,15 +108,58 @@ Everything else in `data/` (all subpackages, `data/local/`, `data/magis/`, `data
 full commit trail (`data/db/` through `ArkivRepository.kt` finishing at `c805220c`, then the gap
 closures at `cad8b4af`, `6eb17c8f`, `791a5988`/`a2a1d073`/`5900c67d`, and `f127153b`).
 
-**Correction — do NOT declare `data/` 100% done yet.** A file-by-file accented-character check of
-every top-level file in `data/gateway/` (done right after closing `ReparacionDeMagis.kt`, since
-that file lived in this same subpackage) found THREE more untranslated files that were never part
-of any prior "done" declaration: `FuenteCompuesta.kt` (12 hits), `GatewayModels.kt` (28 hits), and
-`LiveModels.kt` (39 hits) — `LiveModels.kt` is the same file `PlayerScreen.kt`'s exception list
-already flagged for its `nombre` field, confirming it's genuinely untouched, not just one stray
-field. `ContentSource.kt`, `GatewayMapper.kt`, and the newly-renamed `MagisIdentityRepair.kt` are
-the only fully-English files in the subpackage (0 hits each). **This is the fourth time in this
-session alone that a "done" declaration turned out to be wrong** — see the recurring lesson below.
+**`data/gateway/` is now fully addressed** (commits `2b413184`, `1da03944`, `d3e872b0`): all six
+files (`ContentSource.kt`, `GatewayMapper.kt`, `GatewayModels.kt`, `LiveModels.kt`,
+`CompositeSource.kt` (was `FuenteCompuesta.kt`), `MagisIdentityRepair.kt`) are either fully
+English or have every translatable comment translated, modulo the two documented deferrals in
+"Deliberately deferred" below.
+
+**Correction — `data/` is STILL not 100% done.** Closing `data/gateway/` prompted a full
+accented-character sweep of literally every `.kt` file under `app/src/main/java/.../data/` (not
+just one subpackage) — the check that should have run before `data/` was EVER declared "done" in
+an earlier session. It found **~27 more files**, none touched yet except `SeriesItemIds.kt` and
+`SettingsStore.kt` (commit `e1176a60`, comments only — see "Deliberately deferred" for what was
+left alone in `SettingsStore.kt`). Remaining, by hit count (re-run the command in "Next steps" to
+refresh — files may have shifted since this was written):
+
+`ditu/CaracolFailure.kt` (11), `magis/MagisFuente.kt` (9, comments only — its identifiers were
+already fixed by the `GatewayModels.kt`/`titulo`→`title` ripple this session),
+`recomendaciones/ForYouVerification.kt` (8), `SearchHistoryRepo.kt` (8), `SearchHistoryPolicy.kt`
+(7), `trivia/TriviaFacts.kt` (6), `local/LocalDownloadWorker.kt` (6),
+`recomendaciones/ForYouGenerator.kt` (5), `local/DituDownloadStrategy.kt` (5),
+`ditu/DituResolve.kt` (5), `local/DownloadConfirmation.kt` (4), `trivia/WorkSheet.kt` (3),
+`recomendaciones/RecommendationAggregator.kt` (3, comments only — its code was already fixed this
+session), `local/MagisDownloadStrategy.kt` (3), `local/DownloadNotificationText.kt` (3),
+`ditu/DituClient.kt` (3, comments only — fixed this session's `CompositeSource` ripple, these are
+separate leftover hits), `magis/MagisSession.kt` (2), `magis/MagisResolve.kt` (2),
+`magis/MagisLive.kt` (2), `magis/MagisAccount.kt` (2), `local/DuplicateDownloadPolicy.kt` (2),
+`local/DownloadLabel.kt` (2), `ditu/DituFuente.kt` (2, comments only), `biblioteca/LibraryWatched.kt`
+(2), `ditu/DituEntitlement.kt` (1), `biblioteca/LibrarySection.kt` (1), `ArkivRepository.kt` (1,
+comments only — its code is fully translated).
+
+**This is now the FIFTH time in this session alone that a "done" declaration turned out to be
+wrong** — first the three `MagisEntities`/`DituEntities`/`LibraryGrouping` gaps, then
+`data/nuevos/`+`ReparacionDeMagis.kt`, then the three other `data/gateway/` files, and now this
+much longer tail. **The pattern holding across all five: checking only the subpackages/files that
+were the original focus, never a full sweep of literally everything nearby.** See the recurring
+lesson below and "Next steps" for how to actually close this out.
+
+## Deliberately deferred (not gaps — verified and consciously left in Spanish, with a reason)
+
+- **`MagisFuente`/`DituFuente` class names** (exception f) — internals/params/comments already
+  translated; renaming the class names ripples into 10+ files.
+- **`LiveModels.kt`'s data-class field names** (`LiveChannel.nombre`/`.numero`/`.adulto`,
+  `LiveProgram.titulo`/`.inicio`/`.fin`/`.sinopsis`, `ItemDeCatalogo`, `SeccionDeCatalogo`,
+  `CdnDeCanal`, `LiveCatalogGateway.categorias`/`.canales`) — traced to ~19 files across
+  `ui/live/`, `ui/tv/`, `ui/player/`, `playback/`, all already declared "done". Renaming is a
+  real, doable task, just far bigger than a single file's turn — treat as its own future pass,
+  not part of any "gap-closing" sweep.
+- **`SettingsStore.kt`'s public API and `KEY_*`/`ARCHIVO_*` constants** — the SharedPreferences
+  key STRING VALUES are permanently frozen (changing them resets users' saved settings and 18+
+  lock silently on next launch); the Kotlin property/method/constant NAMES (`adultosDesbloqueado`,
+  `magisOfertaDescartada`, `codigoAdultos`, `setDimLevel`, `KEY_ADULTOS_DESBLOQUEADO`, etc.) could
+  be renamed without touching the frozen values, but their external ripple wasn't traced this
+  session — do that check before renaming, same rigor as every other file this sweep.
 
 ### `ui/` — fully done packages
 
@@ -485,31 +540,26 @@ f. Two `ContentSource` implementations — **`MagisFuente`** and **`DituFuente`*
 
 ## Next steps
 
-**`ui/` is entirely done as of `4e5ce086`. `data/`'s three original gaps plus `data/nuevos/`/
-`ReparacionDeMagis.kt` are done as of `791a5988`/`a2a1d073`/`5900c67d`/`f127153b`. Everything
-below is what's left.**
+**`ui/` is entirely done as of `4e5ce086`. `data/gateway/` and `data/nuevos/` are entirely done
+(modulo the "Deliberately deferred" items above) as of `e1176a60`. Everything below is what's left.**
 
-1. **Translate the three files just found in `data/gateway/`**: `FuenteCompuesta.kt` (12 Spanish
-   hits — this is the `ContentSource` composite implementation; its own CLASS NAME is deliberately
-   kept per exception f, but its internals/comments are apparently not fully translated, needs a
-   read to see what's actually left), `GatewayModels.kt` (28 hits — likely the `Gateway*` model
-   classes referenced all over as `GatewayEpisode`/`GatewaySerie`/`GatewayResult`, high ripple risk
-   if any field names are still Spanish, read fully before touching), `LiveModels.kt` (39 hits —
-   confirmed to include at minimum `LiveChannel.nombre`, already known and deliberately left as-is
-   in several already-"done" files per their own notes; read fully to find what else is Spanish
-   there before assuming it's just that one field).
-2. **Before declaring `data/gateway/` (or any package) done, run the file-by-file
-   accented-character check show below across literally every top-level `.kt` file in it** — this
-   is now the FOURTH time in this session a "done" declaration turned out to have missed files
-   sitting in plain sight (`MagisEntities.kt`/`DituEntities.kt` → `LibraryGrouping.kt` →
-   `data/nuevos/`+`ReparacionDeMagis.kt` → now these three). One-liner used each time:
-   `ls <dir>/*.kt | xargs -I{} sh -c 'echo "{}: $(command grep -c "[áéíóúñÁÉÍÓÚÑ]" {})"'`
-   (note: quote/parens can trip some shells on `{}` with spaces in it — run per-file with `command
-   grep -c` directly if the one-liner errors).
-3. Then revisit whether `MagisFuente`/`DituFuente` class names are now cheap enough to rename too
-   (exception f above) — this is the last already-known deferred item, but do it AFTER step 1/2,
-   since `FuenteCompuesta.kt` and the `Gateway*`/`Live*` models are exactly the kind of file that
-   would need touching for that rename anyway.
+1. **Work through the ~27-file list in the `data/` section's "Correction" note above, one file at
+   a time, same rigor as every file this whole sweep**: read fully, grep every real usage
+   (including `app/src/debug/`), rename + ripple + compile + full test + verify exact test count +
+   commit. Do NOT batch multiple files into one commit — some of these may turn out to need real
+   ripple work (like `MagisEntities.kt`/`DituEntities.kt` did) even though their hit counts are
+   small; a low count only means few Spanish COMMENT/string hits, not necessarily low risk.
+   `ditu/CaracolFailure.kt` (11 hits) and `magis/MagisFuente.kt`'s remaining 9 (comments only,
+   confirmed) are natural next ones given they sit next to files already touched this session.
+2. **Before declaring ANY package "done" ever again, run this across literally every `.kt` file
+   in it, not just the subpackages that were the original focus**:
+   `find <dir> -name "*.kt" | while read -r f; do n=$(command grep -c "[áéíóúñÁÉÍÓÚÑ]" "$f"); [ "$n" != "0" ] && echo "$n $f"; done | sort -rn`
+   (the earlier `xargs -I{} sh -c` one-liner is unreliable with `{}` inside quotes — use the `find
+   | while read` form above instead, confirmed working). This is now the FIFTH time in this
+   session a "done" declaration turned out to have missed files.
+3. Once `data/` is genuinely, fully done (including this ~27-file tail), revisit the two
+   "Deliberately deferred" items — `MagisFuente`/`DituFuente` class names and `LiveModels.kt`'s
+   field names — as their own dedicated passes, each touching many already-"done" files elsewhere.
 4. **Whenever a bare top-level `fun`/`val` gets renamed** (not a class/object member), grep
    separately for `^import .*\.<oldName>$` — a call-site-anchored sed pattern will not catch a bare
    import line, and that's a real, previously-hit compile break (see the lesson noted near the top
