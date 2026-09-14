@@ -172,7 +172,7 @@ class SyncTriggersTest {
         // recursivo (el de antes de este fix) se hubiera quedado con esa definición para siempre.
         // Acá se simula ese aparato: se crea a mano el trigger VIEJO (el que sella con AHORA a
         // secas) y se verifica que aplicar `ddl()` de nuevo -- lo que pasa en cada apertura de la
-        // base, ver `ArkivDatabase.SELLAR_UPDATED_AT` -- lo deja con el nuevo.
+        // base, ver `ArkivDatabase.SEAL_UPDATED_AT` -- lo deja con el nuevo.
         ejecutar(
             "CREATE TRIGGER trg_items_upd AFTER UPDATE ON items WHEN NEW.updatedAt = OLD.updatedAt " +
                 "BEGIN UPDATE items SET updatedAt = CAST(strftime('%s','now') AS INTEGER)*1000 " +

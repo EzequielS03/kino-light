@@ -61,7 +61,7 @@ object SyncTriggers {
      * una versión nueva de la app. Es justo lo que le pasó a `trg_items_upd`: la versión vieja
      * sellaba con `AHORA` a secas (ver más abajo) y quedó recursando en cualquier aparato que ya
      * la tuviera creada, hasta que se agregó este DROP. Barato: dos triggers por tabla, cuatro
-     * tablas, y esto ya corre en cada apertura (ver `ArkivDatabase.SELLAR_UPDATED_AT`).
+     * tablas, y esto ya corre en cada apertura (ver `ArkivDatabase.SEAL_UPDATED_AT`).
      */
     fun ddl(): List<String> = TABLAS.flatMap { (tabla, pk) ->
         listOf(

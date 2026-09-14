@@ -46,7 +46,7 @@ abstract class ArkivDatabase : RoomDatabase() {
         @Volatile
         private var instance: ArkivDatabase? = null
 
-        /** v1 -> v2: agrega la tabla de marcadores de opening/ending (preserva datos). */
+        /** v1 -> v2: adds the opening/ending marker table (preserves data). */
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
@@ -57,21 +57,21 @@ abstract class ArkivDatabase : RoomDatabase() {
             }
         }
 
-        /** v2 -> v3: timestamp en marcadores (para sincronización last-write-wins). */
+        /** v2 -> v3: timestamp on markers (for last-write-wins sync). */
         private val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE skip_markers ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0")
             }
         }
 
-        /** v3 -> v4: override manual de categoría (película/serie) por ítem. */
+        /** v3 -> v4: manual category override (movie/series) per item. */
         private val MIGRATION_3_4 = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE items ADD COLUMN categoryOverride TEXT")
             }
         }
 
-        /** v4 -> v5: soporte de torrents (origen + datos del .torrent + índice de archivo). */
+        /** v4 -> v5: torrent support (origin + .torrent data + file index). */
         private val MIGRATION_4_5 = object : Migration(4, 5) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE items ADD COLUMN source TEXT NOT NULL DEFAULT 'archive'")
@@ -80,7 +80,7 @@ abstract class ArkivDatabase : RoomDatabase() {
             }
         }
 
-        /** v5 -> v6: torrent propio por episodio (series donde cada capítulo es su torrent, ej. anime). */
+        /** v5 -> v6: per-episode torrent (series where each chapter is its own torrent, e.g. anime). */
         private val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE episodes ADD COLUMN torrentData TEXT")
@@ -88,13 +88,13 @@ abstract class ArkivDatabase : RoomDatabase() {
         }
 
         /**
-         * v6 -> v7: metadatos de sync. Añade `updatedAt` (reloj LWW) + `deleted` (tombstone) a
-         * items/episodes/playback (skip_markers ya tenía updatedAt; solo +deleted).
+         * v6 -> v7: sync metadata. Adds `updatedAt` (LWW clock) + `deleted` (tombstone) to
+         * items/episodes/playback (skip_markers already had updatedAt; only +deleted).
          *
-         * Triggers: auto-setean `updatedAt` en toda escritura LOCAL (así ningún write "se olvida"
-         * de marcarse dirty), pero RESPETAN un valor explícito (el merge de la nube escribe el
-         * updatedAt remoto ≠ 0, y el trigger lo deja). Room no valida triggers, así que no
-         * interfieren con su esquema.
+         * Triggers: auto-set `updatedAt` on every LOCAL write (so no write "forgets" to mark
+         * itself dirty), but RESPECT an explicit value (the cloud merge writes the remote
+         * updatedAt ≠ 0, and the trigger leaves it). Room doesn't validate triggers, so they don't
+         * interfere with its schema.
          */
         private val MIGRATION_6_7 = object : Migration(6, 7) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -105,20 +105,20 @@ abstract class ArkivDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE skip_markers ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
 
                 val now = "CAST(strftime('%s','now') AS INTEGER)*1000"
-                // Sellar las filas EXISTENTES con la hora actual para que se suban en el primer sync
-                // (si quedaran en updatedAt=0, el push por `updatedAt > cursor` nunca las tomaría).
-                // Se hace ANTES de crear los triggers para no dispararlos en masa.
+                // Seal EXISTING rows with the current time so they get pushed on the first sync
+                // (if they were left at updatedAt=0, the push by `updatedAt > cursor` would never
+                // pick them up). Done BEFORE creating the triggers so as not to fire them en masse.
                 for (t in listOf("items", "episodes", "playback", "skip_markers")) {
                     db.execSQL("UPDATE $t SET updatedAt = $now")
                 }
-                // (tabla, columna PK)
+                // (table, PK column)
                 for ((t, pk) in listOf("items" to "identifier", "episodes" to "id", "playback" to "episodeId", "skip_markers" to "itemId")) {
-                    // INSERT local (updatedAt quedó en 0) -> sellar con la hora.
+                    // Local INSERT (updatedAt stayed at 0) -> seal with the current time.
                     db.execSQL(
                         "CREATE TRIGGER trg_${t}_ins AFTER INSERT ON $t WHEN NEW.updatedAt = 0 " +
                             "BEGIN UPDATE $t SET updatedAt = $now WHERE $pk = NEW.$pk; END",
                     )
-                    // UPDATE local (el writer no movió updatedAt) -> sellar. El merge de nube sí lo mueve => se salta.
+                    // Local UPDATE (the writer didn't move updatedAt) -> seal. The cloud merge does move it => skipped.
                     db.execSQL(
                         "CREATE TRIGGER trg_${t}_upd AFTER UPDATE ON $t WHEN NEW.updatedAt = OLD.updatedAt " +
                             "BEGIN UPDATE $t SET updatedAt = $now WHERE $pk = NEW.$pk; END",
@@ -128,10 +128,10 @@ abstract class ArkivDatabase : RoomDatabase() {
         }
 
         /**
-         * v7 -> v8: sella (updatedAt = ahora) las filas que quedaron en updatedAt=0. Necesario para
-         * dispositivos que migraron a v7 ANTES de que v6->v7 sellara: sin esto, sus filas existentes
-         * (updatedAt=0) nunca las tomaría el push (`updatedAt > cursor`) y la biblioteca no se subiría.
-         * Idempotente (solo toca updatedAt=0).
+         * v7 -> v8: seals (updatedAt = now) the rows left at updatedAt=0. Needed for devices that
+         * migrated to v7 BEFORE v6->v7's sealing ran: without this, their existing rows
+         * (updatedAt=0) would never get picked up by the push (`updatedAt > cursor`) and the
+         * library wouldn't upload. Idempotent (only touches updatedAt=0).
          */
         private val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -142,7 +142,7 @@ abstract class ArkivDatabase : RoomDatabase() {
             }
         }
 
-        /** v8 -> v9: tabla local de arte de TMDB (backdrops por ítem). No se sincroniza. */
+        /** v8 -> v9: local table of TMDB art (backdrops per item). Not synced. */
         private val MIGRATION_8_9 = object : Migration(8, 9) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
@@ -156,8 +156,8 @@ abstract class ArkivDatabase : RoomDatabase() {
         }
 
         /**
-         * v9 -> v10: historial de búsquedas del catálogo (anime/películas). PK compuesta
-         * (query, kind): el mismo texto en pestañas distintas no se pisa entre sí.
+         * v9 -> v10: catalog search history (anime/movies). Composite PK (query, kind): the same
+         * text on different tabs doesn't overwrite itself.
          */
         private val MIGRATION_9_10 = object : Migration(9, 10) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -171,7 +171,7 @@ abstract class ArkivDatabase : RoomDatabase() {
             }
         }
 
-        /** v10 -> v11: caché local de stills de TMDB por capítulo (no se sincroniza). */
+        /** v10 -> v11: local cache of TMDB stills per chapter (not synced). */
         private val MIGRATION_10_11 = object : Migration(10, 11) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
@@ -185,8 +185,8 @@ abstract class ArkivDatabase : RoomDatabase() {
         }
 
         /**
-         * v11 -> v12: caché local de la biblioteca de arkiv-offline (qué episodios ya están
-         * descargados en la NUC) + preferencia de reproducción por serie (NUC vs LIVE).
+         * v11 -> v12: local cache of arkiv-offline's library (which episodes are already
+         * downloaded on the NUC) + per-series playback preference (NUC vs LIVE).
          */
         private val MIGRATION_11_12 = object : Migration(11, 12) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -205,9 +205,9 @@ abstract class ArkivDatabase : RoomDatabase() {
         }
 
         /**
-         * v12 -> v13: registro local de qué `job_id` de arkiv-offline disparó este dispositivo
-         * (Task 9, pantalla de Descargas) -- tabla `local_active_jobs`, borrada en
-         * [MIGRATION_28_29] tras la poda de NUC (Task 8).
+         * v12 -> v13: local record of which arkiv-offline `job_id` this device triggered
+         * (Task 9, Descargas screen) -- `local_active_jobs` table, dropped in
+         * [MIGRATION_28_29] after the NUC pruning (Task 8).
          */
         private val MIGRATION_12_13 = object : Migration(12, 13) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -219,9 +219,10 @@ abstract class ArkivDatabase : RoomDatabase() {
         }
 
         /**
-         * v13 -> v14: `seriesId` en los jobs locales. Sin esta columna, cuando un job termina no
-         * hay forma de saber de qué serie era (arkiv-offline no lo devuelve en `GET /jobs/<id>`) y
-         * la sección "Terminados" solo se podía llenar visitando el detalle de la serie.
+         * v13 -> v14: `seriesId` on local jobs. Without this column, when a job finishes there's
+         * no way to know which series it was for (arkiv-offline doesn't return it in
+         * `GET /jobs/<id>`) and the "Terminados" section could only be filled by visiting the
+         * series' detail.
          */
         private val MIGRATION_13_14 = object : Migration(13, 14) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -230,15 +231,15 @@ abstract class ArkivDatabase : RoomDatabase() {
         }
 
         /**
-         * v14 -> v15: `sourceRef` (la pageUrl de origen) en la caché de biblioteca de la NUC. Sin
-         * esta columna el "ya descargado" solo se podía comparar por (temporada, capítulo), y como
-         * la NUC guarda un único archivo por episodio, el tilde verde aparecía en los packs de los
-         * tres sitios a la vez aunque la copia viniera de uno solo.
+         * v14 -> v15: `sourceRef` (the origin pageUrl) in the NUC library cache. Without this
+         * column "already downloaded" could only be compared by (season, chapter), and since the
+         * NUC stores a single file per episode, the green checkmark showed up on all three sites'
+         * packs at once even though the copy came from just one.
          *
-         * NULL (sin DEFAULT) a propósito: las filas que ya estaban en caché no saben de dónde
-         * salieron, y marcarlas con un valor inventado haría que matchearan un sitio equivocado.
-         * Con NULL simplemente no matchean, y el próximo refresh de biblioteca las rellena con el
-         * `source_ref` real que devuelve `GET /library`.
+         * NULL (no DEFAULT) on purpose: rows already in the cache don't know where they came from,
+         * and marking them with a made-up value would make them match the wrong site. With NULL
+         * they simply don't match, and the next library refresh fills them in with the real
+         * `source_ref` `GET /library` returns.
          */
         private val MIGRATION_14_15 = object : Migration(14, 15) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -247,17 +248,17 @@ abstract class ArkivDatabase : RoomDatabase() {
         }
 
         /**
-         * v15 -> v16: `tmdbId` del ítem y (`season`, `episode`) de cada capítulo, para poder
-         * mostrar el título real del episodio en vez del nombre del archivo ("s01e03").
+         * v15 -> v16: item's `tmdbId` and each chapter's (`season`, `episode`), to show the
+         * episode's real title instead of the file name ("s01e03").
          *
-         * Ni archive.org ni el mirror guardan el nombre del episodio, solo su número: el nombre
-         * hay que pedírselo a TMDB, y para eso hacen falta las dos cosas — a qué serie pertenece
-         * el ítem y qué número es cada archivo.
+         * Neither archive.org nor the mirror store the episode's name, only its number: the name
+         * has to be asked from TMDB, and that needs both things — which series the item belongs
+         * to and which number each file is.
          *
-         * Las tres van NULL sin DEFAULT a propósito: las filas que ya estaban no saben su número
-         * ni su serie, y rellenarlas con un valor inventado haría que la UI muestre el título de
-         * OTRO capítulo. Con NULL simplemente caen al nombre del archivo, como hasta ahora, y se
-         * completan solas la próxima vez que se refresque el ítem.
+         * All three go NULL with no DEFAULT on purpose: rows that already existed don't know their
+         * number or their series, and filling them with a made-up value would make the UI show
+         * ANOTHER chapter's title. With NULL they simply fall back to the file name, as before, and
+         * fill themselves in the next time the item refreshes.
          */
         private val MIGRATION_15_16 = object : Migration(15, 16) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -265,24 +266,26 @@ abstract class ArkivDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE episodes ADD COLUMN season INTEGER")
                 db.execSQL("ALTER TABLE episodes ADD COLUMN episode INTEGER")
                 db.execSQL("ALTER TABLE episode_still ADD COLUMN title TEXT")
-                // La caché de stills se llenó repartiendo capítulos por conteo (ver
-                // ensureEpisodeStills), un reparto que se desalinea si hay OVAs o recaps. Ahora que
-                // hay temporada/capítulo exactos conviene rehacerla: se borra en vez de arrastrar
-                // asignaciones posiblemente equivocadas -- es caché derivable, se repuebla sola.
+                // The still cache was filled by distributing chapters by count (see
+                // ensureEpisodeStills), a distribution that gets misaligned if there are OVAs or
+                // recaps. Now that there's an exact season/chapter it's worth redoing: it's
+                // deleted instead of dragging along possibly wrong assignments -- it's derivable
+                // cache, it repopulates on its own.
                 db.execSQL("DELETE FROM episode_still")
             }
         }
 
         /**
-         * v16 -> v17: la tabla `downloads` deja de ser exclusiva de archive.org y pasa a servir a las
-         * tres fuentes (archive, torrent, web).
+         * v16 -> v17: the `downloads` table stops being exclusive to archive.org and starts
+         * serving all three sources (archive, torrent, web).
          *
-         * `source` va con DEFAULT 'archive' a propósito: todas las filas que ya existen vienen del
-         * único camino que había, así que ese default las clasifica bien sin tocar datos.
+         * `source` gets DEFAULT 'archive' on purpose: every row that already exists comes from the
+         * only path there was, so that default classifies them correctly with no data touched.
          *
-         * `filePath` va NULL sin DEFAULT: las filas viejas guardaron la ruta como un `file://` en
-         * `localUri` (lo que devolvía el DownloadManager del sistema). Inventarles un filePath las
-         * rompería; con NULL, `LocalLibrary` cae a `localUri` y lo ya descargado sigue reproduciéndose.
+         * `filePath` goes NULL with no DEFAULT: old rows saved the path as a `file://` in
+         * `localUri` (what the system's DownloadManager used to return). Making up a filePath for
+         * them would break them; with NULL, `LocalLibrary` falls back to `localUri` and what's
+         * already downloaded keeps playing.
          */
         private val MIGRATION_16_17 = object : Migration(16, 17) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -313,13 +316,12 @@ abstract class ArkivDatabase : RoomDatabase() {
         }
 
         /**
-         * Badge de "hay capítulos nuevos": cuántos episodios tenía la serie la última vez que se
-         * abrió su detalle.
+         * "New chapters" badge: how many episodes the series had the last time its detail was opened.
          *
-         * Nullable a propósito, y sin DEFAULT: en las filas que ya existen queda NULL, que
-         * significa "nunca se miró" y NO pinta badge. Con un default de 0, el día que esto se
-         * estrene cada serie de la biblioteca aparecería marcada con todos sus capítulos como si
-         * fueran novedad. Ver [com.arkiv.player.data.nuevos.NewEpisodeCounter].
+         * Nullable on purpose, and with no DEFAULT: rows that already exist are left NULL, which
+         * means "never looked at" and does NOT paint a badge. With a default of 0, the day this
+         * ships every library series would show up marked with all its chapters as if they were
+         * new. See [com.arkiv.player.data.nuevos.NewEpisodeCounter].
          */
         private val MIGRATION_18_19 = object : Migration(18, 19) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -328,16 +330,17 @@ abstract class ArkivDatabase : RoomDatabase() {
         }
 
         /**
-         * v19 -> v20: la sinopsis del capítulo, que llega junto al still y al título desde el
-         * gateway. `episode_still` es caché local derivable y NO está entre las tablas que
-         * sincroniza `SyncTriggers`, así que esta columna no toca el sync.
+         * v19 -> v20: the chapter's synopsis, which arrives together with the still and the title
+         * from the gateway. `episode_still` is derivable local cache and is NOT among the tables
+         * `SyncTriggers` syncs, so this column doesn't touch sync.
          *
-         * Y se vacía la tabla, exactamente por lo mismo que [MIGRATION_15_16] cuando agregó
-         * `title`: la columna nueva entra en NULL en todas las filas viejas, y `ensureEpisodeStills`
-         * corta temprano cuando cada capítulo ya tiene fila —le da igual que esté a medio llenar—,
-         * así que sin este DELETE **ninguna serie que ya tuviera sus stills resueltos vería jamás
-         * una sinopsis**: la fila existe, luego nadie vuelve a preguntar. Borrarla no pierde nada
-         * del usuario: es caché derivable, se repuebla sola la próxima vez que se abra la serie.
+         * And the table gets emptied, for exactly the same reason as [MIGRATION_15_16] when it
+         * added `title`: the new column comes in as NULL on every old row, and
+         * `ensureEpisodeStills` cuts short as soon as each chapter already has a row —it doesn't
+         * care that it's half-filled—, so without this DELETE **no series that already had its
+         * stills resolved would ever see a synopsis**: the row exists, so nobody asks again.
+         * Deleting it loses none of the user's data: it's derivable cache, it repopulates on its
+         * own the next time the series is opened.
          */
         private val MIGRATION_19_20 = object : Migration(19, 20) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -347,18 +350,18 @@ abstract class ArkivDatabase : RoomDatabase() {
         }
 
         /**
-         * v20 -> v21: favoritos y recientes de canales de TV en vivo (Task 10). Favoritos
-         * sincroniza LWW con tombstone -- mismo esquema que `skip_markers` -- y recientes LWW sin
-         * tombstone (se poda por antigüedad, no se borra a mano). La caché del catálogo
-         * (`live_channels_cache`) es local y NO se sincroniza (ver [LiveChannelCacheEntity]): no
-         * lleva `updatedAt`/`deleted` porque nunca pasa por [SyncTriggers] ni por el merge.
+         * v20 -> v21: favorites and recents of live TV channels (Task 10). Favorites sync LWW
+         * with a tombstone -- same schema as `skip_markers` -- and recents LWW with no tombstone
+         * (pruned by age, not deleted by hand). The catalog cache (`live_channels_cache`) is local
+         * and does NOT sync (see [LiveChannelCacheEntity]): it carries no `updatedAt`/`deleted`
+         * because it never goes through [SyncTriggers] or the merge.
          *
-         * `live_channels_cache` lleva PK COMPUESTA `(code, categoria)`, no solo `code`: un mismo
-         * canal puede estar en varias categorías del portal, y una PK simple hacía que cachear una
-         * categoría reescribiera (REPLACE) la fila de un canal compartido con otra, dejándolo
-         * fantasma al volver a esa otra categoría desde caché sin gateway (hallazgo F5 de la
-         * revisión final). Se corrige ACÁ, en la migración todavía sin publicar, y no con una v22:
-         * ver el informe de la ola final para el porqué de la oportunidad.
+         * `live_channels_cache` carries a COMPOSITE PK `(code, categoria)`, not just `code`: the
+         * same channel can be in several of the portal's categories, and a simple PK meant caching
+         * one category would overwrite (REPLACE) the row of a channel shared with another,
+         * leaving it a ghost on going back to that other category from cache with no gateway
+         * (finding F5 of the final review). Fixed HERE, in the still-unpublished migration, and
+         * not with a v22: see the final wave's report for why the opportunity made sense.
          */
         private val MIGRATION_20_21 = object : Migration(20, 21) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -381,7 +384,7 @@ abstract class ArkivDatabase : RoomDatabase() {
             }
         }
 
-        /** v21 -> v22: miniaturas de frame capturado. El JPEG va a disco; esta tabla es el índice. */
+        /** v21 -> v22: captured-frame thumbnails. The JPEG goes to disk; this table is the index. */
         private val MIGRATION_21_22 = object : Migration(21, 22) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
@@ -396,16 +399,16 @@ abstract class ArkivDatabase : RoomDatabase() {
         }
 
         /**
-         * v22 -> v23: de dónde bajar el JPEG de un frame que vino de otro dispositivo.
+         * v22 -> v23: where to download the JPEG of a frame that came from another device.
          *
-         * Nullable y sin DEFAULT a propósito: en las filas que ya existen queda NULL, que
-         * significa "es local, no hay nada que bajar" — que es exactamente la verdad para todo lo
-         * capturado en la fase 1.
+         * Nullable and with no DEFAULT on purpose: rows that already exist are left NULL, which
+         * means "it's local, there's nothing to download" — which is exactly the truth for
+         * everything captured in phase 1.
          *
-         * OJO con el número: en la rama de la fase 2 esta migración era la 21->22, pero al mergear
-         * chocó con la 21->22 de `main` (la que CREA `episode_frame`, renumerada allá al integrar
-         * la fase 1). Se corrió a 22->23 al resolver el conflicto. Ningún dispositivo había
-         * corrido la numeración vieja: la fase 2 nunca se instaló en ninguno.
+         * WATCH the number: on phase 2's branch this migration was 21->22, but on merging it
+         * collided with `main`'s 21->22 (the one that CREATES `episode_frame`, renumbered there
+         * when phase 1 was integrated). It got moved to 22->23 when resolving the conflict. No
+         * device had run the old numbering: phase 2 was never installed on any.
          */
         private val MIGRATION_22_23 = object : Migration(22, 23) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -414,10 +417,10 @@ abstract class ArkivDatabase : RoomDatabase() {
         }
 
         /**
-         * v23 -> v24: de dónde VINO la fila del frame, para que el que la recibe no la re-suba.
+         * v23 -> v24: where the frame's row CAME FROM, so whoever receives it doesn't re-upload it.
          *
-         * `DEFAULT 0` = "nació en este aparato", que es la verdad para todo lo que ya existe: hasta
-         * esta versión el único escritor de frames locales era la captura. Ver
+         * `DEFAULT 0` = "born on this device", which is the truth for everything that already
+         * exists: up to this version the only writer of local frames was the capture. See
          * [EpisodeFrameEntity.origenRemoto].
          */
         private val MIGRATION_23_24 = object : Migration(23, 24) {
@@ -450,10 +453,11 @@ abstract class ArkivDatabase : RoomDatabase() {
          * v25 -> v26: item's `tipo` ("movie"|"tv"), so the library can tell with certainty whether
          * it already has something instead of comparing by title, which is fuzzy. See [ItemEntity.tipo].
          *
-         * NULL sin DEFAULT a propósito, igual que [MIGRATION_15_16] con `tmdbId`: los ítems que ya
-         * existen no saben su tipo con certeza, y adivinarlo (por ejemplo por `categoryOverride`,
-         * que usa "series" y no "tv") dejaría un dato con la MISMA forma que uno confirmado por la
-         * fuente, sin serlo. Con NULL simplemente no participa de esa comparación exacta todavía.
+         * NULL with no DEFAULT on purpose, same as [MIGRATION_15_16] with `tmdbId`: items that
+         * already exist don't know their type for certain, and guessing it (e.g. from
+         * `categoryOverride`, which uses "series" and not "tv") would leave data with the SAME
+         * shape as one confirmed by the source, without being one. With NULL it simply doesn't
+         * take part in that exact comparison yet.
          */
         private val MIGRATION_25_26 = object : Migration(25, 26) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -462,12 +466,12 @@ abstract class ArkivDatabase : RoomDatabase() {
         }
 
         /**
-         * v26 -> v27: el nombre con el que TMDB conoce la obra, al lado del que dijo la fuente.
+         * v26 -> v27: the name TMDB knows the work by, alongside the one the source said.
          *
-         * Entra NULL en todas las filas viejas y se llena solo: al guardar una temporada de magis,
-         * y cuando `ReparacionDeMagis` resuelve la identidad de un ítem que entró sin ella. Mientras
-         * esté en null la biblioteca sigue mostrando `title`, igual que hoy — no hay estado
-         * intermedio raro, y por eso no hace falta vaciar nada (a diferencia de [MIGRATION_19_20]).
+         * Comes in NULL on every old row and fills itself in: on saving a magis season, and when
+         * `ReparacionDeMagis` resolves the identity of an item that came in without it. While it's
+         * null the library keeps showing `title`, same as now — there's no weird in-between state,
+         * which is why nothing needs to be emptied out (unlike [MIGRATION_19_20]).
          *
          * `items` carries the `updatedAt`/`deleted` columns from this branch's now-removed cloud
          * sync; they stay until the Phase 3 column audit. No sync is planned to come back --
@@ -480,9 +484,9 @@ abstract class ArkivDatabase : RoomDatabase() {
         }
 
         /**
-         * v27 -> v28: los marcadores pasan a ser por capítulo. La tabla se RECREA en vez de
-         * migrarse: en producción tiene 0 filas (verificado contra PocketBase el 2026-08-19), así
-         * que no hay nada que preservar — y recrearla evita inventar un `id` para filas viejas.
+         * v27 -> v28: markers become per-chapter. The table gets RECREATED instead of migrated: in
+         * production it has 0 rows (verified against PocketBase on 2026-08-19), so there's nothing
+         * to preserve — and recreating it avoids making up an `id` for old rows.
          */
         private val MIGRATION_27_28 = object : Migration(27, 28) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -501,15 +505,15 @@ abstract class ArkivDatabase : RoomDatabase() {
         }
 
         /**
-         * v28 -> v29: borra las tres tablas huérfanas de la poda de NUC (Task 8, "cero servidor
-         * propio"): `nuc_library_items`, `series_playback_prefs` y `local_active_jobs`. Sus
-         * entidades/DAOs (`NucLibraryItemEntity`/`SeriesPlaybackPrefEntity`/`LocalActiveJobEntity`)
-         * y quienes las leían o escribían (`NucDownloads`, `PlaybackPreferenceStore`,
-         * `NucDownloadsScreen`/`ViewModel`) ya se borraron en esa misma tarea; esta migración
-         * termina de sacar el esquema que quedó pendiente.
+         * v28 -> v29: drops the three orphaned tables from the NUC pruning (Task 8, "cero
+         * servidor propio"): `nuc_library_items`, `series_playback_prefs` and `local_active_jobs`.
+         * Their entities/DAOs (`NucLibraryItemEntity`/`SeriesPlaybackPrefEntity`/`LocalActiveJobEntity`)
+         * and whoever read or wrote them (`NucDownloads`, `PlaybackPreferenceStore`,
+         * `NucDownloadsScreen`/`ViewModel`) were already deleted in that same task; this migration
+         * finishes removing the schema that was left pending.
          *
-         * DROP directo, sin recrear nada: son datos exclusivos de arkiv-offline (la NUC), que ya
-         * no existe para esta rama -- no hay nada que preservar ni a qué otra tabla migrarlo.
+         * Direct DROP, nothing recreated: it's data exclusive to arkiv-offline (the NUC), which no
+         * longer exists for this branch -- there's nothing to preserve or migrate to another table.
          */
         private val MIGRATION_28_29 = object : Migration(28, 29) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -520,19 +524,19 @@ abstract class ArkivDatabase : RoomDatabase() {
         }
 
         /**
-         * Deja los triggers de `updatedAt` puestos en CADA apertura, y sella lo que haya quedado
-         * sin reloj.
+         * Puts the `updatedAt` triggers back in place on EVERY open, and seals whatever was left
+         * with no clock.
          *
-         * Va acá y no en una migración porque el que instala la app de cero **no corre ninguna
-         * migración**: Room le crea las tablas desde su esquema generado, y los triggers no son
-         * parte de ese esquema. Así fue como el Fire TV terminó sin ninguno, con toda su biblioteca
-         * en `updatedAt = 0` y por lo tanto invisible para el push a la nube (`updatedAt > cursor`).
-         * Ver [SyncTriggers].
+         * Goes here and not in a migration because whoever installs the app from scratch **runs
+         * no migration at all**: Room creates its tables from its generated schema, and the
+         * triggers aren't part of that schema. That's how the Fire TV ended up with none, with its
+         * whole library at `updatedAt = 0` and therefore invisible to the cloud push
+         * (`updatedAt > cursor`). See [SyncTriggers].
          */
-        private val SELLAR_UPDATED_AT = object : RoomDatabase.Callback() {
+        private val SEAL_UPDATED_AT = object : RoomDatabase.Callback() {
             override fun onOpen(db: SupportSQLiteDatabase) {
-                // Los triggers primero: sellar después no los dispara (la fila cambia de 0 a
-                // `ahora`, o sea NEW.updatedAt != OLD.updatedAt, que es la guarda del trigger).
+                // Triggers first: sealing afterward doesn't fire them (the row changes from 0 to
+                // `now`, i.e. NEW.updatedAt != OLD.updatedAt, which is the trigger's guard).
                 SyncTriggers.ddl().forEach { db.execSQL(it) }
                 SyncTriggers.sellarFilasSinReloj().forEach { db.execSQL(it) }
             }
@@ -545,7 +549,7 @@ abstract class ArkivDatabase : RoomDatabase() {
                     ArkivDatabase::class.java,
                     "arkiv.db",
                 ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29)
-                    .addCallback(SELLAR_UPDATED_AT)
+                    .addCallback(SEAL_UPDATED_AT)
                     .fallbackToDestructiveMigration()
                     .build().also { instance = it }
             }
