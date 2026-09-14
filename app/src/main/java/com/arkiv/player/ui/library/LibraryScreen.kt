@@ -45,8 +45,8 @@ import com.arkiv.player.ui.components.EmptyState
 import com.arkiv.player.ui.components.PosterCard
 import com.arkiv.player.ui.components.SectionHeader
 import com.arkiv.player.ui.home.HomeViewModel
-import com.arkiv.player.ui.columnasDeGrilla
-import com.arkiv.player.ui.esTabletHorizontal
+import com.arkiv.player.ui.gridColumns
+import com.arkiv.player.ui.isLandscapeTablet
 import com.arkiv.player.ui.libraryMeta
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivRed
@@ -117,7 +117,7 @@ fun LibraryScreen(
     }
 
     LazyVerticalGrid(
-        columns = GridCells.Fixed(columnasDeGrilla(3, esTabletHorizontal())),
+        columns = GridCells.Fixed(gridColumns(3, isLandscapeTablet())),
         contentPadding = PaddingValues(
             start = 16.dp, end = 16.dp,
             top = contentPadding.calculateTopPadding() + 8.dp,

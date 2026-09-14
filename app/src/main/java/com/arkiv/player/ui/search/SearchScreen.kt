@@ -66,8 +66,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.arkiv.player.ui.columnasDeGrilla
-import com.arkiv.player.ui.esTabletHorizontal
+import com.arkiv.player.ui.gridColumns
+import com.arkiv.player.ui.isLandscapeTablet
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -454,7 +454,7 @@ private fun QueryContent(
 
     LazyVerticalGrid(
         state = gridState,
-        columns = GridCells.Fixed(columnasDeGrilla(3, esTabletHorizontal())),
+        columns = GridCells.Fixed(gridColumns(3, isLandscapeTablet())),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),

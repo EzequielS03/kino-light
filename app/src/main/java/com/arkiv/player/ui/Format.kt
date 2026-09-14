@@ -1,6 +1,6 @@
 package com.arkiv.player.ui
 
-/** Duración legible a partir de segundos: "1 h 26 min", "45 min", "0 min". */
+/** Readable duration from seconds: "1 h 26 min", "45 min", "0 min". */
 fun formatRuntime(seconds: Double): String {
     val total = seconds.toInt().coerceAtLeast(0)
     val h = total / 3600
@@ -12,7 +12,7 @@ fun formatRuntime(seconds: Double): String {
     }
 }
 
-/** Etiqueta secundaria de una card de biblioteca según su tipo. */
+/** Secondary label of a library card, based on its type. */
 fun libraryMeta(isMovie: Boolean, durationSeconds: Double, episodeCount: Int): String = when {
     !isMovie -> "$episodeCount episodios"
     else -> formatRuntime(durationSeconds)
@@ -28,9 +28,9 @@ private val Whitespace = Regex("\\s+")
  */
 fun plainSynopsis(raw: String?): String {
     if (raw.isNullOrBlank()) return ""
-    // Los tags se quitan ANTES de decodificar entidades: al revés, un "&lt;b&gt;" literal se
-    // volvería "<b>" y el strip se comería texto que el autor escribió a propósito.
-    // Por espacio y no por "": un "<br>" entre palabras tiene que dejar separador.
+    // Tags are stripped BEFORE decoding entities: the other way around, a literal "&lt;b&gt;"
+    // would become "<b>" and the strip would eat text the author wrote on purpose.
+    // With a space, not "": a "<br>" between words has to leave a separator.
     return raw.replace(HtmlTag, " ")
         .replace("&nbsp;", " ")
         .replace("&quot;", "\"")
@@ -38,8 +38,8 @@ fun plainSynopsis(raw: String?): String {
         .replace("&apos;", "'")
         .replace("&lt;", "<")
         .replace("&gt;", ">")
-        // "&amp;" va al final: si fuera primero, "&amp;lt;" se decodificaría dos veces y
-        // terminaría en "<" en vez del "&lt;" literal que el autor escribió.
+        // "&amp;" goes last: if it were first, "&amp;lt;" would decode twice and end up as "<"
+        // instead of the literal "&lt;" the author wrote.
         .replace("&amp;", "&")
         .replace(Whitespace, " ")
         .trim()
@@ -64,21 +64,21 @@ fun heroSubtitle(title: String, description: String?, fallback: String): String 
 }
 
 /**
- * Respaldo del subtítulo del hero en "Continuar viendo" cuando el ítem no tiene sinopsis: la
- * etiqueta del episodio SIN el título de la serie, que ya está arriba en el hero.
+ * Fallback for the hero subtitle in "Continue watching" when the item has no synopsis: the
+ * episode's label WITHOUT the series title, which is already above in the hero.
  *
- * Devuelve "" cuando lo que quedaría es el título repetido — el caso película, donde
- * `displayName` es directamente el título limpio del archivo.
+ * Returns "" when what would be left is the repeated title -- the movie case, where
+ * `displayName` is directly the file's clean title.
  */
 fun heroFallback(itemTitle: String, displayName: String): String {
     val title = itemTitle.trim()
     val prefix = "$title · "
-    // Si la etiqueta se formateó con otro showTitle (el título se editó después), no hay prefijo
-    // que quitar y se deja tal cual: mejor de más que comerse texto por una coincidencia parcial.
+    // If the label was formatted with a different showTitle (the title was edited later), there's
+    // no prefix to strip and it's left as-is: better too much than eating text on a partial match.
     val rest = displayName.let {
         if (it.startsWith(prefix, ignoreCase = true)) it.substring(prefix.length) else it
     }.trim()
-    // Insensible a mayúsculas: los títulos guardados y los cleanName() de archivos difieren en
-    // capitalización seguido, y una duplicación que se escapa por una mayúscula es el bug de acá.
+    // Case-insensitive: saved titles and files' cleanName() often differ in capitalization, and a
+    // duplication that slips through over a capital letter is exactly the bug this guards against.
     return if (rest.equals(title, ignoreCase = true)) "" else rest
 }

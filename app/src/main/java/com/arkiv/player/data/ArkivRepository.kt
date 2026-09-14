@@ -466,14 +466,14 @@ class ArkivRepository(
             // The file name declared the numbering (sNNeNN / NxNN): it's exact, and doesn't get
             // misaligned even if the local copy brings OVAs, recaps, or is missing chapters.
             episodes.associate { it.id to (it.season!! to it.episode!!) }
-        } else if (episodes.any { NumeracionCodificada.coordenadas(it.itemId, it.section, it.orderIndex) != null }) {
+        } else if (episodes.any { EncodedNumbering.coordinates(it.itemId, it.section, it.orderIndex) != null }) {
             // Torrent and web: orderIndex carries the encoded numbering. Which source brings it and
             // which doesn't is decided by the row's source, not by the number going over 1000 —
             // looking at the number left season 0 out (the specials, which give less than 1000) and
             // sent those series down the count-based distribution branch, which gave them another
             // chapter's still.
             episodes.mapNotNull { ep ->
-                NumeracionCodificada.coordenadas(ep.itemId, ep.section, ep.orderIndex)?.let { ep.id to it }
+                EncodedNumbering.coordinates(ep.itemId, ep.section, ep.orderIndex)?.let { ep.id to it }
             }.toMap()
         } else {
             // Archive: flat 1..N list with no seasons. TMDB's are flattened in order and

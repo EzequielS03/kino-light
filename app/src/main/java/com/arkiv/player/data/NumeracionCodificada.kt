@@ -29,22 +29,22 @@ package com.arkiv.player.data
  * new rows never go through here; it still exists for whatever is already saved from before this
  * branch's torrent/web/archive.org pruning.
  */
-object NumeracionCodificada {
+object EncodedNumbering {
 
-    private val SECCION_DE_TEMPORADA = Regex("""^Temporada (\d+)$""")
+    private val SEASON_SECTION = Regex("""^Temporada (\d+)$""")
 
-    /** Solo torrent y web codifican. archive.org (identificador pelado) y Magis, no. */
-    private fun codifica(itemId: String) =
+    /** Only torrent and web encode. archive.org (bare identifier) and Magis don't. */
+    private fun encodes(itemId: String) =
         itemId.startsWith("torrent:") || itemId.startsWith("web:")
 
     /**
-     * (temporada, capítulo) si esta fila trae la numeración codificada en el [orderIndex], o null
-     * si el [orderIndex] no significa eso y hay que tratarlo como lo que sea que sea para su fuente.
+     * (season, chapter) if this row carries the numbering encoded in [orderIndex], or null if
+     * [orderIndex] doesn't mean that and has to be treated as whatever it is for its source.
      */
-    fun coordenadas(itemId: String, section: String, orderIndex: Int): Pair<Int, Int>? {
-        if (!codifica(itemId)) return null
-        val temporada = SECCION_DE_TEMPORADA.find(section)?.groupValues?.get(1)?.toIntOrNull()
+    fun coordinates(itemId: String, section: String, orderIndex: Int): Pair<Int, Int>? {
+        if (!encodes(itemId)) return null
+        val season = SEASON_SECTION.find(section)?.groupValues?.get(1)?.toIntOrNull()
             ?: return null
-        return temporada to (orderIndex % 1000)
+        return season to (orderIndex % 1000)
     }
 }

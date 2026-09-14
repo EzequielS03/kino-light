@@ -55,8 +55,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import coil.compose.AsyncImage
-import com.arkiv.player.ui.columnasDeGrilla
-import com.arkiv.player.ui.esTabletHorizontal
+import com.arkiv.player.ui.gridColumns
+import com.arkiv.player.ui.isLandscapeTablet
 import com.arkiv.player.data.catalog.AniListApi
 import com.arkiv.player.data.catalog.AnimeShow
 import com.arkiv.player.data.db.SearchHistoryEntity
@@ -238,7 +238,7 @@ fun AnimeSection(onOpenAnime: (Long) -> Unit, contentPadding: PaddingValues) {
         }
 
         LazyVerticalGrid(
-            columns = GridCells.Fixed(columnasDeGrilla(3, esTabletHorizontal())),
+            columns = GridCells.Fixed(gridColumns(3, isLandscapeTablet())),
             state = gridState,
             contentPadding = PaddingValues(
                 start = 16.dp, end = 16.dp, top = 8.dp,

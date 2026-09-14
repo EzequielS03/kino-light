@@ -68,7 +68,7 @@ import com.arkiv.player.ui.live.LiveZappingSource
 import com.arkiv.player.ui.live.canalesDelPaisParaHome
 import com.arkiv.player.ui.live.canalesRecientesParaHome
 import com.arkiv.player.ui.live.filaDeCanalesDelHome
-import com.arkiv.player.ui.esTabletHorizontal
+import com.arkiv.player.ui.isLandscapeTablet
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.search.TitleCard
 import com.arkiv.player.ui.theme.ArkivBlack
@@ -77,7 +77,7 @@ import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 import kotlinx.coroutines.launch
 
-/** Medidas del home según la forma de la pantalla. Ver [esTabletHorizontal]. */
+/** Medidas del home según la forma de la pantalla. Ver [isLandscapeTablet]. */
 private data class MedidasDelHome(
     val altoDelHero: Dp,
     val anchoDePoster: Dp,
@@ -87,7 +87,7 @@ private data class MedidasDelHome(
 
 @Composable
 private fun medidasDelHome(): MedidasDelHome =
-    if (esTabletHorizontal()) {
+    if (isLandscapeTablet()) {
         MedidasDelHome(
             altoDelHero = 420.dp,
             anchoDePoster = 180.dp,
@@ -288,19 +288,18 @@ fun HomeScreen(
                     medidas = medidas,
                     backdropUrl = backdrop,
                     title = heroContinue.itemTitle,
-                    // Los datos del capítulo, la MISMA línea que arma el héroe del TV: número,
-                    // nombre y cuánto falta, omitiendo lo que no se sepa. Antes acá solo estaba el
-                    // nombre del capítulo, sin número ni tiempo. Si no queda ningún tramo (una
-                    // película sin duración conocida) se cae al nombre de siempre, para no dejar el
-                    // héroe con una línea vacía.
-                    subtitle = com.arkiv.player.ui.EtiquetaDeCapitulo.lineaDeHeroe(
-                        esPelicula = heroContinue.isMovie,
+                    // The chapter data, the SAME line the TV hero builds: number, name and how much
+                    // is left, omitting what isn't known. This used to just have the chapter name,
+                    // with no number or time. If no part is left (a movie with no known duration)
+                    // it falls back to the usual name, so the hero doesn't end up with an empty line.
+                    subtitle = com.arkiv.player.ui.ChapterLabel.heroLine(
+                        isMovie = heroContinue.isMovie,
                         season = heroContinue.season,
                         episode = heroContinue.episode,
                         orderIndex = heroContinue.orderIndex,
                         itemId = heroContinue.itemId,
                         section = heroContinue.section,
-                        nombre = heroContinue.episodeTitle,
+                        name = heroContinue.episodeTitle,
                         positionMs = heroContinue.positionMs,
                         durationMs = heroContinue.durationMs,
                     ).ifBlank { heroContinue.episodeTitle ?: heroContinue.displayName },
@@ -314,7 +313,7 @@ fun HomeScreen(
                     // En ancho preferimos el backdrop apaisado (16:9) del TitleCard: un póster 2:3
                     // estirado a 1280dp se ve mal. Si la fuente no trajo backdrop, seguimos con el
                     // póster -- el hero nunca puede quedar vacío.
-                    val heroImage = if (esTabletHorizontal() && trending.backdropUrl.isNotBlank()) {
+                    val heroImage = if (isLandscapeTablet() && trending.backdropUrl.isNotBlank()) {
                         trending.backdropUrl
                     } else {
                         trending.posterUrl

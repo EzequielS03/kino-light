@@ -227,7 +227,7 @@ fun TvDetailScreen(
                 Text(
                     when {
                         focused != null -> episodeMeta(focused)
-                        data.episodes.size > 1 -> com.arkiv.player.ui.EtiquetaDeCapitulo.avance(data, "episodios")
+                        data.episodes.size > 1 -> com.arkiv.player.ui.ChapterLabel.progressSummary(data, "episodios")
                         else -> "Película"
                     },
                     style = MaterialTheme.typography.bodyMedium,
@@ -265,7 +265,7 @@ fun TvDetailScreen(
                             // explícito se saltaba la fila de "Fuentes" enterita.
                             .focusProperties { down = if (sources.size > 1) firstSourceFR else resumeEpisodeFR },
                     ) {
-                        Text("▶  ${com.arkiv.player.ui.EtiquetaDeCapitulo.botonReproducir(data)}")
+                        Text("▶  ${com.arkiv.player.ui.ChapterLabel.playButtonLabel(data)}")
                     }
                 }
             }
@@ -364,13 +364,13 @@ fun TvDetailScreen(
 }
 
 /**
- * Línea de datos del capítulo enfocado: "T1 · E3 · 24 min".
+ * Data line for the focused chapter: "T1 · E3 · 24 min".
  *
- * La numeración vive en [com.arkiv.player.ui.EtiquetaDeCapitulo] (compartida con el detalle del
- * celu); acá solo se le suman los minutos, si se conoce la duración.
+ * The numbering lives in [com.arkiv.player.ui.ChapterLabel] (shared with the phone detail
+ * screen); this just adds the minutes, when the duration is known.
  */
 private fun episodeMeta(ep: Episode): String {
-    val minutos = (ep.durationSeconds / 60).toInt()
-    val numero = com.arkiv.player.ui.EtiquetaDeCapitulo.numero(ep)
-    return if (minutos > 0) "$numero · $minutos min" else numero
+    val minutes = (ep.durationSeconds / 60).toInt()
+    val number = com.arkiv.player.ui.ChapterLabel.number(ep)
+    return if (minutes > 0) "$number · $minutes min" else number
 }

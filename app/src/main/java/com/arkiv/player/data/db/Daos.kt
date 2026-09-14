@@ -32,9 +32,9 @@ data class ContinueRow(
     val episodeTitle: String? = null,
     /**
      * Chapter numbering, for the home hero's data line (see
-     * [com.arkiv.player.ui.EtiquetaDeCapitulo.lineaDeHeroe]). `season`/`episode` are null when the
+     * [com.arkiv.player.ui.ChapterLabel.heroLine]). `season`/`episode` are null when the
      * file name declared no numbering; then `orderIndex` decides, which does NOT mean the same
-     * thing across every source — [com.arkiv.player.data.NumeracionCodificada] handles that, and
+     * thing across every source — [com.arkiv.player.data.EncodedNumbering] handles that, and
      * to decide it also needs `itemId` (already above) and `section`.
      */
     val season: Int? = null,

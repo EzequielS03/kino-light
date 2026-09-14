@@ -54,7 +54,7 @@ import com.arkiv.player.data.local.LocalDownloadState
 import com.arkiv.player.data.local.FileSizeFormat
 import com.arkiv.player.data.model.Episode
 import com.arkiv.player.ui.components.EmptyState
-import com.arkiv.player.ui.anchoDeLectura
+import com.arkiv.player.ui.readingWidth
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
@@ -95,7 +95,7 @@ fun DownloadsScreen(
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         LazyColumn(
             modifier = Modifier
-                .anchoDeLectura()
+                .readingWidth()
                 .fillMaxSize(),
             contentPadding = PaddingValues(
                 top = contentPadding.calculateTopPadding() + 8.dp,

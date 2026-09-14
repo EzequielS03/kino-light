@@ -15,9 +15,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.arkiv.player.AppGraph
-import com.arkiv.player.ui.columnasDeGrilla
+import com.arkiv.player.ui.gridColumns
 import com.arkiv.player.ui.components.PosterCard
-import com.arkiv.player.ui.esTabletHorizontal
+import com.arkiv.player.ui.isLandscapeTablet
 import com.arkiv.player.ui.theme.ArkivBlack
 import com.arkiv.player.ui.theme.ArkivRed
 
@@ -70,7 +70,7 @@ fun RowBrowseScreen(
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize()) {
             LazyVerticalGrid(
-                columns = GridCells.Fixed(columnasDeGrilla(3, esTabletHorizontal())),
+                columns = GridCells.Fixed(gridColumns(3, isLandscapeTablet())),
                 state = state,
                 contentPadding = PaddingValues(
                     start = 16.dp, end = 16.dp,

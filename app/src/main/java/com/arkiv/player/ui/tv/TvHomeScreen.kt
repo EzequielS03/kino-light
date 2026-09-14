@@ -350,15 +350,15 @@ fun TvHomeScreen(
             ?: row.itemThumbnailUrl
         // Los datos del capítulo enfocado, que es lo que cambia al moverse entre tarjetas (la
         // sinopsis de arriba es de la SERIE y no cambia). La regla de qué se muestra y qué se
-        // omite vive en EtiquetaDeCapitulo, compartida con los dos detalles.
-        val meta = com.arkiv.player.ui.EtiquetaDeCapitulo.lineaDeHeroe(
-            esPelicula = row.isMovie,
+        // omite vive en ChapterLabel, compartida con los dos detalles.
+        val meta = com.arkiv.player.ui.ChapterLabel.heroLine(
+            isMovie = row.isMovie,
             season = row.season,
             episode = row.episode,
             orderIndex = row.orderIndex,
             itemId = row.itemId,
             section = row.section,
-            nombre = row.episodeTitle,
+            name = row.episodeTitle,
             positionMs = row.positionMs,
             durationMs = row.durationMs,
         )

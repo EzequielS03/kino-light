@@ -82,9 +82,9 @@ import com.arkiv.player.data.local.DownloadLabel
 import com.arkiv.player.data.local.DownloadSource
 import com.arkiv.player.data.local.LocalDownloadState
 import com.arkiv.player.thumbnails.ThumbnailChoice
-import com.arkiv.player.ui.esTabletHorizontal
+import com.arkiv.player.ui.isLandscapeTablet
 import com.arkiv.player.ui.formatDuration
-import com.arkiv.player.ui.EtiquetaDeCapitulo
+import com.arkiv.player.ui.ChapterLabel
 import com.arkiv.player.ui.offline.rememberDuplicateDownloadNotice
 import com.arkiv.player.ui.offline.rememberPostNotificationsRequest
 import com.arkiv.player.ui.rememberGraph
@@ -412,7 +412,7 @@ private fun DetailContent(
     // Misma condición para decidir el layout (más abajo, dónde va la ficha) y para el offset de
     // resumeIndex: si se calculan por separado, el día que uno cambie sin el otro el auto-scroll
     // se desincroniza en silencio. Ver FichaDelItem.
-    val dosPaneles = esTabletHorizontal()
+    val dosPaneles = isLandscapeTablet()
 
     // Índice (aplanado) del episodio en el que voy, para hacer scroll automático al abrir.
     // En un panel, el primer item del LazyColumn es FichaDelItem (imagen + bloque de título); en
@@ -603,7 +603,7 @@ private fun FichaDelItem(data: ItemDetail, onPlayEpisode: (String) -> Unit) {
     Column(Modifier.padding(horizontal = 16.dp)) {
         Text(data.title, style = MaterialTheme.typography.headlineMedium)
         Text(
-            EtiquetaDeCapitulo.avance(data, "videos"),
+            ChapterLabel.progressSummary(data, "videos"),
             color = ArkivTextSecondary,
             style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.padding(top = 4.dp),
@@ -614,7 +614,7 @@ private fun FichaDelItem(data: ItemDetail, onPlayEpisode: (String) -> Unit) {
                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
             ) {
                 Icon(Icons.Default.PlayArrow, contentDescription = null)
-                Text("  ${EtiquetaDeCapitulo.botonReproducir(data)}", fontWeight = FontWeight.Bold)
+                Text("  ${ChapterLabel.playButtonLabel(data)}", fontWeight = FontWeight.Bold)
             }
         }
         if (!data.description.isNullOrBlank()) {
@@ -865,14 +865,14 @@ private fun EpisodeRow(
                     .padding(horizontal = 12.dp),
             ) {
                 Text(
-                    // El nombre del archivo es el respaldo, no la primera opción: para nuestras
-                    // subidas es "s01e03", que no dice nada de qué capítulo es.
+                    // The file name is the fallback, not the first choice: for our uploads it's
+                    // "s01e03", which says nothing about which chapter it is.
                     //
-                    // Pero el NÚMERO manda y no puede desaparecer: con `tmdbTitle` a secas, un capítulo
-                    // de Magis pasaba de "E5  Daima T1_5" (el displayName ya trae el número) a solo
-                    // "Panzy", y la lista se quedaba sin forma de saber cuál era cuál. La regla vive en
-                    // [EtiquetaDeCapitulo.conNombre], compartida con el detalle del TV.
-                    EtiquetaDeCapitulo.conNombre(episode, tmdbTitle),
+                    // But the NUMBER wins and can't disappear: with plain `tmdbTitle`, a Magis
+                    // chapter went from "E5  Daima T1_5" (the displayName already carries the
+                    // number) to just "Panzy", and the list lost any way to tell which was which.
+                    // The rule lives in [ChapterLabel.withName], shared with the TV detail screen.
+                    ChapterLabel.withName(episode, tmdbTitle),
                     style = MaterialTheme.typography.bodyLarge,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,

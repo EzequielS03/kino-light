@@ -55,8 +55,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import coil.compose.AsyncImage
-import com.arkiv.player.ui.columnasDeGrilla
-import com.arkiv.player.ui.esTabletHorizontal
+import com.arkiv.player.ui.gridColumns
+import com.arkiv.player.ui.isLandscapeTablet
 import com.arkiv.player.data.catalog.TmdbApi
 import com.arkiv.player.data.catalog.TmdbCategory
 import com.arkiv.player.data.catalog.TmdbGenre
@@ -307,7 +307,7 @@ fun CineCatalogScreen(
         }
 
         LazyVerticalGrid(
-            columns = GridCells.Fixed(columnasDeGrilla(3, esTabletHorizontal())),
+            columns = GridCells.Fixed(gridColumns(3, isLandscapeTablet())),
             state = gridState,
             contentPadding = PaddingValues(
                 start = 16.dp, end = 16.dp, top = 8.dp,

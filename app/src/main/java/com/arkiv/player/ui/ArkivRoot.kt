@@ -135,7 +135,7 @@ fun ArkivRoot(
         }
     }
 
-    val ancho = esTabletHorizontal()
+    val ancho = isLandscapeTablet()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
 
     ModalNavigationDrawer(

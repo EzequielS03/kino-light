@@ -53,8 +53,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import com.arkiv.player.ui.columnasDeGrilla
-import com.arkiv.player.ui.esTabletHorizontal
+import com.arkiv.player.ui.gridColumns
+import com.arkiv.player.ui.isLandscapeTablet
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -306,7 +306,7 @@ private fun ChannelGrid(
     onFavorito: (LiveChannel) -> Unit,
 ) {
     LazyVerticalGrid(
-        columns = GridCells.Fixed(columnasDeGrilla(2, esTabletHorizontal())),
+        columns = GridCells.Fixed(gridColumns(2, isLandscapeTablet())),
         contentPadding = contentPadding,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -328,7 +328,7 @@ private fun ChannelGrid(
 @Composable
 private fun PlaceholderGrid(contentPadding: PaddingValues) {
     LazyVerticalGrid(
-        columns = GridCells.Fixed(columnasDeGrilla(2, esTabletHorizontal())),
+        columns = GridCells.Fixed(gridColumns(2, isLandscapeTablet())),
         contentPadding = contentPadding,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),

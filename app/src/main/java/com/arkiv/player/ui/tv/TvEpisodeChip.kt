@@ -30,7 +30,7 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.arkiv.player.data.db.PlaybackEntity
 import com.arkiv.player.data.model.Episode
-import com.arkiv.player.ui.EtiquetaDeCapitulo
+import com.arkiv.player.ui.ChapterLabel
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 
@@ -75,7 +75,7 @@ fun TvEpisodeChip(
         progress.watched -> "Visto"
         else -> "${(progress.positionMs / 60000).toInt().coerceAtLeast(0)} de $totalMin min"
     }
-    val episodeLabel = EtiquetaDeCapitulo.numero(episode)
+    val episodeLabel = ChapterLabel.number(episode)
 
     Column(
         modifier = modifier

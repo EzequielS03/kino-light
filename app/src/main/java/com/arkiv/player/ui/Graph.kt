@@ -5,14 +5,14 @@ import androidx.compose.ui.platform.LocalContext
 import com.arkiv.player.AppGraph
 import com.arkiv.player.ArkivApp
 
-/** Acceso al grafo de dependencias desde composables. */
+/** Access to the dependency graph from composables. */
 @Composable
 fun rememberGraph(): AppGraph {
     val context = LocalContext.current
     return (context.applicationContext as ArkivApp).graph
 }
 
-/** Formatea milisegundos a m:ss o h:mm:ss. */
+/** Formats milliseconds to m:ss or h:mm:ss. */
 fun formatDuration(ms: Long): String {
     if (ms <= 0) return "0:00"
     val totalSec = ms / 1000

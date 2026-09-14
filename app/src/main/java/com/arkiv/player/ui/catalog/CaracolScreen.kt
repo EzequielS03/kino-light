@@ -50,10 +50,10 @@ import com.arkiv.player.data.ditu.DituItem
 import com.arkiv.player.data.ditu.CaracolFailure
 import com.arkiv.player.data.gateway.GatewayResult
 import com.arkiv.player.playback.DituLive
-import com.arkiv.player.ui.columnasDeGrilla
+import com.arkiv.player.ui.gridColumns
 import com.arkiv.player.ui.components.EmptyState
 import com.arkiv.player.ui.components.PosterCard
-import com.arkiv.player.ui.esTabletHorizontal
+import com.arkiv.player.ui.isLandscapeTablet
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.search.PlaybackResult
 import com.arkiv.player.ui.search.SearchPlayback
@@ -270,7 +270,7 @@ private fun CaracolGrid(
         return
     }
     LazyVerticalGrid(
-        columns = GridCells.Fixed(columnasDeGrilla(3, esTabletHorizontal())),
+        columns = GridCells.Fixed(gridColumns(3, isLandscapeTablet())),
         contentPadding = contentPadding,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
