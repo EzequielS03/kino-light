@@ -457,9 +457,9 @@ private fun PlayerContent(
     val focos = rememberOverlayFocusPoints()
     // Carrusel de capítulos (TV): un paso más abajo desde la fila de íconos. Aparece con todos
     // los episodios de la serie en scroll horizontal, con el actual centrado y enfocado. Todo su
-    // estado y sus tres efectos viven en `PlayerCapitulos.kt`.
-    val estadoCapitulos = rememberEstadoDeCapitulos(graph.repository)
-    EfectosDeCapitulos(estadoCapitulos, episodeId, episodioEnCurso, isTv)
+    // estado y sus tres efectos viven en `ChapterCarousel.kt`.
+    val estadoCapitulos = rememberChaptersState(graph.repository)
+    ChaptersEffects(estadoCapitulos, episodeId, episodioEnCurso, isTv)
 
     // El CastPlayer vive en el AppGraph, no acá: liberarlo termina la sesión de Chromecast, así que
     // mientras fue de la pantalla, salir del reproductor mataba el casteo.
@@ -1949,7 +1949,7 @@ private fun PlayerContent(
         state = controles,
         playing = espejo.playing,
         marking = marcadores.marking,
-        carouselRevealed = estadoCapitulos.revelado,
+        carouselRevealed = estadoCapitulos.revealed,
     )
 
     // Este BackHandler se agrega ANTES que el de los controles (más abajo), y `OnBackPressedDispatcher`
@@ -1982,9 +1982,9 @@ private fun PlayerContent(
             runCatching { focos.bar.requestFocus() }
                 .onFailure { runCatching { focos.playPause.requestFocus() } }
         } else {
-            // Al ocultarse el overlay el carrusel deja de existir: si estadoCapitulos.revelado quedara en
+            // Al ocultarse el overlay el carrusel deja de existir: si estadoCapitulos.revealed quedara en
             // true, al reaparecer se mostraría ya abierto pero con el foco en el botón de play.
-            estadoCapitulos.ocultar()
+            estadoCapitulos.hide()
             runCatching { videoView?.requestFocus() }
         }
     }
@@ -3213,7 +3213,7 @@ private fun PlayerContent(
                             // que no cuesta una consulta nueva — y cuando no lo tenemos (aún no llegó
                             // del gateway, o es una fuente sin nombres) queda el número solo, como antes.
                             info.episodeLabel?.let { ep ->
-                                val nombre = estadoCapitulos.titulos[episodioEnCurso]?.takeIf { it.isNotBlank() }
+                                val nombre = estadoCapitulos.titles[episodioEnCurso]?.takeIf { it.isNotBlank() }
                                 Text(
                                     if (nombre != null) "$ep · $nombre" else ep,
                                     color = Color.White.copy(alpha = 0.75f),
@@ -3387,15 +3387,15 @@ private fun PlayerContent(
                                 .then(if (isTv) Modifier else Modifier.fillMaxWidth())
                                 .then(
                                 // Un paso más de ABAJO desde esta fila revela el carrusel de
-                                // capítulos (aún no existe en el árbol hasta que estadoCapitulos.revelado
+                                // capítulos (aún no existe en el árbol hasta que estadoCapitulos.revealed
                                 // es true, así que no se puede resolver con un focusProperties.down
                                 // normal — se intercepta la tecla acá y se dispara la revelación).
-                                if (!isTv || !estadoCapitulos.hayCarrusel) Modifier else Modifier.onKeyEvent { e ->
+                                if (!isTv || !estadoCapitulos.hasCarousel) Modifier else Modifier.onKeyEvent { e ->
                                     if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown) {
                                         // Cerrado: revelarlo (el LaunchedEffect mueve el foco al chip).
                                         // Ya abierto: bajar el foco al carrusel — antes caía en el
                                         // `down` del botón y no había forma de volver a entrar.
-                                        if (!estadoCapitulos.revelado) estadoCapitulos.revelar()
+                                        if (!estadoCapitulos.revealed) estadoCapitulos.reveal()
                                         else runCatching { estadoCapitulos.focusRequester.requestFocus() }
                                         true
                                     } else {
@@ -3629,12 +3629,12 @@ private fun PlayerContent(
                         // Carrusel de capítulos (TV, series con más de 1 episodio): un paso más
                         // abajo desde la fila de íconos. Todos los episodios en scroll horizontal,
                         // con el actual resaltado y centrado al aparecer.
-                        if (isTv && estadoCapitulos.hayCarrusel) {
-                            CarruselDeCapitulos(
-                                estado = estadoCapitulos,
-                                episodioEnCurso = episodioEnCurso,
-                                focoDeArriba = focos.playPause,
-                                onElegirEpisodio = onNextEpisode,
+                        if (isTv && estadoCapitulos.hasCarousel) {
+                            ChapterCarousel(
+                                state = estadoCapitulos,
+                                currentEpisode = episodioEnCurso,
+                                upFocus = focos.playPause,
+                                onChooseEpisode = onNextEpisode,
                             )
                         }
                     }
