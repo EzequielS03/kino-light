@@ -36,7 +36,7 @@ class ArkivApp : Application(), ImageLoaderFactory {
         // and falls back to the default -- it can never be a reason not to start.
         runCatching {
             graph.settings.migrarDelStoreDeCuentasViejo(this)
-        }.onFailure { reportar(it, "startup: migrate encrypted-store prefs") }
+        }.onFailure { report(it, "startup: migrate encrypted-store prefs") }
 
         // One-off purge from 2026-08-14: adult channels that stayed logged in "Recents" from
         // BEFORE `abrirCanalActual` stopped logging them. They were showing up in the home's
@@ -53,7 +53,7 @@ class ArkivApp : Application(), ImageLoaderFactory {
                     graph.settings.setRecientesPurgados(true)
                     android.util.Log.w("ArkivCuenta", "recent items purged (adult channel leak)")
                 }
-            }.onFailure { reportar(it, "startup: purge recents") }
+            }.onFailure { report(it, "startup: purge recents") }
         }
 
         graph.startNetworkMonitor()
@@ -69,7 +69,7 @@ class ArkivApp : Application(), ImageLoaderFactory {
             ).build(),
         )
         graph.applicationScope.launch {
-            runCatching { graph.checkForUpdate() }.onFailure { reportar(it, "startup: check for update") }
+            runCatching { graph.checkForUpdate() }.onFailure { report(it, "startup: check for update") }
         }
 
         // New episodes of the series you're watching. Runs in the background and blocks nothing:
@@ -78,7 +78,7 @@ class ArkivApp : Application(), ImageLoaderFactory {
         // does it), and checking every single time would waste network for nothing.
         graph.applicationScope.launch {
             runCatching { graph.lookForNewChapters() }
-                .onFailure { reportar(it, "startup: look for new episodes") }
+                .onFailure { report(it, "startup: look for new episodes") }
         }
     }
 
@@ -99,9 +99,9 @@ class ArkivApp : Application(), ImageLoaderFactory {
      * — but that also made them silent: if a sync never started, there was no trace of why.
      * Reporting doesn't change the isolation, it just leaves a record.
      */
-    private fun reportar(error: Throwable, etiqueta: String) {
-        android.util.Log.w("ArkivArranque", "$etiqueta: ${error.message}", error)
-        com.arkiv.player.crash.Crash.report(error, etiqueta)
+    private fun report(error: Throwable, label: String) {
+        android.util.Log.w("ArkivArranque", "$label: ${error.message}", error)
+        com.arkiv.player.crash.Crash.report(error, label)
     }
 
     override fun newImageLoader(): ImageLoader {
