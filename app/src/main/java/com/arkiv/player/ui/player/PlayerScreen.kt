@@ -363,7 +363,7 @@ private fun PlayerContent(
                     graph.liveController, graph.database.liveRecentDao(),
                     isTv = isTv,
                     source = graph.fuenteDeContenido,
-                    dituFuente = graph.dituFuente,
+                    dituSource = graph.dituSource,
                     hasMagisAccount = { graph.magisSession.hasAccountLinked },
                     triviaFacts = graph.datosCuriosos,
                 )

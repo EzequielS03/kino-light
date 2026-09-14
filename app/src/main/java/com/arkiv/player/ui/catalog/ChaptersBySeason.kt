@@ -12,7 +12,7 @@ import com.arkiv.player.data.gateway.GatewayEpisode
  * identical to T2's 1. With several seasons, each row states its own and the list goes by season
  * and then by number.
  *
- * With `season` null --Magis never sends it: `MagisFuente` doesn't pass it-- or with a single
+ * With `season` null --Magis never sends it: `MagisSource` doesn't pass it-- or with a single
  * season, everything stays as it was: the order it arrived in and the bare number.
  */
 object ChaptersBySeason {

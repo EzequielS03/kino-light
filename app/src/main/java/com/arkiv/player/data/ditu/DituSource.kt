@@ -26,7 +26,7 @@ import kotlinx.coroutines.flow.flowOn
  * [episodesWithSeries]). The images are Caracol's, which always has them; TMDB's only come in if
  * Caracol didn't bring any.
  */
-internal class DituFuente(
+internal class DituSource(
     private val catalog: DituCatalog,
     private val episodes: DituEpisodes,
     private val resolver: DituResolve,

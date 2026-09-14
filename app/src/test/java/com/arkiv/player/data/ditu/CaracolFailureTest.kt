@@ -15,7 +15,7 @@ import java.net.UnknownHostException
 /** That no technical Caracol error reaches the person raw. */
 class CaracolFailureTest {
 
-    /** How it reaches search and the player: `DituFuente` wraps `DituClient`'s, which wraps OkHttp's. */
+    /** How it reaches search and the player: `DituSource` wraps `DituClient`'s, which wraps OkHttp's. */
     private fun wrapped(cause: Throwable): Throwable {
         val fromClient = DituException("Caracol no responde: ${cause.message}", cause)
         return GatewayException(fromClient.message!!, fromClient)
@@ -70,7 +70,7 @@ class CaracolFailureTest {
         {"resultObj":{"containers":[{"entitlement":{"isGeoBlocked":true}}]}}
         """)
         val fromResolve = runCatching { DituResolve(fake).vod(DituRef("42", "VOD")) }.exceptionOrNull()!!
-        // As `DituFuente.resolve` wraps it.
+        // As `DituSource.resolve` wraps it.
         val e = GatewayException(fromResolve.message!!, fromResolve)
 
         assertEquals("Caracol: solo disponible en Colombia", e.message)

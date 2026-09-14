@@ -132,7 +132,7 @@ class RecommendationAggregator(
      *
      * Only [addFromMagis] calls this. A failure here is NOT terminal: the portal listing can fail
      * or come back empty, and an old row whose ref could not be read falls back to `Magis(rec.id)`,
-     * where `MagisFuente.episodesWithSeries` throws "ese ref no es de magis". Neither may leave
+     * where `MagisSource.episodesWithSeries` throws "ese ref no es de magis". Neither may leave
      * unsaved something that can still be played. [CancellationException] is rethrown: swallowing
      * it would keep running a coroutine its scope already considers dead.
      */

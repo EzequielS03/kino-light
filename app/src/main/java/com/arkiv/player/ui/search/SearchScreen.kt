@@ -374,7 +374,7 @@ fun SearchScreen(
     dituSeason?.let { caracolSeries ->
         com.arkiv.player.ui.catalog.MagisSeasonDialog(
             season = caracolSeries,
-            // The composite source: with a Caracol ref, `episodesWithSeries` reaches `DituFuente`.
+            // The composite source: with a Caracol ref, `episodesWithSeries` reaches `DituSource`.
             client = graph.fuenteDeContenido,
             onDismiss = { dituSeason = null },
             // Saves to the library every chapter the window already loaded, and plays the tapped one.

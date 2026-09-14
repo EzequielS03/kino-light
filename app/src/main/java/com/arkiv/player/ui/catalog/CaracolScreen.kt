@@ -45,7 +45,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.arkiv.player.data.ditu.DituChannel
-import com.arkiv.player.data.ditu.DituFuente
+import com.arkiv.player.data.ditu.DituSource
 import com.arkiv.player.data.ditu.DituItem
 import com.arkiv.player.data.ditu.CaracolFailure
 import com.arkiv.player.data.gateway.GatewayResult
@@ -73,7 +73,7 @@ private enum class CaracolSection(val label: String) {
  * The Caracol section on the phone: its catalog and its live channels.
  *
  * Same data as the TV screen ([com.arkiv.player.ui.tv.TvCaracolScreen]): the catalog is cached 6 h
- * by [DituFuente.fullCatalog] ("Recargar" forces it anyway), channels are fetched every time
+ * by [DituSource.fullCatalog] ("Recargar" forces it anyway), channels are fetched every time
  * the screen opens, and the series/movies split is the same [CaracolCatalog] the TV screen uses.
  *
  * Opening a title goes through the SAME path as search ([SearchPlayback], see
@@ -113,14 +113,14 @@ fun CaracolScreen(onPlay: (episodeId: String) -> Unit, contentPadding: PaddingVa
     LaunchedEffect(reloads) {
         loading = true
         // Each one fails on its own: missing channels can't leave the screen without a catalog.
-        runCatching { graph.dituFuente.fullCatalog(force = reloads > 0) }
+        runCatching { graph.dituSource.fullCatalog(force = reloads > 0) }
             .onSuccess { titles = it; catalogError = null }
             .onFailure {
                 // The detail goes to the log; on screen, in plain words.
                 android.util.Log.w("CaracolScreen", "catalog failed to load", it)
                 catalogError = CaracolFailure.onLoadCatalog(it)
             }
-        val channelsResult = runCatching { graph.dituFuente.channels() }
+        val channelsResult = runCatching { graph.dituSource.channels() }
         channelsResult.exceptionOrNull()
             ?.let { android.util.Log.w("CaracolScreen", "channels failed to load", it) }
         channels = ChannelsState.from(channelsResult)
@@ -138,7 +138,7 @@ fun CaracolScreen(onPlay: (episodeId: String) -> Unit, contentPadding: PaddingVa
     // Same as what search does with a Caracol result (SearchScreen.playDituResult).
     fun openTitle(item: DituItem) {
         if (preparing) return
-        val source = PlaySource.Ditu(DituFuente.resultFrom(item))
+        val source = PlaySource.Ditu(DituSource.resultFrom(item))
         if (source.isSeries()) {
             dituSeason = source.result
             return

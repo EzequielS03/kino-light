@@ -300,7 +300,7 @@ class SearchPlayback(private val graph: AppGraph) {
             posterUrl = season.extra["poster"].orEmpty().ifBlank { series?.posterUrl.orEmpty() },
             backdropUrl = series?.backdropUrl.orEmpty(),
             season = DituEntities.seasonForChapter(chapter, series),
-            // `DituFuente` leaves tmdbId at 0 when TMDB didn't find it: that 0 can't overwrite an
+            // `DituSource` leaves tmdbId at 0 when TMDB didn't find it: that 0 can't overwrite an
             // already-saved tmdbId.
             tmdbId = series?.tmdbId?.takeIf { it > 0 },
             // With no TMDB match, `GatewaySerie.title` is Caracol's name, not the canonical one.

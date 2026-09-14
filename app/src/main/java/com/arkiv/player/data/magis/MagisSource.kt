@@ -27,7 +27,7 @@ import org.json.JSONObject
  * What the gateway kept in Redis is kept in memory: it's lost when the process dies, which is fine
  * for a catalog and saves the portal's rate-limited calls while the app is alive.
  */
-internal class MagisFuente(
+internal class MagisSource(
     private val catalog: MagisCatalog,
     private val vodResolver: MagisResolve,
     private val tmdb: TmdbApi,

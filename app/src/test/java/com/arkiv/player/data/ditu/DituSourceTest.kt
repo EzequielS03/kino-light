@@ -13,14 +13,14 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class DituFuenteTest {
+class DituSourceTest {
 
     private fun source(fake: FakeDituClient, tmdb: com.arkiv.player.data.catalog.TmdbApi? = null) =
-        DituFuente(DituCatalog(fake), DituEpisodes(fake), DituResolve(fake), tmdb)
+        DituSource(DituCatalog(fake), DituEpisodes(fake), DituResolve(fake), tmdb)
 
     /** With the clock in the test's hand: the 6h expiry is tested without waiting 6h. */
     private fun withClock(fake: FakeDituClient, clock: () -> Long) =
-        DituFuente(DituCatalog(fake), DituEpisodes(fake), DituResolve(fake), nowMs = clock)
+        DituSource(DituCatalog(fake), DituEpisodes(fake), DituResolve(fake), nowMs = clock)
 
     private fun FakeDituClient.catalogRequests() = calls.count { it.first == DituCatalog.TRAY }
 

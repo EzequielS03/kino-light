@@ -201,7 +201,7 @@ fun liveErrorMessage(
         "No se pudo abrir $channelName"
     }
 
-// `internal constructor` because of [dituFuente]: its type is internal to the module, and a public
+// `internal constructor` because of [dituSource]: its type is internal to the module, and a public
 // constructor can't take it.
 class PlayerViewModel internal constructor(
     private val repo: ArkivRepository,
@@ -218,8 +218,8 @@ class PlayerViewModel internal constructor(
     // Sub-project 2A: what's playable comes from here, straight from the portal.
     private val source: com.arkiv.player.data.gateway.ContentSource,
     // Caracol apart from [source]: its live channels aren't part of the common contract (see
-    // `AppGraph.dituFuente`). [loadDitu] resolves them with `DituFuente.resolverCanal`.
-    private val dituFuente: com.arkiv.player.data.ditu.DituFuente,
+    // `AppGraph.dituSource`). [loadDitu] resolves them with `DituSource.resolveChannel`.
+    private val dituSource: com.arkiv.player.data.ditu.DituSource,
     /** Whether a Magis account is linked on this device. Only decides what the error says when a
      *  live channel doesn't open (see [liveErrorMessage]): live requires it, VOD doesn't. */
     private val hasMagisAccount: () -> Boolean = { false },
@@ -985,7 +985,7 @@ class PlayerViewModel internal constructor(
      * source it's from.
      *
      * A live channel ([DituLive.isLive]) has no library row or `ref`: the channel left by Caracol's
-     * section is resolved with `DituFuente.resolverCanal`, and goes through the same [DituState]
+     * section is resolved with `DituSource.resolveChannel`, and goes through the same [DituState]
      * guards as VOD. A reload ([onDituExoError]) comes back in through here with the same
      * `episodeId` and resolves the channel again: that's why [DituLive.take] doesn't empty it.
      *
@@ -1008,7 +1008,7 @@ class PlayerViewModel internal constructor(
         // requested while the ref was being read, this belongs to nobody. See [DituState].
         if (!ditu.isActive(episodeId)) return
         val resolver: suspend () -> com.arkiv.player.data.gateway.GatewayPlayable = when {
-            channel != null -> suspend { dituFuente.resolveChannel(channel) }
+            channel != null -> suspend { dituSource.resolveChannel(channel) }
             !ref.isNullOrBlank() -> suspend { source.resolve(ref) }
             else -> {
                 _error.value = if (live) "No se encontró el canal de Caracol" else "No se encontró la fuente de Caracol"

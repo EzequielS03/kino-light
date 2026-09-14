@@ -6,7 +6,7 @@ import com.arkiv.player.data.magis.MagisRef
 
 /**
  * A result's real `kind` ("movie" or "tv"), read from its own `ref` -not from the type that was
- * SEARCHED for-. Exists because of a measured bug: `MagisFuente` builds every result with
+ * SEARCHED for-. Exists because of a measured bug: `MagisSource` builds every result with
  * `kind = ctx.type`, so when searching a series every movie from Magis's pool reaches the referee
  * labeled "tv", and the prompt's rule "if I searched a series, a movie does NOT count" can never
  * apply. This fixes it before the referee sees the list.

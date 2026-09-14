@@ -2,7 +2,7 @@ package com.arkiv.player.data
 
 import com.arkiv.player.data.db.EpisodeEntity
 import com.arkiv.player.data.db.ItemEntity
-import com.arkiv.player.data.ditu.DituFuente
+import com.arkiv.player.data.ditu.DituSource
 import com.arkiv.player.data.ditu.DituRef
 import com.arkiv.player.data.gateway.GatewayEpisode
 import com.arkiv.player.data.gateway.GatewaySerie
@@ -84,7 +84,7 @@ object DituEntities {
 
     /**
      * The season a Caracol chapter is saved with: the chapter's own ([GatewayEpisode.season],
-     * which `DituFuente` fills in per chapter) and [series]'s only when that's missing.
+     * which `DituSource` fills in per chapter) and [series]'s only when that's missing.
      *
      * Order matters: in a `GROUP_OF_BUNDLES`, [series]'s season is a single value (season 1)
      * flattened across every season in the group, so if it won, season 2's chapter 1 would save
@@ -306,7 +306,7 @@ object DituEntities {
         thumbnailUrl = posterUrl.ifBlank { existing?.thumbnailUrl.orEmpty() },
         addedAt = existing?.addedAt ?: now,
         categoryOverride = if (isChapter) "series" else existing?.categoryOverride,
-        source = DituFuente.SOURCE,
+        source = DituSource.SOURCE,
         torrentData = if (isChapter) seriesRef else ref,
         episodiosVistosEnLista = episodiosVistosEnLista,
         // An absent tmdbId doesn't erase the one already saved, same as in Magis.

@@ -740,7 +740,7 @@ class ArkivRepository(
      * [DituEntities.itemContentId]): a ref that isn't Caracol's never ends up with a `ditu:` id.
      *
      * Doesn't carry [addMagisSeason]'s legacy bits (the per-chapter item sweep, the movie-shaped
-     * ghost episode, the stills): Caracol has no old rows in this branch, and `DituFuente` builds
+     * ghost episode, the stills): Caracol has no old rows in this branch, and `DituSource` builds
      * its chapters with no still.
      *
      * Null if nothing got saved, or if [chosen] didn't end up saved with its ref (see
@@ -753,7 +753,7 @@ class ArkivRepository(
         chosen: CaracolChapter,
         posterUrl: String = "",
         backdropUrl: String = "",
-        // `DituFuente` leaves tmdbId at 0 when TMDB didn't find it: the caller passes null so it
+        // `DituSource` leaves tmdbId at 0 when TMDB didn't find it: the caller passes null so it
         // doesn't overwrite one already saved.
         tmdbId: Int? = null,
         tituloCanonico: String? = null,

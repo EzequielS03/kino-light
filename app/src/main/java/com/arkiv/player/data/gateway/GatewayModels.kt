@@ -9,7 +9,7 @@ class GatewayException(message: String, cause: Throwable? = null) : RuntimeExcep
  * that. Keeping them was promising a filter nobody applies.
  *
  * [tmdbId] IS used, and not for filtering: that's where the ORIGINAL title comes from that ranks
- * what the portal returns (see `MagisFuente.formasDelTitulo`).
+ * what the portal returns (see `MagisSource.formasDelTitulo`).
  */
 data class GatewaySearchQuery(
     val q: String,
@@ -19,7 +19,7 @@ data class GatewaySearchQuery(
     val tmdbId: Int = 0,
 )
 
-/** A search result, built by the source (today `MagisFuente`) against what the portal returns. */
+/** A search result, built by the source (today `MagisSource`) against what the portal returns. */
 data class GatewayResult(
     val source: String,
     val title: String,
@@ -49,7 +49,7 @@ data class GatewayPlayable(
     val expiresAt: String = "",
     val fallbackUrl: String? = null,
     /** Tracks the stream carries. Today the only source that populates this field is Magis, which
-     *  sends them along with the play resolution (`MagisResolve.subtitulos`, see `MagisFuente`). */
+     *  sends them along with the play resolution (`MagisResolve.subtitulos`, see `MagisSource`). */
     val subtitles: List<GatewaySubtitle> = emptyList(),
     /**
      * Real duration in ms when the source knows it (0 = it doesn't).
@@ -86,7 +86,7 @@ data class GatewaySubtitle(val lang: String, val url: String, val format: String
 /**
  * A season's chapter (Magis's or Caracol's).
  *
- * [still], [tmdbTitle] and [overview] are added by `MagisFuente`, on the client itself, by
+ * [still], [tmdbTitle] and [overview] are added by `MagisSource`, on the client itself, by
  * crossing the IMDb id the portal publishes against TMDB: the portal has NO image or real name
  * per chapter (its per-chapter `posterList` always comes back empty). Optional on purpose -- if
  * TMDB didn't resolve, the chapter shows with [title], which is the portal's.
@@ -111,7 +111,7 @@ data class GatewayEpisode(
 )
 
 /**
- * The series a season belongs to, when `MagisFuente` was able to identify it (see its KDoc: it
+ * The series a season belongs to, when `MagisSource` was able to identify it (see its KDoc: it
  * travels whenever the portal gave an imdb, even if enrichment didn't come out).
  *
  * [title] is the name TMDB knows it by ("Neon Genesis Evangelion"), not the portal's ("Shin
@@ -133,7 +133,7 @@ data class GatewaySerie(
  * are explicit states, not absences.
  *
  * These events used to come as NDJSON from the gateway and `parseSearchEvent` built them; now
- * `MagisFuente` emits them directly, so that parser is gone (and with it the `Unknown` event,
+ * `MagisSource` emits them directly, so that parser is gone (and with it the `Unknown` event,
  * which existed to be able to ignore lines from a newer server).
  */
 sealed interface SearchEvent {
@@ -142,7 +142,7 @@ sealed interface SearchEvent {
     data class SourceDone(val source: String, val count: Int, val ms: Long) : SearchEvent
     /**
      * [cause] is the exception, when the source has it on hand: `CaracolFailure` needs it to tell
-     * the person what happened. `DituFuente` sends it; `MagisFuente` and `CompositeSource` don't.
+     * the person what happened. `DituSource` sends it; `MagisSource` and `CompositeSource` don't.
      */
     data class SourceError(
         val source: String,

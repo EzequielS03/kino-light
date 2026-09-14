@@ -40,7 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.arkiv.player.data.ditu.DituChannel
-import com.arkiv.player.data.ditu.DituFuente
+import com.arkiv.player.data.ditu.DituSource
 import com.arkiv.player.data.ditu.DituItem
 import com.arkiv.player.data.gateway.GatewayResult
 import com.arkiv.player.playback.DituLive
@@ -60,12 +60,12 @@ import kotlinx.coroutines.launch
 /**
  * Caracol's section on the TV: its catalog and its live channels.
  *
- * The catalog is cached by [DituFuente.fullCatalog] for 6h; "Recargar" requests it even if it
+ * The catalog is cached by [DituSource.fullCatalog] for 6h; "Recargar" requests it even if it
  * hasn't expired, for when Caracol adds something. Channels are requested every time it's
  * entered.
  *
  * Opening a title goes through the SAME path as search (`playResult` from [TvSearchScreen]), not
- * its own: [DituFuente.resultFrom] turns it into the same result search gives, a movie gets saved
+ * its own: [DituSource.resultFrom] turns it into the same result search gives, a movie gets saved
  * and opened with [SearchPlayback.playDitu], and a series opens [TvCaracolChapters], which on
  * tapping a chapter saves the whole series. Both save with a `ditu:` id: the movie via
  * `ArkivRepository.addDituSource`, the series via `ArkivRepository.addDituSeason`.
@@ -97,7 +97,7 @@ internal fun TvCaracolScreen(onPlay: (episodeId: String) -> Unit) {
     LaunchedEffect(reloads) {
         loading = true
         // Each thing fails on its own: no channels can't leave the screen without a catalog.
-        runCatching { graph.dituFuente.fullCatalog(force = reloads > 0) }
+        runCatching { graph.dituSource.fullCatalog(force = reloads > 0) }
             .onSuccess { titles = it; error = null }
             .onFailure {
                 // The detail goes to the log; on screen, in plain words.
@@ -106,7 +106,7 @@ internal fun TvCaracolScreen(onPlay: (episodeId: String) -> Unit) {
                 notice = error
             }
         // If it fails, it's said in the tab: it can't look the same as "no channels".
-        val channelsResult = runCatching { graph.dituFuente.channels() }
+        val channelsResult = runCatching { graph.dituSource.channels() }
         channelsResult.exceptionOrNull()?.let { android.util.Log.w("TvCaracol", "channels failed to load", it) }
         channels = ChannelsState.from(channelsResult)
         loading = false
@@ -123,7 +123,7 @@ internal fun TvCaracolScreen(onPlay: (episodeId: String) -> Unit) {
     // Same as what search does with a Caracol result.
     fun openTitle(item: DituItem) {
         if (preparing) return
-        val source = PlaySource.Ditu(DituFuente.resultFrom(item))
+        val source = PlaySource.Ditu(DituSource.resultFrom(item))
         if (source.isSeries()) {
             openSeries = source.result
             return

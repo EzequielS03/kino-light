@@ -1276,7 +1276,7 @@ internal fun TvCaracolChapters(
     val playback = remember { SearchPlayback(graph) }
     TvMagisSeasonContent(
         season = series,
-        // The composed source: with a Caracol ref, `episodesWithSeries` reaches `DituFuente`.
+        // The composed source: with a Caracol ref, `episodesWithSeries` reaches `DituSource`.
         client = graph.fuenteDeContenido,
         posterUrl = posterUrl,
         preparing = preparing,

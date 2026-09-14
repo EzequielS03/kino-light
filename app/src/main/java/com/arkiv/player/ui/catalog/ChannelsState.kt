@@ -4,7 +4,7 @@ import com.arkiv.player.data.ditu.DituChannel
 import com.arkiv.player.data.ditu.CaracolFailure
 
 /**
- * What the Caracol "En vivo" tab shows, built from the `DituFuente.canales` call. Shared by the TV
+ * What the Caracol "En vivo" tab shows, built from the `DituSource.canales` call. Shared by the TV
  * screen (`com.arkiv.player.ui.tv.TvCaracolScreen`) and the phone one ([CaracolScreen]).
  *
  * Exists so a failure does NOT look like "no channels": if Caracol or the network fails, the tab

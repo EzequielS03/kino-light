@@ -112,7 +112,7 @@ class NewChapterFinder(
 
     /**
      * Caracol chapters, the same shape as [checkMagis] but season-aware: `gateway.episodesWithSeries`
-     * (routed to `DituFuente` by `CompositeSource`, since [ref] is a Caracol ref) lists what's on
+     * (routed to `DituSource` by `CompositeSource`, since [ref] is a Caracol ref) lists what's on
      * the source today, and [MissingChapters.toFetchBySeason] decides what's actually new.
      *
      * Season-aware on purpose, unlike [checkMagis]'s plain [MissingChapters.toFetch]: Caracol

@@ -5,8 +5,8 @@ import com.arkiv.player.ui.catalog.PlaySource
 /**
  * Translates a search result into the model the screen already uses.
  *
- * `source` is set by the two search sources: `MagisFuente` (com.arkiv.player.data.magis) with
- * `"magis"` and `DituFuente` (com.arkiv.player.data.ditu) with `"ditu"`. Any other value returns
+ * `source` is set by the two search sources: `MagisSource` (com.arkiv.player.data.magis) with
+ * `"magis"` and `DituSource` (com.arkiv.player.data.ditu) with `"ditu"`. Any other value returns
  * `null`: this APK wouldn't know what to do with it.
  *
  * The magnet and the page URL are NOT filled in: everything is resolved at playback time, from

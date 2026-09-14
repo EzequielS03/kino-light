@@ -1,6 +1,6 @@
 package com.arkiv.player.data.nuevos
 
-import com.arkiv.player.data.ditu.DituFuente
+import com.arkiv.player.data.ditu.DituSource
 
 /**
  * A library series with just enough to decide whether it's worth checking.
@@ -48,7 +48,7 @@ object SeriesToCheck {
      * branch's pruning and are left out on purpose: keeping them here only cost a real series a
      * slot, since `NewChapterFinder` no-ops on both. Torrent stays out too (see the spec).
      */
-    private val SOURCES = setOf("magis", DituFuente.SOURCE)
+    private val SOURCES = setOf("magis", DituSource.SOURCE)
 
     fun choose(candidates: List<SeriesCandidate>, nowMs: Long): List<SeriesCandidate> {
         val floor = nowMs - WINDOW_DAYS * DAY_MS

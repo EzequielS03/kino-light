@@ -144,8 +144,8 @@ class AppGraph(context: Context) {
     }
 
     /** Los títulos de Magis, directo del portal. Afuera solo se ve a través de [fuenteDeContenido]. */
-    private val magisFuente: com.arkiv.player.data.gateway.ContentSource by lazy {
-        com.arkiv.player.data.magis.MagisFuente(
+    private val magisSource: com.arkiv.player.data.gateway.ContentSource by lazy {
+        com.arkiv.player.data.magis.MagisSource(
             catalog = magisCatalog,
             vodResolver = com.arkiv.player.data.magis.MagisResolve(magisPortal, magisSession),
             tmdb = tmdbApi,
@@ -163,8 +163,8 @@ class AppGraph(context: Context) {
 
     /** Caracol como fuente de títulos. `internal` además de estar dentro de [fuenteDeContenido]:
      *  los canales y el catálogo completo no son parte del contrato común. */
-    internal val dituFuente: com.arkiv.player.data.ditu.DituFuente by lazy {
-        com.arkiv.player.data.ditu.DituFuente(
+    internal val dituSource: com.arkiv.player.data.ditu.DituSource by lazy {
+        com.arkiv.player.data.ditu.DituSource(
             catalog = com.arkiv.player.data.ditu.DituCatalog(dituClient),
             episodes = com.arkiv.player.data.ditu.DituEpisodes(dituClient),
             resolver = com.arkiv.player.data.ditu.DituResolve(dituClient),
@@ -178,7 +178,7 @@ class AppGraph(context: Context) {
      * suyos); para buscar, mezcla las dos. Ver [com.arkiv.player.data.gateway.CompositeSource].
      */
     val fuenteDeContenido: com.arkiv.player.data.gateway.ContentSource by lazy {
-        com.arkiv.player.data.gateway.CompositeSource(listOf(magisFuente, dituFuente))
+        com.arkiv.player.data.gateway.CompositeSource(listOf(magisSource, dituSource))
     }
 
     internal val magisLive: com.arkiv.player.data.magis.MagisLive by lazy {

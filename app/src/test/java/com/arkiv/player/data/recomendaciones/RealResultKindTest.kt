@@ -6,7 +6,7 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * `MagisFuente` builds every result with `kind = ctx.type` (the SEARCHED type, not the item's): when
+ * `MagisSource` builds every result with `kind = ctx.type` (the SEARCHED type, not the item's): when
  * searching a series, movies from Magis's pool arrive labeled "tv". [realKindOfRef] reads the real
  * `kind` from the ref itself, before the referee sees the list.
  */

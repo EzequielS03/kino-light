@@ -72,7 +72,7 @@ fun accentOf(source: PlaySource): Color = when (source) {
 
 /**
  * Whether a Caracol result is a series --a chapter has to be chosen before playing-- or a movie.
- * `DituFuente` sets `kind = "series"` on everything that isn't a `VOD` (a `BUNDLE` or a
+ * `DituSource` sets `kind = "series"` on everything that isn't a `VOD` (a `BUNDLE` or a
  * `GROUP_OF_BUNDLES`). A single rule for the phone and the TV.
  */
 fun PlaySource.Ditu.isSeries(): Boolean = result.kind == "series"

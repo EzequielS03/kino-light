@@ -38,7 +38,7 @@ internal object CaracolFailure {
     }
 
     /**
-     * What happened per [error] and its whole cause chain: `DituFuente` wraps `DituClient`'s in a
+     * What happened per [error] and its whole cause chain: `DituSource` wraps `DituClient`'s in a
      * `GatewayException`, and `DituClient` wraps OkHttp's in a [DituException], so what says what
      * happened is usually a couple of causes down.
      *

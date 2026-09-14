@@ -20,7 +20,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
-class MagisFuenteTest {
+class MagisSourceTest {
 
     private lateinit var tmdbServer: MockWebServer
     private val tmdbResponses = mutableMapOf<String, String>()
@@ -52,9 +52,9 @@ class MagisFuenteTest {
         client = OkHttpClient(),
     )
 
-    private fun magisSource(fake: FakePortalClient): MagisFuente {
+    private fun magisSource(fake: FakePortalClient): MagisSource {
         val session = testSession(fake)
-        return MagisFuente(MagisCatalog(fake, session), MagisResolve(fake, session), tmdb())
+        return MagisSource(MagisCatalog(fake, session), MagisResolve(fake, session), tmdb())
     }
 
     private fun portalSearch(vararg items: String) = MagisResult.Ok(
