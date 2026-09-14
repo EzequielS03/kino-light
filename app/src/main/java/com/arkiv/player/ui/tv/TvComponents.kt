@@ -41,15 +41,15 @@ import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 
 /**
- * Deja que el foco SALGA de un campo de texto con el D-pad.
+ * Lets focus LEAVE a text field with the D-pad.
  *
- * Los `TextField` de Compose (foundation, no tv-material3) consumen arriba/abajo porque los usan
- * para mover el cursor entre líneas. En el celular no molesta —se toca el siguiente campo— pero en
- * el TV el único modo de moverse es el D-pad, así que una vez que el foco entra a un campo ya no
- * sale: en Ajustes no se podía pasar del email a la contraseña ni bajar a "Iniciar sesión".
+ * Compose's `TextField`s (foundation, not tv-material3) consume up/down because they use them to
+ * move the cursor between lines. On the phone that doesn't get in the way -you tap the next
+ * field- but on TV the only way to move is the D-pad, so once focus enters a field it never
+ * leaves: in Settings you couldn't get from email to password or down to "Log in".
  *
- * `onPreviewKeyEvent` ve la tecla ANTES que el campo, así que movemos el foco a mano. Si no hay a
- * dónde moverse devolvemos `false` y el evento sigue su curso normal hacia el campo.
+ * `onPreviewKeyEvent` sees the key BEFORE the field, so we move focus by hand. If there's nowhere
+ * to move to we return `false` and the event follows its normal course into the field.
  */
 @Composable
 fun Modifier.dpadFocusEscape(): Modifier {
@@ -84,7 +84,7 @@ private fun CardPlaceholder() {
     }
 }
 
-/** Tarjeta apaisada (16:9) con arte a pantalla completa, badge y título superpuesto. Altura fija. */
+/** Landscape card (16:9) with full-bleed art, badge, and overlaid title. Fixed height. */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TvLandscapeCard(
@@ -96,10 +96,10 @@ fun TvLandscapeCard(
     badgeColor: Color = ArkivRed,
     episodeCountLabel: String? = null,
     /**
-     * Capítulos nuevos desde la última vez que se abrió el detalle. 0 = no se pinta nada.
-     * Ver [com.arkiv.player.data.nuevos.NewEpisodeCounter].
+     * New chapters since the last time the detail was opened. 0 = nothing is drawn.
+     * See [com.arkiv.player.data.nuevos.NewEpisodeCounter].
      */
-    nuevos: Int = 0,
+    newEpisodes: Int = 0,
     onFocus: () -> Unit = {},
     onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit,
@@ -130,7 +130,7 @@ fun TvLandscapeCard(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
-            // Sin título sobrepuesto: el nombre del contenido se ve arriba en el hero al enfocar.
+            // No overlaid title: the content's name shows up top in the hero on focus.
             if (badge != null) {
                 Text(
                     text = badge,
@@ -159,13 +159,13 @@ fun TvLandscapeCard(
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }
-            // Novedades. Va abajo a la derecha —y no arriba— porque arriba ya conviven el badge de
-            // fuente y el conteo de episodios: una tercera etiqueta ahí tapaba el arte justo donde
-            // suele estar la cara del póster. En rojo para que se distinga de los otros dos, que
-            // son informativos y grises.
-            if (nuevos > 0) {
+            // New episodes. Goes bottom-right -and not top- because up top the source badge and
+            // the episode count already coexist: a third label there would cover the art right
+            // where the poster's face usually is. In red so it stands out from the other two,
+            // which are informational and gray.
+            if (newEpisodes > 0) {
                 Text(
-                    text = "+$nuevos",
+                    text = "+$newEpisodes",
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.White,
                     maxLines = 1,
@@ -181,7 +181,7 @@ fun TvLandscapeCard(
     }
 }
 
-/** Miniatura apaisada (16:9) con el nombre superpuesto y barra de progreso. Estilo Netflix. */
+/** Landscape thumbnail (16:9) with the name overlaid and a progress bar. Netflix style. */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TvWideCard(
@@ -218,8 +218,8 @@ fun TvWideCard(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
-            // Sin texto sobrepuesto: el nombre se ve arriba en el hero al enfocar.
-            // Barra de progreso en el borde inferior.
+            // No overlaid text: the name shows up top in the hero on focus.
+            // Progress bar on the bottom edge.
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
