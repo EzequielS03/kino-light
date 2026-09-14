@@ -27,27 +27,28 @@ import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 
 /**
- * Las variantes del teclado extendido. MAYUS/MINUS/SIMBOLOS son las tres de Task 9 (login de la
- * TV), elegibles a mano con la fila de modos que arma [tvKeyboardRows]. La búsqueda (único
- * consumidor de [TV_KEYBOARD_ROWS]) no necesita ninguna de las tres -sigue con mayúsculas fijas-.
+ * The extended keyboard's variants. UPPER/LOWER/SYMBOLS are the three from Task 9 (TV login),
+ * pickable by hand with the mode row [tvKeyboardRows] builds. Search (the only consumer of
+ * [TV_KEYBOARD_ROWS]) doesn't need any of the three -it stays with fixed uppercase-.
  */
-enum class TvKeyboardMode { MAYUS, MINUS, SIMBOLOS }
+enum class TvKeyboardMode { UPPER, LOWER, SYMBOLS }
 
-/** Una tecla del teclado en pantalla del TV. */
+/** A key on the TV's on-screen keyboard. */
 sealed interface TvKey {
     data class Char(val c: kotlin.Char) : TvKey
     data object Space : TvKey
     data object Backspace : TvKey
 
-    /** Cambia de variante (mayús/minús/símbolos). NO toca el texto -[applyKey] la ignora-, la
-     *  interpreta quien arma la grilla ([tvKeyboardRows]) y quien escucha `onModo` en [TvKeyboard]. */
-    data class Modo(val modo: TvKeyboardMode) : TvKey
+    /** Switches variant (upper/lower/symbols). Does NOT touch the text -[applyKey] ignores it-,
+     *  it's interpreted by whoever builds the grid ([tvKeyboardRows]) and whoever listens to
+     *  `onMode` in [TvKeyboard]. */
+    data class Mode(val mode: TvKeyboardMode) : TvKey
 }
 
-/** Grilla alfabética estilo Amazon: A-Z y 0-9 en 6 columnas, con espacio/borrar al final.
- *  Consumida hoy solo por la búsqueda del TV -mayúsculas sin símbolos, que es lo que necesita-, así
- *  que se deja intacta a propósito (Task 9): cambiar su forma es innecesario y arriesga el único
- *  camino que ya tiene tests y un consumidor real. El teclado extendido vive aparte, en
+/** Amazon-style alphabetic grid: A-Z and 0-9 in 6 columns, with space/backspace at the end.
+ *  Today consumed only by the TV's search -uppercase with no symbols, which is all it needs-, so
+ *  it's left intact on purpose (Task 9): changing its shape is unnecessary and risks the only
+ *  path that already has tests and a real consumer. The extended keyboard lives separately, in
  *  [tvKeyboardRows]. */
 val TV_KEYBOARD_ROWS: List<List<TvKey>> = buildList {
     val chars = (('A'..'Z') + ('0'..'9')).map { TvKey.Char(it) }
@@ -56,111 +57,113 @@ val TV_KEYBOARD_ROWS: List<List<TvKey>> = buildList {
 }
 
 /**
- * Símbolos del teclado extendido: 18 de los 32 signos de puntuación ASCII (sin la barra, que ya
- * tiene su propia tecla). Se dejaron afuera 14 a propósito, todos por el mismo motivo que el
- * alfabeto de la licencia ya resolvió (`ALFABETO` en `licencias/codigo.py`, sin 0/O/1/I/L): a la
- * distancia de un sofá y con la tipografía chica de una grilla de TV, cuestan más de lo que aportan.
- * - `" ' ``` (comilla doble, simple y acento grave): casi indistinguibles entre sí y de la coma.
- * - `,` : visualmente parecida al apóstrofo y aporta poco que `.` no cubra ya en una contraseña.
- * - `< >` : se leen como flechas de dirección en una pantalla que se navega con D-pad.
- * - `[ ] { }` : dos pares de corchetes parecidos entre sí, raros en contraseñas reales.
- * - `^ ~` : uso rarísimo en contraseñas típicas, fáciles de confundir con `-`/`=` en chico.
- * - `| \` : casi indistinguibles de `/` y de `l`/`1`/`I` -la misma ambigüedad que el alfabeto de
- *   licencia ya evita, acá aplicada a símbolos-.
- * Lo que queda cubre lo que pide el brief (`@` y `.` del email, `-` de la licencia) más la
- * puntuación más común en contraseñas generadas: `! # $ % & ( ) * + = ? _ : ;`.
+ * Extended keyboard's symbols: 18 of the 32 ASCII punctuation signs (without the slash, which
+ * already has its own key). 14 were left out on purpose, all for the same reason the license's
+ * alphabet already solved (`ALFABETO` in `licencias/codigo.py`, without 0/O/1/I/L): at sofa
+ * distance and with a TV grid's small typography, they cost more than they're worth.
+ * - `" ' ``` (double quote, single quote, and backtick): nearly indistinguishable from each other
+ *   and from the comma.
+ * - `,`: visually similar to the apostrophe and adds little that `.` doesn't already cover in a
+ *   password.
+ * - `< >`: read as direction arrows on a screen navigated with the D-pad.
+ * - `[ ] { }`: two pairs of brackets similar to each other, rare in real passwords.
+ * - `^ ~`: very rare use in typical passwords, easy to confuse with `-`/`=` at small size.
+ * - `| \`: nearly indistinguishable from `/` and from `l`/`1`/`I` -the same ambiguity the
+ *   license's alphabet already avoids, applied here to symbols-.
+ * What's left covers what the brief asks for (`@` and `.` for email, `-` for the license) plus
+ * the most common punctuation in generated passwords: `! # $ % & ( ) * + = ? _ : ;`.
  */
-private val SIMBOLOS_TV: List<kotlin.Char> = listOf(
+private val TV_SYMBOLS: List<kotlin.Char> = listOf(
     '@', '.', '-', '_', '!', '?', '#', '$', '%', '&', '*', '(', ')', '+', '=', ':', ';', '/',
 )
 
 /**
- * Grilla del teclado extendido (Task 9): mayúsculas, minúsculas o símbolos según [modo], más una
- * fila para cambiar de variante y la de espacio/borrar de siempre. Separada de [TV_KEYBOARD_ROWS]
- * para no arriesgar el contrato que ya usa la búsqueda (ver su comentario).
+ * Extended keyboard's grid (Task 9): uppercase, lowercase, or symbols depending on [mode], plus a
+ * row to switch variant and the usual space/backspace one. Kept separate from
+ * [TV_KEYBOARD_ROWS] to avoid risking the contract search already uses (see its comment).
  */
 fun tvKeyboardRows(
-    modo: TvKeyboardMode,
+    mode: TvKeyboardMode,
     /**
-     * Teclas que se suman a la grilla de letras, sin cambiar de capa.
+     * Keys added to the letter grid, without switching layer.
      *
-     * Existe para el campo de email: `@` y `.` estan en TODAS las direcciones, y mandar a la
-     * persona a la capa de simbolos y de vuelta por cada una son cuatro pulsaciones de control
-     * remoto que no hacen falta. Es la misma idea que un teclado de telefono, que muestra la
-     * arroba cuando el campo es un email.
+     * Exists for the email field: `@` and `.` are needed in EVERY direction, and sending the
+     * person to the symbols layer and back for each one is four unnecessary remote presses.
+     * Same idea as a phone keyboard, which shows the at-sign when the field is an email.
      */
     extras: List<kotlin.Char> = emptyList(),
 ): List<List<TvKey>> = buildList {
-    val base: List<kotlin.Char> = when (modo) {
-        TvKeyboardMode.MAYUS -> ('A'..'Z') + ('0'..'9')
-        TvKeyboardMode.MINUS -> ('a'..'z') + ('0'..'9')
-        TvKeyboardMode.SIMBOLOS -> SIMBOLOS_TV
+    val base: List<kotlin.Char> = when (mode) {
+        TvKeyboardMode.UPPER -> ('A'..'Z') + ('0'..'9')
+        TvKeyboardMode.LOWER -> ('a'..'z') + ('0'..'9')
+        TvKeyboardMode.SYMBOLS -> TV_SYMBOLS
     }
-    // Los extras no se repiten si la capa ya los trae (la de simbolos incluye @ y .).
+    // The extras aren't repeated if the layer already has them (the symbols one includes @ and .).
     val chars: List<TvKey> = (base + extras.filterNot { it in base }).map { TvKey.Char(it) }
     chars.chunked(6).forEach { add(it) }
     add(
         listOf(
-            TvKey.Modo(TvKeyboardMode.MAYUS),
-            TvKey.Modo(TvKeyboardMode.MINUS),
-            TvKey.Modo(TvKeyboardMode.SIMBOLOS),
+            TvKey.Mode(TvKeyboardMode.UPPER),
+            TvKey.Mode(TvKeyboardMode.LOWER),
+            TvKey.Mode(TvKeyboardMode.SYMBOLS),
         ),
     )
     add(listOf(TvKey.Space, TvKey.Backspace))
 }
 
-/** Reductor puro del texto escrito con el control. Una tecla de [TvKey.Modo] no lo toca: solo
- *  cambia qué grilla se ve, y eso lo maneja quien arma [tvKeyboardRows], no este reductor. */
+/** Pure reducer of the text typed with the remote. A [TvKey.Mode] key doesn't touch it: it only
+ *  changes which grid is shown, and that's handled by whoever builds [tvKeyboardRows], not this
+ *  reducer. */
 fun applyKey(text: String, key: TvKey): String = when (key) {
     is TvKey.Char -> text + key.c
     TvKey.Space -> "$text "
     TvKey.Backspace -> text.dropLast(1)
-    is TvKey.Modo -> text
+    is TvKey.Mode -> text
 }
 
-/** Etiqueta visible de una tecla. */
+/** A key's visible label. */
 private fun TvKey.label(): String = when (this) {
     is TvKey.Char -> c.toString()
     TvKey.Space -> "␣"
     TvKey.Backspace -> "⌫"
-    is TvKey.Modo -> when (modo) {
-        TvKeyboardMode.MAYUS -> "ABC"
-        TvKeyboardMode.MINUS -> "abc"
-        TvKeyboardMode.SIMBOLOS -> "#+="
+    is TvKey.Mode -> when (mode) {
+        TvKeyboardMode.UPPER -> "ABC"
+        TvKeyboardMode.LOWER -> "abc"
+        TvKeyboardMode.SYMBOLS -> "#+="
     }
 }
 
-/** Descripción accesible de una tecla. */
+/** A key's accessible description. */
 private fun TvKey.contentDescription(): String = when (this) {
     is TvKey.Char -> c.toString()
     TvKey.Space -> "Espacio"
     TvKey.Backspace -> "Borrar"
-    is TvKey.Modo -> when (modo) {
-        TvKeyboardMode.MAYUS -> "Mayúsculas"
-        TvKeyboardMode.MINUS -> "Minúsculas"
-        TvKeyboardMode.SIMBOLOS -> "Símbolos"
+    is TvKey.Mode -> when (mode) {
+        TvKeyboardMode.UPPER -> "Mayúsculas"
+        TvKeyboardMode.LOWER -> "Minúsculas"
+        TvKeyboardMode.SYMBOLS -> "Símbolos"
     }
 }
 
-/** Cuántas columnas de la grilla de 6 ocupa una tecla. Reemplaza el switch que antes vivía inline
- *  en el composable: una tecla nueva declara su ancho acá, sin tocar el layout compartido con la
- *  búsqueda. Los anchos de [TvKey.Space]/[TvKey.Backspace] son los de siempre (4+2=6, sin cambios
- *  de comportamiento); [TvKey.Modo] usa el mismo ancho que [TvKey.Backspace] porque la fila de
- *  modos son tres teclas iguales (2+2+2=6). */
+/** How many columns of the 6-wide grid a key occupies. Replaces the switch that used to live
+ *  inline in the composable: a new key declares its width here, without touching the layout
+ *  shared with search. [TvKey.Space]/[TvKey.Backspace]'s widths are the usual ones (4+2=6, no
+ *  behavior change); [TvKey.Mode] uses the same width as [TvKey.Backspace] because the mode row
+ *  is three equal keys (2+2+2=6). */
 private fun TvKey.columnSpan(): Int = when (this) {
     is TvKey.Char -> 1
     TvKey.Space -> 4
     TvKey.Backspace -> 2
-    is TvKey.Modo -> 2
+    is TvKey.Mode -> 2
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 /**
- * Teclado en pantalla navegable con D-pad: grilla de [rows] que escribe sobre [text].
+ * On-screen keyboard navigable with the D-pad: a grid of [rows] that writes onto [text].
  *
- * [rows] default a [TV_KEYBOARD_ROWS] a propósito -así la búsqueda, que llama a `TvKeyboard(...)`
- * sin nombrar `rows`, sigue viendo exactamente la misma grilla de siempre (Task 9)-. El formulario
- * de login pasa [tvKeyboardRows] con la variante que corresponda y escucha [onModo] para cambiarla.
+ * [rows] defaults to [TV_KEYBOARD_ROWS] on purpose -so search, which calls `TvKeyboard(...)`
+ * without naming `rows`, keeps seeing exactly the same grid as always (Task 9)-. The login form
+ * passes [tvKeyboardRows] with the matching variant and listens to [onMode] to switch it.
  */
 @Composable
 fun TvKeyboard(
@@ -169,46 +172,48 @@ fun TvKeyboard(
     modifier: Modifier = Modifier,
     firstKeyFocus: FocusRequester? = null,
     rows: List<List<TvKey>> = TV_KEYBOARD_ROWS,
-    /** Se dispara con una tecla [TvKey.Modo]: cambiar de variante es decisión de quien llama (es
-     *  quien tiene el estado de qué variante está activa), no de este composable. `null` -el
-     *  default, y lo que usa la búsqueda- porque [TV_KEYBOARD_ROWS] nunca trae teclas de modo. */
-    onModo: ((TvKeyboardMode) -> Unit)? = null,
+    /** Fired with a [TvKey.Mode] key: switching variant is the caller's decision (it's the one
+     *  holding the state of which variant is active), not this composable's. `null` -the
+     *  default, and what search uses- because [TV_KEYBOARD_ROWS] never carries mode keys. */
+    onMode: ((TvKeyboardMode) -> Unit)? = null,
 ) {
     val gap = 8.dp
     BoxWithConstraints(modifier) {
-        // El tamaño de tecla se deriva del ancho real (6 columnas + 5 separaciones): así entran
-        // siempre las 6 columnas, sin cortar la última (F, L, R, X, 3, 9), mida lo que mida.
+        // Key size is derived from the real width (6 columns + 5 gaps): that way all 6 columns
+        // always fit, without clipping the last one (F, L, R, X, 3, 9), whatever the width is.
         //
-        // ...pero el ancho solo no alcanza: con una columna generosa, esa cuenta daba teclas tan
-        // altas que las últimas filas -las de modo, el espacio y el borrar- quedaban FUERA DE
-        // PANTALLA. Visto en un Google TV Stick de 1920x1080 a 320dpi, o sea 960x540 dp: seis
-        // columnas de 106 dp pedían 850 dp de alto y solo había 540.
+        // ...but width alone isn't enough: with a generous column, that math gave keys so tall
+        // that the last rows -the mode one, space, and backspace- ended up OFF SCREEN. Seen on a
+        // Google TV Stick at 1920x1080 at 320dpi, i.e. 960x540 dp: six 106 dp columns needed
+        // 850 dp of height and there were only 540.
         //
-        // Por eso se toma el MENOR de los dos: el que da el ancho y el que da el alto disponible
-        // repartido entre las filas que hay que dibujar. Así el teclado entra entero siempre, y en
-        // una pantalla ancha y baja simplemente no usa todo el ancho que podría.
-        val porAncho = (maxWidth - gap * 5) / 6
-        val porAlto = (maxHeight - gap * (rows.size - 1)) / rows.size
-        val keySize = minOf(porAncho, porAlto)
+        // That's why the SMALLER of the two is used: the one width gives and the one the
+        // available height gives split across the rows to draw. That way the keyboard always
+        // fits entirely, and on a wide, short screen it simply doesn't use all the width it could.
+        val byWidth = (maxWidth - gap * 5) / 6
+        val byHeight = (maxHeight - gap * (rows.size - 1)) / rows.size
+        val keySize = minOf(byWidth, byHeight)
         Column(verticalArrangement = Arrangement.spacedBy(gap)) {
             rows.forEachIndexed { rowIndex, row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
                     row.forEachIndexed { colIndex, key ->
                         val isFirstKey = rowIndex == 0 && colIndex == 0
-                        // Espacio y borrar son más anchos (ocupan varias columnas) pero del MISMO
-                        // alto que el resto. Con weight + aspectRatio quedaban gigantes: esa fila
-                        // tiene solo 2 teclas, se repartían todo el ancho y el alto seguía al ancho.
+                        // Space and backspace are wider (span several columns) but the SAME
+                        // height as the rest. With weight + aspectRatio they came out huge: that
+                        // row only has 2 keys, they split the whole width and height followed
+                        // width.
                         val span = key.columnSpan()
                         val keyWidth = keySize * span + gap * (span - 1)
-                        // Tecla oscura como el resto de la app; la enfocada se pinta de rojo Arkiv
-                        // (se distingue de lejos mucho mejor que un cambio de brillo).
+                        // Key is dark like the rest of the app; the focused one paints Arkiv red
+                        // (stands out from a distance much better than a brightness change).
                         Surface(
                             onClick = {
-                                // Modo no toca el texto (ver applyKey): solo avisa que cambie de
-                                // grilla. Si nadie escucha onModo (la búsqueda, vía el default) esta
-                                // tecla nunca aparece -TV_KEYBOARD_ROWS no la incluye-, así que la
-                                // rama de abajo no cambia nada para ese consumidor.
-                                if (key is TvKey.Modo) onModo?.invoke(key.modo) else onTextChange(applyKey(text, key))
+                                // Mode doesn't touch the text (see applyKey): it only signals a
+                                // grid switch. If nobody listens to onMode (search, via the
+                                // default) this key never shows up -TV_KEYBOARD_ROWS doesn't
+                                // include it-, so the branch below changes nothing for that
+                                // consumer.
+                                if (key is TvKey.Mode) onMode?.invoke(key.mode) else onTextChange(applyKey(text, key))
                             },
                             modifier = Modifier
                                 .width(keyWidth)

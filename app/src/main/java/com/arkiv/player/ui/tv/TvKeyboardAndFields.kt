@@ -134,7 +134,7 @@ fun TvKeyboardAndFields(
                     // The extras (e.g. `@`/`.` for email) are decided by the caller, based on
                     // which field is active: here they're just passed through as they arrive.
                     rows = tvKeyboardRows(keyboardMode, extras = extras),
-                    onModo = onMode,
+                    onMode = onMode,
                 )
             }
             // Width by WEIGHT and not fixed: see KEYBOARD_WEIGHT's KDoc. With `width(520.dp)` the

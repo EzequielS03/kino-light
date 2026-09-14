@@ -92,7 +92,7 @@ internal fun TvMagisLinkOffer(account: MagisAccount, onNotNow: () -> Unit) {
     // No longer preloaded with any email: it used to come from the connected Kino account, and
     // since Task 8 (sub-project 2B) this screen depends on none. Starts blank.
     var passwordVisible by remember { mutableStateOf(false) }
-    var keyboardMode by remember { mutableStateOf(TvKeyboardMode.MINUS) }
+    var keyboardMode by remember { mutableStateOf(TvKeyboardMode.LOWER) }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
 
