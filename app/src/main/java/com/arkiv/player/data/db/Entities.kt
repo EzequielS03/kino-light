@@ -24,7 +24,7 @@ data class ItemEntity(
     /**
      * How many episodes this series had the last time its detail was opened. It's the base of
      * the "new chapters" badge: the difference against the current count is what appeared since
-     * then. See [com.arkiv.player.data.nuevos.NewEpisodeCounter] for why it's counted this way and
+     * then. See [com.arkiv.player.data.newcontent.NewEpisodeCounter] for why it's counted this way and
      * not by date.
      *
      * `null` = never opened since this counter exists, and does NOT paint a badge.
@@ -339,13 +339,13 @@ data class EpisodeFrameEntity(
 
 /**
  * A recommendation generated ON THE DEVICE by
- * [com.arkiv.player.data.recomendaciones.ForYouGenerator], with Kilo's free models, from the
+ * [com.arkiv.player.data.recommendations.ForYouGenerator], with Kilo's free models, from the
  * local history, for the home's "Para ti" row. The app DOES write here directly
  * (`RecommendationDao.replace`, called from `AppGraph.forYouGenerator`): there's no PocketBase
  * or sync behind it -- `CloudSyncManager` doesn't exist in this branch.
  *
  * The local key is [id] (the already-resolved source's id, see
- * `com.arkiv.player.data.recomendaciones.RecommendationSaving.itemIdFor`) and **NOT** [orden]:
+ * `com.arkiv.player.data.recommendations.RecommendationSaving.itemIdFor`) and **NOT** [orden]:
  * each generation RECREATES the whole list instead of reusing identity across batches (a port of
  * `arkiv-api/src/arkiv_api/recomendaciones/almacen.py::guardar`) -- `RecommendationDao.replace`
  * buries (`deleted=true`) the current ones with the SAME `updatedAt` and only then inserts the
@@ -367,7 +367,7 @@ data class RecommendationEntity(
     val porque: String,
     /**
      * The source already resolved for playback, built on the device by the verification cascade
-     * (see [com.arkiv.player.data.recomendaciones.ForYouVerification]).
+     * (see [com.arkiv.player.data.recommendations.ForYouVerification]).
      */
     val ref: String,
     /** 0..9 position to order the row. NOT identity -- see the class's KDoc. */

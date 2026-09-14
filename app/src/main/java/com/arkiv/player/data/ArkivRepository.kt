@@ -159,7 +159,7 @@ class ArkivRepository(
 
     /**
      * The library ordered by what you last watched (see
-     * [com.arkiv.player.data.biblioteca.LibraryOrder]). Consumed by the phone's grid.
+     * [com.arkiv.player.data.library.LibraryOrder]). Consumed by the phone's grid.
      *
      * A separate flow and NOT [observeLibrary]'s order on purpose: that raw query is used by
      * `ensureArtwork`, the downloads screen and the TV home's hero, none of which the reorder
@@ -169,7 +169,7 @@ class ArkivRepository(
      */
     fun observeLibraryOrdered(): Flow<List<LibraryRow>> =
         combine(observeLibrary(), observeLastPlayedAt()) { rows, lastPlayed ->
-            com.arkiv.player.data.biblioteca.LibraryOrder.sortedRows(rows, lastPlayed)
+            com.arkiv.player.data.library.LibraryOrder.sortedRows(rows, lastPlayed)
         }
 
     /**
@@ -189,7 +189,7 @@ class ArkivRepository(
      * `observeLibrary()` still exists for whoever needs the raw rows (the phone's library screen,
      * sync).
      *
-     * The final order is by what was last watched ([com.arkiv.player.data.biblioteca.LibraryOrder]),
+     * The final order is by what was last watched ([com.arkiv.player.data.library.LibraryOrder]),
      * not by date added: [LibraryGrouping.group]'s `sortedByDescending` is left as the tiebreaker,
      * because Kotlin's ordering is stable.
      */
@@ -198,7 +198,7 @@ class ArkivRepository(
             observeLibraryGroupsUnordered(),
             observeLastPlayedAt(),
         ) { groups, lastPlayed ->
-            com.arkiv.player.data.biblioteca.LibraryOrder.sortedGroups(groups, lastPlayed)
+            com.arkiv.player.data.library.LibraryOrder.sortedGroups(groups, lastPlayed)
         }
 
     /**
@@ -280,11 +280,11 @@ class ArkivRepository(
 
     /**
      * What's already watched, per item. The cross against the library's groups is done by
-     * [com.arkiv.player.data.biblioteca.LibraryWatched], the pure and tested part.
+     * [com.arkiv.player.data.library.LibraryWatched], the pure and tested part.
      */
-    fun observeWatchedItems(): Flow<List<com.arkiv.player.data.biblioteca.ItemWatched>> =
+    fun observeWatchedItems(): Flow<List<com.arkiv.player.data.library.ItemWatched>> =
         playbackDao.observeWatched().map { rows ->
-            rows.map { com.arkiv.player.data.biblioteca.ItemWatched(it.itemId, it.episodios, it.ultimoVistoMs) }
+            rows.map { com.arkiv.player.data.library.ItemWatched(it.itemId, it.episodios, it.ultimoVistoMs) }
         }
 
     // --- TMDB art (local, not synced) -----------------------------------------------
@@ -769,7 +769,7 @@ class ArkivRepository(
         // was already there, plus what's arriving).
         val live = itemDao.getEpisodesOf(id).map { it.id }.toSet()
         val newIds = saveable.map { DituEntities.chapterId(id, it.season, it.number) }.toSet()
-        val episodiosVistosEnLista = com.arkiv.player.data.nuevos.NewEpisodeCounter.reseal(
+        val episodiosVistosEnLista = com.arkiv.player.data.newcontent.NewEpisodeCounter.reseal(
             existing?.episodiosVistosEnLista,
             (live + newIds).size,
         )
@@ -939,7 +939,7 @@ class ArkivRepository(
         val existingIds = live - setOfNotNull(ghost)
         val newIds = chapters.map { MagisEntities.episodeIdFor(id, it.number) }.toSet()
         val totalAfterSaving = (existingIds + newIds).size
-        val episodiosVistosEnLista = com.arkiv.player.data.nuevos.NewEpisodeCounter.reseal(
+        val episodiosVistosEnLista = com.arkiv.player.data.newcontent.NewEpisodeCounter.reseal(
             existing?.episodiosVistosEnLista,
             totalAfterSaving,
         )
@@ -1082,7 +1082,7 @@ class ArkivRepository(
      * The raw `skip_markers` DAO, without going through the views already built below
      * (`getSkipMarker`, which only sees the WHOLE series' marker: empty `episodeId`).
      *
-     * [com.arkiv.player.data.marcadores.MarkerEditor] needs it: it does point `getById`/`upsert`
+     * [com.arkiv.player.data.markers.MarkerEditor] needs it: it does point `getById`/`upsert`
      * calls PER CHAPTER. `PlayerViewModel` doesn't receive `AppGraph` through its constructor
      * (there are ~15 loose dependencies, see its own KDoc), so it builds its own `MarkerEditor` --
      * and this is what it's missing to be able to do that with no new parameter that would force

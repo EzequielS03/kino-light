@@ -4,8 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.arkiv.player.data.ArkivRepository
 import com.arkiv.player.data.LibraryGroup
-import com.arkiv.player.data.biblioteca.WatchedGroup
-import com.arkiv.player.data.biblioteca.LibraryWatched
+import com.arkiv.player.data.library.WatchedGroup
+import com.arkiv.player.data.library.LibraryWatched
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine

@@ -1,6 +1,6 @@
 package com.arkiv.player.data.trivia
 
-import com.arkiv.player.data.ia.AiResponse
+import com.arkiv.player.data.ai.AiResponse
 import kotlinx.coroutines.test.runTest
 import org.json.JSONArray
 import org.junit.Assert.assertEquals

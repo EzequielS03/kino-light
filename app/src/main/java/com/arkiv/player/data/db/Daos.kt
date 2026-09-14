@@ -377,7 +377,7 @@ interface PlaybackDao {
 
     /**
      * When ANY chapter of each item was last played, for the library's order (see
-     * [com.arkiv.player.data.biblioteca.LibraryOrder]).
+     * [com.arkiv.player.data.library.LibraryOrder]).
      *
      * Twin of [observeWatched] but WITHOUT the `watched = 1` filter: here a finished chapter
      * counts the same as one left halfway. If it only counted the finished ones, a series you're
@@ -797,7 +797,7 @@ interface RecommendationDao {
 
     /**
      * The active recommendations, in the order
-     * [com.arkiv.player.data.recomendaciones.ForYouGenerator] built, without what's already
+     * [com.arkiv.player.data.recommendations.ForYouGenerator] built, without what's already
      * marked as a tombstone. It's the source of the home's "Para ti" row.
      */
     @Query(QUERY_ACTIVE_RECOMMENDATIONS)

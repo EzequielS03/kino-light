@@ -8,14 +8,14 @@ import com.arkiv.player.data.catalog.TmdbApi
 import com.arkiv.player.data.SearchHistoryRepo
 import com.arkiv.player.data.SettingsStore
 import com.arkiv.player.data.db.ArkivDatabase
-import com.arkiv.player.data.recomendaciones.AiReferee
-import com.arkiv.player.data.recomendaciones.SourceSearcher
-import com.arkiv.player.data.recomendaciones.TmdbSearcher
-import com.arkiv.player.data.recomendaciones.ForYouGenerator
-import com.arkiv.player.data.recomendaciones.withRealKind
-import com.arkiv.player.data.recomendaciones.NormalizeTitle
-import com.arkiv.player.data.recomendaciones.HistorySignals
-import com.arkiv.player.data.recomendaciones.ForYouVerification
+import com.arkiv.player.data.recommendations.AiReferee
+import com.arkiv.player.data.recommendations.SourceSearcher
+import com.arkiv.player.data.recommendations.TmdbSearcher
+import com.arkiv.player.data.recommendations.ForYouGenerator
+import com.arkiv.player.data.recommendations.withRealKind
+import com.arkiv.player.data.recommendations.NormalizeTitle
+import com.arkiv.player.data.recommendations.HistorySignals
+import com.arkiv.player.data.recommendations.ForYouVerification
 import com.arkiv.player.data.update.ApkDownloader
 import com.arkiv.player.data.update.UpdateChecker
 import com.arkiv.player.data.update.UpdateInfo
@@ -423,10 +423,10 @@ class AppGraph(context: Context) {
     val applicationScope: CoroutineScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
 
     /** The client for Kilo's free models (sub-project 4). No key: see its KDoc. */
-    internal val aiClient: com.arkiv.player.data.ia.AiClient by lazy {
-        com.arkiv.player.data.ia.AiClient(
-            memory = com.arkiv.player.data.ia.ModelMemory(
-                com.arkiv.player.data.ia.PreferencesStore(appContext),
+    internal val aiClient: com.arkiv.player.data.ai.AiClient by lazy {
+        com.arkiv.player.data.ai.AiClient(
+            memory = com.arkiv.player.data.ai.ModelMemory(
+                com.arkiv.player.data.ai.PreferencesStore(appContext),
             ) { System.currentTimeMillis() },
         )
     }
@@ -501,14 +501,14 @@ class AppGraph(context: Context) {
      * season's ref, and the episodes have to be requested from the portal (`MagisCatalog.detail`).
      */
     val recommendationAggregator by lazy {
-        com.arkiv.player.data.recomendaciones.RecommendationAggregator(
+        com.arkiv.player.data.recommendations.RecommendationAggregator(
             repo = repository,
             gateway = contentSource,
         )
     }
 
     private val newChapterFinder by lazy {
-        com.arkiv.player.data.nuevos.NewChapterFinder(
+        com.arkiv.player.data.newcontent.NewChapterFinder(
             repo = repository,
             itemDao = database.itemDao(),
             gateway = contentSource,

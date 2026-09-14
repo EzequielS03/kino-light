@@ -321,7 +321,7 @@ abstract class ArkivDatabase : RoomDatabase() {
          * Nullable on purpose, and with no DEFAULT: rows that already exist are left NULL, which
          * means "never looked at" and does NOT paint a badge. With a default of 0, the day this
          * ships every library series would show up marked with all its chapters as if they were
-         * new. See [com.arkiv.player.data.nuevos.NewEpisodeCounter].
+         * new. See [com.arkiv.player.data.newcontent.NewEpisodeCounter].
          */
         private val MIGRATION_18_19 = object : Migration(18, 19) {
             override fun migrate(db: SupportSQLiteDatabase) {

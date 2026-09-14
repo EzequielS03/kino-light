@@ -1,9 +1,9 @@
 package com.arkiv.player.data.trivia
 
 import android.util.Log
-import com.arkiv.player.data.ia.ModelJson
-import com.arkiv.player.data.ia.UnreadableJson
-import com.arkiv.player.data.ia.AiResponse
+import com.arkiv.player.data.ai.ModelJson
+import com.arkiv.player.data.ai.UnreadableJson
+import com.arkiv.player.data.ai.AiResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray

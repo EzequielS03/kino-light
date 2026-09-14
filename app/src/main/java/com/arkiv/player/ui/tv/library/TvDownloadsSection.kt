@@ -33,7 +33,7 @@ import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import com.arkiv.player.data.biblioteca.DiskSpace
+import com.arkiv.player.data.library.DiskSpace
 import com.arkiv.player.data.local.DownloadGroup
 import com.arkiv.player.data.local.DownloadGroupPolicy
 import com.arkiv.player.ui.downloads.DownloadsViewModel

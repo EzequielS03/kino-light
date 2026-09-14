@@ -1070,7 +1070,7 @@ class PlayerViewModel internal constructor(
 
     /** The hand correction of the times, for the current chapter or the series. See its KDoc. */
     private val markerEditor by lazy {
-        com.arkiv.player.data.marcadores.MarkerEditor(dao = repo.skipMarkerDao())
+        com.arkiv.player.data.markers.MarkerEditor(dao = repo.skipMarkerDao())
     }
 
     override fun onCleared() {

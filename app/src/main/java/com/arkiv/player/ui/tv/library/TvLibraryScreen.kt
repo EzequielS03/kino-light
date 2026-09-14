@@ -43,9 +43,9 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.arkiv.player.data.LibraryGroup
-import com.arkiv.player.data.biblioteca.LibraryFilter
-import com.arkiv.player.data.biblioteca.LibrarySection
-import com.arkiv.player.data.biblioteca.LibraryWatched
+import com.arkiv.player.data.library.LibraryFilter
+import com.arkiv.player.data.library.LibrarySection
+import com.arkiv.player.data.library.LibraryWatched
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.tv.arkivTvButtonBorder
 import com.arkiv.player.ui.tv.arkivTvButtonColors

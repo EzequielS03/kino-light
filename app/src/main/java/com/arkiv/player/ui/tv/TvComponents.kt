@@ -97,7 +97,7 @@ fun TvLandscapeCard(
     episodeCountLabel: String? = null,
     /**
      * New chapters since the last time the detail was opened. 0 = nothing is drawn.
-     * See [com.arkiv.player.data.nuevos.NewEpisodeCounter].
+     * See [com.arkiv.player.data.newcontent.NewEpisodeCounter].
      */
     newEpisodes: Int = 0,
     onFocus: () -> Unit = {},

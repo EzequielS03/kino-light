@@ -36,7 +36,7 @@ data class LibraryGroup(
      * series of 220.
      */
     val newEpisodes: Int get() = members.maxOf {
-        com.arkiv.player.data.nuevos.NewEpisodeCounter.count(it.episodeCount, it.episodiosVistosEnLista)
+        com.arkiv.player.data.newcontent.NewEpisodeCounter.count(it.episodeCount, it.episodiosVistosEnLista)
     }
 }
 
