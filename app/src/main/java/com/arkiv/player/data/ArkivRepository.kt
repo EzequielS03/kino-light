@@ -19,12 +19,12 @@ import kotlinx.coroutines.flow.map
 import org.json.JSONArray
 
 /**
- * Mínimo de reproducción para entrar en "Continuar viendo". Por debajo de esto fue abrir y
- * cerrar (o una pasada rápida por el capítulo equivocado), no algo que estés viendo de verdad.
+ * Minimum playback to enter "Continue watching". Below this it was opening and closing (or a
+ * quick pass over the wrong chapter), not something you're actually watching.
  */
 private const val CONTINUE_WATCHING_MIN_MS = 2 * 60 * 1000L
 
-/** Detalle de un ítem con el progreso de reproducción de cada episodio. */
+/** An item's detail with each episode's playback progress. */
 data class ItemDetail(
     val identifier: String,
     val title: String,
@@ -34,37 +34,37 @@ data class ItemDetail(
     val progress: Map<String, PlaybackEntity>,
 ) {
     /**
-     * Último episodio **tocado** y sin terminar (el "capítulo en el que voy"), o null si no hay.
+     * The last episode **touched** and unfinished (the "chapter I'm on"), or null if there's none.
      *
-     * Gana el capítulo con REPRODUCCIÓN de verdad más reciente; los que solo tienen la fila que
-     * escribe [marcarEnCurso] al abrirlos (`positionMs == 0`, sin duración todavía) quedan de
-     * respaldo y solo contestan si no hay ningún otro.
+     * The chapter with the most recent REAL playback wins; ones that only have the row
+     * [markInProgress] writes on opening them (`positionMs == 0`, no duration yet) are a fallback
+     * and only answer if there's no other.
      *
-     * Los dos escalones hacen falta y cada uno arregla un caso distinto:
+     * Both steps are needed and each fixes a different case:
      *
-     * - Sin el respaldo, darle play al E5 y salir a los tres segundos dejaba el detalle diciendo
-     *   "vas en el E1": `PlayerViewModel.saveProgress` no escribe nada hasta conocer la duración, y
-     *   en Magis la sonda puede tardar (stream TS), así que ahí todavía no hay posición que mirar.
-     * - Sin la preferencia por el que sí tiene posición, abrir un capítulo que no llega a sonar lo
-     *   convertía en "por dónde voy" por delante de uno con progreso real, solo por ser más
-     *   reciente. Medido en Dragon Ball el 2026-08-12: el e126 con 3:30 vistos perdía contra el
-     *   e127 y el e128, abiertos después y con la fila en 0. Y como "Continuar viendo" SÍ filtra
-     *   por posición (`observeContinueWatching`), las dos superficies contestaban distinto: la fila
-     *   del home ofrecía el e126 y el detalle decía "vas en el e128".
+     * - Without the fallback, playing E5 and leaving after three seconds left the detail saying
+     *   "you're on E1": `PlayerViewModel.saveProgress` writes nothing until it knows the duration,
+     *   and on Magis the probe can take a while (TS stream), so there's no position to look at yet.
+     * - Without preferring the one that DOES have a position, opening a chapter that never got far
+     *   enough to play turned it into "where you're at" ahead of one with real progress, just for
+     *   being more recent. Measured on Dragon Ball on 2026-08-12: e126 with 3:30 watched lost to
+     *   e127 and e128, opened later with their row at 0. And since "Continue watching" DOES filter
+     *   by position (`observeContinueWatching`), the two surfaces answered differently: the home
+     *   row offered e126 and the detail said "you're on e128".
      *
-     * Sigue sin haber piso de segundos, a propósito: un capítulo con dos segundos reproducidos es
-     * "donde vas" si es lo último que reprodujiste de verdad. Lo que se descarta no es "poco
-     * progreso" sino "ninguno".
+     * Still no second-count floor, on purpose: a chapter with two seconds played is "where you're
+     * at" if it's the last thing you actually played. What's discarded isn't "little progress" but
+     * "none".
      */
     val inProgressEpisode: Episode?
-        get() = porDondeVas?.takeIf { !it.esSiguiente }?.let { elegido -> episodes.find { it.id == elegido.episodeId } }
+        get() = whereYouAreAt?.takeIf { !it.esSiguiente }?.let { chosen -> episodes.find { it.id == chosen.episodeId } }
 
     /**
-     * La regla compartida con "Continuar viendo", resuelta contra la lista de capítulos que este
-     * detalle ya tiene en memoria. Ver [com.arkiv.player.data.PorDondeVas]: acá SIN piso de
-     * segundos, porque en el detalle "donde vas" es donde vas aunque hayas visto dos segundos.
+     * The rule shared with "Continue watching", resolved against the chapter list this detail
+     * already has in memory. See [com.arkiv.player.data.PorDondeVas]: no second-count floor here,
+     * because in the detail "where you're at" is where you're at even if you watched two seconds.
      */
-    private val porDondeVas: CapituloAOfrecer?
+    private val whereYouAreAt: CapituloAOfrecer?
         get() = PorDondeVas.elegir(
             episodes.mapNotNull { ep ->
                 progress[ep.id]?.let {
@@ -78,54 +78,56 @@ data class ItemDetail(
         )
 
     /**
-     * Episodio para el botón "Reproducir": el que estás viendo, o el que sigue al último que
-     * terminaste.
+     * Episode for the "Reproducir" button: the one you're watching, or the one that follows the
+     * last one you finished.
      *
-     * El fallback NO es "el primero sin ver" a secas: con la temporada entera guardada de una sola
-     * vez (ver `addMagisSeason`), tocar y terminar el E5 sin haber tocado ningún otro capítulo deja
-     * E1-E4 y E6-E20 igual de "sin ver" que el E6, así que "el primero sin ver" por orden caía
-     * siempre en el E1 en vez de seguir donde ibas.
+     * The fallback is NOT "the first unwatched one" plainly: with the whole season saved at once
+     * (see `addMagisSeason`), tapping and finishing E5 with no other chapter ever touched leaves
+     * E1-E4 and E6-E20 just as "unwatched" as E6, so "the first unwatched one" by order always
+     * landed on E1 instead of continuing where you were.
      *
-     * Tampoco alcanza con "el visto más adelantado EN LA LISTA" (por posición): ver el E10 suelto
-     * por curiosidad y después arrancar en orden y terminar E1-E3 dejaría "Reproducir" ofreciendo
-     * el E11, saltándose E4-E9. La regla es por RECENCIA y la decide [PorDondeVas], la MISMA que
-     * arma "Continuar viendo" en el home: se ancla en lo último que reprodujiste (terminado o no) y
-     * ofrece ese capítulo si quedó a medias, o el que le sigue si lo terminaste. Consecuencia
-     * asumida (no es un bug, no "arreglar" esto): si terminaste toda la serie y después revisitaste
-     * el E1, "Reproducir" pasa a ofrecer el E2 -- es lo que espera alguien que está reviendo.
+     * "The most advanced watched one IN THE LIST" (by position) isn't enough either: watching E10
+     * standalone out of curiosity and then starting in order and finishing E1-E3 would leave
+     * "Reproducir" offering E11, skipping E4-E9. The rule is by RECENCY and [PorDondeVas] decides
+     * it, the SAME one that builds "Continue watching" on the home: it anchors on the last thing
+     * you played (finished or not) and offers that chapter if it was left halfway, or the one that
+     * follows it if you finished it. An accepted consequence (not a bug, don't "fix" this): if you
+     * finished the whole series and then revisited E1, "Reproducir" starts offering E2 -- that's
+     * what someone rewatching expects.
      *
-     * Los dos respaldos de abajo son de ESTA superficie y no de la regla: el botón "Reproducir" no
-     * puede quedarse sin capítulo. Si nunca se vio nada, cae al primero sin ver; si se vio todo (no
-     * hay "siguiente" tras el último terminado), vuelve a empezar por el primero. El home, en
-     * cambio, prefiere no mostrar la tarjeta antes que ofrecer algo que ya viste.
+     * The two fallbacks below belong to THIS surface and not the rule: the "Reproducir" button
+     * can't be left with no chapter. If nothing was ever watched, it falls back to the first
+     * unwatched one; if everything was watched (there's no "next" after the last one finished), it
+     * starts over from the first one. The home, on the other hand, prefers not to show the card
+     * over offering something you already watched.
      */
     val resumeEpisode: Episode?
-        get() = porDondeVas?.let { elegido -> episodes.find { it.id == elegido.episodeId } }
+        get() = whereYouAreAt?.let { chosen -> episodes.find { it.id == chosen.episodeId } }
             ?: episodes.firstOrNull { progress[it.id]?.watched != true }
             ?: episodes.firstOrNull()
 }
 
-/** Punto único de acceso a los datos: gateway (magis/TMDB) + persistencia (Room). */
+/** Single point of access to the data: gateway (magis/TMDB) + persistence (Room). */
 class ArkivRepository(
     private val db: ArkivDatabase,
     private val tmdbApi: TmdbApi? = null,
     private val clock: () -> Long = System::currentTimeMillis,
     /**
-     * Dónde vive el JPEG de cada capítulo, para resolver `ContinueRow.framePath` desde disco (ver
-     * `observeContinueWatching`). Nullable con default para no romper otros call sites: sin
-     * almacén, `framePath` queda simplemente en null y las pantallas caen a sus respaldos de
-     * siempre.
+     * Where each chapter's JPEG lives, to resolve `ContinueRow.framePath` from disk (see
+     * `observeContinueWatching`). Nullable with a default so as not to break other call sites:
+     * with no store, `framePath` is simply left null and the screens fall back to their usual
+     * defaults.
      */
-    private val almacenDeFrames: FrameStore? = null,
+    private val frameStore: FrameStore? = null,
     /**
-     * El único destructor de frames del proceso: `AppGraph` le pasa acá el mismo que arma para el
-     * resto de la app (`CloudSyncManager` y `LibraryWiper`, que también lo usaban, se borraron antes
-     * de esta rama). El default está para los call sites que arman un repositorio suelto (pruebas,
-     * herramientas) y arma uno equivalente sobre las mismas dos cosas — el almacén de arriba y el DAO
-     * de esta base.
+     * The process's only frame destroyer: `AppGraph` passes in here the same one it builds for the
+     * rest of the app (`CloudSyncManager` and `LibraryWiper`, which also used it, were deleted
+     * before this branch). The default is for call sites that build a standalone repository
+     * (tests, tools) and it builds an equivalent one over the same two things — the store above
+     * and this database's DAO.
      */
-    private val destructorDeFrames: FrameDestroyer =
-        FrameDestroyer(almacenDeFrames, db.episodeFrameDao()),
+    private val frameDestroyer: FrameDestroyer =
+        FrameDestroyer(frameStore, db.episodeFrameDao()),
 ) {
     private val itemDao = db.itemDao()
     private val playbackDao = db.playbackDao()
@@ -138,110 +140,109 @@ class ArkivRepository(
     private val liveRecentDao = db.liveRecentDao()
 
     /**
-     * Se llama cuando un capítulo ACABA de quedar visto. Lo conecta `AppGraph` con "Para ti"; el
-     * repositorio no sabe nada de recomendaciones. Quien lo recibe tiene su propia puerta de 24 h.
+     * Called when a chapter JUST finished being watched. `AppGraph` wires this to "Para ti"; the
+     * repository knows nothing about recommendations. Whoever receives it has its own 24h gate.
      */
-    var alTerminarAlgo: (() -> Unit)? = null
+    var onEpisodeFinished: (() -> Unit)? = null
 
     fun observeLibrary(): Flow<List<LibraryRow>> = itemDao.observeLibrary()
 
     /**
-     * `itemId -> cuándo se reprodujo por última vez algo de ese ítem`, para el orden de la
-     * biblioteca. Un ítem que nunca se reprodujo no está en el mapa.
+     * `itemId -> when something from that item was last played`, for the library's order. An item
+     * that was never played isn't in the map.
      */
-    fun observeUltimaReproduccion(): Flow<Map<String, Long>> =
-        playbackDao.observeLastPlayed().map { filas ->
-            filas.associate { it.itemId to it.ultimaMs }
+    fun observeLastPlayedAt(): Flow<Map<String, Long>> =
+        playbackDao.observeLastPlayed().map { rows ->
+            rows.associate { it.itemId to it.ultimaMs }
         }
 
     /**
-     * La biblioteca ordenada por lo último que viste (ver
-     * [com.arkiv.player.data.biblioteca.LibraryOrder]). La consume la grilla del teléfono.
+     * The library ordered by what you last watched (see
+     * [com.arkiv.player.data.biblioteca.LibraryOrder]). Consumed by the phone's grid.
      *
-     * Es un flow aparte y NO el orden de [observeLibrary] a propósito: esa consulta cruda la usan
-     * `ensureArtwork`, la pantalla de descargas y el héroe del home del TV, a los que el reorden no
-     * les aporta nada. Si el orden viviera en el SQL, la consulta pasaría a depender de `playback`
-     * y Room re-emitiría la biblioteca entera cada vez que se guarda progreso — cada pocos segundos
-     * mientras reproducís —, disparando una pasada de arte por fila en cada emisión.
+     * A separate flow and NOT [observeLibrary]'s order on purpose: that raw query is used by
+     * `ensureArtwork`, the downloads screen and the TV home's hero, none of which the reorder
+     * benefits. If the order lived in the SQL, the query would end up depending on `playback` and
+     * Room would re-emit the whole library every time progress is saved — every few seconds while
+     * you're playing —, firing an art pass per row on every emission.
      */
-    fun observeLibraryOrdenada(): Flow<List<LibraryRow>> =
-        combine(observeLibrary(), observeUltimaReproduccion()) { rows, ultimas ->
-            com.arkiv.player.data.biblioteca.LibraryOrder.sortedRows(rows, ultimas)
+    fun observeLibraryOrdered(): Flow<List<LibraryRow>> =
+        combine(observeLibrary(), observeLastPlayedAt()) { rows, lastPlayed ->
+            com.arkiv.player.data.biblioteca.LibraryOrder.sortedRows(rows, lastPlayed)
         }
 
     /**
-     * La biblioteca agrupada SIN ordenar por lo último visto: solo el agrupamiento de
-     * [LibraryGrouping], en el orden de entrada de `observeLibrary()` (`addedAt DESC`).
+     * The library grouped WITHOUT ordering by what was last watched: just [LibraryGrouping]'s
+     * grouping, in `observeLibrary()`'s order of entry (`addedAt DESC`).
      *
-     * Privado a propósito: lo único que lo consume es [observeGroupMembers], al que el orden de
-     * la lista de grupos no le sirve (resuelve los miembros de UNA llave). Si colgara del orden
-     * por lo último visto, dependería de `observeUltimaReproduccion()` y recalcularía el
-     * agrupamiento cada vez que se guarda progreso en CUALQUIER ítem de la biblioteca, aunque el
-     * resultado fuera idéntico.
+     * Private on purpose: the only thing that consumes it is [observeGroupMembers], for which the
+     * group list's order is of no use (it resolves the members of ONE key). If it hung off the
+     * order by last watched, it would depend on `observeLastPlayedAt()` and would recompute the
+     * grouping every time progress is saved on ANY library item, even if the result were identical.
      */
-    private fun observeLibraryGroupsSinOrden(): Flow<List<LibraryGroup>> =
+    private fun observeLibraryGroupsUnordered(): Flow<List<LibraryGroup>> =
         LibraryGrouping.groupsFlow(observeLibrary(), observeArtwork())
 
     /**
-     * La biblioteca ya agrupada: una entrada por serie, no por adquisición. Ver [LibraryGrouping].
-     * `observeLibrary()` sigue existiendo para quien necesite las filas crudas (la pantalla de
-     * biblioteca del teléfono, el sync).
+     * The library already grouped: one entry per series, not per acquisition. See [LibraryGrouping].
+     * `observeLibrary()` still exists for whoever needs the raw rows (the phone's library screen,
+     * sync).
      *
-     * El orden final es por lo último visto ([com.arkiv.player.data.biblioteca.LibraryOrder]),
-     * no por fecha de agregado: el `sortedByDescending` de [LibraryGrouping.group] queda como
-     * desempate, porque el orden de Kotlin es estable.
+     * The final order is by what was last watched ([com.arkiv.player.data.biblioteca.LibraryOrder]),
+     * not by date added: [LibraryGrouping.group]'s `sortedByDescending` is left as the tiebreaker,
+     * because Kotlin's ordering is stable.
      */
     fun observeLibraryGroups(): Flow<List<LibraryGroup>> =
         combine(
-            observeLibraryGroupsSinOrden(),
-            observeUltimaReproduccion(),
-        ) { grupos, ultimas ->
-            com.arkiv.player.data.biblioteca.LibraryOrder.sortedGroups(grupos, ultimas)
+            observeLibraryGroupsUnordered(),
+            observeLastPlayedAt(),
+        ) { groups, lastPlayed ->
+            com.arkiv.player.data.biblioteca.LibraryOrder.sortedGroups(groups, lastPlayed)
         }
 
     /**
-     * Los ítems detrás de una llave de grupo, del más completo al menos.
+     * The items behind a group key, from most complete to least.
      *
-     * Acepta TAMBIÉN un identifier crudo: "Continuar viendo", el menú de mantener presionado y el
-     * detalle del teléfono navegan con el identifier del ítem, no con una llave de grupo. Y acepta
-     * una llave `item:<identifier>` que dejó de ser un grupo vivo porque su ítem se sumó a otro
-     * grupo MIENTRAS el detalle estaba abierto (`ensureArtwork` resolviéndole un tmdbId de tv en
-     * segundo plano): ahí sigue al ítem hasta su grupo nuevo en vez de devolver vacío. Ver
-     * [LibraryGrouping.resolveMembers]. Solo devuelve vacío si de verdad no hay nada con ese
-     * identifier (por ejemplo si se borró la única fuente mientras el detalle estaba abierto).
+     * ALSO accepts a raw identifier: "Continue watching", the long-press menu and the phone's
+     * detail navigate with the item's identifier, not with a group key. And it accepts an
+     * `item:<identifier>` key that stopped being a live group because its item got added to
+     * another group WHILE the detail was open (`ensureArtwork` resolving it a tv tmdbId in the
+     * background): there it follows the item to its new group instead of returning empty. See
+     * [LibraryGrouping.resolveMembers]. Only returns empty if there's truly nothing with that
+     * identifier (e.g. if the only source got deleted while the detail was open).
      *
-     * Una sola suscripción a la biblioteca: las filas se derivan de los miembros de [groups] (que
-     * ya sale de `observeLibrary()` vía [observeLibraryGroupsSinOrden]) en vez de volver a
-     * combinar `observeLibrary()` acá aparte.
+     * A single subscription to the library: the rows are derived from [groups]'s members (which
+     * already comes from `observeLibrary()` via [observeLibraryGroupsUnordered]) instead of
+     * combining `observeLibrary()` again separately here.
      *
-     * Cuelga de [observeLibraryGroupsSinOrden], NO de [observeLibraryGroups], a propósito: esto
-     * resuelve los miembros de UNA sola llave de grupo, así que el orden de la lista completa de
-     * grupos no lo afecta para nada. Colgarlo del orden por lo último visto haría que el detalle
-     * recalculara el agrupamiento cada vez que se guarda progreso en cualquier ítem de la
-     * biblioteca, aunque el resultado para esta llave no cambiara. No "unificar" esto con
-     * [observeLibraryGroups] sin volver a leer este comentario.
+     * Hangs off [observeLibraryGroupsUnordered], NOT [observeLibraryGroups], on purpose: this
+     * resolves the members of a SINGLE group key, so the full group list's order doesn't affect it
+     * at all. Hanging it off the order by last watched would make the detail recompute the
+     * grouping every time progress is saved on any library item, even if the result for this key
+     * didn't change. Don't "unify" this with [observeLibraryGroups] without reading this comment
+     * again.
      */
     fun observeGroupMembers(groupKey: String): Flow<List<LibraryRow>> =
-        observeLibraryGroupsSinOrden().map { groups ->
+        observeLibraryGroupsUnordered().map { groups ->
             LibraryGrouping.resolveMembers(groupKey, groups, groups.flatMap { it.members })
         }
 
     /**
-     * "Continuar viendo", con el frame capturado de cada capítulo si ya está en disco.
+     * "Continue watching", with each chapter's captured frame if it's already on disk.
      *
-     * El `combine` con `episodeFrameDao.observeAll()` NO aporta datos —se descarta el segundo
-     * valor— sino INVALIDACIÓN: la consulta de `playback` no toca `episode_frame`, así que sin esto
-     * Room no reemitía nada cuando [com.arkiv.player.thumbnails.FrameCapturer] publicaba un JPEG y
-     * la tarjeta se quedaba con el still de TMDB.
+     * The `combine` with `episodeFrameDao.observeAll()` contributes no data —the second value is
+     * discarded— but INVALIDATION: the `playback` query doesn't touch `episode_frame`, so without
+     * this Room wouldn't re-emit anything when [com.arkiv.player.thumbnails.FrameCapturer]
+     * published a JPEG and the card stayed on the TMDB still.
      */
     fun observeContinueWatching(): Flow<List<ContinueRow>> =
         combine(
             playbackDao.observeProgressWithNext(),
             episodeFrameDao.observeAll(),
         ) { rows, _ -> rows }.map { rows ->
-            // Qué capítulo va por cada serie lo decide PorDondeVas, que es la parte pura y testeada
-            // (una tarjeta por ítem, ordenadas por lo último que reprodujiste). Acá solo se traduce
-            // la fila de la base a lo que esa regla entiende.
+            // Which chapter goes for each series is decided by PorDondeVas, the pure and tested
+            // part (one card per item, ordered by what you last played). This just translates the
+            // database row into what that rule understands.
             PorDondeVas.porItem(
                 rows.map {
                     ProgresoEnItem(
@@ -257,54 +258,55 @@ class ArkivRepository(
                 },
                 minPositionMs = CONTINUE_WATCHING_MIN_MS,
             )
-        }.map { elecciones ->
-            if (elecciones.isEmpty()) return@map emptyList()
-            // El IN no conserva el orden y la elección puede apuntar a un capítulo sin fila de
-            // playback, así que se reordena acá y se pisa lastPlayedAt con el del ancla: el
-            // capítulo ofrecido puede no haberse reproducido nunca, pero la serie sí, y es la
-            // serie la que tiene que estar arriba en la fila.
-            val porId = playbackDao.continueWatchingRows(elecciones.map { it.episodeId })
+        }.map { choices ->
+            if (choices.isEmpty()) return@map emptyList()
+            // The IN doesn't preserve order and the choice can point at a chapter with no playback
+            // row, so it gets reordered here and lastPlayedAt is overwritten with the anchor's: the
+            // offered chapter may never have been played, but the series was, and it's the series
+            // that has to be at the top of the row.
+            val byId = playbackDao.continueWatchingRows(choices.map { it.episodeId })
                 .associateBy { it.episodeId }
-            elecciones.mapNotNull { eleccion ->
-                porId[eleccion.episodeId]?.copy(lastPlayedAt = eleccion.lastPlayedAt)
+            choices.mapNotNull { choice ->
+                byId[choice.episodeId]?.copy(lastPlayedAt = choice.lastPlayedAt)
             }
-        }.map { filas ->
-            // El framePath NO sale de la query (ver el doc del campo en ContinueRow): se resuelve
-            // acá, del disco, después del dedup/take(20) de arriba para no gastar File.exists()
-            // de más en filas que ni se van a mostrar. Son ~6 filas por emisión: despreciable.
-            filas.map { it.copy(framePath = almacenDeFrames?.pathIfExists(it.episodeId)) }
+        }.map { rows ->
+            // framePath does NOT come from the query (see the field's doc in ContinueRow): it's
+            // resolved here, from disk, after the dedup/take(20) above so as not to spend extra
+            // File.exists() calls on rows that won't even be shown. It's ~6 rows per emission:
+            // negligible.
+            rows.map { it.copy(framePath = frameStore?.pathIfExists(it.episodeId)) }
         }
 
     /**
-     * Lo ya visto, por ítem. El cruce contra los grupos de la biblioteca lo hace
-     * [com.arkiv.player.data.biblioteca.LibraryWatched], que es la parte pura y testeada.
+     * What's already watched, per item. The cross against the library's groups is done by
+     * [com.arkiv.player.data.biblioteca.LibraryWatched], the pure and tested part.
      */
-    fun observeVistos(): Flow<List<com.arkiv.player.data.biblioteca.ItemWatched>> =
-        playbackDao.observeWatched().map { filas ->
-            filas.map { com.arkiv.player.data.biblioteca.ItemWatched(it.itemId, it.episodios, it.ultimoVistoMs) }
+    fun observeWatchedItems(): Flow<List<com.arkiv.player.data.biblioteca.ItemWatched>> =
+        playbackDao.observeWatched().map { rows ->
+            rows.map { com.arkiv.player.data.biblioteca.ItemWatched(it.itemId, it.episodios, it.ultimoVistoMs) }
         }
 
-    // --- Arte de TMDB (local, no sincronizado) -----------------------------------------------
+    // --- TMDB art (local, not synced) -----------------------------------------------
 
-    /** Mapa itemId -> arte resuelto de TMDB, para pintar backdrops en el home. */
+    /** Map itemId -> resolved TMDB art, to paint backdrops on the home. */
     fun observeArtwork(): Flow<Map<String, ArtworkEntity>> =
         artworkDao.observeAll().map { list -> list.associateBy { it.itemId } }
 
     /**
-     * Resuelve, para los ítems que aún no tengan arte, sus backdrops de TMDB. Secuencial y
-     * best-effort: los ítems sin match quedan con una fila vacía para no re-buscarlos cada vez.
-     * No hace nada si no hay [tmdbApi] (el parámetro es nullable, con default `null`).
+     * Resolves TMDB backdrops for the items that don't have art yet. Sequential and best-effort:
+     * items with no match are left with an empty row so as not to re-search them every time. Does
+     * nothing if there's no [tmdbApi] (the parameter is nullable, defaulting to `null`).
      */
     suspend fun ensureArtwork(rows: List<LibraryRow>) {
         val tmdb = tmdbApi ?: return
         for (row in rows) {
-            // Un arte YA resuelto (tmdbId) o que YA tiene backdrops aunque no tenga tmdbId (el
-            // backdrop del portal que guarda addMagisSource) no se vuelve a pedir NUNCA: son los
-            // dos casos donde ya hay algo bueno que perder. Uno vacío de las dos formas sí se
-            // reintenta, pero solo si la fila es vieja: así un título que TMDB no conoce no se
-            // consulta en cada arranque, y a la vez los ítems que fallaron por un título sucio
-            // (ver cleanTitleForSearch) se recuperan solos tras una actualización. Ver
-            // LibraryGrouping.shouldRefetchArtwork para el detalle de la regla.
+            // Art that's ALREADY resolved (tmdbId) or that ALREADY has backdrops even with no
+            // tmdbId (the portal's backdrop that addMagisSource saves) never gets requested again:
+            // those are the two cases where there's already something good to lose. An empty one
+            // of either kind DOES get retried, but only if the row is old: that way a title TMDB
+            // doesn't know isn't queried on every startup, and at the same time items that failed
+            // because of a dirty title (see cleanTitleForSearch) recover on their own after an
+            // update. See LibraryGrouping.shouldRefetchArtwork for the rule's detail.
             val existing = artworkDao.get(row.identifier)
             if (!LibraryGrouping.shouldRefetchArtwork(existing, clock())) continue
             val type = if (row.isMovie) "movie" else "tv"
@@ -317,11 +319,12 @@ class ArkivRepository(
             artworkDao.upsert(
                 ArtworkEntity(
                     itemId = row.identifier,
-                    // El id se guarda igual aunque el match sea por descarte: sirve para el arte.
+                    // The id is saved regardless of whether the match was by fallback: it's good
+                    // enough for the art.
                     tmdbId = match?.item?.id,
-                    // El TIPO solo si el match fue exacto, porque es lo que [LibraryGrouping] exige
-                    // para juntar dos filas en una tarjeta. Un id "más o menos" da un backdrop
-                    // aceptable; una identidad "más o menos" funde obras distintas.
+                    // The TYPE only if the match was exact, because that's what [LibraryGrouping]
+                    // requires to merge two rows into one card. A "close enough" id gives an
+                    // acceptable backdrop; a "close enough" identity merges different works.
                     tmdbType = match?.takeIf { it.exacto }?.let { type },
                     backdropsJson = JSONArray(backdrops).toString(),
                     fetchedAt = clock(),
@@ -331,12 +334,12 @@ class ArkivRepository(
     }
 
     /**
-     * Busca en TMDB el título de un ítem: primero con el título limpio y, si ese no da nada, con el
-     * crudo. La elección entre los resultados es de [pickTmdbMatch], NO el primero que llegue.
+     * Searches TMDB for an item's title: first with the cleaned title and, if that gives nothing,
+     * with the raw one. The choice between results is [pickTmdbMatch]'s, NOT the first one to arrive.
      *
-     * null = no hubo match, y eso incluye "la red se cayó": quien lo llame decide si eso es
-     * "guardar vacío" (ensureArtwork, que reintenta a los 7 días) o "no tocar nada"
-     * ([repairArtworkMatches], que tiene arte bueno que perder).
+     * null = no match, and that includes "the network went down": whoever calls it decides whether
+     * that means "save empty" (ensureArtwork, which retries after 7 days) or "touch nothing"
+     * ([repairArtworkMatches], which has good art to lose).
      */
     private suspend fun searchTmdbMatch(tmdb: TmdbApi, type: String, title: String): TmdbMatch? {
         val cleaned = cleanTitleForSearch(title)
@@ -344,26 +347,26 @@ class ArkivRepository(
             ?: runCatching { pickTmdbMatch(title, tmdb.search(type, title)) }.getOrNull()
     }
 
-    /** Que la reparación del arte corra UNA vez por proceso: hay un HomeViewModel por pantalla. */
+    /** That the art repair runs ONCE per process: there's a HomeViewModel per screen. */
     private val artworkRepairRan = java.util.concurrent.atomic.AtomicBoolean(false)
 
     /**
-     * Repara, de una sola pasada, el arte que se resolvió ANTES de que existiera [pickTmdbMatch].
+     * Repairs, in a single pass, the art that got resolved BEFORE [pickTmdbMatch] existed.
      *
-     * Hace falta porque arreglar la elección del match no repara lo ya guardado: `ensureArtwork`
-     * salta cualquier fila que ya tenga `tmdbId` (ver [LibraryGrouping.shouldRefetchArtwork]), así
-     * que los títulos que quedaron apuntando al hermano más popular —los tres Dragon Ball con el
-     * `tmdbId` de Dragon Ball Z— se quedarían así para siempre.
+     * Needed because fixing the match's choice doesn't repair what's already saved: `ensureArtwork`
+     * skips any row that already has a `tmdbId` (see [LibraryGrouping.shouldRefetchArtwork]), so
+     * titles left pointing at the more popular sibling —the three Dragon Ball entries with Dragon
+     * Ball Z's `tmdbId`— would stay that way forever.
      *
-     * Dos cuidados, los dos por no destruir arte bueno:
-     *  - Solo filas CON `tmdbId`, que son las que resolvió `ensureArtwork` buscando por título. Una
-     *    fila con backdrops pero sin `tmdbId` es arte que puso el portal (`addMagisSource`) y no se
-     *    toca nunca.
-     *  - Si la búsqueda no devuelve nada, la fila se deja **como está**. Sin esto, una pasada con la
-     *    red caída borraría el arte de toda la biblioteca de una.
+     * Two precautions, both against destroying good art:
+     *  - Only rows WITH `tmdbId`, which are the ones `ensureArtwork` resolved by searching by
+     *    title. A row with backdrops but no `tmdbId` is art the portal put there
+     *    (`addMagisSource`) and never gets touched.
+     *  - If the search returns nothing, the row is left **as-is**. Without this, a pass with the
+     *    network down would wipe the whole library's art at once.
      *
-     * Devuelve true solo si la pasada se completó entera; false si algo falló y conviene reintentar
-     * en el próximo arranque.
+     * Returns true only if the pass completed entirely; false if something failed and it's worth
+     * retrying on the next startup.
      */
     suspend fun repairArtworkMatches(rows: List<LibraryRow>): Boolean {
         if (!artworkRepairRan.compareAndSet(false, true)) return false
@@ -378,8 +381,8 @@ class ArkivRepository(
                 complete = false
                 continue
             }
-            val tipoSiExacto = type.takeIf { match.exacto }
-            if (match.item.id == stored && existing.tmdbType == tipoSiExacto) continue
+            val typeIfExact = type.takeIf { match.exacto }
+            if (match.item.id == stored && existing.tmdbType == typeIfExact) continue
             val backdrops = runCatching { tmdb.images(type, match.item.id) }.getOrNull()
             if (backdrops == null) {
                 complete = false
@@ -389,9 +392,9 @@ class ArkivRepository(
                 ArtworkEntity(
                     itemId = row.identifier,
                     tmdbId = match.item.id,
-                    // Misma regla que en ensureArtwork: la reparación no puede ASCENDER un match
-                    // por descarte a identidad, que es justo lo que arregla este cambio.
-                    tmdbType = tipoSiExacto,
+                    // Same rule as in ensureArtwork: the repair can't PROMOTE a fallback match to
+                    // an identity one, which is exactly what this change fixes.
+                    tmdbType = typeIfExact,
                     backdropsJson = JSONArray(backdrops).toString(),
                     fetchedAt = clock(),
                 ),
@@ -400,51 +403,51 @@ class ArkivRepository(
         return complete
     }
 
-    // --- Stills de capítulos (TMDB, local y no sincronizado) --------------------------------
+    // --- Chapter stills (TMDB, local and not synced) --------------------------------
 
-    /** Mapa episodeId -> URL del still, para pintar la miniatura real de cada capítulo. */
+    /** Map episodeId -> the still's URL, to paint each chapter's real thumbnail. */
     fun observeEpisodeStills(itemId: String): Flow<Map<String, String>> =
         episodeStillDao.observeForItem(itemId).map { rows ->
             rows.mapNotNull { r -> r.stillUrl?.let { r.episodeId to it } }.toMap()
         }
 
     /**
-     * Mapa episodeId -> ruta en disco del frame capturado, para que el detalle de una serie pinte
-     * la escena real en vez del still de TMDB. Mismo mecanismo que [observeContinueWatching]
-     * (`ContinueRow.framePath`), pero acá el disparador es una consulta de Room en vez de un
-     * `List<ContinueRow>` ya en memoria.
+     * Map episodeId -> on-disk path of the captured frame, so a series' detail paints the real
+     * scene instead of TMDB's still. Same mechanism as [observeContinueWatching]
+     * (`ContinueRow.framePath`), but here the trigger is a Room query instead of a
+     * `List<ContinueRow>` already in memory.
      *
-     * SUTILEZA a propósito: la fila de `episode_frame` se usa solo como DISPARADOR (Room notifica
-     * el Flow cuando cambia una fila; el disco no notifica nada), y la ruta en sí sale SIEMPRE de
-     * `almacenDeFrames.pathIfExists`, igual que en el home — es la única fuente de verdad de dónde
-     * está el JPEG. Consecuencia asumida: si alguna vez se guardó el JPEG pero falló la escritura
-     * de la fila (o viceversa), el detalle no lo mostraría aunque el home sí. Es un caso raro
-     * (la escritura de fila y archivo son parte de la misma captura) y se corrige solo con la
-     * próxima captura del capítulo.
+     * Deliberate SUBTLETY: the `episode_frame` row is used only as a TRIGGER (Room notifies the
+     * Flow when a row changes; disk notifies nothing), and the path itself ALWAYS comes from
+     * `frameStore.pathIfExists`, same as on the home — it's the only source of truth for where the
+     * JPEG is. Accepted consequence: if the JPEG was ever saved but the row's write failed (or
+     * vice versa), the detail wouldn't show it even though the home would. It's a rare case (the
+     * row and file writes are part of the same capture) and it self-corrects with the chapter's
+     * next capture.
      */
     fun observeEpisodeFrames(itemId: String): Flow<Map<String, String>> =
         episodeFrameDao.observeForItem(itemId).map { rows ->
-            rows.mapNotNull { r -> almacenDeFrames?.pathIfExists(r.episodeId)?.let { r.episodeId to it } }.toMap()
+            rows.mapNotNull { r -> frameStore?.pathIfExists(r.episodeId)?.let { r.episodeId to it } }.toMap()
         }
 
     /**
-     * Resuelve los stills de los capítulos de una serie desde TMDB y los cachea.
+     * Resolves a series' chapter stills from TMDB and caches them.
      *
-     * Idempotente: si todos los capítulos ya tienen fila (aunque sea con `stillUrl` null porque
-     * TMDB no tenía imagen) no vuelve a pedir nada. Sirve igual para series y anime — en TMDB
-     * ambos son `tv`, que es lo que ya resuelve [ensureArtwork].
+     * Idempotent: if every chapter already has a row (even with a null `stillUrl` because TMDB had
+     * no image) nothing gets requested again. Works the same for series and anime — on TMDB both
+     * are `tv`, which is what [ensureArtwork] already resolves.
      *
-     * **No es dueña de la tabla**: Magis escribe las mismas filas al guardar la temporada, con lo
-     * que el gateway ya cruzó contra TMDB. Por eso esta función nunca pisa una fila entera — mezcla
-     * campo por campo ([MezclaDeStills]) y no marca como "ya preguntado" lo que no se pudo
-     * preguntar. Sin eso, abrir el detalle con la red caída borraba lo que Magis había guardado bien
-     * y no se reintentaba nunca más.
+     * **Doesn't own the table**: Magis writes the same rows when saving the season, with what the
+     * gateway already crossed against TMDB. That's why this function never overwrites a whole row
+     * — it merges field by field ([MezclaDeStills]) and doesn't mark as "already asked" what
+     * couldn't be asked. Without that, opening the detail with the network down would wipe out
+     * what Magis had saved correctly and it would never be retried again.
      */
     suspend fun ensureEpisodeStills(itemId: String) {
         val tmdb = tmdbApi ?: return
-        // El tmdbId del propio ítem manda sobre el de `artwork`: ese se resuelve buscando por
-        // título en TMDB (una adivinanza que puede caer en otra serie), mientras que el del ítem
-        // lo puso quien lo agregó desde la búsqueda, que sabía exactamente cuál era.
+        // The item's own tmdbId wins over `artwork`'s: that one gets resolved by searching TMDB by
+        // title (a guess that can land on another series), while the item's was set by whoever
+        // added it from search, who knew exactly which one it was.
         val ownTmdbId = itemDao.getItem(itemId)?.tmdbId
         val tvId = ownTmdbId ?: artworkDao.get(itemId)
             ?.let { art -> art.tmdbId?.takeIf { art.tmdbType == "tv" } }
@@ -452,29 +455,30 @@ class ArkivRepository(
 
         val episodes = itemDao.getEpisodesOf(itemId)
         if (episodes.isEmpty()) return
-        // Las filas que ya están, COMPLETAS y no solo sus ids: se usan dos veces — para el corte
-        // temprano de acá abajo y para no pisar con null lo que otra fuente ya había llenado
-        // (ver [MezclaDeStills]).
-        val previas = episodeStillDao.forItem(itemId).associateBy { it.episodeId }
-        if (previas.keys.containsAll(episodes.map { it.id })) return
+        // The rows that already exist, COMPLETE and not just their ids: used twice — for the early
+        // cutoff below and so as not to overwrite with null what another source had already filled
+        // in (see [MezclaDeStills]).
+        val previous = episodeStillDao.forItem(itemId).associateBy { it.episodeId }
+        if (previous.keys.containsAll(episodes.map { it.id })) return
 
-        // Capítulo -> (temporada, episodio). Tres formas, de la más confiable a la menos.
+        // Chapter -> (season, episode). Three ways, from most to least reliable.
         val coords: Map<String, Pair<Int, Int>> = if (episodes.all { it.season != null && it.episode != null }) {
-            // El nombre del archivo declaraba la numeración (sNNeNN / NxNN): es exacta, y no se
-            // desalinea aunque la copia local traiga OVAs, recaps o le falten capítulos.
+            // The file name declared the numbering (sNNeNN / NxNN): it's exact, and doesn't get
+            // misaligned even if the local copy brings OVAs, recaps, or is missing chapters.
             episodes.associate { it.id to (it.season!! to it.episode!!) }
         } else if (episodes.any { NumeracionCodificada.coordenadas(it.itemId, it.section, it.orderIndex) != null }) {
-            // Torrent y web: el orderIndex trae la numeración codificada. Quién la trae y quién no
-            // lo decide la fuente de la fila, no que el número pase de 1000 — mirar el número dejaba
-            // afuera la temporada 0 (los especiales, que dan menos de 1000) y mandaba esas series a
-            // la rama de repartir por conteo, que les ponía el still de otro capítulo.
+            // Torrent and web: orderIndex carries the encoded numbering. Which source brings it and
+            // which doesn't is decided by the row's source, not by the number going over 1000 —
+            // looking at the number left season 0 out (the specials, which give less than 1000) and
+            // sent those series down the count-based distribution branch, which gave them another
+            // chapter's still.
             episodes.mapNotNull { ep ->
                 NumeracionCodificada.coordenadas(ep.itemId, ep.section, ep.orderIndex)?.let { ep.id to it }
             }.toMap()
         } else {
-            // Archive: lista plana 1..N sin temporadas. Se aplanan las de TMDB en orden y se
-            // reparte por conteo (con 25+24, el capítulo 26 cae en T2E1). Si la copia local
-            // trae OVAs o recaps intercalados, este reparto se desalinea.
+            // Archive: flat 1..N list with no seasons. TMDB's are flattened in order and
+            // distributed by count (with 25+24, chapter 26 lands on S2E1). If the local copy has
+            // OVAs or recaps interspersed, this distribution gets misaligned.
             val seasons = tmdb.detail("tv", tvId)?.seasons
                 ?.filter { it.seasonNumber > 0 && it.episodeCount > 0 }
                 ?.sortedBy { it.seasonNumber }
@@ -487,47 +491,49 @@ class ArkivRepository(
         }
         if (coords.isEmpty()) return
 
-        // Una llamada por temporada, no por capítulo.
+        // One call per season, not per chapter.
         val stillBySeasonEp = mutableMapOf<Pair<Int, Int>, String>()
         val titleBySeasonEp = mutableMapOf<Pair<Int, Int>, String>()
         val overviewBySeasonEp = mutableMapOf<Pair<Int, Int>, String>()
-        // Temporadas cuya consulta a TMDB se cayó (red, rate-limit, 5xx). Distinto de "TMDB
-        // contestó y no tenía nada": eso último SÍ se escribe, para no repreguntar por siempre.
-        val fallaron = mutableSetOf<Int>()
+        // Seasons whose TMDB query went down (network, rate-limit, 5xx). Different from "TMDB
+        // answered and had nothing": the latter DOES get written, so as not to re-ask forever.
+        val failed = mutableSetOf<Int>()
         for (season in coords.values.map { it.first }.distinct().sorted()) {
-            // Doble null: el de `seasonEpisodes` (la consulta no se pudo hacer) y el del
-            // `runCatching` (excepción inesperada). Los dos son "no se pudo preguntar".
+            // Double null: `seasonEpisodes`'s (the query couldn't be made) and `runCatching`'s
+            // (unexpected exception). Both mean "couldn't be asked".
             val eps = runCatching { tmdb.seasonEpisodes(tvId, season) }.getOrNull()
             if (eps == null) {
-                // Sin este corte, un fallo se escribía como fila vacía —indistinguible del "TMDB
-                // contestó y no tenía nada"—, el corte temprano de arriba daba true para siempre y
-                // un solo timeout dejaba esa serie sin imágenes ni nombres hasta reinstalar la app.
-                fallaron += season
+                // Without this cutoff, a failure got written as an empty row —indistinguishable
+                // from "TMDB answered and had nothing"—, the early cutoff above returned true
+                // forever, and a single timeout left that series with no images or names until the
+                // app was reinstalled.
+                failed += season
                 continue
             }
             eps.forEach { e ->
                 if (e.stillUrl.isNotBlank()) stillBySeasonEp[e.season to e.episode] = e.stillUrl
                 if (e.name.isNotBlank()) titleBySeasonEp[e.season to e.episode] = e.name
-                // Misma tabla que llena Magis (`MagisEntities.stillsDeTemporada`): la sinopsis por
-                // capítulo no es un privilegio de una sola fuente, las dos escriben `episode_still`
-                // y la UI lee un solo lugar.
+                // Same table Magis fills (`MagisEntities.stillsDeTemporada`): the per-chapter
+                // synopsis isn't a single source's privilege, both write `episode_still` and the
+                // UI reads a single place.
                 if (e.overview.isNotBlank()) overviewBySeasonEp[e.season to e.episode] = e.overview
             }
         }
 
-        // Se escriben TODOS los capítulos, también los que no tienen still: la fila marca
-        // "ya preguntado" y evita repetir la consulta en cada apertura de la serie. Con dos
-        // excepciones, las dos por lo mismo —una fila escrita acá se lee como respuesta definitiva—:
-        //  1. Los de una temporada que ni siquiera se pudo consultar, para que se reintente.
-        //  2. Los campos que esta consulta no trajo, que conservan lo que ya hubiera guardado (típico:
-        //     lo que Magis dejó al guardar la temporada). Ver [MezclaDeStills].
+        // ALL chapters get written, including the ones with no still: the row marks "already
+        // asked" and avoids repeating the query on every time the series opens. With two
+        // exceptions, both for the same reason —a row written here is read as a definitive
+        // answer—:
+        //  1. Those of a season that couldn't even be queried, so it gets retried.
+        //  2. The fields this query didn't bring, which keep whatever was already saved (typically:
+        //     what Magis left on saving the season). See [MezclaDeStills].
         val now = clock()
         episodeStillDao.upsertAll(
             episodes
-                .filter { ep -> coords[ep.id]?.first?.let { it !in fallaron } ?: true }
+                .filter { ep -> coords[ep.id]?.first?.let { it !in failed } ?: true }
                 .map { ep ->
                     MezclaDeStills.mezclar(
-                        previa = previas[ep.id],
+                        previa = previous[ep.id],
                         nueva = EpisodeStillEntity(
                             episodeId = ep.id,
                             stillUrl = coords[ep.id]?.let { stillBySeasonEp[it] },
@@ -541,9 +547,9 @@ class ArkivRepository(
     }
 
     /**
-     * Mapa episodeId -> título del capítulo según TMDB, para mostrarlo en vez del nombre del
-     * archivo ("s01e03"). Solo trae los que TMDB conocía; el resto no aparece y la UI cae al
-     * nombre del archivo.
+     * Map episodeId -> the chapter's title per TMDB, to show it instead of the file name
+     * ("s01e03"). Only brings the ones TMDB knew; the rest don't show up and the UI falls back to
+     * the file name.
      */
     fun observeEpisodeTitles(itemId: String): Flow<Map<String, String>> =
         episodeStillDao.observeForItem(itemId).map { rows ->
@@ -551,10 +557,10 @@ class ArkivRepository(
         }
 
     /**
-     * Mapa episodeId -> sinopsis del capítulo según TMDB. La llenan tanto Magis
-     * (`addMagisSeason`/`addMagisSource`) como [ensureEpisodeStills] para todo lo demás (Ditu hoy,
-     * y las filas legacy de torrent/web/archive): cualquier serie con `tmdbId` la tiene, no es un
-     * privilegio de una sola fuente.
+     * Map episodeId -> the chapter's synopsis per TMDB. Filled in both by Magis
+     * (`addMagisSeason`/`addMagisSource`) and by [ensureEpisodeStills] for everything else (Ditu
+     * today, and legacy torrent/web/archive rows): any series with a `tmdbId` has it, it isn't a
+     * single source's privilege.
      */
     fun observeEpisodeOverviews(itemId: String): Flow<Map<String, String>> =
         episodeStillDao.observeForItem(itemId).map { rows ->
@@ -563,14 +569,14 @@ class ArkivRepository(
 
     fun observeDownloadRows() = downloadDao.observeDownloadRows()
 
-    // `completedDownloadUri` se eliminó: miraba SOLO la columna `localUri` (la que llenaba el
-    // DownloadManager del sistema) e ignoraba `filePath`, que es donde escriben las descargas
-    // nuevas, así que devolvía null para todo lo bajado con el worker. Tampoco verificaba que el
-    // archivo siguiera existiendo. Ahora hay UN solo resolvedor de "¿dónde está el archivo local?"
-    // para las tres fuentes: `LocalLibrary.fileFor`, que cubre las dos columnas, chequea exists() y
-    // limpia la fila si el archivo se fue.
+    // `completedDownloadUri` was removed: it looked ONLY at the `localUri` column (the one the
+    // system's DownloadManager filled) and ignored `filePath`, which is where new downloads write,
+    // so it returned null for everything downloaded with the worker. It also didn't check that the
+    // file still existed. Now there's ONE resolver of "where's the local file?" for all three
+    // sources: `LocalLibrary.fileFor`, which covers both columns, checks exists() and cleans up the
+    // row if the file is gone.
 
-    /** Fija el tipo a mano: true = película, false = serie, null = detección automática. */
+    /** Sets the type by hand: true = movie, false = series, null = automatic detection. */
     suspend fun setCategory(itemId: String, isMovie: Boolean?) {
         val value = when (isMovie) {
             true -> "movie"
@@ -580,7 +586,7 @@ class ArkivRepository(
         itemDao.updateCategoryOverride(itemId, value)
     }
 
-    /** Renombra un ítem de la biblioteca (el título es solo display; no cambia su identifier). */
+    /** Renames a library item (the title is display-only; doesn't change its identifier). */
     suspend fun renameItem(itemId: String, title: String) {
         val clean = title.trim()
         if (clean.isBlank()) return
@@ -594,30 +600,31 @@ class ArkivRepository(
      * Called when the detail screen opens, as soon as the identifier to show is resolved. See
      * `NewEpisodeCounter`.
      */
-    suspend fun marcarCapitulosVistos(identifier: String) {
-        val cuantos = itemDao.getEpisodesOf(identifier).count { !it.deleted }
-        itemDao.markEpisodesSeen(identifier, cuantos)
+    suspend fun markChaptersSeen(identifier: String) {
+        val count = itemDao.getEpisodesOf(identifier).count { !it.deleted }
+        itemDao.markEpisodesSeen(identifier, count)
     }
 
     /**
-     * Guarda un resultado de Magis para poder reproducirlo y reanudarlo.
+     * Saves a Magis result so it can be played and resumed.
      *
-     * El id se deriva del `contentId` del portal, NO del ref: el ref se re-emite en cada búsqueda y
-     * un id derivado de él perdería la marca de "voy por aquí" cada vez. El ref se guarda aparte
-     * (mismo campo donde web guarda su `pageUrl`) y se refresca al volver a encontrarlo.
+     * The id is derived from the portal's `contentId`, NOT from the ref: the ref gets re-emitted
+     * on every search and an id derived from it would lose the "I'm here" mark every time. The ref
+     * is saved separately (the same field where web saves its `pageUrl`) and gets refreshed on
+     * finding it again.
      *
-     * [episode] > 0 = capítulo de serie: va como episodio DENTRO del ítem de la temporada y lo
-     * marca como serie desde el primero (ver [MagisEntities] para el porqué). 0 = película, que es
-     * el camino de siempre y reemplaza el ítem entero.
+     * [episode] > 0 = a series chapter: goes as an episode INSIDE the season's item and marks it
+     * as a series from the first one on (see [MagisEntities] for why). 0 = movie, the usual path,
+     * which replaces the whole item.
      *
-     * [seriesRef] es el ref de la TEMPORADA (el que sirve para pedirle al portal la lista de
-     * capítulos), distinto del [ref] del capítulo que se va a reproducir.
+     * [seriesRef] is the SEASON's ref (the one used to ask the portal for the chapter list),
+     * different from the [ref] of the chapter that's about to play.
      *
-     * [season], [tmdbId], [still], [tmdbTitle] y [overview] son lo que trae `GatewaySerie`/
-     * `GatewayEpisode` cuando el llamador los tiene a mano (hoy, `BuscadorDeCapitulos.revisarMagis`
-     * al agregar un capítulo nuevo en background): un capítulo que sale así queda enriquecido igual
-     * que si se hubiera tocado a mano, sin que nadie tenga que abrir la temporada. Todos opcionales
-     * para los demás llamadores, que no los conocen.
+     * [season], [tmdbId], [still], [tmdbTitle] and [overview] are what `GatewaySerie`/
+     * `GatewayEpisode` bring when the caller has them on hand (today, `BuscadorDeCapitulos.revisarMagis`
+     * when adding a new chapter in the background): a chapter that comes out this way ends up
+     * enriched the same as if it had been opened by hand, with nobody having to open the season.
+     * All optional for the other callers, which don't know them.
      */
     suspend fun addMagisSource(
         ref: String,
@@ -645,15 +652,15 @@ class ArkivRepository(
             tituloCanonico = tituloCanonico,
         )
         if (episode > 0) {
-            // upsert y NO replaceItem: los capítulos que ya estaban guardados de esta temporada no
-            // se pueden borrar para meter el nuevo.
+            // upsert and NOT replaceItem: chapters already saved for this season can't be deleted
+            // to fit the new one in.
             itemDao.upsertItem(item)
             itemDao.upsertEpisodes(listOf(ep))
-            barrerItemLegacyDeCapitulo(contentId, episode)
-            // Reusa `stillsDeTemporada` (mismo filtro "trae algo" y mismo cálculo de episodeId que
-            // usa `addMagisSeason` para la temporada entera) en vez de duplicar esa lógica acá para
-            // un solo capítulo.
-            guardarStillsDeMagis(
+            sweepLegacyChapterItem(contentId, episode)
+            // Reuses `stillsDeTemporada` (the same "brings something" filter and the same
+            // episodeId calculation `addMagisSeason` uses for the whole season) instead of
+            // duplicating that logic here for a single chapter.
+            saveMagisStills(
                 id,
                 MagisEntities.stillsDeTemporada(
                     id, listOf(CapituloDeTemporada(episode, episodeTitle, ref, still, tmdbTitle, overview)), clock(),
@@ -662,23 +669,23 @@ class ArkivRepository(
         } else {
             itemDao.replaceItem(item, listOf(ep))
         }
-        guardarBackdropDeMagis(id, backdropUrl)
+        saveMagisBackdrop(id, backdropUrl)
         return ep.id
     }
 
     /**
-     * Guarda un título de Caracol en la biblioteca y devuelve el episodeId a reproducir, o null si
-     * no es algo que se pueda guardar (ver [DituEntities.contentIdDelItem]: un ref que no es de
-     * Caracol, o una serie sin capítulo elegido).
+     * Saves a Caracol title to the library and returns the episodeId to play, or null if it isn't
+     * something that can be saved (see [DituEntities.contentIdDelItem]: a ref that isn't Caracol's,
+     * or a series with no chapter chosen).
      *
-     * Calcado de [addMagisSource]: [episode] > 0 = capítulo, que va como episodio DENTRO del ítem de
-     * su serie (upsert: los capítulos que ya estaban no se borran); 0 = película, que reemplaza el
-     * ítem entero. La diferencia es que acá lo guardado no vence: el ref de Caracol codifica ids
-     * estables (ver `DituRef`), y queda en el `torrentData` del episodio, que es de donde lo lee
-     * [magisRefForEpisode] cuando `PlayerViewModel.loadDitu` lo va a reproducir.
+     * A copy of [addMagisSource]: [episode] > 0 = a chapter, which goes as an episode INSIDE its
+     * series' item (upsert: chapters already there don't get deleted); 0 = movie, which replaces
+     * the whole item. The difference is that here what's saved doesn't expire: Caracol's ref
+     * encodes stable ids (see `DituRef`), and it's kept in the episode's `torrentData`, which is
+     * where [magisRefForEpisode] reads it from when `PlayerViewModel.loadDitu` is about to play it.
      *
-     * [seriesRef] es el ref de la SERIE (el que lista sus capítulos), distinto del [ref] del
-     * capítulo que se va a reproducir.
+     * [seriesRef] is the SERIES' ref (the one that lists its chapters), different from the [ref]
+     * of the chapter that's about to play.
      */
     suspend fun addDituSource(
         ref: String,
@@ -707,149 +714,154 @@ class ArkivRepository(
         } else {
             itemDao.replaceItem(item, listOf(ep))
         }
-        // El nombre dice Magis, pero lo único que hace es escribir la imagen apaisada en `artwork`
-        // si llegó una: no tiene nada propio de Magis.
-        guardarBackdropDeMagis(id, backdropUrl)
+        // The name says Magis, but all it does is write the landscape image into `artwork` if one
+        // arrived: it has nothing Magis-specific.
+        saveMagisBackdrop(id, backdropUrl)
         return ep.id
     }
 
     /**
-     * Guarda la serie ENTERA de Caracol y devuelve el episodeId del capítulo [elegido], para
-     * reproducirlo. Es lo que corre al tocar un capítulo para verlo, con la lista que la ventana de
-     * capítulos ya tenía cargada (sin red). Calcado de [addMagisSeason].
+     * Saves Caracol's WHOLE series and returns the [chosen] chapter's episodeId, to play it. This
+     * is what runs when a chapter is tapped to watch it, with the list the chapter window already
+     * had loaded (no network). A copy of [addMagisSeason].
      *
-     * `upsert` y NO `replaceItem`: un capítulo que ya tenías guardado tiene que sobrevivir aunque
-     * Caracol no lo liste esta vez. Es idempotente (ids derivados del contenido, y los mismos que
-     * arma [addDituSource] para un capítulo suelto: ver [DituEntities.buildSerie]), así que se puede
-     * llamar en cada reproducción sin duplicar nada.
+     * `upsert` and NOT `replaceItem`: a chapter you already had saved has to survive even if
+     * Caracol doesn't list it this time. It's idempotent (ids derived from the content, and the
+     * same ones [addDituSource] builds for a standalone chapter: see [DituEntities.buildSerie]),
+     * so it can be called on every playback with nothing duplicated.
      *
-     * UNA sola escritura sobre el ítem, por lo mismo que en [addMagisSeason]: `episodiosVistosEnLista`
-     * se re-sella ACÁ, antes de escribir, contra la UNIÓN de los capítulos que ya estaban guardados
-     * con los que llegan, y el ítem sale sellado del único `upsertItem`.
+     * A SINGLE write on the item, for the same reason as in [addMagisSeason]:
+     * `episodiosVistosEnLista` gets re-sealed HERE, before writing, against the UNION of the
+     * chapters already saved with the ones arriving, and the item comes out sealed from the single
+     * `upsertItem`.
      *
-     * Solo entran los capítulos de [DituEntities.capitulosGuardables] (la guarda de
-     * [DituEntities.contentIdDelItem]): un ref que no es de Caracol nunca termina con id `ditu:`.
+     * Only [DituEntities.capitulosGuardables]'s chapters get in (the guard from
+     * [DituEntities.contentIdDelItem]): a ref that isn't Caracol's never ends up with a `ditu:` id.
      *
-     * No lleva lo legacy de [addMagisSeason] (el barrido de ítems por capítulo, el episodio fantasma
-     * de película, los stills): Caracol no tiene filas viejas en esta rama, y `DituFuente` arma sus
-     * capítulos sin still.
+     * Doesn't carry [addMagisSeason]'s legacy bits (the per-chapter item sweep, the movie-shaped
+     * ghost episode, the stills): Caracol has no old rows in this branch, and `DituFuente` builds
+     * its chapters with no still.
      *
-     * Null si no guardó nada, o si el [elegido] no quedó guardado con su ref (ver
-     * [DituEntities.elegidoEntre]): quien llama cae a guardar el capítulo solo.
+     * Null if nothing got saved, or if [chosen] didn't end up saved with its ref (see
+     * [DituEntities.elegidoEntre]): the caller falls back to saving the chapter alone.
      */
     suspend fun addDituSeason(
         seriesRef: String,
         title: String,
-        capitulos: List<CapituloDeCaracol>,
-        elegido: CapituloDeCaracol,
+        chapters: List<CapituloDeCaracol>,
+        chosen: CapituloDeCaracol,
         posterUrl: String = "",
         backdropUrl: String = "",
-        // `DituFuente` deja el tmdbId en 0 cuando TMDB no la encontró: quien llama lo pasa en null
-        // para que no pise uno ya guardado.
+        // `DituFuente` leaves tmdbId at 0 when TMDB didn't find it: the caller passes null so it
+        // doesn't overwrite one already saved.
         tmdbId: Int? = null,
         tituloCanonico: String? = null,
     ): String? {
-        val guardables = DituEntities.capitulosGuardables(seriesRef, capitulos)
-        val contentId = guardables.firstNotNullOfOrNull {
+        val saveable = DituEntities.capitulosGuardables(seriesRef, chapters)
+        val contentId = saveable.firstNotNullOfOrNull {
             DituEntities.contentIdDelItem(it.ref, seriesRef, it.number)
         } ?: return null
         val id = DituEntities.itemIdDe(contentId)
-        val existente = itemDao.getItem(id)
-        // El badge es para capítulos que salieron en Caracol, no para los que acabas de guardar tú:
-        // se re-sella al total que va a quedar tras el upsert (lo que ya había, más lo que llega).
-        val vivos = itemDao.getEpisodesOf(id).map { it.id }.toSet()
-        val idsNuevos = guardables.map { DituEntities.idDelCapitulo(id, it.season, it.number) }.toSet()
+        val existing = itemDao.getItem(id)
+        // The badge is for chapters that came out on Caracol, not for the ones you just saved
+        // yourself: it gets re-sealed to the total that's going to be left after the upsert (what
+        // was already there, plus what's arriving).
+        val live = itemDao.getEpisodesOf(id).map { it.id }.toSet()
+        val newIds = saveable.map { DituEntities.idDelCapitulo(id, it.season, it.number) }.toSet()
         val episodiosVistosEnLista = com.arkiv.player.data.nuevos.NewEpisodeCounter.reseal(
-            existente?.episodiosVistosEnLista,
-            (vivos + idsNuevos).size,
+            existing?.episodiosVistosEnLista,
+            (live + newIds).size,
         )
-        val serie = DituEntities.buildSerie(
-            contentId = contentId, seriesRef = seriesRef, title = title, capitulos = guardables,
-            elegido = elegido, posterUrl = posterUrl, ahora = clock(), existente = existente,
+        val series = DituEntities.buildSerie(
+            contentId = contentId, seriesRef = seriesRef, title = title, capitulos = saveable,
+            elegido = chosen, posterUrl = posterUrl, ahora = clock(), existente = existing,
             episodiosVistosEnLista = episodiosVistosEnLista, tmdbId = tmdbId,
             tituloCanonico = tituloCanonico,
         )
-        itemDao.upsertItem(serie.item)
-        itemDao.upsertEpisodes(serie.episodios)
-        guardarBackdropDeMagis(id, backdropUrl)
-        return serie.idDelElegido
+        itemDao.upsertItem(series.item)
+        itemDao.upsertEpisodes(series.episodios)
+        saveMagisBackdrop(id, backdropUrl)
+        return series.idDelElegido
     }
 
     /**
-     * El ref con el que pedirle al gateway la identidad de un ítem de Magis guardado sin ella, o
-     * null si no hay nada que reparar. La regla vive en [MagisEntities.refParaReparar]; acá solo se
-     * lee la fila.
+     * The ref to ask the gateway for the identity of a Magis item saved with none, or null if
+     * there's nothing to repair. The rule lives in [MagisEntities.refParaReparar]; this just reads
+     * the row.
      */
-    suspend fun refDeMagisParaReparar(itemId: String): String? {
-        val fila = itemDao.getItem(itemId) ?: return null
-        return MagisEntities.refParaReparar(fila.identifier, fila.tmdbId, fila.torrentData)
+    suspend fun magisRefToRepair(itemId: String): String? {
+        val row = itemDao.getItem(itemId) ?: return null
+        return MagisEntities.refParaReparar(row.identifier, row.tmdbId, row.torrentData)
     }
 
     /**
-     * Le pega a un ítem de Magis la identidad que el gateway ahora sí resuelve: el `tmdbId` de la
-     * serie y lo que TMDB sepa de cada capítulo.
+     * Gives a Magis item the identity the gateway can now resolve: the series' `tmdbId` and
+     * whatever TMDB knows about each chapter.
      *
-     * Los stills van por [guardarStillsDeMagis], el mismo (y único) punto de escritura que usan
-     * `addMagisSeason`/`addMagisSource`, así que se respeta la mezcla que no pisa lo ya guardado.
-     * No toca los episodios ni el resto del ítem: esto repara metadata, no reescribe la biblioteca.
+     * The stills go through [saveMagisStills], the same (and only) write point
+     * `addMagisSeason`/`addMagisSource` use, so the merge that doesn't overwrite what's already
+     * saved is respected. Doesn't touch the episodes or the rest of the item: this repairs
+     * metadata, it doesn't rewrite the library.
      */
-    suspend fun aplicarIdentidadDeMagis(
+    suspend fun applyMagisIdentity(
         itemId: String,
         tmdbId: Int?,
-        capitulos: List<CapituloDeTemporada>,
+        chapters: List<CapituloDeTemporada>,
         tituloCanonico: String? = null,
     ) {
-        val fila = itemDao.getItem(itemId) ?: return
-        // Una sola escritura para las dos cosas: son la misma respuesta del gateway, y dos
-        // `upsertItem` sobre la misma fila en el mismo segundo es justo lo que hace recursar el
-        // trigger del sync (ver `SyncTriggers`, y el mismo cuidado en `MagisEntities.buildSeason`).
-        val nombre = tituloCanonico?.trim()?.takeIf { it.isNotEmpty() }
-        val identidadNueva = tmdbId != null && tmdbId > 0 && fila.tmdbId != tmdbId
-        val nombreNuevo = nombre != null && nombre != fila.tituloCanonico
-        if (identidadNueva || nombreNuevo) {
+        val row = itemDao.getItem(itemId) ?: return
+        // A single write for both things: they're the same gateway response, and two `upsertItem`
+        // calls on the same row in the same second is exactly what makes the sync trigger recurse
+        // (see `SyncTriggers`, and the same care in `MagisEntities.buildSeason`).
+        val name = tituloCanonico?.trim()?.takeIf { it.isNotEmpty() }
+        val hasNewIdentity = tmdbId != null && tmdbId > 0 && row.tmdbId != tmdbId
+        val hasNewName = name != null && name != row.tituloCanonico
+        if (hasNewIdentity || hasNewName) {
             itemDao.upsertItem(
-                fila.copy(
-                    tmdbId = if (identidadNueva) tmdbId else fila.tmdbId,
-                    tituloCanonico = nombre ?: fila.tituloCanonico,
+                row.copy(
+                    tmdbId = if (hasNewIdentity) tmdbId else row.tmdbId,
+                    tituloCanonico = name ?: row.tituloCanonico,
                     updatedAt = clock(),
                 ),
             )
         }
-        if (capitulos.isNotEmpty()) {
-            guardarStillsDeMagis(itemId, MagisEntities.stillsDeTemporada(itemId, capitulos, clock()))
+        if (chapters.isNotEmpty()) {
+            saveMagisStills(itemId, MagisEntities.stillsDeTemporada(itemId, chapters, clock()))
         }
     }
 
     /**
-     * Escribe en `episode_still` lo que Magis trajo, **sin pisar lo que ya había** ([MezclaDeStills]).
+     * Writes to `episode_still` what Magis brought, **without overwriting what was already there**
+     * ([MezclaDeStills]).
      *
-     * Único punto de escritura de esa tabla desde Magis ([addMagisSource] y [addMagisSeason]), y por
-     * eso no hay dos versiones de esta regla. `EpisodeStillDao.upsertAll` es un REPLACE, así que
-     * mandar directo lo que devuelve `MagisEntities.stillsDeTemporada` reescribía la fila ENTERA: esa
-     * lista deja en null todo campo que el gateway no resolvió, y le alcanza con que uno de los tres
-     * traiga algo para incluir la fila. Concreto: se guarda la temporada, se abre el detalle y
-     * [ensureEpisodeStills] completa el nombre y la sinopsis de un capítulo que el gateway no había
-     * cruzado; después se marca ese capítulo y se toca "Guardar", el gateway devuelve solo el still y
-     * —sin la mezcla— nombre y sinopsis se perdían en silencio. Peor todavía: como la fila seguía
-     * existiendo, el corte temprano de [ensureEpisodeStills] impedía volver a llenarlos.
+     * The only write point of that table from Magis ([addMagisSource] and [addMagisSeason]), and
+     * that's why there aren't two versions of this rule. `EpisodeStillDao.upsertAll` is a REPLACE,
+     * so sending straight what `MagisEntities.stillsDeTemporada` returns would rewrite the WHOLE
+     * row: that list leaves null every field the gateway didn't resolve, and it's enough for one
+     * of the three to bring something to include the row. Concretely: the season gets saved, the
+     * detail opens and [ensureEpisodeStills] fills in the name and synopsis of a chapter the
+     * gateway hadn't crossed; then that chapter gets marked and "Guardar" is tapped, the gateway
+     * returns only the still and —without the merge— name and synopsis were silently lost. Worse
+     * still: since the row kept existing, [ensureEpisodeStills]'s early cutoff prevented ever
+     * filling them in again.
      *
-     * La lectura de las filas previas se hace SOLO si hay algo que escribir: el caso más común es la
-     * temporada sin enriquecer, y ahí esto no toca la base.
+     * Reading the previous rows is done ONLY if there's something to write: the most common case
+     * is the unenriched season, and there this doesn't touch the database.
      */
-    private suspend fun guardarStillsDeMagis(itemId: String, nuevas: List<EpisodeStillEntity>) {
-        if (nuevas.isEmpty()) return
-        val previas = episodeStillDao.forItem(itemId).associateBy { it.episodeId }
-        episodeStillDao.upsertAll(MezclaDeStills.mezclarTodas(previas, nuevas))
+    private suspend fun saveMagisStills(itemId: String, new: List<EpisodeStillEntity>) {
+        if (new.isEmpty()) return
+        val previous = episodeStillDao.forItem(itemId).associateBy { it.episodeId }
+        episodeStillDao.upsertAll(MezclaDeStills.mezclarTodas(previous, new))
     }
 
     /**
-     * La imagen apaisada del portal va al mismo lugar donde el hero del Home busca la de TMDB.
-     * Se escribe SOLO si Magis la trajo: una fila con backdrops —aunque tmdbId sea null, como
-     * acá— ensureArtwork ya NO la vuelve a tocar (ver LibraryGrouping.shouldRefetchArtwork),
-     * así que este backdrop del portal no se pisa con un "[]" cada vez que pasa la ventana de
-     * reintento. Sin fila (backdropUrl vacío), TMDB la completa como siempre.
+     * The portal's landscape image goes to the same place the Home's hero looks for TMDB's. Only
+     * written if Magis brought it: a row with backdrops —even with a null tmdbId, like here—
+     * ensureArtwork no longer touches (see LibraryGrouping.shouldRefetchArtwork), so this portal
+     * backdrop doesn't get overwritten with a "[]" every time the retry window passes. With no row
+     * (empty backdropUrl), TMDB fills it in as always.
      */
-    private suspend fun guardarBackdropDeMagis(itemId: String, backdropUrl: String) {
+    private suspend fun saveMagisBackdrop(itemId: String, backdropUrl: String) {
         if (backdropUrl.isBlank()) return
         artworkDao.upsert(
             com.arkiv.player.data.db.ArtworkEntity(
@@ -868,115 +880,117 @@ class ArkivRepository(
      * same pattern (saving the whole season at once), but they were removed in this branch's
      * pruning — Magis was the only source that saved one chapter at a time.
      *
-     * `upsert` y NO `replaceItem`: un capítulo que ya tenías guardado tiene que sobrevivir aunque el
-     * portal no lo liste esta vez. Es idempotente (ids derivados del contenido), así que se puede
-     * llamar en cada reproducción.
+     * `upsert` and NOT `replaceItem`: a chapter you already had saved has to survive even if the
+     * portal doesn't list it this time. It's idempotent (ids derived from the content), so it can
+     * be called on every playback.
      *
-     * UNA sola escritura sobre el ítem (`upsertItem`), no dos. Antes iba `upsertItem` y después un
-     * UPDATE puntual (`markEpisodesSeen`) para corregir el badge — dos escrituras a la misma
-     * fila en la misma llamada, y si caían en el mismo segundo el trigger de sync (`SyncTriggers`)
-     * recursaba hasta "too many levels of trigger recursion": la app se caía después de guardar la
-     * temporada pero antes de navegar al reproductor. El trigger ya no recursa (ver `SyncTriggers`),
-     * pero la segunda escritura seguía ensuciando el sync de más, así que también se saca: el total
-     * post-guardado se calcula ACÁ (antes de escribir nada) y se le pasa a [MagisEntities.buildSeason]
-     * ya resuelto, para que el ítem salga sellado desde el único `upsertItem`.
+     * A SINGLE write on the item (`upsertItem`), not two. It used to be `upsertItem` and then a
+     * point UPDATE (`markEpisodesSeen`) to fix the badge — two writes to the same row in the same
+     * call, and if they landed in the same second the sync trigger (`SyncTriggers`) recursed until
+     * "too many levels of trigger recursion": the app crashed after saving the season but before
+     * navigating to the player. The trigger no longer recurses (see `SyncTriggers`), but the second
+     * write kept dirtying sync for no reason, so it's also removed: the post-save total is
+     * computed HERE (before writing anything) and passed to [MagisEntities.buildSeason] already
+     * resolved, so the item comes out sealed from the single `upsertItem`.
      *
-     * El total NO es `capitulos.size`: es la UNIÓN de los capítulos que ya estaban guardados con los
-     * que trae el portal (ver el porqué del `upsert` arriba), así que se calcula contra lo que ya hay
-     * en la base antes de escribir la temporada nueva.
+     * The total is NOT `chapters.size`: it's the UNION of the chapters already saved with the ones
+     * the portal brings (see the why of the `upsert` above), so it's computed against what's
+     * already in the database before writing the new season.
      *
-     * Devuelve `número de capítulo → episodeId` para que el llamador sepa cuál reproducir sin
-     * re-derivar ids a mano.
+     * Returns `chapter number → episodeId` so the caller knows which one to play without
+     * re-deriving ids by hand.
      */
     suspend fun addMagisSeason(
         contentId: String,
         title: String,
-        capitulos: List<CapituloDeTemporada>,
+        chapters: List<CapituloDeTemporada>,
         seriesRef: String,
         posterUrl: String = "",
         backdropUrl: String = "",
-        // Null cuando TMDB no resolvió esta serie (o el gateway todavía no la mandó): `buildSeason`
-        // no lo pisa contra lo que ya estaba guardado, ver su KDoc.
+        // Null when TMDB didn't resolve this series (or the gateway hasn't sent it yet):
+        // `buildSeason` doesn't overwrite it against what was already saved, see its KDoc.
         tmdbId: Int? = null,
-        // El `season_number` de `GatewaySerie`: `buildSeason` lo necesita para que los episodios
-        // guarden la temporada real, sin la cual `ensureEpisodeStills` aplana mal (ver su KDoc).
+        // `GatewaySerie`'s `season_number`: `buildSeason` needs it so episodes save the real
+        // season, without which `ensureEpisodeStills` flattens wrong (see its KDoc).
         seasonNumber: Int? = null,
-        // El nombre con el que TMDB conoce la serie (`GatewaySerie.titulo`), para que la tarjeta
-        // deje de mostrar el del portal. Ver `MagisEntities.buildSeason`.
+        // The name TMDB knows the series by (`GatewaySerie.titulo`), so the card stops showing the
+        // portal's. See `MagisEntities.buildSeason`.
         tituloCanonico: String? = null,
     ): Map<Int, String> {
-        if (contentId.isBlank() || capitulos.isEmpty()) return emptyMap()
+        if (contentId.isBlank() || chapters.isEmpty()) return emptyMap()
         val id = MagisEntities.itemIdDe(contentId)
-        val existente = itemDao.getItem(id)
-        // El badge es para capítulos que salieron en el portal, no para los que acabás de guardar
-        // vos: se re-sella al total que va a quedar tras el upsert, que es la unión de lo que ya
-        // había (undeleted) con lo que trae `capitulos` (upsert nunca los deja deleted).
-        val vivos = itemDao.getEpisodesOf(id).map { it.id }.toSet()
-        // El episodio con forma de PELÍCULA que pudo dejar un guardado suelto de esta misma serie
-        // (`addMagisSource` sin `episode` -- así entraba una recomendación de "Para ti" antes de que
-        // supiera pedirle los capítulos al gateway). Su id no es el de ningún capítulo, así que el
-        // upsert de abajo no lo pisa: quedaría de capítulo fantasma, con el título de la serie y el
-        // ref de la temporada entera. Borrado suave para que viaje por el sync, igual que
-        // [barrerItemLegacyDeCapitulo]; y como `getEpisodesOf` ya filtra los tombstones, lo que se
-        // barrió una vez no se vuelve a tocar (nada de re-ensuciar la fila para el sync).
-        val fantasma = MagisEntities.episodioIdDePelicula(id).takeIf { it in vivos }
-        if (fantasma != null) itemDao.softDeleteEpisode(fantasma)
-        val idsExistentes = vivos - setOfNotNull(fantasma)
-        val idsNuevos = capitulos.map { MagisEntities.episodioIdDe(id, it.number) }.toSet()
-        val totalTrasGuardar = (idsExistentes + idsNuevos).size
+        val existing = itemDao.getItem(id)
+        // The badge is for chapters that came out on the portal, not for the ones you just saved
+        // yourself: it gets re-sealed to the total that's going to be left after the upsert, which
+        // is the union of what was already there (undeleted) with what `chapters` brings (upsert
+        // never leaves them deleted).
+        val live = itemDao.getEpisodesOf(id).map { it.id }.toSet()
+        // The MOVIE-shaped episode a standalone save of this same series might have left
+        // (`addMagisSource` with no `episode` -- that's how a "Para ti" recommendation used to
+        // come in before it knew how to ask the gateway for the chapters). Its id isn't any
+        // chapter's, so the upsert below doesn't overwrite it: it would be left as a ghost
+        // chapter, with the series' title and the whole season's ref. Soft-deleted so it travels
+        // through sync, same as [sweepLegacyChapterItem]; and since `getEpisodesOf` already
+        // filters tombstones, what got swept once isn't touched again (no re-dirtying the row for
+        // sync).
+        val ghost = MagisEntities.episodioIdDePelicula(id).takeIf { it in live }
+        if (ghost != null) itemDao.softDeleteEpisode(ghost)
+        val existingIds = live - setOfNotNull(ghost)
+        val newIds = chapters.map { MagisEntities.episodioIdDe(id, it.number) }.toSet()
+        val totalAfterSaving = (existingIds + newIds).size
         val episodiosVistosEnLista = com.arkiv.player.data.nuevos.NewEpisodeCounter.reseal(
-            existente?.episodiosVistosEnLista,
-            totalTrasGuardar,
+            existing?.episodiosVistosEnLista,
+            totalAfterSaving,
         )
-        val (item, episodios) = MagisEntities.buildSeason(
-            contentId = contentId, title = title, capitulos = capitulos, posterUrl = posterUrl,
-            ahora = clock(), seriesRef = seriesRef, existente = existente,
+        val (item, episodes) = MagisEntities.buildSeason(
+            contentId = contentId, title = title, capitulos = chapters, posterUrl = posterUrl,
+            ahora = clock(), seriesRef = seriesRef, existente = existing,
             episodiosVistosEnLista = episodiosVistosEnLista, tmdbId = tmdbId, seasonNumber = seasonNumber,
             tituloCanonico = tituloCanonico,
         )
         itemDao.upsertItem(item)
-        itemDao.upsertEpisodes(episodios)
-        // Las tarjetas-película que dejó el esquema viejo (un ítem por capítulo), ahora que su
-        // contenido vive dentro del ítem de la temporada.
-        capitulos.forEach { barrerItemLegacyDeCapitulo(contentId, it.number) }
-        guardarBackdropDeMagis(id, backdropUrl)
-        guardarStillsDeMagis(id, MagisEntities.stillsDeTemporada(id, capitulos, clock()))
-        return episodios.mapNotNull { ep -> ep.episode?.let { it to ep.id } }.toMap()
+        itemDao.upsertEpisodes(episodes)
+        // The movie-cards the old schema left behind (one item per chapter), now that their
+        // content lives inside the season's item.
+        chapters.forEach { sweepLegacyChapterItem(contentId, it.number) }
+        saveMagisBackdrop(id, backdropUrl)
+        saveMagisStills(id, MagisEntities.stillsDeTemporada(id, chapters, clock()))
+        return episodes.mapNotNull { ep -> ep.episode?.let { it to ep.id } }.toMap()
     }
 
     /**
-     * Borra la tarjeta que dejó un capítulo guardado con el esquema viejo (un ítem por capítulo).
+     * Deletes the card a chapter saved with the old schema (one item per chapter) left behind.
      *
-     * Esas filas quedaron en la biblioteca como **películas** de un episodio —el bug que motivó
-     * [MagisEntities]— y no hay migración de Room que las alcance. Se limpian solas al volver a
-     * guardar ese mismo capítulo, que es justo cuando su contenido ya vive en el ítem de la
-     * temporada y la vieja no aporta nada. Soft-delete, igual que [removeItem], para que el borrado
-     * viaje por el sync y no reaparezca desde el otro dispositivo.
+     * Those rows were left in the library as an episode's **movies** —the bug that motivated
+     * [MagisEntities]— and there's no Room migration that reaches them. They clean themselves up
+     * on saving that same chapter again, which is exactly when its content already lives in the
+     * season's item and the old one contributes nothing. Soft-delete, same as [removeItem], so the
+     * deletion travels through sync and doesn't reappear from the other device.
      *
-     * El guard corta tanto si la fila no existe como si ya está con el tombstone puesto:
-     * `itemDao.getItem` NO filtra `deleted` (trae la fila igual, soft-delete es un UPDATE, no un
-     * DELETE), así que sin el segundo chequeo esto se llama en cada reproducción —`addMagisSeason`
-     * la corre por cada capítulo de la temporada, siempre— y el borrado ya hecho se re-ejecutaría
-     * para siempre: cada UPDATE redundante sobre una fila ya borrada le pisa el `updatedAt` al
-     * tombstone y lo vuelve a marcar "dirty" para el sync, sin necesidad.
+     * The guard cuts off both if the row doesn't exist and if it already has the tombstone set:
+     * `itemDao.getItem` does NOT filter `deleted` (it brings the row anyway, soft-delete is an
+     * UPDATE, not a DELETE), so without the second check this gets called on every playback
+     * —`addMagisSeason` runs it for every chapter of the season, always— and the deletion already
+     * done would keep re-executing forever: every redundant UPDATE on an already-deleted row
+     * overwrites the tombstone's `updatedAt` and marks it "dirty" for sync again, needlessly.
      */
-    private suspend fun barrerItemLegacyDeCapitulo(contentId: String, episode: Int) {
-        val viejo = MagisEntities.idLegacyDeCapitulo(contentId, episode)
-        if (itemDao.getItem(viejo)?.deleted != false) return
-        itemDao.softDeleteEpisodesOf(viejo)
-        itemDao.softDeleteItem(viejo)
+    private suspend fun sweepLegacyChapterItem(contentId: String, episode: Int) {
+        val old = MagisEntities.idLegacyDeCapitulo(contentId, episode)
+        if (itemDao.getItem(old)?.deleted != false) return
+        itemDao.softDeleteEpisodesOf(old)
+        itemDao.softDeleteItem(old)
     }
 
-    /** Ref opaco guardado de un episodio de Magis (para que loadMagis lo resuelva). */
+    /** A Magis episode's saved opaque ref (for loadMagis to resolve it). */
     suspend fun magisRefForEpisode(episodeId: String): String? {
         val ep = itemDao.getEpisode(episodeId) ?: return null
         return ep.torrentData ?: itemDao.getItem(ep.itemId)?.torrentData
     }
 
     /**
-     * Encabezado del player: título del ítem + rótulo de temporada/capítulo (solo si es serie).
-     * El rótulo se PARSEA, no es el displayName crudo: en la base real esos nombres traen desde
-     * "s01e01" hasta la sinopsis entera con la fecha pegada. Ver EpisodeNumbering.displayLabel.
+     * Player header: item title + season/chapter label (only if it's a series). The label gets
+     * PARSED, it isn't the raw displayName: in the real database those names carry anything from
+     * "s01e01" to the whole synopsis with the date stuck on. See EpisodeNumbering.displayLabel.
      */
     data class PlayerHeaderInfo(val itemTitle: String, val episodeLabel: String?)
 
@@ -994,18 +1008,18 @@ class ArkivRepository(
     }
 
     suspend fun removeItem(identifier: String) {
-        // Los capítulos se leen ANTES del soft-delete: `getEpisodesOf` filtra `deleted = 0`, así que
-        // después del tombstone ya no habría de dónde sacar los ids.
-        val episodios = itemDao.getEpisodesOf(identifier)
-        // Soft-delete (tombstone) para que el borrado se propague por el sync en la nube.
-        // Los triggers suben updatedAt; la biblioteca ya filtra deleted=0.
+        // Chapters are read BEFORE the soft-delete: `getEpisodesOf` filters `deleted = 0`, so
+        // after the tombstone there would be nowhere left to get the ids from.
+        val episodes = itemDao.getEpisodesOf(identifier)
+        // Soft-delete (tombstone) so the deletion propagates through cloud sync.
+        // The triggers bump updatedAt; the library already filters deleted=0.
         itemDao.softDeleteEpisodesOf(identifier)
         itemDao.softDeleteItem(identifier)
-        // El JPEG se borra de verdad (nadie más lo reclama), pero la fila del frame queda como
-        // tombstone y SÍ viaja por el sync (ver `FrameDestroyer.destroy`): si no se
-        // propagara, sacar la serie de la biblioteca en un dispositivo dejaría el frame "resucitar"
-        // en los demás la próxima vez que sincronizaran.
-        episodios.forEach { destructorDeFrames.destroy(it.id) }
+        // The JPEG gets really deleted (nobody else claims it), but the frame's row is left as a
+        // tombstone and DOES travel through sync (see `FrameDestroyer.destroy`): if it didn't
+        // propagate, removing the series from the library on one device would let the frame
+        // "resurrect" on the others the next time they synced.
+        episodes.forEach { frameDestroyer.destroy(it.id) }
     }
 
     fun observeItemDetail(identifier: String): Flow<ItemDetail?> = combine(
@@ -1027,15 +1041,15 @@ class ArkivRepository(
     suspend fun getEpisode(episodeId: String): Episode? =
         itemDao.getEpisode(episodeId)?.toEpisode()
 
-    /** Todos los episodios de un ítem, ordenados. */
+    /** All of an item's episodes, ordered. */
     suspend fun episodesOf(itemId: String): List<Episode> =
         itemDao.getEpisodesOf(itemId).map { it.toEpisode() }
 
-    /** Primer episodio de un ítem (para reproducir una película directo, sin lista). */
+    /** An item's first episode (to play a movie directly, with no list). */
     suspend fun firstEpisodeId(itemId: String): String? =
         itemDao.getEpisodesOf(itemId).firstOrNull()?.id
 
-    /** Devuelve el siguiente episodio de la misma sección (para autoplay). */
+    /** Returns the next episode in the same section (for autoplay). */
     suspend fun nextEpisode(episodeId: String): Episode? = neighbourEpisode(episodeId) { all, id ->
         EpisodeNavigation.nextId(all, id)
     }
@@ -1057,30 +1071,30 @@ class ArkivRepository(
 
     suspend fun getPlayback(episodeId: String): PlaybackEntity? = playbackDao.get(episodeId)
 
-    /** Progreso de reproducción de todos los episodios de un ítem (para el carrusel de capítulos). */
+    /** All of an item's episodes' playback progress (for the chapter carousel). */
     suspend fun playbackForItem(itemId: String): Map<String, PlaybackEntity> =
         playbackDao.observePlaybackForItem(itemId).first().associateBy { it.episodeId }
 
-    // --- Marcadores de opening/ending (por serie/ítem) ---
+    // --- Opening/ending markers (per series/item) ---
 
     /**
-     * El DAO crudo de `skip_markers`, sin pasar por las vistas ya armadas de acá abajo
-     * (`getSkipMarker`, que solo ve el marcador de TODA la serie: `episodeId` vacío).
+     * The raw `skip_markers` DAO, without going through the views already built below
+     * (`getSkipMarker`, which only sees the WHOLE series' marker: empty `episodeId`).
      *
-     * Lo necesita [com.arkiv.player.data.marcadores.MarkerEditor]: hace `getById`/`upsert`
-     * puntuales POR CAPÍTULO. `PlayerViewModel` no recibe `AppGraph` por constructor (son ~15
-     * dependencias sueltas, ver su propio KDoc), así que arma su propio `MarkerEditor` --
-     * y esto es lo que le falta para poder hacerlo sin agregar un parámetro nuevo que obligara a
-     * tocar el callsite en `PlayerScreen.kt`.
+     * [com.arkiv.player.data.marcadores.MarkerEditor] needs it: it does point `getById`/`upsert`
+     * calls PER CHAPTER. `PlayerViewModel` doesn't receive `AppGraph` through its constructor
+     * (there are ~15 loose dependencies, see its own KDoc), so it builds its own `MarkerEditor` --
+     * and this is what it's missing to be able to do that with no new parameter that would force
+     * touching the call site in `PlayerScreen.kt`.
      */
     fun skipMarkerDao(): com.arkiv.player.data.db.SkipMarkerDao = skipMarkerDao
 
     fun observeSkipMarker(itemId: String) = skipMarkerDao.observe(itemId)
 
     /**
-     * El marcador de un ámbito EXACTO: el del capítulo [episodeId], o el de la serie entera
-     * (`""`, el default). No cae de uno al otro a propósito -- quien quiera la precedencia
-     * completa usa `ChapterMarker.choose` sobre `observeForChapter`.
+     * The marker of an EXACT scope: chapter [episodeId]'s, or the whole series' (`""`, the
+     * default). Doesn't fall from one to the other on purpose -- whoever wants the full precedence
+     * uses `ChapterMarker.choose` over `observeForChapter`.
      */
     suspend fun getSkipMarker(itemId: String, episodeId: String = "") =
         skipMarkerDao.getById(com.arkiv.player.data.ChapterMarker.idFor(itemId, episodeId))
@@ -1096,8 +1110,8 @@ class ArkivRepository(
         } else {
             skipMarkerDao.upsert(
                 com.arkiv.player.data.db.SkipMarkerEntity(
-                    // El diálogo de marcadores edita el de la SERIE (episodeId vacío): `origen`
-                    // queda en su default MANUAL, que es justamente lo que es esto.
+                    // The markers dialog edits the SERIES' (empty episodeId): `origen` is left at
+                    // its MANUAL default, which is exactly what this is.
                     id = com.arkiv.player.data.ChapterMarker.idFor(itemId, ""),
                     itemId = itemId,
                     episodeId = "",
@@ -1154,7 +1168,7 @@ class ArkivRepository(
     suspend fun savePlayback(episodeId: String, positionMs: Long, durationMs: Long) {
         val watched = UmbralDeVisto.yaLoViste(positionMs, durationMs)
         // Solo se lee el `playbackDao.get` extra cuando este guardado YA dice "visto": es el único
-        // caso donde hace falta saber si ya lo estaba, para no disparar `alTerminarAlgo` de más.
+        // caso donde hace falta saber si ya lo estaba, para no disparar `onEpisodeFinished` de más.
         val yaEstabaVisto = watched && playbackDao.get(episodeId)?.watched == true
         playbackDao.upsert(
             PlaybackEntity(
@@ -1170,7 +1184,7 @@ class ArkivRepository(
         // tocar nunca el toggle manual de setWatched— lo dejaría vivo para siempre.
         if (watched) {
             borrarFrameDe(episodeId)
-            if (!yaEstabaVisto) alTerminarAlgo?.invoke()
+            if (!yaEstabaVisto) onEpisodeFinished?.invoke()
         }
     }
 
@@ -1193,7 +1207,7 @@ class ArkivRepository(
         // el frame que haya sigue siendo válido.
         if (watched) {
             borrarFrameDe(episodeId)
-            if (existing?.watched != true) alTerminarAlgo?.invoke()
+            if (existing?.watched != true) onEpisodeFinished?.invoke()
         }
     }
 
@@ -1215,7 +1229,7 @@ class ArkivRepository(
      * complicar esto con lógica para evitar la repetición.
      */
     private suspend fun borrarFrameDe(episodeId: String) {
-        destructorDeFrames.destroy(episodeId)
+        frameDestroyer.destroy(episodeId)
     }
 
     /**

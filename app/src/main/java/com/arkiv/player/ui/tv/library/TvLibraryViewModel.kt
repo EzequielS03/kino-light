@@ -30,7 +30,7 @@ class TvLibraryViewModel(private val repo: ArkivRepository) : ViewModel() {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val vistos: StateFlow<List<WatchedGroup>> =
-        combine(grupos, repo.observeVistos()) { grupos, vistos ->
+        combine(grupos, repo.observeWatchedItems()) { grupos, vistos ->
             LibraryWatched.cross(grupos, vistos)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 

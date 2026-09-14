@@ -38,7 +38,7 @@ class HomeViewModel(
      * `onEach { ensureArtwork(rows) }` del `init` (una consulta por fila en cada emisión) y el
      * héroe del home del TV, y no debe re-emitirse cada vez que se guarda progreso.
      */
-    val bibliotecaOrdenada: StateFlow<List<LibraryRow>> = repo.observeLibraryOrdenada()
+    val bibliotecaOrdenada: StateFlow<List<LibraryRow>> = repo.observeLibraryOrdered()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val continueWatching: StateFlow<List<ContinueRow>> = repo.observeContinueWatching()

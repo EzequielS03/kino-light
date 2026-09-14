@@ -374,13 +374,13 @@ class AppGraph(context: Context) {
     val repository: ArkivRepository by lazy {
         ArkivRepository(
             database, tmdbApi,
-            almacenDeFrames = almacenDeFrames,
-            destructorDeFrames = destructorDeFrames,
+            frameStore = almacenDeFrames,
+            frameDestroyer = destructorDeFrames,
         ).also { repo ->
             // "Para ti" solo existe en el home del TV: en el celular no hay fila que llenar, y cada
             // generación le pregunta a Kilo varias veces.
             if (DeviceType.isTelevision(appContext)) {
-                repo.alTerminarAlgo = { applicationScope.launch { generadorParaTi.generateIfDue() } }
+                repo.onEpisodeFinished = { applicationScope.launch { generadorParaTi.generateIfDue() } }
             }
         }
     }

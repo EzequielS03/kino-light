@@ -43,7 +43,7 @@ class RecommendationAggregator(
             repo.addMagisSeason(
                 contentId = target.contentId,
                 title = rec.titulo,
-                capitulos = season.chapters,
+                chapters = season.chapters,
                 // El ref de la recomendación ES el de la temporada: queda guardado en el ítem y
                 // `BuscadorDeCapitulos` puede preguntar por capítulos nuevos más adelante.
                 seriesRef = rec.ref,
@@ -79,8 +79,8 @@ class RecommendationAggregator(
             repo.addDituSeason(
                 seriesRef = rec.ref,
                 title = rec.titulo,
-                capitulos = list,
-                elegido = chosen,
+                chapters = list,
+                chosen = chosen,
                 posterUrl = rec.posterUrl.ifBlank { series?.posterUrl.orEmpty() },
                 backdropUrl = series?.backdropUrl.orEmpty(),
                 tmdbId = tmdbId,

@@ -132,7 +132,7 @@ class SearchPlayback(private val graph: AppGraph) {
         val guardados = graph.repository.addMagisSeason(
             contentId = temporada.extra["content_id"].orEmpty(),
             title = temporada.title,
-            capitulos = capitulos.map {
+            chapters = capitulos.map {
                 com.arkiv.player.data.CapituloDeTemporada(
                     number = it.number, title = it.title, ref = it.ref,
                     still = it.still, tmdbTitle = it.tmdbTitle, overview = it.overview,
@@ -225,8 +225,8 @@ class SearchPlayback(private val graph: AppGraph) {
         seriesRef = temporada.ref,
         // El ítem es la serie; cada capítulo se nombra aparte, adentro.
         title = temporada.title,
-        capitulos = capitulos.map { DituEntities.capituloDeCaracol(it, serie) },
-        elegido = DituEntities.capituloDeCaracol(elegido, serie),
+        chapters = capitulos.map { DituEntities.capituloDeCaracol(it, serie) },
+        chosen = DituEntities.capituloDeCaracol(elegido, serie),
         posterUrl = temporada.extra["poster"].orEmpty().ifBlank { serie?.posterUrl.orEmpty() },
         backdropUrl = serie?.backdropUrl.orEmpty(),
         // Mismo blindaje que en [playDituEpisode]: un tmdbId en 0 no pisa uno ya guardado.

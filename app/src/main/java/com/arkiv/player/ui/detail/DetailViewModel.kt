@@ -53,7 +53,7 @@ class DetailViewModel(
             val id = selectedId.filterNotNull().first()
             // Opening the detail IS seeing the list: this is where the "new chapters" badge turns
             // off. See NewEpisodeCounter.
-            repo.marcarCapitulosVistos(id)
+            repo.markChaptersSeen(id)
         }
     }
 
