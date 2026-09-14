@@ -278,7 +278,7 @@ class SearchViewModel(
                             }
                             is com.arkiv.player.data.gateway.SearchEvent.SourceError -> {
                                 // The technical detail goes to the log; the on-screen Caracol line
-                                // is written by `FalloDeCaracol` (see `avisosDeFuentesCaidas`).
+                                // is written by `CaracolFailure` (see `avisosDeFuentesCaidas`).
                                 Log.w(GW, "source ${ev.source} failed: ${ev.error} (delivered ${ev.count})", ev.causa)
                                 _estadoDeFuentes.value = _estadoDeFuentes.value.conCaida(ev.source, ev.error, ev.causa)
                                 // Su "Buscando…" se apaga ya, sin esperar a las demás fuentes.

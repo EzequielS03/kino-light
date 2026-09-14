@@ -47,7 +47,7 @@ object RecommendationSaving {
      * Whether this recommendation needs its episode list requested before saving it.
      *
      * Decided by [RecomendacionEntity.tipo] —already matched against TMDB— and only applies to
-     * Magis: Caracol decides by its own `ref` (`DituRef.esSerie`, see
+     * Magis: Caracol decides by its own `ref` (`DituRef.isSeries`, see
      * `RecommendationAggregator.addFromCaracol`). Asking for a movie would pay a portal listing
      * call for nothing.
      */
@@ -55,11 +55,11 @@ object RecommendationSaving {
 
     /**
      * Which source this `ref` is from, or null if it's from none known. Caracol is asked first,
-     * but the order doesn't matter: `DituRef.decodificar` and `MagisRef.decode` only accept
+     * but the order doesn't matter: `DituRef.decode` and `MagisRef.decode` only accept
      * their own (their prefix, or an old gateway ref with its own source inside).
      */
     internal fun targetForRef(ref: String): RecommendationTarget? {
-        com.arkiv.player.data.ditu.DituRef.decodificar(ref)?.let { return RecommendationTarget.Caracol(it.contentId) }
+        com.arkiv.player.data.ditu.DituRef.decode(ref)?.let { return RecommendationTarget.Caracol(it.contentId) }
         com.arkiv.player.data.magis.MagisRef.decode(ref)?.let { return RecommendationTarget.Magis(it.contentId) }
         return null
     }

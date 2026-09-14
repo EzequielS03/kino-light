@@ -67,9 +67,9 @@ object DituEntities {
      * El id de un capítulo sabiendo su temporada: [episodioIdDe] tal cual en la T1, y con la
      * temporada adentro de la T2 en adelante.
      *
-     * Existe por los `GROUP_OF_BUNDLES`: `DituEpisodios` aplana todas las temporadas de la serie en
+     * Existe por los `GROUP_OF_BUNDLES`: `DituEpisodes` aplana todas las temporadas de la serie en
      * una sola lista y toma el número de cada capítulo del `episodeNumber` de su bundle, así que dos
-     * temporadas pueden traer cada una su capítulo 1 (así lo arma `DituEpisodiosTest`). Con
+     * temporadas pueden traer cada una su capítulo 1 (así lo arma `DituEpisodesTest`). Con
      * [episodioIdDe] solo, el 1 de la T2 caería en la fila del 1 de la T1 —`upsertEpisodes` es un
      * REPLACE— y ese capítulo quedaría reproduciendo el otro.
      */
@@ -78,7 +78,7 @@ object DituEntities {
 
     /**
      * La temporada con la que queda guardado un capítulo: la que llega, o la 1 si no llega ninguna
-     * (o llega en 0). Es la misma regla con la que `DituEpisodios` lee un capítulo que no la trae.
+     * (o llega en 0). Es la misma regla con la que `DituEpisodes` lee un capítulo que no la trae.
      */
     fun temporadaGuardada(season: Int?): Int = season?.takeIf { it > 0 } ?: 1
 
@@ -133,15 +133,15 @@ object DituEntities {
      * - Capítulo ([episode] > 0): el ítem es la serie, así que el contentId sale de [seriesRef], que
      *   tiene que ser una serie; el ref del capítulo, un `VOD`.
      *
-     * Los dos refs tienen que ser de Caracol ([DituRef.decodificar]). Es la guarda de que un ref de
+     * Los dos refs tienen que ser de Caracol ([DituRef.decode]). Es la guarda de que un ref de
      * otra fuente nunca termine guardado con un id `ditu:`, que el reproductor mandaría a Caracol.
      */
     fun contentIdDelItem(ref: String, seriesRef: String, episode: Int): String? {
-        val propio = DituRef.decodificar(ref) ?: return null
-        if (propio.esSerie) return null
+        val propio = DituRef.decode(ref) ?: return null
+        if (propio.isSeries) return null
         if (episode <= 0) return propio.contentId
-        val serie = DituRef.decodificar(seriesRef) ?: return null
-        return serie.contentId.takeIf { serie.esSerie }
+        val serie = DituRef.decode(seriesRef) ?: return null
+        return serie.contentId.takeIf { serie.isSeries }
     }
 
     /**
@@ -155,7 +155,7 @@ object DituEntities {
      * [MagisEntities.build].
      *
      * [season] nunca queda en null en un capítulo: sin temporada va a la 1, que es la misma regla con
-     * la que `DituEpisodios` lee un capítulo que no la trae. Un capítulo en null entre otros con
+     * la que `DituEpisodes` lee un capítulo que no la trae. Un capítulo en null entre otros con
      * temporada haría que `ArkivRepository.ensureEpisodeStills` aplanara desde la T1 (ver el KDoc de
      * `MagisEntities.capituloDe`).
      *
@@ -302,7 +302,7 @@ object DituEntities {
         thumbnailUrl = posterUrl.ifBlank { existente?.thumbnailUrl.orEmpty() },
         addedAt = existente?.addedAt ?: ahora,
         categoryOverride = if (esCapitulo) "series" else existente?.categoryOverride,
-        source = DituFuente.FUENTE,
+        source = DituFuente.SOURCE,
         torrentData = if (esCapitulo) seriesRef else ref,
         episodiosVistosEnLista = episodiosVistosEnLista,
         // Un tmdbId ausente no borra el que ya estaba guardado, igual que en Magis.

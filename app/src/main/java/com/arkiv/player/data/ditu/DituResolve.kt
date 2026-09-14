@@ -4,100 +4,100 @@ import com.arkiv.player.data.gateway.GatewayPlayable
 import org.json.JSONObject
 
 /**
- * De un `ref` a algo que el reproductor pueda abrir.
+ * From a `ref` to something the player can open.
  *
- * Son tres pasos y el orden no es negociable: `DETAIL` da el `assetId`, `USERDATA` dice si te
- * dejan ver, y recién entonces `VIDEOURL` entrega la URL del `.mpd` **y la cookie
- * `playback_token`**, que es lo que después autoriza la licencia Widevine. Revisar el entitlement
- * antes de pedir la URL es lo que convierte un geobloqueo en un mensaje claro en vez de un fallo
- * del reproductor diez segundos más tarde.
+ * There are three steps and the order isn't negotiable: `DETAIL` gives the `assetId`, `USERDATA`
+ * says whether you're allowed to watch, and only then does `VIDEOURL` hand over the `.mpd`'s URL
+ * **and the `playback_token` cookie**, which is what later authorizes the Widevine license.
+ * Checking entitlement before asking for the URL is what turns a geoblock into a clear message
+ * instead of a player failure ten seconds later.
  *
- * El vivo son solo dos: el `assetId` ya viene con el canal (ver `DituCatalogo.canales`).
+ * Live is only two steps: the `assetId` already comes with the channel (see `DituCatalog.channels`).
  */
-internal class DituResolve(private val cliente: DituClienteLike) {
+internal class DituResolve(private val client: DituClientLike) {
 
     suspend fun vod(ref: DituRef): GatewayPlayable {
         val (contentId, assetId) = when {
-            ref.contentType == "GROUP_OF_BUNDLES" -> primerCapituloDeGrupo(ref.contentId)
-            ref.esSerie -> primerCapitulo(ref.contentId)
+            ref.contentType == "GROUP_OF_BUNDLES" -> firstChapterOfGroup(ref.contentId)
+            ref.isSeries -> firstChapter(ref.contentId)
             else -> {
-                val detalle = cliente.get("CONTENT/DETAIL/${ref.contentType}/${ref.contentId}")
-                val contenedor = DituCatalogo.contenedoresDe(detalle).firstOrNull()
+                val detail = client.get("CONTENT/DETAIL/${ref.contentType}/${ref.contentId}")
+                val container = DituCatalog.containersFrom(detail).firstOrNull()
                     ?: throw DituException("Caracol no devolvió el detalle de ${ref.contentId}")
-                val asset = DituCatalogo.assetMaster(contenedor)
+                val asset = DituCatalog.assetMaster(container)
                     ?: throw DituException("Caracol no tiene un asset reproducible para ${ref.contentId}")
                 ref.contentId to asset
             }
         }
 
-        revisarEntitlement("CONTENT/USERDATA/VOD/$contentId")
-        return playableDe("CONTENT/VIDEOURL/VOD/$contentId/$assetId", contentId)
+        checkEntitlement("CONTENT/USERDATA/VOD/$contentId")
+        return playableFrom("CONTENT/VIDEOURL/VOD/$contentId/$assetId", contentId)
     }
 
-    suspend fun vivo(canal: DituCanal): GatewayPlayable {
-        revisarEntitlement("CONTENT/USERDATA/LIVE/${canal.channelId}")
-        return playableDe("CONTENT/VIDEOURL/LIVE/${canal.channelId}/${canal.assetId}", canal.nombre)
+    suspend fun live(channel: DituChannel): GatewayPlayable {
+        checkEntitlement("CONTENT/USERDATA/LIVE/${channel.channelId}")
+        return playableFrom("CONTENT/VIDEOURL/LIVE/${channel.channelId}/${channel.assetId}", channel.name)
     }
 
     /**
-     * Un GROUP_OF_BUNDLES no es reproducible en sí: lo que se abre es el primer capítulo
-     * reproducible de su primer bundle hijo que tenga capítulos.
+     * A GROUP_OF_BUNDLES isn't playable on its own: what opens is the first playable chapter of
+     * its first child bundle that has chapters.
      */
-    private suspend fun primerCapituloDeGrupo(groupId: String): Pair<String, Int> {
-        val hijos = cliente.get(
-            DituCatalogo.TRAY,
+    private suspend fun firstChapterOfGroup(groupId: String): Pair<String, Int> {
+        val children = client.get(
+            DituCatalog.TRAY,
             mapOf("filter_parentId" to groupId, "filter_contentType" to "BUNDLE"),
         )
-        val ids = DituCatalogo.contenedoresDe(hijos).mapNotNull { it.optString("id").takeIf { s -> s.isNotBlank() } }
+        val ids = DituCatalog.containersFrom(children).mapNotNull { it.optString("id").takeIf { s -> s.isNotBlank() } }
 
         for (bundleId in ids) {
-            val resultado = runCatching { primerCapitulo(bundleId) }.getOrNull()
-            if (resultado != null) return resultado
+            val result = runCatching { firstChapter(bundleId) }.getOrNull()
+            if (result != null) return result
         }
 
         throw DituException("Ningún capítulo de la serie está disponible para reproducir")
     }
 
-    /** Un BUNDLE no es reproducible en sí: lo que se abre es su primer capítulo con asset. */
-    private suspend fun primerCapitulo(bundleId: String): Pair<String, Int> {
-        val detalle = cliente.get("CONTENT/DETAIL/BUNDLE/$bundleId")
-        val externo = DituCatalogo.contenedoresDe(detalle).firstOrNull()
+    /** A BUNDLE isn't playable on its own: what opens is its first chapter that has an asset. */
+    private suspend fun firstChapter(bundleId: String): Pair<String, Int> {
+        val detail = client.get("CONTENT/DETAIL/BUNDLE/$bundleId")
+        val outer = DituCatalog.containersFrom(detail).firstOrNull()
             ?: throw DituException("Caracol no devolvió el detalle de $bundleId")
-        val crudos = externo.optJSONArray("containers")
-        for (i in 0 until (crudos?.length() ?: 0)) {
-            val ep = crudos!!.optJSONObject(i) ?: continue
+        val raw = outer.optJSONArray("containers")
+        for (i in 0 until (raw?.length() ?: 0)) {
+            val ep = raw!!.optJSONObject(i) ?: continue
             val id = ep.optString("id").takeIf { it.isNotBlank() } ?: continue
-            val asset = DituCatalogo.assetMaster(ep) ?: continue
+            val asset = DituCatalog.assetMaster(ep) ?: continue
             return id to asset
         }
         throw DituException("Ningún capítulo de $bundleId se puede reproducir")
     }
 
-    private suspend fun revisarEntitlement(path: String) {
-        val datos: JSONObject = cliente.get(path)
-        DituEntitlement.bloqueo(datos)?.let { throw DituException("Caracol: $it", bloqueo = it) }
+    private suspend fun checkEntitlement(path: String) {
+        val data: JSONObject = client.get(path)
+        DituEntitlement.block(data)?.let { throw DituException("Caracol: $it", blockReason = it) }
     }
 
-    private suspend fun playableDe(path: String, queEs: String): GatewayPlayable {
-        val r = cliente.getConToken(path)
+    private suspend fun playableFrom(path: String, what: String): GatewayPlayable {
+        val r = client.getWithToken(path)
         val src = r.json.optJSONObject("resultObj")?.optString("src").orEmpty()
-        if (src.isBlank()) throw DituException("Caracol no devolvió una URL de video para $queEs")
+        if (src.isBlank()) throw DituException("Caracol no devolvió una URL de video para $what")
         return GatewayPlayable(
-            kind = FUENTE,
+            kind = SOURCE,
             url = src,
             mime = "application/dash+xml",
-            drmLicenseUrl = DituCliente.LICENCIA,
-            // Sin token NO se falla acá: si la licencia después responde 500, ese error dice más
-            // que uno inventado antes de intentarlo.
+            drmLicenseUrl = DituClient.LICENSE,
+            // With no token it does NOT fail here: if the license later answers 500, that error
+            // says more than one made up before even trying.
             drmLicenseHeaders = if (r.playbackToken.isBlank()) {
                 emptyMap()
             } else {
-                mapOf("Cookie" to "${DituCliente.COOKIE_TOKEN}=${r.playbackToken}")
+                mapOf("Cookie" to "${DituClient.COOKIE_TOKEN}=${r.playbackToken}")
             },
         )
     }
 
     internal companion object {
-        const val FUENTE = "ditu"
+        const val SOURCE = "ditu"
     }
 }

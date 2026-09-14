@@ -3,18 +3,18 @@ package com.arkiv.player.data.ditu
 import org.json.JSONObject
 
 /**
- * Por qué Caracol no te deja ver algo.
+ * Why Caracol won't let you watch something.
  *
- * La API responde con siete banderas distintas y cada una manda a la persona a un lado diferente:
- * un geobloqueo se arregla con VPN o no se arregla, una suscripción se compra, un control parental
- * se desactiva en el aparato. Colapsarlas a "no se pudo reproducir" convierte cualquiera de las
- * siete en un bug aparente de la app.
+ * The API answers with seven different flags and each one sends the person to a different place:
+ * a geoblock gets fixed with a VPN or doesn't, a subscription gets bought, parental control gets
+ * turned off on the device. Collapsing them into "couldn't play" turns any of the seven into what
+ * looks like an app bug.
  *
- * El orden importa: con varias activas gana la primera, que es la más informativa.
+ * Order matters: with several active, the first one wins, since it's the most informative.
  */
 internal object DituEntitlement {
 
-    private val BLOQUEOS = linkedMapOf(
+    private val BLOCKS = linkedMapOf(
         "isGeoBlocked" to "solo disponible en Colombia",
         "isChannelNotSubscribed" to "requiere suscripción",
         "isPCBlocked" to "control parental activo",
@@ -25,18 +25,19 @@ internal object DituEntitlement {
     )
 
     /**
-     * El mensaje del primer bloqueo activo, o `null` si no hay ninguno.
+     * The first active block's message, or `null` if there's none.
      *
-     * Una respuesta que no tiene la forma esperada devuelve `null` a propósito: no saber si hay
-     * bloqueo no es lo mismo que haberlo, y afirmarlo mandaría a buscar el problema donde no está.
+     * A response that doesn't have the expected shape returns `null` on purpose: not knowing
+     * whether there's a block isn't the same as there being one, and asserting it would send
+     * someone looking for the problem where it isn't.
      */
-    fun bloqueo(userData: JSONObject): String? {
-        val contenedores = userData.optJSONObject("resultObj")?.optJSONArray("containers") ?: return null
-        val ent = contenedores.optJSONObject(0)?.optJSONObject("entitlement") ?: return null
-        for ((flag, mensaje) in BLOQUEOS) {
-            // `opt` y no `optBoolean`: optBoolean("x", false) devuelve true para el string "true",
-            // y un string no es lo que la API manda cuando de verdad bloquea.
-            if (ent.opt(flag) == true) return mensaje
+    fun block(userData: JSONObject): String? {
+        val containers = userData.optJSONObject("resultObj")?.optJSONArray("containers") ?: return null
+        val entitlement = containers.optJSONObject(0)?.optJSONObject("entitlement") ?: return null
+        for ((flag, message) in BLOCKS) {
+            // `opt` and not `optBoolean`: optBoolean("x", false) returns true for the string
+            // "true", and a string isn't what the API sends when it truly blocks.
+            if (entitlement.opt(flag) == true) return message
         }
         return null
     }

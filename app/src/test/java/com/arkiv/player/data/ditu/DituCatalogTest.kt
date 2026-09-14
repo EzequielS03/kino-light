@@ -5,29 +5,29 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class DituCatalogoTest {
+class DituCatalogTest {
 
     private val TRAY = "TRAY/SEARCH/VOD"
 
-    @Test fun `el catalogo se pide con query vacio`() = runTest {
-        val fake = FakeDituCliente()
-        DituCatalogo(fake).catalogo()
+    @Test fun `the catalog is requested with an empty query`() = runTest {
+        val fake = FakeDituClient()
+        DituCatalog(fake).catalog()
 
-        val (path, params) = fake.llamadas.first()
+        val (path, params) = fake.calls.first()
         assertEquals(TRAY, path)
         assertEquals("", params["query"])
     }
 
-    @Test fun `la busqueda manda el texto`() = runTest {
-        val fake = FakeDituCliente()
-        DituCatalogo(fake).buscar("rigo")
+    @Test fun `search sends the text`() = runTest {
+        val fake = FakeDituClient()
+        DituCatalog(fake).search("rigo")
 
-        assertEquals("rigo", fake.llamadas.first().second["query"])
+        assertEquals("rigo", fake.calls.first().second["query"])
     }
 
-    @Test fun `se quedan series y peliculas, y nada mas`() = runTest {
-        val fake = FakeDituCliente()
-        fake.responde(TRAY, """
+    @Test fun `series and movies stay, and nothing else`() = runTest {
+        val fake = FakeDituClient()
+        fake.respond(TRAY, """
         {"resultObj":{"containers":[
           {"id":"1","metadata":{"title":"Serie A","contentType":"BUNDLE","pictureUrl":"pa"}},
           {"id":"2","metadata":{"title":"Grupo B","contentType":"GROUP_OF_BUNDLES","pictureUrl":"pb"}},
@@ -37,16 +37,16 @@ class DituCatalogoTest {
         ]}}
         """)
 
-        val items = DituCatalogo(fake).catalogo()
+        val items = DituCatalog(fake).catalog()
 
         assertEquals(listOf("1", "2", "3"), items.map { it.contentId })
         assertEquals(listOf("BUNDLE", "GROUP_OF_BUNDLES", "VOD"), items.map { it.contentType })
-        assertEquals(listOf(false, false, true), items.map { it.esPelicula })
+        assertEquals(listOf(false, false, true), items.map { it.isMovie })
     }
 
-    @Test fun `sin id o sin titulo el item se descarta`() = runTest {
-        val fake = FakeDituCliente()
-        fake.responde(TRAY, """
+    @Test fun `with no id or no title the item gets discarded`() = runTest {
+        val fake = FakeDituClient()
+        fake.respond(TRAY, """
         {"resultObj":{"containers":[
           {"metadata":{"title":"Sin id","contentType":"BUNDLE"}},
           {"id":"9","metadata":{"title":"","contentType":"BUNDLE"}},
@@ -54,13 +54,13 @@ class DituCatalogoTest {
         ]}}
         """)
 
-        assertEquals(listOf("10"), DituCatalogo(fake).catalogo().map { it.contentId })
+        assertEquals(listOf("10"), DituCatalog(fake).catalog().map { it.contentId })
     }
 
-    /** El póster se arma a mano contra el CDN propio de Caracol desde `pictureUrl`. */
-    @Test fun `el poster sale del CDN de Caracol`() = runTest {
-        val fake = FakeDituCliente()
-        fake.responde(TRAY, """
+    /** The poster is built by hand against Caracol's own CDN from `pictureUrl`. */
+    @Test fun `the poster comes from Caracol's CDN`() = runTest {
+        val fake = FakeDituClient()
+        fake.respond(TRAY, """
         {"resultObj":{"containers":[
           {"id":"1","metadata":{"title":"A","contentType":"BUNDLE","pictureUrl":"carpeta/img"}}
         ]}}
@@ -68,14 +68,14 @@ class DituCatalogoTest {
 
         assertEquals(
             "https://image-registry.ditu.caracoltv.com/carpeta/img/portrait-thin-promotional-tablet.jpg",
-            DituCatalogo(fake).catalogo().first().posterUrl,
+            DituCatalog(fake).catalog().first().posterUrl,
         )
     }
 
-    /** Sin `pictureUrl` se cae al posterList del propio container antes que quedarse sin imagen. */
-    @Test fun `sin pictureUrl usa el posterList`() = runTest {
-        val fake = FakeDituCliente()
-        fake.responde(TRAY, """
+    /** With no `pictureUrl` it falls back to the container's own posterList before going with no image. */
+    @Test fun `with no pictureUrl it uses the posterList`() = runTest {
+        val fake = FakeDituClient()
+        fake.respond(TRAY, """
         {"resultObj":{"containers":[
           {"id":"1","metadata":{"title":"A","contentType":"BUNDLE"},
            "posterList":[{"fileType":"otro","fileUrl":"https://x/no.jpg"},
@@ -83,12 +83,12 @@ class DituCatalogoTest {
         ]}}
         """)
 
-        assertEquals("https://x/si.jpg", DituCatalogo(fake).catalogo().first().posterUrl)
+        assertEquals("https://x/si.jpg", DituCatalog(fake).catalog().first().posterUrl)
     }
 
-    @Test fun `el anio sale del primer campo de fecha que tenga cuatro digitos`() = runTest {
-        val fake = FakeDituCliente()
-        fake.responde(TRAY, """
+    @Test fun `the year comes from the first date field with four digits`() = runTest {
+        val fake = FakeDituClient()
+        fake.respond(TRAY, """
         {"resultObj":{"containers":[
           {"id":"1","metadata":{"title":"A","contentType":"BUNDLE","releaseDate":"2019-04-02"}},
           {"id":"2","metadata":{"title":"B","contentType":"BUNDLE","releaseYear":"2021"}},
@@ -96,28 +96,28 @@ class DituCatalogoTest {
         ]}}
         """)
 
-        assertEquals(listOf("2019", "2021", ""), DituCatalogo(fake).catalogo().map { it.anio })
+        assertEquals(listOf("2019", "2021", ""), DituCatalog(fake).catalog().map { it.year })
     }
 
-    // --- canales en vivo -------------------------------------------------------
+    // --- live channels -------------------------------------------------------
 
-    @Test fun `los canales se piden ordenados por orderId`() = runTest {
-        val fake = FakeDituCliente()
-        DituCatalogo(fake).canales()
+    @Test fun `channels are requested ordered by orderId`() = runTest {
+        val fake = FakeDituClient()
+        DituCatalog(fake).channels()
 
-        val (path, params) = fake.llamadas.first()
+        val (path, params) = fake.calls.first()
         assertEquals("TRAY/LIVECHANNELS", path)
         assertEquals("orderId", params["orderBy"])
         assertEquals("asc", params["sortOrder"])
     }
 
     /**
-     * El assetId sale de ESTA respuesta y no del EPG: el EPG devuelve `assets` vacío para el
-     * programa en curso, así que pedirlo ahí es un viaje que vuelve sin nada.
+     * The assetId comes from THIS response and not the EPG: the EPG returns an empty `assets` for
+     * the current program, so requesting it there is a trip that comes back with nothing.
      */
-    @Test fun `de cada canal salen id, nombre, logo y assetId del MASTER`() = runTest {
-        val fake = FakeDituCliente()
-        fake.responde("TRAY/LIVECHANNELS", """
+    @Test fun `each channel's id, name, logo and assetId come from the MASTER`() = runTest {
+        val fake = FakeDituClient()
+        fake.respond("TRAY/LIVECHANNELS", """
         {"resultObj":{"containers":[
           {"metadata":{"channelId":7,"channelName":"Caracol","isActive":true,"orderId":1},
            "assets":[{"assetType":"OTRO","assetId":11,"logoSmall":"s.png"},
@@ -125,28 +125,28 @@ class DituCatalogoTest {
         ]}}
         """)
 
-        val canal = DituCatalogo(fake).canales().single()
-        assertEquals(7, canal.channelId)
-        assertEquals("Caracol", canal.nombre)
-        assertEquals(22, canal.assetId)
-        assertEquals("m.png", canal.logoUrl)
+        val channel = DituCatalog(fake).channels().single()
+        assertEquals(7, channel.channelId)
+        assertEquals("Caracol", channel.name)
+        assertEquals(22, channel.assetId)
+        assertEquals("m.png", channel.logoUrl)
     }
 
-    @Test fun `sin MASTER se usa el primer asset con id`() = runTest {
-        val fake = FakeDituCliente()
-        fake.responde("TRAY/LIVECHANNELS", """
+    @Test fun `with no MASTER, the first asset with an id is used`() = runTest {
+        val fake = FakeDituClient()
+        fake.respond("TRAY/LIVECHANNELS", """
         {"resultObj":{"containers":[
           {"metadata":{"channelId":7,"channelName":"Caracol","isActive":true},
            "assets":[{"assetType":"OTRO","assetId":11}]}
         ]}}
         """)
 
-        assertEquals(11, DituCatalogo(fake).canales().single().assetId)
+        assertEquals(11, DituCatalog(fake).channels().single().assetId)
     }
 
-    @Test fun `los canales inactivos o sin nombre no entran`() = runTest {
-        val fake = FakeDituCliente()
-        fake.responde("TRAY/LIVECHANNELS", """
+    @Test fun `inactive or nameless channels don't get in`() = runTest {
+        val fake = FakeDituClient()
+        fake.respond("TRAY/LIVECHANNELS", """
         {"resultObj":{"containers":[
           {"metadata":{"channelId":1,"channelName":"Apagado","isActive":false},"assets":[{"assetId":9}]},
           {"metadata":{"channelId":2,"channelName":"","isActive":true},"assets":[{"assetId":9}]},
@@ -154,18 +154,18 @@ class DituCatalogoTest {
         ]}}
         """)
 
-        assertEquals(listOf(3), DituCatalogo(fake).canales().map { it.channelId })
+        assertEquals(listOf(3), DituCatalog(fake).channels().map { it.channelId })
     }
 
-    /** Un canal sin ningún assetId no se puede reproducir: no tiene sentido ofrecerlo. */
-    @Test fun `un canal sin assetId no entra`() = runTest {
-        val fake = FakeDituCliente()
-        fake.responde("TRAY/LIVECHANNELS", """
+    /** A channel with no assetId at all can't be played: there's no point offering it. */
+    @Test fun `a channel with no assetId doesn't get in`() = runTest {
+        val fake = FakeDituClient()
+        fake.respond("TRAY/LIVECHANNELS", """
         {"resultObj":{"containers":[
           {"metadata":{"channelId":4,"channelName":"Sin asset","isActive":true},"assets":[]}
         ]}}
         """)
 
-        assertTrue(DituCatalogo(fake).canales().isEmpty())
+        assertTrue(DituCatalog(fake).channels().isEmpty())
     }
 }

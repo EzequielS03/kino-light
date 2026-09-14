@@ -4,52 +4,52 @@ import org.json.JSONObject
 import java.util.Base64
 
 /**
- * Qué hay que reproducir de Caracol, en una cadena que la app guarda en su base.
+ * What to play from Caracol, in a string the app saves in its database.
  *
- * Mismo criterio que [com.arkiv.player.data.magis.MagisRef]: el gateway acuñaba un ref firmado que
- * vencía, y sin servidor no hay a quién pedirle uno nuevo. Tampoco hace falta — para resolver,
- * Caracol solo necesita el `contentId` y el `contentType`, que no vencen. Y a diferencia de Magis,
- * acá eso importa de verdad: los ids de Caracol son estables, así que un capítulo guardado en la
- * biblioteca sigue reproduciendo el mes que viene.
+ * Same criterion as [com.arkiv.player.data.magis.MagisRef]: the gateway used to mint a signed ref
+ * that expired, and with no server there's nobody to ask for a new one. It isn't needed either —
+ * to resolve, Caracol only needs the `contentId` and the `contentType`, which don't expire. And
+ * unlike Magis, here that really matters: Caracol's ids are stable, so a chapter saved in the
+ * library keeps playing next month.
  *
- * [contentType] es lo que la API llama al contenido: `VOD` (película o capítulo suelto), `BUNDLE`
- * (una temporada) o `GROUP_OF_BUNDLES` (una serie con varias temporadas).
+ * [contentType] is what the API calls the content: `VOD` (a movie or standalone chapter), `BUNDLE`
+ * (a season) or `GROUP_OF_BUNDLES` (a series with several seasons).
  */
 internal data class DituRef(
     val contentId: String,
     val contentType: String = "VOD",
 ) {
-    val esSerie: Boolean get() = contentType in SERIES
+    val isSeries: Boolean get() = contentType in SERIES
 
-    /** `ditu1:<contentType>:<contentId>` — el contentId va último para que no importe si algún
-     *  día trae un `:` adentro. */
-    fun codificar(): String = "$PREFIJO:$contentType:$contentId"
+    /** `ditu1:<contentType>:<contentId>` — the contentId goes last so it doesn't matter if it
+     *  ever carries a `:` inside. */
+    fun encode(): String = "$PREFIX:$contentType:$contentId"
 
     internal companion object {
-        const val PREFIJO = "ditu1"
+        const val PREFIX = "ditu1"
 
-        /** Los tipos que hay que listar antes de poder reproducir. */
+        /** The types that have to be listed before you can play. */
         val SERIES = setOf("BUNDLE", "GROUP_OF_BUNDLES")
 
-        /** Lee un ref propio o uno viejo del gateway. `null` si no es de Ditu o no se entiende. */
-        fun decodificar(ref: String): DituRef? {
+        /** Reads an own ref or an old gateway one. `null` if it isn't Ditu's or isn't understood. */
+        fun decode(ref: String): DituRef? {
             if (ref.isBlank()) return null
-            if (ref.startsWith("$PREFIJO:")) {
-                val partes = ref.split(":", limit = 3)
-                if (partes.size < 3) return null
-                val contentId = partes[2].takeIf { it.isNotBlank() } ?: return null
-                return DituRef(contentId = contentId, contentType = partes[1].ifBlank { "VOD" })
+            if (ref.startsWith("$PREFIX:")) {
+                val parts = ref.split(":", limit = 3)
+                if (parts.size < 3) return null
+                val contentId = parts[2].takeIf { it.isNotBlank() } ?: return null
+                return DituRef(contentId = contentId, contentType = parts[1].ifBlank { "VOD" })
             }
-            return deRefDelGateway(ref)
+            return fromGatewayRef(ref)
         }
 
-        private fun deRefDelGateway(ref: String): DituRef? {
-            val datos = ref.substringBefore('.').takeIf { it.isNotBlank() && it != ref } ?: return null
+        private fun fromGatewayRef(ref: String): DituRef? {
+            val data = ref.substringBefore('.').takeIf { it.isNotBlank() && it != ref } ?: return null
             val json = runCatching {
-                // `java.util.Base64` y no `android.util.Base64`: el de Android es un stub que
-                // devuelve null en los tests de JVM, y este es justo el camino que solo corre una
-                // vez, en silencio, para no perder lo que ya está guardado.
-                JSONObject(String(Base64.getUrlDecoder().decode(datos), Charsets.UTF_8))
+                // `java.util.Base64` and not `android.util.Base64`: Android's is a stub that
+                // returns null in JVM tests, and this is exactly the path that only runs once, in
+                // silence, so as not to lose what's already saved.
+                JSONObject(String(Base64.getUrlDecoder().decode(data), Charsets.UTF_8))
             }.getOrNull() ?: return null
             if (json.optString("s") != "ditu") return null
             val p = json.optJSONObject("p") ?: return null

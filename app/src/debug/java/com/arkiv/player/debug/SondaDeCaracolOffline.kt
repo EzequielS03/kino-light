@@ -24,7 +24,7 @@ import androidx.media3.exoplayer.drm.MediaDrmCallback
 import androidx.media3.exoplayer.drm.OfflineLicenseHelper
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import com.arkiv.player.data.ditu.DituCliente
+import com.arkiv.player.data.ditu.DituClient
 import com.arkiv.player.data.ditu.DituRef
 import com.arkiv.player.data.ditu.DituResolve
 import kotlinx.coroutines.CoroutineScope
@@ -69,7 +69,7 @@ class SondaDeCaracolOffline : BroadcastReceiver() {
     private suspend fun correr(contentId: String) {
         Log.w(TAG, "probe starts · contentId=$contentId")
 
-        val play = runCatching { DituResolve(DituCliente()).vod(DituRef(contentId, "VOD")) }
+        val play = runCatching { DituResolve(DituClient()).vod(DituRef(contentId, "VOD")) }
             .getOrElse { Log.e(TAG, "step 1/4 resolve FAILED", it); return }
         Log.w(
             TAG,

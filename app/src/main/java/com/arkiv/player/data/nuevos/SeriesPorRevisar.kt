@@ -48,7 +48,7 @@ object SeriesPorRevisar {
      * branch's pruning and are left out on purpose: keeping them here only cost a real series a
      * slot, since `BuscadorDeCapitulos` no-ops on both. Torrent stays out too (see the spec).
      */
-    private val FUENTES = setOf("magis", DituFuente.FUENTE)
+    private val FUENTES = setOf("magis", DituFuente.SOURCE)
 
     fun elegir(candidatas: List<SerieCandidata>, ahoraMs: Long): List<SerieCandidata> {
         val piso = ahoraMs - VENTANA_DIAS * DIA_MS

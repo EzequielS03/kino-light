@@ -16,38 +16,39 @@ class DituEntitlementTest {
         )
     }
 
-    @Test fun `sin ningun flag no hay bloqueo`() {
-        assertNull(DituEntitlement.bloqueo(userData("isGeoBlocked" to false)))
+    @Test fun `with no flag at all there's no block`() {
+        assertNull(DituEntitlement.block(userData("isGeoBlocked" to false)))
     }
 
-    @Test fun `cada flag tiene su propio mensaje`() {
-        assertEquals("solo disponible en Colombia", DituEntitlement.bloqueo(userData("isGeoBlocked" to true)))
-        assertEquals("requiere suscripción", DituEntitlement.bloqueo(userData("isChannelNotSubscribed" to true)))
-        assertEquals("control parental activo", DituEntitlement.bloqueo(userData("isPCBlocked" to true)))
-        assertEquals("contenido OOH bloqueado", DituEntitlement.bloqueo(userData("isContentOOHBlocked" to true)))
-        assertEquals("geofence bloqueado", DituEntitlement.bloqueo(userData("isGeofencedBlocked" to true)))
-        assertEquals("deportes en blackout", DituEntitlement.bloqueo(userData("isSportBlackoutBlocked" to true)))
-        assertEquals("plataforma no permitida", DituEntitlement.bloqueo(userData("isPlatformBlacklisted" to true)))
+    @Test fun `each flag has its own message`() {
+        assertEquals("solo disponible en Colombia", DituEntitlement.block(userData("isGeoBlocked" to true)))
+        assertEquals("requiere suscripción", DituEntitlement.block(userData("isChannelNotSubscribed" to true)))
+        assertEquals("control parental activo", DituEntitlement.block(userData("isPCBlocked" to true)))
+        assertEquals("contenido OOH bloqueado", DituEntitlement.block(userData("isContentOOHBlocked" to true)))
+        assertEquals("geofence bloqueado", DituEntitlement.block(userData("isGeofencedBlocked" to true)))
+        assertEquals("deportes en blackout", DituEntitlement.block(userData("isSportBlackoutBlocked" to true)))
+        assertEquals("plataforma no permitida", DituEntitlement.block(userData("isPlatformBlacklisted" to true)))
     }
 
-    /** Con varios activos gana el más informativo, que es el primero de la lista. */
-    @Test fun `con varios bloqueos gana el geo`() {
+    /** With several active, the most informative wins, which is the first in the list. */
+    @Test fun `with several blocks, geo wins`() {
         val d = userData("isPlatformBlacklisted" to true, "isGeoBlocked" to true)
-        assertEquals("solo disponible en Colombia", DituEntitlement.bloqueo(d))
+        assertEquals("solo disponible en Colombia", DituEntitlement.block(d))
     }
 
     /**
-     * Una respuesta sin la forma esperada NO es un bloqueo. Tratarla como tal diría "requiere
-     * suscripción" ante un error de red, que manda a la persona a buscar el problema donde no está.
+     * A response with an unexpected shape is NOT a block. Treating it as one would say "requiere
+     * suscripción" in the face of a network error, which sends the person looking for the problem
+     * where it isn't.
      */
-    @Test fun `una respuesta rara no bloquea`() {
-        assertNull(DituEntitlement.bloqueo(JSONObject()))
-        assertNull(DituEntitlement.bloqueo(JSONObject().put("resultObj", JSONObject())))
-        assertNull(DituEntitlement.bloqueo(userData()))
+    @Test fun `a weird response doesn't block`() {
+        assertNull(DituEntitlement.block(JSONObject()))
+        assertNull(DituEntitlement.block(JSONObject().put("resultObj", JSONObject())))
+        assertNull(DituEntitlement.block(userData()))
     }
 
-    /** El flag como string "true" no cuenta: solo el booleano de verdad. */
-    @Test fun `solo el booleano true bloquea`() {
+    /** The flag as the string "true" doesn't count: only a real boolean. */
+    @Test fun `only the real boolean true blocks`() {
         val d = JSONObject().put(
             "resultObj",
             JSONObject().put(
@@ -55,6 +56,6 @@ class DituEntitlementTest {
                 org.json.JSONArray().put(JSONObject().put("entitlement", JSONObject().put("isGeoBlocked", "true"))),
             ),
         )
-        assertNull(DituEntitlement.bloqueo(d))
+        assertNull(DituEntitlement.block(d))
     }
 }

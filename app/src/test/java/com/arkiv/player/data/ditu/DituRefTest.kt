@@ -8,63 +8,64 @@ import org.junit.Test
 
 class DituRefTest {
 
-    @Test fun `ida y vuelta de una pelicula`() {
+    @Test fun `round trip of a movie`() {
         val ref = DituRef(contentId = "12345", contentType = "VOD")
-        assertEquals("ditu1:VOD:12345", ref.codificar())
-        assertEquals(ref, DituRef.decodificar("ditu1:VOD:12345"))
+        assertEquals("ditu1:VOD:12345", ref.encode())
+        assertEquals(ref, DituRef.decode("ditu1:VOD:12345"))
     }
 
-    @Test fun `ida y vuelta de una serie`() {
+    @Test fun `round trip of a series`() {
         val ref = DituRef(contentId = "998", contentType = "BUNDLE")
-        assertEquals("ditu1:BUNDLE:998", ref.codificar())
-        assertEquals(ref, DituRef.decodificar(ref.codificar()))
+        assertEquals("ditu1:BUNDLE:998", ref.encode())
+        assertEquals(ref, DituRef.decode(ref.encode()))
     }
 
-    /** El contentId va ÚLTIMO para que no importe si algún día trae un `:` adentro. */
-    @Test fun `un contentId con dos puntos sobrevive`() {
+    /** The contentId goes LAST so it doesn't matter if it ever carries a `:` inside. */
+    @Test fun `a contentId with two colons survives`() {
         val ref = DituRef(contentId = "a:b:c", contentType = "VOD")
-        assertEquals(ref, DituRef.decodificar(ref.codificar()))
+        assertEquals(ref, DituRef.decode(ref.encode()))
     }
 
-    @Test fun `solo BUNDLE y GROUP_OF_BUNDLES son series`() {
-        assertTrue(DituRef("1", "BUNDLE").esSerie)
-        assertTrue(DituRef("1", "GROUP_OF_BUNDLES").esSerie)
-        assertFalse(DituRef("1", "VOD").esSerie)
+    @Test fun `only BUNDLE and GROUP_OF_BUNDLES are series`() {
+        assertTrue(DituRef("1", "BUNDLE").isSeries)
+        assertTrue(DituRef("1", "GROUP_OF_BUNDLES").isSeries)
+        assertFalse(DituRef("1", "VOD").isSeries)
     }
 
-    @Test fun `un ref de otra fuente no se entiende`() {
-        assertNull(DituRef.decodificar("magis1:movie:0:C42"))
-        assertNull(DituRef.decodificar(""))
-        assertNull(DituRef.decodificar("ditu1:VOD"))
-        assertNull(DituRef.decodificar("ditu1:VOD:"))
+    @Test fun `a ref from another source isn't understood`() {
+        assertNull(DituRef.decode("magis1:movie:0:C42"))
+        assertNull(DituRef.decode(""))
+        assertNull(DituRef.decode("ditu1:VOD"))
+        assertNull(DituRef.decode("ditu1:VOD:"))
     }
 
     /**
-     * Un ref viejo del gateway (`base64url(json).hmac`) se lee igual: es opaco por contrato, no
-     * por criptografía. La firma no se valida —no hay con qué, y lo que sale de acá no autoriza
-     * nada, solo dice qué pedirle a Caracol— y el vencimiento se ignora a propósito.
+     * An old gateway ref (`base64url(json).hmac`) reads the same: it's opaque by contract, not by
+     * cryptography. The signature isn't validated —there's nothing to validate it with, and what
+     * comes out of here authorizes nothing, it only says what to ask Caracol for— and expiration
+     * is ignored on purpose.
      */
-    @Test fun `un ref viejo del gateway se entiende`() {
+    @Test fun `an old gateway ref is understood`() {
         val json = """{"s":"ditu","p":{"content_id":"777","content_type":"BUNDLE"}}"""
-        val datos = java.util.Base64.getUrlEncoder().withoutPadding()
+        val data = java.util.Base64.getUrlEncoder().withoutPadding()
             .encodeToString(json.toByteArray(Charsets.UTF_8))
-        val leido = DituRef.decodificar("$datos.firmaquenadievalida")
-        assertEquals(DituRef("777", "BUNDLE"), leido)
+        val read = DituRef.decode("$data.firmaquenadievalida")
+        assertEquals(DituRef("777", "BUNDLE"), read)
     }
 
-    /** El ref viejo de OTRA fuente no es nuestro, aunque tenga la misma forma. */
-    @Test fun `un ref viejo de magis no lo reclama ditu`() {
+    /** An old ref from ANOTHER source isn't ours, even with the same shape. */
+    @Test fun `an old magis ref isn't claimed by ditu`() {
         val json = """{"s":"magis","p":{"content_id":"C42","program_type":"movie"}}"""
-        val datos = java.util.Base64.getUrlEncoder().withoutPadding()
+        val data = java.util.Base64.getUrlEncoder().withoutPadding()
             .encodeToString(json.toByteArray(Charsets.UTF_8))
-        assertNull(DituRef.decodificar("$datos.firma"))
+        assertNull(DituRef.decode("$data.firma"))
     }
 
-    /** Sin `content_type` el gateway mandaba VOD implícito. */
-    @Test fun `un ref viejo sin content_type cae a VOD`() {
+    /** With no `content_type` the gateway used to send an implicit VOD. */
+    @Test fun `an old ref with no content_type falls back to VOD`() {
         val json = """{"s":"ditu","p":{"content_id":"5"}}"""
-        val datos = java.util.Base64.getUrlEncoder().withoutPadding()
+        val data = java.util.Base64.getUrlEncoder().withoutPadding()
             .encodeToString(json.toByteArray(Charsets.UTF_8))
-        assertEquals(DituRef("5", "VOD"), DituRef.decodificar("$datos.firma"))
+        assertEquals(DituRef("5", "VOD"), DituRef.decode("$data.firma"))
     }
 }

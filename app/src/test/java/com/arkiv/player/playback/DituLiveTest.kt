@@ -1,7 +1,7 @@
 package com.arkiv.player.playback
 
 import com.arkiv.player.data.DituEntities
-import com.arkiv.player.data.ditu.DituCanal
+import com.arkiv.player.data.ditu.DituChannel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -11,8 +11,8 @@ import org.junit.Test
 /** The path a Caracol live channel takes to the player. See [DituLive]'s KDoc. */
 class DituLiveTest {
 
-    private val channelOne = DituCanal(channelId = 1, nombre = "Caracol TV", logoUrl = "", assetId = 11)
-    private val channelTwo = DituCanal(channelId = 2, nombre = "Noticias Caracol", logoUrl = "", assetId = 22)
+    private val channelOne = DituChannel(channelId = 1, name = "Caracol TV", logoUrl = "", assetId = 11)
+    private val channelTwo = DituChannel(channelId = 2, name = "Noticias Caracol", logoUrl = "", assetId = 22)
 
     /** Without this `PlayerViewModel.load` wouldn't route it to `loadDitu` and the channel wouldn't play. */
     @Test fun `a channel's id is Caracol's`() {

@@ -61,11 +61,11 @@ private fun esRecuperable(error: PlaybackException): Boolean =
  *
  * [drmLicenseHeaders] isn't optional in practice: it carries the `playback_token` cookie that
  * `CONTENT/VIDEOURL` returned, which is what authorizes the license (see `DituResolve` and
- * `DituCliente`).
+ * `DituClient`).
  *
  * There's no local proxy in the middle, unlike Magis: the headers Caracol requires are set by this
  * file's own `DefaultHttpDataSource`, and the SAME one is used for the manifest, the segments, and
- * the license request. It carries the `User-Agent` and `restful: yes` from `DituCliente.CABECERAS`
+ * the license request. It carries the `User-Agent` and `restful: yes` from `DituClient.HEADERS`
  * and, on top of that, [drmLicenseHeaders]: `main`'s player also sends the cookie to the manifest
  * and the segments, noting that without it the CDN returns HTML. It's copied here without having
  * measured it yet on this branch.
@@ -133,7 +133,7 @@ internal fun DituExoPlayer(
         )
 
         val httpFactory = DefaultHttpDataSource.Factory()
-            // Los mismos valores que `DituCliente.CABECERAS`: sin ellos el CDN responde 403.
+            // Los mismos valores que `DituClient.HEADERS`: sin ellos el CDN responde 403.
             .setUserAgent("okhttp/4.12.0")
             .setDefaultRequestProperties(mapOf("restful" to "yes") + drmLicenseHeaders)
             .setConnectTimeoutMs(30_000)

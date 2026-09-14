@@ -1,13 +1,13 @@
 package com.arkiv.player.playback
 
-import com.arkiv.player.data.ditu.DituCanal
+import com.arkiv.player.data.ditu.DituChannel
 
 /**
  * A Caracol live channel on its way to the player.
  *
  * `PlayerViewModel.loadDitu` reads the library's `ref`, and a live channel is never there: it has
  * no `ref` -it's identified by the `channelId`/`assetId` pair that came with the list, see
- * [DituCanal]- nor progress to save. So the channel travels outside the navigation route, with the
+ * [DituChannel]- nor progress to save. So the channel travels outside the navigation route, with the
  * same pattern as [MagisEphemeral]: the Caracol section leaves it with [leave] and the player
  * picks it up with [take].
  *
@@ -22,13 +22,13 @@ internal object DituLive {
 
     fun isLive(episodeId: String): Boolean = episodeId.startsWith(PREFIX)
 
-    private class Pending(val episodeId: String, val channel: DituCanal)
+    private class Pending(val episodeId: String, val channel: DituChannel)
 
     @Volatile
     private var pending: Pending? = null
 
     /** Leaves [channel] for the player and returns the `episodeId` to navigate with. */
-    fun leave(channel: DituCanal): String {
+    fun leave(channel: DituChannel): String {
         val id = "$PREFIX${channel.channelId}"
         pending = Pending(id, channel)
         return id
@@ -38,5 +38,5 @@ internal object DituLive {
      * The channel left for [episodeId], or null if what's saved belongs to a different playback:
      * that way a live channel never reopens an old one.
      */
-    fun take(episodeId: String): DituCanal? = pending?.takeIf { it.episodeId == episodeId }?.channel
+    fun take(episodeId: String): DituChannel? = pending?.takeIf { it.episodeId == episodeId }?.channel
 }

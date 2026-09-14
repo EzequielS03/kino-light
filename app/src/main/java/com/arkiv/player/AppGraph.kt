@@ -155,19 +155,19 @@ class AppGraph(context: Context) {
     // --- Caracol (Ditu) directo ---------------------------------------------------------------
     //
     // Todo el protocolo de Caracol vive en `data/ditu`. Sin cuenta ni sesión: el contenido gratuito
-    // se pide y se sirve (ver el KDoc de `DituCliente`).
+    // se pide y se sirve (ver el KDoc de `DituClient`).
 
-    private val dituCliente: com.arkiv.player.data.ditu.DituClienteLike by lazy {
-        com.arkiv.player.data.ditu.DituCliente()
+    private val dituClient: com.arkiv.player.data.ditu.DituClientLike by lazy {
+        com.arkiv.player.data.ditu.DituClient()
     }
 
     /** Caracol como fuente de títulos. `internal` además de estar dentro de [fuenteDeContenido]:
      *  los canales y el catálogo completo no son parte del contrato común. */
     internal val dituFuente: com.arkiv.player.data.ditu.DituFuente by lazy {
         com.arkiv.player.data.ditu.DituFuente(
-            catalogo = com.arkiv.player.data.ditu.DituCatalogo(dituCliente),
-            episodios = com.arkiv.player.data.ditu.DituEpisodios(dituCliente),
-            resolucion = com.arkiv.player.data.ditu.DituResolve(dituCliente),
+            catalog = com.arkiv.player.data.ditu.DituCatalog(dituClient),
+            episodes = com.arkiv.player.data.ditu.DituEpisodes(dituClient),
+            resolver = com.arkiv.player.data.ditu.DituResolve(dituClient),
             tmdb = tmdbApi,
         )
     }

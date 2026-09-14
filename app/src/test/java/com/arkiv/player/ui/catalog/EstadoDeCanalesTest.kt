@@ -1,6 +1,6 @@
 package com.arkiv.player.ui.catalog
 
-import com.arkiv.player.data.ditu.DituCanal
+import com.arkiv.player.data.ditu.DituChannel
 import com.arkiv.player.data.gateway.GatewayException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
@@ -10,7 +10,7 @@ import org.junit.Test
 /** Que la pestaña "En vivo" distinga "falló" de "no hay canales". Ver [EstadoDeCanales]. */
 class EstadoDeCanalesTest {
 
-    private val canal = DituCanal(channelId = 1, nombre = "Caracol TV", logoUrl = "", assetId = 11)
+    private val canal = DituChannel(channelId = 1, name = "Caracol TV", logoUrl = "", assetId = 11)
 
     /** Con el TV sin internet la pestaña decía "Unable to resolve host…": ahora lo dice para la persona. */
     @Test fun `un fallo da el estado de error en palabras de persona`() {

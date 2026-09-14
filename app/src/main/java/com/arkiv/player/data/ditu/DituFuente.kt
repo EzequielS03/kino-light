@@ -16,149 +16,149 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 
 /**
- * Caracol Streaming hablando el mismo contrato que ya habla Magis.
+ * Caracol Streaming speaking the same contract Magis already speaks.
  *
- * Es el puerto de `DituAdapter` (`arkiv-api/src/arkiv_api/adapters/ditu/adapter.py`): lo que el
- * gateway hacía entre la API de Caracol y la app —armar los resultados, aplanar las temporadas,
- * cruzar con TMDB— vive acá.
+ * It's `DituAdapter`'s port (`arkiv-api/src/arkiv_api/adapters/ditu/adapter.py`): what the gateway
+ * used to do between Caracol's API and the app —building results, flattening seasons, crossing
+ * with TMDB— lives here.
  *
- * TMDB se usa SOLO para el `tmdbId` y el título canónico, y solo cuando el título coincide (ver
- * [episodesWithSeries]). Las imágenes las pone Caracol, que las tiene siempre; las de TMDB entran
- * únicamente si Caracol no trajo ninguna.
+ * TMDB is used ONLY for the `tmdbId` and the canonical title, and only when the title matches (see
+ * [episodesWithSeries]). The images are Caracol's, which always has them; TMDB's only come in if
+ * Caracol didn't bring any.
  */
 internal class DituFuente(
-    private val catalogo: DituCatalogo,
-    private val episodios: DituEpisodios,
-    private val resolucion: DituResolve,
+    private val catalog: DituCatalog,
+    private val episodes: DituEpisodes,
+    private val resolver: DituResolve,
     private val tmdb: TmdbApi? = null,
-    private val ahoraMs: () -> Long = { System.currentTimeMillis() },
+    private val nowMs: () -> Long = { System.currentTimeMillis() },
 ) : ContentSource {
 
-    override fun recognizes(ref: String): Boolean = DituRef.decodificar(ref) != null
+    override fun recognizes(ref: String): Boolean = DituRef.decode(ref) != null
 
     override fun search(ctx: GatewaySearchQuery): Flow<SearchEvent> = flow {
-        val t0 = ahoraMs()
-        emit(SearchEvent.SourceStart(FUENTE))
-        val items = runCatching { catalogo.buscar(ctx.q) }.getOrElse { e ->
-            emit(SearchEvent.SourceError(FUENTE, e.message ?: "error de Caracol", ahoraMs() - t0, 0, causa = e))
-            emit(SearchEvent.Done(ahoraMs() - t0))
+        val t0 = nowMs()
+        emit(SearchEvent.SourceStart(SOURCE))
+        val items = runCatching { catalog.search(ctx.q) }.getOrElse { e ->
+            emit(SearchEvent.SourceError(SOURCE, e.message ?: "error de Caracol", nowMs() - t0, 0, causa = e))
+            emit(SearchEvent.Done(nowMs() - t0))
             return@flow
         }
         for (item in items) {
-            emit(SearchEvent.ResultEvent(FUENTE, resultadoDe(item)))
+            emit(SearchEvent.ResultEvent(SOURCE, resultFrom(item)))
         }
-        emit(SearchEvent.SourceDone(FUENTE, items.size, ahoraMs() - t0))
-        emit(SearchEvent.Done(ahoraMs() - t0))
+        emit(SearchEvent.SourceDone(SOURCE, items.size, nowMs() - t0))
+        emit(SearchEvent.Done(nowMs() - t0))
     }.flowOn(Dispatchers.IO)
 
     override suspend fun resolve(ref: String): GatewayPlayable {
-        val propio = DituRef.decodificar(ref) ?: throw GatewayException("Ese enlace no es de Caracol")
-        return runCatching { resolucion.vod(propio) }
+        val ownRef = DituRef.decode(ref) ?: throw GatewayException("Ese enlace no es de Caracol")
+        return runCatching { resolver.vod(ownRef) }
             .getOrElse { throw GatewayException(it.message ?: "No se pudo reproducir en Caracol", it) }
     }
 
-    /** Resolver un canal en vivo. No pasa por [resolve] porque un canal no tiene `ref`: lo que lo
-     *  identifica es el par (channelId, assetId) que vino con la lista. */
-    suspend fun resolverCanal(canal: DituCanal): GatewayPlayable =
-        runCatching { resolucion.vivo(canal) }
+    /** Resolve a live channel. Doesn't go through [resolve] because a channel has no `ref`: what
+     *  identifies it is the (channelId, assetId) pair that came with the list. */
+    suspend fun resolveChannel(channel: DituChannel): GatewayPlayable =
+        runCatching { resolver.live(channel) }
             .getOrElse { throw GatewayException(it.message ?: "No se pudo abrir el canal", it) }
 
-    suspend fun canales(): List<DituCanal> =
-        runCatching { catalogo.canales() }
+    suspend fun channels(): List<DituChannel> =
+        runCatching { catalog.channels() }
             .getOrElse { throw GatewayException(it.message ?: "No se pudieron listar los canales", it) }
 
     /**
-     * El catálogo entero, guardado [VIGENCIA_DEL_CATALOGO_MS]: son unos 330 títulos en una sola
-     * llamada (ver [DituCatalogo]), y pedirlos cada vez que se entra a la sección es tiempo regalado.
+     * The whole catalog, cached for [CATALOG_TTL_MS]: it's some 330 titles in a single call (see
+     * [DituCatalog]), and requesting them every time the section is opened is time given away for free.
      *
-     * [forzar] se salta lo guardado: es el botón de recargar, para cuando Caracol agrega algo y no se
-     * quiere esperar a que venza. Si la llamada falla, lo guardado se queda como estaba.
+     * [force] skips the cache: it's the reload button, for when Caracol adds something and there's
+     * no wanting to wait for it to expire. If the call fails, the cache is left as it was.
      */
-    suspend fun catalogoCompleto(forzar: Boolean = false): List<DituItem> {
-        val guardado = catalogoGuardado
-        if (!forzar && guardado != null && ahoraMs() - guardado.traidoEnMs < VIGENCIA_DEL_CATALOGO_MS) {
-            return guardado.titulos
+    suspend fun fullCatalog(force: Boolean = false): List<DituItem> {
+        val cached = cachedCatalog
+        if (!force && cached != null && nowMs() - cached.fetchedAtMs < CATALOG_TTL_MS) {
+            return cached.titles
         }
-        val titulos = runCatching { catalogo.catalogo() }
+        val titles = runCatching { catalog.catalog() }
             .getOrElse { throw GatewayException(it.message ?: "No se pudo cargar el catálogo", it) }
-        catalogoGuardado = CatalogoGuardado(titulos, ahoraMs())
-        return titulos
+        cachedCatalog = CachedCatalog(titles, nowMs())
+        return titles
     }
 
-    /** Un solo valor, no un caché por clave: el catálogo de Caracol es uno. */
-    private class CatalogoGuardado(val titulos: List<DituItem>, val traidoEnMs: Long)
+    /** A single value, not a cache by key: Caracol's catalog is one. */
+    private class CachedCatalog(val titles: List<DituItem>, val fetchedAtMs: Long)
 
     @Volatile
-    private var catalogoGuardado: CatalogoGuardado? = null
+    private var cachedCatalog: CachedCatalog? = null
 
     override suspend fun episodesWithSeries(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?> {
-        val propio = DituRef.decodificar(ref) ?: throw GatewayException("Ese enlace no es de Caracol")
-        val temporada = runCatching { episodios.de(propio) }
+        val ownRef = DituRef.decode(ref) ?: throw GatewayException("Ese enlace no es de Caracol")
+        val season = runCatching { episodes.forRef(ownRef) }
             .getOrElse { throw GatewayException(it.message ?: "No se pudieron leer los capítulos", it) }
 
-        val eps = temporada.episodios.map {
-            // La temporada va por capítulo: en un grupo, la de `serie` es una sola para todas.
-            GatewayEpisode(number = it.numero, title = it.titulo, ref = it.ref(), season = it.temporada)
+        val eps = season.episodes.map {
+            // The season travels per chapter: in a group, `serie`'s is a single one for all of them.
+            GatewayEpisode(number = it.number, title = it.title, ref = it.ref(), season = it.season)
         }
-        if (temporada.tituloSerie.isBlank() && temporada.posterUrl.isBlank()) return eps to null
+        if (season.seriesTitle.isBlank() && season.posterUrl.isBlank()) return eps to null
 
-        var serie = GatewaySerie(
+        var series = GatewaySerie(
             imdbId = "",
             tmdbId = 0,
-            seasonNumber = temporada.temporada,
-            titulo = temporada.tituloSerie,
-            posterUrl = temporada.posterUrl,
-            backdropUrl = temporada.fondoUrl,
+            seasonNumber = season.season,
+            titulo = season.seriesTitle,
+            posterUrl = season.posterUrl,
+            backdropUrl = season.backdropUrl,
         )
-        // TMDB solo aporta identidad, no imágenes: las de Caracol son las correctas para su propio
-        // catálogo. Que falle no puede costar los capítulos, que ya están listos.
+        // TMDB only contributes identity, not images: Caracol's are the right ones for its own
+        // catalog. Failing here can't cost the chapters, which are already ready.
         //
-        // `val tmdb = tmdb` (sombrear la propiedad en una local): el brief original llamaba
-        // `tmdb.search(...)` dentro del lambda de `runCatching` confiando en el smart-cast del
-        // `tmdb != null` de más arriba, y no compila — Kotlin no aplica smart-cast a una propiedad
-        // de clase capturada dentro de un lambda, solo a variables locales.
+        // `val tmdb = tmdb` (shadow the property in a local): the original brief called
+        // `tmdb.search(...)` inside `runCatching`'s lambda trusting the `tmdb != null` smart-cast
+        // above, and it doesn't compile — Kotlin doesn't apply a smart-cast to a class property
+        // captured inside a lambda, only to local variables.
         val tmdb = tmdb
-        if (tmdb != null && temporada.tituloSerie.isNotBlank()) {
-            // Solo un acierto EXACTO ([pickTmdbMatch]: título normalizado, contra el de TMDB en
-            // español o contra el original). El primer resultado por texto puede ser otra serie, y el
-            // `tmdbId` es la clave con la que `LibraryGrouping` agrupa las series (`tv:<tmdbId>`): un
-            // acierto equivocado renombraría esta serie en la biblioteca o la fundiría con la otra.
-            // Sin coincidencia la serie queda sin id y con el título de Caracol. Un falso negativo
-            // cuesta poco: las imágenes ya son de Caracol.
-            val hit = runCatching { tmdb.search("tv", temporada.tituloSerie) }.getOrNull()
-                ?.let { pickTmdbMatch(temporada.tituloSerie, it) }
+        if (tmdb != null && season.seriesTitle.isNotBlank()) {
+            // Only an EXACT hit ([pickTmdbMatch]: normalized title, against TMDB's Spanish one or
+            // the original). The first text result can be another series, and the `tmdbId` is the
+            // key `LibraryGrouping` groups series by (`tv:<tmdbId>`): a wrong hit would rename this
+            // series in the library or merge it with the other one. With no match the series is
+            // left with no id and Caracol's title. A false negative costs little: the images are
+            // already Caracol's.
+            val hit = runCatching { tmdb.search("tv", season.seriesTitle) }.getOrNull()
+                ?.let { pickTmdbMatch(season.seriesTitle, it) }
                 ?.takeIf { it.exacto }
                 ?.item
             if (hit != null) {
-                serie = serie.copy(
+                series = series.copy(
                     tmdbId = hit.id,
-                    titulo = hit.title.ifBlank { serie.titulo },
-                    posterUrl = serie.posterUrl.ifBlank { hit.posterUrl },
-                    backdropUrl = serie.backdropUrl.ifBlank { hit.backdropUrl },
+                    titulo = hit.title.ifBlank { series.titulo },
+                    posterUrl = series.posterUrl.ifBlank { hit.posterUrl },
+                    backdropUrl = series.backdropUrl.ifBlank { hit.backdropUrl },
                 )
             }
         }
-        return eps to serie
+        return eps to series
     }
 
     internal companion object {
-        const val FUENTE = "ditu"
+        const val SOURCE = "ditu"
 
         /**
-         * Un título de Caracol como lo ve el resto de la app. Lo usan la búsqueda ([search]) y la
-         * sección de Caracol del televisor (`TvCaracolScreen`): así un título abierto desde
-         * cualquiera de las dos llega igual a `SearchPlayback` y a la lista de capítulos.
+         * A Caracol title as the rest of the app sees it. Used by search ([search]) and the TV's
+         * Caracol section (`TvCaracolScreen`): so a title opened from either of the two arrives the
+         * same way at `SearchPlayback` and the chapter list.
          */
-        fun resultadoDe(item: DituItem) = GatewayResult(
-            source = FUENTE,
-            title = item.titulo,
+        fun resultFrom(item: DituItem) = GatewayResult(
+            source = SOURCE,
+            title = item.title,
             ref = item.ref(),
-            kind = if (item.esPelicula) "movie" else "series",
-            year = item.anio,
+            kind = if (item.isMovie) "movie" else "series",
+            year = item.year,
             extra = mapOf("poster" to item.posterUrl, "content_type" to item.contentType),
         )
 
-        /** Cuánto vale el catálogo guardado por [catalogoCompleto]: 6 h. */
-        private const val VIGENCIA_DEL_CATALOGO_MS = 6 * 60 * 60 * 1000L
+        /** How long [fullCatalog]'s cache is worth: 6h. */
+        private const val CATALOG_TTL_MS = 6 * 60 * 60 * 1000L
     }
 }

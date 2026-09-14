@@ -49,7 +49,7 @@ class FuentesCaidasTest {
         )
     }
 
-    /** La línea de Caracol la dice `FalloDeCaracol`, con la excepción que mandó la fuente. */
+    /** La línea de Caracol la dice `CaracolFailure`, con la excepción que mandó la fuente. */
     @Test fun la_linea_de_caracol_va_en_palabras_de_persona() {
         val estado = EstadoDeLasFuentes().conRespuesta("magis").conCaida(
             "ditu",

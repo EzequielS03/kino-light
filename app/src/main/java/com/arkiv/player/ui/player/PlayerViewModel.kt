@@ -6,7 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.arkiv.player.data.ArkivRepository
 import com.arkiv.player.data.db.LiveRecentDao
 import com.arkiv.player.data.db.LiveRecentEntity
-import com.arkiv.player.data.ditu.FalloDeCaracol
+import com.arkiv.player.data.ditu.CaracolFailure
 import com.arkiv.player.data.gateway.LiveChannel
 import com.arkiv.player.playback.ArchiveCacheProxy
 import com.arkiv.player.playback.AdultContent
@@ -700,7 +700,7 @@ class PlayerViewModel internal constructor(
      * así. Antes de avisar se le pide a Caracol una URL nueva —trae otro `playback_token`— y se
      * retoma en [posicionMs]. Con tope: ver [EstadoDeDitu.pedirRecarga].
      *
-     * [codigo] es el `errorCode` de la `PlaybackException`: con él [FalloDeCaracol.alReproducir] le
+     * [codigo] es el `errorCode` de la `PlaybackException`: con él [CaracolFailure.onPlayback] le
      * dice a la persona qué pasó. Su nombre técnico va al log.
      *
      * [queriaReproducir] pasa a la recarga: si lo que falló estaba en pausa, el reproductor nuevo
@@ -711,7 +711,7 @@ class PlayerViewModel internal constructor(
         val episodio = ditu.pedirRecarga()
         if (episodio == null) {
             Log.w(PLAY, "Caracol: $nombre and no reloads left → notifying the person")
-            _error.value = FalloDeCaracol.alReproducir(codigo, esTelevision)
+            _error.value = CaracolFailure.onPlayback(codigo, esTelevision)
             return
         }
         Log.w(
@@ -996,7 +996,7 @@ class PlayerViewModel internal constructor(
         // pidió otro episodio, esto no es de nadie. Ver [EstadoDeDitu].
         if (!ditu.esVigente(episodeId)) return
         val resolver: suspend () -> com.arkiv.player.data.gateway.GatewayPlayable = when {
-            canal != null -> suspend { dituFuente.resolverCanal(canal) }
+            canal != null -> suspend { dituFuente.resolveChannel(canal) }
             !ref.isNullOrBlank() -> suspend { fuente.resolve(ref) }
             else -> {
                 _error.value = if (vivo) "No se encontró el canal de Caracol" else "No se encontró la fuente de Caracol"
@@ -1018,9 +1018,9 @@ class PlayerViewModel internal constructor(
         val play = resuelto.getOrNull()
         if (play == null) {
             val falla = resuelto.exceptionOrNull()
-            // The detail goes to the log; the person gets what `FalloDeCaracol` makes of it.
+            // The detail goes to the log; the person gets what `CaracolFailure` makes of it.
             Log.w(PLAY, "loadDitu() failed: ${falla?.message}", falla)
-            _error.value = FalloDeCaracol.alAbrir(falla)
+            _error.value = CaracolFailure.onOpen(falla)
             return
         }
         // La misma reanudación que Magis: [safeStartPosition] sobre el progreso guardado. Un vivo no

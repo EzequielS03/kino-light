@@ -81,7 +81,7 @@ class SearchViewModelFuentesTest {
 
         assertEquals(listOf("Rigo"), vm.sources.value.map { (it as PlaySource.Magis).result.title })
         assertEquals(mapOf("ditu" to "sin red"), vm.estadoDeFuentes.value.caidas)
-        // La excepción llega a la pantalla: es con lo que `FalloDeCaracol` escribe la línea.
+        // La excepción llega a la pantalla: es con lo que `CaracolFailure` escribe la línea.
         assertEquals(mapOf<String, Throwable>("ditu" to sinRed), vm.estadoDeFuentes.value.causas)
         assertEquals(setOf("magis"), vm.estadoDeFuentes.value.respondieron)
         assertFalse(vm.fuentesBuscando.value.alguna)

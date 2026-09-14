@@ -39,7 +39,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import com.arkiv.player.data.ditu.DituCanal
+import com.arkiv.player.data.ditu.DituChannel
 import com.arkiv.player.data.ditu.DituFuente
 import com.arkiv.player.data.ditu.DituItem
 import com.arkiv.player.data.gateway.GatewayResult
@@ -60,11 +60,11 @@ import kotlinx.coroutines.launch
 /**
  * La sección de Caracol en el televisor: su catálogo y sus canales en vivo.
  *
- * El catálogo lo guarda [DituFuente.catalogoCompleto] 6 h; "Recargar" lo pide aunque no haya
+ * El catálogo lo guarda [DituFuente.fullCatalog] 6 h; "Recargar" lo pide aunque no haya
  * vencido, para cuando Caracol agrega algo. Los canales se piden cada vez que se entra.
  *
  * Abrir un título va por el MISMO camino que la búsqueda (`playResult` de [TvSearchScreen]), no por
- * uno propio: [DituFuente.resultadoDe] lo vuelve el mismo resultado que da la búsqueda, una película
+ * uno propio: [DituFuente.resultFrom] lo vuelve el mismo resultado que da la búsqueda, una película
  * se guarda y se abre con [SearchPlayback.playDitu], y una serie abre [TvCapitulosDeCaracol], que al
  * tocar un capítulo guarda la serie entera. Los dos guardan con id `ditu:`: la película por
  * `ArkivRepository.addDituSource`, la serie por `ArkivRepository.addDituSeason`.
@@ -96,16 +96,16 @@ internal fun TvCaracolScreen(onPlay: (episodeId: String) -> Unit) {
     LaunchedEffect(recargas) {
         cargando = true
         // Cada cosa falla sola: que no haya canales no puede dejar la pantalla sin catálogo.
-        runCatching { graph.dituFuente.catalogoCompleto(forzar = recargas > 0) }
+        runCatching { graph.dituFuente.fullCatalog(force = recargas > 0) }
             .onSuccess { titulos = it; error = null }
             .onFailure {
                 // El detalle va al log; en pantalla, en palabras de persona.
                 android.util.Log.w("TvCaracol", "catalog failed to load", it)
-                error = com.arkiv.player.data.ditu.FalloDeCaracol.alCargarElCatalogo(it)
+                error = com.arkiv.player.data.ditu.CaracolFailure.onLoadCatalog(it)
                 aviso = error
             }
         // Si falla, se dice en la pestaña: no puede verse igual que "no hay canales".
-        val resultadoDeCanales = runCatching { graph.dituFuente.canales() }
+        val resultadoDeCanales = runCatching { graph.dituFuente.channels() }
         resultadoDeCanales.exceptionOrNull()?.let { android.util.Log.w("TvCaracol", "channels failed to load", it) }
         canales = EstadoDeCanales.de(resultadoDeCanales)
         cargando = false
@@ -122,7 +122,7 @@ internal fun TvCaracolScreen(onPlay: (episodeId: String) -> Unit) {
     // Lo mismo que hace la búsqueda con un resultado de Caracol.
     fun abrirTitulo(item: DituItem) {
         if (preparando) return
-        val fuente = PlaySource.Ditu(DituFuente.resultadoDe(item))
+        val fuente = PlaySource.Ditu(DituFuente.resultFrom(item))
         if (fuente.esSerie()) {
             serieAbierta = fuente.result
             return
@@ -170,7 +170,7 @@ internal fun TvCaracolScreen(onPlay: (episodeId: String) -> Unit) {
  * enfocado en un bloque de alto fijo, y la zona de filas medida en dos filas enteras.
  *
  * Los títulos van en [TvPosterCard] y no en la [TvLandscapeCard] del molde: el arte que trae Caracol
- * es vertical (`DituCatalogo.POSTER`). Los canales van en [TvLandscapeCard], con su logo.
+ * es vertical (`DituCatalog.POSTER`). Los canales van en [TvLandscapeCard], con su logo.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -182,7 +182,7 @@ private fun TvCaracolContenido(
     aviso: String?,
     alRecargar: () -> Unit,
     alAbrirTitulo: (DituItem) -> Unit,
-    alAbrirCanal: (DituCanal) -> Unit,
+    alAbrirCanal: (DituChannel) -> Unit,
 ) {
     var enVivo by remember { mutableStateOf(false) }
     var enfocado by remember { mutableStateOf<Enfocado?>(null) }
@@ -279,10 +279,10 @@ private fun TvCaracolContenido(
                         ) {
                             items(listaDeCanales, key = { it.channelId }) { canal ->
                                 TvLandscapeCard(
-                                    title = canal.nombre,
+                                    title = canal.name,
                                     imageUrl = canal.logoUrl,
                                     cardHeight = altoDeCanal,
-                                    onFocus = { enfocado = Enfocado("En vivo", canal.nombre, "") },
+                                    onFocus = { enfocado = Enfocado("En vivo", canal.name, "") },
                                     onClick = { alAbrirCanal(canal) },
                                 )
                             }
@@ -303,7 +303,7 @@ private fun TvCaracolContenido(
                                     titulos = fila.titulos,
                                     altoDePoster = altoDePoster,
                                     alAbrir = alAbrirTitulo,
-                                    alEnfocar = { enfocado = Enfocado(fila.seccion, it.titulo, it.anio) },
+                                    alEnfocar = { enfocado = Enfocado(fila.seccion, it.title, it.year) },
                                 )
                                 Spacer(Modifier.height(gapEntreFilas))
                             }
@@ -333,7 +333,7 @@ private fun FilaDeTitulos(
         ) {
             items(titulos, key = { it.ref() }) { item ->
                 TvPosterCard(
-                    title = item.titulo,
+                    title = item.title,
                     posterUrl = item.posterUrl,
                     cardHeight = altoDePoster,
                     // El nombre va arriba, en el bloque de lo enfocado: bajo la tarjeta no entra.
@@ -411,7 +411,7 @@ private data class FilaDeCaracol(val clave: String, val seccion: String, val tit
 
 /**
  * Las series primero y después las películas, de a [TITULOS_POR_FILA]. Son unos 330 títulos (ver
- * [com.arkiv.player.data.ditu.DituCatalogo]), y una fila con todos los de un tipo se recorre tarjeta
+ * [com.arkiv.player.data.ditu.DituCatalog]), y una fila con todos los de un tipo se recorre tarjeta
  * por tarjeta con el D-pad; partidas, se baja entre filas, que es el gesto del molde.
  *
  * El split en series/películas (sin repetidos, por [CaracolCatalog]) es compartido con la sección

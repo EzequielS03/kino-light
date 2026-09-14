@@ -15,7 +15,7 @@ import com.arkiv.player.data.ditu.DituItem
 internal data class CaracolCatalog(val series: List<DituItem>, val movies: List<DituItem>) {
     companion object {
         fun split(titles: List<DituItem>): CaracolCatalog {
-            val (movies, series) = titles.distinctBy { it.ref() }.partition { it.esPelicula }
+            val (movies, series) = titles.distinctBy { it.ref() }.partition { it.isMovie }
             return CaracolCatalog(series = series, movies = movies)
         }
     }

@@ -7,8 +7,8 @@ import com.arkiv.player.data.gateway.GatewayEpisode
  * `TvMagisSeasonContent`) cuando la lista trae varias temporadas.
  *
  * Existe por Caracol: un `GROUP_OF_BUNDLES` llega como UNA lista con todas sus temporadas aplanadas
- * (`DituEpisodios`), y cada temporada puede traer su propio capítulo 1. Si además Caracol no manda
- * `episodeTitle`, el título cae a "Episodio N" (`DituEpisodios`) y el 1 de la T1 queda idéntico al 1
+ * (`DituEpisodes`), y cada temporada puede traer su propio capítulo 1. Si además Caracol no manda
+ * `episodeTitle`, el título cae a "Episodio N" (`DituEpisodes`) y el 1 de la T1 queda idéntico al 1
  * de la T2. Con varias temporadas, cada fila dice la suya y la lista va por temporada y después por
  * número.
  *

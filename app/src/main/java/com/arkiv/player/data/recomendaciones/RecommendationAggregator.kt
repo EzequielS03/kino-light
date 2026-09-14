@@ -71,7 +71,7 @@ class RecommendationAggregator(
      */
     private suspend fun addFromCaracol(rec: RecomendacionEntity, target: RecommendationTarget.Caracol): String? {
         val tmdbId = rec.tmdbId.takeIf { it > 0 }
-        val isSeries = com.arkiv.player.data.ditu.DituRef.decodificar(rec.ref)?.esSerie == true
+        val isSeries = com.arkiv.player.data.ditu.DituRef.decode(rec.ref)?.isSeries == true
         val episodeId = if (isSeries) {
             val (chapters, series) = chaptersOf(rec) ?: return null
             val list = chapters.map { com.arkiv.player.data.DituEntities.capituloDeCaracol(it, series) }

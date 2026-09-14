@@ -16,7 +16,7 @@ import com.arkiv.player.data.magis.MagisRef
  */
 internal fun realKindOfRef(ref: String): String? {
     MagisRef.decode(ref)?.let { return if (it.isSeries) "tv" else "movie" }
-    DituRef.decodificar(ref)?.let { return if (it.esSerie) "tv" else "movie" }
+    DituRef.decode(ref)?.let { return if (it.isSeries) "tv" else "movie" }
     return null
 }
 

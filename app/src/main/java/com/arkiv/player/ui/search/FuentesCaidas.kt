@@ -1,6 +1,6 @@
 package com.arkiv.player.ui.search
 
-import com.arkiv.player.data.ditu.FalloDeCaracol
+import com.arkiv.player.data.ditu.CaracolFailure
 
 /**
  * Qué pasó con cada fuente en la última búsqueda de fuentes: cuáles respondieron y cuáles se
@@ -49,7 +49,7 @@ private fun seCayo(tab: SourceTab, estado: EstadoDeLasFuentes): Boolean =
  * la lista, haya o no resultados: si Caracol se cae y Magis responde, se ven los resultados de Magis
  * y la línea de Caracol. Sin errores la lista es vacía y la pantalla queda igual que antes.
  *
- * La línea de Caracol la escribe [FalloDeCaracol], en palabras de persona. La de Magis y la de una
+ * La línea de Caracol la escribe [CaracolFailure], en palabras de persona. La de Magis y la de una
  * fuente sin nombre siguen como antes: el nombre y el texto del error.
  */
 fun avisosDeFuentesCaidas(estado: EstadoDeLasFuentes, tab: SourceTab): List<String> =
@@ -57,7 +57,7 @@ fun avisosDeFuentesCaidas(estado: EstadoDeLasFuentes, tab: SourceTab): List<Stri
         .filter { (fuente, _) -> tab == SourceTab.TODO || tabDeFuente(fuente) == tab }
         .map { (fuente, error) ->
             if (tabDeFuente(fuente) == SourceTab.CARACOL) {
-                FalloDeCaracol.enLaBusqueda(estado.causas[fuente], error)
+                CaracolFailure.inSearch(estado.causas[fuente], error)
             } else {
                 "${nombreDeFuente(fuente)} no respondió: $error"
             }

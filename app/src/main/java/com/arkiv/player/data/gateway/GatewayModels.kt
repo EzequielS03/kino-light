@@ -104,7 +104,7 @@ data class GatewayEpisode(
      * [GatewaySerie.seasonNumber].
      *
      * Existe por Caracol: un `GROUP_OF_BUNDLES` llega como UNA lista con todas sus temporadas
-     * aplanadas (`DituEpisodios`), y cada temporada puede traer su propio capítulo 1. Sin la
+     * aplanadas (`DituEpisodes`), y cada temporada puede traer su propio capítulo 1. Sin la
      * temporada al lado, [number] no alcanza para saber cuál es cuál.
      */
     val season: Int? = null,
@@ -142,7 +142,7 @@ sealed interface SearchEvent {
     data class ResultEvent(val source: String, val item: GatewayResult) : SearchEvent
     data class SourceDone(val source: String, val count: Int, val ms: Long) : SearchEvent
     /**
-     * [causa] es la excepción, cuando la fuente la tiene a mano: `FalloDeCaracol` la necesita para
+     * [causa] es la excepción, cuando la fuente la tiene a mano: `CaracolFailure` la necesita para
      * decirle a la persona qué pasó. La manda `DituFuente`; `MagisFuente` y `FuenteCompuesta` no.
      */
     data class SourceError(

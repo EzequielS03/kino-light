@@ -73,7 +73,7 @@ class CaracolStore(private val context: Context, private val folder: File) {
         DashDownloader(item, factoryForDownload(headers))
 
     /**
-     * The same three headers `DituCliente` uses. Without them Caracol's CDN answers 403 to the
+     * The same three headers `DituClient` uses. Without them Caracol's CDN answers 403 to the
      * manifest, and that failure reads as "the video doesn't exist".
      */
     fun httpFactory(headers: Map<String, String>): HttpDataSource.Factory =

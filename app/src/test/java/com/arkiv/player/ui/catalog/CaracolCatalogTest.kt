@@ -7,7 +7,7 @@ import org.junit.Test
 class CaracolCatalogTest {
 
     private fun item(id: String, type: String, title: String = id) =
-        DituItem(contentId = id, titulo = title, contentType = type)
+        DituItem(contentId = id, title = title, contentType = type)
 
     @Test fun splits_movies_and_series() {
         val series = item("1", "BUNDLE", "Serie A")
