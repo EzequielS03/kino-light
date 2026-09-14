@@ -54,7 +54,7 @@ import com.arkiv.player.ui.live.currentProgram
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurface
 import com.arkiv.player.ui.theme.ArkivTextSecondary
-import com.arkiv.player.ui.tv.TvCajonDeCanales
+import com.arkiv.player.ui.tv.TvChannelDrawer
 import kotlinx.coroutines.delay
 
 /** Cuánto queda en pantalla la ficha del canal tras abrir, zapear o tocar. */
@@ -306,11 +306,11 @@ internal fun BoxScope.CajonDeCanalesDelVivo(
                 }
             },
     ) {
-        TvCajonDeCanales(
-            foco = estado.focoCajon,
-            onFoco = { estado.moverFocoDelCajon(it) },
-            canalActual = canalActual,
-            onElegirCanal = { lista, canal ->
+        TvChannelDrawer(
+            focus = estado.focoCajon,
+            onFocus = { estado.moverFocoDelCajon(it) },
+            currentChannel = canalActual,
+            onChooseChannel = { lista, canal ->
                 onElegirCanal(lista, canal)
                 estado.cerrarCajon()
                 estado.mostrarInfo()
