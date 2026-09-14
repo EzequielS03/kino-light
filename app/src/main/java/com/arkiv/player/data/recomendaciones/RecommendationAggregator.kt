@@ -44,8 +44,8 @@ class RecommendationAggregator(
                 contentId = target.contentId,
                 title = rec.titulo,
                 chapters = season.chapters,
-                // El ref de la recomendación ES el de la temporada: queda guardado en el ítem y
-                // `NewChapterFinder` puede preguntar por capítulos nuevos más adelante.
+                // The recommendation's ref IS the season's: it stays saved on the item and
+                // `NewChapterFinder` can ask for new chapters later on.
                 seriesRef = rec.ref,
                 posterUrl = rec.posterUrl,
                 tmdbId = season.tmdbId,
@@ -84,7 +84,7 @@ class RecommendationAggregator(
                 posterUrl = rec.posterUrl.ifBlank { series?.posterUrl.orEmpty() },
                 backdropUrl = series?.backdropUrl.orEmpty(),
                 tmdbId = tmdbId,
-                // `rec.titulo` es el de TMDB (lo confirmó la cascada), o sea el canónico.
+                // `rec.titulo` is TMDB's (the cascade confirmed it), i.e. the canonical one.
                 tituloCanonico = rec.titulo.takeIf { tmdbId != null },
             ) ?: run {
                 // `addDituSeason` already wrote the item and its episodes as soon as it found a

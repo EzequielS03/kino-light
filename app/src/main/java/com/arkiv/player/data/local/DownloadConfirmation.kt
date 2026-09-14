@@ -51,7 +51,7 @@ object DownloadConfirmation {
                 body = "Se conserva lo que ya bajó de $subject: al reintentar sigue desde ahí, no " +
                     "empieza de cero.",
                 confirm = "Cancelar descarga",
-                // No puede decir "Cancelar": al lado de "Cancelar descarga" nadie sabría cuál es cuál.
+                // Can't just say "Cancelar": next to "Cancelar descarga" nobody would know which is which.
                 dismiss = "Seguir bajando",
             )
             DownloadAction.DELETE -> ConfirmationText(
