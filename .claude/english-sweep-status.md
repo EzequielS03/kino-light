@@ -9,18 +9,17 @@ English" line in `.claude/reglas.md`.
 Order chosen by the user: **módulo por módulo, de menor a mayor riesgo** (module by module,
 lowest to highest risk).
 
-## Overall completion: roughly **88-90%** of the whole sweep
+## Overall completion: roughly **90-92%** of the whole sweep
 
 - `playback/`, `security/`, `dlna/`, `cast/`, `thumbnails/`: **100% done.**
 - `data/`: **~98% done** — three files left now: `MagisEntities.kt`, `DituEntities.kt`, and
-  `LibraryGrouping.kt` (found this session — `LibraryGroup.nuevos` and other content still
+  `LibraryGrouping.kt` (found in an earlier session — `LibraryGroup.nuevos` and other content still
   Spanish; see below).
 - `ui/` (159 main files across 14 subpackages, plus 6 top-level files, plus tests): roughly
-  **88-90% done**. Fully finished packages: `detail/`, `downloads/`, `components/`, `offline/`,
-  `library/`, `theme/`, `update/`, `settings/`, `home/`, `search/`, `catalog/`, `live/`, **`tv/`
-  (finished this session — all 26 main files + tests)**, plus all 6 top-level `ui/*.kt` files. Only
-  `player/` (23 files, the single largest package in `ui/`) remains untouched — the last package in
-  the whole sweep.
+  **90-92% done**. Fully finished packages: `detail/`, `downloads/`, `components/`, `offline/`,
+  `library/`, `theme/`, `update/`, `settings/`, `home/`, `search/`, `catalog/`, `live/`, `tv/`,
+  plus all 6 top-level `ui/*.kt` files. Only `player/` (23 files, the single largest package in
+  `ui/`) remains, **in progress** — see below for what's done there so far.
 
 `ui/` is far bigger than `data/` was (159 main files vs. roughly 90 in `data/`), so raw file count
 means the overall codebase is still under most-of-the-way-done even though `data/` is essentially
@@ -256,15 +255,46 @@ Also fully translated (finished the package):
 
 **`ui/tv/` is now 100% done — every one of its 26 main files (+ tests) is translated.**
 
-### `ui/` — NOT touched at all
+### `ui/player/` — in progress (the last package in the entire sweep)
 
-- **`player/`** (23 main + 13 test files) — **the single remaining `ui/` package, and the last
-  package in the entire sweep.** Zero files opened yet except `PlayerPistas.kt`/`PlayerVivo.kt`
-  (ripple fixes only: broken imports and call sites from the `settings/`/`live/`/`tv/` batches,
-  their own Spanish content is otherwise untouched). Likely the highest-risk piece of `ui/` given
-  it's the actual playback UI (ExoPlayer integration, skip markers, trivia overlay, live
-  zapping/drawer wiring, etc.) — belongs last per the lowest-to-highest-risk ordering, exactly as
-  planned.
+Small, self-contained files translated so far, each rippled with minimal targeted fixes into the
+still-untouched giants (`PlayerScreen.kt` 240K, `PlayerViewModel.kt` 66K) and into the three
+ExoPlayer wrappers (`LiveExoPlayer.kt`, `DituExoPlayer.kt`, `MagisExoPlayer.kt`) where they're also
+consumed:
+
+- `PlayerFoco.kt`→`OverlayFocusPoints.kt` (`OverlayFocusPoints` class, `rememberOverlayFocusPoints`).
+- `PlayerSaltos.kt`→`OutroSkip.kt` (`OutroSkip.Action`, `SkipButtonKind` — named `Kind` not
+  `Button` to avoid a real collision with `PlayerScreen.kt`'s own `private fun SkipButton(...)` —
+  `SkipButtonFocus`). Test → `OutroSkipTest.kt`.
+- `PlayerCabecera.kt`→`HeaderState.kt` (`HeaderState` class, `rememberHeaderState`/`HeaderEffect`).
+- `PlayerControles.kt`→`ControlsState.kt` (`ControlsState` class with `bump()`/`keepAlive()`/
+  `hide()`/`toggle()`, `AutoHideEffect`).
+- `PlayerMarcadores.kt`→`MarkersState.kt` (`MarkMode` enum, `MarkersState` class).
+- `PlayerEspejo.kt`→`PlayerMirror.kt` (`PlayerMirror` class — its `cambioElBuffering`/
+  `cambioElPlaying`/`cambioLaIntencion` methods became `updateBuffering`/`updatePlaying`/
+  `updateWantsToPlay`, **not** `setX()`, to avoid a real JVM signature clash with the
+  `mutableStateOf` properties' own synthesized setters — a genuine `Platform declaration clash`
+  compile error, not just a style choice). Rippled into `LiveExoPlayer.kt`/`DituExoPlayer.kt`/
+  `MagisExoPlayer.kt` too, since all three feed this same mirror.
+- `PlayerVideoLocal.kt` + test — found **already fully English**, no changes needed.
+- `PausaAlSalir.kt`→`PauseOnExit.kt` (`OnBackground`/`OnReturnToLive` enums). Test →
+  `PauseOnExitTest.kt`.
+- `ArranqueConLaPrimeraImagen.kt`→`StartOnFirstFrame.kt` (`StartOnFirstFrame` class). Test →
+  `StartOnFirstFrameTest.kt`.
+- `PlayerSeek.kt`→`SeekState.kt` (`seekTarget()`, `SeekState` class). Test → `SeekStateTest.kt`.
+- `EstadoDeDitu.kt`→`DituState.kt` (`DituState` class — `DituReproducible` itself, a data class
+  owned by `PlayerViewModel.kt`, deliberately left untouched since that file isn't processed yet).
+  Test → `DituStateTest.kt`.
+
+Remaining in `player/`: `PlayerControles.kt`(done)... still untouched: `DituExoPlayer.kt` (only
+ripple-touched), `LiveExoPlayer.kt` (only ripple-touched), `MagisExoPlayer.kt` (only
+ripple-touched), `PlayerDlna.kt`, `PlayerCapitulos.kt`, `PlayerGestos.kt`, `PlayerPistas.kt`
+(already ripple-touched from the `settings/` batch), `PlayerVivo.kt` (already extensively
+ripple-touched from `live/`/`tv/` batches), `TriviaDelPlayer.kt` + test (comment-ripple-touched
+only), `SpinnerDelPlayer.kt` (comment-ripple-touched only), plus test-only files
+`MensajeErrorVivoTest.kt`, `ProgresoDeAdultosTest.kt`, `SoftwareReloadTest.kt`,
+`VivoDeCaracolNoSeAnotaTest.kt`. And the two giants left for last: `PlayerViewModel.kt` (66K) and
+`PlayerScreen.kt` (240K, by far the largest file in the entire codebase).
 
 ## Workflow to follow (established over 45+ commits this session)
 
