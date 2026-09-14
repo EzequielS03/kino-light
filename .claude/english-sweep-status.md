@@ -632,19 +632,49 @@ f. ~~Two `ContentSource` implementations — `MagisFuente`/`DituFuente` — kept
 
 ## Next steps
 
-**As of commit `407a526d`, there is no known remaining Spanish in developer-facing code.**
-`ui/`, `data/`, `crash/`, `app/src/debug/` are fully translated; every deliberate deferral is
-closed (`MagisFuente`/`DituFuente`, `LiveModels.kt` fields, `AppGraph.kt`/`ArkivApp.kt`,
-`SettingsStore.kt`); and the test-method-name project (the last known gap, invisible to the
-accented-character sweep) is done — see "Test-method-name project" above. The accented sweep sits
-at 133 files, all individually verified false positives. If anyone ever needs to re-check from
-scratch:
+**Update 2026-09-14 (new session, after the "done" declaration below was re-checked and found
+wrong AGAIN — the seventh time): a fresh audit found real gaps outside the `.kt`-file/accent-only
+scope every prior pass used.** Fixed in commits `1ffe60b1` and `8cd8d990`:
+
+- **Non-`.kt` files were never swept at all**: `app/build.gradle.kts` (a Spanish KDoc, ~8 comment
+  blocks, the `hayFirma` local), `AndroidManifest.xml` (4 comment blocks), `backup_rules.xml`,
+  `data_extraction_rules.xml`, `ic_launcher_foreground.xml` (3 short comments). The accent sweep's
+  `find` command only ever targeted `*.kt` under `app/src/*/java` — Gradle/XML/manifest files were
+  structurally invisible to it.
+- **Unaccented Spanish identifiers**, invisible to the accent-only heuristic: `GatewaySerie` (was
+  never `GatewaySeries` — wrong English too, not just untranslated), Room DTOs `VistoRow`/
+  `UltimaReproduccionRow`/`ProgresoConSiguienteRow`/`SerieConProgresoRow`/`FilaDeHistorial` and
+  `RecomendacionEntity`/`RecomendacionDao` (+ its `recomendacionDao()` accessor and the
+  `QUERY_ACTIVE_RECOMENDACIONES` constant) — never documented as deliberate exceptions, genuinely
+  missed. `AnimeMapping.kt`'s KDoc (zero accented characters). `SourceTab.TODO` enum constant — the
+  Spanish word "Todo" (=All) disguised as the English `TODO` marker, easy to misread as a real
+  code-TODO.
+- **Package NAMES were never in scope for any prior sweep** — only file *contents* were grepped,
+  never directory names. Five packages had 100%-English files sitting inside a Spanish package
+  name: `data.recomendaciones`→`data.recommendations`, `data.ia`→`data.ai`,
+  `data.nuevos`→`data.newcontent`, `data.marcadores`→`data.markers`,
+  `data.biblioteca`→`data.library`. `caracol`/`magis`/`ditu` are brand names and correctly stay.
+
+Compiles clean; full test suite still at 1704/0/0/0 (tests/skipped/failures/errors) after both
+commits. The accented-character sweep count is unchanged at 133 (these fixes touched unaccented
+identifiers and non-`.kt` files, not accented prose).
+
+**If anyone ever needs to re-check from scratch**, the accent-only sweep is necessary but NOT
+sufficient — run all of these, not just the first:
 ```
+# 1. Accented characters, .kt files only (misses everything below):
 find app/src/main/java app/src/debug/java app/src/test/java -name "*.kt" | while read -r f; do n=$(command grep -c "[áéíóúñÁÉÍÓÚÑ]" "$f"); [ "$n" != "0" ] && echo "$n $f"; done | sort -rn
+
+# 2. Non-.kt files that can carry dev-facing Spanish (Gradle, manifest, XML resources, CI):
+find app -name "*.gradle.kts" -o -name "AndroidManifest.xml" -o -path "*/res/xml/*.xml" | \
+  xargs command grep -lE "[áéíóúñÁÉÍÓÚÑ]|\b(el|la|los|las|para|con|una|uno|que)\b"
+
+# 3. Package (directory) names under app/src/*/java — accent sweep never looks at these:
+find app/src/main/java/com/arkiv/player -type d | command grep -E "/(recomendaciones|ia|nuevos|marcadores|biblioteca|[a-z]+ción|[a-z]+dor)$"
 ```
-Given this session's repeated experience of "done" being wrong on first check (six times before
-this), treat even this closing statement with the same skepticism — re-verify before trusting it
-in a future session, especially if new files have been added to the repo since 2026-09-14.
+Given this session's repeated experience of "done" being wrong on first check (SEVEN times now,
+across two different sessions), treat any future closing statement with the same skepticism —
+re-verify before trusting it, especially if new files have been added to the repo.
 
 **Lessons worth keeping for any future rename/translation work in this repo:**
 
