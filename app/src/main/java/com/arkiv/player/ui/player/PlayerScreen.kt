@@ -454,7 +454,7 @@ private fun PlayerContent(
 
     // Foco D-pad (TV) de los controles del overlay de pausa: los doce puntos de aterrizaje viven
     // juntos en `PlayerFoco.kt`, ver su KDoc.
-    val focos = rememberFocosDelOverlay()
+    val focos = rememberOverlayFocusPoints()
     // Carrusel de capítulos (TV): un paso más abajo desde la fila de íconos. Aparece con todos
     // los episodios de la serie en scroll horizontal, con el actual centrado y enfocado. Todo su
     // estado y sus tres efectos viven en `PlayerCapitulos.kt`.
@@ -1979,8 +1979,8 @@ private fun PlayerContent(
     LaunchedEffect(controles.visible, isTv) {
         if (!isTv) return@LaunchedEffect
         if (controles.visible) {
-            runCatching { focos.barra.requestFocus() }
-                .onFailure { runCatching { focos.playPausa.requestFocus() } }
+            runCatching { focos.bar.requestFocus() }
+                .onFailure { runCatching { focos.playPause.requestFocus() } }
         } else {
             // Al ocultarse el overlay el carrusel deja de existir: si estadoCapitulos.revelado quedara en
             // true, al reaparecer se mostraría ya abierto pero con el foco en el botón de play.
@@ -2010,7 +2010,7 @@ private fun PlayerContent(
         if (controles.visible) {
             repeat(12) {
                 if (landed) return@repeat
-                landed = runCatching { focos.subtitulos.requestFocus() }.isSuccess
+                landed = runCatching { focos.subtitles.requestFocus() }.isSuccess
                 if (!landed) delay(32)
             }
         }
@@ -3282,7 +3282,7 @@ private fun PlayerContent(
                                     .padding(horizontal = 10.dp)
                                     .then(
                                         if (!isTv) Modifier else Modifier
-                                            .focusRequester(focos.barra)
+                                            .focusRequester(focos.bar)
                                             .onFocusChanged { seek.cambioElFoco(it.isFocused) }
                                             // ARRIBA se queda en la barra: es el tope del overlay y
                                             // los botones están DEBAJO, así que mandar `up` ahí era
@@ -3294,10 +3294,10 @@ private fun PlayerContent(
                                             // padding), así que ese es el camino de vuelta para
                                             // quien se fue del botón y se arrepintió.
                                             .focusProperties {
-                                                down = focos.playPausa
-                                                up = if (botonDeSalto != null) focos.salto else focos.barra
-                                                left = focos.barra
-                                                right = focos.barra
+                                                down = focos.playPause
+                                                up = if (botonDeSalto != null) focos.skip else focos.bar
+                                                left = focos.bar
+                                                right = focos.bar
                                             }
                                             .onKeyEvent { e ->
                                                 if (e.type != KeyEventType.KeyDown) return@onKeyEvent false
@@ -3433,8 +3433,8 @@ private fun PlayerContent(
                             val next = cabecera.siguiente
                             val showPrev = prev != null
                             val showNext = next != null
-                            val forwardRight = if (showNext) focos.episodioSiguiente else if (isTv) focos.subtitulos else focos.adelantar
-                            val nextRight = if (isTv) focos.subtitulos else focos.episodioSiguiente
+                            val forwardRight = if (showNext) focos.nextEpisode else if (isTv) focos.subtitles else focos.forward
+                            val nextRight = if (isTv) focos.subtitles else focos.nextEpisode
                             // Primero de la fila cuando existe: su `left` apunta a sí mismo (tope).
                             if (showPrev) {
                                 TvTransportButton(
@@ -3442,8 +3442,8 @@ private fun PlayerContent(
                                     contentDescription = "Capítulo anterior",
                                     onClick = { onNextEpisode(prev) },
                                     modifier = if (!isTv) Modifier else Modifier
-                                        .focusRequester(focos.episodioAnterior)
-                                        .focusProperties { left = focos.episodioAnterior; right = focos.retroceder; up = focos.barra; down = focos.episodioAnterior },
+                                        .focusRequester(focos.previousEpisode)
+                                        .focusProperties { left = focos.previousEpisode; right = focos.rewind; up = focos.bar; down = focos.previousEpisode },
                                 )
                             }
                             // `down` apunta al propio botón (se queda) y NO al slider: bajar desde acá
@@ -3455,12 +3455,12 @@ private fun PlayerContent(
                                 contentDescription = "Atrasar 10s",
                                 onClick = { seekBy(-seekStepMs) },
                                 modifier = if (!isTv) Modifier else Modifier
-                                    .focusRequester(focos.retroceder)
+                                    .focusRequester(focos.rewind)
                                     .focusProperties {
-                                        left = if (showPrev) focos.episodioAnterior else focos.retroceder
-                                        right = focos.playPausa
-                                        up = focos.barra
-                                        down = focos.retroceder
+                                        left = if (showPrev) focos.previousEpisode else focos.rewind
+                                        right = focos.playPause
+                                        up = focos.bar
+                                        down = focos.rewind
                                     },
                             )
                             TvTransportButton(
@@ -3469,16 +3469,16 @@ private fun PlayerContent(
                                 onClick = { togglePlayPause() },
                                 iconSize = 34.dp,
                                 modifier = if (!isTv) Modifier else Modifier
-                                    .focusRequester(focos.playPausa)
-                                    .focusProperties { left = focos.retroceder; right = focos.adelantar; up = focos.barra; down = focos.playPausa },
+                                    .focusRequester(focos.playPause)
+                                    .focusProperties { left = focos.rewind; right = focos.forward; up = focos.bar; down = focos.playPause },
                             )
                             TvTransportButton(
                                 icon = Icons.Default.Forward10,
                                 contentDescription = "Adelantar 10s",
                                 onClick = { seekBy(seekStepMs) },
                                 modifier = if (!isTv) Modifier else Modifier
-                                    .focusRequester(focos.adelantar)
-                                    .focusProperties { left = focos.playPausa; right = forwardRight; up = focos.barra; down = focos.adelantar },
+                                    .focusRequester(focos.forward)
+                                    .focusProperties { left = focos.playPause; right = forwardRight; up = focos.bar; down = focos.forward },
                             )
                             // Casteando TAMBIÉN se muestra: el capítulo nuevo ahora SIGUE al cast
                             // (la carga se bifurca por `casting` y lo manda al receptor), que es de
@@ -3490,8 +3490,8 @@ private fun PlayerContent(
                                     contentDescription = "Siguiente episodio",
                                     onClick = { onNextEpisode(next) },
                                     modifier = if (!isTv) Modifier else Modifier
-                                        .focusRequester(focos.episodioSiguiente)
-                                        .focusProperties { left = focos.adelantar; right = nextRight; up = focos.barra; down = focos.episodioSiguiente },
+                                        .focusRequester(focos.nextEpisode)
+                                        .focusProperties { left = focos.forward; right = nextRight; up = focos.bar; down = focos.nextEpisode },
                                 )
                             }
                             if (isTv) {
@@ -3512,12 +3512,12 @@ private fun PlayerContent(
                                     iconSize = 24.dp,
                                     tint = if (estadoPistas.haySubtitulo) ArkivRed else Color.White,
                                     modifier = Modifier
-                                        .focusRequester(focos.subtitulos)
+                                        .focusRequester(focos.subtitles)
                                         .focusProperties {
-                                            left = if (showNext) focos.episodioSiguiente else focos.adelantar
-                                            right = focos.bajarBrillo
-                                            up = focos.barra
-                                            down = focos.subtitulos
+                                            left = if (showNext) focos.nextEpisode else focos.forward
+                                            right = focos.dimDown
+                                            up = focos.bar
+                                            down = focos.subtitles
                                         },
                                 )
                                 // MODO NOCHE, dos botones: bajar (luna) a la izquierda y subir (sol)
@@ -3531,12 +3531,12 @@ private fun PlayerContent(
                                     iconSize = 24.dp,
                                     tint = if (dimNivel > 0) ArkivRed else Color.White,
                                     modifier = Modifier
-                                        .focusRequester(focos.bajarBrillo)
+                                        .focusRequester(focos.dimDown)
                                         .focusProperties {
-                                            left = focos.subtitulos
-                                            right = focos.subirBrillo
-                                            up = focos.barra
-                                            down = focos.bajarBrillo
+                                            left = focos.subtitles
+                                            right = focos.dimUp
+                                            up = focos.bar
+                                            down = focos.dimDown
                                         },
                                 )
                                 TvTransportButton(
@@ -3546,16 +3546,16 @@ private fun PlayerContent(
                                     iconSize = 24.dp,
                                     tint = if (dimNivel > 0) ArkivRed else Color.White,
                                     modifier = Modifier
-                                        .focusRequester(focos.subirBrillo)
+                                        .focusRequester(focos.dimUp)
                                         .focusProperties {
-                                            left = focos.bajarBrillo
+                                            left = focos.dimDown
                                             right = when {
                                                 TriviaDelPlayer.hayBoton(trivia) -> focos.trivia
-                                                hayMarcadoresQueCorregir -> focos.marcadores
-                                                else -> focos.subirBrillo
+                                                hayMarcadoresQueCorregir -> focos.markers
+                                                else -> focos.dimUp
                                             }
-                                            up = focos.barra
-                                            down = focos.subirBrillo
+                                            up = focos.bar
+                                            down = focos.dimUp
                                         },
                                 )
                                 // Datos curiosos: solo existe si hay datos. Va al FINAL de la fila a
@@ -3573,9 +3573,9 @@ private fun PlayerContent(
                                         modifier = Modifier
                                             .focusRequester(focos.trivia)
                                             .focusProperties {
-                                                left = focos.subirBrillo
-                                                right = if (hayMarcadoresQueCorregir) focos.marcadores else focos.trivia
-                                                up = focos.barra
+                                                left = focos.dimUp
+                                                right = if (hayMarcadoresQueCorregir) focos.markers else focos.trivia
+                                                up = focos.bar
                                                 down = focos.trivia
                                             },
                                     )
@@ -3591,12 +3591,12 @@ private fun PlayerContent(
                                         onInicioDelEnding = { marcarTiempo(ModoDeMarcado.OUTRO) },
                                         onQuitar = { quitarLosMarcadoresDelCapitulo() },
                                         modifier = Modifier
-                                            .focusRequester(focos.marcadores)
+                                            .focusRequester(focos.markers)
                                             .focusProperties {
-                                                left = if (TriviaDelPlayer.hayBoton(trivia)) focos.trivia else focos.subirBrillo
-                                                right = focos.marcadores
-                                                up = focos.barra
-                                                down = focos.marcadores
+                                                left = if (TriviaDelPlayer.hayBoton(trivia)) focos.trivia else focos.dimUp
+                                                right = focos.markers
+                                                up = focos.bar
+                                                down = focos.markers
                                             },
                                     )
                                 }
@@ -3633,7 +3633,7 @@ private fun PlayerContent(
                             CarruselDeCapitulos(
                                 estado = estadoCapitulos,
                                 episodioEnCurso = episodioEnCurso,
-                                focoDeArriba = focos.playPausa,
+                                focoDeArriba = focos.playPause,
                                 onElegirEpisodio = onNextEpisode,
                             )
                         }
@@ -3681,11 +3681,11 @@ private fun PlayerContent(
                 FocoDelSalto.Accion.PEDIR -> insistirConElFoco(
                     yaEstaEnfocado = { saltoEnfocado },
                     esperar = { delay(ESPERA_ENTRE_INTENTOS_DE_FOCO_MS) },
-                    pedir = { focos.salto.requestFocus() },
+                    pedir = { focos.skip.requestFocus() },
                 )
                 FocoDelSalto.Accion.DEVOLVER_A_LOS_CONTROLES -> {
                     saltoTeniaElFoco = false
-                    runCatching { focos.barra.requestFocus() }
+                    runCatching { focos.bar.requestFocus() }
                 }
                 FocoDelSalto.Accion.DEVOLVER_AL_VIDEO -> {
                     saltoTeniaElFoco = false
@@ -3718,7 +3718,7 @@ private fun PlayerContent(
                     text = if (botonDeSalto == BotonDeSalto.INTRO) "Saltar intro" else "Saltar outro",
                     icon = botonDeSalto == BotonDeSalto.OUTRO,
                     modifier = Modifier
-                        .focusRequester(focos.salto)
+                        .focusRequester(focos.skip)
                         .onFocusChanged {
                             saltoEnfocado = it.isFocused
                             if (it.isFocused) saltoTeniaElFoco = true
@@ -3738,7 +3738,7 @@ private fun PlayerContent(
                                     Key.DirectionLeft, Key.DirectionRight,
                                     -> {
                                         saltoTeniaElFoco = false
-                                        if (controles.visible) runCatching { focos.barra.requestFocus() } else bump()
+                                        if (controles.visible) runCatching { focos.bar.requestFocus() } else bump()
                                         true
                                     }
                                     // Por lo mismo: los mandos con botón de play propio dejarían
