@@ -97,10 +97,10 @@ class MagisCatalogTest {
 
         assertEquals("ok", r.getOrNull()?.getString("resultado"))
         assertEquals(2, fake.timesCalled("v3/searchByName"))
-        val sesionesDeBusqueda = fake.calls.withIndex()
+        val searchSessions = fake.calls.withIndex()
             .filter { it.value.first == "v3/searchByName" }
             .map { fake.sessions[it.index] }
-        assertEquals("u-test" to "t-test", sesionesDeBusqueda[0])
-        assertEquals("u-fresco" to "t-fresco", sesionesDeBusqueda[1])
+        assertEquals("u-test" to "t-test", searchSessions[0])
+        assertEquals("u-fresco" to "t-fresco", searchSessions[1])
     }
 }

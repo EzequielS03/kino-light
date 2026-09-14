@@ -39,8 +39,8 @@ internal fun portalQuery(q: String): String {
  * Words of 3+ letters, with no accents or punctuation. One- or two-letter ones ("el", "de", "la")
  * are discarded: they're exactly what makes "El ultimo refugio" look similar to anything.
  */
-internal fun titleTokens(texto: String?): Set<String> {
-    val plain = Normalizer.normalize(texto.orEmpty().lowercase(), Normalizer.Form.NFKD)
+internal fun titleTokens(text: String?): Set<String> {
+    val plain = Normalizer.normalize(text.orEmpty().lowercase(), Normalizer.Form.NFKD)
         .filter { Character.getType(it) != Character.NON_SPACING_MARK.toInt() }
     return WORD.findAll(plain).map { it.value }.filter { it.length > 2 }.toSet()
 }
@@ -52,15 +52,15 @@ internal fun titleTokens(texto: String?): Set<String> {
  * SHORTER query than what was asked is requested from it: the pool comes in fine but mixes the
  * whole family, and whoever asked for a specific title has to see it at the top.
  *
- * [titulos] are the known forms of what was asked — the title in Spanish and, if TMDB knows it,
+ * [titles] are the known forms of what was asked — the title in Spanish and, if TMDB knows it,
  * the ORIGINAL. Both are needed because the portal keeps a lot of international content only under
  * its English title. Scored with the BEST of the forms, not the sum: an item isn't more relevant
  * for showing up in two languages.
  *
  * Stable on purpose: with the same score, the portal's order wins.
  */
-internal fun sortBySimilarity(items: List<JSONObject>, titulos: List<String>): List<JSONObject> {
-    val requested = titulos.map { titleTokens(it) }.filter { it.isNotEmpty() }
+internal fun sortBySimilarity(items: List<JSONObject>, titles: List<String>): List<JSONObject> {
+    val requested = titles.map { titleTokens(it) }.filter { it.isNotEmpty() }
     if (requested.isEmpty()) return items
     return items.sortedByDescending { item ->
         val ofItem = titleTokens(itemTitle(item))
@@ -69,14 +69,14 @@ internal fun sortBySimilarity(items: List<JSONObject>, titulos: List<String>): L
 }
 
 /** Season number read from the name. 1 if it carries no suffix (single-season series). */
-internal fun seasonFromName(nombre: String?): Int {
-    val m = SEASON.find(nombre.orEmpty()) ?: return 1
+internal fun seasonFromName(name: String?): Int {
+    val m = SEASON.find(name.orEmpty()) ?: return 1
     return m.groupValues.drop(1).firstOrNull { it.isNotBlank() }?.toIntOrNull() ?: 1
 }
 
 /** The title with its season suffix stripped, to group T1..T5 under the same series. */
-internal fun withoutSeason(nombre: String?): String =
-    SEASON.replace(nombre.orEmpty(), "").trim().lowercase()
+internal fun withoutSeason(name: String?): String =
+    SEASON.replace(name.orEmpty(), "").trim().lowercase()
 
 /**
  * Leaves the same series' seasons in 1, 2, 3 order. The portal returns them mixed (seen on
@@ -143,13 +143,13 @@ internal fun itemImages(item: JSONObject): Map<String, String> {
 private val IMAGE_TYPES = mapOf("icon" to "poster", "poster" to "backdrop")
 
 /** Flattens the search: the portal answers in three shapes depending on the endpoint. */
-internal fun searchItems(respuesta: JSONObject): List<JSONObject> {
+internal fun searchItems(response: JSONObject): List<JSONObject> {
     val output = mutableListOf<JSONObject>()
-    respuesta.optJSONArray("searchItemList")?.forEachObject { grupo ->
-        grupo.optJSONArray("itemList")?.forEachObject { output.add(it) }
+    response.optJSONArray("searchItemList")?.forEachObject { group ->
+        group.optJSONArray("itemList")?.forEachObject { output.add(it) }
     }
     if (output.isNotEmpty()) return output
-    (respuesta.optJSONArray("assetList") ?: respuesta.optJSONArray("list"))
+    (response.optJSONArray("assetList") ?: response.optJSONArray("list"))
         ?.forEachObject { output.add(it) }
     return output
 }

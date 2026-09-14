@@ -50,7 +50,7 @@ internal class EncryptedMagisCredentialStore(context: Context) : MagisCredential
             },
             unencrypted = {
                 Log.e(TAG, "the Keystore won't even work freshly thrown: Magis prefs left UNENCRYPTED")
-                app.getSharedPreferences(PREFS_PLANAS, Context.MODE_PRIVATE)
+                app.getSharedPreferences(PREFS_PLAIN, Context.MODE_PRIVATE)
             },
         )
     }
@@ -93,7 +93,7 @@ internal class EncryptedMagisCredentialStore(context: Context) : MagisCredential
         const val PREFS = "arkiv_magis_secure"
 
         /** Only if the Keystore is broken at the root. See [EncryptedPrefs]. */
-        const val PREFS_PLANAS = "arkiv_magis_plano"
+        const val PREFS_PLAIN = "arkiv_magis_plano"
 
         const val K_USER_ID = "userId"
         const val K_USER_TOKEN = "userToken"
