@@ -9,11 +9,33 @@ English" line in `.claude/reglas.md`.
 Order chosen by the user: **módulo por módulo, de menor a mayor riesgo** (module by module,
 lowest to highest risk).
 
-## Overall completion: **`ui/` is 100% done. `data/` is now genuinely done too** — every file with
-a Spanish hit has been individually read and either fixed or confirmed as legitimately Spanish
-(UI text, LLM prompt data, or a classification-coupled error string). Two items remain
-**deliberately deferred** with documented reasons (see "Deliberately deferred" below); everything
-else is real.
+## Overall completion (updated 2026-09-14): **the sweep is effectively done.**
+
+`ui/`, `data/`, `crash/`, `app/src/debug/` are all done. Both items that were previously
+"deliberately deferred" are now CLOSED: `MagisFuente`/`DituFuente` → `MagisSource`/`DituSource`
+(commit `fc49028d`), and `LiveModels.kt`'s data-class field names (`LiveChannel.nombre` etc., 27
+files) are translated (commit `5a0eb7ab`). The three DI/entry-point files that were always
+out-of-scope for full identifier rename (`AppGraph.kt`, `ArkivApp.kt`, `MainActivity.kt`, due to
+the DI-graph ripple) had their comments/KDoc translated separately (commit `f39526d6`) — their
+identifiers remain Spanish on purpose, see "Deliberately deferred".
+
+A final full-codebase accented-character sweep (`app/src/main/java` + `app/src/debug/java` +
+`app/src/test/java`) was run repeatedly, most recently after a 151-file triage pass (commit
+`139df024`, 24 files genuinely fixed) — **138 files remain with an accented character, and every
+one has been read and independently verified as a legitimate false positive**: user-facing
+Bogotá-Spanish UI strings, test assertions against that UI text, real-world data (country/genre
+names, TMDB fixtures), LLM prompt/data content, frozen exception-classification strings, or
+verbatim historical log quotes. Re-run the sweep command below before trusting this number again —
+the lesson below about "done" being wrong has held five separate times this session, so verify,
+don't assume.
+
+**One explicitly out-of-scope item remains, discovered but NOT started**: hundreds of
+`@Test fun spanish_snake_case_name()` / `` `spanish backtick name` `` test method names exist
+throughout the test suite with no accented characters, so the accented-character sweep never
+surfaces them. Renaming those is a much larger, separate undertaking (potentially hundreds of
+names across dozens of files) that no session has scoped or attempted. If asked to continue the
+sweep further, this is the next real body of work — but treat it as its own project, not a
+"gap-closing" pass, and confirm with the user before committing to it given the scale.
 
 - `playback/`, `security/`, `dlna/`, `cast/`, `thumbnails/`: **100% done.**
 - `ui/` (159 main files across 14 subpackages, plus 6 top-level files, plus tests): **100% done.**
@@ -171,14 +193,14 @@ lesson below and "Next steps" for how to actually close this out.
 
 ## Deliberately deferred (not gaps — verified and consciously left in Spanish, with a reason)
 
-- **`MagisFuente`/`DituFuente` class names** (exception f) — internals/params/comments already
-  translated; renaming the class names ripples into 10+ files.
-- **`LiveModels.kt`'s data-class field names** (`LiveChannel.nombre`/`.numero`/`.adulto`,
-  `LiveProgram.titulo`/`.inicio`/`.fin`/`.sinopsis`, `ItemDeCatalogo`, `SeccionDeCatalogo`,
-  `CdnDeCanal`, `LiveCatalogGateway.categorias`/`.canales`) — traced to ~19 files across
-  `ui/live/`, `ui/tv/`, `ui/player/`, `playback/`, all already declared "done". Renaming is a
-  real, doable task, just far bigger than a single file's turn — treat as its own future pass,
-  not part of any "gap-closing" sweep.
+- ~~`MagisFuente`/`DituFuente` class names~~ — **CLOSED**, commit `fc49028d`.
+- ~~`LiveModels.kt`'s data-class field names~~ — **CLOSED**, commit `5a0eb7ab` (27 files).
+- **`AppGraph.kt`/`ArkivApp.kt`/`MainActivity.kt`'s identifiers** (properties, function/parameter
+  names like `fuenteDeContenido`, `almacenDeCaracol`, `catalogoDeVivo`, `reportar`/`etiqueta`) —
+  comments/KDoc are fully translated (commit `f39526d6`), but the identifiers themselves are
+  deliberately left in Spanish: `AppGraph` is the whole manual DI graph, and renaming its
+  properties ripples into every consumer across `ui/`, `data/`, `playback/`. Treat as its own
+  dedicated future pass, same as the two items just closed above were.
 - **`SettingsStore.kt`'s public API and `KEY_*`/`ARCHIVO_*` constants** — the SharedPreferences
   key STRING VALUES are permanently frozen (changing them resets users' saved settings and 18+
   lock silently on next launch); the Kotlin property/method/constant NAMES (`adultosDesbloqueado`,
@@ -559,51 +581,56 @@ d. **Symbols in files not yet processed** are referenced by their old Spanish na
 e. **Natural-language content sent to/from an LLM as prompt or data** (Kilo AI prompts, status
    strings fed into a prompt, filename-noise-pattern regexes like the one in
    `ArkivRepository.cleanTitleForSearch`) — this is data, not code.
-f. Two `ContentSource` implementations — **`MagisFuente`** and **`DituFuente`** — deliberately kept
-   their Spanish CLASS NAMES (internals/params/comments were translated) because renaming them
-   ripples into 10+ files. Revisit once `ui/` is further along.
+f. ~~Two `ContentSource` implementations — `MagisFuente`/`DituFuente` — kept their Spanish class
+   names~~ — **CLOSED**: renamed to `MagisSource`/`DituSource`, commit `fc49028d`.
 
 ## Next steps
 
-**`ui/` is entirely done as of `4e5ce086`. `data/` is entirely done as of `412bae87`, modulo the
-two "Deliberately deferred" items above. This is now the ONLY thing left in the whole sweep.**
+**The accented-character sweep is done.** `ui/`, `data/`, `crash/`, `app/src/debug/` are fully
+translated; both prior deferrals (`MagisFuente`/`DituFuente`, `LiveModels.kt` fields) are closed;
+`AppGraph.kt`/`ArkivApp.kt`/`MainActivity.kt` have translated comments with identifiers
+deliberately deferred (DI-graph ripple, see "Deliberately deferred"). The final sweep
+(`app/src/main/java` + `app/src/debug/java` + `app/src/test/java`) sits at **138 files, every one
+individually verified as a legitimate false positive** (see "Overall completion" at the top).
+Re-run this before trusting the number again:
+```
+find app/src/main/java app/src/debug/java app/src/test/java -name "*.kt" | while read -r f; do n=$(command grep -c "[áéíóúñÁÉÍÓÚÑ]" "$f"); [ "$n" != "0" ] && echo "$n $f"; done | sort -rn
+```
 
-1. **`MagisFuente`/`DituFuente` class names** (exception f) — revisit whether renaming them is now
-   cheap enough. Both files' internals/params/comments are already fully translated (confirmed
-   this session); only the class names themselves (and their constructor call sites, imports, and
-   any doc cross-references) would need touching. Grep every real usage first — this ripples into
-   10+ files per the original exception-f note, so treat it with the same rigor as any other
-   rename: read, grep, rename + ripple, compile, full test, verify exact count, commit.
-2. **`LiveModels.kt`'s data-class field names** (`LiveChannel.nombre`/`.numero`/`.adulto`,
-   `LiveProgram.titulo`/`.inicio`/`.fin`/`.sinopsis`, `ItemDeCatalogo`, `SeccionDeCatalogo`,
-   `CdnDeCanal`, `LiveCatalogGateway.categorias`/`.canales`) — traced to ~19 files across
-   `ui/live/`, `ui/tv/`, `ui/player/`, `playback/` last time this was checked (re-verify the list
-   is current, ripple sizes shift as files change). This is its own dedicated pass, not a
-   gap-closing one — budget for it accordingly, and expect to touch many already-"done" files.
-3. **After 1 and 2, the entire sweep should be complete.** Do one final full-codebase
-   accented-character sweep before declaring the whole thing done — every previous "done"
-   declaration this session turned out to be wrong on the first check, five separate times:
-   `find app/src/main/java app/src/debug/java -name "*.kt" | while read -r f; do n=$(command grep -c "[áéíóúñÁÉÍÓÚÑ]" "$f"); [ "$n" != "0" ] && echo "$n $f"; done | sort -rn`
-   (the older `xargs -I{} sh -c '...{}...'` form is unreliable when `{}` sits inside quotes — use
-   this `find | while read` form). Read every hit before judging it — many will be legitimate
-   UI-facing text, LLM prompt data, or Room/DAO-frozen fields, same as most of `data/`'s tail
-   turned out to be; a hit is a thing to check, not automatically a gap.
-4. **Whenever a bare top-level `fun`/`val` gets renamed** (not a class/object member), grep
+**What's left, in priority order if this is picked back up:**
+
+1. **`AppGraph.kt`/`ArkivApp.kt`/`MainActivity.kt` identifier rename** — the one remaining planned
+   deferral. Same shape as the two closed deferrals above: read, grep every real usage (`AppGraph`
+   properties are consumed across `ui/`, `data/`, `playback/`), rename + ripple, compile, full
+   test, verify exact count, commit. Budget for a large ripple; not a quick gap-closer.
+2. **Spanish test method names with no accented characters** (`fun algo_en_español()` without the
+   accent, or plain Spanish words like `guarda`/`falla`/`vacio`) — discovered but explicitly
+   NOT started; the accented-character sweep structurally cannot find these. Potentially hundreds
+   of names across dozens of test files. Confirm scope with the user before starting — this is a
+   materially different, larger kind of task than anything closed so far, closer to a rename
+   project than a gap-closing pass.
+3. **`SettingsStore.kt`'s public API and `KEY_*`/`ARCHIVO_*` constant names** (not the frozen
+   SharedPreferences string values) — noted as deferred, ripple never traced. Low priority.
+4. Do one more full-codebase accented-character sweep before declaring anything "100% done" —
+   every previous "done" declaration this session turned out to be wrong on the first check, six
+   separate times now. Read every hit before judging it — most will be legitimate UI-facing text,
+   LLM prompt data, or Room/DAO-frozen fields; a hit is a thing to check, not automatically a gap.
+5. **Whenever a bare top-level `fun`/`val` gets renamed** (not a class/object member), grep
    separately for `^import .*\.<oldName>$` — a call-site-anchored sed pattern will not catch a bare
    import line, and that's a real, previously-hit compile break (see the lesson noted near the top
    of this doc).
-5. **When a rename's sed pattern could match multiple near-identical call sites to DIFFERENT
+6. **When a rename's sed pattern could match multiple near-identical call sites to DIFFERENT
    functions**, a blanket sed will rename the wrong one too. Check the compile error carefully (it
    names the exact line) and use a line-number-targeted `sed 'N s/.../.../''` to fix only the
    intended call site.
-6. **After every rename, grep the WHOLE repo (not just the package) for stale KDoc/comment
+7. **After every rename, grep the WHOLE repo (not just the package) for stale KDoc/comment
    cross-references** — this session repeatedly found stale mentions in already-processed files
    several packages away (`playback/LiveHlsProxy.kt`, `data/recomendaciones/HistorySignals.kt`,
    `ui/live/DrawerDpad.kt`) that a package-scoped grep would have missed. Two exceptions:
    verbatim historical notes tied to a specific past commit (e.g. `ArkivApp.kt`/`Daos.kt`'s
    2026-08-14 purge comments naming `abrirCanalActual`) document what the code was ACTUALLY called
    at that commit and should stay as-is.
-7. **On a giant file (`PlayerScreen.kt`'s ~4000 lines proved this out), even after a full read and
+8. **On a giant file (`PlayerScreen.kt`'s ~4000 lines proved this out), even after a full read and
    careful pass, a final accented-character + common-Spanish-word grep over the WHOLE file still
    turned up ~10 missed spots** — mostly stray leftover comment lines and stale identifier
    references from earlier ripple work that predated the file's own translation turn (e.g.
@@ -611,5 +638,5 @@ two "Deliberately deferred" items above. This is now the ONLY thing left in the 
    of lines past where the equivalent local was first renamed). **Always run that final sweep after
    finishing a large file, even one done carefully via sequential `Edit` calls** — it catches
    things a top-to-bottom pass alone misses when the same identifier appears far apart in the file.
-8. Update this document and the auto-memory file `code-must-be-english.md` again at the next
+9. Update this document and the auto-memory file `code-must-be-english.md` again at the next
    natural pause point.
