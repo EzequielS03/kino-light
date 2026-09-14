@@ -9,15 +9,15 @@ English" line in `.claude/reglas.md`.
 Order chosen by the user: **módulo por módulo, de menor a mayor riesgo** (module by module,
 lowest to highest risk).
 
-## Overall completion: roughly **70-75%** of the whole sweep
+## Overall completion: roughly **75-80%** of the whole sweep
 
 - `playback/`, `security/`, `dlna/`, `cast/`, `thumbnails/`: **100% done.**
 - `data/`: **~98% done** — two files left, `MagisEntities.kt` and `DituEntities.kt` (see below).
 - `ui/` (159 main files across 14 subpackages, plus 6 top-level files, plus tests): roughly
-  **55-60% done**. Fully finished packages: `detail/`, `downloads/`, `components/`, `offline/`,
-  `library/`, `theme/`, `update/`, `settings/`, `home/`, `search/`, `catalog/`, plus all 6
+  **65% done**. Fully finished packages: `detail/`, `downloads/`, `components/`, `offline/`,
+  `library/`, `theme/`, `update/`, `settings/`, `home/`, `search/`, `catalog/`, `live/`, plus all 6
   top-level `ui/*.kt` files. Partially touched (ripple-only, NOT fully translated) via
-  shared-symbol renames: `live/`, `tv/`. Not touched at all: `player/` (23 files, the single
+  shared-symbol renames: `tv/`. Not touched at all: `player/` (23 files, the single
   largest untouched package).
 
 `ui/` is far bigger than `data/` was (159 main files vs. roughly 90 in `data/`), so raw file count
@@ -129,6 +129,32 @@ closures at `cad8b4af` and `6eb17c8f`).
   `ui/catalog/MagisSeasonDialog.kt`, `data/recomendaciones/RecommendationSaving.kt`,
   `data/MagisEntities.kt`, and `app/src/debug/.../PruebaDeDescargaDeCaracol.kt`.
 
+### `ui/` — more fully done packages (catalog/ and live/)
+
+- **`catalog/`** (10/10 + 4/4 test, commit `1a12c7f1`): `EstadoDeCanales.kt`→`ChannelsState.kt`,
+  `CapitulosPorTemporada.kt`→`ChaptersBySeason.kt`, `PlaySources.kt`, `MagisSeasonDialog.kt`,
+  `CineDetailScreen.kt`, `AnimeShowDetailScreen.kt`, `CaracolScreen.kt`, `CineCatalogScreen.kt` all
+  translated. `AnimeSection.kt` was already fully English.
+- **`live/`** (9/9 + 9/9 test) — fully translated across several commits:
+  `IndiceDelCajon.kt`→`DrawerIndex.kt`, `LiveZapping.kt`/`LiveZappingSource`,
+  `RecentLiveChannels.kt`, `CanalesDelPais.kt`→`CountryChannels.kt`,
+  `DpadDelDrawer.kt`→`DrawerDpad.kt` (with `DrawerFocus`/`DrawerAction`), `LiveController.kt`
+  (`open`/`preheat`/`invalidate`/`close`, was `abrir`/`precalentar`/`invalidar`/`cerrar`),
+  `LiveGuideList.kt` (`currentProgram`/`progressOf`, was `enCurso`/`avance`), `LiveViewModel.kt`
+  (`LiveUiState`/`LiveViewModel` fully translated: `channels`/`categories`/`search`/`loading`/
+  `chooseCategory`/`requestEpg`/`toggleFavorite`, was `canales`/`categorias`/`busqueda`/
+  `cargando`/`elegirCategoria`/`pedirEpgDe`/`alternarFavorito`), and finally `LiveScreen.kt`
+  itself (`LocalView`/`CategoryChip`/`ErrorWithRetry`/`ChannelGrid`/`ChannelCard`, `onOpenChannel`
+  param, local `open()`/`favorite()`). Rippled into `TvCajonDeCanales.kt`, `PlayerScreen.kt`,
+  `PlayerVivo.kt`, `TriviaDelPlayer.kt`, `SpinnerDelPlayer.kt`, `AppGraph.kt`,
+  `PlaybackService.kt`, `LiveHlsProxy.kt`, `PlayerSource.kt`, `TvLiveGuideScreen.kt`,
+  `CaracolScreen.kt`, `HomeScreen.kt`, `ArkivRoot.kt`, `data/db/Daos.kt`, `data/gateway/LiveModels.kt`
+  (comment-only fixes in the last two — those files are not yet processed themselves).
+  `LiveChannel`/`LiveRecentEntity`/`LiveChannelCacheEntity`/`LiveProgram` field names
+  (`nombre`/`numero`/`logo`/`titulo`/`inicio`/`fin`/etc.) deliberately kept as-is: gateway-bound.
+  `LiveCatalogGateway`'s own interface method names (`categorias`/`canales`/`epg`) also kept as-is:
+  that interface lives in `data/gateway/LiveApi.kt`, not yet processed.
+
 ### `ui/` — NOT fully done (ripple-only touches so far)
 
 These packages have received only the minimal fixes needed to keep them compiling after a shared
@@ -136,20 +162,12 @@ symbol was renamed elsewhere (import statements, call-site named args, occasiona
 adjacent local variable). **Their own Spanish identifiers/comments are still untranslated** and
 each needs its own full pass:
 
-- **`catalog/`** (10 main + 4 test files) — `CineCatalogScreen.kt`, `AnimeSection.kt`,
-  `CaracolScreen.kt`, `AnimeShowDetailScreen.kt`, `CineDetailScreen.kt`, `PlaySources.kt`,
-  `MagisSeasonDialog.kt` touched by ripple only; the rest untouched. Note `PlaySources.kt`/
-  `AnimeShowDetailScreen.kt`/`CineDetailScreen.kt` still have a local
-  `porConfirmar`/`accion`/`fila` naming pattern from the `DownloadConfirmDialog` ripple that should
-  get properly renamed during this package's own pass.
-- **`live/`** (9 main + 8 test files) — `LiveScreen.kt` touched by ripple only (one identifier);
-  the rest untouched.
 - **`tv/`** (26 main + 4 test files) — `TvEpisodeChip.kt`, `TvDetailScreen.kt` (got a bit more:
   its `episodeMeta` function was fully translated since it was directly touched by the
   `ChapterLabel` ripple), `TvHomeScreen.kt`, `TvSettingsApp.kt`, `TvSettingsSubtitulos.kt`,
-  `TvLanguageOrderEditor.kt`, `TvCategoriasScreen.kt`, `TvSearchScreen.kt` touched by ripple only;
-  the other ~19 files untouched. This is the **second-largest** `ui/` package and likely
-  high-risk (TV-specific focus/navigation logic).
+  `TvLanguageOrderEditor.kt`, `TvCategoriasScreen.kt`, `TvSearchScreen.kt`, `TvCajonDeCanales.kt`,
+  `TvLiveGuideScreen.kt` touched by ripple only; the other ~17 files untouched. This is the
+  **second-largest** `ui/` package and likely high-risk (TV-specific focus/navigation logic).
 
 ### `ui/` — NOT touched at all
 
@@ -221,9 +239,8 @@ f. Two `ContentSource` implementations — **`MagisFuente`** and **`DituFuente`*
 ## Next steps
 
 1. Continue `ui/` lowest-to-highest risk. `detail/`, `downloads/`, `components/`, `offline/`,
-   `library/`, `theme/`, `update/`, `settings/`, `home/`, `search/` are done. Remaining, roughly in
-   order: `catalog/` (10 files, already has ripple touches in 7 of them), `live/` (9 files, 1
-   ripple touch), `tv/` (26 files, second-largest, 7 ripple touches so far), then `player/` last
+   `library/`, `theme/`, `update/`, `settings/`, `home/`, `search/`, `catalog/`, `live/` are done.
+   Remaining: `tv/` (26 files, second-largest, ~9 ripple touches so far), then `player/` last
    (23 files, likely highest-risk — actual playback logic, completely untouched).
 2. After `ui/` is fully done, circle back to close the two remaining `data/` gaps
    (`MagisEntities.kt`, `DituEntities.kt`) with the same careful treatment as the original
