@@ -61,23 +61,23 @@ import kotlinx.coroutines.launch
 private val CARD_HEIGHT = 200.dp
 
 /**
- * Aire contra los bordes de la pantalla, compartido por todas las secciones.
+ * Clearance against the screen's edges, shared by every section.
  *
- * No es gusto: un TV recorta el borde de la imagen (overscan) y cuánto recorta depende del aparato,
- * así que lo que quede a menos de ~5% del borde puede no verse. Con los 24 dp que tenía el menú, el
- * texto quedaba pegado al canto. Estos valores dejan el contenido dentro de la zona segura y de paso
- * se lee mejor de lejos.
+ * It's not a style choice: a TV clips the image's edge (overscan) and how much it clips depends
+ * on the device, so anything within ~5% of the edge may not be visible. With the menu's old
+ * 24 dp, the text sat right against the edge. These values keep content inside the safe zone and
+ * read better from a distance as a side effect.
  */
 internal val SAFE_H = 44.dp
 internal val SAFE_V = 44.dp
 
 /**
- * "Mi biblioteca" del TV: lo guardado, lo ya visto y las descargas al dispositivo.
+ * TV's "My library": what's saved, what's already watched, and downloads to the device.
  *
- * Existe porque el home no alcanzaba: su zona de filas mide exactamente dos filas, así que con algo
- * en "Continuar viendo" la fila de Películas nacía fuera de pantalla y no había forma razonable de
- * llegar a lo guardado. Acá el contenido propio tiene su lugar y no compite con ~40 filas de
- * descubrimiento.
+ * Exists because the home wasn't enough: its rows zone measures exactly two rows, so with
+ * something in "Continue watching" the Movies row was born off-screen with no reasonable way to
+ * reach what's saved. Here, owned content has its own place and doesn't compete with ~40
+ * discovery rows.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -90,18 +90,18 @@ fun TvLibraryScreen(
     val vm: TvLibraryViewModel = viewModel(
         factory = viewModelFactory { initializer { TvLibraryViewModel(graph.repository) } },
     )
-    val grupos by vm.groups.collectAsStateWithLifecycle()
-    val vistos by vm.watched.collectAsStateWithLifecycle()
+    val groups by vm.groups.collectAsStateWithLifecycle()
+    val watched by vm.watched.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
 
-    var seccion by remember { mutableStateOf(LibrarySection.ALL_SAVED) }
-    var menuDe by remember { mutableStateOf<LibraryGroup?>(null) }
+    var section by remember { mutableStateOf(LibrarySection.ALL_SAVED) }
+    var menuFor by remember { mutableStateOf<LibraryGroup?>(null) }
 
-    BackHandler(enabled = menuDe == null) { onBack() }
+    BackHandler(enabled = menuFor == null) { onBack() }
 
-    // El foco arranca en el menú. Mismo patrón de reintento que el home: a los 150 ms la fila puede
-    // no estar compuesta todavía y `requestFocus()` tira "FocusRequester is not initialized"; sin
-    // reintentar, el foco no aterriza en ningún lado y Android se lo da a lo que se vaya componiendo.
+    // Focus starts on the menu. Same retry pattern as the home: at 150 ms the row may not be
+    // composed yet and `requestFocus()` throws "FocusRequester is not initialized"; without
+    // retrying, focus lands nowhere and Android hands it to whatever gets composed next.
     val menuFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         var landed = false
@@ -112,22 +112,22 @@ fun TvLibraryScreen(
         }
     }
 
-    // Película: reproduce directo. Serie: abre el detalle, que es donde se elige capítulo.
-    // Se navega con la LLAVE DEL GRUPO (`tv:46260`), no con el identifier de la fuente principal:
-    // `DetailViewModel.observeGroupMembers` la resuelve a todas las adquisiciones y arma el selector.
-    fun abrir(grupo: LibraryGroup) {
-        if (grupo.primary.isMovie) {
+    // Movie: plays directly. Series: opens the detail, which is where a chapter gets picked.
+    // Navigates with the GROUP'S KEY (`tv:46260`), not the main source's identifier:
+    // `DetailViewModel.observeGroupMembers` resolves it to every acquisition and builds the selector.
+    fun open(group: LibraryGroup) {
+        if (group.primary.isMovie) {
             scope.launch {
-                val ep = graph.repository.firstEpisodeId(grupo.primary.identifier)
-                if (ep != null) onPlayEpisode(ep) else onOpenItem(grupo.key)
+                val ep = graph.repository.firstEpisodeId(group.primary.identifier)
+                if (ep != null) onPlayEpisode(ep) else onOpenItem(group.key)
             }
         } else {
-            onOpenItem(grupo.key)
+            onOpenItem(group.key)
         }
     }
 
     Row(Modifier.fillMaxSize().background(ArkivBlack)) {
-        // --- Menú lateral ---
+        // --- Side menu ---
         Column(
             modifier = Modifier.width(260.dp).fillMaxHeight()
                 .background(ArkivSurface)
@@ -143,68 +143,68 @@ fun TvLibraryScreen(
             )
             LibrarySection.entries.forEachIndexed { i, s ->
                 TvMenuItem(
-                    etiqueta = s.label,
-                    seleccionada = s == seccion,
+                    label = s.label,
+                    selected = s == section,
                     modifier = if (i == 0) Modifier.focusRequester(menuFocus) else Modifier,
-                    // La sección cambia con el FOCO, no con el click: es lo que se espera en un
-                    // menú de TV (bajar por el menú va mostrando cada sección), y evita el paso
-                    // extra de "enfocar, aceptar, recién ahí ver".
-                    onFocus = { seccion = s },
+                    // The section changes with FOCUS, not with a click: it's what's expected in
+                    // a TV menu (going down the menu shows each section as you go), and it avoids
+                    // the extra step of "focus, confirm, only then see".
+                    onFocus = { section = s },
                 )
             }
         }
 
-        // --- Contenido ---
+        // --- Content ---
         Box(Modifier.weight(1f).fillMaxHeight()) {
-            when (seccion) {
+            when (section) {
                 LibrarySection.DOWNLOADS -> TvDownloadsSection(onPlayEpisode = onPlayEpisode)
                 LibrarySection.WATCHED -> TvPosterGrid(
-                    titulo = "Ya visto",
-                    conteo = vistos.size,
-                    grupos = vistos.map { it.group },
-                    subtituloDe = { g ->
-                        vistos.firstOrNull { it.group.key == g.key }
+                    title = "Ya visto",
+                    count = watched.size,
+                    groups = watched.map { it.group },
+                    subtitleFor = { g ->
+                        watched.firstOrNull { it.group.key == g.key }
                             ?.let { LibraryWatched.watchedLabel(it.episodesWatched) }
                     },
-                    vacio = "Todavía no terminaste nada.\nLo que veas hasta el final va a aparecer acá.",
-                    onClick = ::abrir,
-                    onLongClick = { menuDe = it },
+                    empty = "Todavía no terminaste nada.\nLo que veas hasta el final va a aparecer acá.",
+                    onClick = ::open,
+                    onLongClick = { menuFor = it },
                 )
                 else -> {
                     // `groups(...)` returns null only for WATCHED/DOWNLOADS, already handled
                     // above: here it's never null.
-                    val filtrados = LibraryFilter.groups(seccion, grupos).orEmpty()
+                    val filtered = LibraryFilter.groups(section, groups).orEmpty()
                     TvPosterGrid(
-                        titulo = seccion.label,
-                        conteo = filtrados.size,
-                        grupos = filtrados,
-                        subtituloDe = { g -> subtituloDeSerie(g) },
-                        vacio = "Todavía no guardaste nada acá.\nBuscá algo y dale Guardar.",
-                        onClick = ::abrir,
-                        onLongClick = { menuDe = it },
+                        title = section.label,
+                        count = filtered.size,
+                        groups = filtered,
+                        subtitleFor = { g -> seriesSubtitle(g) },
+                        empty = "Todavía no guardaste nada acá.\nBuscá algo y dale Guardar.",
+                        onClick = ::open,
+                        onLongClick = { menuFor = it },
                     )
                 }
             }
         }
     }
 
-    menuDe?.let { grupo ->
+    menuFor?.let { group ->
         TvLibraryItemDialog(
-            grupo = grupo,
-            onOpenDetail = { onOpenItem(grupo.key); menuDe = null },
-            onSetCategory = { isMovie -> vm.setCategory(grupo.primary.identifier, isMovie); menuDe = null },
-            onQuitar = { vm.removeGroup(grupo); menuDe = null },
-            onDismiss = { menuDe = null },
+            group = group,
+            onOpenDetail = { onOpenItem(group.key); menuFor = null },
+            onSetCategory = { isMovie -> vm.setCategory(group.primary.identifier, isMovie); menuFor = null },
+            onRemove = { vm.removeGroup(group); menuFor = null },
+            onDismiss = { menuFor = null },
         )
     }
 }
 
-/** Una entrada del menú lateral. Se pinta como seleccionada cuando su sección es la activa. */
+/** A side menu entry. Painted as selected when its section is the active one. */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TvMenuItem(
-    etiqueta: String,
-    seleccionada: Boolean,
+    label: String,
+    selected: Boolean,
     modifier: Modifier = Modifier,
     onFocus: () -> Unit,
 ) {
@@ -218,10 +218,10 @@ private fun TvMenuItem(
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(0.dp)),
     ) {
         Text(
-            etiqueta,
+            label,
             style = MaterialTheme.typography.titleSmall,
-            color = if (seleccionada) ArkivTextPrimary else ArkivTextSecondary,
-            fontWeight = if (seleccionada) FontWeight.Bold else FontWeight.Normal,
+            color = if (selected) ArkivTextPrimary else ArkivTextSecondary,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
             maxLines = 1,
             modifier = Modifier
                 .fillMaxWidth()
@@ -231,45 +231,45 @@ private fun TvMenuItem(
 }
 
 /**
- * "24 ep." o "24 ep.  ·  +3 nuevos" si hay capítulos nuevos desde la última vez que se abrió el
- * detalle. Null para películas, que no tienen capítulos.
+ * "24 ep." or "24 ep.  ·  +3 nuevos" if there are new chapters since the last time the detail was
+ * opened. Null for movies, which have no chapters.
  *
- * Se reusa el `subtitle` de [TvPosterCard] en lugar de un badge sobre la carátula (como el "+N" de
- * [com.arkiv.player.ui.tv.TvLandscapeCard] en el home) porque esta grilla es la única consumidora
- * de `nuevos` que queda tras borrarse la fila de Series del home (commit f1a9dbbd): agregar un
- * segundo lugar donde pintar un badge —con su propio hueco en la carátula y su franja de color—
- * es más superficie para una sola pantalla, cuando el subtítulo ya existe y tiene lugar de sobra.
+ * [TvPosterCard]'s `subtitle` is reused instead of a badge over the cover (like the "+N" in
+ * [com.arkiv.player.ui.tv.TvLandscapeCard] on the home) because this grid is the only remaining
+ * consumer of `nuevos` after the home's Series row got removed (commit f1a9dbbd): adding a second
+ * place to paint a badge —with its own spot on the cover and its own color strip— is more
+ * surface for a single screen, when the subtitle already exists and has plenty of room.
  */
-private fun subtituloDeSerie(grupo: LibraryGroup): String? {
-    if (grupo.primary.isMovie) return null
-    val base = "${grupo.episodeCount} ep."
-    return if (grupo.nuevos > 0) "$base  ·  +${grupo.nuevos} nuevos" else base
+private fun seriesSubtitle(group: LibraryGroup): String? {
+    if (group.primary.isMovie) return null
+    val base = "${group.episodeCount} ep."
+    return if (group.nuevos > 0) "$base  ·  +${group.nuevos} nuevos" else base
 }
 
 /**
- * Grilla de carátulas. `Adaptive` y no un número fijo de columnas: con el menú de 220 dp, en un
- * Fire TV de 1080p entran ~4 columnas de póster, y en una pantalla más ancha entran más solas.
+ * Cover grid. `Adaptive` and not a fixed column count: with the 220 dp menu, a 1080p Fire TV fits
+ * ~4 poster columns, and a wider screen fits more on its own.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TvPosterGrid(
-    titulo: String,
-    conteo: Int,
-    grupos: List<LibraryGroup>,
-    subtituloDe: (LibraryGroup) -> String?,
-    vacio: String,
+    title: String,
+    count: Int,
+    groups: List<LibraryGroup>,
+    subtitleFor: (LibraryGroup) -> String?,
+    empty: String,
     onClick: (LibraryGroup) -> Unit,
     onLongClick: (LibraryGroup) -> Unit,
 ) {
     Column(Modifier.fillMaxSize().padding(horizontal = SAFE_H, vertical = SAFE_V)) {
         Text(
-            if (grupos.isEmpty()) titulo else "$titulo  ·  $conteo",
+            if (groups.isEmpty()) title else "$title  ·  $count",
             style = MaterialTheme.typography.headlineSmall,
             color = ArkivTextPrimary,
             modifier = Modifier.padding(bottom = 20.dp),
         )
-        if (grupos.isEmpty()) {
-            Text(vacio, style = MaterialTheme.typography.bodyLarge, color = ArkivTextSecondary)
+        if (groups.isEmpty()) {
+            Text(empty, style = MaterialTheme.typography.bodyLarge, color = ArkivTextSecondary)
             return@Column
         }
         LazyVerticalGrid(
@@ -278,14 +278,14 @@ private fun TvPosterGrid(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            items(grupos, key = { it.key }) { grupo ->
+            items(groups, key = { it.key }) { group ->
                 TvPosterCard(
-                    title = grupo.primary.title,
-                    posterUrl = grupo.primary.thumbnailUrl,
+                    title = group.primary.title,
+                    posterUrl = group.primary.thumbnailUrl,
                     cardHeight = CARD_HEIGHT,
-                    subtitle = subtituloDe(grupo),
-                    onLongClick = { onLongClick(grupo) },
-                    onClick = { onClick(grupo) },
+                    subtitle = subtitleFor(group),
+                    onLongClick = { onLongClick(group) },
+                    onClick = { onClick(group) },
                 )
             }
         }
@@ -293,26 +293,26 @@ private fun TvPosterGrid(
 }
 
 /**
- * Menú de mantener-pulsado de una tarjeta. Es el `TvCategoryDialog` que vivía en `TvHomeScreen` más
- * "Quitar de mi biblioteca", que en el TV no existía: hasta ahora un guardado por error solo se
- * podía deshacer desde el teléfono.
+ * A card's long-press menu. It's the `TvCategoryDialog` that lived in `TvHomeScreen` plus "Quitar
+ * de mi biblioteca", which didn't exist on the TV before: until now, an accidental save could
+ * only be undone from the phone.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TvLibraryItemDialog(
-    grupo: LibraryGroup,
+    group: LibraryGroup,
     onOpenDetail: () -> Unit,
     onSetCategory: (Boolean?) -> Unit,
-    onQuitar: () -> Unit,
+    onRemove: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val row = grupo.primary
-    var confirmarQuitar by remember { mutableStateOf(false) }
+    val row = group.primary
+    var confirmRemove by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
-    // Mismo patrón de reintento que el menú lateral: un único intento con `runCatching` tragado
-    // causó el bug histórico donde, si el diálogo todavía no estaba compuesto, `requestFocus()`
-    // tiraba "FocusRequester is not initialized" y el foco quedaba sin dueño.
-    LaunchedEffect(confirmarQuitar) {
+    // Same retry pattern as the side menu: a single attempt with a swallowed `runCatching` caused
+    // the historical bug where, if the dialog wasn't composed yet, `requestFocus()` threw
+    // "FocusRequester is not initialized" and focus ended up with no owner.
+    LaunchedEffect(confirmRemove) {
         var landed = false
         repeat(20) {
             if (landed) return@repeat
@@ -337,20 +337,20 @@ private fun TvLibraryItemDialog(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (confirmarQuitar) {
+            if (confirmRemove) {
                 Text(
                     "Se quita de tu biblioteca en todos tus aparatos. Si tenías capítulos descargados en este aparato y querés liberar espacio, borralos desde Descargas ANTES de confirmar: una vez que la quitás de acá, esos archivos quedan en el aparato pero ya no vas a poder borrarlos desde la app.",
                     style = MaterialTheme.typography.bodySmall,
                     color = ArkivTextSecondary,
                 )
-                Button(onClick = onQuitar, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
+                Button(onClick = onRemove, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
                     Text("Sí, quitar de mi biblioteca", maxLines = 1)
                 }
-                // El foco cae acá y NO en el botón de arriba: con el control remoto es normal que
-                // un doble OK le llegue a la UI un frame después de lo que el usuario ve, y si el
-                // foco arrancara en el botón destructivo ese doble OK lo dispara sin que nadie
-                // llegue a leer la advertencia.
-                Button(onClick = { confirmarQuitar = false }, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth().focusRequester(focus)) {
+                // Focus lands here and NOT on the button above: with the remote it's normal for a
+                // double OK to reach the UI a frame after what the user sees, and if focus started
+                // on the destructive button that double OK would fire it before anyone can read
+                // the warning.
+                Button(onClick = { confirmRemove = false }, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth().focusRequester(focus)) {
                     Text("Cancelar", maxLines = 1)
                 }
             } else {
@@ -376,7 +376,7 @@ private fun TvLibraryItemDialog(
                         Text("Detección automática", maxLines = 1)
                     }
                 }
-                Button(onClick = { confirmarQuitar = true }, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
+                Button(onClick = { confirmRemove = true }, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
                     Text("Quitar de mi biblioteca", maxLines = 1)
                 }
                 Button(onClick = onDismiss, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
