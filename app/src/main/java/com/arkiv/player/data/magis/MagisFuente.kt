@@ -37,8 +37,8 @@ internal class MagisFuente(
     override fun recognizes(ref: String): Boolean = MagisRef.decode(ref) != null
 
     private val lock = Mutex()
-    private val searches = CacheConVencimiento<String, List<JSONObject>>(TTL_MS, tope = 32)
-    private val chapters = CacheConVencimiento<String, PortalChapters>(TTL_MS, tope = 16)
+    private val searches = ExpiringCache<String, List<JSONObject>>(TTL_MS, cap = 32)
+    private val chapters = ExpiringCache<String, PortalChapters>(TTL_MS, cap = 16)
 
     // --- search -------------------------------------------------------------
 
@@ -349,7 +349,7 @@ internal class MagisFuente(
 }
 
 /** In-memory cache with expiry and an entry cap (the oldest goes first). */
-internal class CacheConVencimiento<K, V>(private val ttlMs: Long, private val tope: Int) {
+internal class ExpiringCache<K, V>(private val ttlMs: Long, private val cap: Int) {
     private val entries = LinkedHashMap<K, Pair<Long, V>>()
 
     operator fun get(key: K): V? {
@@ -364,6 +364,6 @@ internal class CacheConVencimiento<K, V>(private val ttlMs: Long, private val to
     operator fun set(key: K, value: V) {
         entries.remove(key)
         entries[key] = (System.currentTimeMillis() + ttlMs) to value
-        while (entries.size > tope) entries.remove(entries.keys.first())
+        while (entries.size > cap) entries.remove(entries.keys.first())
     }
 }

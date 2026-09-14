@@ -33,7 +33,7 @@ internal class MagisLiveCatalog(
     private var categoriesCache: List<PortalCategory> = emptyList()
     private var categoriesExpireAt = 0L
     private val channelsCache = mutableMapOf<Int, Pair<Long, List<LiveChannel>>>()
-    private val trees = CacheConVencimiento<String, List<SeccionDeCatalogo>>(TTL_MS, tope = 8)
+    private val trees = ExpiringCache<String, List<SeccionDeCatalogo>>(TTL_MS, cap = 8)
 
     /** A category as the portal understands it, with the adult flag it doesn't carry. */
     private data class PortalCategory(val id: Int, val name: String, val isAdult: Boolean)
