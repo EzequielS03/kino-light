@@ -79,7 +79,7 @@ internal fun LiveExoPlayer(
      * old VLC player, forced by that same key.
      */
     key: Any,
-    espejo: PlayerMirror,
+    mirror: PlayerMirror,
     onPlayerReady: (Player?) -> Unit = {},
     onTextureViewReady: (TextureView?) -> Unit = {},
     onError: (String) -> Unit = {},
@@ -121,7 +121,7 @@ internal fun LiveExoPlayer(
         exoPlayer.setVideoTextureView(textureView)
         onPlayerReady(exoPlayer)
         onTextureViewReady(textureView)
-        espejo.syncTransport(
+        mirror.syncTransport(
             buffering = exoPlayer.playbackState == Player.STATE_BUFFERING,
             playing = exoPlayer.isPlaying,
             wantsToPlay = exoPlayer.playWhenReady,
@@ -146,15 +146,15 @@ internal fun LiveExoPlayer(
                     else -> "?"
                 }
                 Log.i(TAG, "onPlaybackStateChanged → $name · isPlaying=${exoPlayer.isPlaying} pos=${exoPlayer.currentPosition}ms")
-                espejo.updateBuffering(state == Player.STATE_BUFFERING)
+                mirror.updateBuffering(state == Player.STATE_BUFFERING)
             }
 
             override fun onIsPlayingChanged(playing: Boolean) {
-                espejo.updatePlaying(playing)
+                mirror.updatePlaying(playing)
             }
 
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-                espejo.updateWantsToPlay(playWhenReady)
+                mirror.updateWantsToPlay(playWhenReady)
             }
 
             override fun onRenderedFirstFrame() {
@@ -175,8 +175,8 @@ internal fun LiveExoPlayer(
             exoPlayer.removeListener(listener)
             exoPlayer.clearVideoTextureView(textureView)
             exoPlayer.release()
-            espejo.resetClock()
-            espejo.syncTransport(buffering = false, playing = false, wantsToPlay = false)
+            mirror.resetClock()
+            mirror.syncTransport(buffering = false, playing = false, wantsToPlay = false)
             onPlayerReady(null)
             onTextureViewReady(null)
             onFirstFrame(false)
@@ -231,7 +231,7 @@ internal fun LiveExoPlayer(
             lastPos = pos
             lastFrames = frames
 
-            espejo.readClock(
+            mirror.readClock(
                 positionMs = pos,
                 durationMs = if (dur > 0) dur else 0L,
             )

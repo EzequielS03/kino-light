@@ -66,7 +66,7 @@ private const val TAG = "MagisExo"
 @Composable
 internal fun MagisExoPlayer(
     mediaUrl: String,
-    espejo: PlayerMirror,
+    mirror: PlayerMirror,
     startPositionMs: Long = 0L,
     subtitleConfigs: List<MediaItem.SubtitleConfiguration> = emptyList(),
     onPlayerReady: (Player?) -> Unit = {},
@@ -167,7 +167,7 @@ internal fun MagisExoPlayer(
         exoPlayer.setVideoTextureView(textureView)
         onPlayerReady(exoPlayer)
         onTextureViewReady(textureView)
-        espejo.syncTransport(
+        mirror.syncTransport(
             buffering = exoPlayer.playbackState == Player.STATE_BUFFERING,
             playing = exoPlayer.isPlaying,
             wantsToPlay = exoPlayer.playWhenReady,
@@ -220,7 +220,7 @@ internal fun MagisExoPlayer(
                     else                  -> "?"
                 }
                 Log.i(TAG, "onPlaybackStateChanged → $name · isPlaying=${exoPlayer.isPlaying} pos=${exoPlayer.currentPosition}ms dur=${exoPlayer.duration}ms")
-                espejo.updateBuffering(state == Player.STATE_BUFFERING)
+                mirror.updateBuffering(state == Player.STATE_BUFFERING)
                 if (state == Player.STATE_ENDED) {
                     Log.w(TAG, "episode ended at ${exoPlayer.currentPosition}ms of ${exoPlayer.duration}ms")
                     onChapterEnd()
@@ -229,12 +229,12 @@ internal fun MagisExoPlayer(
 
             override fun onIsPlayingChanged(playing: Boolean) {
                 Log.i(TAG, "onIsPlayingChanged → playing=$playing · pos=${exoPlayer.currentPosition}ms playWhenReady=${exoPlayer.playWhenReady}")
-                espejo.updatePlaying(playing)
+                mirror.updatePlaying(playing)
             }
 
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                 Log.i(TAG, "onPlayWhenReadyChanged → playWhenReady=$playWhenReady reason=$reason · isPlaying=${exoPlayer.isPlaying}")
-                espejo.updateWantsToPlay(playWhenReady)
+                mirror.updateWantsToPlay(playWhenReady)
             }
 
             override fun onRenderedFirstFrame() {
@@ -255,8 +255,8 @@ internal fun MagisExoPlayer(
             exoPlayer.removeListener(listener)
             exoPlayer.clearVideoTextureView(textureView)
             exoPlayer.release()
-            espejo.resetClock()
-            espejo.syncTransport(buffering = false, playing = false, wantsToPlay = false)
+            mirror.resetClock()
+            mirror.syncTransport(buffering = false, playing = false, wantsToPlay = false)
             onPlayerReady(null)
             onTextureViewReady(null)
             onFirstFrame(false)
@@ -355,7 +355,7 @@ internal fun MagisExoPlayer(
             lastPos = pos
             lastFrames = frames
 
-            espejo.readClock(
+            mirror.readClock(
                 positionMs = pos,
                 durationMs = if (dur > 0) dur else 0L,
             )
