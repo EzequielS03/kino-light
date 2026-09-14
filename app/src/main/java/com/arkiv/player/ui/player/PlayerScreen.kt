@@ -2675,11 +2675,11 @@ private fun PlayerContent(
                 mediaUrl = dPlay.playable.url,
                 drmLicenseUrl = dPlay.playable.drmLicenseUrl,
                 drmLicenseHeaders = dPlay.playable.drmLicenseHeaders,
-                descargaLocal = dPlay.descargaLocal,
-                almacen = graph.almacenDeCaracol,
+                localDownload = dPlay.descargaLocal,
+                store = graph.almacenDeCaracol,
                 espejo = espejo,
                 startPositionMs = dPlay.startPositionMs,
-                arrancarSolo = dPlay.arrancarSolo,
+                autoStart = dPlay.arrancarSolo,
                 onPlayerReady = { player ->
                     dituPlayer = player
                     estadoPistas.setExoPlayer(player)
@@ -2691,10 +2691,10 @@ private fun PlayerContent(
                     val pos = dituPlayer?.currentPosition?.coerceAtLeast(0L) ?: dPlay.startPositionMs
                     vm.onDituExoError(codigo, pos, queriaReproducir)
                 },
-                pedirRepreparado = { vm.dituPuedeRepreparar() },
-                onPosicion = { pos, reproduciendo -> vm.dituAvanzo(pos, reproduciendo) },
+                requestReprepare = { vm.dituPuedeRepreparar() },
+                onPosition = { pos, reproduciendo -> vm.dituAvanzo(pos, reproduciendo) },
                 onTracksChanged = { tracks -> estadoPistas.updateExoTracks(tracks) },
-                onPrimeraImagen = { hay -> exoYaPintoAlgo = hay },
+                onFirstFrame = { hay -> exoYaPintoAlgo = hay },
                 zoom = gestos.zoomForExo,
             )
         }
