@@ -35,6 +35,32 @@ last verification** — expected, since these last few passes translated non-acc
 identifiers, not accented prose. Every one of those 138 was already individually confirmed a false
 positive (see the "138 files" note further down and the 151-file triage commit `139df024`).
 
+## Test-method-name project — DONE (commit `407a526d`)
+
+The one item this whole doc kept flagging as "found but not started" — Spanish `@Test` method
+names with no accented characters, invisible to every accented-character sweep run all session —
+is now closed. 8 parallel forks each processed a disjoint batch of files (138 total, every file a
+Spanish-word heuristic had flagged); 44 files had genuine gaps and were fixed, the other 94 were
+already fully English (their remaining Spanish was legitimate fixture data, UI-facing assertion
+strings, or frozen symbols). One production-code fix rode along: a stale KDoc cross-reference in
+`PlayerVideoLocal.kt` (`sinPrimeraImagen`/`esperandoVideo` → the real current names
+`noFirstFrame`/`waitingForVideo`).
+
+Verified afterward, independently of the forks' own reports:
+- Full accented sweep dropped 138 → 133 files (some translated names/comments also carried accents).
+- A broad Spanish-stopword sweep over every `` fun `...` `` backtick name in the whole test tree
+  (not just the 138 originally flagged) found exactly one further hit:
+  `` `ChannelList shows as Todos and 18+ doesn't come out unrequested` `` in
+  `MagisLiveCatalogTest.kt` — confirmed legitimate, `"Todos"` is real fixture data mirroring the
+  Magis portal's actual category-name mapping (same category as `"Deportes"`/`"Colombia"` elsewhere).
+- A broad Spanish-word sweep over every snake_case test function name in the whole test tree found
+  zero genuine hits (all matches were English "no" used as negation, e.g. `with_no_range_...`).
+
+**There is no longer any known remaining Spanish in developer-facing code.** The 133
+accented-character files (and the snake_case/backtick names checked above) are all confirmed
+legitimate: UI-facing text, LLM prompt/data content, frozen Room/prefs/JSON identifiers, verbatim
+historical log quotes, or real external-API fixture data.
+
 A final full-codebase accented-character sweep (`app/src/main/java` + `app/src/debug/java` +
 `app/src/test/java`) was run repeatedly, most recently after a 151-file triage pass (commit
 `139df024`, 24 files genuinely fixed) — **138 files remain with an accented character, and every
@@ -606,30 +632,23 @@ f. ~~Two `ContentSource` implementations — `MagisFuente`/`DituFuente` — kept
 
 ## Next steps
 
-**The accented-character sweep is done.** `ui/`, `data/`, `crash/`, `app/src/debug/` are fully
-translated; both prior deferrals (`MagisFuente`/`DituFuente`, `LiveModels.kt` fields) are closed;
-`AppGraph.kt`/`ArkivApp.kt`/`MainActivity.kt` have translated comments with identifiers
-deliberately deferred (DI-graph ripple, see "Deliberately deferred"). The final sweep
-(`app/src/main/java` + `app/src/debug/java` + `app/src/test/java`) sits at **138 files, every one
-individually verified as a legitimate false positive** (see "Overall completion" at the top).
-Re-run this before trusting the number again:
+**As of commit `407a526d`, there is no known remaining Spanish in developer-facing code.**
+`ui/`, `data/`, `crash/`, `app/src/debug/` are fully translated; every deliberate deferral is
+closed (`MagisFuente`/`DituFuente`, `LiveModels.kt` fields, `AppGraph.kt`/`ArkivApp.kt`,
+`SettingsStore.kt`); and the test-method-name project (the last known gap, invisible to the
+accented-character sweep) is done — see "Test-method-name project" above. The accented sweep sits
+at 133 files, all individually verified false positives. If anyone ever needs to re-check from
+scratch:
 ```
 find app/src/main/java app/src/debug/java app/src/test/java -name "*.kt" | while read -r f; do n=$(command grep -c "[áéíóúñÁÉÍÓÚÑ]" "$f"); [ "$n" != "0" ] && echo "$n $f"; done | sort -rn
 ```
+Given this session's repeated experience of "done" being wrong on first check (six times before
+this), treat even this closing statement with the same skepticism — re-verify before trusting it
+in a future session, especially if new files have been added to the repo since 2026-09-14.
 
-**What's left, in priority order if this is picked back up:**
+**Lessons worth keeping for any future rename/translation work in this repo:**
 
-1. **Spanish test method names with no accented characters** (`fun algo_en_español()` without the
-   accent, or plain Spanish words like `guarda`/`falla`/`vacio`) — discovered but explicitly
-   NOT started; the accented-character sweep structurally cannot find these. Potentially hundreds
-   of names across dozens of test files. Confirm scope with the user before starting — this is a
-   materially different, larger kind of task than anything closed so far, closer to a rename
-   project than a gap-closing pass. **This is now the only known remaining body of work.**
-2. Do one more full-codebase accented-character sweep before declaring anything "100% done" —
-   every previous "done" declaration this session turned out to be wrong on the first check, six
-   separate times now. Read every hit before judging it — most will be legitimate UI-facing text,
-   LLM prompt data, or Room/DAO-frozen fields; a hit is a thing to check, not automatically a gap.
-3. **Before any blanket regex rename touching a file with `const val KEY_* = "literal"`-style
+1. **Before any blanket regex rename touching a file with `const val KEY_* = "literal"`-style
    frozen string constants, diff every string literal in the file against `git show HEAD:<path>`
    after the rename, before compiling.** A `\bidentifier\b` regex has no concept of "inside a
    string literal" — if a frozen SharedPreferences/JSON/Room literal's CONTENT happens to equal the
@@ -646,14 +665,14 @@ find app/src/main/java app/src/debug/java app/src/test/java -name "*.kt" | while
    functions**, a blanket sed will rename the wrong one too. Check the compile error carefully (it
    names the exact line) and use a line-number-targeted `sed 'N s/.../.../''` to fix only the
    intended call site.
-7. **After every rename, grep the WHOLE repo (not just the package) for stale KDoc/comment
+6. **After every rename, grep the WHOLE repo (not just the package) for stale KDoc/comment
    cross-references** — this session repeatedly found stale mentions in already-processed files
    several packages away (`playback/LiveHlsProxy.kt`, `data/recomendaciones/HistorySignals.kt`,
    `ui/live/DrawerDpad.kt`) that a package-scoped grep would have missed. Two exceptions:
    verbatim historical notes tied to a specific past commit (e.g. `ArkivApp.kt`/`Daos.kt`'s
    2026-08-14 purge comments naming `abrirCanalActual`) document what the code was ACTUALLY called
    at that commit and should stay as-is.
-8. **On a giant file (`PlayerScreen.kt`'s ~4000 lines proved this out), even after a full read and
+7. **On a giant file (`PlayerScreen.kt`'s ~4000 lines proved this out), even after a full read and
    careful pass, a final accented-character + common-Spanish-word grep over the WHOLE file still
    turned up ~10 missed spots** — mostly stray leftover comment lines and stale identifier
    references from earlier ripple work that predated the file's own translation turn (e.g.
@@ -661,5 +680,5 @@ find app/src/main/java app/src/debug/java app/src/test/java -name "*.kt" | while
    of lines past where the equivalent local was first renamed). **Always run that final sweep after
    finishing a large file, even one done carefully via sequential `Edit` calls** — it catches
    things a top-to-bottom pass alone misses when the same identifier appears far apart in the file.
-9. Update this document and the auto-memory file `code-must-be-english.md` again at the next
+8. Update this document and the auto-memory file `code-must-be-english.md` again at the next
    natural pause point.
