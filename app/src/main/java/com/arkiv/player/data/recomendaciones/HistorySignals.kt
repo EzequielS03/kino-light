@@ -17,7 +17,7 @@ internal data class Watched(val title: String, val kind: String, val status: Str
  *
  * ***Repeats* are lost**: the app only saves each episode's last playback, not a playback history.
  * Adult content doesn't show up by construction: `saveProgress` in `PlayerViewModel` never writes
- * its progress to `playback` (see `hayQueAnotarHistorial` and `AdultContent.shouldLog`), so
+ * its progress to `playback` (see `shouldLogHistory` and `AdultContent.shouldLog`), so
  * there's no row this query could read.
  */
 internal object HistorySignals {

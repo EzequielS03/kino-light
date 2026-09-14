@@ -14,7 +14,7 @@ object MediaReusePolicy {
     enum class Decision { REUSE_CURRENT, SKIP_IN_PLAYLIST, RELOAD, WAIT }
 
     /**
-     * @param requested the episodeId `fresh` playlist was built with (see `PlaylistData.pedido`).
+     * @param requested the episodeId `fresh` playlist was built with (see `PlaylistData.requested`).
      *   Not always [episodeId]: the ViewModel survives navigation between chapters, so as soon as
      *   the screen enters the new chapter what's published is still the PREVIOUS one's playlist
      *   until the source finishes resolving (seconds, on magis/web).

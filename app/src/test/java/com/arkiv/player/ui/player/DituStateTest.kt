@@ -69,8 +69,8 @@ class DituStateTest {
     fun `a reload while paused is published paused`() {
         val state = DituState()
         state.newRequest("ditu:A")
-        state.publish(resolved("ditu:A", 1_000).copy(arrancarSolo = false))
-        assertFalse(state.current.value!!.arrancarSolo)
+        state.publish(resolved("ditu:A", 1_000).copy(autoStart = false))
+        assertFalse(state.current.value!!.autoStart)
     }
 
     /** If Caracol returns the same URL, the screen still has to rebuild the player. */

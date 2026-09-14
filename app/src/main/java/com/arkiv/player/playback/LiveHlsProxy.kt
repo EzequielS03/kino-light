@@ -634,7 +634,7 @@ class LiveHlsProxy(
          *
          * Three attempts remain because they still cover the only thing the wait can fix -a
          * segment published with a blink's worth of delay- and because what actually rescues the
-         * channel is something else: [PlayerViewModel.reabrirVivoPorCorte], which reconnects at
+         * channel is something else: [PlayerViewModel.reopenLiveAfterCut], which reconnects at
          * the live edge in 2s. The sooner control is handed back to it, the sooner the picture
          * returns.
          */

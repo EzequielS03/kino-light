@@ -54,7 +54,7 @@ private const val TAG = "MagisExo"
  * [DefaultMediaSourceFactory] auto-detects HLS, DASH or progressive (MP4/TS) based on the content
  * type. For the progress bar and controls it uses the same [PlayerMirror] VLC used to.
  *
- * Uses [TextureView] directly so [onTextureViewReady] exposes the surface and `capturarFrame`
+ * Uses [TextureView] directly so [onTextureViewReady] exposes the surface and `captureFrame`
  * works the same way it did with VLC. The aspect ratio is kept in sync by listening to
  * [Player.Listener.onVideoSizeChanged]: in portrait the video stays centered in landscape format.
  *

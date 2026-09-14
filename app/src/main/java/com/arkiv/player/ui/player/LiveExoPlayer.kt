@@ -41,7 +41,7 @@ private const val TAG = "LiveExo"
 /**
  * Plays the Magis live channel using ExoPlayer (Task 1, light-magis pruning -- the VLC gate).
  * Replaced VLC as the live player; see the KDoc of
- * [com.arkiv.player.ui.player.PlayerViewModel.abrirCanalActual] and the task brief for why.
+ * [com.arkiv.player.ui.player.PlayerViewModel.openCurrentChannel] and the task brief for why.
  *
  * [mediaUrl] already arrives served by [com.arkiv.player.playback.LiveHlsProxy] on `127.0.0.1`,
  * with the CDN's `Content-Auth`/`Content-License` injected by the proxy on every request --
@@ -56,7 +56,7 @@ private const val TAG = "LiveExo"
  *   interleaved audio tracks) doesn't exist here -- the proxy serves a properly segmented HLS, so
  *   ExoPlayer's defaults (built for live) are enough.
  * - `onError` must not show an overlay: [PlayerViewModel.onLiveExoError] sends it to
- *   `reabrirVivoPorCorte()`, which retries on its own -- a live channel recovers almost always in
+ *   `reopenLiveAfterCut()`, which retries on its own -- a live channel recovers almost always in
  *   a few seconds (see its KDoc), and showing an error on the first hiccup would over-alarm.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
@@ -187,7 +187,7 @@ internal fun LiveExoPlayer(
     // local proxy can cut a connection mid-segment (network change, CDN down) and leave ExoPlayer
     // with the clock running free with not a single new frame. Here the rescue is the ONLY silent
     // recovery mechanism between minor hiccups and `onError`'s explicit warning →
-    // `reabrirVivoPorCorte()` (which does re-resolve the whole session against the gateway) --
+    // `reopenLiveAfterCut()` (which does re-resolve the whole session against the gateway) --
     // that's why it's worth keeping it live too, even though the original reason (Magis's
     // MPEG-TS) doesn't apply here.
     LaunchedEffect(exoPlayer) {

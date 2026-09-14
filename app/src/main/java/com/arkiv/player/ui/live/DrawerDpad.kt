@@ -49,7 +49,7 @@ enum class DrawerAction {
  * screen gets touched months later.
  *
  * What makes this non-trivial is that up and down are already taken in live: they zap
- * ([PlayerScreen] calls `zapAnterior`/`zapSiguiente`). With the drawer open they have to
+ * ([PlayerScreen] calls `zapPrevious`/`zapNext`). With the drawer open they have to
  * navigate the list and NOT zap -- if they were let through, the list wouldn't move and the
  * channel would change on its own. That's why [DrawerAction.FROM_LIST] consumes the key instead
  * of returning it.

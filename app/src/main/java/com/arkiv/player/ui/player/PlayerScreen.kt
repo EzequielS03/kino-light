@@ -208,7 +208,7 @@ private fun localMediaItems(items: List<PlayerData>): List<MediaItem> = items.ma
         referer = d.referer,
         userAgent = d.userAgent,
         proxyUrl = d.proxyUrl,
-        preferSoftware = d.preferirSoftware,
+        preferSoftware = d.prefersSoftware,
     )
     MediaItem.Builder()
         .setUri(d.mediaUrl)
@@ -361,11 +361,11 @@ private fun PlayerContent(
                     graph.repository, graph.archiveCacheProxy,
                     graph.localLibrary, graph.localFileServer, graph.frameCapturer,
                     graph.liveController, graph.database.liveRecentDao(),
-                    esTelevision = isTv,
-                    fuente = graph.fuenteDeContenido,
+                    isTv = isTv,
+                    source = graph.fuenteDeContenido,
                     dituFuente = graph.dituFuente,
-                    hayCuentaDeMagis = { graph.magisSession.hasAccountLinked },
-                    datosCuriosos = graph.datosCuriosos,
+                    hasMagisAccount = { graph.magisSession.hasAccountLinked },
+                    triviaFacts = graph.datosCuriosos,
                 )
             }
         },
@@ -390,7 +390,7 @@ private fun PlayerContent(
      * distinguía con `esperandoPrimeraImagen`, y al pasar a ExoPlayer esa distinción se perdió.
      */
     var exoYaPintoAlgo by remember { mutableStateOf(false) }
-    val generacionVivo by vm.generacionVivo.collectAsStateWithLifecycle()
+    val generacionVivo by vm.liveGeneration.collectAsStateWithLifecycle()
     val loadError by vm.error.collectAsStateWithLifecycle()
     // Fuente web: mientras el resolver de blog snifea el stream, y los subtítulos sniffeados a adjuntar.
     val resolving by vm.resolving.collectAsStateWithLifecycle()
@@ -606,7 +606,7 @@ private fun PlayerContent(
     // estado (ficha del canal, EPG y cajón) vive en `PlayerLive.kt`; de acá solo lo mueve el
     // listener de teclas del video, que sigue siendo de esta pantalla.
     val estadoVivo = rememberLiveState()
-    val liveCanal by vm.liveCanal.collectAsStateWithLifecycle()
+    val liveCanal by vm.liveChannel.collectAsStateWithLifecycle()
     // Tarea 15: publicar el nombre del canal para NowPlayingPublisher (solo corre en el TV, pero
     // no cuesta nada tenerlo también seteado acá en el celu). Sin esto la barra del miniplayer
     // remoto, al enviar un canal al TV, queda en blanco: "live:<code>" no es un episodeId de la
@@ -1075,7 +1075,7 @@ private fun PlayerContent(
      * Cast-to-TV del canal en vivo cuando lo reproduce ExoPlayer (Task 1, poda de light-magis).
      *
      * Antes esto lo disparaba `LaunchedEffect(playlist, generacionVivo)` (más abajo) porque el
-     * canal viajaba en `_playlist`; ahora viaja en `liveItem` (ver PlayerViewModel.abrirCanalActual)
+     * canal viajaba en `_playlist`; ahora viaja en `liveItem` (ver PlayerViewModel.openCurrentChannel)
      * y ese efecto solo corre para VOD. Se arma un `PlaylistData` sintético de un solo ítem para
      * reusar [castRequestFor] tal cual -- esa función no lee de `PlaylistData` nada más que
      * `items`/el índice, así que no hace falta duplicar la lógica de lanUrl/lector de audio.
@@ -1093,7 +1093,7 @@ private fun PlayerContent(
     LaunchedEffect(casting, liveItem, generacionVivo) {
         if (!casting || castSession == null) return@LaunchedEffect
         val item = liveItem ?: return@LaunchedEffect
-        val pl = PlaylistData(listOf(item), 0, 0L, pedido = item.episodeId)
+        val pl = PlaylistData(listOf(item), 0, 0L, requested = item.episodeId)
         val req = castRequestFor(pl, 0, 0L)
         if (req == null) {
             // Mismo aviso que ya da VOD cuando castRequestFor no encuentra una URL alcanzable
@@ -1245,7 +1245,7 @@ private fun PlayerContent(
                     // and the problem disappears on its own. Waiting for a bigger head start
                     // spends a few more seconds once and skips that whole stretch.
                     if (parcial.first.length() < 40_000_000L) return@repeat
-                    val plr = PlaylistData(listOf(item), 0, 0L, pedido = item.episodeId)
+                    val plr = PlaylistData(listOf(item), 0, 0L, requested = item.episodeId)
                     val reqr = castRequestFor(plr, 0, 0L) ?: return@repeat
                     android.util.Log.w(
                         "ArkivCast",
@@ -1268,7 +1268,7 @@ private fun PlayerContent(
             remuxImposible.add(clave)
             if (item.kind == SourceKind.MAGIS && casting && castSession != null) {
                 val ahora = runCatching { contentPositionMs() }.getOrDefault(0L).coerceAtLeast(0L)
-                val plFallback = PlaylistData(listOf(item), 0, ahora, pedido = item.episodeId)
+                val plFallback = PlaylistData(listOf(item), 0, ahora, requested = item.episodeId)
                 castRequestFor(plFallback, 0, ahora)?.let {
                     castSession.setMedia(it)
                     casteadoAlReceptor = item.episodeId
@@ -1282,7 +1282,7 @@ private fun PlayerContent(
         // Magis has no playlist -- same synthetic one-item PlaylistData the rest of this screen
         // uses for it, so castRequestFor stays the single place that decides what goes to the TV.
         val pl = if (item.kind == SourceKind.MAGIS) {
-            PlaylistData(listOf(item), 0, desde, pedido = item.episodeId)
+            PlaylistData(listOf(item), 0, desde, requested = item.episodeId)
         } else {
             playlistRef.value ?: return@LaunchedEffect
         }
@@ -1428,7 +1428,7 @@ private fun PlayerContent(
     // correr y la reapertura no cargaba nada. Ver su KDoc en PlayerViewModel.
     LaunchedEffect(playlist, generacionVivo) {
         val pl = playlist ?: run { android.util.Log.w("ArkivPlay", "playlist=null (still resolving or discarded)"); return@LaunchedEffect }
-        // Vivo (Tarea 14) YA NO pasa por acá (Task 1, poda de light-magis): `abrirCanalActual` deja
+        // Vivo (Tarea 14) YA NO pasa por acá (Task 1, poda de light-magis): `openCurrentChannel` deja
         // de publicar `_playlist` y publica `liveItem` -- ver LiveExoPlayer/isLiveExo más arriba y
         // el LaunchedEffect(casting, liveItem, generacionVivo) que reemplaza el cast-to-TV que antes
         // vivía acá. `enVivo` sigue existiendo para el resto de la pantalla (overlay/gestos/D-pad),
@@ -1438,7 +1438,7 @@ private fun PlayerContent(
         // publicado sigue siendo lo de antes durante todo el resolve (~4 s en magis). Se pregunta
         // ANTES de tocar `loaded`, la posición o el cast: darla por buena era reproducir el capítulo
         // anterior desde el principio y —peor— dejar `loaded=true`, con lo que la playlist buena ya
-        // no entraba nunca. Ver el KDoc de PlaylistData.pedido y MediaReusePolicy.decide.
+        // no entraba nunca. Ver el KDoc de PlaylistData.requested y MediaReusePolicy.decide.
         // Captured once and reused below by ReloadPositionPolicy: it needs the exact same
         // "what's the controller currently on" identity that the reuse decision itself used.
         val actualMediaId = controller.currentMediaItem?.mediaId
@@ -1457,7 +1457,7 @@ private fun PlayerContent(
             },
             currentMediaId = actualMediaId,
             fresh = pl.items.map { LoadedMedia(it.episodeId, it.mediaUrl) },
-            requested = pl.pedido,
+            requested = pl.requested,
             // Did we land back on a NEW screen? Reusing the media with a new surface kills the
             // decoder (see MediaReusePolicy.decide for the measured numbers). The loaded media
             // already painted (the service player's decoder counters) but not on THIS screen, so it
@@ -1467,7 +1467,7 @@ private fun PlayerContent(
                 !localVideo.renderedFirstFrame,
         )
         if (decision == MediaReusePolicy.Decision.WAIT) {
-            android.util.Log.w("ArkivPlay", "playlist for ANOTHER episode (requested=${pl.pedido} ≠ $episodeId) → waiting for mine")
+            android.util.Log.w("ArkivPlay", "playlist for ANOTHER episode (requested=${pl.requested} ≠ $episodeId) → waiting for mine")
             return@LaunchedEffect
         }
         if (loaded) {
@@ -1582,7 +1582,7 @@ private fun PlayerContent(
                 controller.setMediaItems(localMediaItems(pl.items), pl.startIndex, resume.positionMs)
                 controller.playWhenReady = true
                 controller.prepare()
-                markLocalLoad(prefersSoftware = pl.items.getOrNull(pl.startIndex)?.preferirSoftware == true)
+                markLocalLoad(prefersSoftware = pl.items.getOrNull(pl.startIndex)?.prefersSoftware == true)
             }
         }
         NowPlaying.episodeId =
@@ -1610,7 +1610,7 @@ private fun PlayerContent(
         // Un directo no termina: su fin es el stream que se cortó, y ahí no hay "siguiente
         // capítulo" que valga (el único siguiente del modo vivo es el zapping). Reopening it isn't
         // hooked here: live channels play on LiveExoPlayer, whose error goes to
-        // `vm.reabrirVivoPorCorte` (see `onLiveExoError`).
+        // `vm.reopenLiveAfterCut` (see `onLiveExoError`).
         if (enVivo) return
         val actual = playlistRef.value?.items?.getOrNull(controller.currentMediaItemIndex)?.episodeId
             ?: episodeId
@@ -1672,7 +1672,7 @@ private fun PlayerContent(
     // Índice/buffering/estado del transporte. Sigue al player activo: al conectar o desconectar
     // el cast, el efecto se relanza solo y el listener se re-engancha al que corresponda.
     val isMagis = magisItem != null   // MagisExoPlayer maneja sus propios errores.
-    val isLiveExo = liveItem != null  // LiveExoPlayer maneja sus propios errores (→ reabrirVivoPorCorte).
+    val isLiveExo = liveItem != null  // LiveExoPlayer maneja sus propios errores (→ reopenLiveAfterCut).
     val isDitu = dituPlay != null     // DituExoPlayer maneja sus propios errores (→ onDituExoError).
     val isExo = isMagis || isLiveExo || isDitu     // Any in-screen ExoPlayer (vs the local player behind `controller`).
     // The local player's picture, tracks and cues, from the controller. Apart from the transport
@@ -1757,7 +1757,7 @@ private fun PlayerContent(
         // stop() BEFORE setMediaItems(), or the reload changes nothing -- see reloadInSoftware's KDoc.
         reloadInSoftware(
             controller.asSoftwareReloadPlayer(),
-            localMediaItems(pl.items.map { it.copy(preferirSoftware = true) }),
+            localMediaItems(pl.items.map { it.copy(prefersSoftware = true) }),
             currentIndex,
             pos,
         )
@@ -1852,7 +1852,7 @@ private fun PlayerContent(
                 // would still replenish all three reopens -- the cap never ran out and the on-screen
                 // warning could never appear. Replenishing only once it actually played for a while
                 // is what distinguishes "it recovered" from "it reopened and died again".
-                if (vivoDeMagis) vm.vivoAndando(espejo.positionMs)
+                if (vivoDeMagis) vm.liveIsPlaying(espejo.positionMs)
             }
             estadoPistas.syncSubsOn()
             // "Arranca negro y con sonido": mientras el reproductor ya suelta el audio pero todavía no dio
@@ -1862,7 +1862,7 @@ private fun PlayerContent(
             if (!isExo && !casting) watchLocalDecoder()
             // Si el video está sonando, un fallo de reproducción anterior ya no describe nada (y
             // encima estaría tapando estos mismos controles). No-op salvo justo después de uno.
-            if (ready && activePlayer.isPlaying) vm.onReproduccionViva()
+            if (ready && activePlayer.isPlaying) vm.onPlaybackHealthy()
             tick++
             val pos = activePlayer.currentPosition
             val dur = activePlayer.duration
@@ -1895,7 +1895,7 @@ private fun PlayerContent(
                 // TextureView sigue siendo el LOCAL, que en ese momento no pinta lo que se ve en la
                 // tele. Capturarlo guardaría una imagen que no corresponde a esa posición (y se
                 // repetiría en cada disparo mientras dure el casteo).
-                if (tick % 600 == 0 && !casting) vm.capturarFrame(epId, pos, textureViewDelVideo())
+                if (tick % 600 == 0 && !casting) vm.captureFrame(epId, pos, textureViewDelVideo())
             }
             // Heartbeat while casting: says whether the receiver is REALLY advancing. A position
             // stuck with state=ready means it accepted the media but isn't decoding it.
@@ -1940,7 +1940,7 @@ private fun PlayerContent(
             else -> playlistRef.value?.items?.getOrNull(controller.currentMediaItemIndex)?.episodeId
         }
         if (epId != null && (isExo || mediaId == epId) && dur > 0 && pos in 0 until dur) {
-            vm.capturarFrame(epId, pos, textureViewDelVideo())
+            vm.captureFrame(epId, pos, textureViewDelVideo())
         }
     }
 
@@ -2097,7 +2097,7 @@ private fun PlayerContent(
                     "magis → cast · ep=${mg.episodeId} from=${desde}ms " +
                         "(${if (posLocal != null) "live position of the local player" else "no local player yet, using the saved startPosition"})",
                 )
-                val req = castRequestFor(PlaylistData(listOf(mg), 0, desde, pedido = mg.episodeId), 0, desde)
+                val req = castRequestFor(PlaylistData(listOf(mg), 0, desde, requested = mg.episodeId), 0, desde)
                 if (req == null) {
                     android.util.Log.w("ArkivCast", "magis: no URL the receiver can reach (no LAN ip, or the proxy isn't up)")
                     android.widget.Toast.makeText(
@@ -2301,7 +2301,7 @@ private fun PlayerContent(
                 // Captura de SALIDA. Igual que en el sondeo: con Caracol no hay TextureView y no se captura nada.
                 // !casting: mismo motivo que en el sondeo periódico — casteando, `pos` es la
                 // posición del receptor remoto, pero el TextureView local no está pintando eso.
-                if (!casting) vm.capturarFrame(epId, pos, textureViewDelVideo())
+                if (!casting) vm.captureFrame(epId, pos, textureViewDelVideo())
             }
             activity?.let {
                 it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
@@ -2361,7 +2361,7 @@ private fun PlayerContent(
                 val mediaId = currentPlayer.currentMediaItem?.mediaId
                 if (!enVivo && epId != null && (isExoStop || mediaId == epId) && dur > 0 && pos in 0 until dur) {
                     vm.saveProgress(epId, pos, dur)
-                    if (!casting) vm.capturarFrame(epId, pos, textureViewDelVideo())
+                    if (!casting) vm.captureFrame(epId, pos, textureViewDelVideo())
                 }
 
                 val jugador = currentPlayer
@@ -2485,7 +2485,7 @@ private fun PlayerContent(
             val mediaId = activePlayer.currentMediaItem?.mediaId
             if (!enVivo && epId != null && (isExo || mediaId == epId) && dur > 0 && pos in 0 until dur) {
                 vm.saveProgress(epId, pos, dur)
-                if (!casting) vm.capturarFrame(epId, pos, textureViewDelVideo())
+                if (!casting) vm.captureFrame(epId, pos, textureViewDelVideo())
             }
         } else {
             activePlayer.play()
@@ -2579,9 +2579,9 @@ private fun PlayerContent(
                                 }
                                 return@setOnKeyListener when (keyCode) {
                                     KeyEvent.KEYCODE_DPAD_UP ->
-                                        if (vivoDeMagis) { vm.zapAnterior(); estadoVivo.showInfo(); true } else false
+                                        if (vivoDeMagis) { vm.zapPrevious(); estadoVivo.showInfo(); true } else false
                                     KeyEvent.KEYCODE_DPAD_DOWN ->
-                                        if (vivoDeMagis) { vm.zapSiguiente(); estadoVivo.showInfo(); true } else false
+                                        if (vivoDeMagis) { vm.zapNext(); estadoVivo.showInfo(); true } else false
                                     KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER,
                                     KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
                                     KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE ->
@@ -2675,11 +2675,11 @@ private fun PlayerContent(
                 mediaUrl = dPlay.playable.url,
                 drmLicenseUrl = dPlay.playable.drmLicenseUrl,
                 drmLicenseHeaders = dPlay.playable.drmLicenseHeaders,
-                localDownload = dPlay.descargaLocal,
+                localDownload = dPlay.localDownload,
                 store = graph.almacenDeCaracol,
                 espejo = espejo,
                 startPositionMs = dPlay.startPositionMs,
-                autoStart = dPlay.arrancarSolo,
+                autoStart = dPlay.autoStart,
                 onPlayerReady = { player ->
                     dituPlayer = player
                     estadoPistas.setExoPlayer(player)
@@ -2691,8 +2691,8 @@ private fun PlayerContent(
                     val pos = dituPlayer?.currentPosition?.coerceAtLeast(0L) ?: dPlay.startPositionMs
                     vm.onDituExoError(codigo, pos, queriaReproducir)
                 },
-                requestReprepare = { vm.dituPuedeRepreparar() },
-                onPosition = { pos, reproduciendo -> vm.dituAvanzo(pos, reproduciendo) },
+                requestReprepare = { vm.dituCanReprepare() },
+                onPosition = { pos, reproduciendo -> vm.dituAdvanced(pos, reproduciendo) },
                 onTracksChanged = { tracks -> estadoPistas.updateExoTracks(tracks) },
                 onFirstFrame = { hay -> exoYaPintoAlgo = hay },
                 zoom = gestos.zoomForExo,
@@ -2702,7 +2702,7 @@ private fun PlayerContent(
         // Canal en vivo (Task 1, poda de light-magis): ExoPlayer reproduce el HLS del proxy local
         // (LiveHlsProxy, headers ya inyectados contra el CDN), sin VLC -- mismo patrón que Magis.
         // Sin subtítulos ni reanudación: un directo no los tiene. El error se manda a
-        // `reabrirVivoPorCorte()` -- ver el KDoc de `onLiveExoError` -- en vez de a un cartel, para
+        // `reopenLiveAfterCut()` -- ver el KDoc de `onLiveExoError` -- en vez de a un cartel, para
         // que un tropiezo pasajero del CDN/proxy no interrumpa la reproducción con un error visible.
         val lItem = liveItem
         if (lItem != null) {
@@ -2807,7 +2807,7 @@ private fun PlayerContent(
                                 // Caracol no hay zapeo (es del vivo de Magis): el swipe no hace nada.
                                 if (enVivo) {
                                     if (vivoDeMagis && !horizontal && kotlin.math.abs(totalDy) > UMBRAL_ZAP_PX) {
-                                        if (totalDy < 0) vm.zapSiguiente() else vm.zapAnterior()
+                                        if (totalDy < 0) vm.zapNext() else vm.zapPrevious()
                                         estadoVivo.showInfo()
                                     }
                                 } else if (horizontal) {
@@ -3803,7 +3803,7 @@ private fun PlayerContent(
             LiveChannelDrawer(
                 state = estadoVivo,
                 currentChannel = liveCanal?.code,
-                onChooseChannel = { list, channel -> vm.irACanal(list, channel) },
+                onChooseChannel = { list, channel -> vm.goToChannel(list, channel) },
             )
         }
     }

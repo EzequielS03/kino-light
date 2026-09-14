@@ -26,37 +26,37 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
-/** Datos de un episodio para el reproductor. */
+/** Data for one episode in the player. */
 data class PlayerData(
     val episodeId: String,
     val itemId: String,
     val title: String,
     val subtitle: String,
-    val mediaUrl: String,       // reproducción local (mkv original o archivo descargado)
-    val castUrl: String?,       // mp4 h.264 para Chromecast (compatible), o null
-    val artworkUrl: String,     // carátula para la notificación
+    val mediaUrl: String,       // local playback (original mkv or downloaded file)
+    val castUrl: String?,       // h.264 mp4 for Chromecast (compatible), or null
+    val artworkUrl: String,     // cover art for the notification
     val openingStartMs: Long?,
     val openingEndMs: Long?,
     val endingStartMs: Long?,
     val kind: SourceKind,       // source (MAGIS/DITU/LOCAL/LIVE/UNKNOWN) -- PlayerScreen reads it for live detection, the cast LAN URL and the cast-transcode origin
-    val referer: String? = null,    // headers para el stream web (algunos hosts exigen Referer)
+    val referer: String? = null,    // headers for the web stream (some hosts require Referer)
     val userAgent: String? = null,
-    val proxyUrl: String? = null,   // web: URL proxeada de respaldo si la directa falla (403/geo/anti-leech)
-    val preferirSoftware: Boolean = false, // HEVC de magis: el hardware falla y deja sin pistas. Ver PlayerSourceTag.
+    val proxyUrl: String? = null,   // web: backup proxied URL if the direct one fails (403/geo/anti-leech)
+    val prefersSoftware: Boolean = false, // magis's HEVC: the hardware decoder fails and drops tracks. See PlayerSourceTag.
     /**
-     * Si esto vino de una sección de adultos: nada de lo que suene con esta marca se anota en el
-     * historial. Ver [com.arkiv.player.playback.AdultContent] y [hayQueAnotarHistorial].
+     * Whether this came from an adults section: nothing playing with this mark gets logged to
+     * history. See [com.arkiv.player.playback.AdultContent] and [shouldLogHistory].
      *
-     * Viaja en el ÍTEM y no se consulta al vuelo por dos motivos. Uno, el ítem es lo único que
-     * llega hasta acá: `saveProgress` recibe un `episodeId` pelado y no tiene de dónde deducir de
-     * qué sección salió. Y dos, el contenido de adultos NO tiene fila en la biblioteca —esa es toda
-     * la idea—, así que no hay a quién preguntarle después.
+     * Travels on the ITEM and isn't checked on the fly for two reasons. One, the item is the only
+     * thing that reaches here: `saveProgress` receives a bare `episodeId` and has nothing to infer
+     * which section it came from. And two, adult content has NO library row -- that's the whole
+     * point -- so there's nobody to ask afterward.
      *
      * `false` by default on purpose: it's the right value for every source that isn't the Magis
      * catalog (Caracol/Ditu, local, live, or a legacy id from a source removed in this branch's
      * pruning -- archive, torrent, web), where the notion doesn't exist.
      */
-    val adulto: Boolean = false,
+    val adult: Boolean = false,
     /**
      * Start position to resume (ExoPlayer, e.g. magisItem). The local player uses
      * PlaylistData.startPositionMs instead.
@@ -65,39 +65,41 @@ data class PlayerData(
 )
 
 /**
- * ¿Hay que anotar el progreso de [episodeId] en el historial?
+ * Should [episodeId]'s progress be logged to history?
  *
- * La pregunta se contesta contra la playlist que está sonando porque `saveProgress` recibe un
- * `episodeId` pelado, no un ítem. Vive acá afuera —y no dentro del ViewModel— por lo mismo que
- * [com.arkiv.player.playback.AdultContent] vive afuera de `savePlayback`: es donde se pueden
- * fijar sus bordes con tests.
+ * The question is answered against the playlist that's currently playing because `saveProgress`
+ * receives a bare `episodeId`, not an item. Lives out here -- and not inside the ViewModel -- for
+ * the same reason [com.arkiv.player.playback.AdultContent] lives outside `savePlayback`: it's
+ * where its edges can be pinned down with tests.
  *
- * El borde que importa es el episodio que NO está en la playlist, y se resuelve ANOTANDO. No es un
- * caso teórico: el ViewModel sobrevive a la navegación entre capítulos y `_playlist` sigue
- * publicando la del capítulo anterior mientras la fuente nueva resuelve (ver [PlaylistData.pedido]),
- * así que hay ventanas de segundos donde el episodio preguntado todavía no está. Leer eso como "es
- * adulto" dejaría de guardar el progreso de contenido normal en silencio.
+ * The edge that matters is the episode that is NOT in the playlist, and it's resolved by LOGGING
+ * it. Not a theoretical case: the ViewModel survives navigation between chapters and `_playlist`
+ * keeps publishing the previous chapter's while the new source resolves (see
+ * [PlaylistData.requested]), so there are windows of seconds where the episode being asked about
+ * isn't there yet. Reading that as "it's adult" would silently stop logging normal content's
+ * progress.
  *
- * Un canal en vivo de Caracol ([DituLive]) no se anota nunca: no tiene fila en la biblioteca ni nada
- * que reanudar. `PlayerScreen` ya no le guarda la posición (su `enVivo` sale de
- * `PlayerSource.isLiveChannel`, que lo incluye), pero su captura al pausar no mira `enVivo`, y en
- * `saveProgress`/`capturarFrame` no entra por la rama de `_magisItem`: esta sigue siendo la guarda
- * que lo frena en los dos.
+ * A Caracol live channel ([DituLive]) is never logged: it has no library row and nothing to
+ * resume. `PlayerScreen` no longer saves its position (its `enVivo` comes from
+ * `PlayerSource.isLiveChannel`, which includes it), but its capture-on-pause doesn't check
+ * `enVivo`, and `saveProgress`/`captureFrame` don't go through the `_magisItem` branch for it:
+ * this remains the guard that stops it in both.
  */
-internal fun PlaylistData?.hayQueAnotarHistorial(episodeId: String): Boolean =
+internal fun PlaylistData?.shouldLogHistory(episodeId: String): Boolean =
     !DituLive.isLive(episodeId) &&
-        AdultContent.shouldLog(this?.items?.firstOrNull { it.episodeId == episodeId }?.adulto)
+        AdultContent.shouldLog(this?.items?.firstOrNull { it.episodeId == episodeId }?.adult)
 
 /**
- * ¿Hay que marcar [episodeId] como "en curso" al abrirlo (`ArkivRepository.markInProgress`)?
+ * Should [episodeId] be marked "in progress" on opening (`ArkivRepository.markInProgress`)?
  *
- * Es la decisión de `PlayerViewModel.load`, acá afuera para poder fijarla con tests. [adulto] es el
- * del pendiente efímero ([MagisEphemeral]), lo único que se sabe antes de resolver la fuente, y lo que
- * no se sabe se anota, igual que en [AdultContent.shouldLog]. Un canal en vivo de Caracol no
- * se marca: `markInProgress` escribiría una fila en `playback` con su id aunque no haya episodio.
+ * `PlayerViewModel.load`'s decision, out here so it can be pinned down with tests. [adult] is the
+ * ephemeral pending item's ([MagisEphemeral]), the only thing known before the source resolves,
+ * and what isn't known gets logged, same as in [AdultContent.shouldLog]. A Caracol live channel is
+ * never marked: `markInProgress` would write a `playback` row with its id even though there's no
+ * episode.
  */
-internal fun hayQueMarcarEnCurso(episodeId: String, adulto: Boolean?): Boolean =
-    !DituLive.isLive(episodeId) && AdultContent.shouldLog(adulto)
+internal fun shouldMarkInProgress(episodeId: String, adult: Boolean?): Boolean =
+    !DituLive.isLive(episodeId) && AdultContent.shouldLog(adult)
 
 /**
  * The section as a playlist: every episode + where/how to start. archive.org (removed in this
@@ -110,33 +112,33 @@ data class PlaylistData(
     val startIndex: Int,
     val startPositionMs: Long,
     /**
-     * El episodeId que se pidió cargar cuando se armó esta playlist, o sea DE QUÉ CAPÍTULO es.
+     * The episodeId that was requested when this playlist was built, i.e. WHICH CHAPTER it's for.
      *
-     * Existe porque el ViewModel sobrevive a la navegación entre capítulos y este StateFlow sigue
-     * publicando la playlist del capítulo anterior hasta que la fuente nueva termina de resolver
-     * (segundos, en magis/web). Sin esta marca, la pantalla no tenía forma de distinguir "ya llegó
-     * lo mío" de "esto todavía es lo de antes", y cargaba lo viejo: elegir el capítulo siguiente en
-     * el carrusel volvía a reproducir el que estaba sonando. Ver [MediaReusePolicy.decide].
+     * Exists because the ViewModel survives navigation between chapters and this StateFlow keeps
+     * publishing the previous chapter's playlist until the new source finishes resolving (seconds,
+     * on magis/web). Without this mark, the screen had no way to tell "mine already arrived" from
+     * "this is still the old one", and loaded the old one: choosing the next chapter in the
+     * carousel would replay the one that was already playing. See [MediaReusePolicy.decide].
      *
-     * NO es "el capítulo que suena ahora" (eso lo responde `episodioEnCurso` en PlayerScreen): the
-     * distinction dates back to archive.org, which used to load the whole section and let the
+     * NOT "the chapter playing right now" (that's answered by `episodioEnCurso` in PlayerScreen):
+     * the distinction dates back to archive.org, which used to load the whole section and let the
      * player advance on its own within it without asking again. No source does that today (see
-     * this class's own KDoc), but `pedido` still exists for the survives-navigation race above.
+     * this class's own KDoc), but `requested` still exists for the survives-navigation race above.
      */
-    val pedido: String,
+    val requested: String,
 )
 
 /**
- * Un subtítulo resuelto (idioma + URL), para adjuntar como pista externa.
+ * A resolved subtitle (language + URL), to attach as an external track.
  *
- * Antes vivía en `com.arkiv.player.data.catalog.web.ResolvedSub` (torrent/web se borró en la poda de
- * esta rama); [WebExtras] la sigue necesitando porque también la usa magis, que recibe sus
- * subtítulos del gateway y no de ningún resolver web.
+ * Used to live in `com.arkiv.player.data.catalog.web.ResolvedSub` (torrent/web was removed in this
+ * branch's pruning); [WebExtras] still needs it because magis also uses it, receiving its
+ * subtitles from the gateway and not from any web resolver.
  */
 data class ResolvedSub(val lang: String, val url: String)
 
-/** Extras de una fuente resuelta (subtítulos + headers sniffeados) para adjuntar en la UI. Pese al
- *  nombre "web", también los usa [PlayerViewModel.loadMagis] para los subtítulos que trae el portal. */
+/** Extras of a resolved source (subtitles + sniffed headers) to attach in the UI. Despite the
+ *  "web" name, [PlayerViewModel.loadMagis] also uses it for the subtitles the portal brings. */
 data class WebExtras(
     val episodeId: String,
     val headers: Map<String, String>,
@@ -144,109 +146,110 @@ data class WebExtras(
 )
 
 /**
- * Lo que suena de Caracol: qué episodio es, desde dónde arrancar y lo que resolvió la fuente (la URL
- * del manifiesto y la licencia Widevine). Va en un solo valor para que la pantalla nunca vea la URL
- * de un episodio con la posición de otro.
+ * What's playing from Caracol: which episode it is, where to start from, and what the source
+ * resolved (the manifest URL and the Widevine license). Goes in a single value so the screen never
+ * sees one episode's URL with another's position.
  */
 data class DituReproducible(
     val episodeId: String,
     val playable: com.arkiv.player.data.gateway.GatewayPlayable,
     val startPositionMs: Long = 0L,
     /**
-     * Número de publicación; lo pone [DituState.publish]. Existe para que dos publicaciones
-     * nunca sean iguales: una recarga puede traer la misma URL y el mismo token, y la pantalla igual
-     * tiene que rearmar el reproductor (lo compone dentro de un `key` con este valor entero).
+     * Publication number; set by [DituState.publish]. Exists so two publications are never equal:
+     * a reload can bring the same URL and the same token, and the screen still has to rebuild the
+     * player (it composes it inside a `key` with this integer value).
      */
-    val generacion: Int = 0,
+    val generation: Int = 0,
     /**
-     * Si el reproductor arranca solo con la primera imagen. `false` es una recarga de algo que estaba
-     * en pausa: por ejemplo, un video que se pausó al irse la app al fondo y falló allá. `PlayerScreen`
-     * lee esto con `collectAsStateWithLifecycle`, así que ese reproductor nuevo se arma recién al
-     * volver, y no puede arrancar a sonar solo. Ver [StartOnFirstFrame.wantedToPlay].
+     * Whether the player starts on its own with the first frame. `false` is a reload of something
+     * that was paused: for example, a video that paused when the app went to the background and
+     * failed there. `PlayerScreen` reads this with `collectAsStateWithLifecycle`, so that new
+     * player is only built on return, and it can't start playing on its own. See
+     * [StartOnFirstFrame.wantedToPlay].
      */
-    val arrancarSolo: Boolean = true,
+    val autoStart: Boolean = true,
     /**
-     * El capítulo ya está bajado al dispositivo: de dónde leerlo.
+     * The chapter is already downloaded to the device: where to read it from.
      *
-     * `null` = reproducir por streaming, como siempre. Cuando viene, los segmentos salen del caché
-     * en vez del CDN -- pero la LICENCIA se sigue pidiendo por red, porque Caracol no concede
-     * licencias persistentes (ver [com.arkiv.player.data.caracol.CaracolDownload]). Por eso esto
-     * convive con [playable] en lugar de reemplazarlo: de ahí sale el `playback_token` fresco.
+     * `null` = play by streaming, as usual. When present, the segments come from the cache instead
+     * of the CDN -- but the LICENSE is still requested over the network, because Caracol doesn't
+     * grant persistent licenses (see [com.arkiv.player.data.caracol.CaracolDownload]). That's why
+     * this coexists with [playable] instead of replacing it: that's where the fresh
+     * `playback_token` comes from.
      */
-    val descargaLocal: com.arkiv.player.data.caracol.CaracolDownload? = null,
+    val localDownload: com.arkiv.player.data.caracol.CaracolDownload? = null,
 )
 
 /**
- * Qué se le muestra a la persona cuando un canal no abre.
+ * What to show the person when a channel doesn't open.
  *
- * Antes esto adivinaba "este TV no está vinculado" mirando si la config del gateway seguía en el
- * default baked-in. En esta rama no hay gateway, y el motivo real por el que un canal no abre —el
- * único que la persona puede arreglar— es no tener cuenta de Magis vinculada: el portal rechaza el
- * vivo con sesión anónima (`aaa100028`), aunque el VOD ande perfecto con ella. De ahí que se
- * pregunte por la cuenta y no por el error del portal: es lo accionable, y no depende de parsear
- * mensajes ni códigos.
+ * This used to guess "this TV isn't linked" by checking whether the gateway config was still at
+ * its baked-in default. This branch has no gateway, and the real reason a channel doesn't open --
+ * the only one the person can fix -- is not having a Magis account linked: the portal rejects live
+ * with an anonymous session (`aaa100028`), even though VOD works fine with it. Hence asking about
+ * the account and not the portal's error: it's the actionable thing, and doesn't depend on parsing
+ * messages or codes.
  */
-fun mensajeErrorVivo(
-    hayCuentaDeMagis: Boolean,
-    nombreCanal: String,
+fun liveErrorMessage(
+    hasMagisAccount: Boolean,
+    channelName: String,
 ): String =
-    if (!hayCuentaDeMagis) {
+    if (!hasMagisAccount) {
         "El canal en vivo necesita una cuenta de Magis vinculada (con el VOD alcanza sin ella). " +
             "Vincúlala en Ajustes, Cuenta."
     } else {
-        "No se pudo abrir $nombreCanal"
+        "No se pudo abrir $channelName"
     }
 
-// `internal constructor` por [dituFuente]: su tipo es interno al módulo, y un constructor público no
-// lo puede recibir.
+// `internal constructor` because of [dituFuente]: its type is internal to the module, and a public
+// constructor can't take it.
 class PlayerViewModel internal constructor(
     private val repo: ArkivRepository,
     private val archiveCacheProxy: ArchiveCacheProxy,
     private val localLibrary: com.arkiv.player.data.local.LocalLibrary,
     private val localFileServer: com.arkiv.player.playback.LocalFileServer,
     private val frameCapturer: com.arkiv.player.thumbnails.FrameCapturer,
-    // Tarea 14 (modo vivo): pegados al final para no reordenar los parámetros posicionales de
-    // arriba (el callsite en PlayerScreen los pasa por posición, no por nombre).
+    // Task 14 (live mode): stuck at the end so the positional params above don't get reordered
+    // (PlayerScreen's call site passes them by position, not by name).
     private val liveController: LiveController,
     private val liveRecentDao: LiveRecentDao,
-    // ¿Este proceso corre en un Android TV? Lo leen las pantallas que se dibujan distinto.
-    private val esTelevision: Boolean = false,
-    // Sub-proyecto 2A: de acá sale lo reproducible, directo del portal.
-    private val fuente: com.arkiv.player.data.gateway.ContentSource,
-    // Caracol aparte de [fuente]: sus canales en vivo no son parte del contrato común (ver
-    // `AppGraph.dituFuente`). [loadDitu] los resuelve con `DituFuente.resolverCanal`.
+    // Does this process run on an Android TV? Read by the screens that draw differently.
+    private val isTv: Boolean = false,
+    // Sub-project 2A: what's playable comes from here, straight from the portal.
+    private val source: com.arkiv.player.data.gateway.ContentSource,
+    // Caracol apart from [source]: its live channels aren't part of the common contract (see
+    // `AppGraph.dituFuente`). [loadDitu] resolves them with `DituFuente.resolverCanal`.
     private val dituFuente: com.arkiv.player.data.ditu.DituFuente,
-    /** Si hay una cuenta de Magis vinculada en este aparato. Solo decide qué dice el error cuando
-     *  un canal en vivo no abre (ver [mensajeErrorVivo]): el vivo la exige, el VOD no. */
-    private val hayCuentaDeMagis: () -> Boolean = { false },
-    /** El dato curioso (sub-proyecto 4). Null en los tests que no lo usan: sin él no hay botón. */
-    private val datosCuriosos: com.arkiv.player.data.trivia.TriviaFacts? = null,
+    /** Whether a Magis account is linked on this device. Only decides what the error says when a
+     *  live channel doesn't open (see [liveErrorMessage]): live requires it, VOD doesn't. */
+    private val hasMagisAccount: () -> Boolean = { false },
+    /** The fun facts (sub-project 4). Null in tests that don't use it: without it there's no button. */
+    private val triviaFacts: com.arkiv.player.data.trivia.TriviaFacts? = null,
 ) : ViewModel() {
 
     private val _playlist = MutableStateFlow<PlaylistData?>(null)
     val playlist: StateFlow<PlaylistData?> = _playlist.asStateFlow()
 
-    /** Ítem de Magis — lo reproduce ExoPlayer a través del proxy local, sin pasar por VLC. */
+    /** Magis item -- played by ExoPlayer through the local proxy, without going through VLC. */
     private val _magisItem = MutableStateFlow<PlayerData?>(null)
     val magisItem: StateFlow<PlayerData?> = _magisItem.asStateFlow()
 
     /**
-     * Canal en vivo (Task 1, poda de light-magis) — lo reproduce ExoPlayer a través de
-     * [LiveHlsProxy], sin pasar por VLC. Reemplaza a [_playlist] para [SourceKind.LIVE]: antes de
-     * esta tarea [abrirCanalActual] publicaba un `PlaylistData` de un solo ítem para que VLC lo
-     * reprodujera, igual que hacía Magis VOD antes de su propia migración (ver [_magisItem]).
+     * Live channel (Task 1, light-magis pruning) -- played by ExoPlayer through
+     * [LiveHlsProxy], without going through VLC. Replaces [_playlist] for [SourceKind.LIVE]: before
+     * this task [openCurrentChannel] published a single-item `PlaylistData` for VLC to play, the
+     * same way Magis VOD did before its own migration (see [_magisItem]).
      *
-     * `startPositionMs` siempre es 0 -- un directo no tiene "dónde ibas" (ver el KDoc de
-     * [abrirCanalActual]), así que a diferencia de [_magisItem] este ítem no necesita reanudación.
+     * `startPositionMs` is always 0 -- a live stream has no "where you were" (see
+     * [openCurrentChannel]'s KDoc), so unlike [_magisItem] this item needs no resume.
      */
     private val _liveItem = MutableStateFlow<PlayerData?>(null)
     val liveItem: StateFlow<PlayerData?> = _liveItem.asStateFlow()
 
     /**
-     * Episodio de Caracol en curso, o `null` si lo que suena es de otra fuente. Cuando no es null,
-     * `PlayerScreen` lo reproduce con [DituExoPlayer] en vez de VLC o del reproductor de Magis.
-     * Lo publica [DituState], que descarta lo que llega tarde y lleva los topes de re-preparados
-     * y de recargas.
+     * Current Caracol episode, or `null` if what's playing is from another source. When not null,
+     * `PlayerScreen` plays it with [DituExoPlayer] instead of VLC or Magis's player. Published by
+     * [DituState], which discards late arrivals and tracks the re-prepare and reload caps.
      */
     private val ditu = DituState()
     val dituPlayable: StateFlow<DituReproducible?> = ditu.current
@@ -256,19 +259,20 @@ class PlayerViewModel internal constructor(
     val error: StateFlow<String?> = _error.asStateFlow()
 
     /**
-     * Si lo que hay en [_error] vino de un TROPIEZO del player y no de no poder abrir la fuente.
+     * Whether what's in [_error] came from a player HICCUP and not from being unable to open the
+     * source.
      *
-     * Son dos situaciones distintas que hasta ahora compartían canal. "No hay peers" o "no se pudo
-     * resolver la fuente" significan que NO hay nada sonando: el cartel tiene que quedarse. En
-     * cambio [onPlaybackFailed] se dispara con un PlaybackException, y de esos hay que se reparan
-     * solos —un tirón de red, un rebuffer que el player remonta— con el video siguiendo de largo. Ahí el
-     * cartel queda mintiendo sobre un video que anda bien, y encima tapa los controles: la barra se
-     * compone con `loadError == null`, así que mientras esté en pantalla el D-pad no llega al
-     * slider y no se puede ni pausar. Visto en el Fire TV el 2026-08-12.
+     * Two different situations that used to share one channel. "No peers" or "couldn't resolve the
+     * source" mean there is NOTHING playing: the banner has to stay. [onPlaybackFailed], on the
+     * other hand, fires with a PlaybackException, and some of those fix themselves -- a network
+     * blip, a rebuffer the player recovers from -- with the video carrying on. There the banner is
+     * left lying about a video that's fine, and on top of that it covers the controls: the bar
+     * composes with `loadError == null`, so while it's on screen the D-pad never reaches the
+     * slider and playback can't even be paused. Seen on the Fire TV on 2026-08-12.
      *
-     * Ver [onReproduccionViva], que es quien lo apaga.
+     * See [onPlaybackHealthy], which is what turns it off.
      */
-    private var errorDeReproduccion = false
+    private var playbackHiccup = false
 
     // Feedback while Magis/Caracol resolve the actual playable stream (can take a moment). Named
     // after the removed web resolver this originally covered; Magis and Ditu are what set it today.
@@ -281,33 +285,34 @@ class PlayerViewModel internal constructor(
     val webExtras: StateFlow<WebExtras?> = _webExtras.asStateFlow()
 
     /**
-     * Datos curiosos de lo que se está viendo, o vacío. Se piden TODOS DE UNA al arrancar y la
-     * pantalla avanza entre ellos a pulsación (ver [PlayerTrivia]): pasar al siguiente no puede
-     * costar los ~20 s que tarda el modelo, ni fallar a mitad de una película.
+     * Fun facts about what's being watched, or empty. They're requested ALL AT ONCE on startup and
+     * the screen advances between them by press (see [PlayerTrivia]): moving to the next one can't
+     * cost the ~20 s the model takes, nor fail in the middle of a movie.
      */
     private val _trivia = MutableStateFlow<List<String>>(emptyList())
     val trivia: StateFlow<List<String>> = _trivia.asStateFlow()
 
-    /** Cancelable: al saltar de capítulo, la tanda del anterior ya no sirve. */
+    /** Cancelable: on jumping chapters, the previous one's batch is no longer any good. */
     private var triviaJob: kotlinx.coroutines.Job? = null
 
-    /** Carga el episodio como playlist, ramificando por fuente (Magis vs Ditu vs id desconocido/legado). */
+    /** Loads the episode as a playlist, branching by source (Magis vs Ditu vs unknown/legacy id). */
     fun load(episodeId: String) {
-        // Antes que todo lo demás, y también para el vivo: una resolución de Caracol que siga en
-        // vuelo tiene que saber que ya no es la vigente. Ver [DituState].
+        // Before everything else, live included: a Caracol resolution still in flight has to know
+        // it's no longer the active one. See [DituState].
         ditu.newRequest(episodeId)
-        apagarTrivia()
-        // Modo vivo (Tarea 14): CORTA ACÁ, antes de tocar nada del camino VOD de abajo -- ni
-        // markInProgress ni localLibrary. Es la bandera que aísla TODO el comportamiento distinto:
-        // un canal en vivo no tiene duración que sondear (ver KDoc de LiveZapping/LiveController --
-        // sondearla es lo que rompía el VOD de Magis), progreso que guardar, ni "siguiente
-        // capítulo" de series -- el único "siguiente" que existe en vivo es el zapping.
+        clearTrivia()
+        // Live mode (Task 14): CUTS OFF HERE, before touching anything on the VOD path below --
+        // neither markInProgress nor localLibrary. It's the flag that isolates ALL of the different
+        // behavior: a live channel has no duration to poll (see LiveZapping/LiveController's KDoc
+        // -- polling it is what broke Magis VOD), no progress to save, and no "next chapter" for
+        // series -- the only "next" that exists in live is zapping.
         if (PlayerSource.kindFor(episodeId) == SourceKind.LIVE) {
             loadLive(episodeId.removePrefix(PlayerSource.LIVE_PREFIX))
             return
         }
         viewModelScope.launch {
-            // Antes que nada: que el detalle sepa por qué capítulo vas aunque salgas enseguida.
+            // Before anything: so the detail screen knows which chapter you're on even if you
+            // leave right away.
             //
             // Unless it shouldn't be recorded. This is the THIRD path that writes to history, the
             // one that slipped past the other two: it doesn't write position or duration -- the
@@ -317,22 +322,22 @@ class PlayerViewModel internal constructor(
             // was watched. Found playing for real on the Fire TV on 2026-08-14: the progress, frame
             // and library guards all held, and this row showed up anyway.
             //
-            // Acá NO sirve [hayQueAnotarHistorial]: esto corre ANTES de resolver la fuente, cuando
-            // `_playlist` todavía es la del episodio anterior (o null), así que preguntarle daría
-            // "no sé" → anotar, que es justo lo contrario de lo que hace falta. Lo que sí se sabe a
-            // esta altura es el pendiente efímero, que la pantalla dejó antes de navegar.
+            // [shouldLogHistory] doesn't work here: this runs BEFORE resolving the source, while
+            // `_playlist` is still the previous episode's (or null), so asking it would answer
+            // "don't know" → log, exactly the opposite of what's needed. What IS known at this
+            // point is the ephemeral pending item, which the screen left before navigating.
             //
-            // Un canal en vivo de Caracol tampoco se marca: ver [hayQueMarcarEnCurso].
-            if (hayQueMarcarEnCurso(episodeId, MagisEphemeral.take(episodeId)?.adulto)) {
+            // A Caracol live channel isn't marked either: see [shouldMarkInProgress].
+            if (shouldMarkInProgress(episodeId, MagisEphemeral.take(episodeId)?.adulto)) {
                 runCatching { repo.markInProgress(episodeId) }
             }
             _error.value = null
             _magisItem.value = null
-            // Navegar de un canal en vivo a un episodio VOD sin pasar por otra pantalla (el mismo
-            // ViewModel sobrevive, ver el guard de más arriba): sin este reset, `liveItem` seguía
-            // publicando el último canal y PlayerScreen (isLive/isLiveExo) lo creía vigente.
+            // Navigating from a live channel to a VOD episode without going through another screen
+            // (the same ViewModel survives, see the guard above): without this reset, `liveItem`
+            // kept publishing the last channel and PlayerScreen (isLive/isLiveExo) still believed it.
             _liveItem.value = null
-            errorDeReproduccion = false
+            playbackHiccup = false
             // If it's saved on the device, it wins over any streaming. Goes BEFORE branching by
             // source: no matter where the file came from, it's already here.
             //
@@ -347,7 +352,7 @@ class PlayerViewModel internal constructor(
             }
             // After the download detour, on purpose: a file already on the device carries no
             // trivia (see [PlayerTrivia.wantsFacts]).
-            if (PlayerTrivia.wantsFacts(episodeId, kind)) cargarTrivia(episodeId)
+            if (PlayerTrivia.wantsFacts(episodeId, kind)) loadTrivia(episodeId)
             Log.w(PLAY, "load() episodeId=$episodeId kind=$kind")
             when (kind) {
                 SourceKind.UNKNOWN -> loadUnknownSource(episodeId)
@@ -362,22 +367,23 @@ class PlayerViewModel internal constructor(
         }
     }
 
-    /** Lo del episodio anterior no puede quedarse en pantalla con el siguiente. */
-    private fun apagarTrivia() {
+    /** The previous episode's can't stay on screen with the next one's. */
+    private fun clearTrivia() {
         triviaJob?.cancel()
         _trivia.value = emptyList()
     }
 
     /**
-     * Pide la tanda de datos curiosos, best-effort. Se traga cualquier fallo: sin datos no se dibuja
-     * el botón, que es el fallo bueno para algo accesorio. `CancellationException` no se traga:
-     * dejaría corriendo una corrutina que su scope ya dio por muerta.
+     * Requests the batch of fun facts, best-effort. Swallows any failure: with no facts the button
+     * isn't drawn, the good failure for something accessory. Doesn't swallow
+     * `CancellationException`: that would leave a coroutine running that its scope already
+     * considers dead.
      */
-    private fun cargarTrivia(episodeId: String) {
-        apagarTrivia()
-        val fuenteDeDatos = datosCuriosos ?: return
+    private fun loadTrivia(episodeId: String) {
+        clearTrivia()
+        val facts = triviaFacts ?: return
         triviaJob = viewModelScope.launch {
-            val obra = try {
+            val subject = try {
                 repo.triviaSubjectFor(episodeId)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -391,8 +397,8 @@ class PlayerViewModel internal constructor(
                 return@launch
             }
             _trivia.value = try {
-                fuenteDeDatos.of(obra) { repo.workSheetFor(obra) }
-                    .also { Log.w(PLAY, "trivia: ${it.size} facts for ${obra.key}") }
+                facts.of(subject) { repo.workSheetFor(subject) }
+                    .also { Log.w(PLAY, "trivia: ${it.size} facts for ${subject.key}") }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -402,116 +408,116 @@ class PlayerViewModel internal constructor(
         }
     }
 
-    // --- Modo vivo (Tarea 14) ---------------------------------------------------------------
+    // --- Live mode (Task 14) ---------------------------------------------------------------
     // Isolated from the rest of the file on purpose (see the guard at the start of load()): none
     // of this participates in VOD playlists, casting, local downloads or resume -- concepts that
     // don't exist in live. See LiveController/LiveZapping's KDoc for the full reasoning.
 
-    /** Zapping en curso -- null fuera de modo vivo. */
+    /** Zapping in progress -- null outside live mode. */
     private var zapping: LiveZapping? = null
 
-    /** Job cancelable del precalentado de vecinos -- ver KDoc de [precalentarVecinos]. */
-    private var precalentarJob: kotlinx.coroutines.Job? = null
+    /** Cancelable job for preheating the neighbors -- see [preheatNeighbors]'s KDoc. */
+    private var preheatJob: kotlinx.coroutines.Job? = null
 
-    private val _liveCanal = MutableStateFlow<LiveChannel?>(null)
+    private val _liveChannel = MutableStateFlow<LiveChannel?>(null)
 
-    /** El canal en pantalla ahora mismo (código/nombre/número/logo), para el overlay de PlayerScreen. */
-    val liveCanal: StateFlow<LiveChannel?> = _liveCanal.asStateFlow()
+    /** The channel on screen right now (code/name/number/logo), for PlayerScreen's overlay. */
+    val liveChannel: StateFlow<LiveChannel?> = _liveChannel.asStateFlow()
 
-    private val _generacionVivo = MutableStateFlow(0)
+    private val _liveGeneration = MutableStateFlow(0)
 
     /**
-     * Sube en CADA carga de un canal en vivo: abrir, zapear y reabrir tras un corte.
+     * Bumps on EVERY live channel load: opening, zapping, and reopening after a cut.
      *
-     * Existe porque [playlist] no alcanza para avisar de una reapertura: el `PlaylistData` que se
-     * publica al reabrir el mismo canal es igual al anterior y `StateFlow` no emite valores
-     * iguales. La pantalla mira las dos cosas, así que una carga siempre le llega aunque el
-     * contenido no haya cambiado ni un byte.
+     * Exists because [playlist] isn't enough to signal a reopen: the `PlaylistData` published on
+     * reopening the same channel is equal to the previous one and `StateFlow` doesn't emit equal
+     * values. The screen watches both things, so a load always reaches it even when the content
+     * hasn't changed by a single byte.
      */
-    val generacionVivo: StateFlow<Int> = _generacionVivo.asStateFlow()
+    val liveGeneration: StateFlow<Int> = _liveGeneration.asStateFlow()
 
     /**
-     * Arranca el zapping sobre la lista con la que el usuario ENTRÓ (ver [LiveZappingSource]), no
-     * el catálogo completo -- es la que tiene en la cabeza. Sin nada fijado ahí (proceso recreado
-     * a mitad del reproductor en vivo, o un llamador que no pasó por la grilla) cae a una lista de
-     * un solo canal: se pierde el zapping, pero el canal elegido reproduce igual.
+     * Starts zapping over the list the user ENTERED with (see [LiveZappingSource]), not the whole
+     * catalog -- it's the one they have in mind. With nothing set there (process recreated
+     * mid-live-player, or a caller that didn't go through the grid) it falls back to a single-
+     * channel list: zapping is lost, but the chosen channel still plays.
      */
     private fun loadLive(code: String) {
-        val entrada = LiveZappingSource.list.ifEmpty { listOf(LiveChannel(code, code, 0, null)) }
-        val indice = entrada.indexOfFirst { it.code == code }.coerceAtLeast(0)
-        zapping = LiveZapping(entrada, indice)
-        abrirCanalActual()
+        val entryList = LiveZappingSource.list.ifEmpty { listOf(LiveChannel(code, code, 0, null)) }
+        val index = entryList.indexOfFirst { it.code == code }.coerceAtLeast(0)
+        zapping = LiveZapping(entryList, index)
+        openCurrentChannel()
     }
 
     /**
-     * Abre el canal actual del zapping: resuelve contra [liveController] y publica un [PlayerData]
-     * de UN solo ítem que arranca siempre en 0 -- en vivo no hay "dónde ibas" que reanudar. NO
-     * sondea duración (no la hay) y NO guarda progreso (ver [saveProgress], que PlayerScreen ya no
-     * llama en modo vivo). Anota el canal en [liveRecentDao] -- es lo único que llena el chip
-     * "Recientes" de la grilla, que hasta esta tarea nadie escribía.
+     * Opens zapping's current channel: resolves against [liveController] and publishes a single-
+     * item [PlayerData] that always starts at 0 -- live has no "where you were" to resume. Does
+     * NOT poll for duration (there isn't one) and does NOT save progress (see [saveProgress],
+     * which PlayerScreen no longer calls in live mode). Logs the channel in [liveRecentDao] -- the
+     * only thing that fills the grid's "Recientes" chip, which until this task nobody wrote to.
      *
-     * Task 1 (poda de light-magis): publica [_liveItem], no [_playlist] -- el canal en vivo lo
-     * reproduce ExoPlayer a través de [LiveHlsProxy] (mismo patrón que [_magisItem] para VOD), sin
-     * pasar por VLC. `url` ya sale de [liveController] con el host/puerto/token del proxy local
-     * inyectados; ExoPlayer no necesita headers propios porque el proxy los pone él mismo contra el
-     * CDN -- es la razón de ser de [LiveHlsProxy] (ver su KDoc).
+     * Task 1 (light-magis pruning): publishes [_liveItem], not [_playlist] -- the live channel is
+     * played by ExoPlayer through [LiveHlsProxy] (same pattern as [_magisItem] for VOD), without
+     * going through VLC. `url` already comes out of [liveController] with the local proxy's
+     * host/port/token injected; ExoPlayer needs no headers of its own because the proxy sets them
+     * itself against the CDN -- that's [LiveHlsProxy]'s whole reason to exist (see its KDoc).
      */
-    private fun abrirCanalActual() {
-        val canal = zapping?.current ?: return
-        _liveCanal.value = canal
+    private fun openCurrentChannel() {
+        val channel = zapping?.current ?: return
+        _liveChannel.value = channel
         viewModelScope.launch {
             _error.value = null
-            errorDeReproduccion = false
-            // Fix de revisión (Task 1): igual que loadMagis() descarta la
-            // fuente VOD rival ANTES de publicar la propia, acá hay que descartar TODAS las fuentes
-            // VOD antes de publicar `_liveItem`. Sin esto, entrar en vivo sin recomponer la pantalla
-            // (irACanal()/zapSiguiente()/zapAnterior() llaman a abrirCanalActual() directo, sin pasar
-            // por el reset de load()) dejaba `_magisItem`/`_playlist` con el valor
-            // viejo. PlayerScreen.activePlayer mira magisItem ANTES que liveItem, así que
-            // un `_magisItem` viejo ganaría esa decisión y el canal en vivo nunca se vería -- y un
-            // `_playlist` viejo podía reactivar el `LaunchedEffect(playlist, generacionVivo)` de VOD
-            // contra contenido ya abandonado.
+            playbackHiccup = false
+            // Review fix (Task 1): just like loadMagis() discards the rival VOD source BEFORE
+            // publishing its own, here EVERY VOD source has to be discarded before publishing
+            // `_liveItem`. Without this, entering live without recomposing the screen
+            // (goToChannel()/zapNext()/zapPrevious() call openCurrentChannel() directly, without going
+            // through load()'s reset) left `_magisItem`/`_playlist` with the old value.
+            // PlayerScreen.activePlayer checks magisItem BEFORE liveItem, so a stale `_magisItem`
+            // would win that decision and the live channel would never show -- and a stale
+            // `_playlist` could reactivate VOD's `LaunchedEffect(playlist, liveGeneration)` against
+            // already-abandoned content.
             _playlist.value = null
             _magisItem.value = null
             ditu.clear()
-            val url = runCatching { liveController.open(canal.code) }.getOrElse {
-                Log.w(PLAY, "abrirCanalActual() failed for ${canal.code}: ${it.message}")
-                if (zapping?.current?.code == canal.code) {
-                    _error.value = mensajeErrorVivo(hayCuentaDeMagis(), canal.nombre)
+            val url = runCatching { liveController.open(channel.code) }.getOrElse {
+                Log.w(PLAY, "openCurrentChannel() failed for ${channel.code}: ${it.message}")
+                if (zapping?.current?.code == channel.code) {
+                    _error.value = liveErrorMessage(hasMagisAccount(), channel.nombre)
                 }
                 return@launch
             }
-            // Zapeos rápidos: si para cuando este abrir() (~3s en el peor caso) vuelve el usuario
-            // ya zapeó a OTRO canal, esta respuesta tardía no debe pisar lo que hay en pantalla --
-            // mismo patrón (y mismo motivo) que LiveViewModel.cargar() con categoriaActiva, ver su
+            // Fast zaps: if by the time this open() (~3s worst case) comes back the user already
+            // zapped to ANOTHER channel, this late response must not override what's on screen --
+            // same pattern (and same reason) as LiveViewModel.cargar()'s categoriaActiva, see its
             // KDoc.
-            if (zapping?.current?.code != canal.code) return@launch
+            if (zapping?.current?.code != channel.code) return@launch
             val item = PlayerData(
-                episodeId = "${PlayerSource.LIVE_PREFIX}${canal.code}",
-                itemId = "${PlayerSource.LIVE_PREFIX}${canal.code}",
-                title = canal.nombre,
+                episodeId = "${PlayerSource.LIVE_PREFIX}${channel.code}",
+                itemId = "${PlayerSource.LIVE_PREFIX}${channel.code}",
+                title = channel.nombre,
                 subtitle = "",
                 mediaUrl = url,
-                // Un canal en vivo nunca tiene un mp4 h.264 de respaldo -es un directo, no un
-                // archivo-, así que castUrl siempre es null. Eso NO significa que no castee (Tarea
-                // 18): PlayerScreen.castRequestFor resuelve la URL alcanzable por LAN del proxy
-                // local (LiveHlsProxy.lanUrl) por su cuenta -- ver el KDoc de CastRequestBuilder.
+                // A live channel never has an h.264 mp4 backup -it's a live stream, not a file-, so
+                // castUrl is always null. That does NOT mean it can't cast (Task 18):
+                // PlayerScreen.castRequestFor resolves the local proxy's LAN-reachable URL
+                // (LiveHlsProxy.lanUrl) on its own -- see CastRequestBuilder's KDoc.
                 castUrl = null,
-                artworkUrl = canal.logo.orEmpty(),
+                artworkUrl = channel.logo.orEmpty(),
                 openingStartMs = null, openingEndMs = null, endingStartMs = null,
                 kind = SourceKind.LIVE,
             )
-            // Sin `pedido` (a diferencia del viejo PlaylistData): en vivo nunca pasa por
-            // MediaReusePolicy, que era el único consumidor de esa marca.
+            // No `requested` (unlike the old PlaylistData): live never goes through
+            // MediaReusePolicy, which was that mark's only consumer.
             _liveItem.value = item
-            // Y el aviso de que ACÁ HUBO UNA CARGA, aunque el valor de arriba sea idéntico al que
-            // ya estaba. Reabrir un canal cortado produce un [PlayerData] **igual** al anterior
-            // -mismo canal, y `mediaUrl` es la url del proxy local, cuyo puerto y token viven
-            // tanto como el socket-, y un `StateFlow` descarta los valores iguales: la pantalla no
-            // se enteraba, no volvía a recargar el MediaItem, y la reapertura quedaba en el log
-            // sin que se reprodujera nada. Medido en el Fire TV el 2026-08-14: `canal →` a las
-            // 22:19:20 y después silencio, con la sesión de medios congelada en pos=99631ms.
-            _generacionVivo.value++
+            // And the notice that A LOAD HAPPENED HERE, even if the value above is identical to
+            // what was already there. Reopening a cut channel produces a [PlayerData] **equal** to
+            // the previous one -same channel, and `mediaUrl` is the local proxy's url, whose port
+            // and token live as long as the socket does-, and a `StateFlow` drops equal values: the
+            // screen never found out, never reloaded the MediaItem, and the reopen stayed in the
+            // log with nothing actually playing. Measured on the Fire TV on 2026-08-14: `canal →`
+            // at 22:19:20 and then silence, with the media session frozen at pos=99631ms.
+            _liveGeneration.value++
             // An adult channel is NOT recorded. And it's solved by NOT WRITING instead of
             // filtering on read: what isn't written can't leak through a screen we forgot about
             // -- "Recents" is drawn in the guide, in the drawer and on the phone. Until Task 5 it
@@ -520,144 +526,146 @@ class PlayerViewModel internal constructor(
             // device's own screens (above) is still reason enough not to write it. Filtering on
             // read leaves the data sitting there, waiting for the first place that forgets to
             // filter.
-            // Por [AdultContent] y no por un `!canal.adulto` suelto: la regla es la misma que
-            // la del progreso y la de los frames, y tenerla escrita en un solo lugar es lo que
-            // evita que mañana una de las tres se corrija y las otras dos no.
-            if (AdultContent.shouldLog(canal.adulto)) {
+            // Through [AdultContent] and not a standalone `!canal.adulto`: the rule is the same as
+            // progress's and frames', and keeping it written in one single place is what stops one
+            // of the three from being fixed tomorrow while the other two aren't.
+            if (AdultContent.shouldLog(channel.adulto)) {
                 runCatching {
-                    liveRecentDao.record(LiveRecentEntity(canal.code, canal.nombre, System.currentTimeMillis()))
+                    liveRecentDao.record(LiveRecentEntity(channel.code, channel.nombre, System.currentTimeMillis()))
                 }
             }
-            precalentarVecinos()
+            preheatNeighbors()
         }
     }
 
-    /** Zapping: siguiente/anterior de la lista con la que se entró. Sin efecto fuera de modo vivo. */
-    fun zapSiguiente() { zapping?.next() ?: return; abrirCanalActual() }
-    fun zapAnterior() { zapping?.previous() ?: return; abrirCanalActual() }
+    /** Zapping: next/previous in the list entered with. No effect outside live mode. */
+    fun zapNext() { zapping?.next() ?: return; openCurrentChannel() }
+    fun zapPrevious() { zapping?.previous() ?: return; openCurrentChannel() }
 
-    /** Reaperturas seguidas del canal actual sin que haya vuelto a dar imagen, y de qué canal son. */
-    private var reaperturasVivo = 0
-    private var canalDelContador: String? = null
-    private var reabrirJob: kotlinx.coroutines.Job? = null
-
-    /**
-     * Cuándo empezó el hueco sin imagen que estamos tratando de tapar (0 = no hay ninguno).
-     *
-     * Es el número que mide lo que la persona VE. `pos` y los códigos del CDN cuentan qué pasó por
-     * dentro; esto cuenta cuántos segundos estuvo la pantalla sin avanzar, que es lo único por lo
-     * que se juzga si el vivo quedó usable.
-     */
-    private var cortadoEn = 0L
+    /** Consecutive reopens of the current channel with no picture back yet, and which channel they're for. */
+    private var liveReopens = 0
+    private var counterChannel: String? = null
+    private var reopenJob: kotlinx.coroutines.Job? = null
 
     /**
-     * El directo se cortó: reabrirlo, porque un directo no termina.
+     * When the picture-less gap we're trying to cover started (0 = none in progress).
      *
-     * Un `EndReached` en vivo nunca es "se acabó el contenido" — es que el reproductor se quedó sin
-     * datos. Hasta ahora eso dejaba el canal muerto y ahí se quedaba: la pantalla se congelaba y la
-     * única salida era volver atrás y entrar de nuevo. Medido en el Fire TV el 2026-08-14, cuatro
-     * veces seguidas con RCN FHD: el origen de esa señal fallaba de a ratos —404 en los segmentos y
-     * hasta en el playlist— y a los pocos segundos volvía solo. O sea que lo que faltaba no era
-     * adivinar mejor el fallo, era volver a intentar.
-     *
-     * Tres reaperturas con espera que se duplica (2 s, 4 s, 8 s): cubre un bache de ~15 s, que es de
-     * la magnitud de lo medido. Al cuarto corte se avisa en pantalla en vez de seguir. Reintentar sin
-     * tope dejaría un canal dado de baja en bucle para siempre, gastando datos y sin decir nunca qué
-     * está pasando — el silencio es peor que el error.
-     *
-     * El presupuesto es POR CANAL ([canalDelContador]) y se repone entero apenas el canal vuelve a
-     * reproducir ([vivoAndando]): si aguanta una hora y después tiene un hipo, arranca de cero.
+     * The number that measures what the person SEES. `pos` and the CDN's codes count what happened
+     * internally; this counts how many seconds the screen went without advancing, which is the
+     * only thing live's usability gets judged by.
      */
-    fun reabrirVivoPorCorte() {
-        val canal = zapping?.current ?: return
-        if (canal.code != canalDelContador) {
-            canalDelContador = canal.code
-            reaperturasVivo = 0
+    private var cutSince = 0L
+
+    /**
+     * The live stream cut out: reopen it, because a live stream doesn't end.
+     *
+     * An `EndReached` in live is never "the content ended" -- it's that the player ran out of
+     * data. Until now that left the channel dead right there: the screen froze and the only way
+     * out was going back and entering again. Measured on the Fire TV on 2026-08-14, four times in
+     * a row with RCN FHD: that signal's origin failed intermittently -- 404s on the segments and
+     * even on the playlist -- and recovered on its own within seconds. So what was missing wasn't
+     * a better guess at the failure, it was trying again.
+     *
+     * Three reopens with doubling waits (2 s, 4 s, 8 s): covers a gap of ~15 s, in the ballpark of
+     * what was measured. On the fourth cut it warns on screen instead of continuing. Retrying with
+     * no cap would leave a dead channel looping forever, burning data and never saying what's going
+     * on -- silence is worse than the error.
+     *
+     * The budget is PER CHANNEL ([counterChannel]) and gets fully replenished as soon as the
+     * channel plays again ([liveIsPlaying]): if it holds for an hour and then hiccups, it starts
+     * from zero.
+     */
+    fun reopenLiveAfterCut() {
+        val channel = zapping?.current ?: return
+        if (channel.code != counterChannel) {
+            counterChannel = channel.code
+            liveReopens = 0
         }
-        if (reaperturasVivo >= MAX_REAPERTURAS_VIVO) {
-            Log.w(PLAY, "live: ${canal.code} didn't come back after $MAX_REAPERTURAS_VIVO reopens → warning")
-            _error.value = "Se cortó la señal de ${canal.nombre} y no volvió. " +
+        if (liveReopens >= MAX_LIVE_REOPENS) {
+            Log.w(PLAY, "live: ${channel.code} didn't come back after $MAX_LIVE_REOPENS reopens → warning")
+            _error.value = "Se cortó la señal de ${channel.nombre} y no volvió. " +
                 "Puede ser un problema del canal: prueba de nuevo o mira otro."
             return
         }
-        if (cortadoEn == 0L) cortadoEn = System.currentTimeMillis()
-        reaperturasVivo++
-        val espera = ESPERA_REAPERTURA_MS shl (reaperturasVivo - 1)
+        if (cutSince == 0L) cutSince = System.currentTimeMillis()
+        liveReopens++
+        val wait = REOPEN_WAIT_MS shl (liveReopens - 1)
         Log.w(
             PLAY,
-            "live: ${canal.code} cut out → reopening in ${espera}ms " +
-                "(attempt $reaperturasVivo/$MAX_REAPERTURAS_VIVO)",
+            "live: ${channel.code} cut out → reopening in ${wait}ms " +
+                "(attempt $liveReopens/$MAX_LIVE_REOPENS)",
         )
-        reabrirJob?.cancel()
-        reabrirJob = viewModelScope.launch {
-            delay(espera)
-            // Zapear durante la espera gana: reabrir acá el canal viejo pisaría el que la persona
-            // acaba de elegir.
-            if (zapping?.current?.code == canal.code) abrirCanalActual()
+        reopenJob?.cancel()
+        reopenJob = viewModelScope.launch {
+            delay(wait)
+            // Zapping during the wait wins: reopening the old channel here would override the one
+            // the person just chose.
+            if (zapping?.current?.code == channel.code) openCurrentChannel()
         }
     }
 
     /**
-     * El canal se está reproduciendo de verdad: se le repone el presupuesto de reaperturas.
+     * The channel is genuinely playing: its reopen budget is replenished.
      *
      * Asks for the POSITION and not a boolean because `isPlaying` used to turn true as soon as VLC
      * opened the media, before the first frame: with that, a channel that reopened and died at
      * `pos=0ms` still replenished the budget, the ceiling never ran out, and
-     * [reabrirVivoPorCorte]'s warning was unreachable. [MINIMO_VIVO_SANO_MS] is the line between
+     * [reopenLiveAfterCut]'s warning was unreachable. [MIN_HEALTHY_LIVE_MS] is the line between
      * "it recovered" and "it reopened and dropped again".
      */
-    fun vivoAndando(posicionMs: Long) {
-        if (reaperturasVivo == 0 || posicionMs < MINIMO_VIVO_SANO_MS) return
-        val hueco = if (cortadoEn > 0L) System.currentTimeMillis() - cortadoEn else -1L
+    fun liveIsPlaying(positionMs: Long) {
+        if (liveReopens == 0 || positionMs < MIN_HEALTHY_LIVE_MS) return
+        val gap = if (cutSince > 0L) System.currentTimeMillis() - cutSince else -1L
         Log.w(
             PLAY,
-            "live: recovered after ${hueco}ms with no picture and $reaperturasVivo reopen(s) " +
-                "(played ${posicionMs}ms) → replenishing the budget",
+            "live: recovered after ${gap}ms with no picture and $liveReopens reopen(s) " +
+                "(played ${positionMs}ms) → replenishing the budget",
         )
-        reaperturasVivo = 0
-        cortadoEn = 0L
+        liveReopens = 0
+        cutSince = 0L
     }
 
     /**
-     * El cajón de canales eligió otro canal: cambia el canal Y la lista que el zapping recorre.
+     * The channel drawer chose another channel: changes the channel AND the list zapping moves
+     * through.
      *
-     * Las dos cosas juntas a propósito. El cajón lista el catálogo entero por categorías, así que
-     * el canal elegido puede no estar en la lista con la que se entró — dejar el zapping viejo
-     * haría que la primera flecha arriba saltara a un canal de otra categoría, sin relación con
-     * lo que se acaba de elegir. `lista` es la que el cajón tenía en pantalla (ya filtrada por la
-     * búsqueda, si había una), que es exactamente lo que se espera recorrer después.
+     * Both together on purpose. The drawer lists the whole catalog by category, so the chosen
+     * channel might not be in the list entered with -- keeping the old zapping would make the
+     * first up-arrow jump to a channel from another category, unrelated to what was just chosen.
+     * [list] is what the drawer had on screen (already filtered by search, if there was one),
+     * which is exactly what's expected to be moved through afterward.
      *
-     * También se fija en [LiveZappingSource] para que sobreviva a una recreación de la pantalla,
-     * que es de donde [loadLive] la lee.
+     * Also set on [LiveZappingSource] so it survives a screen recreation, which is where
+     * [loadLive] reads it from.
      */
-    fun irACanal(lista: List<LiveChannel>, canal: LiveChannel) {
-        val entrada = lista.ifEmpty { listOf(canal) }
-        LiveZappingSource.list = entrada
-        zapping = LiveZapping(entrada, entrada.indexOfFirst { it.code == canal.code }.coerceAtLeast(0))
-        abrirCanalActual()
+    fun goToChannel(list: List<LiveChannel>, channel: LiveChannel) {
+        val entryList = list.ifEmpty { listOf(channel) }
+        LiveZappingSource.list = entryList
+        zapping = LiveZapping(entryList, entryList.indexOfFirst { it.code == channel.code }.coerceAtLeast(0))
+        openCurrentChannel()
     }
 
     /**
-     * Precalienta los vecinos del zapping ~1s después de abrir el canal actual -- si el usuario
-     * zapea antes de que pase ese segundo, [abrirCanalActual] cancela este job (siguiente llamada)
-     * antes de programar el próximo. Resolver cuesta ~3s (dos llamadas a un portal cortado a 1
-     * cada 1,5s, ver KDoc de LiveController), así que vale la pena adelantarlo mientras el usuario
-     * no está zapeando activamente. Best-effort: un vecino que falla no impide que el otro se
-     * intente, y ninguno de los dos bloquea nada -- el playlist ya se publicó antes de llegar acá.
+     * Preheats zapping's neighbors ~1s after opening the current channel -- if the user zaps
+     * before that second passes, [openCurrentChannel] cancels this job (next call) before
+     * scheduling the next one. Resolving costs ~3s (two calls to a portal cut to 1 every 1.5s, see
+     * LiveController's KDoc), so it's worth getting ahead of while the user isn't actively zapping.
+     * Best-effort: a neighbor that fails doesn't stop the other one from being tried, and neither
+     * blocks anything -- the playlist was already published before reaching here.
      */
-    private fun precalentarVecinos() {
-        precalentarJob?.cancel()
-        val vecinos = zapping?.neighbors() ?: return
-        precalentarJob = viewModelScope.launch {
+    private fun preheatNeighbors() {
+        preheatJob?.cancel()
+        val neighbors = zapping?.neighbors() ?: return
+        preheatJob = viewModelScope.launch {
             delay(1000)
-            vecinos.forEach { vecino -> launch { runCatching { liveController.preheat(vecino.code) } } }
+            neighbors.forEach { neighbor -> launch { runCatching { liveController.preheat(neighbor.code) } } }
         }
     }
 
     /**
-     * Archivo guardado en el dispositivo. `castUrl` apunta al servidor HTTP local y NO al `file://`:
-     * el Chromecast hace su propio GET desde otro dispositivo y no puede abrir una ruta del sistema
-     * de archivos del celular.
+     * File saved on the device. `castUrl` points at the local HTTP server and NOT at `file://`:
+     * the Chromecast does its own GET from another device and can't open a path on the phone's
+     * filesystem.
      */
     private suspend fun loadLocal(episodeId: String, path: String) {
         val ep = repo.getEpisode(episodeId)
@@ -675,7 +683,7 @@ class PlayerViewModel internal constructor(
             kind = SourceKind.LOCAL,
         )
         val startPos = safeStartPosition(episodeId, SourceKind.LOCAL)
-        _playlist.value = PlaylistData(listOf(item), 0, startPos, pedido = episodeId)
+        _playlist.value = PlaylistData(listOf(item), 0, startPos, requested = episodeId)
         Log.w(PLAY, "loadLocal() $episodeId -> $path (cast=$castUrl)")
     }
 
@@ -696,90 +704,91 @@ class PlayerViewModel internal constructor(
     }
 
     /**
-     * [DituExoPlayer] se rindió: agotó sus re-preparados, o el error no era de los que se arreglan
-     * así. Antes de avisar se le pide a Caracol una URL nueva —trae otro `playback_token`— y se
-     * retoma en [posicionMs]. Con tope: ver [DituState.requestReload].
+     * [DituExoPlayer] gave up: it exhausted its re-prepares, or the error wasn't one of the kind
+     * fixed that way. Before warning, a new URL is requested from Caracol --it carries another
+     * `playback_token`-- and playback resumes at [positionMs]. Capped: see
+     * [DituState.requestReload].
      *
-     * [codigo] es el `errorCode` de la `PlaybackException`: con él [CaracolFailure.onPlayback] le
-     * dice a la persona qué pasó. Su nombre técnico va al log.
+     * [code] is the `PlaybackException`'s `errorCode`: [CaracolFailure.onPlayback] uses it to tell
+     * the person what happened. Its technical name goes to the log.
      *
-     * [queriaReproducir] pasa a la recarga: si lo que falló estaba en pausa, el reproductor nuevo
-     * también (ver [DituReproducible.arrancarSolo]).
+     * [wantedToPlay] carries over to the reload: if what failed was paused, the new player is too
+     * (see [DituReproducible.autoStart]).
      */
-    fun onDituExoError(codigo: Int, posicionMs: Long, queriaReproducir: Boolean) {
-        val nombre = androidx.media3.common.PlaybackException.getErrorCodeName(codigo)
-        val episodio = ditu.requestReload()
-        if (episodio == null) {
-            Log.w(PLAY, "Caracol: $nombre and no reloads left → notifying the person")
-            _error.value = CaracolFailure.onPlayback(codigo, esTelevision)
+    fun onDituExoError(code: Int, positionMs: Long, wantedToPlay: Boolean) {
+        val name = androidx.media3.common.PlaybackException.getErrorCodeName(code)
+        val episode = ditu.requestReload()
+        if (episode == null) {
+            Log.w(PLAY, "Caracol: $name and no reloads left → notifying the person")
+            _error.value = CaracolFailure.onPlayback(code, isTv)
             return
         }
         Log.w(
             PLAY,
-            "Caracol: $nombre → requesting a new URL for $episodio from ${posicionMs}ms " +
-                "(wantedToPlay=$queriaReproducir)",
+            "Caracol: $name → requesting a new URL for $episode from ${positionMs}ms " +
+                "(wantedToPlay=$wantedToPlay)",
         )
-        viewModelScope.launch { loadDitu(episodio, arrancarEnMs = posicionMs, arrancarSolo = queriaReproducir) }
+        viewModelScope.launch { loadDitu(episode, resumeAtMs = positionMs, autoStart = wantedToPlay) }
     }
 
-    /** [DituExoPlayer] tuvo un error que se arregla volviendo a preparar: ¿queda alguno? Ver
+    /** [DituExoPlayer] had an error fixed by re-preparing: any left? See
      *  [DituState.requestReprepare]. */
-    fun dituPuedeRepreparar(): Boolean = ditu.requestReprepare()
+    fun dituCanReprepare(): Boolean = ditu.requestReprepare()
 
-    /** Cada lectura del reloj de [DituExoPlayer]. Ver [DituState.advanced]. */
-    fun dituAvanzo(posicionMs: Long, reproduciendo: Boolean) = ditu.advanced(posicionMs, reproduciendo)
+    /** Every clock reading from [DituExoPlayer]. See [DituState.advanced]. */
+    fun dituAdvanced(positionMs: Long, playing: Boolean) = ditu.advanced(positionMs, playing)
 
     /**
-     * Un directo se cayó del lado de ExoPlayer (segmento/playlist en 502 tras agotar los
-     * reintentos del proxy, o cualquier otro `PlaybackException`).
+     * A live stream dropped on ExoPlayer's side (segment/playlist 502 after the proxy's retries
+     * ran out, or any other `PlaybackException`).
      *
-     * A diferencia de [onMagisExoError], NO pone `_error` directo: un canal en
-     * vivo se recupera solo casi siempre (ver KDoc de [reabrirVivoPorCorte]), así que mostrar un
-     * cartel de error en el primer tropiezo sería alarmar por algo que en 2-8s ya se resolvió.
-     * [reabrirVivoPorCorte] es quien decide, tras [MAX_REAPERTURAS_VIVO] intentos, si hay que
-     * avisarle a la persona.
+     * Unlike [onMagisExoError], this does NOT set `_error` directly: a live channel almost always
+     * recovers on its own (see [reopenLiveAfterCut]'s KDoc), so showing an error banner on the
+     * first hiccup would alarm over something that resolves itself in 2-8s. [reopenLiveAfterCut]
+     * is the one that decides, after [MAX_LIVE_REOPENS] attempts, whether the person needs to be
+     * warned.
      */
     fun onLiveExoError(message: String) {
         Log.w(PLAY, "live (exo) error for ${zapping?.current?.code}: $message")
-        reabrirVivoPorCorte()
+        reopenLiveAfterCut()
     }
 
     /**
-     * El reproductor no pudo con este episodio.
+     * The player couldn't handle this episode.
      *
-     * Antes esto no existía: un fallo de reproducción no llegaba nunca a [_error] —que es lo único
-     * que la pantalla pinta— así que la película simplemente no arrancaba y no aparecía ningún
-     * mensaje. Medido el 2026-08-10: `EncounteredError` en el log y `error=false` en la UI.
+     * This didn't used to exist: a playback failure never reached [_error] --the only thing the
+     * screen paints-- so the movie simply didn't start and no message appeared. Measured on
+     * 2026-08-10: `EncounteredError` in the log and `error=false` in the UI.
      *
-     * Hasta la poda de archive.org de esta rama había acá un camino de auto-reparación para el 404
-     * (la app cacheaba el nombre del archivo y, si archive.org lo renombraba, refrescaba la
-     * metadata y volvía a ubicar el capítulo — ver [sanarRenombre] en el historial). Borrado junto
-     * con el resto de esa fuente: ya no hay archive.org al que preguntarle nada.
+     * Up until this branch's archive.org pruning there used to be a self-healing path here for the
+     * 404 (the app cached the file's name and, if archive.org renamed it, refreshed the metadata
+     * and re-located the chapter -- see `sanarRenombre` in the history). Deleted along with the
+     * rest of that source: there's no more archive.org to ask anything.
      */
     fun onPlaybackFailed(episodeId: String) {
-        // Todo lo que se escriba de acá para abajo describe un tropiezo del player, no una
-        // fuente que no se pudo abrir: si el video remonta, deja de ser cierto. Ver
-        // [errorDeReproduccion].
-        errorDeReproduccion = true
+        // Everything written from here down describes a player hiccup, not a source that couldn't
+        // be opened: if the video recovers, it stops being true. See [playbackHiccup].
+        playbackHiccup = true
         _error.value = "No se pudo reproducir este capítulo"
     }
 
     /**
-     * El video está sonando: si lo que hay en pantalla era un tropiezo de reproducción, ya no
-     * describe nada y se va.
+     * The video is genuinely playing: if what's on screen was a playback hiccup, it no longer
+     * describes anything and goes away.
      *
-     * Lo llama el sondeo de la pantalla en cada tick mientras el player esté listo y reproduciendo,
-     * y no el `onIsPlayingChanged` del listener, a propósito: hay tropiezos que el player remonta
-     * sin que `isPlaying` llegue a caer, así que colgado de esa transición el cartel se quedaba puesto
-     * justamente en el caso más común. Es idempotente y sale por el `if` en cuanto no hay nada que
-     * limpiar, que es siempre salvo el instante posterior a un fallo.
+     * Called by the screen's polling loop on every tick while the player is ready and playing, and
+     * not by the listener's `onIsPlayingChanged`, on purpose: some hiccups recover without
+     * `isPlaying` ever dropping, so hanging it off that transition left the banner up in exactly
+     * the most common case. It's idempotent and returns through the `if` as soon as there's
+     * nothing to clear, which is always except the instant right after a failure.
      *
-     * Los errores de RESOLUCIÓN no se tocan: ahí no hay video sonando (o el que suena es el ítem
-     * viejo, mientras el nuevo no pudo abrirse) y el cartel es la única señal de lo que pasó.
+     * RESOLUTION errors are left untouched: there, there's no video playing (or what's playing is
+     * the old item, while the new one couldn't open), and the banner is the only signal of what
+     * happened.
      */
-    fun onReproduccionViva() {
-        if (!errorDeReproduccion) return
-        errorDeReproduccion = false
+    fun onPlaybackHealthy() {
+        if (!playbackHiccup) return
+        playbackHiccup = false
         _error.value = null
     }
 
@@ -792,49 +801,49 @@ class PlayerViewModel internal constructor(
      * `MagisResolve.resolveVod`; the app never interprets it.
      */
     private suspend fun loadMagis(episodeId: String) {
-        // El contenido de adultos NO tiene fila en la biblioteca —esa es toda la idea, ver
-        // [MagisEphemeral]—, así que su `ref` no se puede leer de ahí: viaja por afuera.
-        val efimero = MagisEphemeral.take(episodeId)
-        val ref = efimero?.ref ?: repo.magisRefForEpisode(episodeId)
-        Log.w(PLAY, "loadMagis() episodeId=$episodeId ephemeral=${efimero != null} ref=${ref?.take(12)}…")
+        // Adult content has NO library row -- that's the whole point, see [MagisEphemeral] -- so
+        // its `ref` can't be read from there: it travels outside.
+        val ephemeral = MagisEphemeral.take(episodeId)
+        val ref = ephemeral?.ref ?: repo.magisRefForEpisode(episodeId)
+        Log.w(PLAY, "loadMagis() episodeId=$episodeId ephemeral=${ephemeral != null} ref=${ref?.take(12)}…")
         if (ref.isNullOrBlank()) { _error.value = "No se encontró la fuente de Magis"; return }
 
         _playlist.value = null
         _webExtras.value = null
         _resolving.value = true
-        // CRONÓMETRO DEL ARRANQUE. Cada fase se mide por separado y al final se emite un resumen en
-        // UNA línea: el cuello de botella de magis se mudó tres veces mientras se optimizaba (VLC →
-        // sonda+precalentado → gateway), y cada mudanza costó una ronda de "reproducí algo y miro
-        // los logs" porque los tiempos había que deducirlos de los huecos entre líneas sueltas.
+        // STARTUP STOPWATCH. Every phase is measured separately and a one-LINE summary is emitted
+        // at the end: magis's bottleneck moved three times while this was being optimized (VLC →
+        // probe+preheat → gateway), and each move cost a round of "play something and watch the
+        // logs" because the timings had to be inferred from the gaps between loose lines.
         val t0 = System.currentTimeMillis()
-        val resuelto = withContext(Dispatchers.IO) { runCatching { fuente.resolve(ref) } }
+        val resolved = withContext(Dispatchers.IO) { runCatching { source.resolve(ref) } }
         val msResolve = System.currentTimeMillis() - t0
         _resolving.value = false
         Log.w(PLAY, "loadMagis() portal resolve=${msResolve}ms")
 
-        val play = resuelto.getOrNull()
+        val play = resolved.getOrNull()
         if (play == null) {
-            Log.w(PLAY, "loadMagis() failed: ${resuelto.exceptionOrNull()?.message}")
+            Log.w(PLAY, "loadMagis() failed: ${resolved.exceptionOrNull()?.message}")
             _error.value = "No se pudo resolver esta fuente de Magis"
             return
         }
 
-        // Los idiomas que declara el portal son lo ÚNICO que permite elegir subtítulo por idioma en
-        // magis: sus pistas embebidas llegan sin idioma en ningún campo (medido en device,
-        // `language=null` en `IMedia.Track` y nombre pelado "Track 1", mientras las de audio sí traen
-        // spa/eng/jpn). They travel through [webExtras]; PlayerTracks cross-references them with
-        // the source via SubtitleDecision.decide.
+        // The languages the portal declares are the ONLY thing that allows picking a subtitle by
+        // language in magis: its embedded tracks arrive with no language in any field (measured on
+        // device, `language=null` on `IMedia.Track` and a bare name "Track 1", while the audio ones
+        // do carry spa/eng/jpn). They travel through [webExtras]; PlayerTracks cross-references them
+        // with the source via SubtitleDecision.decide.
         Log.w(PLAY, "loadMagis() portal subtitles=${play.subtitles.size} langs=${play.subtitles.map { it.lang }}")
 
         withContext(Dispatchers.IO) { archiveCacheProxy.start() }
-        // Sin fila en la biblioteca no hay cabecera que leer: el título lo trae el propio pendiente,
-        // que es lo que la pantalla de categorías tenía en la mano al tocarlo.
-        val cabecera = if (efimero != null) null else repo.headerInfo(episodeId)
-        // `directo`: el proxy reenvía cada Range al CDN sin cachear. Con la caché (el camino de
-        // archive) la descarga de ~1 GB se corta, el proxy borra el archivo y vuelve a empezar en 0
-        // mientras el player sigue leyendo por el offset viejo → el TS le llega con huecos, el tiempo salta
-        // de a minutos y el video se muere. Sin caché no hay nada que truncar.
-        val urlLocal = archiveCacheProxy.proxyUrl(play.url, play.headers, direct = true)
+        // With no library row there's no header to read: the title comes from the pending item
+        // itself, which is what the categories screen had in hand when it was tapped.
+        val header = if (ephemeral != null) null else repo.headerInfo(episodeId)
+        // `direct`: the proxy forwards every Range to the CDN with no caching. With caching (the
+        // archive path) a ~1 GB download gets cut, the proxy deletes the file and starts over at 0
+        // while the player keeps reading at the old offset → the TS arrives with gaps, the clock
+        // jumps by minutes, and the video dies. With no cache there's nothing to truncate.
+        val localUrl = archiveCacheProxy.proxyUrl(play.url, play.headers, direct = true)
         // THE DURATION IS NO LONGER PROBED BEFORE STARTING. The player reports it on its own once
         // it opens.
         //
@@ -855,41 +864,43 @@ class PlayerViewModel internal constructor(
         if (play.durationMs > 0) {
             Log.w(PLAY, "loadMagis() gateway duration=${play.durationMs}ms")
         }
-        // El ARRANQUE CALIENTE: lo ÚNICO que se espera antes de abrir el video.
+        // THE HOT STARTUP: the ONLY thing waited on before opening the video.
         //
-        // Se precalienta en el byte 0, que es donde el player abre SIEMPRE desde que magis dejó de
-        // abrir por ventana: reanuda saltando por tiempo, no abriendo el stream más adelante. Sin
-        // él, si la primera lectura se demora libVLC se rendía identificando el stream y se quedaba
-        // SIN PISTAS para siempre (negro y mudo, con el reloj disparado).
+        // Preheats at byte 0, which is where the player always opens now that magis stopped
+        // opening by window: it resumes by seeking in time, not by opening the stream further
+        // ahead. Without it, if the first read took a while libVLC would give up identifying the
+        // stream and be left WITH NO TRACKS forever (black and silent, with the clock running).
         //
-        // La COLA sigue bajándose por detrás —para los sondeos de EOF del player, que quiere el final
-        // del archivo apenas abre— pero ya nunca frena el arranque: `waitForTail=false` sin
-        // condiciones. Ver ArchiveCacheProxy.preWarm y PrecalentadoNoBloqueaTest.
-        val tArranque = System.currentTimeMillis()
+        // The TAIL still gets downloaded behind the scenes --for the player's EOF probes, which
+        // want the end of the file as soon as it opens-- but it never blocks the startup anymore:
+        // `waitForTail=false` unconditionally. See ArchiveCacheProxy.preWarm and
+        // PrecalentadoNoBloqueaTest.
+        val tWarmup = System.currentTimeMillis()
         withContext(Dispatchers.IO) {
             runCatching {
                 archiveCacheProxy.preWarm(
                     play.url, play.headers, fraction = 0f, waitForTail = false,
-                    // El contenedor decide si hace falta traer la cola del archivo: un mp4 abre sin
-                    // leer el final y bajarla es gasto puro contra el CDN. Si el gateway no lo
-                    // manda, la extensión de la URL lo dice igual para magis.
+                    // The container decides whether the file's tail needs to be fetched: an mp4
+                    // opens without reading the end and downloading it is pure waste against the
+                    // CDN. If the gateway doesn't send it, the URL's extension says the same thing
+                    // for magis anyway.
                     container = play.container.ifBlank {
                         com.arkiv.player.playback.VideoContainer.videoExtension(play.url).orEmpty()
                     },
                 )
             }
         }
-        val msArranque = System.currentTimeMillis() - tArranque
-        // Si el gateway mandó la duración, se aprovecha; si no, se arranca sin ella y la completa
-        // el player al abrir. Nada de esto pide un solo byte extra.
-        val duracion = play.durationMs
-        Log.w(PLAY, "loadMagis() hot startup=${msArranque}ms → duration=${duracion}ms")
+        val msWarmup = System.currentTimeMillis() - tWarmup
+        // If the gateway sent the duration, it's used; if not, playback starts without it and the
+        // player fills it in on opening. None of this requests a single extra byte.
+        val duration = play.durationMs
+        Log.w(PLAY, "loadMagis() hot startup=${msWarmup}ms → duration=${duration}ms")
         val item = PlayerData(
             episodeId = episodeId,
             itemId = episodeId.substringBefore("::"),
-            title = cabecera?.itemTitle ?: efimero?.titulo?.takeIf { it.isNotBlank() } ?: "Magis",
-            subtitle = cabecera?.episodeLabel.orEmpty(),
-            mediaUrl = urlLocal,
+            title = header?.itemTitle ?: ephemeral?.titulo?.takeIf { it.isNotBlank() } ?: "Magis",
+            subtitle = header?.episodeLabel.orEmpty(),
+            mediaUrl = localUrl,
             // NOT the url the receiver is given -- `castUrl` is the raw CDN, which answers 401
             // without `Content-Auth`/`Content-License`, and the Cast Default Media Receiver cannot
             // send custom headers. It is kept because it is the only place the TRUE container
@@ -906,100 +917,101 @@ class PlayerViewModel internal constructor(
             artworkUrl = "",
             openingStartMs = null, openingEndMs = null, endingStartMs = null,
             kind = SourceKind.MAGIS,
-            // De acá lo lee [hayQueAnotarHistorial] en cada tick del reproductor. Es la segunda
-            // vuelta de llave: la primera es que esto no tenga fila en la biblioteca.
-            adulto = efimero?.adulto == true,
+            // Read from here by [shouldLogHistory] on every player tick. It's the second turn of
+            // the key: the first is that this has no library row.
+            adult = ephemeral?.adulto == true,
         )
-        // Acá se forzaba SOFTWARE para el HEVC de magis, dando por hecho que el decodificador por
-        // hardware descartaba las pistas (`pistas=v0/a0`). Ese diagnóstico era falso: el que las
-        // descartaba era el subtítulo externo (ver PlayerScreen, donde magis no lo adjunta). Sin él,
-        // el mismo título arranca con `v2/a3` por hardware y por software. Se deja abrir por
-        // hardware —más rápido y sin gastar CPU—; si algún título de verdad falla ahí, hoy no hay
-        // rescate "hardware sin imagen → paso a software" para magis (a diferencia de los archivos
-        // descargados, ver [DecoderWatchdog]).
+        // This used to force SOFTWARE for magis's HEVC, assuming the hardware decoder was dropping
+        // tracks (`pistas=v0/a0`). That diagnosis was wrong: what was dropping them was the
+        // external subtitle (see PlayerScreen, where magis doesn't attach it). Without it, the same
+        // title starts with `v2/a3` on both hardware and software. Left to open on hardware --
+        // faster and not burning CPU--; if some title genuinely fails there, today there's no
+        // "hardware with no picture → fall back to software" rescue for magis (unlike downloaded
+        // files, see [DecoderWatchdog]).
         //
-        // Los subtítulos viajan por el MISMO canal que los de web: PlayerScreen decide qué hacer con
-        // ellos. El portal los entrega junto al stream, así que no hace falta pedirlos aparte a
-        // ningún catálogo de subtítulos.
+        // Subtitles travel through the SAME channel as web's: PlayerScreen decides what to do with
+        // them. The portal delivers them alongside the stream, so there's no need to request them
+        // separately from any subtitle catalog.
         _webExtras.value = WebExtras(
             episodeId,
             play.headers,
             play.subtitles.map { ResolvedSub(lang = it.lang, url = it.url) },
         )
-        // Lo efímero SIEMPRE arranca en cero, y no por olvido: no se guardó progreso, así que no hay
-        // dónde reanudar. Es la consecuencia directa de la regla — no se puede retomar lo que
-        // decidimos no anotar — y se prefiere eso a dejar el rastro.
-        val startPos = if (efimero != null) 0L else safeStartPosition(episodeId, SourceKind.MAGIS)
-        // REANUDAR: se le avisa al proxy A DÓNDE va a saltar el reproductor, para que prepare esa
-        // zona mientras el video abre. El player abre siempre en el byte 0 y recién después busca
-        // el minuto guardado: medido en el Fire TV, entre una cosa y la otra se bajaban 2,5 MB del
-        // principio de la película que después se tiraban, y eso costaba 3,4 s con la imagen
-        // congelada en el segundo 0. Ver ArchiveCacheProxy.preWarmSeek.
+        // Ephemeral content ALWAYS starts at zero, and not by oversight: no progress was saved, so
+        // there's nowhere to resume from. It's the direct consequence of the rule -- what we
+        // decided not to log can't be resumed -- and that's preferred over leaving a trace.
+        val startPos = if (ephemeral != null) 0L else safeStartPosition(episodeId, SourceKind.MAGIS)
+        // RESUME: the proxy is told WHERE the player is about to jump, so it prepares that zone
+        // while the video opens. The player always opens at byte 0 and only then seeks to the
+        // saved minute: measured on the Fire TV, 2.5 MB from the movie's start got downloaded and
+        // then thrown away between the two, costing 3.4 s with the picture frozen at second 0. See
+        // ArchiveCacheProxy.preWarmSeek.
         //
-        // La duración sale del progreso GUARDADO y no del gateway: acá el gateway suele mandar 0
-        // (la duración la calcula el player al abrir, que es demasiado tarde para esto), mientras que
-        // quien ya vio un pedazo del capítulo tiene la duración anotada de esa vez.
+        // The duration comes from the SAVED progress and not from the gateway: here the gateway
+        // usually sends 0 (the duration is computed by the player on opening, too late for this),
+        // while whoever already watched part of the chapter has the duration recorded from that time.
         if (startPos > 0L) {
-            val guardado = runCatching { repo.getPlayback(episodeId) }.getOrNull()
-            val duracionGuardada = guardado?.durationMs ?: 0L
-            if (duracionGuardada > 0L) {
+            val saved = runCatching { repo.getPlayback(episodeId) }.getOrNull()
+            val savedDuration = saved?.durationMs ?: 0L
+            if (savedDuration > 0L) {
                 archiveCacheProxy.preWarmSeek(
-                    play.url, play.headers, startPos.toFloat() / duracionGuardada,
+                    play.url, play.headers, startPos.toFloat() / savedDuration,
                 )
             }
         }
-        // El arranque caliente ya está en la mano (se pidió arriba, en paralelo con la sonda): la
-        // espera del CDN ocurrió ANTES de abrir el video, donde el usuario ve el spinner de
-        // siempre, en vez de convertirse en un fallo del que no se vuelve.
+        // The hot startup is already in hand (requested above, in parallel with the probe): the
+        // CDN wait happened BEFORE opening the video, where the user sees the usual spinner,
+        // instead of turning into a failure with no way back.
         _magisItem.value = item.copy(startPositionMs = startPos)
-        // RESUMEN, en una línea y en el orden en que se paga. Lo que falta para el primer frame es
-        // lo que tarde el reproductor en abrir, que se mide aparte: la suma de las dos es lo que el
-        // usuario ve como spinner.
+        // SUMMARY, in one line and in the order it's paid. What's left for the first frame is
+        // however long the player takes to open, measured separately: the sum of the two is what
+        // the user sees as the spinner.
         Log.w(
             PLAY,
             "loadMagis() ⏱ TOTAL=${System.currentTimeMillis() - t0}ms " +
-                "[resolve=${msResolve}ms | startup=${msArranque}ms] startPos=$startPos",
+                "[resolve=${msResolve}ms | startup=${msWarmup}ms] startPos=$startPos",
         )
     }
 
     /**
-     * Reproduce un episodio de Caracol, o uno de sus canales en vivo.
+     * Plays a Caracol episode, or one of its live channels.
      *
-     * A diferencia de [loadMagis], no pasa por [archiveCacheProxy]: los headers que pide Caracol los
-     * pone el propio [DituExoPlayer]. Acá solo se resuelve y se publica en [dituPlayable], junto con
-     * la posición desde donde reanudar.
+     * Unlike [loadMagis], it doesn't go through [archiveCacheProxy]: the headers Caracol requires
+     * are set by [DituExoPlayer] itself. Here it's only resolved and published to [dituPlayable],
+     * along with the position to resume from.
      *
-     * El `ref` sale de [ArkivRepository.magisRefForEpisode], que pese al nombre lee el ref guardado
-     * en la fila del episodio (o, si no tiene, en la de su ítem) sin mirar de qué fuente es.
+     * `ref` comes from [ArkivRepository.magisRefForEpisode], which despite the name reads the ref
+     * saved on the episode's row (or, if it doesn't have one, on its item's) without checking which
+     * source it's from.
      *
-     * Un canal en vivo ([DituLive.isLive]) no tiene fila en la biblioteca ni `ref`: se resuelve el
-     * canal que dejó la sección de Caracol, con `DituFuente.resolverCanal`, y pasa por las mismas
-     * guardas de [DituState] que el VOD. Una recarga ([onDituExoError]) vuelve a entrar por acá
-     * con el mismo `episodeId` y resuelve el canal otra vez: por eso [DituLive.take] no lo vacía.
+     * A live channel ([DituLive.isLive]) has no library row or `ref`: the channel left by Caracol's
+     * section is resolved with `DituFuente.resolverCanal`, and goes through the same [DituState]
+     * guards as VOD. A reload ([onDituExoError]) comes back in through here with the same
+     * `episodeId` and resolves the channel again: that's why [DituLive.take] doesn't empty it.
      *
-     * [arrancarEnMs] es para las recargas: se retoma donde iba y no desde la posición guardada. Sin
-     * él, la misma reanudación que Magis. Un vivo arranca siempre en 0, y con 0 [DituExoPlayer] no
-     * hace `seekTo`: queda en la posición por defecto del directo.
+     * [resumeAtMs] is for reloads: playback resumes where it was, not from the saved position.
+     * Without it, the same resume as Magis. A live stream always starts at 0, and with 0
+     * [DituExoPlayer] doesn't `seekTo`: it stays at the live stream's default position.
      *
-     * [arrancarSolo] también es de las recargas: ver [DituReproducible.arrancarSolo].
+     * [autoStart] is also for reloads: see [DituReproducible.autoStart].
      */
-    private suspend fun loadDitu(episodeId: String, arrancarEnMs: Long? = null, arrancarSolo: Boolean = true) {
-        val vivo = DituLive.isLive(episodeId)
-        val canal = if (vivo) DituLive.take(episodeId) else null
-        val ref = if (vivo) null else repo.magisRefForEpisode(episodeId)
+    private suspend fun loadDitu(episodeId: String, resumeAtMs: Long? = null, autoStart: Boolean = true) {
+        val live = DituLive.isLive(episodeId)
+        val channel = if (live) DituLive.take(episodeId) else null
+        val ref = if (live) null else repo.magisRefForEpisode(episodeId)
         Log.w(
             PLAY,
-            "loadDitu() episodeId=$episodeId ref=${ref?.take(16)}… channel=${canal?.channelId} " +
-                "reload=${arrancarEnMs != null}",
+            "loadDitu() episodeId=$episodeId ref=${ref?.take(16)}… channel=${channel?.channelId} " +
+                "reload=${resumeAtMs != null}",
         )
-        // Lo que sigue toca estado que comparten todas las fuentes: si mientras se leía el ref ya se
-        // pidió otro episodio, esto no es de nadie. Ver [DituState].
+        // What follows touches state shared by every source: if another episode was already
+        // requested while the ref was being read, this belongs to nobody. See [DituState].
         if (!ditu.isActive(episodeId)) return
         val resolver: suspend () -> com.arkiv.player.data.gateway.GatewayPlayable = when {
-            canal != null -> suspend { dituFuente.resolveChannel(canal) }
-            !ref.isNullOrBlank() -> suspend { fuente.resolve(ref) }
+            channel != null -> suspend { dituFuente.resolveChannel(channel) }
+            !ref.isNullOrBlank() -> suspend { source.resolve(ref) }
             else -> {
-                _error.value = if (vivo) "No se encontró el canal de Caracol" else "No se encontró la fuente de Caracol"
+                _error.value = if (live) "No se encontró el canal de Caracol" else "No se encontró la fuente de Caracol"
                 return
             }
         }
@@ -1007,35 +1019,36 @@ class PlayerViewModel internal constructor(
         _playlist.value = null
         _webExtras.value = null
         _resolving.value = true
-        val resuelto = withContext(Dispatchers.IO) { runCatching { resolver() } }
-        // Se apaga aunque ya no sea el vigente: si lo que se pidió después es un canal en vivo,
-        // ese camino no toca esta bandera y quedaría prendida.
+        val resolved = withContext(Dispatchers.IO) { runCatching { resolver() } }
+        // Turned off even if it's no longer the active one: if what got requested next is a live
+        // channel, that path doesn't touch this flag and it would stay on.
         _resolving.value = false
         if (!ditu.isActive(episodeId)) {
             Log.w(PLAY, "loadDitu() discarded: $episodeId is no longer the current request")
             return
         }
-        val play = resuelto.getOrNull()
+        val play = resolved.getOrNull()
         if (play == null) {
-            val falla = resuelto.exceptionOrNull()
+            val failure = resolved.exceptionOrNull()
             // The detail goes to the log; the person gets what `CaracolFailure` makes of it.
-            Log.w(PLAY, "loadDitu() failed: ${falla?.message}", falla)
-            _error.value = CaracolFailure.onOpen(falla)
+            Log.w(PLAY, "loadDitu() failed: ${failure?.message}", failure)
+            _error.value = CaracolFailure.onOpen(failure)
             return
         }
-        // La misma reanudación que Magis: [safeStartPosition] sobre el progreso guardado. Un vivo no
-        // tiene "dónde ibas", ni siquiera en una recarga.
-        val startPos = if (vivo) 0L else arrancarEnMs ?: safeStartPosition(episodeId, SourceKind.DITU)
+        // The same resume as Magis: [safeStartPosition] over the saved progress. A live stream has
+        // no "where you were", not even on a reload.
+        val startPos = if (live) 0L else resumeAtMs ?: safeStartPosition(episodeId, SourceKind.DITU)
         Log.w(PLAY, "loadDitu() drm=${play.drmLicenseUrl.isNotBlank()} startPos=$startPos")
-        // `publicar` vuelve a mirar si sigue vigente: `safeStartPosition` también suspende.
-        // Si está bajado, esto dice de dónde leer. Se busca DESPUÉS de resolver y no antes porque
-        // resolver hace falta igual: es lo único que trae el token con el que se pide la licencia.
-        val descarga = if (vivo) null else runCatching { localLibrary.caracolDownload(episodeId) }.getOrNull()
-        if (descarga != null) {
-            Log.w(PLAY, "loadDitu() $episodeId is on the device (${descarga.height}p); media comes off the disk")
+        // `publish` checks again whether it's still the active one: `safeStartPosition` also
+        // suspends. If it's downloaded, this says where to read from. Looked up AFTER resolving and
+        // not before because resolving is needed anyway: it's the only thing that brings the token
+        // the license is requested with.
+        val download = if (live) null else runCatching { localLibrary.caracolDownload(episodeId) }.getOrNull()
+        if (download != null) {
+            Log.w(PLAY, "loadDitu() $episodeId is on the device (${download.height}p); media comes off the disk")
         }
         if (!ditu.publish(
-                DituReproducible(episodeId, play, startPos, arrancarSolo = arrancarSolo, descargaLocal = descarga),
+                DituReproducible(episodeId, play, startPos, autoStart = autoStart, localDownload = download),
             )
         ) {
             Log.w(PLAY, "loadDitu() discarded on publish: $episodeId is no longer the current request")
@@ -1055,56 +1068,57 @@ class PlayerViewModel internal constructor(
             .also { Log.i(PLAY, "resume $episodeId ($kind): saved=${saved.positionMs}ms → starts at ${it}ms") }
     }
 
-    /** La corrección a mano de los tiempos, del capítulo en curso o de la serie. Ver su KDoc. */
+    /** The hand correction of the times, for the current chapter or the series. See its KDoc. */
     private val markerEditor by lazy {
         com.arkiv.player.data.marcadores.MarkerEditor(dao = repo.skipMarkerDao())
     }
 
     override fun onCleared() {
-        precalentarJob?.cancel()
+        preheatJob?.cancel()
         super.onCleared()
     }
 
     /**
-     * Marca a mano el fin del opening en [ms].
+     * Marks the intro's end by hand at [ms].
      *
-     * [episodeId] dice a QUÉ se le pone: un capítulo, o `""` = la serie entera (lo que hacía
-     * siempre este camino). Poder marcar UN capítulo es lo que hace usable la corrección: con
-     * marcadores automáticos por capítulo, un manual de serie le pisa el automático correcto a
-     * todos los demás (ver [MarkerEditor]).
+     * [episodeId] says WHAT it's set on: one chapter, or `""` = the whole series (what this path
+     * always did before). Being able to mark ONE chapter is what makes the correction usable: with
+     * automatic per-chapter markers, a manual series-wide one would override the correct automatic
+     * one on every other chapter (see [MarkerEditor]).
      */
-    fun setOpeningEnd(ms: Long, episodeId: String = "") = editarMarcador(episodeId) { itemId ->
+    fun setOpeningEnd(ms: Long, episodeId: String = "") = editMarker(episodeId) { itemId ->
         markerEditor.setOpeningEnd(itemId, episodeId, ms)
     }
 
-    /** Marca a mano el inicio del ending en [ms]. Ver [setOpeningEnd] para [episodeId]. */
-    fun setEndingStart(ms: Long, episodeId: String = "") = editarMarcador(episodeId) { itemId ->
+    /** Marks the outro's start by hand at [ms]. See [setOpeningEnd] for [episodeId]. */
+    fun setEndingStart(ms: Long, episodeId: String = "") = editMarker(episodeId) { itemId ->
         markerEditor.setEndingStart(itemId, episodeId, ms)
     }
 
-    /** "Esto no tiene intro ni outro". Ver [setOpeningEnd] para [episodeId]. */
-    fun clearMarkers(episodeId: String = "") = editarMarcador(episodeId) { itemId ->
+    /** "This one has no intro or outro". See [setOpeningEnd] for [episodeId]. */
+    fun clearMarkers(episodeId: String = "") = editMarker(episodeId) { itemId ->
         markerEditor.clear(itemId, episodeId)
     }
 
-    private fun editarMarcador(episodeId: String, bloque: suspend (String) -> Unit) {
+    private fun editMarker(episodeId: String, block: suspend (String) -> Unit) {
         val itemId = _playlist.value?.items?.firstOrNull()?.itemId ?: return
         viewModelScope.launch {
-            bloque(itemId)
-            // La copia horneada en la playlist: la pantalla lee los marcadores de Room (por eso
-            // salen sin recargar nada), pero estos campos siguen alimentando el panel-editor y lo
-            // que se le manda al receptor, así que se dejan al día con lo que quedó guardado.
-            val guardado = repo.getSkipMarker(itemId, episodeId)
-            val actual = _playlist.value ?: return@launch
-            _playlist.value = actual.copy(
-                items = actual.items.map {
+            block(itemId)
+            // The copy baked into the playlist: the screen reads the markers from Room (that's why
+            // they show up without reloading anything), but these fields still feed the editor
+            // panel and what gets sent to the receiver, so they're kept in sync with what ended up
+            // saved.
+            val saved = repo.getSkipMarker(itemId, episodeId)
+            val current = _playlist.value ?: return@launch
+            _playlist.value = current.copy(
+                items = current.items.map {
                     if (episodeId.isNotEmpty() && it.episodeId != episodeId) {
                         it
                     } else {
                         it.copy(
-                            openingStartMs = guardado?.openingStartMs,
-                            openingEndMs = guardado?.openingEndMs,
-                            endingStartMs = guardado?.endingStartMs,
+                            openingStartMs = saved?.openingStartMs,
+                            openingEndMs = saved?.openingEndMs,
+                            endingStartMs = saved?.endingStartMs,
                         )
                     }
                 },
@@ -1117,58 +1131,58 @@ class PlayerViewModel internal constructor(
         // Adult content progress is NOT written. "Continue watching" comes straight out of
         // `playback`, and it's drawn on this device's home screen and in the library too -- a row
         // here doesn't stay hidden, even though (unlike until Task 5) it no longer travels through
-        // cloud sync to any OTHER device. See [hayQueAnotarHistorial], where the decision and its
-        // edge cases live.
-        // Magis ExoPlayer: el ítem está en _magisItem, no en _playlist.
-        // Caracol cae en la rama de abajo: `loadDitu` deja `_playlist` en null, y con eso
-        // [hayQueAnotarHistorial] anota. Salvo un canal en vivo, que no se anota (ver su KDoc):
-        // `repo.savePlayback` escribiría la fila aunque no haya episodio en la biblioteca.
-        val magisIt = _magisItem.value?.takeIf { it.episodeId == episodeId }
-        if (magisIt != null) {
-            if (!AdultContent.shouldLog(magisIt.adulto)) return
+        // cloud sync to any OTHER device. See [shouldLogHistory], where the decision and its edge
+        // cases live.
+        // Magis ExoPlayer: the item is in _magisItem, not in _playlist.
+        // Caracol falls into the branch below: `loadDitu` leaves `_playlist` at null, and with that
+        // [shouldLogHistory] logs it. Except a live channel, which isn't logged (see its KDoc):
+        // `repo.savePlayback` would write the row even with no episode in the library.
+        val currentMagisItem = _magisItem.value?.takeIf { it.episodeId == episodeId }
+        if (currentMagisItem != null) {
+            if (!AdultContent.shouldLog(currentMagisItem.adult)) return
         } else {
-            if (!_playlist.value.hayQueAnotarHistorial(episodeId)) return
+            if (!_playlist.value.shouldLogHistory(episodeId)) return
         }
         viewModelScope.launch { repo.savePlayback(episodeId, positionMs, durationMs) }
     }
 
     /**
-     * Captura el frame que se está viendo. Best-effort y fuera del camino crítico: si no hay
-     * TextureView o el frame no pasa las guardas, no pasa nada.
+     * Captures the frame currently being watched. Best-effort and off the critical path: if there's
+     * no TextureView or the frame doesn't pass the guards, nothing happens.
      *
-     * The TextureView comes as a parameter because the views live in `PlayerScreen` (the local one
-     * and the in-screen players'); here only `viewModelScope` is needed so the capture doesn't block
-     * the composition thread.
+     * The TextureView comes as a parameter because the views live in `PlayerScreen` (the local
+     * one and the in-screen players'); here only `viewModelScope` is needed so the capture doesn't
+     * block the composition thread.
      */
-    fun capturarFrame(episodeId: String, positionMs: Long, textureView: android.view.TextureView?) {
+    fun captureFrame(episodeId: String, positionMs: Long, textureView: android.view.TextureView?) {
         // Same guard as progress, and it matters more here: a frame isn't a number, it's an image
         // of what was being watched -- `FrameCapturer.publicar` writes the JPEG straight to local
         // storage. It's the 2026-08-14 leak again, but with a photo. (`episode_frame` used to sync
         // to other devices through PocketBase; that's gone with the rest of cloud sync, but a
         // locally-saved frame of adult content is still exactly the leak this guard exists to stop.)
-        val magisIt = _magisItem.value?.takeIf { it.episodeId == episodeId }
-        if (magisIt != null) {
-            if (!AdultContent.shouldLog(magisIt.adulto)) return
+        val currentMagisItem = _magisItem.value?.takeIf { it.episodeId == episodeId }
+        if (currentMagisItem != null) {
+            if (!AdultContent.shouldLog(currentMagisItem.adult)) return
         } else {
-            if (!_playlist.value.hayQueAnotarHistorial(episodeId)) return
+            if (!_playlist.value.shouldLogHistory(episodeId)) return
         }
         viewModelScope.launch { frameCapturer.capture(episodeId, positionMs, textureView) }
     }
 
     private companion object {
-        /** Cuántas veces se reabre un directo cortado antes de avisar. Ver [reabrirVivoPorCorte]. */
-        const val MAX_REAPERTURAS_VIVO = 3
+        /** How many times a cut live stream reopens before warning. See [reopenLiveAfterCut]. */
+        const val MAX_LIVE_REOPENS = 3
 
-        /** Espera de la PRIMERA reapertura; las siguientes la duplican (2 s → 4 s → 8 s). */
-        const val ESPERA_REAPERTURA_MS = 2_000L
+        /** Wait for the FIRST reopen; each next one doubles it (2 s → 4 s → 8 s). */
+        const val REOPEN_WAIT_MS = 2_000L
 
         /**
-         * Cuánto tiene que reproducir un canal reabierto para considerarlo recuperado y devolverle
-         * el presupuesto entero de reaperturas. Ver [vivoAndando].
+         * How long a reopened channel has to play to be considered recovered and get its whole
+         * reopen budget back. See [liveIsPlaying].
          */
-        const val MINIMO_VIVO_SANO_MS = 5_000L
+        const val MIN_HEALTHY_LIVE_MS = 5_000L
 
-        /** Tag del flujo de carga/replay del player (filtrar con `adb logcat -s ArkivPlay`). */
+        /** Tag for the player's load/replay flow (filter with `adb logcat -s ArkivPlay`). */
         const val PLAY = "ArkivPlay"
     }
 }

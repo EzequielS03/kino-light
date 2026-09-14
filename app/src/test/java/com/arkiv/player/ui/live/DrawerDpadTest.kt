@@ -13,7 +13,7 @@ import org.junit.Test
  * months later. Here it's a pure function.
  *
  * The contract with the player is the delicate part: in live, up and down ALREADY zap
- * ([PlayerScreen] uses them for `zapAnterior`/`zapSiguiente`). If the drawer kept all of them, it
+ * ([PlayerScreen] uses them for `zapPrevious`/`zapNext`). If the drawer kept all of them, it
  * would stop being possible to zap; if it kept none, the list couldn't be navigated. That's why
  * [DrawerAction.PASS] exists: it explicitly says "this isn't mine, let whoever's underneath
  * handle it."

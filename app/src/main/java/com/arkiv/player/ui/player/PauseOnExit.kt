@@ -32,8 +32,8 @@ internal enum class OnBackground {
      * [onReturnToLive]).
      *
      * Stopped and not just paused because, paused, the player stays armed and can fail in the
-     * background. `LiveExoPlayer`'s error goes to `reabrirVivoPorCorte`, which spends one of its
-     * reopens and reopens the channel: `abrirCanalActual` publishes a new `liveItem`. Nothing gets
+     * background. `LiveExoPlayer`'s error goes to `reopenLiveAfterCut`, which spends one of its
+     * reopens and reopens the channel: `openCurrentChannel` publishes a new `liveItem`. Nothing gets
      * armed in the background, because `PlayerScreen` reads `liveItem` with
      * `collectAsStateWithLifecycle`; it picks it up on return, and that new `LiveExoPlayer` primes
      * with `playWhenReady = true`: it would start playing on return even if the person had paused

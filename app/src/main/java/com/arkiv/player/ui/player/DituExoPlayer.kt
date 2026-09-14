@@ -73,7 +73,7 @@ private fun isRecoverable(error: PlaybackException): Boolean =
  * The video goes on the `SurfaceView` that [PlayerView] uses by default, not on a `TextureView`
  * like [MagisExoPlayer]. On `main` it was measured that a Widevine-protected buffer can't be
  * painted on a `TextureView` (hwui aborts the process). The price is that Caracol loses frame
- * thumbnails: the screen passes `null` to `capturarFrame`, and `FrameCapturer.capturar` returns
+ * thumbnails: the screen passes `null` to `captureFrame`, and `FrameCapturer.capturar` returns
  * `false` with a null `TextureView`.
  *
  * Ads aren't filtered. On a recoverable error (see [isRecoverable]) the stream is re-prepared

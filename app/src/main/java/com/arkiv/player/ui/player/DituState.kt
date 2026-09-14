@@ -75,7 +75,7 @@ internal class DituState(
     /** The last position read, or `null` when a fresh baseline needs to be taken. */
     private var lastPosition: Long? = null
 
-    /** How many things got published. See [DituReproducible.generacion]. */
+    /** How many things got published. See [DituReproducible.generation]. */
     private var publications = 0
 
     /** A new request came in: whatever Caracol had stops being valid and the caps are replenished. */
@@ -98,7 +98,7 @@ internal class DituState(
     fun publish(r: DituReproducible): Boolean {
         if (!isActive(r.episodeId)) return false
         publications++
-        _current.value = r.copy(generacion = publications)
+        _current.value = r.copy(generation = publications)
         return true
     }
 
