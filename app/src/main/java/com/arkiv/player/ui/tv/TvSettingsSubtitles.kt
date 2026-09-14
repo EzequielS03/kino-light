@@ -14,17 +14,17 @@ import com.arkiv.player.ui.settings.AUDIO_LANGUAGES
 import com.arkiv.player.ui.settings.SUBTITLE_LANGUAGES
 
 /**
- * Idioma de audio y subtítulos en la TV. El estilo (tamaño, colores, borde) no está acá a
- * propósito -elegir colores con el control remoto es incómodo-, así que queda en lo que el TV ya
- * tenga guardado localmente (sin cloud sync, ya no viaja desde el celular).
+ * Audio and subtitle language on TV. The styling (size, colors, border) isn't here on purpose
+ * -picking colors with the remote is awkward-, so it stays with whatever the TV already has
+ * saved locally (no cloud sync, it no longer travels from the phone).
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-internal fun TvSettingsSubtitulos() {
+internal fun TvSettingsSubtitles() {
     val graph = rememberGraph()
     val prefs by graph.subtitlePrefs.prefs.collectAsStateWithLifecycle()
 
-    // Persiste local (Task 5: sin cloud sync ya no viaja al celular).
+    // Persists locally (Task 5: with no cloud sync it no longer travels to the phone).
     fun setPrefs(p: PlaybackPrefs) {
         graph.subtitlePrefs.update(p)
     }
@@ -57,7 +57,7 @@ internal fun TvSettingsSubtitulos() {
             "Subtítulos: desactivados (tocá para automáticos)"
         },
     ) {
-        val nuevo = if (prefs.subtitleMode == SubtitleMode.AUTO) SubtitleMode.OFF else SubtitleMode.AUTO
-        setPrefs(prefs.copy(subtitleMode = nuevo))
+        val newMode = if (prefs.subtitleMode == SubtitleMode.AUTO) SubtitleMode.OFF else SubtitleMode.AUTO
+        setPrefs(prefs.copy(subtitleMode = newMode))
     }
 }

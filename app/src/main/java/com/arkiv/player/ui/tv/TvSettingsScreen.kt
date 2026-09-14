@@ -30,77 +30,78 @@ import com.arkiv.player.data.magis.MagisAccountState
 import com.arkiv.player.ui.rememberGraph
 
 /**
- * Los mismos cajones que en el celular ([com.arkiv.player.ui.settings.SettingsScreen]).
+ * The same drawers as on the phone ([com.arkiv.player.ui.settings.SettingsScreen]).
  *
- * No hay cajón "Reproducción" acá: sus dos únicos controles (calidad de streaming/descarga y
- * calidad de fuentes web) eran para archive.org y torrent/web, borrados en la poda de esta rama —
- * Magis no usa ninguno de los dos (su CDN decide el bitrate solo). El celular sí conserva un cajón
- * "Reproducción" porque ahí vive además la firma remota del canal en vivo, un control que nunca se
- * portó a esta pantalla.
+ * There's no "Playback" drawer here: its only two controls (streaming/download quality and web
+ * source quality) were for archive.org and torrent/web, removed in this branch's pruning — Magis
+ * doesn't use either one (its CDN decides the bitrate on its own). The phone still keeps a
+ * "Playback" drawer because that's also where the live channel's remote signature lives, a
+ * control that never made it to this screen.
  */
-private enum class TabDeAjustesTv(val etiqueta: String) {
-    SUBTITULOS("Subtítulos"),
-    CUENTA("Cuenta"),
+private enum class TvSettingsTab(val label: String) {
+    SUBTITLES("Subtítulos"),
+    ACCOUNT("Cuenta"),
     APP("App"),
 }
 
 /**
- * Ajustes de la TV, repartidos en tabs.
+ * TV Settings, split across tabs.
  *
- * Era una columna de 700 líneas que se recorría entera con el D-pad: para llegar a "Buscar
- * actualizaciones" había que bajar por las cuatro calidades, los tres editores de idioma y la lista
- * de aparatos. Los tabs son el gesto que ya usan las raíces del catálogo
- * ([TvSeccionesDeCatalogo]) y comparten la misma pieza ([TvTab]).
+ * It used to be a 700-line column scrolled through entirely with the D-pad: reaching "Check for
+ * updates" meant going down through the four quality settings, the three language editors, and
+ * the device list. Tabs are the gesture the catalog's roots already use
+ * ([TvSeccionesDeCatalogo]) and they share the same piece ([TvTab]).
  *
- * La fila de tabs vive FUERA de la columna que scrollea. Adentro, el pivote de `bringIntoView` del
- * Fire TV la arrastraría hacia arriba en cuanto el foco bajara al contenido, y volver a ella sería
- * un tanteo.
+ * The tab row lives OUTSIDE the scrolling column. Inside it, the Fire TV's `bringIntoView` pivot
+ * would drag it upward as soon as focus went down into the content, and getting back to it would
+ * be a fumble.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TvSettingsScreen() {
     val graph = rememberGraph()
-    val cuentaMagis = graph.magisAccount
+    val magisAccount = graph.magisAccount
 
-    // Vincular Magis abre la MISMA pantalla que la oferta al entrar ([TvOfertaVincularMagis]), no
-    // un formulario desplegado adentro de la lista de Ajustes. Antes eran dos interfaces distintas
-    // para lo mismo: acá campos sueltos con el teclado del sistema -incómodo con el control-, y en
-    // la oferta el teclado en pantalla con "Iniciar sesión" y "Crear cuenta". Mantener las dos
-    // significaba arreglar cada cosa dos veces, y de hecho las mejoras del flujo de registro
-    // (contraseña en el primer paso, "Crear cuenta" habilitado sólo con los campos completos)
-    // habían quedado sólo en una.
-    var vinculandoMagis by remember { mutableStateOf(false) }
-    if (vinculandoMagis) {
-        val estadoMagis by cuentaMagis.state.collectAsStateWithLifecycle()
-        // Y se cierra sola al vincular. `TvOfertaVincularMagis` no avisa cuando sale bien: no le
-        // hacía falta, porque en su uso original (`ArkivTvRoot`, la oferta al entrar) el que la
-        // compone reevalúa si todavía hay que ofrecerla y deja de pintarla. Acá el `if` de arriba
-        // lo gobierna esta pantalla, así que si nadie mira el estado la vinculación sale bien —el
-        // portal la acepta— y la persona se queda mirando el mismo formulario, sin ninguna señal
-        // de que pasó algo. Medido en el Fire TV el 2026-08-14: "le di vincular y no dijo nada".
-        LaunchedEffect(estadoMagis) {
-            if (estadoMagis is MagisAccountState.Linked) vinculandoMagis = false
+    // Linking Magis opens the SAME screen as the offer shown on entry ([TvOfertaVincularMagis]),
+    // not a form unfolded inside the Settings list. There used to be two different UIs for the
+    // same thing: here, loose fields with the system keyboard -awkward with the remote-, and in
+    // the offer, the on-screen keyboard with "Log in" and "Create account". Keeping both meant
+    // fixing everything twice, and in fact the sign-up flow's improvements (password in the
+    // first step, "Create account" enabled only once the fields are complete) had only landed in
+    // one of them.
+    var linkingMagis by remember { mutableStateOf(false) }
+    if (linkingMagis) {
+        val magisState by magisAccount.state.collectAsStateWithLifecycle()
+        // And it closes itself on linking. `TvOfertaVincularMagis` doesn't signal success: it
+        // didn't need to, because in its original use (`ArkivTvRoot`, the offer shown on entry)
+        // whoever composes it re-evaluates whether it still needs to be offered and stops
+        // painting it. Here the `if` above is what governs this screen, so if nobody watches the
+        // state, linking succeeds -the portal accepts it- and the person is left looking at the
+        // same form, with no signal that anything happened. Measured on the Fire TV on
+        // 2026-08-14: "I hit link and it didn't say anything."
+        LaunchedEffect(magisState) {
+            if (magisState is MagisAccountState.Linked) linkingMagis = false
         }
         TvOfertaVincularMagis(
-            cuenta = cuentaMagis,
-            // Cerrar es volver a Ajustes, no descartar la oferta para siempre: acá la persona
-            // ENTRÓ a vincular a propósito. Por eso no se toca `magisOfertaDescartada`.
-            onAhoraNo = { vinculandoMagis = false },
+            cuenta = magisAccount,
+            // Closing goes back to Settings, not dismissing the offer forever: the person came
+            // in to link ON PURPOSE here. That's why `magisOfertaDescartada` isn't touched.
+            onAhoraNo = { linkingMagis = false },
         )
         return
     }
 
-    var tab by rememberSaveable { mutableStateOf(TabDeAjustesTv.SUBTITULOS) }
-    // Un scroll por tab: con uno solo compartido, entrar a "Cuenta" desde el fondo de "Subtítulos"
-    // dejaba la pantalla arrancada a mitad de camino.
+    var tab by rememberSaveable { mutableStateOf(TvSettingsTab.SUBTITLES) }
+    // One scroll per tab: with a single shared one, entering "Account" from the bottom of
+    // "Subtitles" left the screen starting halfway down.
     val scroll = rememberSaveable(tab, saver = ScrollState.Saver) { ScrollState(0) }
 
-    // El foco entra por el primer tab. Sin esto arranca en el primer renglón del contenido y la
-    // fila de arriba se descubre de casualidad.
-    val focoPrimerTab = remember { FocusRequester() }
+    // Focus enters through the first tab. Without this it starts on the content's first row and
+    // the row above gets discovered by accident.
+    val firstTabFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         repeat(20) {
-            if (runCatching { focoPrimerTab.requestFocus() }.isSuccess) return@LaunchedEffect
+            if (runCatching { firstTabFocus.requestFocus() }.isSuccess) return@LaunchedEffect
             delay(50)
         }
     }
@@ -109,18 +110,18 @@ fun TvSettingsScreen() {
         Text("Ajustes", style = MaterialTheme.typography.headlineMedium, color = Color.White)
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
-            // Aire para el zoom y el borde del foco: sin esto el tab enfocado se recorta contra
-            // los límites de su propia fila.
+            // Room for the zoom and the focus border: without this the focused tab gets clipped
+            // against its own row's bounds.
             contentPadding = PaddingValues(vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            items(TabDeAjustesTv.entries.size) { i ->
-                val t = TabDeAjustesTv.entries[i]
+            items(TvSettingsTab.entries.size) { i ->
+                val t = TvSettingsTab.entries[i]
                 TvTab(
-                    label = t.etiqueta,
+                    label = t.label,
                     selected = t == tab,
                     onClick = { tab = t },
-                    modifier = if (i == 0) Modifier.focusRequester(focoPrimerTab) else Modifier,
+                    modifier = if (i == 0) Modifier.focusRequester(firstTabFocus) else Modifier,
                 )
             }
         }
@@ -130,9 +131,9 @@ fun TvSettingsScreen() {
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             when (tab) {
-                TabDeAjustesTv.SUBTITULOS -> TvSettingsSubtitulos()
-                TabDeAjustesTv.CUENTA -> TvSettingsCuenta(cuentaMagis, onLinkMagis = { vinculandoMagis = true })
-                TabDeAjustesTv.APP -> TvSettingsApp()
+                TvSettingsTab.SUBTITLES -> TvSettingsSubtitles()
+                TvSettingsTab.ACCOUNT -> TvSettingsCuenta(magisAccount, onLinkMagis = { linkingMagis = true })
+                TvSettingsTab.APP -> TvSettingsApp()
             }
         }
     }

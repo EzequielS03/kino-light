@@ -21,10 +21,10 @@ import com.arkiv.player.ui.settings.label
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 
 /**
- * Misma lógica que el editor del celular ([com.arkiv.player.ui.settings.LanguageOrderEditor]) pero
- * con los componentes de `androidx.tv.material3`: el `Surface` de la librería de TV es el que sabe
- * pintarse al recibir foco del control remoto. La lógica de reordenar es compartida
- * ([LangOrderEdits]), así que las dos pantallas no se pueden desincronizar.
+ * Same logic as the phone's editor ([com.arkiv.player.ui.settings.LanguageOrderEditor]) but with
+ * `androidx.tv.material3`'s components: the TV library's `Surface` is the one that knows how to
+ * paint itself on receiving remote focus. The reorder logic is shared ([LangOrderEdits]), so the
+ * two screens can't drift out of sync.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -42,15 +42,15 @@ fun TvLanguageOrderEditor(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TvLangBoton("✓ ${i + 1}. ${lang.label()}", Modifier.weight(1f)) {
+                TvLangButton("✓ ${i + 1}. ${lang.label()}", Modifier.weight(1f)) {
                     onChange(LangOrderEdits.toggle(order, lang))
                 }
-                TvLangBoton("▲") { onChange(LangOrderEdits.moveUp(order, lang)) }
-                TvLangBoton("▼") { onChange(LangOrderEdits.moveDown(order, lang)) }
+                TvLangButton("▲") { onChange(LangOrderEdits.moveUp(order, lang)) }
+                TvLangButton("▼") { onChange(LangOrderEdits.moveDown(order, lang)) }
             }
         }
         options.filterNot { it in order }.forEach { lang ->
-            TvLangBoton(lang.label(), Modifier.fillMaxWidth(0.6f)) {
+            TvLangButton(lang.label(), Modifier.fillMaxWidth(0.6f)) {
                 onChange(LangOrderEdits.toggle(order, lang))
             }
         }
@@ -58,8 +58,8 @@ fun TvLanguageOrderEditor(
 }
 
 /**
- * Versión TV de [com.arkiv.player.ui.settings.LanguageChecklistEditor]: los mismos idiomas pero SIN
- * flechas, porque acá el orden no significa nada. Cada fila es un botón que prende/apaga el ✓.
+ * TV version of [com.arkiv.player.ui.settings.LanguageChecklistEditor]: the same languages but
+ * with NO arrows, since order means nothing here. Each row is a button that toggles the ✓.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -74,8 +74,8 @@ fun TvLanguageChecklist(
     Text(subtitle, color = ArkivTextSecondary, modifier = Modifier.padding(bottom = 8.dp))
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         options.forEach { lang ->
-            val marca = if (lang in selected) "✓ " else "   "
-            TvLangBoton("$marca${lang.label()}", Modifier.fillMaxWidth(0.6f)) {
+            val mark = if (lang in selected) "✓ " else "   "
+            TvLangButton("$mark${lang.label()}", Modifier.fillMaxWidth(0.6f)) {
                 onChange(LangOrderEdits.toggle(selected, lang))
             }
         }
@@ -84,14 +84,14 @@ fun TvLanguageChecklist(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun TvLangBoton(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun TvLangButton(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
         modifier = modifier,
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-        // Mismo estilo compartido que el resto de los botones de Ajustes del TV (TvButtonStyle.kt):
-        // sin colores explícitos el Surface de tv.material3 cae en el esquema claro por defecto de
-        // la librería y el botón se ve blanco.
+        // Same shared style as the rest of TV Settings' buttons (TvButtonStyle.kt): without
+        // explicit colors, tv.material3's Surface falls back to the library's default light
+        // scheme and the button looks white.
         colors = arkivTvSurfaceColors(),
         border = arkivTvSurfaceBorder(),
     ) {
