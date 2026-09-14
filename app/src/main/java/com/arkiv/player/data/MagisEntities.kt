@@ -246,7 +246,7 @@ object MagisEntities {
      * desde la T1 (ver el KDoc de [capituloDe]), pisando en silencio los stills de toda la serie.
      *
      * Quiénes pasan hoy la temporada, y de dónde la sacan:
-     *  - `SearchPlayback.magisEpisodeIdDe` (botón "Guardar" del diálogo de temporada, celu y TV) y
+     *  - `SearchPlayback.magisEpisodeIdFor` (botón "Guardar" del diálogo de temporada, celu y TV) y
      *    `BuscadorDeCapitulos.revisarMagis` (capítulos nuevos en background): del `season_number`
      *    del bloque `series` (`GatewaySerie`) que devuelve `MagisCatalog.detail`.
      *  - `SearchPlayback.magisEpisodeId` y `CineDetailScreen.playMagis` (resultado suelto de

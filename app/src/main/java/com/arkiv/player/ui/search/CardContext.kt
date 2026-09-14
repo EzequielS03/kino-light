@@ -6,7 +6,7 @@ import com.arkiv.player.data.catalog.TmdbItem
 
 enum class SearchPhase { QUERY, REFINE, RESULTS }
 
-/** Card de la Fase 1. kind: "movie" | "series" (TMDB) | "anime" (AniList). */
+/** Phase 1 card. kind: "movie" | "series" (TMDB) | "anime" (AniList). */
 data class TitleCard(
     val kind: String,
     val tmdbId: Int?,
@@ -15,11 +15,11 @@ data class TitleCard(
     val posterUrl: String,
     val year: String,
     val overview: String?,
-    /** Imagen apaisada (16:9) para las filas del TV; vacía si la fuente no la trae. */
+    /** Landscape (16:9) image for the TV rows; empty if the source doesn't bring one. */
     val backdropUrl: String = "",
 )
 
-/** TMDB → card del home/buscador. `type` de TMDB es "movie"|"tv"; en la UI usamos "movie"|"series". */
+/** TMDB → home/search card. TMDB's `type` is "movie"|"tv"; in the UI "movie"|"series" is used. */
 fun TmdbItem.toTitleCard(): TitleCard = TitleCard(
     kind = if (type == "tv") "series" else "movie",
     tmdbId = id,
@@ -31,7 +31,7 @@ fun TmdbItem.toTitleCard(): TitleCard = TitleCard(
     backdropUrl = backdropUrl,
 )
 
-/** AniList → card. `year` puede venir 0 cuando no se conoce: mejor vacío que "0". */
+/** AniList → card. `year` can come as 0 when unknown: empty is better than "0". */
 fun AnimeShow.toTitleCard(): TitleCard = TitleCard(
     kind = "anime",
     tmdbId = null,
@@ -40,23 +40,23 @@ fun AnimeShow.toTitleCard(): TitleCard = TitleCard(
     posterUrl = posterUrl,
     year = if (year > 0) year.toString() else "",
     overview = description,
-    // AniList ya trae una imagen apaisada propia (banner); si falta, el TV cae al póster.
+    // AniList already brings its own landscape image (banner); if missing, the TV falls back to the poster.
     backdropUrl = bannerUrl,
 )
 
 /**
- * Texto del buscador → card, para buscar fuentes por lo que hay escrito y no por la ficha del
- * catálogo (botón "Buscar" del buscador del TV). Devuelve null si no hay nada que buscar.
+ * Search text → card, to search sources by what's typed rather than a catalog card (the TV
+ * search's "Buscar" button). Returns null if there's nothing to search.
  *
- * Va sin `tmdbId`/`anilistId` a propósito: en el gateway el tmdb_id es solo el desempate entre los
- * títulos que matchean el texto, así que sin él las cuatro fuentes buscan por `q` — que es
- * justamente lo que se quiere acá. `kind` es "movie" porque con season/episode en 0 ninguna fuente
- * filtra por tipo (magis devuelve pelis y series igual), y porque `SearchViewModel.back()` manda
- * las películas de vuelta a QUERY: sin eso, atrás desde las fuentes caería en el selector de
- * temporadas de una card que no existe.
+ * Goes with no `tmdbId`/`anilistId` on purpose: in the gateway the tmdb_id is only the tiebreak
+ * among titles matching the text, so without it all four sources search by `q` -- which is
+ * exactly what's wanted here. `kind` is "movie" because with season/episode at 0 no source filters
+ * by type (magis returns movies and series just the same), and because `SearchViewModel.back()`
+ * sends movies back to QUERY: without that, going back from sources would land on the season
+ * selector of a card that doesn't exist.
  */
-fun cardDeTextoLibre(texto: String): TitleCard? {
-    val q = texto.trim().takeIf { it.isNotBlank() } ?: return null
+fun freeTextCard(text: String): TitleCard? {
+    val q = text.trim().takeIf { it.isNotBlank() } ?: return null
     return TitleCard(
         kind = "movie",
         tmdbId = null,
@@ -69,32 +69,32 @@ fun cardDeTextoLibre(texto: String): TitleCard? {
 }
 
 /**
- * Quita los repetidos de la grilla de títulos, que junta TMDB con AniList: todo lo que es anime y
- * además está en TMDB salía dos veces con el mismo nombre. Gana el primero de la lista, así el
- * orden que ya se ve no cambia.
+ * Removes duplicates from the title grid, which merges TMDB with AniList: anything that's anime
+ * and also on TMDB used to show up twice with the same name. The first one in the list wins, so
+ * the order already shown doesn't change.
  *
- * La clave lleva el AÑO además del nombre: dos películas con el mismo título y distinto año son
- * dos películas distintas (los remakes), y colapsarlas escondería una. Un título vacío no tiene con
- * qué compararse, así que pasa siempre — juntarlos sería juntar cosas que no sabemos si son la
- * misma.
+ * The key carries the YEAR along with the name: two movies with the same title and a different
+ * year are two different movies (remakes), and collapsing them would hide one. A blank title has
+ * nothing to compare against, so it always passes -- merging those would be merging things that
+ * aren't known to be the same.
  */
-fun sinRepetidos(cards: List<TitleCard>): List<TitleCard> {
-    val vistos = HashSet<String>()
+fun withoutDuplicates(cards: List<TitleCard>): List<TitleCard> {
+    val seen = HashSet<String>()
     return cards.filter { card ->
-        val clave = normalizarTitulo(card.title)
-        clave.isEmpty() || vistos.add("$clave|${card.year}")
+        val key = normalizeTitle(card.title)
+        key.isEmpty() || seen.add("$key|${card.year}")
     }
 }
 
-/** Nombre comparable: sin mayúsculas, sin acentos, sin puntuación y con un solo espacio entre
- *  palabras. "¡El  PADRINO!" y "el padrino" son el mismo título. */
-private fun normalizarTitulo(titulo: String): String =
-    java.text.Normalizer.normalize(titulo.lowercase(), java.text.Normalizer.Form.NFD)
+/** Comparable name: no capitals, no accents, no punctuation, and a single space between words.
+ *  "¡El  PADRINO!" and "el padrino" are the same title. */
+private fun normalizeTitle(title: String): String =
+    java.text.Normalizer.normalize(title.lowercase(), java.text.Normalizer.Form.NFD)
         .replace(Regex("\\p{Mn}+"), "")
         .replace(Regex("[^a-z0-9]+"), " ")
         .trim()
 
-/** Card → entrada del historial. Se tira `overview`/`backdrop`: el hero los vuelve a pedir igual. */
+/** Card → history entry. `overview`/`backdrop` are dropped: the hero requests them again anyway. */
 fun TitleCard.toRecent(): RecentTitle = RecentTitle(
     kind = kind,
     tmdbId = tmdbId,
@@ -104,7 +104,7 @@ fun TitleCard.toRecent(): RecentTitle = RecentTitle(
     year = year,
 )
 
-/** Historial → card, para poder tocar un póster reciente y caer directo en las fuentes. */
+/** History → card, to be able to tap a recent poster and land straight on the sources. */
 fun RecentTitle.toTitleCard(): TitleCard = TitleCard(
     kind = kind,
     tmdbId = tmdbId,

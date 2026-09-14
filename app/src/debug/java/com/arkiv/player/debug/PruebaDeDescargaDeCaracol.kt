@@ -57,8 +57,8 @@ class PruebaDeDescargaDeCaracol : BroadcastReceiver() {
         Log.w(TAG, "queuing «${elegido.title}» (#${elegido.number}) of ${capitulos.size}")
 
         val playback = SearchPlayback(graph)
-        val encolados = playback.encolarDescargaDeCaracol(temporada, capitulos, listOf(elegido), serie)
-        val epId = playback.dituEpisodeIdDe(temporada, capitulos, elegido, serie)
+        val encolados = playback.enqueueCaracolDownload(temporada, capitulos, listOf(elegido), serie)
+        val epId = playback.dituEpisodeIdFor(temporada, capitulos, elegido, serie)
         Log.w(TAG, "queued=$encolados episodeId=$epId · source=${epId?.let { fuenteDe(it) }}")
         Log.w(TAG, "now watch ArkivLocalDl / ArkivDituDl; then run this with `--es paso estado`")
     }
@@ -67,7 +67,7 @@ class PruebaDeDescargaDeCaracol : BroadcastReceiver() {
         val graph = AppGraph.from(context)
         val (temporada, capitulos, serie) = cargar(graph, serieId) ?: return
         val elegido = capitulos.getOrNull(cual - 1) ?: return
-        val epId = SearchPlayback(graph).dituEpisodeIdDe(temporada, capitulos, elegido, serie) ?: return
+        val epId = SearchPlayback(graph).dituEpisodeIdFor(temporada, capitulos, elegido, serie) ?: return
 
         val fila = graph.database.downloadDao().get(epId)
         val descarga = graph.localLibrary.caracolDownload(epId)
@@ -91,7 +91,7 @@ class PruebaDeDescargaDeCaracol : BroadcastReceiver() {
         val graph = AppGraph.from(context)
         val (temporada, capitulos, serie) = cargar(graph, serieId) ?: return
         val elegido = capitulos.getOrNull(cual - 1) ?: return
-        val epId = SearchPlayback(graph).dituEpisodeIdDe(temporada, capitulos, elegido, serie) ?: return
+        val epId = SearchPlayback(graph).dituEpisodeIdFor(temporada, capitulos, elegido, serie) ?: return
 
         val antes = graph.almacenDeCaracol.bytesOnDisk()
         graph.localDownloads.remove(epId)

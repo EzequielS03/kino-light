@@ -3,36 +3,37 @@ package com.arkiv.player.ui.search
 import com.arkiv.player.AppGraph
 import com.arkiv.player.data.DituEntities
 
-/** Resultado de intentar preparar una reproducción: listo con episodeId, o falló con un mensaje
- *  para mostrar al usuario (mismos textos que mostraba SearchScreen antes de la extracción). */
+/** Result of trying to prepare a playback: ready with an episodeId, or failed with a message to
+ *  show the user (the same texts SearchScreen showed before the extraction). */
 sealed class PlaybackResult {
     data class Ready(val episodeId: String) : PlaybackResult()
     data class Failed(val message: String) : PlaybackResult()
 }
 
 /**
- * Resuelve una fuente elegida en el buscador (Magis o Caracol), la guarda en la biblioteca vía
- * [AppGraph.repository] y devuelve el episodeId listo para reproducir. Extraído VERBATIM de las
- * funciones locales que vivían en `SearchScreen` (playArchiveResult, entre otras) para
- * que TV pueda reusar exactamente la misma lógica sin duplicarla. No-Compose a propósito: solo
- * necesita el grafo de dependencias, no estado de UI.
+ * Resolves a source chosen in the search (Magis or Caracol), saves it to the library via
+ * [AppGraph.repository] and returns the episodeId ready to play. Extracted VERBATIM from the
+ * local functions that lived in `SearchScreen` (playArchiveResult, among others) so the TV can
+ * reuse exactly the same logic without duplicating it. Non-Compose on purpose: it only needs the
+ * dependency graph, not UI state.
  *
- * `preparing`/`playError`/`onPlay(epId)` siguen viviendo en el composable que llama a estos métodos:
- * este helper solo resuelve+guarda y devuelve el resultado.
+ * `preparing`/`playError`/`onPlay(epId)` still live in the composable that calls these methods:
+ * this helper only resolves+saves and returns the result.
  */
 class SearchPlayback(private val graph: AppGraph) {
 
     /**
-     * Guarda un resultado de Magis y devuelve su episodeId.
+     * Saves a Magis result and returns its episodeId.
      *
-     * El id sale del `contentId` del portal, no del ref: el ref se re-emite en cada búsqueda y un id
-     * derivado de él perdería la posición de reproducción. El ref se guarda al lado y se refresca.
+     * The id comes from the portal's `contentId`, not from the ref: the ref gets re-emitted on
+     * every search and an id derived from it would lose the playback position. The ref is saved
+     * alongside and refreshed.
      *
-     * La temporada sale del propio resultado (`GatewayResult.season`, que el portal manda en la
-     * búsqueda) y NO se deja en null: un episodio sin `season` en un ítem donde los demás sí la
-     * tienen hace que `ArkivRepository.ensureEpisodeStills` caiga a su rama de aplanar desde la
-     * temporada 1 y pise los stills buenos de toda la serie (ver el KDoc de `MagisEntities.build`).
-     * `0` es "el portal no la dijo", no la temporada cero, de ahí el `takeIf`.
+     * The season comes from the result itself (`GatewayResult.season`, which the portal sends in
+     * the search) and is NOT left null: an episode with no `season` in an item where the others do
+     * have one makes `ArkivRepository.ensureEpisodeStills` fall to its branch that flattens from
+     * season 1 and overwrites the whole series' good stills (see `MagisEntities.build`'s KDoc). `0`
+     * means "the portal didn't say", not season zero, hence the `takeIf`.
      */
     suspend fun magisEpisodeId(r: com.arkiv.player.data.gateway.GatewayResult): String? {
         val contentId = r.extra["content_id"].orEmpty()
@@ -44,117 +45,117 @@ class SearchPlayback(private val graph: AppGraph) {
     }
 
     /**
-     * Reproduce un capítulo suelto de una temporada de Magis.
+     * Plays a standalone chapter from a Magis season.
      *
-     * El capítulo entra como episodio del ítem de la TEMPORADA (una tarjeta por serie, marcada como
-     * serie desde el primer capítulo; ver `MagisEntities`), con su propia marca de "voy por aquí".
+     * The chapter enters as an episode of the SEASON's item (one card per series, marked as a
+     * series from the first chapter on; see `MagisEntities`), with its own "I'm here" mark.
      */
     /**
-     * Guarda el capítulo y devuelve su episodeId, sin navegar. Lo usa el guardado en lote (el botón
-     * "Guardar" del diálogo de temporada, en el celu y en el TV) y el respaldo de [playMagisSeason].
+     * Saves the chapter and returns its episodeId, without navigating. Used by the batch save (the
+     * "Guardar" button in the season dialog, on the phone and on the TV) and [playMagisSeason]'s fallback.
      *
-     * [serie] es el bloque `series` de la misma respuesta que trajo [capitulo] (null si el gateway
-     * no lo pudo resolver contra TMDB), y **no tiene default a propósito**: guardar sin él era el
-     * bug. `upsertEpisodes` es un `@Insert(onConflict = REPLACE)`, así que esta llamada reescribe la
-     * fila ENTERA del episodio; sin `season`, marcar tres capítulos de una temporada ya guardada por
-     * [playMagisSeason] les borraba el número de temporada, y desde ahí `ensureEpisodeStills` cruza
-     * aplanando desde la T1 y pisa los stills de toda la serie (ver el KDoc de
-     * `MagisEntities.build`). Hasta Task 5, además, `episodes` era tabla sincronizada: ese
-     * `season = null` viajaba al otro dispositivo también. Sin cloud sync el daño queda contenido
-     * a este aparato, pero sigue siendo el mismo bug local.
+     * [series] is the `series` block from the same response that brought [chapter] (null if the
+     * gateway couldn't resolve it against TMDB), and **has no default on purpose**: saving without
+     * it was the bug. `upsertEpisodes` is an `@Insert(onConflict = REPLACE)`, so this call rewrites
+     * the episode's ENTIRE row; with no `season`, marking three chapters of a season already saved
+     * by [playMagisSeason] erased their season number, and from there `ensureEpisodeStills` crosses
+     * flattening from T1 and overwrites the whole series' stills (see `MagisEntities.build`'s
+     * KDoc). Up until Task 5, `episodes` was also a synced table: that `season = null` traveled to
+     * the other device too. With no cloud sync the damage stays contained to this device, but it's
+     * still the same local bug.
      *
-     * Los tres campos enriquecidos del capítulo (still, nombre real y sinopsis) viajan por lo mismo
-     * que la temporada: el diálogo YA los tiene en la mano, y sin pasarlos un capítulo guardado sin
-     * haberlo reproducido nunca quedaba sin fila en `episode_still` — o sea, tarjeta negra en la
-     * biblioteca hasta que alguien abriera la serie.
+     * The chapter's three enriched fields (still, real name and synopsis) travel along the same as
+     * the season: the dialog ALREADY has them in hand, and without passing them a chapter saved
+     * without ever being played was left with no row in `episode_still` -- i.e. a black card in the
+     * library until someone opened the series.
      */
-    suspend fun magisEpisodeIdDe(
-        temporada: com.arkiv.player.data.gateway.GatewayResult,
-        capitulo: com.arkiv.player.data.gateway.GatewayEpisode,
-        serie: com.arkiv.player.data.gateway.GatewaySerie?,
+    suspend fun magisEpisodeIdFor(
+        season: com.arkiv.player.data.gateway.GatewayResult,
+        chapter: com.arkiv.player.data.gateway.GatewayEpisode,
+        series: com.arkiv.player.data.gateway.GatewaySerie?,
     ): String? = graph.repository.addMagisSource(
-        ref = capitulo.ref,
-        contentId = temporada.extra["content_id"].orEmpty(),
-        // El título del ítem es el de la TEMPORADA, no el del capítulo: el ítem es la serie, y el
-        // capítulo se nombra aparte adentro. Pegarlos dejaba tarjetas "Daima T1 · Daima T1_1".
-        title = temporada.title,
-        episode = capitulo.number,
-        episodeTitle = capitulo.title,
-        // El capítulo hereda las imágenes de SU temporada: un GatewayEpisode no trae propias.
-        posterUrl = temporada.extra["poster"].orEmpty(),
-        backdropUrl = temporada.extra["backdrop"].orEmpty(),
-        // El ref de la temporada es el que resuelve MagisCatalog.detail; el del capítulo no.
-        seriesRef = temporada.ref,
-        season = serie?.seasonNumber,
-        // Mismo blindaje que en [playMagisSeason]: `tmdbId` sale de un `optInt`, así que un campo
-        // ausente daría 0 y ese 0 le ganaría al `?:` que preserva el tmdbId ya guardado.
-        tmdbId = serie?.tmdbId?.takeIf { it > 0 },
-        // El nombre de TMDB, para que la tarjeta no se quede con el del portal.
-        tituloCanonico = serie?.titulo,
-        still = capitulo.still,
-        tmdbTitle = capitulo.tmdbTitle,
-        overview = capitulo.overview,
+        ref = chapter.ref,
+        contentId = season.extra["content_id"].orEmpty(),
+        // The item's title is the SEASON's, not the chapter's: the item is the series, and the
+        // chapter is named separately inside. Gluing them left cards like "Daima T1 · Daima T1_1".
+        title = season.title,
+        episode = chapter.number,
+        episodeTitle = chapter.title,
+        // The chapter inherits its SEASON's images: a GatewayEpisode brings none of its own.
+        posterUrl = season.extra["poster"].orEmpty(),
+        backdropUrl = season.extra["backdrop"].orEmpty(),
+        // The season's ref is the one MagisCatalog.detail resolves; the chapter's isn't.
+        seriesRef = season.ref,
+        season = series?.seasonNumber,
+        // Same shielding as in [playMagisSeason]: `tmdbId` comes from an `optInt`, so a missing
+        // field would give 0 and that 0 would beat the `?:` that preserves the already-saved tmdbId.
+        tmdbId = series?.tmdbId?.takeIf { it > 0 },
+        // TMDB's name, so the card doesn't stay with the portal's.
+        tituloCanonico = series?.titulo,
+        still = chapter.still,
+        tmdbTitle = chapter.tmdbTitle,
+        overview = chapter.overview,
     )
 
     suspend fun playMagisEpisode(
-        temporada: com.arkiv.player.data.gateway.GatewayResult,
-        capitulo: com.arkiv.player.data.gateway.GatewayEpisode,
-        serie: com.arkiv.player.data.gateway.GatewaySerie?,
+        season: com.arkiv.player.data.gateway.GatewayResult,
+        chapter: com.arkiv.player.data.gateway.GatewayEpisode,
+        series: com.arkiv.player.data.gateway.GatewaySerie?,
     ): PlaybackResult {
-        val epId = magisEpisodeIdDe(temporada, capitulo, serie)
+        val epId = magisEpisodeIdFor(season, chapter, series)
         return if (epId != null) PlaybackResult.Ready(epId)
         else PlaybackResult.Failed("No se pudo preparar el capítulo.")
     }
 
     /**
-     * Guarda la temporada ENTERA y devuelve el capítulo que se tocó, para reproducirlo.
+     * Saves the ENTIRE season and returns the chapter that was tapped, to play it.
      *
      * Same idea that `playPackRow` (torrent) and `saveWebPack` (web) used to follow, before this
      * branch's pruning removed both: touching a chapter brings the whole season into the library,
      * not just that chapter. The list AND the series were already loaded by the screen
      * with `client.episodesWithSeries` when it opened, so this costs no network call.
-     * **No descarga nada**: eso lo sigue haciendo el botón "Guardar".
+     * **Downloads nothing**: the "Guardar" button still does that.
      *
-     * [serie] es el bloque `series` de esa misma respuesta (null si el gateway no pudo resolver la
-     * serie contra TMDB): de ahí sale el `tmdbId` que se guarda en el ítem. Viaja como parámetro y
-     * no se vuelve a pedir acá adentro — este es el camino por el que se reproduce, así que un
-     * round-trip redundante es justo lo que no puede haber.
+     * [series] is the `series` block from that same response (null if the gateway couldn't resolve
+     * the series against TMDB): that's where the `tmdbId` saved on the item comes from. It travels
+     * as a parameter and isn't requested again in here -- this is the path playback goes through,
+     * so a redundant round-trip is exactly what can't happen.
      *
-     * Si la temporada no se pudo guardar (el portal no mandó `content_id`), cae al camino de
-     * siempre —guardar solo el capítulo— antes que dejar al usuario sin reproducir nada.
+     * If the season couldn't be saved (the portal sent no `content_id`), it falls back to the usual
+     * path -- saving only the chapter -- rather than leaving the user with nothing to play.
      */
     suspend fun playMagisSeason(
-        temporada: com.arkiv.player.data.gateway.GatewayResult,
-        capitulos: List<com.arkiv.player.data.gateway.GatewayEpisode>,
-        elegido: com.arkiv.player.data.gateway.GatewayEpisode,
-        serie: com.arkiv.player.data.gateway.GatewaySerie?,
+        season: com.arkiv.player.data.gateway.GatewayResult,
+        chapters: List<com.arkiv.player.data.gateway.GatewayEpisode>,
+        chosen: com.arkiv.player.data.gateway.GatewayEpisode,
+        series: com.arkiv.player.data.gateway.GatewaySerie?,
     ): PlaybackResult {
-        val guardados = graph.repository.addMagisSeason(
-            contentId = temporada.extra["content_id"].orEmpty(),
-            title = temporada.title,
-            chapters = capitulos.map {
+        val saved = graph.repository.addMagisSeason(
+            contentId = season.extra["content_id"].orEmpty(),
+            title = season.title,
+            chapters = chapters.map {
                 com.arkiv.player.data.CapituloDeTemporada(
                     number = it.number, title = it.title, ref = it.ref,
                     still = it.still, tmdbTitle = it.tmdbTitle, overview = it.overview,
                 )
             },
-            seriesRef = temporada.ref,
-            posterUrl = temporada.extra["poster"].orEmpty(),
-            backdropUrl = temporada.extra["backdrop"].orEmpty(),
-            // `GatewaySerie.tmdbId` sale de un `optInt` (GatewayModels.kt): si el campo faltara daría
-            // 0, no null, y ese 0 le ganaría al `?:` de `buildSeason` y borraría un tmdbId válido que
-            // ya estuviera guardado. Hoy el gateway solo manda `series` cuando SÍ resolvió, así que no
-            // es alcanzable, pero blindarlo acá no cuesta nada.
-            tmdbId = serie?.tmdbId?.takeIf { it > 0 },
-        // El nombre de TMDB, para que la tarjeta no se quede con el del portal.
-        tituloCanonico = serie?.titulo,
-            seasonNumber = serie?.seasonNumber,
+            seriesRef = season.ref,
+            posterUrl = season.extra["poster"].orEmpty(),
+            backdropUrl = season.extra["backdrop"].orEmpty(),
+            // `GatewaySerie.tmdbId` comes from an `optInt` (GatewayModels.kt): if the field were
+            // missing it would give 0, not null, and that 0 would beat `buildSeason`'s `?:` and
+            // erase a valid tmdbId already saved. Today the gateway only sends `series` when it DID
+            // resolve, so this isn't reachable, but shielding it here costs nothing.
+            tmdbId = series?.tmdbId?.takeIf { it > 0 },
+        // TMDB's name, so the card doesn't stay with the portal's.
+        tituloCanonico = series?.titulo,
+            seasonNumber = series?.seasonNumber,
         )
-        val epId = guardados[elegido.number] ?: return playMagisEpisode(temporada, elegido, serie)
+        val epId = saved[chosen.number] ?: return playMagisEpisode(season, chosen, series)
         return PlaybackResult.Ready(epId)
     }
 
-    /** Reproduce un resultado de Magis: lo guarda y devuelve a dónde navegar. */
+    /** Plays a Magis result: saves it and returns where to navigate. */
     suspend fun playMagis(r: com.arkiv.player.data.gateway.GatewayResult): PlaybackResult {
         val epId = magisEpisodeId(r)
         return if (epId != null) PlaybackResult.Ready(epId)
@@ -162,18 +163,18 @@ class SearchPlayback(private val graph: AppGraph) {
     }
 
     /**
-     * Guarda un resultado de Caracol (una película) y devuelve su episodeId. Calcado de
-     * [magisEpisodeId], con una diferencia que importa: lo guardado no vence (ver `DituRef`).
+     * Saves a Caracol result (a movie) and returns its episodeId. Modeled on [magisEpisodeId],
+     * with a difference that matters: what's saved never expires (see `DituRef`).
      *
-     * El id sale del `contentId` que va dentro del ref (`ditu1:<contentType>:<contentId>`), y el ref
-     * queda en el `torrentData` del episodio: de ahí lo lee `PlayerViewModel.loadDitu`. A una serie
-     * le devuelve null: primero se eligen sus capítulos ([playDituSeason]). Ver
+     * The id comes from the `contentId` inside the ref (`ditu1:<contentType>:<contentId>`), and
+     * the ref stays in the episode's `torrentData`: that's where `PlayerViewModel.loadDitu` reads
+     * it from. For a series it returns null: its chapters get chosen first ([playDituSeason]). See
      * `DituEntities.contentIdDelItem`.
      */
     suspend fun dituEpisodeId(r: com.arkiv.player.data.gateway.GatewayResult): String? =
         graph.repository.addDituSource(ref = r.ref, title = r.title, posterUrl = r.extra["poster"].orEmpty())
 
-    /** Reproduce una película de Caracol: la guarda y devuelve a dónde navegar. */
+    /** Plays a Caracol movie: saves it and returns where to navigate. */
     suspend fun playDitu(r: com.arkiv.player.data.gateway.GatewayResult): PlaybackResult {
         val epId = dituEpisodeId(r)
         return if (epId != null) PlaybackResult.Ready(epId)
@@ -181,127 +182,128 @@ class SearchPlayback(private val graph: AppGraph) {
     }
 
     /**
-     * Guarda la serie ENTERA de Caracol y devuelve el capítulo que se tocó, para reproducirlo.
+     * Saves the ENTIRE Caracol series and returns the chapter that was tapped, to play it.
      *
-     * Es el camino de Caracol de la ventana de capítulos, calcado de [playMagisSeason]: tocar un
-     * capítulo trae a la biblioteca todos los de la lista que la ventana ya cargó con
-     * `episodesWithSeries` al abrirse, así que no cuesta ninguna llamada de red. Solo escribe por
-     * `ArkivRepository.addDituSeason` —id `ditu:`, nunca por [playMagisSeason] ni
-     * [magisEpisodeIdDe], que arman ids `magis:`—.
+     * This is Caracol's path in the chapters window, modeled on [playMagisSeason]: tapping a
+     * chapter brings to the library all the ones in the list the window already loaded with
+     * `episodesWithSeries` on opening, so it costs no network call. Only writes through
+     * `ArkivRepository.addDituSeason` -- `ditu:` ids, never through [playMagisSeason] or
+     * [magisEpisodeIdFor], which build `magis:` ids.
      *
-     * El elegido NO se busca por número, como en [playMagisSeason]: en un `GROUP_OF_BUNDLES` la lista
-     * trae un capítulo 1 en cada temporada, y por número se reproduciría el de otra. Se busca por su
-     * temporada y su número (`DituEntities.elegidoEntre`), y la lista y el elegido pasan por el mismo
-     * [DituEntities.capituloDeCaracol], así que su temporada sale de la misma
-     * [DituEntities.temporadaDelCapitulo].
+     * The chosen one is NOT looked up by number, unlike [playMagisSeason]: in a
+     * `GROUP_OF_BUNDLES` the list brings a chapter 1 in every season, and by number another one's
+     * would play. It's looked up by its season and its number (`DituEntities.elegidoEntre`), and
+     * the list and the chosen one both go through the same [DituEntities.capituloDeCaracol], so
+     * their season comes from the same [DituEntities.temporadaDelCapitulo].
      *
-     * Si la serie no se pudo guardar, o el elegido no quedó en ella, cae a [playDituEpisode] —guardar
-     * solo el capítulo— antes que dejar a la persona sin reproducir nada.
+     * If the series couldn't be saved, or the chosen one didn't end up in it, falls back to
+     * [playDituEpisode] -- saving only the chapter -- rather than leaving the person with nothing to play.
      */
     suspend fun playDituSeason(
-        temporada: com.arkiv.player.data.gateway.GatewayResult,
-        capitulos: List<com.arkiv.player.data.gateway.GatewayEpisode>,
-        elegido: com.arkiv.player.data.gateway.GatewayEpisode,
-        serie: com.arkiv.player.data.gateway.GatewaySerie?,
+        season: com.arkiv.player.data.gateway.GatewayResult,
+        chapters: List<com.arkiv.player.data.gateway.GatewayEpisode>,
+        chosen: com.arkiv.player.data.gateway.GatewayEpisode,
+        series: com.arkiv.player.data.gateway.GatewaySerie?,
     ): PlaybackResult {
-        val epId = dituEpisodeIdDe(temporada, capitulos, elegido, serie)
+        val epId = dituEpisodeIdFor(season, chapters, chosen, series)
         return if (epId != null) PlaybackResult.Ready(epId)
         else PlaybackResult.Failed("No se pudo preparar el capítulo de Caracol.")
     }
 
     /**
-     * El `episodeId` de un capítulo de Caracol, guardando la serie entera. Es [playDituSeason] sin
-     * reproducir: lo que necesita el botón de descargar, que trae el capítulo a la biblioteca
-     * exactamente igual pero lo manda a la cola en vez de al reproductor.
+     * A Caracol chapter's `episodeId`, saving the entire series. It's [playDituSeason] without
+     * playing: what the download button needs, which brings the chapter into the library exactly
+     * the same way but sends it to the queue instead of the player.
      *
-     * El respaldo es el mismo: si la serie no se pudo guardar, se guarda el capítulo solo.
+     * The fallback is the same: if the series couldn't be saved, only the chapter gets saved.
      */
-    suspend fun dituEpisodeIdDe(
-        temporada: com.arkiv.player.data.gateway.GatewayResult,
-        capitulos: List<com.arkiv.player.data.gateway.GatewayEpisode>,
-        elegido: com.arkiv.player.data.gateway.GatewayEpisode,
-        serie: com.arkiv.player.data.gateway.GatewaySerie?,
+    suspend fun dituEpisodeIdFor(
+        season: com.arkiv.player.data.gateway.GatewayResult,
+        chapters: List<com.arkiv.player.data.gateway.GatewayEpisode>,
+        chosen: com.arkiv.player.data.gateway.GatewayEpisode,
+        series: com.arkiv.player.data.gateway.GatewaySerie?,
     ): String? = graph.repository.addDituSeason(
-        seriesRef = temporada.ref,
-        // El ítem es la serie; cada capítulo se nombra aparte, adentro.
-        title = temporada.title,
-        chapters = capitulos.map { DituEntities.capituloDeCaracol(it, serie) },
-        chosen = DituEntities.capituloDeCaracol(elegido, serie),
-        posterUrl = temporada.extra["poster"].orEmpty().ifBlank { serie?.posterUrl.orEmpty() },
-        backdropUrl = serie?.backdropUrl.orEmpty(),
-        // Mismo blindaje que en [playDituEpisode]: un tmdbId en 0 no pisa uno ya guardado.
-        tmdbId = serie?.tmdbId?.takeIf { it > 0 },
-        // Sin cruce con TMDB, `GatewaySerie.titulo` es el nombre de Caracol, no el canónico.
-        tituloCanonico = serie?.takeIf { it.tmdbId > 0 }?.titulo,
-    ) ?: dituEpisodeIdSuelto(temporada, elegido, serie)
+        seriesRef = season.ref,
+        // The item is the series; each chapter is named separately, inside.
+        title = season.title,
+        chapters = chapters.map { DituEntities.capituloDeCaracol(it, series) },
+        chosen = DituEntities.capituloDeCaracol(chosen, series),
+        posterUrl = season.extra["poster"].orEmpty().ifBlank { series?.posterUrl.orEmpty() },
+        backdropUrl = series?.backdropUrl.orEmpty(),
+        // Same shielding as in [playDituEpisode]: a tmdbId of 0 doesn't overwrite one already saved.
+        tmdbId = series?.tmdbId?.takeIf { it > 0 },
+        // With no TMDB match, `GatewaySerie.titulo` is Caracol's name, not the canonical one.
+        tituloCanonico = series?.takeIf { it.tmdbId > 0 }?.titulo,
+    ) ?: standaloneDituEpisodeId(season, chosen, series)
 
     /**
-     * Encola la descarga de [elegidos] y devuelve cuántos entraron NUEVOS a la cola.
+     * Queues the download of [chosen] and returns how many entered the queue as NEW.
      *
-     * Vive acá y no en cada pantalla porque son dos —el catálogo de Caracol y la búsqueda— y las dos
-     * tienen que guardar el capítulo en la biblioteca antes de encolarlo: sin fila en `episodes` la
-     * estrategia no encuentra el `ref` y la descarga falla con "No se encontró la fuente de Caracol".
+     * Lives here and not in each screen because there are two -- Caracol's catalog and search --
+     * and both have to save the chapter to the library before queuing it: with no row in
+     * `episodes` the strategy can't find the `ref` and the download fails with "No se encontró la
+     * fuente de Caracol".
      *
-     * La fuente sale de [FuenteDeDescarga], no de un `"ditu"` escrito a mano: el id ya dice de dónde
-     * vino el capítulo, y es la misma decisión que toma el worker al elegir la estrategia.
+     * The source comes from [FuenteDeDescarga], not a hand-written `"ditu"`: the id already says
+     * where the chapter came from, and it's the same decision the worker makes when choosing a strategy.
      */
-    suspend fun encolarDescargaDeCaracol(
-        temporada: com.arkiv.player.data.gateway.GatewayResult,
-        capitulos: List<com.arkiv.player.data.gateway.GatewayEpisode>,
-        elegidos: List<com.arkiv.player.data.gateway.GatewayEpisode>,
-        serie: com.arkiv.player.data.gateway.GatewaySerie?,
+    suspend fun enqueueCaracolDownload(
+        season: com.arkiv.player.data.gateway.GatewayResult,
+        chapters: List<com.arkiv.player.data.gateway.GatewayEpisode>,
+        chosen: List<com.arkiv.player.data.gateway.GatewayEpisode>,
+        series: com.arkiv.player.data.gateway.GatewaySerie?,
     ): Int {
-        var encolados = 0
-        for (capitulo in elegidos) {
-            val epId = dituEpisodeIdDe(temporada, capitulos, capitulo, serie) ?: continue
-            val fuente = com.arkiv.player.data.local.DownloadSource.sourceFor(epId)
-            if (graph.localDownloads.enqueue(epId, fuente) ==
+        var queued = 0
+        for (chapter in chosen) {
+            val epId = dituEpisodeIdFor(season, chapters, chapter, series) ?: continue
+            val source = com.arkiv.player.data.local.DownloadSource.sourceFor(epId)
+            if (graph.localDownloads.enqueue(epId, source) ==
                 com.arkiv.player.data.local.EnqueueOutcome.QUEUED
-            ) encolados++
+            ) queued++
         }
-        return encolados
+        return queued
     }
 
     /**
-     * Guarda UN capítulo de una serie de Caracol y devuelve su episodeId, para reproducirlo.
+     * Saves ONE chapter of a Caracol series and returns its episodeId, to play it.
      *
-     * Ya no es el camino normal: al tocar un capítulo, la ventana de capítulos llama a
-     * [playDituSeason], que guarda la serie entera. Esto es su respaldo, para cuando la serie no se
-     * pudo guardar o el elegido no quedó en ella. Solo escribe por `ArkivRepository.addDituSource`
-     * —nunca por [playMagisSeason] ni [magisEpisodeIdDe], que arman ids `magis:`—, y le da al
-     * capítulo el mismo id que le da [playDituSeason] (los dos lo arman con `DituEntities`).
+     * No longer the normal path: tapping a chapter, the chapters window calls [playDituSeason],
+     * which saves the entire series. This is its fallback, for when the series couldn't be saved
+     * or the chosen one didn't end up in it. Only writes through `ArkivRepository.addDituSource`
+     * -- never through [playMagisSeason] or [magisEpisodeIdFor], which build `magis:` ids -- and
+     * gives the chapter the same id [playDituSeason] gives it (both build it with `DituEntities`).
      *
-     * La temporada la decide [DituEntities.temporadaDelCapitulo].
+     * The season is decided by [DituEntities.temporadaDelCapitulo].
      */
     suspend fun playDituEpisode(
-        temporada: com.arkiv.player.data.gateway.GatewayResult,
-        capitulo: com.arkiv.player.data.gateway.GatewayEpisode,
-        serie: com.arkiv.player.data.gateway.GatewaySerie?,
+        season: com.arkiv.player.data.gateway.GatewayResult,
+        chapter: com.arkiv.player.data.gateway.GatewayEpisode,
+        series: com.arkiv.player.data.gateway.GatewaySerie?,
     ): PlaybackResult {
-        val epId = dituEpisodeIdSuelto(temporada, capitulo, serie)
+        val epId = standaloneDituEpisodeId(season, chapter, series)
         return if (epId != null) PlaybackResult.Ready(epId)
         else PlaybackResult.Failed("No se pudo preparar el capítulo de Caracol.")
     }
 
-    /** El `episodeId` de UN capítulo de Caracol guardado solo. El cuerpo de [playDituEpisode]. */
-    private suspend fun dituEpisodeIdSuelto(
-        temporada: com.arkiv.player.data.gateway.GatewayResult,
-        capitulo: com.arkiv.player.data.gateway.GatewayEpisode,
-        serie: com.arkiv.player.data.gateway.GatewaySerie?,
+    /** The `episodeId` of ONE Caracol chapter saved standalone. [playDituEpisode]'s body. */
+    private suspend fun standaloneDituEpisodeId(
+        season: com.arkiv.player.data.gateway.GatewayResult,
+        chapter: com.arkiv.player.data.gateway.GatewayEpisode,
+        series: com.arkiv.player.data.gateway.GatewaySerie?,
     ): String? = graph.repository.addDituSource(
-            ref = capitulo.ref,
-            seriesRef = temporada.ref,
-            // El ítem es la serie; el capítulo se nombra aparte, adentro.
-            title = temporada.title,
-            episode = capitulo.number,
-            episodeTitle = capitulo.title,
-            posterUrl = temporada.extra["poster"].orEmpty().ifBlank { serie?.posterUrl.orEmpty() },
-            backdropUrl = serie?.backdropUrl.orEmpty(),
-            season = DituEntities.temporadaDelCapitulo(capitulo, serie),
-            // `DituFuente` deja el tmdbId en 0 cuando TMDB no la encontró: ese 0 no puede pisar un
-            // tmdbId ya guardado.
-            tmdbId = serie?.tmdbId?.takeIf { it > 0 },
-            // Sin cruce con TMDB, `GatewaySerie.titulo` es el nombre de Caracol, no el canónico.
-            tituloCanonico = serie?.takeIf { it.tmdbId > 0 }?.titulo,
+            ref = chapter.ref,
+            seriesRef = season.ref,
+            // The item is the series; the chapter is named separately, inside.
+            title = season.title,
+            episode = chapter.number,
+            episodeTitle = chapter.title,
+            posterUrl = season.extra["poster"].orEmpty().ifBlank { series?.posterUrl.orEmpty() },
+            backdropUrl = series?.backdropUrl.orEmpty(),
+            season = DituEntities.temporadaDelCapitulo(chapter, series),
+            // `DituFuente` leaves tmdbId at 0 when TMDB didn't find it: that 0 can't overwrite an
+            // already-saved tmdbId.
+            tmdbId = series?.tmdbId?.takeIf { it > 0 },
+            // With no TMDB match, `GatewaySerie.titulo` is Caracol's name, not the canonical one.
+            tituloCanonico = series?.takeIf { it.tmdbId > 0 }?.titulo,
         )
 }

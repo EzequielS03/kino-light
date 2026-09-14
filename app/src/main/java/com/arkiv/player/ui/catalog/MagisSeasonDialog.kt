@@ -74,7 +74,7 @@ fun MagisSeasonDialog(
     onPlay: (List<GatewayEpisode>, GatewayEpisode, GatewaySerie?) -> Unit,
     // La [GatewaySerie] viaja también en el guardado, no solo en el play: guardar escribe la fila
     // del episodio entera (REPLACE), así que sin ella los capítulos marcados perderían la temporada
-    // que el play ya había guardado bien. Ver `SearchPlayback.magisEpisodeIdDe`.
+    // que el play ya había guardado bien. Ver `SearchPlayback.magisEpisodeIdFor`.
     // Null = descarga deshabilitada.
     //
     // Van las DOS listas: los capítulos elegidos y la temporada entera que la ventana ya cargó.

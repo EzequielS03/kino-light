@@ -38,7 +38,7 @@ internal sealed interface RecommendationTarget {
  * item with a single episode and marked as a movie — which is exactly how "My Hero Academia" came
  * in, with 1 of its 13 episodes. The episodes have to be requested from the portal
  * (`MagisCatalog.detail`) and saved with `addMagisSeason`, same as the season dialog's "Save"
- * button (`SearchPlayback.magisEpisodeIdDe`). Caracol resolves its own path in
+ * button (`SearchPlayback.magisEpisodeIdFor`). Caracol resolves its own path in
  * `RecommendationAggregator.addFromCaracol`.
  */
 object RecommendationSaving {

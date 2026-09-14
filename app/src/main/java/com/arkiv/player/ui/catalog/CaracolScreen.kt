@@ -239,7 +239,7 @@ fun CaracolScreen(onPlay: (episodeId: String) -> Unit, contentPadding: PaddingVa
             onSave = if (!caracolSeBaja) null else { todos, elegidos, series ->
                 pedirNotificaciones()
                 scope.launch {
-                    val encolados = playback.encolarDescargaDeCaracol(season, todos, elegidos, series)
+                    val encolados = playback.enqueueCaracolDownload(season, todos, elegidos, series)
                     playError = when {
                         encolados == 0 -> "Esos capítulos ya estaban guardados."
                         encolados == elegidos.size -> null

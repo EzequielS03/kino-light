@@ -110,7 +110,7 @@ fun SearchScreen(
     shortcutAnilistId: Long? = null,
 ) {
     val graph = rememberGraph()
-    // Filas fijas siempre disponibles (sin API): anime, cartelera, tendencias, series, etc.
+    // Fixed rows always available (no API): anime, cartelera, tendencias, series, etc.
     val fixedRows = remember { buildRowSpecs(emptyList(), emptyList(), emptyList()) }
     val vm: SearchViewModel = viewModel(
         factory = viewModelFactory {
@@ -128,8 +128,8 @@ fun SearchScreen(
     val loadingTitles by vm.loadingTitles.collectAsStateWithLifecycle()
     val selected by vm.selected.collectAsStateWithLifecycle()
     val sources by vm.sources.collectAsStateWithLifecycle()
-    val fuentesBuscando by vm.fuentesBuscando.collectAsStateWithLifecycle()
-    val estadoDeFuentes by vm.estadoDeFuentes.collectAsStateWithLifecycle()
+    val searchingSources by vm.searchingSources.collectAsStateWithLifecycle()
+    val sourcesState by vm.sourcesState.collectAsStateWithLifecycle()
     val refineSeason by vm.refineSeason.collectAsStateWithLifecycle()
     val refineEpisode by vm.refineEpisode.collectAsStateWithLifecycle()
     val detail by vm.detail.collectAsStateWithLifecycle()
@@ -139,8 +139,8 @@ fun SearchScreen(
 
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    // Permiso de notificaciones (API 33+): se pide al disparar una descarga (el worker de descargas
-    // locales también notifica). Ver rememberPostNotificationsRequest.
+    // Notification permission (API 33+): asked when triggering a download (the local downloads
+    // worker also notifies). See rememberPostNotificationsRequest.
     val askNotifications = com.arkiv.player.ui.offline.rememberPostNotificationsRequest()
     // Shows "you already have that downloaded" when the queue skips a movie download as a
     // duplicate: same helper the library uses (DetailScreen.saveEpisodesLocally).
@@ -151,33 +151,33 @@ fun SearchScreen(
     // Whether a download strategy is registered for Magis (today there always is one): decides
     // whether a movie's dialog offers "Descargar película". See `DownloadSource.hasStrategy`.
     val magisDownloadable = remember { DownloadSource.hasStrategy("magis", graph.downloadStrategies.keys) }
-    val caracolSeBaja = remember { DownloadSource.hasStrategy("ditu", graph.downloadStrategies.keys) }
-    // Temporada de Magis abierta: un resultado de serie del portal ES una temporada entera,
-    // así que en vez de reproducir se abre su lista de capítulos.
+    val caracolDownloadable = remember { DownloadSource.hasStrategy("ditu", graph.downloadStrategies.keys) }
+    // Open Magis season: a series result from the portal IS a whole season, so its chapter list
+    // opens instead of playing it directly.
     var magisSeason by remember { mutableStateOf<com.arkiv.player.data.gateway.GatewayResult?>(null) }
     // Magis movie that was tapped: instead of playing right away, ask whether to watch or download.
     var magisMovieChoice by remember { mutableStateOf<MagisTapDecision.ShowMovieDialog?>(null) }
-    // Serie de Caracol abierta: igual que Magis, se eligen los capítulos antes de reproducir. Es un
-    // estado APARTE del de Magis a propósito: lo que se toca en su ventana solo llega a
-    // `playback.playDituSeason`, así que un capítulo de Caracol nunca cae en el guardado de Magis.
+    // Open Caracol series: same as Magis, chapters are picked before playing. It's SEPARATE state
+    // from Magis's on purpose: what's tapped in its window only ever reaches
+    // `playback.playDituSeason`, so a Caracol chapter never falls into Magis's save path.
     var dituSeason by remember { mutableStateOf<com.arkiv.player.data.gateway.GatewayResult?>(null) }
 
-    // Atajo desde el home: entra ya posicionado en un título. Se dispara una sola vez por
-    // combinación de args (LaunchedEffect no re-ejecuta en recomposiciones sin cambios), y
-    // startFromShortcut() además se protege con selected.value != null.
+    // Shortcut from the home: enters already positioned on a title. Fires only once per arg
+    // combination (LaunchedEffect doesn't re-run on recompositions with no changes), and
+    // startFromShortcut() is also guarded by selected.value != null.
     LaunchedEffect(shortcutKind, shortcutTmdbId, shortcutAnilistId) {
         val k = shortcutKind ?: return@LaunchedEffect
         vm.startFromShortcut(k, shortcutTmdbId, shortcutAnilistId)
     }
 
-    // Metadata "enriquecida" de la card elegida, para guardar título/póster/descripción reales
-    // (no el nombre crudo del torrent) — mismo criterio que CineDetailScreen.
+    // "Enriched" metadata for the chosen card, to save a real title/poster/description (not the
+    // torrent's raw name) -- same criterion as CineDetailScreen.
     val resultTitle = detail?.title ?: animeShow?.title ?: selected?.title ?: ""
     val resultPoster = detail?.posterUrl ?: animeShow?.posterUrl ?: selected?.posterUrl ?: ""
     val resultDescription = detail?.overview ?: animeShow?.description
 
-    // Aplica el PlaybackResult devuelto por SearchPlayback: onPlay(epId) si quedó listo, o setea el
-    // mensaje de error tal cual lo mostraba la lógica original antes de extraerse al helper.
+    // Applies the PlaybackResult returned by SearchPlayback: onPlay(epId) if it ended up ready, or
+    // sets the error message exactly as the original logic showed it before it got extracted to the helper.
     fun applyResult(result: PlaybackResult) {
         preparing = false
         when (result) {
@@ -224,7 +224,7 @@ fun SearchScreen(
     }
 
     fun playDituResult(source: PlaySource.Ditu) {
-        // Serie → abrir sus capítulos. Película → reproducir directo (y queda en la biblioteca).
+        // Series → open its chapters. Movie → play directly (and it stays in the library).
         if (source.esSerie()) { dituSeason = source.result; return }
         preparing = true; playError = null
         scope.launch { applyResult(playback.playDitu(source.result)) }
@@ -271,8 +271,8 @@ fun SearchScreen(
                 SearchPhase.RESULTS -> ResultsContent(
                     title = resultTitle,
                     posterUrl = resultPoster,
-                    // Fondo del hero: backdrop de TMDB o banner de AniList. Si no hay ninguno el
-                    // hero cae a fondo liso, no a un hueco.
+                    // Hero background: TMDB's backdrop or AniList's banner. If neither exists the
+                    // hero falls back to a plain background, not a gap.
                     backdropUrl = detail?.backdropUrl?.ifBlank { null } ?: animeShow?.bannerUrl.orEmpty(),
                     metaChips = buildList {
                         (detail?.year?.ifBlank { null } ?: animeShow?.year?.takeIf { it > 0 }?.toString())
@@ -285,15 +285,15 @@ fun SearchScreen(
                     season = refineSeason,
                     episode = refineEpisode,
                     sources = sources,
-                    fuentesBuscando = fuentesBuscando,
-                    estadoDeFuentes = estadoDeFuentes,
+                    searchingSources = searchingSources,
+                    sourcesState = sourcesState,
                     enabled = !preparing,
                     onPlay = { playResult(it) },
                 )
                 else -> QueryContent(
                     titleResults = titleResults,
                     loadingTitles = loadingTitles,
-                    onBuscarFuentesTexto = { q -> vm.buscarFuentesPorTexto(q) },
+                    onSearchSourcesByText = { q -> vm.searchSourcesByText(q) },
                     recentQueries = recentQueries,
                     recentTitles = recentTitles,
                     onSearch = { q ->
@@ -339,62 +339,62 @@ fun SearchScreen(
         )
     }
 
-    magisSeason?.let { temporada ->
+    magisSeason?.let { season ->
         com.arkiv.player.ui.catalog.MagisSeasonDialog(
-            season = temporada,
+            season = season,
             client = graph.fuenteDeContenido,
             onDismiss = { magisSeason = null },
-            onPlay = { capitulos, capitulo, serie ->
+            onPlay = { chapters, chapter, series ->
                 magisSeason = null
                 preparing = true; playError = null
-                scope.launch { applyResult(playback.playMagisSeason(temporada, capitulos, capitulo, serie)) }
+                scope.launch { applyResult(playback.playMagisSeason(season, chapters, chapter, series)) }
             },
-            onSave = { _, elegidos, serie ->
+            onSave = { _, chosen, series ->
                 askNotifications()
                 scope.launch {
-                    // Se guarda capítulo por capítulo: cada uno es un archivo aparte en el CDN y
-                    // la cola ya sabe agrupar por serie para mostrarlos juntos en Descargas.
-                    var encolados = 0
-                    for (capitulo in elegidos) {
-                        val epId = playback.magisEpisodeIdDe(temporada, capitulo, serie) ?: continue
+                    // Saved chapter by chapter: each one is a separate file on the CDN and the
+                    // queue already knows how to group by series to show them together in Descargas.
+                    var queued = 0
+                    for (chapter in chosen) {
+                        val epId = playback.magisEpisodeIdFor(season, chapter, series) ?: continue
                         if (graph.localDownloads.enqueue(epId, "magis") ==
                             com.arkiv.player.data.local.EnqueueOutcome.QUEUED
-                        ) encolados++
+                        ) queued++
                     }
                     playError = when {
-                        encolados == 0 -> "Esos capítulos ya estaban guardados."
-                        encolados == elegidos.size -> null
-                        else -> "Se encolaron $encolados de ${elegidos.size} (el resto ya estaba)."
+                        queued == 0 -> "Esos capítulos ya estaban guardados."
+                        queued == chosen.size -> null
+                        else -> "Se encolaron $queued de ${chosen.size} (el resto ya estaba)."
                     }
                 }
             },
         )
     }
 
-    dituSeason?.let { serieDeCaracol ->
+    dituSeason?.let { caracolSeries ->
         com.arkiv.player.ui.catalog.MagisSeasonDialog(
-            season = serieDeCaracol,
-            // La fuente compuesta: con un ref de Caracol, `episodesWithSeries` llega a `DituFuente`.
+            season = caracolSeries,
+            // The composite source: with a Caracol ref, `episodesWithSeries` reaches `DituFuente`.
             client = graph.fuenteDeContenido,
             onDismiss = { dituSeason = null },
-            // Guarda en la biblioteca todos los capítulos que la ventana ya cargó, y reproduce el tocado.
-            onPlay = { capitulos, capitulo, serie ->
+            // Saves to the library every chapter the window already loaded, and plays the tapped one.
+            onPlay = { chapters, chapter, series ->
                 dituSeason = null
                 preparing = true; playError = null
-                scope.launch { applyResult(playback.playDituSeason(serieDeCaracol, capitulos, capitulo, serie)) }
+                scope.launch { applyResult(playback.playDituSeason(caracolSeries, chapters, chapter, series)) }
             },
-            // Caracol SÍ se baja, desde 2026-09-13. No como Magis: lo que queda en el aparato son
-            // sus segmentos cifrados, y abrirlos sigue pidiendo una licencia por red (unos KB). Ver
-            // `CaracolStore`. Se ofrece solo si hay estrategia registrada, que es la misma
-            // compuerta que usa el resto de la app.
-            onSave = if (!caracolSeBaja) null else { todos, elegidos, serie ->
+            // Caracol CAN be downloaded, since 2026-09-13. Not like Magis: what stays on the device
+            // are its encrypted segments, and opening them still needs a network license (a few
+            // KB). See `CaracolStore`. Only offered if a strategy is registered, the same gate the
+            // rest of the app uses.
+            onSave = if (!caracolDownloadable) null else { all, chosen, series ->
                 askNotifications()
                 scope.launch {
-                    val encolados = playback.encolarDescargaDeCaracol(serieDeCaracol, todos, elegidos, serie)
+                    val queued = playback.enqueueCaracolDownload(caracolSeries, all, chosen, series)
                     playError = when {
-                        encolados == 0 -> "Esos capítulos ya estaban guardados."
-                        encolados == elegidos.size -> null
-                        else -> "Se encolaron $encolados de ${elegidos.size} (el resto ya estaba)."
+                        queued == 0 -> "Esos capítulos ya estaban guardados."
+                        queued == chosen.size -> null
+                        else -> "Se encolaron $queued de ${chosen.size} (el resto ya estaba)."
                     }
                 }
             },
@@ -413,10 +413,10 @@ fun SearchScreen(
 private fun QueryContent(
     titleResults: List<TitleCard>,
     loadingTitles: Boolean,
-    /** Manda el texto TAL CUAL al wizard de fuentes, sin pasar por el catálogo (mismo camino
-     *  que el botón "Buscar" del TV): para cuando uno se acuerda de un pedazo del nombre y no
-     *  del título exacto con el que TMDB lo tiene. */
-    onBuscarFuentesTexto: (String) -> Unit,
+    /** Sends the text AS-IS to the sources wizard, without going through the catalog (same path
+     *  as the TV's "Buscar" button): for when you remember a piece of the name and not the exact
+     *  title TMDB has it under. */
+    onSearchSourcesByText: (String) -> Unit,
     recentQueries: List<String>,
     recentTitles: List<RecentTitle>,
     onSearch: (String) -> Unit,
@@ -426,29 +426,29 @@ private fun QueryContent(
     onClearHistory: () -> Unit,
 ) {
     var text by remember { mutableStateOf("") }
-    // Mientras no se haya buscado nada se muestra el historial en vez de dos "Sin resultados" que
-    // no informan nada. Es estado local: salir de la pantalla y volver muestra el historial otra vez.
-    var haBuscado by remember { mutableStateOf(false) }
+    // While nothing has been searched yet, the history shows instead of two "Sin resultados" that
+    // say nothing useful. Local state: leaving the screen and coming back shows the history again.
+    var hasSearched by remember { mutableStateOf(false) }
 
-    // Sube en cada búsqueda: es la llave para devolver la grilla al principio. Sin esto la lista
-    // conserva el scroll de la búsqueda anterior y la nueva aparece empezada por la mitad.
-    var busquedaNro by remember { mutableStateOf(0) }
+    // Bumps on every search: the key to snap the grid back to the top. Without this the list keeps
+    // the previous search's scroll and the new one shows up starting halfway down.
+    var searchNumber by remember { mutableStateOf(0) }
     val gridState = rememberLazyGridState()
-    // Mismo caso que en el TV: los resultados llegan en dos tandas y el ViewModel publica
-    // `tmdb + anime`, así que la segunda se inserta ARRIBA y la grilla se queda anclada donde
-    // estaba. Se mantiene arriba hasta que la scrolleés vos.
-    var grillaTocada by remember(busquedaNro) { mutableStateOf(false) }
+    // Same case as on the TV: results arrive in two batches and the ViewModel publishes
+    // `tmdb + anime`, so the second one gets inserted ABOVE and the grid stays anchored where it
+    // was. It's held at the top until you scroll it yourself.
+    var gridTouched by remember(searchNumber) { mutableStateOf(false) }
     LaunchedEffect(gridState.isScrollInProgress) {
-        if (gridState.isScrollInProgress) grillaTocada = true
+        if (gridState.isScrollInProgress) gridTouched = true
     }
-    LaunchedEffect(busquedaNro, titleResults) {
-        if (!grillaTocada) gridState.scrollToItem(0)
+    LaunchedEffect(searchNumber, titleResults) {
+        if (!gridTouched) gridState.scrollToItem(0)
     }
 
-    val buscar: (String) -> Unit = { q ->
+    val search: (String) -> Unit = { q ->
         text = q
-        haBuscado = true
-        busquedaNro++
+        hasSearched = true
+        searchNumber++
         onSearch(q)
     }
 
@@ -466,28 +466,28 @@ private fun QueryContent(
                 onValueChange = { text = it },
                 placeholder = { Text("Buscar…") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                // Limpiar devuelve al historial. Sin esto, una vez buscada la primera cosa el
-                // historial no vuelve hasta salir y entrar de nuevo a la pantalla.
+                // Clearing returns to the history. Without this, once the first thing is searched
+                // the history doesn't come back until leaving and re-entering the screen.
                 trailingIcon = {
                     if (text.isNotEmpty()) {
-                        IconButton(onClick = { text = ""; haBuscado = false; onSearch("") }) {
+                        IconButton(onClick = { text = ""; hasSearched = false; onSearch("") }) {
                             Icon(Icons.Default.Close, contentDescription = "Limpiar")
                         }
                     }
                 },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { buscar(text) }),
+                keyboardActions = KeyboardActions(onSearch = { search(text) }),
                 modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
             )
         }
 
         if (text.isNotBlank()) {
             item(span = { GridItemSpan(maxLineSpan) }) {
-                // La paridad con el TV: buscar en las fuentes con el texto tal cual, sin
-                // atarse al título exacto del catálogo de arriba.
+                // Parity with the TV: search the sources with the text as-is, without tying it to
+                // the exact title from the catalog above.
                 OutlinedButton(
-                    onClick = { onBuscarFuentesTexto(text.trim()) },
+                    onClick = { onSearchSourcesByText(text.trim()) },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -501,11 +501,11 @@ private fun QueryContent(
             }
         }
 
-        if (!haBuscado) {
-            historialItems(
+        if (!hasSearched) {
+            historyItems(
                 queries = recentQueries,
                 titles = recentTitles,
-                onSearch = buscar,
+                onSearch = search,
                 onPickTitle = onPickTitle,
                 onForgetQuery = onForgetQuery,
                 onForgetTitle = onForgetTitle,
@@ -535,12 +535,12 @@ private fun QueryContent(
 }
 
 /**
- * Historial: los textos buscados como chips y los títulos abiertos como pósters. Va aparte de
- * [QueryContent] para no engordarlo; es una extensión de LazyGridScope porque vive dentro de la
- * misma grilla (los pósters tienen que caer en las mismas 3 columnas que los resultados).
+ * History: searched texts as chips and opened titles as posters. Kept apart from [QueryContent]
+ * to not bloat it; it's a LazyGridScope extension because it lives inside the same grid (the
+ * posters have to fall in the same 3 columns as the results).
  */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
-private fun LazyGridScope.historialItems(
+private fun LazyGridScope.historyItems(
     queries: List<String>,
     titles: List<RecentTitle>,
     onSearch: (String) -> Unit,
@@ -549,7 +549,7 @@ private fun LazyGridScope.historialItems(
     onForgetTitle: (RecentTitle) -> Unit,
     onClearHistory: () -> Unit,
 ) {
-    // Primera vez que se abre la app: ni encabezados. Solo el buscador y nada más.
+    // First time the app opens: no headers at all. Just the search box and nothing else.
     if (queries.isEmpty() && titles.isEmpty()) return
 
     if (queries.isNotEmpty()) {
@@ -590,8 +590,8 @@ private fun LazyGridScope.historialItems(
                 modifier = Modifier.padding(top = 16.dp),
             )
         }
-        items(titles, key = { "recent-${it.kind}-${it.tmdbId}-${it.anilistId}-${it.title}" }) { reciente ->
-            val card = reciente.toTitleCard()
+        items(titles, key = { "recent-${it.kind}-${it.tmdbId}-${it.anilistId}-${it.title}" }) { recent ->
+            val card = recent.toTitleCard()
             TitleCardItem(card, onClick = { onPickTitle(card) })
         }
     }
@@ -647,7 +647,7 @@ private fun kindColor(kind: String): Color = when (kind) {
     else -> Color(0xFFBA68C8)
 }
 
-/** Fase REFINE: temporada/capítulo opcional (series) o episodio opcional (anime) antes de RESULTS. */
+/** REFINE phase: optional season/chapter (series) or optional episode (anime) before RESULTS. */
 @Composable
 private fun RefineContent(card: TitleCard, onContinue: (season: Int?, episode: Int?) -> Unit) {
     var seasonText by remember(card) { mutableStateOf("") }
@@ -715,7 +715,7 @@ private fun RefineContent(card: TitleCard, onContinue: (season: Int?, episode: I
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Continuar") }
             }
-            else -> Unit // "movie" no llega a REFINE: pickTitle() la manda directo a RESULTS.
+            else -> Unit // "movie" doesn't reach REFINE: pickTitle() sends it straight to RESULTS.
         }
     }
 }
@@ -734,30 +734,29 @@ private fun ResultsContent(
     season: Int?,
     episode: Int?,
     sources: List<PlaySource>,
-    fuentesBuscando: FuentesBuscando,
-    estadoDeFuentes: EstadoDeLasFuentes,
+    searchingSources: SearchingSources,
+    sourcesState: SourcesState,
     enabled: Boolean,
     onPlay: (PlaySource) -> Unit,
 ) {
-    // Las dos entran abiertas por defecto: una sección que arranca colapsada parece vacía aunque
-    // traiga resultados.
+    // Both start open by default: a section that starts collapsed looks empty even if it brings results.
     var expandedSections by remember { mutableStateOf(setOf("MAGIS", "CARACOL")) }
     fun toggle(k: String) { expandedSections = if (k in expandedSections) expandedSections - k else expandedSections + k }
-    // `rememberSaveable` y no `remember`: al abrir el reproductor esta pantalla se destruye, y con
-    // `remember` el origen elegido se perdía — volvías de ver algo por Magis y la lista estaba
-    // otra vez en "Todo", con el ítem que acababas de tocar enterrado entre decenas de resultados.
+    // `rememberSaveable` and not `remember`: this screen gets destroyed when the player opens, and
+    // with `remember` the chosen origin was lost -- you'd come back from watching something via
+    // Magis and the list was back on "Todo", with the item you'd just tapped buried among dozens of results.
     var tab by rememberSaveable { mutableStateOf(SourceTab.TODO) }
 
     val magis = sources.filterIsInstance<PlaySource.Magis>()
     val caracol = sources.filterIsInstance<PlaySource.Ditu>()
-    val anyLoading = fuentesBuscando.alguna
+    val anyLoading = searchingSources.any
     val counts = countsByTab(sources)
-    // Cada chip gira mientras su fuente siga buscando, y "Todo" mientras falte cualquiera: ver
-    // [FuentesBuscando].
-    val loadingOf = SourceTab.entries.associateWith { fuentesBuscando.buscando(it) }
+    // Each chip spins while its source is still searching, and "Todo" while any one is missing:
+    // see [SearchingSources].
+    val loadingOf = SourceTab.entries.associateWith { searchingSources.isSearching(it) }
 
-    // El hero va a sangre (sin margen lateral) para que el backdrop llegue a los bordes; por eso el
-    // padding horizontal lo pone cada ítem en vez del contentPadding de la lista.
+    // The hero goes full-bleed (no side margin) so the backdrop reaches the edges; that's why the
+    // horizontal padding is set by each item instead of the list's contentPadding.
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item(key = "header") {
             ResultsHero(title, posterUrl, backdropUrl, metaChips, season, episode, sources.size, anyLoading)
@@ -767,11 +766,11 @@ private fun ResultsContent(
             SourceTabRow(tab, counts, loadingOf, Modifier.padding(horizontal = HPAD, vertical = 12.dp)) { tab = it }
         }
 
-        // Una línea por fuente caída, haya o no resultados: no tapa lo que las otras trajeron.
-        avisosDeFuentesCaidas(estadoDeFuentes, tab).forEachIndexed { i, aviso ->
+        // One line per down source, with or without results: doesn't cover up what the others brought.
+        downSourceNotices(sourcesState, tab).forEachIndexed { i, notice ->
             item(key = "aviso-$i") {
                 Text(
-                    aviso,
+                    notice,
                     color = ArkivRed,
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 2,
@@ -784,30 +783,30 @@ private fun ResultsContent(
         if (!anyLoading && sources.isEmpty()) {
             item(key = "empty") {
                 Text(
-                    textoSinFuentes(estadoDeFuentes),
+                    noSourcesText(sourcesState),
                     color = ArkivTextSecondary,
                     modifier = Modifier.padding(horizontal = HPAD, vertical = 12.dp),
                 )
             }
         } else if (tab == SourceTab.TODO) {
-            // "Todo": una sección colapsable por origen, en el orden de [SourceTab].
-            sourceSection(this, "MAGIS", ArkivMagisBlue, magis, fuentesBuscando.buscando(SourceTab.MAGIS), "MAGIS" in expandedSections, { toggle("MAGIS") }, enabled, onPlay, textoSeccionVacia(SourceTab.MAGIS, estadoDeFuentes))
-            sourceSection(this, "CARACOL", ArkivCaracolVerde, caracol, fuentesBuscando.buscando(SourceTab.CARACOL), "CARACOL" in expandedSections, { toggle("CARACOL") }, enabled, onPlay, textoSeccionVacia(SourceTab.CARACOL, estadoDeFuentes))
+            // "Todo": a collapsible section per origin, in [SourceTab]'s order.
+            sourceSection(this, "MAGIS", ArkivMagisBlue, magis, searchingSources.isSearching(SourceTab.MAGIS), "MAGIS" in expandedSections, { toggle("MAGIS") }, enabled, onPlay, emptySectionText(SourceTab.MAGIS, sourcesState))
+            sourceSection(this, "CARACOL", ArkivCaracolVerde, caracol, searchingSources.isSearching(SourceTab.CARACOL), "CARACOL" in expandedSections, { toggle("CARACOL") }, enabled, onPlay, emptySectionText(SourceTab.CARACOL, sourcesState))
         } else {
-            // Con un origen elegido la cabecera de sección sobra: la lista va plana.
+            // With one origin chosen the section header is unnecessary: the list goes flat.
             val shown = filterByTab(sources, tab)
-            val vacia = if (shown.isEmpty()) textoPestanaVacia(tab, loadingOf[tab] == true, estadoDeFuentes) else null
-            if (vacia != null) {
+            val empty = if (shown.isEmpty()) emptyTabText(tab, loadingOf[tab] == true, sourcesState) else null
+            if (empty != null) {
                 item(key = "empty-tab") {
                     Text(
-                        vacia,
+                        empty,
                         color = ArkivTextSecondary,
                         modifier = Modifier.padding(horizontal = HPAD, vertical = 16.dp),
                     )
                 }
             }
             if (shown.any { posterDe(it).isNotBlank() }) {
-                tarjetasEnDosColumnas("tab", shown, enabled, onPlay)
+                twoColumnCards("tab", shown, enabled, onPlay)
             } else {
                 items(shown, key = { sourceKey(it) }) { s ->
                     Box(Modifier.padding(horizontal = HPAD)) {
@@ -822,12 +821,13 @@ private fun ResultsContent(
 private val HPAD = 16.dp
 
 /**
- * Cabecera de la fase RESULTS: backdrop a sangre con degradado al negro, y encima el póster y los
- * datos del título. El degradado es lo que hace que la imagen se funda con la lista en vez de
- * quedar como un recuadro pegado arriba; sin él el backdrop corta en seco contra el fondo.
+ * RESULTS phase header: full-bleed backdrop with a gradient to black, and on top the poster and
+ * the title's data. The gradient is what makes the image blend into the list instead of staying a
+ * box stuck at the top; without it the backdrop cuts sharply against the background.
  *
- * Si no hay backdrop (AniList a veces no trae banner) queda el fondo liso y el póster manda — por
- * eso el degradado arranca opaco desde arriba y no depende de que haya imagen.
+ * If there's no backdrop (AniList sometimes brings no banner) the plain background is left and
+ * the poster takes over -- that's why the gradient starts opaque from the top and doesn't depend
+ * on there being an image.
  */
 @Composable
 private fun ResultsHero(
@@ -849,12 +849,12 @@ private fun ResultsHero(
                 modifier = Modifier.fillMaxWidth().height(170.dp).align(Alignment.TopCenter),
             )
         }
-        // Doble velo: uno vertical que funde la imagen con el fondo de la lista, y uno horizontal
-        // desde la izquierda para que el texto se lea sobre cualquier backdrop.
+        // Double veil: a vertical one that blends the image into the list's background, and a
+        // horizontal one from the left so the text reads over any backdrop.
         Box(
             Modifier.fillMaxSize().background(
-                // Oscuro arriba y abajo, claro en la franja del medio: sin el oscurecido de arriba
-                // la imagen corta en seco contra la barra "Buscar", que es negra.
+                // Dark at top and bottom, light in the middle strip: without the darkening at the
+                // top the image cuts sharply against the "Buscar" bar, which is black.
                 Brush.verticalGradient(
                     0f to ArkivBlack.copy(alpha = 0.85f),
                     0.22f to ArkivBlack.copy(alpha = 0.30f),
@@ -921,33 +921,33 @@ private fun ResultsHero(
     }
 }
 
-/** Una sección (cabecera + filas) dentro del LazyColumn, para que las filas se compongan on-demand
- *  en vez de todas de golpe: una búsqueda por nombre trae fácil 60+ torrents. */
+/** A section (header + rows) inside the LazyColumn, so rows compose on-demand instead of all at
+ *  once: a search by name easily brings 60+ torrents. */
 /**
- * Los resultados como grilla de carátulas de dos columnas, para las fuentes que traen imagen.
+ * Results as a two-column cover grid, for sources that bring an image.
  *
- * Va por pares dentro del LazyColumn en vez de un LazyVerticalGrid: una grilla perezosa anidada en
- * una lista perezosa del mismo eje no tiene altura contra la cual medirse y revienta. Con veinte
- * resultados el costo de no ser perezosa por columna es nulo.
+ * Goes in pairs inside the LazyColumn instead of a LazyVerticalGrid: a lazy grid nested in a lazy
+ * list of the same axis has no height to measure against and crashes. With twenty results the
+ * cost of not being lazy per column is nil.
  */
-private fun LazyListScope.tarjetasEnDosColumnas(
+private fun LazyListScope.twoColumnCards(
     tag: String,
     items: List<PlaySource>,
     enabled: Boolean,
     onPlay: (PlaySource) -> Unit,
 ) {
-    items(items.chunked(2), key = { par -> "$tag-grid-${sourceKey(par.first())}" }) { par ->
+    items(items.chunked(2), key = { pair -> "$tag-grid-${sourceKey(pair.first())}" }) { pair ->
         Row(
             Modifier.fillMaxWidth().padding(horizontal = HPAD, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            par.forEach { s ->
+            pair.forEach { s ->
                 Box(Modifier.weight(1f)) {
                     SourceCard(s, enabled = enabled) { onPlay(s) }
                 }
             }
-            // Impar: el hueco lo ocupa un espaciador para que la última tarjeta no se estire al ancho.
-            if (par.size == 1) Spacer(Modifier.weight(1f))
+            // Odd one out: a spacer takes the gap so the last card doesn't stretch to full width.
+            if (pair.size == 1) Spacer(Modifier.weight(1f))
         }
     }
 }
@@ -962,8 +962,8 @@ private fun sourceSection(
     onToggle: () -> Unit,
     enabled: Boolean,
     onPlay: (PlaySource) -> Unit,
-    /** Lo que se dice bajo la sección si no trajo nada ([textoSeccionVacia]). */
-    vacio: String,
+    /** What shows below the section when it brought back nothing ([emptySectionText]). */
+    empty: String,
 ) {
     scope.item(key = "sec-$tag") {
         Box(Modifier.padding(horizontal = HPAD)) {
@@ -972,7 +972,7 @@ private fun sourceSection(
     }
     if (expanded) {
         if (items.any { posterDe(it).isNotBlank() }) {
-            scope.tarjetasEnDosColumnas(tag, items, enabled, onPlay)
+            scope.twoColumnCards(tag, items, enabled, onPlay)
         } else {
             scope.items(items, key = { "$tag-${sourceKey(it)}" }) { s ->
                 Box(Modifier.padding(horizontal = HPAD)) {
@@ -983,7 +983,7 @@ private fun sourceSection(
         if (items.isEmpty() && !loading) {
             scope.item(key = "sec-$tag-empty") {
                 Text(
-                    vacio, color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall,
+                    empty, color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier.padding(start = HPAD + 8.dp, bottom = 8.dp),
                 )
             }
@@ -991,20 +991,20 @@ private fun sourceSection(
     }
 }
 
-/** Identidad estable de una fuente, para las keys del LazyColumn (dos resultados distintos con el
- *  mismo nombre romperían la lista si compartieran key). Mismo criterio que usa el buscador del TV. */
+/** A source's stable identity, for the LazyColumn's keys (two different results with the same
+ *  name would break the list if they shared a key). Same criterion the TV search uses. */
 private fun sourceKey(s: PlaySource): String = when (s) {
     is PlaySource.Magis -> "m-${s.result.extra["content_id"] ?: s.result.ref}"
-    // El ref de Caracol ya es único por contenido: `ditu1:<contentType>:<contentId>`.
+    // Caracol's ref is already unique per content: `ditu1:<contentType>:<contentId>`.
     is PlaySource.Ditu -> "d-${s.result.ref}"
 }
 
 /**
- * Chips de filtro por origen (el orden lo fija [SourceTab]), con su contador.
+ * Filter chips by origin (the order is set by [SourceTab]), with their count.
  *
- * La fila SCROLLEA en horizontal: con más fuentes de las que caben en el ancho de un teléfono, un
- * Row sin scroll repartía el faltante achicando el último chip y el texto salía partido letra por
- * letra en vertical. Scrolleando, cada chip conserva su ancho natural y se lee entero.
+ * The row SCROLLS horizontally: with more sources than fit a phone's width, a non-scrolling Row
+ * shrank the last chip to fit and its text came out split letter by letter vertically. Scrolling,
+ * each chip keeps its natural width and reads in full.
  */
 @Composable
 private fun SourceTabRow(

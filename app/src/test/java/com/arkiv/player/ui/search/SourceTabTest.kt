@@ -6,68 +6,68 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Qué filas se dibujan en los resultados del TV, en qué orden y cuáles se saltean. */
+/** Which rows get drawn in the TV results, in what order, and which ones are skipped. */
 class SourceTabTest {
 
-    private fun magis(titulo: String) = PlaySource.Magis(
-        GatewayResult(source = "magis", title = titulo, ref = "r-$titulo"),
+    private fun magis(title: String) = PlaySource.Magis(
+        GatewayResult(source = "magis", title = title, ref = "r-$title"),
     )
 
-    private fun caracol(titulo: String) = PlaySource.Ditu(
-        GatewayResult(source = "ditu", title = titulo, ref = "ditu1:VOD:$titulo"),
+    private fun caracol(title: String) = PlaySource.Ditu(
+        GatewayResult(source = "ditu", title = title, ref = "ditu1:VOD:$title"),
     )
 
-    @Test fun un_resultado_de_caracol_cae_en_su_pestana() {
+    @Test fun `a caracol result falls into its tab`() {
         assertEquals(SourceTab.CARACOL, tabOf(caracol("c")))
     }
 
-    @Test fun los_conteos_traen_caracol_aunque_este_en_cero() {
-        // Sin la clave, el chip de Caracol no se pinta hasta que llega su primer resultado.
-        val conteos = countsByTab(listOf(magis("m")))
-        assertTrue(SourceTab.CARACOL in conteos)
-        assertEquals(0, conteos[SourceTab.CARACOL])
-        assertEquals(1, conteos[SourceTab.MAGIS])
-        assertEquals(1, conteos[SourceTab.TODO])
+    @Test fun `the counts include caracol even at zero`() {
+        // Without the key, Caracol's chip doesn't paint until its first result arrives.
+        val counts = countsByTab(listOf(magis("m")))
+        assertTrue(SourceTab.CARACOL in counts)
+        assertEquals(0, counts[SourceTab.CARACOL])
+        assertEquals(1, counts[SourceTab.MAGIS])
+        assertEquals(1, counts[SourceTab.TODO])
     }
 
-    @Test fun caracol_va_despues_de_magis_aunque_llegue_primero() {
-        val r = filasVisibles(listOf(caracol("c"), magis("m")), SourceTab.TODO)
+    @Test fun `caracol goes after magis even if it arrives first`() {
+        val r = visibleRows(listOf(caracol("c"), magis("m")), SourceTab.TODO)
         assertEquals(listOf(SourceTab.MAGIS, SourceTab.CARACOL), r.map { it.first })
     }
 
-    @Test fun el_filtro_de_caracol_deja_solo_caracol() {
-        val r = filasVisibles(listOf(caracol("c"), magis("m")), SourceTab.CARACOL)
+    @Test fun `the caracol filter leaves only caracol`() {
+        val r = visibleRows(listOf(caracol("c"), magis("m")), SourceTab.CARACOL)
         assertEquals(listOf(SourceTab.CARACOL), r.map { it.first })
         assertEquals(listOf(caracol("c")), filterByTab(listOf(caracol("c"), magis("m")), SourceTab.CARACOL))
     }
 
-    @Test fun las_filas_van_en_el_orden_del_enum() {
-        val r = filasVisibles(listOf(magis("m")), SourceTab.TODO)
+    @Test fun `the rows go in the enum's order`() {
+        val r = visibleRows(listOf(magis("m")), SourceTab.TODO)
         assertEquals(listOf(SourceTab.MAGIS), r.map { it.first })
     }
 
-    @Test fun una_fuente_sin_resultados_no_deja_fila() {
-        val r = filasVisibles(listOf(magis("m")), SourceTab.TODO)
+    @Test fun `a source with no results leaves no row`() {
+        val r = visibleRows(listOf(magis("m")), SourceTab.TODO)
         assertEquals(listOf(SourceTab.MAGIS), r.map { it.first })
     }
 
-    @Test fun sin_resultados_no_hay_ninguna_fila() {
-        assertTrue(filasVisibles(emptyList(), SourceTab.TODO).isEmpty())
+    @Test fun `with no results there's no row at all`() {
+        assertTrue(visibleRows(emptyList(), SourceTab.TODO).isEmpty())
     }
 
-    @Test fun con_un_filtro_puesto_queda_una_sola_fila() {
-        val r = filasVisibles(listOf(magis("m")), SourceTab.MAGIS)
+    @Test fun `with a filter set only one row is left`() {
+        val r = visibleRows(listOf(magis("m")), SourceTab.MAGIS)
         assertEquals(listOf(SourceTab.MAGIS), r.map { it.first })
         assertEquals(1, r.first().second.size)
     }
 
-    @Test fun un_filtro_sobre_una_fuente_vacia_no_deja_filas() {
-        assertTrue(filasVisibles(emptyList(), SourceTab.MAGIS).isEmpty())
+    @Test fun `a filter over an empty source leaves no rows`() {
+        assertTrue(visibleRows(emptyList(), SourceTab.MAGIS).isEmpty())
     }
 
-    @Test fun cada_fila_conserva_el_orden_de_llegada_de_su_fuente() {
-        val fuentes = listOf(magis("a"), magis("b"))
-        val fila = filasVisibles(fuentes, SourceTab.TODO).first { it.first == SourceTab.MAGIS }
-        assertEquals(listOf("a", "b"), fila.second.map { (it as PlaySource.Magis).result.title })
+    @Test fun `each row keeps its source's arrival order`() {
+        val sources = listOf(magis("a"), magis("b"))
+        val row = visibleRows(sources, SourceTab.TODO).first { it.first == SourceTab.MAGIS }
+        assertEquals(listOf("a", "b"), row.second.map { (it as PlaySource.Magis).result.title })
     }
 }

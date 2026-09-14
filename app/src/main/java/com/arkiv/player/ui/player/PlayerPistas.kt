@@ -32,7 +32,7 @@ import com.arkiv.player.playback.LangTokens
 import com.arkiv.player.playback.SubtitleDecision
 import com.arkiv.player.playback.TrackLang
 import com.arkiv.player.playback.TrackSelector
-import com.arkiv.player.ui.settings.etiqueta
+import com.arkiv.player.ui.settings.label
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 import kotlinx.coroutines.delay

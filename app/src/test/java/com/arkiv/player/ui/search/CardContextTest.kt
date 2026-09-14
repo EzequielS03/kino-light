@@ -5,7 +5,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class CardContextTest {
-    @Test fun `la card de tmdb conserva el overview`() {
+    @Test fun `the tmdb card keeps the overview`() {
         val item = TmdbItem(
             id = 1396,
             type = "tv",
@@ -19,7 +19,7 @@ class CardContextTest {
         assertEquals("Un profesor de química con cáncer terminal.", item.toTitleCard().overview)
     }
 
-    @Test fun `sin overview la card queda con string vacio`() {
+    @Test fun `with no overview the card ends up with an empty string`() {
         val item = TmdbItem(
             id = 1,
             type = "movie",

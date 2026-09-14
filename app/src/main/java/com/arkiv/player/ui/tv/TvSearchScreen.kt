@@ -77,12 +77,12 @@ import com.arkiv.player.ui.search.SearchViewModel
 import com.arkiv.player.ui.search.SourceTab
 import com.arkiv.player.ui.search.TitleCard
 import com.arkiv.player.ui.search.countsByTab
-import com.arkiv.player.ui.search.filasVisibles
-import com.arkiv.player.ui.search.EstadoDeLasFuentes
-import com.arkiv.player.ui.search.FuentesBuscando
-import com.arkiv.player.ui.search.avisosDeFuentesCaidas
-import com.arkiv.player.ui.search.textoPestanaVacia
-import com.arkiv.player.ui.search.textoSinFuentes
+import com.arkiv.player.ui.search.visibleRows
+import com.arkiv.player.ui.search.SourcesState
+import com.arkiv.player.ui.search.SearchingSources
+import com.arkiv.player.ui.search.downSourceNotices
+import com.arkiv.player.ui.search.emptyTabText
+import com.arkiv.player.ui.search.noSourcesText
 import com.arkiv.player.ui.theme.ArkivBlack
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
@@ -136,8 +136,8 @@ fun TvSearchScreen(
     val vmDetail by vm.detail.collectAsStateWithLifecycle()
     val vmAnimeShow by vm.animeShow.collectAsStateWithLifecycle()
     val sources by vm.sources.collectAsStateWithLifecycle()
-    val fuentesBuscando by vm.fuentesBuscando.collectAsStateWithLifecycle()
-    val estadoDeFuentes by vm.estadoDeFuentes.collectAsStateWithLifecycle()
+    val fuentesBuscando by vm.searchingSources.collectAsStateWithLifecycle()
+    val estadoDeFuentes by vm.sourcesState.collectAsStateWithLifecycle()
     val refineSeason by vm.refineSeason.collectAsStateWithLifecycle()
     val refineEpisode by vm.refineEpisode.collectAsStateWithLifecycle()
 
@@ -189,14 +189,14 @@ fun TvSearchScreen(
         temporada: com.arkiv.player.data.gateway.GatewayResult,
         capitulos: List<com.arkiv.player.data.gateway.GatewayEpisode>,
         // Igual que en el celu: la serie viaja también en el guardado, porque guardar reescribe la
-        // fila del episodio entera. Ver `SearchPlayback.magisEpisodeIdDe`.
+        // fila del episodio entera. Ver `SearchPlayback.magisEpisodeIdFor`.
         serie: com.arkiv.player.data.gateway.GatewaySerie?,
     ) {
         preparing = true; playError = null
         scope.launch {
             var encolados = 0
             for (capitulo in capitulos) {
-                val epId = playback.magisEpisodeIdDe(temporada, capitulo, serie) ?: continue
+                val epId = playback.magisEpisodeIdFor(temporada, capitulo, serie) ?: continue
                 if (graph.localDownloads.enqueue(epId, "magis") ==
                     com.arkiv.player.data.local.EnqueueOutcome.QUEUED
                 ) encolados++
@@ -284,7 +284,7 @@ fun TvSearchScreen(
         val match = if (onBrowseRow != null) matchCategoryRow(query, fixedRows) else null
         if (match != null) { onBrowseRow?.invoke(match.id, match.title); return }
         text = query
-        vm.buscarFuentesPorTexto(query)
+        vm.searchSourcesByText(query)
         recordarConsulta(query)
     }
 
@@ -1047,8 +1047,8 @@ private fun TvResultsContent(
     season: Int?,
     episode: Int?,
     sources: List<PlaySource>,
-    fuentesBuscando: FuentesBuscando,
-    estadoDeFuentes: EstadoDeLasFuentes,
+    fuentesBuscando: SearchingSources,
+    estadoDeFuentes: SourcesState,
     preparing: Boolean,
     playError: String?,
     onSelect: (PlaySource) -> Unit,
@@ -1056,15 +1056,15 @@ private fun TvResultsContent(
     // distinctBy(sourceKey) es belt-and-braces: el pipeline de arriba ya debería llegar sin
     // duplicados, pero esto evita el crash de Compose por keys repetidas si algo se cuela.
     val ordered = remember(sources) { sources.distinctBy { sourceKey(it) } }
-    val anyLoading = fuentesBuscando.alguna
+    val anyLoading = fuentesBuscando.any
 
     // Filtro por origen. Los contadores salen de `ordered` (ya deduplicado), no de `sources`, para
     // que el número del chip sea exactamente el de filas que se van a ver al elegirlo.
     var tab by remember { mutableStateOf(SourceTab.TODO) }
     val counts = countsByTab(ordered)
     // Cada pestaña gira mientras su fuente siga buscando, y "Todo" mientras falte cualquiera: ver
-    // [FuentesBuscando].
-    val loadingOf = SourceTab.entries.associateWith { fuentesBuscando.buscando(it) }
+    // [SearchingSources].
+    val loadingOf = SourceTab.entries.associateWith { fuentesBuscando.isSearching(it) }
 
     // Foco inicial en la primera fuente apenas aparece la primera tanda (progresiva: no le vuelve
     // a robar el foco al usuario cuando llegan más resultados después).
@@ -1178,7 +1178,7 @@ private fun TvResultsContent(
             }
 
             // Una línea por fuente caída, haya o no resultados: no tapa lo que las otras trajeron.
-            avisosDeFuentesCaidas(estadoDeFuentes, tab).forEach { aviso ->
+            downSourceNotices(estadoDeFuentes, tab).forEach { aviso ->
                 item {
                     Text(
                         aviso,
@@ -1191,12 +1191,12 @@ private fun TvResultsContent(
                 }
             }
 
-            val filas = filasVisibles(ordered, tab)
+            val filas = visibleRows(ordered, tab)
 
             if (ordered.isEmpty() && !anyLoading) {
                 item {
                     Text(
-                        textoSinFuentes(estadoDeFuentes),
+                        noSourcesText(estadoDeFuentes),
                         color = ArkivTextSecondary,
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(horizontal = 48.dp, vertical = 8.dp),
@@ -1206,7 +1206,7 @@ private fun TvResultsContent(
                 // Hay resultados, pero no de este origen. Sin este aviso la lista queda en blanco y
                 // parece que la app se colgó, cuando en realidad basta con volver a "Todo". Si la
                 // fuente de esta pestaña se cayó, no va: ya lo dice su línea de arriba.
-                textoPestanaVacia(tab, loadingOf[tab] == true, estadoDeFuentes)?.let { vacia ->
+                emptyTabText(tab, loadingOf[tab] == true, estadoDeFuentes)?.let { vacia ->
                     item {
                         Text(
                             vacia,

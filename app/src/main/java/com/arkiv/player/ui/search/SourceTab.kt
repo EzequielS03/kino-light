@@ -3,11 +3,11 @@ package com.arkiv.player.ui.search
 import com.arkiv.player.ui.catalog.PlaySource
 
 /**
- * Filtro por origen de la lista de resultados. Con varias secciones abiertas a la vez la pantalla se
- * vuelve un muro: esto deja ver un solo origen cuando ya sabes cuál quieres.
+ * Filter by result list origin. With several sections open at once the screen turns into a wall:
+ * this lets a single origin show once you already know which one you want.
  *
- * El orden acá manda: es el de los chips y el de las secciones de "Todo". Magis primero y Caracol
- * después.
+ * The order here rules: it's the chips' and the "Todo" sections' order. Magis first and Caracol
+ * after.
  */
 enum class SourceTab(val label: String) {
     TODO("Todo"),
@@ -15,15 +15,14 @@ enum class SourceTab(val label: String) {
     CARACOL("Caracol"),
 }
 
-/** La pestaña a la que pertenece una fuente. */
+/** The tab a source belongs to. */
 fun tabOf(source: PlaySource): SourceTab = when (source) {
     is PlaySource.Magis -> SourceTab.MAGIS
     is PlaySource.Ditu -> SourceTab.CARACOL
 }
 
-/** Cuántas fuentes hay por pestaña (incluida TODO), para pintarlo en el chip. Siempre devuelve una
- *  clave por cada pestaña, aunque esté en cero, así los chips no bailan mientras van llegando
- *  resultados de cada origen. */
+/** How many sources there are per tab (TODO included), to paint on the chip. Always returns a key
+ *  for every tab, even at zero, so the chips don't jump around as results arrive from each origin. */
 fun countsByTab(sources: List<PlaySource>): Map<SourceTab, Int> {
     val counts = sources.groupingBy { tabOf(it) }.eachCount()
     return SourceTab.entries.associateWith { tab ->
@@ -35,16 +34,17 @@ fun filterByTab(sources: List<PlaySource>, tab: SourceTab): List<PlaySource> =
     if (tab == SourceTab.TODO) sources else sources.filter { tabOf(it) == tab }
 
 /**
- * Las fuentes a dibujar como filas en los resultados del TV: en el orden del enum, sin las vacías
- * y respetando el filtro elegido.
+ * The sources to draw as rows in the TV results: in the enum's order, without the empty ones and
+ * respecting the chosen filter.
  *
- * Vive acá y no en la pantalla porque es la única parte de "cómo se ve" que se puede probar sin
- * Compose, y es justo la que decide si una fuente se pierde de vista — que era el problema: con
- * 536 torrents y 20 de magis en una sola lista vertical, magis no existía.
+ * Lives here and not in the screen because it's the only part of "how it looks" that can be
+ * tested without Compose, and it's exactly the part that decides whether a source gets lost from
+ * view -- which was the problem: with 536 torrents and 20 from magis in a single vertical list,
+ * magis didn't exist.
  */
-fun filasVisibles(sources: List<PlaySource>, tab: SourceTab): List<Pair<SourceTab, List<PlaySource>>> {
-    val porFuente = sources.groupBy { tabOf(it) }
+fun visibleRows(sources: List<PlaySource>, tab: SourceTab): List<Pair<SourceTab, List<PlaySource>>> {
+    val bySource = sources.groupBy { tabOf(it) }
     return SourceTab.entries
         .filter { it != SourceTab.TODO && (tab == SourceTab.TODO || it == tab) }
-        .mapNotNull { fuente -> porFuente[fuente]?.takeIf { it.isNotEmpty() }?.let { fuente to it } }
+        .mapNotNull { source -> bySource[source]?.takeIf { it.isNotEmpty() }?.let { source to it } }
 }

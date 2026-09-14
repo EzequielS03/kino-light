@@ -18,16 +18,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-/** Cuántos resultados de la búsqueda se publican de una. Uno por uno hace que Compose recomponga
- *  la lista entera por cada resultado, y con varias decenas la app llega a ANR. */
-private const val GATEWAY_LOTE = 25
+/** How many search results get published at once. One by one makes Compose recompose the whole
+ *  list per result, and with a few dozen the app hits ANR. */
+private const val GATEWAY_BATCH_SIZE = 25
 
 private const val GW = "ArkivGateway"
 
 /**
- * ViewModel del wizard de búsqueda unificada: Fase QUERY (TMDB + AniList), paso REFINE (S/E
- * opcional) y fase RESULTS (búsqueda en Magis y en Caracol a la vez, con S/E
- * inyectado si se dio, o solo por nombre).
+ * ViewModel for the unified search wizard: QUERY phase (TMDB + AniList), REFINE step (optional
+ * S/E), and RESULTS phase (search on Magis and Caracol at once, with S/E injected if given, or
+ * just by name).
  */
 class SearchViewModel(
     private val tmdbApi: TmdbApi,
@@ -50,37 +50,38 @@ class SearchViewModel(
     val selected: StateFlow<TitleCard?> = _selected.asStateFlow()
 
     /**
-     * Si lo que se está buscando salió de escribir texto y no de elegir una ficha del catálogo.
+     * Whether what's being searched came from typing text rather than picking a catalog card.
      *
-     * Importa al GUARDAR: con una ficha real, el título y el póster de TMDB son la mejor metadata
-     * que hay; con texto libre, la consulta no es metadata de nada —"dragon ball 137" no es el
-     * nombre de nada— y lo que corresponde es el nombre propio de cada fuente.
+     * Matters when SAVING: with a real card, TMDB's title and poster are the best metadata there
+     * is; with free text, the query isn't metadata for anything --"dragon ball 137" isn't the name
+     * of anything-- and what fits is each source's own name.
      */
-    private val _busquedaPorTexto = MutableStateFlow(false)
-    val busquedaPorTexto: StateFlow<Boolean> = _busquedaPorTexto.asStateFlow()
+    private val _searchedByText = MutableStateFlow(false)
+    val searchedByText: StateFlow<Boolean> = _searchedByText.asStateFlow()
 
-    // --- Fase RESULTS: resultados de Magis y de Caracol para la card elegida ---
+    // --- RESULTS phase: Magis and Caracol results for the chosen card ---
     private val _sources = MutableStateFlow<List<PlaySource>>(emptyList())
     val sources: StateFlow<List<PlaySource>> = _sources.asStateFlow()
 
-    /** Qué fuentes siguen buscando en la búsqueda de fuentes en curso (ver [FuentesBuscando]). */
-    private val _fuentesBuscando = MutableStateFlow(FuentesBuscando())
-    val fuentesBuscando: StateFlow<FuentesBuscando> = _fuentesBuscando.asStateFlow()
+    /** Which sources are still searching in the current source search (see [SearchingSources]). */
+    private val _searchingSources = MutableStateFlow(SearchingSources())
+    val searchingSources: StateFlow<SearchingSources> = _searchingSources.asStateFlow()
 
     /**
-     * Cuántas búsquedas de fuentes se arrancaron. La que se cancela porque arrancó otra igual pasa
-     * por el final de su corrutina (el `runCatching` de [runSourceSearch] atrapa la cancelación):
-     * con esto no le apaga los indicadores a la que la reemplazó.
+     * How many source searches were started. The one that gets canceled because another one just
+     * like it started goes through the end of its coroutine (the `runCatching` in
+     * [runSourceSearch] catches the cancellation): this keeps it from turning off the indicators
+     * of the one that replaced it.
      */
-    private var busquedasDeFuentes = 0
+    private var sourceSearchCount = 0
 
     /**
-     * Qué fuentes respondieron y cuáles se cayeron en la búsqueda de fuentes en curso; se vacía al
-     * arrancar cada una. Lo leen los resultados del celular y del TV para mostrar el error de una
-     * fuente sin tapar lo que trajeron las otras (ver [EstadoDeLasFuentes]).
+     * Which sources responded and which went down in the current source search; cleared at the
+     * start of each one. Read by both the phone's and the TV's results to show a source's error
+     * without covering up what the others brought (see [SourcesState]).
      */
-    private val _estadoDeFuentes = MutableStateFlow(EstadoDeLasFuentes())
-    val estadoDeFuentes: StateFlow<EstadoDeLasFuentes> = _estadoDeFuentes.asStateFlow()
+    private val _sourcesState = MutableStateFlow(SourcesState())
+    val sourcesState: StateFlow<SourcesState> = _sourcesState.asStateFlow()
 
     private val _refineSeason = MutableStateFlow<Int?>(null)
     val refineSeason: StateFlow<Int?> = _refineSeason.asStateFlow()
@@ -97,23 +98,23 @@ class SearchViewModel(
     private var searchJob: Job? = null
     private var sourceJob: Job? = null
 
-    // --- historial del buscador -------------------------------------------
-    // Graba el ViewModel, no la pantalla: así da igual quién dispare la búsqueda y hay un solo
-    // lugar donde mirar. El TV usa el mismo ViewModel y por eso también graba acá; su pantalla
-    // muestra su propio historial (kind "tv"), que es otra lista.
+    // --- search history -------------------------------------------
+    // Recorded by the ViewModel, not the screen: that way it doesn't matter who triggers the
+    // search, and there's a single place to look. The TV uses the same ViewModel and that's why it
+    // also records here; its screen shows its own history (kind "tv"), which is a different list.
     val recentQueries: StateFlow<List<String>> = searchHistory.queries
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val recentTitles: StateFlow<List<com.arkiv.player.data.RecentTitle>> = searchHistory.titles
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    // Best-effort: si Room falla, la búsqueda sigue. El historial nunca rompe el buscar.
-    private fun enHistorial(bloque: suspend () -> Unit) {
-        viewModelScope.launch { runCatching { bloque() } }
+    // Best-effort: if Room fails, the search still works. History never breaks searching.
+    private fun inHistory(block: suspend () -> Unit) {
+        viewModelScope.launch { runCatching { block() } }
     }
 
-    fun forgetQuery(q: String) = enHistorial { searchHistory.removeQuery(q) }
-    fun forgetTitle(t: com.arkiv.player.data.RecentTitle) = enHistorial { searchHistory.removeTitle(t) }
-    fun clearHistory() = enHistorial { searchHistory.clear() }
+    fun forgetQuery(q: String) = inHistory { searchHistory.removeQuery(q) }
+    fun forgetTitle(t: com.arkiv.player.data.RecentTitle) = inHistory { searchHistory.removeTitle(t) }
+    fun clearHistory() = inHistory { searchHistory.clear() }
 
     /** Launches the QUERY-phase search: TMDB + anime (title cards). */
     fun search(q: String) {
@@ -123,7 +124,7 @@ class SearchViewModel(
             _loadingTitles.value = false
             return
         }
-        enHistorial { searchHistory.addQuery(q) }
+        inHistory { searchHistory.addQuery(q) }
         searchJob = viewModelScope.launch {
             _loadingTitles.value = true
 
@@ -132,21 +133,21 @@ class SearchViewModel(
             var tmdbDone = false
             var animeDone = false
 
-            // Las dos fuentes se pisan mucho (todo el anime que además está en TMDB), y en la
-            // grilla eso son dos cards con el mismo nombre. Se limpia al publicar, que es el único
-            // punto por el que pasan las dos tandas.
-            fun publicarTitulos() { _titleResults.value = sinRepetidos(tmdbCards + animeCards) }
+            // The two sources overlap a lot (all the anime that's also on TMDB), and in the grid
+            // that's two cards with the same name. Cleaned up on publishing, the single point both
+            // batches pass through.
+            fun publishTitles() { _titleResults.value = withoutDuplicates(tmdbCards + animeCards) }
 
             val tmdbJob = launch {
                 tmdbCards = runCatching { tmdbApi.searchMulti(q) }.getOrDefault(emptyList()).map { it.toTitleCard() }
                 tmdbDone = true
-                publicarTitulos()
+                publishTitles()
                 if (animeDone) _loadingTitles.value = false
             }
             val animeJob = launch {
                 animeCards = runCatching { aniListApi.browse(1, "SEARCH_MATCH", q, null) }.getOrDefault(emptyList()).map { it.toTitleCard() }
                 animeDone = true
-                publicarTitulos()
+                publishTitles()
                 if (tmdbDone) _loadingTitles.value = false
             }
 
@@ -155,9 +156,9 @@ class SearchViewModel(
         }
     }
 
-    /** Entrada desde el home: arranca ya en un título, saltándose la fase de escribir. */
+    /** Entry from the home: starts already on a title, skipping the typing phase. */
     fun startFromShortcut(kind: String, tmdbId: Int?, anilistId: Long?) {
-        if (selected.value != null) return   // ya arrancado (no repetir en recomposición)
+        if (selected.value != null) return   // already started (don't repeat on recomposition)
         viewModelScope.launch {
             val card = when {
                 kind == "anime" && anilistId != null ->
@@ -174,15 +175,15 @@ class SearchViewModel(
                 }
                 else -> null
             } ?: return@launch
-            pickTitle(card)   // película -> RESULTS; serie/anime -> REFINE
+            pickTitle(card)   // movie -> RESULTS; series/anime -> REFINE
         }
     }
 
-    /** Elige una card: las películas van directo a RESULTS; series/anime pasan a REFINE. */
+    /** Picks a card: movies go straight to RESULTS; series/anime move to REFINE. */
     fun pickTitle(card: TitleCard) {
-        enHistorial { searchHistory.addTitle(card.toRecent()) }
+        inHistory { searchHistory.addTitle(card.toRecent()) }
         _selected.value = card
-        _busquedaPorTexto.value = false
+        _searchedByText.value = false
         if (card.kind == "movie") {
             runSourceSearch(null, null)
         } else {
@@ -191,41 +192,42 @@ class SearchViewModel(
     }
 
     /**
-     * Busca fuentes por el texto crudo, sin pasar por el catálogo (botón "Ir" del TV): sirve
-     * cuando uno se acuerda de un pedazo del nombre y no del título exacto con el que TMDB lo
-     * tiene. La card la arma [cardDeTextoLibre]; de ahí en adelante es la misma búsqueda de
-     * siempre, así que la lista de fuentes, los packs y la reproducción no cambian en nada.
+     * Searches sources by raw text, without going through the catalog (the TV's "Ir" button):
+     * useful when you remember a piece of the name and not the exact title TMDB has it under. The
+     * card is built by [freeTextCard]; from there on it's the same search as always, so the
+     * source list, packs, and playback don't change at all.
      *
-     * NO va al historial de títulos: una card sin póster ni ids ensuciaría la fila de "recientes"
-     * del celu. La consulta sí la graba quien llama, en el historial de texto que le corresponda.
+     * Does NOT go to the title history: a card with no poster or ids would clutter the phone's
+     * "recientes" row. The caller does record the query, in whichever text history fits.
      */
-    fun buscarFuentesPorTexto(q: String) {
-        val card = cardDeTextoLibre(q) ?: return
+    fun searchSourcesByText(q: String) {
+        val card = freeTextCard(q) ?: return
         _selected.value = card
-        _busquedaPorTexto.value = true
-        // Metadata de la búsqueda anterior: `runSourceSearch` limpia `_detail` sola (la card no
-        // tiene tmdbId), pero `_animeShow` solo se toca en la rama de anime — y si quedó la de un
-        // anime buscado antes, la pantalla de fuentes mostraría SU título en vez del texto tecleado.
+        _searchedByText.value = true
+        // Metadata from the previous search: `runSourceSearch` clears `_detail` on its own (the
+        // card has no tmdbId), but `_animeShow` is only touched in the anime branch -- and if one
+        // from a previously searched anime was left, the sources screen would show ITS title
+        // instead of the typed text.
         _animeShow.value = null
         runSourceSearch(null, null)
     }
 
     /**
-     * Búsqueda en Magis y en Caracol de la card elegida: si viene season/episode se
-     * inyectan en la búsqueda (capítulo concreto); si no, se busca solo por nombre. Progresiva:
-     * cada fuente agrega resultados apenas los tiene.
+     * Search on Magis and Caracol for the chosen card: if season/episode come in, they get
+     * injected into the search (a specific chapter); if not, it's searched by name only.
+     * Progressive: each source adds results as soon as it has them.
      */
     fun runSourceSearch(season: Int?, episode: Int?) {
         val card = _selected.value ?: return
         sourceJob?.cancel()
         _phase.value = SearchPhase.RESULTS
         _sources.value = emptyList()
-        _estadoDeFuentes.value = EstadoDeLasFuentes()
-        val estaBusqueda = ++busquedasDeFuentes
-        _fuentesBuscando.value = FuentesBuscando.empezando()
-        // Solo mientras esta siga siendo la búsqueda vigente: ver [busquedasDeFuentes].
-        fun buscando(cambio: (FuentesBuscando) -> FuentesBuscando) {
-            if (estaBusqueda == busquedasDeFuentes) _fuentesBuscando.value = cambio(_fuentesBuscando.value)
+        _sourcesState.value = SourcesState()
+        val thisSearch = ++sourceSearchCount
+        _searchingSources.value = SearchingSources.starting()
+        // Only while this is still the current search: see [sourceSearchCount].
+        fun updateSearching(change: (SearchingSources) -> SearchingSources) {
+            if (thisSearch == sourceSearchCount) _searchingSources.value = change(_searchingSources.value)
         }
         _refineSeason.value = season
         _refineEpisode.value = episode
@@ -244,10 +246,10 @@ class SearchViewModel(
 
             fun append(new: List<PlaySource>) { _sources.value = _sources.value + new }
 
-            // `arkivApiClient` es la fuente compuesta (`AppGraph.fuenteDeContenido`: Magis y Caracol,
-            // cada una directo a su API). Antes esto iba detrás de un flag (`useGateway`) para poder
-            // apagarlo sin publicar APK y caer "al camino viejo": ya no hay camino viejo ni flag --
-            // nadie tenía cómo apagarlo.
+            // `arkivApiClient` is the composite source (`AppGraph.fuenteDeContenido`: Magis and
+            // Caracol, each straight to its own API). This used to sit behind a flag (`useGateway`)
+            // so it could be turned off without publishing an APK and fall back "to the old path":
+            // there's no more old path or flag -- nobody had a way to turn it off.
             launch {
                 runCatching {
                     val ctx = com.arkiv.player.data.gateway.GatewaySearchQuery(
@@ -261,49 +263,49 @@ class SearchViewModel(
                         episode = episode ?: 0,
                         tmdbId = card.tmdbId ?: 0,
                     )
-                    // Los resultados se acumulan y se publican EN LOTE. Publicar de a uno
-                    // dispara una recomposición por resultado: con 20 de magis sobre 50+
-                    // fuentes ya visibles, la UI se ahoga midiendo texto y la app da ANR.
-                    val lote = mutableListOf<PlaySource>()
-                    fun vaciarLote() {
-                        if (lote.isEmpty()) return
-                        append(lote.toList())
-                        lote.clear()
+                    // Results accumulate and get published IN A BATCH. Publishing one at a time
+                    // fires a recomposition per result: with 20 from magis on top of 50+ sources
+                    // already visible, the UI chokes measuring text and the app hits ANR.
+                    val batch = mutableListOf<PlaySource>()
+                    fun flushBatch() {
+                        if (batch.isEmpty()) return
+                        append(batch.toList())
+                        batch.clear()
                     }
                     arkivApiClient.search(ctx).collect { ev ->
                         when (ev) {
                             is com.arkiv.player.data.gateway.SearchEvent.ResultEvent -> {
-                                ev.item.toPlaySource()?.let { lote += it }
-                                if (lote.size >= GATEWAY_LOTE) vaciarLote()
+                                ev.item.toPlaySource()?.let { batch += it }
+                                if (batch.size >= GATEWAY_BATCH_SIZE) flushBatch()
                             }
                             is com.arkiv.player.data.gateway.SearchEvent.SourceError -> {
                                 // The technical detail goes to the log; the on-screen Caracol line
-                                // is written by `CaracolFailure` (see `avisosDeFuentesCaidas`).
+                                // is written by `CaracolFailure` (see `downSourceNotices`).
                                 Log.w(GW, "source ${ev.source} failed: ${ev.error} (delivered ${ev.count})", ev.causa)
-                                _estadoDeFuentes.value = _estadoDeFuentes.value.conCaida(ev.source, ev.error, ev.causa)
-                                // Su "Buscando…" se apaga ya, sin esperar a las demás fuentes.
-                                buscando { it.terminoLaFuente(ev.source) }
-                                vaciarLote()
+                                _sourcesState.value = _sourcesState.value.withFailure(ev.source, ev.error, ev.causa)
+                                // Its "Buscando…" turns off right away, without waiting for the other sources.
+                                updateSearching { it.sourceFinished(ev.source) }
+                                flushBatch()
                             }
                             is com.arkiv.player.data.gateway.SearchEvent.SourceDone -> {
                                 Log.w(GW, "source ${ev.source}: ${ev.count} in ${ev.ms}ms")
-                                _estadoDeFuentes.value = _estadoDeFuentes.value.conRespuesta(ev.source)
-                                buscando { it.terminoLaFuente(ev.source) }
-                                vaciarLote()
+                                _sourcesState.value = _sourcesState.value.withResponse(ev.source)
+                                updateSearching { it.sourceFinished(ev.source) }
+                                flushBatch()
                             }
                             else -> Unit
                         }
                     }
-                    vaciarLote()
+                    flushBatch()
                 }.onFailure {
                     android.util.Log.w("ArkivGateway", "the gateway failed: ${it.message}")
                 }
-                buscando { it.terminoTodo() }
+                updateSearching { it.allFinished() }
             }
         }
     }
 
-    /** Vuelve un paso: de RESULTS a REFINE (o QUERY si la card era película), de REFINE a QUERY. */
+    /** Goes back one step: from RESULTS to REFINE (or QUERY if the card was a movie), from REFINE to QUERY. */
     fun back() {
         when (_phase.value) {
             SearchPhase.RESULTS -> {
@@ -315,7 +317,7 @@ class SearchViewModel(
         }
         if (_phase.value == SearchPhase.QUERY) {
             _selected.value = null
-            _busquedaPorTexto.value = false
+            _searchedByText.value = false
         }
     }
 }

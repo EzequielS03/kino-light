@@ -79,7 +79,7 @@ class RecommendationSavingTest {
 
     /**
      * With no these three fields the episode has no `episode_still` row: a black, numbered card
-     * in the library until someone opens the series. Same reason `SearchPlayback.magisEpisodeIdDe`
+     * in the library until someone opens the series. Same reason `SearchPlayback.magisEpisodeIdFor`
      * carries them along.
      */
     @Test fun chapters_carry_a_still_real_name_and_synopsis() {

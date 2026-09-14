@@ -17,7 +17,7 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.arkiv.player.playback.LangOrderEdits
 import com.arkiv.player.playback.TrackLang
-import com.arkiv.player.ui.settings.etiqueta
+import com.arkiv.player.ui.settings.label
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 
 /**
