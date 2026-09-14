@@ -75,7 +75,7 @@ data class ContinueRow(
 /**
  * A chapter's progress with the item it belongs to and the chapter that comes NEXT in the list.
  *
- * The "next" one comes resolved from SQL because [com.arkiv.player.data.PorDondeVas] needs it to
+ * The "next" one comes resolved from SQL because [com.arkiv.player.data.ContinueWatchingRule] needs it to
  * offer the chapter that follows the last one you finished, and pulling each series' whole
  * chapter list into memory to figure it out would mean fetching thousands of rows to use one.
  */
@@ -292,7 +292,7 @@ interface PlaybackDao {
 
     /**
      * All live progress, with each one's next chapter, for
-     * [com.arkiv.player.data.PorDondeVas] to build the "Continue watching" row.
+     * [com.arkiv.player.data.ContinueWatchingRule] to build the "Continue watching" row.
      *
      * Does NOT filter by `watched` or by position, on purpose: filtering here was exactly the
      * bug. The old query asked for `watched = 0`, so of a series watched daily only the ABANDONED
@@ -324,7 +324,7 @@ interface PlaybackDao {
     fun observeProgressWithNext(): Flow<List<ProgresoConSiguienteRow>>
 
     /**
-     * The screen data of the chapters [com.arkiv.player.data.PorDondeVas] already chose.
+     * The screen data of the chapters [com.arkiv.player.data.ContinueWatchingRule] already chose.
      *
      * Hangs off `episodes` and NOT `playback`, with the progress in a LEFT JOIN, because the
      * chosen chapter can be one you never touched (the one after what you finished): there's no

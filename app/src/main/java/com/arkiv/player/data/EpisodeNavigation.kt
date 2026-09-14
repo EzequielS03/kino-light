@@ -1,11 +1,11 @@
 package com.arkiv.player.data
 
-/** Un episodio reducido a lo que hace falta para navegar entre vecinos. */
+/** An episode reduced to what's needed to navigate between neighbors. */
 data class NavEpisode(val id: String, val section: String)
 
 /**
- * Siguiente/anterior episodio dentro de la MISMA sección (temporada). Pura: testeable sin Room.
- * La lista viene ya ordenada por el DAO; acá solo se busca el vecino que comparta sección.
+ * Next/previous episode within the SAME section (season). Pure: testable without Room.
+ * The list already comes sorted from the DAO; this just looks for the neighbor sharing a section.
  */
 object EpisodeNavigation {
 

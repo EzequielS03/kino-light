@@ -57,21 +57,22 @@ data class ItemDetail(
      * "none".
      */
     val inProgressEpisode: Episode?
-        get() = whereYouAreAt?.takeIf { !it.esSiguiente }?.let { chosen -> episodes.find { it.id == chosen.episodeId } }
+        get() = whereYouAreAt?.takeIf { !it.isNext }?.let { chosen -> episodes.find { it.id == chosen.episodeId } }
 
     /**
      * The rule shared with "Continue watching", resolved against the chapter list this detail
-     * already has in memory. See [com.arkiv.player.data.PorDondeVas]: no second-count floor here,
-     * because in the detail "where you're at" is where you're at even if you watched two seconds.
+     * already has in memory. See [com.arkiv.player.data.ContinueWatchingRule]: no second-count
+     * floor here, because in the detail "where you're at" is where you're at even if you watched
+     * two seconds.
      */
-    private val whereYouAreAt: CapituloAOfrecer?
-        get() = PorDondeVas.elegir(
+    private val whereYouAreAt: ChapterToOffer?
+        get() = ContinueWatchingRule.choose(
             episodes.mapNotNull { ep ->
                 progress[ep.id]?.let {
-                    ProgresoDeCapitulo(ep.id, it.positionMs, it.watched, it.lastPlayedAt)
+                    ChapterProgress(ep.id, it.positionMs, it.watched, it.lastPlayedAt)
                 }
             },
-            siguienteDe = { id ->
+            nextIdOf = { id ->
                 val i = episodes.indexOfFirst { it.id == id }
                 if (i >= 0) episodes.getOrNull(i + 1)?.id else null
             },
@@ -88,12 +89,12 @@ data class ItemDetail(
      *
      * "The most advanced watched one IN THE LIST" (by position) isn't enough either: watching E10
      * standalone out of curiosity and then starting in order and finishing E1-E3 would leave
-     * "Reproducir" offering E11, skipping E4-E9. The rule is by RECENCY and [PorDondeVas] decides
-     * it, the SAME one that builds "Continue watching" on the home: it anchors on the last thing
-     * you played (finished or not) and offers that chapter if it was left halfway, or the one that
-     * follows it if you finished it. An accepted consequence (not a bug, don't "fix" this): if you
-     * finished the whole series and then revisited E1, "Reproducir" starts offering E2 -- that's
-     * what someone rewatching expects.
+     * "Reproducir" offering E11, skipping E4-E9. The rule is by RECENCY and [ContinueWatchingRule]
+     * decides it, the SAME one that builds "Continue watching" on the home: it anchors on the last
+     * thing you played (finished or not) and offers that chapter if it was left halfway, or the
+     * one that follows it if you finished it. An accepted consequence (not a bug, don't "fix"
+     * this): if you finished the whole series and then revisited E1, "Reproducir" starts offering
+     * E2 -- that's what someone rewatching expects.
      *
      * The two fallbacks below belong to THIS surface and not the rule: the "Reproducir" button
      * can't be left with no chapter. If nothing was ever watched, it falls back to the first
@@ -240,20 +241,20 @@ class ArkivRepository(
             playbackDao.observeProgressWithNext(),
             episodeFrameDao.observeAll(),
         ) { rows, _ -> rows }.map { rows ->
-            // Which chapter goes for each series is decided by PorDondeVas, the pure and tested
-            // part (one card per item, ordered by what you last played). This just translates the
-            // database row into what that rule understands.
-            PorDondeVas.porItem(
+            // Which chapter goes for each series is decided by ContinueWatchingRule, the pure and
+            // tested part (one card per item, ordered by what you last played). This just
+            // translates the database row into what that rule understands.
+            ContinueWatchingRule.byItem(
                 rows.map {
-                    ProgresoEnItem(
+                    ItemProgress(
                         itemId = it.itemId,
-                        progreso = ProgresoDeCapitulo(
+                        progress = ChapterProgress(
                             episodeId = it.episodeId,
                             positionMs = it.positionMs,
                             watched = it.watched,
                             lastPlayedAt = it.lastPlayedAt,
                         ),
-                        siguienteEpisodeId = it.siguienteEpisodeId,
+                        nextEpisodeId = it.siguienteEpisodeId,
                     )
                 },
                 minPositionMs = CONTINUE_WATCHING_MIN_MS,
@@ -439,7 +440,7 @@ class ArkivRepository(
      *
      * **Doesn't own the table**: Magis writes the same rows when saving the season, with what the
      * gateway already crossed against TMDB. That's why this function never overwrites a whole row
-     * — it merges field by field ([MezclaDeStills]) and doesn't mark as "already asked" what
+     * — it merges field by field ([StillMerge]) and doesn't mark as "already asked" what
      * couldn't be asked. Without that, opening the detail with the network down would wipe out
      * what Magis had saved correctly and it would never be retried again.
      */
@@ -457,7 +458,7 @@ class ArkivRepository(
         if (episodes.isEmpty()) return
         // The rows that already exist, COMPLETE and not just their ids: used twice — for the early
         // cutoff below and so as not to overwrite with null what another source had already filled
-        // in (see [MezclaDeStills]).
+        // in (see [StillMerge]).
         val previous = episodeStillDao.forItem(itemId).associateBy { it.episodeId }
         if (previous.keys.containsAll(episodes.map { it.id })) return
 
@@ -526,15 +527,15 @@ class ArkivRepository(
         // answer—:
         //  1. Those of a season that couldn't even be queried, so it gets retried.
         //  2. The fields this query didn't bring, which keep whatever was already saved (typically:
-        //     what Magis left on saving the season). See [MezclaDeStills].
+        //     what Magis left on saving the season). See [StillMerge].
         val now = clock()
         episodeStillDao.upsertAll(
             episodes
                 .filter { ep -> coords[ep.id]?.first?.let { it !in failed } ?: true }
                 .map { ep ->
-                    MezclaDeStills.mezclar(
-                        previa = previous[ep.id],
-                        nueva = EpisodeStillEntity(
+                    StillMerge.merge(
+                        previous = previous[ep.id],
+                        updated = EpisodeStillEntity(
                             episodeId = ep.id,
                             stillUrl = coords[ep.id]?.let { stillBySeasonEp[it] },
                             fetchedAt = now,
@@ -832,7 +833,7 @@ class ArkivRepository(
 
     /**
      * Writes to `episode_still` what Magis brought, **without overwriting what was already there**
-     * ([MezclaDeStills]).
+     * ([StillMerge]).
      *
      * The only write point of that table from Magis ([addMagisSource] and [addMagisSeason]), and
      * that's why there aren't two versions of this rule. `EpisodeStillDao.upsertAll` is a REPLACE,
@@ -851,7 +852,7 @@ class ArkivRepository(
     private suspend fun saveMagisStills(itemId: String, new: List<EpisodeStillEntity>) {
         if (new.isEmpty()) return
         val previous = episodeStillDao.forItem(itemId).associateBy { it.episodeId }
-        episodeStillDao.upsertAll(MezclaDeStills.mezclarTodas(previous, new))
+        episodeStillDao.upsertAll(StillMerge.mergeAll(previous, new))
     }
 
     /**
