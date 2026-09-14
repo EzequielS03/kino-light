@@ -648,9 +648,9 @@ private fun PlayerContent(
     val dimLevel by graph.settings.dimLevel.collectAsStateWithLifecycle()
     val dimNivel = dimLevel.coerceIn(0, DIM_MAX_LEVEL)
     // Moverse por la barra -- arrastre del slider y saltos incrementales -- vive en
-    // `PlayerSeek.kt`. Quien dispara el seek de verdad se queda aca: depende del player activo
+    // `SeekState.kt`. Quien dispara el seek de verdad se queda aca: depende del player activo
     // y de si el cast esta transcodificando.
-    val seek = rememberEstadoDeSeek()
+    val seek = rememberSeekState()
 
     // The local player's TextureView: where downloaded files paint, what their frames are captured
     // from, and (TV) the view that holds the D-pad key listener and gets the focus back after a dialog.
@@ -2279,7 +2279,7 @@ private fun PlayerContent(
             // salir dentro de esos 350 ms no puede guardar la anterior. Solo local: casteando este
             // destino está en tiempo de CONTENIDO y `currentPosition` es la del receptor, que con
             // ventana lleva otro origen — ahí se mantiene lo de siempre.
-            val pendiente = seek.pendienteMs?.takeIf { !casting }
+            val pendiente = seek.pendingMs?.takeIf { !casting }
             val pos = pendiente ?: currentPlayer.currentPosition
             val dur = currentPlayer.duration
             // De quién son esos números: mismo problema que el sondeo. Salir de la pantalla justo
@@ -2451,23 +2451,23 @@ private fun PlayerContent(
      * que la ráfaga de saltos competía contra sí misma. Se acumula sobre el destino anterior (y no
      * sobre la posición del player) para que la cuenta no dependa de si el seek anterior ya aterrizó.
      *
-     * Mientras hay uno pendiente se prende `seek.arrastrando`, lo mismo que usa el arrastre del slider:
+     * Mientras hay uno pendiente se prende `seek.dragging`, lo mismo que usa el arrastre del slider:
      * la barra y el reloj se pintan con el destino, así que se ve a dónde vas aunque el video siga
      * en el fotograma viejo. Es el mismo comportamiento que Netflix o Prime en TV.
      */
     fun seekBy(deltaMs: Long) {
-        seek.saltar(deltaMs, contentPositionMs(), contentDurationMs())
+        seek.jump(deltaMs, contentPositionMs(), contentDurationMs())
         bump()
     }
 
     // Confirma la ráfaga: cada pulsación nueva cambia la clave y cancela este `delay`, así que el
     // `seekTo` sale una sola vez, cuando dejaste de moverte. Al limpiar el pendiente el efecto se
     // relanza con null y corta en la primera línea.
-    LaunchedEffect(seek.pendienteMs) {
-        val target = seek.pendienteMs ?: return@LaunchedEffect
+    LaunchedEffect(seek.pendingMs) {
+        val target = seek.pendingMs ?: return@LaunchedEffect
         delay(SEEK_INCREMENTAL_DEBOUNCE_MS)
         seekTo(target)
-        seek.confirmado()
+        seek.confirmed()
     }
 
     fun togglePlayPause() {
@@ -3236,19 +3236,19 @@ private fun PlayerContent(
                         // Tiempo + slider + duración.
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                formatDuration(seek.posicionAMostrar(espejo.positionMs)),
+                                formatDuration(seek.positionToShow(espejo.positionMs)),
                                 color = Color.White, style = MaterialTheme.typography.labelMedium,
                             )
                             Slider(
-                                value = seek.valorDeLaBarra(espejo.positionMs),
+                                value = seek.barValue(espejo.positionMs),
                                 // Agarrar la barra descarta cualquier salto incremental pendiente: si
                                 // no, el debounce de `seekBy` dispararía DESPUÉS de soltar y te
                                 // devolvería al destino de las flechas, pisando el arrastre.
                                 onValueChange = { v ->
-                                    seek.arrastrarA(v)
+                                    seek.dragTo(v)
                                     bump()
                                 },
-                                onValueChangeFinished = { seekTo(seek.soltar()) },
+                                onValueChangeFinished = { seekTo(seek.release()) },
                                 valueRange = 0f..(if (espejo.durationMs > 0) espejo.durationMs.toFloat() else 1f),
                                 colors = SliderDefaults.colors(
                                     thumbColor = ArkivRed,
@@ -3259,14 +3259,14 @@ private fun PlayerContent(
                                 // claro) + reproducido (rojo). Así se ve el buffer por delante del playhead.
                                 track = { _ ->
                                     val dur = if (espejo.durationMs > 0) espejo.durationMs.toFloat() else 1f
-                                    val posFrac = (seek.valorDeLaBarra(espejo.positionMs) / dur)
+                                    val posFrac = (seek.barValue(espejo.positionMs) / dur)
                                         .coerceIn(0f, 1f)
                                     val bufFrac = espejo.bufferedFraction.coerceIn(0f, 1f)
                                     // El grosor del track ES el indicador de foco (el stroke se deriva
                                     // de la altura del Canvas, así que engrosar la altura engrosa las
                                     // tres capas de una). Animado para que el salto no se sienta brusco.
                                     val trackHeight by animateDpAsState(
-                                        targetValue = if (seek.barraEnfocada) 8.dp else 4.dp,
+                                        targetValue = if (seek.barFocused) 8.dp else 4.dp,
                                         label = "grosorBarraProgreso",
                                     )
                                     Canvas(Modifier.fillMaxWidth().height(trackHeight)) {
@@ -3283,7 +3283,7 @@ private fun PlayerContent(
                                     .then(
                                         if (!isTv) Modifier else Modifier
                                             .focusRequester(focos.bar)
-                                            .onFocusChanged { seek.cambioElFoco(it.isFocused) }
+                                            .onFocusChanged { seek.focusChanged(it.isFocused) }
                                             // ARRIBA se queda en la barra: es el tope del overlay y
                                             // los botones están DEBAJO, así que mandar `up` ahí era
                                             // un salto al revés (poco visible antes, porque el foco
