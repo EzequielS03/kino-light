@@ -50,23 +50,23 @@ import kotlinx.coroutines.launch
  * ```
  * adb shell am broadcast -a com.arkiv.player.light.SONDA_CARACOL \
  *     -p com.arkiv.player.light --es id 1000010026
- * adb logcat -s ArkivSondaDitu
+ * adb logcat -s ArkivCaracolProbe
  * ```
- * `id` is a Caracol `contentId` of an episode (a VOD); it defaults to [DEFECTO].
+ * `id` is a Caracol `contentId` of an episode (a VOD); it defaults to [DEFAULT].
  *
  * Lives in `src/debug` on purpose: it is a measurement, not a feature, and it must not exist in a
  * release APK.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
-class SondaDeCaracolOffline : BroadcastReceiver() {
+class CaracolOfflineProbe : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        val contentId = intent.getStringExtra("id")?.takeIf { it.isNotBlank() } ?: DEFECTO
+        val contentId = intent.getStringExtra("id")?.takeIf { it.isNotBlank() } ?: DEFAULT
         // Its own scope: a receiver's onReceive has ~10 s and the licence round trip is slower.
-        CoroutineScope(Dispatchers.IO).launch { correr(contentId) }
+        CoroutineScope(Dispatchers.IO).launch { runProbe(contentId) }
     }
 
-    private suspend fun correr(contentId: String) {
+    private suspend fun runProbe(contentId: String) {
         Log.w(TAG, "probe starts · contentId=$contentId")
 
         val play = runCatching { DituResolve(DituClient()).vod(DituRef(contentId, "VOD")) }
@@ -105,7 +105,7 @@ class SondaDeCaracolOffline : BroadcastReceiver() {
         // server, with the same token and the same data source, for the STREAMING licence the
         // player gets every day. If that one is granted and the offline one is not, the only thing
         // that differs between the two requests is persistence.
-        val streaming = controlDeStreaming(callbackDe(http, play.drmLicenseUrl, play.drmLicenseHeaders), format)
+        val streaming = streamingControl(callbackFor(http, play.drmLicenseUrl, play.drmLicenseHeaders), format)
         Log.w(TAG, "step 4/5 STREAMING licence (control) · $streaming")
 
         val helper = OfflineLicenseHelper.newWidevineInstance(
@@ -115,15 +115,15 @@ class SondaDeCaracolOffline : BroadcastReceiver() {
         )
         val keySetId = runCatching { helper.downloadLicense(format) }
             .getOrElse {
-                Log.e(TAG, "step 5/5 OFFLINE LICENCE REFUSED · ${cuerpoDelFallo(it)}", it)
+                Log.e(TAG, "step 5/5 OFFLINE LICENCE REFUSED · ${failureBody(it)}", it)
                 helper.release()
                 return
             }
-        val restante = runCatching { helper.getLicenseDurationRemainingSec(keySetId) }.getOrNull()
+        val remaining = runCatching { helper.getLicenseDurationRemainingSec(keySetId) }.getOrNull()
         Log.w(
             TAG,
             "step 5/5 OFFLINE LICENCE GRANTED · keySetId=${keySetId.size}B " +
-                "playbackRemaining=${restante?.first}s purchaseRemaining=${restante?.second}s",
+                "playbackRemaining=${remaining?.first}s purchaseRemaining=${remaining?.second}s",
         )
         // Hand it straight back: this probe only asks whether the door opens, and a licence left
         // behind counts against whatever per-device limit the server keeps.
@@ -132,7 +132,7 @@ class SondaDeCaracolOffline : BroadcastReceiver() {
         helper.release()
     }
 
-    private fun callbackDe(
+    private fun callbackFor(
         http: HttpDataSource.Factory,
         licenseUrl: String,
         headers: Map<String, String>,
@@ -147,46 +147,46 @@ class SondaDeCaracolOffline : BroadcastReceiver() {
      * the playback thread -- `acquireSession` asserts it. [OfflineLicenseHelper] hides that same
      * machinery for the download case; there is no equivalent helper for playback, so this is it.
      */
-    private fun controlDeStreaming(licencia: MediaDrmCallback, format: Format): String {
-        val hilo = HandlerThread("sonda-drm").also { it.start() }
+    private fun streamingControl(license: MediaDrmCallback, format: Format): String {
+        val thread = HandlerThread("caracol-probe-drm").also { it.start() }
         return try {
             val manager = DefaultDrmSessionManager.Builder()
                 .setUuidAndExoMediaDrmProvider(C.WIDEVINE_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
-                .build(licencia)
-            manager.setPlayer(hilo.looper, PlayerId.UNSET)
+                .build(license)
+            manager.setPlayer(thread.looper, PlayerId.UNSET)
             manager.prepare()
 
-            var sesion: DrmSession? = null
-            val pedida = CountDownLatch(1)
-            Handler(hilo.looper).post {
-                sesion = runCatching { manager.acquireSession(DrmSessionEventListener.EventDispatcher(), format) }
+            var session: DrmSession? = null
+            val sessionLatch = CountDownLatch(1)
+            Handler(thread.looper).post {
+                session = runCatching { manager.acquireSession(DrmSessionEventListener.EventDispatcher(), format) }
                     .getOrElse { Log.e(TAG, "acquireSession threw", it); null }
-                pedida.countDown()
+                sessionLatch.countDown()
             }
-            pedida.await(20, TimeUnit.SECONDS)
-            val s = sesion ?: return "acquireSession gave nothing back"
+            sessionLatch.await(20, TimeUnit.SECONDS)
+            val s = session ?: return "acquireSession gave nothing back"
 
-            val limite = SystemClock.elapsedRealtime() + ESPERA_MS
-            while (SystemClock.elapsedRealtime() < limite &&
+            val deadline = SystemClock.elapsedRealtime() + WAIT_MS
+            while (SystemClock.elapsedRealtime() < deadline &&
                 s.state != DrmSession.STATE_OPENED_WITH_KEYS &&
                 s.state != DrmSession.STATE_ERROR
             ) {
                 Thread.sleep(100)
             }
-            val veredicto = when (s.state) {
+            val verdict = when (s.state) {
                 DrmSession.STATE_OPENED_WITH_KEYS -> "GRANTED"
-                DrmSession.STATE_ERROR -> "REFUSED · ${cuerpoDelFallo(s.error)} · ${s.error}"
+                DrmSession.STATE_ERROR -> "REFUSED · ${failureBody(s.error)} · ${s.error}"
                 else -> "timed out in state ${s.state}"
             }
-            Handler(hilo.looper).post {
+            Handler(thread.looper).post {
                 runCatching { s.release(null) }
                 runCatching { manager.release() }
             }
-            veredicto
+            verdict
         } catch (e: Throwable) {
             "the control itself blew up: $e"
         } finally {
-            hilo.quitSafely()
+            thread.quitSafely()
         }
     }
 
@@ -196,25 +196,25 @@ class SondaDeCaracolOffline : BroadcastReceiver() {
      * media3 reports "Response code: 500" and drops the body on the floor, and the body is where a
      * server says whether it refused the request or merely fell over.
      */
-    private fun cuerpoDelFallo(e: Throwable?): String {
-        var causa: Throwable? = e
-        while (causa != null) {
-            if (causa is HttpDataSource.InvalidResponseCodeException) {
-                val cuerpo = runCatching { String(causa.responseBody).take(400) }.getOrDefault("")
-                return "HTTP ${causa.responseCode} body=${cuerpo.ifBlank { "(empty)" }}"
+    private fun failureBody(e: Throwable?): String {
+        var cause: Throwable? = e
+        while (cause != null) {
+            if (cause is HttpDataSource.InvalidResponseCodeException) {
+                val body = runCatching { String(cause.responseBody).take(400) }.getOrDefault("")
+                return "HTTP ${cause.responseCode} body=${body.ifBlank { "(empty)" }}"
             }
-            causa = causa.cause
+            cause = cause.cause
         }
         return "no HTTP response behind it"
     }
 
     private companion object {
-        const val TAG = "ArkivSondaDitu"
+        const val TAG = "ArkivCaracolProbe"
 
         /** "Dulce Amor" episode 1 -- a free, non-geoblocked VOD that resolves today. */
-        const val DEFECTO = "1000010026"
+        const val DEFAULT = "1000010026"
 
         /** How long to wait for a licence verdict before calling it a timeout. */
-        const val ESPERA_MS = 20_000L
+        const val WAIT_MS = 20_000L
     }
 }

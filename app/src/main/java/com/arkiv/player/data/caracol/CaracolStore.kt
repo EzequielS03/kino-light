@@ -22,7 +22,7 @@ import java.io.File
  * app: the key never leaves the device's CDM, and that's why playback still needs to ask
  * Caracol's server for a streaming license —a few KB— at the moment of hitting play. It doesn't
  * grant persistent licenses: measured, it answers 500 with `X-DRM-Error` (see
- * `SondaDeCaracolOffline`, in `src/debug`).
+ * `CaracolOfflineProbe`, in `src/debug`).
  *
  * A SINGLE instance per process: `SimpleCache` refuses to open the same folder twice, so this
  * lives in `AppGraph` and both the download and the player ask for the same object.

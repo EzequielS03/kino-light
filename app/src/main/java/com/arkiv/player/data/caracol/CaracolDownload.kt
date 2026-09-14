@@ -19,7 +19,7 @@ import org.json.JSONObject
  * encrypted just like on the CDN (`encv`/`sinf`/`tenc`), and what decrypts them is the device's
  * CDM, on play, requesting a fresh streaming license. That's why this "download" still needs a
  * few KB of network to open: Caracol's license server doesn't grant persistent licenses (measured,
- * see `SondaDeCaracolOffline` in `src/debug`).
+ * see `CaracolOfflineProbe` in `src/debug`).
  */
 data class CaracolDownload(
     val mpd: String,
