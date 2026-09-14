@@ -71,7 +71,7 @@ class SearchViewModelSourcesTest {
                 SearchEvent.ResultEvent("magis", GatewayResult(source = "magis", title = "Rigo", ref = "m1")),
                 SearchEvent.SourceDone("magis", 1, 5),
                 SearchEvent.SourceStart("ditu"),
-                SearchEvent.SourceError("ditu", "sin red", 5, 0, causa = noNetwork),
+                SearchEvent.SourceError("ditu", "sin red", 5, 0, cause = noNetwork),
                 SearchEvent.Done(10),
             )
         })

@@ -203,7 +203,7 @@ internal class MagisFuente(
                 seasonNumber = raw.season ?: 0,
                 // The canonical name only goes if TMDB gave it: blank, the library would adopt an
                 // empty name and the card would be left with no text.
-                titulo = seriesFromTmdb?.titulo.orEmpty(),
+                title = seriesFromTmdb?.title.orEmpty(),
                 posterUrl = seriesFromTmdb?.posterUrl.orEmpty(),
                 backdropUrl = seriesFromTmdb?.backdropUrl.orEmpty(),
             )
@@ -273,7 +273,7 @@ internal class MagisFuente(
      */
     private suspend fun enrich(
         raw: PortalChapters,
-    ): Pair<Map<Int, FromTmdb>, TmdbSerieParaMagis?> {
+    ): Pair<Map<Int, FromTmdb>, TmdbSeriesForMagis?> {
         val season = raw.season
         if (!IMDB.matches(raw.imdb) || season == null) return emptyMap<Int, FromTmdb>() to null
         return runCatching {
@@ -325,15 +325,15 @@ internal class MagisFuente(
     }
 
     /** What of TMDB gets used here, without dragging along the whole model. */
-    internal data class TmdbSerieParaMagis(
+    internal data class TmdbSeriesForMagis(
         val tmdbId: Int,
-        val titulo: String,
+        val title: String,
         val posterUrl: String,
         val backdropUrl: String,
     )
 
     private fun com.arkiv.player.data.catalog.TmdbSeriesByImdb.forMagis() =
-        TmdbSerieParaMagis(tmdbId, title, posterUrl, backdropUrl)
+        TmdbSeriesForMagis(tmdbId, title, posterUrl, backdropUrl)
 
     private fun explain(what: String, r: MagisResult<*>): String = when (r) {
         is MagisResult.PortalError -> "magis rechazó la $what (${r.code}${r.msg?.let { ": $it" }.orEmpty()})"

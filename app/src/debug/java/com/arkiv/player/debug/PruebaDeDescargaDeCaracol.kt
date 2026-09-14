@@ -120,7 +120,7 @@ class PruebaDeDescargaDeCaracol : BroadcastReceiver() {
         if (capitulos.isEmpty()) { Log.e(TAG, "that season has no chapters"); return null }
         val temporada = GatewayResult(
             source = "ditu",
-            title = serie?.titulo?.takeIf { it.isNotBlank() } ?: "Caracol $serieId",
+            title = serie?.title?.takeIf { it.isNotBlank() } ?: "Caracol $serieId",
             ref = ref,
             kind = "series",
         )

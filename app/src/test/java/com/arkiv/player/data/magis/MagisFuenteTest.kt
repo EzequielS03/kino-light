@@ -363,7 +363,7 @@ class MagisFuenteTest {
         assertEquals("Sinopsis 1", chapters[0].overview)
         assertTrue(chapters[0].still!!.endsWith("/s1.jpg"))
         assertEquals(12, series!!.tmdbId)
-        assertEquals("Dragon Ball", series.titulo)
+        assertEquals("Dragon Ball", series.title)
         assertEquals("tt0088509", series.imdbId)
         // An empty sameSeasonSeriesList = single season = the 1st, not "unknown".
         assertEquals(1, series.seasonNumber)

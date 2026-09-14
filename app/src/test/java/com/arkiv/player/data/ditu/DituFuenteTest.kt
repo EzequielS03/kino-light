@@ -143,7 +143,7 @@ class DituFuenteTest {
         assertEquals(1, eps.single().number)
         assertEquals("Uno", eps.single().title)
         assertEquals("ditu1:VOD:e1", eps.single().ref)
-        assertEquals("Rigo", series!!.titulo)
+        assertEquals("Rigo", series!!.title)
         assertTrue(series.posterUrl.endsWith("portrait-thin-promotional-tablet.jpg"))
         assertTrue(series.backdropUrl.endsWith("landscape-regular-clean-tablet.jpg"))
         // With no TMDB wired in there's no id: the block still travels with what Caracol does know.
@@ -198,7 +198,7 @@ class DituFuenteTest {
 
         assertEquals(1, eps.size)
         assertEquals("Uno", eps.single().title)
-        assertEquals("Rigo", series!!.titulo)
+        assertEquals("Rigo", series!!.title)
         assertTrue(series.posterUrl.endsWith("portrait-thin-promotional-tablet.jpg"))
         // A downed TMDB contributes no id: the title and images are Caracol's, which did answer.
         assertEquals(0, series.tmdbId)
@@ -247,7 +247,7 @@ class DituFuenteTest {
             val (_, series) = source(seriesFetch("Rigo"), tmdb).episodesWithSeries("ditu1:BUNDLE:99")
 
             assertEquals(0, series!!.tmdbId)
-            assertEquals("Rigo", series.titulo)
+            assertEquals("Rigo", series.title)
             assertTrue(series.posterUrl.endsWith("portrait-thin-promotional-tablet.jpg"))
         } finally {
             server.shutdown()

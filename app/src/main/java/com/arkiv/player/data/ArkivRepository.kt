@@ -914,7 +914,7 @@ class ArkivRepository(
         // `GatewaySerie`'s `season_number`: `buildSeason` needs it so episodes save the real
         // season, without which `ensureEpisodeStills` flattens wrong (see its KDoc).
         seasonNumber: Int? = null,
-        // The name TMDB knows the series by (`GatewaySerie.titulo`), so the card stops showing the
+        // The name TMDB knows the series by (`GatewaySerie.title`), so the card stops showing the
         // portal's. See `MagisEntities.buildSeason`.
         tituloCanonico: String? = null,
     ): Map<Int, String> {

@@ -18,7 +18,7 @@ data class SourcesState(
     val responded: Set<String> = emptySet(),
     /** Source → its error message, in the order they failed. */
     val failed: Map<String, String> = emptyMap(),
-    /** Source → its error's exception, for the ones that sent one (see `SearchEvent.SourceError.causa`). */
+    /** Source → its error's exception, for the ones that sent one (see `SearchEvent.SourceError.cause`). */
     val causes: Map<String, Throwable> = emptyMap(),
 ) {
     fun withResponse(source: String) = copy(responded = responded + source)

@@ -178,7 +178,7 @@ object MagisEntities {
         // instead of flattening from season 1 (see [chapterEntity]'s KDoc). Null when the gateway
         // didn't resolve the series: the episode is left with `season = null`, same as today.
         seasonNumber: Int? = null,
-        // The name TMDB knows the series by (`GatewaySerie.titulo`). Same `?:` as [tmdbId]: an
+        // The name TMDB knows the series by (`GatewaySerie.title`). Same `?:` as [tmdbId]: an
         // absent one doesn't erase what was already saved. See [canonicalTitle].
         tituloCanonico: String? = null,
     ): Pair<ItemEntity, List<EpisodeEntity>> {
@@ -328,7 +328,7 @@ object MagisEntities {
     /**
      * The canonical title left after saving: the one that arrived, or the one already there.
      *
-     * Blank counts as absent, not as a name: `GatewaySerie.titulo` comes in empty when the gateway
+     * Blank counts as absent, not as a name: `GatewaySerie.title` comes in empty when the gateway
      * is old or TMDB didn't resolve, and adopting that string would leave the card WITHOUT TEXT.
      * And absent doesn't erase: [build] and [buildSeason] run on every save, so without this `?:`
      * a single pass with the gateway down would revert the card to the portal's name.

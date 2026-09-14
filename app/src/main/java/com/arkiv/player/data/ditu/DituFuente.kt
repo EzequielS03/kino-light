@@ -40,7 +40,7 @@ internal class DituFuente(
         val t0 = nowMs()
         emit(SearchEvent.SourceStart(SOURCE))
         val items = runCatching { catalog.search(ctx.q) }.getOrElse { e ->
-            emit(SearchEvent.SourceError(SOURCE, e.message ?: "error de Caracol", nowMs() - t0, 0, causa = e))
+            emit(SearchEvent.SourceError(SOURCE, e.message ?: "error de Caracol", nowMs() - t0, 0, cause = e))
             emit(SearchEvent.Done(nowMs() - t0))
             return@flow
         }
@@ -106,7 +106,7 @@ internal class DituFuente(
             imdbId = "",
             tmdbId = 0,
             seasonNumber = season.season,
-            titulo = season.seriesTitle,
+            title = season.seriesTitle,
             posterUrl = season.posterUrl,
             backdropUrl = season.backdropUrl,
         )
@@ -132,7 +132,7 @@ internal class DituFuente(
             if (hit != null) {
                 series = series.copy(
                     tmdbId = hit.id,
-                    titulo = hit.title.ifBlank { series.titulo },
+                    title = hit.title.ifBlank { series.title },
                     posterUrl = series.posterUrl.ifBlank { hit.posterUrl },
                     backdropUrl = series.backdropUrl.ifBlank { hit.backdropUrl },
                 )

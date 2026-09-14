@@ -91,7 +91,7 @@ class SearchPlayback(private val graph: AppGraph) {
         // field would give 0 and that 0 would beat the `?:` that preserves the already-saved tmdbId.
         tmdbId = series?.tmdbId?.takeIf { it > 0 },
         // TMDB's name, so the card doesn't stay with the portal's.
-        tituloCanonico = series?.titulo,
+        tituloCanonico = series?.title,
         still = chapter.still,
         tmdbTitle = chapter.tmdbTitle,
         overview = chapter.overview,
@@ -148,7 +148,7 @@ class SearchPlayback(private val graph: AppGraph) {
             // resolve, so this isn't reachable, but shielding it here costs nothing.
             tmdbId = series?.tmdbId?.takeIf { it > 0 },
         // TMDB's name, so the card doesn't stay with the portal's.
-        tituloCanonico = series?.titulo,
+        tituloCanonico = series?.title,
             seasonNumber = series?.seasonNumber,
         )
         val epId = saved[chosen.number] ?: return playMagisEpisode(season, chosen, series)
@@ -232,8 +232,8 @@ class SearchPlayback(private val graph: AppGraph) {
         backdropUrl = series?.backdropUrl.orEmpty(),
         // Same shielding as in [playDituEpisode]: a tmdbId of 0 doesn't overwrite one already saved.
         tmdbId = series?.tmdbId?.takeIf { it > 0 },
-        // With no TMDB match, `GatewaySerie.titulo` is Caracol's name, not the canonical one.
-        tituloCanonico = series?.takeIf { it.tmdbId > 0 }?.titulo,
+        // With no TMDB match, `GatewaySerie.title` is Caracol's name, not the canonical one.
+        tituloCanonico = series?.takeIf { it.tmdbId > 0 }?.title,
     ) ?: standaloneDituEpisodeId(season, chosen, series)
 
     /**
@@ -303,7 +303,7 @@ class SearchPlayback(private val graph: AppGraph) {
             // `DituFuente` leaves tmdbId at 0 when TMDB didn't find it: that 0 can't overwrite an
             // already-saved tmdbId.
             tmdbId = series?.tmdbId?.takeIf { it > 0 },
-            // With no TMDB match, `GatewaySerie.titulo` is Caracol's name, not the canonical one.
-            tituloCanonico = series?.takeIf { it.tmdbId > 0 }?.titulo,
+            // With no TMDB match, `GatewaySerie.title` is Caracol's name, not the canonical one.
+            tituloCanonico = series?.takeIf { it.tmdbId > 0 }?.title,
         )
 }

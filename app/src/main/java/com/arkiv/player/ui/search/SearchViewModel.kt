@@ -281,8 +281,8 @@ class SearchViewModel(
                             is com.arkiv.player.data.gateway.SearchEvent.SourceError -> {
                                 // The technical detail goes to the log; the on-screen Caracol line
                                 // is written by `CaracolFailure` (see `downSourceNotices`).
-                                Log.w(GW, "source ${ev.source} failed: ${ev.error} (delivered ${ev.count})", ev.causa)
-                                _sourcesState.value = _sourcesState.value.withFailure(ev.source, ev.error, ev.causa)
+                                Log.w(GW, "source ${ev.source} failed: ${ev.error} (delivered ${ev.count})", ev.cause)
+                                _sourcesState.value = _sourcesState.value.withFailure(ev.source, ev.error, ev.cause)
                                 // Its "Buscando…" turns off right away, without waiting for the other sources.
                                 updateSearching { it.sourceFinished(ev.source) }
                                 flushBatch()

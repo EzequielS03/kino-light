@@ -40,7 +40,7 @@ suspend fun repairMagisIdentity(
         // The name TMDB knows the series by: the half that was missing. Repairing just the
         // `tmdbId` fixed the thumbnails and chapter names, but the card kept saying
         // "Shin seiki evangerion Temp.1" forever.
-        tituloCanonico = series?.titulo,
+        tituloCanonico = series?.title,
         chapters = chapters.map {
             SeasonChapter(
                 number = it.number, title = it.title, ref = it.ref,

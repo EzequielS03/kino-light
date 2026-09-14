@@ -1,15 +1,15 @@
 package com.arkiv.player.data.gateway
 
-class GatewayException(mensaje: String, causa: Throwable? = null) : RuntimeException(mensaje, causa)
+class GatewayException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)
 
 /**
- * Qué se está buscando. Quedaron solo los campos que la fuente de verdad usa: el `year`, el
- * `anilistId`, el `lang`, el `sources`, el `maxBytes` y el `budgetMs` eran parámetros del gateway
- * -filtrar por idioma, elegir fuentes, acotar torrents, cortar por tiempo-, y el portal de Magis no
- * recibe nada de eso. Dejarlos era prometer un filtro que nadie aplica.
+ * What's being searched for. Only the fields the actual source uses are left: `year`,
+ * `anilistId`, `lang`, `sources`, `maxBytes` and `budgetMs` were gateway parameters -filter by
+ * language, pick sources, cap torrents, cut off by time- and the Magis portal receives none of
+ * that. Keeping them was promising a filter nobody applies.
  *
- * [tmdbId] sí se usa, y no para filtrar: de ahí sale el título ORIGINAL con el que se rankea lo que
- * devuelve el portal (ver `MagisFuente.formasDelTitulo`).
+ * [tmdbId] IS used, and not for filtering: that's where the ORIGINAL title comes from that ranks
+ * what the portal returns (see `MagisFuente.formasDelTitulo`).
  */
 data class GatewaySearchQuery(
     val q: String,
@@ -19,7 +19,7 @@ data class GatewaySearchQuery(
     val tmdbId: Int = 0,
 )
 
-/** Un resultado de búsqueda, armado por la fuente (hoy `MagisFuente`) contra lo que devuelve el portal. */
+/** A search result, built by the source (today `MagisFuente`) against what the portal returns. */
 data class GatewayResult(
     val source: String,
     val title: String,
@@ -36,10 +36,10 @@ data class GatewayResult(
 )
 
 /**
- * Lo reproducible que devuelve la resolución de Magis (`MagisResolve`/`MagisLive`).
+ * The playable thing Magis's resolution returns (`MagisResolve`/`MagisLive`).
  *
- * [headers] es genérico a propósito: cubre el Referer/User-Agent de las fuentes web
- * y el Content-Auth/Content-License de magis sin necesitar un campo por fuente.
+ * [headers] is generic on purpose: it covers the web sources' Referer/User-Agent and magis's
+ * Content-Auth/Content-License with no need for a field per source.
  */
 data class GatewayPlayable(
     val kind: String,
@@ -48,8 +48,8 @@ data class GatewayPlayable(
     val mime: String = "",
     val expiresAt: String = "",
     val fallbackUrl: String? = null,
-    /** Pistas que trae el stream. Hoy la única fuente que puebla este campo es Magis, que las
-     *  manda junto con la resolución del play (`MagisResolve.subtitulos`, ver `MagisFuente`). */
+    /** Tracks the stream carries. Today the only source that populates this field is Magis, which
+     *  sends them along with the play resolution (`MagisResolve.subtitulos`, see `MagisFuente`). */
     val subtitles: List<GatewaySubtitle> = emptyList(),
     /**
      * Real duration in ms when the source knows it (0 = it doesn't).
@@ -62,34 +62,34 @@ data class GatewayPlayable(
      * knows how long it runs: this carries that value.
      */
     val durationMs: Long = 0L,
-    /** Códec de video que reporta la fuente ("h264", "h265"…); "" si no se sabe. */
+    /** Video codec the source reports ("h264", "h265"…); "" if unknown. */
     val videoCodec: String = "",
     /**
-     * Contenedor tal como lo nombra la FUENTE ("ts", "mp4"…); "" si no se sabe.
+     * Container exactly as the SOURCE names it ("ts", "mp4"…); "" if unknown.
      *
-     * Es el dato con el que la app le declara el contenedor al demuxer antes de abrir. Antes se
-     * deducía de la extensión de [url], que para magis no es un dato de la fuente sino algo que
-     * arma `MagisResolve` colapsando a `.mp4` todo lo que el portal no llame `ts`. "" = sondear,
-     * nunca suponer.
+     * This is the value the app uses to declare the container to the demuxer before opening it.
+     * It used to be deduced from [url]'s extension, which for magis isn't data from the source
+     * but something `MagisResolve` builds by collapsing to `.mp4` everything the portal doesn't
+     * call `ts`. "" = probe, never assume.
      */
     val container: String = "",
-    /** URL del servidor de licencias Widevine; "" = sin DRM (reproducir directo).
-     *  Existe por Ditu (Caracol Streaming): su stream es MPEG-DASH con Widevine y ExoPlayer
-     *  la negocia automáticamente vía MediaItem.DrmConfiguration. */
+    /** Widevine license server URL; "" = no DRM (play directly).
+     *  Exists because of Ditu (Caracol Streaming): its stream is MPEG-DASH with Widevine and
+     *  ExoPlayer negotiates it automatically via MediaItem.DrmConfiguration. */
     val drmLicenseUrl: String = "",
-    /** Headers adicionales para la petición de licencia DRM (p.ej. Cookie: playback_token=…). */
+    /** Extra headers for the DRM license request (e.g. Cookie: playback_token=…). */
     val drmLicenseHeaders: Map<String, String> = emptyMap(),
 )
 
 data class GatewaySubtitle(val lang: String, val url: String, val format: String = "")
 
 /**
- * Un capítulo de una temporada (de Magis o de Caracol).
+ * A season's chapter (Magis's or Caracol's).
  *
- * [still], [tmdbTitle] y [overview] los agrega `MagisFuente`, en el propio cliente, cruzando el
- * id de IMDb que publica el portal contra TMDB: el portal NO tiene imagen ni nombre real por
- * capítulo (su `posterList` por capítulo llega siempre vacío). Son opcionales a propósito — si
- * TMDB no resolvió, el capítulo se muestra con [title], que es el del portal.
+ * [still], [tmdbTitle] and [overview] are added by `MagisFuente`, on the client itself, by
+ * crossing the IMDb id the portal publishes against TMDB: the portal has NO image or real name
+ * per chapter (its per-chapter `posterList` always comes back empty). Optional on purpose -- if
+ * TMDB didn't resolve, the chapter shows with [title], which is the portal's.
  */
 data class GatewayEpisode(
     val number: Int,
@@ -99,61 +99,60 @@ data class GatewayEpisode(
     val tmdbTitle: String? = null,
     val overview: String? = null,
     /**
-     * Temporada de ESTE capítulo, cuando la fuente la sabe por capítulo; null = no la dice. Magis
-     * no la manda: cada temporada suya es un resultado aparte, y su número viaja en
+     * THIS chapter's season, when the source knows it per chapter; null = it doesn't say. Magis
+     * doesn't send it: each of its seasons is a separate result, and its number travels in
      * [GatewaySerie.seasonNumber].
      *
-     * Existe por Caracol: un `GROUP_OF_BUNDLES` llega como UNA lista con todas sus temporadas
-     * aplanadas (`DituEpisodes`), y cada temporada puede traer su propio capítulo 1. Sin la
-     * temporada al lado, [number] no alcanza para saber cuál es cuál.
+     * Exists because of Caracol: a `GROUP_OF_BUNDLES` arrives as ONE list with all its seasons
+     * flattened (`DituEpisodes`), and each season can bring its own chapter 1. With no season
+     * alongside it, [number] alone isn't enough to know which is which.
      */
     val season: Int? = null,
 )
 
 /**
- * La serie a la que pertenece una temporada, cuando `MagisFuente` la pudo identificar (ver su
- * KDoc: viaja siempre que el portal haya dado un imdb, así el enriquecimiento no haya salido).
+ * The series a season belongs to, when `MagisFuente` was able to identify it (see its KDoc: it
+ * travels whenever the portal gave an imdb, even if enrichment didn't come out).
  *
- * [titulo] es el nombre con el que TMDB la conoce ("Neon Genesis Evangelion"), no el del portal
- * ("Shin seiki evangerion Temp.1"): es lo que la biblioteca adopta como `tituloCanonico`. Viene
- * **vacío** cuando TMDB no resolvió — no null, para que "no hay nombre" sea una sola pregunta y
- * no dos.
+ * [title] is the name TMDB knows it by ("Neon Genesis Evangelion"), not the portal's ("Shin
+ * seiki evangerion Temp.1"): it's what the library adopts as `tituloCanonico`. Comes **empty**
+ * when TMDB didn't resolve -- not null, so that "there's no name" is one question, not two.
  */
 data class GatewaySerie(
     val imdbId: String,
     val tmdbId: Int,
     val seasonNumber: Int,
-    val titulo: String = "",
+    val title: String = "",
     val posterUrl: String = "",
     val backdropUrl: String = "",
 )
 
 /**
- * Lo que la fuente va emitiendo mientras busca. Se conserva el formato de eventos -en vez de
- * devolver una lista- porque la pantalla pinta resultados a medida que llegan, y porque así el
- * arranque/fin/error de la fuente son estados explícitos y no ausencias.
+ * What the source emits while it searches. The event format is kept -instead of returning a
+ * list- because the screen paints results as they arrive, and so the source's start/end/error
+ * are explicit states, not absences.
  *
- * Antes estos eventos venían como NDJSON del gateway y los armaba `parseSearchEvent`; ahora los
- * emite `MagisFuente` directo, así que ese parser se fue (y con él el evento `Unknown`, que existía
- * para poder ignorar líneas de un servidor más nuevo).
+ * These events used to come as NDJSON from the gateway and `parseSearchEvent` built them; now
+ * `MagisFuente` emits them directly, so that parser is gone (and with it the `Unknown` event,
+ * which existed to be able to ignore lines from a newer server).
  */
 sealed interface SearchEvent {
     data class SourceStart(val source: String) : SearchEvent
     data class ResultEvent(val source: String, val item: GatewayResult) : SearchEvent
     data class SourceDone(val source: String, val count: Int, val ms: Long) : SearchEvent
     /**
-     * [causa] es la excepción, cuando la fuente la tiene a mano: `CaracolFailure` la necesita para
-     * decirle a la persona qué pasó. La manda `DituFuente`; `MagisFuente` y `FuenteCompuesta` no.
+     * [cause] is the exception, when the source has it on hand: `CaracolFailure` needs it to tell
+     * the person what happened. `DituFuente` sends it; `MagisFuente` and `FuenteCompuesta` don't.
      */
     data class SourceError(
         val source: String,
         val error: String,
         val ms: Long,
         val count: Int,
-        val causa: Throwable? = null,
+        val cause: Throwable? = null,
     ) : SearchEvent
     data class Done(val ms: Long) : SearchEvent
 }
 
-/** Tipos de `program_type` cuyo resultado es una temporada entera, no algo reproducible. */
+/** `program_type` values whose result is a whole season, not something playable. */
 val MAGIS_SERIES = setOf("teleplay", "series", "variety")
