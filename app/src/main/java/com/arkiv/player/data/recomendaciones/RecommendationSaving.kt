@@ -75,7 +75,7 @@ object RecommendationSaving {
     /** The id of the item left in the library: the same one the search for that source builds. */
     internal fun itemIdFor(target: RecommendationTarget): String = when (target) {
         is RecommendationTarget.Magis -> com.arkiv.player.data.MagisEntities.itemIdFor(target.contentId)
-        is RecommendationTarget.Caracol -> com.arkiv.player.data.DituEntities.itemIdDe(target.contentId)
+        is RecommendationTarget.Caracol -> com.arkiv.player.data.DituEntities.itemIdFor(target.contentId)
     }
 
     /**

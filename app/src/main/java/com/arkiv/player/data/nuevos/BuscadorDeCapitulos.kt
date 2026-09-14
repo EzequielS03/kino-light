@@ -118,8 +118,8 @@ class BuscadorDeCapitulos(
      * numbers chapters PER SEASON, so comparing against the highest NUMBER stored would make season
      * 2's chapter 1 look like it's already covered by a season 1 with ten chapters.
      *
-     * Filters through [DituEntities.capitulosGuardables] before comparing: a chapter Caracol lists
-     * with number 0 can never be saved ([DituEntities.contentIdDelItem] rejects it), so it must
+     * Filters through [DituEntities.saveableChapters] before comparing: a chapter Caracol lists
+     * with number 0 can never be saved ([DituEntities.itemContentId] rejects it), so it must
      * never count as missing -- that would retry it forever for nothing.
      *
      * Each missing chapter is saved with [ArkivRepository.addDituSource], which upserts just that
@@ -138,23 +138,23 @@ class BuscadorDeCapitulos(
 
         // Same season rule the save path uses, so a chapter is keyed here exactly as it would be
         // once saved.
-        val candidates = enLaFuente.map { ep -> DituEntities.capituloDeCaracol(ep, gatewaySerie) }
-        val saveable = DituEntities.capitulosGuardables(ref, candidates)
+        val candidates = enLaFuente.map { ep -> DituEntities.caracolChapter(ep, gatewaySerie) }
+        val saveable = DituEntities.saveableChapters(ref, candidates)
         if (saveable.isEmpty()) return 0
 
-        // Both sides keyed through DituEntities.temporadaGuardada: the stored `season` column is
+        // Both sides keyed through DituEntities.savedSeason: the stored `season` column is
         // always written through it (null/0 -> 1), so comparing the raw source season directly
         // would miss a chapter whose source season is null or 0 -- its key would land on `0`,
         // never past a stored high-water mark that's really `1`.
         val have = itemDao.getEpisodesOf(serie.itemId)
-            .mapNotNull { ep -> ep.episode?.let { DituEntities.temporadaGuardada(ep.season) to it } }
-        val inSource = saveable.map { DituEntities.temporadaGuardada(it.season) to it.number }
+            .mapNotNull { ep -> ep.episode?.let { DituEntities.savedSeason(ep.season) to it } }
+        val inSource = saveable.map { DituEntities.savedSeason(it.season) to it.number }
         val missing = MissingChapters.toFetchBySeason(have, inSource).toSet()
         if (missing.isEmpty()) return 0
 
         var added = 0
         for (cap in saveable) {
-            if (DituEntities.temporadaGuardada(cap.season) to cap.number !in missing) continue
+            if (DituEntities.savedSeason(cap.season) to cap.number !in missing) continue
             val id = repo.addDituSource(
                 ref = cap.ref,
                 title = item.title,

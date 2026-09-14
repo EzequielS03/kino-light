@@ -165,7 +165,7 @@ class RecommendationSavingTest {
             RecommendationSaving.itemIdFor(RecommendationTarget.Magis("C42")),
         )
         assertEquals(
-            com.arkiv.player.data.DituEntities.itemIdDe("99"),
+            com.arkiv.player.data.DituEntities.itemIdFor("99"),
             RecommendationSaving.itemIdFor(RecommendationTarget.Caracol("99")),
         )
     }

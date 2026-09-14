@@ -63,7 +63,7 @@ class DituEpisodesTest {
         val eps = DituEpisodes(fake).forRef(DituRef("99", "BUNDLE")).episodes
 
         assertEquals(listOf(1, 2), eps.map { it.number })
-        val ids = eps.map { com.arkiv.player.data.DituEntities.episodioIdDeCapitulo("ditu:99", it.season, it.number) }
+        val ids = eps.map { com.arkiv.player.data.DituEntities.chapterEpisodeId("ditu:99", it.season, it.number) }
         assertEquals(2, ids.toSet().size)
     }
 

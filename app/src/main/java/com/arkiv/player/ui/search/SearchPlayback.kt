@@ -169,7 +169,7 @@ class SearchPlayback(private val graph: AppGraph) {
      * The id comes from the `contentId` inside the ref (`ditu1:<contentType>:<contentId>`), and
      * the ref stays in the episode's `torrentData`: that's where `PlayerViewModel.loadDitu` reads
      * it from. For a series it returns null: its chapters get chosen first ([playDituSeason]). See
-     * `DituEntities.contentIdDelItem`.
+     * `DituEntities.itemContentId`.
      */
     suspend fun dituEpisodeId(r: com.arkiv.player.data.gateway.GatewayResult): String? =
         graph.repository.addDituSource(ref = r.ref, title = r.title, posterUrl = r.extra["poster"].orEmpty())
@@ -192,9 +192,9 @@ class SearchPlayback(private val graph: AppGraph) {
      *
      * The chosen one is NOT looked up by number, unlike [playMagisSeason]: in a
      * `GROUP_OF_BUNDLES` the list brings a chapter 1 in every season, and by number another one's
-     * would play. It's looked up by its season and its number (`DituEntities.elegidoEntre`), and
-     * the list and the chosen one both go through the same [DituEntities.capituloDeCaracol], so
-     * their season comes from the same [DituEntities.temporadaDelCapitulo].
+     * would play. It's looked up by its season and its number (`DituEntities.chosenAmong`), and
+     * the list and the chosen one both go through the same [DituEntities.caracolChapter], so
+     * their season comes from the same [DituEntities.seasonForChapter].
      *
      * If the series couldn't be saved, or the chosen one didn't end up in it, falls back to
      * [playDituEpisode] -- saving only the chapter -- rather than leaving the person with nothing to play.
@@ -226,8 +226,8 @@ class SearchPlayback(private val graph: AppGraph) {
         seriesRef = season.ref,
         // The item is the series; each chapter is named separately, inside.
         title = season.title,
-        chapters = chapters.map { DituEntities.capituloDeCaracol(it, series) },
-        chosen = DituEntities.capituloDeCaracol(chosen, series),
+        chapters = chapters.map { DituEntities.caracolChapter(it, series) },
+        chosen = DituEntities.caracolChapter(chosen, series),
         posterUrl = season.extra["poster"].orEmpty().ifBlank { series?.posterUrl.orEmpty() },
         backdropUrl = series?.backdropUrl.orEmpty(),
         // Same shielding as in [playDituEpisode]: a tmdbId of 0 doesn't overwrite one already saved.
@@ -273,7 +273,7 @@ class SearchPlayback(private val graph: AppGraph) {
      * -- never through [playMagisSeason] or [magisEpisodeIdFor], which build `magis:` ids -- and
      * gives the chapter the same id [playDituSeason] gives it (both build it with `DituEntities`).
      *
-     * The season is decided by [DituEntities.temporadaDelCapitulo].
+     * The season is decided by [DituEntities.seasonForChapter].
      */
     suspend fun playDituEpisode(
         season: com.arkiv.player.data.gateway.GatewayResult,
@@ -299,7 +299,7 @@ class SearchPlayback(private val graph: AppGraph) {
             episodeTitle = chapter.title,
             posterUrl = season.extra["poster"].orEmpty().ifBlank { series?.posterUrl.orEmpty() },
             backdropUrl = series?.backdropUrl.orEmpty(),
-            season = DituEntities.temporadaDelCapitulo(chapter, series),
+            season = DituEntities.seasonForChapter(chapter, series),
             // `DituFuente` leaves tmdbId at 0 when TMDB didn't find it: that 0 can't overwrite an
             // already-saved tmdbId.
             tmdbId = series?.tmdbId?.takeIf { it > 0 },

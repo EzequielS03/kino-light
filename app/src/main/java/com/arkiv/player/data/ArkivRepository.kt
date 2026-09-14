@@ -676,7 +676,7 @@ class ArkivRepository(
 
     /**
      * Saves a Caracol title to the library and returns the episodeId to play, or null if it isn't
-     * something that can be saved (see [DituEntities.contentIdDelItem]: a ref that isn't Caracol's,
+     * something that can be saved (see [DituEntities.itemContentId]: a ref that isn't Caracol's,
      * or a series with no chapter chosen).
      *
      * A copy of [addMagisSource]: [episode] > 0 = a chapter, which goes as an episode INSIDE its
@@ -700,13 +700,13 @@ class ArkivRepository(
         tmdbId: Int? = null,
         tituloCanonico: String? = null,
     ): String? {
-        val contentId = DituEntities.contentIdDelItem(ref, seriesRef, episode) ?: return null
-        val id = DituEntities.itemIdDe(contentId)
+        val contentId = DituEntities.itemContentId(ref, seriesRef, episode) ?: return null
+        val id = DituEntities.itemIdFor(contentId)
         val existing = itemDao.getItem(id)
         val (item, ep) = DituEntities.build(
             contentId = contentId, ref = ref, title = title, episode = episode,
-            episodeTitle = episodeTitle, posterUrl = posterUrl, ahora = clock(),
-            seriesRef = seriesRef, existente = existing, season = season, tmdbId = tmdbId,
+            episodeTitle = episodeTitle, posterUrl = posterUrl, now = clock(),
+            seriesRef = seriesRef, existing = existing, season = season, tmdbId = tmdbId,
             tituloCanonico = tituloCanonico,
         )
         if (episode > 0) {
@@ -728,7 +728,7 @@ class ArkivRepository(
      *
      * `upsert` and NOT `replaceItem`: a chapter you already had saved has to survive even if
      * Caracol doesn't list it this time. It's idempotent (ids derived from the content, and the
-     * same ones [addDituSource] builds for a standalone chapter: see [DituEntities.buildSerie]),
+     * same ones [addDituSource] builds for a standalone chapter: see [DituEntities.buildSeries]),
      * so it can be called on every playback with nothing duplicated.
      *
      * A SINGLE write on the item, for the same reason as in [addMagisSeason]:
@@ -736,21 +736,21 @@ class ArkivRepository(
      * chapters already saved with the ones arriving, and the item comes out sealed from the single
      * `upsertItem`.
      *
-     * Only [DituEntities.capitulosGuardables]'s chapters get in (the guard from
-     * [DituEntities.contentIdDelItem]): a ref that isn't Caracol's never ends up with a `ditu:` id.
+     * Only [DituEntities.saveableChapters]'s chapters get in (the guard from
+     * [DituEntities.itemContentId]): a ref that isn't Caracol's never ends up with a `ditu:` id.
      *
      * Doesn't carry [addMagisSeason]'s legacy bits (the per-chapter item sweep, the movie-shaped
      * ghost episode, the stills): Caracol has no old rows in this branch, and `DituFuente` builds
      * its chapters with no still.
      *
      * Null if nothing got saved, or if [chosen] didn't end up saved with its ref (see
-     * [DituEntities.elegidoEntre]): the caller falls back to saving the chapter alone.
+     * [DituEntities.chosenAmong]): the caller falls back to saving the chapter alone.
      */
     suspend fun addDituSeason(
         seriesRef: String,
         title: String,
-        chapters: List<CapituloDeCaracol>,
-        chosen: CapituloDeCaracol,
+        chapters: List<CaracolChapter>,
+        chosen: CaracolChapter,
         posterUrl: String = "",
         backdropUrl: String = "",
         // `DituFuente` leaves tmdbId at 0 when TMDB didn't find it: the caller passes null so it
@@ -758,31 +758,31 @@ class ArkivRepository(
         tmdbId: Int? = null,
         tituloCanonico: String? = null,
     ): String? {
-        val saveable = DituEntities.capitulosGuardables(seriesRef, chapters)
+        val saveable = DituEntities.saveableChapters(seriesRef, chapters)
         val contentId = saveable.firstNotNullOfOrNull {
-            DituEntities.contentIdDelItem(it.ref, seriesRef, it.number)
+            DituEntities.itemContentId(it.ref, seriesRef, it.number)
         } ?: return null
-        val id = DituEntities.itemIdDe(contentId)
+        val id = DituEntities.itemIdFor(contentId)
         val existing = itemDao.getItem(id)
         // The badge is for chapters that came out on Caracol, not for the ones you just saved
         // yourself: it gets re-sealed to the total that's going to be left after the upsert (what
         // was already there, plus what's arriving).
         val live = itemDao.getEpisodesOf(id).map { it.id }.toSet()
-        val newIds = saveable.map { DituEntities.idDelCapitulo(id, it.season, it.number) }.toSet()
+        val newIds = saveable.map { DituEntities.chapterId(id, it.season, it.number) }.toSet()
         val episodiosVistosEnLista = com.arkiv.player.data.nuevos.NewEpisodeCounter.reseal(
             existing?.episodiosVistosEnLista,
             (live + newIds).size,
         )
-        val series = DituEntities.buildSerie(
-            contentId = contentId, seriesRef = seriesRef, title = title, capitulos = saveable,
-            elegido = chosen, posterUrl = posterUrl, ahora = clock(), existente = existing,
+        val series = DituEntities.buildSeries(
+            contentId = contentId, seriesRef = seriesRef, title = title, chapters = saveable,
+            chosen = chosen, posterUrl = posterUrl, now = clock(), existing = existing,
             episodiosVistosEnLista = episodiosVistosEnLista, tmdbId = tmdbId,
             tituloCanonico = tituloCanonico,
         )
         itemDao.upsertItem(series.item)
-        itemDao.upsertEpisodes(series.episodios)
+        itemDao.upsertEpisodes(series.episodes)
         saveMagisBackdrop(id, backdropUrl)
-        return series.idDelElegido
+        return series.chosenId
     }
 
     /**

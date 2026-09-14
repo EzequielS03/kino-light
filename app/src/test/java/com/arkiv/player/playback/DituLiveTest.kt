@@ -52,8 +52,8 @@ class DituLiveTest {
 
     /** Something saved from Caracol in the library can't enter through the live branch. */
     @Test fun `a library id is not a live channel`() {
-        val movie = DituEntities.episodioIdDePelicula(DituEntities.itemIdDe("42"))
-        val chapter = DituEntities.episodioIdDe(DituEntities.itemIdDe("99"), 1)
+        val movie = DituEntities.movieEpisodeId(DituEntities.itemIdFor("42"))
+        val chapter = DituEntities.episodeIdFor(DituEntities.itemIdFor("99"), 1)
 
         assertFalse(DituLive.isLive(movie))
         assertFalse(DituLive.isLive(chapter))

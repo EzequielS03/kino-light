@@ -8,15 +8,15 @@ import com.arkiv.player.data.gateway.GatewayEpisode
 import com.arkiv.player.data.gateway.GatewaySerie
 
 /**
- * Un capítulo de una serie de Caracol, tal como lo necesita [DituEntities].
+ * A Caracol series' chapter, exactly as [DituEntities] needs it.
  *
- * Modelo propio y no `GatewayEpisode`, por lo mismo que [SeasonChapter] en Magis: esto es
- * puro/JVM y no depende del paquete `gateway`. El llamador mapea uno al otro.
+ * Its own model and not `GatewayEpisode`, for the same reason as [SeasonChapter] in Magis: this is
+ * pure/JVM and doesn't depend on the `gateway` package. The caller maps one to the other.
  *
- * [season] es la del propio capítulo (en un `GROUP_OF_BUNDLES`, la de su bundle); null = no se
- * sabe, y se guarda en la 1 ([DituEntities.temporadaGuardada]).
+ * [season] is the chapter's own (in a `GROUP_OF_BUNDLES`, its bundle's); null = unknown, and it's
+ * saved as 1 ([DituEntities.savedSeason]).
  */
-data class CapituloDeCaracol(
+data class CaracolChapter(
     val number: Int,
     val title: String,
     val ref: String,
@@ -24,145 +24,146 @@ data class CapituloDeCaracol(
 )
 
 /**
- * Lo que arma [DituEntities.buildSerie]: el ítem, sus episodios, y el episodeId del capítulo que se
- * tocó ([idDelElegido]), o null si ese capítulo no quedó guardado con su propio ref.
+ * What [DituEntities.buildSeries] builds: the item, its episodes, and the episodeId of the
+ * chapter that was tapped ([chosenId]), or null if that chapter wasn't saved with its own ref.
  */
-data class SerieDeCaracol(
+data class CaracolSeries(
     val item: ItemEntity,
-    val episodios: List<EpisodeEntity>,
-    val idDelElegido: String?,
+    val episodes: List<EpisodeEntity>,
+    val chosenId: String?,
 )
 
 /**
- * Construye (ítem + episodios) de lo que llega de Caracol. Puro/JVM (sin `android.*`) para poder
- * testearse sin Room; el repositorio solo lo guarda ([ArkivRepository.addDituSource] para una
- * película o un capítulo suelto, [ArkivRepository.addDituSeason] para una serie entera).
+ * Builds (item + episodes) from what arrives from Caracol. Pure/JVM (no `android.*`) so it can be
+ * tested without Room; the repository only saves it ([ArkivRepository.addDituSource] for a movie
+ * or a standalone chapter, [ArkivRepository.addDituSeason] for a whole series).
  *
- * Calcado de [MagisEntities], y más chico: Caracol nunca tuvo filas viejas en esta rama, así que no
- * hay ids legacy que barrer ni identidad que reparar.
+ * Modeled after [MagisEntities], and smaller: Caracol never had old rows in this branch, so
+ * there's no legacy ids to sweep or identity to repair.
  *
- * A diferencia de Magis, lo guardado acá sigue sirviendo después: el `ref` codifica ids de Caracol,
- * que son estables (ver [DituRef]). Ese ref va en el `torrentData` del EPISODIO, que es de donde lo
- * lee `PlayerViewModel.loadDitu` (vía [ArkivRepository.magisRefForEpisode]) para resolver.
+ * Unlike Magis, what's saved here keeps working afterward: the `ref` encodes Caracol ids, which
+ * are stable (see [DituRef]). That ref goes in the EPISODE's `torrentData`, which is where
+ * `PlayerViewModel.loadDitu` reads it from (via [ArkivRepository.magisRefForEpisode]) to resolve.
  */
 object DituEntities {
 
     /**
-     * Tiene que empezar con `"ditu:"`: es lo que hace que `PlayerSource.kindFor` devuelva
-     * `SourceKind.DITU` y el reproductor entre por `loadDitu`. Con cualquier otro prefijo, lo
-     * guardado se abriría con el reproductor de otra fuente.
+     * Has to start with `"ditu:"`: that's what makes `PlayerSource.kindFor` return
+     * `SourceKind.DITU` and the player go through `loadDitu`. With any other prefix, what's saved
+     * would open with another source's player.
      */
     const val PREFIX = "ditu:"
 
-    /** El ítem de una película o de una serie entera. */
-    fun itemIdDe(contentId: String): String = PREFIX + contentId
+    /** The item for a movie or for a whole series. */
+    fun itemIdFor(contentId: String): String = PREFIX + contentId
 
-    /** El id de un capítulo dentro del ítem de su serie. El mismo formato que Magis. */
-    fun episodioIdDe(itemId: String, number: Int): String = "$itemId::e$number"
+    /** The id of a chapter inside its series' item. Same format as Magis. */
+    fun episodeIdFor(itemId: String, number: Int): String = "$itemId::e$number"
 
-    /** El id del único episodio de una película. */
-    fun episodioIdDePelicula(itemId: String): String = "$itemId::0"
+    /** The id of a movie's single episode. */
+    fun movieEpisodeId(itemId: String): String = "$itemId::0"
 
     /**
-     * El id de un capítulo sabiendo su temporada: [episodioIdDe] tal cual en la T1, y con la
-     * temporada adentro de la T2 en adelante.
+     * A chapter's id knowing its season: [episodeIdFor] as-is in S1, and with the season inside
+     * from S2 onward.
      *
-     * Existe por los `GROUP_OF_BUNDLES`: `DituEpisodes` aplana todas las temporadas de la serie en
-     * una sola lista y toma el número de cada capítulo del `episodeNumber` de su bundle, así que dos
-     * temporadas pueden traer cada una su capítulo 1 (así lo arma `DituEpisodesTest`). Con
-     * [episodioIdDe] solo, el 1 de la T2 caería en la fila del 1 de la T1 —`upsertEpisodes` es un
-     * REPLACE— y ese capítulo quedaría reproduciendo el otro.
+     * Exists because of `GROUP_OF_BUNDLES`: `DituEpisodes` flattens every season of the series
+     * into a single list and takes each chapter's number from its bundle's `episodeNumber`, so two
+     * seasons can each bring their own chapter 1 (that's how `DituEpisodesTest` builds it). With
+     * [episodeIdFor] alone, S2's chapter 1 would fall into S1's chapter 1 row --
+     * `upsertEpisodes` is a REPLACE -- and that chapter would end up playing the other one.
      */
-    fun episodioIdDeCapitulo(itemId: String, temporada: Int, number: Int): String =
-        if (temporada <= 1) episodioIdDe(itemId, number) else "$itemId::t${temporada}e$number"
+    fun chapterEpisodeId(itemId: String, season: Int, number: Int): String =
+        if (season <= 1) episodeIdFor(itemId, number) else "$itemId::t${season}e$number"
 
     /**
-     * La temporada con la que queda guardado un capítulo: la que llega, o la 1 si no llega ninguna
-     * (o llega en 0). Es la misma regla con la que `DituEpisodes` lee un capítulo que no la trae.
+     * The season a chapter is saved with: the one that arrives, or 1 if none arrives (or it
+     * arrives as 0). Same rule `DituEpisodes` uses to read a chapter that doesn't carry one.
      */
-    fun temporadaGuardada(season: Int?): Int = season?.takeIf { it > 0 } ?: 1
+    fun savedSeason(season: Int?): Int = season?.takeIf { it > 0 } ?: 1
 
     /**
      * The season a Caracol chapter is saved with: the chapter's own ([GatewayEpisode.season],
-     * which `DituFuente` fills in per chapter) and [serie]'s only when that's missing.
+     * which `DituFuente` fills in per chapter) and [series]'s only when that's missing.
      *
-     * Order matters: in a `GROUP_OF_BUNDLES`, [serie]'s season is a single value (season 1)
+     * Order matters: in a `GROUP_OF_BUNDLES`, [series]'s season is a single value (season 1)
      * flattened across every season in the group, so if it won, season 2's chapter 1 would save
-     * as season 1's chapter 1 and overwrite its row (see [episodioIdDeCapitulo]).
+     * as season 1's chapter 1 and overwrite its row (see [chapterEpisodeId]).
      *
      * Moved here from `ui/search/SearchPlayback.kt` once a second data-layer caller
      * (`BuscadorDeCapitulos.revisarDitu`) needed it too, alongside `RecommendationAggregator`.
      */
-    fun temporadaDelCapitulo(
-        capitulo: GatewayEpisode,
-        serie: GatewaySerie?,
-    ): Int? = capitulo.season ?: serie?.seasonNumber
+    fun seasonForChapter(
+        chapter: GatewayEpisode,
+        series: GatewaySerie?,
+    ): Int? = chapter.season ?: series?.seasonNumber
 
     /**
      * A Caracol chapter shaped the way [DituEntities] saves it, with the season from
-     * [temporadaDelCapitulo].
+     * [seasonForChapter].
      *
      * Callers that map a whole list AND a chosen chapter through this (like
      * `SearchPlayback.playDituSeason`) must map both with it: if they didn't pull the season from
      * the same place, the chosen chapter would be looked up in a season that isn't its own.
      */
-    fun capituloDeCaracol(
-        capitulo: GatewayEpisode,
-        serie: GatewaySerie?,
-    ): CapituloDeCaracol = CapituloDeCaracol(
-        number = capitulo.number,
-        title = capitulo.title,
-        ref = capitulo.ref,
-        season = temporadaDelCapitulo(capitulo, serie),
+    fun caracolChapter(
+        chapter: GatewayEpisode,
+        series: GatewaySerie?,
+    ): CaracolChapter = CaracolChapter(
+        number = chapter.number,
+        title = chapter.title,
+        ref = chapter.ref,
+        season = seasonForChapter(chapter, series),
     )
 
     /**
-     * El id con el que queda guardado un capítulo, sea suelto ([build]) o con su serie
-     * ([buildSerie]): los dos lo arman por [capituloDe], que lo saca de acá. Y [elegidoEntre] busca
-     * con este mismo cálculo, así que el capítulo que se busca es el que se guardó.
+     * The id a chapter is saved with, whether standalone ([build]) or with its series
+     * ([buildSeries]): both build it via [chapterEntity], which pulls it from here. And
+     * [chosenAmong] looks it up with this same calculation, so the chapter being searched for is
+     * the one that was saved.
      */
-    fun idDelCapitulo(itemId: String, season: Int?, number: Int): String =
-        episodioIdDeCapitulo(itemId, temporadaGuardada(season), number)
+    fun chapterId(itemId: String, season: Int?, number: Int): String =
+        chapterEpisodeId(itemId, savedSeason(season), number)
 
     /**
-     * El `contentId` del ítem al que va esto, o null si no se puede guardar.
+     * The `contentId` of the item this goes to, or null if it can't be saved.
      *
-     * - Película ([episode] en 0): el ítem es ella misma, y su ref tiene que ser un `VOD`. Una serie
-     *   no se guarda así: `DituResolve.vod` sabe arrancar el primer capítulo de una serie, pero la
-     *   tarjeta quedaría como película y abriría siempre ese capítulo. Primero se eligen capítulos.
-     * - Capítulo ([episode] > 0): el ítem es la serie, así que el contentId sale de [seriesRef], que
-     *   tiene que ser una serie; el ref del capítulo, un `VOD`.
+     * - Movie ([episode] is 0): the item is itself, and its ref has to be a `VOD`. A series isn't
+     *   saved this way: `DituResolve.vod` knows how to start a series' first chapter, but the card
+     *   would be left as a movie and would always open that chapter. Chapters get chosen first.
+     * - Chapter ([episode] > 0): the item is the series, so the contentId comes from [seriesRef],
+     *   which has to be a series; the chapter's ref, a `VOD`.
      *
-     * Los dos refs tienen que ser de Caracol ([DituRef.decode]). Es la guarda de que un ref de
-     * otra fuente nunca termine guardado con un id `ditu:`, que el reproductor mandaría a Caracol.
+     * Both refs have to be Caracol's ([DituRef.decode]). This is the guard that keeps a ref from
+     * another source from ever ending up saved with a `ditu:` id, which the player would send to
+     * Caracol.
      */
-    fun contentIdDelItem(ref: String, seriesRef: String, episode: Int): String? {
-        val propio = DituRef.decode(ref) ?: return null
-        if (propio.isSeries) return null
-        if (episode <= 0) return propio.contentId
-        val serie = DituRef.decode(seriesRef) ?: return null
-        return serie.contentId.takeIf { serie.isSeries }
+    fun itemContentId(ref: String, seriesRef: String, episode: Int): String? {
+        val own = DituRef.decode(ref) ?: return null
+        if (own.isSeries) return null
+        if (episode <= 0) return own.contentId
+        val series = DituRef.decode(seriesRef) ?: return null
+        return series.contentId.takeIf { series.isSeries }
     }
 
     /**
-     * [episode] > 0 = capítulo de una serie; 0 = película.
+     * [episode] > 0 = a series chapter; 0 = movie.
      *
-     * [ref] es el del capítulo (o el de la película) y va en el episodio: es lo que el reproductor
-     * resuelve. [seriesRef] es el de la serie y va en el ítem.
+     * [ref] is the chapter's (or the movie's) and goes on the episode: it's what the player
+     * resolves. [seriesRef] is the series' and goes on the item.
      *
-     * [existente] es la fila que ya está en la base, si la hay: `upsertItem` es un REPLACE, así que
-     * lo que no se copie de ahí se pierde (la fecha de alta reordenaría el home). Mismo cuidado que
-     * [MagisEntities.build].
+     * [existing] is the row already in the database, if there is one: `upsertItem` is a REPLACE,
+     * so anything not copied from there is lost (the added-on date would reorder the home
+     * screen). Same care as [MagisEntities.build].
      *
-     * [season] nunca queda en null en un capítulo: sin temporada va a la 1, que es la misma regla con
-     * la que `DituEpisodes` lee un capítulo que no la trae. Un capítulo en null entre otros con
-     * temporada haría que `ArkivRepository.ensureEpisodeStills` aplanara desde la T1 (ver el KDoc de
-     * `MagisEntities.chapterEntity`).
+     * [season] is never left null on a chapter: with no season it goes to 1, the same rule
+     * `DituEpisodes` uses to read a chapter that doesn't carry one. A null season among others
+     * with one would make `ArkivRepository.ensureEpisodeStills` flatten from S1 (see
+     * `MagisEntities.chapterEntity`'s KDoc).
      *
-     * El `orderIndex` de la T2 en adelante va corrido [ORDEN_POR_TEMPORADA] por temporada: la
-     * biblioteca ordena por `orderIndex` (`ItemDao.getEpisodesOf`), y con el número pelado los
-     * capítulos de una serie de varias temporadas saldrían intercalados. En la T1 es el número,
-     * igual que en Magis.
+     * The `orderIndex` from S2 onward is offset by [ORDER_PER_SEASON] per season: the library
+     * orders by `orderIndex` (`ItemDao.getEpisodesOf`), and with the bare number a multi-season
+     * series' chapters would come out interleaved. In S1 it's the number, same as in Magis.
      */
     fun build(
         contentId: String,
@@ -171,26 +172,26 @@ object DituEntities {
         episode: Int,
         episodeTitle: String,
         posterUrl: String,
-        ahora: Long,
+        now: Long,
         seriesRef: String,
-        existente: ItemEntity?,
+        existing: ItemEntity?,
         season: Int? = null,
         tmdbId: Int? = null,
         tituloCanonico: String? = null,
     ): Pair<ItemEntity, EpisodeEntity> {
-        val itemId = itemIdDe(contentId)
-        val esCapitulo = episode > 0
-        val item = itemDe(
-            itemId = itemId, ref = ref, title = title, esCapitulo = esCapitulo, posterUrl = posterUrl,
-            ahora = ahora, seriesRef = seriesRef, existente = existente,
-            episodiosVistosEnLista = existente?.episodiosVistosEnLista,
+        val itemId = itemIdFor(contentId)
+        val isChapter = episode > 0
+        val item = itemFor(
+            itemId = itemId, ref = ref, title = title, isChapter = isChapter, posterUrl = posterUrl,
+            now = now, seriesRef = seriesRef, existing = existing,
+            episodiosVistosEnLista = existing?.episodiosVistosEnLista,
             tmdbId = tmdbId, tituloCanonico = tituloCanonico,
         )
-        val ep = if (esCapitulo) {
-            capituloDe(itemId, CapituloDeCaracol(episode, episodeTitle, ref, season))
+        val ep = if (isChapter) {
+            chapterEntity(itemId, CaracolChapter(episode, episodeTitle, ref, season))
         } else {
             EpisodeEntity(
-                id = episodioIdDePelicula(itemId),
+                id = movieEpisodeId(itemId),
                 itemId = itemId,
                 section = "",
                 displayName = MetadataParser.cleanName(title),
@@ -211,86 +212,89 @@ object DituEntities {
     }
 
     /**
-     * La serie ENTERA: el ítem una vez, un episodio por cada uno de [capitulos], y cuál de esos
-     * episodios es el [elegido] (el capítulo que se tocó, para reproducirlo).
+     * The WHOLE series: the item once, one episode for each of [chapters], and which of those
+     * episodes is the [chosen] one (the chapter that was tapped, to play it).
      *
-     * Es lo que se guarda al tocar un capítulo para verlo ([ArkivRepository.addDituSeason]), con la
-     * lista que la ventana de capítulos ya cargó: sin ninguna llamada de red. Corre en cada
-     * reproducción, así que tiene que ser idempotente: ids derivados del contenido, y lo que
-     * `upsertItem` (REPLACE) borraría, copiado de [existente], igual que en [build].
+     * This is what gets saved when a chapter is tapped to watch it ([ArkivRepository.addDituSeason]),
+     * with the list the chapters window already loaded: no network call at all. Runs on every
+     * playback, so it has to be idempotent: ids derived from the content, and everything
+     * `upsertItem` (REPLACE) would erase copied over from [existing], same as in [build].
      *
-     * El ítem y cada episodio salen de las MISMAS piezas que usa [build] ([itemDe] y [capituloDe]):
-     * un capítulo que ya tenías guardado suelto cae en su misma fila, no en una repetida.
+     * The item and each episode come from the SAME pieces [build] uses ([itemFor] and
+     * [chapterEntity]): a chapter that was already saved standalone lands in that same row, not a
+     * duplicate one.
      *
-     * [episodiosVistosEnLista] llega ya re-sellado por quien llama, como en
-     * `MagisEntities.buildSeason`: el total tras guardar es la unión de lo que ya había en la base
-     * con lo que trae [capitulos], y esta función no tiene con qué leer la base.
+     * [episodiosVistosEnLista] arrives already re-sealed by the caller, as in
+     * `MagisEntities.buildSeason`: the post-save total is the union of what was already in the
+     * database with what [chapters] brings, and this function has nothing to read the database
+     * with.
      */
-    fun buildSerie(
+    fun buildSeries(
         contentId: String,
         seriesRef: String,
         title: String,
-        capitulos: List<CapituloDeCaracol>,
-        elegido: CapituloDeCaracol,
+        chapters: List<CaracolChapter>,
+        chosen: CaracolChapter,
         posterUrl: String,
-        ahora: Long,
-        existente: ItemEntity?,
+        now: Long,
+        existing: ItemEntity?,
         episodiosVistosEnLista: Int?,
         tmdbId: Int? = null,
         tituloCanonico: String? = null,
-    ): SerieDeCaracol {
-        val itemId = itemIdDe(contentId)
-        val item = itemDe(
-            itemId = itemId, ref = "", title = title, esCapitulo = true, posterUrl = posterUrl,
-            ahora = ahora, seriesRef = seriesRef, existente = existente,
+    ): CaracolSeries {
+        val itemId = itemIdFor(contentId)
+        val item = itemFor(
+            itemId = itemId, ref = "", title = title, isChapter = true, posterUrl = posterUrl,
+            now = now, seriesRef = seriesRef, existing = existing,
             episodiosVistosEnLista = episodiosVistosEnLista,
             tmdbId = tmdbId, tituloCanonico = tituloCanonico,
         )
-        // Un episodio por id: si Caracol repitiera temporada y número en dos capítulos, los dos
-        // caerían en la misma fila, así que queda el último y a la base llega exactamente esto.
-        val episodios = capitulos.map { capituloDe(itemId, it) }.associateBy { it.id }.values.toList()
-        return SerieDeCaracol(item, episodios, elegidoEntre(episodios, elegido))
+        // One episode per id: if Caracol repeated a season and number across two chapters, both
+        // would land in the same row, so the last one is kept and exactly that reaches the database.
+        val episodes = chapters.map { chapterEntity(itemId, it) }.associateBy { it.id }.values.toList()
+        return CaracolSeries(item, episodes, chosenAmong(episodes, chosen))
     }
 
     /**
-     * Los de [capitulos] que se pueden guardar en la serie [seriesRef]: los que pasan la guarda de
-     * [contentIdDelItem], para que un ref que no es de Caracol nunca termine con id `ditu:`. Un
-     * capítulo en 0 tampoco entra: con `episode = 0` esa guarda lo toma como película, y su
-     * contentId sería el del capítulo, no el de la serie.
+     * The ones from [chapters] that can be saved in the [seriesRef] series: the ones that pass
+     * [itemContentId]'s guard, so that a ref that isn't Caracol's never ends up with a `ditu:` id.
+     * A chapter at 0 doesn't get in either: with `episode = 0` that guard treats it as a movie,
+     * and its contentId would be the chapter's, not the series'.
      */
-    fun capitulosGuardables(seriesRef: String, capitulos: List<CapituloDeCaracol>): List<CapituloDeCaracol> =
-        capitulos.filter { it.number > 0 && contentIdDelItem(it.ref, seriesRef, it.number) != null }
+    fun saveableChapters(seriesRef: String, chapters: List<CaracolChapter>): List<CaracolChapter> =
+        chapters.filter { it.number > 0 && itemContentId(it.ref, seriesRef, it.number) != null }
 
     /**
-     * El episodeId del capítulo [elegido] entre los [guardados] (lo que devolvió [buildSerie]), o
-     * null si no quedó guardado con su propio ref.
+     * The episodeId of the [chosen] chapter among [saved] (what [buildSeries] returned), or null
+     * if it wasn't saved with its own ref.
      *
-     * Se busca por temporada Y número, con el mismo cálculo del guardado ([idDelCapitulo]), nunca
-     * por número solo: en un `GROUP_OF_BUNDLES` la lista trae el capítulo 1 de la T1 y el capítulo 1
-     * de la T2 (ver [episodioIdDeCapitulo]), y por número el de la T2 reproduciría el de la T1.
+     * Looked up by season AND number, with the same calculation used to save it ([chapterId]),
+     * never by number alone: in a `GROUP_OF_BUNDLES` the list brings S1's chapter 1 and S2's
+     * chapter 1 (see [chapterEpisodeId]), and by number alone S2's would play S1's.
      *
-     * Y la fila tiene que tener el ref del [elegido]: si Caracol repitiera temporada y número en
-     * dos capítulos, los dos irían al mismo id y [buildSerie] guarda uno solo, así que reproducir
-     * esa fila sería reproducir otro. Con null, quien llama cae a guardar el elegido solo.
+     * And the row has to have the [chosen] one's ref: if Caracol repeated a season and number
+     * across two chapters, both would go to the same id and [buildSeries] only saves one, so
+     * playing that row would play a different one. With null, the caller falls back to saving the
+     * chosen one alone.
      */
-    fun elegidoEntre(guardados: List<EpisodeEntity>, elegido: CapituloDeCaracol): String? =
-        guardados.firstOrNull { ep ->
-            ep.id == idDelCapitulo(ep.itemId, elegido.season, elegido.number) && ep.torrentData == elegido.ref
+    fun chosenAmong(saved: List<EpisodeEntity>, chosen: CaracolChapter): String? =
+        saved.firstOrNull { ep ->
+            ep.id == chapterId(ep.itemId, chosen.season, chosen.number) && ep.torrentData == chosen.ref
         }?.id
 
     /**
-     * El ítem, para [build] y [buildSerie]. Un capítulo ([esCapitulo]) va en el ítem de su serie, con
-     * el ref de la serie en el `torrentData`; una película lleva el suyo ([ref]).
+     * The item, for [build] and [buildSeries]. A chapter ([isChapter]) goes in its series' item,
+     * with the series' ref in `torrentData`; a movie carries its own ([ref]).
      */
-    private fun itemDe(
+    private fun itemFor(
         itemId: String,
         ref: String,
         title: String,
-        esCapitulo: Boolean,
+        isChapter: Boolean,
         posterUrl: String,
-        ahora: Long,
+        now: Long,
         seriesRef: String,
-        existente: ItemEntity?,
+        existing: ItemEntity?,
         episodiosVistosEnLista: Int?,
         tmdbId: Int?,
         tituloCanonico: String?,
@@ -298,33 +302,34 @@ object DituEntities {
         identifier = itemId,
         title = title.ifBlank { "Caracol" },
         description = null,
-        // Una carátula vacía no borra la que ya estaba.
-        thumbnailUrl = posterUrl.ifBlank { existente?.thumbnailUrl.orEmpty() },
-        addedAt = existente?.addedAt ?: ahora,
-        categoryOverride = if (esCapitulo) "series" else existente?.categoryOverride,
+        // An empty poster doesn't erase the one already there.
+        thumbnailUrl = posterUrl.ifBlank { existing?.thumbnailUrl.orEmpty() },
+        addedAt = existing?.addedAt ?: now,
+        categoryOverride = if (isChapter) "series" else existing?.categoryOverride,
         source = DituFuente.SOURCE,
-        torrentData = if (esCapitulo) seriesRef else ref,
+        torrentData = if (isChapter) seriesRef else ref,
         episodiosVistosEnLista = episodiosVistosEnLista,
-        // Un tmdbId ausente no borra el que ya estaba guardado, igual que en Magis.
-        tmdbId = tmdbId ?: existente?.tmdbId,
-        tipo = if (esCapitulo) "tv" else "movie",
-        tituloCanonico = tituloCanonico?.trim()?.takeIf { it.isNotEmpty() } ?: existente?.tituloCanonico,
+        // An absent tmdbId doesn't erase the one already saved, same as in Magis.
+        tmdbId = tmdbId ?: existing?.tmdbId,
+        tipo = if (isChapter) "tv" else "movie",
+        tituloCanonico = tituloCanonico?.trim()?.takeIf { it.isNotEmpty() } ?: existing?.tituloCanonico,
     )
 
     /**
-     * El episodio de UN capítulo. Lo comparten [build] y [buildSerie] a propósito: el `id` es la
-     * clave primaria, así que si los dos caminos no lo armaran idéntico, guardar la serie duplicaría
-     * el capítulo que ya estaba guardado suelto. Mismo cuidado que `MagisEntities.chapterEntity`.
+     * A single chapter's episode. Shared by [build] and [buildSeries] on purpose: `id` is the
+     * primary key, so if the two paths didn't build it identically, saving the series would
+     * duplicate a chapter that was already saved standalone. Same care as
+     * `MagisEntities.chapterEntity`.
      */
-    private fun capituloDe(itemId: String, capitulo: CapituloDeCaracol): EpisodeEntity {
-        val temporada = temporadaGuardada(capitulo.season)
-        val number = capitulo.number
+    private fun chapterEntity(itemId: String, chapter: CaracolChapter): EpisodeEntity {
+        val season = savedSeason(chapter.season)
+        val number = chapter.number
         return EpisodeEntity(
-            id = idDelCapitulo(itemId, capitulo.season, number),
+            id = chapterId(itemId, chapter.season, number),
             itemId = itemId,
             section = "",
-            displayName = "E$number" + capitulo.title.trim().takeIf { it.isNotBlank() }?.let { "  $it" }.orEmpty(),
-            orderIndex = (temporada - 1) * ORDEN_POR_TEMPORADA + number,
+            displayName = "E$number" + chapter.title.trim().takeIf { it.isNotBlank() }?.let { "  $it" }.orEmpty(),
+            orderIndex = (season - 1) * ORDER_PER_SEASON + number,
             durationSeconds = 0.0,
             thumbPath = null,
             originalPath = null,
@@ -333,12 +338,12 @@ object DituEntities {
             derivativePath = null,
             derivativeFormat = null,
             derivativeSize = 0,
-            season = temporada,
+            season = season,
             episode = number,
             torrentFileIndex = null,
-            torrentData = capitulo.ref,
+            torrentData = chapter.ref,
         )
     }
 
-    private const val ORDEN_POR_TEMPORADA = 10_000
+    private const val ORDER_PER_SEASON = 10_000
 }

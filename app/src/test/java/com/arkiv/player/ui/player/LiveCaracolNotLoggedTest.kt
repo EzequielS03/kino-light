@@ -14,7 +14,7 @@ class LiveCaracolNotLoggedTest {
 
     private val live = "${DituLive.PREFIX}5"
     private val magis = "magis:2AD2591D4242471D96B68FF04FFD2784::e6"
-    private val caracolVod = DituEntities.episodioIdDePelicula(DituEntities.itemIdDe("42"))
+    private val caracolVod = DituEntities.movieEpisodeId(DituEntities.itemIdFor("42"))
 
     /** No playlist: what's left while Caracol plays, because `loadDitu` leaves it at null. */
     private val noPlaylist: PlaylistData? = null
