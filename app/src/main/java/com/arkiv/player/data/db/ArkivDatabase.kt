@@ -538,7 +538,7 @@ abstract class ArkivDatabase : RoomDatabase() {
                 // Triggers first: sealing afterward doesn't fire them (the row changes from 0 to
                 // `now`, i.e. NEW.updatedAt != OLD.updatedAt, which is the trigger's guard).
                 SyncTriggers.ddl().forEach { db.execSQL(it) }
-                SyncTriggers.sellarFilasSinReloj().forEach { db.execSQL(it) }
+                SyncTriggers.sealRowsWithNoClock().forEach { db.execSQL(it) }
             }
         }
 

@@ -8,24 +8,25 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * La consulta que expone las recomendaciones vigentes de la cuenta (fila "Para ti" del inicio):
- * ordenadas por `orden` -- lo que decidió `ForYouGenerator`, en el aparato -- y sin lo que ya quedó
- * marcado como tombstone (`deleted`). Ver [RecomendacionDao.observeActive].
+ * The query that exposes the account's active recommendations (the home's "Para ti" row):
+ * ordered by `orden` -- what `ForYouGenerator` decided, on the device -- and without what's
+ * already marked as a tombstone (`deleted`). See [RecomendacionDao.observeActive].
  *
- * Se ejecuta contra SQLite de verdad -- mismo criterio que [SyncTriggersTest] -- porque es SQL puro
- * y este módulo no tiene infraestructura de Room (ni Robolectric) en los tests unitarios de la JVM.
- * El `CREATE TABLE` de acá tiene que quedarse en sincro con `MIGRATION_24_25` de [ArkivDatabase] --
- * eso no hay forma de comprobarlo automáticamente -- pero el SQL en sí NO se copia a mano: usa
- * [QUERY_ACTIVE_RECOMENDACIONES], la misma constante que el `@Query` real de
- * [RecomendacionDao.observeActive]. Antes este test tenía su propia copia del string, y ese fue
- * justo el hueco que encontró la revisión: quitarle el `WHERE deleted = 0` a la consulta real no
- * hacía fallar nada acá, porque corrían dos SQL distintos que por las dudas decían lo mismo.
+ * Run against real SQLite -- same criterion as [SyncTriggersTest] -- because it's pure SQL and
+ * this module has no Room infrastructure (nor Robolectric) in its JVM unit tests. The
+ * `CREATE TABLE` here has to stay in sync with [ArkivDatabase]'s `MIGRATION_24_25` -- there's no
+ * way to check that automatically -- but the SQL itself is NOT copied by hand: it uses
+ * [QUERY_ACTIVE_RECOMENDACIONES], the same constant the real `@Query` in
+ * [RecomendacionDao.observeActive] uses. This test used to have its own copy of the string, and
+ * that was exactly the hole the review found: removing the `WHERE deleted = 0` from the real
+ * query made nothing fail here, because two different SQL statements ran that just so happened to
+ * say the same thing.
  */
 class RecomendacionQueryTest {
 
     private lateinit var db: Connection
 
-    @Before fun abrir() {
+    @Before fun setUp() {
         db = DriverManager.getConnection("jdbc:sqlite::memory:")
         db.createStatement().use {
             it.executeUpdate(
@@ -38,20 +39,20 @@ class RecomendacionQueryTest {
         }
     }
 
-    @After fun cerrar() = db.close()
+    @After fun tearDown() = db.close()
 
-    private fun insertar(id: String, orden: Int, deleted: Int = 0) {
+    private fun insert(id: String, order: Int, deleted: Int = 0) {
         db.createStatement().use {
             it.executeUpdate(
                 "INSERT INTO recomendaciones " +
                     "(id, tmdbId, tipo, titulo, posterUrl, porque, ref, orden, generadoAt, updatedAt, deleted) " +
-                    "VALUES ('$id', 1, 'movie', 'T', '', '', 'ref', $orden, 0, 0, $deleted)",
+                    "VALUES ('$id', 1, 'movie', 'T', '', '', 'ref', $order, 0, 0, $deleted)",
             )
         }
     }
 
-    /** LA consulta de [RecomendacionDao.observeActive] -- no una copia, la misma constante. */
-    private fun vigentes(): List<String> =
+    /** THE query from [RecomendacionDao.observeActive] -- not a copy, the same constant. */
+    private fun active(): List<String> =
         db.createStatement().use { st ->
             st.executeQuery(QUERY_ACTIVE_RECOMENDACIONES).use { rs ->
                 val out = mutableListOf<String>()
@@ -60,27 +61,27 @@ class RecomendacionQueryTest {
             }
         }
 
-    @Test fun devuelve_ordenado_por_orden() {
-        insertar("c", orden = 2)
-        insertar("a", orden = 0)
-        insertar("b", orden = 1)
-        assertEquals(listOf("a", "b", "c"), vigentes())
+    @Test fun `returns ordered by orden`() {
+        insert("c", order = 2)
+        insert("a", order = 0)
+        insert("b", order = 1)
+        assertEquals(listOf("a", "b", "c"), active())
     }
 
-    @Test fun excluye_las_borradas() {
-        insertar("viva", orden = 0)
-        insertar("tumba", orden = 1, deleted = 1)
-        assertEquals("el tombstone no puede reaparecer en la fila 'Para ti'", listOf("viva"), vigentes())
+    @Test fun `excludes deleted ones`() {
+        insert("viva", order = 0)
+        insert("tumba", order = 1, deleted = 1)
+        assertEquals("the tombstone can't reappear in the 'Para ti' row", listOf("viva"), active())
     }
 
-    @Test fun una_borrada_mas_nueva_que_gano_el_lww_deja_de_aparecer() {
+    @Test fun `a newer delete that won the LWW stops showing up`() {
         // Simulates what RecomendacionDao.retireActive does on a fresh generation: the row was
         // already live locally, and the update leaves it with deleted=1 and a newer updatedAt
         // because the new generation buried it.
-        insertar("rec1", orden = 0)
+        insert("rec1", order = 0)
         db.createStatement().use {
             it.executeUpdate("UPDATE recomendaciones SET deleted = 1, updatedAt = 999 WHERE id = 'rec1'")
         }
-        assertEquals(emptyList<String>(), vigentes())
+        assertEquals(emptyList<String>(), active())
     }
 }
