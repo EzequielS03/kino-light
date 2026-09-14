@@ -2717,7 +2717,7 @@ private fun PlayerContent(
                     gestos.setExoPlayer(player)
                 },
                 onError = { msg -> vm.onLiveExoError(msg) },
-                onPrimeraImagen = { hay -> exoYaPintoAlgo = hay },
+                onFirstFrame = { hay -> exoYaPintoAlgo = hay },
                 zoom = gestos.zoomForExo,
             )
         }

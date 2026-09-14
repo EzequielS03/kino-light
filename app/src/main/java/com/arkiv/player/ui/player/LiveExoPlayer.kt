@@ -83,7 +83,7 @@ internal fun LiveExoPlayer(
     onPlayerReady: (Player?) -> Unit = {},
     onTextureViewReady: (TextureView?) -> Unit = {},
     onError: (String) -> Unit = {},
-    onPrimeraImagen: (Boolean) -> Unit = {},
+    onFirstFrame: (Boolean) -> Unit = {},
     zoom: Float = 1f,
 ) {
     val context = LocalContext.current
@@ -138,14 +138,14 @@ internal fun LiveExoPlayer(
             }
 
             override fun onPlaybackStateChanged(state: Int) {
-                val nombre = when (state) {
+                val name = when (state) {
                     Player.STATE_IDLE -> "IDLE"
                     Player.STATE_BUFFERING -> "BUFFERING"
                     Player.STATE_READY -> "READY"
                     Player.STATE_ENDED -> "ENDED"
                     else -> "?"
                 }
-                Log.i(TAG, "onPlaybackStateChanged → $nombre · isPlaying=${exoPlayer.isPlaying} pos=${exoPlayer.currentPosition}ms")
+                Log.i(TAG, "onPlaybackStateChanged → $name · isPlaying=${exoPlayer.isPlaying} pos=${exoPlayer.currentPosition}ms")
                 espejo.updateBuffering(state == Player.STATE_BUFFERING)
             }
 
@@ -159,7 +159,7 @@ internal fun LiveExoPlayer(
 
             override fun onRenderedFirstFrame() {
                 Log.i(TAG, "onRenderedFirstFrame · pos=${exoPlayer.currentPosition}ms")
-                onPrimeraImagen(true)
+                onFirstFrame(true)
             }
 
             override fun onPlayerError(error: PlaybackException) {
@@ -179,22 +179,22 @@ internal fun LiveExoPlayer(
             espejo.syncTransport(buffering = false, playing = false, wantsToPlay = false)
             onPlayerReady(null)
             onTextureViewReady(null)
-            onPrimeraImagen(false)
+            onFirstFrame(false)
         }
     }
 
-    // Sondeo de posición + el mismo rescate escalonado de MagisExoPlayer (ver su KDoc extenso):
-    // el proxy local puede cortar una conexión a mitad de segmento (cambio de red, CDN caído) y
-    // dejar a ExoPlayer con el reloj corriendo libre sin un solo frame nuevo. Acá el rescate es
-    // el ÚNICO mecanismo de recuperación silenciosa entre tropiezos leves y el aviso explícito de
-    // `onError` → `reabrirVivoPorCorte()` (que sí re-resuelve la sesión completa contra el
-    // gateway) -- por eso vale la pena mantenerlo también en vivo, aunque el motivo original (el
-    // MPEG-TS de Magis) no aplique acá.
+    // Position polling + the same staggered rescue as MagisExoPlayer (see its long KDoc): the
+    // local proxy can cut a connection mid-segment (network change, CDN down) and leave ExoPlayer
+    // with the clock running free with not a single new frame. Here the rescue is the ONLY silent
+    // recovery mechanism between minor hiccups and `onError`'s explicit warning →
+    // `reabrirVivoPorCorte()` (which does re-resolve the whole session against the gateway) --
+    // that's why it's worth keeping it live too, even though the original reason (Magis's
+    // MPEG-TS) doesn't apply here.
     LaunchedEffect(exoPlayer) {
         var lastPos = -1L
         var lastFrames = -1L
-        var congeladoDesdeMs = 0L
-        var ultimoRescateMs = 0L
+        var frozenSinceMs = 0L
+        var lastRescueMs = 0L
 
         while (true) {
             delay(500)
@@ -204,28 +204,28 @@ internal fun LiveExoPlayer(
             val state = exoPlayer.playbackState
             val frames = exoPlayer.videoDecoderCounters?.renderedOutputBufferCount?.toLong() ?: -1L
 
-            val relojAvanzo = lastPos >= 0 && pos > lastPos
-            val sinFrames = lastFrames >= 0 && frames == lastFrames
-            val ahora = SystemClock.elapsedRealtime()
+            val clockAdvanced = lastPos >= 0 && pos > lastPos
+            val noFrames = lastFrames >= 0 && frames == lastFrames
+            val now = SystemClock.elapsedRealtime()
 
-            if (playing && state == Player.STATE_READY && relojAvanzo && sinFrames && frames >= 0) {
-                if (congeladoDesdeMs == 0L) {
-                    congeladoDesdeMs = ahora
+            if (playing && state == Player.STATE_READY && clockAdvanced && noFrames && frames >= 0) {
+                if (frozenSinceMs == 0L) {
+                    frozenSinceMs = now
                     Log.w(TAG, "VIDEO WITHOUT FRAMES · starts · pos=${pos}ms frames=$frames")
                 }
-                val congeladoMs = ahora - congeladoDesdeMs
-                if (congeladoMs >= 5_000 && ahora - ultimoRescateMs >= 8_000) {
-                    ultimoRescateMs = ahora
-                    congeladoDesdeMs = 0L
-                    Log.w(TAG, "VIDEO FROZEN ${congeladoMs}ms · prepare() at $pos")
+                val frozenMs = now - frozenSinceMs
+                if (frozenMs >= 5_000 && now - lastRescueMs >= 8_000) {
+                    lastRescueMs = now
+                    frozenSinceMs = 0L
+                    Log.w(TAG, "VIDEO FROZEN ${frozenMs}ms · prepare() at $pos")
                     exoPlayer.prepare()
                     exoPlayer.playWhenReady = true
                 }
             } else {
-                if (congeladoDesdeMs != 0L) {
-                    Log.i(TAG, "VIDEO WITHOUT FRAMES · recovered after ${ahora - congeladoDesdeMs}ms · frames=$frames")
+                if (frozenSinceMs != 0L) {
+                    Log.i(TAG, "VIDEO WITHOUT FRAMES · recovered after ${now - frozenSinceMs}ms · frames=$frames")
                 }
-                congeladoDesdeMs = 0L
+                frozenSinceMs = 0L
             }
 
             lastPos = pos
@@ -238,20 +238,20 @@ internal fun LiveExoPlayer(
         }
     }
 
-    // Mismo esquema de letterbox que MagisExoPlayer: el ratio se aplica transformando el
-    // CONTENIDO del TextureView (que siempre ocupa la pantalla entera), no el tamaño de la vista
-    // -- ver el KDoc de [ajustarAlAspecto] para el porqué (evita la franja verde del Fire Stick).
+    // Same letterbox scheme as MagisExoPlayer: the ratio is applied by transforming the
+    // TextureView's CONTENT (which always fills the whole screen), not the view's size -- see the
+    // KDoc of [ajustarAlAspecto] for why (avoids the Fire Stick's green stripe).
     BoxWithConstraints(
         Modifier.fillMaxSize().background(Color.Black),
         contentAlignment = Alignment.Center,
     ) {
-        // `key(exoPlayer)`: sin esto, al zapear `textureView` cambia (está `remember(exoPlayer)`
-        // arriba) pero `AndroidView` NO vuelve a llamar a `factory` -- Compose solo lo invoca una
-        // vez por posición en el árbol, así que se queda mostrando la vista vieja (con el último
-        // frame del canal anterior) para siempre, mientras el audio sí sigue al ExoPlayer nuevo
-        // porque no depende de ninguna vista. Envolver en `key` fuerza a Compose a tratarlo como
-        // un nodo nuevo en cada zapeo, y ahí sí vuelve a llamar `factory` con el `textureView`
-        // recién creado.
+        // `key(exoPlayer)`: without this, on zapping `textureView` changes (it's
+        // `remember(exoPlayer)` above) but `AndroidView` does NOT call `factory` again -- Compose
+        // only invokes it once per position in the tree, so it keeps showing the old view (with
+        // the previous channel's last frame) forever, while the audio DOES follow the new
+        // ExoPlayer because it doesn't depend on any view. Wrapping in `key` forces Compose to
+        // treat it as a new node on every zap, and there it does call `factory` again with the
+        // freshly created `textureView`.
         key(exoPlayer) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
@@ -260,21 +260,21 @@ internal fun LiveExoPlayer(
             )
         }
 
-        val alto = maxHeight
-        val ancho = maxWidth
-        if (videoAspectRatio > 0f && alto > 0.dp && ancho > 0.dp) {
-            val aspectoDeLaPantalla = ancho / alto
-            if (videoAspectRatio > aspectoDeLaPantalla) {
-                val banda = (alto - ancho / videoAspectRatio) / 2
-                if (banda > 0.dp) {
-                    Box(Modifier.align(Alignment.TopCenter).fillMaxWidth().height(banda).background(Color.Black))
-                    Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(banda).background(Color.Black))
+        val boxHeight = maxHeight
+        val boxWidth = maxWidth
+        if (videoAspectRatio > 0f && boxHeight > 0.dp && boxWidth > 0.dp) {
+            val screenAspect = boxWidth / boxHeight
+            if (videoAspectRatio > screenAspect) {
+                val bar = (boxHeight - boxWidth / videoAspectRatio) / 2
+                if (bar > 0.dp) {
+                    Box(Modifier.align(Alignment.TopCenter).fillMaxWidth().height(bar).background(Color.Black))
+                    Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(bar).background(Color.Black))
                 }
-            } else if (videoAspectRatio < aspectoDeLaPantalla) {
-                val banda = (ancho - alto * videoAspectRatio) / 2
-                if (banda > 0.dp) {
-                    Box(Modifier.align(Alignment.CenterStart).fillMaxHeight().width(banda).background(Color.Black))
-                    Box(Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(banda).background(Color.Black))
+            } else if (videoAspectRatio < screenAspect) {
+                val bar = (boxWidth - boxHeight * videoAspectRatio) / 2
+                if (bar > 0.dp) {
+                    Box(Modifier.align(Alignment.CenterStart).fillMaxHeight().width(bar).background(Color.Black))
+                    Box(Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(bar).background(Color.Black))
                 }
             }
         }
