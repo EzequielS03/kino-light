@@ -6,8 +6,8 @@ import org.junit.Test
 
 class MagisSearchTest {
 
-    private fun item(nombre: String, tipo: String = "movie", extra: String = "") = JSONObject(
-        """{"name":"$nombre","programType":"$tipo"${if (extra.isBlank()) "" else ",$extra"}}""",
+    private fun item(name: String, type: String = "movie", extra: String = "") = JSONObject(
+        """{"name":"$name","programType":"$type"${if (extra.isBlank()) "" else ",$extra"}}""",
     )
 
     @Test
@@ -83,10 +83,10 @@ class MagisSearchTest {
     fun `a series' seasons end up in order and movies don't shift`() {
         val items = listOf(
             item("Pelicula A"),
-            item("Dragon Ball T4", tipo = "teleplay"),
-            item("Dragon Ball T2", tipo = "teleplay"),
+            item("Dragon Ball T4", type = "teleplay"),
+            item("Dragon Ball T2", type = "teleplay"),
             item("Pelicula B"),
-            item("Dragon Ball T1", tipo = "teleplay"),
+            item("Dragon Ball T1", type = "teleplay"),
         )
 
         val sorted = sortSeasons(items).map { itemTitle(it) }
@@ -100,9 +100,9 @@ class MagisSearchTest {
     @Test
     fun `between different series, whichever appeared first wins`() {
         val items = listOf(
-            item("Naruto T2", tipo = "teleplay"),
-            item("Bleach T1", tipo = "teleplay"),
-            item("Naruto T1", tipo = "teleplay"),
+            item("Naruto T2", type = "teleplay"),
+            item("Bleach T1", type = "teleplay"),
+            item("Naruto T1", type = "teleplay"),
         )
 
         val sorted = sortSeasons(items).map { itemTitle(it) }

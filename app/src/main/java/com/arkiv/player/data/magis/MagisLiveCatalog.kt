@@ -90,11 +90,11 @@ internal class MagisLiveCatalog(
      * (`masnew_vod`, `masnew_movie`, `masnew_home`, `masnew`) get rejected.
      */
     suspend fun tree(root: String, includeAdults: Boolean = false): List<SeccionDeCatalogo> {
-        val code = ROOTS[root] ?: throw IllegalArgumentException("no existe la raíz $root")
+        val code = ROOTS[root] ?: throw IllegalArgumentException("no such root: $root")
         val isAdultRoot = root in ADULT_ROOTS
         // Same as the channels' 18+ category: the default has to be the safe one, so no path that
         // forgets the parameter ends up serving it.
-        require(!isAdultRoot || includeAdults) { "la sección 18+ hay que pedirla explícitamente" }
+        require(!isAdultRoot || includeAdults) { "the 18+ section has to be requested explicitly" }
 
         lock.withLock { trees[root]?.let { return it } }
         val r = catalog.nextColumns(code, pageSize = 60)
