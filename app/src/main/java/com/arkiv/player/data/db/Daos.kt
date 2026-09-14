@@ -528,7 +528,7 @@ interface LiveChannelCacheDao {
     /**
      * Cached rows of a specific list of channels (by `code`), with no category filter -- to
      * enrich with logo/number data that arrives from another source that carries no category of
-     * its own (the home row's "recents", see `canalesRecientesParaHome` in
+     * its own (the home row's "recents", see `recentChannelsForHome` in
      * `ui/live/RecentLiveChannels.kt`). Can return more than one row per `code` (a channel can be
      * cached in several of the portal's categories): logo/number don't change between categories,
      * so the caller doesn't care which one it gets.

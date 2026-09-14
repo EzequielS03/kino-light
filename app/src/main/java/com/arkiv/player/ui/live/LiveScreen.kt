@@ -149,7 +149,7 @@ fun LiveScreen(
     // KDoc de LiveZappingSource (LiveZapping.kt).
     val listaActiva = if (vista == VistaLocal.RECIENTES) filtrar(recientes, estado.busqueda) else estado.visibles
     fun abrir(canal: LiveChannel) {
-        LiveZappingSource.lista = listaActiva
+        LiveZappingSource.list = listaActiva
         onAbrirCanal(canal.code)
     }
     fun favorito(canal: LiveChannel) = vm.alternarFavorito(canal)

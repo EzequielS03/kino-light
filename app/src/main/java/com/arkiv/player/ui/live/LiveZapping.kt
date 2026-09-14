@@ -3,50 +3,48 @@ package com.arkiv.player.ui.live
 import com.arkiv.player.data.gateway.LiveChannel
 
 /**
- * Recorre **la lista con la que se entró** al canal (la categoría, los favoritos o el
- * resultado de búsqueda), que es la que el usuario tiene en la cabeza. Da la vuelta
- * en los extremos, como un decodificador.
+ * Goes through **the list the channel was entered with** (the category, favorites, or search
+ * result), which is the one the user has in mind. Wraps around at the ends, like a set-top box.
  */
-class LiveZapping(private val lista: List<LiveChannel>, indiceInicial: Int) {
-    private var indice = indiceInicial.coerceIn(0, (lista.size - 1).coerceAtLeast(0))
+class LiveZapping(private val list: List<LiveChannel>, initialIndex: Int) {
+    private var index = initialIndex.coerceIn(0, (list.size - 1).coerceAtLeast(0))
 
-    val actual: LiveChannel get() = lista[indice]
+    val current: LiveChannel get() = list[index]
 
-    fun siguiente(): LiveChannel {
-        indice = (indice + 1) % lista.size
-        return actual
+    fun next(): LiveChannel {
+        index = (index + 1) % list.size
+        return current
     }
 
-    fun anterior(): LiveChannel {
-        indice = (indice - 1 + lista.size) % lista.size
-        return actual
+    fun previous(): LiveChannel {
+        index = (index - 1 + list.size) % list.size
+        return current
     }
 
-    /** Vacío si hay un solo canal: no hay a dónde zapear ni qué precalentar. */
-    fun vecinos(): List<LiveChannel> {
-        if (lista.size < 2) return emptyList()
-        return listOf(lista[(indice + 1) % lista.size], lista[(indice - 1 + lista.size) % lista.size])
+    /** Empty if there's a single channel: nowhere to zap to and nothing to preheat. */
+    fun neighbors(): List<LiveChannel> {
+        if (list.size < 2) return emptyList()
+        return listOf(list[(index + 1) % list.size], list[(index - 1 + list.size) % list.size])
     }
 }
 
 /**
- * Puente efímero entre la pantalla "En vivo" (grilla/guía) y el reproductor: la lista con la que
- * el usuario entró (categoría, favoritos, recientes o resultado de búsqueda) -- lo que necesita
- * [LiveZapping] para recorrer la MISMA lista que el usuario tiene en la cabeza, no el catálogo
- * entero.
+ * Ephemeral bridge between the "En vivo" screen (grid/guide) and the player: the list the user
+ * entered with (category, favorites, recents, or search result) -- what [LiveZapping] needs to go
+ * through the SAME list the user has in mind, not the whole catalog.
  *
- * Una lista de [LiveChannel] no cruza bien un NavHost basado en argumentos String: la ruta
- * "player/{episodeId}" (compartida con VOD) solo lleva el código del canal. Mismo problema que ya
- * resuelve [com.arkiv.player.playback.NowPlaying] para otro estado efímero entre pantallas, y la
- * misma solución: un objeto mutable de corta vida, fijado ANTES de navegar (por `LiveScreen` /
- * `TvLiveGuideScreen`, vía `ArkivRoot`/`ArkivTvRoot`) y consumido una única vez por
- * `PlayerViewModel.loadLive` al abrir un episodeId con el prefijo
- * [com.arkiv.player.playback.PlayerSource.LIVE_PREFIX].
+ * A list of [LiveChannel] doesn't cross a String-argument-based NavHost well: the "player/{episodeId}"
+ * route (shared with VOD) only carries the channel code. Same problem
+ * [com.arkiv.player.playback.NowPlaying] already solves for other ephemeral state between screens,
+ * and the same solution: a short-lived mutable object, set BEFORE navigating (by `LiveScreen` /
+ * `TvLiveGuideScreen`, via `ArkivRoot`/`ArkivTvRoot`) and consumed exactly once by
+ * `PlayerViewModel.loadLive` on opening an episodeId with the
+ * [com.arkiv.player.playback.PlayerSource.LIVE_PREFIX] prefix.
  *
- * Si no hay nada fijado acá (el proceso se recreó a mitad del reproductor en vivo, o quien navega
- * no pasó por la grilla) `PlayerViewModel` cae a una lista de un solo canal: se pierde el zapping
- * hasta volver a la grilla, pero el canal elegido reproduce igual.
+ * If nothing is set here (the process got recreated mid live-player, or whoever navigates didn't
+ * go through the grid) `PlayerViewModel` falls back to a single-channel list: zapping is lost
+ * until returning to the grid, but the chosen channel still plays.
  */
 object LiveZappingSource {
-    var lista: List<LiveChannel> = emptyList()
+    var list: List<LiveChannel> = emptyList()
 }

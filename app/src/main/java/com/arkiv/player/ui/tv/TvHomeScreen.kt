@@ -97,9 +97,9 @@ import com.arkiv.player.ui.heroSubtitle
 import com.arkiv.player.ui.libraryMeta
 import com.arkiv.player.data.SettingsStore
 import com.arkiv.player.ui.live.LiveZappingSource
-import com.arkiv.player.ui.live.canalesDelPaisParaHome
-import com.arkiv.player.ui.live.canalesRecientesParaHome
-import com.arkiv.player.ui.live.filaDeCanalesDelHome
+import com.arkiv.player.ui.live.countryChannelsForHome
+import com.arkiv.player.ui.live.recentChannelsForHome
+import com.arkiv.player.ui.live.homeChannelsRow
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivBlack
 import com.arkiv.player.ui.theme.ArkivRed
@@ -291,16 +291,16 @@ fun TvHomeScreen(
         }
     }
     val canalesRecientes = remember(liveRecientesCrudo, liveCachePorCodigo) {
-        canalesRecientesParaHome(liveRecientesCrudo, liveCachePorCodigo)
+        recentChannelsForHome(liveRecientesCrudo, liveCachePorCodigo)
     }
 
-    // Canales del país del aparato, igual que en el home del celular (ver canalesDelPaisParaHome):
+    // Canales del país del aparato, igual que en el home del celular (ver countryChannelsForHome):
     // así la fila sirve desde la primera apertura, sin nada visto todavía. Acá pesa más que en el
     // celular -- este TV puede no tener SIM, y por eso la detección mira la zona horaria antes que
     // el idioma.
     var canalesDelPais by remember { mutableStateOf<List<LiveChannel>>(emptyList()) }
     LaunchedEffect(Unit) {
-        canalesDelPais = canalesDelPaisParaHome(
+        canalesDelPais = countryChannelsForHome(
             context = context,
             api = graph.catalogoDeVivo,
             cacheDao = liveCacheDao,
@@ -308,11 +308,11 @@ fun TvHomeScreen(
         )
     }
     val canalesFila = remember(canalesRecientes, canalesDelPais) {
-        filaDeCanalesDelHome(canalesRecientes, canalesDelPais)
+        homeChannelsRow(canalesRecientes, canalesDelPais)
     }
 
     // La fila CRECE después de pintada: los recientes salen de Room (instantáneos) y los del país
-    // pueden venir de la red. Con la caché fresca (24 h, ver FRESCURA_MS) llegan tan rápido que no
+    // pueden venir de la red. Con la caché fresca (24 h, ver FRESHNESS_MS) llegan tan rápido que no
     // se nota; con la caché vencida llegan tarde y la fila se reacomoda debajo del usuario, dejando
     // el scroll corrido en el primero de los nuevos. De ahí que el síntoma sea intermitente.
     //
@@ -330,7 +330,7 @@ fun TvHomeScreen(
     fun reproducirCanal(canal: LiveChannel) {
         // Mismo mecanismo que TvLiveGuideScreen.verCanal: fija la lista con la que se "entró" para
         // que arriba/abajo en el reproductor recorra los mismos canales que muestra la fila.
-        LiveZappingSource.lista = canalesFila
+        LiveZappingSource.list = canalesFila
         onPlayLive(canal.code)
     }
 
@@ -738,7 +738,7 @@ fun TvHomeScreen(
 
                     // Canales en vivo -- acceso directo sin pasar por "En vivo": lo último visto a la
                     // izquierda, después los canales del país sin repetir los ya vistos, y al final la
-                    // salida a la parrilla completa (ver `filaDeCanalesDelHome`). Sin nada que mostrar,
+                    // salida a la parrilla completa (ver `homeChannelsRow`). Sin nada que mostrar,
                     // la fila no se dibuja: nada de un hueco vacío en medio del home.
                     if (canalesFila.isNotEmpty()) {
                         item(key = "live_recientes") {
@@ -861,7 +861,7 @@ fun TvHomeScreen(
  * "Canales en vivo". Sin título superpuesto -- el nombre se lee arriba, en el hero, al enfocar
  * (mismo criterio que el resto de las filas del TV).
  *
- * Logo si la caché lo tiene (ver [canalesRecientesParaHome]); si no, el mismo tratamiento que
+ * Logo si la caché lo tiene (ver [recentChannelsForHome]); si no, el mismo tratamiento que
  * `ChannelCard` en `LiveScreen.kt` (celular): degradado + el número del canal, deliberado en vez
  * de un logo roto. Si ni el número se conoce todavía (canal recién visto, caché sin ese `code`),
  * cae a las iniciales del nombre -- un "0" no significaría nada acá.

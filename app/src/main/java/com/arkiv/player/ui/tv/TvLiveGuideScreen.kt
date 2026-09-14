@@ -166,7 +166,7 @@ fun TvLiveGuideScreen(onVerCanal: (LiveChannel) -> Unit, onVolver: () -> Unit) {
     // recorre. Mismo criterio que `LiveScreen.abrirAca` (mobile): si hay una búsqueda activa, el
     // zapping recorre los resultados de la búsqueda, no la categoría entera.
     fun verCanal(canal: LiveChannel) {
-        LiveZappingSource.lista = canales
+        LiveZappingSource.list = canales
         onVerCanal(canal)
     }
 

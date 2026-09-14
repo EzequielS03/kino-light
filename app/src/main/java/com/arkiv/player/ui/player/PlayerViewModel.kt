@@ -437,7 +437,7 @@ class PlayerViewModel internal constructor(
      * un solo canal: se pierde el zapping, pero el canal elegido reproduce igual.
      */
     private fun loadLive(code: String) {
-        val entrada = LiveZappingSource.lista.ifEmpty { listOf(LiveChannel(code, code, 0, null)) }
+        val entrada = LiveZappingSource.list.ifEmpty { listOf(LiveChannel(code, code, 0, null)) }
         val indice = entrada.indexOfFirst { it.code == code }.coerceAtLeast(0)
         zapping = LiveZapping(entrada, indice)
         abrirCanalActual()
@@ -457,7 +457,7 @@ class PlayerViewModel internal constructor(
      * CDN -- es la razón de ser de [LiveHlsProxy] (ver su KDoc).
      */
     private fun abrirCanalActual() {
-        val canal = zapping?.actual ?: return
+        val canal = zapping?.current ?: return
         _liveCanal.value = canal
         viewModelScope.launch {
             _error.value = null
@@ -476,7 +476,7 @@ class PlayerViewModel internal constructor(
             ditu.limpiar()
             val url = runCatching { liveController.abrir(canal.code) }.getOrElse {
                 Log.w(PLAY, "abrirCanalActual() failed for ${canal.code}: ${it.message}")
-                if (zapping?.actual?.code == canal.code) {
+                if (zapping?.current?.code == canal.code) {
                     _error.value = mensajeErrorVivo(hayCuentaDeMagis(), canal.nombre)
                 }
                 return@launch
@@ -485,7 +485,7 @@ class PlayerViewModel internal constructor(
             // ya zapeó a OTRO canal, esta respuesta tardía no debe pisar lo que hay en pantalla --
             // mismo patrón (y mismo motivo) que LiveViewModel.cargar() con categoriaActiva, ver su
             // KDoc.
-            if (zapping?.actual?.code != canal.code) return@launch
+            if (zapping?.current?.code != canal.code) return@launch
             val item = PlayerData(
                 episodeId = "${PlayerSource.LIVE_PREFIX}${canal.code}",
                 itemId = "${PlayerSource.LIVE_PREFIX}${canal.code}",
@@ -533,8 +533,8 @@ class PlayerViewModel internal constructor(
     }
 
     /** Zapping: siguiente/anterior de la lista con la que se entró. Sin efecto fuera de modo vivo. */
-    fun zapSiguiente() { zapping?.siguiente() ?: return; abrirCanalActual() }
-    fun zapAnterior() { zapping?.anterior() ?: return; abrirCanalActual() }
+    fun zapSiguiente() { zapping?.next() ?: return; abrirCanalActual() }
+    fun zapAnterior() { zapping?.previous() ?: return; abrirCanalActual() }
 
     /** Reaperturas seguidas del canal actual sin que haya vuelto a dar imagen, y de qué canal son. */
     private var reaperturasVivo = 0
@@ -569,7 +569,7 @@ class PlayerViewModel internal constructor(
      * reproducir ([vivoAndando]): si aguanta una hora y después tiene un hipo, arranca de cero.
      */
     fun reabrirVivoPorCorte() {
-        val canal = zapping?.actual ?: return
+        val canal = zapping?.current ?: return
         if (canal.code != canalDelContador) {
             canalDelContador = canal.code
             reaperturasVivo = 0
@@ -593,7 +593,7 @@ class PlayerViewModel internal constructor(
             delay(espera)
             // Zapear durante la espera gana: reabrir acá el canal viejo pisaría el que la persona
             // acaba de elegir.
-            if (zapping?.actual?.code == canal.code) abrirCanalActual()
+            if (zapping?.current?.code == canal.code) abrirCanalActual()
         }
     }
 
@@ -632,7 +632,7 @@ class PlayerViewModel internal constructor(
      */
     fun irACanal(lista: List<LiveChannel>, canal: LiveChannel) {
         val entrada = lista.ifEmpty { listOf(canal) }
-        LiveZappingSource.lista = entrada
+        LiveZappingSource.list = entrada
         zapping = LiveZapping(entrada, entrada.indexOfFirst { it.code == canal.code }.coerceAtLeast(0))
         abrirCanalActual()
     }
@@ -647,7 +647,7 @@ class PlayerViewModel internal constructor(
      */
     private fun precalentarVecinos() {
         precalentarJob?.cancel()
-        val vecinos = zapping?.vecinos() ?: return
+        val vecinos = zapping?.neighbors() ?: return
         precalentarJob = viewModelScope.launch {
             delay(1000)
             vecinos.forEach { vecino -> launch { runCatching { liveController.precalentar(vecino.code) } } }
@@ -740,7 +740,7 @@ class PlayerViewModel internal constructor(
      * avisarle a la persona.
      */
     fun onLiveExoError(message: String) {
-        Log.w(PLAY, "live (exo) error for ${zapping?.actual?.code}: $message")
+        Log.w(PLAY, "live (exo) error for ${zapping?.current?.code}: $message")
         reabrirVivoPorCorte()
     }
 

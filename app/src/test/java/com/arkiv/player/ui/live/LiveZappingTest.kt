@@ -5,33 +5,33 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class LiveZappingTest {
-    private val lista = listOf(
+    private val list = listOf(
         LiveChannel("c1", "Uno", 1, null),
         LiveChannel("c2", "Dos", 2, null),
         LiveChannel("c3", "Tres", 3, null),
     )
 
     @Test
-    fun `avanza y da la vuelta al llegar al final`() {
-        val z = LiveZapping(lista, 2)
-        assertEquals("c1", z.siguiente().code)
+    fun `advances and wraps around at the end`() {
+        val z = LiveZapping(list, 2)
+        assertEquals("c1", z.next().code)
     }
 
     @Test
-    fun `retrocede y da la vuelta al llegar al principio`() {
-        val z = LiveZapping(lista, 0)
-        assertEquals("c3", z.anterior().code)
+    fun `goes back and wraps around at the start`() {
+        val z = LiveZapping(list, 0)
+        assertEquals("c3", z.previous().code)
     }
 
     @Test
-    fun `los vecinos son el de antes y el de despues`() {
-        assertEquals(setOf("c1", "c3"), LiveZapping(lista, 1).vecinos().map { it.code }.toSet())
+    fun `the neighbors are the one before and the one after`() {
+        assertEquals(setOf("c1", "c3"), LiveZapping(list, 1).neighbors().map { it.code }.toSet())
     }
 
     @Test
-    fun `con un solo canal el zapping no se mueve ni falla`() {
-        val z = LiveZapping(listOf(lista[0]), 0)
-        assertEquals("c1", z.siguiente().code)
-        assertEquals(emptyList<LiveChannel>(), z.vecinos())
+    fun `with a single channel zapping doesn't move or fail`() {
+        val z = LiveZapping(listOf(list[0]), 0)
+        assertEquals("c1", z.next().code)
+        assertEquals(emptyList<LiveChannel>(), z.neighbors())
     }
 }

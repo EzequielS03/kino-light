@@ -65,9 +65,9 @@ import com.arkiv.player.ui.components.ContinueCard
 import com.arkiv.player.ui.components.SectionHeader
 import com.arkiv.player.data.SettingsStore
 import com.arkiv.player.ui.live.LiveZappingSource
-import com.arkiv.player.ui.live.canalesDelPaisParaHome
-import com.arkiv.player.ui.live.canalesRecientesParaHome
-import com.arkiv.player.ui.live.filaDeCanalesDelHome
+import com.arkiv.player.ui.live.countryChannelsForHome
+import com.arkiv.player.ui.live.recentChannelsForHome
+import com.arkiv.player.ui.live.homeChannelsRow
 import com.arkiv.player.ui.isLandscapeTablet
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.search.TitleCard
@@ -155,7 +155,7 @@ fun HomeScreen(
     }
 
     // Recent live channels, for the row that avoids entering "En vivo" (see
-    // canalesRecientesParaHome). Read straight from Room, same as LiveScreen does with its own
+    // recentChannelsForHome). Read straight from Room, same as LiveScreen does with its own
     // "Recientes" tab -- no need to spin up LiveViewModel (which talks to the gateway) just for
     // this. Capped at 10: it's a quick-access row within reach, not the full history (that's what
     // "En vivo"'s "Recientes" tab is for, with no cap).
@@ -169,17 +169,17 @@ fun HomeScreen(
         }
     }
     val recentChannels = remember(rawRecent, cacheByCode) {
-        canalesRecientesParaHome(rawRecent, cacheByCode)
+        recentChannelsForHome(rawRecent, cacheByCode)
     }
 
     // Channels from the device's country, so the row is useful from the very first opening (with
-    // nothing watched yet) -- see canalesDelPaisParaHome: it detects the country, comes from the
+    // nothing watched yet) -- see countryChannelsForHome: it detects the country, comes from the
     // Room cache if it's fresh, and doesn't break anything if there's no network or no detectable
     // country.
     val context = LocalContext.current
     var countryChannels by remember { mutableStateOf<List<LiveChannel>>(emptyList()) }
     LaunchedEffect(Unit) {
-        countryChannels = canalesDelPaisParaHome(
+        countryChannels = countryChannelsForHome(
             context = context,
             api = graph.catalogoDeVivo,
             cacheDao = liveCacheDao,
@@ -187,13 +187,13 @@ fun HomeScreen(
         )
     }
     val channelsRow = remember(recentChannels, countryChannels) {
-        filaDeCanalesDelHome(recentChannels, countryChannels)
+        homeChannelsRow(recentChannels, countryChannels)
     }
 
     fun playChannel(channel: LiveChannel) {
         // Pins the list it was "entered" with, same mechanism as LiveScreen.abrirAca -- so
         // up/down in the player goes through the same channels the row shows.
-        LiveZappingSource.lista = channelsRow
+        LiveZappingSource.list = channelsRow
         onPlayLive(channel.code)
     }
 
@@ -369,7 +369,7 @@ fun HomeScreen(
 
         // 3. Live channels -- direct access without going through "En vivo": what was last watched
         // on the left, then the country's channels without repeating the ones already seen, and
-        // at the end the way out to the full grid (see `filaDeCanalesDelHome`). With nothing to
+        // at the end the way out to the full grid (see `homeChannelsRow`). With nothing to
         // show, the row isn't drawn: no empty gap. Always-present, keyed item -- see the hero
         // comment above.
         item(key = "canales") {
@@ -533,7 +533,7 @@ private fun SeeMoreChannelsCard(width: Dp = 140.dp, onClick: () -> Unit) {
 
 /**
  * Card for a recent channel in the home's "Canales en vivo" row: logo if the cache has it (see
- * [canalesRecientesParaHome]); if not, the same treatment as `ChannelCard` in `LiveScreen.kt` --
+ * [recentChannelsForHome]); if not, the same treatment as `ChannelCard` in `LiveScreen.kt` --
  * gradient + the channel number, so it looks deliberate and not like a broken logo. If not even
  * the number is known (a just-watched channel, cache with no such `code`), it falls back further
  * still: the name's initials, to not show a "0" that means nothing.

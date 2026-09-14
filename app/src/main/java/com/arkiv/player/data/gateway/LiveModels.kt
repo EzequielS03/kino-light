@@ -26,7 +26,7 @@ data class LiveChannel(
      * escritura y no depende de por dónde llegó.
      *
      * Por defecto `false`: el que no sabe, no marca. Los caminos que reconstruyen un `LiveChannel`
-     * sin categoría a mano (favoritos, caché de `CanalesDelPais`, recientes, el fallback de zapping
+     * sin categoría a mano (favoritos, caché de `CountryChannels`, recientes, el fallback de zapping
      * de `PlayerViewModel.loadLive`) no lo pasan y se quedan con el default.
      */
     val adulto: Boolean = false,

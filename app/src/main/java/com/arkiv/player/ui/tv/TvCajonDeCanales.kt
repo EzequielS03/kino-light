@@ -43,7 +43,7 @@ import androidx.tv.material3.Text
 import com.arkiv.player.data.gateway.LiveChannel
 import com.arkiv.player.ui.live.CATEGORIA_FAVORITOS
 import com.arkiv.player.ui.live.FocoDelDrawer
-import com.arkiv.player.ui.live.IndiceDelCajon
+import com.arkiv.player.ui.live.DrawerIndex
 import com.arkiv.player.ui.live.LiveViewModel
 import com.arkiv.player.ui.live.filtrar
 import com.arkiv.player.ui.rememberGraph
@@ -107,9 +107,9 @@ fun TvCajonDeCanales(
     // Antes eran dos efectos distintos —uno hacía scroll al canal en vivo, el otro pedía foco
     // sobre el ítem 0— y peleaban: pedirle foco a la primera fila arrastra la lista entera de
     // vuelta al principio. Con 1040 canales eso se veía como un scroll interminable hacia arriba
-    // que terminaba lejos del canal que se estaba mirando. Ver [IndiceDelCajon].
+    // que terminaba lejos del canal que se estaba mirando. Ver [DrawerIndex].
     val listaCanales = rememberLazyListState()
-    val indiceActual = remember(canales, canalActual) { IndiceDelCajon.para(canales, canalActual) }
+    val indiceActual = remember(canales, canalActual) { DrawerIndex.indexFor(canales, canalActual) }
 
     // El foco de Android tarda en existir: la fila a la que hay que ir puede no estar compuesta
     // todavía cuando cambia `foco`. Se reintenta un rato corto en vez de pedirlo una sola vez --

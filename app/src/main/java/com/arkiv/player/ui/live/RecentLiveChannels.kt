@@ -5,10 +5,10 @@ import com.arkiv.player.data.db.LiveRecentEntity
 import com.arkiv.player.data.gateway.LiveChannel
 
 /**
- * Arma la fila de "canales en vivo recientes" del home (celular y TV): cruza lo último visto
- * ([recientes], YA ordenado por `vistoAt DESC` -- ver `LiveRecentDao.flowRecent`, esta función NO
- * reordena) con la caché local de canales ([cache], indexada por `code`) para completar logo y
- * número, que `live_recents` no guarda.
+ * Builds the home's "recent live channels" row (phone and TV): crosses what was last watched
+ * ([recent], ALREADY sorted by `vistoAt DESC` -- see `LiveRecentDao.flowRecent`, this function does
+ * NOT reorder) with the local channel cache ([cache], indexed by `code`) to fill in logo and
+ * number, which `live_recents` doesn't store.
  *
  * Why cross-reference the cache instead of storing logo/number in `live_recents` directly: that
  * table used to sync through PocketBase (`cloudsync/CloudSyncManager`, both removed with this
@@ -25,17 +25,17 @@ import com.arkiv.player.data.gateway.LiveChannel
  * broken logo), except there not even the number is known, so the card falls back further, to
  * the name's initials.
  */
-fun canalesRecientesParaHome(
-    recientes: List<LiveRecentEntity>,
+fun recentChannelsForHome(
+    recent: List<LiveRecentEntity>,
     cache: Map<String, LiveChannelCacheEntity>,
-): List<LiveChannel> = recientes.map { r ->
-    val cacheado = cache[r.code]
+): List<LiveChannel> = recent.map { r ->
+    val cached = cache[r.code]
     LiveChannel(
         code = r.code,
-        // El nombre sale de `recientes`, no de la caché: es el que el usuario vio al abrir el
-        // canal, y sigue siendo válido aunque la caché de esa categoría esté vieja o ausente.
+        // The name comes from `recent`, not from the cache: it's the one the user saw when
+        // opening the channel, and stays valid even if that category's cache is stale or absent.
         nombre = r.nombre,
-        numero = cacheado?.numero ?: 0,
-        logo = cacheado?.logo,
+        numero = cached?.numero ?: 0,
+        logo = cached?.logo,
     )
 }
