@@ -175,10 +175,10 @@ class AppGraph(context: Context) {
     /**
      * De dónde salen los títulos que la app busca y reproduce: Magis y Caracol detrás de un solo
      * objeto. Para resolver y listar capítulos reparte por el `ref` (cada fuente reconoce los
-     * suyos); para buscar, mezcla las dos. Ver [com.arkiv.player.data.gateway.FuenteCompuesta].
+     * suyos); para buscar, mezcla las dos. Ver [com.arkiv.player.data.gateway.CompositeSource].
      */
     val fuenteDeContenido: com.arkiv.player.data.gateway.ContentSource by lazy {
-        com.arkiv.player.data.gateway.FuenteCompuesta(listOf(magisFuente, dituFuente))
+        com.arkiv.player.data.gateway.CompositeSource(listOf(magisFuente, dituFuente))
     }
 
     internal val magisLive: com.arkiv.player.data.magis.MagisLive by lazy {

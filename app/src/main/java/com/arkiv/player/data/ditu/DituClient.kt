@@ -50,7 +50,7 @@ internal class DituClient(
         .readTimeout(20, TimeUnit.SECONDS)
         // CAP ON THE WHOLE CALL. The two above don't bound it: `connectTimeout` counts per
         // connection attempt and `readTimeout` per read, so a response that trickles in never
-        // trips either. Matters since `AppGraph.fuenteDeContenido` is a `FuenteCompuesta`: that
+        // trips either. Matters since `AppGraph.fuenteDeContenido` is a `CompositeSource`: that
         // search emits a single `Done` once ALL sources are finished, meaning every Magis search
         // also waits on Caracol.
         //

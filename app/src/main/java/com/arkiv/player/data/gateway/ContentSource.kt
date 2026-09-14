@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.Flow
  * Exists so sub-project 2A's wiring is a constructor change: the screens depend on this
  * interface and not on a concrete gateway client, so moving from the gateway to the portal's
  * direct client doesn't touch them. Today two sources implement it, `MagisFuente` and
- * `DituFuente`, and a third implementation, `FuenteCompuesta`, joins them behind the single
+ * `DituFuente`, and a third implementation, `CompositeSource`, joins them behind the single
  * object the screens see (`AppGraph.fuenteDeContenido`). The models are still called `Gateway*`
  * because renaming them would be churn with no gain (they're the contract, not the transport).
  *

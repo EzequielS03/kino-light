@@ -4,7 +4,7 @@ package com.arkiv.player.ui.search
  * Which sources are still searching in the current source search.
  *
  * Used to be a single boolean (`loadingMagis`) that turned on at the start and off when the
- * ENTIRE search finished. Since `FuenteCompuesta` emits a single `Done` when all sources have
+ * ENTIRE search finished. Since `CompositeSource` emits a single `Done` when all sources have
  * finished, "Buscando en Magis…" kept spinning until Caracol answered, even if Magis had already
  * brought back everything. Now each source turns its own off as soon as it sends its `SourceDone`
  * or its `SourceError` ([sourceFinished]), and "Todo" spins while any one is still missing.

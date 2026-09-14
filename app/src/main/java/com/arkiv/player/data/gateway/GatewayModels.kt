@@ -142,7 +142,7 @@ sealed interface SearchEvent {
     data class SourceDone(val source: String, val count: Int, val ms: Long) : SearchEvent
     /**
      * [cause] is the exception, when the source has it on hand: `CaracolFailure` needs it to tell
-     * the person what happened. `DituFuente` sends it; `MagisFuente` and `FuenteCompuesta` don't.
+     * the person what happened. `DituFuente` sends it; `MagisFuente` and `CompositeSource` don't.
      */
     data class SourceError(
         val source: String,

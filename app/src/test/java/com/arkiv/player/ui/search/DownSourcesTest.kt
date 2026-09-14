@@ -68,7 +68,7 @@ class DownSourcesTest {
         assertEquals(listOf("Magis no respondió: Unable to resolve host \"x\""), downSourceNotices(state, SourceTab.TODO))
     }
 
-    /** `FuenteCompuesta` names "desconocida" a source that goes down before announcing itself. */
+    /** `CompositeSource` names "desconocida" a source that goes down before announcing itself. */
     @Test fun `an unnamed source still gets a notice`() {
         val state = SourcesState().withFailure("desconocida", "boom")
         assertEquals(listOf("Una fuente no respondió: boom"), downSourceNotices(state, SourceTab.TODO))

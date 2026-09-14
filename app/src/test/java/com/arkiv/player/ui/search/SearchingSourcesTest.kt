@@ -33,7 +33,7 @@ class SearchingSourcesTest {
         SearchingSources.starting().allFinished().searching()
     }
 
-    /** `FuenteCompuesta` names "desconocida" a source that goes down before announcing itself. */
+    /** `CompositeSource` names "desconocida" a source that goes down before announcing itself. */
     @Test fun `an unnamed source turns off none of them`() {
         SearchingSources.starting().sourceFinished("desconocida")
             .searching(SourceTab.TODO, SourceTab.MAGIS, SourceTab.CARACOL)

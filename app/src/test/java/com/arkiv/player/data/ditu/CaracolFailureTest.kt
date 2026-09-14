@@ -96,7 +96,7 @@ class CaracolFailureTest {
         assertEquals("No se pudo reproducir en Caracol", CaracolFailure.onOpen(null))
     }
 
-    /** `FuenteCompuesta` can send a source's error with no exception: the text is what's left. */
+    /** `CompositeSource` can send a source's error with no exception: the text is what's left. */
     @Test fun `just the text is understood too`() {
         assertEquals(
             "Caracol no respondió: sin conexión a internet",

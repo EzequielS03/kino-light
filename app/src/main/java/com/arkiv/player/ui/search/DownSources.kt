@@ -36,7 +36,7 @@ internal fun tabForSource(source: String): SourceTab? = when (source) {
 }
 
 /**
- * How a source is named in notices. "Una fuente" covers the name `FuenteCompuesta` uses when a
+ * How a source is named in notices. "Una fuente" covers the name `CompositeSource` uses when a
  * source goes down before announcing itself.
  */
 private fun sourceName(source: String): String = tabForSource(source)?.label ?: "Una fuente"
