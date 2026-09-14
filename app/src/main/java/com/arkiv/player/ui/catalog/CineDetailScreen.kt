@@ -40,7 +40,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.arkiv.player.data.db.DownloadRow
 import com.arkiv.player.data.local.DownloadAction
-import com.arkiv.player.ui.components.DialogoDeDescarga
+import com.arkiv.player.ui.components.DownloadConfirmDialog
 import com.arkiv.player.data.catalog.TmdbDetail
 import com.arkiv.player.data.catalog.TmdbEpisode
 import com.arkiv.player.ui.rememberGraph
@@ -184,10 +184,10 @@ fun CineDetailScreen(
     }
 
     // Misma pregunta y mismas palabras que en la biblioteca: es la misma acción sobre la misma cola.
-    DialogoDeDescarga(
-        accion = porConfirmar?.second,
-        nombreDelCapitulo = porConfirmar?.first?.displayName,
-        onConfirmar = {
+    DownloadConfirmDialog(
+        action = porConfirmar?.second,
+        chapterName = porConfirmar?.first?.displayName,
+        onConfirm = {
             porConfirmar?.let { (fila, accion) ->
                 scope.launch {
                     when (accion) {
@@ -199,6 +199,6 @@ fun CineDetailScreen(
             }
             porConfirmar = null
         },
-        onCerrar = { porConfirmar = null },
+        onClose = { porConfirmar = null },
     )
 }

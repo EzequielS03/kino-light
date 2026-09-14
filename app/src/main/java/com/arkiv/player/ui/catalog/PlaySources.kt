@@ -36,9 +36,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.arkiv.player.ui.components.ControlDeDescarga
-import com.arkiv.player.ui.components.DescargaDeFila
-import com.arkiv.player.ui.components.LineaDeEstadoDeDescarga
+import com.arkiv.player.ui.components.DownloadControl
+import com.arkiv.player.ui.components.RowDownload
+import com.arkiv.player.ui.components.DownloadStatusLine
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 
@@ -129,7 +129,7 @@ fun SourceSectionHeader(
  */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-fun SourceRow(source: PlaySource, enabled: Boolean, descarga: DescargaDeFila? = null, onClick: () -> Unit) {
+fun SourceRow(source: PlaySource, enabled: Boolean, download: RowDownload? = null, onClick: () -> Unit) {
     val accent = accentOf(source)
     Row(
         // height(IntrinsicSize.Min) para que la barra de color de la izquierda pueda medirse
@@ -193,9 +193,9 @@ fun SourceRow(source: PlaySource, enabled: Boolean, descarga: DescargaDeFila? = 
                     }
                 }
             }
-            if (descarga != null) LineaDeEstadoDeDescarga(descarga.estado)
+            if (download != null) DownloadStatusLine(download.state)
         }
-        if (descarga != null) ControlDeDescarga(descarga, enabled = enabled)
+        if (download != null) DownloadControl(download, enabled = enabled)
         Spacer(Modifier.width(8.dp))
     }
 }

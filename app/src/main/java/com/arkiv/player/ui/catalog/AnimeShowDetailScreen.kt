@@ -55,8 +55,8 @@ import com.arkiv.player.data.db.DownloadRow
 import com.arkiv.player.data.local.DownloadAction
 import com.arkiv.player.data.local.DownloadDisplayState
 import com.arkiv.player.data.local.ChapterDownloadState
-import com.arkiv.player.ui.components.DescargaDeFila
-import com.arkiv.player.ui.components.DialogoDeDescarga
+import com.arkiv.player.ui.components.RowDownload
+import com.arkiv.player.ui.components.DownloadConfirmDialog
 import com.arkiv.player.data.catalog.AnimeShow
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivBlack
@@ -272,10 +272,10 @@ fun AnimeShowDetailScreen(
 
     // Confirmación de cancelar / sacar de la cola / borrar. Misma pregunta y mismas palabras que en
     // la biblioteca: es la misma acción sobre la misma cola.
-    DialogoDeDescarga(
-        accion = porConfirmar?.second,
-        nombreDelCapitulo = porConfirmar?.first?.displayName,
-        onConfirmar = {
+    DownloadConfirmDialog(
+        action = porConfirmar?.second,
+        chapterName = porConfirmar?.first?.displayName,
+        onConfirm = {
             porConfirmar?.let { (fila, accion) ->
                 scope.launch {
                     when (accion) {
@@ -287,6 +287,6 @@ fun AnimeShowDetailScreen(
             }
             porConfirmar = null
         },
-        onCerrar = { porConfirmar = null },
+        onClose = { porConfirmar = null },
     )
 }

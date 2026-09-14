@@ -24,7 +24,7 @@ val ArkivTextSecondary = Color(0xFFB3B3B3)
  * not to invent a new color or step on the brand red (reserved for CTAs). The name is a holdover
  * from when this marked a NUC download; that server-side download path was removed in this
  * branch's pruning, and the color now marks a plain local download instead. Lives here, not in a
- * screen, because it's shared between [com.arkiv.player.ui.components.ControlDeDescarga] and the
+ * screen, because it's shared between [com.arkiv.player.ui.components.DownloadControl] and the
  * "Mi biblioteca" detail ([com.arkiv.player.ui.detail.DetailScreen]): it's the SAME indicator and
  * has to look the same in both.
  */

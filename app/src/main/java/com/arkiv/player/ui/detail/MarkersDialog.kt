@@ -17,7 +17,7 @@ import androidx.compose.ui.unit.dp
 import com.arkiv.player.data.db.SkipMarkerEntity
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 
-/** Convierte "m:ss" o "mm:ss" (o segundos sueltos) a milisegundos; null si vacío/ inválido. */
+/** Converts "m:ss" or "mm:ss" (or loose seconds) to milliseconds; null if empty/invalid. */
 fun parseTimeToMs(text: String): Long? {
     val t = text.trim()
     if (t.isEmpty()) return null
@@ -31,7 +31,7 @@ fun parseTimeToMs(text: String): Long? {
     }
 }
 
-/** Formatea ms a "m:ss" para mostrar en el campo. */
+/** Formats ms to "m:ss" for display in the field. */
 fun formatMsToTime(ms: Long?): String {
     if (ms == null) return ""
     val totalSec = ms / 1000

@@ -21,18 +21,18 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalCoroutinesApi::class)
 class DetailViewModel(
     private val repo: ArkivRepository,
-    /** Llave de grupo (`tv:46260`) o identifier crudo: `item:<id>` y los identifiers sueltos resuelven a un solo miembro. */
+    /** Group key (`tv:46260`) or a raw identifier: `item:<id>` and loose identifiers resolve to a single member. */
     private val groupKey: String,
 ) : ViewModel() {
 
-    /** Todas las adquisiciones de esta serie; alimenta el selector de fuente. */
+    /** Every acquisition of this series; feeds the source selector. */
     val sources: StateFlow<List<LibraryRow>> = repo.observeGroupMembers(groupKey)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** La fuente elegida a mano; si es null se usa la primera de [sources] (la más completa). */
+    /** The manually chosen source; if null, the first of [sources] is used (the most complete). */
     private val _selected = MutableStateFlow<String?>(null)
 
-    /** Identifier del ítem que se está mostrando. */
+    /** Identifier of the item being shown. */
     val selectedId: StateFlow<String?> = combine(sources, _selected) { list, manual ->
         manual?.takeIf { id -> list.any { it.identifier == id } } ?: list.firstOrNull()?.identifier
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
@@ -68,7 +68,7 @@ class DetailViewModel(
         viewModelScope.launch { repo.setWatched(episodeId, watched) }
     }
 
-    /** Borra SOLO la fuente que se está viendo. Si era la última del grupo, la tarjeta desaparece. */
+    /** Deletes ONLY the source being watched. If it was the group's last one, the card disappears. */
     fun removeFromLibrary(onDone: () -> Unit) {
         val id = selectedId.value ?: return onDone()
         viewModelScope.launch {

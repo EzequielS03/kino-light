@@ -88,9 +88,9 @@ import com.arkiv.player.ui.ChapterLabel
 import com.arkiv.player.ui.offline.rememberDuplicateDownloadNotice
 import com.arkiv.player.ui.offline.rememberPostNotificationsRequest
 import com.arkiv.player.ui.rememberGraph
-import com.arkiv.player.ui.components.BarraDeDescarga
-import com.arkiv.player.ui.components.ControlDeDescarga
-import com.arkiv.player.ui.components.DialogoDeDescarga
+import com.arkiv.player.ui.components.DownloadBar
+import com.arkiv.player.ui.components.DownloadControl
+import com.arkiv.player.ui.components.DownloadConfirmDialog
 import com.arkiv.player.ui.theme.ArkivBlack
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurface
@@ -109,83 +109,83 @@ fun DetailScreen(
 ) {
     val graph = rememberGraph()
     val scope = rememberCoroutineScope()
-    // Permiso de notificaciones (API 33+): se pide recién al disparar una descarga, que es lo único
-    // que notifica desde esta pantalla. Mismo momento y mismo helper que
+    // Notification permission (API 33+): only asked when a download is triggered, which is the
+    // only thing that notifies from this screen. Same moment and same helper as
     // AnimeShowDetailScreen/CineDetailScreen.
     val askNotifications = rememberPostNotificationsRequest()
-    // Avisa "eso ya lo tenés bajado" cuando la cola saltea una descarga duplicada (ver
-    // DuplicateDownloadPolicy): si no, el botón parecería no hacer nada.
+    // Shows "you already have that downloaded" when the queue skips a duplicate download (see
+    // DuplicateDownloadPolicy): otherwise the button would look like it does nothing.
     val notifyDuplicates = rememberDuplicateDownloadNotice()
     val vm: DetailViewModel = viewModel(
-        // El teléfono siempre navega con un identifier crudo (no con una llave de grupo);
-        // observeGroupMembers lo resuelve igual por su fallback a `rows.filter { identifier == groupKey }`.
+        // The phone always navigates with a raw identifier (not a group key); observeGroupMembers
+        // resolves it the same way through its fallback to `rows.filter { identifier == groupKey }`.
         factory = viewModelFactory { initializer { DetailViewModel(graph.repository, groupKey = identifier) } },
     )
     val detail by vm.detail.collectAsStateWithLifecycle()
     val skipMarker by vm.skipMarker.collectAsStateWithLifecycle()
-    // Título e imagen de cada capítulo según TMDB. Es caché local: la primera apertura de la serie
-    // la puebla y a partir de ahí sale de la base. Si no se sabe a qué serie pertenece el ítem,
-    // los mapas quedan vacíos y cada fila cae a su nombre de archivo.
+    // Title and image of each chapter per TMDB. It's a local cache: the series' first opening
+    // fills it and from then on it comes from the database. If it's not known which series the
+    // item belongs to, the maps stay empty and each row falls back to its file name.
     val tmdbTitles by graph.repository.observeEpisodeTitles(identifier)
         .collectAsStateWithLifecycle(emptyMap())
     val tmdbStills by graph.repository.observeEpisodeStills(identifier)
         .collectAsStateWithLifecycle(emptyMap())
-    // Frames capturados durante la reproducción: la escena real del capítulo, cuando existe le
-    // gana al still de TMDB (ver ThumbnailChoice). Solo tiene entrada si el capítulo se
-    // empezó a ver, así que "gana solo en lo empezado" sale solo de que la clave no esté.
+    // Frames captured during playback: the chapter's real scene, when it exists it beats the TMDB
+    // still (see ThumbnailChoice). Only has an entry if the chapter got started, so "only wins on
+    // what's started" simply falls out of the key being absent.
     val tmdbFrames by graph.repository.observeEpisodeFrames(identifier)
         .collectAsStateWithLifecycle(emptyMap())
-    // Sinopsis de cada capítulo (TMDB). Mismo caché que títulos/stills, y misma regla de vacío
-    // si no se sabe a qué serie pertenece el ítem.
+    // Each chapter's synopsis (TMDB). Same cache as titles/stills, and the same empty-map rule
+    // when it's not known which series the item belongs to.
     val tmdbOverviews by graph.repository.observeEpisodeOverviews(identifier)
         .collectAsStateWithLifecycle(emptyMap())
     LaunchedEffect(identifier) {
-        // Mismo arreglo que en el detalle del TV: los ítems de Magis guardados sin `tmdbId` no
-        // tienen con qué pedir stills, así que primero se le pregunta al gateway (una sola vez).
+        // Same fix as in the TV detail screen: Magis items saved with no `tmdbId` have nothing to
+        // ask stills with, so the gateway gets asked first (only once).
         com.arkiv.player.data.gateway.repararIdentidadDeMagis(
             graph.repository, graph.fuenteDeContenido, identifier,
         )
         runCatching { graph.repository.ensureEpisodeStills(identifier) }
     }
-    // Estado de descarga al dispositivo de cada capítulo, directo de la tabla `downloads` (la misma
-    // que muestra la pantalla de Descargas). Reemplaza a la caché de "qué hay en la NUC": ese tilde
-    // verde anunciaba "ya descargado" sobre contenido que, desde que se desconectó la reproducción
-    // remota, nadie podía ver ni reproducir.
+    // On-device download state of each chapter, straight from the `downloads` table (the same one
+    // the Downloads screen shows). Replaces the "what's on the NUC" cache: that green checkmark
+    // used to announce "already downloaded" over content that, since remote playback was
+    // disconnected, nobody could see or play anymore.
     val downloadRows by graph.repository.observeDownloadRows().collectAsStateWithLifecycle(emptyList())
     val savedEpisodeIds = remember(downloadRows) {
         downloadRows.filter { it.state == LocalDownloadState.COMPLETED }.map { it.episodeId }.toSet()
     }
-    // Estado de descarga POR capítulo, no un simple "hace algo / no hace nada": la fila necesita
-    // saber si está esperando turno, en qué porcentaje va, o por qué falló. Ver
+    // Download state PER chapter, not a plain "doing something / not doing anything": the row
+    // needs to know whether it's waiting its turn, what percentage it's at, or why it failed. See
     // [ChapterDownloadState].
-    val estadosDeDescarga = remember(downloadRows) {
+    val downloadStates = remember(downloadRows) {
         downloadRows.associate { it.episodeId to ChapterDownloadState.of(it) }
     }
 
-    // Guarda capítulos en el DISPOSITIVO. El permiso de notificaciones se pide UNA vez por acción
-    // del usuario (no una por capítulo): un lote de 30 dispararía 30 `launcher.launch` seguidos
-    // sobre el mismo ActivityResultLauncher antes de que el usuario conteste el primer diálogo.
+    // Saves chapters to the DEVICE. The notification permission is asked ONCE per user action (not
+    // once per chapter): a batch of 30 would fire 30 `launcher.launch` calls in a row on the same
+    // ActivityResultLauncher before the user answers the first dialog.
     fun saveEpisodesLocally(episodes: List<Episode>) {
         if (episodes.isEmpty()) return
         askNotifications()
         scope.launch {
-            // Un solo aviso para todo el lote, no uno por capítulo.
+            // A single notice for the whole batch, not one per chapter.
             notifyDuplicates(episodes.map { graph.localDownloads.enqueue(it.id, DownloadSource.sourceFor(it.id)) })
         }
     }
 
     val onDownloadEpisode: (Episode) -> Unit = { ep -> saveEpisodesLocally(listOf(ep)) }
 
-    // Reintentar lo que falló, sin salir a la pantalla de Descargas: el fallo se ve en la misma fila
-    // donde se pidió la descarga, así que la acción también vive ahí.
+    // Retry what failed, without leaving to the Downloads screen: the failure shows in the same
+    // row the download was requested from, so the action lives there too.
     val onRetryEpisode: (Episode) -> Unit = { ep -> scope.launch { graph.localDownloads.retry(ep.id) } }
 
-    // Arrepentirse también vive en la fila, por el mismo motivo. `cancel` conserva el parcial (la
-    // descarga reanuda desde ahí); `remove` borra fila y archivo, que es lo que corresponde tanto a
-    // lo que nunca empezó como a lo que ya no se quiere tener guardado.
-    val onDownloadAction: (Episode, DownloadAction) -> Unit = { ep, accion ->
+    // Undoing also lives in the row, for the same reason. `cancel` keeps the partial (the download
+    // resumes from there); `remove` deletes the row and the file, which fits both what never
+    // started and what's no longer wanted saved.
+    val onDownloadAction: (Episode, DownloadAction) -> Unit = { ep, action ->
         scope.launch {
-            when (accion) {
+            when (action) {
                 DownloadAction.CANCEL -> graph.localDownloads.cancel(ep.id)
                 DownloadAction.REMOVE_FROM_QUEUE, DownloadAction.DELETE ->
                     graph.localDownloads.remove(ep.id)
@@ -199,25 +199,24 @@ fun DetailScreen(
     var showSaveDialog by remember { mutableStateOf(false) }
     val snackbarHost = remember { SnackbarHostState() }
 
-    // Solo se ofrecen para guardar en el dispositivo los capítulos que se pueden bajar: los que
-    // tienen una estrategia en `AppGraph.downloadStrategies` (hoy, solo Magis). Un capítulo de
-    // Caracol (Widevine) o una fila vieja de archive.org terminaban FAILED con "Fuente no soportada"
-    // DESPUÉS de que esta pantalla dijera "Guardando": una opción que va a fallar no se muestra. Ver
-    // `DownloadSource.canDownload`.
-    val estrategias = remember { graph.downloadStrategies.keys }
-    val sePuedeBajar: (Episode) -> Boolean = { ep -> DownloadSource.canDownload(ep.id, estrategias) }
-    val savableEpisodes = detail?.episodes.orEmpty().filter(sePuedeBajar)
+    // Only chapters that CAN be downloaded are offered for saving to the device: the ones with a
+    // strategy in `AppGraph.downloadStrategies` (today, only Magis). A Caracol (Widevine) chapter
+    // or an old archive.org row used to end up FAILED with "Fuente no soportada" AFTER this screen
+    // said "Guardando": an option that's going to fail isn't shown. See `DownloadSource.canDownload`.
+    val strategies = remember { graph.downloadStrategies.keys }
+    val canDownload: (Episode) -> Boolean = { ep -> DownloadSource.canDownload(ep.id, strategies) }
+    val savableEpisodes = detail?.episodes.orEmpty().filter(canDownload)
 
-    // El botón de esta pantalla guarda EN EL DISPOSITIVO (worker local), no en ningún servidor
-    // propio: la descarga a la NUC (`ArkivOfflineApi`/`NucDownloadCheckWorker`) se borró entera en
-    // la poda de esta rama, no quedó "desconectada" — no existe una sola línea de esa maquinaria en
-    // el árbol.
+    // This screen's button saves TO THE DEVICE (local worker), not to any server of our own: the
+    // download to the NUC (`ArkivOfflineApi`/`NucDownloadCheckWorker`) was deleted entirely in this
+    // branch's pruning, it wasn't left "disconnected" -- not a single line of that machinery exists
+    // in the tree.
     fun saveSelectedLocally(episodes: List<Episode>) {
         if (episodes.isEmpty()) return
         saveEpisodesLocally(episodes)
-        // El encolado es instantáneo y silencioso; sin esta confirmación el toque no deja ninguna
-        // huella visible hasta que el worker arranca. Snackbar (no un Text fijo) porque el contenido
-        // de esta pantalla es un LazyColumn que además auto-scrollea.
+        // Queuing is instant and silent; without this confirmation the tap would leave no visible
+        // trace until the worker starts. A snackbar (not a fixed Text) because this screen's
+        // content is a LazyColumn that also auto-scrolls.
         scope.launch { snackbarHost.showSnackbar("Guardando en el dispositivo (${episodes.size})") }
     }
 
@@ -282,10 +281,9 @@ fun DetailScreen(
                         Icon(Icons.Default.MoreVert, contentDescription = "Más opciones")
                     }
                     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                        // Va en el "⋮" y no al lado de "Reproducir": guardar varios capítulos es
-                        // una acción de toda la serie que se usa una vez, no algo que compita
-                        // visualmente con el botón principal. El guardado de UN capítulo suelto
-                        // sigue estando en su fila.
+                        // Goes in the "⋮" and not next to "Reproducir": saving several chapters is
+                        // a whole-series action used once, not something that visually competes
+                        // with the main button. Saving a SINGLE chapter still lives in its own row.
                         if (savableEpisodes.isNotEmpty()) {
                             DropdownMenuItem(
                                 text = { Text("Guardar en el dispositivo") },
@@ -331,10 +329,10 @@ fun DetailScreen(
         }
         DetailContent(
             data = data,
-            estadosDeDescarga = estadosDeDescarga,
+            downloadStates = downloadStates,
             onPlayEpisode = onPlayEpisode,
             onDownloadEpisode = onDownloadEpisode,
-            sePuedeBajar = sePuedeBajar,
+            canDownload = canDownload,
             onRetryEpisode = onRetryEpisode,
             onDownloadAction = onDownloadAction,
             onToggleWatched = vm::toggleWatched,
@@ -342,11 +340,11 @@ fun DetailScreen(
             tmdbStills = tmdbStills,
             tmdbFrames = tmdbFrames,
             tmdbOverviews = tmdbOverviews,
-            // El inferior se usa siempre. El superior casi nunca hace falta -- en un panel, lo que
-            // hay debajo del TopAppBar es el póster a sangre (decorativo, se puede tapar) -- pero en
-            // dos paneles el panel derecho arranca con contenido tocable (chips o el primer
-            // capítulo), así que ahí sí hace falta para no dejarlo tapado e inalcanzable. Ver
-            // DetailContent.
+            // The bottom one is always used. The top one is almost never needed -- in a single
+            // panel, what's below the TopAppBar is the full-bleed poster (decorative, can be
+            // covered) -- but in two panels the right panel starts with tappable content (chips or
+            // the first chapter), so there it IS needed to avoid leaving it covered and
+            // unreachable. See DetailContent.
             bottomInset = padding.calculateBottomPadding(),
             topInset = padding.calculateTopPadding(),
         )
@@ -356,42 +354,42 @@ fun DetailScreen(
 @Composable
 private fun DetailContent(
     data: ItemDetail,
-    /** episodeId -> en qué va su descarga al dispositivo. Ver [DetailScreen]. */
-    estadosDeDescarga: Map<String, DownloadDisplayState>,
+    /** episodeId -> what its device download is doing. See [DetailScreen]. */
+    downloadStates: Map<String, DownloadDisplayState>,
     onPlayEpisode: (String) -> Unit,
     onDownloadEpisode: (Episode) -> Unit,
-    /** Si hay con qué bajar ese capítulo. Sin eso, su fila no ofrece guardarlo. Ver [DetailScreen]. */
-    sePuedeBajar: (Episode) -> Boolean,
+    /** Whether there's a way to download that chapter. Without it, its row doesn't offer saving it. See [DetailScreen]. */
+    canDownload: (Episode) -> Boolean,
     onRetryEpisode: (Episode) -> Unit,
-    /** Sacar de la cola / cancelar / borrar. Ya viene confirmada por el usuario. */
+    /** Remove from queue / cancel / delete. Already confirmed by the user. */
     onDownloadAction: (Episode, DownloadAction) -> Unit,
     onToggleWatched: (String, Boolean) -> Unit,
-    /** episodeId -> título / imagen / sinopsis del capítulo según TMDB. Vacíos si no se sabe la serie. Ver [DetailScreen]. */
+    /** episodeId -> chapter title / image / synopsis per TMDB. Empty if the series isn't known. See [DetailScreen]. */
     tmdbTitles: Map<String, String>,
     tmdbStills: Map<String, String>,
-    /** episodeId -> ruta en disco del frame capturado. Le gana a [tmdbStills]; ver [DetailScreen]. */
+    /** episodeId -> on-disk path of the captured frame. Beats [tmdbStills]; see [DetailScreen]. */
     tmdbFrames: Map<String, String>,
     tmdbOverviews: Map<String, String>,
     bottomInset: androidx.compose.ui.unit.Dp,
-    /** Alto del TopAppBar. Solo se usa en dos paneles, para que el panel derecho no arranque tapado
-     *  por la barra; en un panel el contenido sigue empezando en y=0, sin padding, como siempre. */
+    /** TopAppBar height. Only used in two panels, so the right panel doesn't start covered by the
+     *  bar; in a single panel the content still starts at y=0, with no padding, as always. */
     topInset: androidx.compose.ui.unit.Dp,
 ) {
-    // Capítulo + acción que el usuario pidió deshacer y que todavía no confirmó. Ver
-    // [DownloadConfirmation]: las tres acciones se preguntan porque el control es chiquito y todas
-    // cuestan caro si se tocan sin querer.
-    var porConfirmar by remember { mutableStateOf<Pair<Episode, DownloadAction>?>(null) }
+    // Chapter + action the user asked to undo and hasn't confirmed yet. See
+    // [DownloadConfirmation]: all three actions ask for confirmation because the control is tiny
+    // and all of them are expensive if tapped by accident.
+    var pendingConfirmation by remember { mutableStateOf<Pair<Episode, DownloadAction>?>(null) }
 
-    // Sitios detectados entre TODOS los episodios de la serie (no de la lista ya filtrada): el
-    // set de chips no puede encogerse cuando el usuario elige un filtro, o desaparecería la forma
-    // de volver a "Todos". Ver [siteLabelOf].
+    // Sites detected across ALL of the series' episodes (not the already-filtered list): the chip
+    // set can't shrink when the user picks a filter, or the way back to "Todos" would disappear.
+    // See [siteLabelOf].
     val siteLabels = remember(data.episodes) {
         data.episodes.mapNotNull { siteLabelOf(it.sourceRef) }.toCollection(sortedSetOf())
     }
-    // null = "Todos" (sin filtro), el default — no tocar el comportamiento existente hasta que el
-    // usuario elija un chip a propósito. rememberSaveable (no remember): Navigation Compose saca
-    // esta pantalla de composición al abrir el reproductor, y un remember plano se resetea al
-    // volver — el filtro elegido se perdía en cada "atrás" desde el player.
+    // null = "Todos" (no filter), the default -- don't touch the existing behavior until the user
+    // deliberately picks a chip. rememberSaveable (not remember): Navigation Compose takes this
+    // screen out of composition when the player opens, and a plain remember resets on return --
+    // the chosen filter was getting lost on every "back" from the player.
     var selectedSite by rememberSaveable(data.identifier) { mutableStateOf<String?>(null) }
     // Episodes without a recognizable sourceRef -- which today is basically ALL of them: Magis and
     // Ditu both write an opaque ref into `torrentData` (`magis1:...`, `ditu1:...`), not a URL, so
@@ -409,23 +407,23 @@ private fun DetailContent(
     }
     val bySection = filteredEpisodes.groupBy { it.section }
 
-    // Misma condición para decidir el layout (más abajo, dónde va la ficha) y para el offset de
-    // resumeIndex: si se calculan por separado, el día que uno cambie sin el otro el auto-scroll
-    // se desincroniza en silencio. Ver FichaDelItem.
-    val dosPaneles = isLandscapeTablet()
+    // Same condition to decide the layout (further below, where the item card goes) and
+    // resumeIndex's offset: if computed separately, the day one changes without the other, the
+    // auto-scroll silently drifts out of sync. See ItemHero.
+    val twoPanels = isLandscapeTablet()
 
-    // Índice (aplanado) del episodio en el que voy, para hacer scroll automático al abrir.
-    // En un panel, el primer item del LazyColumn es FichaDelItem (imagen + bloque de título); en
-    // dos paneles la ficha vive aparte, en el panel izquierdo, y no cuenta -- por eso itemsDeCabecera
-    // sale de dosPaneles y no de un número fijo. Después, SI hay 2+ sitios, viene 1 item más con la
-    // fila de chips de filtro (ver más abajo); y después cada sección con nombre añade 1 item de
-    // cabecera antes de sus episodios.
+    // (Flattened) index of the episode I'm on, to auto-scroll to it on opening. In a single panel,
+    // the LazyColumn's first item is ItemHero (image + title block); in two panels the item card
+    // lives apart, in the left panel, and doesn't count -- that's why headerItems comes from
+    // twoPanels and not a fixed number. After that, IF there are 2+ sites, 1 more item comes with
+    // the filter chip row (see further below); and after that each named section adds 1 header
+    // item before its episodes.
     val listState = rememberLazyListState()
     val currentEpisodeId = data.inProgressEpisode?.id
-    val resumeIndex = remember(filteredEpisodes, data.progress, siteLabels, dosPaneles) {
+    val resumeIndex = remember(filteredEpisodes, data.progress, siteLabels, twoPanels) {
         val target = data.inProgressEpisode ?: return@remember null
-        val itemsDeCabecera = if (dosPaneles) 0 else 1
-        var idx = itemsDeCabecera + if (siteLabels.size >= 2) 1 else 0
+        val headerItems = if (twoPanels) 0 else 1
+        var idx = headerItems + if (siteLabels.size >= 2) 1 else 0
         bySection.forEach { (section, episodes) ->
             if (section.isNotBlank()) idx += 1
             val pos = episodes.indexOfFirst { it.id == target.id }
@@ -434,8 +432,8 @@ private fun DetailContent(
         }
         null
     }
-    // Solo auto-scrolleamos una vez por apertura de la pantalla, para no pelear con el usuario
-    // si luego scrollea a mano.
+    // Only auto-scrolls once per screen opening, to not fight the user if they scroll by hand
+    // afterward.
     var didAutoScroll by remember(data.identifier) { mutableStateOf(false) }
     LaunchedEffect(resumeIndex) {
         val idx = resumeIndex
@@ -445,30 +443,30 @@ private fun DetailContent(
         }
     }
 
-    // El listado de capítulos es EL MISMO en un panel o en dos: acá vive una sola vez (chips +
-    // secciones + filas) y ambas ramas del if de abajo lo llaman tal cual, nunca lo copian.
-    val listaDeCapitulos: @Composable () -> Unit = {
+    // The chapter list is THE SAME in one panel or two: it lives here once (chips + sections +
+    // rows) and both branches of the if below call it as-is, never copy it.
+    val episodeList: @Composable () -> Unit = {
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                // En dos paneles este LazyColumn queda DEBAJO del TopAppBar (que acá cubre contenido
-                // tocable, no un póster a sangre), y un LazyColumn no puede scrollear por encima del
-                // offset 0 -- sin este padding la primera fila (chips o el primer capítulo) queda
-                // tapada para siempre. En un panel se queda en 0.dp, igual que hoy.
-                top = if (dosPaneles) topInset else 0.dp,
+                // In two panels this LazyColumn sits BELOW the TopAppBar (which here covers
+                // tappable content, not a full-bleed poster), and a LazyColumn can't scroll above
+                // offset 0 -- without this padding the first row (chips or the first chapter) stays
+                // covered forever. In a single panel it stays at 0.dp, same as today.
+                top = if (twoPanels) topInset else 0.dp,
                 bottom = 32.dp + bottomInset,
             ),
         ) {
-            // En un panel la ficha va acá adentro, como siempre. En dos paneles ya se dibujó aparte
-            // (más abajo, en el panel izquierdo) y no se duplica -- por eso resumeIndex también la
-            // cuenta o no según este mismo `dosPaneles`.
-            if (!dosPaneles) {
-                item { FichaDelItem(data = data, onPlayEpisode = onPlayEpisode) }
+            // In a single panel the item card goes here inside, as always. In two panels it was
+            // already drawn apart (further below, in the left panel) and isn't duplicated -- that's
+            // why resumeIndex also counts it or not based on this same `twoPanels`.
+            if (!twoPanels) {
+                item { ItemHero(data = data, onPlayEpisode = onPlayEpisode) }
             }
 
-            // Solo tiene sentido filtrar si hay 2+ sitios distintos guardados para esta serie — con 0
-            // o 1 sitio, la fila de chips no filtraría nada y sería puro ruido visual.
+            // Filtering only makes sense if there are 2+ different sites saved for this series --
+            // with 0 or 1 site, the chip row wouldn't filter anything and would be pure visual noise.
             if (siteLabels.size >= 2) {
                 item {
                     Row(
@@ -524,11 +522,11 @@ private fun DetailContent(
                         // the removed web source's `addWebSeriesEpisode` used to; only the series
                         // poster is known, and without this the row was left with an empty box.
                         fallbackThumb = data.thumbnailUrl,
-                        estado = estadosDeDescarga[ep.id] ?: DownloadDisplayState.NotDownloaded,
+                        state = downloadStates[ep.id] ?: DownloadDisplayState.NotDownloaded,
                         onPlay = { onPlayEpisode(ep.id) },
-                        onDownload = if (sePuedeBajar(ep)) { { onDownloadEpisode(ep) } } else null,
+                        onDownload = if (canDownload(ep)) { { onDownloadEpisode(ep) } } else null,
                         onRetry = { onRetryEpisode(ep) },
-                        onPedirAccion = { accion -> porConfirmar = ep to accion },
+                        onRequestAction = { action -> pendingConfirmation = ep to action },
                         onToggleWatched = onToggleWatched,
                     )
                 }
@@ -536,45 +534,44 @@ private fun DetailContent(
         }
     }
 
-    // Tablet en horizontal: ficha a la izquierda, capítulos a la derecha, los dos a la vista al
-    // mismo tiempo. En celular y en vertical no cambia nada -- es la misma lista de siempre.
-    if (dosPaneles) {
+    // Landscape tablet: item card on the left, chapters on the right, both visible at the same
+    // time. Nothing changes on a phone or in portrait -- it's the same list as always.
+    if (twoPanels) {
         Row(Modifier.fillMaxSize()) {
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .verticalScroll(rememberScrollState())
-                    // Mismo motivo que el bottom del LazyColumn de al lado: sin esto, si la
-                    // sinopsis llena el panel, la última línea queda debajo de la barra de gestos.
+                    // Same reason as the LazyColumn's bottom next to it: without this, if the
+                    // synopsis fills the panel, the last line ends up under the gesture bar.
                     .padding(bottom = bottomInset),
             ) {
-                FichaDelItem(data = data, onPlayEpisode = onPlayEpisode)
+                ItemHero(data = data, onPlayEpisode = onPlayEpisode)
             }
-            Box(Modifier.weight(1.4f)) { listaDeCapitulos() }
+            Box(Modifier.weight(1.4f)) { episodeList() }
         }
     } else {
-        listaDeCapitulos()
+        episodeList()
     }
 
-    DialogoDeDescarga(
-        accion = porConfirmar?.second,
-        nombreDelCapitulo = porConfirmar?.first?.let { tmdbTitles[it.id] ?: it.displayName },
-        onConfirmar = {
-            porConfirmar?.let { (episodio, accion) -> onDownloadAction(episodio, accion) }
-            porConfirmar = null
+    DownloadConfirmDialog(
+        action = pendingConfirmation?.second,
+        chapterName = pendingConfirmation?.first?.let { tmdbTitles[it.id] ?: it.displayName },
+        onConfirm = {
+            pendingConfirmation?.let { (episode, action) -> onDownloadAction(episode, action) }
+            pendingConfirmation = null
         },
-        onCerrar = { porConfirmar = null },
+        onClose = { pendingConfirmation = null },
     )
 }
 
 /**
- * La ficha del ítem: imagen 16:9 con degradé, título, avance, botón de reproducir/continuar y
- * sinopsis. En celular/vertical es el primer item del [LazyColumn] de [DetailContent]; en tablet
- * horizontal se dibuja aparte, en el panel izquierdo -- mismo contenido en los dos casos, nunca
- * dos copias.
+ * The item's card: 16:9 image with a gradient, title, progress summary, play/continue button and
+ * synopsis. On phone/portrait it's [DetailContent]'s [LazyColumn]'s first item; on a landscape
+ * tablet it's drawn apart, in the left panel -- same content in both cases, never two copies.
  */
 @Composable
-private fun FichaDelItem(data: ItemDetail, onPlayEpisode: (String) -> Unit) {
+private fun ItemHero(data: ItemDetail, onPlayEpisode: (String) -> Unit) {
     val resume = data.resumeEpisode
     Box(
         modifier = Modifier
@@ -647,11 +644,11 @@ private fun siteLabelOf(sourceRef: String?): String? {
 }
 
 /**
- * Elegir qué capítulos de la serie guardar en el dispositivo (todos, algunos, o uno).
+ * Choosing which of the series' chapters to save to the device (all, some, or one).
  *
- * Sobre los [Episode] ya guardados de esta pantalla: cabecera de "seleccionar todo" tri-estado,
- * cabecera por temporada con su propio marcar/desmarcar (una serie larga tiene cientos de filas y
- * marcarlas de a una es inviable) y el mismo tilde verde informativo para lo que ya está guardado.
+ * Over this screen's already-saved [Episode]s: a tri-state "select all" header, a per-season
+ * header with its own check/uncheck (a long series has hundreds of rows and checking them one by
+ * one isn't viable), and the same informational green checkmark for what's already saved.
  */
 @Composable
 private fun SaveEpisodesDialog(
@@ -660,11 +657,11 @@ private fun SaveEpisodesDialog(
     onDismiss: () -> Unit,
     onConfirm: (List<Episode>) -> Unit,
 ) {
-    // La selección por defecto es TODO lo que falta, no todo a secas: el caso normal de abrir esto
-    // en una serie que ya se bajó a medias es "traeme el resto", y volver a bajar lo que ya está
-    // sería gastar datos y disco al pedo. Si no falta nada se preseleccionan todos igual, para que
-    // el diálogo no abra vacío y sin nada que confirmar (re-bajar es un caso válido, p.ej. si la
-    // copia salió mal).
+    // The default selection is EVERYTHING that's missing, not plainly everything: the normal case
+    // of opening this on a series that's already half-downloaded is "get me the rest", and
+    // re-downloading what's already there would waste data and disk for nothing. If nothing's
+    // missing, everything gets preselected anyway, so the dialog doesn't open empty with nothing
+    // to confirm (re-downloading is a valid case, e.g. if the copy came out corrupted).
     val selected = remember(episodes, alreadySaved) {
         val pending = episodes.filterNot { it.id in alreadySaved }
         mutableStateListOf<String>().apply { addAll((pending.ifEmpty { episodes }).map { it.id }) }
@@ -778,22 +775,22 @@ private fun EpisodeRow(
     episode: Episode,
     progress: com.arkiv.player.data.db.PlaybackEntity?,
     isCurrent: Boolean,
-    /** Miniatura de la serie, para las filas cuyo episodio no trae una propia. */
+    /** The series' thumbnail, for rows whose episode doesn't bring its own. */
     fallbackThumb: String?,
     tmdbTitle: String?,
     tmdbStill: String?,
-    /** Ruta en disco del frame capturado. Le gana a [tmdbStill]; ver [ThumbnailChoice]. */
+    /** On-disk path of the captured frame. Beats [tmdbStill]; see [ThumbnailChoice]. */
     tmdbFrame: String?,
-    /** Sinopsis del capítulo (TMDB). Null si no se pudo resolver; la fila simplemente no la muestra. */
+    /** The chapter's synopsis (TMDB). Null if it couldn't be resolved; the row simply doesn't show it. */
     tmdbOverview: String?,
-    /** En qué va su descarga al dispositivo: manda el ícono de la derecha y la barra de abajo. */
-    estado: DownloadDisplayState,
+    /** What its device download is doing: drives the right-side icon and the bar below. */
+    state: DownloadDisplayState,
     onPlay: () -> Unit,
-    /** Null = no hay con qué bajar este capítulo (ver `DownloadSource.canDownload`). */
+    /** Null = there's no way to download this chapter (see `DownloadSource.canDownload`). */
     onDownload: (() -> Unit)?,
     onRetry: () -> Unit,
-    /** El usuario pidió deshacer algo de la descarga; quien recibe esto se encarga de confirmarlo. */
-    onPedirAccion: (DownloadAction) -> Unit,
+    /** The user asked to undo something about the download; whoever receives this handles confirming it. */
+    onRequestAction: (DownloadAction) -> Unit,
     onToggleWatched: (String, Boolean) -> Unit,
 ) {
     val watched = progress?.watched == true
@@ -803,15 +800,15 @@ private fun EpisodeRow(
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 4.dp)
             .clip(cardShape)
-            // Vistos: fondo gris sutil ("ya lo vi"). El que voy: borde blanco ("acá voy").
+            // Watched: subtle gray background ("already saw it"). Current one: white border ("I'm here").
             .background(if (watched) ArkivSurface else Color.Transparent)
             .then(
                 if (isCurrent) Modifier.border(1.5.dp, Color.White, cardShape) else Modifier,
             )
             .clickable(onClick = onPlay),
     ) {
-        // El padding interno vive acá y no en la tarjeta: la barra de descarga tiene que llegar a
-        // los bordes de la tarjeta, no quedar flotando a 8dp de cada lado.
+        // The inner padding lives here and not on the card: the download bar has to reach the
+        // card's edges, not float 8dp from each side.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -824,11 +821,11 @@ private fun EpisodeRow(
                     .clip(RoundedCornerShape(6.dp))
                     .background(ArkivSurfaceHigh),
             ) {
-                // El frame capturado primero (la escena real de donde vas), después el still de TMDB
-                // (la foto del capítulo) y por último el respaldo de la serie. El fotograma de
-                // archive.org que iba acá se borró en la poda de esta rama junto con esa fuente.
-                // Cadena armada con ThumbnailChoice -- no a mano -- para no desalinearse del
-                // resto de las pantallas.
+                // The captured frame first (the real scene of where you're at), then TMDB's still
+                // (the chapter's photo), and last the series' fallback. The archive.org frame that
+                // used to go here was deleted in this branch's pruning along with that source.
+                // Chain built with ThumbnailChoice -- not by hand -- to not drift out of sync with
+                // the rest of the screens.
                 val thumb = ThumbnailChoice.choose(
                     tmdbFrame,
                     tmdbStill,
@@ -889,14 +886,14 @@ private fun EpisodeRow(
                         color = ArkivTextSecondary,
                     )
                 }
-                // En qué va la descarga, EN PALABRAS. La barra y el ícono ya lo dicen en colores y
-                // formas, pero eso solo se entiende sabiendo de antemano qué significan: "Bajando 42%"
-                // o el motivo real del fallo se leen sin traducir nada.
-                DownloadLabel.of(estado)?.let { etiqueta ->
+                // What the download is doing, IN WORDS. The bar and the icon already say it in
+                // colors and shapes, but that's only legible if you already know what they mean:
+                // "Bajando 42%" or the actual failure reason reads without translating anything.
+                DownloadLabel.of(state)?.let { label ->
                     Text(
-                        etiqueta,
+                        label,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = when (estado) {
+                        color = when (state) {
                             is DownloadDisplayState.Failed, DownloadDisplayState.NeedsConfirmation -> ArkivRed
                             DownloadDisplayState.Done -> NucDownloadedGreen
                             else -> ArkivTextPrimary
@@ -905,8 +902,8 @@ private fun EpisodeRow(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                // Sinopsis del capítulo (TMDB): solo si se pudo resolver. Recortada a 2 líneas -- la
-                // fila ya compite por espacio con la miniatura y los botones, no puede crecer sin límite.
+                // Chapter synopsis (TMDB): only if it could be resolved. Clipped to 2 lines -- the
+                // row already competes for space with the thumbnail and the buttons, it can't grow without a limit.
                 if (!tmdbOverview.isNullOrBlank()) {
                     Text(
                         tmdbOverview,
@@ -918,26 +915,28 @@ private fun EpisodeRow(
                     )
                 }
             }
-            // Un solo slot para "guardar en el dispositivo", nunca dos cosas a la vez: el tilde de que
-            // ya está guardado, en qué va la descarga, o el botón para guardarlo. Ofrecer descargar lo
-            // que ya está no aporta nada, y la fila tampoco tiene ancho para un ícono más (miniatura de
-            // 112dp + 2 IconButton ya la dejan justa en un teléfono angosto).
+            // A single slot for "save to the device", never two things at once: the checkmark for
+            // already saved, what the download is doing, or the button to save it. Offering to
+            // download what's already there adds nothing, and the row doesn't have the width for
+            // one more icon either (a 112dp thumbnail + 2 IconButtons already leave it tight on a
+            // narrow phone).
             //
-            // El tilde es informativo, no una acción -- por eso no es un IconButton (no se toca, no ocupa
-            // un slot de 48dp) y no comparte el rojo de "visto" que tiene al lado.
+            // The checkmark is informational, not an action -- that's why it's not an IconButton
+            // (not tappable, doesn't take a 48dp slot) and doesn't share the "watched" red next to it.
             //
-            // Antes había DOS slots: este (Download, al teléfono) y otro con CloudDownload que mandaba a
-            // bajar a la NUC. El de la NUC se quitó porque producía algo que ya nadie puede ver ni
-            // reproducir desde que se desconectó la reproducción remota.
+            // There used to be TWO slots: this one (Download, to the phone) and another with
+            // CloudDownload that sent it to download to the NUC. The NUC one was removed because it
+            // produced something nobody could see or play anymore since remote playback was
+            // disconnected.
             //
-            // Sin con qué bajarlo, el botón de guardar no se muestra. Si ya hay una descarga suya en
-            // la tabla (de antes), el control sigue, para poder borrarla.
-            if (onDownload != null || estado != DownloadDisplayState.NotDownloaded) {
-                ControlDeDescarga(
-                    estado = estado,
+            // With no way to download it, the save button doesn't show. If there's already a
+            // download of it in the table (from before), the control stays, so it can be deleted.
+            if (onDownload != null || state != DownloadDisplayState.NotDownloaded) {
+                DownloadControl(
+                    state = state,
                     onDownload = onDownload ?: {},
                     onRetry = onRetry,
-                    onPedirAccion = onPedirAccion,
+                    onRequestAction = onRequestAction,
                 )
             }
             IconButton(onClick = { onToggleWatched(episode.id, !watched) }) {
@@ -948,9 +947,9 @@ private fun EpisodeRow(
                 )
             }
         }
-        // La barra va pegada al borde inferior de la tarjeta y a todo su ancho: es el único lugar
-        // donde no compite con la miniatura ni con los dos botones, y se lee de un vistazo
-        // recorriendo la lista.
-        BarraDeDescarga(estado)
+        // The bar sits flush against the card's bottom edge and its full width: it's the only spot
+        // that doesn't compete with the thumbnail or the two buttons, and it reads at a glance
+        // scanning down the list.
+        DownloadBar(state)
     }
 }
