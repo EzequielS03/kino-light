@@ -706,7 +706,7 @@ fun TvHomeScreen(
                                                 // Guarda en la biblioteca y abre el DETALLE (mismo
                                                 // `onOpenItem` que usa "Continuar viendo"), a pedido
                                                 // explícito y no reproducir directo como hace
-                                                // TvSeccionesDeCatalogo: si la recomendación es una
+                                                // TvCatalogSections: si la recomendación es una
                                                 // serie, la persona tiene que poder elegir el capítulo.
                                                 //
                                                 // El guardado lo decide [RecommendationAggregator]:

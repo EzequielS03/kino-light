@@ -50,7 +50,7 @@ private enum class TvSettingsTab(val label: String) {
  * It used to be a 700-line column scrolled through entirely with the D-pad: reaching "Check for
  * updates" meant going down through the four quality settings, the three language editors, and
  * the device list. Tabs are the gesture the catalog's roots already use
- * ([TvSeccionesDeCatalogo]) and they share the same piece ([TvTab]).
+ * ([TvCatalogSections]) and they share the same piece ([TvTab]).
  *
  * The tab row lives OUTSIDE the scrolling column. Inside it, the Fire TV's `bringIntoView` pivot
  * would drag it upward as soon as focus went down into the content, and getting back to it would

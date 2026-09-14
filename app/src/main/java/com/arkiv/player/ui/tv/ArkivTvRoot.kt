@@ -183,9 +183,9 @@ fun ArkivTvRoot(
             // one even if this screen got opened some other way.
             val unlocked = graph.settings.adultosDesbloqueado.value
             val scope = rememberCoroutineScope()
-            TvSeccionesDeCatalogo(
-                incluirAdultos = unlocked,
-                onReproducir = { item ->
+            TvCatalogSections(
+                includeAdults = unlocked,
+                onPlay = { item ->
                     scope.launch {
                         if (item.adulto) {
                             // Doesn't go through the library. `addMagisSource` would write a row
@@ -211,7 +211,7 @@ fun ArkivTvRoot(
                         }
                     }
                 },
-                onVolver = { navController.popBackStack() },
+                onBack = { navController.popBackStack() },
             )
         }
         composable("categorias_home") {

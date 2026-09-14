@@ -86,7 +86,7 @@ internal fun TvCaracolScreen(onPlay: (episodeId: String) -> Unit) {
     var openSeries by remember { mutableStateOf<GatewayResult?>(null) }
     var preparing by remember { mutableStateOf(false) }
     // What just happened (couldn't open, couldn't reload). Clears itself, like
-    // [TvSeccionesDeCatalogo]'s notice.
+    // [TvCatalogSections]'s notice.
     var notice by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(notice) {
         if (notice == null) return@LaunchedEffect
@@ -166,7 +166,7 @@ internal fun TvCaracolScreen(onPlay: (episodeId: String) -> Unit) {
 }
 
 /**
- * The section with its data already loaded. Its template is [TvSeccionesDeCatalogo], and it uses
+ * The section with its data already loaded. Its template is [TvCatalogSections], and it uses
  * the same pieces: [TvTab] up top, horizontal rows with [PivotoDeTv], the column with
  * [TraerConScrollMinimo], the focused item's name in a fixed-height block, and the rows zone
  * measured as exactly two full rows.

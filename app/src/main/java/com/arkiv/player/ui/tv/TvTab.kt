@@ -26,7 +26,7 @@ private val TAB_HEIGHT = 52.dp
 /**
  * Tab in a TV horizontal row: the "switch big section" gesture with the remote.
  *
- * Started with the catalog's roots ([TvSeccionesDeCatalogo]) and Settings ([TvSettingsScreen])
+ * Started with the catalog's roots ([TvCatalogSections]) and Settings ([TvSettingsScreen])
  * shares it, so both rows look and focus the same way. If they diverged, the same remote
  * movement would look different depending on the screen.
  */
