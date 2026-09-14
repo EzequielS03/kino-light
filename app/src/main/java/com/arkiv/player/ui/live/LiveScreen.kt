@@ -70,35 +70,35 @@ import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 import kotlinx.coroutines.launch
 
-/** Vistas que no vienen del gateway: se arman con datos locales (Room), no con [LiveViewModel.chooseCategory]. */
-private enum class VistaLocal { NINGUNA, RECIENTES }
+/** Views that don't come from the gateway: built from local data (Room), not [LiveViewModel.chooseCategory]. */
+private enum class LocalView { NONE, RECENT }
 
 /**
- * Pestaña "En vivo": grilla de canales con buscador, categorías (con Favoritos/Recientes
- * primero) y "ahora en pantalla". Es la primera pieza de interfaz de la sección, así que cuida
- * los dos estados que importan: abre al instante con lo cacheado, y no deja un error crudo si el
- * gateway está lento o caído.
+ * "Live" tab: channel grid with search box, categories (with Favorites/Recent first), and "now
+ * on screen". It's the section's first piece of UI, so it takes care of the two states that
+ * matter: it opens instantly with what's cached, and doesn't leave a raw error if the gateway is
+ * slow or down.
  *
- * No exige cuenta de Magis vinculada: el catálogo de canales usa la sesión anónima del gateway
- * (por número de serie del dispositivo, igual que el CLI de magia) cuando no hay cuenta
- * vinculada -- ver `MagisSession` en el gateway. Si el usuario SÍ tiene cuenta vinculada, el
- * GATEWAY la resuelve solo, a partir de la sesión autenticada (ya no hace falta que el cliente
- * mande el accountId por cabecera -- eso permitía pedir con la cuenta de Magis de otra persona),
- * sin que esta pantalla tenga que saber nada al respecto.
+ * Doesn't require a linked Magis account: the channel catalog uses the gateway's anonymous
+ * session (by device serial number, same as the magic CLI) when there's no linked account -- see
+ * `MagisSession` in the gateway. If the user DOES have a linked account, the GATEWAY resolves it
+ * on its own, from the authenticated session (the client no longer needs to send the accountId
+ * as a header -- that allowed requesting with someone else's Magis account), with this screen not
+ * needing to know anything about it.
  *
- * [onAbrirCanal] recibe el código del canal tocado; el llamador (`ArkivRoot`) decide qué hacer con
- * ese código -- hoy, navegar al reproductor en modo vivo (Tarea 14). Antes de invocarlo, `abrir()`
- * fija en [LiveZappingSource] la lista con la que se entró (para que el zapping del reproductor la
- * recorra), así que esta pantalla no necesita saber nada del reproductor.
+ * [onOpenChannel] receives the tapped channel's code; the caller (`ArkivRoot`) decides what to do
+ * with that code -- today, navigate to the player in live mode (Task 14). Before invoking it,
+ * `open()` sets in [LiveZappingSource] the list it was entered with (so the player's zapping can
+ * go through it), so this screen doesn't need to know anything about the player.
  *
- * Hasta Task 5 tocar un canal con un TV pareado abría un diálogo de destino ("Este teléfono" / "En
- * la TV", mismo patrón que `playChoice` de VOD en `ArkivRoot`) -- se borró junto con el resto del
- * pareo/control remoto en la poda de "Arkiv Light". Tocar abre siempre acá.
+ * Until Task 5, tapping a channel with a paired TV opened a destination dialog ("This phone" /
+ * "On the TV", same pattern as VOD's `playChoice` in `ArkivRoot`) -- removed along with the rest
+ * of pairing/remote control in the "Arkiv Light" pruning. Tapping always opens here now.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun LiveScreen(
-    onAbrirCanal: (String) -> Unit,
+    onOpenChannel: (String) -> Unit,
     contentPadding: PaddingValues,
 ) {
     val graph = rememberGraph()
@@ -108,51 +108,53 @@ fun LiveScreen(
                 LiveViewModel(
                     graph.catalogoDeVivo, graph.database.liveFavoriteDao(),
                     graph.database.liveChannelCacheDao(),
-                    // Se lee en CADA carga, no una vez: destrabar 18+ desde Ajustes tiene
-                    // que verse al volver a entrar, sin reiniciar la app.
+                    // Read on EVERY load, not once: unlocking 18+ from Settings has to show up
+                    // on returning to the screen, without restarting the app.
                     adultsUnlocked = { graph.settings.adultosDesbloqueado.value },
                 )
             }
         },
     )
-    val estado by vm.state.collectAsStateWithLifecycle()
-    var vista by remember { mutableStateOf(VistaLocal.NINGUNA) }
-    // rememberSaveable: el brief pide que el modo sobreviva a la rotación (cambio de configuración
-    // recompone toda la pantalla desde cero, y con `remember` volvería siempre a la grilla).
-    var modoGuia by rememberSaveable { mutableStateOf(false) }
+    val state by vm.state.collectAsStateWithLifecycle()
+    var view by remember { mutableStateOf(LocalView.NONE) }
+    // rememberSaveable: the brief asks for the mode to survive rotation (a configuration change
+    // recomposes the whole screen from scratch, and with `remember` it would always go back to
+    // the grid).
+    var guideMode by rememberSaveable { mutableStateOf(false) }
 
-    // Recientes: no pasa por LiveViewModel.chooseCategory (no es una categoría del portal), se lee
-    // directo de Room. Sin numero/logo propios (Tarea 10 no los guarda para "recientes"), así que se
-    // enriquecen con lo que ya esté cargado en `estado.channels`, si el canal aparece ahí.
+    // Recent: doesn't go through LiveViewModel.chooseCategory (it isn't a portal category), read
+    // directly from Room. With no number/logo of their own (Task 10 doesn't store them for
+    // "recent"), so they get enriched with whatever's already loaded in `state.channels`, if the
+    // channel shows up there.
     val recentDao = remember { graph.database.liveRecentDao() }
-    val recientesCrudo by recentDao.flowRecent().collectAsStateWithLifecycle(initialValue = emptyList())
-    val recientes = remember(recientesCrudo, estado.channels) {
-        recientesCrudo.map { r ->
-            estado.channels.find { it.code == r.code }?.copy(nombre = r.nombre)
+    val rawRecents by recentDao.flowRecent().collectAsStateWithLifecycle(initialValue = emptyList())
+    val recents = remember(rawRecents, state.channels) {
+        rawRecents.map { r ->
+            state.channels.find { it.code == r.code }?.copy(nombre = r.nombre)
                 ?: LiveChannel(r.code, r.nombre, 0, null)
         }
     }
-    LaunchedEffect(recientes) {
-        if (recientes.isNotEmpty()) vm.requestEpg(recientes.map { it.code })
+    LaunchedEffect(recents) {
+        if (recents.isNotEmpty()) vm.requestEpg(recents.map { it.code })
     }
 
-    // Precalentar los favoritos (acotado): son los canales con más chance de abrirse a continuación,
-    // y resolver cuesta ~3s (ver LiveController) -- que ya estén resueltos para cuando exista el
-    // reproductor en vivo (Tarea 14) es gratis y best-effort (preheat() nunca lanza).
-    LaunchedEffect(estado.favorites) {
-        estado.favorites.take(5).forEach { code -> launch { graph.liveController.preheat(code) } }
+    // Preheat favorites (bounded): they're the channels most likely to be opened next, and
+    // resolving costs ~3s (see LiveController) -- having them already resolved by the time the
+    // live player exists (Task 14) is free and best-effort (preheat() never throws).
+    LaunchedEffect(state.favorites) {
+        state.favorites.take(5).forEach { code -> launch { graph.liveController.preheat(code) } }
     }
 
-    // La lista "con la que se entró" (categoría/favoritos, o recientes) -- Tarea 14: es la que el
-    // zapping del reproductor recorre, no el catálogo completo. Se fija en LiveZappingSource ANTES
-    // de abrir: una lista de LiveChannel no cruza bien la ruta de navegación (un String), ver el
-    // KDoc de LiveZappingSource (LiveZapping.kt).
-    val listaActiva = if (vista == VistaLocal.RECIENTES) filterChannels(recientes, estado.search) else estado.visible
-    fun abrir(canal: LiveChannel) {
-        LiveZappingSource.list = listaActiva
-        onAbrirCanal(canal.code)
+    // The list "entered with" (category/favorites, or recent) -- Task 14: it's the one the
+    // player's zapping goes through, not the full catalog. Set in LiveZappingSource BEFORE
+    // opening: a list of LiveChannel doesn't cross the navigation route (a String) well, see
+    // LiveZappingSource's KDoc (LiveZapping.kt).
+    val activeList = if (view == LocalView.RECENT) filterChannels(recents, state.search) else state.visible
+    fun open(channel: LiveChannel) {
+        LiveZappingSource.list = activeList
+        onOpenChannel(channel.code)
     }
-    fun favorito(canal: LiveChannel) = vm.toggleFavorite(canal)
+    fun favorite(channel: LiveChannel) = vm.toggleFavorite(channel)
 
     Column(modifier = Modifier.fillMaxSize().padding(top = contentPadding.calculateTopPadding())) {
         Row(
@@ -160,12 +162,12 @@ fun LiveScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             OutlinedTextField(
-                value = estado.search,
+                value = state.search,
                 onValueChange = vm::search,
                 placeholder = { Text("Buscar por nombre o número…") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 trailingIcon = {
-                    if (estado.search.isNotEmpty()) {
+                    if (state.search.isNotEmpty()) {
                         IconButton(onClick = { vm.search("") }) {
                             Icon(Icons.Default.Close, contentDescription = "Limpiar")
                         }
@@ -174,11 +176,11 @@ fun LiveScreen(
                 singleLine = true,
                 modifier = Modifier.weight(1f),
             )
-            IconButton(onClick = { modoGuia = !modoGuia }) {
+            IconButton(onClick = { guideMode = !guideMode }) {
                 Icon(
-                    imageVector = if (modoGuia) Icons.Default.GridView else Icons.Default.ViewAgenda,
-                    contentDescription = if (modoGuia) "Ver como grilla" else "Ver guía de programación",
-                    tint = if (modoGuia) ArkivRed else ArkivTextSecondary,
+                    imageVector = if (guideMode) Icons.Default.GridView else Icons.Default.ViewAgenda,
+                    contentDescription = if (guideMode) "Ver como grilla" else "Ver guía de programación",
+                    tint = if (guideMode) ArkivRed else ArkivTextSecondary,
                 )
             }
         }
@@ -188,34 +190,35 @@ fun LiveScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             item {
-                CategoriaChip(
+                CategoryChip(
                     label = "Favoritos",
                     icon = Icons.Default.Star,
-                    selected = vista == VistaLocal.NINGUNA && estado.activeCategory == CATEGORY_FAVORITES,
-                    onClick = { vista = VistaLocal.NINGUNA; vm.chooseCategory(CATEGORY_FAVORITES) },
+                    selected = view == LocalView.NONE && state.activeCategory == CATEGORY_FAVORITES,
+                    onClick = { view = LocalView.NONE; vm.chooseCategory(CATEGORY_FAVORITES) },
                 )
             }
             item {
-                CategoriaChip(
+                CategoryChip(
                     label = "Recientes",
                     icon = Icons.Default.History,
-                    selected = vista == VistaLocal.RECIENTES,
-                    onClick = { vista = VistaLocal.RECIENTES },
+                    selected = view == LocalView.RECENT,
+                    onClick = { view = LocalView.RECENT },
                 )
             }
-            items(estado.categories, key = { it.id }) { cat ->
-                CategoriaChip(
+            items(state.categories, key = { it.id }) { cat ->
+                CategoryChip(
                     label = cat.nombre,
                     icon = null,
-                    selected = vista == VistaLocal.NINGUNA && estado.activeCategory == cat.id,
-                    onClick = { vista = VistaLocal.NINGUNA; vm.chooseCategory(cat.id) },
+                    selected = view == LocalView.NONE && state.activeCategory == cat.id,
+                    onClick = { view = LocalView.NONE; vm.chooseCategory(cat.id) },
                 )
             }
         }
 
-        // Aviso fino de refresco: la grilla ya tiene algo pintado (caché o carga previa), así que
-        // un spinner a pantalla completa sería peor que no decir nada -- solo una barrita arriba.
-        if (estado.loading && (vista == VistaLocal.NINGUNA && estado.channels.isNotEmpty())) {
+        // Subtle refresh notice: the grid already has something painted (cache or a previous
+        // load), so a full-screen spinner would be worse than saying nothing -- just a thin bar
+        // up top.
+        if (state.loading && (view == LocalView.NONE && state.channels.isNotEmpty())) {
             LinearProgressIndicator(color = ArkivRed, modifier = Modifier.fillMaxWidth())
         }
 
@@ -225,43 +228,43 @@ fun LiveScreen(
         )
 
         when {
-            vista == VistaLocal.RECIENTES -> {
-                val visibles = filterChannels(recientes, estado.search)
-                if (visibles.isEmpty()) {
+            view == LocalView.RECENT -> {
+                val visible = filterChannels(recents, state.search)
+                if (visible.isEmpty()) {
                     EmptyState(
                         "Sin canales recientes",
                         "Los canales que abras van a aparecer acá.",
                         modifier = Modifier.fillMaxSize(),
                     )
-                } else if (modoGuia) {
-                    LiveGuideList(visibles, estado.programming, ::abrir, vm::requestEpg, gridPadding)
+                } else if (guideMode) {
+                    LiveGuideList(visible, state.programming, ::open, vm::requestEpg, gridPadding)
                 } else {
-                    ChannelGrid(visibles, estado.current, estado.favorites, gridPadding, ::abrir, ::favorito)
+                    ChannelGrid(visible, state.current, state.favorites, gridPadding, ::open, ::favorite)
                 }
             }
-            estado.error != null && estado.channels.isEmpty() -> {
-                ErrorConReintento(estado.error!!) { vm.chooseCategory(estado.activeCategory) }
+            state.error != null && state.channels.isEmpty() -> {
+                ErrorWithRetry(state.error!!) { vm.chooseCategory(state.activeCategory) }
             }
-            estado.loading && estado.channels.isEmpty() -> {
+            state.loading && state.channels.isEmpty() -> {
                 PlaceholderGrid(gridPadding)
             }
-            estado.visible.isEmpty() -> {
+            state.visible.isEmpty() -> {
                 val (title, subtitle) = when {
-                    estado.search.isNotBlank() -> "Sin resultados" to "Probá con otro nombre o número de canal."
-                    estado.activeCategory == CATEGORY_FAVORITES -> "Sin favoritos todavía" to
+                    state.search.isNotBlank() -> "Sin resultados" to "Probá con otro nombre o número de canal."
+                    state.activeCategory == CATEGORY_FAVORITES -> "Sin favoritos todavía" to
                         "Mantené pulsado un canal para agregarlo."
                     else -> "Sin canales" to "No encontramos canales en esta categoría."
                 }
                 EmptyState(title, subtitle, modifier = Modifier.fillMaxSize())
             }
-            modoGuia -> LiveGuideList(estado.visible, estado.programming, ::abrir, vm::requestEpg, gridPadding)
-            else -> ChannelGrid(estado.visible, estado.current, estado.favorites, gridPadding, ::abrir, ::favorito)
+            guideMode -> LiveGuideList(state.visible, state.programming, ::open, vm::requestEpg, gridPadding)
+            else -> ChannelGrid(state.visible, state.current, state.favorites, gridPadding, ::open, ::favorite)
         }
     }
 }
 
 @Composable
-private fun CategoriaChip(
+private fun CategoryChip(
     label: String,
     icon: ImageVector?,
     selected: Boolean,
@@ -281,15 +284,15 @@ private fun CategoriaChip(
 }
 
 @Composable
-private fun ErrorConReintento(mensaje: String, onReintentar: () -> Unit) {
+private fun ErrorWithRetry(message: String, onRetry: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize().padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Text(mensaje, style = MaterialTheme.typography.bodyLarge, color = ArkivTextSecondary, textAlign = TextAlign.Center)
+        Text(message, style = MaterialTheme.typography.bodyLarge, color = ArkivTextSecondary, textAlign = TextAlign.Center)
         Button(
-            onClick = onReintentar,
+            onClick = onRetry,
             colors = ButtonDefaults.buttonColors(containerColor = ArkivRed, contentColor = Color.White),
             modifier = Modifier.padding(top = 16.dp),
         ) { Text("Reintentar") }
@@ -298,12 +301,12 @@ private fun ErrorConReintento(mensaje: String, onReintentar: () -> Unit) {
 
 @Composable
 private fun ChannelGrid(
-    canales: List<LiveChannel>,
-    ahora: Map<String, LiveProgram?>,
-    favoritos: Set<String>,
+    channels: List<LiveChannel>,
+    current: Map<String, LiveProgram?>,
+    favorites: Set<String>,
     contentPadding: PaddingValues,
-    onAbrir: (LiveChannel) -> Unit,
-    onFavorito: (LiveChannel) -> Unit,
+    onOpen: (LiveChannel) -> Unit,
+    onFavorite: (LiveChannel) -> Unit,
 ) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(gridColumns(2, isLandscapeTablet())),
@@ -312,19 +315,19 @@ private fun ChannelGrid(
         verticalArrangement = Arrangement.spacedBy(16.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
-        items(canales, key = { it.code }) { canal ->
+        items(channels, key = { it.code }) { channel ->
             ChannelCard(
-                canal = canal,
-                ahoraPrograma = ahora[canal.code],
-                esFavorito = canal.code in favoritos,
-                onClick = { onAbrir(canal) },
-                onLongClick = { onFavorito(canal) },
+                channel = channel,
+                currentProgram = current[channel.code],
+                isFavorite = channel.code in favorites,
+                onClick = { onOpen(channel) },
+                onLongClick = { onFavorite(channel) },
             )
         }
     }
 }
 
-/** Grilla de placeholders mientras carga la primera vez (sin caché todavía que mostrar). */
+/** Placeholder grid while the first load is in flight (no cache yet to show). */
 @Composable
 private fun PlaceholderGrid(contentPadding: PaddingValues) {
     LazyVerticalGrid(
@@ -349,9 +352,9 @@ private fun PlaceholderGrid(contentPadding: PaddingValues) {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ChannelCard(
-    canal: LiveChannel,
-    ahoraPrograma: LiveProgram?,
-    esFavorito: Boolean,
+    channel: LiveChannel,
+    currentProgram: LiveProgram?,
+    isFavorite: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
@@ -363,18 +366,18 @@ private fun ChannelCard(
                 .clip(RoundedCornerShape(8.dp))
                 .background(ArkivSurfaceHigh),
         ) {
-            if (canal.logo != null) {
+            if (channel.logo != null) {
                 AsyncImage(
-                    model = canal.logo,
-                    contentDescription = canal.nombre,
+                    model = channel.logo,
+                    contentDescription = channel.nombre,
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize().padding(10.dp),
                 )
             } else {
-                // No está confirmado que el portal mande logos: sin uno, el mismo tratamiento visual
-                // que CardPlaceholder (ui/tv/TvComponents.kt) -- degradado oscuro -- pero con el
-                // número del canal en vez del ícono genérico, para que la tarjeta se vea deliberada
-                // y no como un logo roto.
+                // Not confirmed that the portal sends logos: without one, the same visual
+                // treatment as CardPlaceholder (ui/tv/TvComponents.kt) -- dark gradient -- but
+                // with the channel number instead of the generic icon, so the card looks
+                // deliberate and not like a broken logo.
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -382,13 +385,13 @@ private fun ChannelCard(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = canal.numero.toString(),
+                        text = channel.numero.toString(),
                         style = MaterialTheme.typography.headlineMedium,
                         color = Color.White.copy(alpha = 0.6f),
                     )
                 }
             }
-            if (esFavorito) {
+            if (isFavorite) {
                 Icon(
                     Icons.Default.Star,
                     contentDescription = "Favorito",
@@ -398,17 +401,17 @@ private fun ChannelCard(
             }
         }
         Text(
-            text = canal.nombre,
+            text = channel.nombre,
             style = MaterialTheme.typography.bodyMedium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 6.dp),
         )
-        // "Ahora en pantalla": nada si todavía no hay EPG para este canal (nunca un hueco fijo ni
-        // un "cargando" parpadeante por tarjeta -- ver brief).
-        if (ahoraPrograma != null) {
+        // "Now on screen": nothing if there's no EPG for this channel yet (never a fixed hole or
+        // a per-card blinking "loading" -- see the brief).
+        if (currentProgram != null) {
             Text(
-                text = "Ahora: ${ahoraPrograma.titulo}",
+                text = "Ahora: ${currentProgram.titulo}",
                 style = MaterialTheme.typography.bodySmall,
                 color = ArkivTextSecondary,
                 maxLines = 1,
@@ -424,7 +427,7 @@ private fun ChannelCard(
             ) {
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth(programProgress(ahoraPrograma))
+                        .fillMaxWidth(programProgress(currentProgram))
                         .fillMaxSize()
                         .background(ArkivRed),
                 )

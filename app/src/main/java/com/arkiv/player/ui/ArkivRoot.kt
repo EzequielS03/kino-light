@@ -253,10 +253,10 @@ fun ArkivRoot(
             composable("live") {
                 com.arkiv.player.ui.live.LiveScreen(
                     // Task 14: the player's live mode already exists (`enVivo` flag in
-                    // PlayerViewModel/PlayerScreen). `LiveScreen.abrir()` already left in
+                    // PlayerViewModel/PlayerScreen). `LiveScreen.open()` already left in
                     // LiveZappingSource the list it was entered with -- this just needs to navigate
                     // with the prefix PlayerSource.kindFor() recognizes as live.
-                    onAbrirCanal = { code ->
+                    onOpenChannel = { code ->
                         goToPlayer("${com.arkiv.player.playback.PlayerSource.LIVE_PREFIX}$code")
                     },
                     contentPadding = padding,

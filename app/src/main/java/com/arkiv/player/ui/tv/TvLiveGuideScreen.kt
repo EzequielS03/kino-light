@@ -163,7 +163,7 @@ fun TvLiveGuideScreen(onVerCanal: (LiveChannel) -> Unit, onVolver: () -> Unit) {
 
     // Ver el canal ahora: fija en LiveZappingSource la lista FILTRADA (con la que el usuario está
     // mirando ahora mismo) ANTES de delegar a `onVerCanal` -- es la que el zapping del reproductor
-    // recorre. Mismo criterio que `LiveScreen.abrirAca` (mobile): si hay una búsqueda activa, el
+    // recorre. Mismo criterio que `LiveScreen.open` (mobile): si hay una búsqueda activa, el
     // zapping recorre los resultados de la búsqueda, no la categoría entera.
     fun verCanal(canal: LiveChannel) {
         LiveZappingSource.list = canales

@@ -191,7 +191,7 @@ fun HomeScreen(
     }
 
     fun playChannel(channel: LiveChannel) {
-        // Pins the list it was "entered" with, same mechanism as LiveScreen.abrirAca -- so
+        // Pins the list it was "entered" with, same mechanism as LiveScreen.open -- so
         // up/down in the player goes through the same channels the row shows.
         LiveZappingSource.list = channelsRow
         onPlayLive(channel.code)
