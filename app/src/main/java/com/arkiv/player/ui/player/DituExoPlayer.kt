@@ -83,15 +83,15 @@ private fun esRecuperable(error: PlaybackException): Boolean =
  * clock reading.
  *
  * Starts with the first frame, not before. It's prepared paused and
- * [ArranqueConLaPrimeraImagen] decides when to give it play: when the first frame is painted, or
- * after [ESPERA_MAXIMA_DE_LA_PRIMERA_IMAGEN_MS] without it, so it doesn't end up silent and
+ * [StartOnFirstFrame] decides when to give it play: when the first frame is painted, or
+ * after [MAX_FIRST_FRAME_WAIT_MS] without it, so it doesn't end up silent and
  * frozen. It used to start right away, and the audio could begin before the picture. Whether
  * ExoPlayer paints the first frame while paused hasn't been verified on a device on this branch:
  * if it didn't, what's left is that safety exit.
  *
  * [arrancarSolo] set to `false` builds it prepared and paused, without starting on its own: that's
  * the case of reloading something that was paused. [onError] hands over, along with the code,
- * whether this player wanted to play ([ArranqueConLaPrimeraImagen.queriaReproducir]), which is
+ * whether this player wanted to play ([StartOnFirstFrame.wantedToPlay]), which is
  * what the reload inherits.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
@@ -189,7 +189,7 @@ internal fun DituExoPlayer(
                 player.setMediaItem(item)
                 player.prepare()
                 if (startPositionMs > 0L) player.seekTo(startPositionMs)
-                // En pausa: le da play [ArranqueConLaPrimeraImagen], con la primera imagen.
+                // En pausa: le da play [StartOnFirstFrame], con la primera imagen.
                 player.playWhenReady = false
             }
     }
@@ -197,7 +197,7 @@ internal fun DituExoPlayer(
     // Uno por reproductor: una recarga (`key(dPlay)` en `PlayerScreen`) arma otro y vuelve a esperar,
     // salvo que lo que falló estuviera en pausa ([arrancarSolo]).
     val arranque = remember(exoPlayer) {
-        ArranqueConLaPrimeraImagen(arrancaSolo = arrancarSolo).also { it.empezo(SystemClock.elapsedRealtime()) }
+        StartOnFirstFrame(autoStart = arrancarSolo).also { it.start(SystemClock.elapsedRealtime()) }
     }
 
     // Si la app se va al fondo mientras se espera la primera imagen, la espera queda en suspenso: la
@@ -210,13 +210,13 @@ internal fun DituExoPlayer(
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, arranque) {
         val observador = LifecycleEventObserver { _, evento ->
-            if (evento == Lifecycle.Event.ON_STOP && arranque.esperando) {
+            if (evento == Lifecycle.Event.ON_STOP && arranque.waiting) {
                 Log.i(TAG, "the app went to background while waiting for the first frame: the wait is suspended")
-                arranque.suspender()
+                arranque.suspendWait()
             }
-            if (evento == Lifecycle.Event.ON_START && arranque.suspendida) {
+            if (evento == Lifecycle.Event.ON_START && arranque.isSuspended) {
                 Log.i(TAG, "the app came back: resuming the wait for the first frame")
-                arranque.retomar(SystemClock.elapsedRealtime())
+                arranque.resume(SystemClock.elapsedRealtime())
             }
         }
         lifecycleOwner.lifecycle.addObserver(observador)
@@ -244,9 +244,9 @@ internal fun DituExoPlayer(
                 // Si la intención cambia mientras se espera la imagen, no fue el arranque —que suelta
                 // ANTES de llamar a `play()`, así que acá ya no está esperando—: fue alguien más, la
                 // persona con play o pausa. Desde ahí el arranque no vuelve a tocar el reproductor.
-                if (arranque.esperando) {
+                if (arranque.waiting) {
                     Log.i(TAG, "play/pause while waiting for the first frame (playWhenReady=$playWhenReady): the person decides")
-                    arranque.laPersonaDecidio()
+                    arranque.personDecided()
                 }
                 espejo.updateWantsToPlay(playWhenReady)
             }
@@ -259,7 +259,7 @@ internal fun DituExoPlayer(
                 Log.i(TAG, "onRenderedFirstFrame · pos=${exoPlayer.currentPosition}ms")
                 onPrimeraImagen(true)
                 // Con la imagen ya en pantalla: audio e imagen empiezan juntos.
-                if (arranque.llegoLaImagen()) exoPlayer.play()
+                if (arranque.frameArrived()) exoPlayer.play()
             }
 
             override fun onPlayerError(error: PlaybackException) {
@@ -274,7 +274,7 @@ internal fun DituExoPlayer(
                     exoPlayer.prepare()
                     return
                 }
-                onError(error.errorCode, arranque.queriaReproducir(exoPlayer.playWhenReady))
+                onError(error.errorCode, arranque.wantedToPlay(exoPlayer.playWhenReady))
             }
         }
         exoPlayer.addListener(escucha)
@@ -297,8 +297,8 @@ internal fun DituExoPlayer(
             delay(500)
             // La salida de seguridad del arranque: sin imagen a tiempo, arranca igual. Va en este
             // reloj porque ya mira cada medio segundo.
-            if (arranque.vencio(SystemClock.elapsedRealtime())) {
-                Log.w(TAG, "no first frame within ${ESPERA_MAXIMA_DE_LA_PRIMERA_IMAGEN_MS}ms: starting anyway")
+            if (arranque.expired(SystemClock.elapsedRealtime())) {
+                Log.w(TAG, "no first frame within ${MAX_FIRST_FRAME_WAIT_MS}ms: starting anyway")
                 exoPlayer.play()
             }
             val dur = exoPlayer.duration

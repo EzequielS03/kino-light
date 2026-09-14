@@ -162,7 +162,7 @@ data class DituReproducible(
      * Si el reproductor arranca solo con la primera imagen. `false` es una recarga de algo que estaba
      * en pausa: por ejemplo, un video que se pausó al irse la app al fondo y falló allá. `PlayerScreen`
      * lee esto con `collectAsStateWithLifecycle`, así que ese reproductor nuevo se arma recién al
-     * volver, y no puede arrancar a sonar solo. Ver [ArranqueConLaPrimeraImagen.queriaReproducir].
+     * volver, y no puede arrancar a sonar solo. Ver [StartOnFirstFrame.wantedToPlay].
      */
     val arrancarSolo: Boolean = true,
     /**
