@@ -1,10 +1,11 @@
 package com.arkiv.player.data
 
 /**
- * Un título que se abrió desde el buscador, guardado para poder volver a él sin buscarlo de nuevo.
+ * A title opened from the search, saved so it can be returned to without searching it again.
  *
- * No se persiste el `TitleCard` de la UI: arrastra `overview` y `backdropUrl`, que el hero de la
- * fase RESULTS vuelve a pedir a TMDB/AniList igual. Ver `TitleCard.toRecent()` en CardContext.kt.
+ * The UI's `TitleCard` isn't persisted: it carries `overview` and `backdropUrl`, which the
+ * RESULTS phase's hero asks TMDB/AniList for again anyway. See `TitleCard.toRecent()` in
+ * CardContext.kt.
  */
 data class RecentTitle(
     val kind: String,
@@ -16,26 +17,27 @@ data class RecentTitle(
 )
 
 /**
- * Lo único del historial que SQLite no resuelve solo.
+ * The only thing about the history SQLite doesn't resolve on its own.
  *
- * Antes acá vivían el orden, el tope y el dedupe; ahora los hace la consulta
- * (`ORDER BY atMs DESC LIMIT`) y la PK con REPLACE. Ver [SearchHistoryRepo].
+ * The order, the cap, and the dedupe used to live here; now the query does them
+ * (`ORDER BY atMs DESC LIMIT`) and the PK with REPLACE. See [SearchHistoryRepo].
  */
 object SearchHistoryPolicy {
 
     const val MAX_QUERIES = 10
     const val MAX_TITLES = 12
 
-    /** Recorta el texto buscado. Devuelve null si no queda nada que valga la pena guardar. */
-    fun normalizeQuery(texto: String): String? = texto.trim().ifEmpty { null }
+    /** Trims the searched text. Returns null if nothing's left worth saving. */
+    fun normalizeQuery(text: String): String? = text.trim().ifEmpty { null }
 
     /**
-     * Id de identidad de un título, que es la PK de `recent_titles`.
+     * A title's identity id, which is `recent_titles`'s PK.
      *
-     * Por id de la fuente, no por nombre: hay series distintas que se llaman igual, y el mismo
-     * número puede ser una peli en TMDB y otra cosa en AniList — por eso el `kind` va adelante.
-     * Sin ningún id (no debería pasar, pero una fila vieja puede traerlo) cae al nombre en
-     * minúsculas, que es mejor que dar todo por distinto y llenar la lista de repetidos.
+     * By the source's id, not by name: there are different series with the same name, and the
+     * same number can be a movie in TMDB and something else in AniList -- that's why `kind` goes
+     * first. With no id at all (shouldn't happen, but an old row can carry one) it falls back to
+     * the lowercase name, which is better than treating everything as different and filling the
+     * list with duplicates.
      */
     fun titleId(kind: String, tmdbId: Int?, anilistId: Long?, title: String): String = when {
         tmdbId != null -> "$kind:tmdb-$tmdbId"

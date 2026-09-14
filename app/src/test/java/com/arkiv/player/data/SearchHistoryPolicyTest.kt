@@ -6,47 +6,47 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * Lo único del historial que SQLite no resuelve solo: normalizar el texto buscado y decidir
- * cuándo dos títulos son la misma obra. El orden, el tope y el dedupe los hace la consulta
- * (`ORDER BY atMs DESC LIMIT`) y la PK con REPLACE — ver [SearchHistoryRepo].
+ * The only thing about the history SQLite doesn't resolve on its own: normalizing the searched
+ * text and deciding when two titles are the same work. The order, the cap, and the dedupe are
+ * done by the query (`ORDER BY atMs DESC LIMIT`) and the PK with REPLACE -- see [SearchHistoryRepo].
  */
 class SearchHistoryPolicyTest {
 
-    @Test fun el_texto_se_guarda_recortado() {
+    @Test fun `the text is saved trimmed`() {
         assertEquals("dune", SearchHistoryPolicy.normalizeQuery("  dune  "))
     }
 
-    @Test fun un_texto_vacio_o_de_solo_espacios_no_se_guarda() {
+    @Test fun `empty or whitespace-only text isn't saved`() {
         assertNull(SearchHistoryPolicy.normalizeQuery(""))
         assertNull(SearchHistoryPolicy.normalizeQuery("   "))
     }
 
-    @Test fun el_texto_conserva_sus_mayusculas() {
-        // El dedupe sin mirar mayúsculas lo hace la consulta con lower(); lo que se GUARDA es
-        // lo que el usuario escribió, que es lo que va a ver en el chip.
+    @Test fun `the text keeps its capitalization`() {
+        // The case-insensitive dedupe is done by the query with lower(); what's SAVED is what
+        // the user typed, which is what shows up on the chip.
         assertEquals("One Piece", SearchHistoryPolicy.normalizeQuery("One Piece"))
     }
 
-    @Test fun la_identidad_de_un_titulo_sale_del_id_de_su_fuente() {
+    @Test fun `a title's identity comes from its source's id`() {
         assertEquals("series:tmdb-1399", SearchHistoryPolicy.titleId("series", 1399, null, "Game of Thrones"))
         assertEquals("anime:anilist-21", SearchHistoryPolicy.titleId("anime", null, 21L, "One Piece"))
     }
 
-    @Test fun dos_series_con_el_mismo_nombre_no_son_la_misma_obra() {
+    @Test fun `two series with the same name aren't the same work`() {
         assertNotEquals(
             SearchHistoryPolicy.titleId("series", 1399, null, "The Office"),
             SearchHistoryPolicy.titleId("series", 2316, null, "The Office"),
         )
     }
 
-    @Test fun una_peli_y_un_anime_con_el_mismo_numero_no_se_pisan() {
+    @Test fun `a movie and an anime with the same number don't collide`() {
         assertNotEquals(
             SearchHistoryPolicy.titleId("movie", 21, null, "Peli"),
             SearchHistoryPolicy.titleId("anime", null, 21L, "Anime"),
         )
     }
 
-    @Test fun sin_ningun_id_la_identidad_cae_al_nombre_en_minusculas() {
+    @Test fun `with no id at all identity falls back to the lowercase name`() {
         assertEquals("movie:n-dune", SearchHistoryPolicy.titleId("movie", null, null, "Dune"))
         assertEquals(
             SearchHistoryPolicy.titleId("movie", null, null, "Dune"),
@@ -54,7 +54,7 @@ class SearchHistoryPolicyTest {
         )
     }
 
-    @Test fun la_sobrecarga_de_RecentTitle_da_el_mismo_id() {
+    @Test fun `the RecentTitle overload gives the same id`() {
         val t = RecentTitle("series", 1399, null, "Game of Thrones", "", "2011")
         assertEquals(SearchHistoryPolicy.titleId("series", 1399, null, "Game of Thrones"), SearchHistoryPolicy.titleId(t))
     }
