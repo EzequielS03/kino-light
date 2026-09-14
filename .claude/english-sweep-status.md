@@ -9,16 +9,24 @@ English" line in `.claude/reglas.md`.
 Order chosen by the user: **módulo por módulo, de menor a mayor riesgo** (module by module,
 lowest to highest risk).
 
-## Overall completion: **`ui/` is 100% done.** Only `data/`'s three known gaps remain.
+## Overall completion: **`ui/` and `data/`'s three known gaps are both 100% done.**
 
 - `playback/`, `security/`, `dlna/`, `cast/`, `thumbnails/`: **100% done.**
 - `ui/` (159 main files across 14 subpackages, plus 6 top-level files, plus tests): **100% done.**
   `PlayerScreen.kt` (the single largest file in the entire codebase, ~4038 lines after translation)
   was the last file in the entire `ui/` tree — done and committed at `4e5ce086`.
-- `data/`: **~98% done** — three files left: `MagisEntities.kt`, `DituEntities.kt`, and
-  `LibraryGrouping.kt` (found in an earlier session — `LibraryGroup.nuevos` and other content still
-  Spanish; see below). **This is now the only work left in the entire sweep**, plus the deferred
-  `MagisFuente`/`DituFuente` class-name revisit (exception f).
+- `data/`'s three known gaps — `MagisEntities.kt` (`791a5988`), `DituEntities.kt` (`a2a1d073`),
+  `LibraryGrouping.kt` (`5900c67d`) — are **all done.**
+- **Newly discovered while closing those three** (same pattern as before: a package declared
+  "done" that wasn't actually swept file-by-file) — **`data/nuevos/` is a whole small package
+  that was never touched**: `BuscadorDeCapitulos.kt` (mixed English/Spanish — its KDoc had
+  already been partly translated by ripple work, but its own identifiers/locals are still
+  Spanish) and `SeriesPorRevisar.kt` (fully Spanish) need a real pass; `MissingChapters.kt` and
+  `NewEpisodeCounter.kt` in the same package are already fully English (0 accented-char hits).
+  Also **`data/gateway/ReparacionDeMagis.kt`** (fully Spanish, one file, not part of the original
+  three) was found the same way. These are the next items — see "Next steps" below.
+- The deferred `MagisFuente`/`DituFuente` class-name revisit (exception f) is still outstanding
+  after these.
 
 ## Hard-won lesson this session: bare-name imports break silently after a rename
 
@@ -34,37 +42,54 @@ the change was large.**
 
 ## What's fully done and committed (verified: compiles, full suite green at 1704/0/0/0)
 
-### `data/` — 98% done
+### `data/` — the three known gaps are now DONE
 
-Every package is translated and verified EXCEPT:
+- **`data/MagisEntities.kt`** (commit `791a5988`) — `CapituloDeTemporada` → `SeasonChapter`;
+  `itemIdDe`→`itemIdFor`, `idLegacyDeCapitulo`→`legacyChapterId`, `episodioIdDe`→`episodeIdFor`,
+  `episodioIdDePelicula`→`movieEpisodeId`, `capituloDe`→`chapterEntity` (private),
+  `refParaReparar`→`refToRepair`, `stillsDeTemporada`→`seasonStills`,
+  `nombreCanonico`→`canonicalTitle` (private); locals `capitulos`→`chapters`, `ahora`→`now`,
+  `existente`→`existing`, `esCapitulo`→`isChapter`. `episodiosVistosEnLista`/`tituloCanonico`/`tipo`
+  kept as-is throughout (including as function *parameter* names, not just entity fields) since
+  they're literal SQL column names on `ItemEntity` — decided to keep the parameter name matching
+  the frozen field it feeds, to avoid adding a translation seam with zero benefit. Rippled into
+  `ArkivRepository.kt`, `RecommendationSaving.kt`, `SearchPlayback.kt`, `ReparacionDeMagis.kt`
+  (minimal, not yet processed itself — see below), `MagisEntitiesTest.kt` (full rewrite, Spanish
+  snake_case test names → English backtick names, matching the rest of the sweep).
+- **`data/DituEntities.kt`** (commit `a2a1d073`) — `CapituloDeCaracol`→`CaracolChapter`,
+  `SerieDeCaracol`→`CaracolSeries` (`episodios`→`episodes`, `idDelElegido`→`chosenId`); every
+  function renamed in parallel with Magis's (`itemIdFor`/`episodeIdFor`/`movieEpisodeId`/
+  `chapterEpisodeId`/`savedSeason`/`seasonForChapter`/`caracolChapter`/`chapterId`/
+  `itemContentId`/`buildSeries`/`saveableChapters`/`chosenAmong`, plus private `itemFor`/
+  `chapterEntity`); `ORDEN_POR_TEMPORADA`→`ORDER_PER_SEASON`. Much larger ripple than Magis's:
+  `ArkivRepository.kt`, `SearchPlayback.kt`, `RecommendationSaving.kt`,
+  `RecommendationAggregator.kt`, `BuscadorDeCapitulos.kt` (minimal, not yet processed — see
+  below), plus six test files including a full rewrite of `DituEntitiesTest.kt` and renaming
+  `TemporadaDelCapituloTest.kt`→`SeasonForChapterTest.kt` (class + body translated).
+- **`data/LibraryGrouping.kt`** (commit `5900c67d`) — mostly already-English identifiers
+  (`groupKeyOf`/`group`/`resolveMembers`/`shouldRefetchArtwork`/`groupsFlow`) with dense Spanish
+  KDoc, now fully translated. The one real rename: `LibraryGroup.nuevos`→`newEpisodes`, rippled
+  into its sole caller `TvLibraryScreen.kt`. Two test files: `LibraryGroupingNuevosTest.kt`→
+  `LibraryGroupingNewEpisodesTest.kt` (renamed + translated) and the much larger
+  `LibraryGroupingTest.kt` (fully Spanish test names/locals, rewritten in full).
 
-- **`data/MagisEntities.kt`** (330 lines) — one Spanish data class (`CapituloDeTemporada`) plus
-  pervasive Spanish locals/params/KDoc throughout `itemIdDe`, `idLegacyDeCapitulo`, `episodioIdDe`,
-  `episodioIdDePelicula`, `capituloDe`, `refParaReparar`, `buildSeason`, `stillsDeTemporada`,
-  `build`, `nombreCanonico`. Business-critical (chapter/item id derivation for every Magis save
-  path) — needs the same careful read-grep-rename-ripple-verify treatment as the original
-  `data/magis/` sweep. External ripple confirmed needed into: `SearchPlayback.kt`,
-  `RecommendationSaving.kt`, `ReparacionDeMagis.kt` (gateway package), `MagisEntitiesTest.kt`.
-  **`episodiosVistosEnLista`-style Room bare columns still apply** if this file constructs
-  `ItemEntity`/`EpisodeEntity` — check which locals feed literal column-bound properties before
-  renaming.
-- **`data/DituEntities.kt`** (~450 lines, similar density expected) — at least two Spanish data
-  classes (`CapituloDeCaracol`, `SerieDeCaracol`). Ripple confirmed into `DituEntitiesTest.kt` and
-  `ArkivRepository.kt`. Not yet read in full — do that first.
+All three were **missed by the earlier "data/ complete" declaration** (caught mid-`ui/`-sweep
+while rippling an unrelated rename into `ArkivRepository.kt`). **Lesson, reconfirmed a third
+time: a package being "done" needs a final broad grep across every top-level file in it, not
+just the subpackages that were the original focus.**
 
-Both were **missed by the earlier "data/ complete" declaration** (caught this session while
-rippling an unrelated rename into `ArkivRepository.kt`, which called `PorDondeVas`/`NumeracionCodificada`,
-themselves also missed top-level `data/*.kt` files that got fixed this session — see commits
-`6eb17c8f` and the `ChapterLabel`/`ScreenFormat`/`EncodedNumbering` batch). **Lesson: a package
-being "done" needs a final broad grep across every top-level file in it, not just the subpackages
-that were the original focus** — these two were sitting in plain sight the whole time.
+**New gaps discovered while closing these three** (same pattern, found by grepping every file
+these three touched via ripple comments): `data/nuevos/` package (`BuscadorDeCapitulos.kt`,
+`SeriesPorRevisar.kt` — still Spanish; `MissingChapters.kt`/`NewEpisodeCounter.kt` already fully
+English) and `data/gateway/ReparacionDeMagis.kt` (fully Spanish, one file). Not yet started — see
+"Next steps".
 
 Everything else in `data/` (all subpackages, `data/local/`, `data/magis/`, `data/ditu/`,
 `data/db/`, `ArkivRepository.kt`, `ContinueWatchingRule.kt` (was `PorDondeVas.kt`),
 `StillMerge.kt` (was `MezclaDeStills.kt`), `EncodedNumbering.kt` (was `NumeracionCodificada.kt`),
 `EpisodeNavigation.kt`, `WatchedThreshold.kt`) is translated and verified. See git log for the
 full commit trail (`data/db/` through `ArkivRepository.kt` finishing at `c805220c`, then the gap
-closures at `cad8b4af` and `6eb17c8f`).
+closures at `cad8b4af`, `6eb17c8f`, and now `791a5988`/`a2a1d073`/`5900c67d`).
 
 ### `ui/` — fully done packages
 
@@ -445,14 +470,25 @@ f. Two `ContentSource` implementations — **`MagisFuente`** and **`DituFuente`*
 
 ## Next steps
 
-**`ui/` is entirely done as of `4e5ce086` (`PlayerScreen.kt`). Everything below is what's left in
-the whole sweep.**
+**`ui/` is entirely done as of `4e5ce086` (`PlayerScreen.kt`), and the three original `data/` gaps
+are done as of `791a5988`/`a2a1d073`/`5900c67d`. Everything below is what's left in the whole
+sweep.**
 
-1. Close the three remaining `data/` gaps (`MagisEntities.kt`, `DituEntities.kt`,
-   `LibraryGrouping.kt`) with the same careful read-grep-rename-ripple-verify treatment as the
-   original `data/magis/`/`data/ditu/` sweeps. See the `data/` section above for exact scope
-   (Spanish data classes, function names, and the confirmed external ripple targets for each file).
-2. Then revisit whether `MagisFuente`/`DituFuente` class names are now cheap enough to rename too
+1. Translate the newly-discovered `data/nuevos/` package gaps: `BuscadorDeCapitulos.kt` (mixed —
+   its KDoc is already partly English from ripple work, but `TAG`/locals/some function names are
+   still Spanish; read it in full before touching anything, it's already been edited several times
+   this sweep with minimal targeted fixes for `MagisEntities`/`DituEntities` renames) and
+   `SeriesPorRevisar.kt` (fully Spanish, smaller). `MissingChapters.kt` and `NewEpisodeCounter.kt`
+   in the same package are already fully English, confirmed via accented-character grep — no work
+   needed there. Consider whether the package name `data.nuevos` itself should become something
+   like `data.newchapters` — check the blast radius first (it's referenced by package-qualified
+   name in several places, e.g. `com.arkiv.player.data.nuevos.NewEpisodeCounter`).
+2. Translate `data/gateway/ReparacionDeMagis.kt` (fully Spanish, one file, found the same way).
+   Check for other not-yet-swept top-level files in `data/gateway/` while there — `ContentSource.kt`
+   and `FuenteCompuesta.kt` are known already translated (per exception f's note), but a fresh grep
+   across the whole subpackage before declaring it done would catch anything else missed, given the
+   pattern has now repeated three separate times in this sweep.
+3. Then revisit whether `MagisFuente`/`DituFuente` class names are now cheap enough to rename too
    (exception f above) — now that literally everything else is done, this is the last deferred item.
 3. **Whenever a bare top-level `fun`/`val` gets renamed** (not a class/object member), grep
    separately for `^import .*\.<oldName>$` — a call-site-anchored sed pattern will not catch a bare
