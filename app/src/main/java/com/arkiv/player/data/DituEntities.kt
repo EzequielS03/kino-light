@@ -10,7 +10,7 @@ import com.arkiv.player.data.gateway.GatewaySerie
 /**
  * Un capítulo de una serie de Caracol, tal como lo necesita [DituEntities].
  *
- * Modelo propio y no `GatewayEpisode`, por lo mismo que [CapituloDeTemporada] en Magis: esto es
+ * Modelo propio y no `GatewayEpisode`, por lo mismo que [SeasonChapter] en Magis: esto es
  * puro/JVM y no depende del paquete `gateway`. El llamador mapea uno al otro.
  *
  * [season] es la del propio capítulo (en un `GROUP_OF_BUNDLES`, la de su bundle); null = no se
@@ -157,7 +157,7 @@ object DituEntities {
      * [season] nunca queda en null en un capítulo: sin temporada va a la 1, que es la misma regla con
      * la que `DituEpisodes` lee un capítulo que no la trae. Un capítulo en null entre otros con
      * temporada haría que `ArkivRepository.ensureEpisodeStills` aplanara desde la T1 (ver el KDoc de
-     * `MagisEntities.capituloDe`).
+     * `MagisEntities.chapterEntity`).
      *
      * El `orderIndex` de la T2 en adelante va corrido [ORDEN_POR_TEMPORADA] por temporada: la
      * biblioteca ordena por `orderIndex` (`ItemDao.getEpisodesOf`), y con el número pelado los
@@ -314,7 +314,7 @@ object DituEntities {
     /**
      * El episodio de UN capítulo. Lo comparten [build] y [buildSerie] a propósito: el `id` es la
      * clave primaria, así que si los dos caminos no lo armaran idéntico, guardar la serie duplicaría
-     * el capítulo que ya estaba guardado suelto. Mismo cuidado que `MagisEntities.capituloDe`.
+     * el capítulo que ya estaba guardado suelto. Mismo cuidado que `MagisEntities.chapterEntity`.
      */
     private fun capituloDe(itemId: String, capitulo: CapituloDeCaracol): EpisodeEntity {
         val temporada = temporadaGuardada(capitulo.season)

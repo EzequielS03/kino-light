@@ -161,7 +161,7 @@ class RecommendationSavingTest {
 
     @Test fun `the saved item is the source's`() {
         assertEquals(
-            com.arkiv.player.data.MagisEntities.itemIdDe("C42"),
+            com.arkiv.player.data.MagisEntities.itemIdFor("C42"),
             RecommendationSaving.itemIdFor(RecommendationTarget.Magis("C42")),
         )
         assertEquals(

@@ -43,7 +43,7 @@ object ChapterLabel {
         // orderIndex doesn't mean the same thing for every source: archive.org and torrent packs
         // (both removed from this branch; this only matters for legacy rows saved before the
         // pruning) distributed it with mapIndexed (0..N-1), but Magis stores the chapter number
-        // as-is (`MagisEntities.capituloDe`: `orderIndex = number`). Adding one to a Magis item
+        // as-is (`MagisEntities.chapterEntity`: `orderIndex = number`). Adding one to a Magis item
         // shifted the whole chapter: Dragon Ball's e126 showed up as "E127" in the home hero, in
         // the detail screen and on the "Play" button. Chapters saved by the current version carry
         // `episode` and take the branch above without reaching here; the old ones have it null

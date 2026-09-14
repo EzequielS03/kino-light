@@ -69,7 +69,7 @@ class BuscadorDeCapitulos(
      * `GatewaySerie`. Esto último no es cosmético — es lo que evita el bug que originó este bloque de
      * parámetros: un capítulo agregado sin `season` deja el ítem con episodios mezclados (unos con
      * temporada puesta, otros no) y `ArkivRepository.ensureEpisodeStills` cae a su rama de aplanar
-     * (ver el KDoc de `MagisEntities.capituloDe`), pisando en silencio los stills correctos de toda
+     * (ver el KDoc de `MagisEntities.chapterEntity`), pisando en silencio los stills correctos de toda
      * la temporada. Si el gateway no pudo resolver TMDB (`GatewaySerie` null), todo esto sale null y
      * el capítulo se guarda exactamente como antes: con lo del portal, sin fila de still.
      */

@@ -1,6 +1,6 @@
 package com.arkiv.player.data.recomendaciones
 
-import com.arkiv.player.data.CapituloDeTemporada
+import com.arkiv.player.data.SeasonChapter
 import com.arkiv.player.data.db.RecomendacionEntity
 import com.arkiv.player.data.gateway.GatewayEpisode
 import com.arkiv.player.data.gateway.GatewaySerie
@@ -14,7 +14,7 @@ import com.arkiv.player.data.gateway.GatewaySerie
  * against whatever was already in the database instead of overwriting it.
  */
 data class RecommendationSeason(
-    val chapters: List<CapituloDeTemporada>,
+    val chapters: List<SeasonChapter>,
     val tmdbId: Int?,
     val seasonNumber: Int?,
 )
@@ -74,7 +74,7 @@ object RecommendationSaving {
 
     /** The id of the item left in the library: the same one the search for that source builds. */
     internal fun itemIdFor(target: RecommendationTarget): String = when (target) {
-        is RecommendationTarget.Magis -> com.arkiv.player.data.MagisEntities.itemIdDe(target.contentId)
+        is RecommendationTarget.Magis -> com.arkiv.player.data.MagisEntities.itemIdFor(target.contentId)
         is RecommendationTarget.Caracol -> com.arkiv.player.data.DituEntities.itemIdDe(target.contentId)
     }
 
@@ -97,7 +97,7 @@ object RecommendationSaving {
         if (chapters.isEmpty()) return null
         return RecommendationSeason(
             chapters = chapters.map {
-                CapituloDeTemporada(
+                SeasonChapter(
                     number = it.number,
                     title = it.title,
                     ref = it.ref,

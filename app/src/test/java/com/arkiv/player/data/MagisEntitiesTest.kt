@@ -7,173 +7,173 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * Cómo se guarda lo que llega de Magis.
+ * How what arrives from Magis gets saved.
  *
- * El caso que originó estos tests: se vio el capítulo 1 de "Dragon Ball Daima" y la tarjeta salió
- * en la fila **Películas** del home. Magis era el único camino de "guardar un capítulo" que no
- * forzaba `categoryOverride = "series"` —y además creaba un ítem por capítulo (`magis:<id>:e1`)—,
- * así que la detección automática (`episodeCount <= 1` en `LibraryRow.isMovie`) lo leía como
- * película. Los tests de abajo fijan las dos mitades del contrato: **un ítem por temporada** y
- * **marcado como serie desde el primer capítulo**.
+ * The case that started these tests: chapter 1 of "Dragon Ball Daima" was watched and the card
+ * came out in the home's **Movies** row. Magis was the only "save a chapter" path that didn't
+ * force `categoryOverride = "series"` -- and it also created one item per chapter
+ * (`magis:<id>:e1`) -- so the automatic detection (`episodeCount <= 1` in `LibraryRow.isMovie`)
+ * read it as a movie. The tests below pin down the two halves of the contract: **one item per
+ * season** and **marked as series from the first chapter**.
  */
 class MagisEntitiesTest {
 
-    private fun capitulo(
+    private fun chapter(
         contentId: String = "ABC",
         ref: String = "ref-cap",
         title: String = "Dragon Ball Daima T1",
         episode: Int = 1,
         episodeTitle: String = "",
         seriesRef: String = "ref-temporada",
-        existente: ItemEntity? = null,
+        existing: ItemEntity? = null,
         season: Int? = null,
         tmdbId: Int? = null,
     ) = MagisEntities.build(
         contentId = contentId, ref = ref, title = title, episode = episode,
-        episodeTitle = episodeTitle, posterUrl = "poster.jpg", ahora = 1_000L,
-        seriesRef = seriesRef, existente = existente, season = season, tmdbId = tmdbId,
+        episodeTitle = episodeTitle, posterUrl = "poster.jpg", now = 1_000L,
+        seriesRef = seriesRef, existing = existing, season = season, tmdbId = tmdbId,
     )
 
-    @Test fun un_capitulo_marca_el_item_como_serie() {
-        // El corazón del bug: sin esto, un ítem de un solo episodio cae en Películas.
-        val (item, _) = capitulo()
+    @Test fun `a chapter marks the item as series`() {
+        // The heart of the bug: without this, a single-episode item falls into Movies.
+        val (item, _) = chapter()
         assertEquals("series", item.categoryOverride)
     }
 
-    @Test fun el_item_de_un_capitulo_es_la_temporada_no_el_capitulo() {
-        val (item, ep) = capitulo(episode = 1)
+    @Test fun `a chapter's item is the season, not the chapter`() {
+        val (item, ep) = chapter(episode = 1)
         assertEquals("magis:ABC", item.identifier)
         assertEquals("magis:ABC", ep.itemId)
     }
 
-    @Test fun dos_capitulos_de_la_misma_temporada_caen_en_UN_solo_item() {
-        // Lo que hacía que cada capítulo fuera su propia tarjeta en el home.
-        val (item1, ep1) = capitulo(episode = 1)
-        val (item2, ep2) = capitulo(episode = 2)
+    @Test fun `two chapters of the same season land in ONE single item`() {
+        // What used to make each chapter its own card in the home screen.
+        val (item1, ep1) = chapter(episode = 1)
+        val (item2, ep2) = chapter(episode = 2)
         assertEquals(item1.identifier, item2.identifier)
         assertNotEquals(ep1.id, ep2.id)
     }
 
-    @Test fun el_capitulo_queda_numerado_para_que_se_sepa_cual_falta() {
-        // `BuscadorDeCapitulos` compara estos números contra los del portal; sin ellos no puede
-        // saber qué capítulo bajar.
-        val (_, ep) = capitulo(episode = 7)
+    @Test fun `the chapter is numbered so it's known which one is missing`() {
+        // `BuscadorDeCapitulos` compares these numbers against the portal's; without them it can't
+        // know which chapter to download.
+        val (_, ep) = chapter(episode = 7)
         assertEquals(7, ep.episode)
         assertEquals(7, ep.orderIndex)
     }
 
-    @Test fun el_ref_del_capitulo_viaja_en_el_capitulo() {
-        // Es lo que el player resuelve al reproducir (`magisRefForEpisode`).
-        val (_, ep) = capitulo(ref = "ref-del-cap-3", episode = 3)
+    @Test fun `the chapter's ref travels on the chapter`() {
+        // It's what the player resolves on playback (`magisRefForEpisode`).
+        val (_, ep) = chapter(ref = "ref-del-cap-3", episode = 3)
         assertEquals("ref-del-cap-3", ep.torrentData)
     }
 
-    @Test fun el_ref_de_la_temporada_viaja_en_el_item() {
-        // El ítem representa la TEMPORADA: su ref es el que sirve para pedir la lista de capítulos,
-        // no el del capítulo que se acaba de ver.
-        val (item, _) = capitulo(ref = "ref-del-cap", seriesRef = "ref-de-la-temporada")
+    @Test fun `the season's ref travels on the item`() {
+        // The item represents the SEASON: its ref is the one used to ask for the chapter list,
+        // not the one for the chapter that was just watched.
+        val (item, _) = chapter(ref = "ref-del-cap", seriesRef = "ref-de-la-temporada")
         assertEquals("ref-de-la-temporada", item.torrentData)
     }
 
-    @Test fun sin_ref_de_temporada_no_se_pisa_el_que_ya_estaba() {
-        // Los refs caducan y se re-emiten; uno en blanco nunca debe borrar uno bueno.
-        val previo = capitulo(seriesRef = "ref-buena").first
-        val (item, _) = capitulo(seriesRef = "", existente = previo)
+    @Test fun `without a season ref, the one already there isn't overwritten`() {
+        // Refs expire and get re-issued; a blank one must never erase a good one.
+        val previous = chapter(seriesRef = "ref-buena").first
+        val (item, _) = chapter(seriesRef = "", existing = previous)
         assertEquals("ref-buena", item.torrentData)
     }
 
-    @Test fun un_capitulo_nuevo_no_reinicia_la_serie() {
-        // upsertItem es REPLACE (borra e inserta), así que lo que no se copie acá se pierde: la
-        // fecha de alta reordenaría el home y `episodiosVistosEnLista` volvería a prender el badge
-        // de novedades sobre capítulos ya mirados.
-        val previo = ItemEntity(
+    @Test fun `a new chapter doesn't reset the series`() {
+        // upsertItem is REPLACE (delete then insert), so anything not copied here is lost: the
+        // added date would reorder the home screen and `episodiosVistosEnLista` would turn the
+        // new-episodes badge back on over chapters already watched.
+        val previous = ItemEntity(
             identifier = "magis:ABC", title = "Dragon Ball Daima T1", description = null,
             thumbnailUrl = "poster.jpg", addedAt = 500L, categoryOverride = "series",
             source = "magis", torrentData = "ref-temporada", episodiosVistosEnLista = 4, tmdbId = 123,
         )
-        val (item, _) = capitulo(episode = 5, existente = previo)
+        val (item, _) = chapter(episode = 5, existing = previous)
         assertEquals(500L, item.addedAt)
         assertEquals(4, item.episodiosVistosEnLista)
         assertEquals(123, item.tmdbId)
     }
 
-    @Test fun una_pelicula_sigue_siendo_pelicula() {
-        // episode = 0 es el camino de siempre y no se toca: sin override, un episodio, id sin :e.
-        val (item, ep) = capitulo(title = "Duro de matar", episode = 0, seriesRef = "")
+    @Test fun `a movie is still a movie`() {
+        // episode = 0 is the path it always was, untouched: no override, one episode, an id with no :e.
+        val (item, ep) = chapter(title = "Duro de matar", episode = 0, seriesRef = "")
         assertEquals("magis:ABC", item.identifier)
         assertNull(item.categoryOverride)
         assertEquals("magis:ABC::0", ep.id)
     }
 
-    @Test fun un_capitulo_suelto_queda_tipado_como_tv() {
-        // Para que `library_items` (PocketBase) sepa con exactitud que esto es una serie, no por
-        // título difuso -- ver el KDoc de ItemEntity.tipo.
-        val (item, _) = capitulo(episode = 3)
+    @Test fun `a standalone chapter is typed as tv`() {
+        // So `library_items` (PocketBase) knows for certain this is a series, not by fuzzy title
+        // -- see ItemEntity.tipo's KDoc.
+        val (item, _) = chapter(episode = 3)
         assertEquals("tv", item.tipo)
     }
 
-    @Test fun una_pelicula_suelta_queda_tipada_como_movie() {
-        val (item, _) = capitulo(episode = 0)
+    @Test fun `a standalone movie is typed as movie`() {
+        val (item, _) = chapter(episode = 0)
         assertEquals("movie", item.tipo)
     }
 
-    @Test fun el_id_viejo_de_un_capitulo_se_puede_reconocer_para_barrerlo() {
-        // Las filas guardadas antes de este cambio quedaron como `magis:<contentId>:e<n>`, o sea una
-        // tarjeta-película por capítulo. Se borran al volver a guardar ese mismo capítulo.
-        assertEquals("magis:ABC:e1", MagisEntities.idLegacyDeCapitulo("ABC", 1))
+    @Test fun `a chapter's old id can be recognized to sweep it`() {
+        // Rows saved before this change were left as `magis:<contentId>:e<n>`, i.e. one
+        // movie-card per chapter. They get deleted when that same chapter is saved again.
+        assertEquals("magis:ABC:e1", MagisEntities.legacyChapterId("ABC", 1))
     }
 
-    @Test fun un_capitulo_agregado_suelto_puede_llevar_su_temporada_real() {
-        // El camino de `BuscadorDeCapitulos.revisarMagis`: agrega un capítulo nuevo en background y,
-        // si el gateway resolvió TMDB, ya sabe la temporada real. Sin esto, ese capítulo quedaría
-        // con `season = null` mezclado con los que sí la tienen, y `ensureEpisodeStills` aplanaría
-        // toda la temporada en vez de cruzar por (temporada, capítulo) exacto (ver el KDoc de
-        // `capituloDe`).
-        val (_, ep) = capitulo(episode = 8, season = 5)
+    @Test fun `a standalone added chapter can carry its real season`() {
+        // `BuscadorDeCapitulos.revisarMagis`'s path: adds a new chapter in the background and, if
+        // the gateway resolved TMDB, already knows the real season. Without this, that chapter
+        // would be left with `season = null` mixed in with ones that do have it, and
+        // `ensureEpisodeStills` would flatten the whole season instead of cross-referencing by
+        // exact (season, chapter) (see `chapterEntity`'s KDoc).
+        val (_, ep) = chapter(episode = 8, season = 5)
         assertEquals(5, ep.season)
     }
 
-    @Test fun un_capitulo_suelto_sin_temporada_resuelta_no_inventa_una() {
-        // El gateway no siempre pudo cruzar contra TMDB (`GatewaySerie` null): ahí no hay
-        // temporada que guardar, y no se inventa una.
-        val (_, ep) = capitulo()
+    @Test fun `a standalone chapter with no resolved season doesn't invent one`() {
+        // The gateway couldn't always cross-reference against TMDB (`GatewaySerie` null): then
+        // there's no season to save, and none is invented.
+        val (_, ep) = chapter()
         assertNull(ep.season)
     }
 
-    @Test fun el_tmdbId_de_un_capitulo_suelto_nuevo_manda_pero_uno_ausente_no_borra_el_que_ya_estaba() {
-        // Mismo contrato que `buildSeason` (ver ese test más abajo), pero para el camino de un
-        // capítulo agregado suelto.
-        val previo = capitulo().first.copy(tmdbId = 123)
-        assertEquals(456, capitulo(existente = previo, tmdbId = 456).first.tmdbId)
-        assertEquals(123, capitulo(existente = previo).first.tmdbId)
+    @Test fun `a new standalone chapter's tmdbId wins but an absent one doesn't erase what was already there`() {
+        // Same contract as `buildSeason` (see that test below), but for the standalone
+        // added-chapter path.
+        val previous = chapter().first.copy(tmdbId = 123)
+        assertEquals(456, chapter(existing = previous, tmdbId = 456).first.tmdbId)
+        assertEquals(123, chapter(existing = previous).first.tmdbId)
     }
 
-    private fun temporada(
+    private fun season(
         contentId: String = "ABC",
         title: String = "Dragon Ball Daima T1",
-        capitulos: List<CapituloDeTemporada> = listOf(
-            CapituloDeTemporada(1, "El misterio", "ref-1"),
-            CapituloDeTemporada(2, "El deseo", "ref-2"),
-            CapituloDeTemporada(3, "La aventura", "ref-3"),
+        chapters: List<SeasonChapter> = listOf(
+            SeasonChapter(1, "El misterio", "ref-1"),
+            SeasonChapter(2, "El deseo", "ref-2"),
+            SeasonChapter(3, "La aventura", "ref-3"),
         ),
         seriesRef: String = "ref-temporada",
-        existente: ItemEntity? = null,
-        // Null por default: en la app real lo calcula `ArkivRepository.addMagisSeason` contra la
-        // base (see NewEpisodeCounter.reseal) y se lo pasa ya resuelto. Acá, sin DB, cada test que
-        // le importe el badge lo fija a mano.
+        existing: ItemEntity? = null,
+        // Null by default: in the real app `ArkivRepository.addMagisSeason` computes it against
+        // the database (see NewEpisodeCounter.reseal) and passes it in already resolved. Here,
+        // with no DB, each test that cares about the badge sets it by hand.
         episodiosVistosEnLista: Int? = null,
         tmdbId: Int? = null,
         seasonNumber: Int? = null,
         tituloCanonico: String? = null,
     ) = MagisEntities.buildSeason(
-        contentId = contentId, title = title, capitulos = capitulos,
-        posterUrl = "poster.jpg", ahora = 1_000L, seriesRef = seriesRef, existente = existente,
+        contentId = contentId, title = title, chapters = chapters,
+        posterUrl = "poster.jpg", now = 1_000L, seriesRef = seriesRef, existing = existing,
         episodiosVistosEnLista = episodiosVistosEnLista, tmdbId = tmdbId, seasonNumber = seasonNumber,
         tituloCanonico = tituloCanonico,
     )
 
-    @Test fun la_temporada_entra_como_UN_item_con_todos_sus_capitulos() {
-        val (item, eps) = temporada()
+    @Test fun `the season comes in as ONE item with all its chapters`() {
+        val (item, eps) = season()
         assertEquals("magis:ABC", item.identifier)
         assertEquals("series", item.categoryOverride)
         assertEquals(listOf("magis:ABC::e1", "magis:ABC::e2", "magis:ABC::e3"), eps.map { it.id })
@@ -182,21 +182,21 @@ class MagisEntitiesTest {
         assertEquals(listOf("ref-1", "ref-2", "ref-3"), eps.map { it.torrentData })
     }
 
-    @Test fun un_capitulo_de_la_temporada_sale_igual_que_guardado_de_a_uno() {
-        // Si divergieran, guardar la temporada duplicaría los capítulos que ya estaban sueltos:
-        // el id es la clave primaria y `upsert` es REPLACE, así que TIENE que coincidir.
-        val (_, suelto) = capitulo(episode = 2, ref = "ref-2", episodeTitle = "El deseo")
-        val dentro = temporada().second.first { it.episode == 2 }
-        assertEquals(suelto.id, dentro.id)
-        assertEquals(suelto.displayName, dentro.displayName)
-        assertEquals(suelto.itemId, dentro.itemId)
+    @Test fun `a season's chapter comes out the same as saved one at a time`() {
+        // If they diverged, saving the season would duplicate chapters that were already
+        // standalone: the id is the primary key and `upsert` is REPLACE, so it HAS to match.
+        val (_, standalone) = chapter(episode = 2, ref = "ref-2", episodeTitle = "El deseo")
+        val inSeason = season().second.first { it.episode == 2 }
+        assertEquals(standalone.id, inSeason.id)
+        assertEquals(standalone.displayName, inSeason.displayName)
+        assertEquals(standalone.itemId, inSeason.itemId)
     }
 
-    @Test fun guardar_la_temporada_otra_vez_no_duplica_ni_reordena_el_home() {
-        // Esto corre en CADA reproducción: si moviera `addedAt`, la serie saltaría al principio del
-        // home cada vez que le das play a un capítulo.
-        val previo = temporada().first.copy(addedAt = 500L, episodiosVistosEnLista = 4, tmdbId = 123)
-        val (item, eps) = temporada(existente = previo, episodiosVistosEnLista = 4)
+    @Test fun `saving the season again doesn't duplicate or reorder the home screen`() {
+        // This runs on EVERY playback: if it moved `addedAt`, the series would jump to the top of
+        // the home screen every time a chapter is played.
+        val previous = season().first.copy(addedAt = 500L, episodiosVistosEnLista = 4, tmdbId = 123)
+        val (item, eps) = season(existing = previous, episodiosVistosEnLista = 4)
         assertEquals(500L, item.addedAt)
         assertEquals(4, item.episodiosVistosEnLista)
         assertEquals(123, item.tmdbId)
@@ -204,135 +204,136 @@ class MagisEntitiesTest {
         assertEquals(3, eps.map { it.id }.distinct().size)
     }
 
-    @Test fun el_badge_lo_deja_buildSeason_en_lo_que_le_pasan_no_en_lo_que_tenia_el_existente() {
-        // Antes `buildSeason` copiaba `existente?.episodiosVistosEnLista` sin tocar, y el
-        // repositorio lo corregía después con un segundo UPDATE (`markEpisodesSeen`) -- la
-        // segunda escritura que hacía recursar el trigger de sync si caía en el mismo segundo que
-        // el `upsertItem`. Ahora quien llama (el repositorio, que sí tiene la base para calcular la
-        // unión) ya le pasa el total re-sellado, y `buildSeason` solo lo guarda: si acá adentro
-        // volviera a leer `existente.episodiosVistosEnLista` en vez del parámetro, este test lo
-        // agarraría (dejaría 4, no 9).
-        val previo = temporada().first.copy(episodiosVistosEnLista = 4)
-        val (item, _) = temporada(existente = previo, episodiosVistosEnLista = 9)
+    @Test fun `buildSeason leaves the badge at what it's given, not at what the existing row had`() {
+        // `buildSeason` used to copy `existing?.episodiosVistosEnLista` untouched, and the
+        // repository would fix it afterward with a second UPDATE (`markEpisodesSeen`) -- the
+        // second write that made the sync trigger recurse if it landed in the same second as the
+        // `upsertItem`. Now the caller (the repository, which does have the database to compute
+        // the union) already passes in the re-sealed total, and `buildSeason` only saves it: if
+        // this went back to reading `existing.episodiosVistosEnLista` instead of the parameter in
+        // here, this test would catch it (it would leave 4, not 9).
+        val previous = season().first.copy(episodiosVistosEnLista = 4)
+        val (item, _) = season(existing = previous, episodiosVistosEnLista = 9)
         assertEquals(9, item.episodiosVistosEnLista)
     }
 
-    @Test fun el_badge_sigue_null_si_nunca_se_habia_sellado() {
-        // `NewEpisodeCounter.reseal` devuelve null cuando `vistos` es null (nunca se abrió el
-        // detalle): sellarlo acá prendería el badge de novedades sobre capítulos que en realidad
-        // nunca se mostraron como "nuevos". `buildSeason` no debe inventar un valor por su cuenta.
-        val previo = temporada().first.copy(episodiosVistosEnLista = null)
-        val (item, _) = temporada(existente = previo, episodiosVistosEnLista = null)
+    @Test fun `the badge stays null if it had never been sealed`() {
+        // `NewEpisodeCounter.reseal` returns null when `watched` is null (the detail screen was
+        // never opened): sealing it here would turn on the new-episodes badge over chapters that
+        // were never actually shown as "new". `buildSeason` must not invent a value on its own.
+        val previous = season().first.copy(episodiosVistosEnLista = null)
+        val (item, _) = season(existing = previous, episodiosVistosEnLista = null)
         assertNull(item.episodiosVistosEnLista)
     }
 
-    @Test fun el_ref_de_la_temporada_manda_y_en_blanco_no_pisa_el_guardado() {
-        // Los refs caducan y se re-emiten; uno en blanco nunca debe borrar uno bueno.
-        assertEquals("ref-temporada", temporada().first.torrentData)
-        val previo = temporada(seriesRef = "ref-buena").first
-        assertEquals("ref-buena", temporada(seriesRef = "", existente = previo).first.torrentData)
+    @Test fun `the season's ref wins and blank doesn't overwrite what's saved`() {
+        // Refs expire and get re-issued; a blank one must never erase a good one.
+        assertEquals("ref-temporada", season().first.torrentData)
+        val previous = season(seriesRef = "ref-buena").first
+        assertEquals("ref-buena", season(seriesRef = "", existing = previous).first.torrentData)
     }
 
-    @Test fun una_temporada_sin_capitulos_no_inventa_episodios() {
-        val (item, eps) = temporada(capitulos = emptyList())
+    @Test fun `a season with no chapters doesn't invent episodes`() {
+        val (item, eps) = season(chapters = emptyList())
         assertEquals("magis:ABC", item.identifier)
         assertEquals(0, eps.size)
     }
 
-    @Test fun la_temporada_siempre_queda_tipada_como_tv() {
-        assertEquals("tv", temporada().first.tipo)
+    @Test fun `the season is always typed as tv`() {
+        assertEquals("tv", season().first.tipo)
     }
 
-    @Test fun el_tmdbId_nuevo_manda_pero_uno_ausente_no_borra_el_que_ya_estaba() {
-        val previo = temporada().first.copy(tmdbId = 123)
-        // Con un tmdbId NUEVO, ese es el que queda -- si `buildSeason` invirtiera la prioridad
-        // (`existente?.tmdbId ?: tmdbId`, favoreciendo lo viejo) este assert lo agarraría.
-        assertEquals(456, temporada(existente = previo, tmdbId = 456).first.tmdbId)
-        // Si TMDB no resolvió esta vez (tmdbId = null), no puede borrar el que ya se había
-        // guardado en una llamada anterior: es exactamente el mismo caso que `episodiosVistosEnLista`
-        // (ver el test del badge más arriba), pero para el tmdbId.
-        assertEquals(123, temporada(existente = previo).first.tmdbId)
+    @Test fun `a new tmdbId wins but an absent one doesn't erase what was already there`() {
+        val previous = season().first.copy(tmdbId = 123)
+        // With a NEW tmdbId, that's the one that's left -- if `buildSeason` reversed the
+        // priority (`existing?.tmdbId ?: tmdbId`, favoring the old one) this assert would catch
+        // it.
+        assertEquals(456, season(existing = previous, tmdbId = 456).first.tmdbId)
+        // If TMDB didn't resolve this time (tmdbId = null), it can't erase the one already saved
+        // in an earlier call: it's exactly the same case as `episodiosVistosEnLista` (see the
+        // badge test above), but for tmdbId.
+        assertEquals(123, season(existing = previous).first.tmdbId)
     }
 
-    @Test fun el_capitulo_guarda_la_temporada_real() {
-        // Sin esto, `ArkivRepository.ensureEpisodeStills` no puede cruzar por (temporada, capítulo)
-        // exacto y cae a repartir los capítulos 1..N como si la serie arrancara en la T1 (ver el
-        // KDoc de `MagisEntities.capituloDe`): una serie que no arranca ahí (Breaking Bad T5)
-        // terminaría con los stills de otra temporada, en silencio. Si alguien vuelve a poner
-        // `season = null` acá, este test se cae.
-        val (_, eps) = temporada(seasonNumber = 5)
+    @Test fun `the chapter saves the real season`() {
+        // Without this, `ArkivRepository.ensureEpisodeStills` can't cross-reference by exact
+        // (season, chapter) and falls to spreading chapters 1..N as if the series started at S1
+        // (see `MagisEntities.chapterEntity`'s KDoc): a series that doesn't start there (Breaking
+        // Bad S5) would end up with another season's stills, silently. If anyone puts
+        // `season = null` back here, this test fails.
+        val (_, eps) = season(seasonNumber = 5)
         assertEquals(listOf(5, 5, 5), eps.map { it.season })
     }
 
-    @Test fun sin_temporada_resuelta_el_capitulo_queda_sin_season() {
-        // El gateway no siempre pudo cruzar la serie contra TMDB (`GatewaySerie` null): ahí no hay
-        // número de temporada que guardar, y no se inventa uno.
-        val (_, eps) = temporada(seasonNumber = null)
+    @Test fun `with no resolved season, the chapter is left without a season`() {
+        // The gateway couldn't always cross-reference the series against TMDB (`GatewaySerie`
+        // null): then there's no season number to save, and none is invented.
+        val (_, eps) = season(seasonNumber = null)
         assertEquals(listOf(null, null, null), eps.map { it.season })
     }
 
-    @Test fun un_capitulo_enriquecido_deja_su_fila_de_still() {
-        val filas = MagisEntities.stillsDeTemporada(
+    @Test fun `an enriched chapter leaves its still row`() {
+        val rows = MagisEntities.seasonStills(
             itemId = "magis:ABC",
-            capitulos = listOf(
-                CapituloDeTemporada(1, "T1_1", "ref-1", still = "https://img/1.jpg", tmdbTitle = "La conspiración", overview = "Goku…"),
-                CapituloDeTemporada(2, "T1_2", "ref-2"),
+            chapters = listOf(
+                SeasonChapter(1, "T1_1", "ref-1", still = "https://img/1.jpg", tmdbTitle = "La conspiración", overview = "Goku…"),
+                SeasonChapter(2, "T1_2", "ref-2"),
             ),
-            ahora = 1_000L,
+            now = 1_000L,
         )
-        assertEquals(1, filas.size)
-        assertEquals("magis:ABC::e1", filas[0].episodeId)
-        assertEquals("https://img/1.jpg", filas[0].stillUrl)
-        assertEquals("La conspiración", filas[0].title)
-        assertEquals("Goku…", filas[0].overview)
+        assertEquals(1, rows.size)
+        assertEquals("magis:ABC::e1", rows[0].episodeId)
+        assertEquals("https://img/1.jpg", rows[0].stillUrl)
+        assertEquals("La conspiración", rows[0].title)
+        assertEquals("Goku…", rows[0].overview)
     }
 
-    @Test fun un_capitulo_sin_enriquecer_no_deja_fila() {
-        // Sin fila, la UI cae al displayName del portal. Con una fila vacía mostraría un hueco.
-        assertEquals(0, MagisEntities.stillsDeTemporada("magis:ABC", listOf(CapituloDeTemporada(1, "T1_1", "ref-1")), 1_000L).size)
+    @Test fun `a chapter with nothing to enrich leaves no row`() {
+        // With no row, the UI falls back to the portal's displayName. An empty row would show a gap.
+        assertEquals(0, MagisEntities.seasonStills("magis:ABC", listOf(SeasonChapter(1, "T1_1", "ref-1")), 1_000L).size)
     }
 
-    @Test fun el_id_de_la_fila_calza_con_el_del_episodio() {
-        // La fila se cruza por episodeId: si no calzara, la imagen no aparecería nunca.
-        val (_, eps) = temporada()
-        val filas = MagisEntities.stillsDeTemporada("magis:ABC", listOf(CapituloDeTemporada(2, "x", "r", still = "u")), 1_000L)
-        assertEquals(eps.first { it.episode == 2 }.id, filas[0].episodeId)
+    @Test fun `the row's id matches the episode's`() {
+        // The row is cross-referenced by episodeId: if it didn't match, the image would never show up.
+        val (_, eps) = season()
+        val rows = MagisEntities.seasonStills("magis:ABC", listOf(SeasonChapter(2, "x", "r", still = "u")), 1_000L)
+        assertEquals(eps.first { it.episode == 2 }.id, rows[0].episodeId)
     }
 
     /**
-     * El id del episodio con forma de PELÍCULA, como función y no como literal suelto: quien guarda
-     * una temporada tiene que poder BARRERLO.
+     * The MOVIE-shaped episode's id, as a function and not as a loose literal: whoever saves a
+     * season has to be able to SWEEP it.
      *
-     * Una serie que primero entró como ref suelto —así guardaba "Para ti" antes de saber pedirle los
-     * capítulos al gateway— deja esta fila, y su id no es el de ningún capítulo: el upsert de la
-     * temporada no la pisa y quedaría de capítulo fantasma, con el título de la serie y el ref de la
-     * temporada entera.
+     * A series that first came in as a lone ref -- how "For You" used to save things before it
+     * knew to ask the gateway for chapters -- leaves this row, and its id isn't any chapter's: the
+     * season's upsert doesn't overwrite it and it would be left as a ghost chapter, with the
+     * series' title and the whole season's ref.
      */
-    @Test fun el_episodio_de_una_pelicula_no_comparte_id_con_ningun_capitulo() {
-        val itemId = MagisEntities.itemIdDe("ABC")
-        val dePelicula = MagisEntities.episodioIdDePelicula(itemId)
-        assertEquals("magis:ABC::0", dePelicula)
-        (1..13).forEach { assertNotEquals(dePelicula, MagisEntities.episodioIdDe(itemId, it)) }
+    @Test fun `a movie's episode doesn't share an id with any chapter`() {
+        val itemId = MagisEntities.itemIdFor("ABC")
+        val movieId = MagisEntities.movieEpisodeId(itemId)
+        assertEquals("magis:ABC::0", movieId)
+        (1..13).forEach { assertNotEquals(movieId, MagisEntities.episodeIdFor(itemId, it)) }
     }
 
-    /** Y es EXACTAMENTE el id con el que [MagisEntities.build] guarda una película: si divergieran, el
-     * barrido borraría algo que no es, o dejaría el fantasma intacto. */
-    @Test fun el_barrido_apunta_al_mismo_id_con_el_que_se_guardo_la_pelicula() {
-        val (_, ep) = capitulo(episode = 0, seriesRef = "")
-        assertEquals(MagisEntities.episodioIdDePelicula(MagisEntities.itemIdDe("ABC")), ep.id)
+    /** And it's EXACTLY the id [MagisEntities.build] saves a movie with: if they diverged, the
+     * sweep would delete something it shouldn't, or leave the ghost intact. */
+    @Test fun `the sweep points at the same id the movie was saved with`() {
+        val (_, ep) = chapter(episode = 0, seriesRef = "")
+        assertEquals(MagisEntities.movieEpisodeId(MagisEntities.itemIdFor("ABC")), ep.id)
     }
 
 
-    // --- el nombre con el que TMDB conoce la serie ---
+    // --- the name TMDB knows the series by ---
 
     /**
-     * El título del portal NO se pisa: se guarda al lado. "Shin seiki evangerion Temp.1" es como la
-     * llama magis y así queda en `title`; "Neon Genesis Evangelion" es lo que muestra la biblioteca.
-     * Pisarlo sería perder de qué venía el ítem el día que TMDB se equivoque — y además `title` es
-     * donde vive el renombre manual de la persona.
+     * The portal's title is NOT overwritten: it's saved alongside. "Shin seiki evangerion Temp.1"
+     * is what magis calls it and that's what stays in `title`; "Neon Genesis Evangelion" is what
+     * the library shows. Overwriting it would lose where the item came from the day TMDB gets it
+     * wrong -- and besides, `title` is where the person's manual rename lives.
      */
-    @Test fun el_nombre_canonico_se_guarda_al_lado_sin_pisar_el_del_portal() {
-        val (item, _) = temporada(
+    @Test fun `the canonical name is saved alongside, without overwriting the portal's`() {
+        val (item, _) = season(
             title = "Shin seiki evangerion Temp.1",
             tituloCanonico = "Neon Genesis Evangelion",
         )
@@ -341,57 +342,56 @@ class MagisEntitiesTest {
     }
 
     /**
-     * Mismo `?:` que [tmdbId]: que TMDB no resuelva HOY no puede borrar el nombre que ya se había
-     * resuelto ayer. `buildSeason` corre en cada guardado de la temporada, así que sin esto un solo
-     * guardado con el gateway caído dejaría la tarjeta con el nombre del portal otra vez.
+     * Same `?:` as [tmdbId]: TMDB not resolving TODAY can't erase the name that was already
+     * resolved yesterday. `buildSeason` runs on every save of the season, so without this a
+     * single save with the gateway down would leave the card with the portal's name again.
      */
-    @Test fun un_nombre_canonico_ausente_no_borra_el_que_ya_estaba() {
-        val previo = temporada(tituloCanonico = "Neon Genesis Evangelion").first
-        val (item, _) = temporada(tituloCanonico = null, existente = previo)
+    @Test fun `an absent canonical name doesn't erase the one already there`() {
+        val previous = season(tituloCanonico = "Neon Genesis Evangelion").first
+        val (item, _) = season(tituloCanonico = null, existing = previous)
         assertEquals("Neon Genesis Evangelion", item.tituloCanonico)
     }
 
-    /** Un nombre en blanco es "no vino", no un nombre: dejaría la tarjeta sin texto. */
-    @Test fun un_nombre_canonico_en_blanco_tampoco_borra_el_que_ya_estaba() {
-        val previo = temporada(tituloCanonico = "Neon Genesis Evangelion").first
-        val (item, _) = temporada(tituloCanonico = "   ", existente = previo)
+    /** A blank name is "didn't arrive", not a name: it would leave the card with no text. */
+    @Test fun `a blank canonical name doesn't erase the one already there either`() {
+        val previous = season(tituloCanonico = "Neon Genesis Evangelion").first
+        val (item, _) = season(tituloCanonico = "   ", existing = previous)
         assertEquals("Neon Genesis Evangelion", item.tituloCanonico)
     }
 }
 
 /**
- * Reparación de los ítems de Magis guardados SIN identidad.
+ * Repairing Magis items saved WITHOUT an identity.
  *
- * El `tmdbId` se escribe al guardar la temporada, no al abrirla, así que los que se guardaron
- * cuando el gateway no resolvía la serie se quedaron para siempre sin nombre de capítulo, sin
- * miniatura y sin sinopsis. El `seriesRef` sí quedó guardado: con eso alcanza para volver a
- * preguntar una vez.
+ * `tmdbId` gets written when the season is saved, not when it's opened, so the ones saved when
+ * the gateway couldn't resolve the series were left forever without a chapter name, without a
+ * thumbnail, and without a synopsis. `seriesRef` DID stay saved: that's enough to ask again once.
  */
-class RefParaRepararTest {
+class RefToRepairTest {
     private val ref = "eyJzIjoibWFnaXMi"
 
-    @Test fun `un item de magis sin tmdbId se repara con su ref`() {
-        assertEquals(ref, MagisEntities.refParaReparar("magis:ABC", null, ref))
+    @Test fun `a magis item with no tmdbId is repaired with its ref`() {
+        assertEquals(ref, MagisEntities.refToRepair("magis:ABC", null, ref))
     }
 
-    @Test fun `un tmdbId invalido cuenta como ausente`() {
-        // `GatewaySerie.tmdbId` sale de un `optInt`: un campo ausente da 0, no null.
-        assertEquals(ref, MagisEntities.refParaReparar("magis:ABC", 0, ref))
+    @Test fun `an invalid tmdbId counts as absent`() {
+        // `GatewaySerie.tmdbId` comes from an `optInt`: an absent field gives 0, not null.
+        assertEquals(ref, MagisEntities.refToRepair("magis:ABC", 0, ref))
     }
 
-    @Test fun `si ya tiene identidad no se vuelve a preguntar`() {
-        assertNull(MagisEntities.refParaReparar("magis:ABC", 12609, ref))
+    @Test fun `if it already has an identity it isn't asked again`() {
+        assertNull(MagisEntities.refToRepair("magis:ABC", 12609, ref))
     }
 
-    @Test fun `sin ref guardado no hay con que preguntar`() {
-        assertNull(MagisEntities.refParaReparar("magis:ABC", null, null))
-        assertNull(MagisEntities.refParaReparar("magis:ABC", null, "  "))
+    @Test fun `with no saved ref there's nothing to ask with`() {
+        assertNull(MagisEntities.refToRepair("magis:ABC", null, null))
+        assertNull(MagisEntities.refToRepair("magis:ABC", null, "  "))
     }
 
-    /** Torrent, web y archive tienen su propio camino (`ensureEpisodeStills` por título o tmdbId):
-     *  pedirle capítulos al gateway con lo que guardaron en ese campo no tiene sentido. */
-    @Test fun `lo que no es de magis no se toca`() {
-        assertNull(MagisEntities.refParaReparar("torrent:abc123", null, ref))
-        assertNull(MagisEntities.refParaReparar("web:abc123", null, ref))
+    /** Torrent, web and archive have their own path (`ensureEpisodeStills` by title or tmdbId):
+     *  asking the gateway for chapters with what they saved in that field makes no sense. */
+    @Test fun `what isn't magis's isn't touched`() {
+        assertNull(MagisEntities.refToRepair("torrent:abc123", null, ref))
+        assertNull(MagisEntities.refToRepair("web:abc123", null, ref))
     }
 }

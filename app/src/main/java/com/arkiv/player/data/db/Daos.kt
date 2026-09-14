@@ -273,7 +273,7 @@ interface ItemDao {
 
     /**
      * A single episode. Used by `ArkivRepository.addMagisSeason` to sweep the one a save shaped
-     * as a movie left over a series (see `MagisEntities.episodioIdDePelicula`).
+     * as a movie left over a series (see `MagisEntities.movieEpisodeId`).
      */
     @Query("UPDATE episodes SET deleted = 1 WHERE id = :episodeId")
     suspend fun softDeleteEpisode(episodeId: String)

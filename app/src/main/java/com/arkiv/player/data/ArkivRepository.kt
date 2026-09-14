@@ -514,7 +514,7 @@ class ArkivRepository(
             eps.forEach { e ->
                 if (e.stillUrl.isNotBlank()) stillBySeasonEp[e.season to e.episode] = e.stillUrl
                 if (e.name.isNotBlank()) titleBySeasonEp[e.season to e.episode] = e.name
-                // Same table Magis fills (`MagisEntities.stillsDeTemporada`): the per-chapter
+                // Same table Magis fills (`MagisEntities.seasonStills`): the per-chapter
                 // synopsis isn't a single source's privilege, both write `episode_still` and the
                 // UI reads a single place.
                 if (e.overview.isNotBlank()) overviewBySeasonEp[e.season to e.episode] = e.overview
@@ -644,12 +644,12 @@ class ArkivRepository(
         tituloCanonico: String? = null,
     ): String? {
         if (ref.isBlank() || contentId.isBlank()) return null
-        val id = MagisEntities.itemIdDe(contentId)
+        val id = MagisEntities.itemIdFor(contentId)
         val existing = itemDao.getItem(id)
         val (item, ep) = MagisEntities.build(
             contentId = contentId, ref = ref, title = title, episode = episode,
-            episodeTitle = episodeTitle, posterUrl = posterUrl, ahora = clock(),
-            seriesRef = seriesRef, existente = existing, season = season, tmdbId = tmdbId,
+            episodeTitle = episodeTitle, posterUrl = posterUrl, now = clock(),
+            seriesRef = seriesRef, existing = existing, season = season, tmdbId = tmdbId,
             tituloCanonico = tituloCanonico,
         )
         if (episode > 0) {
@@ -658,13 +658,13 @@ class ArkivRepository(
             itemDao.upsertItem(item)
             itemDao.upsertEpisodes(listOf(ep))
             sweepLegacyChapterItem(contentId, episode)
-            // Reuses `stillsDeTemporada` (the same "brings something" filter and the same
-            // episodeId calculation `addMagisSeason` uses for the whole season) instead of
-            // duplicating that logic here for a single chapter.
+            // Reuses `seasonStills` (the same "brings something" filter and the same episodeId
+            // calculation `addMagisSeason` uses for the whole season) instead of duplicating that
+            // logic here for a single chapter.
             saveMagisStills(
                 id,
-                MagisEntities.stillsDeTemporada(
-                    id, listOf(CapituloDeTemporada(episode, episodeTitle, ref, still, tmdbTitle, overview)), clock(),
+                MagisEntities.seasonStills(
+                    id, listOf(SeasonChapter(episode, episodeTitle, ref, still, tmdbTitle, overview)), clock(),
                 ),
             )
         } else {
@@ -787,12 +787,12 @@ class ArkivRepository(
 
     /**
      * The ref to ask the gateway for the identity of a Magis item saved with none, or null if
-     * there's nothing to repair. The rule lives in [MagisEntities.refParaReparar]; this just reads
+     * there's nothing to repair. The rule lives in [MagisEntities.refToRepair]; this just reads
      * the row.
      */
     suspend fun magisRefToRepair(itemId: String): String? {
         val row = itemDao.getItem(itemId) ?: return null
-        return MagisEntities.refParaReparar(row.identifier, row.tmdbId, row.torrentData)
+        return MagisEntities.refToRepair(row.identifier, row.tmdbId, row.torrentData)
     }
 
     /**
@@ -807,7 +807,7 @@ class ArkivRepository(
     suspend fun applyMagisIdentity(
         itemId: String,
         tmdbId: Int?,
-        chapters: List<CapituloDeTemporada>,
+        chapters: List<SeasonChapter>,
         tituloCanonico: String? = null,
     ) {
         val row = itemDao.getItem(itemId) ?: return
@@ -827,7 +827,7 @@ class ArkivRepository(
             )
         }
         if (chapters.isNotEmpty()) {
-            saveMagisStills(itemId, MagisEntities.stillsDeTemporada(itemId, chapters, clock()))
+            saveMagisStills(itemId, MagisEntities.seasonStills(itemId, chapters, clock()))
         }
     }
 
@@ -837,7 +837,7 @@ class ArkivRepository(
      *
      * The only write point of that table from Magis ([addMagisSource] and [addMagisSeason]), and
      * that's why there aren't two versions of this rule. `EpisodeStillDao.upsertAll` is a REPLACE,
-     * so sending straight what `MagisEntities.stillsDeTemporada` returns would rewrite the WHOLE
+     * so sending straight what `MagisEntities.seasonStills` returns would rewrite the WHOLE
      * row: that list leaves null every field the gateway didn't resolve, and it's enough for one
      * of the three to bring something to include the row. Concretely: the season gets saved, the
      * detail opens and [ensureEpisodeStills] fills in the name and synopsis of a chapter the
@@ -904,7 +904,7 @@ class ArkivRepository(
     suspend fun addMagisSeason(
         contentId: String,
         title: String,
-        chapters: List<CapituloDeTemporada>,
+        chapters: List<SeasonChapter>,
         seriesRef: String,
         posterUrl: String = "",
         backdropUrl: String = "",
@@ -919,7 +919,7 @@ class ArkivRepository(
         tituloCanonico: String? = null,
     ): Map<Int, String> {
         if (contentId.isBlank() || chapters.isEmpty()) return emptyMap()
-        val id = MagisEntities.itemIdDe(contentId)
+        val id = MagisEntities.itemIdFor(contentId)
         val existing = itemDao.getItem(id)
         // The badge is for chapters that came out on the portal, not for the ones you just saved
         // yourself: it gets re-sealed to the total that's going to be left after the upsert, which
@@ -934,18 +934,18 @@ class ArkivRepository(
         // through sync, same as [sweepLegacyChapterItem]; and since `getEpisodesOf` already
         // filters tombstones, what got swept once isn't touched again (no re-dirtying the row for
         // sync).
-        val ghost = MagisEntities.episodioIdDePelicula(id).takeIf { it in live }
+        val ghost = MagisEntities.movieEpisodeId(id).takeIf { it in live }
         if (ghost != null) itemDao.softDeleteEpisode(ghost)
         val existingIds = live - setOfNotNull(ghost)
-        val newIds = chapters.map { MagisEntities.episodioIdDe(id, it.number) }.toSet()
+        val newIds = chapters.map { MagisEntities.episodeIdFor(id, it.number) }.toSet()
         val totalAfterSaving = (existingIds + newIds).size
         val episodiosVistosEnLista = com.arkiv.player.data.nuevos.NewEpisodeCounter.reseal(
             existing?.episodiosVistosEnLista,
             totalAfterSaving,
         )
         val (item, episodes) = MagisEntities.buildSeason(
-            contentId = contentId, title = title, capitulos = chapters, posterUrl = posterUrl,
-            ahora = clock(), seriesRef = seriesRef, existente = existing,
+            contentId = contentId, title = title, chapters = chapters, posterUrl = posterUrl,
+            now = clock(), seriesRef = seriesRef, existing = existing,
             episodiosVistosEnLista = episodiosVistosEnLista, tmdbId = tmdbId, seasonNumber = seasonNumber,
             tituloCanonico = tituloCanonico,
         )
@@ -955,7 +955,7 @@ class ArkivRepository(
         // content lives inside the season's item.
         chapters.forEach { sweepLegacyChapterItem(contentId, it.number) }
         saveMagisBackdrop(id, backdropUrl)
-        saveMagisStills(id, MagisEntities.stillsDeTemporada(id, chapters, clock()))
+        saveMagisStills(id, MagisEntities.seasonStills(id, chapters, clock()))
         return episodes.mapNotNull { ep -> ep.episode?.let { it to ep.id } }.toMap()
     }
 
@@ -976,7 +976,7 @@ class ArkivRepository(
      * overwrites the tombstone's `updatedAt` and marks it "dirty" for sync again, needlessly.
      */
     private suspend fun sweepLegacyChapterItem(contentId: String, episode: Int) {
-        val old = MagisEntities.idLegacyDeCapitulo(contentId, episode)
+        val old = MagisEntities.legacyChapterId(contentId, episode)
         if (itemDao.getItem(old)?.deleted != false) return
         itemDao.softDeleteEpisodesOf(old)
         itemDao.softDeleteItem(old)

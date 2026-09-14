@@ -5,16 +5,17 @@ import com.arkiv.player.data.db.EpisodeStillEntity
 import com.arkiv.player.data.db.ItemEntity
 
 /**
- * Un capítulo de una temporada, tal como lo necesita [MagisEntities].
+ * A season's chapter, exactly as [MagisEntities] needs it.
  *
- * Modelo propio y no `GatewayEpisode` a propósito: `MagisEntities` es puro/JVM (se testea sin Room
- * ni red) y no debe depender del paquete `gateway`. El llamador mapea uno al otro.
+ * Its own model and not `GatewayEpisode` on purpose: `MagisEntities` is pure/JVM (tested without
+ * Room or the network) and must not depend on the `gateway` package. The caller maps one to the
+ * other.
  *
- * [still], [tmdbTitle] y [overview] son lo que el gateway agrega cruzando el capítulo contra TMDB
- * (ver `GatewayEpisode`); opcionales porque TMDB no siempre resuelve. [MagisEntities.stillsDeTemporada]
- * los usa para armar la fila de `episode_still` de cada capítulo.
+ * [still], [tmdbTitle] and [overview] are what the gateway adds by crossing the chapter against
+ * TMDB (see `GatewayEpisode`); optional because TMDB doesn't always resolve.
+ * [MagisEntities.seasonStills] uses them to build each chapter's `episode_still` row.
  */
-data class CapituloDeTemporada(
+data class SeasonChapter(
     val number: Int,
     val title: String,
     val ref: String,
@@ -24,73 +25,76 @@ data class CapituloDeTemporada(
 )
 
 /**
- * Construye (ítem + episodio) de lo que llega de Magis. Puro/JVM (sin `android.*`) para poder
- * testearse sin Room; el repositorio solo lo guarda. Mismo molde que [PackEntities].
+ * Builds (item + episode) from what arrives from Magis. Pure/JVM (no `android.*`) so it can be
+ * tested without Room; the repository only saves it. Same mold as [PackEntities].
  *
- * **Una temporada es UN ítem, y sus capítulos son sus episodios.** Antes cada capítulo era su
- * propio ítem (`magis:<contentId>:e1`, `…:e2`, …), y como la categoría se detecta sola por
- * cantidad de episodios (`LibraryRow.isMovie`: `episodeCount <= 1`), un capítulo suelto se leía
- * como **película** y la serie aparecía en la fila equivocada del home. Acá se hace lo mismo que
- * ya hacían el resto de las fuentes con capítulos (`addWebSeriesEpisode`, `addSeriesEpisode`,
- * `addAnimeEpisode`): id estable por serie + `categoryOverride = "series"` desde el primer
- * capítulo, sin esperar a que haya dos.
+ * **A season is ONE item, and its chapters are its episodes.** Each chapter used to be its own
+ * item (`magis:<contentId>:e1`, `…:e2`, …), and since the category is auto-detected by episode
+ * count (`LibraryRow.isMovie`: `episodeCount <= 1`), a lone chapter would be read as a **movie**
+ * and the series would show up in the wrong home row. This does the same thing the rest of the
+ * chapter-bearing sources already did (`addWebSeriesEpisode`, `addSeriesEpisode`,
+ * `addAnimeEpisode`): a stable id per series + `categoryOverride = "series"` from the very first
+ * chapter, without waiting for there to be two.
  *
- * El id sale del `contentId` del portal —que en Magis ya es por temporada— y no del `ref`: el ref
- * se re-emite en cada búsqueda y un id derivado de él perdería la marca de "voy por aquí".
+ * The id comes from the portal's `contentId` -- which in Magis is already per season -- and not
+ * from the `ref`: the ref is re-issued on every search and an id derived from it would lose the
+ * "here's where you're at" marker.
  */
 object MagisEntities {
 
     const val PREFIX = "magis:"
 
-    /** El ítem de una película o de una temporada entera. */
-    fun itemIdDe(contentId: String): String = PREFIX + contentId
+    /** The item for a movie or for a whole season. */
+    fun itemIdFor(contentId: String): String = PREFIX + contentId
 
     /**
-     * El id que tenía un capítulo cuando cada uno era su propio ítem.
+     * The id a chapter had back when each one was its own item.
      *
-     * Sirve para barrer esas filas: quedaron en la biblioteca como tarjetas-película sueltas y no
-     * hay migración de Room que las toque (ver los planes en `docs/superpowers/plans/`), así que se
-     * limpian al volver a guardar ese mismo capítulo.
+     * Used to sweep those rows: they were left in the library as standalone movie-cards and no
+     * Room migration touches them (see the plans in `docs/superpowers/plans/`), so they're cleaned
+     * up whenever that same chapter is saved again.
      */
-    fun idLegacyDeCapitulo(contentId: String, episode: Int): String = "${itemIdDe(contentId)}:e$episode"
+    fun legacyChapterId(contentId: String, episode: Int): String = "${itemIdFor(contentId)}:e$episode"
 
     /**
-     * El id de un capítulo DENTRO del ítem de su temporada. Lo usa [capituloDe] para armar el
-     * `EpisodeEntity`, y también el repositorio: para saber cuántos episodios va a tener la
-     * temporada TRAS guardar (la unión de lo que ya había con lo que llega del portal, ver
-     * `ArkivRepository.addMagisSeason`) necesita comparar contra los mismos ids sin duplicar acá y
-     * allá el formato `$itemId::e$number`.
+     * The id of a chapter INSIDE its season's item. Used by [chapterEntity] to build the
+     * `EpisodeEntity`, and also by the repository: to know how many episodes the season is going
+     * to have AFTER saving (the union of what was already there with what the portal sends, see
+     * `ArkivRepository.addMagisSeason`) it needs to compare against the same ids without
+     * duplicating the `$itemId::e$number` format here and there.
      */
-    fun episodioIdDe(itemId: String, number: Int): String = "$itemId::e$number"
+    fun episodeIdFor(itemId: String, number: Int): String = "$itemId::e$number"
 
     /**
-     * El id del episodio de una PELÍCULA -- o de una serie que entró como ref suelto, que es como
-     * guardaba "Para ti" antes de saber pedirle los capítulos al gateway.
+     * The episode id for a MOVIE -- or for a series that came in as a lone ref, which is how "For
+     * You" used to save things before it knew to ask the gateway for chapters.
      *
-     * Tiene nombre propio porque no alcanza con escribirlo donde se guarda:
-     * `ArkivRepository.addMagisSeason` lo BARRE al guardar la temporada de una serie que ya había
-     * entrado así. Su id no es el de ningún capítulo ([episodioIdDe] siempre lleva `:e`), así que el
-     * upsert de la temporada no lo pisa y quedaría de capítulo fantasma —con el título de la serie y
-     * el ref de la temporada entera— para siempre. Si el barrido y el guardado no calcularan
-     * exactamente el mismo id, uno borraría algo que no es y el otro dejaría el fantasma intacto.
+     * It has its own name because writing it inline where it's saved isn't enough:
+     * `ArkivRepository.addMagisSeason` SWEEPS it when saving the season of a series that had
+     * already come in that way. Its id isn't any chapter's ([episodeIdFor] always carries `:e`),
+     * so the season's upsert doesn't overwrite it and it would be left as a ghost chapter -- with
+     * the series' title and the whole season's ref -- forever. If the sweep and the save didn't
+     * compute exactly the same id, one would delete something it shouldn't and the other would
+     * leave the ghost intact.
      */
-    fun episodioIdDePelicula(itemId: String): String = "$itemId::0"
+    fun movieEpisodeId(itemId: String): String = "$itemId::0"
 
     /**
-     * El episodio de UN capítulo. Lo comparten [build] y [buildSeason] a propósito: el `id` es la
-     * clave primaria, así que si los dos caminos no lo armaran idéntico, guardar la temporada
-     * duplicaría los capítulos que ya estaban guardados sueltos.
+     * A single chapter's episode. Shared by [build] and [buildSeason] on purpose: `id` is the
+     * primary key, so if the two paths didn't build it identically, saving the season would
+     * duplicate chapters that were already saved standalone.
      *
-     * [season] es el número de temporada real cuando se conoce ([buildSeason], que lo saca de
-     * `GatewaySerie.seasonNumber`) o `null` cuando no ([build], que guarda un capítulo suelto sin
-     * ese contexto). Importa más de lo que parece: `ArkivRepository.ensureEpisodeStills` cruza por
-     * (temporada, capítulo) SOLO si TODOS los episodios del ítem tienen `season` puesto: uno solo en
-     * `null` lo hace caer a su rama de repartir capítulos 1..N por temporada desde la 1, que para
-     * una serie que no arranca en la T1 (Breaking Bad T5, por ejemplo) pone el still de otro
-     * capítulo. De ahí que esto NO sea cosmético.
+     * [season] is the real season number when it's known ([buildSeason], which pulls it from
+     * `GatewaySerie.seasonNumber`) or `null` when it isn't ([build], which saves a standalone
+     * chapter with no that context). It matters more than it looks:
+     * `ArkivRepository.ensureEpisodeStills` cross-references by (season, chapter) ONLY if ALL of
+     * an item's episodes have `season` set: a single `null` one makes it fall to its branch that
+     * spreads chapters 1..N per season starting from 1, which for a series that doesn't start at
+     * S1 (Breaking Bad S5, for example) sets the wrong chapter's still. Hence this is NOT
+     * cosmetic.
      */
-    private fun capituloDe(itemId: String, number: Int, title: String, ref: String, season: Int?) = EpisodeEntity(
-        id = episodioIdDe(itemId, number),
+    private fun chapterEntity(itemId: String, number: Int, title: String, ref: String, season: Int?) = EpisodeEntity(
+        id = episodeIdFor(itemId, number),
         itemId = itemId,
         section = "",
         displayName = "E$number" + title.trim().takeIf { it.isNotBlank() }?.let { "  $it" }.orEmpty(),
@@ -104,158 +108,162 @@ object MagisEntities {
         derivativeFormat = null,
         derivativeSize = 0,
         season = season,
-        // Numerado a propósito: es con esto que `MissingChapters` sabe cuál falta.
+        // Numbered on purpose: this is how `MissingChapters` knows which one is missing.
         episode = number,
         torrentFileIndex = null,
         torrentData = ref,
     )
 
     /**
-     * El ref de temporada con el que volver a pedirle al gateway la identidad de un ítem de Magis
-     * que se guardó sin ella, o null si no hay nada que reparar.
+     * The season ref to ask the gateway again for the identity of a Magis item that was saved
+     * without it, or null if there's nothing to repair.
      *
-     * El `tmdbId` se escribe al GUARDAR la temporada, no al abrirla: los ítems que entraron cuando
-     * el gateway todavía no sabía identificar la serie se quedaron sin él, y con él sin nombre real
-     * de capítulo, sin miniatura y sin sinopsis — para siempre, porque abrir la pantalla no vuelve
-     * a preguntar. El `seriesRef` sí quedó guardado (mismo campo donde web guarda su `pageUrl`), y
-     * con eso alcanza para preguntar una sola vez.
+     * `tmdbId` gets written when the season is SAVED, not when it's opened: items that came in
+     * back when the gateway still couldn't identify the series were left without it, and along
+     * with it without a real chapter name, without a thumbnail, and without a synopsis -- forever,
+     * because opening the screen doesn't ask again. `seriesRef` DID stay saved (the same field
+     * where web saves its `pageUrl`), and that's enough to ask just once.
      *
-     * Un `tmdbId` en 0 cuenta como ausente: `GatewaySerie.tmdbId` sale de un `optInt` y un campo
-     * que no vino da 0, no null.
+     * A `tmdbId` of 0 counts as absent: `GatewaySerie.tmdbId` comes from an `optInt`, and a field
+     * that didn't arrive gives 0, not null.
      */
-    fun refParaReparar(identifier: String, tmdbId: Int?, torrentData: String?): String? {
+    fun refToRepair(identifier: String, tmdbId: Int?, torrentData: String?): String? {
         if (!identifier.startsWith("magis:")) return null
         if (tmdbId != null && tmdbId > 0) return null
         return torrentData?.trim()?.takeIf { it.isNotEmpty() }
     }
 
     /**
-     * La temporada COMPLETA: un ítem y un episodio por capítulo.
+     * The WHOLE season: one item and one episode per chapter.
      *
-     * Es lo que se guarda al tocar un capítulo para verlo — la lista ya la tiene la pantalla, así
-     * que no cuesta ni una llamada de red. Corre en cada reproducción, así que **tiene que ser
-     * idempotente**: ids derivados del contenido y todo lo que `upsertItem` (REPLACE) borraría
-     * copiado de [existente], igual que en [build].
+     * This is what gets saved when a chapter is tapped to watch it -- the screen already has the
+     * list, so it doesn't cost a single network call. Runs on every playback, so **it has to be
+     * idempotent**: ids derived from the content, and everything `upsertItem` (REPLACE) would
+     * erase copied over from [existing], same as in [build].
      *
-     * [seriesRef] es el ref de la temporada (el que resuelve `MagisCatalog.detail`). En blanco no pisa el
-     * guardado: los refs caducan y uno vencido es mejor que ninguno. A diferencia de [build], acá
-     * NO se cae al ref de un capítulo como último recurso — un ref de capítulo en el ítem haría que
-     * `BuscadorDeCapitulos` le pidiera la lista de capítulos a un capítulo.
+     * [seriesRef] is the season's ref (the one `MagisCatalog.detail` resolves). Blank doesn't
+     * overwrite what was saved: refs expire and an expired one is better than none. Unlike
+     * [build], this does NOT fall back to a chapter's ref as a last resort -- a chapter's ref on
+     * the item would make `BuscadorDeCapitulos` ask a chapter for its list of chapters.
      *
-     * [episodiosVistosEnLista] va COMPLETO, ya calculado por quien llama, y no `existente
-     * ?.episodiosVistosEnLista` leído acá adentro. Antes se guardaba sin tocar y el repositorio lo
-     * corregía después con un segundo UPDATE puntual (`markEpisodesSeen`) — dos escrituras a la
-     * misma fila en la misma llamada, que es justo lo que hacía recursar el trigger de sync cuando
-     * caían en el mismo segundo (ver `SyncTriggers`). Acá adentro no se puede calcular solo: el
-     * total post-guardado es la UNIÓN de los capítulos que ya estaban en la base con los que traen
-     * [capitulos] (`addMagisSeason` hace upsert, no replace, para no perder capítulos viejos que el
-     * portal ya no liste), y esta función es pura/JVM — no tiene con qué consultar la base. Por eso
-     * el repositorio lo resuelve (con `ItemDao.getEpisodesOf`) y lo pasa ya resuelto.
+     * [watchedInListCount] arrives COMPLETE, already computed by the caller, and not read in here
+     * as `existing?.episodiosVistosEnLista`. It used to be saved untouched and the repository
+     * would fix it afterward with a second, pointed UPDATE (`markEpisodesSeen`) -- two writes to
+     * the same row in the same call, which is exactly what made the sync trigger recurse when they
+     * landed in the same second (see `SyncTriggers`). It can't be computed alone in here: the
+     * post-save total is the UNION of the chapters that were already in the database with the
+     * ones [chapters] brings (`addMagisSeason` upserts, doesn't replace, so it doesn't lose old
+     * chapters the portal no longer lists), and this function is pure/JVM -- it has nothing to
+     * query the database with. That's why the repository resolves it (with
+     * `ItemDao.getEpisodesOf`) and passes it in already resolved.
      *
-     * [tmdbId] y [seasonNumber] son últimos y con default porque todos los llamadores usan
-     * argumentos nombrados; el orden no importa, solo que sean opcionales para no romper a quien ya
-     * llamaba a esta función antes de que existieran.
+     * [tmdbId] and [seasonNumber] come last and with a default because every caller uses named
+     * arguments; the order doesn't matter, only that they're optional so they don't break whoever
+     * was already calling this function before they existed.
      */
     fun buildSeason(
         contentId: String,
         title: String,
-        capitulos: List<CapituloDeTemporada>,
+        chapters: List<SeasonChapter>,
         posterUrl: String,
-        ahora: Long,
+        now: Long,
         seriesRef: String,
-        existente: ItemEntity?,
+        existing: ItemEntity?,
         episodiosVistosEnLista: Int?,
-        // Puede llegar null cuando TMDB no resolvió esta vez (o el gateway es viejo), y no por eso
-        // hay que descartar lo que ya estaba guardado — de ahí el `?:` de abajo.
+        // Can arrive null when TMDB didn't resolve this time (or the gateway is old), and that's
+        // not a reason to discard what was already saved -- hence the `?:` below.
         tmdbId: Int? = null,
-        // El `season_number` de `GatewaySerie`: se lo pasa a [capituloDe] para que
-        // `ArkivRepository.ensureEpisodeStills` pueda cruzar por (temporada, capítulo) exacto en vez
-        // de aplanar desde la temporada 1 (ver el KDoc de [capituloDe]). Null cuando el gateway no
-        // resolvió la serie: el episodio queda con `season = null`, igual que hoy.
+        // `GatewaySerie`'s `season_number`: passed to [chapterEntity] so that
+        // `ArkivRepository.ensureEpisodeStills` can cross-reference by exact (season, chapter)
+        // instead of flattening from season 1 (see [chapterEntity]'s KDoc). Null when the gateway
+        // didn't resolve the series: the episode is left with `season = null`, same as today.
         seasonNumber: Int? = null,
-        // El nombre con el que TMDB conoce la serie (`GatewaySerie.titulo`). Mismo `?:` que
-        // [tmdbId]: uno ausente no borra el que ya estaba guardado. Ver [nombreCanonico].
+        // The name TMDB knows the series by (`GatewaySerie.titulo`). Same `?:` as [tmdbId]: an
+        // absent one doesn't erase what was already saved. See [canonicalTitle].
         tituloCanonico: String? = null,
     ): Pair<ItemEntity, List<EpisodeEntity>> {
-        val itemId = itemIdDe(contentId)
+        val itemId = itemIdFor(contentId)
         val item = ItemEntity(
             identifier = itemId,
             title = title.ifBlank { "Magis" },
             description = null,
             thumbnailUrl = posterUrl,
-            addedAt = existente?.addedAt ?: ahora,
+            addedAt = existing?.addedAt ?: now,
             categoryOverride = "series",
             source = "magis",
-            torrentData = seriesRef.ifBlank { existente?.torrentData.orEmpty() }.takeIf { it.isNotBlank() },
+            torrentData = seriesRef.ifBlank { existing?.torrentData.orEmpty() }.takeIf { it.isNotBlank() },
             episodiosVistosEnLista = episodiosVistosEnLista,
-            // Un tmdbId ausente (TMDB no resolvió esta vez, o el gateway es viejo) no puede borrar
-            // el que ya estaba guardado: los refs de imdb/tmdb no cambian, así que uno viejo sigue
-            // siendo válido.
-            tmdbId = tmdbId ?: existente?.tmdbId,
-            // Es SIEMPRE una temporada -no hace falta el `?:` de tmdbId: acá no hay ambigüedad que
-            // preservar, cada llamada a buildSeason es de una serie.
+            // An absent tmdbId (TMDB didn't resolve this time, or the gateway is old) can't erase
+            // the one that was already saved: imdb/tmdb refs don't change, so an old one is still
+            // valid.
+            tmdbId = tmdbId ?: existing?.tmdbId,
+            // It's ALWAYS a season -- no need for tmdbId's `?:` here, there's no ambiguity to
+            // preserve, every call to buildSeason is for a series.
             tipo = "tv",
-            tituloCanonico = nombreCanonico(tituloCanonico, existente),
+            tituloCanonico = canonicalTitle(tituloCanonico, existing),
         )
-        return item to capitulos.map { capituloDe(itemId, it.number, it.title, it.ref, seasonNumber) }
+        return item to chapters.map { chapterEntity(itemId, it.number, it.title, it.ref, seasonNumber) }
     }
 
     /**
-     * Una fila de `episode_still` por cada capítulo que TMDB pudo enriquecer (still, nombre real o
-     * sinopsis) — los que no traen nada quedan afuera, para que la UI caiga al `displayName` del
-     * portal en vez de mostrar una fila vacía.
+     * One `episode_still` row per chapter TMDB was able to enrich (still, real name or synopsis)
+     * -- the ones with nothing are left out, so the UI falls back to the portal's `displayName`
+     * instead of showing an empty row.
      *
-     * `episodeId` sale de [episodioIdDe], el MISMO cálculo que usa [capituloDe] para el id del
-     * `EpisodeEntity`: es la clave por la que esta fila se cruza con su episodio, y si no calzaran
-     * la imagen no aparecería nunca.
+     * `episodeId` comes from [episodeIdFor], the SAME calculation [chapterEntity] uses for the
+     * `EpisodeEntity`'s id: it's the key this row is cross-referenced against its episode by, and
+     * if they didn't match the image would never show up.
      */
-    fun stillsDeTemporada(
+    fun seasonStills(
         itemId: String,
-        capitulos: List<CapituloDeTemporada>,
-        ahora: Long,
-    ): List<EpisodeStillEntity> = capitulos
+        chapters: List<SeasonChapter>,
+        now: Long,
+    ): List<EpisodeStillEntity> = chapters
         .filter { it.still != null || it.tmdbTitle != null || it.overview != null }
         .map { cap ->
             EpisodeStillEntity(
-                episodeId = episodioIdDe(itemId, cap.number),
+                episodeId = episodeIdFor(itemId, cap.number),
                 stillUrl = cap.still,
-                fetchedAt = ahora,
+                fetchedAt = now,
                 title = cap.tmdbTitle,
                 overview = cap.overview,
             )
         }
 
     /**
-     * [episode] > 0 = capítulo de una serie; 0 = película (el camino de siempre, intacto).
+     * [episode] > 0 = a series chapter; 0 = movie (the path it always was, untouched).
      *
-     * [ref] es el del capítulo (o el de la película) y viaja en el episodio, que es lo que el
-     * player resuelve al reproducir. [seriesRef] es el de la TEMPORADA y viaja en el ítem, que es
-     * lo que sirve para preguntarle al portal si salió un capítulo nuevo; en blanco NO pisa el que
-     * ya estaba guardado, porque los refs caducan y uno vencido es mejor que ninguno.
+     * [ref] is the chapter's (or the movie's) and travels on the episode, which is what the player
+     * resolves on playback. [seriesRef] is the SEASON's and travels on the item, which is what's
+     * used to ask the portal whether a new chapter came out; blank does NOT overwrite what was
+     * already saved, because refs expire and an expired one is better than none.
      *
-     * [existente] es la fila que ya está en la base, si la hay: `upsertItem` es un REPLACE (borra e
-     * inserta), así que lo que no se copie de ahí se pierde —la fecha de alta reordenaría el home y
-     * `episodiosVistosEnLista` volvería a prender el badge sobre capítulos ya mirados.
+     * [existing] is the row already in the database, if there is one: `upsertItem` is a REPLACE
+     * (delete then insert), so anything not copied from there is lost -- the added-on date would
+     * reorder the home screen and `episodiosVistosEnLista` would turn the badge back on over
+     * chapters already watched.
      *
-     * [season] y [tmdbId] son opcionales (default `null`) por compatibilidad, **no porque haya un
-     * camino al que no le importen**: TODO llamador que pueda saber la temporada tiene que pasarla.
-     * `ItemDao.upsertEpisodes` es un `@Insert(onConflict = REPLACE)`, así que cada una de estas
-     * llamadas reescribe la fila entera del episodio; una sin [season] le BORRA la temporada a un
-     * capítulo que otro camino ya había guardado bien, el ítem queda con episodios mezclados (unos
-     * con temporada, otros sin) y `ArkivRepository.ensureEpisodeStills` cae a su rama de aplanar
-     * desde la T1 (ver el KDoc de [capituloDe]), pisando en silencio los stills de toda la serie.
+     * [season] and [tmdbId] are optional (default `null`) for compatibility, **not because there's
+     * a path that doesn't care about them**: EVERY caller that can know the season has to pass it.
+     * `ItemDao.upsertEpisodes` is an `@Insert(onConflict = REPLACE)`, so each of these calls
+     * rewrites the episode's whole row; one without [season] ERASES the season on a chapter some
+     * other path had already saved correctly, the item ends up with mixed episodes (some with a
+     * season, some without) and `ArkivRepository.ensureEpisodeStills` falls to its branch that
+     * flattens from S1 (see [chapterEntity]'s KDoc), silently overwriting the whole series' stills.
      *
-     * Quiénes pasan hoy la temporada, y de dónde la sacan:
-     *  - `SearchPlayback.magisEpisodeIdFor` (botón "Guardar" del diálogo de temporada, celu y TV) y
-     *    `BuscadorDeCapitulos.revisarMagis` (capítulos nuevos en background): del `season_number`
-     *    del bloque `series` (`GatewaySerie`) que devuelve `MagisCatalog.detail`.
-     *  - `SearchPlayback.magisEpisodeId` y `CineDetailScreen.playMagis` (resultado suelto de
-     *    búsqueda, sin lista de capítulos): del `season` del propio `GatewayResult`.
+     * Who passes the season today, and where they get it from:
+     *  - `SearchPlayback.magisEpisodeIdFor` (the season dialog's "Save" button, phone and TV) and
+     *    `BuscadorDeCapitulos.revisarMagis` (new chapters in the background): from the
+     *    `series` block's (`GatewaySerie`) `season_number`, returned by `MagisCatalog.detail`.
+     *  - `SearchPlayback.magisEpisodeId` and `CineDetailScreen.playMagis` (a lone search result,
+     *    no chapter list): from the `GatewayResult`'s own `season`.
      *
-     * Queda en `null` solo cuando de verdad no se sabe: el gateway no pudo cruzar la serie contra
-     * TMDB, o el portal no mandó temporada en el resultado. Inventarla sería peor.
+     * It's left `null` only when it's genuinely unknown: the gateway couldn't cross-reference the
+     * series against TMDB, or the portal didn't send a season in the result. Making one up would
+     * be worse.
      *
-     * Mismo `?:` que en [buildSeason] para [tmdbId]: uno nuevo ausente no borra el que ya estaba.
+     * Same `?:` as [buildSeason] for [tmdbId]: an absent new one doesn't erase what was already
+     * there.
      */
     fun build(
         contentId: String,
@@ -264,40 +272,40 @@ object MagisEntities {
         episode: Int,
         episodeTitle: String,
         posterUrl: String,
-        ahora: Long,
+        now: Long,
         seriesRef: String,
-        existente: ItemEntity?,
+        existing: ItemEntity?,
         season: Int? = null,
         tmdbId: Int? = null,
         tituloCanonico: String? = null,
     ): Pair<ItemEntity, EpisodeEntity> {
-        val itemId = itemIdDe(contentId)
-        val esCapitulo = episode > 0
+        val itemId = itemIdFor(contentId)
+        val isChapter = episode > 0
         val item = ItemEntity(
             identifier = itemId,
             title = title.ifBlank { "Magis" },
             description = null,
             thumbnailUrl = posterUrl,
-            addedAt = existente?.addedAt ?: ahora,
-            categoryOverride = if (esCapitulo) "series" else existente?.categoryOverride,
+            addedAt = existing?.addedAt ?: now,
+            categoryOverride = if (isChapter) "series" else existing?.categoryOverride,
             source = "magis",
-            torrentData = if (esCapitulo) {
-                seriesRef.ifBlank { existente?.torrentData?.ifBlank { null } ?: ref }
+            torrentData = if (isChapter) {
+                seriesRef.ifBlank { existing?.torrentData?.ifBlank { null } ?: ref }
             } else {
                 ref
             },
-            episodiosVistosEnLista = existente?.episodiosVistosEnLista,
-            tmdbId = tmdbId ?: existente?.tmdbId,
-            // `episode` dice con certeza si esto es un capítulo de serie o una película: no hace
-            // falta el `?:` de tmdbId, cada llamada sabe cuál de las dos es.
-            tipo = if (esCapitulo) "tv" else "movie",
-            tituloCanonico = nombreCanonico(tituloCanonico, existente),
+            episodiosVistosEnLista = existing?.episodiosVistosEnLista,
+            tmdbId = tmdbId ?: existing?.tmdbId,
+            // `episode` says for certain whether this is a series chapter or a movie: no need for
+            // tmdbId's `?:` here, each call knows which of the two it is.
+            tipo = if (isChapter) "tv" else "movie",
+            tituloCanonico = canonicalTitle(tituloCanonico, existing),
         )
-        val ep = if (esCapitulo) {
-            capituloDe(itemId, episode, episodeTitle, ref, season = season)
+        val ep = if (isChapter) {
+            chapterEntity(itemId, episode, episodeTitle, ref, season = season)
         } else {
             EpisodeEntity(
-                id = episodioIdDePelicula(itemId),
+                id = movieEpisodeId(itemId),
                 itemId = itemId,
                 section = "",
                 displayName = MetadataParser.cleanName(title),
@@ -318,13 +326,13 @@ object MagisEntities {
     }
 
     /**
-     * El nombre canónico que queda tras guardar: el que llega, o el que ya estaba.
+     * The canonical title left after saving: the one that arrived, or the one already there.
      *
-     * En blanco cuenta como ausente, no como nombre: `GatewaySerie.titulo` viene vacío cuando el
-     * gateway es viejo o TMDB no resolvió, y adoptar esa cadena dejaría la tarjeta SIN TEXTO. Y
-     * ausente no borra: [build] y [buildSeason] corren en cada guardado, así que sin este `?:` una
-     * sola pasada con el gateway caído devolvería la tarjeta al nombre del portal.
+     * Blank counts as absent, not as a name: `GatewaySerie.titulo` comes in empty when the gateway
+     * is old or TMDB didn't resolve, and adopting that string would leave the card WITHOUT TEXT.
+     * And absent doesn't erase: [build] and [buildSeason] run on every save, so without this `?:`
+     * a single pass with the gateway down would revert the card to the portal's name.
      */
-    private fun nombreCanonico(nuevo: String?, existente: ItemEntity?): String? =
-        nuevo?.trim()?.takeIf { it.isNotEmpty() } ?: existente?.tituloCanonico
+    private fun canonicalTitle(newTitle: String?, existing: ItemEntity?): String? =
+        newTitle?.trim()?.takeIf { it.isNotEmpty() } ?: existing?.tituloCanonico
 }

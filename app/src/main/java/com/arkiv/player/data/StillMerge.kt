@@ -6,7 +6,7 @@ import com.arkiv.player.data.db.EpisodeStillEntity
  * How the `episode_still` row that was ALREADY saved is combined with the one that just resolved.
  *
  * It exists because two different sources write to that table with different data: Magis fills it
- * when saving the season (`MagisEntities.stillsDeTemporada`, with what the gateway matched
+ * when saving the season (`MagisEntities.seasonStills`, with what the gateway matched
  * against TMDB) and `ArkivRepository.ensureEpisodeStills` fills it for everything else (Ditu
  * today, and legacy torrent/web/archive rows) by asking TMDB.
  * `EpisodeStillDao.upsertAll` is a REPLACE, so the second write overwrites the **entire** first
@@ -43,9 +43,9 @@ object StillMerge {
      * [merge] for a whole batch: each new row against whatever had the same `episodeId`.
      *
      * Both of the table's write paths use it, which is exactly the point: Magis's
-     * (`ArkivRepository.addMagisSource`/`addMagisSeason`, via `MagisEntities.stillsDeTemporada`)
+     * (`ArkivRepository.addMagisSource`/`addMagisSeason`, via `MagisEntities.seasonStills`)
      * also goes through here. Without that, saving a season would hand the table the raw REPLACE:
-     * `stillsDeTemporada` leaves null every field the gateway didn't resolve, so if the gateway
+     * `seasonStills` leaves null every field the gateway didn't resolve, so if the gateway
      * only brought the still, the name and synopsis `ensureEpisodeStills` had completed before were
      * silently lost -- and since the row still existed, its early cutoff kept them from ever being
      * filled again.

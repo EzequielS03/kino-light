@@ -1,7 +1,7 @@
 package com.arkiv.player.data.gateway
 
 import com.arkiv.player.data.ArkivRepository
-import com.arkiv.player.data.CapituloDeTemporada
+import com.arkiv.player.data.SeasonChapter
 
 /**
  * Repara, una sola vez y en silencio, un ítem de Magis que se guardó sin identidad.
@@ -42,7 +42,7 @@ suspend fun repararIdentidadDeMagis(
         // diciendo "Shin seiki evangerion Temp.1" para siempre.
         tituloCanonico = serie?.titulo,
         chapters = capitulos.map {
-            CapituloDeTemporada(
+            SeasonChapter(
                 number = it.number, title = it.title, ref = it.ref,
                 still = it.still, tmdbTitle = it.tmdbTitle, overview = it.overview,
             )

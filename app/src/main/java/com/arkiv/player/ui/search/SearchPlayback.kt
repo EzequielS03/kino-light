@@ -134,7 +134,7 @@ class SearchPlayback(private val graph: AppGraph) {
             contentId = season.extra["content_id"].orEmpty(),
             title = season.title,
             chapters = chapters.map {
-                com.arkiv.player.data.CapituloDeTemporada(
+                com.arkiv.player.data.SeasonChapter(
                     number = it.number, title = it.title, ref = it.ref,
                     still = it.still, tmdbTitle = it.tmdbTitle, overview = it.overview,
                 )

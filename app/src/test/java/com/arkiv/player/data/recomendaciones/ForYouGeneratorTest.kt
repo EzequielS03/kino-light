@@ -83,7 +83,7 @@ class ForYouGeneratorTest {
         val g = Saved()
         generator(ia = { goodAnswer }, saved = g).generateIfDue()
         val r = g.last!!.single()
-        assertEquals(com.arkiv.player.data.MagisEntities.itemIdDe("C0"), r.id)
+        assertEquals(com.arkiv.player.data.MagisEntities.itemIdFor("C0"), r.id)
         assertEquals(0, r.orden)
         assertEquals("porque viste Encanto", r.porque)
         assertEquals("magis1:movie:0:C0", r.ref)

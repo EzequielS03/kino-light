@@ -53,7 +53,7 @@ class ChapterLabelTest {
     }
 
     /**
-     * Magis numbers from 1 (`MagisEntities.capituloDe`: `orderIndex = number`), the opposite of
+     * Magis numbers from 1 (`MagisEntities.chapterEntity`: `orderIndex = number`), the opposite of
      * archive.org's 0..N-1 correlative. Rows saved before that function wrote `episode` ended up
      * with `episode = null` and fall to the orderIndex branch: adding one showed Dragon Ball's e126
      * as "E127". Seen on the Fire TV on 2026-08-12, with the hero saying "E127 · Shen-Long revive"

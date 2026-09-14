@@ -101,7 +101,7 @@ class StillMergeTest {
     ) = EpisodeStillEntity(episodeId, still, fetchedAt, title, overview)
 
     @Test fun `saving from magis doesn't erase what TMDB had already completed`() {
-        // The bug: "Save" wrote straight through what `MagisEntities.stillsDeTemporada` returns,
+        // The bug: "Save" wrote straight through what `MagisEntities.seasonStills` returns,
         // which leaves null every field the gateway didn't resolve, and `upsertAll` is REPLACE. If
         // the detail screen had opened before and `ensureEpisodeStills` completed the name and
         // synopsis, that save silently erased them -- and the row still existed, so nobody ever

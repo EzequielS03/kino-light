@@ -84,7 +84,7 @@ class DituEntitiesTest {
     /**
      * `ensureEpisodeStills` solo cruza por (temporada, capítulo) si TODOS los episodios del ítem
      * tienen temporada: uno en null lo hace aplanar desde la T1 (ver el KDoc de
-     * `MagisEntities.capituloDe`).
+     * `MagisEntities.chapterEntity`).
      */
     @Test fun `un capitulo sin temporada queda en la 1, nunca en null`() {
         assertEquals(1, capitulo(season = null).second.season)
