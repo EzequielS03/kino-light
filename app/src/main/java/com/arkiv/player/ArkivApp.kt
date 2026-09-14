@@ -29,13 +29,13 @@ class ArkivApp : Application(), ImageLoaderFactory {
         // One-off migration (Task 7, sub-project 2B; rewritten in Task 9): the 18+ lock and the
         // recents purge used to live in `SecureDeviceStore` (encrypted prefs from the accounts
         // subsystem, deleted entirely in this same task). Neither of the two is account data, so
-        // [SettingsStore.migrarDelStoreDeCuentasViejo] rescues them by reading that file directly,
+        // [SettingsStore.migrateFromOldAccountsStore] rescues them by reading that file directly,
         // without that class -- a single read, synchronous and BEFORE any screen, so nothing ever
-        // reads `graph.settings.adultosDesbloqueado` before it's migrated. If the file doesn't
+        // reads `graph.settings.adultsUnlocked` before it's migrated. If the file doesn't
         // exist or the Keystore can't decrypt it, it's treated as "there was nothing to migrate"
         // and falls back to the default -- it can never be a reason not to start.
         runCatching {
-            graph.settings.migrarDelStoreDeCuentasViejo(this)
+            graph.settings.migrateFromOldAccountsStore(this)
         }.onFailure { report(it, "startup: migrate encrypted-store prefs") }
 
         // One-off purge from 2026-08-14: adult channels that stayed logged in "Recents" from
@@ -48,9 +48,9 @@ class ArkivApp : Application(), ImageLoaderFactory {
         // with the legitimate ones.
         graph.applicationScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             runCatching {
-                if (!graph.settings.recientesPurgados) {
+                if (!graph.settings.recentsPurged) {
                     graph.database.liveRecentDao().deleteAll()
-                    graph.settings.setRecientesPurgados(true)
+                    graph.settings.setRecentsPurged(true)
                     android.util.Log.w("ArkivCuenta", "recent items purged (adult channel leak)")
                 }
             }.onFailure { report(it, "startup: purge recents") }

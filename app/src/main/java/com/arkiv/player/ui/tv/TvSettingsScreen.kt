@@ -85,7 +85,7 @@ fun TvSettingsScreen() {
         TvMagisLinkOffer(
             account = magisAccount,
             // Closing goes back to Settings, not dismissing the offer forever: the person came
-            // in to link ON PURPOSE here. That's why `magisOfertaDescartada` isn't touched.
+            // in to link ON PURPOSE here. That's why `magisOfferDismissed` isn't touched.
             onNotNow = { linkingMagis = false },
         )
         return

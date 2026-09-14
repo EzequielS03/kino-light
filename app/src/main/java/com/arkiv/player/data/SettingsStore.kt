@@ -34,28 +34,28 @@ class SettingsStore(context: Context) {
     // `AccountManager.logout()`, so that path went dead-: with no Kino accounts there's no logout
     // to trigger the reset, and the offer stays reachable by hand from Settings
     // (`TvSettingsCuenta`) for anyone who wants to link Magis again without depending on this flag.
-    private val _magisOfertaDescartada = MutableStateFlow(prefs.getBoolean(KEY_MAGIS_OFERTA_DESCARTADA, false))
-    val magisOfertaDescartada: StateFlow<Boolean> = _magisOfertaDescartada
+    private val _magisOfferDismissed = MutableStateFlow(prefs.getBoolean(KEY_MAGIS_OFFER_DISMISSED, false))
+    val magisOfferDismissed: StateFlow<Boolean> = _magisOfferDismissed
 
     // Task 7 (sub-project 2B): the DEVICE's 18+ lock. Used to live in `SecureDeviceStore`, which
     // Task 9 deletes along with the accounts -- it isn't account data, so it's rescued here first.
-    // Same criterion as [magisOfertaDescartada]: per device, not per person.
-    private val _adultosDesbloqueado = MutableStateFlow(prefs.getBoolean(KEY_ADULTOS_DESBLOQUEADO, false))
-    val adultosDesbloqueado: StateFlow<Boolean> = _adultosDesbloqueado
+    // Same criterion as [magisOfferDismissed]: per device, not per person.
+    private val _adultsUnlocked = MutableStateFlow(prefs.getBoolean(KEY_ADULTS_UNLOCKED, false))
+    val adultsUnlocked: StateFlow<Boolean> = _adultsUnlocked
 
     // The code that opens that lock, chosen from Ajustes. `null` = none was ever chosen and the
     // default rules; who decides that is `AdultsLock.effectiveCode`, not this store -- this only
     // saves what the person typed. It's plain text on purpose: the lock stops someone with the
     // remote, not someone with `adb` (see `AdultsLock`'s KDoc), so encrypting it would give a
     // sense of security the rest of the design doesn't back up.
-    private val _codigoAdultos = MutableStateFlow(prefs.getString(KEY_CODIGO_ADULTOS, null))
-    val codigoAdultos: StateFlow<String?> = _codigoAdultos
+    private val _adultsCode = MutableStateFlow(prefs.getString(KEY_ADULTS_CODE, null))
+    val adultsCode: StateFlow<String?> = _adultsCode
 
     // Marker for the 2026-08-14 one-time recents purge (see `ArkivApp.onCreate`). Same rescue as
-    // [adultosDesbloqueado]: if it's lost, the purge simply runs once more -- no StateFlow needed
+    // [adultsUnlocked]: if it's lost, the purge simply runs once more -- no StateFlow needed
     // since nothing observes it, it's only read on launch.
-    val recientesPurgados: Boolean
-        get() = prefs.getBoolean(KEY_RECIENTES_PURGADOS, false)
+    val recentsPurged: Boolean
+        get() = prefs.getBoolean(KEY_RECENTS_PURGED, false)
 
     fun setDimLevel(v: Int) { prefs.edit().putInt(KEY_DIM_LEVEL, v).apply(); _dimLevel.value = v }
 
@@ -66,75 +66,75 @@ class SettingsStore(context: Context) {
     }
 
 
-    fun setMagisOfertaDescartada(v: Boolean) {
-        if (_magisOfertaDescartada.value == v) return
-        prefs.edit().putBoolean(KEY_MAGIS_OFERTA_DESCARTADA, v).apply()
-        _magisOfertaDescartada.value = v
+    fun setMagisOfferDismissed(v: Boolean) {
+        if (_magisOfferDismissed.value == v) return
+        prefs.edit().putBoolean(KEY_MAGIS_OFFER_DISMISSED, v).apply()
+        _magisOfferDismissed.value = v
     }
 
-    fun setAdultosDesbloqueado(v: Boolean) {
-        if (_adultosDesbloqueado.value == v) return
-        prefs.edit().putBoolean(KEY_ADULTOS_DESBLOQUEADO, v).apply()
-        _adultosDesbloqueado.value = v
+    fun setAdultsUnlocked(v: Boolean) {
+        if (_adultsUnlocked.value == v) return
+        prefs.edit().putBoolean(KEY_ADULTS_UNLOCKED, v).apply()
+        _adultsUnlocked.value = v
     }
 
     /** `null` deletes the key and returns the lock to its default code. */
-    fun setCodigoAdultos(v: String?) {
-        if (_codigoAdultos.value == v) return
-        prefs.edit().apply { if (v == null) remove(KEY_CODIGO_ADULTOS) else putString(KEY_CODIGO_ADULTOS, v) }.apply()
-        _codigoAdultos.value = v
+    fun setAdultsCode(v: String?) {
+        if (_adultsCode.value == v) return
+        prefs.edit().apply { if (v == null) remove(KEY_ADULTS_CODE) else putString(KEY_ADULTS_CODE, v) }.apply()
+        _adultsCode.value = v
     }
 
-    fun setRecientesPurgados(v: Boolean) {
-        prefs.edit().putBoolean(KEY_RECIENTES_PURGADOS, v).apply()
+    fun setRecentsPurged(v: Boolean) {
+        prefs.edit().putBoolean(KEY_RECENTS_PURGED, v).apply()
     }
 
     /** When "For you" was last attempted (0 = never). See `ForYouGate`. */
-    val paraTiUltimoIntentoMs: Long get() = prefs.getLong(KEY_PARA_TI_ULTIMO_INTENTO, 0L)
+    val forYouLastAttemptMs: Long get() = prefs.getLong(KEY_FOR_YOU_LAST_ATTEMPT, 0L)
 
     /** Whether that attempt failed on the model: then it's retried after 15 min, not 24 h. */
-    val paraTiUltimoFueFalloDelModelo: Boolean get() = prefs.getBoolean(KEY_PARA_TI_FALLO_MODELO, false)
+    val forYouLastAttemptWasModelFailure: Boolean get() = prefs.getBoolean(KEY_FOR_YOU_MODEL_FAILURE, false)
 
-    fun marcarIntentoDeParaTi(ahoraMs: Long, falloDelModelo: Boolean) {
+    fun markForYouAttempt(nowMs: Long, wasModelFailure: Boolean) {
         prefs.edit()
-            .putLong(KEY_PARA_TI_ULTIMO_INTENTO, ahoraMs)
-            .putBoolean(KEY_PARA_TI_FALLO_MODELO, falloDelModelo)
+            .putLong(KEY_FOR_YOU_LAST_ATTEMPT, nowMs)
+            .putBoolean(KEY_FOR_YOU_MODEL_FAILURE, wasModelFailure)
             .apply()
     }
 
     /**
-     * Pulls the 18+ lock from the device's encrypted store the first time it runs. `deStoreViejo`
+     * Pulls the 18+ lock from the device's encrypted store the first time it runs. `fromOldStore`
      * is `null` when that store couldn't be read (see `ArkivApp.onCreate`) -- then it's left with
      * whatever's already here (or the default). Idempotent: on later launches `prefs` already has
-     * the key and `valorMigrado` respects it without looking at the old store again.
+     * the key and `migratedValue` respects it without looking at the old store again.
      *
-     * Writes straight to `prefs` instead of going through [setAdultosDesbloqueado]: that setter
+     * Writes straight to `prefs` instead of going through [setAdultsUnlocked]: that setter
      * doesn't write if the value didn't change (to avoid an extra `apply()` overwriting the
      * StateFlow), but here the most common case is exactly that -- the old store was never
      * unlocked and the result matches the in-memory default. If it went through the guard, the
      * key would never end up recorded and this function would look at `SecureDeviceStore` again
      * on every launch, which the comment above says does NOT happen.
      */
-    fun migrarAdultosDesbloqueado(deStoreViejo: Boolean?) {
-        val migrado = valorMigrado(leerNullable(KEY_ADULTOS_DESBLOQUEADO), deStoreViejo, false)
-        prefs.edit().putBoolean(KEY_ADULTOS_DESBLOQUEADO, migrado).apply()
-        _adultosDesbloqueado.value = migrado
+    fun migrateAdultsUnlocked(fromOldStore: Boolean?) {
+        val migrated = migratedValue(readNullable(KEY_ADULTS_UNLOCKED), fromOldStore, false)
+        prefs.edit().putBoolean(KEY_ADULTS_UNLOCKED, migrated).apply()
+        _adultsUnlocked.value = migrated
     }
 
-    /** Same rescue as [migrarAdultosDesbloqueado] for the recents-purge marker. */
-    fun migrarRecientesPurgados(deStoreViejo: Boolean?) {
-        setRecientesPurgados(valorMigrado(leerNullable(KEY_RECIENTES_PURGADOS), deStoreViejo, false))
+    /** Same rescue as [migrateAdultsUnlocked] for the recents-purge marker. */
+    fun migrateRecentsPurged(fromOldStore: Boolean?) {
+        setRecentsPurged(migratedValue(readNullable(KEY_RECENTS_PURGED), fromOldStore, false))
     }
 
     /** `null` if `key` hasn't been written to these settings yet -- different from being `false`. */
-    private fun leerNullable(key: String): Boolean? = if (prefs.contains(key)) prefs.getBoolean(key, false) else null
+    private fun readNullable(key: String): Boolean? = if (prefs.contains(key)) prefs.getBoolean(key, false) else null
 
     /**
-     * Fires [migrarAdultosDesbloqueado]/[migrarRecientesPurgados] by reading the OLD encrypted
+     * Fires [migrateAdultsUnlocked]/[migrateRecentsPurged] by reading the OLD encrypted
      * file directly (Task 9, sub-project 2B).
      *
      * That file (`arkiv_pb_secure`) belonged to `SecureDeviceStore`, which Task 9 deletes along
-     * with the rest of `pocketbase/` -- the two keys that matter (`adultosDesbloqueado`,
+     * with the rest of `pocketbase/` -- the two keys that matter (`adultsUnlocked`,
      * `recientesPurgados2026_08_14`) are NOT account data, so they're rescued by reading the same
      * file with the same scheme (`EncryptedSharedPreferences` + `MasterKey` AES256_GCM +
      * AES256_SIV/AES256_GCM) that class used, without resurrecting it. `EncryptedPrefs.openOrRepair`
@@ -144,70 +144,70 @@ class SettingsStore(context: Context) {
      * If both keys already migrated, the old file isn't even looked at:
      * `EncryptedSharedPreferences.create` costs Keystore + Tink, and this is called on EVERY
      * launch. And if the file doesn't even exist -a clean install of this branch, which never had
-     * `SecureDeviceStore`-, opening it isn't attempted either: see [archivoStoreDeCuentasViejoExiste].
+     * `SecureDeviceStore`-, opening it isn't attempted either: see [oldAccountsStoreFileExists].
      */
-    fun migrarDelStoreDeCuentasViejo(context: Context) {
-        if (leerNullable(KEY_ADULTOS_DESBLOQUEADO) != null && leerNullable(KEY_RECIENTES_PURGADOS) != null) return
+    fun migrateFromOldAccountsStore(context: Context) {
+        if (readNullable(KEY_ADULTS_UNLOCKED) != null && readNullable(KEY_RECENTS_PURGED) != null) return
         val app = context.applicationContext
-        val viejas = if (archivoStoreDeCuentasViejoExiste(app)) {
-            runCatching { abrirStoreDeCuentasViejo(app) }.getOrNull()
+        val old = if (oldAccountsStoreFileExists(app)) {
+            runCatching { openOldAccountsStore(app) }.getOrNull()
         } else {
             null
         }
         // Same text keys as the old file (see the comment next to these constants, further
         // below): `SecureDeviceStore` wrote them verbatim.
-        migrarAdultosDesbloqueado(viejas.leerBooleanoViejo(KEY_ADULTOS_DESBLOQUEADO))
-        migrarRecientesPurgados(viejas.leerBooleanoViejo(KEY_RECIENTES_PURGADOS))
-        if (viejas != null) {
+        migrateAdultsUnlocked(old.readOldBoolean(KEY_ADULTS_UNLOCKED))
+        migrateRecentsPurged(old.readOldBoolean(KEY_RECENTS_PURGED))
+        if (old != null) {
             // Both keys that matter are already migrated above: deleting the old file removes the
             // Kino account's email and password that were still living there, from a subsystem
             // that no longer exists. Goes AFTER migrating, never before. If the file was
-            // undecryptable, `discardUndecryptable` (see [abrirStoreDeCuentasViejo]) already
-            // deleted it and `EncryptedPrefs` retried: `viejas` ends up pointing at a freshly
+            // undecryptable, `discardUndecryptable` (see [openOldAccountsStore]) already
+            // deleted it and `EncryptedPrefs` retried: `old` ends up pointing at a freshly
             // created, empty file with nothing to migrate from, and this delete removes it again.
             // It's a redundant delete with no consequence -- the end state is the same. This only
             // touches the shared_prefs file -- NEVER the Keystore's master key, which is the SAME
             // one `EncryptedMagisCredentialStore` uses for the Magis session.
-            runCatching { app.deleteSharedPreferences(ARCHIVO_STORE_DE_CUENTAS_VIEJO) }
+            runCatching { app.deleteSharedPreferences(OLD_ACCOUNTS_STORE_FILE) }
         }
     }
 
-    private fun SharedPreferences?.leerBooleanoViejo(key: String): Boolean? =
+    private fun SharedPreferences?.readOldBoolean(key: String): Boolean? =
         this?.let { if (it.contains(key)) it.getBoolean(key, false) else null }
 
     companion object {
         const val PREFS_NAME = "arkiv_settings"
         private const val KEY_DIM_LEVEL = "dim_level"
         private const val KEY_ARTWORK_REMATCH = "artwork_rematch_done"
-        private const val KEY_MAGIS_OFERTA_DESCARTADA = "magis_oferta_descartada"
+        private const val KEY_MAGIS_OFFER_DISMISSED = "magis_oferta_descartada"
 
         // Task 7: same text keys `SecureDeviceStore` used (`K_ADULTOS`, `K_PURGA_RECIENTES`) for
         // the name, even though the value lives in a different prefs file -- this way the code's
-        // history stays searchable by that name. Task 9: [migrarDelStoreDeCuentasViejo] reads
+        // history stays searchable by that name. Task 9: [migrateFromOldAccountsStore] reads
         // those same two keys from the original file.
-        private const val KEY_ADULTOS_DESBLOQUEADO = "adultosDesbloqueado"
-        private const val KEY_CODIGO_ADULTOS = "codigoAdultos"
-        private const val KEY_RECIENTES_PURGADOS = "recientesPurgados2026_08_14"
+        private const val KEY_ADULTS_UNLOCKED = "adultosDesbloqueado"
+        private const val KEY_ADULTS_CODE = "codigoAdultos"
+        private const val KEY_RECENTS_PURGED = "recientesPurgados2026_08_14"
 
-        private const val KEY_PARA_TI_ULTIMO_INTENTO = "para_ti_ultimo_intento"
-        private const val KEY_PARA_TI_FALLO_MODELO = "para_ti_fallo_modelo"
+        private const val KEY_FOR_YOU_LAST_ATTEMPT = "para_ti_ultimo_intento"
+        private const val KEY_FOR_YOU_MODEL_FAILURE = "para_ti_fallo_modelo"
 
         /** The encrypted file `SecureDeviceStore` used to write (deleted in Task 9). */
-        private const val ARCHIVO_STORE_DE_CUENTAS_VIEJO = "arkiv_pb_secure"
+        private const val OLD_ACCOUNTS_STORE_FILE = "arkiv_pb_secure"
 
         /**
-         * `true` if the file exists on disk. Checking this BEFORE [abrirStoreDeCuentasViejo] is
+         * `true` if the file exists on disk. Checking this BEFORE [openOldAccountsStore] is
          * the difference between reading something and CREATING it: `EncryptedSharedPreferences.create`
          * writes the Tink keyset the first time, so without this check a clean install -which
          * never had `SecureDeviceStore`- would end up generating `arkiv_pb_secure` and touching
          * the Keystore on `Application.onCreate`'s main thread, to rescue a file that never existed.
          */
-        private fun archivoStoreDeCuentasViejoExiste(app: Context): Boolean =
-            java.io.File(app.dataDir, "shared_prefs/$ARCHIVO_STORE_DE_CUENTAS_VIEJO.xml").exists()
+        private fun oldAccountsStoreFileExists(app: Context): Boolean =
+            java.io.File(app.dataDir, "shared_prefs/$OLD_ACCOUNTS_STORE_FILE.xml").exists()
 
         /**
          * Opens `arkiv_pb_secure` with the same scheme `SecureDeviceStore.cifradas()` used to
-         * write it, for [migrarDelStoreDeCuentasViejo]. Read-only: nothing is ever written back to
+         * write it, for [migrateFromOldAccountsStore]. Read-only: nothing is ever written back to
          * it here, so if the Keystore can't decrypt it there's nothing to repair -- deleting the
          * file is enough (NEVER the master key: it's the SAME one
          * `EncryptedMagisCredentialStore` uses for `arkiv_magis_secure`, `MasterKey.Builder(app)`
@@ -215,25 +215,25 @@ class SettingsStore(context: Context) {
          * reason) and letting the second attempt open an empty file -- which for a migration is
          * exactly "there was nothing to migrate".
          */
-        private fun abrirStoreDeCuentasViejo(app: Context): SharedPreferences? =
+        private fun openOldAccountsStore(app: Context): SharedPreferences? =
             EncryptedPrefs.openOrRepair<SharedPreferences?>(
                 create = {
                     EncryptedSharedPreferences.create(
                         app,
-                        ARCHIVO_STORE_DE_CUENTAS_VIEJO,
+                        OLD_ACCOUNTS_STORE_FILE,
                         MasterKey.Builder(app).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
                         EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
                     )
                 },
                 discardUndecryptable = {
-                    Log.w(TAG_MIGRACION, "old accounts store undecryptable: abandoning without migrating")
-                    runCatching { app.deleteSharedPreferences(ARCHIVO_STORE_DE_CUENTAS_VIEJO) }
+                    Log.w(TAG_MIGRATION, "old accounts store undecryptable: abandoning without migrating")
+                    runCatching { app.deleteSharedPreferences(OLD_ACCOUNTS_STORE_FILE) }
                 },
                 unencrypted = { null },
             )
 
-        private const val TAG_MIGRACION = "ArkivMigracion"
+        private const val TAG_MIGRATION = "ArkivMigration"
         // The mirror's `POST /api/refresh` key no longer lives here: that endpoint moved to being
         // requested through the gateway (`/v1/catalog/refresh`), which is the one that supplies
         // the credential. With that, the APK stopped carrying it -- which is what the comment that
@@ -254,5 +254,5 @@ class SettingsStore(context: Context) {
  * settings. Whatever's already here WINS: if the person changed the value after migrating, the
  * old one can't come back to life on the next launch.
  */
-internal fun valorMigrado(deSettings: Boolean?, deStoreViejo: Boolean?, default: Boolean): Boolean =
-    deSettings ?: deStoreViejo ?: default
+internal fun migratedValue(fromSettings: Boolean?, fromOldStore: Boolean?, default: Boolean): Boolean =
+    fromSettings ?: fromOldStore ?: default

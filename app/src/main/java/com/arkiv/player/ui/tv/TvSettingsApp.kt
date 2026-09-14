@@ -81,7 +81,7 @@ internal fun TvSettingsApp() {
  * grayed-out button, not a lock icon. Announcing that something exists is half the problem —
  * whoever doesn't know the code has no reason to learn there's a door.
  *
- * Unlocks ONLY this device ([SettingsStore.setAdultosDesbloqueado] goes to the device's settings,
+ * Unlocks ONLY this device ([SettingsStore.setAdultsUnlocked] goes to the device's settings,
  * not the account): the living-room TV doesn't inherit what was unlocked on the phone, and
  * uninstalling the app turns it off.
  *
@@ -93,8 +93,8 @@ internal fun TvSettingsApp() {
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TvAdultsSection(store: SettingsStore) {
-    var unlocked by remember { mutableStateOf(store.adultosDesbloqueado.value) }
-    var saved by remember { mutableStateOf(store.codigoAdultos.value) }
+    var unlocked by remember { mutableStateOf(store.adultsUnlocked.value) }
+    var saved by remember { mutableStateOf(store.adultsCode.value) }
     var code by remember { mutableStateOf("") }
     var error by remember { mutableStateOf(false) }
 
@@ -106,7 +106,7 @@ private fun TvAdultsSection(store: SettingsStore) {
             color = ArkivTextSecondary,
         )
         TvActionOption(label = "Ocultar 18+ en este aparato") {
-            store.setAdultosDesbloqueado(false)
+            store.setAdultsUnlocked(false)
             unlocked = false
             code = ""
         }
@@ -122,14 +122,14 @@ private fun TvAdultsSection(store: SettingsStore) {
         // they set, and that's why there's no other hint that it exists. The signal that it
         // worked is that the default-code notice reappears on its own.
         if (AdultsLock.requestsReset(code)) {
-            store.setCodigoAdultos(null)
+            store.setAdultsCode(null)
             saved = null
             code = ""
             error = false
             return
         }
         if (AdultsLock.unlocks(code, AdultsLock.effectiveCode(saved))) {
-            store.setAdultosDesbloqueado(true)
+            store.setAdultsUnlocked(true)
             unlocked = true
             error = false
         } else {
@@ -208,7 +208,7 @@ private fun TvChangeAdultsCode(store: SettingsStore, onSave: (String) -> Unit) {
                 done = false
             }
             else -> {
-                store.setCodigoAdultos(trimmed)
+                store.setAdultsCode(trimmed)
                 onSave(trimmed)
                 newCode = ""
                 message = null

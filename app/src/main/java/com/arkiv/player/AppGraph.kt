@@ -490,8 +490,8 @@ class AppGraph(context: Context) {
             },
             verify = { candidates, seen -> verification.verify(candidates, seen) },
             save = { database.recomendacionDao().replace(it, System.currentTimeMillis()) },
-            readMarks = { settings.paraTiUltimoIntentoMs to settings.paraTiUltimoFueFalloDelModelo },
-            writeMarks = { t, f -> settings.marcarIntentoDeParaTi(t, f) },
+            readMarks = { settings.forYouLastAttemptMs to settings.forYouLastAttemptWasModelFailure },
+            writeMarks = { t, f -> settings.markForYouAttempt(t, f) },
         )
     }
 

@@ -37,8 +37,8 @@ import com.arkiv.player.ui.theme.ArkivTextSecondary
  */
 @Composable
 internal fun AdultsSection(store: SettingsStore) {
-    var unlocked by remember { mutableStateOf(store.adultosDesbloqueado.value) }
-    var saved by remember { mutableStateOf(store.codigoAdultos.value) }
+    var unlocked by remember { mutableStateOf(store.adultsUnlocked.value) }
+    var saved by remember { mutableStateOf(store.adultsCode.value) }
     var code by remember { mutableStateOf("") }
     var error by remember { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -58,7 +58,7 @@ internal fun AdultsSection(store: SettingsStore) {
             modifier = Modifier.padding(bottom = 8.dp),
         )
         Button(onClick = {
-            store.setAdultosDesbloqueado(false)
+            store.setAdultsUnlocked(false)
             unlocked = false
             code = ""
         }) {
@@ -74,14 +74,14 @@ internal fun AdultsSection(store: SettingsStore) {
         // they set, and that's why there's no other hint that it exists. The sign that it worked
         // is that the default-code notice shows up again on its own.
         if (AdultsLock.requestsReset(code)) {
-            store.setCodigoAdultos(null)
+            store.setAdultsCode(null)
             saved = null
             code = ""
             error = false
             return
         }
         if (AdultsLock.unlocks(code, AdultsLock.effectiveCode(saved))) {
-            store.setAdultosDesbloqueado(true)
+            store.setAdultsUnlocked(true)
             unlocked = true
             error = false
         } else {
@@ -150,7 +150,7 @@ private fun ChangeAdultsCode(store: SettingsStore, onSaved: (String) -> Unit) {
                 done = false
             }
             else -> {
-                store.setCodigoAdultos(trimmed)
+                store.setAdultsCode(trimmed)
                 onSaved(trimmed)
                 newCode = ""
                 message = null

@@ -59,7 +59,7 @@ fun ArkivTvRoot(
     // ABOVE the `NavHost`, the next recomposition would give `true` again, do this `return`, and
     // destroy the Settings screen for someone who didn't ask to come back here -the likely case,
     // not the rare one: whoever linked through this same offer never touched "Ahora no", so
-    // `magisOfertaDescartada` stays `false`-. `MagisAccount.state` always starts at `None` -it
+    // `magisOfferDismissed` stays `false`-. `MagisAccount.state` always starts at `None` -it
     // doesn't read the encrypted prefs in the constructor, see its KDoc-, so without waiting for
     // `magisConfirmed` this one-time decision would be made with a `None` that isn't the real
     // answer yet; meanwhile it goes straight through to the normal content -never the other way
@@ -70,7 +70,7 @@ fun ArkivTvRoot(
         graph.magisAccount.refresh()
         showOffer = shouldOfferMagisLink(
             graph.magisAccount.state.value,
-            graph.settings.magisOfertaDescartada.value,
+            graph.settings.magisOfferDismissed.value,
         )
         magisConfirmed = true
     }
@@ -94,11 +94,11 @@ fun ArkivTvRoot(
         }
         TvMagisLinkOffer(
             account = graph.magisAccount,
-            // The decision is saved (Task 10, see SettingsStore.magisOfertaDescartada): "Ahora no"
+            // The decision is saved (Task 10, see SettingsStore.magisOfferDismissed): "Ahora no"
             // doesn't ask again on every launch. The path stays alive in Settings
             // (TvSettingsCuenta), on purpose -this is a shortcut, not the only door-.
             onNotNow = {
-                graph.settings.setMagisOfertaDescartada(true)
+                graph.settings.setMagisOfferDismissed(true)
                 showOffer = false
             },
         )
@@ -181,7 +181,7 @@ fun ArkivTvRoot(
             // `MagisLiveCatalog.arbol` filters the 18+ section client-side and blows up with
             // `require` if its root is requested without the flag, so the default is the safe
             // one even if this screen got opened some other way.
-            val unlocked = graph.settings.adultosDesbloqueado.value
+            val unlocked = graph.settings.adultsUnlocked.value
             val scope = rememberCoroutineScope()
             TvCatalogSections(
                 includeAdults = unlocked,

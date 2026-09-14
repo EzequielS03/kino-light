@@ -45,7 +45,7 @@ import kotlinx.coroutines.launch
  *   whether a Kino account is connected or not: `MainActivity` composes `ArkivTvRoot` with no
  *   session gate (see its "No session gate" comment), so that condition no longer applies-;
  * - the person hasn't said "Not now" before on this device ([dismissed], persisted in
- *   `SettingsStore.magisOfertaDescartada` -no longer resets itself, see its KDoc-).
+ *   `SettingsStore.magisOfferDismissed` -no longer resets itself, see its KDoc-).
  */
 fun shouldOfferMagisLink(state: MagisAccountState, dismissed: Boolean): Boolean =
     state is MagisAccountState.None && !dismissed
