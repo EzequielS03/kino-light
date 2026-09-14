@@ -632,9 +632,9 @@ private fun PlayerContent(
     // Intro/outro marker editor: the source that used it (archive.org) was removed in this branch
     // (that source's ids fall through to `loadUnknownSource` today, which only reports an error)
     // and the button that opens it sits behind `MOSTRAR_MARCADORES_EN_TELEFONO = false`, but the
-    // state stays alive because the rest of the overlay (the `marcadores.marcando` guards, the
+    // state stays alive because the rest of the overlay (the `marcadores.marking` guards, the
     // `BackHandler`, the key listener) reads it.
-    val marcadores = rememberEstadoDeMarcadores()
+    val marcadores = rememberMarkersState()
 
     // Audio/subtitle picker. Tracks come from the bound in-screen ExoPlayer or, by default, from the
     // local (service) player through `controller`. Todo el bloque vive en `PlayerPistas.kt`; de acá
@@ -1370,12 +1370,12 @@ private fun PlayerContent(
 
 
 
-    LaunchedEffect(controles.visible, espejo.buffereando, casting, estadoDlna.activo, marcadores.modo, loadError) {
+    LaunchedEffect(controles.visible, espejo.buffereando, casting, estadoDlna.activo, marcadores.mode, loadError) {
         android.util.Log.i(
             "ArkivCast",
             "UI bar · controls=${controles.visible} buffering=${espejo.buffereando} casting=$casting " +
-                "dlna=${estadoDlna.activo != null} marking=${marcadores.marcando} error=${loadError != null} " +
-                "→ overlay=${controles.visible && loadError == null && estadoDlna.activo == null && !marcadores.marcando}",
+                "dlna=${estadoDlna.activo != null} marking=${marcadores.marking} error=${loadError != null} " +
+                "→ overlay=${controles.visible && loadError == null && estadoDlna.activo == null && !marcadores.marking}",
         )
     }
 
@@ -1646,12 +1646,12 @@ private fun PlayerContent(
      * es D-pad (izquierda/derecha hacen seek), así que "poner el capítulo donde termina el opening
      * y confirmar" se hace con los mismos controles de siempre y sin un panel nuevo que navegar.
      */
-    fun marcarTiempo(modo: ModoDeMarcado) {
+    fun marcarTiempo(modo: MarkMode) {
         val posicion = espejo.posicionMs
-        marcadores.cerrarMenuDeCapitulo()
-        if (modo == ModoDeMarcado.INTRO) vm.setOpeningEnd(posicion, episodioEnCurso)
+        marcadores.closeChapterMenu()
+        if (modo == MarkMode.INTRO) vm.setOpeningEnd(posicion, episodioEnCurso)
         else vm.setEndingStart(posicion, episodioEnCurso)
-        val que = if (modo == ModoDeMarcado.INTRO) "Intro" else "Outro"
+        val que = if (modo == MarkMode.INTRO) "Intro" else "Outro"
         android.widget.Toast.makeText(
             context,
             "$que de este capítulo guardado en ${formatDuration(posicion)}",
@@ -1660,7 +1660,7 @@ private fun PlayerContent(
     }
 
     fun quitarLosMarcadoresDelCapitulo() {
-        marcadores.cerrarMenuDeCapitulo()
+        marcadores.closeChapterMenu()
         vm.clearMarkers(episodioEnCurso)
         android.widget.Toast.makeText(
             context,
@@ -1948,7 +1948,7 @@ private fun PlayerContent(
     AutoHideEffect(
         state = controles,
         playing = espejo.reproduciendo,
-        marking = marcadores.marcando,
+        marking = marcadores.marking,
         carouselRevealed = estadoCapitulos.revelado,
     )
 
@@ -1967,7 +1967,7 @@ private fun PlayerContent(
     // mirara controles.visible, en modo marcado o con un error en pantalla la variable puede seguir
     // en true sin que se vea nada, y BACK quedaría muerto (ni cierra ni sale). Mantener ambas
     // iguales si se toca una.
-    BackHandler(enabled = !enVivo && controles.visible && loadError == null && estadoDlna.activo == null && !marcadores.marcando) {
+    BackHandler(enabled = !enVivo && controles.visible && loadError == null && estadoDlna.activo == null && !marcadores.marking) {
         controles.hide()
     }
 
@@ -2224,13 +2224,13 @@ private fun PlayerContent(
     // El reanudar (play) SOLO aplica al SALIR del modo marcado — no en la composición inicial:
     // si no, al abrir una fuente web nueva este play() reviviría el video anterior (que sigue
     // cargado en el service) por detrás del overlay "Resolviendo…" mientras se resuelve la nueva.
-    LaunchedEffect(marcadores.modo) {
-        when (marcadores.transicion()) {
+    LaunchedEffect(marcadores.mode) {
+        when (marcadores.transition()) {
             true -> {
                 controller.pause()
-                val yaGuardado = when (marcadores.modo) {
-                    ModoDeMarcado.INTRO -> d?.openingEndMs
-                    ModoDeMarcado.OUTRO -> d?.endingStartMs
+                val yaGuardado = when (marcadores.mode) {
+                    MarkMode.INTRO -> d?.openingEndMs
+                    MarkMode.OUTRO -> d?.endingStartMs
                     else -> null
                 }
                 if (yaGuardado != null) {
@@ -2546,7 +2546,7 @@ private fun PlayerContent(
                         tv.isFocusableInTouchMode = true
                         tv.setOnKeyListener { _, keyCode, event ->
                             if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
-                            if (marcadores.marcando) return@setOnKeyListener false
+                            if (marcadores.marking) return@setOnKeyListener false
                             // Con el overlay de controles visible, el foco de Android ya está en
                             // los botones de Compose (ver LaunchedEffect(controles.visible)) y este
                             // listener ni siquiera debería recibir el evento; el fallback existe
@@ -2998,7 +2998,7 @@ private fun PlayerContent(
         // entonces y nadie devolvería el foco), y la barra de progreso —que se compone antes—
         // necesita saber si hay botón para mandar su ARRIBA ahí.
         val botonDeSalto = when {
-            marcadorVigente == null || marcadores.marcando || estadoDlna.activo != null -> null
+            marcadorVigente == null || marcadores.marking || estadoDlna.activo != null -> null
             else -> SkipButtonKind.which(
                 inOpening = ChapterMarker.inOpening(marcadorVigente, espejo.posicionMs),
                 inEnding = ChapterMarker.inEnding(marcadorVigente, espejo.posicionMs),
@@ -3019,7 +3019,7 @@ private fun PlayerContent(
             // adentro con una guarda propia, se corta UNA vez acá arriba (la bandera que aísla el
             // modo vivo, ver KDoc de `enVivo`) y más abajo hay un overlay chico y propio para vivo
             // (badge "EN VIVO" + ficha de canal por 3s).
-            visible = !enVivo && controles.visible && loadError == null && estadoDlna.activo == null && !marcadores.marcando,
+            visible = !enVivo && controles.visible && loadError == null && estadoDlna.activo == null && !marcadores.marking,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.fillMaxSize(),
@@ -3091,21 +3091,21 @@ private fun PlayerContent(
                     // setear intro/outro, así que se conserva detrás de la bandera.
                     if (MOSTRAR_MARCADORES_EN_TELEFONO && !isTv && d != null) {
                         Box {
-                            IconButton(onClick = { marcadores.abrirMenu() }) {
+                            IconButton(onClick = { marcadores.openMenu() }) {
                                 Icon(Icons.Default.Tune, contentDescription = "Marcadores", tint = Color.White)
                             }
-                            DropdownMenu(expanded = marcadores.menuAbierto, onDismissRequest = { marcadores.cerrarMenu() }) {
+                            DropdownMenu(expanded = marcadores.menuOpen, onDismissRequest = { marcadores.closeMenu() }) {
                                 DropdownMenuItem(
                                     text = { Text("Setear intro (fin del opening)") },
-                                    onClick = { marcadores.marcar(ModoDeMarcado.INTRO) },
+                                    onClick = { marcadores.mark(MarkMode.INTRO) },
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Setear outro (inicio del ending)") },
-                                    onClick = { marcadores.marcar(ModoDeMarcado.OUTRO) },
+                                    onClick = { marcadores.mark(MarkMode.OUTRO) },
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Borrar marcadores") },
-                                    onClick = { marcadores.cerrarMenu(); vm.clearMarkers() },
+                                    onClick = { marcadores.closeMenu(); vm.clearMarkers() },
                                 )
                             }
                         }
@@ -3336,8 +3336,8 @@ private fun PlayerContent(
                                 MenuDeMarcadoresDelCapitulo(
                                     estado = marcadores,
                                     isTv = false,
-                                    onFinDelOpening = { marcarTiempo(ModoDeMarcado.INTRO) },
-                                    onInicioDelEnding = { marcarTiempo(ModoDeMarcado.OUTRO) },
+                                    onFinDelOpening = { marcarTiempo(MarkMode.INTRO) },
+                                    onInicioDelEnding = { marcarTiempo(MarkMode.OUTRO) },
                                     onQuitar = { quitarLosMarcadoresDelCapitulo() },
                                 )
                             }
@@ -3587,8 +3587,8 @@ private fun PlayerContent(
                                     MenuDeMarcadoresDelCapitulo(
                                         estado = marcadores,
                                         isTv = true,
-                                        onFinDelOpening = { marcarTiempo(ModoDeMarcado.INTRO) },
-                                        onInicioDelEnding = { marcarTiempo(ModoDeMarcado.OUTRO) },
+                                        onFinDelOpening = { marcarTiempo(MarkMode.INTRO) },
+                                        onInicioDelEnding = { marcarTiempo(MarkMode.OUTRO) },
                                         onQuitar = { quitarLosMarcadoresDelCapitulo() },
                                         modifier = Modifier
                                             .focusRequester(focos.markers)
@@ -3771,15 +3771,15 @@ private fun PlayerContent(
         }
 
         // Panel-editor de marcado con slider (solo archive).
-        if (d != null && marcadores.marcando) {
+        if (d != null && marcadores.marking) {
             MarkerEditor(
-                mode = marcadores.modo!!,
+                mode = marcadores.mode!!,
                 positionMs = espejo.posicionMs,
                 durationMs = espejo.duracionMs,
                 onSeek = { p -> seekTo(p) },
-                onCancel = { marcadores.terminar() },
+                onCancel = { marcadores.finish() },
                 onSave = {
-                    val label = if (marcadores.modo == ModoDeMarcado.INTRO) {
+                    val label = if (marcadores.mode == MarkMode.INTRO) {
                         vm.setOpeningEnd(espejo.posicionMs); "Intro"
                     } else {
                         vm.setEndingStart(espejo.posicionMs); "Outro"
@@ -3789,7 +3789,7 @@ private fun PlayerContent(
                         "$label guardado en ${formatDuration(espejo.posicionMs)}",
                         android.widget.Toast.LENGTH_SHORT,
                     ).show()
-                    marcadores.terminar()
+                    marcadores.finish()
                 },
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
@@ -3854,7 +3854,7 @@ private fun PlayerContent(
 
 @Composable
 private fun MarkerEditor(
-    mode: ModoDeMarcado,
+    mode: MarkMode,
     positionMs: Long,
     durationMs: Long,
     onSeek: (Long) -> Unit,
@@ -3869,7 +3869,7 @@ private fun MarkerEditor(
     ) {
         Column(Modifier.padding(16.dp)) {
             Text(
-                if (mode == ModoDeMarcado.INTRO) "Marca el FIN del intro" else "Marca el INICIO del outro",
+                if (mode == MarkMode.INTRO) "Marca el FIN del intro" else "Marca el INICIO del outro",
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
@@ -3950,7 +3950,7 @@ private fun TvTransportButton(
  */
 @Composable
 private fun MenuDeMarcadoresDelCapitulo(
-    estado: EstadoDeMarcadores,
+    estado: MarkersState,
     isTv: Boolean,
     onFinDelOpening: () -> Unit,
     onInicioDelEnding: () -> Unit,
@@ -3962,19 +3962,19 @@ private fun MenuDeMarcadoresDelCapitulo(
             TvTransportButton(
                 icon = Icons.Default.Tune,
                 contentDescription = "Corregir intro y outro",
-                onClick = { estado.abrirMenuDeCapitulo() },
+                onClick = { estado.openChapterMenu() },
                 iconSize = 24.dp,
                 tint = Color.White,
                 modifier = modifier,
             )
         } else {
-            IconButton(onClick = { estado.abrirMenuDeCapitulo() }, modifier = modifier) {
+            IconButton(onClick = { estado.openChapterMenu() }, modifier = modifier) {
                 Icon(Icons.Default.Tune, contentDescription = "Corregir intro y outro", tint = Color.White)
             }
         }
         DropdownMenu(
-            expanded = estado.menuDeCapituloAbierto,
-            onDismissRequest = { estado.cerrarMenuDeCapitulo() },
+            expanded = estado.chapterMenuOpen,
+            onDismissRequest = { estado.closeChapterMenu() },
         ) {
             DropdownMenuItem(text = { Text("El opening termina aquí") }, onClick = onFinDelOpening)
             DropdownMenuItem(text = { Text("El ending empieza aquí") }, onClick = onInicioDelEnding)
