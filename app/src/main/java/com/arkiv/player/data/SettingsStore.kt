@@ -33,7 +33,7 @@ class SettingsStore(context: Context) {
     // removed the "Log out" buttons from the Magis screens, which were the last callers of
     // `AccountManager.logout()`, so that path went dead-: with no Kino accounts there's no logout
     // to trigger the reset, and the offer stays reachable by hand from Settings
-    // (`TvSettingsCuenta`) for anyone who wants to link Magis again without depending on this flag.
+    // (`TvSettingsAccount`) for anyone who wants to link Magis again without depending on this flag.
     private val _magisOfferDismissed = MutableStateFlow(prefs.getBoolean(KEY_MAGIS_OFFER_DISMISSED, false))
     val magisOfferDismissed: StateFlow<Boolean> = _magisOfferDismissed
 

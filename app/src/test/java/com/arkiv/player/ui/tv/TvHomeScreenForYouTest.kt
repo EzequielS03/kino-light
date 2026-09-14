@@ -12,7 +12,7 @@ import org.junit.Test
  * `TvMagisLinkOfferTest`), so these functions -extracted outside the composable on purpose- are
  * the part that CAN be tested in a plain JVM.
  */
-class TvHomeScreenParaTiTest {
+class TvHomeScreenForYouTest {
 
     private fun recommendation(
         id: String = "r1",

@@ -134,7 +134,7 @@ class MissingChaptersTest {
      * so a genuinely new chapter was silently dropped. Keying both sides through
      * [DituEntities.savedSeason] (as the fix now does) closes that gap.
      */
-    @Test fun keying_both_sides_through_temporadaGuardada_catches_a_seasonless_new_chapter() {
+    @Test fun keying_both_sides_through_savedSeason_catches_a_seasonless_new_chapter() {
         val have = listOf(DituEntities.savedSeason(null) to 5) // stored as T1E1..T1E5
         val newChapter = DituEntities.savedSeason(null) to 6   // arrives with no season of its own
         assertEquals(

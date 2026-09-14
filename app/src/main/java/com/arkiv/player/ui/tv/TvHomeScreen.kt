@@ -117,7 +117,7 @@ import kotlinx.coroutines.launch
  * have no "why" to show.
  *
  * `internal` (not `private`) so [recommendationFeatured] can be tested without Compose, see
- * `TvHomeScreenParaTiTest`.
+ * `TvHomeScreenForYouTest`.
  */
 internal data class Featured(
     val title: String,

@@ -132,7 +132,7 @@ fun TvSettingsScreen() {
         ) {
             when (tab) {
                 TvSettingsTab.SUBTITLES -> TvSettingsSubtitles()
-                TvSettingsTab.ACCOUNT -> TvSettingsCuenta(magisAccount, onLinkMagis = { linkingMagis = true })
+                TvSettingsTab.ACCOUNT -> TvSettingsAccount(magisAccount, onLinkMagis = { linkingMagis = true })
                 TvSettingsTab.APP -> TvSettingsApp()
             }
         }

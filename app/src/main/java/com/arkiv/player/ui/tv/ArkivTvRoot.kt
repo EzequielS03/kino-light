@@ -54,7 +54,7 @@ fun ArkivTvRoot(
     //
     // `showOffer` is decided ONCE, once the real state is confirmed -not on every
     // recomposition-: this is an ENTRY offer, not a gate re-evaluated all the time. If it were,
-    // unlinking Magis later from Settings (`TvSettingsCuenta`, composed INSIDE the `NavHost`
+    // unlinking Magis later from Settings (`TvSettingsAccount`, composed INSIDE the `NavHost`
     // below) would leave `magisAccount.state` at `None` again, and since this `if` is evaluated
     // ABOVE the `NavHost`, the next recomposition would give `true` again, do this `return`, and
     // destroy the Settings screen for someone who didn't ask to come back here -the likely case,
@@ -96,7 +96,7 @@ fun ArkivTvRoot(
             account = graph.magisAccount,
             // The decision is saved (Task 10, see SettingsStore.magisOfferDismissed): "Ahora no"
             // doesn't ask again on every launch. The path stays alive in Settings
-            // (TvSettingsCuenta), on purpose -this is a shortcut, not the only door-.
+            // (TvSettingsAccount), on purpose -this is a shortcut, not the only door-.
             onNotNow = {
                 graph.settings.setMagisOfferDismissed(true)
                 showOffer = false

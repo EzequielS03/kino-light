@@ -25,7 +25,7 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-internal fun TvSettingsCuenta(account: MagisAccount, onLinkMagis: () -> Unit) {
+internal fun TvSettingsAccount(account: MagisAccount, onLinkMagis: () -> Unit) {
     val state by account.state.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { account.refresh() }
 
