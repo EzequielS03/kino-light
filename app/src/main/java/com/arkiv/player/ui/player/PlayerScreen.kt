@@ -1387,11 +1387,11 @@ private fun PlayerContent(
     // sea que ninguna de las señales viejas lo delata. Con `sinImagen` se ve si el spinner tapó ese
     // hueco o si la pantalla se quedó en negro.
     LaunchedEffect(playlist == null, magisItem == null, liveItem == null, dituPlay == null, espejo.buffering, sinPrimeraImagen, esperandoVideo, casting) {
-        val spinner = hayQueMostrarElSpinner(
-            sinPlaylist = playlist == null && magisItem == null && liveItem == null && dituPlay == null,
-            buffereando = espejo.buffering,
-            sinPrimeraImagen = sinPrimeraImagen,
-            perdioLaSalidaDeVideo = esperandoVideo,
+        val spinner = shouldShowSpinner(
+            noPlaylist = playlist == null && magisItem == null && liveItem == null && dituPlay == null,
+            buffering = espejo.buffering,
+            noFirstFrame = sinPrimeraImagen,
+            lostVideoOutput = esperandoVideo,
             casting = casting,
         )
         android.util.Log.w(
@@ -2880,11 +2880,11 @@ private fun PlayerContent(
         // colgado. MagisExoPlayer no dibuja spinner propio, así que no había nada que duplicar.
         if (
             loadError == null && estadoDlna.activo == null &&
-            hayQueMostrarElSpinner(
-                sinPlaylist = playlist == null && magisItem == null && liveItem == null && dituPlay == null,
-                buffereando = espejo.buffering,
-                sinPrimeraImagen = sinPrimeraImagen,
-                perdioLaSalidaDeVideo = esperandoVideo,
+            shouldShowSpinner(
+                noPlaylist = playlist == null && magisItem == null && liveItem == null && dituPlay == null,
+                buffering = espejo.buffering,
+                noFirstFrame = sinPrimeraImagen,
+                lostVideoOutput = esperandoVideo,
                 casting = casting,
             )
         ) {
