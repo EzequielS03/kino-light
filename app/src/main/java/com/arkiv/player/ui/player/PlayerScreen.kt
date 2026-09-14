@@ -599,9 +599,9 @@ private fun PlayerContent(
     // Controles custom (estilo torrent): visibles al tocar, se auto-ocultan mientras reproduce.
     // Arranca OCULTO: al abrir se ve el spinner de carga y luego el video limpio, sin el overlay de
     // pausa/barra encima. El usuario toca la pantalla para mostrar los controles.
-    val controles = rememberEstadoDeControles()
+    val controles = rememberControlsState()
 
-    // Modo vivo (Tarea 14): overlay PROPIO, no reusa controles.visible/controles.tickDeActividad -- esos
+    // Modo vivo (Tarea 14): overlay PROPIO, no reusa controles.visible/controles.activityTick -- esos
     // gobiernan la barra de progreso/fila de transporte de VOD, que en vivo no existen. Todo su
     // estado (ficha del canal, EPG y cajón) vive en `PlayerVivo.kt`; de acá solo lo mueve el
     // listener de teclas del video, que sigue siendo de esta pantalla.
@@ -1358,7 +1358,7 @@ private fun PlayerContent(
         }
     }
 
-    fun bump() = controles.huboActividad()
+    fun bump() = controles.bump()
 
     // Velocidad, zoom, modo noche y el HUD central: todo en `PlayerGestos.kt`. El `bump()` que
     // recibe es lo único que los ata a esta pantalla — cada ajuste cuenta como actividad y
@@ -1945,11 +1945,11 @@ private fun PlayerContent(
     }
 
     // Auto-ocultar los controles mientras reproduce. El timer se reinicia con CUALQUIER tecla
-    EfectoDeAutoOcultado(
-        estado = controles,
-        reproduciendo = espejo.reproduciendo,
-        marcando = marcadores.marcando,
-        carruselRevelado = estadoCapitulos.revelado,
+    AutoHideEffect(
+        state = controles,
+        playing = espejo.reproduciendo,
+        marking = marcadores.marcando,
+        carouselRevealed = estadoCapitulos.revelado,
     )
 
     // Este BackHandler se agrega ANTES que el de los controles (más abajo), y `OnBackPressedDispatcher`
@@ -1968,7 +1968,7 @@ private fun PlayerContent(
     // en true sin que se vea nada, y BACK quedaría muerto (ni cierra ni sale). Mantener ambas
     // iguales si se toca una.
     BackHandler(enabled = !enVivo && controles.visible && loadError == null && estadoDlna.activo == null && !marcadores.marcando) {
-        controles.ocultar()
+        controles.hide()
     }
 
 
@@ -2756,7 +2756,7 @@ private fun PlayerContent(
                                 // que controles.visible/bump() de VOD, con su propio estado. La ficha
                                 // es del vivo de Magis: en un canal de Caracol el tap no muestra nada.
                                 if (enVivo) estadoVivo.alternarInfo()
-                                else controles.alternar()
+                                else controles.toggle()
                             },
                             onDoubleTap = { o ->
                                 // Sin seek en vivo (no hay duración ni "adelante/atrás" que tengan sentido).
@@ -3058,7 +3058,7 @@ private fun PlayerContent(
                     // ABAJO, que con el burbujeo normal nunca habrían llegado hasta acá.
                     // Devuelve false: solo observa, no altera el despacho.
                     .onPreviewKeyEvent { e ->
-                        if (e.type == KeyEventType.KeyDown) controles.sigueVivo()
+                        if (e.type == KeyEventType.KeyDown) controles.keepAlive()
                         false
                     }
                     // Zona segura del TV. Va DESPUÉS del `background` a propósito: el degradado
