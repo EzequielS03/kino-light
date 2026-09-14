@@ -13,8 +13,8 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
- * Transporte del portal de Magis. Las capas de arriba (sesión, catálogo, resolución) dependen de
- * esta interfaz y no de [MagisPortalClient], para poder inyectarles un doble en sus tests.
+ * Transport for the Magis portal. The layers above (session, catalog, resolution) depend on this
+ * interface and not on [MagisPortalClient], so a double can be injected into their tests.
  */
 internal interface MagisPortalClientLike {
     suspend fun call(
@@ -27,17 +27,17 @@ internal interface MagisPortalClientLike {
 }
 
 /**
- * Habla directo con el portal de Magis (sin pasar por el gateway `arkiv-api`). Puerto de
+ * Talks directly to the Magis portal (without going through the `arkiv-api` gateway). Port of
  * `IPTVClient.call` — `/Users/cristian/arkiv-api/src/arkiv_api/adapters/magis/vendor/iptv_client.py`,
- * que a su vez salió de decompilar la app original.
+ * which itself came from decompiling the original app.
  *
- * Tres cosas no son negociables (si faltan, el portal responde "版本已停止使用" o 未登录):
- *  - el body va cifrado con [MagisCrypto] (hex(base64(3DES))), nunca JSON pelado;
- *  - a TODO body se le pegan los ~15 campos de [deviceDict] (el interceptor `C6357b` de la app);
- *  - los headers `apk` / `apkVer` / `spkgVer` van siempre.
+ * Three things aren't negotiable (if missing, the portal answers "版本已停止使用" or 未登录):
+ *  - the body goes encrypted with [MagisCrypto] (hex(base64(3DES))), never bare JSON;
+ *  - EVERY body gets [deviceDict]'s ~15 fields glued on (the app's `C6357b` interceptor);
+ *  - the `apk` / `apkVer` / `spkgVer` headers always go.
  *
- * [hosts] se recibe por constructor (y no se lee de `BuildConfig` acá adentro) para que los tests
- * puedan apuntarlo a un `MockWebServer`; el wiring real le pasa `BuildConfig.IPTV_HOSTS.split(",")`.
+ * [hosts] is received through the constructor (and not read from `BuildConfig` in here) so tests
+ * can point it at a `MockWebServer`; the real wiring passes it `BuildConfig.IPTV_HOSTS.split(",")`.
  */
 internal class MagisPortalClient(
     private val crypto: MagisCrypto,
@@ -45,9 +45,9 @@ internal class MagisPortalClient(
     private val appId: String,
     private val apkVersion: String,
     private val scheme: String = "https",
-    /** `sn` del device acuñado, leído en cada llamada: lo mintea `MagisSession` y cambia en
-     *  caliente (en el puerto de Python esto era `self.device["sn"]`, estado mutable del cliente).
-     *  Vacío mientras no haya device — que es justo lo que espera `v3/snToken`. */
+    /** The minted device's `sn`, read on every call: `MagisSession` mints it and changes it live
+     *  (in the Python port this was `self.device["sn"]`, the client's mutable state). Empty while
+     *  there's no device — which is exactly what `v3/snToken` expects. */
     private val snProvider: () -> String = { "" },
     private val http: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -57,16 +57,16 @@ internal class MagisPortalClient(
 
     private val jsonType = "application/json;charset=utf-8".toMediaType()
 
-    /** Ritmo mínimo entre llamadas: el portal es susceptible a ráfagas (en el gateway esto era un
-     *  TokenBucket global de 1,5 s, compartido entre todos los usuarios; acá el cliente es uno
-     *  solo, así que alcanza con espaciarlas). */
-    private val ritmo = Mutex()
-    private var ultimaLlamadaMs = 0L
+    /** Minimum pace between calls: the portal is sensitive to bursts (in the gateway this was a
+     *  global 1.5s TokenBucket, shared across every user; here the client is a single one, so
+     *  spacing them out is enough). */
+    private val rateLimit = Mutex()
+    private var lastCallMs = 0L
 
-    /** Host que funcionó la última vez: se prueba primero para no pagar el timeout de un host
-     *  caído en cada llamada (igual que `self.host` en el puerto de Python). */
+    /** Host that worked last time: tried first so as not to pay a dead host's timeout on every
+     *  call (same as `self.host` in the Python port). */
     @Volatile
-    private var hostPreferido: String? = null
+    private var preferredHost: String? = null
 
     override suspend fun call(
         path: String,
@@ -82,25 +82,25 @@ internal class MagisPortalClient(
                 put("userToken", userToken)
             }
             putAll(bean)
-            putAll(deviceDict())   // el device enriquece (y pisa) lo que venga en el bean
+            putAll(deviceDict())   // the device enriches (and overwrites) whatever comes in the bean
         }
         val wire = crypto.encryptBody(JSONObject(body).toString())
 
-        esperarTurno()
+        waitTurn()
 
-        var ultima: Throwable? = null
-        for (host in ordenDeHosts()) {
-            val pedido = Request.Builder()
+        var lastError: Throwable? = null
+        for (host in hostOrder()) {
+            val request = Request.Builder()
                 .url("$scheme://$host/api/portalCore/$path")
                 .post(wire.toRequestBody(jsonType))
                 .apply { headers().forEach { (k, v) -> header(k, v) } }
                 .build()
             try {
-                val crudo = withContext(Dispatchers.IO) {
-                    http.newCall(pedido).execute().use { it.body?.string().orEmpty() }
+                val raw = withContext(Dispatchers.IO) {
+                    http.newCall(request).execute().use { it.body?.string().orEmpty() }
                 }
-                val j = JSONObject(crudo)
-                hostPreferido = host
+                val j = JSONObject(raw)
+                preferredHost = host
                 val rc = j.optString("returnCode").takeIf { it.isNotEmpty() }
                 if (rc != null && rc != "0") {
                     return MagisResult.PortalError(rc, j.optString("errorMessage").ifBlank { null })
@@ -112,31 +112,31 @@ internal class MagisPortalClient(
                     MagisResult.Ok(j)
                 }
             } catch (e: Throwable) {
-                // Red caída, TLS, o respuesta que no es JSON: el host no sirve, se prueba el que sigue.
-                ultima = e
+                // Network down, TLS, or a response that isn't JSON: this host is no good, try the next one.
+                lastError = e
             }
         }
-        return MagisResult.RedError(ultima ?: IllegalStateException("sin hosts configurados"))
+        return MagisResult.RedError(lastError ?: IllegalStateException("sin hosts configurados"))
     }
 
-    private fun ordenDeHosts(): List<String> {
-        val preferido = hostPreferido ?: return hosts
-        return listOf(preferido) + hosts.filter { it != preferido }
+    private fun hostOrder(): List<String> {
+        val preferred = preferredHost ?: return hosts
+        return listOf(preferred) + hosts.filter { it != preferred }
     }
 
-    private suspend fun esperarTurno() = ritmo.withLock {
-        val desde = System.currentTimeMillis() - ultimaLlamadaMs
-        if (ultimaLlamadaMs != 0L && desde < RITMO_MS) delay(RITMO_MS - desde)
-        ultimaLlamadaMs = System.currentTimeMillis()
+    private suspend fun waitTurn() = rateLimit.withLock {
+        val elapsed = System.currentTimeMillis() - lastCallMs
+        if (lastCallMs != 0L && elapsed < RATE_LIMIT_MS) delay(RATE_LIMIT_MS - elapsed)
+        lastCallMs = System.currentTimeMillis()
     }
 
     /**
-     * Los ~15 campos que la app original le pega a cada body. Los valores fijos son los del
-     * emulador con el que se capturó el protocolo: cambiarlos no está probado y el portal valida
-     * algunos contra el device acuñado.
+     * The ~15 fields the original app glues to every body. The fixed values are the emulator's,
+     * the one the protocol was captured with: changing them is untested and the portal validates
+     * some of them against the minted device.
      *
-     * `reserve1`/`deviceToken`/`drmId` van VACÍOS a propósito — así los manda producción y así los
-     * limpia `new_anonymous_device` antes de acuñar (`iptv_client.py:187-188`).
+     * `reserve1`/`deviceToken`/`drmId` go EMPTY on purpose — that's how production sends them and
+     * how `new_anonymous_device` clears them before minting (`iptv_client.py:187-188`).
      */
     private fun deviceDict(): Map<String, Any?> = mapOf(
         "loginType" to "2",
@@ -156,8 +156,8 @@ internal class MagisPortalClient(
         "sdkVer" to 36,
     )
 
-    /** `apkVer` es un literal fijo `43404`, distinto del `apkVersion` del device dict: son dos
-     *  campos distintos de la app original, no un error de copia. */
+    /** `apkVer` is a fixed literal `43404`, different from the device dict's `apkVersion`: they're
+     *  two different fields of the original app, not a copy-paste error. */
     private fun headers(): Map<String, String> = mapOf(
         "apk" to appId,
         "apkVer" to "43404",
@@ -168,6 +168,6 @@ internal class MagisPortalClient(
     private companion object {
         const val PORTAL_CODE = "masnew"
         const val SPKG_VER = "2025-08-07 05:40:11_36_16_"
-        const val RITMO_MS = 400L
+        const val RATE_LIMIT_MS = 400L
     }
 }

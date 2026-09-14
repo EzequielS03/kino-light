@@ -5,8 +5,8 @@ import javax.crypto.Cipher
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * Cifrado de los bodies del portal de Magis: hex(base64(3DES-EDE/ECB/PKCS5(json))).
- * [keyHex] es la llave maestra de 24 bytes en hex (BuildConfig.IPTV_3DES_KEY).
+ * Encryption for the Magis portal's bodies: hex(base64(3DES-EDE/ECB/PKCS5(json))).
+ * [keyHex] is the 24-byte master key in hex (BuildConfig.IPTV_3DES_KEY).
  */
 internal class MagisCrypto(keyHex: String) {
 

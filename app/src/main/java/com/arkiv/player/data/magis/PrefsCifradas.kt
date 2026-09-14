@@ -4,56 +4,57 @@ import java.io.IOException
 import java.security.GeneralSecurityException
 
 /**
- * Abrir unas prefs cifradas SIN que un archivo indescifrable deje la app sin arrancar.
+ * Open encrypted prefs WITHOUT an undecryptable file leaving the app unable to start.
  *
- * `EncryptedSharedPreferences` cifra el archivo con una llave del Android Keystore, y esa llave
- * NO sale del aparato. Si el archivo sobrevive pero la llave no —restaurar el respaldo en un
- * teléfono nuevo, un Keystore que se reinicializó— cada `create` tira `AEADBadTagException` y no
- * hay forma de volver atrás: ese archivo ya no lo descifra nadie, nunca.
+ * `EncryptedSharedPreferences` encrypts the file with a key from the Android Keystore, and that
+ * key NEVER leaves the device. If the file survives but the key doesn't —restoring the backup on
+ * a new phone, a Keystore that got reset— every `create` throws `AEADBadTagException` and there's
+ * no going back: nobody will ever decrypt that file again.
  *
- * Como el store se toca en `ArkivApp.onCreate`, eso no era "un dato que se perdió": era la app
- * abriendo y cerrándose sola en bucle, sin más salida que borrarle los datos a mano.
+ * Since the store gets touched in `ArkivApp.onCreate`, that wasn't "some data got lost": it was
+ * the app opening and closing itself in a loop, with no way out short of wiping its data by hand.
  *
- * Acá la decisión es explícita: **entre perder la sesión y no poder abrir la app, se pierde la
- * sesión**. Se tira lo indescifrable y se empieza de cero; la persona vuelve a entrar.
+ * The decision here is explicit: **between losing the session and not being able to open the app,
+ * the session is lost**. What can't be decrypted gets thrown away and started fresh; the person
+ * logs back in.
  *
- * Es genérico en `T` para poder probarlo en la JVM: lo que se abre no le importa a esta lógica.
+ * Generic in `T` so it can be tested on the JVM: this logic doesn't care what gets opened.
  */
-internal object PrefsCifradas {
-    fun <T> abrirOReparar(
-        crear: () -> T,
-        tirarLoIndescifrable: () -> Unit,
-        sinCifrar: () -> T,
+internal object EncryptedPrefs {
+    fun <T> openOrRepair(
+        create: () -> T,
+        discardUndecryptable: () -> Unit,
+        unencrypted: () -> T,
     ): T {
         try {
-            return crear()
+            return create()
         } catch (e: Throwable) {
-            // Un error que no es de cifrado es un bug nuestro, y un bug nuestro no puede costarle
-            // la sesión a nadie: sube tal cual, sin borrar nada.
-            if (!esCifradoRoto(e)) throw e
+            // An error that isn't encryption-related is our own bug, and our own bug can't cost
+            // anyone their session: it propagates as-is, without deleting anything.
+            if (!isEncryptionBroken(e)) throw e
         }
-        tirarLoIndescifrable()
+        discardUndecryptable()
         return try {
-            crear()
+            create()
         } catch (e: Throwable) {
-            if (!esCifradoRoto(e)) throw e
-            // Ni recién tirado abre: el Keystore mismo está mal. Prefs planas antes que un
-            // teléfono donde la app no arranca -- es almacenamiento privado de la app.
-            sinCifrar()
+            if (!isEncryptionBroken(e)) throw e
+            // Doesn't open even freshly thrown out: the Keystore itself is broken. Plain prefs
+            // beat a phone where the app won't start -- it's the app's own private storage.
+            unencrypted()
         }
     }
 
     /**
-     * Tink a veces envuelve el fallo del Keystore, así que no alcanza con mirar la de encima.
-     * El tope de saltos es por si alguna cadena de causas se muerde la cola.
+     * Tink sometimes wraps the Keystore's failure, so looking only at the top one isn't enough.
+     * The hop limit is in case some cause chain bites its own tail.
      */
-    private fun esCifradoRoto(t: Throwable): Boolean {
-        var causa: Throwable? = t
-        var saltos = 0
-        while (causa != null && saltos < 16) {
-            if (causa is GeneralSecurityException || causa is IOException) return true
-            causa = causa.cause
-            saltos++
+    private fun isEncryptionBroken(t: Throwable): Boolean {
+        var cause: Throwable? = t
+        var hops = 0
+        while (cause != null && hops < 16) {
+            if (cause is GeneralSecurityException || cause is IOException) return true
+            cause = cause.cause
+            hops++
         }
         return false
     }

@@ -5,7 +5,7 @@ import android.content.SharedPreferences
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
-import com.arkiv.player.data.magis.PrefsCifradas
+import com.arkiv.player.data.magis.EncryptedPrefs
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -136,7 +136,7 @@ class SettingsStore(context: Context) {
      * resto de `pocketbase/` -- las dos claves que interesan (`adultosDesbloqueado`,
      * `recientesPurgados2026_08_14`) NO son datos de cuenta, así que se rescatan leyendo el mismo
      * archivo con el mismo esquema (`EncryptedSharedPreferences` + `MasterKey` AES256_GCM +
-     * AES256_SIV/AES256_GCM) que usaba esa clase, sin resucitarla. `PrefsCifradas.abrirOReparar`
+     * AES256_SIV/AES256_GCM) que usaba esa clase, sin resucitarla. `EncryptedPrefs.openOrRepair`
      * sigue vivo porque lo usa `EncryptedMagisCredentialStore` -- se reusa acá para el mismo
      * problema (Keystore que ya no descifra el archivo).
      *
@@ -161,8 +161,8 @@ class SettingsStore(context: Context) {
             // Las dos claves de interés ya quedaron migradas arriba: borrar el archivo viejo saca
             // el email y la contraseña de la cuenta de Kino que seguían viviendo ahí, de un
             // subsistema que ya no existe. Va DESPUÉS de migrar, nunca antes. Si el archivo era
-            // indescifrable, `tirarLoIndescifrable` (ver [abrirStoreDeCuentasViejo]) ya lo borró y
-            // `PrefsCifradas` reintentó: `viejas` queda apuntando a un archivo recién creado y
+            // indescifrable, `discardUndecryptable` (ver [abrirStoreDeCuentasViejo]) ya lo borró y
+            // `EncryptedPrefs` reintentó: `viejas` queda apuntando a un archivo recién creado y
             // vacío, del que no hay nada que migrar, y este borrado lo saca de nuevo. Es un borrado
             // de más sin consecuencia -- el estado final es el mismo. Esto solo toca el archivo de
             // shared_prefs -- JAMÁS la llave maestra del Keystore, que es la MISMA que usa
@@ -215,8 +215,8 @@ class SettingsStore(context: Context) {
          * "no había nada que migrar".
          */
         private fun abrirStoreDeCuentasViejo(app: Context): SharedPreferences? =
-            PrefsCifradas.abrirOReparar<SharedPreferences?>(
-                crear = {
+            EncryptedPrefs.openOrRepair<SharedPreferences?>(
+                create = {
                     EncryptedSharedPreferences.create(
                         app,
                         ARCHIVO_STORE_DE_CUENTAS_VIEJO,
@@ -225,11 +225,11 @@ class SettingsStore(context: Context) {
                         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
                     )
                 },
-                tirarLoIndescifrable = {
+                discardUndecryptable = {
                     Log.w(TAG_MIGRACION, "old accounts store undecryptable: abandoning without migrating")
                     runCatching { app.deleteSharedPreferences(ARCHIVO_STORE_DE_CUENTAS_VIEJO) }
                 },
-                sinCifrar = { null },
+                unencrypted = { null },
             )
 
         private const val TAG_MIGRACION = "ArkivMigracion"

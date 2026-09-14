@@ -2,22 +2,22 @@ package com.arkiv.player.data.magis
 
 import org.json.JSONObject
 
-/** Cola de respuestas por endpoint -- cada llamada a ese `path` consume la siguiente de su cola. */
+/** Queue of responses per endpoint -- each call to that `path` consumes the next one from its queue. */
 internal class FakePortalClient : MagisPortalClientLike {
-    val llamadas = mutableListOf<Pair<String, Map<String, Any?>>>()
+    val calls = mutableListOf<Pair<String, Map<String, Any?>>>()
 
-    /** La sesión (userId, userToken) con la que viajó cada llamada, en el mismo orden que
-     *  [llamadas] -- para afirmar que un reintento usa el token NUEVO, no el que ya murió. */
-    val sesiones = mutableListOf<Pair<String, String>>()
-    private val colasPorPath = mutableMapOf<String, ArrayDeque<MagisResult<JSONObject>>>()
-    var respuestaPorDefecto: MagisResult<JSONObject> = MagisResult.Ok(JSONObject())
+    /** The session (userId, userToken) each call traveled with, in the same order as
+     *  [calls] -- to assert that a retry uses the NEW token, not the one that just died. */
+    val sessions = mutableListOf<Pair<String, String>>()
+    private val queuesByPath = mutableMapOf<String, ArrayDeque<MagisResult<JSONObject>>>()
+    var defaultResponse: MagisResult<JSONObject> = MagisResult.Ok(JSONObject())
 
-    fun encolarRespuesta(path: String, resultado: MagisResult<JSONObject>) {
-        colasPorPath.getOrPut(path) { ArrayDeque() }.addLast(resultado)
+    fun queueResponse(path: String, result: MagisResult<JSONObject>) {
+        queuesByPath.getOrPut(path) { ArrayDeque() }.addLast(result)
     }
 
-    /** Cuántas veces se llamó a ese endpoint (para afirmar que hubo UN reintento, no dos). */
-    fun vecesLlamado(path: String): Int = llamadas.count { it.first == path }
+    /** How many times that endpoint was called (to assert there was ONE retry, not two). */
+    fun timesCalled(path: String): Int = calls.count { it.first == path }
 
     override suspend fun call(
         path: String,
@@ -26,44 +26,44 @@ internal class FakePortalClient : MagisPortalClientLike {
         userId: String,
         userToken: String,
     ): MagisResult<JSONObject> {
-        llamadas.add(path to bean)
-        sesiones.add(userId to userToken)
-        val cola = colasPorPath[path]
-        return if (cola != null && cola.isNotEmpty()) cola.removeFirst() else respuestaPorDefecto
+        calls.add(path to bean)
+        sessions.add(userId to userToken)
+        val queue = queuesByPath[path]
+        return if (queue != null && queue.isNotEmpty()) queue.removeFirst() else defaultResponse
     }
 }
 
 internal class FakeCredentialStore : MagisCredentialStore {
-    private var sesion: SesionGuardada? = null
-    private var cuenta: Pair<String, String>? = null
+    private var session: StoredSession? = null
+    private var account: Pair<String, String>? = null
 
-    override fun guardarSesion(s: SesionGuardada) { sesion = s }
-    override fun leerSesion(): SesionGuardada? = sesion
-    override fun guardarCuenta(email: String, password: String) { cuenta = email to password }
-    override fun leerCuenta(): Pair<String, String>? = cuenta
-    override fun borrarCuenta() { cuenta = null }
+    override fun saveSession(s: StoredSession) { session = s }
+    override fun readSession(): StoredSession? = session
+    override fun saveAccount(email: String, password: String) { account = email to password }
+    override fun readAccount(): Pair<String, String>? = account
+    override fun clearAccount() { account = null }
 }
 
-/** Sesión sin cuenta vinculada, ya "activada" (userToken presente) -- para tests que no
- * necesitan ejercitar el flujo de activación en sí. */
-internal fun sesionDeTest(fake: FakePortalClient = FakePortalClient()): MagisSession {
+/** Session with no linked account, already "activated" (userToken present) -- for tests that don't
+ * need to exercise the activation flow itself. */
+internal fun testSession(fake: FakePortalClient = FakePortalClient()): MagisSession {
     val store = FakeCredentialStore()
-    store.guardarSesion(SesionGuardada(userId = "u-test", userToken = "t-test", jwtToken = "", sn = "sn-test"))
+    store.saveSession(StoredSession(userId = "u-test", userToken = "t-test", jwtToken = "", sn = "sn-test"))
     return MagisSession(fake, store)
 }
 
-/** Igual que [sesionDeTest] pero con una cuenta vinculada (para lo que exige cuenta, ej. vivo). */
-internal fun sesionDeTestConCuenta(fake: FakePortalClient = FakePortalClient()): MagisSession {
+/** Same as [testSession] but with a linked account (for what requires an account, e.g. live). */
+internal fun testSessionWithAccount(fake: FakePortalClient = FakePortalClient()): MagisSession {
     val store = FakeCredentialStore()
-    store.guardarSesion(SesionGuardada(userId = "u-cuenta", userToken = "t-cuenta", jwtToken = "", sn = "sn-cuenta"))
-    store.guardarCuenta("persona@ejemplo.com", "MiClaveMagis123")
+    store.saveSession(StoredSession(userId = "u-cuenta", userToken = "t-cuenta", jwtToken = "", sn = "sn-cuenta"))
+    store.saveAccount("persona@ejemplo.com", "MiClaveMagis123")
     return MagisSession(fake, store)
 }
 
-/** Sesión activada pero SIN cuenta vinculada -- para probar el guard de "vivo exige cuenta". */
-internal fun sesionDeTestSinCuenta(fake: FakePortalClient = FakePortalClient()): MagisSession =
-    sesionDeTest(fake)
+/** Activated session but with NO linked account -- to test the "live requires an account" guard. */
+internal fun testSessionWithoutAccount(fake: FakePortalClient = FakePortalClient()): MagisSession =
+    testSession(fake)
 
-/** Atajo para armar respuestas del portal en los tests. */
+/** Shortcut to build portal responses in tests. */
 internal fun portalOk(vararg campos: Pair<String, Any?>): MagisResult<JSONObject> =
     MagisResult.Ok(JSONObject(campos.toMap()))

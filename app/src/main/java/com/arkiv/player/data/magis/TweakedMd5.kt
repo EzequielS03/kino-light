@@ -1,18 +1,18 @@
 package com.arkiv.player.data.magis
 
 /**
- * El MD5 modificado con el que Magis firma cada segmento de TV en vivo.
+ * The modified MD5 Magis uses to sign every live TV segment.
  *
- * Respecto de un MD5 de manual cambian **solo dos cosas** (derivadas emulando el binario
- * propietario; ver `magia/tweaked_md5.py`, que es la referencia y está verificada contra
- * el `.so` en 200 bloques aleatorios):
+ * Compared to textbook MD5, **only two things** change (derived by emulating the proprietary
+ * binary; see `magia/tweaked_md5.py`, which is the reference and is verified against the `.so`
+ * over 200 random blocks):
  *
- * 1. El message schedule de la 1ª vuelta es [ROUND1], no `0..15`. Las vueltas 2–4 son estándar.
- * 2. Cuatro constantes K distintas — rondas 42, 45, 54 y 62 — con pinta de erratas de
- *    transcripción del MD5 original.
+ * 1. Round 1's message schedule is [ROUND1], not `0..15`. Rounds 2–4 are standard.
+ * 2. Four different K constants — rounds 42, 45, 54 and 62 — that look like transcription typos
+ *    of the original MD5.
  *
- * IV, funciones F/G/H/I, shifts, padding little-endian y feed-forward son los de MD5.
- * Los cinco vectores capturados de la app son el test de aceptación.
+ * IV, the F/G/H/I functions, shifts, little-endian padding and feed-forward are MD5's own.
+ * The five vectors captured from the app are the acceptance test.
  */
 internal object TweakedMd5 {
     private val SALT = "salt3333=4".toByteArray() +
@@ -38,13 +38,13 @@ internal object TweakedMd5 {
         -0x08ac817e, -0x42c50dcb, 0x2ad7d2bb, -0x14792c6f,
     )
 
-    // El tweak: cuatro constantes cambiadas. Se escriben en hexadecimal literal para que
-    // se puedan cotejar de un vistazo contra la tabla del docstring de tweaked_md5.py.
+    // The tweak: four changed constants. Written as literal hex so they can be checked at a
+    // glance against tweaked_md5.py's docstring table.
     private val KT = K.copyOf().also {
-        it[42] = 0xd46f3085.toInt()   // estándar d4ef3085
-        it[45] = 0xe6bd99e5.toInt()   // estándar e6db99e5
-        it[54] = 0xffecc47d.toInt()   // estándar ffeff47d
-        it[62] = 0x2da7d2bb.toInt()   // estándar 2ad7d2bb
+        it[42] = 0xd46f3085.toInt()   // standard d4ef3085
+        it[45] = 0xe6bd99e5.toInt()   // standard e6db99e5
+        it[54] = 0xffecc47d.toInt()   // standard ffeff47d
+        it[62] = 0x2da7d2bb.toInt()   // standard 2ad7d2bb
     }
 
     private val S = intArrayOf(
@@ -54,7 +54,7 @@ internal object TweakedMd5 {
         6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
     )
 
-    /** El tweak: el schedule de la 1ª vuelta. Las otras tres son las fórmulas estándar. */
+    /** The tweak: round 1's schedule. The other three are the standard formulas. */
     private val ROUND1 = intArrayOf(10, 11, 12, 13, 14, 15, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5)
 
     private val G = IntArray(64) { i ->
@@ -68,15 +68,15 @@ internal object TweakedMd5 {
 
     private fun rotl(x: Int, n: Int) = (x shl n) or (x ushr (32 - n))
 
-    private fun compress(estado: IntArray, bloque: ByteArray, off: Int) {
+    private fun compress(state: IntArray, block: ByteArray, off: Int) {
         val m = IntArray(16) { j ->
             val p = off + j * 4
-            (bloque[p].toInt() and 0xff) or
-                ((bloque[p + 1].toInt() and 0xff) shl 8) or
-                ((bloque[p + 2].toInt() and 0xff) shl 16) or
-                ((bloque[p + 3].toInt() and 0xff) shl 24)
+            (block[p].toInt() and 0xff) or
+                ((block[p + 1].toInt() and 0xff) shl 8) or
+                ((block[p + 2].toInt() and 0xff) shl 16) or
+                ((block[p + 3].toInt() and 0xff) shl 24)
         }
-        var a = estado[0]; var b = estado[1]; var c = estado[2]; var d = estado[3]
+        var a = state[0]; var b = state[1]; var c = state[2]; var d = state[3]
         for (i in 0 until 64) {
             val f = when {
                 i < 16 -> (b and c) or (b.inv() and d)
@@ -84,36 +84,36 @@ internal object TweakedMd5 {
                 i < 48 -> b xor c xor d
                 else -> c xor (b or d.inv())
             }
-            val suma = f + a + KT[i] + m[G[i]]
+            val sum = f + a + KT[i] + m[G[i]]
             a = d; d = c; c = b
-            b += rotl(suma, S[i])
+            b += rotl(sum, S[i])
         }
-        estado[0] += a; estado[1] += b; estado[2] += c; estado[3] += d
+        state[0] += a; state[1] += b; state[2] += c; state[3] += d
     }
 
     fun digestHex(msg: ByteArray): String {
-        // IV de MD5: 67452301 efcdab89 98badcfe 10325476, en little-endian.
-        val estado = intArrayOf(0x67452301, -0x10325477, -0x67452302, 0x10325476)
-        val resto = msg.size % 64
+        // MD5's IV: 67452301 efcdab89 98badcfe 10325476, little-endian.
+        val state = intArrayOf(0x67452301, -0x10325477, -0x67452302, 0x10325476)
+        val remainder = msg.size % 64
         var i = 0
-        while (i + 64 <= msg.size - resto) { compress(estado, msg, i); i += 64 }
+        while (i + 64 <= msg.size - remainder) { compress(state, msg, i); i += 64 }
 
-        val cola = msg.copyOfRange(msg.size - resto, msg.size)
-        val relleno = ByteArray(((56 - (cola.size + 1)) % 64 + 64) % 64)
+        val tail = msg.copyOfRange(msg.size - remainder, msg.size)
+        val padding = ByteArray(((56 - (tail.size + 1)) % 64 + 64) % 64)
         val bits = msg.size.toLong() * 8
-        val largo = ByteArray(8) { ((bits ushr (it * 8)) and 0xff).toByte() }
-        val final = cola + byteArrayOf(0x80.toByte()) + relleno + largo
+        val length = ByteArray(8) { ((bits ushr (it * 8)) and 0xff).toByte() }
+        val final = tail + byteArrayOf(0x80.toByte()) + padding + length
         var j = 0
-        while (j < final.size) { compress(estado, final, j); j += 64 }
+        while (j < final.size) { compress(state, final, j); j += 64 }
 
         val sb = StringBuilder(32)
-        estado.forEach { palabra ->
-            for (b in 0 until 4) sb.append("%02x".format((palabra ushr (b * 8)) and 0xff))
+        state.forEach { word ->
+            for (b in 0 until 4) sb.append("%02x".format((word ushr (b * 8)) and 0xff))
         }
         return sb.toString()
     }
 
-    /** `sign2` para un token de sesión y un momento en milisegundos. */
+    /** `sign2` for a session token and a moment in milliseconds. */
     fun signO3(token: String, startMoment: Long): String = digestHex(
         "token=$token&sign2_method=sign_o3&instance=0&start_moment=$startMoment"
             .toByteArray() + SALT

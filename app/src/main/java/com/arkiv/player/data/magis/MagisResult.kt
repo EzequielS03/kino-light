@@ -1,39 +1,40 @@
 package com.arkiv.player.data.magis
 
 /**
- * Resultado de una llamada al portal de Magis. Distingue las tres cosas que el puerto de Python
- * devolvía como dicts mágicos (`_error` / `_exception` / el JSON pelado): un rechazo del portal
- * (respondió, pero dijo no) no es lo mismo que el portal no responder — ante lo primero hay que
- * reautenticar, ante lo segundo reintentar o avisar "sin conexión".
+ * Result of a call to the Magis portal. Distinguishes the three things the Python port returned as
+ * magic dicts (`_error` / `_exception` / bare JSON): a rejection from the portal (it answered, but
+ * said no) isn't the same as the portal not answering — the first calls for reauthentication, the
+ * second for a retry or a "no connection" notice.
  */
 internal sealed class MagisResult<out T> {
     data class Ok<out T>(val data: T) : MagisResult<T>()
 
-    /** El portal contestó con `returnCode != "0"` (ej. `aaa100028` = "no has iniciado sesión"). */
-    data class PortalError(val codigo: String, val msg: String?) : MagisResult<Nothing>()
+    /** The portal answered with `returnCode != "0"` (e.g. `aaa100028` = "not logged in"). */
+    data class PortalError(val code: String, val msg: String?) : MagisResult<Nothing>()
 
-    /** Ningún host del portal contestó (timeout, DNS, TLS, o JSON que no se puede parsear). */
-    data class RedError(val causa: Throwable) : MagisResult<Nothing>()
-
-    /**
-     * El dato si fue [Ok], `null` si no. Existe porque `Ok` es genérico: sin esto cada call-site
-     * tendría que escribir `(r as MagisResult.Ok<Algo>).data` — Kotlin no infiere el argumento de
-     * tipo en un `as`, y con `Ok<*>` el `data` queda en `Any?`.
-     */
-    fun dato(): T? = if (this is Ok<T>) data else null
+    /** No portal host answered (timeout, DNS, TLS, or JSON that can't be parsed). */
+    data class RedError(val cause: Throwable) : MagisResult<Nothing>()
 
     /**
-     * Re-tipa un resultado que NO es [Ok] para poder devolverlo desde una función que produce otra
-     * cosa. Falla a propósito si se usa sobre un [Ok]: ahí hay un dato que alguien está tirando.
+     * The data if it was [Ok], `null` if not. Exists because `Ok` is generic: without this every
+     * call site would have to write `(r as MagisResult.Ok<Something>).data` — Kotlin doesn't infer
+     * the type argument in an `as`, and with `Ok<*>` the `data` ends up as `Any?`.
      */
-    fun <R> comoError(): MagisResult<R> = when (this) {
+    fun getOrNull(): T? = if (this is Ok<T>) data else null
+
+    /**
+     * Re-types a result that ISN'T [Ok] so it can be returned from a function that produces
+     * something else. Fails on purpose if used on an [Ok]: that means there's a value someone is
+     * throwing away.
+     */
+    fun <R> asError(): MagisResult<R> = when (this) {
         is PortalError -> this
         is RedError -> this
-        is Ok<T> -> error("comoError() sobre un Ok: el dato se estaba descartando")
+        is Ok<T> -> error("asError() on an Ok: the data was being discarded")
     }
 
-    /** Mapea el dato conservando el error tal cual — para que las capas de arriba (catálogo,
-     *  resolución) traduzcan JSON a sus modelos sin repetir el `when` de los tres casos. */
+    /** Maps the data while keeping the error as-is — so the layers above (catalog, resolution)
+     *  can translate JSON into their models without repeating the three-case `when`. */
     inline fun <R> map(transform: (T) -> R): MagisResult<R> = when (this) {
         is Ok<T> -> Ok(transform(data))
         is PortalError -> this

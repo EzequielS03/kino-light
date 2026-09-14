@@ -103,7 +103,7 @@ data class ItemDeCatalogo(
     /**
      * El ref con el que se le pide el stream al portal al reproducir (`MagisLive`/`MagisResolve`).
      * Es lo ÚNICO reproducible que trae el ítem: la resolución NO toma [id] (que es el contentId
-     * del portal), toma este string. Es un descriptor LOCAL -`MagisRef(id, tipo, 0).codificar()`,
+     * del portal), toma este string. Es un descriptor LOCAL -`MagisRef(id, tipo, 0).encode()`,
      * ver `MagisLiveCatalog.kt`-: nadie lo firma ni lo acuña, así que tampoco vence (antes sí,
      * a las 24 h, cuando lo armaba el gateway -ver el KDoc de `MagisRef`-). La app lo sigue
      * tratando como opaco y nunca lo interpreta, pero ya no por criptografía: por contrato.

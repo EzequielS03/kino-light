@@ -3,75 +3,76 @@ package com.arkiv.player.data.magis
 import org.json.JSONObject
 
 /**
- * Catálogo del portal de Magis: búsqueda, detalle y las columnas de una raíz. Devuelve el JSON
- * crudo del portal — traducirlo a los modelos que ya consume la UI es cosa de quien lo cablea.
+ * Magis portal catalog: search, detail and a root's columns. Returns the portal's raw JSON —
+ * translating it to the models the UI already consumes is up to whoever wires it in.
  *
- * Los tres endpoints van con `baseFields` (el portal exige `portalCode` + la sesión en el body), y
- * todos pasan por [MagisSession.conSesionValida]: el `userToken` se muere sin avisar y el reintento
- * tiene que viajar con el nuevo, no con el que acabó de morir (por eso se lee DENTRO del bloque).
+ * All three endpoints go with `baseFields` (the portal requires `portalCode` + the session in the
+ * body), and all of them go through [MagisSession.withValidSession]: the `userToken` dies with no
+ * warning and the retry has to travel with the new one, not the one that just died (that's why
+ * it's read INSIDE the block).
  *
- * No está `v3/getColumnContents` a propósito: el gateway nunca lo usó para nada que la app muestre
- * (las secciones de `getNextColumns` ya vienen con sus primeros items en `assetList`), y en esta
- * rama el código que no se usa no se escribe.
+ * `v3/getColumnContents` isn't here on purpose: the gateway never used it for anything the app
+ * shows (`getNextColumns`'s sections already come with their first items in `assetList`), and in
+ * this branch unused code doesn't get written.
  */
 internal class MagisCatalog(
     private val portal: MagisPortalClientLike,
     private val session: MagisSession,
 ) {
 
-    /** [tipo]: `"1"` película, `"0"` serie. */
-    suspend fun detail(contentId: String, tipo: String): MagisResult<JSONObject> = pedir(
+    /** [type]: `"1"` movie, `"0"` series. */
+    suspend fun detail(contentId: String, type: String): MagisResult<JSONObject> = request(
         "v4/getItemData",
         mapOf(
             "contentId" to contentId,
-            "type" to tipo,
+            "type" to type,
             "sortType" to "0",
             "language" to "en",
             "macAddr" to "02:00:00:00:00:00",
         ),
     )
 
-    suspend fun search(query: String, pagina: Int = 1, tamano: Int = 20): MagisResult<JSONObject> =
-        pedir(
+    suspend fun search(query: String, page: Int = 1, pageSize: Int = 20): MagisResult<JSONObject> =
+        request(
             "v3/searchByName",
             mapOf(
                 "value" to query,
                 "type" to "0",
                 "columnId" to "",
                 "filter" to "",
-                "pageNum" to pagina,
-                "pageSize" to tamano,
+                "pageNum" to page,
+                "pageSize" to pageSize,
             ),
         )
 
     /**
-     * Las columnas de una raíz (`masnew_live`, `masnew_series`, `masnew_adult`…), cada una con sus
-     * primeros items en `assetList`. `masnew_vod`/`masnew_movie`/`masnew_home`/`masnew` los rechaza
-     * el portal — medido el 2026-08-14, no volver a intentarlos.
+     * A root's columns (`masnew_live`, `masnew_series`, `masnew_adult`…), each with its first items
+     * in `assetList`. `masnew_vod`/`masnew_movie`/`masnew_home`/`masnew` are rejected by the portal
+     * — measured on 2026-08-14, don't retry them.
      *
-     * [tamano] importa: el portal corta en el tamaño pedido sin decir que hay más (con 30 devolvía
-     * 30 categorías de vivo de las 38 que existen).
+     * [pageSize] matters: the portal cuts off at the requested size without saying there's more
+     * (with 30 it returned 30 live categories out of the 38 that exist).
      */
     suspend fun nextColumns(
         columnCode: String,
-        pagina: Int = 1,
-        tamano: Int = 50,
-    ): MagisResult<JSONObject> = pedir(
+        page: Int = 1,
+        pageSize: Int = 50,
+    ): MagisResult<JSONObject> = request(
         "getNextColumns",
         mapOf(
             "columnCode" to columnCode,
-            "pageNum" to pagina,
-            "pageSize" to tamano,
+            "pageNum" to page,
+            "pageSize" to pageSize,
             "version" to "",
         ),
     )
 
-    private suspend fun pedir(path: String, bean: Map<String, Any?>): MagisResult<JSONObject> {
-        // Sin token el portal contesta un error que no se puede diagnosticar ("请求参数异常！"),
-        // así que primero hay que tener sesión — con token vigente esto no toca la red.
-        val sesion = session.ensureSession()
-        if (sesion !is MagisResult.Ok) return sesion.comoError()
-        return session.conSesionValida {
+    private suspend fun request(path: String, bean: Map<String, Any?>): MagisResult<JSONObject> {
+        // With no token the portal answers with an undiagnosable error ("请求参数异常！"), so
+        // there has to be a session first — with a valid token this doesn't touch the network.
+        val session0 = session.ensureSession()
+        if (session0 !is MagisResult.Ok) return session0.asError()
+        return session.withValidSession {
             portal.call(
                 path = path,
                 bean = bean,

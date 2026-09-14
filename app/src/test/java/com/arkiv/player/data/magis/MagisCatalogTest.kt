@@ -8,13 +8,13 @@ import org.junit.Test
 class MagisCatalogTest {
 
     @Test
-    fun `search arma el bean correcto para searchByName`() = runTest {
+    fun `search builds the right bean for searchByName`() = runTest {
         val fake = FakePortalClient()
-        val catalog = MagisCatalog(fake, sesionDeTest(fake))
+        val catalog = MagisCatalog(fake, testSession(fake))
 
         catalog.search("batman")
 
-        val (path, bean) = fake.llamadas.first()
+        val (path, bean) = fake.calls.first()
         assertEquals("v3/searchByName", path)
         assertEquals("batman", bean["value"])
         assertEquals("0", bean["type"])
@@ -23,13 +23,13 @@ class MagisCatalogTest {
     }
 
     @Test
-    fun `detail manda contentId y tipo`() = runTest {
+    fun `detail sends contentId and type`() = runTest {
         val fake = FakePortalClient()
-        val catalog = MagisCatalog(fake, sesionDeTest(fake))
+        val catalog = MagisCatalog(fake, testSession(fake))
 
-        catalog.detail("C42", tipo = "0")
+        catalog.detail("C42", type = "0")
 
-        val (path, bean) = fake.llamadas.first()
+        val (path, bean) = fake.calls.first()
         assertEquals("v4/getItemData", path)
         assertEquals("C42", bean["contentId"])
         assertEquals("0", bean["type"])
@@ -37,13 +37,13 @@ class MagisCatalogTest {
     }
 
     @Test
-    fun `nextColumns pide la raiz con su tamano de pagina`() = runTest {
+    fun `nextColumns asks for the root with its page size`() = runTest {
         val fake = FakePortalClient()
-        val catalog = MagisCatalog(fake, sesionDeTest(fake))
+        val catalog = MagisCatalog(fake, testSession(fake))
 
-        catalog.nextColumns("masnew_live", tamano = 200)
+        catalog.nextColumns("masnew_live", pageSize = 200)
 
-        val (path, bean) = fake.llamadas.first()
+        val (path, bean) = fake.calls.first()
         assertEquals("getNextColumns", path)
         assertEquals("masnew_live", bean["columnCode"])
         assertEquals(200, bean["pageSize"])
@@ -51,55 +51,55 @@ class MagisCatalogTest {
     }
 
     @Test
-    fun `las llamadas de catalogo viajan con la sesion del aparato`() = runTest {
+    fun `catalog calls travel with the device's session`() = runTest {
         val fake = FakePortalClient()
-        val catalog = MagisCatalog(fake, sesionDeTest(fake))
+        val catalog = MagisCatalog(fake, testSession(fake))
 
         catalog.search("batman")
 
-        assertEquals("u-test" to "t-test", fake.sesiones.first())
+        assertEquals("u-test" to "t-test", fake.sessions.first())
     }
 
     @Test
-    fun `sin sesion activa una antes de pedir catalogo`() = runTest {
+    fun `with no active session, activates one before asking for the catalog`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta("v3/snToken", portalOk("snToken" to "TOK123"))
-        fake.encolarRespuesta("v8/active", portalOk("userId" to "u-nuevo", "userToken" to "t-nuevo"))
+        fake.queueResponse("v3/snToken", portalOk("snToken" to "TOK123"))
+        fake.queueResponse("v8/active", portalOk("userId" to "u-nuevo", "userToken" to "t-nuevo"))
         val catalog = MagisCatalog(fake, MagisSession(fake, FakeCredentialStore()))
 
         catalog.search("batman")
 
-        assertEquals(listOf("v3/snToken", "v8/active", "v3/searchByName"), fake.llamadas.map { it.first })
-        assertEquals("u-nuevo" to "t-nuevo", fake.sesiones.last())
+        assertEquals(listOf("v3/snToken", "v8/active", "v3/searchByName"), fake.calls.map { it.first })
+        assertEquals("u-nuevo" to "t-nuevo", fake.sessions.last())
     }
 
     @Test
-    fun `si no se puede activar, no pide catalogo`() = runTest {
+    fun `if it can't activate, it doesn't ask for the catalog`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta("v3/snToken", MagisResult.RedError(java.io.IOException("sin red")))
+        fake.queueResponse("v3/snToken", MagisResult.RedError(java.io.IOException("sin red")))
         val catalog = MagisCatalog(fake, MagisSession(fake, FakeCredentialStore()))
 
         val r = catalog.search("batman")
 
         assertTrue("esperaba RedError y fue $r", r is MagisResult.RedError)
-        assertEquals(0, fake.vecesLlamado("v3/searchByName"))
+        assertEquals(0, fake.timesCalled("v3/searchByName"))
     }
 
     @Test
-    fun `el reintento tras reautenticar viaja con el token NUEVO`() = runTest {
+    fun `the retry after reauthenticating travels with the NEW token`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta("v3/searchByName", MagisResult.PortalError("aaa100028", "未登录！"))
-        fake.encolarRespuesta("v8/active", portalOk("userId" to "u-fresco", "userToken" to "t-fresco"))
-        fake.encolarRespuesta("v3/searchByName", portalOk("resultado" to "ok"))
-        val catalog = MagisCatalog(fake, sesionDeTest(fake))
+        fake.queueResponse("v3/searchByName", MagisResult.PortalError("aaa100028", "未登录！"))
+        fake.queueResponse("v8/active", portalOk("userId" to "u-fresco", "userToken" to "t-fresco"))
+        fake.queueResponse("v3/searchByName", portalOk("resultado" to "ok"))
+        val catalog = MagisCatalog(fake, testSession(fake))
 
         val r = catalog.search("batman")
 
-        assertEquals("ok", r.dato()?.getString("resultado"))
-        assertEquals(2, fake.vecesLlamado("v3/searchByName"))
-        val sesionesDeBusqueda = fake.llamadas.withIndex()
+        assertEquals("ok", r.getOrNull()?.getString("resultado"))
+        assertEquals(2, fake.timesCalled("v3/searchByName"))
+        val sesionesDeBusqueda = fake.calls.withIndex()
             .filter { it.value.first == "v3/searchByName" }
-            .map { fake.sesiones[it.index] }
+            .map { fake.sessions[it.index] }
         assertEquals("u-test" to "t-test", sesionesDeBusqueda[0])
         assertEquals("u-fresco" to "t-fresco", sesionesDeBusqueda[1])
     }

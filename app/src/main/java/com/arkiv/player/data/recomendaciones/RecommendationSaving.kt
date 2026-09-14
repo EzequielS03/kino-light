@@ -55,12 +55,12 @@ object RecommendationSaving {
 
     /**
      * Which source this `ref` is from, or null if it's from none known. Caracol is asked first,
-     * but the order doesn't matter: `DituRef.decodificar` and `MagisRef.decodificar` only accept
+     * but the order doesn't matter: `DituRef.decodificar` and `MagisRef.decode` only accept
      * their own (their prefix, or an old gateway ref with its own source inside).
      */
     internal fun targetForRef(ref: String): RecommendationTarget? {
         com.arkiv.player.data.ditu.DituRef.decodificar(ref)?.let { return RecommendationTarget.Caracol(it.contentId) }
-        com.arkiv.player.data.magis.MagisRef.decodificar(ref)?.let { return RecommendationTarget.Magis(it.contentId) }
+        com.arkiv.player.data.magis.MagisRef.decode(ref)?.let { return RecommendationTarget.Magis(it.contentId) }
         return null
     }
 

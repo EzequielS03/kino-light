@@ -4,11 +4,11 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * `v14/getSlbInfo` es la misma llamada para VOD y para vivo: devuelve los CDN y el token del tier
- * libre. Lo único que cambia es [liveCodes] — para vivo va el código del canal que se está
- * resolviendo, porque el portal devuelve los hosts de ESA señal.
+ * `v14/getSlbInfo` is the same call for VOD and for live: it returns the CDNs and the free tier's
+ * token. The only thing that changes is [liveCodes] — for live, the code of the channel being
+ * resolved goes here, because the portal returns THAT signal's hosts.
  */
-internal fun beanDeSlb(
+internal fun slbRequestParams(
     apkVersion: String,
     liveCodes: List<String> = listOf("masnew_live"),
 ): Map<String, Any?> = mapOf(
@@ -18,8 +18,8 @@ internal fun beanDeSlb(
     "appVer" to apkVersion,
     "lang" to "es",
     "encMediaSupported" to 1,
-    // JSONArray explícito: el `JSONObject(Map)` de Android NO convierte una `List` de Kotlin, la
-    // serializa como el texto "[masnew_live]" y el portal recibe basura.
+    // Explicit JSONArray: Android's `JSONObject(Map)` does NOT convert a Kotlin `List`, it
+    // serializes it as the text "[masnew_live]" and the portal gets garbage.
     "liveCodeList" to JSONArray(liveCodes),
     "appParams" to "",
     "reserve1" to "02:00:00:00:00:00",
@@ -27,35 +27,35 @@ internal fun beanDeSlb(
 )
 
 /**
- * `sign_type=cfl` exacto, no un prefijo parecido como `cflx`. El campo `url` de `getSlbInfo` NO es
- * una URL: es un querystring suelto, sin esquema ni `?` (ej. `cdn_type=1&sign_type=cfl&token=ABC`),
- * así que parsearlo como URL no encuentra nunca el parámetro y ninguna entrada matchea.
+ * Exact `sign_type=cfl`, not a similar-looking prefix like `cflx`. `getSlbInfo`'s `url` field ISN'T
+ * a URL: it's a loose querystring, with no scheme or `?` (e.g. `cdn_type=1&sign_type=cfl&token=ABC`),
+ * so parsing it as a URL never finds the parameter and no entry ever matches.
  */
-internal fun esCfl(url: String): Boolean = url.substringAfterLast('?')
+internal fun isCfl(url: String): Boolean = url.substringAfterLast('?')
     .split('&')
     .any { it.trim() == "sign_type=cfl" }
 
 /**
- * `main_addr` con esquema, para armar una URL completa (VOD). Llega con esquema en producción —y a
- * veces con path, que se conserva—, pero sin esto un host pelado armaría una URL que el reproductor
- * no abre, y el fallo aparecería lejos de acá.
+ * `main_addr` with a scheme, to build a complete URL (VOD). It arrives with a scheme in
+ * production —and sometimes with a path, which is kept—, but without this a bare host would build
+ * a URL the player can't open, and the failure would show up far from where it originated.
  */
-internal fun conEsquema(mainAddr: String): String {
-    val limpio = mainAddr.trimEnd('/')
-    return if (limpio.startsWith("http://") || limpio.startsWith("https://")) limpio
-    else "https://$limpio"
+internal fun withScheme(mainAddr: String): String {
+    val clean = mainAddr.trimEnd('/')
+    return if (clean.startsWith("http://") || clean.startsWith("https://")) clean
+    else "https://$clean"
 }
 
 /**
- * Solo el host de `main_addr`, sin esquema ni path: es lo que el proxy de HLS espera, porque arma
- * `http://<host>/live/<playCode>.m3u8` por su cuenta.
+ * Just `main_addr`'s host, with no scheme or path: it's what the HLS proxy expects, because it
+ * builds `http://<host>/live/<playCode>.m3u8` on its own.
  */
-internal fun hostPelado(mainAddr: String): String = mainAddr
+internal fun bareHost(mainAddr: String): String = mainAddr
     .removePrefix("https://")
     .removePrefix("http://")
     .substringBefore('/')
 
-/** Recorrer un `JSONArray` de objetos sin escribir el índice a mano en cada lugar. */
-internal inline fun JSONArray.forEachObjeto(accion: (JSONObject) -> Unit) {
-    for (i in 0 until length()) optJSONObject(i)?.let(accion)
+/** Walks a `JSONArray` of objects without writing the index by hand every place. */
+internal inline fun JSONArray.forEachObject(action: (JSONObject) -> Unit) {
+    for (i in 0 until length()) optJSONObject(i)?.let(action)
 }

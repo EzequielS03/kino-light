@@ -7,45 +7,45 @@ import org.junit.Test
 
 class MagisRefTest {
 
-    /** Ref REAL del gateway (`base64url(json).hmac`), con un `exp` ya vencido y firmado con una
-     *  llave que la app no tiene: es exactamente lo que hay guardado en las bases de hoy. */
+    /** A REAL gateway ref (`base64url(json).hmac`), with an already-expired `exp` and signed with
+     *  a key the app doesn't have: it's exactly what's saved in today's databases. */
     private val refViejo =
         "eyJzIjoibWFnaXMiLCJwIjp7ImNvbnRlbnRfaWQiOiIxNDcwOTc0IiwicHJvZ3JhbV90eXBlIjoidGVsZXBsYXki" +
             "LCJlcGlzb2RlIjozfSwiZXhwIjoxNzU3MDAwMDAwfQ.lkewA6xe7e098nDA5WYNWA"
 
     @Test
-    fun `ida y vuelta del formato propio`() {
-        val ref = MagisRef(contentId = "1470974", tipoPrograma = "teleplay", episodio = 3)
+    fun `round trip of its own format`() {
+        val ref = MagisRef(contentId = "1470974", programType = "teleplay", episode = 3)
 
-        assertEquals(ref, MagisRef.decodificar(ref.codificar()))
+        assertEquals(ref, MagisRef.decode(ref.encode()))
     }
 
     @Test
-    fun `un contentId con dos puntos adentro sobrevive`() {
-        val ref = MagisRef(contentId = "cyx:raro:99", tipoPrograma = "movie", episodio = 0)
+    fun `a contentId with a colon inside survives`() {
+        val ref = MagisRef(contentId = "cyx:raro:99", programType = "movie", episode = 0)
 
-        assertEquals(ref, MagisRef.decodificar(ref.codificar()))
+        assertEquals(ref, MagisRef.decode(ref.encode()))
     }
 
     @Test
-    fun `un ref viejo del gateway se entiende aunque este vencido y firmado con otra llave`() {
-        val ref = MagisRef.decodificar(refViejo)!!
+    fun `an old gateway ref is understood even if expired and signed with another key`() {
+        val ref = MagisRef.decode(refViejo)!!
 
         assertEquals("1470974", ref.contentId)
-        assertEquals("teleplay", ref.tipoPrograma)
-        assertEquals(3, ref.episodio)
-        assertTrue(ref.esSerie)
+        assertEquals("teleplay", ref.programType)
+        assertEquals(3, ref.episode)
+        assertTrue(ref.isSeries)
     }
 
     @Test
-    fun `un ref viejo de otra fuente no es de Magis`() {
+    fun `an old ref from another source isn't Magis's`() {
         val deWeb = "eyJzIjoid2ViIiwicCI6eyJ1cmwiOiJ4In0sImV4cCI6MTc1NzAwMDAwMH0.hAsrHhTwBhEMO5hw9hZ_bA"
 
-        assertNull(MagisRef.decodificar(deWeb))
+        assertNull(MagisRef.decode(deWeb))
     }
 
     @Test
-    fun `basura, vacio y cosas a medio armar dan null en vez de reventar`() {
+    fun `garbage, empty and half-built things give null instead of blowing up`() {
         listOf(
             "",
             "   ",
@@ -56,29 +56,29 @@ class MagisRefTest {
             "sinpunto",
             "...",
             "@@@.@@@",
-            "eyJzIjoibWFnaXMi.x", // json cortado
-        ).forEach { assertNull("ref $it", MagisRef.decodificar(it)) }
+            "eyJzIjoibWFnaXMi.x", // truncated json
+        ).forEach { assertNull("ref $it", MagisRef.decode(it)) }
     }
 
     @Test
-    fun `sin program_type se asume pelicula`() {
-        assertEquals("movie", MagisRef.decodificar("magis1::0:C1")?.tipoPrograma)
-        assertTrue(MagisRef.decodificar("magis1::0:C1")?.esSerie == false)
+    fun `with no program_type it's assumed to be a movie`() {
+        assertEquals("movie", MagisRef.decode("magis1::0:C1")?.programType)
+        assertTrue(MagisRef.decode("magis1::0:C1")?.isSeries == false)
     }
 
     @Test
-    fun `el episodio que no es un numero no tumba el ref`() {
-        val ref = MagisRef.decodificar("magis1:teleplay:tres:C1")!!
+    fun `an episode that isn't a number doesn't sink the ref`() {
+        val ref = MagisRef.decode("magis1:teleplay:tres:C1")!!
 
-        assertEquals(0, ref.episodio)
+        assertEquals(0, ref.episode)
         assertEquals("C1", ref.contentId)
     }
 
     @Test
-    fun `los tres tipos de serie del portal cuentan como serie`() {
+    fun `the portal's three series types count as a series`() {
         listOf("teleplay", "series", "variety").forEach {
-            assertTrue(it, MagisRef(contentId = "x", tipoPrograma = it).esSerie)
+            assertTrue(it, MagisRef(contentId = "x", programType = it).isSeries)
         }
-        assertTrue(!MagisRef(contentId = "x", tipoPrograma = "movie").esSerie)
+        assertTrue(!MagisRef(contentId = "x", programType = "movie").isSeries)
     }
 }

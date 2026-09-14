@@ -14,14 +14,14 @@ class TweakedMd5Test {
     )
 
     @Test
-    fun `los cinco vectores reales`() {
+    fun `the five real vectors`() {
         vectores.forEach { (token, momento, esperado) ->
             assertEquals("momento $momento", esperado, TweakedMd5.signO3(token, momento))
         }
     }
 
     @Test
-    fun `las fronteras del padding no se corren`() {
+    fun `the padding boundaries don't shift`() {
         // 55 y 56 bytes son el borde donde el padding pasa a necesitar un bloque extra (63/64/65
         // cubren el borde análogo un bloque más adelante); un error de un byte ahí no lo detectan
         // los vectores de arriba, que miden ~120 bytes -siempre del mismo lado del borde-.
@@ -48,7 +48,7 @@ class TweakedMd5Test {
     }
 
     @Test
-    fun `no es MD5 estandar`() {
+    fun `it's not standard MD5`() {
         // Si alguien "arregla" las constantes tweakeadas creyendo que son erratas, esto lo caza.
         val md5 = java.security.MessageDigest.getInstance("MD5")
             .digest(ByteArray(64)).joinToString("") { "%02x".format(it) }
