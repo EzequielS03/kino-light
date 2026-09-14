@@ -9,15 +9,31 @@ English" line in `.claude/reglas.md`.
 Order chosen by the user: **módulo por módulo, de menor a mayor riesgo** (module by module,
 lowest to highest risk).
 
-## Overall completion (updated 2026-09-14): **the sweep is effectively done.**
+## Overall completion (updated 2026-09-14, latest): **every deliberate deferral is closed.**
 
-`ui/`, `data/`, `crash/`, `app/src/debug/` are all done. Both items that were previously
-"deliberately deferred" are now CLOSED: `MagisFuente`/`DituFuente` → `MagisSource`/`DituSource`
-(commit `fc49028d`), and `LiveModels.kt`'s data-class field names (`LiveChannel.nombre` etc., 27
-files) are translated (commit `5a0eb7ab`). The three DI/entry-point files that were always
-out-of-scope for full identifier rename (`AppGraph.kt`, `ArkivApp.kt`, `MainActivity.kt`, due to
-the DI-graph ripple) had their comments/KDoc translated separately (commit `f39526d6`) — their
-identifiers remain Spanish on purpose, see "Deliberately deferred".
+`ui/`, `data/`, `crash/`, `app/src/debug/` are all done. `MagisFuente`/`DituFuente` →
+`MagisSource`/`DituSource` (commit `fc49028d`) and `LiveModels.kt`'s data-class field names
+(`LiveChannel.nombre` etc., 27 files, commit `5a0eb7ab`) are translated. The
+`AppGraph.kt`/`ArkivApp.kt`/`MainActivity.kt` deferral is closed: comments (`f39526d6`), then
+`AppGraph.kt`'s whole property/function surface (commit `97e73d73`, 21-file ripple:
+`fuenteDeContenido`→`contentSource`, `catalogoDeVivo`→`liveCatalog`, `hayInternet`→`hasInternet`,
+`httpDelPortal`→`portalHttp`, `generadorParaTi`→`forYouGenerator`,
+`agregadorDeRecomendaciones`→`recommendationAggregator`, `almacenDeCaracol`→`caracolStore`,
+`almacenDeFrames`→`frameStore`, `destructorDeFrames`→`frameDestroyer`,
+`iniciarMonitorDeRed`→`startNetworkMonitor`, `monitorDeRed`→`networkMonitor`,
+`vigilanteDeRed`→`networkWatchdog`, `clienteDeIa`→`aiClient`, `datosCuriosos`→`triviaFacts`,
+`buscadorDeCapitulos`→`newChapterFinder`, `buscarCapitulosNuevos`→`lookForNewChapters`, plus
+locals/lambda params and `HORAS_ENTRE_BUSQUEDAS`/`KEY_ULTIMA_BUSQUEDA`'s constant names — the
+latter's frozen SharedPreferences string value untouched), and `ArkivApp.kt`'s private
+`reportar`/`etiqueta` (commit `7a392dd3`). `MainActivity.kt`'s identifiers were already English.
+**`SettingsStore.kt`'s public API is now ALSO translated** (commit `d1b68788`, 11-file ripple —
+see "Deliberately deferred" below for the details and a near-miss worth remembering).
+
+A fresh full-codebase accented-character sweep after all of the above (`app/src/main/java` +
+`app/src/debug/java` + `app/src/test/java`) still sits at exactly **138 files, unchanged from the
+last verification** — expected, since these last few passes translated non-accented Spanish
+identifiers, not accented prose. Every one of those 138 was already individually confirmed a false
+positive (see the "138 files" note further down and the 151-file triage commit `139df024`).
 
 A final full-codebase accented-character sweep (`app/src/main/java` + `app/src/debug/java` +
 `app/src/test/java`) was run repeatedly, most recently after a 151-file triage pass (commit
@@ -195,18 +211,22 @@ lesson below and "Next steps" for how to actually close this out.
 
 - ~~`MagisFuente`/`DituFuente` class names~~ — **CLOSED**, commit `fc49028d`.
 - ~~`LiveModels.kt`'s data-class field names~~ — **CLOSED**, commit `5a0eb7ab` (27 files).
-- **`AppGraph.kt`/`ArkivApp.kt`/`MainActivity.kt`'s identifiers** (properties, function/parameter
-  names like `fuenteDeContenido`, `almacenDeCaracol`, `catalogoDeVivo`, `reportar`/`etiqueta`) —
-  comments/KDoc are fully translated (commit `f39526d6`), but the identifiers themselves are
-  deliberately left in Spanish: `AppGraph` is the whole manual DI graph, and renaming its
-  properties ripples into every consumer across `ui/`, `data/`, `playback/`. Treat as its own
-  dedicated future pass, same as the two items just closed above were.
-- **`SettingsStore.kt`'s public API and `KEY_*`/`ARCHIVO_*` constants** — the SharedPreferences
-  key STRING VALUES are permanently frozen (changing them resets users' saved settings and 18+
-  lock silently on next launch); the Kotlin property/method/constant NAMES (`adultosDesbloqueado`,
-  `magisOfertaDescartada`, `codigoAdultos`, `setDimLevel`, `KEY_ADULTOS_DESBLOQUEADO`, etc.) could
-  be renamed without touching the frozen values, but their external ripple wasn't traced this
-  session — do that check before renaming, same rigor as every other file this sweep.
+- ~~`AppGraph.kt`/`ArkivApp.kt`/`MainActivity.kt`'s identifiers~~ — **CLOSED**, commits `97e73d73`
+  (`AppGraph.kt`, 21-file ripple) and `7a392dd3` (`ArkivApp.kt`'s private `reportar`/`etiqueta`).
+  `MainActivity.kt` was already English.
+- ~~`SettingsStore.kt`'s public API and `KEY_*`/`ARCHIVO_*` constant NAMES~~ — **CLOSED**, commit
+  `d1b68788` (11-file ripple + one test file renamed). The SharedPreferences key STRING VALUES stay
+  permanently frozen, byte-for-byte verified against HEAD after the rename. **Near-miss worth
+  remembering**: a blanket word-boundary regex rename briefly corrupted two of those frozen values
+  anyway (`KEY_ADULTOS_DESBLOQUEADO`'s value `"adultosDesbloqueado"` and `KEY_CODIGO_ADULTOS`'s
+  value `"codigoAdultos"` both got rewritten to the new name, because the string literal's CONTENT
+  happened to equal the identifier text being renamed — `\bword\b` regex has no concept of "inside
+  a string literal", so it matched there too). Caught by diffing every string literal in the file
+  against `git show HEAD:<path>` before compiling — see the new lesson in the memory file. No other
+  Room/prefs rename this sweep had this exact shape (identifier text == its own frozen string
+  value), but it's now a required check whenever one does.
+
+**No remaining deliberate deferrals.** Every item ever documented in this section is closed.
 
 ### `ui/` — fully done packages
 
@@ -599,27 +619,30 @@ find app/src/main/java app/src/debug/java app/src/test/java -name "*.kt" | while
 
 **What's left, in priority order if this is picked back up:**
 
-1. **`AppGraph.kt`/`ArkivApp.kt`/`MainActivity.kt` identifier rename** — the one remaining planned
-   deferral. Same shape as the two closed deferrals above: read, grep every real usage (`AppGraph`
-   properties are consumed across `ui/`, `data/`, `playback/`), rename + ripple, compile, full
-   test, verify exact count, commit. Budget for a large ripple; not a quick gap-closer.
-2. **Spanish test method names with no accented characters** (`fun algo_en_español()` without the
+1. **Spanish test method names with no accented characters** (`fun algo_en_español()` without the
    accent, or plain Spanish words like `guarda`/`falla`/`vacio`) — discovered but explicitly
    NOT started; the accented-character sweep structurally cannot find these. Potentially hundreds
    of names across dozens of test files. Confirm scope with the user before starting — this is a
    materially different, larger kind of task than anything closed so far, closer to a rename
-   project than a gap-closing pass.
-3. **`SettingsStore.kt`'s public API and `KEY_*`/`ARCHIVO_*` constant names** (not the frozen
-   SharedPreferences string values) — noted as deferred, ripple never traced. Low priority.
-4. Do one more full-codebase accented-character sweep before declaring anything "100% done" —
+   project than a gap-closing pass. **This is now the only known remaining body of work.**
+2. Do one more full-codebase accented-character sweep before declaring anything "100% done" —
    every previous "done" declaration this session turned out to be wrong on the first check, six
    separate times now. Read every hit before judging it — most will be legitimate UI-facing text,
    LLM prompt data, or Room/DAO-frozen fields; a hit is a thing to check, not automatically a gap.
-5. **Whenever a bare top-level `fun`/`val` gets renamed** (not a class/object member), grep
+3. **Before any blanket regex rename touching a file with `const val KEY_* = "literal"`-style
+   frozen string constants, diff every string literal in the file against `git show HEAD:<path>`
+   after the rename, before compiling.** A `\bidentifier\b` regex has no concept of "inside a
+   string literal" — if a frozen SharedPreferences/JSON/Room literal's CONTENT happens to equal the
+   identifier text being renamed (e.g. `KEY_ADULTOS_DESBLOQUEADO = "adultosDesbloqueado"`), a
+   blanket rename corrupts the literal too, silently, with no compile error (it's still valid
+   Kotlin, just now writes to a different, wrong prefs key on next launch). Caught once in the
+   `SettingsStore.kt` pass via `diff <(git show HEAD:<path> | grep -oE '"[^"]*"') <(grep -oE
+   '"[^"]*"' <path>)` — run that check after every bulk rename near a `const val`.
+4. **Whenever a bare top-level `fun`/`val` gets renamed** (not a class/object member), grep
    separately for `^import .*\.<oldName>$` — a call-site-anchored sed pattern will not catch a bare
    import line, and that's a real, previously-hit compile break (see the lesson noted near the top
    of this doc).
-6. **When a rename's sed pattern could match multiple near-identical call sites to DIFFERENT
+5. **When a rename's sed pattern could match multiple near-identical call sites to DIFFERENT
    functions**, a blanket sed will rename the wrong one too. Check the compile error carefully (it
    names the exact line) and use a line-number-targeted `sed 'N s/.../.../''` to fix only the
    intended call site.
