@@ -79,7 +79,7 @@ private fun esRecuperable(error: PlaybackException): Boolean =
  * Ads aren't filtered. On a recoverable error (see [esRecuperable]) the stream is re-prepared
  * while [pedirRepreparado] allows it; otherwise, the error's `errorCode` goes to [onError], and
  * `PlayerScreen` asks the ViewModel for a new URL. The caps for the two tiers don't live here but
- * in `EstadoDeDitu`, which only resets them after stable playback: [onPosicion] passes it every
+ * in `DituState`, which only resets them after stable playback: [onPosicion] passes it every
  * clock reading.
  *
  * Starts with the first frame, not before. It's prepared paused and
@@ -291,7 +291,7 @@ internal fun DituExoPlayer(
     }
 
     // Posición y duración para la barra, igual que el sondeo de [MagisExoPlayer], y la misma
-    // lectura para [onPosicion], que es de donde `EstadoDeDitu` sabe si la reproducción anda.
+    // lectura para [onPosicion], que es de donde `DituState` sabe si la reproducción anda.
     LaunchedEffect(exoPlayer) {
         while (true) {
             delay(500)

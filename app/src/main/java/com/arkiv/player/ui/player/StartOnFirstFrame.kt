@@ -28,7 +28,7 @@ internal const val MAX_FIRST_FRAME_WAIT_MS = 10_000L
  * ([suspendWait]), it doesn't start in the background; on return ([resume]) the wait continues,
  * with its deadline counted again from scratch: it never ends up waiting with no deadline.
  *
- * Kept separate and Android-free so it can be tested on the JVM, same as [EstadoDeDitu]. One per
+ * Kept separate and Android-free so it can be tested on the JVM, same as [DituState]. One per
  * player: a reload arms another player and, with it, another wait. If what failed was paused
  * ([wantedToPlay]), the reload's instance is armed with [autoStart] set to `false`: it stays
  * primed paused and the person decides.
