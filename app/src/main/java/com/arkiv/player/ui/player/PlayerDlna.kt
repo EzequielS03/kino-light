@@ -48,118 +48,120 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Todo el DLNA del reproductor: estado, acciones y las tres piezas de interfaz que lo muestran.
+ * All of the player's DLNA: state, actions, and the three interface pieces that show it.
  *
- * Vive aparte de [PlayerContent] porque es el único bloque de esa pantalla que no se cruza con
- * ningún otro: nada del transporte, del cast ni del modo vivo lee estas variables. Lo único que
- * el reproductor necesita saber es si hay un renderer activo ([EstadoDlna.activo]), porque eso
- * esconde los controles locales.
+ * Lives apart from [PlayerContent] because it's the only block on that screen that doesn't cross
+ * paths with anything else: nothing about transport, cast, or live mode reads these variables.
+ * The only thing the player needs to know is whether a renderer is active ([DlnaState.active]),
+ * because that hides the local controls.
  */
 @Stable
-internal class EstadoDlna(
+internal class DlnaState(
     private val dlna: DlnaController,
     private val scope: CoroutineScope,
-    /** Scope de todo el proceso: lo único que sobrevive a que la pantalla salga de la composición. */
-    private val scopeDeApp: CoroutineScope,
+    /** Whole-process scope: the only thing that survives the screen leaving composition. */
+    private val appScope: CoroutineScope,
 ) {
-    /** El diálogo de dispositivos está abierto. */
-    var pickerAbierto by mutableStateOf(false)
+    /** The device dialog is open. */
+    var pickerOpen by mutableStateOf(false)
         private set
 
-    /** Corriendo el descubrimiento SSDP (spinner del diálogo). */
-    var buscando by mutableStateOf(false)
+    /** Running the SSDP discovery (the dialog's spinner). */
+    var searching by mutableStateOf(false)
         private set
 
-    /** Renderers encontrados en la última búsqueda. */
-    var dispositivos by mutableStateOf<List<DlnaDevice>>(emptyList())
+    /** Renderers found in the last search. */
+    var devices by mutableStateOf<List<DlnaDevice>>(emptyList())
         private set
 
-    /** Renderer al que le estamos mandando video, o null si reproducimos local. */
-    var activo by mutableStateOf<DlnaDevice?>(null)
+    /** The renderer we're sending video to, or null if playing locally. */
+    var active by mutableStateOf<DlnaDevice?>(null)
         private set
 
-    /** El renderer activo está en pausa (lo sabemos porque nosotros se lo pedimos). */
-    var pausado by mutableStateOf(false)
+    /** The active renderer is paused (we know because we asked it to). */
+    var paused by mutableStateOf(false)
         private set
 
     /**
-     * Arranca la búsqueda y abre el picker. Un solo camino para VOD y vivo: ambos bloques de
-     * controles (el Row de arriba y el Row del modo vivo) lo disparan igual, la única diferencia
-     * entre ambos es el resto del Row que lo rodea (título/marcadores en VOD, badge "EN VIVO" en
-     * vivo).
+     * Starts the search and opens the picker. One single path for VOD and live: both control
+     * blocks (the Row above and live mode's own Row) trigger it the same way, the only
+     * difference between them is the rest of the Row surrounding it (title/markers in VOD, "EN
+     * VIVO" badge in live).
      */
-    fun descubrir() {
-        pickerAbierto = true
-        buscando = true
-        dispositivos = emptyList()
+    fun discover() {
+        pickerOpen = true
+        searching = true
+        devices = emptyList()
         scope.launch {
             val found = withContext(Dispatchers.IO) { dlna.discover() }
-            dispositivos = found
-            buscando = false
+            devices = found
+            searching = false
         }
     }
 
-    fun cerrarPicker() {
-        pickerAbierto = false
+    fun closePicker() {
+        pickerOpen = false
     }
 
-    /** El renderer aceptó el video: de acá en adelante los controles manejan la TV, no el local. */
-    fun marcarActivo(device: DlnaDevice) {
-        activo = device
-        pausado = false
+    /** The renderer accepted the video: from here on the controls drive the TV, not the local one. */
+    fun markActive(device: DlnaDevice) {
+        active = device
+        paused = false
     }
 
-    fun alternarPausa() {
-        val dev = activo ?: return
+    fun togglePause() {
+        val dev = active ?: return
         scope.launch {
-            withContext(Dispatchers.IO) { if (pausado) dlna.play(dev) else dlna.pause(dev) }
-            pausado = !pausado
+            withContext(Dispatchers.IO) { if (paused) dlna.play(dev) else dlna.pause(dev) }
+            paused = !paused
         }
     }
 
-    fun detener() {
-        val dev = activo ?: return
+    fun stop() {
+        val dev = active ?: return
         scope.launch {
             withContext(Dispatchers.IO) { dlna.stop(dev) }
-            activo = null
+            active = null
         }
     }
 
     /**
-     * Corte best-effort al salir de la pantalla: no toca el estado porque ya se está muriendo.
+     * Best-effort cutoff on leaving the screen: doesn't touch the state because it's already dying.
      *
-     * Va por [scopeDeApp] y NO por `scope`, y eso no es cosmética: quien llama es el `onDispose` de
-     * PlayerScreen, y Compose cancela el scope de `rememberCoroutineScope` en esa misma pasada de
-     * aplicar cambios, apenas termina el `onDispose`. El `launch` alcanza a encolarse (el scope
-     * todavía está activo), pero se despacha por el dispatcher de la composición: no corre en línea,
-     * y para cuando le tocaría arrancar el scope ya está cancelado. La corrutina muere sin ejecutar
-     * su primera instrucción y el Stop nunca sale, así que la TV se queda reproduciendo.
+     * Goes through [appScope] and NOT `scope`, and that isn't cosmetic: the caller is
+     * PlayerScreen's `onDispose`, and Compose cancels `rememberCoroutineScope`'s scope in that
+     * same apply-changes pass, right as `onDispose` finishes. The `launch` manages to get queued
+     * (the scope is still active), but it's dispatched through the composition's dispatcher: it
+     * doesn't run inline, and by the time it would start the scope is already cancelled. The
+     * coroutine dies without running its first instruction and the Stop never goes out, so the TV
+     * keeps playing.
      *
-     * Verificado el 2026-08-19 contra un MediaRenderer de prueba: con `scope` el renderer no recibe
-     * NADA al salir con Atrás (y un log dentro del `launch` nunca llega a imprimirse, aunque el
-     * scope todavía diera `isActive == true` al encolarlo); con [scopeDeApp] recibe el Stop.
+     * Verified on 2026-08-19 against a test MediaRenderer: with `scope` the renderer receives
+     * NOTHING on exiting with Back (and a log inside the `launch` never gets printed, even though
+     * the scope still reported `isActive == true` when queuing it); with [appScope] it receives
+     * the Stop.
      */
-    fun detenerAlSalir() {
-        val dev = activo ?: return
-        scopeDeApp.launch { withContext(Dispatchers.IO) { runCatching { dlna.stop(dev) } } }
+    fun stopOnExit() {
+        val dev = active ?: return
+        appScope.launch { withContext(Dispatchers.IO) { runCatching { dlna.stop(dev) } } }
     }
 }
 
 @Composable
-internal fun rememberEstadoDlna(dlna: DlnaController, scopeDeApp: CoroutineScope): EstadoDlna {
+internal fun rememberDlnaState(dlna: DlnaController, appScope: CoroutineScope): DlnaState {
     val scope = rememberCoroutineScope()
-    return remember(dlna, scope, scopeDeApp) { EstadoDlna(dlna, scope, scopeDeApp) }
+    return remember(dlna, scope, appScope) { DlnaState(dlna, scope, appScope) }
 }
 
 /**
- * Le entrega [device] la URL que corresponda a lo que estamos reproduciendo y devuelve si aceptó.
+ * Hands [device] the URL that matches what we're playing and returns whether it accepted it.
  *
- * Vivo NO puede mandar `mediaUrl`: esa es loopback (el server propio escuchando en 127.0.0.1), que
- * desde la TV no resuelve a nada. Tiene que salir por la IP de LAN del server que ya está corriendo
- * acá — el de [LiveHlsProxy]. Y `castUrl` tampoco sirve en vivo: nunca hay un mp4 de respaldo para
- * un canal (ver el KDoc de CastRequestBuilder).
+ * Live can NOT send `mediaUrl`: that's loopback (our own server listening on 127.0.0.1), which
+ * resolves to nothing from the TV. It has to go out through the LAN IP of the server already
+ * running here — [LiveHlsProxy]'s. And `castUrl` doesn't work for live either: there's never a
+ * backup mp4 for a channel (see CastRequestBuilder's KDoc).
  */
-internal suspend fun mandarAlRenderer(
+internal suspend fun sendToRenderer(
     dlna: DlnaController,
     device: DlnaDevice,
     ep: PlayerData?,
@@ -182,10 +184,10 @@ internal suspend fun mandarAlRenderer(
     else -> withContext(Dispatchers.IO) { dlna.setUrlAndPlay(device, ep.castUrl ?: ep.mediaUrl, ep.title) }
 }
 
-/** Barra "Reproduciendo en <TV>" con pausa/detener, visible mientras haya un renderer activo. */
+/** "Playing on <TV>" bar with pause/stop, visible while a renderer is active. */
 @Composable
-internal fun BoxScope.BarraDlnaActiva(estado: EstadoDlna) {
-    val active = estado.activo ?: return
+internal fun BoxScope.ActiveDlnaBar(state: DlnaState) {
+    val active = state.active ?: return
     Surface(
         modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().systemBarsPadding().padding(16.dp),
         color = ArkivSurface.copy(alpha = 0.96f),
@@ -202,31 +204,31 @@ internal fun BoxScope.BarraDlnaActiva(estado: EstadoDlna) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            TextButton(onClick = { estado.alternarPausa() }) {
-                Text(if (estado.pausado) "Reanudar" else "Pausar")
+            TextButton(onClick = { state.togglePause() }) {
+                Text(if (state.paused) "Reanudar" else "Pausar")
             }
-            TextButton(onClick = { estado.detener() }) { Text("Detener") }
+            TextButton(onClick = { state.stop() }) { Text("Detener") }
         }
     }
 }
 
 /**
- * Diálogo de dispositivos encontrados. No sabe qué se está reproduciendo: elegir un renderer solo
- * avisa por [onElegir], que es quien arma la URL y confirma con [EstadoDlna.marcarActivo].
+ * Dialog of found devices. Doesn't know what's playing: choosing a renderer only notifies
+ * [onChoose], which is the one that builds the URL and confirms with [DlnaState.markActive].
  */
 @Composable
-internal fun DialogoDispositivosDlna(
-    estado: EstadoDlna,
-    onElegir: (DlnaDevice) -> Unit,
+internal fun DlnaDevicesDialog(
+    state: DlnaState,
+    onChoose: (DlnaDevice) -> Unit,
 ) {
-    if (!estado.pickerAbierto) return
+    if (!state.pickerOpen) return
     AlertDialog(
-        onDismissRequest = { estado.cerrarPicker() },
+        onDismissRequest = { state.closePicker() },
         title = { Text("Reproducir en TV (DLNA)") },
         text = {
             Column {
                 when {
-                    estado.buscando -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    state.searching -> Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(
                             strokeWidth = 2.dp,
                             modifier = Modifier.padding(end = 12.dp).size(20.dp),
@@ -234,19 +236,19 @@ internal fun DialogoDispositivosDlna(
                         Text("Buscando dispositivos…")
                     }
 
-                    estado.dispositivos.isEmpty() -> Text(
+                    state.devices.isEmpty() -> Text(
                         "No se encontraron dispositivos DLNA. Asegúrate de que la TV esté encendida, " +
                             "en la misma red WiFi y con DLNA habilitado.",
                         color = ArkivTextSecondary,
                     )
 
-                    else -> estado.dispositivos.forEach { device ->
+                    else -> state.devices.forEach { device ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    estado.cerrarPicker()
-                                    onElegir(device)
+                                    state.closePicker()
+                                    onChoose(device)
                                 }
                                 .padding(vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -258,16 +260,16 @@ internal fun DialogoDispositivosDlna(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { estado.cerrarPicker() }) { Text("Cerrar") } },
+        confirmButton = { TextButton(onClick = { state.closePicker() }) { Text("Cerrar") } },
     )
 }
 
 /**
- * Botón de DLNA + botón de Chromecast (MediaRouteButton), compartidos por el Row de controles de
- * VOD y el Row propio del modo vivo (Tarea 14/18): ambos ofrecen exactamente los mismos dos
- * botones con el mismo criterio de visibilidad -- lo único que cambia entre ellos es el resto del
- * Row que los rodea (título/marcadores en VOD, badge "EN VIVO" en vivo), así que ESE Row se queda
- * duplicado a propósito pero estos dos botones no.
+ * DLNA button + Chromecast button (MediaRouteButton), shared by VOD's controls Row and live
+ * mode's own Row (Task 14/18): both offer exactly the same two buttons with the same visibility
+ * criterion -- the only thing that changes between them is the rest of the Row surrounding them
+ * (title/markers in VOD, "EN VIVO" badge in live), so THAT Row stays duplicated on purpose but
+ * these two buttons don't.
  */
 @Composable
 internal fun DlnaCastButtons(
@@ -275,8 +277,9 @@ internal fun DlnaCastButtons(
     castContext: CastContext?,
     onDiscoverDlna: () -> Unit,
 ) {
-    // Casteando no: DLNA es OTRO renderer, y mezclar los dos deja dos TVs reproduciendo lo mismo
-    // a la vez. (El botón de Chromecast sí queda visible: es el único camino para cortar la sesión.)
+    // Not while casting: DLNA is ANOTHER renderer, and mixing the two leaves two TVs playing the
+    // same thing at once. (The Chromecast button does stay visible: it's the only way to cut the
+    // session.)
     if (!casting) {
         IconButton(onClick = onDiscoverDlna) {
             Icon(Icons.Default.Tv, contentDescription = "Reproducir en TV (DLNA)", tint = Color.White)

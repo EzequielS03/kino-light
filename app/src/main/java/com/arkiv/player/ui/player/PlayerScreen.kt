@@ -790,7 +790,7 @@ private fun PlayerContent(
     // Estado DLNA: vive entero en `PlayerDlna.kt` (estado, acciones y sus tres piezas de UI). De
     // todo eso, esta pantalla solo consulta `activo`, porque tener un renderer andando esconde los
     // controles locales.
-    val estadoDlna = rememberEstadoDlna(dlna, graph.applicationScope)
+    val estadoDlna = rememberDlnaState(dlna, graph.applicationScope)
 
     val d = playlist?.items?.getOrNull(currentIndex)
     val playlistRef = rememberUpdatedState(playlist)
@@ -1370,12 +1370,12 @@ private fun PlayerContent(
 
 
 
-    LaunchedEffect(controles.visible, espejo.buffering, casting, estadoDlna.activo, marcadores.mode, loadError) {
+    LaunchedEffect(controles.visible, espejo.buffering, casting, estadoDlna.active, marcadores.mode, loadError) {
         android.util.Log.i(
             "ArkivCast",
             "UI bar · controls=${controles.visible} buffering=${espejo.buffering} casting=$casting " +
-                "dlna=${estadoDlna.activo != null} marking=${marcadores.marking} error=${loadError != null} " +
-                "→ overlay=${controles.visible && loadError == null && estadoDlna.activo == null && !marcadores.marking}",
+                "dlna=${estadoDlna.active != null} marking=${marcadores.marking} error=${loadError != null} " +
+                "→ overlay=${controles.visible && loadError == null && estadoDlna.active == null && !marcadores.marking}",
         )
     }
 
@@ -1967,7 +1967,7 @@ private fun PlayerContent(
     // mirara controles.visible, en modo marcado o con un error en pantalla la variable puede seguir
     // en true sin que se vea nada, y BACK quedaría muerto (ni cierra ni sale). Mantener ambas
     // iguales si se toca una.
-    BackHandler(enabled = !enVivo && controles.visible && loadError == null && estadoDlna.activo == null && !marcadores.marking) {
+    BackHandler(enabled = !enVivo && controles.visible && loadError == null && estadoDlna.active == null && !marcadores.marking) {
         controles.hide()
     }
 
@@ -2314,7 +2314,7 @@ private fun PlayerContent(
                     w.attributes = lp
                 }
             }
-            estadoDlna.detenerAlSalir()
+            estadoDlna.stopOnExit()
         }
     }
 
@@ -2879,7 +2879,7 @@ private fun PlayerContent(
         // Stick— quedaba una pantalla negra muda, que es lo que hacía pensar que la app se había
         // colgado. MagisExoPlayer no dibuja spinner propio, así que no había nada que duplicar.
         if (
-            loadError == null && estadoDlna.activo == null &&
+            loadError == null && estadoDlna.active == null &&
             shouldShowSpinner(
                 noPlaylist = playlist == null && magisItem == null && liveItem == null && dituPlay == null,
                 buffering = espejo.buffering,
@@ -2998,7 +2998,7 @@ private fun PlayerContent(
         // entonces y nadie devolvería el foco), y la barra de progreso —que se compone antes—
         // necesita saber si hay botón para mandar su ARRIBA ahí.
         val botonDeSalto = when {
-            marcadorVigente == null || marcadores.marking || estadoDlna.activo != null -> null
+            marcadorVigente == null || marcadores.marking || estadoDlna.active != null -> null
             else -> SkipButtonKind.which(
                 inOpening = ChapterMarker.inOpening(marcadorVigente, espejo.positionMs),
                 inEnding = ChapterMarker.inEnding(marcadorVigente, espejo.positionMs),
@@ -3019,7 +3019,7 @@ private fun PlayerContent(
             // adentro con una guarda propia, se corta UNA vez acá arriba (la bandera que aísla el
             // modo vivo, ver KDoc de `enVivo`) y más abajo hay un overlay chico y propio para vivo
             // (badge "EN VIVO" + ficha de canal por 3s).
-            visible = !enVivo && controles.visible && loadError == null && estadoDlna.activo == null && !marcadores.marking,
+            visible = !enVivo && controles.visible && loadError == null && estadoDlna.active == null && !marcadores.marking,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.fillMaxSize(),
@@ -3162,12 +3162,12 @@ private fun PlayerContent(
                     // DLNA + Chromecast (solo teléfono). Botones compartidos con el modo vivo, ver
                     // `DlnaCastButtons`.
                     if (!isTv) {
-                        // Nota propia de este Row: como `estadoDlna.activo != null` esconde el overlay
-                        // entero de controles (visible = ... && estadoDlna.activo == null más arriba), el
+                        // Nota propia de este Row: como `estadoDlna.active != null` esconde el overlay
+                        // entero de controles (visible = ... && estadoDlna.active == null más arriba), el
                         // cast se queda sin forma de manejarse desde la app si DLNA está activo. Por
                         // eso el botón de Chromecast de abajo sí queda visible pase lo que pase: es
                         // el único camino para cortar la sesión.
-                        DlnaCastButtons(casting = casting, castContext = castContext, onDiscoverDlna = estadoDlna::descubrir)
+                        DlnaCastButtons(casting = casting, castContext = castContext, onDiscoverDlna = estadoDlna::discover)
                     }
                 }
 
@@ -3652,7 +3652,7 @@ private fun PlayerContent(
                 // CastAudioSupport (ver el KDoc de castRequestFor) -- antes de reproducir no hay de
                 // dónde sacar esa lectura, ni para vivo ni para VOD (VOD tampoco ofrece cast en su
                 // propio diálogo de destino, por el mismo motivo).
-                DlnaCastButtons(casting = casting, castContext = castContext, onDiscoverDlna = estadoDlna::descubrir)
+                DlnaCastButtons(casting = casting, castContext = castContext, onDiscoverDlna = estadoDlna::discover)
             }
             // La ficha es del vivo de Magis: su canal y su EPG. Caracol no la tiene.
             if (vivoDeMagis) FichaDelCanal(estado = estadoVivo, canal = liveCanal, liveApi = graph.catalogoDeVivo)
@@ -3796,7 +3796,7 @@ private fun PlayerContent(
         }
 
         // Barra "Reproduciendo en <TV>" (DLNA activo).
-        BarraDlnaActiva(estadoDlna)
+        ActiveDlnaBar(estadoDlna)
 
         // Va ÚLTIMO dentro del Box para quedar por encima del resto de overlays.
         if (isTv && vivoDeMagis && estadoVivo.cajonAbierto) {
@@ -3821,17 +3821,17 @@ private fun PlayerContent(
     }
 
     // Diálogo de dispositivos DLNA. El armado de la URL que se le manda al renderer vive en
-    // `mandarAlRenderer`; acá solo queda de qué ítem sale y qué hacer si el renderer la rechaza.
-    DialogoDispositivosDlna(estadoDlna) { device ->
+    // `sendToRenderer`; acá solo queda de qué ítem sale y qué hacer si el renderer la rechaza.
+    DlnaDevicesDialog(estadoDlna) { device ->
         // Vivo vía ExoPlayer (Task 1, poda de light-magis) ya no está en `playlist`: cae a
-        // `liveItem`, que trae el mismo `kind = SourceKind.LIVE` que `mandarAlRenderer` necesita
+        // `liveItem`, que trae el mismo `kind = SourceKind.LIVE` que `sendToRenderer` necesita
         // para resolver la URL de LAN del proxy (no usa `ep.mediaUrl`/`castUrl` para vivo).
         val ep = playlistRef.value?.items?.getOrNull(currentIndex) ?: liveItem
         controller.pause()
         scope.launch {
-            val ok = mandarAlRenderer(dlna, device, ep, { graph.lanIp() }, graph.liveHlsProxy)
+            val ok = sendToRenderer(dlna, device, ep, { graph.lanIp() }, graph.liveHlsProxy)
             if (ok) {
-                estadoDlna.marcarActivo(device)
+                estadoDlna.markActive(device)
             } else {
                 android.widget.Toast.makeText(
                     context,
