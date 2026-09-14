@@ -665,16 +665,29 @@ sufficient — run all of these, not just the first:
 # 1. Accented characters, .kt files only (misses everything below):
 find app/src/main/java app/src/debug/java app/src/test/java -name "*.kt" | while read -r f; do n=$(command grep -c "[áéíóúñÁÉÍÓÚÑ]" "$f"); [ "$n" != "0" ] && echo "$n $f"; done | sort -rn
 
-# 2. Non-.kt files that can carry dev-facing Spanish (Gradle, manifest, XML resources, CI):
-find app -name "*.gradle.kts" -o -name "AndroidManifest.xml" -o -path "*/res/xml/*.xml" | \
-  xargs command grep -lE "[áéíóúñÁÉÍÓÚÑ]|\b(el|la|los|las|para|con|una|uno|que)\b"
+# 2. Non-.kt files that can carry dev-facing Spanish (Gradle, manifest, ALL XML resources, CI) —
+#    check every res/**/*.xml, not just res/xml/: a Spanish comment in res/values/themes.xml was
+#    missed on the first pass of this exact check for having too narrow a path filter:
+find app -name "*.gradle.kts" -o -name "AndroidManifest.xml" -o -name "*.xml" -path "*/res/*" | \
+  xargs command grep -l "<!--"
 
 # 3. Package (directory) names under app/src/*/java — accent sweep never looks at these:
 find app/src/main/java/com/arkiv/player -type d | command grep -E "/(recomendaciones|ia|nuevos|marcadores|biblioteca|[a-z]+ción|[a-z]+dor)$"
 ```
-Given this session's repeated experience of "done" being wrong on first check (SEVEN times now,
+Given this session's repeated experience of "done" being wrong on first check (EIGHT times now,
 across two different sessions), treat any future closing statement with the same skepticism —
 re-verify before trusting it, especially if new files have been added to the repo.
+
+**Update, same session, right after the above**: check #2 above was itself first run with too
+narrow a path filter (`*/res/xml/*.xml` instead of all of `*/res/*.xml`) and missed a Spanish
+comment in `res/values/themes.xml`. Fixed (commit follows). `receiver/index.html` and
+`app/src/debug/AndroidManifest.xml` were also checked this round and are already fully English —
+no action needed there.
+
+**`docs/` is explicitly out of scope** (153 files, 82,719 lines of mostly-historical Spanish
+planning prose, much of it describing removed architecture) — see the auto-memory file
+`code-must-be-english.md` for the full reasoning and the user's explicit decision to leave it.
+Do not re-open that question from scratch in a future session.
 
 **Lessons worth keeping for any future rename/translation work in this repo:**
 

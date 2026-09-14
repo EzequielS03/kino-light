@@ -9,9 +9,9 @@
     </style>
 
     <!--
-      Tema de arranque: el sistema pinta el logo sobre el fondo de marca desde el primer frame
-      (en vez de negro puro) y luego entrega el control a Theme.Arkiv, donde la intro animada
-      de Compose continúa la secuencia.
+      Startup theme: the system paints the logo over the brand background from the very first
+      frame (instead of plain black), then hands control to Theme.Arkiv, where Compose's animated
+      intro continues the sequence.
     -->
     <style name="Theme.Arkiv.Starting" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/arkiv_background</item>
