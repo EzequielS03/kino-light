@@ -9,17 +9,17 @@ English" line in `.claude/reglas.md`.
 Order chosen by the user: **módulo por módulo, de menor a mayor riesgo** (module by module,
 lowest to highest risk).
 
-## Overall completion: roughly **90-92%** of the whole sweep
+## Overall completion: roughly **93-95%** of the whole sweep
 
 - `playback/`, `security/`, `dlna/`, `cast/`, `thumbnails/`: **100% done.**
 - `data/`: **~98% done** — three files left now: `MagisEntities.kt`, `DituEntities.kt`, and
   `LibraryGrouping.kt` (found in an earlier session — `LibraryGroup.nuevos` and other content still
   Spanish; see below).
 - `ui/` (159 main files across 14 subpackages, plus 6 top-level files, plus tests): roughly
-  **90-92% done**. Fully finished packages: `detail/`, `downloads/`, `components/`, `offline/`,
+  **93-95% done**. Fully finished packages: `detail/`, `downloads/`, `components/`, `offline/`,
   `library/`, `theme/`, `update/`, `settings/`, `home/`, `search/`, `catalog/`, `live/`, `tv/`,
   plus all 6 top-level `ui/*.kt` files. Only `player/` (23 files, the single largest package in
-  `ui/`) remains, **in progress** — see below for what's done there so far.
+  `ui/`) remains, **in progress, 15/23 main files done** — see below for what's done there so far.
 
 `ui/` is far bigger than `data/` was (159 main files vs. roughly 90 in `data/`), so raw file count
 means the overall codebase is still under most-of-the-way-done even though `data/` is essentially
@@ -257,10 +257,9 @@ Also fully translated (finished the package):
 
 ### `ui/player/` — in progress (the last package in the entire sweep)
 
-Small, self-contained files translated so far, each rippled with minimal targeted fixes into the
-still-untouched giants (`PlayerScreen.kt` 240K, `PlayerViewModel.kt` 66K) and into the three
-ExoPlayer wrappers (`LiveExoPlayer.kt`, `DituExoPlayer.kt`, `MagisExoPlayer.kt`) where they're also
-consumed:
+15 of 23 main files done so far, each rippled with minimal targeted fixes into the still-untouched
+giants (`PlayerScreen.kt` 234K, `PlayerViewModel.kt` 65K) and into the three ExoPlayer wrappers
+(`LiveExoPlayer.kt`, `DituExoPlayer.kt`, `MagisExoPlayer.kt`) where they're also consumed:
 
 - `PlayerFoco.kt`→`OverlayFocusPoints.kt` (`OverlayFocusPoints` class, `rememberOverlayFocusPoints`).
 - `PlayerSaltos.kt`→`OutroSkip.kt` (`OutroSkip.Action`, `SkipButtonKind` — named `Kind` not
@@ -285,16 +284,46 @@ consumed:
 - `EstadoDeDitu.kt`→`DituState.kt` (`DituState` class — `DituReproducible` itself, a data class
   owned by `PlayerViewModel.kt`, deliberately left untouched since that file isn't processed yet).
   Test → `DituStateTest.kt`.
+- `SpinnerDelPlayer.kt`→`PlayerSpinner.kt` (`shouldShowSpinner()`). Test → `PlayerSpinnerTest.kt`.
+- `PlayerGestos.kt`→`PlayerGestures.kt` (`GesturesState` class, `rememberGesturesState()`,
+  `BrightnessHudEffect()`). No test file existed.
+- `PlayerCapitulos.kt`→`ChapterCarousel.kt` (`ChaptersState` class, `ChaptersEffects()`,
+  `ChapterCarousel()` composable). No test file existed.
+- `PlayerDlna.kt` (filename kept, already English enough): `DlnaState` class (was `EstadoDlna`) —
+  its `marcarActivo()` became `markActive()`, **not** `setActive()`, same JVM-clash avoidance as
+  `PlayerMirror.kt`'s `updateX()` methods; `sendToRenderer()`/`ActiveDlnaBar()`/
+  `DlnaDevicesDialog()` (was `mandarAlRenderer()`/`BarraDlnaActiva()`/`DialogoDispositivosDlna()`).
+  No test file existed.
+- `TriviaDelPlayer.kt`→`PlayerTrivia.kt` (`PlayerTrivia` object, `TriviaState` class). "Dato
+  curioso" user-facing text left untouched. Test → `PlayerTriviaTest.kt`. Left `WorkKind.kt`'s
+  verbatim historical note ("Lived in `TriviaDelPlayer.tipoDe` until `e161b231`...") untouched —
+  documents a past commit's real class name, not a live reference.
+- `PlayerVivo.kt`→`PlayerLive.kt` (`LiveState` class, `LiveBanner()`/`ChannelCard()`/
+  `LiveChannelDrawer()` composables). `LiveChannel`/`LiveProgram` field accesses
+  (`.nombre`/`.numero`/`.logo`/`.titulo`/`.inicio`/`.fin`) left untouched — gateway-bound. No test
+  file existed for the main class (only `MensajeErrorVivoTest.kt`, which tests a *different*
+  function living in `PlayerViewModel.kt` — see below).
 
-Remaining in `player/`: `PlayerControles.kt`(done)... still untouched: `DituExoPlayer.kt` (only
-ripple-touched), `LiveExoPlayer.kt` (only ripple-touched), `MagisExoPlayer.kt` (only
-ripple-touched), `PlayerDlna.kt`, `PlayerCapitulos.kt`, `PlayerGestos.kt`, `PlayerPistas.kt`
-(already ripple-touched from the `settings/` batch), `PlayerVivo.kt` (already extensively
-ripple-touched from `live/`/`tv/` batches), `TriviaDelPlayer.kt` + test (comment-ripple-touched
-only), `SpinnerDelPlayer.kt` (comment-ripple-touched only), plus test-only files
-`MensajeErrorVivoTest.kt`, `ProgresoDeAdultosTest.kt`, `SoftwareReloadTest.kt`,
-`VivoDeCaracolNoSeAnotaTest.kt`. And the two giants left for last: `PlayerViewModel.kt` (66K) and
-`PlayerScreen.kt` (240K, by far the largest file in the entire codebase).
+**New lesson this batch: watch for real JVM signature clashes, not just naming collisions.**
+Renaming a `cambioElX(valor)`-style setter method to `setX(value)` can silently collide with
+Kotlin's own auto-generated JVM setter for a `var x by mutableStateOf(...)` property of the same
+name — `Platform declaration clash: ... have the same JVM signature`. This is a real compile
+error, not a style nitpick, and it only surfaces when the renamed property and the renamed method
+happen to share a name. Fix: prefix these methods `update`/`mark`/etc. instead of `set`. Hit twice
+this batch (`PlayerMirror.kt`'s buffering/playing/wantsToPlay setters, `PlayerDlna.kt`'s
+`markActive`).
+
+Remaining in `player/`, none of it touched yet: `DituExoPlayer.kt` (17.0K, only ripple-touched),
+`LiveExoPlayer.kt` (12.7K, only ripple-touched), `MagisExoPlayer.kt` (23.9K, only ripple-touched),
+`PlayerPistas.kt` (20.6K, already ripple-touched from the `settings/` batch),
+`PlayerCapitulos.kt`(done — see above). Plus three test-only files that test functions living in
+the still-untouched `PlayerViewModel.kt` (`mensajeErrorVivo`, `PlaylistData?.hayQueAnotarHistorial`,
+`hayQueMarcarEnCurso`) and are deliberately deferred to that file's own turn:
+`MensajeErrorVivoTest.kt`, `ProgresoDeAdultosTest.kt`, `VivoDeCaracolNoSeAnotaTest.kt`.
+`SoftwareReloadTest.kt` was checked and found **already fully English** (tests
+`PlayerScreen.kt`'s already-English `reloadInSoftware`/`SoftwareReloadPlayer`) — no action needed,
+don't re-check it. And the two giants left for very last: `PlayerViewModel.kt` (65K) and
+`PlayerScreen.kt` (234K, by far the largest file in the entire codebase).
 
 ## Workflow to follow (established over 45+ commits this session)
 
