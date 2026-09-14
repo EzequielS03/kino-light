@@ -14,11 +14,11 @@ lowest to highest risk).
 - `playback/`, `security/`, `dlna/`, `cast/`, `thumbnails/`: **100% done.**
 - `data/`: **~98% done** — two files left, `MagisEntities.kt` and `DituEntities.kt` (see below).
 - `ui/` (159 main files across 14 subpackages, plus 6 top-level files, plus tests): roughly
-  **45-50% done**. Fully finished packages: `detail/`, `downloads/`, `components/`, `offline/`,
-  `library/`, `theme/`, `update/`, `settings/`, `home/`, `search/`, plus all 6 top-level `ui/*.kt`
-  files. Partially touched (ripple-only, NOT fully translated) via shared-symbol renames:
-  `catalog/`, `live/`, `tv/`. Not touched at all: `player/` (23 files, the single largest
-  untouched package).
+  **55-60% done**. Fully finished packages: `detail/`, `downloads/`, `components/`, `offline/`,
+  `library/`, `theme/`, `update/`, `settings/`, `home/`, `search/`, `catalog/`, plus all 6
+  top-level `ui/*.kt` files. Partially touched (ripple-only, NOT fully translated) via
+  shared-symbol renames: `live/`, `tv/`. Not touched at all: `player/` (23 files, the single
+  largest untouched package).
 
 `ui/` is far bigger than `data/` was (159 main files vs. roughly 90 in `data/`), so raw file count
 means the overall codebase is still under most-of-the-way-done even though `data/` is essentially
