@@ -479,9 +479,9 @@ private fun PlayerContent(
     // --- Datos curiosos ---
     // El dato avanza a PULSACIÓN, no con el reloj: cada `arriba` (o el botón "i", o tocar el
     // cartel en el teléfono) muestra el siguiente, y al pasar el último vuelve el primero. El
-    // estado y las dos piezas de interfaz viven en `TriviaDelPlayer.kt`.
-    val estadoTrivia = rememberEstadoDeTrivia()
-    EfectosDeTrivia(estadoTrivia, trivia.size, episodeId)
+    // estado y las dos piezas de interfaz viven en `PlayerTrivia.kt`.
+    val estadoTrivia = rememberTriviaState()
+    TriviaEffects(estadoTrivia, trivia.size, episodeId)
 
     var loaded by remember { mutableStateOf(false) }
     // Episodio que esta pantalla ya mandó al receptor. Coordina los dos caminos que castean (la
@@ -1957,7 +1957,7 @@ private fun PlayerContent(
     // abierto, BACK cierra primero los controles, no el panel. Recién con los controles ya ocultos un
     // segundo BACK cierra el panel. Sigue siendo mejor que nada (sin este handler, BACK con el panel
     // abierto y los controles ocultos saldría del video de una) y no cambia en esta tanda.
-    BackHandler(enabled = estadoTrivia.panelAbierto) { estadoTrivia.cerrarPanel() }
+    BackHandler(enabled = estadoTrivia.panelOpen) { estadoTrivia.closePanel() }
 
     // BACK con el overlay en pantalla lo CIERRA en vez de salir del video; con el overlay ya
     // oculto, este handler queda deshabilitado y BACK sigue de largo a la navegación (= salir),
@@ -2555,8 +2555,8 @@ private fun PlayerContent(
                             // ARRIBA con los controles ocultos y datos cargados: en vez de abrir el
                             // overlay, despliega el dato curioso que sigue. Va ANTES que el bloque
                             // de vivo porque ahí arriba zapea, y un canal no lleva datos igual.
-                            if (!enVivo && keyCode == KeyEvent.KEYCODE_DPAD_UP && TriviaDelPlayer.hayBoton(trivia)) {
-                                estadoTrivia.mostrarSiguiente(trivia.size)
+                            if (!enVivo && keyCode == KeyEvent.KEYCODE_DPAD_UP && PlayerTrivia.hasButton(trivia)) {
+                                estadoTrivia.showNext(trivia.size)
                                 return@setOnKeyListener true
                             }
                             // Vivo (Tarea 14): Arriba/Abajo zapean en vez de mostrar el overlay de
@@ -2937,13 +2937,13 @@ private fun PlayerContent(
         }
 
         // Cartel "Dato curioso" arriba y centrado, y el panel que despliega el texto (ver sus KDoc
-        // en `TriviaDelPlayer.kt`). En el teléfono el cartel es tocable; en TV se abre con la
+        // en `PlayerTrivia.kt`). En el teléfono el cartel es tocable; en TV se abre con la
         // flecha arriba, ver el listener del video.
-        CartelDeTrivia(
-            estado = estadoTrivia,
-            onTocar = if (isTv) null else ({ estadoTrivia.mostrarSiguiente(trivia.size) }),
+        TriviaBadge(
+            state = estadoTrivia,
+            onTap = if (isTv) null else ({ estadoTrivia.showNext(trivia.size) }),
         )
-        PanelDeTrivia(estadoTrivia, trivia)
+        TriviaPanel(estadoTrivia, trivia)
 
         // Casteando a Chromecast.
         if (casting) {
@@ -3365,8 +3365,8 @@ private fun PlayerContent(
                                     tint = if (dimNivel > 0) ArkivRed else Color.White,
                                 )
                             }
-                            if (TriviaDelPlayer.hayBoton(trivia)) {
-                                IconButton(onClick = { estadoTrivia.mostrarSiguiente(trivia.size) }) {
+                            if (PlayerTrivia.hasButton(trivia)) {
+                                IconButton(onClick = { estadoTrivia.showNext(trivia.size) }) {
                                     Icon(
                                         Icons.Default.Info,
                                         contentDescription = "Dato curioso",
@@ -3550,7 +3550,7 @@ private fun PlayerContent(
                                         .focusProperties {
                                             left = focos.dimDown
                                             right = when {
-                                                TriviaDelPlayer.hayBoton(trivia) -> focos.trivia
+                                                PlayerTrivia.hasButton(trivia) -> focos.trivia
                                                 hayMarcadoresQueCorregir -> focos.markers
                                                 else -> focos.dimUp
                                             }
@@ -3562,11 +3562,11 @@ private fun PlayerContent(
                                 // propósito -- insertarlo en el medio obligaría a reescribir varios
                                 // eslabones de esta cadena de foco. El `right` del botón de arriba
                                 // ya lo tiene previsto.
-                                if (TriviaDelPlayer.hayBoton(trivia)) {
+                                if (PlayerTrivia.hasButton(trivia)) {
                                     TvTransportButton(
                                         icon = Icons.Default.Info,
                                         contentDescription = "Dato curioso",
-                                        onClick = { estadoTrivia.mostrarSiguiente(trivia.size) },
+                                        onClick = { estadoTrivia.showNext(trivia.size) },
                                         iconSize = 24.dp,
                                         tint = Color.White,
                                         // Último de la fila: su `right` apunta a sí mismo (tope derecho).
@@ -3593,7 +3593,7 @@ private fun PlayerContent(
                                         modifier = Modifier
                                             .focusRequester(focos.markers)
                                             .focusProperties {
-                                                left = if (TriviaDelPlayer.hayBoton(trivia)) focos.trivia else focos.dimUp
+                                                left = if (PlayerTrivia.hasButton(trivia)) focos.trivia else focos.dimUp
                                                 right = focos.markers
                                                 up = focos.bar
                                                 down = focos.markers

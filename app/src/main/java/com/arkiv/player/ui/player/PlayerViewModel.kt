@@ -282,7 +282,7 @@ class PlayerViewModel internal constructor(
 
     /**
      * Datos curiosos de lo que se está viendo, o vacío. Se piden TODOS DE UNA al arrancar y la
-     * pantalla avanza entre ellos a pulsación (ver [TriviaDelPlayer]): pasar al siguiente no puede
+     * pantalla avanza entre ellos a pulsación (ver [PlayerTrivia]): pasar al siguiente no puede
      * costar los ~20 s que tarda el modelo, ni fallar a mitad de una película.
      */
     private val _trivia = MutableStateFlow<List<String>>(emptyList())
@@ -346,8 +346,8 @@ class PlayerViewModel internal constructor(
                 if (local != null) { loadLocal(episodeId, local); return@launch }
             }
             // After the download detour, on purpose: a file already on the device carries no
-            // trivia (see [TriviaDelPlayer.pideDatos]).
-            if (TriviaDelPlayer.pideDatos(episodeId, kind)) cargarTrivia(episodeId)
+            // trivia (see [PlayerTrivia.wantsFacts]).
+            if (PlayerTrivia.wantsFacts(episodeId, kind)) cargarTrivia(episodeId)
             Log.w(PLAY, "load() episodeId=$episodeId kind=$kind")
             when (kind) {
                 SourceKind.UNKNOWN -> loadUnknownSource(episodeId)
