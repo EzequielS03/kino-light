@@ -89,12 +89,12 @@ internal fun PlaylistData?.hayQueAnotarHistorial(episodeId: String): Boolean =
         AdultContent.shouldLog(this?.items?.firstOrNull { it.episodeId == episodeId }?.adulto)
 
 /**
- * ¿Hay que marcar [episodeId] como "en curso" al abrirlo (`ArkivRepository.marcarEnCurso`)?
+ * ¿Hay que marcar [episodeId] como "en curso" al abrirlo (`ArkivRepository.markInProgress`)?
  *
  * Es la decisión de `PlayerViewModel.load`, acá afuera para poder fijarla con tests. [adulto] es el
  * del pendiente efímero ([MagisEphemeral]), lo único que se sabe antes de resolver la fuente, y lo que
  * no se sabe se anota, igual que en [AdultContent.shouldLog]. Un canal en vivo de Caracol no
- * se marca: `marcarEnCurso` escribiría una fila en `playback` con su id aunque no haya episodio.
+ * se marca: `markInProgress` escribiría una fila en `playback` con su id aunque no haya episodio.
  */
 internal fun hayQueMarcarEnCurso(episodeId: String, adulto: Boolean?): Boolean =
     !DituLive.isLive(episodeId) && AdultContent.shouldLog(adulto)
@@ -298,7 +298,7 @@ class PlayerViewModel internal constructor(
         ditu.nuevoPedido(episodeId)
         apagarTrivia()
         // Modo vivo (Tarea 14): CORTA ACÁ, antes de tocar nada del camino VOD de abajo -- ni
-        // marcarEnCurso ni localLibrary. Es la bandera que aísla TODO el comportamiento distinto:
+        // markInProgress ni localLibrary. Es la bandera que aísla TODO el comportamiento distinto:
         // un canal en vivo no tiene duración que sondear (ver KDoc de LiveZapping/LiveController --
         // sondearla es lo que rompía el VOD de Magis), progreso que guardar, ni "siguiente
         // capítulo" de series -- el único "siguiente" que existe en vivo es el zapping.
@@ -324,7 +324,7 @@ class PlayerViewModel internal constructor(
             //
             // Un canal en vivo de Caracol tampoco se marca: ver [hayQueMarcarEnCurso].
             if (hayQueMarcarEnCurso(episodeId, MagisEphemeral.take(episodeId)?.adulto)) {
-                runCatching { repo.marcarEnCurso(episodeId) }
+                runCatching { repo.markInProgress(episodeId) }
             }
             _error.value = null
             _magisItem.value = null
@@ -378,7 +378,7 @@ class PlayerViewModel internal constructor(
         val fuenteDeDatos = datosCuriosos ?: return
         triviaJob = viewModelScope.launch {
             val obra = try {
-                repo.obraParaDatos(episodeId)
+                repo.triviaSubjectFor(episodeId)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -391,7 +391,7 @@ class PlayerViewModel internal constructor(
                 return@launch
             }
             _trivia.value = try {
-                fuenteDeDatos.of(obra) { repo.fichaDeObra(obra) }
+                fuenteDeDatos.of(obra) { repo.workSheetFor(obra) }
                     .also { Log.w(PLAY, "trivia: ${it.size} facts for ${obra.key}") }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e

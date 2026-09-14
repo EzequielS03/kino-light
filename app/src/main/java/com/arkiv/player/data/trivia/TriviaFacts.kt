@@ -42,7 +42,7 @@ internal data class TriviaSubject(
          * Null if there's no way to name it well —neither `tmdbId` nor `canonicalTitle`—: asking
          * the model blind is the fastest way for it to make something up.
          *
-         * [season] and [episode] are dropped if [kind] isn't `"tv"`: `ArkivRepository.obraParaDatos`
+         * [season] and [episode] are dropped if [kind] isn't `"tv"`: `ArkivRepository.triviaSubjectFor`
          * deduces them from `displayName` when the row doesn't carry them ("Se7en" gives episode
          * 7), and a movie can't end up asking about "episode 7" or saving its answer under that key.
          */

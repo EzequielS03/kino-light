@@ -25,7 +25,7 @@ internal data class ChapterSheet(
  * `overview`, because they carry plot and the trivia fact can't have spoilers.
  *
  * Built with [movieSheet] or [seriesSheet] (plus [chapterSheet] if it applies) — never by
- * hand except the minimal fallback sheet with no `tmdbId` (see `ArkivRepository.fichaDeObra`),
+ * hand except the minimal fallback sheet with no `tmdbId` (see `ArkivRepository.workSheetFor`),
  * which carries only [name] and nothing else.
  */
 internal data class WorkSheet(
@@ -53,7 +53,7 @@ internal data class WorkSheet(
     val chapter: ChapterSheet? = null,
     /**
      * The series itself could be fetched, but a specific chapter was requested and that call
-     * failed (see `ArkivRepository.fichaDeObra`): the sheet is still built, without [chapter],
+     * failed (see `ArkivRepository.workSheetFor`): the sheet is still built, without [chapter],
      * because asking with the series' facts is better than not asking. [TriviaFacts] asks with
      * this, but doesn't save the answer -saving it would leave THAT chapter with generic facts for
      * a month over a failure the next opening might not repeat.

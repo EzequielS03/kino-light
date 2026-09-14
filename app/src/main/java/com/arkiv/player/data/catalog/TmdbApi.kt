@@ -271,7 +271,7 @@ class TmdbApi(
      * A raw call to a TMDB route with no method of its own in this class: the JSON exactly as the
      * server sends it, or `null` if the call fails. On IO, like the rest of this class.
      *
-     * Used by the trivia fact ([com.arkiv.player.data.ArkivRepository.fichaDeObra]) to request
+     * Used by the trivia fact ([com.arkiv.player.data.ArkivRepository.workSheetFor]) to request
      * `movie/{id}` and `tv/{id}` with their credits, and a series' specific episode.
      */
     internal suspend fun raw(path: String, append: String? = null): String? = withContext(Dispatchers.IO) {

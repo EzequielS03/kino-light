@@ -38,7 +38,7 @@ data class Episode(
  * Verified with `grep -rn "seasonOf(\|episodeOf(" app/src/main/java`: besides [displayLabel] (via
  * `ArkivRepository.headerInfo`, for the player header's "T1 · E3" label, which reuses [seasonOf]
  * as one of its season fallbacks), today they're called directly by
- * `ArkivRepository.obraParaDatos`, to deduce an episode's season and number when
+ * `ArkivRepository.triviaSubjectFor`, to deduce an episode's season and number when
  * `EpisodeEntity.season`/`.episode` don't carry them.
  */
 object EpisodeNumbering {

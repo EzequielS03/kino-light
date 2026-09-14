@@ -127,7 +127,7 @@ internal class DituFuente(
             // already Caracol's.
             val hit = runCatching { tmdb.search("tv", season.seriesTitle) }.getOrNull()
                 ?.let { pickTmdbMatch(season.seriesTitle, it) }
-                ?.takeIf { it.exacto }
+                ?.takeIf { it.exact }
                 ?.item
             if (hit != null) {
                 series = series.copy(

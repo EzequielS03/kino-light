@@ -325,7 +325,7 @@ class ArkivRepository(
                     // The TYPE only if the match was exact, because that's what [LibraryGrouping]
                     // requires to merge two rows into one card. A "close enough" id gives an
                     // acceptable backdrop; a "close enough" identity merges different works.
-                    tmdbType = match?.takeIf { it.exacto }?.let { type },
+                    tmdbType = match?.takeIf { it.exact }?.let { type },
                     backdropsJson = JSONArray(backdrops).toString(),
                     fetchedAt = clock(),
                 ),
@@ -381,7 +381,7 @@ class ArkivRepository(
                 complete = false
                 continue
             }
-            val typeIfExact = type.takeIf { match.exacto }
+            val typeIfExact = type.takeIf { match.exact }
             if (match.item.id == stored && existing.tmdbType == typeIfExact) continue
             val backdrops = runCatching { tmdb.images(type, match.item.id) }.getOrNull()
             if (backdrops == null) {
@@ -1125,51 +1125,52 @@ class ArkivRepository(
     }
 
     /**
-     * Sella "voy por acá" apenas arranca la reproducción, sin esperar a que se sepa la duración.
+     * Seals "you're watching this" as soon as playback starts, without waiting to know the duration.
      *
-     * [savePlayback] solo escribe cuando el player ya conoce `durationMs`, y en Magis eso puede
-     * tardar (stream TS, sonda de hasta 20 s): hasta entonces el capítulo que estás viendo no
-     * existía para el detalle. Preserva posición, duración y `watched` de lo que ya hubiera: esto
-     * marca dónde estás, no reinicia el progreso ni desmarca un capítulo ya visto.
+     * [savePlayback] only writes once the player already knows `durationMs`, and on Magis that can
+     * take a while (TS stream, up to a 20s probe): until then the chapter you're watching didn't
+     * exist for the detail screen. Preserves position, duration and `watched` from whatever was
+     * already there: this marks where you're at, it doesn't reset progress or unmark an
+     * already-watched chapter.
      *
-     * Se salta por completo los capítulos que YA están vistos: `load()` es alcanzable también
-     * para volver a mirar una escena de un capítulo terminado (desde `DetailScreen`/`EpisodeRow`
-     * o el carrusel de `TvDetailScreen`), y ese re-play no puede pisar `lastPlayedAt`. Esa columna
-     * alimenta tres consumidores que no distinguen "recién visto" de "reabrí algo viejo":
-     * [PlaybackDao.observeWatched] (vía `LibraryWatched.cross`, ordena "Ya visto" de la
-     * biblioteca), [ItemDao.seriesWithProgress] (vía `SeriesPorRevisar.elegir`, decide qué
-     * series barrer contra la red buscando capítulo nuevo) y [PlaybackDao.observeLastPlayed]
-     * (vía `LibraryOrder`, decide qué tarjeta sube al tope de "Mi biblioteca"). Sin este corte,
-     * reabrir tres segundos un capítulo viejo subía esa serie al tope de "Ya visto" y la metía otra
-     * vez en el barrido de red por hasta 30 días, sin que se haya visto nada nuevo.
+     * Skips ALREADY watched chapters entirely: `load()` is also reachable to re-watch a scene of a
+     * finished chapter (from `DetailScreen`/`EpisodeRow` or `TvDetailScreen`'s carousel), and that
+     * re-play can't overwrite `lastPlayedAt`. That column feeds three consumers that don't tell
+     * "just watched" apart from "reopened something old":
+     * [PlaybackDao.observeWatched] (via `LibraryWatched.cross`, orders the library's "Ya visto"),
+     * [ItemDao.seriesWithProgress] (via `SeriesPorRevisar.elegir`, decides which series to sweep
+     * against the network looking for a new chapter) and [PlaybackDao.observeLastPlayed] (via
+     * `LibraryOrder`, decides which card rises to the top of "Mi biblioteca"). Without this cutoff,
+     * reopening an old chapter for three seconds would bump that series to the top of "Ya visto"
+     * and put it back in the network sweep for up to 30 days, with nothing new actually watched.
      *
-     * Este corte solo protege el instante inicial de `load()`: en cuanto el player conoce la
-     * duración, `savePlayback` pisa `lastPlayedAt` sin excepción (no hay piso de segundos, ver el
-     * spec de orden de biblioteca), aunque la posición alcanzada no llegue al 60% y `watched` quede
-     * en `false`. Así que sí, reabrir un capítulo terminado y cerrarlo a los pocos segundos igual
-     * sube ese ítem al tope de "Mi biblioteca" apenas se conoce la duración — es intencional, no un
-     * bug de este corte.
+     * This cutoff only protects `load()`'s initial instant: as soon as the player knows the
+     * duration, `savePlayback` overwrites `lastPlayedAt` with no exception (no seconds floor, see
+     * the library-order spec), even if the position reached doesn't hit 60% and `watched` stays
+     * `false`. So yes, reopening a finished chapter and closing it a few seconds later still bumps
+     * that item to the top of "Mi biblioteca" as soon as the duration is known — that's intentional,
+     * not a bug in this cutoff.
      */
-    suspend fun marcarEnCurso(episodeId: String) {
-        val existente = playbackDao.get(episodeId)
-        if (existente?.watched == true) return
+    suspend fun markInProgress(episodeId: String) {
+        val existing = playbackDao.get(episodeId)
+        if (existing?.watched == true) return
         playbackDao.upsert(
             PlaybackEntity(
                 episodeId = episodeId,
-                positionMs = existente?.positionMs ?: 0L,
-                durationMs = existente?.durationMs ?: 0L,
+                positionMs = existing?.positionMs ?: 0L,
+                durationMs = existing?.durationMs ?: 0L,
                 watched = false,
                 lastPlayedAt = clock(),
             ),
         )
     }
 
-    /** Persiste posición de reproducción. Marca visto según [UmbralDeVisto]. */
+    /** Persists playback position. Marks watched per [WatchedThreshold]. */
     suspend fun savePlayback(episodeId: String, positionMs: Long, durationMs: Long) {
-        val watched = UmbralDeVisto.yaLoViste(positionMs, durationMs)
-        // Solo se lee el `playbackDao.get` extra cuando este guardado YA dice "visto": es el único
-        // caso donde hace falta saber si ya lo estaba, para no disparar `onEpisodeFinished` de más.
-        val yaEstabaVisto = watched && playbackDao.get(episodeId)?.watched == true
+        val watched = WatchedThreshold.isWatched(positionMs, durationMs)
+        // The extra `playbackDao.get` is only read when this save ALREADY says "watched": it's the
+        // only case where it matters whether it already was, so as not to fire `onEpisodeFinished` extra.
+        val wasAlreadyWatched = watched && playbackDao.get(episodeId)?.watched == true
         playbackDao.upsert(
             PlaybackEntity(
                 episodeId = episodeId,
@@ -1179,12 +1180,12 @@ class ArkivRepository(
                 lastPlayedAt = clock(),
             )
         )
-        // Este es el camino MÁS COMÚN por el que un capítulo queda visto (el reproductor llama acá
-        // cada ~5 s): si no se destruye el frame también acá, mirar un capítulo hasta el final —sin
-        // tocar nunca el toggle manual de setWatched— lo dejaría vivo para siempre.
+        // This is the MOST COMMON path by which a chapter ends up watched (the player calls here
+        // every ~5s): if the frame isn't destroyed here too, watching a chapter to the end —without
+        // ever touching setWatched's manual toggle— would leave it alive forever.
         if (watched) {
-            borrarFrameDe(episodeId)
-            if (!yaEstabaVisto) onEpisodeFinished?.invoke()
+            deleteFrameFor(episodeId)
+            if (!wasAlreadyWatched) onEpisodeFinished?.invoke()
         }
     }
 
@@ -1196,25 +1197,26 @@ class ArkivRepository(
                 positionMs = if (watched) (existing?.durationMs ?: 0L) else 0L,
                 durationMs = existing?.durationMs ?: 0L,
                 watched = watched,
-                // Marcar como visto SÍ es una interacción con el capítulo: pisa lastPlayedAt.
-                // Desmarcar NO lo es (es corregir un error, no "reproducir"), así que se preserva
-                // lo que ya había; si no, la tarjeta saltaría al tope de la biblioteca sin que se
-                // haya visto nada. Ver observeLastPlayed, que ya no filtra por watched.
+                // Marking watched IS an interaction with the chapter: it overwrites lastPlayedAt.
+                // Unmarking is NOT (it's correcting a mistake, not "watching"), so whatever was
+                // already there is preserved; otherwise the card would jump to the top of the
+                // library with nothing actually watched. See observeLastPlayed, which no longer
+                // filters by watched.
                 lastPlayedAt = if (watched) clock() else (existing?.lastPlayedAt ?: clock()),
             )
         )
-        // Al desmarcar (watched = false) NO se borra nada: el capítulo vuelve a estar en curso y
-        // el frame que haya sigue siendo válido.
+        // Unmarking (watched = false) does NOT delete anything: the chapter goes back to in
+        // progress and whatever frame there is stays valid.
         if (watched) {
-            borrarFrameDe(episodeId)
+            deleteFrameFor(episodeId)
             if (existing?.watched != true) onEpisodeFinished?.invoke()
         }
     }
 
     /**
-     * Destruye el frame de un capítulo que acaba de quedar visto. Delega en
-     * [com.arkiv.player.thumbnails.FrameDestroyer], que es el único sitio que sabe borrar un
-     * frame (archivo + fila), para que la lógica de borrado viva en un solo lugar.
+     * Destroys the frame of a chapter that just became watched. Delegates to
+     * [com.arkiv.player.thumbnails.FrameDestroyer], the only place that knows how to delete a
+     * frame (file + row), so the deletion logic lives in a single place.
      *
      * There's more than one path inside this repository that flips a chapter to `watched = true`:
      * the manual toggle ([setWatched], from the detail screen) and the automatic one from progress
@@ -1222,72 +1224,72 @@ class ArkivRepository(
      * (These are the only two callers today; if a third local path that marks something watched
      * shows up, it just needs to call this helper too.)
      *
-     * Se llama incondicionalmente cada vez que `watched` da `true`, sin preguntar antes si el
-     * frame existe (ver el doc de [com.arkiv.player.thumbnails.FrameDestroyer.destroy]). En
-     * particular, `savePlayback` corre cada ~5 s mientras el player está abierto, así que pasado
-     * el 60% esto se repite varias veces por capítulo: el costo es despreciable y no vale la pena
-     * complicar esto con lógica para evitar la repetición.
+     * Called unconditionally every time `watched` comes out `true`, without checking beforehand
+     * whether the frame exists (see [com.arkiv.player.thumbnails.FrameDestroyer.destroy]'s doc).
+     * In particular, `savePlayback` runs every ~5s while the player is open, so past 60% this
+     * repeats several times per chapter: the cost is negligible and it's not worth complicating
+     * this with logic to avoid the repetition.
      */
-    private suspend fun borrarFrameDe(episodeId: String) {
+    private suspend fun deleteFrameFor(episodeId: String) {
         frameDestroyer.destroy(episodeId)
     }
 
     /**
-     * La identidad de la obra de la que pedir datos curiosos, o null si no hay forma de nombrarla
-     * bien (ver [com.arkiv.player.data.trivia.TriviaSubject.of]). Sin red: la ficha se busca aparte
-     * en [fichaDeObra], y solo si no hay caché.
+     * The identity of the work to request trivia facts for, or null if there's no way to name it
+     * well (see [com.arkiv.player.data.trivia.TriviaSubject.of]). No network: the sheet is looked
+     * up separately in [workSheetFor], and only if there's no cache.
      *
-     * Temporada y capítulo salen primero de los campos que escriben Magis y Caracol al guardar
-     * (`EpisodeEntity.season` / `.episode`), y si no, del nombre y la sección, como antes.
+     * Season and chapter come first from the fields Magis and Caracol write on save
+     * (`EpisodeEntity.season` / `.episode`), and if not, from the name and the section, as before.
      */
-    internal suspend fun obraParaDatos(episodeId: String): com.arkiv.player.data.trivia.TriviaSubject? {
+    internal suspend fun triviaSubjectFor(episodeId: String): com.arkiv.player.data.trivia.TriviaSubject? {
         val ep = itemDao.getEpisode(episodeId) ?: return null
         val item = itemDao.getItem(ep.itemId) ?: return null
-        val episodio = ep.episode?.takeIf { it > 0 }
+        val episode = ep.episode?.takeIf { it > 0 }
             ?: com.arkiv.player.data.model.EpisodeNumbering.episodeOf(ep.displayName)
-        val temporada = ep.season?.takeIf { it > 0 }
+        val season = ep.season?.takeIf { it > 0 }
             ?: com.arkiv.player.data.model.EpisodeNumbering.seasonOf(ep.section)
         return com.arkiv.player.data.trivia.TriviaSubject.of(
-            kind = com.arkiv.player.data.model.WorkKind.of(item.tipo, item.categoryOverride, episodio),
+            kind = com.arkiv.player.data.model.WorkKind.of(item.tipo, item.categoryOverride, episode),
             tmdbId = item.tmdbId,
             canonicalTitle = item.tituloCanonico,
-            season = temporada,
-            episode = episodio,
+            season = season,
+            episode = episode,
         )
     }
 
     /**
-     * La ficha de hechos verificados de TMDB para anclar el dato curioso a ESTA obra exacta (adenda
-     * de spec del 2026-09-10): nunca la sinopsis, porque trae trama.
+     * TMDB's sheet of verified facts to anchor the trivia fact to THIS exact work (spec addendum
+     * from 2026-09-10): never the synopsis, because it carries plot.
      *
-     * **Sin `tmdbId`**: una ficha mínima con solo el título canónico (sin ningún hecho) — sigue
-     * siendo mejor que preguntar a ciegas. `null` si tampoco hay título canónico.
+     * **With no `tmdbId`**: a minimal sheet with only the canonical title (no facts at all) — still
+     * better than asking blind. `null` if there's no canonical title either.
      *
-     * **Con `tmdbId`**: la ficha de película o de serie, más la del capítulo si hay temporada y
-     * episodio y TMDB lo encuentra. Si TMDB no contesta NADA (ni película ni serie), `null` — no la
-     * ficha mínima: guardarla bajo esa clave sellaría un mes el modo "sin ancla" que la adenda midió
-     * como inventado, cuando lo que hubo fue una caída pasajera. Sin caché de por medio, la próxima
-     * apertura reintenta solo.
+     * **With `tmdbId`**: the movie's or series' sheet, plus the chapter's if there's a season and
+     * episode and TMDB finds it. If TMDB answers with NOTHING (neither movie nor series), `null` —
+     * not the minimal sheet: saving it under that key would seal for a month the "no anchor" mode
+     * the addendum measured as made-up, when what actually happened was a passing outage. With no
+     * cache in between, the next open just retries on its own.
      *
-     * Si la serie sí llegó pero falló la llamada del capítulo (pedido con temporada y episodio), la
-     * ficha queda [com.arkiv.player.data.trivia.WorkSheet.degraded]: se pregunta igual con los
-     * hechos de la serie, pero [com.arkiv.player.data.trivia.TriviaFacts] no guarda esa respuesta
-     * bajo la clave del capítulo.
+     * If the series DID come back but the chapter's call failed (requested with season and
+     * episode), the sheet is left [com.arkiv.player.data.trivia.WorkSheet.degraded]: it's still
+     * asked with the series' facts, but [com.arkiv.player.data.trivia.TriviaFacts] doesn't save
+     * that answer under the chapter's key.
      *
-     * La cancelación se relanza; lo demás se traga, como antes en `nombreDeObra`.
+     * Cancellation is rethrown; everything else is swallowed, as before in `nombreDeObra`.
      *
-     * **Esto solo corre si no hay caché** (igual que antes con el nombre): puede costar hasta 2
-     * llamadas a TMDB (película, o serie + capítulo).
+     * **This only runs if there's no cache** (same as before with the name): it can cost up to 2
+     * calls to TMDB (movie, or series + chapter).
      */
-    internal suspend fun fichaDeObra(obra: com.arkiv.player.data.trivia.TriviaSubject): com.arkiv.player.data.trivia.WorkSheet? {
+    internal suspend fun workSheetFor(subject: com.arkiv.player.data.trivia.TriviaSubject): com.arkiv.player.data.trivia.WorkSheet? {
         val tmdb = tmdbApi
-        val id = obra.tmdbId
+        val id = subject.tmdbId
         if (tmdb == null || id == null) {
-            return obra.canonicalTitle?.trim()?.takeIf { it.isNotEmpty() }?.let {
-                com.arkiv.player.data.trivia.WorkSheet(kind = obra.kind, name = it)
+            return subject.canonicalTitle?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                com.arkiv.player.data.trivia.WorkSheet(kind = subject.kind, name = it)
             }
         }
-        if (obra.kind == "movie") {
+        if (subject.kind == "movie") {
             return try {
                 tmdb.raw("movie/$id", append = "credits")?.let { com.arkiv.player.data.trivia.movieSheet(it) }
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -1296,72 +1298,45 @@ class ArkivRepository(
                 null
             }
         }
-        val serie = try {
+        val series = try {
             tmdb.raw("tv/$id", append = "aggregate_credits")?.let { com.arkiv.player.data.trivia.seriesSheet(it) }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
             null
         } ?: return null
-        if (obra.season == null || obra.episode == null) return serie
-        val capitulo = try {
-            tmdb.raw("tv/$id/season/${obra.season}/episode/${obra.episode}", append = "credits")
+        if (subject.season == null || subject.episode == null) return series
+        val chapter = try {
+            tmdb.raw("tv/$id/season/${subject.season}/episode/${subject.episode}", append = "credits")
                 ?.let { com.arkiv.player.data.trivia.chapterSheet(it) }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
             null
         }
-        return if (capitulo != null) serie.copy(chapter = capitulo) else serie.copy(degraded = true)
+        return if (chapter != null) series.copy(chapter = chapter) else series.copy(degraded = true)
     }
 }
 
-/**
- * Título "desnudo" para buscar en TMDB.
- *
- * The " — Pack" suffix was added by the app when saving a torrent that brought the whole series
- * (source removed in this branch's pruning); it isn't part of the name, and without stripping it
- * TMDB returns nothing (verified: the library's two "Naruto — Pack" entries ended up without a
- * tmdbId and so weren't grouped with the rest of the Naruto entries).
- */
-/**
- * Cuál de los resultados de TMDB es el arte de este título.
- *
- * NO es `results.first()`: TMDB ordena por su score de relevancia, que le gana a la coincidencia
- * exacta cuando un título es prefijo de otro más popular. Verificado contra la API (2026-08-11):
- * `search/tv?query=Dragon Ball` devuelve "Dragon Ball Z" de primero y el "Dragon Ball" de 1986 en
- * la posición 7 de 9. Por eso los tres Dragon Ball de la biblioteca terminaron con el `tmdbId` de
- * Z: con la carátula de Z y, peor, fundidos en UNA sola tarjeta, porque [LibraryGrouping] agrupa
- * las series por `tv:<tmdbId>`.
- *
- * Primero se busca coincidencia EXACTA de título normalizado, contra el título en español Y contra
- * el original: TMDB devuelve el localizado (es-MX) pero los releases suelen venir con el original
- * en inglés ("The Simpsons" contra "Los Simpson"). Si ninguna calza se cae al primero, que es el
- * comportamiento viejo y sigue siendo la mejor apuesta cuando el título no es exacto ("Dragon Ball
- * Kai" contra el "Dragon Ball Z Kai" de TMDB).
- *
- * Un título que al normalizar queda vacío (japonés, cirílico) no matchea con nada a propósito: si
- * no, haría "coincidencia exacta" con cualquier original que también normalice a vacío, que es casi
- * todo el anime.
- */
+/** A TMDB search result matched against a query title, plus whether that match was exact. */
 internal data class TmdbMatch(
     val item: TmdbItem,
     /**
-     * Si el título coincidió DE VERDAD, o si es el primer resultado por descarte.
+     * Whether the title matched FOR REAL, or it's the first result picked by default.
      *
-     * La distinción existe porque los dos usos del match tienen tolerancias distintas: para sacarle
-     * un backdrop a "Dragon Ball Kai", el "Dragon Ball Z Kai" de TMDB sirve de sobra; para decir que
-     * dos filas son LA MISMA OBRA —que es lo que hace [LibraryGrouping] agrupando por
-     * `tv:<tmdbId>`— no alcanza ni de lejos. Sin esta marca, un título que TMDB no conoce
-     * ("Construido por los hombres", que es un capítulo de Evangelion) se llevaba el id del primer
-     * resultado que cayera y fundía dos obras sin relación en una sola tarjeta.
+     * The distinction exists because the match's two uses have different tolerances: to grab
+     * "Dragon Ball Kai" a backdrop, TMDB's "Dragon Ball Z Kai" is more than good enough; to say two
+     * rows are THE SAME WORK —which is what [LibraryGrouping] does, grouping by `tv:<tmdbId>`— it
+     * doesn't come close. Without this flag, a title TMDB doesn't know ("Construido por los
+     * hombres", which is an Evangelion chapter) took whichever first result came back and merged
+     * two unrelated works into a single card.
      */
-    val exacto: Boolean,
+    val exact: Boolean,
 )
 
-/** minúsculas, sin tildes, sin puntuación, sin "(2024)", espacios colapsados. Antes vivía en el
- *  `WebTmdbMatcher` de la capa web (borrada); [pickTmdbMatch] la sigue necesitando para matchear
- *  títulos de CUALQUIER fuente contra TMDB, no solo web. */
+/** lowercase, no accents, no punctuation, no "(2024)", collapsed spaces. Used to live in the
+ *  web layer's `WebTmdbMatcher` (deleted); [pickTmdbMatch] still needs it to match titles from
+ *  ANY source against TMDB, not just web. */
 internal fun normalizeTitle(title: String): String {
     var s = title.lowercase().replace(Regex("\\(\\d{4}\\)"), " ")
     s = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replace(Regex("\\p{Mn}+"), "")
@@ -1369,17 +1344,44 @@ internal fun normalizeTitle(title: String): String {
     return s.replace(Regex("\\s+"), " ").trim()
 }
 
+/**
+ * Which of TMDB's results is this title's art.
+ *
+ * NOT `results.first()`: TMDB orders by its relevance score, which beats an exact match when one
+ * title is a prefix of a more popular one. Verified against the API (2026-08-11):
+ * `search/tv?query=Dragon Ball` returns "Dragon Ball Z" first and the 1986 "Dragon Ball" in
+ * position 7 of 9. That's why the library's three Dragon Balls ended up with Z's `tmdbId`: with
+ * Z's poster and, worse, merged into ONE single card, because [LibraryGrouping] groups series by
+ * `tv:<tmdbId>`.
+ *
+ * First an EXACT normalized-title match is looked for, against the Spanish title AND the
+ * original: TMDB returns the localized one (es-MX) but releases usually come with the English
+ * original ("The Simpsons" against "Los Simpson"). If neither fits it falls back to the first one,
+ * which is the old behavior and is still the best bet when the title isn't exact ("Dragon Ball
+ * Kai" against TMDB's "Dragon Ball Z Kai").
+ *
+ * A title that normalizes to empty (Japanese, Cyrillic) deliberately matches nothing: otherwise
+ * it would "exact match" against any original that also normalizes to empty, which is almost all anime.
+ */
 internal fun pickTmdbMatch(query: String, results: List<TmdbItem>): TmdbMatch? {
     val q = normalizeTitle(query)
-    if (q.isBlank()) return results.firstOrNull()?.let { TmdbMatch(it, exacto = false) }
+    if (q.isBlank()) return results.firstOrNull()?.let { TmdbMatch(it, exact = false) }
     results.firstOrNull {
         normalizeTitle(it.title) == q || normalizeTitle(it.originalTitle) == q
-    }?.let { return TmdbMatch(it, exacto = true) }
-    return results.firstOrNull()?.let { TmdbMatch(it, exacto = false) }
+    }?.let { return TmdbMatch(it, exact = true) }
+    return results.firstOrNull()?.let { TmdbMatch(it, exact = false) }
 }
 
+/**
+ * "Bare" title to search TMDB with.
+ *
+ * The " — Pack" suffix was added by the app when saving a torrent that brought the whole series
+ * (source removed in this branch's pruning); it isn't part of the name, and without stripping it
+ * TMDB returns nothing (verified: the library's two "Naruto — Pack" entries ended up without a
+ * tmdbId and so weren't grouped with the rest of the Naruto entries).
+ */
 internal fun cleanTitleForSearch(raw: String): String {
-    // Solo el SUFIJO: una raya larga en medio del título es un separador legítimo.
+    // Only the SUFFIX: a long dash in the middle of the title is a legitimate separator.
     var s = raw.replace(Regex("""\s*[—–-]\s*Pack\s*$""", RegexOption.IGNORE_CASE), "")
     s = s.replace('.', ' ').replace('_', ' ').replace('-', ' ').replace('—', ' ').replace('–', ' ')
     Regex("""\b(19|20)\d{2}\b""").find(s)?.let { s = s.substring(0, it.range.first) }

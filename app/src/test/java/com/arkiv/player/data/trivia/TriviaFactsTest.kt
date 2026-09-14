@@ -41,7 +41,7 @@ class TriviaFactsTest {
     /**
      * A movie can't receive a fake "episode": `EpisodeNumbering.episodeOf` deduces the chapter
      * from `displayName` ("Se7en" gives 7) with no idea whether the work is a series.
-     * `TriviaSubject.of` is where `ArkivRepository.obraParaDatos` builds the work's identity, so
+     * `TriviaSubject.of` is where `ArkivRepository.triviaSubjectFor` builds the work's identity, so
      * the filter goes here.
      */
     @Test fun `a movie cannot receive a fake episode or season`() {

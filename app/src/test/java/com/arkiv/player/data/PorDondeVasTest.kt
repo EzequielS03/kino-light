@@ -93,7 +93,7 @@ class PorDondeVasTest {
     @Test
     fun `el capitulo solo ABIERTO es por donde vas, sin piso de segundos`() {
         // Regresión que arregló inProgressEpisode y que el piso NO puede revivir: darle play al e5
-        // y salir a los tres segundos (marcarEnCurso deja la fila en 0) tiene que decir "vas en el
+        // y salir a los tres segundos (markInProgress deja la fila en 0) tiene que decir "vas en el
         // e5", no "vas en el e1". Por eso elegir() no conoce ningún piso.
         val r = PorDondeVas.elegir(
             listOf(p("e5", lastPlayedAt = 900L, positionMs = 0L)),
@@ -107,7 +107,7 @@ class PorDondeVasTest {
 
     @Test
     fun `el capitulo solo abierto no le gana al que tiene reproduccion real`() {
-        // Regresión de la regla vieja (ver el doc de inProgressEpisode): marcarEnCurso escribe una
+        // Regresión de la regla vieja (ver el doc de inProgressEpisode): markInProgress escribe una
         // fila en posición 0 al ABRIR un capítulo. Esa fila no puede desplazar a la que sí sonó.
         val r = PorDondeVas.elegir(
             listOf(

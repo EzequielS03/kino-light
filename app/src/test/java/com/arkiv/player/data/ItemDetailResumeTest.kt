@@ -59,7 +59,7 @@ class ItemDetailResumeTest {
 
     @Test fun un_capitulo_solo_tocado_no_le_gana_a_otro_con_progreso_real() {
         // Dragon Ball, visto en la base del Fire TV el 2026-08-12: el e126 tenía 3:30 reproducidos
-        // y los e127/e128 quedaron con fila de `marcarEnCurso` (posición y duración en 0) de
+        // y los e127/e128 quedaron con fila de `markInProgress` (posición y duración en 0) de
         // abrirlos sin que llegara a sonar nada. Como esas filas son MÁS recientes, "por dónde voy"
         // contestaba el e128 mientras "Continuar viendo" —que sí filtra por posición— seguía
         // ofreciendo el e126: dos superficies con dos respuestas para la misma pregunta.

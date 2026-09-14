@@ -101,7 +101,7 @@ class PickTmdbMatchTest {
 
     @Test
     fun `un match por titulo igual se marca exacto`() {
-        assertTrue(pickTmdbMatch("Dragon Ball", dragonBall)!!.exacto)
+        assertTrue(pickTmdbMatch("Dragon Ball", dragonBall)!!.exact)
     }
 
     @Test
@@ -114,7 +114,7 @@ class PickTmdbMatchTest {
         val kai = listOf(tv(61709, "Dragon Ball Z Kai", "ドラゴンボール改「カイ」", "2009"))
         val m = pickTmdbMatch("Dragon Ball Kai", kai)
         assertEquals(61709, m?.item?.id)
-        assertFalse(m!!.exacto)
+        assertFalse(m!!.exact)
     }
 
     @Test
@@ -123,6 +123,6 @@ class PickTmdbMatchTest {
         // NADA con que afirmar que es la misma obra.
         val m = pickTmdbMatch("", dragonBall)
         assertEquals(12971, m?.item?.id)
-        assertFalse(m!!.exacto)
+        assertFalse(m!!.exact)
     }
 }

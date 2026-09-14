@@ -42,7 +42,7 @@ data class CapituloAOfrecer(
 /**
  * Por dónde vas en una serie.
  *
- * Vive acá, junto a [UmbralDeVisto] y por el mismo motivo: es una regla de producto que alimenta DOS
+ * Vive acá, junto a [WatchedThreshold] y por el mismo motivo: es una regla de producto que alimenta DOS
  * superficies —la fila "Continuar viendo" del home y el botón "Reproducir" del detalle— y tenerla en
  * dos lugares es exactamente cómo se rompió antes.
  *
@@ -61,7 +61,7 @@ data class CapituloAOfrecer(
  *
  * ### Los capítulos solo ABIERTOS no desplazan a los reproducidos
  *
- * `marcarEnCurso` escribe una fila en `positionMs == 0` con solo abrir un capítulo. Sin la
+ * `markInProgress` escribe una fila en `positionMs == 0` con solo abrir un capítulo. Sin la
  * preferencia por los que tienen posición, abrir tres capítulos sin que suenen convertía al último
  * en "por dónde voy" por delante del que sí venías viendo (medido en Dragon Ball el 2026-08-12: el
  * e126 con 3:30 perdía contra el e127 y el e128, abiertos después y en 0). Por eso el ancla se busca
