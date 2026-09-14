@@ -9,16 +9,15 @@ English" line in `.claude/reglas.md`.
 Order chosen by the user: **módulo por módulo, de menor a mayor riesgo** (module by module,
 lowest to highest risk).
 
-## Overall completion: roughly **75-80%** of the whole sweep
+## Overall completion: roughly **78-82%** of the whole sweep
 
 - `playback/`, `security/`, `dlna/`, `cast/`, `thumbnails/`: **100% done.**
 - `data/`: **~98% done** — two files left, `MagisEntities.kt` and `DituEntities.kt` (see below).
 - `ui/` (159 main files across 14 subpackages, plus 6 top-level files, plus tests): roughly
-  **65% done**. Fully finished packages: `detail/`, `downloads/`, `components/`, `offline/`,
+  **68-70% done**. Fully finished packages: `detail/`, `downloads/`, `components/`, `offline/`,
   `library/`, `theme/`, `update/`, `settings/`, `home/`, `search/`, `catalog/`, `live/`, plus all 6
-  top-level `ui/*.kt` files. Partially touched (ripple-only, NOT fully translated) via
-  shared-symbol renames: `tv/`. Not touched at all: `player/` (23 files, the single
-  largest untouched package).
+  top-level `ui/*.kt` files. `tv/` is IN PROGRESS this session (about 15 of ~26 main files done,
+  see below). Not touched at all: `player/` (23 files, the single largest untouched package).
 
 `ui/` is far bigger than `data/` was (159 main files vs. roughly 90 in `data/`), so raw file count
 means the overall codebase is still under most-of-the-way-done even though `data/` is essentially
@@ -155,19 +154,51 @@ closures at `cad8b4af` and `6eb17c8f`).
   `LiveCatalogGateway`'s own interface method names (`categorias`/`canales`/`epg`) also kept as-is:
   that interface lives in `data/gateway/LiveApi.kt`, not yet processed.
 
-### `ui/` — NOT fully done (ripple-only touches so far)
+### `ui/tv/` — IN PROGRESS (started this session, not yet complete)
 
-These packages have received only the minimal fixes needed to keep them compiling after a shared
-symbol was renamed elsewhere (import statements, call-site named args, occasionally a directly
-adjacent local variable). **Their own Spanish identifiers/comments are still untranslated** and
-each needs its own full pass:
+Fully translated so far (main + matching tests where they exist):
 
-- **`tv/`** (26 main + 4 test files) — `TvEpisodeChip.kt`, `TvDetailScreen.kt` (got a bit more:
-  its `episodeMeta` function was fully translated since it was directly touched by the
-  `ChapterLabel` ripple), `TvHomeScreen.kt`, `TvSettingsApp.kt`, `TvSettingsSubtitulos.kt`,
-  `TvLanguageOrderEditor.kt`, `TvCategoriasScreen.kt`, `TvSearchScreen.kt`, `TvCajonDeCanales.kt`,
-  `TvLiveGuideScreen.kt` touched by ripple only; the other ~17 files untouched. This is the
-  **second-largest** `ui/` package and likely high-risk (TV-specific focus/navigation logic).
+- `NavSound.kt`, `TvButtonStyle.kt` (comments only).
+- `TvSettingsWidgets.kt` (`tvButtonColors`/`tvButtonBorder`, was `tvBotonColors`/`tvBotonBorder`).
+- `TvTab.kt` (`label`/`selected`, was `etiqueta`/`seleccionada`; `TAB_HEIGHT`, was `ALTO_TAB`) —
+  rippled into `TvSeccionesDeCatalogo.kt`, `TvSettingsScreen.kt`, `TvCaracolScreen.kt` (named-arg
+  call sites).
+- `TvSourceRows.kt` (`tvSourceRow`, was `tvFilaDeFuente`; `CARD_HEIGHT`/`MARGIN`, was
+  `ALTO_TARJETA`/`MARGEN`) — rippled into `TvSearchScreen.kt`'s named-arg call site.
+- `TvSettingsCuenta.kt` (`account`/`onLinkMagis`/`TvLinkedSection`, was
+  `cuenta`/`onVincularMagis`/`TvVinculadaSection`) — rippled into `TvSettingsScreen.kt` and
+  `AccountSection.kt`'s comment.
+- `TvPosterCard.kt` (comments only).
+- `TvSettingsSubtitulos.kt`→`TvSettingsSubtitles.kt` (`TvSettingsSubtitles` fun).
+- `TvLanguageOrderEditor.kt` (`TvLangButton`, was `TvLangBoton`).
+- `TvSettingsScreen.kt` (`TvSettingsTab` enum with `SUBTITLES`/`ACCOUNT`/`APP` and `label`, was
+  `TabDeAjustesTv` with `etiqueta`; `magisAccount`/`linkingMagis`/`magisState`/`firstTabFocus`
+  locals).
+- `library/TvLibraryViewModel.kt` (`groups`/`watched`/`removeGroup`, was
+  `grupos`/`vistos`/`quitarGrupo`) — rippled into `library/TvLibraryScreen.kt`'s call sites (that
+  screen itself is NOT yet translated).
+- `TvSettingsApp.kt` (`TvAdultsSection`/`TvChangeAdultsCode`, was
+  `TvSeccionAdultos`/`TvCambiarCodigoDeAdultos`).
+- `TvComponents.kt` (`TvLandscapeCard`'s `newEpisodes` param, was `nuevos`).
+- `TvEpisodeChip.kt` (comments only; identifiers were already English).
+- `TvFormularioConTeclado.kt`→`TvKeyboardAndFields.kt` and `TvOfertaVincularMagis.kt`→
+  `TvMagisLinkOffer.kt`, translated together since the second is the sole caller of the first:
+  `TvFocusedFields`/`rememberTvFocusedFields`/`TvKeyboardAndFields`/`TvFieldChip`/
+  `TvPasswordVisibilityButton`/`KEYBOARD_WEIGHT`/`FIELDS_WEIGHT` (was `TvCamposConFoco`/
+  `rememberTvCamposConFoco`/`TvTecladoYCampos`/`CampoTvChip`/`TvBotonMostrarPassword`/
+  `PESO_TECLADO`/`PESO_CAMPOS`), and `shouldOfferMagisLink`/`TvMagisLinkOffer(account, onNotNow)`
+  (was `debeOfrecerVincularMagis`/`TvOfertaVincularMagis(cuenta, onAhoraNo)`) — rippled into
+  `ArkivTvRoot.kt`, `TvSettingsScreen.kt`, `SettingsStore.kt`, `MagisAccount.kt`,
+  `TvHomeScreenParaTiTest.kt`'s comment references (those files are not yet fully processed).
+
+**NOT yet touched** (still fully Spanish, ripple-only at most so far): `ArkivTvRoot.kt`,
+`TvCajonDeCanales.kt`, `TvCaracolScreen.kt`, `TvCategoriasScreen.kt`, `TvDetailScreen.kt` (got a
+bit more: its `episodeMeta` function was fully translated earlier, from the `ChapterLabel`
+ripple), `TvHomeScreen.kt` (58K, the largest file in the package), `TvKeyboard.kt` + test,
+`TvLiveGuideScreen.kt`, `TvRowBrowseScreen.kt`, `TvSearchScreen.kt` (72K, the largest file in
+`ui/`), `TvSeccionesDeCatalogo.kt`, `library/TvDownloadsSection.kt`, `library/TvLibraryScreen.kt`.
+This is the **second-largest** `ui/` package and likely high-risk (TV-specific focus/navigation
+logic) — remaining work is substantial, several files are 15-72K.
 
 ### `ui/` — NOT touched at all
 
