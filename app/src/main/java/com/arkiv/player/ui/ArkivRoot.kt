@@ -111,7 +111,7 @@ fun ArkivRoot(
     }
     fun playEpisode(id: String) = goToPlayer(id)
 
-    // Deep-link desde la notificación: abrir el player en ese capítulo.
+    // Deep link from the notification: open the player on that chapter.
     androidx.compose.runtime.LaunchedEffect(deepLinkEpisodeId) {
         if (deepLinkEpisodeId != null) {
             navController.navigate("player/${Uri.encode(deepLinkEpisodeId)}") {
@@ -124,9 +124,9 @@ fun ArkivRoot(
     val currentRoute = backStackEntry?.destination?.route
     val isTab = currentRoute in TABS.map { it.route }
 
-    // Una sola definición de "ir a una pestaña", para que el rail y la barra no puedan
-    // divergir en el comportamiento (reset del catálogo, popUpTo, restoreState).
-    fun irA(tab: Tab) {
+    // A single definition of "go to a tab", so the rail and the bar can't diverge in behavior
+    // (catalog reset, popUpTo, restoreState).
+    fun goToTab(tab: Tab) {
         if (tab.route == "catalog") graph.catalogResetSignal.tryEmit(Unit)
         navController.navigate(tab.route) {
             popUpTo(navController.graph.findStartDestination().id) { saveState = true }
@@ -135,12 +135,12 @@ fun ArkivRoot(
         }
     }
 
-    val ancho = isLandscapeTablet()
+    val isWide = isLandscapeTablet()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
 
     ModalNavigationDrawer(
         drawerState = drawerState,
-        gesturesEnabled = isTab && !ancho,
+        gesturesEnabled = isTab && !isWide,
         drawerContent = {
             ModalDrawerSheet(drawerContainerColor = ArkivBlack) {
                 Spacer(Modifier.height(24.dp))
@@ -167,7 +167,7 @@ fun ArkivRoot(
                         ),
                         onClick = {
                             scope.launch { drawerState.close() }
-                            irA(tab)
+                            goToTab(tab)
                         },
                         modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
                     )
@@ -177,13 +177,13 @@ fun ArkivRoot(
     ) {
 
     Row(Modifier.fillMaxSize()) {
-    if (ancho && isTab) {
+    if (isWide && isTab) {
         NavigationRail(containerColor = ArkivBlack) {
             TABS.forEach { tab ->
                 val selected = backStackEntry?.destination?.hierarchy?.any { it.route == tab.route } == true
                 NavigationRailItem(
                     selected = selected,
-                    onClick = { irA(tab) },
+                    onClick = { goToTab(tab) },
                     icon = tab.icon,
                     label = { Text(tab.label) },
                 )
@@ -197,7 +197,7 @@ fun ArkivRoot(
             if (isTab) {
                 TopAppBar(
                     navigationIcon = {
-                        if (!ancho) {
+                        if (!isWide) {
                             IconButton(onClick = { scope.launch { drawerState.open() } }) {
                                 Icon(Icons.Default.Menu, contentDescription = "Menú", tint = Color.White)
                             }
@@ -221,9 +221,9 @@ fun ArkivRoot(
         // rest of archive.org: content now comes in through search. It covered home content
         // floating on top, which is expensive for a button nobody taps.
         //
-        // Sin bottomBar: la barra de "reproduciendo en la TV/Chromecast" dependía de
-        // NowPlayingCoordinator/RemoteController, borrados en Task 5 junto con el resto del pareo.
-        // Chromecast sigue disponible DESDE DENTRO del reproductor (botón de casteo en PlayerScreen).
+        // No bottomBar: the "playing on TV/Chromecast" bar depended on
+        // NowPlayingCoordinator/RemoteController, deleted in Task 5 along with the rest of pairing.
+        // Chromecast is still available FROM INSIDE the player (cast button in PlayerScreen).
     ) { padding ->
         NavHost(navController = navController, startDestination = "home") {
             composable("home") {
@@ -233,8 +233,8 @@ fun ArkivRoot(
                     onPlayLive = { code ->
                         goToPlayer("${com.arkiv.player.playback.PlayerSource.LIVE_PREFIX}$code")
                     },
-                    // "Ver más canales": mismas opciones que tocar la pestaña "En vivo" abajo, para
-                    // que quede marcada como seleccionada y el back stack no crezca por entrar acá.
+                    // "Ver más canales": the same options as tapping the "En vivo" tab below, so it
+                    // shows marked as selected and the back stack doesn't grow from entering here.
                     onOpenLive = {
                         navController.navigate("live") {
                             popUpTo(navController.graph.findStartDestination().id) { saveState = true }
@@ -252,10 +252,10 @@ fun ArkivRoot(
             }
             composable("live") {
                 com.arkiv.player.ui.live.LiveScreen(
-                    // Tarea 14: el reproductor en modo vivo ya existe (bandera `enVivo` en
-                    // PlayerViewModel/PlayerScreen). `LiveScreen.abrir()` ya dejó en
-                    // LiveZappingSource la lista con la que se entró -- acá solo hace falta navegar
-                    // con el prefijo que PlayerSource.kindFor() reconoce como vivo.
+                    // Task 14: the player's live mode already exists (`enVivo` flag in
+                    // PlayerViewModel/PlayerScreen). `LiveScreen.abrir()` already left in
+                    // LiveZappingSource the list it was entered with -- this just needs to navigate
+                    // with the prefix PlayerSource.kindFor() recognizes as live.
                     onAbrirCanal = { code ->
                         goToPlayer("${com.arkiv.player.playback.PlayerSource.LIVE_PREFIX}$code")
                     },
@@ -284,9 +284,9 @@ fun ArkivRoot(
             composable("settings") {
     SettingsScreen(
         contentPadding = padding,
-        // "downloads" is now a tab (see TABS above): go through the same irA() the drawer/rail
+        // "downloads" is now a tab (see TABS above): go through the same goToTab() the drawer/rail
         // use, so the tab shows selected and the back stack behaves like any other tab switch.
-        onOpenDownloads = { irA(TABS.first { it.route == "downloads" }) },
+        onOpenDownloads = { goToTab(TABS.first { it.route == "downloads" }) },
     )
 }
             composable("categorias_home") {

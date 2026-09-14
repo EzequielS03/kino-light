@@ -29,18 +29,18 @@ import com.arkiv.player.ui.tv.ArkivTvRoot
 import kotlinx.coroutines.delay
 
 /**
- * Ventaja que se le da a la intro antes de empezar a componer la app: sin esto el hilo principal
- * se satura y la animación no llega a dibujarse (ver comentario en setContent).
+ * Head start given to the intro before starting to compose the app: without this the main thread
+ * gets saturated and the animation doesn't get to draw (see the comment on setContent).
  *
- * Sale de [com.arkiv.player.ui.DURACION_DE_LA_INTRO_MS] y NO es un número suelto, a propósito.
- * Escrito a mano se desfasó: quedó en 600 ms —afinado para la intro vieja, de 750 ms— mientras la
- * intro pasaba a durar 880, así que el root se componía encima de su tramo más pesado. Atado a la
- * duración real, la composición cae siempre DESPUÉS de que la animación terminó de dibujar, y el
- * fundido de salida la tapa.
+ * Comes from [com.arkiv.player.ui.INTRO_DURATION_MS] and is NOT a loose number, on purpose.
+ * Written by hand it drifted: it stayed at 600 ms --tuned for the old, 750 ms intro-- while the
+ * intro grew to 880, so the root composed on top of its heaviest stretch. Tied to the real
+ * duration, composition always lands AFTER the animation finished drawing, and the exit fade
+ * covers it.
  */
-private val INTRO_HEAD_START_MS = com.arkiv.player.ui.DURACION_DE_LA_INTRO_MS.toLong()
+private val INTRO_HEAD_START_MS = com.arkiv.player.ui.INTRO_DURATION_MS.toLong()
 
-/** Margen tras arrancar la composición del root antes de destapar la app con el fundido. */
+/** Margin after starting the root's composition before uncovering the app with the fade. */
 private const val CONTENT_SETTLE_MS = 400L
 
 /**

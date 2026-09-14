@@ -36,27 +36,27 @@ import kotlin.math.min
 import kotlin.math.sin
 
 /**
- * Duración de la intro, en ms.
+ * Intro duration, in ms.
  *
- * Público porque `MainActivity` calza contra esto cuándo empieza a componer la app (ver
- * `INTRO_HEAD_START_MS`). Cuando eran dos números sueltos se desfasaron: el head start seguía en
- * 600 ms, afinado para la intro vieja de 750 ms, así que el root se componía ENCIMA del tramo más
- * pesado de esta —el haz y el revelado de la palabra— y la animación se atragantaba justo ahí.
+ * Public because `MainActivity` times against this for when it starts composing the app (see
+ * `INTRO_HEAD_START_MS`). When they were two loose numbers they drifted apart: the head start
+ * stayed at 600 ms, tuned for the old 750 ms intro, so the root composed ON TOP of this one's
+ * heaviest stretch -- the beam and the word reveal -- and the animation choked right there.
  */
-const val DURACION_DE_LA_INTRO_MS = 880
+const val INTRO_DURATION_MS = 880
 
-private const val TOTAL_MS = DURACION_DE_LA_INTRO_MS
+private const val TOTAL_MS = INTRO_DURATION_MS
 
-/** Duración del fundido de salida, en ms. */
+/** Exit fade duration, in ms. */
 private const val EXIT_MS = 260
 
-/** Sub-progreso [0..1] de un tramo de la línea de tiempo global. */
+/** Sub-progress [0..1] of a stretch of the global timeline. */
 private fun seg(t: Float, from: Float, to: Float): Float =
     ((t - from) / (to - from)).coerceIn(0f, 1f)
 
 private fun easeOut(t: Float): Float = 1f - (1f - t) * (1f - t) * (1f - t)
 
-/** Ease con un pelo de rebote al final, para que el asta "aterrice" en vez de frenar en seco. */
+/** Ease with a bit of bounce at the end, so the shaft "lands" instead of stopping short. */
 private fun easeBack(t: Float): Float {
     val c = 1.7f
     val u = t - 1f
@@ -64,78 +64,79 @@ private fun easeBack(t: Float): Float {
 }
 
 /**
- * El monograma de Kino, en una caja de 100x100 con la Y hacia abajo.
+ * Kino's monogram, in a 100x100 box with the Y facing down.
  *
- * Son los MISMOS números que `docs/marca/kino_logo.py`, que genera el ícono del lanzador y los PNG
- * del TV. Si se tocan acá y no allá (o al revés), la K de la intro deja de ser la del ícono.
+ * These are the SAME numbers as `docs/marca/kino_logo.py`, which generates the launcher icon and
+ * the TV PNGs. If they're touched here and not there (or the other way around), the intro's K
+ * stops matching the icon's.
  */
-private object GeometriaK {
-    private const val ASTA_X0 = 12f
-    private const val ASTA_X1 = 29f
-    private const val ARRIBA = 8f
-    private const val ABAJO = 92f
-    private const val DERECHA = 86f
-    private const val GROSOR = 17.5f
+private object KGeometry {
+    private const val SHAFT_X0 = 12f
+    private const val SHAFT_X1 = 29f
+    private const val TOP = 8f
+    private const val BOTTOM = 92f
+    private const val RIGHT = 86f
+    private const val THICKNESS = 17.5f
 
-    /** Donde nacen las aspas: metido dentro del asta, para que suelden sin costura. */
-    const val JUNTA_X = ASTA_X1 - 6f
-    const val JUNTA_Y = 50f
+    /** Where the arms are born: tucked inside the shaft, so they weld without a seam. */
+    const val JOINT_X = SHAFT_X1 - 6f
+    const val JOINT_Y = 50f
 
-    val asta: List<Offset> = listOf(
-        Offset(ASTA_X0, ARRIBA), Offset(ASTA_X1, ARRIBA),
-        Offset(ASTA_X1, ABAJO), Offset(ASTA_X0, ABAJO),
+    val shaft: List<Offset> = listOf(
+        Offset(SHAFT_X0, TOP), Offset(SHAFT_X1, TOP),
+        Offset(SHAFT_X1, BOTTOM), Offset(SHAFT_X0, BOTTOM),
     )
-    val aspaArriba: List<Offset> = aspa(ARRIBA - 2f)
-    val aspaAbajo: List<Offset> = aspa(ABAJO + 2f)
+    val upperArm: List<Offset> = arm(TOP - 2f)
+    val lowerArm: List<Offset> = arm(BOTTOM + 2f)
 
-    /** Un aspa desde la junta hasta el borde derecho, cortada recta. */
-    private fun aspa(hastaY: Float): List<Offset> {
-        val bx = DERECHA + 14f                     // se pasa de largo y después se corta
-        val dx = bx - JUNTA_X
-        val dy = hastaY - JUNTA_Y
+    /** An arm from the joint to the right edge, cut straight. */
+    private fun arm(toY: Float): List<Offset> {
+        val bx = RIGHT + 14f                     // overshoots and gets cut afterward
+        val dx = bx - JOINT_X
+        val dy = toY - JOINT_Y
         val n = hypot(dx, dy)
-        val nx = -dy / n * (GROSOR / 2f)
-        val ny = dx / n * (GROSOR / 2f)
-        return cortarEn(
+        val nx = -dy / n * (THICKNESS / 2f)
+        val ny = dx / n * (THICKNESS / 2f)
+        return cutAt(
             listOf(
-                Offset(JUNTA_X + nx, JUNTA_Y + ny), Offset(bx + nx, hastaY + ny),
-                Offset(bx - nx, hastaY - ny), Offset(JUNTA_X - nx, JUNTA_Y - ny),
+                Offset(JOINT_X + nx, JOINT_Y + ny), Offset(bx + nx, toY + ny),
+                Offset(bx - nx, toY - ny), Offset(JOINT_X - nx, JOINT_Y - ny),
             ),
-            DERECHA,
+            RIGHT,
         )
     }
 
-    /** Sutherland-Hodgman contra un solo plano vertical: deja el corte recto. */
-    private fun cortarEn(poly: List<Offset>, xMax: Float): List<Offset> {
+    /** Sutherland-Hodgman against a single vertical plane: leaves a straight cut. */
+    private fun cutAt(poly: List<Offset>, xMax: Float): List<Offset> {
         val out = mutableListOf<Offset>()
         for (i in poly.indices) {
             val c = poly[i]
             val p = poly[(i - 1 + poly.size) % poly.size]
-            val cDentro = c.x <= xMax
-            val pDentro = p.x <= xMax
-            if (cDentro != pDentro) {
+            val cInside = c.x <= xMax
+            val pInside = p.x <= xMax
+            if (cInside != pInside) {
                 val t = (xMax - p.x) / (c.x - p.x)
                 out += Offset(xMax, p.y + t * (c.y - p.y))
             }
-            if (cDentro) out += c
+            if (cInside) out += c
         }
         return out
     }
 }
 
 /**
- * Arma el `Path` de una pieza del monograma, ya escalado y puesto en su sitio.
+ * Builds the `Path` of one monogram piece, already scaled and placed in its spot.
  *
- * Se construye UNA vez por tamaño de pantalla, no por cuadro: en la primera versión cada cuadro
- * alocaba tres `Path` nuevos, y eso sumado a rehacer los degradados era lo que dejaba la intro en
- * ~10 fps (medido en emulador, 2026-08-13). Lo que se anima ahora son transformaciones sobre estos
- * mismos paths, que no alocan nada.
+ * Built ONCE per screen size, not per frame: in the first version every frame allocated three new
+ * `Path`s, and that on top of rebuilding the gradients was what kept the intro at ~10 fps
+ * (measured on the emulator, 2026-08-13). What animates now are transforms on these same paths,
+ * which allocate nothing.
  */
-private fun pathDe(puntos: List<Offset>, origen: Offset, escala: Float): Path {
+private fun pathFor(points: List<Offset>, origin: Offset, scale: Float): Path {
     val path = Path()
-    puntos.forEachIndexed { i, p ->
-        val x = origen.x + p.x * escala
-        val y = origen.y + p.y * escala
+    points.forEachIndexed { i, p ->
+        val x = origin.x + p.x * scale
+        val y = origin.y + p.y * scale
         if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
     }
     path.close()
@@ -143,24 +144,24 @@ private fun pathDe(puntos: List<Offset>, origen: Offset, escala: Float): Path {
 }
 
 /**
- * Intro de arranque: la K se abre y proyecta el nombre.
+ * Boot intro: the K opens and projects the name.
  *
- * El asta cae, las dos aspas salen disparadas desde la junta —como un proyector que se abre—, de
- * ahí sale un haz de luz hacia la derecha y KINO se revela DENTRO del haz, de izquierda a derecha.
- * Termina con un zoom + fundido que descubre la app.
+ * The shaft falls, the two arms shoot out from the joint --like a projector opening--, from there
+ * a beam of light shoots to the right and KINO reveals itself INSIDE the beam, left to right. Ends
+ * with a zoom + fade that uncovers the app.
  *
- * ### Por qué el asta NO aparece desde invisible
+ * ### Why the shaft does NOT appear from invisible
  *
- * `installSplashScreen()` no retiene el splash del sistema: este suelta la K estática en cuanto hay
- * primer frame y Compose toma el control enseguida. Si la intro empezara desde negro, en el aparato
- * se vería "K brillante → negro → K armándose", que es justo el salto que documentaba la intro
- * anterior. Por eso el asta arranca a opacidad plena y lo único que se anima es su caída: en el
- * frame cero ya hay rojo en pantalla y el relevo no se nota. No "arreglar" esto poniéndole un
- * fundido de entrada.
+ * `installSplashScreen()` doesn't hold onto the system splash: it releases the static K as soon as
+ * there's a first frame and Compose takes over right away. If the intro started from black, the
+ * device would show "bright K → black → K assembling", which is exactly the jump the previous
+ * intro had. That's why the shaft starts at full opacity and the only thing that animates is its
+ * fall: at frame zero there's already red on screen and the handoff isn't noticeable. Don't "fix"
+ * this by adding an entrance fade.
  *
- * Se dibuja ENCIMA del contenido para tapar el arranque en frío. La salida no arranca hasta que
- * [canExit] es true: así el fundido destapa una pantalla ya dibujada en vez de dejar otro hueco
- * negro. [onFinished] avisa al llamador para que la saque de la composición.
+ * Drawn ON TOP of the content to cover the cold start. The exit doesn't start until [canExit] is
+ * true: that way the fade uncovers an already-drawn screen instead of leaving another black gap.
+ * [onFinished] tells the caller to remove it from the composition.
  */
 @Composable
 fun ArkivSplash(
@@ -171,33 +172,32 @@ fun ArkivSplash(
     val intro = remember { Animatable(0f) }
     val exitAnim = remember { Animatable(0f) }
     var introDone by remember { mutableStateOf(false) }
-    val medidor = rememberTextMeasurer()
+    val measurer = rememberTextMeasurer()
 
     LaunchedEffect(Unit) {
         intro.animateTo(1f, tween(durationMillis = TOTAL_MS, easing = LinearEasing))
         introDone = true
     }
-    // La salida espera a que el contenido esté listo: si el splash se fuera apenas termina la
-    // animación, quedaría un frame negro mientras el root todavía no dibujó nada.
+    // The exit waits for the content to be ready: if the splash left as soon as the animation
+    // finished, there'd be a black frame while the root still hadn't drawn anything.
     LaunchedEffect(introDone, canExit) {
         if (!introDone || !canExit) return@LaunchedEffect
         exitAnim.animateTo(1f, tween(durationMillis = EXIT_MS, easing = FastOutLinearInEasing))
         onFinished()
     }
 
-    val estilo = TextStyle(
+    val style = TextStyle(
         color = Color.White,
         fontWeight = FontWeight.Black,
         fontSize = if (isTv) 84.sp else 52.sp,
         letterSpacing = if (isTv) 10.sp else 6.sp,
     )
-    val salida = exitAnim.value
 
-    // `drawWithCache` y no `Canvas`: el bloque de arriba corre UNA vez por tamaño de pantalla
-    // (medir el texto, resolver el lockup, armar los paths y los dos degradados) y `onDrawBehind`
-    // corre por cuadro sin alocar nada. La primera versión rehacía todo eso 60 veces por segundo y
-    // la intro dibujaba a ~10 fps; los degradados a pantalla completa son lo más caro, y en el Fire
-    // Stick —GPU floja, 1,7 GB— es exactamente lo que no hay que hacer por cuadro.
+    // `drawWithCache` and not `Canvas`: the block above runs ONCE per screen size (measuring the
+    // text, resolving the lockup, building the paths and the two gradients) and `onDrawBehind`
+    // runs per frame allocating nothing. The first version redid all of that 60 times a second and
+    // the intro drew at ~10 fps; the full-screen gradients are the most expensive part, and on the
+    // Fire Stick --weak GPU, 1.7 GB-- that's exactly what shouldn't happen per frame.
     Spacer(
         Modifier
             .fillMaxSize()
@@ -208,117 +208,117 @@ fun ArkivSplash(
                 alpha = 1f - exitAnim.value
             }
             .drawWithCache {
-                // El tamaño del lockup se deriva del TEXTO, nunca del alto de la pantalla.
+                // The lockup's size is derived from the TEXT, never from the screen height.
                 //
-                // Atarlo a `size.height` es lo que rompió la primera versión: el teléfono es
-                // VERTICAL, así que un monograma de 0,42 × alto salía gigante y empujaba la palabra
-                // fuera del borde derecho. Con el texto de referencia, la misma cuenta sirve para el
-                // celular y para el TV apaisado.
-                var medida = medidor.measure(AnnotatedString("KINO"), estilo)
-                var lado = medida.size.height * 1.30f
-                var aire = medida.size.height * 0.42f
-                var ancho = lado + aire + medida.size.width
+                // Tying it to `size.height` is what broke the first version: the phone is VERTICAL,
+                // so a 0.42 × height monogram came out giant and pushed the word off the right
+                // edge. With the reference text, the same math works for both the phone and the
+                // landscape TV.
+                var measured = measurer.measure(AnnotatedString("KINO"), style)
+                var side = measured.size.height * 1.30f
+                var gap = measured.size.height * 0.42f
+                var width = side + gap + measured.size.width
 
-                // Y si aun así no entra a lo ancho, se achica el conjunto entero midiendo de nuevo:
-                // el texto es sp, no se puede escalar sin volver a medirlo.
-                val disponible = size.width * 0.86f
-                if (ancho > disponible) {
-                    val f = disponible / ancho
-                    medida = medidor.measure(
+                // And if it still doesn't fit widthwise, the whole set shrinks by measuring again:
+                // the text is in sp, it can't be scaled without re-measuring it.
+                val available = size.width * 0.86f
+                if (width > available) {
+                    val f = available / width
+                    measured = measurer.measure(
                         AnnotatedString("KINO"),
-                        estilo.copy(fontSize = estilo.fontSize * f, letterSpacing = estilo.letterSpacing * f),
+                        style.copy(fontSize = style.fontSize * f, letterSpacing = style.letterSpacing * f),
                     )
-                    lado = medida.size.height * 1.30f
-                    aire = medida.size.height * 0.42f
-                    ancho = lado + aire + medida.size.width
+                    side = measured.size.height * 1.30f
+                    gap = measured.size.height * 0.42f
+                    width = side + gap + measured.size.width
                 }
 
-                val anchoTexto = medida.size.width.toFloat()
-                val altoTexto = medida.size.height.toFloat()
-                val escala = lado / 100f
-                val origen = Offset((size.width - ancho) / 2f, (size.height - lado) / 2f)
-                val junta = Offset(
-                    origen.x + GeometriaK.JUNTA_X * escala,
-                    origen.y + GeometriaK.JUNTA_Y * escala,
+                val textWidth = measured.size.width.toFloat()
+                val textHeight = measured.size.height.toFloat()
+                val scale = side / 100f
+                val origin = Offset((size.width - width) / 2f, (size.height - side) / 2f)
+                val joint = Offset(
+                    origin.x + KGeometry.JOINT_X * scale,
+                    origin.y + KGeometry.JOINT_Y * scale,
                 )
-                val textoX = origen.x + lado + aire
-                val textoY = size.height / 2f - altoTexto / 2f
-                val grosorRaya = (size.height * 0.022f).coerceAtLeast(2f)
-                val yRaya = textoY + altoTexto + size.height * 0.035f
+                val textX = origin.x + side + gap
+                val textY = size.height / 2f - textHeight / 2f
+                val underlineThickness = (size.height * 0.022f).coerceAtLeast(2f)
+                val underlineY = textY + textHeight + size.height * 0.035f
 
-                // Los tres paths del monograma, ya en su sitio. Lo que se anima son transformaciones
-                // sobre estos mismos objetos.
-                val astaPath = pathDe(GeometriaK.asta, origen, escala)
-                val aspaArribaPath = pathDe(GeometriaK.aspaArriba, origen, escala)
-                val aspaAbajoPath = pathDe(GeometriaK.aspaAbajo, origen, escala)
+                // The monogram's three paths, already in place. What animates are transforms on
+                // these same objects.
+                val shaftPath = pathFor(KGeometry.shaft, origin, scale)
+                val upperArmPath = pathFor(KGeometry.upperArm, origin, scale)
+                val lowerArmPath = pathFor(KGeometry.lowerArm, origin, scale)
 
-                // El haz, armado a su tamaño FINAL. Al dibujarlo se escala desde la junta, y como
-                // largo y apertura crecen juntos, un escalado uniforme es exactamente el cono
-                // abriéndose: no hace falta rehacer el path.
-                val largoHaz = size.width - junta.x
-                val abreHaz = size.height * 0.30f
-                val hazPath = Path().apply {
-                    moveTo(junta.x, junta.y)
-                    lineTo(junta.x + largoHaz, junta.y - abreHaz)
-                    lineTo(junta.x + largoHaz, junta.y + abreHaz)
+                // The beam, built at its FINAL size. When drawn it's scaled from the joint, and
+                // since length and spread grow together, a uniform scale is exactly the cone
+                // opening: no need to rebuild the path.
+                val beamLength = size.width - joint.x
+                val beamSpread = size.height * 0.30f
+                val beamPath = Path().apply {
+                    moveTo(joint.x, joint.y)
+                    lineTo(joint.x + beamLength, joint.y - beamSpread)
+                    lineTo(joint.x + beamLength, joint.y + beamSpread)
                     close()
                 }
-                val hazBrush = Brush.horizontalGradient(
+                val beamBrush = Brush.horizontalGradient(
                     colors = listOf(Color(0xFFFFEEEE), Color.Transparent),
-                    startX = junta.x,
-                    endX = junta.x + largoHaz,
+                    startX = joint.x,
+                    endX = joint.x + beamLength,
                 )
-                // ACÁ NO VA UN RESPLANDOR DE FONDO. La intro tenía un degradado radial rojo
-                // detrás del monograma y era, de lejos, lo más caro que dibujaba.
+                // NO BACKGROUND GLOW GOES HERE. The intro used to have a red radial gradient
+                // behind the monogram and it was, by far, the most expensive thing it drew.
                 //
-                // Medido en el Fire Stick con `gfxinfo`, tres corridas de cada variante:
+                // Measured on the Fire Stick with `gfxinfo`, three runs of each variant:
                 //
-                //   a pantalla completa   GPU 15 ms por cuadro (de 16,7 de presupuesto: al 90%)
-                //   ceñido a 0,55 del alto    9-10 ms
-                //   sin resplandor             3-4 ms   <- esto
+                //   full screen             GPU 15 ms per frame (of a 16.7 ms budget: at 90%)
+                //   capped to 0.55 of height    9-10 ms
+                //   no glow                      3-4 ms   <- this one
                 //
-                // Cinco veces menos, y los cuadros con jank pasaron del 55% al 10%. Un degradado
-                // que cubre 1920x1080 en cada cuadro es justo lo que no aguanta la GPU de un Fire
-                // Stick. Si algún día se quiere volver a poner, que sea sobre una capa cacheada y
-                // midiendo con `gfxinfo` antes y después, no a ojo.
+                // Five times less, and janky frames went from 55% to 10%. A gradient covering
+                // 1920x1080 every frame is exactly what a Fire Stick's GPU can't take. If it's
+                // ever brought back, do it over a cached layer and measure with `gfxinfo` before
+                // and after, not by eye.
 
                 onDrawBehind {
                     val t = intro.value * TOTAL_MS
-                    val pAsta = easeBack(seg(t, 0f, 260f))
-                    val pArriba = easeOut(seg(t, 160f, 400f))
-                    val pAbajo = easeOut(seg(t, 220f, 460f))
-                    val pHaz = seg(t, 380f, 700f)
-                    val pPalabra = easeOut(seg(t, 460f, 800f))
-                    val pBrillo = seg(t, 700f, 880f)
+                    val pShaft = easeBack(seg(t, 0f, 260f))
+                    val pUpper = easeOut(seg(t, 160f, 400f))
+                    val pLower = easeOut(seg(t, 220f, 460f))
+                    val pBeam = seg(t, 380f, 700f)
+                    val pWord = easeOut(seg(t, 460f, 800f))
+                    val pGlow = seg(t, 700f, 880f)
 
                     drawRect(ArkivBlack)
 
 
-                    if (pHaz > 0f) {
-                        val abriendo = easeOut(min(pHaz / 0.55f, 1f))
-                        val fade = if (pHaz < 0.55f) pHaz / 0.55f else 1f - (pHaz - 0.55f) / 0.45f * 0.72f
-                        scale(abriendo, abriendo, pivot = junta) {
-                            drawPath(hazPath, hazBrush, alpha = 0.30f * fade)
+                    if (pBeam > 0f) {
+                        val opening = easeOut(min(pBeam / 0.55f, 1f))
+                        val fade = if (pBeam < 0.55f) pBeam / 0.55f else 1f - (pBeam - 0.55f) / 0.45f * 0.72f
+                        scale(opening, opening, pivot = joint) {
+                            drawPath(beamPath, beamBrush, alpha = 0.30f * fade)
                         }
                     }
 
-                    // El asta cae desde arriba, YA VISIBLE (ver el doc de arriba).
-                    translate(top = -lado * 0.5f * (1f - pAsta)) {
-                        drawPath(astaPath, ArkivRed)
+                    // The shaft falls from above, ALREADY VISIBLE (see the doc above).
+                    translate(top = -side * 0.5f * (1f - pShaft)) {
+                        drawPath(shaftPath, ArkivRed)
                     }
-                    // Las aspas salen disparadas desde la junta, una detrás de la otra.
-                    if (pArriba > 0f) scale(pArriba, pArriba, pivot = junta) { drawPath(aspaArribaPath, ArkivRed) }
-                    if (pAbajo > 0f) scale(pAbajo, pAbajo, pivot = junta) { drawPath(aspaAbajoPath, ArkivRed) }
+                    // The arms shoot out from the joint, one after the other.
+                    if (pUpper > 0f) scale(pUpper, pUpper, pivot = joint) { drawPath(upperArmPath, ArkivRed) }
+                    if (pLower > 0f) scale(pLower, pLower, pivot = joint) { drawPath(lowerArmPath, ArkivRed) }
 
-                    // La palabra se revela DENTRO del haz, de izquierda a derecha.
-                    if (pPalabra > 0f) {
-                        clipRect(left = textoX, right = textoX + anchoTexto * pPalabra) {
-                            drawText(medida, topLeft = Offset(textoX, textoY))
+                    // The word reveals INSIDE the beam, left to right.
+                    if (pWord > 0f) {
+                        clipRect(left = textX, right = textX + textWidth * pWord) {
+                            drawText(measured, topLeft = Offset(textX, textY))
                         }
                         drawRect(
                             color = ArkivRed,
-                            topLeft = Offset(textoX, yRaya),
-                            size = Size(anchoTexto * pPalabra, grosorRaya),
+                            topLeft = Offset(textX, underlineY),
+                            size = Size(textWidth * pWord, underlineThickness),
                         )
                     }
                 }
