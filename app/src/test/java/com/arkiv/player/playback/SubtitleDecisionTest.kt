@@ -7,11 +7,12 @@ import org.junit.Test
 
 class SubtitleDecisionTest {
 
-    // Base = el caso normal, con las dos listas iguales: es lo que trae la app recién instalada. Acá
-    // NO hay red de seguridad contra volver a mirar `audioLangs` en vez de `understoodLangs` —
-    // justamente por ser iguales, las dos lecturas dan lo mismo. Esa red la ponen los dos tests que
-    // separan las listas a propósito: `japaneseAudioStillGetsSubtitlesAfterPromotion` (japonés SOLO en
-    // audioLangs) y `understandingJapaneseTurnsThemOffWithoutTouchingTheAudioOrder` (solo en la otra).
+    // Base = the normal case, with both lists equal: what a freshly installed app ships with. There
+    // is NO safety net here against accidentally reading `audioLangs` instead of `understoodLangs` —
+    // precisely because they're equal, both reads give the same result. That net comes from the two
+    // tests that split the lists on purpose: `japaneseAudioStillGetsSubtitlesAfterPromotion`
+    // (Japanese ONLY in audioLangs) and `understandingJapaneseTurnsThemOffWithoutTouchingTheAudioOrder`
+    // (only in the other one).
     private val prefs = PlaybackPrefs(
         audioLangs = listOf(TrackLang.LATINO, TrackLang.CASTELLANO),
         understoodLangs = listOf(TrackLang.LATINO, TrackLang.CASTELLANO),
@@ -27,34 +28,34 @@ class SubtitleDecisionTest {
         assertEquals(-1, SubtitleDecision.decide("Español Latino", subs, prefs))
     }
 
-    /** El comodín del español: "Spanish" a secas cuenta como propio con Latino>Castellano. */
+    /** Spanish's wildcard: plain "Spanish" counts as mine with Latino>Castellano. */
     @Test fun genericSpanishAudioCountsAsMine() {
         assertEquals(-1, SubtitleDecision.decide("Track 1 - [Spanish]", subs, prefs))
     }
 
-    /** Si marcaste que entendés inglés, el audio en inglés deja de prender subs. */
+    /** If you marked that you understand English, English audio stops turning on subs. */
     @Test fun audioInAnAddedLanguageAlsoCountsAsMine() {
-        val conIngles = prefs.copy(understoodLangs = prefs.understoodLangs + TrackLang.ENGLISH)
-        assertEquals(-1, SubtitleDecision.decide("English", subs, conIngles))
+        val withEnglish = prefs.copy(understoodLangs = prefs.understoodLangs + TrackLang.ENGLISH)
+        assertEquals(-1, SubtitleDecision.decide("English", subs, withEnglish))
     }
 
     /**
-     * El caso que motivó separar las dos listas: en un anime dual elegís japonés a mano, la promoción
-     * lo sube al tope de `audioLangs` y en el próximo capítulo el japonés se auto-selecciona. Los
-     * subtítulos TIENEN que seguir prendiéndose: nunca dijiste que entendías japonés.
+     * The case that motivated splitting the two lists: in a dual anime you pick Japanese by hand,
+     * the promotion bumps it to the top of `audioLangs`, and on the next chapter Japanese
+     * auto-selects itself. Subtitles HAVE to keep turning on: you never said you understood Japanese.
      */
     @Test fun japaneseAudioStillGetsSubtitlesAfterPromotion() {
-        val promovido = prefs.copy(audioLangs = listOf(TrackLang.JAPANESE) + prefs.audioLangs)
-        assertEquals(1, SubtitleDecision.decide("Japanese", subs, promovido))
+        val promoted = prefs.copy(audioLangs = listOf(TrackLang.JAPANESE) + prefs.audioLangs)
+        assertEquals(1, SubtitleDecision.decide("Japanese", subs, promoted))
     }
 
-    /** Y al revés: marcar japonés como entendido sí los apaga, aunque no esté en audioLangs. */
+    /** And the other way around: marking Japanese as understood DOES turn them off, even if it's not in audioLangs. */
     @Test fun understandingJapaneseTurnsThemOffWithoutTouchingTheAudioOrder() {
-        val entiendeJapones = prefs.copy(understoodLangs = prefs.understoodLangs + TrackLang.JAPANESE)
-        assertEquals(-1, SubtitleDecision.decide("Japanese", subs, entiendeJapones))
+        val understandsJapanese = prefs.copy(understoodLangs = prefs.understoodLangs + TrackLang.JAPANESE)
+        assertEquals(-1, SubtitleDecision.decide("Japanese", subs, understandsJapanese))
     }
 
-    /** Pista sin etiqueta: se asume que es tu idioma. Prender subs porque sí sería peor. */
+    /** Track with no label: assumed to be your language. Turning subs on just in case would be worse. */
     @Test fun unknownAudioLeavesSubtitlesOff() {
         assertEquals(-1, SubtitleDecision.decide("Track 1", subs, prefs))
         assertEquals(-1, SubtitleDecision.decide(null, subs, prefs))
@@ -66,20 +67,20 @@ class SubtitleDecisionTest {
     }
 
     @Test fun foreignAudioWithNoSubtitleInMyLanguagesStaysOff() {
-        val soloFrances = listOf(-1 to "Disable", 0 to "French")
-        assertEquals(-1, SubtitleDecision.decide("Japanese", soloFrances, prefs))
+        val onlyFrench = listOf(-1 to "Disable", 0 to "French")
+        assertEquals(-1, SubtitleDecision.decide("Japanese", onlyFrench, prefs))
     }
 
-    /** Una única pista de subtítulo SÍ se prende (a diferencia del audio, acá no se exige elección). */
+    /** A single matching subtitle track DOES turn on (unlike audio, no choice is required here). */
     @Test fun aSingleMatchingSubtitleIsSelected() {
-        val unaSola = listOf(0 to "Spanish")
-        assertEquals(0, SubtitleDecision.decide("Japanese", unaSola, prefs))
+        val onlyOne = listOf(0 to "Spanish")
+        assertEquals(0, SubtitleDecision.decide("Japanese", onlyOne, prefs))
     }
 
-    /** Los .srt inyectados se clasifican por el sufijo del nombre de archivo. */
+    /** Injected .srt files are classified by their file name suffix. */
     @Test fun injectedSrtIsPickedByItsFileNameSuffix() {
-        val externos = listOf(0 to "/data/x/movie.en.srt", 1 to "/data/x/movie.es.srt")
-        assertEquals(1, SubtitleDecision.decide("Japanese", externos, prefs))
+        val external = listOf(0 to "/data/x/movie.en.srt", 1 to "/data/x/movie.es.srt")
+        assertEquals(1, SubtitleDecision.decide("Japanese", external, prefs))
     }
 
     @Test fun noSubtitleTracksAtAllStaysOff() {

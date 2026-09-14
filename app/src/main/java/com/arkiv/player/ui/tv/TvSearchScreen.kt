@@ -1443,7 +1443,7 @@ private fun TvMagisSeasonContent(
     }
 }
 
-/** Navigable row for a Magis or Caracol chapter ("E3 · Título"). */
+/** Navigable row for a Magis or Caracol chapter ("E3 · Title"). */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TvMagisEpisodeRow(

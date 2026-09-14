@@ -17,77 +17,77 @@ import javax.crypto.AEADBadTagException
 class EncryptedPrefsTest {
     @Test
     fun `opens normally and touches nothing when the key still works`() {
-        var tirado = false
-        var planoUsado = false
+        var discarded = false
+        var usedPlain = false
 
         val prefs = EncryptedPrefs.openOrRepair(
-            create = { "cifradas" },
-            discardUndecryptable = { tirado = true },
-            unencrypted = { planoUsado = true; "planas" },
+            create = { "encrypted" },
+            discardUndecryptable = { discarded = true },
+            unencrypted = { usedPlain = true; "plain" },
         )
 
-        assertEquals("cifradas", prefs)
-        assertFalse("no puede borrar nada si abrió bien", tirado)
-        assertFalse("no puede caer al plano si abrió bien", planoUsado)
+        assertEquals("encrypted", prefs)
+        assertFalse("must not discard anything if it opened fine", discarded)
+        assertFalse("must not fall back to plain if it opened fine", usedPlain)
     }
 
     @Test
     fun `if the key can no longer decrypt, it discards the file and starts over`() {
-        var intentos = 0
-        var tirado = false
+        var attempts = 0
+        var discarded = false
 
         val prefs = EncryptedPrefs.openOrRepair(
             create = {
-                intentos++
-                if (intentos == 1) throw AEADBadTagException() else "cifradas nuevas"
+                attempts++
+                if (attempts == 1) throw AEADBadTagException() else "new encrypted"
             },
-            discardUndecryptable = { tirado = true },
-            unencrypted = { fail("no debía caer al plano"); "" },
+            discardUndecryptable = { discarded = true },
+            unencrypted = { fail("must not fall back to plain"); "" },
         )
 
-        assertEquals("cifradas nuevas", prefs)
-        assertEquals("reintenta exactamente una vez", 2, intentos)
-        assertTrue("tiene que tirar lo indescifrable antes de reintentar", tirado)
+        assertEquals("new encrypted", prefs)
+        assertEquals("retries exactly once", 2, attempts)
+        assertTrue("must discard what's undecryptable before retrying", discarded)
     }
 
     @Test
     fun `discards the undecryptable file BEFORE retrying, not after`() {
-        val orden = mutableListOf<String>()
+        val order = mutableListOf<String>()
 
         EncryptedPrefs.openOrRepair(
             create = {
-                orden += "crear"
-                if (orden.count { it == "crear" } == 1) throw AEADBadTagException() else "ok"
+                order += "create"
+                if (order.count { it == "create" } == 1) throw AEADBadTagException() else "ok"
             },
-            discardUndecryptable = { orden += "tirar" },
+            discardUndecryptable = { order += "discard" },
             unencrypted = { "" },
         )
 
-        assertEquals(listOf("crear", "tirar", "crear"), orden)
+        assertEquals(listOf("create", "discard", "create"), order)
     }
 
     @Test
     fun `if it still doesn't open after discarding it, it falls back to plain instead of leaving the app unable to start`() {
-        var tirado = false
+        var discarded = false
 
         val prefs = EncryptedPrefs.openOrRepair(
-            create = { throw GeneralSecurityException("Keystore roto") },
-            discardUndecryptable = { tirado = true },
-            unencrypted = { "planas" },
+            create = { throw GeneralSecurityException("broken Keystore") },
+            discardUndecryptable = { discarded = true },
+            unencrypted = { "plain" },
         )
 
-        assertEquals("planas", prefs)
-        assertTrue(tirado)
+        assertEquals("plain", prefs)
+        assertTrue(discarded)
     }
 
     @Test
     fun `an IOException also counts as an unusable file`() {
-        var intentos = 0
+        var attempts = 0
 
         val prefs = EncryptedPrefs.openOrRepair(
-            create = { intentos++; if (intentos == 1) throw IOException("xml corrupto") else "ok" },
+            create = { attempts++; if (attempts == 1) throw IOException("corrupt xml") else "ok" },
             discardUndecryptable = {},
-            unencrypted = { fail("no debía caer al plano"); "" },
+            unencrypted = { fail("must not fall back to plain"); "" },
         )
 
         assertEquals("ok", prefs)
@@ -95,16 +95,16 @@ class EncryptedPrefsTest {
 
     @Test
     fun `recognizes broken encryption even wrapped in another exception`() {
-        var intentos = 0
+        var attempts = 0
 
         val prefs = EncryptedPrefs.openOrRepair(
             create = {
-                intentos++
-                if (intentos == 1) throw RuntimeException("al inicializar", AEADBadTagException())
+                attempts++
+                if (attempts == 1) throw RuntimeException("during init", AEADBadTagException())
                 else "ok"
             },
             discardUndecryptable = {},
-            unencrypted = { fail("no debía caer al plano"); "" },
+            unencrypted = { fail("must not fall back to plain"); "" },
         )
 
         assertEquals("ok", prefs)
@@ -112,19 +112,19 @@ class EncryptedPrefsTest {
 
     @Test
     fun `an error that isn't encryption-related propagates and deletes nobody's identity`() {
-        var tirado = false
+        var discarded = false
 
         try {
             EncryptedPrefs.openOrRepair(
-                create = { throw IllegalArgumentException("nombre de prefs vacío") },
-                discardUndecryptable = { tirado = true },
-                unencrypted = { "planas" },
+                create = { throw IllegalArgumentException("empty prefs name") },
+                discardUndecryptable = { discarded = true },
+                unencrypted = { "plain" },
             )
-            fail("tenía que propagar el error ajeno al cifrado")
+            fail("had to propagate the error unrelated to encryption")
         } catch (e: IllegalArgumentException) {
-            assertEquals("nombre de prefs vacío", e.message)
+            assertEquals("empty prefs name", e.message)
         }
 
-        assertFalse("un bug nuestro NO puede costarle la sesión a la gente", tirado)
+        assertFalse("a bug of ours must NEVER cost people their session", discarded)
     }
 }

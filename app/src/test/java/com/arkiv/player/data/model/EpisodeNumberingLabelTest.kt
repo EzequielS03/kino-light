@@ -5,9 +5,9 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * Casos tomados de la base REAL del Fire Stick (431 episodios): los displayName vienen en formatos
- * muy distintos y algunos traen la sinopsis entera pegada. Por eso el rótulo se arma parseando,
- * no mostrando el texto crudo.
+ * Cases taken from the Fire Stick's REAL database (431 episodes): the displayNames come in wildly
+ * different formats and some carry the whole synopsis stuck onto them. That's why the label is
+ * built by parsing, not by showing the raw text.
  */
 class EpisodeNumberingLabelTest {
 
@@ -22,11 +22,11 @@ class EpisodeNumberingLabelTest {
     }
 
     @Test fun `con la sinopsis pegada se queda solo con el numero`() {
-        // El "E181" que sigue es la numeración absoluta; gana el primer match (E23).
-        val sucio = "T4 · E23  E181 La verdad de por qué el Hoshikage fue silenciado Tras salvarle " +
+        // The "E181" that follows is the absolute numbering; the first match wins (E23).
+        val messy = "T4 · E23  E181 La verdad de por qué el Hoshikage fue silenciado Tras salvarle " +
             "la vida, Natsuhi le explica a Naruto cómo ella y su marido pusieron fin a los horrores " +
             "del entrenamiento de la estrella. 19/04/2006"
-        assertEquals("T4 · E23", EpisodeNumbering.displayLabel(null, sucio))
+        assertEquals("T4 · E23", EpisodeNumbering.displayLabel(null, messy))
     }
 
     @Test fun `sin temporada muestra solo el capitulo`() {

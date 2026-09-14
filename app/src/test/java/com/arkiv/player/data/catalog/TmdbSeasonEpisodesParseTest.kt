@@ -7,35 +7,36 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * La diferencia entre "no se pudo consultar" y "se consultó y no había".
+ * The difference between "couldn't be queried" and "was queried and there was nothing".
  *
- * El caso que originó estos tests: `seasonEpisodes` devolvía `emptyList()` para las dos cosas, así
- * que `ArkivRepository.ensureEpisodeStills` no podía distinguirlas y escribía igual la fila de cada
- * capítulo. Para una serie sin filas previas, una sola apertura del detalle sin red la sellaba
- * entera en null: su corte temprano (`previas.containsAll(...)`) daba true desde ahí en adelante y
- * esa serie se quedaba sin imágenes ni nombres hasta reinstalar la app.
+ * The case that started these tests: `seasonEpisodes` returned `emptyList()` for both, so
+ * `ArkivRepository.ensureEpisodeStills` couldn't tell them apart and wrote every chapter's row the
+ * same way regardless. For a series with no previous rows, a single detail-open with no network
+ * sealed the whole thing to null: its early cutoff (`previas.containsAll(...)`) evaluated true from
+ * then on, and that series was left with no images or names until the app was reinstalled.
  *
- * El error opuesto —tratar "TMDB contestó y no tenía" como fallo— también es malo: repreguntaría en
- * cada apertura, para siempre. Por eso son dos valores distintos y no un booleano de "hubo datos".
+ * The opposite error —treating "TMDB answered and there was nothing" as a failure— is just as bad:
+ * it would re-ask forever, on every open. That's why these are two distinct values instead of a
+ * single "there was data" boolean.
  */
 class TmdbSeasonEpisodesParseTest {
 
     @Test fun sin_respuesta_devuelve_null_para_que_se_reintente() {
-        // `get()` devuelve null tanto en timeout como en 429 o 5xx: todos son "no se pudo preguntar".
+        // `get()` returns null on timeout as much as on 429 or 5xx: all of them are "couldn't ask".
         assertNull(parseSeasonEpisodes(json = null, seasonNumber = 1))
     }
 
     @Test fun una_respuesta_ilegible_tambien_cuenta_como_fallo() {
-        // Un cuerpo que no es JSON (error del gateway, portal cautivo de un wifi) no es una
-        // respuesta de TMDB: mejor reintentar que sellar la serie en null.
+        // A body that isn't JSON (a gateway error, a wifi's captive portal) isn't a real TMDB
+        // response: better to retry than to seal the series to null.
         assertNull(parseSeasonEpisodes(json = "<html>502 Bad Gateway</html>", seasonNumber = 1))
     }
 
     @Test fun una_temporada_sin_capitulos_devuelve_lista_vacia_no_null() {
-        // Esto SÍ es una respuesta: la fila se escribe vacía como marca de "ya preguntado". Si acá
-        // saliera null, se repreguntaría en cada apertura del detalle para siempre.
+        // This IS a response: the row gets written empty as a mark of "already asked". If null
+        // came out here, it would re-ask on every detail-open, forever.
         assertEquals(emptyList<TmdbEpisode>(), parseSeasonEpisodes("""{"episodes":[]}""", 1))
-        // Un JSON válido al que le falta la clave `episodes` es el mismo caso, no un fallo.
+        // A valid JSON that's missing the `episodes` key is the same case, not a failure.
         assertEquals(emptyList<TmdbEpisode>(), parseSeasonEpisodes("""{"id":1234}""", 1))
     }
 
@@ -60,13 +61,13 @@ class TmdbSeasonEpisodesParseTest {
     }
 
     @Test fun sin_still_la_url_queda_vacia_no_a_medio_armar() {
-        // `stillUrl` en blanco es lo que `ensureEpisodeStills` lee como "TMDB no tiene imagen"; una
-        // URL a medio armar se guardaría como si la hubiera y dejaría el hueco en la UI.
+        // A blank `stillUrl` is what `ensureEpisodeStills` reads as "TMDB has no image"; a
+        // half-built URL would get saved as if there were one and leave the gap showing in the UI.
         val eps = parseSeasonEpisodes("""{"episodes":[{"episode_number":2}]}""", 3)
         assertEquals("", eps!![0].stillUrl)
-        // Sin `season_number` en el JSON manda la temporada que se pidió, que es la que se consultó.
+        // With no `season_number` in the JSON, the season that was requested wins, since that's the one queried.
         assertEquals(3, eps[0].season)
-        // Sin nombre, un respaldo legible en vez de una cadena vacía.
+        // With no name, a readable fallback instead of an empty string.
         assertTrue(eps[0].name.isNotBlank())
     }
 }

@@ -18,13 +18,13 @@ class PlayerSourceTest {
         assertEquals(SourceKind.MAGIS, PlayerSource.kindFor("magis:2AD2591D4242471D96B68FF04FFD2784::e6"))
     }
 
-    // --- ¿es un canal en vivo? ----------------------------------------------------------------
+    // --- is it a live channel? ------------------------------------------------------------------
 
     @Test fun el_vivo_de_magis_es_un_canal_en_vivo() {
         assertTrue(PlayerSource.isLiveChannel("${PlayerSource.LIVE_PREFIX}caracoltv"))
     }
 
-    /** El caso que faltaba: un canal de Caracol salía con la barra de avance de una película. */
+    /** The case that was missing: a Caracol channel came out with a movie's progress bar. */
     @Test fun el_vivo_de_caracol_es_un_canal_en_vivo() {
         assertTrue(PlayerSource.isLiveChannel("${DituLive.PREFIX}12345"))
     }

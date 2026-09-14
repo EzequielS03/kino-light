@@ -446,7 +446,7 @@ class MagisSourceTest {
         assertNull(chapters[0].tmdbTitle)
         assertEquals(0, series!!.tmdbId)
         assertEquals(0, series.seasonNumber)
-        assertTrue("no debió pedirle nada a TMDB", tmdbRequests.isEmpty())
+        assertTrue("must not have asked TMDB for anything", tmdbRequests.isEmpty())
     }
 
     @Test

@@ -43,7 +43,7 @@ import kotlinx.coroutines.launch
  * Only offered when:
  * - this device does NOT have Magis linked yet ([MagisAccountState.None]) -doesn't depend on
  *   whether a Kino account is connected or not: `MainActivity` composes `ArkivTvRoot` with no
- *   session gate (see its "Sin gate de sesión" comment), so that condition no longer applies-;
+ *   session gate (see its "No session gate" comment), so that condition no longer applies-;
  * - the person hasn't said "Not now" before on this device ([dismissed], persisted in
  *   `SettingsStore.magisOfertaDescartada` -no longer resets itself, see its KDoc-).
  */
@@ -60,7 +60,7 @@ private enum class MagisOfferField { EMAIL, PASSWORD }
  *
  * ### Why it lives here and not in a login screen
  *
- * `MainActivity` composes `ArkivTvRoot` with no Kino session gate (see its "Sin gate de sesión"
+ * `MainActivity` composes `ArkivTvRoot` with no Kino session gate (see its "No session gate"
  * comment): `TvPantallaDeEntrada`, which used to offer this same link from the login, was removed
  * entirely in Task 9 (sub-project 2B). This offer gets composed as the first thing INSIDE
  * `ArkivTvRoot` because that's the only place both routes that leave a device without Magis

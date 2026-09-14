@@ -25,16 +25,16 @@ class AnimeMappingCacheTest {
 
     @Test
     fun `un archivo que parsea vacio no se considera fresco aunque su timestamp sea reciente`() {
-        // Un JSON corrupto/truncado parsea a mapa vacío (ver FribbAnimeListParser.parse, que
-        // atrapa la excepción y devuelve emptyMap). Aunque el timestamp del archivo sea "fresco"
-        // según TTL, el repo NO debe tratarlo como cache válido: debe forzar re-descarga en la
-        // próxima carga en vez de servir un mapa vacío indefinidamente (bug F6).
+        // A corrupt/truncated JSON parses to an empty map (see FribbAnimeListParser.parse, which
+        // catches the exception and returns emptyMap). Even if the file's timestamp is "fresh"
+        // per the TTL, the repo must NOT treat it as a valid cache: it has to force a re-download
+        // on the next load instead of serving an empty map indefinitely (bug F6).
         val parsedFromCorruptFile = FribbAnimeListParser.parse("{ esto no es un json valido ]")
         assertTrue(parsedFromCorruptFile.isEmpty())
 
-        // La condición de "fresco y válido" usada por AnimeMappingRepository requiere ambas cosas:
-        // isFresh(lastModified) Y que el parseo no sea vacío. Simulamos esa combinación aquí,
-        // ya que ensureLoaded() es privado y depende de I/O real (no se testea directo sin red).
+        // The "fresh and valid" condition used by AnimeMappingRepository requires both:
+        // isFresh(lastModified) AND the parse not being empty. We simulate that combination here,
+        // since ensureLoaded() is private and depends on real I/O (can't be tested directly with no network).
         val timestampFresh = AnimeMappingRepository.isFresh(
             fetchedAtMs = System.currentTimeMillis(),
             nowMs = System.currentTimeMillis(),

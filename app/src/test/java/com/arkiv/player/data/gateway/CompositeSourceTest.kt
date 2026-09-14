@@ -68,14 +68,14 @@ class CompositeSourceTest {
 
     /** THE RULE THAT MATTERS: a down source can't empty out the other's search. */
     @Test fun `if one source fails the other still delivers`() = runTest {
-        val broken = FakeSource("rota", "r:", error = "se cayó")
-        val healthy = FakeSource("sana", "s:", listOf("uno", "dos"))
+        val broken = FakeSource("broken", "r:", error = "went down")
+        val healthy = FakeSource("healthy", "s:", listOf("uno", "dos"))
 
         val events = CompositeSource(listOf(broken, healthy)).search(GatewaySearchQuery(q = "x")).toList()
 
         assertEquals(2, events.filterIsInstance<SearchEvent.ResultEvent>().size)
         val err = events.filterIsInstance<SearchEvent.SourceError>().single()
-        assertEquals("rota", err.source)
+        assertEquals("broken", err.source)
         assertTrue(events.last() is SearchEvent.Done)
     }
 
@@ -122,7 +122,7 @@ class CompositeSourceTest {
 
         override fun search(ctx: GatewaySearchQuery): Flow<SearchEvent> = flow {
             emit(SearchEvent.SourceStart(name))
-            throw IllegalStateException("Explosión deliberada")
+            throw IllegalStateException("Deliberate explosion")
         }
 
         override suspend fun resolve(ref: String): GatewayPlayable {
@@ -136,14 +136,14 @@ class CompositeSourceTest {
 
     /** THE RULE THAT MATTERS MOST: a source that throws can NOT empty out the others' search. */
     @Test fun `if one source throws the other still delivers`() = runTest {
-        val throwing = ThrowingSource("lanzadora", "l:")
-        val healthy = FakeSource("sana", "s:", listOf("uno", "dos"))
+        val throwing = ThrowingSource("thrower", "l:")
+        val healthy = FakeSource("healthy", "s:", listOf("uno", "dos"))
 
         val events = CompositeSource(listOf(throwing, healthy)).search(GatewaySearchQuery(q = "x")).toList()
 
         assertEquals(2, events.filterIsInstance<SearchEvent.ResultEvent>().size)
         val err = events.filterIsInstance<SearchEvent.SourceError>().single()
-        assertEquals("lanzadora", err.source)
+        assertEquals("thrower", err.source)
         assertEquals(0, err.count)
         assertTrue(events.last() is SearchEvent.Done)
     }
@@ -153,7 +153,7 @@ class CompositeSourceTest {
      *  isolates each source in its own coroutine, so a collector's exception never goes back
      *  inside any source. This test verifies that property. */
     @Test fun `a collector's exception arrives without turning into a SourceError`() = runTest {
-        val healthy = FakeSource("sana", "s:", listOf("uno"))
+        val healthy = FakeSource("healthy", "s:", listOf("uno"))
         val composite = CompositeSource(listOf(healthy))
 
         val events = mutableListOf<SearchEvent>()
@@ -161,7 +161,7 @@ class CompositeSourceTest {
             composite.search(GatewaySearchQuery(q = "x")).collect { event ->
                 events.add(event)
                 if (event is SearchEvent.ResultEvent) {
-                    throw IllegalArgumentException("Error del recolector")
+                    throw IllegalArgumentException("Collector error")
                 }
             }
         }.exceptionOrNull()

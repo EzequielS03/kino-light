@@ -45,7 +45,7 @@ fun ArkivTvRoot(
 
     // Task 10 (condition updated in Task 8, sub-project 2B): offer linking Magis right on entry,
     // BEFORE anything else. No longer depends on any Kino session: `MainActivity` composes
-    // `ArkivTvRoot` with no session gate (see its "Sin gate de sesión" comment in MainActivity.kt)
+    // `ArkivTvRoot` with no session gate (see its "No session gate" comment in MainActivity.kt)
     // and `TvPantallaDeEntrada`/`PanelDeLogin` were removed entirely in Task 9 (sub-project 2B)
     // along with the rest of Kino's login, so this screen decides using only [MagisAccountState]
     // (is Magis linked on THIS device?), never `AccountState`/`AccountManager`. Serves the TWO

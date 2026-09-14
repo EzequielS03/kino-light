@@ -19,7 +19,7 @@ class PlainSynopsisTest {
     }
 
     @Test fun `no decodifica dos veces una entidad escapada`() {
-        // "&amp;lt;" es un "&lt;" literal escrito a propósito: debe quedar "&lt;", no "<".
+        // "&amp;lt;" is a literal "&lt;" written on purpose: it must stay "&lt;", not become "<".
         assertEquals("&lt;b&gt;", plainSynopsis("&amp;lt;b&amp;gt;"))
     }
 
@@ -65,7 +65,7 @@ class HeroFallbackTest {
     }
 
     @Test fun `si el titulo cambio despues el displayName queda intacto`() {
-        // La etiqueta se formateó con otro showTitle: no hay prefijo que quitar.
+        // The label was formatted with a different showTitle: there's no prefix to strip.
         assertEquals("Loki · S01E03", heroFallback("Loki 2021", "Loki · S01E03"))
     }
 
@@ -83,7 +83,7 @@ class HeroSubtitleTest {
     }
 
     @Test fun `la descripcion que es el titulo repetido cae al respaldo`() {
-        // Caso real de archive.org: quien sube el archivo pone el título como descripción.
+        // Real archive.org case: whoever uploads the file puts the title as the description.
         assertEquals(
             "1 h 36 min",
             heroSubtitle("Night Of The Living Dead 1990", "Night of the living dead 1990", "1 h 36 min"),
@@ -100,7 +100,7 @@ class HeroSubtitleTest {
     }
 
     @Test fun `una sinopsis que empieza con el titulo no se descarta`() {
-        // Arranca con el nombre pero sigue: es una sinopsis legítima, no una duplicación.
+        // Starts with the name but keeps going: it's a legitimate synopsis, not a duplication.
         val sinopsis = "Avatar Aang, el último Maestro Aire del mundo, se entera de un antiguo poder."
         assertEquals(sinopsis, heroSubtitle("Avatar: Aang", sinopsis, "20 episodios"))
     }

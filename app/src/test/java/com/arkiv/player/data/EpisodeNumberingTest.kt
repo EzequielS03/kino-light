@@ -6,11 +6,11 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * Fija el parseo de temporada/capítulo del que depende `EpisodeNumbering.displayLabel` (el rótulo
- * del encabezado del player): `seasonOf` es uno de sus fallbacks de temporada, hoy su único
- * consumidor real (`grep -rn "seasonOf(\|episodeOf(" app/src/main/java`). `episodeOf` no lo llama
- * nadie en producción; estos tests son su única cobertura. Los textos de ejemplo son literalmente
- * los que arma `addWebSeriesEpisode` / `addSeriesEpisodeMagnet`.
+ * Pins down the season/chapter parsing that `EpisodeNumbering.displayLabel` (the player header's
+ * label) depends on: `seasonOf` is one of its season fallbacks, today its only real caller
+ * (`grep -rn "seasonOf(\|episodeOf(" app/src/main/java`). Nobody in production calls `episodeOf`;
+ * these tests are its only coverage. The example texts are literally what `addWebSeriesEpisode` /
+ * `addSeriesEpisodeMagnet` build.
  */
 class EpisodeNumberingTest {
 
@@ -28,14 +28,14 @@ class EpisodeNumberingTest {
 
     @Test
     fun `saca el capitulo del displayName de una serie web`() {
-        // Formato de addWebSeriesEpisode: "T<temporada> · E<capitulo>  <nombre>".
+        // addWebSeriesEpisode's format: "T<season> · E<chapter>  <name>".
         assertEquals(1, EpisodeNumbering.episodeOf("T1 · E1"))
         assertEquals(7, EpisodeNumbering.episodeOf("T2 · E7  El regreso"))
     }
 
     @Test
     fun `el nombre del capitulo no le gana al numero real`() {
-        // find() devuelve la PRIMERA coincidencia, así que un "E9" dentro del título no pisa al E3.
+        // find() returns the FIRST match, so an "E9" inside the title doesn't clobber E3.
         assertEquals(3, EpisodeNumbering.episodeOf("T1 · E3  Fuga del bloque E9"))
     }
 

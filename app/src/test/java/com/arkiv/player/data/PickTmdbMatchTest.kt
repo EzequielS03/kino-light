@@ -8,23 +8,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Cuál de los resultados de TMDB es el arte de un ítem de la biblioteca.
+ * Which of the TMDB results is the art for a library item.
  *
- * El bug real: `ensureArtwork` se quedaba con `results.first()` y TMDB ordena por su score de
- * relevancia, no por coincidencia exacta. Para `search/tv?query=Dragon Ball` devuelve "Dragon Ball
- * Z" de primero y el "Dragon Ball" de 1986 en la posición 7 de 9, así que los tres Dragon Ball de
- * la biblioteca quedaron con el `tmdbId` de Z: con la carátula de Z y —peor— fundidos en UNA sola
- * tarjeta, porque [LibraryGrouping] agrupa las series por `tv:<tmdbId>`.
+ * The real bug: `ensureArtwork` used to settle for `results.first()`, and TMDB sorts by its
+ * relevance score, not by exact match. For `search/tv?query=Dragon Ball` it returns "Dragon Ball
+ * Z" first and the 1986 "Dragon Ball" in position 7 of 9, so all three Dragon Ball titles in the
+ * library ended up with Z's `tmdbId`: with Z's cover art and —worse— merged into ONE single card,
+ * because [LibraryGrouping] groups series by `tv:<tmdbId>`.
  *
- * Las listas de acá son las respuestas REALES del gateway (es-MX, 2026-08-11), no inventadas: el
- * orden es justamente lo que está en discusión.
+ * The lists here are the REAL gateway responses (es-MX, 2026-08-11), not made up: the order is
+ * exactly what's under discussion.
  */
 class PickTmdbMatchTest {
 
     private fun tv(id: Int, title: String, original: String, year: String) =
         TmdbItem(id = id, type = "tv", title = title, originalTitle = original, posterUrl = "", year = year)
 
-    /** Respuesta real de `search/tv?query=Dragon Ball`, en su orden real. */
+    /** Real response for `search/tv?query=Dragon Ball`, in its real order. */
     private val dragonBall = listOf(
         tv(12971, "Dragon Ball Z", "ドラゴンボールゼット", "1989"),
         tv(236994, "Dragon Ball Daima", "ドラゴンボールDAIMA", "2024"),
@@ -42,8 +42,8 @@ class PickTmdbMatchTest {
     }
 
     /**
-     * El mismo caso al revés, para que la regla sea "gana el título exacto" y no "gana el más
-     * corto": con el de 1986 de primero, buscar "Dragon Ball Z" tiene que seguir dando Z.
+     * The same case backwards, so the rule is "the exact title wins" and not "the shortest one
+     * wins": with the 1986 one first, searching "Dragon Ball Z" still has to return Z.
      */
     @Test
     fun `la coincidencia exacta gana tambien cuando el titulo corto va primero`() {
@@ -51,8 +51,8 @@ class PickTmdbMatchTest {
     }
 
     /**
-     * Sin coincidencia exacta se conserva el comportamiento viejo (el primero), que es la mejor
-     * apuesta que queda: la biblioteca tiene "Dragon Ball Kai" y TMDB lo llama "Dragon Ball Z Kai".
+     * With no exact match, the old behavior (the first one) is kept, which is the best bet left:
+     * the library has "Dragon Ball Kai" and TMDB calls it "Dragon Ball Z Kai".
      */
     @Test
     fun `sin coincidencia exacta cae al primer resultado`() {
@@ -61,9 +61,10 @@ class PickTmdbMatchTest {
     }
 
     /**
-     * TMDB devuelve el título en es-MX, pero los releases suelen venir con el original en inglés.
-     * Sin mirar `originalTitle`, "The Simpsons" no coincidiría con "Los Simpson" y caería al
-     * primero por accidente (que acá sí es el bueno, por eso el orden está alterado a propósito).
+     * TMDB returns the title in es-MX, but releases usually come with the original in English.
+     * Without looking at `originalTitle`, "The Simpsons" wouldn't match "Los Simpson" and would
+     * fall back to the first one by accident (which here happens to be the right one, that's why
+     * the order was deliberately altered).
      */
     @Test
     fun `tambien matchea contra el titulo original`() {
@@ -74,7 +75,7 @@ class PickTmdbMatchTest {
         assertEquals(456, pickTmdbMatch("The Simpsons", simpsons)?.item?.id)
     }
 
-    /** Normalización: tildes, mayúsculas y puntuación no deben romper la coincidencia exacta. */
+    /** Normalization: accents, capitalization and punctuation must not break the exact match. */
     @Test
     fun `la coincidencia exacta ignora tildes mayusculas y puntuacion`() {
         val list = listOf(
@@ -85,9 +86,9 @@ class PickTmdbMatchTest {
     }
 
     /**
-     * Un título que al normalizarlo queda vacío (japonés, cirílico) haría match "exacto" contra
-     * cualquier original que también normalice a vacío — que es casi todo el anime. Ahí no hay
-     * coincidencia que valga: se cae al primero.
+     * A title that comes out empty after normalizing (Japanese, Cyrillic) would "exact"-match any
+     * original that also normalizes to empty — which is almost all anime. There's no match worth
+     * anything there: it falls back to the first one.
      */
     @Test
     fun `un titulo sin caracteres latinos no inventa coincidencia exacta`() {
@@ -106,11 +107,11 @@ class PickTmdbMatchTest {
 
     @Test
     fun `un match por descarte NO se marca exacto`() {
-        // Este es el que importa. El primer resultado sirve para sacarle un backdrop
-        // decente a "Dragon Ball Kai", pero NO es identidad: `ensureArtwork` guardaba
-        // ese id y `LibraryGrouping` agrupa por el, asi que un titulo que TMDB no
-        // conoce -- "Construido por los hombres" -- se llevaba el id del primer
-        // resultado que cayera y fundia dos obras sin relacion en una tarjeta.
+        // This is the one that matters. The first result is good enough to pull a
+        // decent backdrop for "Dragon Ball Kai", but it's NOT identity: `ensureArtwork`
+        // used to save that id and `LibraryGrouping` groups by it, so a title TMDB
+        // doesn't know -- "Built by men" -- would take the id of whatever first
+        // result landed and merge two unrelated works into one card.
         val kai = listOf(tv(61709, "Dragon Ball Z Kai", "ドラゴンボール改「カイ」", "2009"))
         val m = pickTmdbMatch("Dragon Ball Kai", kai)
         assertEquals(61709, m?.item?.id)
@@ -119,8 +120,8 @@ class PickTmdbMatchTest {
 
     @Test
     fun `sin query util el primer resultado tampoco es exacto`() {
-        // Query en blanco tras limpiar: se devuelve algo para el arte, pero no hay
-        // NADA con que afirmar que es la misma obra.
+        // Blank query after cleaning: something is returned for the art, but there's
+        // NOTHING to claim it's the same work.
         val m = pickTmdbMatch("", dragonBall)
         assertEquals(12971, m?.item?.id)
         assertFalse(m!!.exact)

@@ -11,8 +11,8 @@ class VideoAttachPolicyTest {
         val policy = VideoAttachPolicy(attach = { attaches++ }, detach = { detaches++ })
     }
 
-    /** Entrar a la pantalla: el layout ya se enganchó al construirse, así que el ON_START inicial
-     * (que el Lifecycle despacha al registrar el observador) NO debe tumbar y rehacer el vout. */
+    /** Entering the screen: the layout already attached itself when built, so the initial ON_START
+     * (which the Lifecycle dispatches on registering the observer) must NOT tear down and redo the vout. */
     @Test fun onStart_inicial_no_reengancha() {
         val s = Spy()
         s.policy.onStart()
@@ -20,7 +20,7 @@ class VideoAttachPolicyTest {
         assertEquals(0, s.detaches)
     }
 
-    /** El bug: irse a otra app y volver dejaba la pantalla negra porque nadie re-enganchaba. */
+    /** The bug: leaving to another app and coming back left the screen black because nobody reattached. */
     @Test fun ida_a_otra_app_y_vuelta_reengancha() {
         val s = Spy()
         s.policy.onStop()
@@ -30,7 +30,7 @@ class VideoAttachPolicyTest {
         assertEquals(1, s.attaches)
     }
 
-    /** Varias idas y vueltas seguidas: un attach por regreso, sin acumular. */
+    /** Several back-and-forths in a row: one attach per return, without piling up. */
     @Test fun varias_idas_y_vueltas() {
         val s = Spy()
         repeat(3) {
@@ -41,8 +41,8 @@ class VideoAttachPolicyTest {
         assertEquals(3, s.attaches)
     }
 
-    /** Eventos repetidos no deben duplicar: attachViews() pisa el VideoHelper anterior sin liberarlo
-     * (fuga), así que cada attach tiene que venir de un detach real. */
+    /** Repeated events must not duplicate: attachViews() overwrites the previous VideoHelper without
+     * releasing it (a leak), so every attach has to come from a real detach. */
     @Test fun eventos_repetidos_no_duplican() {
         val s = Spy()
         s.policy.onStop()

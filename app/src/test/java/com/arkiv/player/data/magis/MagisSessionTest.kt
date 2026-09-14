@@ -70,7 +70,7 @@ class MagisSessionTest {
     @Test
     fun `if the portal says the sn no longer works, it mints a new device`() = runTest {
         val fake = FakePortalClient()
-        // aaa100082: ese device quedó bindeado a una cuenta con contraseña y solo admite login.
+        // aaa100082: that device ended up bound to an account with a password and only accepts login.
         fake.queueResponse("v8/active", MagisResult.PortalError("aaa100082", "三方账号已经设置密码"))
         fake.queueResponse("v3/snToken", portalOk("snToken" to "TOK123"))
         fake.queueResponse("v8/active", portalOk("userId" to "u4", "userToken" to "t4"))

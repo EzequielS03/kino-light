@@ -6,10 +6,10 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * El criterio del seriesId canónico: la MISMA serie tiene que dar el MISMO id entre por donde entre
- * el usuario. El bug real: DAN DA DAN quedó guardada como `web:series:tt30217403` (24 capítulos,
- * desde "Películas y series") y como `web:series:anilist171018` (1 capítulo, desde anime), con el
- * mismo capítulo bajado dos veces.
+ * The rule behind the canonical seriesId: the SAME series has to give the SAME id no matter which
+ * way the user came in. The real bug: DAN DA DAN ended up saved as `web:series:tt30217403` (24
+ * chapters, from "Movies and series") and as `web:series:anilist171018` (1 chapter, from anime),
+ * with the same chapter downloaded twice.
  */
 class CanonicalSeriesIdTest {
 
@@ -33,7 +33,7 @@ class CanonicalSeriesIdTest {
         )
     }
 
-    /** Sin mapeo NO se inventa nada: queda el id de anilist, o sea lo que hacía la app hasta ahora. */
+    /** With no mapping, NOTHING gets invented: the anilist id stays, i.e. what the app did until now. */
     @Test
     fun `sin imdb ni tmdb cae a anilist`() {
         assertEquals(
@@ -42,7 +42,7 @@ class CanonicalSeriesIdTest {
         )
     }
 
-    /** El camino no-anime pasa por acá sin anilistId; que no haya nada que devolver es un no-caso. */
+    /** The non-anime path comes through here with no anilistId; having nothing to return isn't a case. */
     @Test
     fun `el camino no-anime da exactamente lo de antes`() {
         assertEquals("tt0388629", SeriesItemIds.canonicalSeriesId("tt0388629", 37854))
@@ -50,12 +50,13 @@ class CanonicalSeriesIdTest {
     }
 
     /**
-     * NO se valida la forma del imdb que llega de TMDB: el `org.json` de Android devuelve el string
-     * `"null"` (no `""`) cuando `optString` cae sobre un JSON `null`, y TMDB manda `"imdb_id": null`
-     * en las series sin IMDb — o sea que hoy hay ítems guardados como `web:series:null`. Rechazarlo
-     * los movería a `web:series:tmdb<id>`: un cambio de identidad sin mapeo de por medio, el mismo
-     * bug que esto viene a cerrar pero al revés. (Este test pasa igual con el org.json de la JVM,
-     * que sí filtra el null; el string se pasa a mano justamente por eso.)
+     * The shape of the imdb id coming from TMDB is NOT validated: Android's `org.json` returns the
+     * string `"null"` (not `""`) when `optString` lands on a JSON `null`, and TMDB sends
+     * `"imdb_id": null` for series with no IMDb — meaning there are items today saved as
+     * `web:series:null`. Rejecting it would move them to `web:series:tmdb<id>`: an identity change
+     * with no mapping in between, the same bug this is meant to close but in reverse. (This test
+     * passes the same way with the JVM's org.json, which does filter out the null; the string is
+     * passed by hand precisely because of that.)
      */
     @Test
     fun `un imdb con forma rara del camino de TMDB se respeta tal cual`() {
@@ -64,10 +65,11 @@ class CanonicalSeriesIdTest {
     }
 
     /**
-     * El dataset de anime (Fribb) trae `imdb_id` a veces como lista y a veces con varios ids pegados
-     * con coma. Ahí sí se valida: ese id es NUEVO para la app (antes el anime ni miraba el mapeo),
-     * así que descartarlo no mueve nada ya guardado, y uno mal formado sería un ítem distinto del
-     * que arma el camino de TMDB — el mismo bug de duplicación.
+     * The anime dataset (Fribb) sometimes brings `imdb_id` as a list and sometimes as several ids
+     * stuck together with a comma. That one DOES get validated: that id is NEW to the app (anime
+     * never even looked at the mapping before), so discarding it moves nothing already saved, and a
+     * malformed one would be a different item from the one the TMDB path builds — the same
+     * duplication bug.
      */
     @Test
     fun `normaliza el imdb del dataset de anime`() {
@@ -81,7 +83,7 @@ class CanonicalSeriesIdTest {
         assertNull(SeriesItemIds.normalizeImdbId("30217403"))
     }
 
-    /** Un imdb basura del DATASET se descarta y el anime cae a tmdb, que es lo que da TMDB. */
+    /** A junk imdb id from the DATASET is discarded and anime falls back to tmdb, what TMDB gives. */
     @Test
     fun `un imdb basura del dataset no se usa y se cae a tmdb`() {
         assertEquals(
@@ -95,9 +97,9 @@ class CanonicalSeriesIdTest {
     }
 
     /**
-     * Sin repositorio de mapeo (o sin anilistId) el resultado es el de siempre. `"anilistnull"` es
-     * feo pero es LITERALMENTE lo que armaba `"anilist${card.anilistId ?: animeShow?.id}"` con los
-     * dos en null: se conserva a propósito para no cambiar bajo qué id quedó lo ya guardado.
+     * With no mapping repository (or no anilistId) the result is the usual one. `"anilistnull"` is
+     * ugly but it's LITERALLY what `"anilist${card.anilistId ?: animeShow?.id}"` used to build with
+     * both at null: kept on purpose so what's already saved doesn't change which id it lives under.
      */
     @Test
     fun `sin mapeo disponible usa el fallback de anilist`() = runBlocking {
